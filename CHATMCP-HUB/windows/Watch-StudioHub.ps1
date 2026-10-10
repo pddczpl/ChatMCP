@@ -10,11 +10,20 @@ param(
     [ValidateRange(2,20)][int]$FailureThreshold = 3,
     [ValidateRange(1,30)][int]$MaxRestarts = 5,
     [string]$BaseUrl = 'http://127.0.0.1:3007',
-    [string]$LogDirectory = "$env:LOCALAPPDATA\ChatMCPStudio\diagnostics"
+    [string]$LogDirectory = "$env:LOCALAPPDATA\ChatMCPStudio\diagnostics",
+    [string]$ExpectedVersion = ''
 )
 $ErrorActionPreference = 'Stop'
 if ($BaseUrl -notmatch '^http://(?:127\.0\.0\.1|localhost):\d{4,5}$') {
     throw 'Only a localhost Hub URL is supported.'
+}
+# The release this folder belongs to: -ExpectedVersion, else "version" in ..\package.json. Another version on the port is
+# reported as 'wrong-version' and never restarted.
+if (-not $ExpectedVersion) {
+    $package = Join-Path (Split-Path -Parent $PSScriptRoot) 'package.json'
+    if (Test-Path -LiteralPath $package -PathType Leaf) {
+        try { $ExpectedVersion = [string](Get-Content -LiteralPath $package -Raw | ConvertFrom-Json).version } catch { $ExpectedVersion = '' }
+    }
 }
 $start = Join-Path (Split-Path -Parent $PSScriptRoot) 'START-CHATMCP-HUB.cmd'
 if (-not (Test-Path -LiteralPath $start -PathType Leaf)) { throw "Launcher not found: $start" }
@@ -26,7 +35,7 @@ function Probe {
     try {
         $reply = Invoke-RestMethod -Uri ($BaseUrl+'/api/health') -TimeoutSec 5 -ErrorAction Stop
         if ($reply.app -ne 'chatmcp-local-hub') { return 'foreign' }
-        if ($reply.version -ne '2.2.0') { return 'wrong-version' }
+        if ($ExpectedVersion -and $reply.version -ne $ExpectedVersion) { return 'wrong-version' }
         return 'healthy'
     } catch { return 'unreachable' }
 }

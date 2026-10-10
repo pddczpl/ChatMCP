@@ -3,16 +3,23 @@
 Run at least 2-8h during ordinary usage; use Ctrl+C to stop early.
 Tracks only health, latency, and Ethernet link state. Does not disable networking,
 restart tasks, modify the workspace, or record passwords/tokens/chat text.
+Exit code: 0 when every sample was good, 1 when at least one was not (the CSV says which and why).
 #>
 param(
   [ValidateRange(1,10080)][int]$DurationMinutes=120,
   [ValidateRange(1,120)][int]$IntervalSeconds=5,
   [string]$BaseUrl='http://127.0.0.1:3007',
   [string]$AdapterName='Ethernet',
-  [string]$ReportDirectory="$env:LOCALAPPDATA\ChatMCPStudio\diagnostics"
+  [string]$ReportDirectory="$env:LOCALAPPDATA\ChatMCPStudio\diagnostics",
+  [string]$ExpectedVersion=''
 )
 $ErrorActionPreference='Stop'
 if($BaseUrl -notmatch '^http://(?:127\.0\.0\.1|localhost):\d{4,5}$'){throw 'Only localhost Hub URLs are supported.'}
+# The release this folder belongs to: -ExpectedVersion, else "version" in ..\package.json; with neither, any version counts as OK.
+if(-not $ExpectedVersion){
+  $package=Join-Path (Split-Path -Parent $PSScriptRoot) 'package.json'
+  if(Test-Path -LiteralPath $package -PathType Leaf){try{$ExpectedVersion=[string](Get-Content -LiteralPath $package -Raw|ConvertFrom-Json).version}catch{$ExpectedVersion=''}}
+}
 New-Item -ItemType Directory -Force -Path $ReportDirectory | Out-Null
 $start=Get-Date
 $csv=Join-Path $ReportDirectory ("soak-"+$start.ToString('yyyyMMdd-HHmmss')+".csv")
@@ -24,7 +31,7 @@ while((Get-Date) -lt $end){
   try {
     $health=Invoke-RestMethod -Uri ($BaseUrl.TrimEnd('/')+'/api/health') -TimeoutSec 4 -ErrorAction Stop
     $version=[string]$health.version
-    $ok=($health.app -eq 'chatmcp-local-hub' -and $health.version -eq '2.2.0')
+    $ok=($health.app -eq 'chatmcp-local-hub' -and (-not $ExpectedVersion -or $health.version -eq $ExpectedVersion))
     if(-not $ok){$detail='wrong hub version'}
   }catch{$detail=$_.Exception.Message.Substring(0,[Math]::Min(160,$_.Exception.Message.Length))}
   $timer.Stop()
@@ -43,3 +50,5 @@ $latencies=@($valid|ForEach-Object LatencyMs|Sort-Object)
 $p95=if($latencies.Count){$latencies[[Math]::Min($latencies.Count-1,[Math]::Floor(.95*($latencies.Count-1))) ]}else{'N/A'}
 Write-Host "Samples: $($rows.Count), good: $($valid.Count), errors: $($rows.Count-$valid.Count), p95 latency: $p95 ms" -ForegroundColor Cyan
 Write-Host "CSV: $csv"
+# A run in which the Hub never answered (or answered with another version) must not look like a pass.
+if($rows.Count -eq 0 -or $valid.Count -lt $rows.Count){exit 1}
