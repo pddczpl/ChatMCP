@@ -1,15 +1,36 @@
 import { spawn } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { StudioSandbox } from './studio-sandbox.mjs';
 const fault=(message,statusCode=400)=>Object.assign(new Error(message),{statusCode});
 const stamp=()=>new Date().toISOString();
 export class StudioTerminal {
-  constructor({workspace,maxSessions=3,sandbox}={}) { this.workspace=workspace;this.sessions=new Map();this.maxSessions=maxSessions;this.onEvent=()=>{};this.listeners=new Set();this.sandbox=sandbox??new StudioSandbox({workspace}); }
+  constructor({workspace,maxSessions=3,sandbox,ptyLoader}={}) { this.workspace=workspace;this.sessions=new Map();this.maxSessions=maxSessions;this.onEvent=()=>{};this.listeners=new Set();this.sandbox=sandbox??new StudioSandbox({workspace});this.ptyLoader=ptyLoader??(()=>import('node-pty'));this.ptyState=null; }
+  // The optional node-pty package can be present as JavaScript while its native
+  // binding is missing or was built for another Node ABI. Importing it is not
+  // enough: prove it works with one short-lived spawn and remember the result.
+  async #loadPty(){
+    if(this.ptyState)return this.ptyState;
+    let state;
+    try{
+      const lib=await this.ptyLoader();
+      if(typeof lib?.spawn!=='function')throw new Error('node-pty không xuất hàm spawn.');
+      const win=process.platform==='win32';
+      const probe=lib.spawn(win?(process.env.ComSpec||'cmd.exe'):'/bin/sh',win?['/d','/c','exit','0']:['-c','exit 0'],{name:'xterm-256color',cols:20,rows:5,cwd:os.tmpdir(),env:process.env});
+      try{probe.kill();}catch{}
+      state={lib,error:null,missing:false};
+    }catch(error){
+      // ERR_MODULE_NOT_FOUND = the package is not installed at all; any other
+      // failure (for example a missing native .node file) means it is installed but unusable.
+      state={lib:null,error:String(error?.message??error).split('\n')[0].slice(0,200),missing:error?.code==='ERR_MODULE_NOT_FOUND'};
+    }
+    this.ptyState=state;return state;
+  }
   async capabilities(){
-    let nativePty=false;
-    try{const pty=await import('node-pty');nativePty=typeof pty.spawn==='function';}catch{}
-    return {platform:process.platform,interactivePipes:true,nativeConPTY:process.platform==='win32'&&nativePty,ansiTerminalEmulator:false,sandboxedTests:true,note:nativePty?'Native PTY module available':'Install optional node-pty for full TTY semantics on Windows'};
+    const pty=await this.#loadPty();
+    const note=pty.lib?'Native PTY module available':pty.missing?'Install optional node-pty for full TTY semantics on Windows':`node-pty đã cài nhưng không chạy được (${pty.error}); đang dùng pipes. Chạy lại windows\\Install-OptionalConPTY.ps1 hoặc bỏ qua.`;
+    return {platform:process.platform,interactivePipes:true,nativeConPTY:process.platform==='win32'&&Boolean(pty.lib),ansiTerminalEmulator:false,sandboxedTests:true,note};
   }
   subscribe(listener){if(typeof listener!=='function')throw fault('Callback không hợp lệ.');this.listeners.add(listener);return ()=>this.listeners.delete(listener);}
   emit(event){this.onEvent(event);for(const callback of this.listeners){try{callback(event);}catch{}}}
@@ -28,28 +49,33 @@ export class StudioTerminal {
       // installed for the Windows Node version. Do not pretend pipes are PTY.
       const shell=win?(process.env.SystemRoot?path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe'):'powershell.exe'):(process.env.SHELL||'/bin/sh');
       const args=win?['-NoLogo','-NoProfile']:['-i'];
-      let ptyLib;
-      try{ptyLib=await import('node-pty');}catch{}
-      if(ptyLib?.spawn){pty=ptyLib.spawn(shell,args,{name:'xterm-256color',cols:100,rows:28,cwd,env:{...process.env,CHATMCP_WORKSPACE:cwd}});mode='conpty';}
-      else child=spawn(shell,win?['-NoLogo','-NoProfile','-NonInteractive','-Command','-']:[],{cwd,windowsHide:true,shell:false,stdio:['pipe','pipe','pipe'],env:{...process.env,CHATMCP_WORKSPACE:cwd}});
+      const {lib:ptyLib}=await this.#loadPty();
+      if(ptyLib){
+        try{pty=ptyLib.spawn(shell,args,{name:'xterm-256color',cols:100,rows:28,cwd,env:{...process.env,CHATMCP_WORKSPACE:cwd}});mode='conpty';}
+        catch(error){pty=null;this.ptyState={lib:null,error:String(error?.message??error).split('\n')[0].slice(0,200),missing:false};}
+      }
+      if(!pty)child=spawn(shell,win?['-NoLogo','-NoProfile','-NonInteractive','-Command','-']:[],{cwd,windowsHide:true,shell:false,detached:!win,stdio:['pipe','pipe','pipe'],env:{...process.env,CHATMCP_WORKSPACE:cwd}});
     } else {
       const shell=win?(process.env.SystemRoot?path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe'):'powershell.exe'):(process.env.SHELL||'/bin/sh');
       const args=win?['-NoLogo','-NoProfile','-NonInteractive','-Command',command]:['-c',command];
-      child=spawn(shell,args,{cwd,windowsHide:true,shell:false,stdio:['ignore','pipe','pipe'],env:{...process.env,CHATMCP_WORKSPACE:cwd}});
+      child=spawn(shell,args,{cwd,windowsHide:true,shell:false,detached:!win,stdio:['ignore','pipe','pipe'],env:{...process.env,CHATMCP_WORKSPACE:cwd}});
     }
-    const session={id,command,createdAt:stamp(),status:'running',exitCode:null,logs:[],child,pty,mode,interactive,sandboxName,timer:null,bytes:0,sequence:0};this.sessions.set(id,session);
+    // On POSIX the shell is started as its own process-group leader (detached) so stop() can signal the whole tree.
+    const session={id,command,createdAt:stamp(),status:'running',exitCode:null,logs:[],child,pty,mode,interactive,sandboxName,timer:null,bytes:0,sequence:0,groupLeader:!win&&!sandboxName&&!pty&&Boolean(child)};this.sessions.set(id,session);
+    // Resolves when the process has really exited (or failed to start), so close() can wait for it.
+    let markExited;session.exited=new Promise(resolve=>{markExited=resolve;});
     const add=(type,buf)=>{
       const message=String(buf).slice(0,10000);session.bytes+=Buffer.byteLength(String(buf));
       if(session.bytes>6*1024*1024){session.status='stopping';this.stop(id);return;}
       const record={seq:++session.sequence,at:stamp(),type,message};session.logs.push(record);
       if(session.logs.length>300)session.logs.shift();this.emit({type:'terminal_output',id,stream:type,message:message.slice(0,800)});
     };
-    if(pty){pty.onData(v=>add('stdout',v));pty.onExit(({exitCode})=>{clearTimeout(session.timer);session.status=session.status==='stopping'?'stopped':exitCode===0?'completed':'failed';session.exitCode=exitCode;this.emit({type:'terminal_finished',id,code:exitCode});});}
+    if(pty){pty.onData(v=>add('stdout',v));pty.onExit(({exitCode})=>{clearTimeout(session.timer);session.status=session.status==='stopping'?'stopped':exitCode===0?'completed':'failed';session.exitCode=exitCode;this.emit({type:'terminal_finished',id,code:exitCode});markExited();});}
     else {
       child.stdin?.on('error',e=>add('system',`stdin closed: ${e.message}`));
       child.stdout?.on('data',v=>add('stdout',v.toString('utf8')));child.stderr?.on('data',v=>add('stderr',v.toString('utf8')));
-      child.on('error',e=>{session.status='failed';add('system',e.message);});
-      child.on('close',(code,signal)=>{clearTimeout(session.timer);session.status=session.status==='stopping'?'stopped':code===0?'completed':'failed';session.exitCode=code;this.emit({type:'terminal_finished',id,code,signal});});
+      child.on('error',e=>{session.status='failed';add('system',e.message);if(!child.pid)markExited();});
+      child.on('close',(code,signal)=>{clearTimeout(session.timer);session.status=session.status==='stopping'?'stopped':code===0?'completed':'failed';session.exitCode=code;this.emit({type:'terminal_finished',id,code,signal});markExited();});
     }
     if(interactive && command.trim())this.write(id,command+'\n');
     timeoutMinutes=Math.max(.01,Math.min(120,Number(timeoutMinutes)||5));
@@ -74,8 +100,33 @@ export class StudioTerminal {
     if(x.status==='running'){
       x.status='stopping';if(x.sandboxName)this.sandbox.stop(x.sandboxName);
       if(x.pty)x.pty.kill();else if(process.platform==='win32'&&x.child?.pid){const killer=spawn('taskkill.exe',['/PID',String(x.child.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});killer.once('error',()=>x.child.kill());}
-      else x.child?.kill('SIGTERM');
+      else this.#signal(x,'SIGTERM');
     }return {id,status:x.status};
   }
-  async close(){for(const x of this.sessions.values())if(x.status==='running')this.stop(x.id);await this.sandbox.close();}
+  // POSIX: signal the whole process group so grandchildren (npm, dev servers, test runners)
+  // do not survive the shell. Falls back to the direct child when no group exists.
+  #signal(x,signal){
+    if(!x.child)return;
+    try{
+      if(x.groupLeader&&x.child.pid)process.kill(-x.child.pid,signal);else x.child.kill(signal);
+    }catch{try{x.child.kill(signal);}catch{}}
+  }
+  // Stops every running session and waits (bounded) for the processes to exit so
+  // callers can safely remove the workspace afterwards (Windows keeps the cwd locked).
+  // Processes that ignore the polite stop are killed forcefully after graceMs.
+  async close({graceMs=5000}={}){
+    const waiting=[];
+    for(const x of this.sessions.values()){
+      if(x.status==='running')this.stop(x.id);
+      if(x.status==='stopping')waiting.push(x.exited);
+    }
+    if(waiting.length){
+      const within=async(ms)=>{let timer;const timeout=new Promise(resolve=>{timer=setTimeout(()=>resolve(false),ms);timer.unref?.();});const done=Promise.allSettled(waiting).then(()=>true);try{return await Promise.race([done,timeout]);}finally{clearTimeout(timer);}};
+      if(!await within(graceMs)){
+        for(const x of this.sessions.values())if(x.status==='stopping'){try{if(x.pty)x.pty.kill();else this.#signal(x,'SIGKILL');}catch{}}
+        await within(1500);
+      }
+    }
+    await this.sandbox.close();
+  }
 }

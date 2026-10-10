@@ -54,4 +54,4 @@ try{
   a=await post('/api/studio/terminal/stop',{id});check(a.status===200,'HTTP terminal stop');
   a=await get('/api/capabilities');check(a.value.postRoutes.includes('/api/studio/terminal/input')&&a.value.postRoutes.includes('/api/studio/intelligence/index'),'routes advertised');
   console.log(`PASS ${n} v2.2 HTTP integration assertions: code index, strict permissions, preview, sandbox status, interactive terminal, CSRF`);
-}finally{manager.terminal.close();manager.intelligence.close();http.closeAllConnections();await new Promise(r=>http.close(r));await fs.rm(temp,{recursive:true,force:true});}
+}finally{await manager.terminal.close();manager.intelligence.close();http.closeAllConnections();await new Promise(r=>http.close(r));await fs.rm(temp,{recursive:true,force:true});}

@@ -33,6 +33,6 @@ const portSelector=net.createServer();await new Promise(r=>portSelector.listen(0
 const server=createHubServer(manager,{port,agent:dual,browser,provider,bundleRoot:path.resolve(import.meta.dirname,'..')});
 await new Promise(r=>server.listen(port,'127.0.0.1',r));
 console.log(`FIXTURE_READY=${port}`);
-async function stop(){manager.terminal.close();server.closeAllConnections();await new Promise(r=>server.close(r));await fs.rm(tmp,{recursive:true,force:true});}
+async function stop(){await manager.terminal.close();server.closeAllConnections();await new Promise(r=>server.close(r));await fs.rm(tmp,{recursive:true,force:true});}
 process.on('SIGINT',()=>void stop().then(()=>process.exit(0)));
 process.on('SIGTERM',()=>void stop().then(()=>process.exit(0)));

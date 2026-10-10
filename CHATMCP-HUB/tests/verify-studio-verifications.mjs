@@ -8,9 +8,13 @@ import { StudioVerification } from '../lib/studio-verification.mjs';
 import { createHubServer, assertCompatibleRunningHub, UI_BUILD } from '../hub.mjs';
 
 const root=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-verify-'));
-const suggested='node -e "console.log(\\"VERIFICATION_OK\\")"';
+// Deliberately free of quote characters: Windows PowerShell 5.1 and POSIX shells parse embedded
+// double quotes differently, and this suite checks the evidence workflow, not shell quoting.
+const suggested='node -p 1';
 const workspace={requireRoot:()=>root,resolve:async()=>({root}),checks:async()=>({suggested:[{from:'mock-tests.json',command:suggested}]})};
 const terminal=new StudioTerminal({workspace});
+const extraTerminals=[];
+const newTerminal=()=>{const t=new StudioTerminal({workspace});extraTerminals.push(t);return t;};
 const verifications=new StudioVerification({workspace,terminal,directory:path.join(root,'evidence')});
 let n=0;const ok=(x,label)=>{assert.ok(x,label);n++;};
 let server;
@@ -22,16 +26,16 @@ try{
   const run=await verifications.start({command:suggested});ok(run.terminalId&&run.status==='running','persisted run created');
   for(let i=0;i<150&&terminal.state()[0]?.status==='running';i++)await new Promise(r=>setTimeout(r,35));
   const first=await verifications.list();ok(first.total===1&&first.runs[0].status==='completed'&&first.runs[0].exitCode===0,'success recorded');
-  const reloaded=new StudioVerification({workspace,terminal:new StudioTerminal({workspace}),directory:path.join(root,'evidence')});
+  const reloaded=new StudioVerification({workspace,terminal:newTerminal(),directory:path.join(root,'evidence')});
   const history=await reloaded.list();ok(history.runs[0].exitCode===0&&history.runs[0].command===suggested,'survives restart');
   await assert.rejects(reloaded.list({taskId:'oops'}));n++;
   const fakeTask='123e4567-e89b-42d3-a456-426614174000';
   const pending=await reloaded.start({command:suggested,taskId:fakeTask});
   // A subsequent Hub restart has no evidence of the live process outcome;
   // must record interrupted and must NOT repeat the command.
-  const third=new StudioVerification({workspace,terminal:new StudioTerminal({workspace}),directory:path.join(root,'evidence')});
+  const third=new StudioVerification({workspace,terminal:newTerminal(),directory:path.join(root,'evidence')});
   const unfinished=await third.list({taskId:fakeTask});ok(unfinished.runs.length===1&&unfinished.runs[0].status==='interrupted','restart leaves unconfirmed status');
-  terminal.close();
+  await terminal.close();
   // Real HTTP routes for the new test evidence API.
   const bind=net.createServer();await new Promise(r=>bind.listen(0,'127.0.0.1',r));const port=bind.address().port;await new Promise(r=>bind.close(r));
   const origin=`http://127.0.0.1:${port}`;
@@ -54,4 +58,4 @@ try{
   const old={...headers,'X-ChatMCP-UI-Build':'2.0.0-old'};
   response=await fetch(origin+'/api/tasks/delete',{method:'POST',headers:old,body:'{}'});const bad=await response.json();ok(response.status===409&&bad.code==='ui_backend_version_mismatch','old UI rejected with clear error');
   console.log(`PASS: ${n} checks for real test evidence, restart, route errors, stale daemon`);
-}finally{terminal.close();server?.closeAllConnections();if(server)await new Promise(r=>server.close(r));await fs.rm(root,{recursive:true,force:true});}
+}finally{await Promise.all([terminal,...extraTerminals].map((t)=>t.close()));server?.closeAllConnections();if(server)await new Promise(r=>server.close(r));await fs.rm(root,{recursive:true,force:true});}

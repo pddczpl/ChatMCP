@@ -29,8 +29,19 @@ try{
   await assert.rejects(()=>studio.read({file:'../../etc/passwd'}),e=>e.statusCode===403);n++;
   await assert.rejects(()=>studio.read({file:'.env'}),e=>e.statusCode===403);n++;
   const escape=path.join(root,'elsewhere.txt');await fs.writeFile(escape,'outside');
-  await fs.symlink(escape,path.join(workspace,'src','link.txt'));
-  await assert.rejects(()=>studio.read({file:'src/link.txt'}),e=>e.statusCode===403);n++;
+  // Reading through a link that leaves the workspace must be refused. File symlinks need
+  // Developer Mode/administrator rights on Windows (EPERM); a directory junction needs no
+  // privilege and exercises the same realpath containment check, so fall back to it.
+  let linkedFile=null,linkKind='file symlink';
+  try{await fs.symlink(escape,path.join(workspace,'src','link.txt'));linkedFile='src/link.txt';}
+  catch(error){
+    if(error.code!=='EPERM'&&error.code!=='EACCES')throw error;
+    const outsideDirectory=path.join(root,'outside-dir');await fs.mkdir(outsideDirectory);await fs.writeFile(path.join(outsideDirectory,'secret.txt'),'outside');
+    try{await fs.symlink(outsideDirectory,path.join(workspace,'src','linkdir'),'junction');linkedFile='src/linkdir/secret.txt';linkKind='directory junction (file symlink not permitted)';}
+    catch(junctionError){if(junctionError.code!=='EPERM'&&junctionError.code!=='EACCES')throw junctionError;}
+  }
+  if(linkedFile){await assert.rejects(()=>studio.read({file:linkedFile}),e=>e.statusCode===403);n++;console.log(`link-escape check ran with a ${linkKind}`);}
+  else console.warn('SKIPPED link-escape check: this environment does not allow creating symlinks or junctions');
   const before=await studio.checkpoint({label:'before update'});check(before.fileCount>=2 && before.partial===true);
   const now=path.join(workspace,'src','app.py');await fs.writeFile(now,'def compute_aqi(x):\n    return x+2\n');
   const status=await studio.gitStatus();check(status.entries.some(line=>line.includes('app.py')));
@@ -74,6 +85,6 @@ try{
   const terminal=new StudioTerminal({workspace:studio});const run=await terminal.start({command:'echo terminal-ok',timeoutMinutes:1});
   for(let i=0;i<100&&terminal.state().find(x=>x.id===run.id).status==='running';i++)await new Promise(r=>setTimeout(r,30));
   const t=terminal.state().find(x=>x.id===run.id);check(t.status==='completed'&&t.logs.some(line=>line.message.includes('terminal-ok')));
-  terminal.close();
+  await terminal.close();
   console.log(`PASS: ${n} Studio 2.0 checks (path containment, git, checkpoint rollback, permissions, workflow, delegates, terminal)`);
 }finally{await fs.rm(root,{recursive:true,force:true});}

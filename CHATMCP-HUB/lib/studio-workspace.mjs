@@ -144,7 +144,10 @@ export class StudioWorkspace {
   async checkpoints({limit=40}={}){
     let dirs=[];try {dirs=await fs.readdir(path.join(this.directory,'checkpoints'),{withFileTypes:true});} catch(e){if(e.code!=='ENOENT')throw e;}
     const result=[];
-    for(const dir of dirs){if(!dir.isDirectory()||!/^[0-9a-f-]{36}$/i.test(dir.name))continue;const data=await readJson(path.join(this.#checkpointDirectory(dir.name),'meta.json'));if(data?.workspace===this.root)result.push({id:data.id,at:data.at,label:data.label,fileCount:data.files.length,partial:data.partial,limitations:data.limitations??[]});}
+    // checkpoint() stores the canonical (realpath) root, so compare against the same form;
+    // a Windows 8.3 short path or a symlinked workspace path would otherwise never match.
+    const root=this.root;const canonicalRoot=root?await fs.realpath(root).catch(()=>root):null;
+    for(const dir of dirs){if(!dir.isDirectory()||!/^[0-9a-f-]{36}$/i.test(dir.name))continue;const data=await readJson(path.join(this.#checkpointDirectory(dir.name),'meta.json'));if(canonicalRoot&&data?.workspace===canonicalRoot)result.push({id:data.id,at:data.at,label:data.label,fileCount:data.files.length,partial:data.partial,limitations:data.limitations??[]});}
     return result.sort((a,b)=>b.at.localeCompare(a.at)).slice(0,Math.max(1,Math.min(limit,100)));
   }
   async checkpoint({label='Manual checkpoint',maxFiles=350,maxTotalBytes=30*1024*1024}={}){

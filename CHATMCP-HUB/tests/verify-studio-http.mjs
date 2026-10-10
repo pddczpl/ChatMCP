@@ -53,4 +53,4 @@ try{
   const script=await fetch(origin+'/react-app.js').then(r=>r.text());ok(script.includes('/api/studio/permissions/decide')&&script.includes('/api/studio/restore'));
   const css=await fetch(origin+'/react.css').then(r=>r.text());ok(css.includes('.studio-columns'));
   console.log(`PASS: ${n} Studio 2.0 HTTP checks (CSRF, path security, review, Git rollback, terminal, plan, UI assets)`);
-}finally{manager.terminal.close();server.closeAllConnections();await new Promise(r=>server.close(r));await fs.rm(temp,{recursive:true,force:true});}
+}finally{await manager.terminal.close();server.closeAllConnections();await new Promise(r=>server.close(r));await fs.rm(temp,{recursive:true,force:true});}

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { pathToFileURL } from 'node:url';
-const root = new URL('../', import.meta.url).pathname;
+import { fileURLToPath, pathToFileURL } from 'node:url';
+// fileURLToPath (not URL.pathname) so Windows drive paths stay valid: "/F:/x" -> "F:\x".
+const root = fileURLToPath(new URL('../', import.meta.url)).replace(/[\\/]+$/, '');
 const { browserInstructions, BrowserRunner }=await import(pathToFileURL(root+'/lib/browser-runner.mjs').href+'?test='+Date.now());
 const longTools=Array.from({length:400},(_,i)=>({name:`desktop-commander.fake_tool_number_${i}`,description:'test'}));
-const task={id:'7ecb4109-d92a-472c-818b-1ce8b46bfa16',nonce:'a'.repeat(48),workspace:{path:'F:\\Personal_Project\\Vin\\K4-Track4-Day23-PhanDanhDat-02627-Sensor-Fusion-Student'},prompt:'Đọc README, RULES, RUBRIC, CHECKPOINTS và SUBMISSION trước. Rà soát cấu trúc dự án, đọc các file nguồn, notebook và cấu hình liên quan để xác định phần còn thiếu. Hoàn thành bài lab theo đúng yêu cầu của repository, giữ những thay đổi tôi đã có. Chạy các kiểm tra mà dự án hướng dẫn và sửa lỗi liên quan nếu có.'};
+const task={id:'7ecb4109-d92a-472c-818b-1ce8b46bfa16',nonce:'a'.repeat(48),workspace:{path:'F:\\Projects\\sensor-fusion-lab'},prompt:'Đọc README, RULES, RUBRIC, CHECKPOINTS và SUBMISSION trước. Rà soát cấu trúc dự án, đọc các file nguồn, notebook và cấu hình liên quan để xác định phần còn thiếu. Hoàn thành bài lab theo đúng yêu cầu của repository, giữ những thay đổi tôi đã có. Chạy các kiểm tra mà dự án hướng dẫn và sửa lỗi liên quan nếu có.'};
 const intro=browserInstructions({tools:longTools},task);
 assert.ok(Buffer.byteLength(intro)<4800,'Intro must remain compact despite a huge catalog');
 assert.match(intro,/400 available MCP tools/);
