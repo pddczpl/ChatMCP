@@ -393,6 +393,20 @@ export class HubManager {
     });
   }
 
+  /**
+   * Public mode: the selected workspace is about to be deleted. The tools go dark (like after "stop"), the selection and the saved
+   * selection are forgotten, and anything that still holds the old generation is refused. The caller has checked that nothing runs.
+   */
+  async clearWorkspace() {
+    if (this.busy || this.taskId) { const error = new Error('Hub đang xử lý một thao tác hoặc nhiệm vụ; chưa bỏ chọn workspace được.'); error.statusCode = 409; throw error; }
+    this.workspace = null;
+    this.generation += 1;
+    this.tools = [];
+    this.catalog = { ...this.catalog, ready: false };
+    if (this.backend === 'local') this.status('local', 'stopped', 'Chọn hoặc tạo một workspace để bắt đầu');
+    await writeJson(this.settingsFile, { version: VERSION, workspace: null, savedAt: new Date().toISOString() });
+  }
+
   /** Local backend: validates the folder, checks the shell and Git, and publishes the catalog of in-process tools. */
   async startLocal(workspace = this.workspace) {
     if (!workspace) throw new Error('Hãy chọn thư mục workspace trước.');

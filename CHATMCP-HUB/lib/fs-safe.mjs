@@ -118,10 +118,17 @@ const RENAME_RETRYABLE = new Set(['EBUSY', 'EPERM', 'EACCES']);
  * Writes `data` next to `file` and renames it into place. When `expectedSha` is given, the current
  * content is re-hashed right before the rename so an edit made in the meantime is never overwritten.
  */
+let newFileMode = 0o644;
+/**
+ * The mode asked for when a file did not exist before (the process umask still trims it). The public server, where another account
+ * shares the workspace through a group, asks for 0o666 and runs with umask 002, so new files are group-writable (0664).
+ */
+export function setNewFileMode(mode) { newFileMode = mode & 0o777; }
+
 export async function writeFileAtomic(file, data, { mode, expectedSha = null } = {}) {
   const temp = `${file}.${randomUUID()}.tmp`;
   try {
-    await fs.writeFile(temp, data, { flag: 'wx', mode: mode === undefined ? 0o644 : mode & 0o777 });
+    await fs.writeFile(temp, data, { flag: 'wx', mode: mode === undefined ? newFileMode : mode & 0o777 });
     if (expectedSha) {
       const current = await fs.readFile(file).catch(() => null);
       if (!current || sha256(current) !== expectedSha) {

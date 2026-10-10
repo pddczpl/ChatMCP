@@ -89,6 +89,7 @@
         terminalSandbox:false,terminalInteractive:false,terminalInput:'',sandboxStatus:null,terminalCaps:null,
         indexState:null,indexQuery:'',indexMatches:[],referenceMatches:[],definitionMatches:[],lspLanguage:'python',lspFile:'',lspLine:1,lspColumn:1,lspResult:null,
         previewPort:'5173',previewPath:'/',previewInfo:null,
+        wsList:null,wsCloneUrl:'',wsCloneBranch:'',wsNewName:'',wsPushBranch:'',wsPushed:null,
         showSettings:false
       };
       this.alive=false;this.polling=false;this.taskLoadingIds=new Set();this.lastTaskKey='';this.warmTask='';
@@ -130,7 +131,7 @@
       {label:'Quyền: Tự động',detail:'Tự sửa file và chạy lệnh kiểm tra an toàn',icon:'bot',go:()=>this.setPermission('autonomous')},
       {label:'Hướng dẫn thiết lập',detail:'Chọn thư mục, kết nối AI và quyền của agent',icon:'spark',go:()=>this.set({onboardingOpen:true,onboardingStep:UI.onboarding(this.state.hub,{dismissed:false}).current})},
       {label:'Đồng bộ Hub',detail:'Tải lại trạng thái backend',icon:'refresh',go:()=>this.poll(true)}
-    ];}
+    ].filter(item=>!(this.state.hub?.publicMode&&item.label==='Local App Preview'));}
     runPalette(item){this.set({paletteOpen:false,paletteQuery:''});item.go();}
     palette(){if(!this.state.paletteOpen)return null;const query=this.state.paletteQuery.trim().toLocaleLowerCase();const actions=this.paletteActions().filter(x=>(x.label+' '+x.detail).toLocaleLowerCase().includes(query));return h('div',{className:'palette-backdrop',role:'presentation',onMouseDown:e=>{if(e.target===e.currentTarget)this.set({paletteOpen:false});}},
       h('div',{className:'palette-dialog',role:'dialog','aria-modal':'true','aria-label':'Command Palette'},
@@ -183,6 +184,7 @@
           permissionMode:hub.studio?.permissions?.mode||'review',executionPolicy:hub.studio?.permissions?.executionPolicy||'host-review', apiDraft:this.initialApi(hub),
           onboardingOpen:guide.shouldOpen,onboardingStep:guide.current});
         void this.loadPresets();
+        void this.loadWorkspaces();
         const selected=this.state.selectedId;
         if(selected && arr(hub.agent?.tasks).some(x=>x.id===selected))await this.loadTask(selected);
         else if(!selected && hub.agent?.activeTaskId)this.choose(hub.agent.activeTaskId);
@@ -198,6 +200,7 @@
         if(this.state.health?.version && hub.version!==this.state.health.version){this.set({serverMismatch:true});return;}
         const updates={hub,connected:true};
         if(!this.state.hub)updates.workspaceDraft=hub.workspace?.path||'';
+        if(hub.publicMode){const signature=`${hub.publicMode.workspaces?.count}|${hub.workspace?.path||''}`;if(signature!==this.workspaceSignature){this.workspaceSignature=signature;void this.loadWorkspaces();}}
         if(!this.state.hub){updates.permissionMode=hub.studio?.permissions?.mode||'review';updates.executionPolicy=hub.studio?.permissions?.executionPolicy||'host-review';}
         this.set(updates);
         const selected=this.state.selectedId;
@@ -307,6 +310,28 @@
       await this.act('Chuyển workspace',async()=>{const v=await this.post('/api/workspace/select',{path});this.set({hub:v,workspaceFolder:'',file:null,fileEntries:[]});});
     }
     async browseWorkspace(){await this.act('Chọn thư mục Windows',async()=>{const x=await this.post('/api/workspace/browse');if(x.path)this.set({workspaceDraft:x.path});});}
+    // ---- workspaces of the public server: the Hub clones, creates, lists, exports, pushes and deletes them; the browser never names a path ----
+    async loadWorkspaces(){
+      if(!this.state.hub?.publicMode)return;
+      try{this.set({wsList:await this.get('/api/workspace/list')});}catch(error){if(error.status!==401)this.toast(error.message,true);}
+    }
+    resetWorkspaceView(hub){this.set({hub,workspaceFolder:'',file:null,fileEntries:[]});void this.loadWorkspaces();}
+    async cloneWorkspace(){const url=this.state.wsCloneUrl.trim(),branch=this.state.wsCloneBranch.trim();if(!url)return;
+      await this.act('Clone kho (có thể mất vài phút)',async()=>{const v=await this.post('/api/workspace/clone',{url,...(branch?{branch}:{})});this.set({wsCloneUrl:'',wsCloneBranch:'',wsPushed:null});this.resetWorkspaceView(v);});
+    }
+    async createWorkspace(){const name=this.state.wsNewName.trim();if(!name)return;
+      await this.act('Tạo workspace trống',async()=>{const v=await this.post('/api/workspace/create',{name});this.set({wsNewName:'',wsPushed:null});this.resetWorkspaceView(v);});
+    }
+    async useWorkspace(path){
+      await this.act('Chuyển workspace',async()=>{const v=await this.post('/api/workspace/select',{path});this.set({wsPushed:null});this.resetWorkspaceView(v);});
+    }
+    async deleteWorkspace(name){
+      if(!confirm(`Xóa workspace "${name}" khỏi máy chủ? File chưa push hoặc chưa tải về sẽ mất, không khôi phục được.`))return;
+      await this.act('Xóa workspace',async()=>{const v=await this.post('/api/workspace/delete',{name});this.set({wsPushed:null});this.resetWorkspaceView(v);});
+    }
+    async pushWorkspace(name){const branch=this.state.wsPushBranch.trim();
+      await this.act('Đẩy lên nhánh mới trên GitHub',async()=>{const v=await this.post('/api/workspace/push',{name,...(branch?{branch}:{})});this.set({wsPushed:{name,...v.pushed},wsPushBranch:''});});
+    }
     async service(route,action){await this.act(action,async()=>this.set({hub:await this.post(route)}));}
     async pair(){await this.act('Tạo mã ghép Companion',async()=>{const p=await this.post('/api/browser/pair-code');this.set({pairCode:p.code||'',pairedExpiresAt:p.expiresAt||''});});}
     async unpair(){if(!confirm('Ngắt ghép Companion hiện tại?'))return;
@@ -342,7 +367,7 @@
       if(this.state.hub?.ai?.configured)await this.loadModels();}
     async switchTab(tab){this.set({tab});
       if(this.terminalStream&&tab!=='terminal'){this.terminalStream.close();this.terminalStream=null;}
-      if(tab==='terminal'&&!this.terminalStream&&window.EventSource&&['localhost','127.0.0.1'].includes(window.location.hostname)){
+      if(tab==='terminal'&&!this.terminalStream&&window.EventSource&&!this.state.hub?.publicMode&&['localhost','127.0.0.1'].includes(window.location.hostname)){
         this.terminalStream=new EventSource('/api/studio/terminal/events');
         this.terminalStream.onmessage=()=>{clearTimeout(this.streamRefresh);this.streamRefresh=setTimeout(()=>this.loadTerminal(true),220);};
       }
@@ -403,7 +428,7 @@
       }catch(e){if(!silent)this.toast(e.message,true);}
     }
     async verifyProject(command){
-      if(!confirm(`Chạy lệnh kiểm thử dự án bằng quyền Windows (KHÔNG sandbox):\n\n${command}\n\nKết quả và exit code sẽ được lưu vào lịch sử. Tiếp tục?`))return;
+      if(!confirm(this.state.hub?.publicMode?`Chạy lệnh kiểm thử dự án trên MÁY CHỦ (tài khoản riêng của agent, không đọc được bí mật của Hub):\n\n${command}\n\nKết quả và exit code sẽ được lưu vào lịch sử. Tiếp tục?`:`Chạy lệnh kiểm thử dự án bằng quyền Windows (KHÔNG sandbox):\n\n${command}\n\nKết quả và exit code sẽ được lưu vào lịch sử. Tiếp tục?`))return;
       await this.act('Kiểm thử dự án có lưu kết quả',async()=>{
         const run=await this.post('/api/studio/verify/run',{command,taskId:this.state.selectedId||''});
         this.set({currentTerminalId:run.terminalId});await this.loadTerminal();
@@ -411,7 +436,7 @@
     }
     async startTerminal(){const cmd=this.state.terminalCommand.trim(),sandbox=this.state.terminalSandbox,interactive=this.state.terminalInteractive;
       if(!cmd&&!interactive)return;
-      if(!sandbox&&!confirm(`CHẠY LỆNH TRÊN WINDOWS HOST (không sandbox):\n\n${cmd||'(mở shell tương tác)'}\n\nLệnh có toàn quyền tài khoản Windows. Đồng ý?`))return;
+      if(!sandbox&&!confirm(this.state.hub?.publicMode?`CHẠY LỆNH TRÊN MÁY CHỦ (tài khoản riêng của agent):\n\n${cmd}\n\nLệnh đọc/sửa được workspace đang chọn và có thể truy cập Internet; không đọc được bí mật của Hub. Đồng ý?`:`CHẠY LỆNH TRÊN WINDOWS HOST (không sandbox):\n\n${cmd||'(mở shell tương tác)'}\n\nLệnh có toàn quyền tài khoản Windows. Đồng ý?`))return;
       await this.act(sandbox?'Chạy Docker sandbox':'Chạy Terminal',async()=>{const t=await this.post('/api/studio/terminal/start',{command:cmd,timeoutMinutes:15,sandbox,interactive});this.set({currentTerminalId:t.id,terminalCommand:'',terminalInput:''});await this.loadTerminal();});
     }
     async writeTerminal(){const id=this.state.currentTerminalId,text=this.state.terminalInput;if(!id||!text)return;await this.act('Gửi terminal stdin',async()=>{await this.post('/api/studio/terminal/input',{id,text:text+'\n'});this.set({terminalInput:''});return false;});}
@@ -442,7 +467,7 @@
       }
       await this.act('Cập nhật an toàn thực thi',async()=>{const p=await this.post('/api/studio/permissions/config',{executionPolicy,...(confirmation?{confirmation}:{})});this.set({executionPolicy:p.executionPolicy});});
     }
-    async loadCapabilities(){try{const [sandbox,terminalCaps,intelligence]=await Promise.all([this.get('/api/studio/sandbox'),this.get('/api/studio/terminal/capabilities'),this.get('/api/studio/intelligence/status')]);this.set({sandboxStatus:sandbox,terminalCaps,indexState:intelligence});}
+    async loadCapabilities(){try{const [sandbox,terminalCaps,intelligence]=await Promise.all([this.state.hub?.publicMode?{ready:false}:this.get('/api/studio/sandbox'),this.get('/api/studio/terminal/capabilities'),this.get('/api/studio/intelligence/status')]);this.set({sandboxStatus:sandbox,terminalCaps,indexState:intelligence});}
       catch(e){this.toast(e.message,true);}}
     async loadIntelligence(){try{const status=await this.get('/api/studio/intelligence/status');this.set({indexState:status});}catch(e){this.toast(e.message,true);}}
     async buildIndex(){await this.act('Lập chỉ mục source code',async()=>{const report=await this.post('/api/studio/intelligence/index',{force:false});await this.loadIntelligence();this.toast(`Đã lập chỉ mục ${report.fileCount} file / ${report.symbolCount} symbol`);return false;});}
@@ -588,6 +613,7 @@
         setWorkspaceDraft:value=>this.set({workspaceDraft:value}),
         browse:()=>this.browseWorkspace(),
         applyWorkspace:()=>this.changeWorkspace(),
+        workspacePanel:s.hub?.publicMode?()=>this.workspacePanel():null,
         setPermission:mode=>this.setPermission(mode),
         useExample:text=>{this.closeOnboarding(true);this.set({prompt:text});},
         close:forever=>this.closeOnboarding(forever)};
@@ -631,7 +657,7 @@
     header(hub){const connected=this.state.connected,loading=Boolean(this.state.busy);
       return h('header',{className:'main-header'},
         h('div',{className:'brand-block'},h('div',{className:'brand-icon'},h(Icon,{name:'code',size:19})),h('div',null,h('strong',null,'ChatMCP ',h('em',null,'Studio')),h('span',null,'AGENT WORKSPACE · v'+uiVersion))),
-        h('div',{className:'header-center'},h(Icon,{name:'folder',size:16}),h('span',{title:hub?.workspace?.path||''},shortPath(hub?.workspace?.path)),h('span',{className:'header-divider'},'/'),h('span',null,'Local workspace')),
+        h('div',{className:'header-center'},h(Icon,{name:'folder',size:16}),h('span',{title:hub?.workspace?.path||''},shortPath(hub?.workspace?.path)),h('span',{className:'header-divider'},'/'),h('span',null,hub?.publicMode?'Máy chủ công khai':'Local workspace')),
         h('div',{className:'header-actions'},
           h('span',{className:`dot-status ${connected?'online':'offline'}`}),h('span',{className:'connection-text'},connected?'Hub đã kết nối':'Hub ngoại tuyến'),
           h(Button,{variant:'outline',icon:'search',title:'Command Palette · Ctrl+K',onClick:()=>this.set({paletteOpen:true,paletteQuery:''})},'Lệnh · Ctrl K'),
@@ -722,7 +748,7 @@
         h('p',{className:'composer-hint'},UI.composerHint(ready,{running,connected:s.connected,pending:this.pendingApprovals().length}))
       );
     }
-    inspector(hub,task){const tabs=[['activity','Hoạt động','history'],['files','Files','folder'],['git','Git','git'],['terminal','Terminal','terminal'],['intelligence','Code / LSP','layers'],['preview','Preview','eye'],['plan','Plan','note'],['skills','Skills','spark'],['settings','Cài đặt','settings']];
+    inspector(hub,task){const tabs=[['activity','Hoạt động','history'],['files','Files','folder'],['git','Git','git'],['terminal','Terminal','terminal'],['intelligence',hub?.publicMode?'Code':'Code / LSP','layers'],['preview','Preview','eye'],['plan','Plan','note'],['skills','Skills','spark'],['settings','Cài đặt','settings']].filter(([id])=>!(hub?.publicMode&&id==='preview'));
       return h('aside',{className:'inspector-col'},
         h('div',{className:'inspector-top'},h('div',{className:'inspector-label'},'CÔNG CỤ DỰ ÁN'),
           h('nav',{className:'inspector-tabs','aria-label':'Công cụ coding'},tabs.map(([id,title,icon])=>h('button',{key:id,className:this.state.tab===id?'active':'',title,onClick:()=>this.switchTab(id)},h(Icon,{name:icon,size:17}),h('span',null,title)))))
@@ -788,15 +814,16 @@
         )
       );
     }
-    terminalPanel(){const s=this.state, selected=s.terminals.find(x=>x.id===s.currentTerminalId)||s.terminals[s.terminals.length-1];
+    terminalPanel(){const s=this.state, selected=s.terminals.find(x=>x.id===s.currentTerminalId)||s.terminals[s.terminals.length-1], pub=s.hub?.publicMode, noShell=pub&&pub.execMode!=='broker';
       return h('div',{className:'panel-content'},
-        h(Section,{title:'Terminal · Windows local',action:h(Button,{variant:'quiet',icon:'refresh',onClick:()=>this.loadTerminal()},'Tải lại')},
-          h('p',{className:'small-note danger-text'},this.state.terminalSandbox?'Docker sandbox: mã chạy trong Linux container không mạng, chỉ đọc workspace.':'Host Windows: không sandbox; mỗi lệnh cần xác nhận.'),
-          h('div',{className:'terminal-options'},
+        h(Section,{title:pub?'Terminal · Lệnh trên máy chủ':'Terminal · Windows local',action:h(Button,{variant:'quiet',icon:'refresh',onClick:()=>this.loadTerminal()},'Tải lại')},
+          pub?h('p',{className:'small-note'},noShell?'Máy chủ này không tách được quyền cho lệnh của agent nên chạy lệnh đã bị tắt. Agent vẫn đọc/sửa file và dùng công cụ Git.':'Mỗi lệnh chạy bằng một tài khoản riêng, không đọc được bí mật của Hub, từng lệnh một; mọi tiến trình con bị dừng khi lệnh kết thúc. Lệnh cần bạn xác nhận ở chế độ Review.')
+          :h('p',{className:'small-note danger-text'},this.state.terminalSandbox?'Docker sandbox: mã chạy trong Linux container không mạng, chỉ đọc workspace.':'Host Windows: không sandbox; mỗi lệnh cần xác nhận.'),
+          pub?null:h('div',{className:'terminal-options'},
             h('label',null,h('input',{type:'checkbox',checked:s.terminalSandbox,onChange:e=>this.set({terminalSandbox:e.target.checked,terminalInteractive:e.target.checked?false:s.terminalInteractive})}),' Docker sandbox (read-only)'),
             h('label',null,h('input',{type:'checkbox',checked:s.terminalInteractive,disabled:s.terminalSandbox,onChange:e=>this.set({terminalInteractive:e.target.checked})}),' Shell tương tác'),
             h('span',{className:'muted'},s.terminalSandbox?'Không mạng · Giới hạn tài nguyên':'Quyền Windows hiện tại')),
-          h('div',{className:'terminal-input'},h('input',{placeholder:s.terminalInteractive?'Lệnh khởi tạo (có thể để trống)':'python -m pytest -q',value:s.terminalCommand,onChange:e=>this.set({terminalCommand:e.target.value}),onKeyDown:e=>e.key==='Enter'&&this.startTerminal()}),h(Button,{variant:'primary',icon:'play',disabled:this.isRunning(),onClick:()=>this.startTerminal()},'Run')),
+          h('div',{className:'terminal-input'},h('input',{placeholder:s.terminalInteractive?'Lệnh khởi tạo (có thể để trống)':'python -m pytest -q',value:s.terminalCommand,onChange:e=>this.set({terminalCommand:e.target.value}),onKeyDown:e=>e.key==='Enter'&&this.startTerminal()}),h(Button,{variant:'primary',icon:'play',disabled:this.isRunning()||noShell,onClick:()=>this.startTerminal()},'Run')),
           selected?h('div',{className:'terminal-box'},h('div',{className:'terminal-head'},h(Tag,{kind:statusKind(selected.status)},selected.status),h('span',null,'Exit ',selected.exitCode??'…'),h(Button,{variant:'quiet',icon:'stop',onClick:()=>this.stopTerminal()},'Stop')),h('pre',null,'$ ',selected.command,'\n',arr(selected.logs).map(x=>str(x.message)).join('')),
             h('div',{className:'terminal-mode'},'Mode: ',selected.mode||'host',selected.mode==='pipes'?' · ConPTY chưa được cài':''),
             selected.interactive&&selected.status==='running'?h('div',{className:'terminal-input'},h('input',{placeholder:'Nhập vào shell rồi Enter…',value:s.terminalInput,onChange:e=>this.set({terminalInput:e.target.value}),onKeyDown:e=>e.key==='Enter'&&this.writeTerminal()}),h(Button,{variant:'outline',onClick:()=>this.writeTerminal()},'Gửi stdin')):null):h(Empty,{icon:'terminal',title:'Terminal trống',body:'Chạy một lệnh để xem đầu ra tại đây.'})
@@ -847,7 +874,7 @@
           h('div',{className:'semantic-matches'},s.indexMatches.map((item,i)=>h('div',{className:'semantic-row',key:i},h('button',{onClick:()=>{this.switchTab('files');this.openFile(item.path);}},h('strong',null,item.name),h('small',null,`${item.path}:${item.line} · ${item.kind} · ${item.precision}`)),h(Button,{variant:'quiet',onClick:()=>this.findReferences(item.name)},'Refs')))),
           s.referenceMatches.length?h('div',{className:'semantic-matches'},h('h4',null,'Tham chiếu theo tên (chưa type-resolve)'),s.referenceMatches.map((r,i)=>h('button',{key:i,onClick:()=>{this.switchTab('files');this.openFile(r.path);}},`${r.path}:${r.line} · ${r.name}`))):null
         ),
-        h(Section,{title:'Language Server Protocol (LSP)'},
+        s.hub?.publicMode?null:h(Section,{title:'Language Server Protocol (LSP)'},
           h('p',{className:'small-note'},'Cần cài Pyright hoặc TypeScript Language Server trên Windows. LSP cung cấp definition, references, hover và diagnostics có ngữ nghĩa khi server sẵn sàng.'),
           h('label',{className:'form-field'},'Language Server',h('select',{value:s.lspLanguage,onChange:e=>this.set({lspLanguage:e.target.value})},h('option',{value:'python'},'Python · pyright-langserver'),h('option',{value:'typescript'},'TypeScript · typescript-language-server'))),
           h(Button,{variant:'outline',icon:'play',onClick:()=>this.lspStart()},'Khởi động LSP'),
@@ -871,7 +898,47 @@
         )
       );
     }
-    settingsPanel(hub){const s=this.state, local=UI.backendOf(hub)==='local', tools=UI.toolsState(hub), guide=UI.onboarding(hub,{dismissed:false}), mode=this.mode(), perm=this.permMode();
+    // ---- the workspace list of the public server (also the "project folder" step of the first-run wizard) ----
+    workspacePanel(){const s=this.state,hub=s.hub,pub=hub?.publicMode,list=s.wsList,items=arr(list?.items),busy=!!s.busy,running=this.isRunning(),pushed=s.wsPushed;
+      return h('div',{className:'workspace-panel'},
+        h('p',{className:'small-note'},'Workspace nằm trên máy chủ này, không phải trên máy bạn. Hãy clone một kho GitHub hoặc tạo kho trống; agent chỉ làm việc trong workspace đang chọn.'),
+        pub?.storageNote?h('p',{className:'small-note danger-text'},str(pub.storageNote)):null,
+        h('div',{className:'workspace-list'},items.length?items.map(item=>h('div',{key:item.name,className:`workspace-item${item.current?' current':''}`},
+          h('div',null,h('b',null,item.name),h('small',null,item.origin?`${item.origin.host}/${item.origin.owner}/${item.origin.repo}`:'Kho trống do Hub tạo',item.branch?` · nhánh ${item.branch}`:'')),
+          h('div',{className:'button-row'},
+            item.current?h(Tag,{kind:'success'},'Đang dùng'):h(Button,{variant:'outline',disabled:busy||running,onClick:()=>void this.useWorkspace(item.path)},'Chọn'),
+            h('a',{className:'inline-link',href:`/api/workspace/export?name=${encodeURIComponent(item.name)}`,download:`${item.name}.tar.gz`,title:'Tải working tree (.tar.gz, không gồm .git)'},'Tải về'),
+            item.origin&&list?.pushEnabled?h(Button,{variant:'outline',disabled:busy||running,title:'Đẩy các commit mới lên một nhánh chatmcp/… mới của kho gốc',onClick:()=>void this.pushWorkspace(item.name)},'Push'):null,
+            h(Button,{variant:'danger',disabled:busy||running,onClick:()=>void this.deleteWorkspace(item.name)},'Xóa')))):h(Empty,{icon:'folder',title:'Chưa có workspace',body:'Clone một kho GitHub hoặc tạo kho trống bên dưới.'})),
+        list?h('p',{className:'small-note'},`${list.count}/${list.max} workspace · máy chủ Git cho phép: ${arr(list.gitHosts).join(', ')} · ${list.pushEnabled?'Push lên GitHub: đã bật':'Push lên GitHub: tắt (chưa đặt GITHUB_TOKEN)'}`):null,
+        list?.pushEnabled?h('label',{className:'form-field'},'Tên nhánh khi push (tùy chọn)',h('input',{value:s.wsPushBranch,placeholder:'để trống = tự đặt chatmcp/ngày-giờ',spellCheck:false,onChange:e=>this.set({wsPushBranch:e.target.value})})):null,
+        pushed?h('div',{className:'onboarding-status ok',role:'status'},h(Icon,{name:'check',size:15}),h('span',null,`Đã đẩy ${pushed.commits} commit lên nhánh `,h('code',null,pushed.branch),pushed.compareUrl?h('span',null,' · ',h('a',{className:'inline-link',href:pushed.compareUrl,target:'_blank',rel:'noopener noreferrer'},'Mở trên GitHub ↗')):null),
+          ...(arr(pushed.warnings).map((warning,index)=>h('small',{key:index},' '+warning)))):null,
+        h('div',{className:'workspace-form'},
+          h('label',{className:'form-field'},'Clone từ GitHub',h('input',{id:'workspace-clone-url',value:s.wsCloneUrl,placeholder:'https://github.com/chu-so-huu/ten-kho',spellCheck:false,autoComplete:'off',onChange:e=>this.set({wsCloneUrl:e.target.value}),onKeyDown:e=>{if(e.key==='Enter'&&s.wsCloneUrl.trim()&&!busy&&!running){e.preventDefault();void this.cloneWorkspace();}}})),
+          h('label',{className:'form-field'},'Nhánh (tùy chọn)',h('input',{value:s.wsCloneBranch,placeholder:'mặc định của kho',spellCheck:false,onChange:e=>this.set({wsCloneBranch:e.target.value})})),
+          h(Button,{variant:'primary',icon:'git',disabled:busy||running||!s.wsCloneUrl.trim(),onClick:()=>void this.cloneWorkspace()},'Clone')),
+        h('div',{className:'workspace-form'},
+          h('label',{className:'form-field'},'Hoặc tạo workspace trống',h('input',{id:'workspace-new-name',value:s.wsNewName,placeholder:'ten-du-an (chữ thường, số, . _ -)',spellCheck:false,autoComplete:'off',onChange:e=>this.set({wsNewName:e.target.value}),onKeyDown:e=>{if(e.key==='Enter'&&s.wsNewName.trim()&&!busy&&!running){e.preventDefault();void this.createWorkspace();}}})),
+          h(Button,{variant:'outline',icon:'plus',disabled:busy||running||!s.wsNewName.trim(),onClick:()=>void this.createWorkspace()},'Tạo')));
+    }
+    publicSettingsPanel(hub){const s=this.state,pub=hub.publicMode,perm=this.permMode(),execLabel={broker:'Lệnh của agent chạy bằng tài khoản riêng qua môi giới lệnh',['no-shell']:'Chạy lệnh đã tắt (không tách được quyền): chỉ công cụ file và Git','same-user':'KHÔNG AN TOÀN: lệnh chạy cùng tài khoản với Hub (chỉ để thử)'}[pub.execMode]||pub.execMode;
+      return h('div',{className:'panel-content'},
+        h(Section,{title:'Workspace',action:h(Button,{variant:'quiet',icon:'refresh',onClick:()=>void this.loadWorkspaces()},'Tải lại')},this.workspacePanel()),
+        h(Section,{title:'Nhà cung cấp AI'},this.providerForm()),
+        h(Section,{title:'Quyền của agent'},
+          h('label',{className:'form-field'},'Chế độ phê duyệt',h('select',{id:'permission-mode',disabled:!!s.busy,value:perm,onChange:e=>this.setPermission(e.target.value)},UI.PERMISSION_MODES.map(entry=>h('option',{key:entry.id,value:entry.id},entry.id==='review'?entry.label+' (khuyến nghị)':entry.label)))),
+          h('p',{className:'small-note'},UI.modeInfo(perm).hint),
+          h('p',{className:'small-note'},'Máy chủ công khai luôn ở chính sách host-review: không có Full Access và không có Docker sandbox. Agent không đọc được token đăng nhập, khóa model hay GitHub token của Hub.')),
+        h(Section,{title:'Giao diện'},h('div',{className:'theme-switch'},[['light','Sáng','sun'],['dark','Tối','moon'],['system','Theo máy','settings']].map(([v,label,ico])=>h('button',{type:'button',key:v,className:s.theme===v?'active':'',onClick:()=>this.setTheme(v)},h(Icon,{name:ico,size:16}),label)))),
+        h(Section,{title:'Máy chủ'},
+          h('p',{className:'small-note'},execLabel),
+          h('p',{className:'small-note'},str(pub.storageNote)),
+          h('p',{className:'small-note'},'Đã tắt vì không phù hợp khi công khai: '+arr(pub.disabled).join(', ')+'.'),
+          h('div',{className:'button-row'},h(Button,{variant:'outline',icon:'lock',onClick:()=>void this.logout()},'Đăng xuất'))),
+        h(Section,{title:'Phiên bản hệ thống'},h('p',{className:'small-note'},`UI ${uiVersion} · Backend ${hub?.version||'…'} · Build ${this.state.health?.uiBuild||'…'}`)));
+    }
+    settingsPanel(hub){if(hub?.publicMode)return this.publicSettingsPanel(hub);const s=this.state, local=UI.backendOf(hub)==='local', tools=UI.toolsState(hub), guide=UI.onboarding(hub,{dismissed:false}), mode=this.mode(), perm=this.permMode();
       return h('div',{className:'panel-content'},
         local?h(Section,{title:'Thiết lập nhanh',action:h(Tag,{kind:guide.complete?'success':'warn'},guide.complete?'Sẵn sàng':'Chưa xong')},
           h('div',{className:'checklist'},guide.steps.filter(step=>step.id==='workspace'||step.id==='ai').map(step=>h('div',{className:'check-row',key:step.id},h(Icon,{name:step.done?'check':'warning',size:15}),h('span',null,step.title),h(Tag,{kind:step.done?'success':'warn'},step.done?'Xong':'Cần làm')))),

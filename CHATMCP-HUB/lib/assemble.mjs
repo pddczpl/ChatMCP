@@ -12,19 +12,48 @@ import { StudioVerification } from './studio-verification.mjs';
 import { CodeIntelligence } from './studio-intelligence.mjs';
 import { previewStatus } from './studio-preview.mjs';
 import { LocalTools } from './local-tools.mjs';
+import { GitRunner } from './git-runner.mjs';
+import { ShellRunner } from './shell-runner.mjs';
 
-export function assembleStudio(manager, { bundleRoot }) {
+/**
+ * @param {object} options
+ * @param {string} options.bundleRoot
+ * @param {object} [options.exec]  how programs are run for the agent (lib/exec-mode.mjs). Absent: the local Hub's own behavior, unchanged.
+ */
+export function assembleStudio(manager, { bundleRoot, exec = null }) {
   const studioDirectory = path.join(manager.hubDirectory, 'studio');
-  manager.studio = new StudioWorkspace({ manager, directory: studioDirectory });
+  const localDirectory = path.join(manager.hubDirectory, 'local');
+  const secrets = () => manager.secrets || [];
+  // Options for every GitRunner of the Hub. With a spawner, Git runs under the agent's account, in a repository that account owns.
+  const gitOptions = exec ? {
+    ...(exec.spawn ? { spawner: exec.spawn, env: exec.env } : {}),
+    ...(exec.hooksDirectory ? { hooksDirectory: exec.hooksDirectory } : {}),
+    safeDirectory: Boolean(exec.safeDirectory),
+  } : {};
+  manager.studio = new StudioWorkspace({ manager, directory: studioDirectory, gitOptions });
   manager.workflow = new StudioWorkflow({ directory: path.join(studioDirectory, 'workflows') });
   manager.intelligence = new CodeIntelligence({ workspace: manager.studio, directory: path.join(studioDirectory, 'index'), bundleRoot });
   manager.preview = previewStatus;
-  manager.terminal = new StudioTerminal({ workspace: manager.studio });
-  manager.verification = new StudioVerification({ workspace: manager.studio, terminal: manager.terminal, directory: path.join(studioDirectory, 'verifications'), secrets: () => manager.secrets || [] });
+  manager.terminal = new StudioTerminal({
+    workspace: manager.studio,
+    ...(exec ? { spawner: exec.spawn, childEnv: exec.terminalEnv, restrict: exec.terminal } : {}),
+  });
+  manager.verification = new StudioVerification({ workspace: manager.studio, terminal: manager.terminal, directory: path.join(studioDirectory, 'verifications'), secrets });
   manager.permissions = new PermissionGate({ manager, workspace: manager.studio, directory: studioDirectory });
   manager.verification.permissions = manager.permissions;
   manager.studioTools = new StudioTools({ workspace: manager.studio, gate: manager.permissions, intelligence: manager.intelligence });
-  manager.localTools = new LocalTools({ workspace: manager.studio, stateDirectory: path.join(manager.hubDirectory, 'local'), secrets: () => manager.secrets || [] });
+  const localOptions = { workspace: manager.studio, stateDirectory: localDirectory, secrets };
+  if (exec) {
+    localOptions.shell = new ShellRunner({
+      workspace: manager.studio, stateDirectory: localDirectory, secrets,
+      ...(exec.spawn ? { spawner: exec.spawn, env: exec.env, bashTransport: 'argv' } : {}),
+      maxCommandChars: exec.maxCommandChars, maxTimeoutMs: exec.maxTimeoutMs,
+    });
+    localOptions.git = new GitRunner({ workspace: manager.studio, hooksDirectory: gitOptions.hooksDirectory ?? path.join(localDirectory, 'no-hooks'), secrets, ...gitOptions });
+    localOptions.disabledTools = exec.disabledTools;
+    localOptions.sharedWorkspace = exec.sharedWorkspace;
+  }
+  manager.localTools = new LocalTools(localOptions);
   manager.permissions.attachLocalTools(manager.localTools);
   manager.permissions.onEvent = (event) => manager.log(`${event.type}: ${event.toolName ?? event.name ?? event.id ?? ''}`);
   return manager;

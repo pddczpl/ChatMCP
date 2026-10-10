@@ -6,6 +6,7 @@ import { readJson, writeJson } from './runtime.mjs';
 import { canonicalRelative } from './fs-safe.mjs';
 import { isProtectedPath } from './protected-paths.mjs';
 import { GitRunner } from './git-runner.mjs';
+import { scrubEnv } from './shell-runner.mjs';
 
 const SKIP = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__', '.next', 'dist', 'build', 'coverage', '.pytest_cache', '.mypy_cache', '.idea', '.vs', '.gradle', '.terraform']);
 const EXTENSIONS = new Set(['.py','.js','.mjs','.cjs','.jsx','.ts','.tsx','.json','.md','.yaml','.yml','.toml','.sh','.ps1','.bat','.cmd','.c','.cc','.cpp','.h','.hpp','.java','.go','.rs','.rb','.php','.sql','.r','.ipynb','.css','.html','.xml']);
@@ -29,13 +30,14 @@ async function command(exe,args,{cwd,timeout=20000,max=350000,env=process.env}={
 }
 
 export class StudioWorkspace {
-  constructor({manager, directory, now=()=>new Date().toISOString()}) {
+  // gitOptions: extra GitRunner options (the public server passes the command broker's spawner here).
+  constructor({manager, directory, now=()=>new Date().toISOString(), gitOptions={}}) {
     this.manager=manager; this.directory=path.resolve(directory); this.now=now;
     this.indexCache=new Map(); this.indexRoot=null; this.planCache=new Map();
     this.lastCheckpoint=null;
     // A repository can make plain `git status` run a program (core.fsmonitor, hooks, diff drivers).
     // Every Git call of the workspace therefore goes through the hardened runner.
-    this.gitRunner=new GitRunner({workspace:this,hooksDirectory:path.join(this.directory,'no-hooks'),secrets:()=>this.manager?.secrets??[]});
+    this.gitRunner=new GitRunner({workspace:this,hooksDirectory:path.join(this.directory,'no-hooks'),secrets:()=>this.manager?.secrets??[],...gitOptions});
   }
   get root() { return this.manager.workspace ? path.resolve(this.manager.workspace) : null; }
   requireRoot() { if(!this.root) throw fail('workspace_missing','Chọn workspace trước.',409); return this.root; }
@@ -225,7 +227,7 @@ export class StudioWorkspace {
       // git no-index is used strictly for reading a textual diff, not for restoring.
       let diff='';
       if(after!==null&&!after.includes(0)){
-        const result=await command('git',['diff','--no-index','--no-ext-diff','--no-textconv','--',path.join(this.#checkpointDirectory(checkpointId),'files',item.path),target.absolute],{max:160000,timeout:8000});
+        const result=await command('git',['diff','--no-index','--no-ext-diff','--no-textconv','--',path.join(this.#checkpointDirectory(checkpointId),'files',item.path),target.absolute],{max:160000,timeout:8000,env:scrubEnv(process.env,{secrets:this.manager?.secrets??[]})});
         diff=result.stdout; if(![0,1].includes(result.code)) diff=`Không tạo được diff: ${result.stderr}`;
       } else diff=after===null?'File đã bị xóa.':'File sau hiện là nhị phân.';
       changes.push({path:item.path,baselineSha:item.sha256,currentSha:current,status:after===null?'deleted':'modified',diff:capped(diff,Math.min(Number(limit)||300000,300000))});

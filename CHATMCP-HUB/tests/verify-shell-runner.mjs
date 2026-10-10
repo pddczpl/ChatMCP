@@ -47,6 +47,15 @@ setTimeout(() => { console.error('FAIL: the shell-runner suite exceeded its own 
   ok('scrubEnv also drops PGPASSWORD, MYSQL_PWD, plain *_KEY names and redis://:password@host, and keeps PWD, LESSKEY, KEYBOARD_LAYOUT, TOKENIZERS_PARALLELISM, AUTHOR');
 }
 {
+  // CI systems and proxies hand Git a credential as GIT_CONFIG_COUNT + GIT_CONFIG_KEY_<n>/GIT_CONFIG_VALUE_<n> (http.extraheader = "AUTHORIZATION: basic ...").
+  // The VALUE half has no secret-looking name, so the whole family goes; keeping COUNT alone makes Git fail with "missing config key".
+  const family = { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.extraheader', GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic eC1hY2Nlc3MtdG9rZW46c2VjcmV0', GIT_CONFIG_PARAMETERS: "'x.y=z'" };
+  const kept = scrubEnv({ ...family, GIT_CONFIG_GLOBAL: '/tmp/empty', GIT_AUTHOR_NAME: 'a', PATH: '/usr/bin' });
+  assert.deepEqual(Object.keys(kept).sort(), ['GIT_AUTHOR_NAME', 'GIT_CONFIG_GLOBAL', 'PATH'], `the GIT_CONFIG_* family must go as a whole: ${Object.keys(kept).join(',')}`);
+  assert.ok(!JSON.stringify(kept).includes('eC1hY2Nlc3Mt'), 'the credential carried in GIT_CONFIG_VALUE_0 must not survive');
+  ok('scrubEnv drops the GIT_CONFIG_COUNT/KEY_n/VALUE_n/PARAMETERS family (credentials travel there) but keeps GIT_CONFIG_GLOBAL');
+}
+{
   const small = new BoundedCapture(1000);
   small.push(Buffer.from('hello '));
   small.push(Buffer.from('world'));

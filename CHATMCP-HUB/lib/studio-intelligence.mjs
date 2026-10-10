@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readJson, writeJson } from './runtime.mjs';
+import { scrubEnv } from './shell-runner.mjs';
 const SKIP=new Set(['.git','node_modules','.venv','venv','__pycache__','dist','build','.next','coverage','.idea','.vs']);
 const EXT=new Set(['.py','.js','.jsx','.ts','.tsx','.mjs','.cjs']);
 const PRIVATE=/^(?:\.env(?:\..*)?|id_rsa|id_ed25519|.*\.(?:pem|p12|pfx|key)|credentials\.json|secrets?\.json)$/i;
@@ -21,9 +22,9 @@ function fallbackSymbols(filename,source){
   }
   return {path:filename,symbols,references,imports:[],parseError:null,precision:'heuristic'};
 }
-async function spawnJson(exe,args,input,{cwd,timeout=12000}={}){
+async function spawnJson(exe,args,input,{cwd,timeout=12000,env=scrubEnv(process.env)}={}){
   return await new Promise((resolve,reject)=>{
-    const child=spawn(exe,args,{cwd,windowsHide:true,shell:false,stdio:['pipe','pipe','pipe']});let output='',stderr='',done=false;
+    const child=spawn(exe,args,{cwd,windowsHide:true,shell:false,stdio:['pipe','pipe','pipe'],env});let output='',stderr='',done=false;
     const finish=(err,val)=>{if(done)return;done=true;clearTimeout(timer);err?reject(err):resolve(val);};
     const timer=setTimeout(()=>{child.kill();finish(fail('Python AST index hết thời gian.'));},timeout);
     child.on('error',e=>finish(e));child.stdout.on('data',c=>{output+=String(c);if(output.length>12*1024*1024){child.kill();finish(fail('AST index quá lớn.'));}});
@@ -70,7 +71,9 @@ export class CodeIntelligence {
     const pythonExe=process.platform==='win32'?'py':'python3';let parser='python-ast';
     for(let i=0;i<python.length;i+=40){const batch=python.slice(i,i+40);
       try{
-        const argv=process.platform==='win32'?['-3.11',path.join(this.bundleRoot,'workers','python_index.py')]:[path.join(this.bundleRoot,'workers','python_index.py')];
+        // -I (isolated): no PYTHONPATH, no user site, and neither the script's folder nor the working directory (the project, which is
+        // not trusted) is put on the import path, so a file named like a standard module cannot be picked up by the indexer.
+        const argv=process.platform==='win32'?['-3.11','-I',path.join(this.bundleRoot,'workers','python_index.py')]:['-I',path.join(this.bundleRoot,'workers','python_index.py')];
         const result=await spawnJson(pythonExe,argv,{files:batch.map(x=>({path:x.path,source:x.source}))},{cwd:root});
         for(const f of result.files){const src=batch.find(x=>x.path===f.path);entries.push({...f,size:src.size,mtimeMs:src.mtimeMs,sha256:digest(src.source),precision:'ast'});}
       }catch(error){parser='fallback';for(const src of batch)entries.push({...fallbackSymbols(src.path,src.source),size:src.size,mtimeMs:src.mtimeMs,sha256:digest(src.source)});}

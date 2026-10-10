@@ -57,7 +57,14 @@
     const mode = UI.agentMode(hub);
 
     const panels = {
-      workspace: () => h('div', { className: 'onboarding-panel-body' },
+      workspace: () => hub.publicMode && ctx.workspacePanel ? h('div', { className: 'onboarding-panel-body' },
+        h('h2', null, 'Chọn workspace'),
+        ctx.workspacePanel(),
+        workspacePath
+          ? h('div', { className: 'onboarding-status ok' }, h(Icon, { name: 'check', size: 15 }), h('span', null, 'Đang dùng: ', h('code', null, workspacePath), tools.ready ? ' · công cụ đã sẵn sàng' : tools.starting ? ' · đang khởi động công cụ…' : ''))
+          : h('div', { className: 'onboarding-status warn' }, h(Icon, { name: 'warning', size: 15 }), h('span', null, 'Chưa có workspace đang dùng.')),
+        h('p', { className: 'small-note' }, 'File nhạy cảm (.env, khóa riêng, thư mục .git) luôn được bảo vệ khỏi agent, kể cả ở chế độ Tự động.'))
+        : h('div', { className: 'onboarding-panel-body' },
         h('h2', null, 'Chọn thư mục dự án'),
         h('p', { className: 'small-note' }, 'Agent chỉ đọc và sửa file trong thư mục này. Hãy chọn thư mục gốc của repository bạn muốn làm việc.'),
         h('label', { className: 'form-field' }, 'Đường dẫn thư mục',

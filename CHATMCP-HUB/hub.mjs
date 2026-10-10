@@ -412,8 +412,8 @@ export async function main(args = process.argv.slice(2), env = process.env) {
     if (publicConfig.workspaces.githubToken) manager.registerSecret(publicConfig.workspaces.githubToken);
     const { createExecution } = await import('./lib/exec-mode.mjs');
     const { createWorkspaceService } = await import('./lib/workspaces.mjs');
-    execution = await createExecution(publicConfig, { log: (line) => manager.log(line) });
-    workspaces = await createWorkspaceService({ config: publicConfig, manager, execution, log: (line) => manager.log(line) });
+    execution = await createExecution(publicConfig, { log: (line) => manager.log(line), env, secrets: () => manager.secrets || [] });
+    workspaces = await createWorkspaceService({ config: publicConfig, manager, execution, env, log: (line) => manager.log(line) });
     manager.workspaceGuard = workspaces.guard;
   }
   await manager.load(options.project);
@@ -450,7 +450,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
     server.requestTimeout = 60_000;
     server.maxConnections = 128;
   }
-  const url = publicMode ? `https://${[...publicConfig.allowedHosts][0]}` : `http://127.0.0.1:${options.port}`;
+  const url = publicMode ? `${publicConfig.requireHttps ? 'https' : 'http'}://${[...publicConfig.allowedHosts][0]}` : `http://127.0.0.1:${options.port}`;
   try {
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(options.port, publicConfig.host, resolve); });
   } catch (error) {

@@ -33,6 +33,10 @@ export const SECRET_ENV_NAME = /(?:^|_)(?:API_?KEY|APIKEY|KEY|TOKEN|SECRET|PASSW
 // scheme://user:password@host, including the form with an empty user (redis://:password@host)
 const URL_WITH_PASSWORD = /^[a-z][a-z0-9+.-]*:\/\/[^/\s:@]*:[^/\s@]+@/i;
 const KEEP_ENV = new Set(['SSH_AUTH_SOCK', 'GPG_AGENT_INFO', 'GIT_ASKPASS', 'SSH_ASKPASS']);
+// Git reads extra configuration from GIT_CONFIG_COUNT with GIT_CONFIG_KEY_<n> / GIT_CONFIG_VALUE_<n> pairs. That is how CI systems and proxies
+// hand it a credential (http.extraheader = "AUTHORIZATION: basic ..."), and the VALUE half has no secret-looking name. The family is dropped as
+// a whole: dropping only the KEY halves would leave Git failing with "missing config key" instead.
+const GIT_CONFIG_ENV = /^GIT_CONFIG_(?:COUNT|PARAMETERS|KEY_\d+|VALUE_\d+)$/i;
 
 const fault = (code, message, statusCode = 400) => Object.assign(new Error(message), { code, statusCode });
 
@@ -43,6 +47,7 @@ export function scrubEnv(env, { keep = [], secrets = [] } = {}) {
   const output = {};
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) continue;
+    if (GIT_CONFIG_ENV.test(key)) continue;
     if (!keepSet.has(key.toUpperCase()) && SECRET_ENV_NAME.test(key)) continue;
     const text = String(value);
     if (URL_WITH_PASSWORD.test(text)) continue;
@@ -96,6 +101,8 @@ export class BoundedCapture {
 
 /** Kills a spawned shell and everything it started (never anything outside that tree). */
 export function killTree(child) {
+  // A child started through the command broker belongs to another account: the broker signals its whole process group.
+  if (typeof child?.killTree === 'function') { child.killTree(); return; }
   if (!child?.pid) return;
   if (process.platform === 'win32') {
     const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore', shell: false });
@@ -168,8 +175,11 @@ export class ShellRunner {
    * @param {string|null} options.stateDirectory      where temporary script files are written (default: OS temp)
    * @param {() => string[]} options.secrets           registered secret values to keep out of the child's environment
    * @param {'auto'|'argv'|'file'} options.bashTransport  how bash/sh receive the command (default: file on Windows)
+   * @param {Function} options.spawner          child_process.spawn-compatible; the public server passes the command broker's here
+   * @param {number} options.maxCommandChars    longest command accepted (an argv-only transport must stay under the kernel's limit)
+   * @param {number} options.maxTimeoutMs       longest run time a caller can ask for
    */
-  constructor({ workspace, stateDirectory = null, env = process.env, platform = process.platform, secrets = () => [], keepEnv = [], bashTransport = null } = {}) {
+  constructor({ workspace, stateDirectory = null, env = process.env, platform = process.platform, secrets = () => [], keepEnv = [], bashTransport = null, spawner = spawn, maxCommandChars = MAX_COMMAND_CHARS, maxTimeoutMs = MAX_TIMEOUT_MS } = {}) {
     if (!workspace || typeof workspace.resolve !== 'function') throw new TypeError('ShellRunner cần workspace có resolve().');
     this.workspace = workspace;
     this.stateDirectory = stateDirectory;
@@ -178,6 +188,9 @@ export class ShellRunner {
     this.secrets = secrets;
     this.keepEnv = keepEnv;
     this.bashTransport = bashTransport ?? (platform === 'win32' ? 'file' : 'auto');
+    this.spawner = spawner;
+    this.maxCommandChars = maxCommandChars;
+    this.maxTimeoutMs = maxTimeoutMs;
     this.active = new Set();
     this.discovered = null;
   }
@@ -245,10 +258,10 @@ export class ShellRunner {
    */
   async run({ command, cwd = '', timeoutMs = DEFAULT_TIMEOUT_MS, shell, signal, maxOutputBytes = DEFAULT_OUTPUT_BYTES } = {}) {
     if (typeof command !== 'string' || !command.trim()) throw fault('bad_command', 'Cần lệnh shell không rỗng.');
-    if (command.length > MAX_COMMAND_CHARS || command.includes('\0')) throw fault('bad_command', `Lệnh quá dài (tối đa ${MAX_COMMAND_CHARS} ký tự) hoặc chứa ký tự NUL.`);
+    if (command.length > this.maxCommandChars || command.includes('\0')) throw fault('bad_command', `Lệnh quá dài (tối đa ${this.maxCommandChars} ký tự) hoặc chứa ký tự NUL.`);
     signal?.throwIfAborted();
     const limit = Math.max(1000, Math.min(2_000_000, Number(maxOutputBytes) || DEFAULT_OUTPUT_BYTES));
-    const timeout = Math.max(MIN_TIMEOUT_MS, Math.min(MAX_TIMEOUT_MS, Number(timeoutMs) || DEFAULT_TIMEOUT_MS));
+    const timeout = Math.max(MIN_TIMEOUT_MS, Math.min(this.maxTimeoutMs, Number(timeoutMs) || Math.min(DEFAULT_TIMEOUT_MS, this.maxTimeoutMs)));
     const target = await this.workspace.resolve(cwd || '');
     const stat = await fs.stat(target.absolute).catch(() => null);
     if (!stat?.isDirectory()) throw fault('bad_cwd', `Thư mục chạy lệnh không tồn tại: ${target.relative || '.'}`, 404);
@@ -261,9 +274,11 @@ export class ShellRunner {
 
     let child;
     try {
-      child = spawn(invocation.file, invocation.args, {
+      child = this.spawner(invocation.file, invocation.args, {
         cwd: target.absolute, env: this.#environment(chosen.name), shell: false, windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'], detached: this.platform !== 'win32',
+        // Only the command broker understands a time limit of its own (a backstop in case this process stops answering).
+        ...(this.spawner === spawn ? {} : { timeout: timeout + KILL_GRACE_MS }),
       });
     } catch (error) {
       await invocation.cleanup?.();

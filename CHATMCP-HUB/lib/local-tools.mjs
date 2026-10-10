@@ -79,15 +79,21 @@ export class LocalTools {
    * @param {GitRunner} [options.git]
    * @param {string} [options.stateDirectory]  Hub state directory (script files, empty hooks folder)
    * @param {() => string[]} [options.secrets]
+   * @param {string[]} [options.disabledTools]  tools left out of the catalog (public server without a way to isolate commands: run_command)
+   * @param {boolean} [options.sharedWorkspace] the agent's commands run under another account that shares a group with the Hub, so files
+   *                                            the Hub writes keep group-write permission (the agent must be able to change them too)
    */
-  constructor({ workspace, shell, git, stateDirectory = null, secrets = () => [] } = {}) {
+  constructor({ workspace, shell, git, stateDirectory = null, secrets = () => [], disabledTools = [], sharedWorkspace = false } = {}) {
     if (!workspace || typeof workspace.resolve !== 'function') throw new TypeError('LocalTools cần workspace có resolve().');
     this.workspace = workspace;
     this.stateDirectory = stateDirectory;
     this.shell = shell ?? new ShellRunner({ workspace, stateDirectory, secrets });
     this.git = git ?? new GitRunner({ workspace, hooksDirectory: path.join(stateDirectory ?? path.join(os.tmpdir(), `chatmcp-${process.pid}`), 'no-hooks'), secrets });
     this.tools = new Map();
+    this.sharedWorkspace = sharedWorkspace;
     this.#register();
+    for (const name of disabledTools) this.tools.delete(String(name).replace(/^local\./, ''));
+    this.shellDisabled = !this.tools.has('run_command');
   }
 
   // ------------------------------------------------------------------ catalog
@@ -174,13 +180,21 @@ export class LocalTools {
 
   /** Environment facts the UI shows during onboarding (never throws). */
   async diagnose() {
-    const shells = await this.shell.info().catch(() => ({ shells: {}, defaultShell: null, platform: process.platform }));
+    const shells = this.shellDisabled
+      ? { shells: {}, defaultShell: null, platform: process.platform } // no run_command, so the agent is told about no shell
+      : await this.shell.info().catch(() => ({ shells: {}, defaultShell: null, platform: process.platform }));
     const git = await this.git.executable().catch(() => null);
     let version = null;
     if (git) {
       try { version = (await this.git.text(['--version'], { timeoutMs: 8000 })).stdout.trim(); } catch { /* reported as missing version */ }
     }
     return { platform: shells.platform, defaultShell: shells.defaultShell, shells: shells.shells, git: git ? { path: git, version } : null, node: process.version };
+  }
+
+  /** Mode for a file the Hub writes: unchanged normally; with a shared workspace the group keeps read/write. */
+  #fileMode(mode) {
+    if (!this.sharedWorkspace || process.platform === 'win32') return mode;
+    return mode === undefined ? undefined : mode | 0o060;
   }
 
   // ------------------------------------------------------------------ path helpers
@@ -564,7 +578,7 @@ export class LocalTools {
     const data = encodeText(text, encoding);
     const digest = sha256(data);
     if (existing && data.equals(existing)) return ok(`${target.relative}: nội dung không đổi, không ghi.`, { path: target.relative, unchanged: true, sha256: digest });
-    await writeFileAtomic(target.absolute, data, { mode: stat?.mode, expectedSha: existing ? sha256(existing) : null });
+    await writeFileAtomic(target.absolute, data, { mode: this.#fileMode(stat?.mode), expectedSha: existing ? sha256(existing) : null });
     return ok(`${existing ? 'Đã ghi đè' : 'Đã tạo'} ${target.relative} (${formatBytes(data.length)}, ${splitLines(text).length} dòng).\nsha256: ${digest}`,
       { path: target.relative, created: !existing, bytes: data.length, sha256: digest, previousSha: existing ? sha256(existing) : null });
   }
@@ -606,7 +620,7 @@ export class LocalTools {
     const updatedLf = replaceAll ? hay.split(needle).join(replacement) : hay.slice(0, positions[0]) + replacement + hay.slice(positions[0] + needle.length);
     const updated = crlf ? updatedLf.replace(/\n/g, '\r\n') : updatedLf;
     const data = encodeText(updated, decoded.encoding);
-    await writeFileAtomic(target.absolute, data, { mode: stat.mode, expectedSha: before });
+    await writeFileAtomic(target.absolute, data, { mode: this.#fileMode(stat.mode), expectedSha: before });
     const digest = sha256(data);
     const firstLine = lineAt(positions[0]);
     const replacedLines = replacement ? replacement.split('\n').length : 1;

@@ -6,7 +6,9 @@ import { StudioSandbox } from './studio-sandbox.mjs';
 const fault=(message,statusCode=400)=>Object.assign(new Error(message),{statusCode});
 const stamp=()=>new Date().toISOString();
 export class StudioTerminal {
-  constructor({workspace,maxSessions=3,sandbox,ptyLoader}={}) { this.workspace=workspace;this.sessions=new Map();this.maxSessions=maxSessions;this.onEvent=()=>{};this.listeners=new Set();this.sandbox=sandbox??new StudioSandbox({workspace});this.ptyLoader=ptyLoader??(()=>import('node-pty'));this.ptyState=null; }
+  // `spawner`/`childEnv`/`restrict` are for the public server: commands go through the command broker (another account), run with an
+  // allow-listed environment, in a non-interactive shell, for a bounded time. restrict = {disabled?: string, maxTimeoutMinutes, shellFile}.
+  constructor({workspace,maxSessions=3,sandbox,ptyLoader,spawner=spawn,childEnv=null,restrict=null}={}) { this.spawner=spawner;this.childEnv=childEnv;this.restrict=restrict;this.workspace=workspace;this.sessions=new Map();this.maxSessions=maxSessions;this.onEvent=()=>{};this.listeners=new Set();this.sandbox=sandbox??new StudioSandbox({workspace});this.ptyLoader=ptyLoader??(()=>import('node-pty'));this.ptyState=null; }
   // The optional node-pty package can be present as JavaScript while its native
   // binding is missing or was built for another Node ABI. Importing it is not
   // enough: prove it works with one short-lived spawn and remember the result.
@@ -36,6 +38,8 @@ export class StudioTerminal {
   emit(event){this.onEvent(event);for(const callback of this.listeners){try{callback(event);}catch{}}}
   state(){return [...this.sessions.values()].map(({id,command,createdAt,status,exitCode,logs,mode,interactive,sequence})=>({id,command,createdAt,status,exitCode,mode,interactive,sequence,logs:logs.slice(-150)})).slice(-20);}
   async start({command='',timeoutMinutes=5,interactive=false,sandbox=false,image}={}) {
+    if(this.restrict?.disabled)throw fault(this.restrict.disabled,403);
+    if(this.restrict&&(interactive||sandbox))throw fault('Terminal tương tác và Docker sandbox không có ở chế độ công khai.',403);
     if(typeof command!=='string'||command.length>8000 ||(!interactive&&!command.trim()))throw fault('Lệnh terminal trống hoặc quá 8000 ký tự.');
     if(sandbox && interactive)throw fault('Docker sandbox không hỗ trợ terminal tương tác trong bản này; hãy chạy một lệnh kiểm thử.',409);
     const running=[...this.sessions.values()].filter(s=>s.status==='running');if(running.length>=this.maxSessions)throw fault('Có quá nhiều terminal đang chạy.',409);
@@ -56,12 +60,12 @@ export class StudioTerminal {
       }
       if(!pty)child=spawn(shell,win?['-NoLogo','-NoProfile','-NonInteractive','-Command','-']:[],{cwd,windowsHide:true,shell:false,detached:!win,stdio:['pipe','pipe','pipe'],env:{...process.env,CHATMCP_WORKSPACE:cwd}});
     } else {
-      const shell=win?(process.env.SystemRoot?path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe'):'powershell.exe'):(process.env.SHELL||'/bin/sh');
+      const shell=win?(process.env.SystemRoot?path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe'):'powershell.exe'):(this.restrict?.shellFile||process.env.SHELL||'/bin/sh');
       const args=win?['-NoLogo','-NoProfile','-NonInteractive','-Command',command]:['-c',command];
-      child=spawn(shell,args,{cwd,windowsHide:true,shell:false,detached:!win,stdio:['ignore','pipe','pipe'],env:{...process.env,CHATMCP_WORKSPACE:cwd}});
+      child=this.spawner(shell,args,{cwd,windowsHide:true,shell:false,detached:!win,stdio:['ignore','pipe','pipe'],env:this.childEnv?this.childEnv(cwd):{...process.env,CHATMCP_WORKSPACE:cwd},...(this.spawner===spawn?{}:{timeout:Math.max(.01,Math.min(this.restrict?.maxTimeoutMinutes??120,Number(timeoutMinutes)||5))*60000+5000})});
     }
     // On POSIX the shell is started as its own process-group leader (detached) so stop() can signal the whole tree.
-    const session={id,command,createdAt:stamp(),status:'running',exitCode:null,logs:[],child,pty,mode,interactive,sandboxName,timer:null,bytes:0,sequence:0,groupLeader:!win&&!sandboxName&&!pty&&Boolean(child)};this.sessions.set(id,session);
+    const session={id,command,createdAt:stamp(),status:'running',exitCode:null,logs:[],child,pty,mode,interactive,sandboxName,timer:null,bytes:0,sequence:0,groupLeader:!win&&!sandboxName&&!pty&&Boolean(child)&&!child.brokered};this.sessions.set(id,session);
     // Resolves when the process has really exited (or failed to start), so close() can wait for it.
     let markExited;session.exited=new Promise(resolve=>{markExited=resolve;});
     const add=(type,buf)=>{
@@ -78,7 +82,7 @@ export class StudioTerminal {
       child.on('close',(code,signal)=>{clearTimeout(session.timer);session.status=session.status==='stopping'?'stopped':code===0?'completed':'failed';session.exitCode=code;this.emit({type:'terminal_finished',id,code,signal});markExited();});
     }
     if(interactive && command.trim())this.write(id,command+'\n');
-    timeoutMinutes=Math.max(.01,Math.min(120,Number(timeoutMinutes)||5));
+    timeoutMinutes=Math.max(.01,Math.min(this.restrict?.maxTimeoutMinutes??120,Number(timeoutMinutes)||5));
     session.timer=setTimeout(()=>this.stop(id),timeoutMinutes*60000);session.timer.unref?.();
     return {id,command,status:'running',mode,interactive};
   }

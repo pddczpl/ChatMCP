@@ -26,13 +26,20 @@ export function isSafeRevision(value) {
 }
 
 export class GitRunner {
-  constructor({ workspace, hooksDirectory, env = process.env, secrets = () => [] } = {}) {
+  /**
+   * @param {Function} options.spawner        child_process.spawn-compatible; the public server passes the command broker's here, so Git
+   *                                          runs under the agent's account in a repository the agent can change
+   * @param {boolean}  options.safeDirectory  repository files belong to another account than the one running Git ("dubious ownership")
+   */
+  constructor({ workspace, hooksDirectory, env = process.env, secrets = () => [], spawner = spawn, safeDirectory = false } = {}) {
     if (!workspace || typeof workspace.resolve !== 'function') throw new TypeError('GitRunner cần workspace có resolve().');
     if (!hooksDirectory) throw new TypeError('GitRunner cần hooksDirectory (thư mục rỗng dùng để tắt hook).');
     this.workspace = workspace;
     this.hooksDirectory = hooksDirectory;
     this.env = env;
     this.secrets = secrets;
+    this.spawner = spawner;
+    this.safeDirectory = safeDirectory;
     this.exe = null;
   }
 
@@ -55,6 +62,7 @@ export class GitRunner {
     const refused = refusalsForRunner(await inspectGitSafety(root, { hooks: false }));
     if (refused.length) throw fault('git_config_untrusted', `Cấu hình Git của kho này (.git/config) có mục chạy chương trình: ${refused.slice(0, 5).join(', ')}. Hub không chạy Git khi chưa kiểm tra để tránh thực thi mã của kho. Xem và xóa các mục đó nếu bạn tin tưởng kho, hoặc tự dùng terminal.`, 409);
     const prefix = ['-C', root, '-c', 'core.fsmonitor=false', '-c', 'core.pager=cat', '-c', 'core.quotepath=false', '-c', 'core.editor=true', '-c', 'diff.external=', '-c', 'color.ui=false'];
+    if (this.safeDirectory) prefix.push('-c', `safe.directory=${root.replaceAll('\\', '/')}`);
     if (!hooks) {
       await fs.mkdir(this.hooksDirectory, { recursive: true });
       prefix.push('-c', `core.hooksPath=${this.hooksDirectory.replaceAll('\\', '/')}`);
@@ -64,8 +72,9 @@ export class GitRunner {
     Object.assign(env, { GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', GIT_PAGER: 'cat', GIT_EDITOR: 'true', LC_MESSAGES: 'C', LANGUAGE: 'en' });
     if (!writes) env.GIT_OPTIONAL_LOCKS = '0';
 
-    const child = spawn(exe, [...prefix, ...args], {
+    const child = this.spawner(exe, [...prefix, ...args], {
       cwd: root, env, shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32',
+      ...(this.spawner === spawn ? {} : { timeout: timeoutMs + 5000 }),
     });
     const out = [];
     const err = [];
