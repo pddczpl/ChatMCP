@@ -7,14 +7,19 @@
     document.getElementById('root').textContent = 'Không nạp được React. Kiểm tra bộ cài và làm mới trang bằng Ctrl+F5.';
     return;
   }
+  const UI = window.ChatMcpUi;
+  const Onboarding = window.ChatMcpOnboarding;
+  if (!UI || !Onboarding) {
+    document.getElementById('root').textContent = 'Không nạp được ui-logic.js hoặc onboarding.js. Hãy cập nhật đầy đủ thư mục web/ rồi làm mới trang bằng Ctrl+F5.';
+    return;
+  }
   const R = window.React;
   const h = R.createElement;
-  const BUILD = '2.2.8-react-offline';
-  const uiVersion = '2.2.8';
+  const BUILD = '2.3.0-react-agent';
+  const uiVersion = '2.3.0';
   const themeStore = {get(){try{return localStorage.getItem('chatmcp:theme')||'dark';}catch{return 'dark';}},set(v){try{localStorage.setItem('chatmcp:theme',v);}catch{}}};
   const applyTheme=v=>{const resolved=v==='system'?(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):v;document.documentElement.setAttribute('data-theme',resolved);};
   applyTheme(themeStore.get());
-  const taskStates = { preparing: 'Chuẩn bị', queued: 'Đang chờ', running: 'Đang chạy', completed: 'Hoàn thành', cancelled: 'Đã dừng', failed: 'Cần tiếp tục', paused: 'Tạm dừng', interrupted: 'Gián đoạn', limit: 'Giới hạn' };
   const serviceNames = { docker: 'Docker', cloud: 'Cloud Harness', proxy: 'MCP Proxy', desktop: 'Desktop Commander' };
   const statusKind = status => ['completed','ready'].includes(status) ? 'success' : ['running','preparing','starting','queued'].includes(status) ? 'working' : ['failed','error','interrupted'].includes(status) ? 'error' : 'neutral';
   const arr = x => Array.isArray(x) ? x : [];
@@ -22,6 +27,7 @@
   const formatTime = s => { const v = new Date(s); return Number.isNaN(v.getTime()) ? '' : v.toLocaleTimeString('vi-VN', {hour:'2-digit',minute:'2-digit'}); };
   const shortPath = s => str(s).split(/[\\/]/).filter(Boolean).pop() || 'Chưa chọn workspace';
   const params = (route, pairs) => route + '?' + new URLSearchParams(pairs).toString();
+  const onboardingStore = {get(){try{return localStorage.getItem('chatmcp:onboarding-dismissed')==='1';}catch{return false;}},set(v){try{if(v)localStorage.setItem('chatmcp:onboarding-dismissed','1');else localStorage.removeItem('chatmcp:onboarding-dismissed');}catch{}}};
   const sessionStore = {get(){try{return localStorage.getItem('chatmcp:selected-conversation')||'';}catch{return '';}},set(id){try{if(id)localStorage.setItem('chatmcp:selected-conversation',id);else localStorage.removeItem('chatmcp:selected-conversation');}catch{}}};
   const Icon = ({name,size=17}) => {
     const paths = {
@@ -53,15 +59,17 @@
       moon:'M20.7 14.6A9 9 0 0 1 9.4 3.3 9 9 0 1 0 20.7 14.6z',
       panel:'M3 4h18v16H3z M9 4v16',
       layers:'M12 3l9 5-9 5-9-5z M3 12l9 5 9-5 M3 16l9 5 9-5',
-      eye:'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z'
+      eye:'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',
+      lock:'M6 11h12v9H6z M8 11V8a4 4 0 0 1 8 0v3',
+      key:'M14 10a4 4 0 1 0-3.9 4H12l1 1h2v2h2v2h3v-3l-6-6z M8 10h.01'
     };
     return h('svg',{className:'icon',width:size,height:size,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.7,strokeLinecap:'round',strokeLinejoin:'round','aria-hidden':'true'},h('path',{d:paths[name]||paths.note}));
   };
   function Button({children,onClick,variant='',disabled=false,title='',icon=null,className=''}) {
     return h('button',{type:'button',title,onClick,disabled,className:`btn ${variant?'btn-'+variant:''} ${className}`.trim()},icon&&h(Icon,{name:icon,size:15}),children);
   }
-  function Tag({children,kind='neutral'}) {return h('span',{className:'tag tag-'+kind},children);}
-  function Empty({icon='note',title,body}) {return h('div',{className:'empty'},h('div',{className:'empty-symbol'},h(Icon,{name,size:22})),h('strong',null,title),h('p',null,body));}
+  function Tag({children,kind='neutral',title}) {return h('span',{className:'tag tag-'+kind,title},children);}
+  function Empty({icon='note',title,body}) {return h('div',{className:'empty'},h('div',{className:'empty-symbol'},h(Icon,{name:icon,size:22})),h('strong',null,title),h('p',null,body));}
   function Section({title,action,children}) {return h('section',{className:'section'},h('div',{className:'section-head'},h('h3',null,title),action),children);}
   class StudioApp extends R.Component {
     constructor(props) {
@@ -69,7 +77,9 @@
       this.state = {
         hub:null, health:null, serverMismatch:false, connected:false, toast:null, busy:'', paletteOpen:false,paletteQuery:'',
         selectedId:sessionStore.get(), selectedTask:null,
-        sessionQuery:'',prompt:'',tab:'activity',workspaceDraft:'',apiDraft:{protocol:'gemini',model:'',apiBaseUrl:'',customPath:'',authMode:'auto',remember:false,apiKey:''},
+        sessionQuery:'',prompt:'',tab:'activity',workspaceDraft:'',apiDraft:UI.draftFromState(null),
+        presets:[],envKeys:[],models:[],modelSource:'',modelWarning:'',modelsLoading:false,testResult:null,
+        onboardingOpen:false,onboardingStep:'workspace',onboardingDismissed:onboardingStore.get(),livePlan:null,workflow:null,now:Date.now(),
         workspaceFolder:'',fileEntries:[],file:null,editing:false,fileDraft:'',codeQuery:'',codeSearchMode:'text',codeMatches:[],
         gitStatus:null,gitDiff:null,checkpoints:[],checkpointId:'',review:null,
         terminalCommand:'',terminals:[],currentTerminalId:'',suggestedChecks:[],verificationRuns:[],
@@ -86,13 +96,22 @@
       this.fileLoadSerial=0;
       this.reactAppVersion=uiVersion;
     }
-    componentDidMount(){this.alive=true;this.keyboard=e=>this.onKeyDown(e);window.addEventListener('keydown',this.keyboard);this.bootstrap();this.pollTimer=setInterval(()=>this.poll(),2400);}
-    componentWillUnmount(){this.alive=false;window.removeEventListener('keydown',this.keyboard);clearInterval(this.pollTimer);clearTimeout(this.noticeTimer);clearTimeout(this.streamRefresh);this.terminalStream?.close();}
+    componentDidMount(){this.alive=true;this.keyboard=e=>this.onKeyDown(e);window.addEventListener('keydown',this.keyboard);this.bootstrap();this.schedulePoll();
+      // Only the countdown on a pending approval needs a clock; nothing re-renders otherwise.
+      this.tick=setInterval(()=>{if(this.pendingApprovals().length)this.set({now:Date.now()});},1000);}
+    componentWillUnmount(){this.alive=false;window.removeEventListener('keydown',this.keyboard);clearTimeout(this.pollTimer);clearInterval(this.tick);clearTimeout(this.noticeTimer);clearTimeout(this.streamRefresh);this.terminalStream?.close();}
+    componentDidUpdate(){if(!this.state.hub)return;const title=UI.documentTitle(this.state.hub);if(document.title!==title)document.title=title;}
+    // Poll faster while the agent works or a request waits for the person; the Hub is on this machine, so it is cheap.
+    schedulePoll(){clearTimeout(this.pollTimer);if(!this.alive)return;const fast=this.isRunning()||this.pendingApprovals().length>0;
+      this.pollTimer=setTimeout(async()=>{try{await this.poll();}finally{this.schedulePoll();}},fast?1000:2400);}
+    pendingApprovals(){return arr(this.state.hub?.studio?.permissions?.pending);}
+    permMode(){return UI.normalizeMode(this.state.hub?.studio?.permissions?.mode);}
     set(patch){if(this.alive)this.setState(patch);}
     setTheme(theme){if(!['light','dark','system'].includes(theme))return;themeStore.set(theme);applyTheme(theme);this.set({theme});}
     onKeyDown(e){
       if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();this.set({paletteOpen:true,paletteQuery:''});return;}
-      if(e.key==='Escape'&&this.state.paletteOpen){e.preventDefault();this.set({paletteOpen:false,paletteQuery:''});}
+      if(e.key==='Escape'&&this.state.paletteOpen){e.preventDefault();this.set({paletteOpen:false,paletteQuery:''});return;}
+      if(e.key==='Escape'&&this.state.onboardingOpen){e.preventDefault();this.closeOnboarding(true);}
     }
     paletteActions(){return [
       {label:'Hội thoại mới',detail:'Bắt đầu một phiên độc lập',icon:'plus',go:()=>this.choose('')},
@@ -105,7 +124,11 @@
       {label:'Local App Preview',detail:'Xem localhost an toàn trong sandboxed iframe',icon:'eye',go:()=>this.switchTab('preview')},
       {label:'Chuyển theme sáng / tối',detail:'Giao diện sáng hoặc tối',icon:'sun',go:()=>this.setTheme(this.state.theme==='light'?'dark':'light')},
       {label:'Skills và Subagents',detail:'Hướng dẫn và tác nhân nghiên cứu',icon:'spark',go:()=>this.switchTab('skills')},
-      {label:'Cài đặt Web / API',detail:'Đổi chế độ, workspace, quyền',icon:'settings',go:()=>this.switchTab('settings')},
+      {label:'Cài đặt Web / API',detail:'Đổi chế độ, workspace, quyền',icon:'settings',go:()=>this.openSettings()},
+      {label:'Quyền: Chỉ đọc',detail:'Agent chỉ đọc và phân tích; mọi thay đổi bị từ chối',icon:'eye',go:()=>this.setPermission('readonly')},
+      {label:'Quyền: Review',detail:'Hỏi bạn trước mỗi lần sửa file hoặc chạy lệnh',icon:'shield',go:()=>this.setPermission('review')},
+      {label:'Quyền: Tự động',detail:'Tự sửa file và chạy lệnh kiểm tra an toàn',icon:'bot',go:()=>this.setPermission('autonomous')},
+      {label:'Hướng dẫn thiết lập',detail:'Chọn thư mục, kết nối AI và quyền của agent',icon:'spark',go:()=>this.set({onboardingOpen:true,onboardingStep:UI.onboarding(this.state.hub,{dismissed:false}).current})},
       {label:'Đồng bộ Hub',detail:'Tải lại trạng thái backend',icon:'refresh',go:()=>this.poll(true)}
     ];}
     runPalette(item){this.set({paletteOpen:false,paletteQuery:''});item.go();}
@@ -149,14 +172,18 @@
         if(health.app!=='chatmcp-local-hub')throw new Error('Cổng 3007 không phải ChatMCP Hub.');
         if(health.uiBuild!==BUILD){this.set({health,serverMismatch:true,connected:true});return;}
         const hub=await this.get('/api/state');
+        const guide=UI.onboarding(hub,{dismissed:this.state.onboardingDismissed});
         this.set({health,hub,connected:true,serverMismatch:false,workspaceDraft:hub.workspace?.path||'',
-          permissionMode:hub.studio?.permissions?.mode||'review',executionPolicy:hub.studio?.permissions?.executionPolicy||'host-review', apiDraft:this.initialApi(hub)});
+          permissionMode:hub.studio?.permissions?.mode||'review',executionPolicy:hub.studio?.permissions?.executionPolicy||'host-review', apiDraft:this.initialApi(hub),
+          onboardingOpen:guide.shouldOpen,onboardingStep:guide.current});
+        void this.loadPresets();
         const selected=this.state.selectedId;
         if(selected && arr(hub.agent?.tasks).some(x=>x.id===selected))await this.loadTask(selected);
         else if(!selected && hub.agent?.activeTaskId)this.choose(hub.agent.activeTaskId);
       }catch(error){this.set({connected:false});this.toast(error.message,true);}
     }
-    initialApi(hub){return {protocol:hub.ai?.protocol||'gemini',model:hub.ai?.model||'',apiBaseUrl:hub.ai?.apiBaseUrl||'',customPath:hub.ai?.customPath||'',authMode:hub.ai?.authMode||'auto',apiKey:'',remember:false};}
+    initialApi(hub){return UI.draftFromState(hub?.ai);}
+    async loadPresets(){try{const r=await this.get('/api/ai/presets');this.set({presets:arr(r.presets),envKeys:arr(r.envKeys)});}catch{ /* an older Hub has no presets: the form still works by hand */ }}
     async poll(force=false){
       if(this.polling||this.state.serverMismatch)return;
       this.polling=true;
@@ -172,7 +199,7 @@
           this.choose('',true);
         }else if(selected){
           const sum=arr(hub.agent?.tasks).find(t=>t.id===selected);
-          const signature=[selected,sum?.updatedAt,sum?.status,sum?.steps,sum?.toolCalls,sum?.promptCount,hub.agent?.active?.id].join('|');
+          const signature=[selected,sum?.updatedAt,sum?.status,sum?.state,sum?.steps,sum?.toolCalls,sum?.promptCount,hub.agent?.active?.id].join('|');
           if(force || signature!==this.lastTaskKey || ['running','queued','preparing'].includes(sum?.status)){
             this.lastTaskKey=signature;await this.loadTask(selected);
           }
@@ -190,17 +217,24 @@
     }
     choose(id='',silent=false){
       sessionStore.set(id);
-      this.lastTaskKey='';this.set({selectedId:id,selectedTask:null,prompt:'',plan:{title:'',items:[]}});
+      this.lastTaskKey='';this.set({selectedId:id,selectedTask:null,prompt:'',plan:{title:'',items:[]},livePlan:null,workflow:null});
       if(id)void this.loadTask(id);
       if(!silent)this.set({tab:'activity'});
     }
     async loadTask(id){if(!id || this.taskLoadingIds.has(id))return;this.taskLoadingIds.add(id);
-      try{const task=await this.get(`/api/tasks/${encodeURIComponent(id)}`);if(this.alive&&this.state.selectedId===id)this.set({selectedTask:task.task||task});}
+      try{const task=await this.get(`/api/tasks/${encodeURIComponent(id)}`);if(this.alive&&this.state.selectedId===id){this.set({selectedTask:task.task||task});void this.loadTaskSide(id);}}
       catch(error){if(this.state.selectedId===id && error.status!==404)this.toast(error.message,true);}
       finally{this.taskLoadingIds.delete(id);}
     }
+    // The plan the agent keeps and what it has verified. Both are optional extras: a failure must not hide the task itself.
+    async loadTaskSide(id){if(!this.state.hub?.studio)return;
+      try{
+        const [plan,workflow]=await Promise.all([this.get(params('/api/studio/plan',{taskId:id})).catch(()=>null),this.get(params('/api/studio/workflow',{taskId:id})).catch(()=>null)]);
+        if(this.alive&&this.state.selectedId===id)this.set({livePlan:plan&&arr(plan.items).length?plan:null,workflow:workflow&&typeof workflow==='object'?workflow:null});
+      }catch{ /* optional */ }
+    }
     isRunning(){return Boolean(this.state.hub?.agent?.activeTaskId);}
-    mode(){return this.state.hub?.agent?.mode||'chatgpt-web';}
+    mode(){return UI.agentMode(this.state.hub);}
     chosenSummary(){return arr(this.state.hub?.agent?.tasks).find(x=>x.id===this.state.selectedId)||null;}
     async changeMode(mode){
       if(mode===this.mode())return;
@@ -213,33 +247,47 @@
       if(!confirm('Xóa LỊCH SỬ PHIÊN trong Hub? File workspace và hội thoại trên ChatGPT vẫn giữ nguyên. Không thể khôi phục lịch sử cục bộ sau thao tác này.'))return;
       await this.act('Xóa lịch sử phiên',async()=>{await this.post('/api/tasks/delete',{id});this.choose('',true);});
     }
-    async send(){const prompt=this.state.prompt.trim();const hub=this.state.hub;
+    // Why the prompt cannot be sent, as something to fix: opens the screen that fixes it.
+    fixBlocker(blocker){
+      const local=UI.backendOf(this.state.hub)==='local';
+      if(blocker.fix==='workspace'||blocker.fix==='ai'){
+        if(local){this.set({onboardingOpen:true,onboardingStep:blocker.fix});return;}
+        this.set({inspectorOpen:true});void this.switchTab('settings');return;
+      }
+      if(blocker.fix==='companion'){this.set({inspectorOpen:true});void this.switchTab('settings');return;}
+      if(blocker.fix==='retry')void this.poll(true);
+    }
+    openSettings(){this.set({inspectorOpen:true});return this.switchTab('settings');}
+    async send(override){const prompt=(typeof override==='string'?override:this.state.prompt).trim();const hub=this.state.hub;
       if(!prompt||this.isRunning()||!hub?.workspace?.path)return;
       const id=this.state.selectedId;
       const summary=this.chosenSummary();
       if(id&&!summary){this.toast('Hội thoại cũ không còn trong Hub; không tự mở hội thoại khác.',true);return;}
-      if(summary?.transport && summary.transport!==this.mode()){
-        this.toast(`Hội thoại này dùng ${summary.transport}. Hãy đổi đúng chế độ trước khi tiếp tục.`,true);return;
-      }
+      const wrongTransport=summary?.transport&&summary.transport!==this.mode()?summary.transport:null;
+      const ready=UI.readiness(hub,{connected:this.state.connected,mismatch:this.state.serverMismatch,wrongTransport});
+      if(!ready.ready){this.toast(ready.blockers[0].label,true);this.fixBlocker(ready.blockers[0]);return;}
       const endpoint=id?'/api/tasks/continue':'/api/tasks/start';
       const payload={prompt}; // No Hub-imposed limits for local solo sessions.
       if(id)payload.id=id;
       await this.act(id?'Tiếp tục hội thoại':'Bắt đầu hội thoại',async()=>{
-        // Tool selection is the agent's job. A prompt is also consent to start
-        // the configured local MCP services; do not make the user open Settings
-        // and click "Start MCP" first. Never send the chat prompt if startup fails.
-        const services=this.state.hub?.services||{};
-        if(services.proxy?.state!=='ready'||services.desktop?.state!=='ready'){
-          this.toast('Đang tự khởi động MCP và nhận diện công cụ của workspace…');
+        // Tool selection is the agent's job. A prompt is also consent to start the project's tools (the local tools, or the
+        // configured MCP services); the person does not have to open Settings and press Start first.
+        // Never send the chat prompt if they cannot start.
+        if(ready.startsTools){
+          this.toast('Đang khởi động công cụ của dự án…');
           const updated=await this.post('/api/services/start');
           this.set({hub:updated});
-          if(updated?.services?.proxy?.state!=='ready'||updated?.services?.desktop?.state!=='ready')
-            throw new Error('MCP chưa sẵn sàng sau khi tự khởi động. Chưa gửi prompt.');
+          const tools=UI.toolsState(updated);
+          if(!tools.ready)throw new Error('Công cụ của dự án chưa sẵn sàng sau khi tự khởi động'+(tools.detail?': '+tools.detail:'')+'. Chưa gửi prompt.');
         }
+        const draft=this.state.prompt;
         const result=await this.post(endpoint,payload);
         if(!result.task?.id)throw new Error('Hub không trả ID phiên hợp lệ. Không gửi lại tự động.');
-        this.set({prompt:''});this.choose(result.task.id,true);
+        this.choose(result.task.id,true);
+        // A message sent by a button (resume) leaves whatever the person was typing alone.
+        this.set({prompt:typeof override==='string'?draft:''});
         if(this.mode()==='chatgpt-web')window.postMessage({type:'CHATMCP_HUB_BROWSER_WAKE'},window.location.origin);
+        return true;
       });
     }
     async cancel(){const id=this.state.hub?.agent?.activeTaskId;if(!id)return;
@@ -257,19 +305,35 @@
     async pair(){await this.act('Tạo mã ghép Companion',async()=>{const p=await this.post('/api/browser/pair-code');this.set({pairCode:p.code||'',pairedExpiresAt:p.expiresAt||''});});}
     async unpair(){if(!confirm('Ngắt ghép Companion hiện tại?'))return;
       await this.act('Ngắt ghép Companion',async()=>{this.set({hub:await this.post('/api/browser/unpair')});});}
-    updateApi(key,value){this.set({apiDraft:{...this.state.apiDraft,[key]:value}});}
-    async saveApi(){await this.act('Lưu cấu hình API',async()=>{
-      const {apiKey,protocol,model,apiBaseUrl,customPath,authMode,remember}=this.state.apiDraft;
-      const payload={protocol,model,apiBaseUrl,customPath,authMode,remember};if(apiKey)payload.apiKey=apiKey;
-      const result=await this.post('/api/ai/config',payload);
-      this.set({hub:result,apiDraft:{...this.state.apiDraft,apiKey:'',remember:false}});
-    });}
+    updateApi(key,value){this.set({apiDraft:{...this.state.apiDraft,[key]:value,...(key==='apiKey'&&value?{useEnvKey:false}:{})}});}
+    currentPreset(){return this.state.presets.find(x=>x.id===this.state.apiDraft.preset)||null;}
+    // Choosing a provider starts from ITS values; nothing (least of all a key) is carried over from the previous one.
+    selectPreset(id){const preset=this.state.presets.find(x=>x.id===id);if(!preset)return;
+      this.set({apiDraft:UI.draftFromPreset(preset,this.state.apiDraft),models:[],modelSource:'',modelWarning:'',testResult:null});}
+    async loadModels(){this.set({modelsLoading:true});
+      try{const r=await this.get('/api/ai/models');this.set({models:arr(r.models),modelSource:str(r.source),modelWarning:str(r.warning)});}
+      catch(error){this.toast(error.message,true);}
+      finally{this.set({modelsLoading:false});}}
+    async saveApi(){
+      const problems=UI.validateDraft(this.state.apiDraft,this.currentPreset(),this.state.hub?.ai);
+      if(problems.length){this.toast(problems[0].text,true);return false;}
+      return await this.act('Lưu cấu hình AI',async()=>{
+        const result=await this.post('/api/ai/config',UI.configPayload(this.state.apiDraft));
+        this.set({hub:result,apiDraft:this.initialApi(result),models:[],modelSource:'',modelWarning:'',testResult:null});
+        return true;
+      });
+    }
     async clearKey(){if(!confirm('Xóa API key đã lưu trên Hub?'))return;
-      await this.act('Xóa API key',async()=>{const r=await this.post('/api/ai/clear-key');this.set({hub:r,apiDraft:{...this.state.apiDraft,apiKey:''}});});}
-    async testApi(){await this.act('Tự kiểm tra giao thức API (có thể phát sinh phí nhiều request)',async()=>{const r=await this.post('/api/ai/test');
+      await this.act('Xóa API key',async()=>{const r=await this.post('/api/ai/clear-key');this.set({hub:r,apiDraft:{...this.state.apiDraft,apiKey:'',useEnvKey:false},testResult:null});});}
+    // One tiny request: does the model answer, and does it call a tool when asked? Sends no project content.
+    async testApi(){return await this.act('Kiểm tra kết nối AI và tool calling',async()=>{const r=await this.post('/api/ai/test');
+      this.set({testResult:r});
       this.toast(r.responsePresent?`API hoạt động (${r.protocol||'gateway'} / ${r.authMode||'auto'})${r.autoSelected?' · Đã tự lưu cấu hình phù hợp':''}`:'Gateway trả kết quả nhưng không có message.',!r.responsePresent);
-      if(r.autoSelected){const hub=await this.get('/api/state');this.set({hub,apiDraft:{...this.state.apiDraft,protocol:hub.ai?.protocol||r.protocol,authMode:hub.ai?.authMode||r.authMode,apiBaseUrl:hub.ai?.apiBaseUrl||'',customPath:hub.ai?.customPath||''}});}
+      if(r.autoSelected){const hub=await this.get('/api/state');this.set({hub,apiDraft:this.initialApi(hub)});}
       return false;});}
+    async saveAndTest(){const saved=await this.saveApi();if(saved!==true)return;
+      await this.testApi();
+      if(this.state.hub?.ai?.configured)await this.loadModels();}
     async switchTab(tab){this.set({tab});
       if(this.terminalStream&&tab!=='terminal'){this.terminalStream.close();this.terminalStream=null;}
       if(tab==='terminal'&&!this.terminalStream&&window.EventSource&&['localhost','127.0.0.1'].includes(window.location.hostname)){
@@ -355,10 +419,14 @@
     }
     updatePlanItem(i,key,value){const items=this.state.plan.items.map((item,j)=>i===j?{...item,[key]:value}:item);this.set({plan:{...this.state.plan,items}});}
     async loadSkills(){try{const r=await this.get('/api/studio/skills');this.set({skills:arr(r.skills)});}catch(e){this.toast(e.message,true);}}
-    async decidePermission(id,approved){await this.act(approved?'Phê duyệt lệnh MCP':'Từ chối lệnh MCP',async()=>await this.post('/api/studio/permissions/decide',{id,approved}));}
-    async setPermission(mode){if(mode==='autonomous'&&!confirm('Autonomous cho phép một số thao tác ghi trong workspace; lệnh nguy hiểm vẫn cần phê duyệt. Bật?'))return;
-      await this.act('Đổi chính sách công cụ',async()=>{await this.post('/api/studio/permissions/config',{mode});this.set({permissionMode:mode});});
+    async decidePermission(id,approved){await this.act(approved?'Cho phép thao tác':'Từ chối thao tác',async()=>await this.post('/api/studio/permissions/decide',{id,approved}));}
+    async setPermission(mode){if(mode===this.permMode())return;
+      if(mode==='autonomous'&&!confirm('Chế độ Tự động cho phép agent sửa file trong workspace và chạy lệnh kiểm tra an toàn mà không hỏi. Lệnh khác, lệnh nguy hiểm và công cụ lạ vẫn cần bạn duyệt. Bật?'))return;
+      await this.act('Đổi quyền của agent',async()=>{await this.post('/api/studio/permissions/config',{mode});this.set({permissionMode:mode});});
     }
+    async denyAll(pending){await this.act('Từ chối tất cả yêu cầu',async()=>{for(const p of pending)await this.post('/api/studio/permissions/decide',{id:p.id,approved:false});});}
+    // After the person has looked at what changed: the Git tab with the diff already loaded.
+    async reviewChanges(){this.set({inspectorOpen:true});await this.switchTab('git');await this.gitDiff();}
     async setExecutionPolicy(executionPolicy){
       if(executionPolicy==='host-review'&&!confirm('Host-review cho phép MCP chạy trực tiếp bằng quyền Windows sau phê duyệt. Bật lại?'))return;
       let confirmation;
@@ -384,18 +452,154 @@
       if(!confirm(`Chạy ${queries.length} research subagent qua API? Có thể phát sinh phí.`))return;
       await this.act('Research subagents',async()=>{const r=await this.post('/api/studio/delegates/research',{queries,taskId:this.state.selectedId||undefined});this.set({delegates:arr(r.workers)});});
     }
+    // ---- approvals ---------------------------------------------------------------------------------------------------
+    // The decision the agent is blocked on, shown where the person is looking (above the composer, never hidden behind a
+    // closed side panel), with exactly what would happen: the command and its folder, the file and the change.
+    // Everything is rendered as text; nothing the model wrote is ever interpreted as markup.
+    approvalCard(request){
+      const d=UI.describeApproval(request,this.state.now),left=d.secondsLeft,expired=left===0,busy=!!this.state.busy;
+      return h('div',{className:`approval-card risk-${d.risk}`,key:d.id,role:'group','aria-label':d.title},
+        h('div',{className:'approval-head'},
+          h('div',{className:'approval-title'},h(Icon,{name:d.risk==='high'?'warning':'lock',size:16}),h('strong',null,d.title),h(Tag,{kind:d.risk==='high'?'error':d.risk==='medium'?'warn':'neutral'},d.categoryLabel)),
+          left!==null?h('span',{className:'approval-timer'+(left<60?' urgent':''),title:'Hết thời gian này, yêu cầu bị từ chối tự động.'},expired?'Đã hết hạn':'Còn '+UI.countdown(left)):null),
+        !d.blocks.length&&d.summary?h('p',{className:'approval-summary'},d.summary):null,
+        d.rows.length?h('div',{className:'approval-rows'},d.rows.map((row,i)=>h('div',{className:'approval-row',key:'r'+i},h('span',null,row.label),h('span',{className:row.mono?'mono':''},row.value)))):null,
+        d.blocks.map((block,i)=>h('div',{className:'approval-block approval-block-'+block.kind,key:'b'+i},h('div',{className:'approval-block-label'},block.label),h('pre',null,block.text||'(trống)'))),
+        d.reason?h('p',{className:'approval-reason'},d.reason):null,
+        h('div',{className:'approval-actions'},
+          h(Button,{variant:'primary',icon:'check',disabled:expired||busy,onClick:()=>this.decidePermission(d.id,true)},'Cho phép'),
+          h(Button,{variant:'danger',icon:'x',disabled:busy,onClick:()=>this.decidePermission(d.id,false)},'Từ chối')));
+    }
+    approvalDock(pending){if(!pending.length)return null;
+      const shown=pending.slice(0,3),minutes=Math.max(1,Math.round((Number(this.state.hub?.studio?.permissions?.approvalTimeoutMs)||600000)/60000));
+      return h('section',{className:'approval-dock',role:'region','aria-label':'Yêu cầu chờ bạn duyệt'},
+        h('div',{className:'approval-dock-head'},h(Icon,{name:'lock',size:18}),
+          h('div',null,h('strong',null,`Agent đang chờ bạn duyệt ${pending.length} thao tác`),h('small',null,`Không có gì chạy cho tới khi bạn quyết định. Yêu cầu tự bị từ chối sau ${minutes} phút.`)),
+          pending.length>1?h(Button,{variant:'danger',disabled:!!this.state.busy,onClick:()=>this.denyAll(pending)},'Từ chối tất cả'):null),
+        shown.map(request=>this.approvalCard(request)),
+        pending.length>shown.length?h('p',{className:'small-note'},`Còn ${pending.length-shown.length} yêu cầu nữa, sẽ hiện sau khi bạn xử lý các yêu cầu trên.`):null);
+    }
+    // ---- task state --------------------------------------------------------------------------------------------------
+    // What the person needs to know about a task that has stopped in a way that is not simply "done". An unknown outcome is
+    // never softened: the banner says what may have happened, and the only way on is a message that tells the agent to look first.
+    stateBanner(task,d){if(!task||!d.state||d.active)return null;
+      const running=this.isRunning(),busy=!!this.state.busy;
+      const resume=(label,variant='primary')=>h(Button,{variant,icon:'play',disabled:running||busy,onClick:()=>this.send(UI.resumePrompt(task))},label);
+      const changes=h(Button,{variant:'outline',icon:'git',onClick:()=>this.reviewChanges()},'Xem thay đổi (Git diff)');
+      if(d.state==='uncertain'){const ops=UI.unconfirmedOperations(task);
+        return h('div',{className:'state-banner tone-warn',role:'alert'},h(Icon,{name:'warning',size:20}),h('div',{className:'state-banner-body'},
+          h('strong',null,'Chưa rõ một thao tác đã chạy hay chưa'),h('p',null,d.hint),
+          ops.length?h('ul',{className:'state-ops'},ops.map((op,i)=>h('li',{key:i},h('code',null,op.tool),op.startedAt?' · bắt đầu lúc '+formatTime(op.startedAt):''))):null,
+          h('div',{className:'button-row'},changes,resume('Tiếp tục: kiểm tra trước'))));}
+      if(d.state==='paused')return h('div',{className:'state-banner tone-warn',role:'status'},h(Icon,{name:'history',size:20}),h('div',{className:'state-banner-body'},
+        h('strong',null,d.label),h('p',null,d.hint),h('div',{className:'button-row'},resume('Tiếp tục từ chỗ dừng'))));
+      if(d.state==='failed'){const fix=UI.errorFix(task.errorCode);
+        return h('div',{className:'state-banner tone-error',role:'alert'},h(Icon,{name:'warning',size:20}),h('div',{className:'state-banner-body'},
+          h('strong',null,task.errorCode||d.label),h('p',null,str(task.error,d.hint).slice(0,600)),
+          h('div',{className:'button-row'},
+            fix?h(Button,{variant:'primary',icon:'settings',onClick:()=>this.fixBlocker({fix})},fix==='ai'?'Sửa cấu hình AI':'Chọn lại thư mục dự án'):null,
+            task.toolCalls>0?changes:null,resume('Thử lại',fix?'outline':'primary'))));}
+      if(d.state==='cancelled'&&task.toolCalls>0)return h('div',{className:'state-banner tone-idle',role:'status'},h(Icon,{name:'stop',size:20}),h('div',{className:'state-banner-body'},
+        h('strong',null,d.label),h('p',null,d.hint),h('div',{className:'button-row'},changes)));
+      return null;
+    }
+    // The agent's own checklist for the task, read-only here (it is edited in the Plan tab).
+    planCard(){const plan=this.state.livePlan,items=arr(plan?.items);if(!items.length)return null;
+      const words={todo:'Chưa làm',doing:'Đang làm',done:'Xong',blocked:'Bị chặn'},done=items.filter(item=>item.status==='done').length;
+      return h('details',{className:'plan-card',open:true},
+        h('summary',null,h(Icon,{name:'note',size:15}),' ',str(plan.title)||'Kế hoạch của agent',h('span',{className:'plan-progress'},` ${done}/${items.length} xong`)),
+        h('ul',null,items.slice(0,40).map((item,i)=>h('li',{key:i,className:'plan-line plan-'+str(item.status,'todo')},
+          h('span',{className:'plan-glyph','aria-hidden':'true',title:words[item.status]||words.todo}),
+          h('span',null,h('span',{className:'sr-only'},(words[item.status]||words.todo)+': '),str(item.text).slice(0,240)),
+          item.evidence?h('small',null,str(item.evidence).slice(0,160)):null))));
+    }
+    // What the agent verifiably did, from the workflow record: edits that succeeded and checks that exited 0.
+    resultFooter(task,d){if(!task||d.active)return null;
+      const ev=UI.evidenceSummary(this.state.workflow);
+      if(!ev||(!ev.edits&&!ev.commands&&!ev.checks))return null;
+      return h('div',{className:`result-footer result-${ev.kind}`,role:'status'},h(Icon,{name:ev.verified?'check':'warning',size:16}),h('span',null,ev.text),
+        (ev.edits||ev.commands)&&d.state==='completed'?h(Button,{variant:'quiet',icon:'git',onClick:()=>this.reviewChanges()},'Xem thay đổi'):null);
+    }
+    // ---- composer parts ----------------------------------------------------------------------------------------------
+    permissionSwitch(){const mode=this.permMode(),locked=this.state.hub?.studio?.permissions?.executionPolicy==='full-access'||!!this.state.busy;
+      return h('div',{className:'perm-switch',role:'group','aria-label':'Quyền của agent'},UI.PERMISSION_MODES.map(entry=>h('button',{type:'button',key:entry.id,
+        className:'perm-btn perm-'+entry.id+(entry.id===mode?' active':''),title:entry.hint+(locked&&!this.state.busy?' (Full Access đang bật: không áp dụng)':''),'aria-pressed':entry.id===mode,disabled:locked,onClick:()=>this.setPermission(entry.id)},entry.label)));
+    }
+    providerChip(){const ai=this.state.hub?.ai;
+      if(this.mode()==='chatgpt-web')return h('button',{type:'button',className:'provider-chip',title:'ChatGPT Web: chế độ cũ, chỉ để thử nghiệm cục bộ. Mở Cài đặt để đổi.',onClick:()=>this.openSettings()},h(Icon,{name:'external',size:13}),'ChatGPT Web');
+      const badge=UI.toolCallingBadge(ai);
+      return h('button',{type:'button',className:'provider-chip',title:ai?.configured?`${str(ai.model)} · ${str(ai.apiBaseUrl)}\n${badge.label}`:'Chưa cấu hình AI. Bấm để thiết lập.',onClick:()=>this.openSettings()},
+        h(Icon,{name:'bot',size:13}),ai?.configured?str(ai.model,'model'):'Chưa kết nối AI',
+        ai?.configured?h('span',{className:'tc-dot tc-'+badge.kind,title:badge.label}):null);
+    }
+    // The first thing standing between the person and a task, as something to click. Connection and version problems have
+    // their own banners; a session in the wrong mode has its own warning.
+    blockerStrip(ready){if(this.isRunning())return null;
+      const blocker=ready.blockers.find(item=>['workspace','ai','companion','tools-starting'].includes(item.id));if(!blocker)return null;
+      const action={workspace:'Chọn thư mục',ai:'Thiết lập AI',companion:'Mở Cài đặt'}[blocker.id];
+      return h('div',{className:'blocker-strip',role:'status'},h(Icon,{name:blocker.id==='tools-starting'?'refresh':'warning',size:16}),h('span',null,blocker.label),
+        action?h(Button,{variant:'primary',onClick:()=>this.fixBlocker(blocker)},action):null);
+    }
+    // ---- AI connection form (Settings and the first-run wizard) -------------------------------------------------------
+    // A key lives only in its field until it is saved; the Hub never sends it back, only how it is held.
+    providerForm(){const s=this.state,a=s.apiDraft,ai=s.hub?.ai,preset=this.currentPreset(),badge=UI.toolCallingBadge(ai),key=UI.keyStatus(ai);
+      const busy=!!s.busy||this.isRunning(),choices=UI.modelChoices(s.models,a.model),local=Boolean(preset?.local),protection=str(ai?.secretStorage?.protection),test=s.testResult;
+      const field=(label,child,note)=>h('label',{className:'form-field'},label,child,note?h('small',{className:'field-note'},note):null);
+      const unlisted=s.models.length&&a.model&&!choices.currentListed?`Model "${a.model}" không có trong danh sách nhà cung cấp trả về.`:(s.modelWarning||null);
+      return h('div',{className:'provider-form'},
+        field('Nhà cung cấp',h('select',{id:'ai-preset',value:a.preset||'',disabled:busy,onChange:e=>e.target.value?this.selectPreset(e.target.value):this.updateApi('preset','')},
+          h('option',{value:''},ai?.configured||a.preset?'Tự nhập thủ công':'Chọn nhà cung cấp…'),s.presets.map(item=>h('option',{key:item.id,value:item.id},item.label))),preset?.notes),
+        preset?.keyUrl&&!local?h('p',{className:'small-note'},'Tạo API key tại ',h('a',{className:'inline-link',href:preset.keyUrl,target:'_blank',rel:'noopener noreferrer'},preset.keyUrl.replace(/^https:\/\//,'')),'. Key chỉ được gửi tới địa chỉ API bên dưới.'):null,
+        field('Giao thức',h('select',{value:a.protocol,onChange:e=>this.updateApi('protocol',e.target.value)},UI.PROTOCOLS.map(item=>h('option',{key:item.id,value:item.id},item.label)))),
+        field('Base URL',h('input',{value:a.apiBaseUrl,placeholder:'https://api.example.com/v1',spellCheck:false,onChange:e=>this.updateApi('apiBaseUrl',e.target.value)})),
+        field('Model',h('div',{className:'model-row'},
+          h('input',{value:a.model,list:'ai-models',placeholder:'tên model',spellCheck:false,onChange:e=>this.updateApi('model',e.target.value)}),
+          h('datalist',{id:'ai-models'},choices.ids.map(id=>h('option',{key:id,value:id}))),
+          h(Button,{variant:'outline',icon:'refresh',disabled:busy||s.modelsLoading||!ai?.configured,title:'Hỏi nhà cung cấp danh sách model của tài khoản (cần lưu cấu hình trước)',onClick:()=>this.loadModels()},s.modelsLoading?'Đang tải…':'Tải danh sách model')),unlisted),
+        local?h('p',{className:'small-note'},'Máy chủ cục bộ: không cần API key. Model phải hỗ trợ tool calling và có ngữ cảnh đủ lớn.'):h('div',null,
+          field('API key',h('input',{type:'password',autoComplete:'off',spellCheck:false,value:a.apiKey,disabled:a.useEnvKey,placeholder:key.source==='none'?'Dán API key':'Để trống để giữ key hiện tại',onChange:e=>this.updateApi('apiKey',e.target.value)})),
+          preset?.envKey?h('label',{className:'checkbox-line'},h('input',{type:'checkbox',checked:a.useEnvKey,onChange:e=>this.set({apiDraft:{...a,useEnvKey:e.target.checked,apiKey:e.target.checked?'':a.apiKey}})}),`Dùng key từ biến môi trường ${preset.envKey} (không lưu vào file)`):null,
+          h('label',{className:'checkbox-line'},h('input',{type:'checkbox',checked:a.remember,disabled:a.useEnvKey,onChange:e=>this.updateApi('remember',e.target.checked)}),'Ghi nhớ key trên máy này'+(protection?` — ${protection}`:'')),
+          h('p',{className:'key-status key-'+key.kind},h(Icon,{name:'key',size:13}),' ',key.text,!a.remember&&a.apiKey&&!a.useEnvKey?' Không ghi nhớ: key chỉ giữ trong bộ nhớ Hub, mất khi Hub dừng.':'')),
+        h('details',{className:'advanced-fields'},h('summary',null,'Nâng cao'),
+          field('Kiểu xác thực',h('select',{value:a.authMode,onChange:e=>this.updateApi('authMode',e.target.value)},UI.AUTH_MODES.map(mode=>h('option',{key:mode,value:mode},mode)))),
+          field('Đường dẫn endpoint (tuỳ chọn)',h('input',{value:a.customPath,placeholder:'/v1/...',spellCheck:false,onChange:e=>this.updateApi('customPath',e.target.value)})),
+          field('Ngữ cảnh model, token (tuỳ chọn)',h('input',{value:a.contextWindowTokens,inputMode:'numeric',placeholder:'ví dụ 128000',onChange:e=>this.updateApi('contextWindowTokens',e.target.value)}),'Dùng để cắt bớt lịch sử trước khi vượt giới hạn. Để trống nếu không biết.')),
+        h('div',{className:'button-row'},
+          h(Button,{variant:'primary',icon:'save',disabled:busy,onClick:()=>this.saveAndTest()},'Lưu & kiểm tra'),
+          h(Button,{variant:'outline',disabled:busy,onClick:()=>this.saveApi()},'Lưu API'),
+          h(Button,{variant:'outline',disabled:!!s.busy||!ai?.configured,onClick:()=>this.testApi()},'Test API · Tự nhận dạng'),
+          ['saved','session'].includes(key.source)?h(Button,{variant:'danger',icon:'trash',disabled:busy,onClick:()=>this.clearKey()},'Xóa key'):null),
+        ai?.configured?h('div',{className:'tc-line tc-'+badge.kind},h(Icon,{name:badge.kind==='success'?'check':'warning',size:14}),h('span',null,badge.label+(badge.note?' — '+badge.note:''))):null,
+        test?h('p',{className:'small-note'},test.responsePresent?`Kết nối thành công${test.protocol?` · ${test.protocol}`:''}${test.autoSelected?' · đã tự chọn cấu hình phù hợp':''}.`:'Nhà cung cấp trả kết quả nhưng không có nội dung văn bản.'):null,
+        h('p',{className:'small-note'},'Khả năng gọi công cụ: ',str(ai?.agentRequestMode,'chưa kiểm tra'),'. Agent chỉ làm việc đáng tin với model hỗ trợ tool calling gốc; "Lưu & kiểm tra" thử đúng điều đó bằng một yêu cầu rất nhỏ, không gửi nội dung dự án.'));
+    }
+    // ---- first-run wizard --------------------------------------------------------------------------------------------
+    onboardingContext(ready){const s=this.state;
+      return {UI,Icon,Button,Tag,hub:s.hub,step:s.onboardingStep,ready,busy:!!s.busy,running:this.isRunning(),workspaceDraft:s.workspaceDraft,permission:this.permMode(),
+        providerForm:()=>this.providerForm(),
+        setStep:id=>this.set({onboardingStep:id}),
+        setWorkspaceDraft:value=>this.set({workspaceDraft:value}),
+        browse:()=>this.browseWorkspace(),
+        applyWorkspace:()=>this.changeWorkspace(),
+        setPermission:mode=>this.setPermission(mode),
+        useExample:text=>{this.closeOnboarding(true);this.set({prompt:text});},
+        close:forever=>this.closeOnboarding(forever)};
+    }
+    // Closing is remembered per browser so the wizard never nags; the blocker strip above the composer reopens it when needed.
+    closeOnboarding(forever=true){if(forever)onboardingStore.set(true);this.set({onboardingOpen:false,onboardingDismissed:forever||this.state.onboardingDismissed});}
     render() {
-      const s=this.state, hub=s.hub, tasks=arr(hub?.agent?.tasks), selected=s.selectedTask||this.chosenSummary(), active=hub?.agent?.active,
-        canWork=s.connected&&!s.serverMismatch&&!s.busy&&!this.isRunning(), serviceReady=['docker','cloud','proxy','desktop'].every(k=>hub?.services?.[k]?.state==='ready'),
-        selectedWrongMode=Boolean(s.selectedId && this.chosenSummary()?.transport && this.chosenSummary().transport!==this.mode());
+      const s=this.state, hub=s.hub, tasks=arr(hub?.agent?.tasks), selected=s.selectedTask||this.chosenSummary(), active=hub?.agent?.active, chosen=this.chosenSummary(),
+        wrongTransport=chosen?.transport&&chosen.transport!==this.mode()?chosen.transport:null,
+        ready=UI.readiness(hub,{connected:s.connected,mismatch:s.serverMismatch,wrongTransport}), described=UI.describeTask(selected);
       const filtered=tasks.filter(t=>[t.prompt, ...arr(t.prompts).map(p=>p.text),t.workspace?.path].join(' ').toLowerCase().includes(s.sessionQuery.toLowerCase()));
-      const pending=arr(hub?.studio?.permissions?.pending),events=arr(selected?.events);
+      const pending=this.pendingApprovals(),events=arr(selected?.events);
       return h('div',{className:'app-frame'},
         this.header(hub),
         h('div',{className:'studio-columns'+(s.inspectorOpen?'':' studio-no-inspector')},
           this.sidebar(filtered,hub),
           h('main',{className:'conversation-col'},
-            this.chatHeader(selected,active),
+            this.chatHeader(selected,active,described),
             s.serverMismatch?this.versionNotice():null,
             !s.connected?h('div',{className:'offline-alert'},h(Icon,{name:'wifi'}),' Mất kết nối với Hub. Nhật ký đã lưu vẫn nằm trên máy; đang thử kết nối lại…'):null,
             active && this.mode()==='chatgpt-web' && active.delivery && active.delivery.status!=='sent' && hub?.browser
@@ -404,14 +608,17 @@
                 h('p',null,str(hub.browser.companionNote,hub.browser.connected?'Đang đợi tab phản hồi; chưa có xác nhận đã gửi.':'Companion chưa phản hồi. Kiểm tra Edge và tab ChatGPT đang mở.')),
                 active.delivery.claimedAt && Date.now()-Date.parse(active.delivery.claimedAt)>90000
                   ? h('p',{className:'web-delivery-stalled'},'Đã chờ hơn 90 giây. Kiểm tra popup Companion và tab ChatGPT. Không tự gửi lại hoặc mở task mới khi chưa xác minh lượt cũ.') : null)) : null,
-            hub?.studio?.permissions?.executionPolicy==='full-access'?h('div',{className:'full-access-warning',role:'alert'},h(Icon,{name:'warning',size:18}),' FULL ACCESS đang bật — agent được dùng Internet và file toàn máy theo quyền Windows. ',h('button',{type:'button',onClick:()=>{this.set({inspectorOpen:true});this.switchTab('settings');}},'Tắt trong Cài đặt')):null,
-            this.conversation(selected,events),
-            this.composer(canWork,serviceReady,selectedWrongMode)
+            hub?.studio?.permissions?.executionPolicy==='full-access'?h('div',{className:'full-access-warning',role:'alert'},h(Icon,{name:'warning',size:18}),' FULL ACCESS đang bật — agent được dùng Internet và file toàn máy theo quyền Windows. ',h('button',{type:'button',onClick:()=>this.openSettings()},'Tắt trong Cài đặt')):null,
+            this.stateBanner(selected,described),
+            this.conversation(selected,events,described),
+            this.approvalDock(pending),
+            this.composer(ready,Boolean(wrongTransport))
           ),
-          s.inspectorOpen?this.inspector(hub,selected,pending):null
+          s.inspectorOpen?this.inspector(hub,selected):null
         ),
         s.toast?h('div',{className:`toast ${s.toast.error?'toast-error':''}`,role:'status'},h(Icon,{name:s.toast.error?'warning':'check',size:17}),s.toast.message,h('button',{onClick:()=>this.set({toast:null}),'aria-label':'Đóng thông báo'},'×')):null,
-        this.palette()
+        this.palette(),
+        s.onboardingOpen?Onboarding.render(h,this.onboardingContext(ready)):null
       );
     }
     header(hub){const connected=this.state.connected,loading=Boolean(this.state.busy);
@@ -435,20 +642,22 @@
         h('div',{className:'search-box'},h(Icon,{name:'search',size:15}),h('input',{placeholder:'Tìm hội thoại…',value:this.state.sessionQuery,onChange:e=>this.set({sessionQuery:e.target.value}),'aria-label':'Tìm hội thoại'})),
         h('div',{className:'sidebar-label'},h('span',null,'HỘI THOẠI'),h('span',null,tasks.length))
       ),
-      h('div',{className:'session-scroll'},tasks.length?tasks.map(t=>h('button',{type:'button',key:t.id,className:`session-item ${t.id===this.state.selectedId?'selected':''}`,onClick:()=>this.choose(t.id)},
-        h(Icon,{name:'history',size:17}),h('span',{className:'session-item-body'},h('strong',null,str(t.prompt,'Cuộc hội thoại').replace(/\s+/g,' ').slice(0,65)),h('small',null,shortPath(t.workspace?.path),' · ',taskStates[t.status]||t.status||'Đã lưu')),h('span',{className:`session-indicator ${statusKind(t.status)}`}))):h(Empty,{icon:'history',title:'Chưa có cuộc hội thoại',body:'Lịch sử được lưu khi bạn bắt đầu tác vụ.'})),
+      h('div',{className:'session-scroll'},tasks.length?tasks.map(t=>{const d=UI.describeTask(t);
+        return h('button',{type:'button',key:t.id,className:`session-item ${t.id===this.state.selectedId?'selected':''}`,onClick:()=>this.choose(t.id)},
+          h(Icon,{name:'history',size:17}),h('span',{className:'session-item-body'},h('strong',null,str(t.prompt,'Cuộc hội thoại').replace(/\s+/g,' ').slice(0,65)),h('small',null,shortPath(t.workspace?.path),' · ',d.state?d.label:(t.status||'Đã lưu'))),h('span',{className:`session-indicator ${d.kind}`,title:d.hint}));
+      }):h(Empty,{icon:'history',title:'Chưa có cuộc hội thoại',body:'Lịch sử được lưu khi bạn bắt đầu tác vụ.'})),
       h('div',{className:'sidebar-bottom'},
         h('div',{className:'side-workspace'},h(Icon,{name:'folder'}),h('div',null,h('b',null,shortPath(hub?.workspace?.path)),h('small',null,'Workspace hiện tại'))),
         h('div',{className:'sidebar-version'},'STUDIO ',uiVersion,' · REACT · LOCAL')
       )
     );}
-    chatHeader(task,active){const selectedId=this.state.selectedId;
+    chatHeader(task,active,d){const selectedId=this.state.selectedId;
       return h('div',{className:'chat-header'},
         h('div',{className:'chat-header-title'},
           h('span',{className:'eyebrow'},h(Icon,{name:'spark',size:13}),' AI CODING AGENT'),
           h('h1',null,selectedId ? str(task?.prompt,'Đang tải hội thoại…').replace(/\s+/g,' ').slice(0,86) : 'Bạn muốn xây dựng điều gì?'),
-          h('div',{className:'chat-meta'},h(Tag,{kind:statusKind(task?.status)},taskStates[task?.status]||'Sẵn sàng'),task?.id?h('span',{className:'muted'},'Phiên ',task.id.slice(0,8)):null,
-            task?.toolCalls!==undefined?h('span',{className:'muted'},'· ',task.toolCalls,' lần gọi MCP'):null)
+          h('div',{className:'chat-meta'},h(Tag,{kind:d.kind,title:d.hint},d.label),task?.id?h('span',{className:'muted'},'Phiên ',task.id.slice(0,8)):null,
+            task?.toolCalls!==undefined?h('span',{className:'muted'},'· ',task.toolCalls,' lần gọi công cụ'):null)
         ),
         h('div',{className:'chat-toolbar'},
           selectedId?h(Button,{variant:'quiet',icon:'trash',title:'Xóa lịch sử phiên cục bộ',disabled:this.isRunning()||!!this.state.busy,onClick:()=>this.deleteSession()},'Xóa phiên'):null,
@@ -464,51 +673,52 @@
         h('p',null,`React UI ${uiVersion} yêu cầu backend ${uiVersion}, nhưng máy đang chạy Hub ${health?.version||'không rõ'} (build ${health?.uiBuild||'cũ'}). Hãy dùng STOP-CHATMCP-HUB.cmd, sau đó START-CHATMCP-HUB.cmd và Ctrl+F5. Không gửi lệnh vào backend cũ.`)
       ));
     }
-    conversation(task,events){const inProgress=['running','queued','preparing'].includes(task?.status);
+    conversation(task,events,d){const inProgress=d.active;
       let exchanges=[];
       const prompts=arr(task?.prompts).length?task.prompts:task?.prompt?[{text:task.prompt,at:task.startedAt}]:[];
       const runs=arr(task?.runs);
+      const runLabel=run=>run&&run.status?UI.describeTask(run).label:'Đã xử lý';
       for(let i=0;i<prompts.length;i++){
         const promptText=str(prompts[i]?.text);exchanges.push(h('div',{className:'message message-user',key:'u'+i},h('span',{className:'message-role'},'BẠN · YÊU CẦU ',i+1),h('div',{className:'message-text'},promptText)));
         const result=str(runs[i]?.finalText);
-        if(result)exchanges.push(h('div',{className:'message message-agent',key:'a'+i},h('div',{className:'agent-avatar'},h(Icon,{name:'bot',size:17})),h('div',{className:'message-card'},h('span',{className:'message-role'},'AGENT · ',taskStates[runs[i]?.status]||'Đã xử lý'),h('div',{className:'message-text'},result.slice(0,20000)))));
+        if(result)exchanges.push(h('div',{className:'message message-agent',key:'a'+i},h('div',{className:'agent-avatar'},h(Icon,{name:'bot',size:17})),h('div',{className:'message-card'},h('span',{className:'message-role'},'AGENT · ',runLabel(runs[i])),h('div',{className:'message-text'},result.slice(0,20000)))));
       }
       if(!exchanges.length && task?.finalText)exchanges.push(h('div',{className:'message message-agent',key:'final'},h('div',{className:'message-card'},h('span',{className:'message-role'},'AGENT'),h('div',{className:'message-text'},task.finalText))));
       return h('div',{className:'chat-scroll'},
         !task?h('div',{className:'welcome'},h('div',{className:'welcome-logo'},h(Icon,{name:'spark',size:28})),h('h2',null,'Một workspace. Một agent. Liên tục.'),h('p',null,'Giao việc, theo dõi file và công cụ, xem Git diff, kiểm thử, rồi tiếp tục ngay trong hội thoại cũ.'),
           h('div',{className:'suggestion-grid'},[
-            ['Hoàn thành bài lab','Đọc README, RULES, RUBRIC và các file trong workspace. Hoàn thành phần còn thiếu, chạy kiểm thử và báo cáo kết quả thực tế.'],
-            ['Rà soát lỗi','Kiểm tra project và tìm lỗi quan trọng. Lập plan rồi đề xuất cách sửa, giữ nguyên thay đổi không liên quan.'],
-            ['Viết kiểm thử','Rà soát test hiện tại, bổ sung các regression test cần thiết và chạy bộ kiểm thử phù hợp.']
+            ['Tìm hiểu dự án','Đọc README và cấu trúc thư mục, cho tôi biết dự án làm gì, cách chạy và cách kiểm thử. Chỉ đọc, không sửa file nào.'],
+            ['Sửa lỗi','Tìm nguyên nhân của lỗi tôi sẽ mô tả, viết một test tái hiện lỗi, sửa tối thiểu rồi chạy kiểm thử và báo kết quả thực tế.'],
+            ['Viết kiểm thử','Rà soát test hiện tại, bổ sung các regression test cần thiết cho phần chưa được kiểm tra và chạy bộ kiểm thử phù hợp.']
           ].map(([title,prompt])=>h('button',{key:title,onClick:()=>this.set({prompt})},h('strong',null,title),h('span',null,'↗'))))
-        ):h('div',{className:'chat-stream'},exchanges,
-          inProgress?h('div',{className:'live-card'},h('div',{className:'spin'}),h('div',null,h('strong',null,'Agent đang thực hiện'),h('p',null,str(events[events.length-1]?.message,'Đang chờ bước tiếp theo…')))):null,
-          task?.error?h('div',{className:'inline-error'},h(Icon,{name:'warning',size:16}),h('div',null,h('strong',null,task.errorCode||'Tác vụ cần xử lý'),h('p',null,task.error))):null,
-          !inProgress&&task?.finalText&&!runs.some(r=>r.finalText)?h('div',{className:'message message-agent'},h('div',{className:'message-card'},h('div',{className:'message-text'},task.finalText))):null
+        ):h('div',{className:'chat-stream'},this.planCard(),exchanges,
+          inProgress?h('div',{className:'live-card',title:d.hint},h('div',{className:'spin'}),h('div',null,h('strong',null,d.label),h('p',null,str(events[events.length-1]?.message,'Đang chờ bước tiếp theo…')))):null,
+          task?.error&&d.state!=='failed'?h('div',{className:'inline-error'},h(Icon,{name:'warning',size:16}),h('div',null,h('strong',null,task.errorCode||'Tác vụ cần xử lý'),h('p',null,task.error))):null,
+          !inProgress&&task?.finalText&&!runs.some(r=>r.finalText)?h('div',{className:'message message-agent'},h('div',{className:'message-card'},h('div',{className:'message-text'},task.finalText))):null,
+          this.resultFooter(task,d)
         ),
-        task&&events.length?h('div',{className:'recent-work'},h('div',{className:'mini-section-title'},h(Icon,{name:'history',size:15}),' HOẠT ĐỘNG GẦN ĐÂY'),events.slice(-5).map((e,i)=>h('div',{className:'mini-event',key:i},h('span',null,formatTime(e.at)),h('span',null,str(e.toolName||e.type)),h('span',null,str(e.message).slice(0,130))))):null
+        task&&events.length?h('div',{className:'recent-work'},h('div',{className:'mini-section-title'},h(Icon,{name:'history',size:15}),' HOẠT ĐỘNG GẦN ĐÂY'),events.slice(-5).map((e,i)=>h('div',{className:'mini-event',key:i},h('span',null,formatTime(e.at)),h('span',null,str(e.toolName||e.type)),h('span',null,UI.eventText(e,130))))):null
       );
     }
-    composer(canWork,serviceReady,wrongMode){const s=this.state,hasTask=!!s.selectedId;const ready=s.connected&&!!s.hub?.workspace?.path&&!this.isRunning()&&!wrongMode;
+    composer(ready,wrongMode){const s=this.state,hasTask=!!s.selectedId,running=this.isRunning(),canSend=ready.ready&&!running&&!s.busy&&!!s.prompt.trim();
       return h('div',{className:'composer-wrap'},
         wrongMode?h('div',{className:'composer-warning'},'Phiên này thuộc chế độ ',this.chosenSummary()?.transport,'. ',h('button',{onClick:()=>this.changeMode(this.chosenSummary().transport)},'Chuyển sang chế độ đó')):null,
+        this.blockerStrip(ready),
         h('div',{className:'composer'},
           h('textarea',{id:'agent-prompt',rows:3,placeholder:hasTask?'Tiếp tục công việc trong đúng hội thoại này…':'Hãy mô tả tác vụ bạn muốn agent thực hiện…',value:s.prompt,onChange:e=>this.set({prompt:e.target.value}),onKeyDown:e=>{if(e.key==='Enter'&&!e.shiftKey && !e.nativeEvent.isComposing){e.preventDefault();this.send();}}}),
           h('div',{className:'composer-footer'},
-            h('div',{className:'composer-config'},h('span',null,h(Icon,{name:'shield',size:14}),' ',this.mode()==='api'?'API Gateway':'ChatGPT Web'),
-              h('span',{className:'limit-unbounded',title:'Không giới hạn lượt/phút tại Hub; vẫn chịu giới hạn API, tài nguyên và context.'},'∞ Không giới hạn lượt / phút tại Hub')),
-            h(Button,{variant:'primary',icon:'arrow',className:'send-btn',disabled:!canWork||!ready||!s.prompt.trim()||(this.mode()==='api'&&!s.hub?.ai?.configured)||(this.mode()==='chatgpt-web'&&!s.hub?.browser?.paired),onClick:()=>this.send()},hasTask?'Tiếp tục':'Bắt đầu')
+            h('div',{className:'composer-config'},this.permissionSwitch(),this.providerChip()),
+            h(Button,{variant:'primary',icon:'arrow',className:'send-btn',disabled:!canSend,onClick:()=>this.send()},hasTask?'Tiếp tục':'Bắt đầu')
           )
         ),
-        h('p',{className:'composer-hint'},this.isRunning()?'Agent đang chạy. Bạn có thể Dừng rồi gửi yêu cầu tiếp trong cùng hội thoại.':!s.connected?'Đang chờ Hub…':!s.hub?.workspace?.path?'Chọn workspace trong Cài đặt.':!serviceReady?'MCP sẽ tự khởi động khi bạn giao nhiệm vụ.':this.mode()==='api'&&!s.hub?.ai?.configured?'Cần cấu hình API trong Cài đặt.':this.mode()==='chatgpt-web'&&!s.hub?.browser?.paired?'Ghép Companion trong Cài đặt.':'Agent tự chọn MCP tools · Không giới hạn lượt/phút tại Hub · Enter để gửi · Lịch sử lưu tự động')
+        h('p',{className:'composer-hint'},UI.composerHint(ready,{running,connected:s.connected,pending:this.pendingApprovals().length}))
       );
     }
-    inspector(hub,task,pending){const tabs=[['activity','Hoạt động','history'],['files','Files','folder'],['git','Git','git'],['terminal','Terminal','terminal'],['intelligence','Code / LSP','layers'],['preview','Preview','eye'],['plan','Plan','note'],['skills','Skills','spark'],['settings','Cài đặt','settings']];
+    inspector(hub,task){const tabs=[['activity','Hoạt động','history'],['files','Files','folder'],['git','Git','git'],['terminal','Terminal','terminal'],['intelligence','Code / LSP','layers'],['preview','Preview','eye'],['plan','Plan','note'],['skills','Skills','spark'],['settings','Cài đặt','settings']];
       return h('aside',{className:'inspector-col'},
         h('div',{className:'inspector-top'},h('div',{className:'inspector-label'},'CÔNG CỤ DỰ ÁN'),
           h('nav',{className:'inspector-tabs','aria-label':'Công cụ coding'},tabs.map(([id,title,icon])=>h('button',{key:id,className:this.state.tab===id?'active':'',title,onClick:()=>this.switchTab(id)},h(Icon,{name:icon,size:17}),h('span',null,title)))))
         ,h('div',{className:'inspector-content'},
-          pending.length?h('div',{className:'approval-stack'},h('h3',null,h(Icon,{name:'warning'}),' ',pending.length,' công cụ cần phê duyệt'),pending.map(p=>h('div',{className:'approval-card',key:p.id},h('strong',null,p.toolName),h('p',null,str(p.reason)),h('pre',null,str(p.preview).slice(0,1500)),h('div',{className:'button-row'},h(Button,{variant:'primary',onClick:()=>this.decidePermission(p.id,true)},'Cho phép'),h(Button,{variant:'danger',onClick:()=>this.decidePermission(p.id,false)},'Từ chối'))))):null,
           this.state.tab==='activity'?this.activityPanel(hub,task):null,
           this.state.tab==='files'?this.filesPanel():null,
           this.state.tab==='git'?this.gitPanel():null,
@@ -521,16 +731,22 @@
         )
       );
     }
-    activityPanel(hub,task){const events=arr(task?.events);
+    activityPanel(hub,task){const events=arr(task?.events),d=UI.describeTask(task),tools=UI.toolsState(hub),history=arr(task?.stateHistory);
       return h('div',{className:'panel-content'},
-        h(Section,{title:'Agent status',action:h(Tag,{kind:statusKind(task?.status)},taskStates[task?.status]||'Chờ tác vụ')},
-          h('div',{className:'metrics-row'},h('div',null,h('b',null,task?.steps||0),h('span',null,'Phản hồi AI')),h('div',null,h('b',null,task?.toolCalls||0),h('span',null,'MCP calls')),h('div',null,h('b',null,arr(task?.prompts).length),h('span',null,'Yêu cầu'))),
+        h(Section,{title:'Agent status',action:h(Tag,{kind:d.kind,title:d.hint},task?d.label:'Chờ tác vụ')},
+          task?.stateReason?h('p',{className:'small-note'},UI.reasonText(task.stateReason)):null,
+          h('div',{className:'metrics-row'},h('div',null,h('b',null,task?.steps||0),h('span',null,'Phản hồi AI')),h('div',null,h('b',null,task?.toolCalls||0),h('span',null,'Lần gọi công cụ')),h('div',null,h('b',null,arr(task?.prompts).length),h('span',null,'Yêu cầu'))),
+          history.length?h('details',{className:'state-history'},h('summary',null,'Lịch sử trạng thái ('+history.length+')'),
+            h('ul',null,history.slice(-8).reverse().map((entry,i)=>h('li',{key:i},h('time',null,formatTime(entry.at)),' ',UI.STATES[entry.to]?.label||str(entry.to),entry.reason?h('small',null,' · '+UI.reasonText(entry.reason)):null)))):null,
           task?.id?h('div',{className:'toggle-row'},h('div',null,h('strong',null,'Tự tiếp tục sau restart'),h('small',null,'Chỉ khi thao tác cũ đã xác minh an toàn')),h('input',{type:'checkbox',checked:!!task.autoResume,disabled:this.isRunning(),onChange:e=>this.sessionRecovery(e.target.checked)})):null
         ),
         h(Section,{title:'Timeline',action:h('span',{className:'muted'},events.length+' sự kiện')},
-          events.length?h('div',{className:'timeline'},events.slice(-80).reverse().map((e,i)=>h('div',{className:'timeline-row',key:i},h('div',{className:'timeline-dot '+(e.toolName?'tool':'')}),h('div',null,h('time',null,formatTime(e.at)),e.toolName?h('code',null,e.toolName):null,h('p',null,str(e.message,e.type||'')))))):h(Empty,{icon:'history',title:'Chưa có hoạt động',body:'Model và các MCP calls sẽ hiện ở đây.'})
+          events.length?h('div',{className:'timeline'},events.slice(-80).reverse().map((e,i)=>h('div',{className:'timeline-row',key:i},h('div',{className:'timeline-dot '+(e.toolName?'tool':'')}),h('div',null,h('time',null,formatTime(e.at)),e.toolName?h('code',null,e.toolName):null,h('p',null,UI.eventText(e,600)))))):h(Empty,{icon:'history',title:'Chưa có hoạt động',body:'Model và các lần gọi công cụ sẽ hiện ở đây.'})
         ),
-        h(Section,{title:'MCP Services'},h('div',{className:'service-grid'},Object.entries(serviceNames).map(([id,name])=>h('div',{className:'service-row',key:id},h('span',{className:`status-circle ${statusKind(hub?.services?.[id]?.state)}`}),name,h(Tag,{kind:statusKind(hub?.services?.[id]?.state)},hub?.services?.[id]?.state||'—'))))),
+        tools.backend==='local'
+          ?h(Section,{title:'Công cụ dự án'},h('div',{className:'service-grid'},h('div',{className:'service-row'},h('span',{className:`status-circle ${statusKind(tools.state)}`}),'Công cụ cục bộ',h(Tag,{kind:statusKind(tools.state)},tools.state||'—'))),
+            tools.detail?h('p',{className:'small-note'},tools.detail):null)
+          :h(Section,{title:'MCP Services'},h('div',{className:'service-grid'},Object.entries(serviceNames).map(([id,name])=>h('div',{className:'service-row',key:id},h('span',{className:`status-circle ${statusKind(hub?.services?.[id]?.state)}`}),name,h(Tag,{kind:statusKind(hub?.services?.[id]?.state)},hub?.services?.[id]?.state||'—'))))),
         h(Section,{title:'Hub Logs'},h('pre',{className:'log-display'},arr(hub?.logs).slice(-24).join('\n')||'Chưa có log.'))
       );
     }
@@ -647,8 +863,20 @@
         )
       );
     }
-    settingsPanel(hub){const s=this.state, a=s.apiDraft;
+    settingsPanel(hub){const s=this.state, local=UI.backendOf(hub)==='local', tools=UI.toolsState(hub), guide=UI.onboarding(hub,{dismissed:false}), mode=this.mode(), perm=this.permMode();
       return h('div',{className:'panel-content'},
+        local?h(Section,{title:'Thiết lập nhanh',action:h(Tag,{kind:guide.complete?'success':'warn'},guide.complete?'Sẵn sàng':'Chưa xong')},
+          h('div',{className:'checklist'},guide.steps.filter(step=>step.id==='workspace'||step.id==='ai').map(step=>h('div',{className:'check-row',key:step.id},h(Icon,{name:step.done?'check':'warning',size:15}),h('span',null,step.title),h(Tag,{kind:step.done?'success':'warn'},step.done?'Xong':'Cần làm')))),
+          h(Button,{variant:'outline',icon:'spark',onClick:()=>this.set({onboardingOpen:true,onboardingStep:guide.current})},'Mở trình hướng dẫn')):null,
+        h(Section,{title:'Workspace'},h('div',{className:'settings-input'},h('input',{value:s.workspaceDraft,placeholder:'F:\\Projects\\repo',onChange:e=>this.set({workspaceDraft:e.target.value})}),h('div',{className:'button-row'},h(Button,{variant:'outline',onClick:()=>this.browseWorkspace()},'Chọn thư mục'),h(Button,{variant:'primary',onClick:()=>this.changeWorkspace(),disabled:this.isRunning()},'Áp dụng')))),
+        h(Section,{title:'Nhà cung cấp AI'},
+          mode==='chatgpt-web'?h('p',{className:'small-note'},'Đang ở chế độ ChatGPT Web: cấu hình dưới đây chỉ được dùng khi bạn chuyển sang chế độ API.'):null,
+          this.providerForm()),
+        h(Section,{title:'Quyền của agent'},
+          h('label',{className:'form-field'},'Chế độ phê duyệt',h('select',{id:'permission-mode',disabled:s.executionPolicy==='full-access'||!!s.busy,value:perm,onChange:e=>this.setPermission(e.target.value)},UI.PERMISSION_MODES.map(entry=>h('option',{key:entry.id,value:entry.id},entry.id==='review'?entry.label+' (khuyến nghị)':entry.label)))),
+          h('p',{className:'small-note'},UI.modeInfo(perm).hint),
+          h('p',{className:'small-note'},s.executionPolicy==='full-access'?'Full Access ghi đè cơ chế này: tất cả công cụ được chấp nhận không hỏi thêm. Không cấp quyền administrator hay vượt qua ACL Windows.':'Agent làm việc bằng quyền Windows của bạn; chọn workspace không tạo sandbox hệ điều hành. Lệnh shell và thao tác nguy hiểm luôn cần bạn xác nhận ở chế độ Review. File nhạy cảm (.env, khóa, .git) được bảo vệ.')),
+        h(Section,{title:'AI mode'},h('div',{className:'mode-grid'},[['chatgpt-web','ChatGPT Web','Chế độ cũ, thử nghiệm: bạn tự đăng nhập, dùng Companion'],['api','API Gateway','Gemini, OpenAI, Anthropic, Ollama và gateway tương thích']].map(([id,title,description])=>h('button',{key:id,className:`mode-option ${mode===id?'active':''}`,disabled:this.isRunning()||!!s.busy,onClick:()=>this.changeMode(id)},h(Icon,{name:id==='api'?'bot':'external',size:18}),h('div',null,h('strong',null,title),h('small',null,description)),h('span',{className:'mode-mark'},mode===id?'✓':''))))),
         h(Section,{title:'Giao diện'},h('div',{className:'theme-switch'},[['light','Sáng','sun'],['dark','Tối','moon'],['system','Theo máy','settings']].map(([v,label,ico])=>h('button',{type:'button',key:v,className:s.theme===v?'active':'',onClick:()=>this.setTheme(v)},h(Icon,{name:ico,size:16}),label)))),
         h(Section,{title:'Tính năng trên máy này',action:h(Button,{variant:'quiet',icon:'refresh',onClick:()=>this.loadCapabilities()},'Kiểm tra')},
           h('div',{className:'capability-list'},
@@ -658,28 +886,17 @@
             h('div',null,h('strong',null,'Language Server'),h(Tag,{kind:arr(s.indexState?.lsp).some(x=>x.state==='ready')?'success':'neutral'},arr(s.indexState?.lsp).some(x=>x.state==='ready')?'Đang chạy':'Chưa chạy / chưa cài')),
             h('div',null,h('strong',null,'Desktop Commander sandbox OS'),h(Tag,{kind:'error'},'Không · host quyền Windows')),
             h('div',null,h('strong',null,'Kiểm chứng Windows/Edge nhiều giờ'),h(Tag,{kind:'neutral'},'Cần chạy soak test thực tế'))
-          ),h('p',{className:'small-note'},'Không ghi “sẵn sàng” nếu thiếu điều kiện trên máy thật. Xem STUDIO-2.2.0.md để chạy kiểm tra Windows.')),
-        h(Section,{title:'AI mode'},h('div',{className:'mode-grid'},[['chatgpt-web','ChatGPT Web','Dùng tài khoản web và Companion'],['api','API Gateway','Gemini / OpenAI-compatible']].map(([id,title,description])=>h('button',{key:id,className:`mode-option ${this.mode()===id?'active':''}`,disabled:this.isRunning()||!!s.busy,onClick:()=>this.changeMode(id)},h(Icon,{name:id==='api'?'bot':'external',size:18}),h('div',null,h('strong',null,title),h('small',null,description)),h('span',{className:'mode-mark'},this.mode()===id?'✓':''))))),
-        h(Section,{title:'Workspace'},h('div',{className:'settings-input'},h('input',{value:s.workspaceDraft,placeholder:'F:\\Projects\\repo',onChange:e=>this.set({workspaceDraft:e.target.value})}),h('div',{className:'button-row'},h(Button,{variant:'outline',onClick:()=>this.browseWorkspace()},'Chọn thư mục'),h(Button,{variant:'primary',onClick:()=>this.changeWorkspace(),disabled:this.isRunning()},'Áp dụng')))),
-        h(Section,{title:'MCP Services'},h('div',{className:'button-row'},h(Button,{variant:'primary',onClick:()=>this.service('/api/services/start','Khởi động MCP'),disabled:this.isRunning()},'Khởi động MCP'),h(Button,{variant:'outline',onClick:()=>this.service('/api/services/stop','Dừng MCP'),disabled:this.isRunning()},'Dừng MCP')),
-          h('div',{className:'service-grid'},Object.entries(serviceNames).map(([id,name])=>h('div',{className:'service-row',key:id},name,h(Tag,{kind:statusKind(hub?.services?.[id]?.state)},hub?.services?.[id]?.state||'—'))))),
-        h(Section,{title:'Browser Companion'},h('p',{className:'small-note'},'Dùng với ChatGPT Web; cần Edge/Chrome cùng profile đã ghép.'),
+          ),h('p',{className:'small-note'},'Không ghi “sẵn sàng” nếu thiếu điều kiện trên máy thật. Xem docs/WINDOWS-SETUP.md để chạy kiểm tra Windows.')),
+        h(Section,{title:local?'Công cụ cục bộ':'MCP Services'},h('div',{className:'button-row'},h(Button,{variant:'primary',onClick:()=>this.service('/api/services/start',local?'Khởi động công cụ':'Khởi động MCP'),disabled:this.isRunning()},local?'Khởi động công cụ':'Khởi động MCP'),h(Button,{variant:'outline',onClick:()=>this.service('/api/services/stop',local?'Dừng công cụ':'Dừng MCP'),disabled:this.isRunning()},local?'Dừng công cụ':'Dừng MCP')),
+          local?h('div',{className:'service-grid'},h('div',{className:'service-row'},'Công cụ cục bộ',h(Tag,{kind:statusKind(tools.state)},tools.state||'—'))):h('div',{className:'service-grid'},Object.entries(serviceNames).map(([id,name])=>h('div',{className:'service-row',key:id},name,h(Tag,{kind:statusKind(hub?.services?.[id]?.state)},hub?.services?.[id]?.state||'—')))),
+          local?h('p',{className:'small-note'},'Công cụ chạy ngay trong tiến trình Hub và chỉ thao tác trong thư mục dự án. Gửi một yêu cầu cũng tự khởi động chúng.'):null),
+        h(Section,{title:'Browser Companion'},h('p',{className:'small-note'},'Chỉ dùng với chế độ ChatGPT Web (cũ); cần Edge/Chrome cùng profile đã ghép.'),
           h('div',{className:'button-row'},h(Tag,{kind:hub?.browser?.paired?'success':'neutral'},hub?.browser?.paired?'Đã ghép':'Chưa ghép'),h(Button,{variant:'outline',onClick:()=>this.pair(),disabled:hub?.browser?.paired},'Tạo mã ghép'),hub?.browser?.paired?h(Button,{variant:'danger',onClick:()=>this.unpair()},'Ngắt ghép'):null),
           s.pairCode?h('div',{className:'pair-code'},'Mã ghép: ',h('strong',null,s.pairCode),h('small',null,s.pairedExpiresAt?'Hết hạn '+formatTime(s.pairedExpiresAt):'')):null),
-        h(Section,{title:'API Gateway'},h('p',{className:'small-note'},'API key được gửi tới gateway do bạn cấu hình. Không nhập key đã từng bị lộ.'),
-          h('p',{className:'small-note'},'Khả năng agent gọi MCP: ',str(hub?.ai?.agentRequestMode,'chưa kiểm tra'),'. Test API chỉ kiểm tra nội dung văn bản; task thật sẽ dò tool calling. Khi gateway không hỗ trợ field chuẩn, Hub dùng JSON văn bản có kiểm soát nhưng có thể kém tin cậy hơn tool calling gốc.'),
-          h('label',{className:'form-field'},'Protocol',h('select',{value:a.protocol,onChange:e=>this.updateApi('protocol',e.target.value)},h('option',{value:'gemini'},'Gemini generateContent'),h('option',{value:'openai-chat'},'OpenAI-compatible'))),
-          ...[['apiBaseUrl','Base URL','https://...'],['model','Model','gemini-...'],['customPath','Endpoint path (tuỳ chọn)','/v1/...']].map(([key,label,placeholder])=>h('label',{className:'form-field',key},label,h('input',{value:a[key],placeholder,onChange:e=>this.updateApi(key,e.target.value)}))),
-          h('label',{className:'form-field'},'Authentication',h('select',{value:a.authMode,onChange:e=>this.updateApi('authMode',e.target.value)},['auto','bearer','google-key'].map(v=>h('option',{key:v,value:v},v)))),
-          h('label',{className:'form-field'},'API key (để trống để dùng key đã lưu)',h('input',{type:'password',autoComplete:'off',value:a.apiKey,placeholder:'••••••••••••',onChange:e=>this.updateApi('apiKey',e.target.value)})),
-          h('label',{className:'checkbox-line'},h('input',{type:'checkbox',checked:a.remember,onChange:e=>this.updateApi('remember',e.target.checked)}),'Lưu key bằng Windows DPAPI (chỉ trên Windows)'),
-          h('div',{className:'button-row'},h(Button,{variant:'primary',onClick:()=>this.saveApi(),disabled:this.isRunning()},'Lưu API'),h(Button,{variant:'outline',onClick:()=>this.testApi(),disabled:!hub?.ai?.configured},'Test API · Tự nhận dạng'),h(Button,{variant:'danger',onClick:()=>this.clearKey()},'Xóa key'))),
         h(Section,{title:'Windows host & sandbox'},
           h('label',{className:'form-field'},'Quyền chạy MCP',h('select',{value:s.executionPolicy,onChange:e=>this.setExecutionPolicy(e.target.value)},h('option',{value:'host-review'},'Host review · có thể dùng Desktop Commander'),h('option',{value:'sandbox-only'},'Sandbox-only · chặn external MCP tools'),h('option',{value:'full-access'},'Full Access · toàn bộ máy + Internet · không hỏi quyền'))),
           s.executionPolicy==='full-access'?h('div',{className:'full-access-warning',role:'alert'},h('strong',null,'FULL ACCESS ĐANG BẬT'),h('p',null,'Agent có thể tự dùng MCP/PowerShell để đọc, sửa, xóa file ngoài workspace và truy cập Internet. Chỉ giới hạn bởi quyền Windows, firewall và giới hạn hệ điều hành. Tắt trong Settings khi không sử dụng.')):null,
           h('p',{className:'small-note'},'Sandbox-only chỉ cho phép built-in Studio read tools và Docker sandbox terminal; không biến Desktop Commander thành sandbox.')),
-        h(Section,{title:'Công cụ dự án · AI tự chọn'},h('p',{className:'small-note'},'Tự phát hiện toàn bộ công cụ MCP trong workspace. Bạn chỉ giao việc, AI sẽ chọn công cụ, đọc hướng dẫn, sửa code và kiểm thử. Không cần chọn tool thủ công. Các lệnh chạy shell hoặc xóa dữ liệu vẫn cần phê duyệt theo chính sách.'),h('label',{className:'form-field'},'Chính sách thao tác MCP',h('select',{disabled:s.executionPolicy==='full-access',value:s.permissionMode,onChange:e=>this.setPermission(e.target.value)},[['review','Review (khuyến nghị)'],['manual','Manual'],['autonomous','Autonomous có kiểm tra']].map(([v,label])=>h('option',{key:v,value:v},label)))),
-          h('p',{className:'small-note'},s.executionPolicy==='full-access'?'Full Access ghi đè cơ chế Review/Manual/Autonomous: tất cả tool MCP được chấp nhận không hỏi thêm. Không cấp quyền administrator hay vượt qua ACL Windows.':'Desktop Commander chạy bằng quyền Windows. Chọn workspace không tạo sandbox OS. Lệnh shell và thao tác nguy hiểm cần xác nhận.')),
         h(Section,{title:'Phiên bản hệ thống'},h('p',{className:'small-note'},`UI ${uiVersion} · Backend ${hub?.version||'…'} · Build ${this.state.health?.uiBuild||'…'}`),h('p',{className:'small-note'},'Gặp lỗi “Không tìm thấy thao tác”? STOP Hub đang chạy nền, START bản mới và Ctrl+F5.'),
           h('a',{className:'inline-link',href:'/legacy',target:'_blank',rel:'noopener noreferrer'},'Giao diện cũ (dự phòng) ↗'))
       );

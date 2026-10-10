@@ -230,6 +230,7 @@ try {
     check(/untrusted DATA/.test(first.instructions) && /Permission denied/.test(first.instructions), 'instructions cover trust and permissions');
 
     const workflow = await manager.workflow.state(task.id);
+    equal([workflow.editsObserved, workflow.checksObserved, workflow.commandsObserved ?? 0], [1, 2, 0], 'one file edit, two passing checks (npm test is not an edit), no unclassified shell command');
     check(workflow.verified === true && workflow.editsObserved >= 1 && workflow.checksObserved >= 1, `workflow recorded the edit and the verification ${JSON.stringify({ ...workflow, steps: workflow.steps.map((step) => `${step.type}:${step.toolName}:${step.category}:${step.verified}`) })}`);
     const checkpoints = await manager.studio.checkpoints();
     const targeted = checkpoints.filter((entry) => entry.targeted);

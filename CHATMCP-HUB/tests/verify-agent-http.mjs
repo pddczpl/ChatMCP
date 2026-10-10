@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import { createHubServer } from '../hub.mjs';
+import { VERSION } from '../lib/manager.mjs';
 
 async function freePort() { const server=net.createServer(); await new Promise(r=>server.listen(0,'127.0.0.1',r)); const port=server.address().port;await new Promise(r=>server.close(r));return port; }
 const port=await freePort();
@@ -44,7 +45,7 @@ try {
   check(response.ok,'explicit delete route');check(deletes===1,'delete dispatched once');
   response=await post('/api/ai/clear-key',{},state.csrfToken);check(response.ok,'clear key');
   check((await response.json()).ai.configured===false,'key cleared');
-  check((await fetch(origin+'/api/health').then(r=>r.json())).version==='2.2.8','health');
+  check((await fetch(origin+'/api/health').then(r=>r.json())).version===VERSION,'health');
   const homepage = await fetch(origin+'/').then(r=>r.text());
   check(homepage.includes('id="root"') && homepage.includes('react-app.js'), 'dual-mode dashboard settings rendered');
   check(homepage.includes('React and ReactDOM are vendored'), 'agent progress + live timeline visible');

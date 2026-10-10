@@ -10,7 +10,7 @@ import { exists, readJson, writeJson, collectSecrets, redact, resolveProgram, np
 import { makeInstructions } from './instructions.mjs';
 import { listAll, collectCatalog, verifyProxyCatalog, closeConnection, makeAgentSession, buildInternalCatalog } from './catalog.mjs';
 
-export const VERSION = '2.2.8';
+export const VERSION = '2.3.0';
 const PROXY_PORT = 3006;
 const PROXY_URL = `http://127.0.0.1:${PROXY_PORT}/mcp`;
 const baseService = () => ({ state: 'unknown', detail: 'Chưa kiểm tra' });
@@ -20,6 +20,8 @@ export const BACKENDS = Object.freeze(['local', 'mcp']);
 // something are offered next to them (code intelligence, test discovery, checkpoints); the rest would duplicate local.*.
 const LOCAL_BACKEND_STUDIO_TOOLS = new Set(['symbols', 'references', 'definitions', 'index_status', 'checks', 'skills', 'diff_check', 'checkpoints', 'checkpoint', 'review']);
 const CHECKPOINT_CATEGORIES = new Set(['workspace_edit', 'dangerous', 'execute', 'unknown']);
+// Calls that pass the same gate as a file edit without being one: a test run may write caches or build output, Git bookkeeping changes .git.
+const NOT_FILE_EDITS = new Set(['local.run_command', 'local.git_add', 'local.git_commit', 'local.git_branch']);
 
 /** Where the Hub keeps its state when no directory is given: per-user, outside any project. */
 export function defaultDataDirectory(env = process.env, platform = process.platform, home = os.homedir()) {
@@ -644,7 +646,11 @@ export class HubManager {
       const structured = result?.structuredContent;
       const verified = (name === 'studio.diff_check' && structured?.ok === true)
         || (name === 'local.run_command' && result?.isError !== true && structured?.kind === 'verify' && structured?.exitCode === 0);
-      await this.workflow?.mark(binding.taskId, 'tool_result', { toolName: name, category: decision.category, isError: result?.isError === true, verified });
+      await this.workflow?.mark(binding.taskId, 'tool_result', {
+        toolName: name, category: decision.category, isError: result?.isError === true, verified,
+        fileEdit: decision.category === 'workspace_edit' && !NOT_FILE_EDITS.has(name),
+        commandKind: name === 'local.run_command' ? String(decision.risk?.kind ?? '') : '',
+      });
       return result;
     };
   }

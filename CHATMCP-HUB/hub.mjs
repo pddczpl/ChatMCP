@@ -12,7 +12,7 @@ import { acquireInstanceLock } from './lib/instance-lock.mjs';
 import { publicPresets } from './lib/provider-presets.mjs';
 
 const APP_ID = 'chatmcp-local-hub';
-export const UI_BUILD = '2.2.8-react-offline';
+export const UI_BUILD = '2.3.0-react-agent';
 // Prevent a new installer from silently reopening a stale daemon at :3007.
 export function assertCompatibleRunningHub(health, port=3007) {
   if (health?.app !== APP_ID) throw new Error(`Cổng ${port} đang do ứng dụng khác sử dụng. Không tự dừng tiến trình đó.`);
@@ -254,7 +254,7 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
         return json(200, { ...result, csrfToken: token });
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') return json(405, { error: 'Phương thức không được hỗ trợ.' });
-      const staticFiles = { '/': 'web/index.html', '/index.html': 'web/index.html', '/legacy': 'web/legacy.html', '/legacy.html': 'web/legacy.html', '/app.js': 'web/app.js', '/style.css': 'web/style.css', '/studio.css': 'web/studio.css', '/studio.js': 'web/studio.js', '/react-app.js': 'web/react-app.js', '/react.css': 'web/react.css', '/vendor/react.production.min.js': 'web/vendor/react.production.min.js', '/vendor/react-dom.production.min.js': 'web/vendor/react-dom.production.min.js', '/chat-route.js': 'extension/chat-route.js' };
+      const staticFiles = { '/': 'web/index.html', '/index.html': 'web/index.html', '/legacy': 'web/legacy.html', '/legacy.html': 'web/legacy.html', '/app.js': 'web/app.js', '/style.css': 'web/style.css', '/studio.css': 'web/studio.css', '/studio.js': 'web/studio.js', '/react-app.js': 'web/react-app.js', '/ui-logic.js': 'web/ui-logic.js', '/onboarding.js': 'web/onboarding.js', '/react.css': 'web/react.css', '/vendor/react.production.min.js': 'web/vendor/react.production.min.js', '/vendor/react-dom.production.min.js': 'web/vendor/react-dom.production.min.js', '/chat-route.js': 'extension/chat-route.js' };
       const filename = staticFiles[url.pathname];
       if (!filename) return json(404, { error: 'Không tìm thấy trang.' });
       const data = await fs.readFile(path.join(bundleRoot, filename));

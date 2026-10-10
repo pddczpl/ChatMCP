@@ -10,14 +10,18 @@ export class StudioWorkflow {
     const data=await readJson(path.join(this.directory,`${id}.json`))??{taskId:id,steps:[],phase:'discovery',editsObserved:0,checksObserved:0,verified:false};
     this.cache.set(id,data);return data;
   }
-  async mark(taskId,type,{toolName='',category='',isError=false,checkpoint=null,verified=false}={}){
+  async mark(taskId,type,{toolName='',category='',isError=false,checkpoint=null,verified=false,fileEdit,commandKind=''}={}){
     const data=await this.load(taskId);const t=new Date().toISOString();
     const safeTool=String(toolName).slice(0,200);
     const phase=type==='tool_start'?(category==='workspace_edit'||category==='dangerous'?'editing':category==='execute'?'running':'discovery'):
       type==='checkpoint'?'checkpoint':type==='tool_result'?(verified?'verification':data.phase):data.phase;
     data.phase=phase;
     if(type==='tool_result' && !isError){
-      if(['workspace_edit','dangerous','execute'].includes(category))data.editsObserved+=category==='workspace_edit'?1:0;
+      // An edit is a call that changed files. The caller says so with `fileEdit`: a test run passes the same gate as an edit
+      // (it may write caches or build output) but is not one. Without that information the category decides, as before.
+      if(fileEdit??(category==='workspace_edit'))data.editsObserved++;
+      // A shell command that is not a plain read or a known check may have changed anything: counted apart, never as an edit.
+      if(['edit','exec','dangerous'].includes(commandKind))data.commandsObserved=(data.commandsObserved||0)+1;
       if(verified){data.checksObserved++;data.verified=true;}
     }
     const item={at:t,type,toolName:safeTool,category,isError,checkpoint,verified};data.steps.push(item);

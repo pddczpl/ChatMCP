@@ -2,17 +2,20 @@
 No external network, credentials or real MCP calls are used here.
 """
 from pathlib import Path
-from playwright.sync_api import sync_playwright, expect
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from browser_launch import expect, launch_chromium, shot, sync_playwright  # noqa: E402
 root=Path(__file__).resolve().parent.parent
 with sync_playwright() as p:
-    browser=p.chromium.launch(headless=True,executable_path='/usr/bin/chromium',args=['--no-sandbox','--disable-dev-shm-usage'])
+    browser=launch_chromium(p)
     page=browser.new_page(viewport={'width':1550,'height':950})
     errors=[]
     page.on('pageerror',lambda e:errors.append(str(e)))
     page.goto('about:blank')
     page.set_content('<!doctype html><html><head><meta charset="utf-8"></head><body><div id="root"></div></body></html>')
     page.add_style_tag(path=str(root/'web/react.css'))
-    for name in ['tests/react-mock-api.js','web/vendor/react.production.min.js','web/vendor/react-dom.production.min.js','web/react-app.js']:
+    for name in ['tests/react-mock-api.js','web/vendor/react.production.min.js','web/vendor/react-dom.production.min.js','web/ui-logic.js','web/onboarding.js','web/react-app.js']:
         page.add_script_tag(path=str(root/name))
     page.wait_for_timeout(400)
     # Reproduce MCP not started; no pre-start button is pressed.

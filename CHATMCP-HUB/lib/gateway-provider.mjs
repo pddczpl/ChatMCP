@@ -18,8 +18,8 @@ export { asChatMessages, normalizeChatCompletion };
 
 // Direct API mode is deliberately independent of the ChatGPT Web companion.
 // API credentials never pass through the browser extension or the MCP transport.
-const FORMATS = ['gemini', 'openai-chat', 'anthropic'];
-const AUTH_MODES = ['auto', 'google-key', 'bearer'];
+export const FORMATS = Object.freeze(['gemini', 'openai-chat', 'anthropic']);
+export const AUTH_MODES = Object.freeze(['auto', 'google-key', 'bearer']);
 const isObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 const modelOK = (v) => typeof v === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9._:\/-]{0,150}$/.test(v);
 const bad = (code, message, statusCode = 400) => Object.assign(new Error(message), { code, statusCode });

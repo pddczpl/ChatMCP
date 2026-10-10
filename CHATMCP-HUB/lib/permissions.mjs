@@ -80,7 +80,7 @@ export class PermissionGate {
     if(Array.isArray(saved?.history))this.history=saved.history.slice(-100);
   }
   #save(){if(!this.file)return;this.writes=this.writes.catch(()=>{}).then(()=>writeJson(this.file,{mode:this.mode,executionPolicy:this.executionPolicy,history:this.history.slice(-100)}));this.writes.catch(()=>{});}
-  state(){return {mode:this.mode,modes:[...PERMISSION_MODES],executionPolicy:this.executionPolicy,fullAccess:this.executionPolicy==='full-access',pending:[...this.requests.values()].map(({id,taskId,toolName,category,reason,summary,preview,detail,at})=>({id,taskId,toolName,category,reason,summary,preview,detail,at})),recent:this.history.slice(-60)};}
+  state(){return {mode:this.mode,modes:[...PERMISSION_MODES],executionPolicy:this.executionPolicy,fullAccess:this.executionPolicy==='full-access',approvalTimeoutMs:this.timeout,pending:[...this.requests.values()].map(({id,taskId,toolName,category,reason,summary,preview,detail,at,expiresAt})=>({id,taskId,toolName,category,reason,summary,preview,detail,at,expiresAt})),recent:this.history.slice(-60)};}
   configure({mode,executionPolicy,confirmation}={}){
     let nextMode;
     if(mode!==undefined){nextMode=normalizeMode(mode);if(!nextMode)throw error('bad_mode','Chế độ phải là readonly (chỉ đọc), review hoặc autonomous.',400);}
@@ -190,7 +190,9 @@ export class PermissionGate {
     if(!taskId)throw error('missing_task','Thiếu mã tác vụ khi xin quyền.');
     if(signal?.aborted)throw signal.reason;
     const id=randomUUID();const {preview,detail,summary,reason:shownReason}=this.#describe(name,args,verdict);
-    const request={id,taskId,toolName:name,category,reason:shownReason,summary,preview,detail,at:new Date(this.now()).toISOString()};
+    // `expiresAt` lets the page show how long the request will wait; the timer below is what actually enforces it.
+    const askedAt=this.now();
+    const request={id,taskId,toolName:name,category,reason:shownReason,summary,preview,detail,at:new Date(askedAt).toISOString(),expiresAt:new Date(askedAt+this.timeout).toISOString()};
     const promise=new Promise((resolve,reject)=>{
       const timer=setTimeout(()=>{this.requests.delete(id);this.#record(request,'expired');resolve(false);},this.timeout);
       const aborted=()=>{clearTimeout(timer);this.requests.delete(id);this.#record(request,'cancelled');reject(signal.reason||error('cancelled','Tác vụ đã dừng.'));};

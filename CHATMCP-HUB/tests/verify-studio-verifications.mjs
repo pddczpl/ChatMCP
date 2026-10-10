@@ -6,6 +6,7 @@ import net from 'node:net';
 import { StudioTerminal } from '../lib/studio-terminal.mjs';
 import { StudioVerification } from '../lib/studio-verification.mjs';
 import { createHubServer, assertCompatibleRunningHub, UI_BUILD } from '../hub.mjs';
+import { VERSION } from '../lib/manager.mjs';
 
 const root=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-verify-'));
 // Deliberately free of quote characters: Windows PowerShell 5.1 and POSIX shells parse embedded
@@ -19,9 +20,9 @@ const verifications=new StudioVerification({workspace,terminal,directory:path.jo
 let n=0;const ok=(x,label)=>{assert.ok(x,label);n++;};
 let server;
 try{
-  ok(assertCompatibleRunningHub({app:'chatmcp-local-hub',version:'2.2.8',uiBuild:UI_BUILD}), 'matching running Hub accepted');
+  ok(assertCompatibleRunningHub({app:'chatmcp-local-hub',version:VERSION,uiBuild:UI_BUILD}), 'matching running Hub accepted');
   assert.throws(()=>assertCompatibleRunningHub({app:'chatmcp-local-hub',version:'2.0.0'},3007),/STOP-CHATMCP-HUB/);n++;
-  assert.throws(()=>assertCompatibleRunningHub({app:'malicious-app',version:'2.2.8',uiBuild:UI_BUILD}),/ứng dụng khác/);n++;
+  assert.throws(()=>assertCompatibleRunningHub({app:'malicious-app',version:VERSION,uiBuild:UI_BUILD}),/ứng dụng khác/);n++;
   await assert.rejects(verifications.start({command:'rm -rf .'}),{statusCode:403});n++;
   const run=await verifications.start({command:suggested});ok(run.terminalId&&run.status==='running','persisted run created');
   for(let i=0;i<150&&terminal.state()[0]?.status==='running';i++)await new Promise(r=>setTimeout(r,35));
@@ -39,7 +40,7 @@ try{
   // Real HTTP routes for the new test evidence API.
   const bind=net.createServer();await new Promise(r=>bind.listen(0,'127.0.0.1',r));const port=bind.address().port;await new Promise(r=>bind.close(r));
   const origin=`http://127.0.0.1:${port}`;
-  const stub={workspace:root,secrets:[],log:()=>{},catalog:{ready:false,tools:[],counts:{}},state:()=>({version:'2.2.8',workspace:{path:root},services:{docker:{state:'ready'},cloud:{state:'ready'},proxy:{state:'ready'},desktop:{state:'ready'}}})};
+  const stub={workspace:root,secrets:[],log:()=>{},catalog:{ready:false,tools:[],counts:{}},state:()=>({version:VERSION,workspace:{path:root},services:{docker:{state:'ready'},cloud:{state:'ready'},proxy:{state:'ready'},desktop:{state:'ready'}}})};
   stub.studio=workspace;stub.verification=third;
   stub.permissions={state:()=>({mode:'review'}),configure:()=>{},decide:()=>{}};
   stub.terminal=third.terminal;stub.delegates={state:()=>null};stub.workflow={state:()=>({steps:[]})};
@@ -54,7 +55,7 @@ try{
   const opened=await response.json();ok(opened.terminalId,'HTTP returns a terminal process ID');
   response=await fetch(origin+'/api/studio/verifications');const body=await response.json();ok(response.ok&&body.runs.length>=2,'HTTP read evidence');
   response=await post('/api/agent/mode/',{mode:'api'});ok(response.status!==404,'trailing slash normalized, route reached');
-  response=await post('/api/unknown-action',{});const x=await response.json();ok(response.status===404&&x.code==='unknown_action'&&x.serverVersion==='2.2.8','action mismatch diagnostic');
+  response=await post('/api/unknown-action',{});const x=await response.json();ok(response.status===404&&x.code==='unknown_action'&&x.serverVersion===VERSION,'action mismatch diagnostic');
   const old={...headers,'X-ChatMCP-UI-Build':'2.0.0-old'};
   response=await fetch(origin+'/api/tasks/delete',{method:'POST',headers:old,body:'{}'});const bad=await response.json();ok(response.status===409&&bad.code==='ui_backend_version_mismatch','old UI rejected with clear error');
   console.log(`PASS: ${n} checks for real test evidence, restart, route errors, stale daemon`);

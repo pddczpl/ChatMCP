@@ -2,15 +2,18 @@
 This is NOT an end-to-end Windows/Edge test, nor a live Docker/LSP test.
 """
 from pathlib import Path
-from playwright.sync_api import sync_playwright, expect
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from browser_launch import expect, launch_chromium, shot, sync_playwright  # noqa: E402
 root=Path(__file__).resolve().parent.parent
 with sync_playwright() as p:
-    browser=p.chromium.launch(headless=True,executable_path='/usr/bin/chromium',args=['--no-sandbox','--disable-dev-shm-usage'])
+    browser=launch_chromium(p)
     page=browser.new_page(viewport={'width':1600,'height':960},device_scale_factor=1)
     errors=[]
     page.on('pageerror',lambda err: errors.append(str(err)))
     page.goto('about:blank');page.set_content('<!doctype html><html><head><meta charset="utf-8"></head><body><div id="root"></div></body></html>')
-    for asset in ['web/react.css','tests/react-mock-api.js','web/vendor/react.production.min.js','web/vendor/react-dom.production.min.js','web/react-app.js']:
+    for asset in ['web/react.css','tests/react-mock-api.js','web/vendor/react.production.min.js','web/vendor/react-dom.production.min.js','web/ui-logic.js','web/onboarding.js','web/react-app.js']:
         if asset.endswith('.css'):page.add_style_tag(path=str(root/asset))
         else:page.add_script_tag(path=str(root/asset))
     page.wait_for_timeout(450)
@@ -22,7 +25,7 @@ with sync_playwright() as p:
     page.get_by_role('button',name='Files').click();page.wait_for_timeout(280)
     page.get_by_role('button',name='README.md').click();page.wait_for_timeout(280)
     assert '# Example task' in page.locator('.code-view').inner_text()
-    page.screenshot(path='/mnt/data/chatmcp-studio-2.2.4-light.png',full_page=True)
+    shot(page,'chatmcp-studio-2.2.4-light',full_page=True)
     page.get_by_role('button',name='Code / LSP').click();page.wait_for_timeout(200)
     page.get_by_role('button',name='Lập chỉ mục mã nguồn').click();page.wait_for_timeout(350)
     page.get_by_placeholder('Tên hàm, class, interface…').fill('calculate')
@@ -50,7 +53,7 @@ with sync_playwright() as p:
     assert page.evaluate('window.__apiState.studio.permissions.executionPolicy')=='sandbox-only'
     assert '/api/studio/permissions/config' in page.evaluate('window.__requests.filter(x=>x.method==="POST").map(x=>x.path)')
     page.get_by_role('button',name='Files').click()
-    page.screenshot(path='/mnt/data/chatmcp-studio-2.2.4-dark.png',full_page=True)
+    shot(page,'chatmcp-studio-2.2.4-dark',full_page=True)
     assert not errors, 'React runtime errors: '+str(errors)
     mutations=page.evaluate('window.__requests.filter(x=>x.method === "POST").map(x=>x.path)')
     assert '/api/studio/intelligence/index' in mutations

@@ -5,11 +5,14 @@ are tested separately in Node; this test exercises real React DOM interactions.
 """
 import re
 from pathlib import Path
-from playwright.sync_api import sync_playwright, expect
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from browser_launch import expect, launch_chromium, shot, sync_playwright  # noqa: E402
 
 root=Path(__file__).resolve().parent.parent
 with sync_playwright() as p:
-    browser=p.chromium.launch(headless=True,executable_path='/usr/bin/chromium',args=['--no-sandbox','--disable-dev-shm-usage'])
+    browser=launch_chromium(p)
     page=browser.new_page(viewport={'width':1580,'height':930},device_scale_factor=1)
     errors=[]
     page.on('pageerror',lambda error:errors.append(str(error)))
@@ -19,6 +22,8 @@ with sync_playwright() as p:
     page.add_script_tag(path=str(root/'tests/react-mock-api.js'))
     page.add_script_tag(path=str(root/'web/vendor/react.production.min.js'))
     page.add_script_tag(path=str(root/'web/vendor/react-dom.production.min.js'))
+    page.add_script_tag(path=str(root/'web/ui-logic.js'))
+    page.add_script_tag(path=str(root/'web/onboarding.js'))
     page.add_script_tag(path=str(root/'web/react-app.js'))
     page.wait_for_timeout(800)
     print('BODY:',page.locator('body').inner_text()[:1200])
@@ -40,7 +45,7 @@ with sync_playwright() as p:
     mutations=page.evaluate('window.__requests.filter(x=>x.method==="POST")')
     assert [x['path'] for x in mutations].count('/api/agent/mode')==2
     assert [x['path'] for x in mutations].count('/api/tasks/delete')==1
-    assert all(x['headers']['X-ChatMCP-UI-Build']=='2.2.8-react-offline' for x in mutations)
+    assert all(x['headers']['X-ChatMCP-UI-Build']=='2.3.0-react-agent' for x in mutations)
     page.get_by_role('button',name='Files').click()
     page.wait_for_timeout(260)
     page.get_by_role('button',name='README.md').click()
@@ -58,7 +63,7 @@ with sync_playwright() as p:
     assert [x['path'] for x in page.evaluate('window.__requests.filter(x=>x.method==="POST")')].count('/api/studio/verify/run')==1
     expect(page.get_by_text('PASS',exact=True)).to_be_visible()
     page.get_by_role('button',name='Files').click()
-    page.screenshot(path='/mnt/data/chatmcp-studio-2.2.8-preview.png',full_page=True)
+    shot(page,'chatmcp-studio-2.3.0-preview',full_page=True)
     assert not errors,'React runtime exception: '+str(errors)
     # A React frontend with stale backend assets must stop BEFORE mutations.
     mismatch=browser.new_page(viewport={'width':1250,'height':850})
@@ -69,6 +74,8 @@ with sync_playwright() as p:
     mismatch.add_script_tag(content="base['/api/health']=()=>({app:'chatmcp-local-hub',version:'2.0.0',uiBuild:'old-dashboard',initialized:true});")
     mismatch.add_script_tag(path=str(root/'web/vendor/react.production.min.js'))
     mismatch.add_script_tag(path=str(root/'web/vendor/react-dom.production.min.js'))
+    mismatch.add_script_tag(path=str(root/'web/ui-logic.js'))
+    mismatch.add_script_tag(path=str(root/'web/onboarding.js'))
     mismatch.add_script_tag(path=str(root/'web/react-app.js'))
     expect(mismatch.get_by_text('Giao diện và tiến trình Hub không cùng phiên bản')).to_be_visible()
     mismatch.get_by_role('button',name='Cài đặt',exact=True).first.click()
@@ -93,6 +100,8 @@ with sync_playwright() as p:
     """)
     stalled.add_script_tag(path=str(root/'web/vendor/react.production.min.js'))
     stalled.add_script_tag(path=str(root/'web/vendor/react-dom.production.min.js'))
+    stalled.add_script_tag(path=str(root/'web/ui-logic.js'))
+    stalled.add_script_tag(path=str(root/'web/onboarding.js'))
     stalled.add_script_tag(path=str(root/'web/react-app.js'))
     expect(stalled.get_by_text('Companion đã nhận gói nhưng Hub chưa xác nhận gửi')).to_be_visible()
     expect(stalled.get_by_text('Đã chờ hơn 90 giây',exact=False)).to_be_visible()

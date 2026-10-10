@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 import {createHubServer,UI_BUILD} from '../hub.mjs';
+import {VERSION} from '../lib/manager.mjs';
 import {StudioWorkspace} from '../lib/studio-workspace.mjs';
 import {PermissionGate} from '../lib/permissions.mjs';
 import {StudioTerminal} from '../lib/studio-terminal.mjs';
@@ -13,7 +14,7 @@ let n=0;const check=(x,m)=>{assert.ok(x,m);n++};
 const temp=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-v2.2-http-'));const repo=path.join(temp,'repo');await fs.mkdir(repo);
 await fs.writeFile(path.join(repo,'test.py'),'def hello():\n    return 10\n\nvalue = hello()\n');
 const s=net.createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const port=s.address().port;await new Promise(r=>s.close(r));const origin=`http://127.0.0.1:${port}`;
-const manager={workspace:repo,secrets:[],log:()=>{},state:()=>({version:'2.2.8',workspace:{path:repo},services:{proxy:{state:'ready'},desktop:{state:'ready'},cloud:{state:'ready'},docker:{state:'ready'}}})};
+const manager={workspace:repo,secrets:[],log:()=>{},state:()=>({version:VERSION,workspace:{path:repo},services:{proxy:{state:'ready'},desktop:{state:'ready'},cloud:{state:'ready'},docker:{state:'ready'}}})};
 manager.studio=new StudioWorkspace({manager,directory:path.join(temp,'studio')});
 manager.permissions=new PermissionGate({manager,workspace:manager.studio,directory:path.join(temp,'policy')});
 manager.terminal=new StudioTerminal({workspace:manager.studio});
@@ -25,7 +26,7 @@ await new Promise(r=>http.listen(port,'127.0.0.1',r));
 let csrf;async function get(route){const res=await fetch(origin+route);return {status:res.status,value:await res.json()};}
 async function post(route,body={},headers={}){const res=await fetch(origin+route,{method:'POST',headers:{'Content-Type':'application/json','Origin':origin,'X-ChatMCP-Request':'local-dashboard','X-ChatMCP-CSRF':csrf,'X-ChatMCP-UI-Build':UI_BUILD,...headers},body:JSON.stringify(body)});return {status:res.status,value:await res.json()};}
 try{
-  let a=await get('/api/health');check(a.value.version==='2.2.8'&&a.value.uiBuild===UI_BUILD,'version handshake');
+  let a=await get('/api/health');check(a.value.version===VERSION&&a.value.uiBuild===UI_BUILD,'version handshake');
   a=await get('/api/state');csrf=a.value.csrfToken;check(csrf?.length===64,'csrf exists');
   a=await get('/api/studio/intelligence/status');check(a.status===200&&!a.value.indexedAt,'index initially empty');
   a=await post('/api/studio/intelligence/index');check(a.status===200&&a.value.symbolCount===1,'HTTP AST index built');

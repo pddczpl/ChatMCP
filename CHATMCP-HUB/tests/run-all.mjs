@@ -70,7 +70,8 @@ function runSuite(name, options) {
     const command = isPython ? (process.platform === 'win32' ? 'python' : 'python3') : process.execPath;
     const child = spawn(command, [path.join(testsDirectory, name)], {
       cwd: hubRoot,
-      env: { ...process.env, CHATMCP_TEST_RUNNER: '1' },
+      // UTF-8 for Python children: on Windows a piped stdout defaults to cp1252 and cannot print the Vietnamese UI text.
+      env: { ...process.env, CHATMCP_TEST_RUNNER: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
       windowsHide: true,
