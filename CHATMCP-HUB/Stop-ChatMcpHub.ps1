@@ -37,7 +37,7 @@ function Test-HubRequestTimeout {
 }
 
 function Invoke-HubStopJson {
-    param([string]$Endpoint, [string]$Method = 'GET', [hashtable]$Headers = @{}, [int]$TimeoutMs = 2000)
+    param([string]$Endpoint, [string]$Method = 'GET', [hashtable]$Headers = @{}, [int]$TimeoutMs = 5000)
     $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::new($Method), $hubStopBase + $Endpoint)
     $cancellation = [System.Threading.CancellationTokenSource]::new()
     $response = $null
@@ -57,6 +57,23 @@ function Invoke-HubStopJson {
     }
 }
 
+function Test-HubPortListening {
+    # True when a program is listening on this port on IPv4 loopback, any IPv4 address or any IPv6 address.
+    # It reads the TCP table instead of connecting: on Windows 11 a refused connection from .NET is only
+    # reported after about two seconds, which is indistinguishable from a timeout and made a stopped Hub
+    # look as if it was still running.
+    try {
+        foreach ($endpoint in [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners()) {
+            if ($endpoint.Port -ne $Port) { continue }
+            $address = $endpoint.Address
+            if ($address.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork -and [System.Net.IPAddress]::IsLoopback($address)) { return $true }
+            if ($address.Equals([System.Net.IPAddress]::Any) -or $address.Equals([System.Net.IPAddress]::IPv6Any)) { return $true }
+        }
+        return $false
+    }
+    catch { return $true }
+}
+
 function Assert-HubIdentity {
     param([object]$Health)
     if ($null -eq $Health -or $null -eq $Health.PSObject.Properties['app'] -or $Health.app -ne 'chatmcp-local-hub') {
@@ -73,6 +90,10 @@ try {
     $hubStopClient.MaxResponseContentBufferSize = 65536
 
     $hubStopPhase = 'verifying the service on port ' + $Port
+    if (-not (Test-HubPortListening)) {
+        Write-Host ('[CHATMCP-HUB] Already stopped: nothing is listening at ' + $hubStopBase + '.')
+        exit 0
+    }
     try { $hubStopHealth = Invoke-HubStopJson -Endpoint '/api/health' }
     catch {
         if (Test-HubConnectionRefused -Exception $_.Exception) {
@@ -110,6 +131,10 @@ try {
     $hubStopPhase = 'waiting for Hub shutdown'
     $hubStopWatch = [Diagnostics.Stopwatch]::StartNew()
     while ($hubStopWatch.ElapsedMilliseconds -lt 15000) {
+        if (-not (Test-HubPortListening)) {
+            Write-Host '[CHATMCP-HUB] Stopped. You can replace the bundle and start it again.'
+            exit 0
+        }
         $remaining = 15000 - $hubStopWatch.ElapsedMilliseconds
         $pollTimeout = [int][Math]::Max(1, [Math]::Min(750, $remaining))
         try {

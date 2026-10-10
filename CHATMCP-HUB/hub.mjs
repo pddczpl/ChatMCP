@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import http from 'node:http';
 import fs from 'node:fs/promises';
+import { appendFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
@@ -97,7 +98,7 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
         }
         return json(405, { error: 'Phương thức không được hỗ trợ.' });
       }
-      if (req.method === 'GET' && url.pathname === '/api/health') return json(200, { app: APP_ID, version: VERSION, uiBuild: UI_BUILD, initialized: isInitialized() });
+      if (req.method === 'GET' && url.pathname === '/api/health') return json(200, { app: APP_ID, version: VERSION, uiBuild: UI_BUILD, initialized: isInitialized(), backend: manager.backend });
       if (req.method === 'GET' && url.pathname === '/api/capabilities') return json(200, { app: APP_ID, version: VERSION, uiBuild: UI_BUILD, postRoutes: POST_ROUTES, frontend: 'React', offlineAssets: true });
       if (req.method === 'GET' && url.pathname === '/api/state') return json(200, state());
       if (!isInitialized() && (req.method === 'POST' || url.pathname === '/auth/chatgpt/callback')) return json(503, { error: 'Hub đang nạp cấu hình. Chờ vài giây rồi thử lại.' });
@@ -284,7 +285,8 @@ async function openDashboard(url, manager) {
 // --backend     local (default without --repo-root) | mcp (default with --repo-root)
 // --port        dashboard port (default 3007)
 // --no-open     do not open the browser
-const VALUE_OPTIONS = ['--repo-root', '--project', '--port', '--state-dir', '--backend'];
+// --log-file    also append every log line (and a fatal startup error) to this file; used by the background launcher
+const VALUE_OPTIONS = ['--repo-root', '--project', '--port', '--state-dir', '--backend', '--log-file'];
 export function parseArguments(args, env = process.env) {
   const values = {};
   let open = !/^(1|true|yes)$/i.test(env.CHATMCP_NO_OPEN ?? '');
@@ -302,12 +304,29 @@ export function parseArguments(args, env = process.env) {
   if (backend === 'mcp' && !repoRoot) throw new Error('Backend mcp cần --repo-root (thư mục repository Cloud Harness).');
   // Explicit choice > environment > the folder the original MCP flow already uses > a per-user folder.
   const stateDir = values['--state-dir'] ? path.resolve(values['--state-dir']) : env.CHATMCP_STATE_DIR ? path.resolve(env.CHATMCP_STATE_DIR) : repoRoot ? null : defaultDataDirectory(env);
-  return { repoRoot, project: values['--project'], port, stateDir, backend, open };
+  const logFile = values['--log-file'] ? path.resolve(values['--log-file']) : null;
+  return { repoRoot, project: values['--project'], port, stateDir, backend, open, logFile };
+}
+
+// Console output, plus an append-only file when the launcher asked for one. The background launcher on Windows
+// starts the Hub without any inherited pipe (otherwise a caller that captures the launcher's output waits until
+// the Hub exits), so the file is the only place its messages and fatal errors can go.
+function appendToLog(file, line) {
+  if (!file) return;
+  try { appendFileSync(file, `${line}\n`, { mode: 0o600 }); } catch { /* the log is best effort */ }
+}
+function logFileOf(args) {
+  const index = args.indexOf('--log-file');
+  return index >= 0 && args[index + 1] ? path.resolve(args[index + 1]) : null;
 }
 
 export async function main(args = process.argv.slice(2)) {
   const options = parseArguments(args);
-  const manager = new HubManager({ repoRoot: options.repoRoot, bundleRoot: BUNDLE_ROOT, dataDirectory: options.stateDir, backend: options.backend });
+  if (options.logFile) {
+    const fatal = (error) => { appendToLog(options.logFile, `[CHATMCP-HUB] Lỗi không xử lý: ${redact(error?.stack ?? error?.message ?? error)}`); process.exit(1); };
+    process.once('uncaughtException', fatal);
+  }
+  const manager = new HubManager({ repoRoot: options.repoRoot, bundleRoot: BUNDLE_ROOT, dataDirectory: options.stateDir, backend: options.backend, log: (line) => { console.log(line); appendToLog(options.logFile, line); } });
   await manager.load(options.project);
   const { BrowserRunner } = await import('./lib/browser-runner.mjs');
   const { AgentRunner } = await import('./lib/agent.mjs');
@@ -388,5 +407,10 @@ export async function main(args = process.argv.slice(2)) {
 const PROXY_URL_FOR_LOG = 'http://127.0.0.1:3006/mcp';
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  main().catch((error) => { console.error(`[CHATMCP-HUB] ${error.message}`); process.exitCode = 1; });
+  main().catch((error) => {
+    const line = `[CHATMCP-HUB] ${error.message}`;
+    console.error(line);
+    appendToLog(logFileOf(process.argv.slice(2)), line);
+    process.exitCode = 1;
+  });
 }
