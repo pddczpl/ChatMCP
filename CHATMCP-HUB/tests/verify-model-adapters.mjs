@@ -16,6 +16,7 @@ import { ANTHROPIC_VERSION, anthropicEndpoint, anthropicHeaders, asAnthropicMess
 import { asChatMessages, buildChatBody, normalizeChatCompletion } from '../lib/openai-chat-api.mjs';
 import { backoffMs, classifyHttpError, errorDetail, outputTokenLimit, readBodyText, retryAfterMs, sleep } from '../lib/model-http.mjs';
 import { finishModelList, modelsUrl, parseGeminiModels, parseOpenAiModels } from '../lib/model-list.mjs';
+import { probeToolCalling } from '../lib/tool-probe.mjs';
 
 const BUNDLE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-adapters-'));
@@ -651,8 +652,11 @@ try {
     const seen = [];
     const ok = await makeProvider('diag-ok', { configure: { preset: 'anthropic', apiKey: KEY }, fetchImpl: async (url, opts) => { seen.push({ url, headers: opts.headers, body: JSON.parse(opts.body) }); return reply(200, anthropicOk('OK')); } });
     const verdict = await ok.provider.diagnoseConnection();
-    same([verdict.ok, verdict.protocol, verdict.authMode, verdict.autoSelected, seen.length], [true, 'anthropic', 'auto', false, 1]);
+    same([verdict.ok, verdict.protocol, verdict.authMode, verdict.autoSelected, seen.length], [true, 'anthropic', 'auto', false, 2], 'one text probe, then one tool-calling probe');
     same([seen[0].url, seen[0].headers['x-api-key'], seen[0].body.max_tokens, seen[0].body.messages[0].content], ['https://api.anthropic.com/v1/messages', KEY, 32, 'Reply OK.']);
+    same([verdict.toolCalling, ok.provider.state().toolCalling, seen[1].body.tools.length], ['unreliable', 'unreliable', 1], 'the mock answered in text, so tool calling is flagged and remembered in the state');
+    await ok.provider.configure({ model: 'claude-other' });
+    same(ok.provider.state().toolCalling, 'unchecked', 'a new configuration forgets the old probe result');
 
     const bearerOnly = await makeProvider('diag-bearer', { configure: { preset: 'custom-anthropic', apiBaseUrl: 'https://gw.example.com', model: 'claude-gw', apiKey: KEY }, fetchImpl: async (url, opts) => opts.headers.Authorization === `Bearer ${KEY}` ? reply(200, anthropicOk('OK')) : reply(401, { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }) });
     const switched = await bearerOnly.provider.diagnoseConnection();
@@ -663,6 +667,43 @@ try {
     check(failed.code === 'gateway_probe_failed' && failed.attempts.length === 2 && failed.attempts.every((a) => a.kind === 'auth'), 'both header styles were tried');
     check(/từ chối khóa API/.test(failed.message) && !failed.message.includes(KEY), 'and the answer says the key was refused, without the key');
     same(rejected.provider.state().authMode, 'auto', 'a failed probe changes nothing');
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Tool-calling probe
+  // ---------------------------------------------------------------------------------------------------------------
+  {
+    const probe = (protocol, fetchImpl, extra = {}) => probeToolCalling({
+      protocol, endpoint: 'https://x.example/v1/endpoint', headers: { 'Content-Type': 'application/json' }, model: 'm', fetch: fetchImpl,
+      redact: (text) => text.replaceAll(KEY, '[REDACTED]'), ...extra,
+    });
+    const sentBodies = [];
+    const calling = (protocol) => async (url, opts) => {
+      sentBodies.push({ protocol, opts, body: JSON.parse(opts.body) });
+      return protocol === 'anthropic'
+        ? reply(200, { type: 'message', role: 'assistant', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'toolu_p', name: 'record_probe', input: { value: 'ok' } }], usage: {} })
+        : reply(200, { choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{ id: 'p1', type: 'function', function: { name: 'record_probe', arguments: '{"value":"ok"}' } }] } }] });
+    };
+    same((await probe('openai-chat', calling('openai-chat'))).status, 'supported');
+    same((await probe('anthropic', calling('anthropic'))).status, 'supported');
+    same(sentBodies.length, 2, 'one request each, no retries');
+    check(sentBodies.every(({ opts }) => opts.redirect === 'error'), 'the probe does not follow redirects');
+    check(sentBodies.every(({ body }) => JSON.stringify(body).length < 2000 && (body.tools ?? []).length === 1), 'it is tiny and offers exactly one harmless tool');
+    same(sentBodies[1].body.max_tokens, 256, 'the Anthropic probe asks for little output');
+    same((await probe('openai-chat', async () => reply(200, chatOk('I would call it')))).status, 'unreliable', 'text instead of a call');
+    same((await probe('openai-chat', async () => reply(200, { choices: [{ finish_reason: 'tool_calls', message: { tool_calls: [{ id: 'z', type: 'function', function: { name: 'other_tool', arguments: '{}' } }] } }] }))).status, 'unreliable', 'a call to a function that was not offered');
+    const refusedTools = await probe('openai-chat', async () => reply(400, { error: { message: 'registry.ollama.ai/library/gemma:2b does not support tools' } }));
+    same(refusedTools.status, 'unsupported');
+    check(/chọn model khác/.test(refusedTools.note), 'and says what to do');
+    same((await probe('anthropic', async () => reply(400, { type: 'error', error: { type: 'invalid_request_error', message: 'tools are not supported for this model' } }))).status, 'unsupported');
+    same((await probe('openai-chat', async () => reply(429, { error: { message: 'slow down' } }))).status, 'unknown', 'a rate limit says nothing about the model');
+    same((await probe('openai-chat', async () => reply(400, { error: { message: 'Incorrect model name' } }))).status, 'unknown', 'and neither does an unrelated 400');
+    const lostProbe = await probe('openai-chat', async () => { throw new TypeError(`fetch failed ${KEY}`); });
+    check(lostProbe.status === 'unknown' && !lostProbe.note.includes(KEY), 'a network failure is unknown, and redacted');
+    same((await probe('openai-chat', async () => reply(200, 'not json'))).status, 'unknown');
+    let gemini = 0;
+    same([(await probe('gemini', async () => { gemini += 1; return reply(200, {}); })).status, gemini], ['unknown', 0], 'Gemini is not probed (no request is sent)');
+    await rejects(probe('openai-chat', async () => reply(200, chatOk('x')), { signal: AbortSignal.abort(new Error('cancelled')) }), /cancelled/, 'cancelling the test cancels the probe');
   }
 
   // ---------------------------------------------------------------------------------------------------------------

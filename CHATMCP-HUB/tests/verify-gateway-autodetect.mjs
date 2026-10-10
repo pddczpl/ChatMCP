@@ -42,7 +42,7 @@ try{
 
   const openaiCalls=[];
   const alt=new GatewayProvider({directory:path.join(dir,'alternate'),bundleRoot:dir,manager,env:{},fetchImpl:async(url,opt)=>{
-    openaiCalls.push({url,auth:opt.headers.Authorization});
+    openaiCalls.push({url,auth:opt.headers.Authorization,tools:Boolean(JSON.parse(opt.body).tools)});
     if(url.endsWith('/v1/chat/completions') && opt.headers.Authorization===`Bearer ${key}`) return fixture(200,successOpenai);
     return fixture(400,{error:{message:'Bad request: native Gemini route unsupported'}});
   }});
@@ -51,7 +51,9 @@ try{
   assert.equal(variant.protocol,'openai-chat');checks++;
   assert.equal(alt.state().protocol,'openai-chat');checks++;
   assert.equal(alt.state().apiBaseUrl,'https://example.invalid');checks++;
-  assert.equal(openaiCalls.length,3,'Gemini Google, Gemini Bearer, OpenAI Bearer');checks++;
+  assert.equal(openaiCalls.filter(x=>!x.tools).length,3,'Gemini Google, Gemini Bearer, OpenAI Bearer');checks++;
+  assert.equal(openaiCalls.filter(x=>x.tools).length,1,'one extra tool-calling probe once the protocol is found');checks++;
+  assert.equal(variant.toolCalling,'unreliable','a model that answers in text instead of calling the probe function is flagged');checks++;
   assert.ok(openaiCalls.every(x=>new URL(x.url).origin==='https://example.invalid'));checks++;
 
   const failProvider=new GatewayProvider({directory:path.join(dir,'fail'),bundleRoot:dir,manager,env:{},fetchImpl:async()=>fixture(400,{error:{message:`The model path is invalid; token=${key}`}})});

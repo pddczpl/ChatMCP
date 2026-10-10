@@ -237,7 +237,8 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
             }
             return { ok:true, model: provider.snapshot().model, responsePresent: response.responsePresent === true || response.output?.some(x=>x.type==='message') === true,
               autoSelected:response.autoSelected === true, protocol:response.protocol || provider.state().protocol,
-              authMode:response.authMode || provider.state().authMode,attempts:Array.isArray(response.attempts)?response.attempts:undefined };
+              authMode:response.authMode || provider.state().authMode,attempts:Array.isArray(response.attempts)?response.attempts:undefined,
+              toolCalling:response.toolCalling,toolCallingNote:response.toolCallingNote };
           }); break;
           case '/api/agent/mode': if (!agent) throw new Error('Agent chưa khởi tạo.'); await changeAi(() => agent.configure(payload)); result = state(); break;
           case '/api/auth/chatgpt/start': return json(410, { error: 'Dùng chế độ ChatGPT Web qua Browser Companion, không dùng OAuth ChatGPT trong Hub.' });

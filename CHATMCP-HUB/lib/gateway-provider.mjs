@@ -11,6 +11,7 @@ import { respondStandard } from './standard-adapter.mjs';
 import { estimateTokens } from './model-history.mjs';
 import { classifyHttpError, sleep as waitFor } from './model-http.mjs';
 import { fetchModelList } from './model-list.mjs';
+import { probeToolCalling } from './tool-probe.mjs';
 
 // These stay importable from here: other modules and the tests have always taken them from this file.
 export { asChatMessages, normalizeChatCompletion };
@@ -205,6 +206,8 @@ export class GatewayProvider {
     this.keySource = 'none';
     this.lastError = '';
     this.outputLimit = null; // largest output the model accepted, learned from an error; reset when the configuration changes
+    this.toolCalling = 'unchecked'; // result of the last "Test API" tool probe: unchecked | supported | unsupported | unreliable | unknown
+    this.toolCallingNote = '';
     this.geminiDialect = 'native'; // Reset when gateway configuration changes.
     this.dialectConfirmed = false;
   }
@@ -243,7 +246,7 @@ export class GatewayProvider {
     return {
       provider: 'gateway', preset: this.preset, protocol: this.protocol, model: this.model, apiBaseUrl: this.apiBaseUrl, authMode: this.authMode, customPath: this.customPath,
       contextWindowTokens: this.contextWindowTokens, configured: this.ready(), keyRequired: this.keyRequired(), keySource: this.keySource,
-      secretStorage: this.protector.describe(), lastError: this.lastError,
+      secretStorage: this.protector.describe(), lastError: this.lastError, toolCalling: this.toolCalling, toolCallingNote: this.toolCallingNote,
       agentRequestMode: this.protocol === 'gemini' ? (this.dialectConfirmed ? this.geminiDialect : 'chưa kiểm tra tool calling') : this.protocol === 'anthropic' ? 'anthropic-tool-use' : 'openai-tool-calls',
     };
   }
@@ -329,6 +332,7 @@ export class GatewayProvider {
     this.registerKey(plan.key);
     this.apiBaseUrl = plan.base; this.protocol = plan.protocol; this.model = plan.model; this.authMode = plan.authMode; this.customPath = plan.customPath;
     this.preset = plan.preset; this.contextWindowTokens = plan.contextWindowTokens; this.outputLimit = null;
+    this.toolCalling = 'unchecked'; this.toolCallingNote = '';
     this.lastError = ''; this.geminiDialect = 'native'; this.dialectConfirmed = false;
     return this.state();
   }
@@ -421,7 +425,10 @@ export class GatewayProvider {
           const changed=this.protocol!==item.protocol || this.customPath!==item.customPath || this.authMode!==item.authMode || this.apiBaseUrl!==item.apiBaseUrl;
           if(changed)await this.configure({apiBaseUrl:item.apiBaseUrl,protocol:item.protocol,customPath:item.customPath,authMode:item.authMode,remember:this.keySource==='saved'});
           this.lastError='';
-          return {ok:true,responsePresent:true,model:this.model,protocol:item.protocol,authMode:item.authMode,autoSelected:changed,attempts};
+          // One more tiny request: can this model call tools at all? (Gemini is not probed; its dialect is found during a task.)
+          const tools=await probeToolCalling({protocol:item.protocol,endpoint:item.endpoint,headers:this.#headers(item.protocol,item.authMode,apiKey),model:this.model,fetch:this.fetch,signal,redact:redactText});
+          this.toolCalling=tools.status; this.toolCallingNote=tools.note;
+          return {ok:true,responsePresent:true,model:this.model,protocol:item.protocol,authMode:item.authMode,autoSelected:changed,toolCalling:tools.status,toolCallingNote:tools.note,attempts};
         }
       }catch(error){
         if(signal?.aborted)throw signal.reason;
