@@ -1,0 +1,194 @@
+{
+ "suite": "verify-task-state.mjs",
+ "description": "What the task state-machine suite must notice: AgentRunner not persisting before a tool runs, mishandling a pending or unknown call on restart, or the pure transition rules being weakened.",
+ "mutations": [
+  {
+   "name": "M1",
+   "what": "no awaited flush before the tool runs",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "await this.#persist(task, { at: now(), type: 'tool_decision'",
+     "new": "void this.#persist(task, { at: now(), type: 'tool_decision'"
+    }
+   ]
+  },
+  {
+   "name": "M2",
+   "what": "never mark awaiting_approval",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "if (task.pendingCall) task.pendingCall.phase = 'awaiting_approval';",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "M3",
+   "what": "waiting call treated as unknown",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "if (NOT_STARTED_PHASES.has(call.phase)) { task.pendingCall = null;",
+     "new": "if (false) { task.pendingCall = null;"
+    }
+   ]
+  },
+  {
+   "name": "M4",
+   "what": "reads never flagged read-only",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "if (info.category === 'read' || info.category === 'checkpoint') call.readOnly = true;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "M5",
+   "what": "unverified earlier calls ignored",
+   "patches": [
+    {
+     "file": "lib/task-state.mjs",
+     "old": "return task.status !== 'completed' && Array.isArray(task.unverifiedOperations) && task.unverifiedOperations.some(mayHaveChangedSomething);",
+     "new": "return false;"
+    }
+   ]
+  },
+  {
+   "name": "M6",
+   "what": "verifying never ends",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "if (task.state === 'verifying') this.#advance(task, 'running', 'check_finished');",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "M7",
+   "what": "no planning state",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "this.#advance(task, 'planning', 'preflight_done');",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "M8",
+   "what": "runner never unsubscribes",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "context.unsubscribe?.(); context.unsubscribe = null;",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "M9",
+   "what": "denial always goes to running",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "approved ? 'running' : (context.activeBeforeApproval ?? 'running')",
+     "new": "'running'"
+    }
+   ]
+  },
+  {
+   "name": "M10",
+   "what": "throwing watcher breaks the gate",
+   "patches": [
+    {
+     "file": "lib/permissions.mjs",
+     "old": "try{listener(event);}catch{ /* ignored on purpose */ }",
+     "new": "listener(event);"
+    }
+   ]
+  },
+  {
+   "name": "M11",
+   "what": "guard never reports its decision",
+   "patches": [
+    {
+     "file": "lib/manager.mjs",
+     "old": "if (typeof onDecision === 'function') await onDecision(",
+     "new": "if (false) await onDecision("
+    }
+   ]
+  },
+  {
+   "name": "M12",
+   "what": "completed may fail later",
+   "patches": [
+    {
+     "file": "lib/task-state.mjs",
+     "old": "completed: AT_REST_NEXT,",
+     "new": "completed: Object.freeze(['queued','failed']),"
+    }
+   ]
+  },
+  {
+   "name": "M13",
+   "what": "load ignores waiting calls",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "const settled = this.#settlePendingCall(task);\n          task.status = 'paused'",
+     "new": "const settled = null;\n          task.status = 'paused'"
+    }
+   ]
+  },
+  {
+   "name": "M14",
+   "what": "load never reconciles",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "if (task.state !== settledState) this.#advance(",
+     "new": "if (false) this.#advance("
+    }
+   ]
+  },
+  {
+   "name": "M15",
+   "what": "write chain not used for decision flush",
+   "equivalent": "The line is defensive and redundant: a pending call is created in phase 'executing', and the approval listener already moves 'awaiting_approval' to 'executing' on approval_approved before the guard reports its decision, so on every reachable path the assignment changes nothing. The mutant also survives verify-local-backend, verify-persistent-sessions and verify-e2e-recovery.",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "call.phase = 'executing';\n        if (info.category",
+     "new": "call.phase = call.phase;\n        if (info.category"
+    }
+   ]
+  },
+  {
+   "name": "M16",
+   "what": "verify command is plain running",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "if (info.kind === 'verify' || info.name === 'studio.diff_check')",
+     "new": "if (false)"
+    }
+   ]
+  },
+  {
+   "name": "M17",
+   "what": "uncertain forgotten on cancel",
+   "patches": [
+    {
+     "file": "lib/task-state.mjs",
+     "old": "if (hasUnknownOutcome(task)) return 'uncertain';",
+     "new": ""
+    }
+   ]
+  }
+ ]
+}

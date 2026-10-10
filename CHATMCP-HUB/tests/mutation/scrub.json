@@ -1,0 +1,38 @@
+{
+ "suite": "verify-shell-runner.mjs",
+ "description": "What the shell-runner suite must notice: the child process getting the Hub's secret environment variables (no scrubbing, or the earlier, narrower rules).",
+ "mutations": [
+  {
+   "name": "S1-no-scrub",
+   "what": "child environment passed unscrubbed",
+   "patches": [
+    {
+     "file": "lib/shell-runner.mjs",
+     "old": "const env = scrubEnv(this.env, { keep: this.keepEnv, secrets: this.secrets() ?? [] });",
+     "new": "const env = { ...this.env };"
+    }
+   ]
+  },
+  {
+   "name": "S2-old-regex",
+   "what": "previous, narrower name rule and URL rule",
+   "patches": [
+    {
+     "file": "lib/shell-runner.mjs",
+     "old": "|(?:PASSWORD|PASSWD|TOKEN|SECRET)$|^MYSQL_PWD$/i;",
+     "new": "/i;"
+    },
+    {
+     "file": "lib/shell-runner.mjs",
+     "old": "API_?KEY|APIKEY|KEY|TOKEN|SECRET|",
+     "new": "API_?KEY|APIKEY|TOKEN|SECRET|"
+    },
+    {
+     "file": "lib/shell-runner.mjs",
+     "old": "[^/\\s:@]*:[^/\\s@]+@/i;",
+     "new": "[^/\\s:@]+:[^/\\s@]+@/i;"
+    }
+   ]
+  }
+ ]
+}

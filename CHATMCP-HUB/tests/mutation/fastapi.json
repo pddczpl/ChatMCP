@@ -1,0 +1,55 @@
+{
+ "suite": "verify-e2e-fastapi.mjs",
+ "description": "What the FastAPI end-to-end suite must notice: the Hub mis-classifying a project check, counting a failing run or a test run as evidence or a file edit, or write_file not creating folders.",
+ "mutations": [
+  {
+   "name": "F1-pytest-not-verify",
+   "what": "python -m pytest no longer classed as a project check",
+   "patches": [
+    {
+     "file": "lib/command-analysis.mjs",
+     "old": "const PYTHON_MODULES = new Set(['pytest', 'unittest',",
+     "new": "const PYTHON_MODULES = new Set(['unittest',"
+    }
+   ]
+  },
+  {
+   "name": "F2-failing-run-counts",
+   "what": "a failing run is counted as verification",
+   "patches": [
+    {
+     "file": "lib/manager.mjs",
+     "old": "|| (name === 'local.run_command' && result?.isError !== true && structured?.kind === 'verify' && structured?.exitCode === 0);",
+     "new": "|| (name === 'local.run_command' && structured?.kind === 'verify');"
+    },
+    {
+     "file": "lib/manager.mjs",
+     "old": "isError: result?.isError === true, verified,",
+     "new": "isError: false, verified,"
+    }
+   ]
+  },
+  {
+   "name": "F3-no-parent-folders",
+   "what": "write_file does not create parent folders",
+   "patches": [
+    {
+     "file": "lib/local-tools.mjs",
+     "old": "if (!parentStat) await fs.mkdir(parent, { recursive: true });",
+     "new": "if (!parentStat) throw fault('parent_missing', 'no parent');"
+    }
+   ]
+  },
+  {
+   "name": "F4-edits-count-runs",
+   "what": "a test run is counted as a file edit",
+   "patches": [
+    {
+     "file": "lib/manager.mjs",
+     "old": "fileEdit: decision.category === 'workspace_edit' && !NOT_FILE_EDITS.has(name),",
+     "new": "fileEdit: decision.category === 'workspace_edit',"
+    }
+   ]
+  }
+ ]
+}

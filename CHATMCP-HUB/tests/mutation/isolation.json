@@ -1,0 +1,288 @@
+{
+ "suite": "verify-e2e-isolation.mjs",
+ "description": "What the two-Hub isolation suite must notice: the entrance checks (Host, Origin, CSRF, CORS, CSP, bind address), workspace containment, key storage and leakage, the instance lock and per-Hub state.",
+ "mutations": [
+  {
+   "name": "M01-host",
+   "what": "Host allow-list disabled",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "if (!hosts.has(req.headers.host)) return json(403, { error: 'Host không được phép.' });",
+     "new": "if (false) return json(403, { error: 'Host không được phép.' });"
+    }
+   ]
+  },
+  {
+   "name": "M02-csrf",
+   "what": "CSRF token not checked",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "!equalToken(req.headers['x-chatmcp-csrf'], token)",
+     "new": "false"
+    }
+   ]
+  },
+  {
+   "name": "M03-origin",
+   "what": "Origin of POST not checked",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "if (!origins.has(origin) ||",
+     "new": "if (false ||"
+    }
+   ]
+  },
+  {
+   "name": "M04-workspace",
+   "what": "workspace containment disabled (abs path and ..)",
+   "patches": [
+    {
+     "file": "lib/studio-workspace.mjs",
+     "old": "if(path.isAbsolute(relative) && !contained(root,path.resolve(relative))) throw fail('outside_workspace','Đường dẫn ngoài workspace.',403);",
+     "new": ""
+    },
+    {
+     "file": "lib/studio-workspace.mjs",
+     "old": "if(!contained(root,target)) throw fail('outside_workspace','Không cho phép đường dẫn vượt workspace.',403);",
+     "new": ""
+    },
+    {
+     "file": "lib/local-tools.mjs",
+     "old": "if (!canonical.inside) throw fault('outside_workspace'",
+     "new": "if (false) throw fault('outside_workspace'"
+    }
+   ]
+  },
+  {
+   "name": "M05-lock",
+   "what": "instance lock ignores a live holder",
+   "patches": [
+    {
+     "file": "lib/instance-lock.mjs",
+     "old": "let alive = true;",
+     "new": "let alive = false;"
+    }
+   ]
+  },
+  {
+   "name": "M06-plainkey",
+   "what": "API key saved in plain text (the AES-GCM store of Linux and macOS)",
+   "platforms": [
+    "linux",
+    "darwin"
+   ],
+   "patches": [
+    {
+     "file": "lib/secret-box.mjs",
+     "old": "async protect(text) {",
+     "new": "async protect(text) { return String(text);"
+    },
+    {
+     "file": "lib/secret-box.mjs",
+     "old": "async unprotect(blob) {",
+     "new": "async unprotect(blob) { return String(blob);"
+    }
+   ]
+  },
+  {
+   "name": "M06w-plainkey-dpapi",
+   "what": "API key saved in plain text (the Windows DPAPI store)",
+   "platforms": [
+    "win32"
+   ],
+   "patches": [
+    {
+     "file": "lib/secret-box.mjs",
+     "old": "protect: (text) => dpapi('Protect', text, bundleRoot),",
+     "new": "protect: async (text) => String(text),"
+    },
+    {
+     "file": "lib/secret-box.mjs",
+     "old": "unprotect: (blob) => dpapi('Unprotect', blob, bundleRoot),",
+     "new": "unprotect: async (blob) => String(blob),"
+    }
+   ]
+  },
+  {
+   "name": "M07-keyorigin",
+   "what": "saved key carried to another origin",
+   "patches": [
+    {
+     "file": "lib/gateway-provider.mjs",
+     "old": "} else if (switching || originOf(base) !== originOf(this.apiBaseUrl)) key = '';",
+     "new": "} else if (switching) key = '';"
+    }
+   ]
+  },
+  {
+   "name": "M08-keystate",
+   "what": "key exposed in /api/state",
+   "patches": [
+    {
+     "file": "lib/gateway-provider.mjs",
+     "old": "secretStorage: this.protector.describe(),",
+     "new": "secretStorage: this.protector.describe(), debugKey: this.apiKey,"
+    }
+   ]
+  },
+  {
+   "name": "M09-csp",
+   "what": "CSP without object-src",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "object-src 'none'; ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "M10-bind",
+   "what": "Hub listens on all interfaces",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "server.listen(options.port, '127.0.0.1', resolve)",
+     "new": "server.listen(options.port, '0.0.0.0', resolve)"
+    }
+   ]
+  },
+  {
+   "name": "M11-cors",
+   "what": "CORS wildcard header added",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "res.setHeader('X-Content-Type-Options', 'nosniff');",
+     "new": "res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Access-Control-Allow-Origin', '*');"
+    }
+   ]
+  },
+  {
+   "name": "M12-keylog",
+   "what": "key written to the Hub log",
+   "patches": [
+    {
+     "file": "lib/gateway-provider.mjs",
+     "old": "const plan = this.#plan(input);\n    let ciphertext = null;",
+     "new": "const plan = this.#plan(input); if (plan.key) console.error('debug key', plan.key);\n    let ciphertext = null;"
+    }
+   ]
+  },
+  {
+   "name": "M13-filemode",
+   "what": "state files world-readable (Unix file modes; NTFS has none)",
+   "platforms": [
+    "linux",
+    "darwin"
+   ],
+   "patches": [
+    {
+     "file": "lib/runtime.mjs",
+     "old": "{ flag: 'wx', mode: 0o600 }",
+     "new": "{ flag: 'wx', mode: 0o644 }"
+    }
+   ]
+  },
+  {
+   "name": "M14-symlink",
+   "what": "symlink containment disabled",
+   "patches": [
+    {
+     "file": "lib/studio-workspace.mjs",
+     "old": "if(!contained(root,real)) throw fail('symlink_escape','Symlink đi ra ngoài workspace.',403);",
+     "new": ""
+    },
+    {
+     "file": "lib/local-tools.mjs",
+     "old": "if (!canonical.inside) throw fault('outside_workspace'",
+     "new": "if (false) throw fault('outside_workspace'"
+    }
+   ]
+  },
+  {
+   "name": "M15-keyfile-kept",
+   "what": "old key file not removed when the origin changes",
+   "patches": [
+    {
+     "file": "lib/gateway-provider.mjs",
+     "old": "else await fs.unlink(this.keyFile).catch(e => { if (e.code !== 'ENOENT') throw e; });",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "M16-preflight",
+   "what": "foreign Origin on GET not refused",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "if (!hosts.has(req.headers.host)) return json(403, { error: 'Host không được phép.' });",
+     "new": "if (!hosts.has(req.headers.host)) return json(403, { error: 'Host không được phép.' }); delete req.headers.origin;"
+    }
+   ]
+  },
+  {
+   "name": "M16b-foreign-get-origin",
+   "what": "foreign Origin on GET/OPTIONS no longer refused",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "if (origin && !origins.has(origin) &&",
+     "new": "if (false && origin && !origins.has(origin) &&"
+    }
+   ]
+  },
+  {
+   "name": "M17-extension-any-route",
+   "what": "extension origins allowed on every route",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "if (origin && !origins.has(origin) &&",
+     "new": "if (origin && !origins.has(origin) && !extensionOrigin &&"
+    }
+   ]
+  },
+  {
+   "name": "M04b-workspace-all-layers",
+   "what": "every workspace containment layer disabled",
+   "patches": [
+    {
+     "file": "lib/studio-workspace.mjs",
+     "old": "if(path.isAbsolute(relative) && !contained(root,path.resolve(relative))) throw fail('outside_workspace','Đường dẫn ngoài workspace.',403);",
+     "new": ""
+    },
+    {
+     "file": "lib/studio-workspace.mjs",
+     "old": "if(!contained(root,target)) throw fail('outside_workspace','Không cho phép đường dẫn vượt workspace.',403);",
+     "new": ""
+    },
+    {
+     "file": "lib/studio-workspace.mjs",
+     "old": "if(!contained(root,real)) throw fail('symlink_escape','Symlink đi ra ngoài workspace.',403);",
+     "new": ""
+    },
+    {
+     "file": "lib/local-tools.mjs",
+     "old": "if (!canonical.inside) throw fault('outside_workspace'",
+     "new": "if (false) throw fault('outside_workspace'"
+    }
+   ]
+  },
+  {
+   "name": "M18-shared-state",
+   "what": "a second Hub's task store is A's (state-dir ignored for tasks): B lists A's tasks",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "if (value === null || value === undefined) return json(404, { error: 'Không tìm thấy nhiệm vụ.' });",
+     "new": "if (value === null || value === undefined) return json(200, { id: 'x', note: 'leak' });"
+    }
+   ]
+  }
+ ]
+}
