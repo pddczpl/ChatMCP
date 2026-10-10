@@ -5,9 +5,14 @@
   "description": "Local coding agent - no CDN runtime dependency",
   "type": "module",
   "scripts": {
-    "test": "node tests/verify-v2-runtime.mjs && node tests/verify-v2-http.mjs && node tests/verify-gateway-autodetect.mjs && node tests/verify-full-access.mjs && node tests/verify-browser-continuation.mjs && node tests/verify-gateway-compat-unlimited.mjs && node tests/verify-gemini-truncation.mjs && node tests/verify-persistent-sessions.mjs && node tests/verify-gemini-malformed-function.mjs && node tests/verify-gemini-action-recovery.mjs && node tests/verify-gateway-413-compaction.mjs"
+    "test": "node tests/run-all.mjs",
+    "test:ui": "node tests/run-all.mjs --python --filter -ui.py",
+    "test:ci": "node tests/run-all.mjs --json test-results/summary.json"
   },
   "optionalDependencies": {
     "node-pty": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
