@@ -7,6 +7,7 @@
 //
 // ctx = {
 //   prompt   text of the user's latest request
+//   users    every user-role message, oldest first (the Hub's notes about an earlier run come before the latest request)
 //   turn     how many tool results this request already has (0 on the first model call)
 //   results  those tool results, oldest first
 //   last     the most recent tool result ('' on the first model call)
@@ -36,7 +37,22 @@ const SHA = /sha256:\s*([0-9a-f]{64})/i;
 export const wasRefused = (result) => /Permission denied|permission_denied|bị chặn|blocked/i.test(String(result));
 /** run_command reports "exit code N · shell · ..." on its first line. */
 export const exitedZero = (result) => /^exit code 0\b/.test(toolText(result).trim());
-const shaOf = (result) => SHA.exec(toolText(result))?.[1] ?? '';
+/** The revision a read_file result printed ("sha256: <64 hex>"), for the expected_sha256 of the edit that follows. */
+export const shaOf = (result) => SHA.exec(toolText(result))?.[1] ?? '';
+
+/**
+ * A scenario from a list of steps. A step is a call(...) or say(...) result, or a function of the conversation so far, so that a
+ * later step can use what an earlier tool returned. `final` is what the model says when the list is used up. `onResult(index, text)`
+ * sees each tool result once it has come back (a request the Hub repeats after a transient error reports the same index again).
+ */
+export function sequence(steps, { final = 'Xong.', onResult = null } = {}) {
+  return (ctx) => {
+    if (onResult && ctx.turn > 0) onResult(ctx.turn - 1, toolText(ctx.results[ctx.turn - 1]));
+    const step = steps[ctx.turn];
+    if (step === undefined) return say(typeof final === 'function' ? final(ctx) : final);
+    return typeof step === 'function' ? step(ctx) : step;
+  };
+}
 
 export const SCENARIOS = {
   // Look around, read the README, answer. Nothing is changed.

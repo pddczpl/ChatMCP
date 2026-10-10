@@ -1,0 +1,4 @@
+# Python package for the browser UI suites (tests/verify-*-ui.py, tests/verify-ui-e2e.py). Verified with Playwright 1.63.0.
+# After installing it you also need a Chromium: either `python -m playwright install chromium` or set CHATMCP_CHROMIUM
+# to an existing Chromium/Chrome/Edge executable. Without a browser the suites report SKIP, never PASS.
+playwright==1.63.0

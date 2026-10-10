@@ -9,10 +9,17 @@
 // Usage:
 //   node tests/run-all.mjs [--list] [--filter text] [--bail] [--verbose]
 //                          [--timeout seconds] [--python] [--json file]
+//                          [--no-skip all|name[,name...]] [--tests-dir dir]
 //
 // A suite that cannot run in the current environment may print a line that
 // starts with "CHATMCP_TEST_SKIP:" followed by the reason and exit with 0.
 // The runner then reports it as SKIP (never as PASS).
+//
+// --no-skip is for CI, where the job has installed everything the suites need:
+// a SKIP of the named suites (or of any suite, with "all") is then reported as
+// FAIL, so a green run cannot hide a suite that never ran.
+// --tests-dir runs the verify-*.mjs / verify-*.py files of another folder; it
+// exists so that the runner itself can be tested (tests/verify-test-runner.mjs).
 //
 // Exit code: 0 when no suite failed or timed out, 1 otherwise, 2 for usage
 // errors.
@@ -22,12 +29,12 @@ import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-const testsDirectory = path.dirname(fileURLToPath(import.meta.url));
-const hubRoot = path.resolve(testsDirectory, '..');
+const ownDirectory = path.dirname(fileURLToPath(import.meta.url));
+const hubRoot = path.resolve(ownDirectory, '..');
 const TAIL_LIMIT = 6000;
 
 function parseOptions(argv) {
-  const options = { list: false, filter: '', bail: false, verbose: false, timeoutSeconds: 180, python: false, json: '' };
+  const options = { list: false, filter: '', bail: false, verbose: false, timeoutSeconds: 180, python: false, json: '', noSkip: null, testsDirectory: ownDirectory };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const value = () => {
@@ -41,6 +48,12 @@ function parseOptions(argv) {
     else if (arg === '--python') options.python = true;
     else if (arg === '--filter') options.filter = value().toLowerCase();
     else if (arg === '--json') options.json = value();
+    else if (arg === '--tests-dir') options.testsDirectory = path.resolve(value());
+    else if (arg === '--no-skip') {
+      const names = value().split(',').map((name) => name.trim().toLowerCase().replace(/\.(mjs|py)$/, '')).filter(Boolean);
+      if (names.length === 0) throw new Error('--no-skip needs "all" or a comma-separated list of suite names');
+      options.noSkip = names.includes('all') ? 'all' : new Set(names);
+    }
     else if (arg === '--timeout') {
       options.timeoutSeconds = Number(value());
       if (!Number.isFinite(options.timeoutSeconds) || options.timeoutSeconds < 1) throw new Error('--timeout must be a positive number of seconds');
@@ -49,8 +62,14 @@ function parseOptions(argv) {
   return options;
 }
 
+/** True when a SKIP of this suite must be reported as a failure (--no-skip). */
+function mustRun(options, name) {
+  if (options.noSkip === null) return false;
+  return options.noSkip === 'all' || options.noSkip.has(name.toLowerCase().replace(/\.(mjs|py)$/, ''));
+}
+
 async function discover(options) {
-  const files = (await readdir(testsDirectory)).filter((name) => /^verify-.+\.mjs$/.test(name) || (options.python && /^verify-.+\.py$/.test(name))).sort();
+  const files = (await readdir(options.testsDirectory)).filter((name) => /^verify-.+\.mjs$/.test(name) || (options.python && /^verify-.+\.py$/.test(name))).sort();
   return files.filter((name) => !options.filter || name.toLowerCase().includes(options.filter));
 }
 
@@ -68,7 +87,7 @@ function runSuite(name, options) {
     const started = Date.now();
     const isPython = name.endsWith('.py');
     const command = isPython ? (process.platform === 'win32' ? 'python' : 'python3') : process.execPath;
-    const child = spawn(command, [path.join(testsDirectory, name)], {
+    const child = spawn(command, [path.join(options.testsDirectory, name)], {
       cwd: hubRoot,
       // UTF-8 for Python children: on Windows a piped stdout defaults to cp1252 and cannot print the Vietnamese UI text.
       env: { ...process.env, CHATMCP_TEST_RUNNER: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
@@ -96,7 +115,9 @@ function runSuite(name, options) {
       else if (timedOut) { status = 'TIMEOUT'; note = `killed after ${options.timeoutSeconds}s`; }
       else if (code === 0) {
         const skip = output.match(/^CHATMCP_TEST_SKIP:\s*(.*)$/m);
-        if (skip) { status = 'SKIP'; note = skip[1].trim(); } else status = 'PASS';
+        if (skip && mustRun(options, name)) { status = 'FAIL'; note = `skipped (${skip[1].trim()}), but --no-skip requires this suite to run`; }
+        else if (skip) { status = 'SKIP'; note = skip[1].trim(); }
+        else status = 'PASS';
       } else { status = 'FAIL'; note = signal ? `signal ${signal}` : `exit ${code}`; }
       resolve({ name, status, code: timedOut ? null : code, note, milliseconds, tail: output.slice(-TAIL_LIMIT) });
     };

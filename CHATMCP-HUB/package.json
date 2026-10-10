@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "node tests/run-all.mjs",
-    "test:ui": "node tests/run-all.mjs --python --filter -ui.py",
+    "test:ui": "node tests/run-all.mjs --python --filter ui",
     "test:ci": "node tests/run-all.mjs --json test-results/summary.json"
   },
   "optionalDependencies": {

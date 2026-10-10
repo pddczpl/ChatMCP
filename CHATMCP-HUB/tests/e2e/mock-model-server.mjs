@@ -12,6 +12,10 @@
 //   GET  /__requests   what the Hub has sent so far
 //   GET  /__last       the body of the latest chat request
 //   POST /__scenario   {"name": "..."}  switch scenario and forget the recorded requests
+//   POST /__watch      {"needles": ["...", ...]}  from now on, report whether any request body contains one of them
+//   GET  /__watch      {watching, scanned, hits:[{needle: <index>, request: <number>}]}
+// The watch exists to prove that a secret never left the machine inside a model request. It reports positions, never the
+// needle's text, and `scanned` says how many requests were actually looked at, so "no hits" cannot be an empty promise.
 import http from 'node:http';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -36,6 +40,9 @@ export function describeConversation(body) {
   const tools = (Array.isArray(body?.tools) ? body.tools : []).map((tool) => tool?.function?.name ?? tool?.name).filter(Boolean);
   return {
     prompt: lastUser >= 0 ? contentText(messages[lastUser]) : '',
+    // Every user-role message, oldest first. A continued conversation carries the Hub's notes about the earlier run in a
+    // user message of its own, before the person's new request.
+    users: messages.filter((message) => message?.role === 'user').map(contentText),
     turn: results.length,
     results,
     last: results.at(-1) ?? '',
@@ -58,15 +65,37 @@ function readBody(req) {
   });
 }
 
-async function readJson(req) {
+/** Reads a JSON request body and also hands back the exact text that was sent (the watch scans the text, not the parsed copy). */
+async function readJsonWithText(req) {
   const text = await readBody(req);
-  if (!text.trim()) return {};
-  try { return JSON.parse(text); } catch { throw Object.assign(new Error('body is not JSON'), { statusCode: 400 }); }
+  if (!text.trim()) return { text, json: {} };
+  try { return { text, json: JSON.parse(text) }; } catch { throw Object.assign(new Error('body is not JSON'), { statusCode: 400 }); }
 }
+const readJson = async (req) => (await readJsonWithText(req)).json;
 
-export async function startMockModel({ scenario = 'repair-add', host = '127.0.0.1', port = 0, models = MODEL_IDS } = {}) {
-  if (!SCENARIOS[scenario]) throw new Error(`unknown scenario "${scenario}"`);
-  const state = { scenario, requests: [], lastBody: null, callCounter: 0 };
+export async function startMockModel({ scenario = 'repair-add', scenarios: extra = {}, host = '127.0.0.1', port = 0, models = MODEL_IDS } = {}) {
+  // `scenarios` lets a test bring its own scripted behaviour (a closure over the paths it created) next to the shared ones.
+  const registry = { ...SCENARIOS, ...extra };
+  if (!registry[scenario]) throw new Error(`unknown scenario "${scenario}"`);
+  const state = { scenario, requests: [], lastBody: null, callCounter: 0, needles: [], hits: [], scanned: 0 };
+
+  /** A short needle would match ordinary text and make a clean report meaningless in the other direction, so it is refused. */
+  const setNeedles = (needles) => {
+    if (!Array.isArray(needles) || needles.some((needle) => typeof needle !== 'string' || needle.length < 6)) throw Object.assign(new Error('needles must be an array of strings of at least 6 characters'), { statusCode: 400 });
+    state.needles = needles.slice(0, 50);
+    state.hits = [];
+    state.scanned = 0;
+  };
+
+  /** Looks for each watched needle in the raw request text, in both its plain and its JSON-escaped spelling. */
+  const scanForNeedles = (text, requestNumber) => {
+    if (!state.needles.length) return;
+    state.scanned += 1;
+    state.needles.forEach((needle, index) => {
+      const escaped = JSON.stringify(needle).slice(1, -1);
+      if (text.includes(needle) || text.includes(escaped)) state.hits.push({ needle: index, request: requestNumber });
+    });
+  };
 
   const completion = (model, step) => {
     const calls = Array.isArray(step.calls) ? step.calls : [];
@@ -98,15 +127,20 @@ export async function startMockModel({ scenario = 'repair-add', host = '127.0.0.
       if (req.method === 'GET' && route === '/__last') return reply(200, state.lastBody);
       if (req.method === 'POST' && route === '/__scenario') {
         const { name } = await readJson(req);
-        if (!SCENARIOS[name]) return reply(400, { error: { message: `unknown scenario "${name}"`, known: Object.keys(SCENARIOS) } });
+        if (!registry[name]) return reply(400, { error: { message: `unknown scenario "${name}"`, known: Object.keys(registry) } });
         state.scenario = name;
         state.requests.length = 0;
         state.lastBody = null;
         return reply(200, { scenario: name });
       }
+      if (route === '/__watch' && req.method === 'POST') {
+        setNeedles((await readJson(req)).needles);
+        return reply(200, { watching: state.needles.length });
+      }
+      if (route === '/__watch' && req.method === 'GET') return reply(200, { watching: state.needles.length, scanned: state.scanned, hits: state.hits });
       if (req.method === 'GET' && route.endsWith('/models')) return reply(200, { object: 'list', data: models.map((id) => ({ id, object: 'model', owned_by: 'mock' })) });
       if (req.method === 'POST' && route.endsWith('/chat/completions')) {
-        const body = await readJson(req);
+        const { text: rawBody, json: body } = await readJsonWithText(req);
         const info = describeConversation(body);
         const probe = info.tools.includes('record_probe');
         state.lastBody = body;
@@ -114,10 +148,11 @@ export async function startMockModel({ scenario = 'repair-add', host = '127.0.0.
           at: new Date().toISOString(), model: body.model ?? null, probe, turn: info.turn, tools: info.tools, messages: Array.isArray(body.messages) ? body.messages.length : 0,
           hasAuthorization: Boolean(req.headers.authorization), promptStart: info.prompt.slice(0, 160),
         });
+        scanForNeedles(rawBody, state.requests.length);
         if (probe) return reply(200, completion(body.model, call('record_probe', { value: 'ok' })));
         // A request that offers no tools (the Hub's connectivity check) can only be answered in text, as with a real model.
         if (!info.tools.length) return reply(200, completion(body.model, { text: 'OK' }));
-        const step = await SCENARIOS[state.scenario](info);
+        const step = await registry[state.scenario](info);
         if (step?.http) return reply(step.http.status ?? 500, step.http.body ?? { error: { message: 'mock failure' } }, step.http.headers);
         return reply(200, completion(body.model, step ?? { text: '' }));
       }
@@ -132,9 +167,17 @@ export async function startMockModel({ scenario = 'repair-add', host = '127.0.0.
   return {
     url: `${origin}/v1`, origin, port: boundPort, state,
     setScenario(name) {
-      if (!SCENARIOS[name]) throw new Error(`unknown scenario "${name}"`);
+      if (!registry[name]) throw new Error(`unknown scenario "${name}"`);
       state.scenario = name; state.requests.length = 0; state.lastBody = null;
     },
+    /** Adds or replaces a scenario while the server is running. */
+    define(name, fn) {
+      if (typeof fn !== 'function') throw new TypeError('a scenario is a function');
+      registry[name] = fn;
+    },
+    /** Starts watching request bodies for these strings (see /__watch). */
+    watch: setNeedles,
+    watchReport: () => ({ watching: state.needles.length, scanned: state.scanned, hits: state.hits.map((hit) => ({ ...hit })) }),
     close: () => new Promise((resolve) => { server.closeAllConnections?.(); server.close(() => resolve()); }),
   };
 }
