@@ -1,0 +1,24 @@
+# Line endings
+# - Text files are detected automatically. New files are stored with LF in the
+#   repository; files already committed with CRLF are NOT rewritten by Git
+#   (text=auto leaves CRLF-in-index files alone unless you run
+#   "git add --renormalize").
+# - Shell scripts must stay LF (Docker, WSL, Linux). Windows scripts stay CRLF.
+* text=auto
+*.sh   eol=lf
+*.cmd  eol=crlf
+*.bat  eol=crlf
+*.ps1  eol=crlf
+
+# Binary files
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.zip   binary
+*.dpapi binary
+
+# Vendored third-party browser code: keep out of language statistics
+**/web/vendor/** linguist-vendored
+*.min.js -diff linguist-vendored

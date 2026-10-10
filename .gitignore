@@ -1,0 +1,80 @@
+# ChatMCP - repository ignore rules
+# Tracked: source, docs, tests, lockfiles. NOT tracked: secrets, runtime state,
+# transcripts, backups, release bundles, dependencies and third-party clones.
+#
+# NOTE: this repository is created on Windows with core.ignorecase=true, so every
+# pattern below is matched case-INSENSITIVELY. Do not add broad directory names
+# (for example "chatmcp-hub/") that would also match the product source folder
+# "CHATMCP-HUB/".
+
+# --- Secrets and local environment (never commit) ---------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+*.dpapi
+model-credentials.*
+credentials.json
+secrets.json
+secrets.*.json
+
+# --- Third-party dependency clones (see deps/ and scripts/bootstrap-*) ------
+/cloud-harness-mcp/
+/cloud-harness-mcp-rescue-*/
+/.deps/
+
+# --- Hand-made backups, rescue copies and release bundles -------------------
+/chatmcp-hub-before-*/
+/chatmcp-state-backup-*/
+/RESCUE-*/
+/*.zip
+**/*.bak
+
+# --- ChatMCP runtime state: transcripts, pairing, permissions, logs ---------
+**/deploy/.generated/
+.chatmcp/
+transcript.jsonl
+permission-history.json
+hub-state.json
+hub-instance.lock
+agent-mode.json
+browser-client.json
+mcp-client.*.json
+*.log
+
+# --- Dependencies and build output -------------------------------------------
+node_modules/
+.pnpm-store/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+.eslintcache
+.cache/
+
+# --- Test output and temporary files ----------------------------------------
+test-results/
+playwright-report/
+.tmp/
+*.tmp
+
+# --- Editors and OS ----------------------------------------------------------
+.vs/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store
