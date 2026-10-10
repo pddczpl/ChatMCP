@@ -1,0 +1,27 @@
+# Render Blueprint for the ChatMCP Hub (free plan). See docs/DEPLOYMENT.md.
+#
+# This file holds no secret. Render makes the owner token itself (generateValue) - read it once in the Dashboard (Environment tab),
+# then use it to log in. Add the optional secrets in the Dashboard AFTER the first deploy, never in this file:
+#   GITHUB_TOKEN          a fine-grained token limited to one repository (Contents: read and write) - only needed to push to GitHub
+#   GEMINI_API_KEY / OPENROUTER_API_KEY / GROQ_API_KEY / MISTRAL_API_KEY   the key of the provider you chose (or set it in the page)
+#   CHATMCP_AI_PRESET, CHATMCP_AI_MODEL                                    which provider and model the Hub selects at start-up
+#
+# The free plan has an ephemeral disk and sleeps after 15 minutes without traffic: push what you want to keep to GitHub.
+services:
+  - type: web
+    name: chatmcp
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    # A new build wipes the workspaces and costs free build minutes, so it happens when you ask for it (Dashboard > Manual Deploy).
+    autoDeployTrigger: "off"
+    envVars:
+      - key: CHATMCP_OWNER_TOKEN
+        generateValue: true
+      - key: CHATMCP_PUBLIC
+        value: "1"
+      - key: CHATMCP_EXEC_MODE
+        value: broker

@@ -1,0 +1,19 @@
+# The image holds the Hub and nothing else. Everything is left out first; the Hub's folder is let back in.
+# (The repository folder on a developer's machine also holds backups, archives and clones: none of that may enter the build context.)
+*
+!CHATMCP-HUB
+
+# ... minus what the server never reads
+CHATMCP-HUB/test-results
+CHATMCP-HUB/windows
+CHATMCP-HUB/**/__pycache__
+CHATMCP-HUB/**/*.pyc
+CHATMCP-HUB/**/node_modules
+CHATMCP-HUB/**/.claude
+CHATMCP-HUB/*.cmd
+CHATMCP-HUB/*.ps1
+CHATMCP-HUB/TEST-RESULTS-*
+CHATMCP-HUB/RELEASE-*
+CHATMCP-HUB/UPGRADE-*
+CHATMCP-HUB/STUDIO-*
+CHATMCP-HUB/NETWORK-RECOVERY.txt
