@@ -1,0 +1,88 @@
+VALIDATION — CHATMCP BUTTON FIX 1.1.0
+2026-10-09
+
+RESULT
+- Content-script and popup JavaScript syntax: PASS.
+- Manifest V3 version, referenced files, top-frame https://chatgpt.com/*
+  scope, isolated document_start scripts and packaged CSS: PASS.
+- Existing composer compatibility regression suite: 17/17 PASS.
+- New manual JSONL bridge suite: 39/39 PASS.
+- No real MCP tool was executed by these tests.
+
+METHOD
+Runtime: Node 24.19.0 and the official LinkeDOM worker bundle.
+Source reference: MCP SuperAssistant at
+c26168ee2c5708a3a65ef5afd88cda1a97c81734.
+
+The composer suite uses the actual upstream adapter's selector/lifecycle
+methods, with React mounting replaced by a minimal test element.
+
+The bridge suite executes the actual upstream JSON parser and complete
+functionBlock renderer. The renderer's scan trigger is a minimal test
+observer. Theme, storage and the execution-button transport are stubs.
+This is not the complete extension or a browser-extension runtime.
+
+The observed fixture is the wrapper
+  div[data-markdown-copy="code-block"]
+and its toolbar
+  [data-markdown-copy="exclude"]
+from the user's latest Elements screenshot. The code body lies below the
+screenshot crop. Plain-text, highlighted-span and div-line bodies are
+controlled compatibility variants, not claims about the actual hidden body.
+
+BRIDGE COVERAGE
+- A complete no-argument workspace_list call creates no input pre/card
+  until its transfer button is clicked.
+- The native renderer then creates one function-block and one Run stub;
+  the test records zero Run clicks or tool executions.
+- The original wrapper HTML, code and controls stay unchanged.
+- Canonical JSONL preserves typed parameters, escaping, braces in strings,
+  Windows paths, nested arrays/objects, embedded newlines, quotes and <>&.
+- Pretty JSON, syntax-highlighted spans and adjacent line divs normalize.
+- Code examples in user/document content are never automatically imported.
+- Incomplete strings/events, extra prose, invalid JSON, mismatched/missing
+  IDs, reversed events, multiple calls, unknown events/fields, duplicate
+  parameters/descriptions and invalid description types are rejected.
+- Unsupported top-level null parameters, prototype/hasOwnProperty keys
+  and nonfinite nested numbers are rejected.
+- An invalid non-string event type cannot stop the scan with a coercion
+  exception. A within-limit large array does not trigger an argument-limit
+  exception during numeric validation.
+- Existing native pre and actual native-card relations prevent a duplicate
+  normalized copy. A pre marker alone is not reported as a successful card.
+- Repeated clicks and identical payloads share a single imported card.
+  Different calls with the same call_id remain distinct.
+- Source changes invalidate the old display and require a new click.
+  A last-moment source change cannot import a stale/unreviewed payload.
+- A removed imported host is not reattached or recreated.
+  Recreated source wrappers retain the consumed-payload record.
+- Streaming content becomes eligible without automatic import.
+- Repeated script loading and 100 unrelated DOM mutations do not recurse.
+- A different pathname permits a new explicit import with the old display
+  invalidated.
+
+COMPOSER REGRESSION COVERAGE
+All 17 previous checks passed with v1.1: both observer orders, late composer,
+adapter timeout, container replacement, original button/event preservation,
+owned alias cleanup, foreign attributes, reused/detached subtrees, duplicate
+installation, unrelated mutations and status privacy.
+
+BOUNDED REVIEW
+- No network request, page-script evaluation, background worker, token/
+  cookie/localStorage access, programmatic Run click or tool client.
+- Code-block text is read locally for candidate validation. Only a clicked,
+  validated copy is added to the visible DOM.
+- Diagnostic messages contain counts, version, route category and constant
+  reason codes; not payloads, full URLs or conversation IDs.
+- Existing MCP SuperAssistant automation is not disabled by this helper.
+  A manually transferred call may execute when native Auto Execute is ON.
+
+LIMITS
+Not validated here: real Edge installation, visual layout, ChatGPT's full
+React behavior, browser CSP behavior, the exact installed SuperAssistant
+build, or end-to-end tool execution from ChatGPT web.
+
+The user's screenshot separately confirmed that v1.0 restored the MCP
+composer button/menu. Their earlier Node SDK workspace_list result
+separately confirmed the proxy/server connection. Neither is evidence that
+the new browser bridge has already executed a tool successfully.

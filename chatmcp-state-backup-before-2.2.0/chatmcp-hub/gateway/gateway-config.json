@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "apiBaseUrl": "https://p090-vertex-gateway-1036721532620.asia-southeast1.run.app",
+  "protocol": "gemini",
+  "model": "gemini-3.8-flash",
+  "authMode": "auto",
+  "customPath": ""
+}

@@ -1,0 +1,13 @@
+{
+  "name": "chatmcp-studio-local",
+  "version": "2.2.0",
+  "private": true,
+  "description": "Local coding agent - no CDN runtime dependency",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/verify-v2-runtime.mjs && node tests/verify-v2-http.mjs"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.0.0"
+  }
+}

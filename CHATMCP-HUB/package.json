@@ -1,0 +1,13 @@
+{
+  "name": "chatmcp-studio-local",
+  "version": "2.2.8",
+  "private": true,
+  "description": "Local coding agent - no CDN runtime dependency",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/verify-v2-runtime.mjs && node tests/verify-v2-http.mjs && node tests/verify-gateway-autodetect.mjs && node tests/verify-full-access.mjs && node tests/verify-browser-continuation.mjs && node tests/verify-gateway-compat-unlimited.mjs && node tests/verify-gemini-truncation.mjs && node tests/verify-persistent-sessions.mjs && node tests/verify-gemini-malformed-function.mjs && node tests/verify-gemini-action-recovery.mjs && node tests/verify-gateway-413-compaction.mjs"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.0.0"
+  }
+}

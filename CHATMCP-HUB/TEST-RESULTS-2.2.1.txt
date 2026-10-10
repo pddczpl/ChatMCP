@@ -1,0 +1,29 @@
+ChatMCP Studio 2.2.1 — Release validation
+
+Environment: isolated Linux container, Node.js v22.16.0, Chromium/Playwright.
+NO live requests were made to the private Cloud Run gateway, and NO Windows,
+Edge, Docker Desktop or production workspace end-to-end test was executed.
+
+Node regression: 19/19 tests/verify-*.mjs PASSED.
+Specific new tests:
+- tests/verify-gateway-autodetect.mjs: 22 assertions on one-click same-origin
+  protocol/auth probing, original model route, sanitized errors, key isolation,
+  DPAPI-preservation fixture and no changes to config on total probe failure.
+- tests/verify-agent-autotools.mjs: project test hint discovery inside actual
+  AgentRunner preflight, correct tool inventory, no execution during discovery.
+- tests/verify-auto-project-ui.py: React Chromium mock sends startup request
+  before task when MCP is stopped; Test API auto-detection button wired.
+
+Other React Chromium mock tests PASSED:
+- tests/verify-react-ui.py: switch AI mode, delete history, verification, CSRF
+  and route-version checks.
+- tests/verify-v2-ui.py: light/dark, code index, refs, preview and tools layout.
+- tests/verify-studio-ui.py: old test entrypoint migrated to current React UI.
+
+Syntax: 63/63 JavaScript files PASSED node --check.
+Python AST worker PASSED python -m py_compile.
+
+Constraints: Test API probes themselves can be billable. A text-only success
+DOES NOT prove Gemini/OpenAI tool calls will be accepted by a custom gateway.
+An MCP tool with unverified side effects is never blindly replayed. Dangerous
+shell commands and workspace mutations follow existing PermissionGate rules.

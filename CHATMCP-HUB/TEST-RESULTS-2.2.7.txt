@@ -1,0 +1,26 @@
+ChatMCP Studio 2.2.7 — validation summary
+Environment: Linux container, Node.js v22.16.0, Python Playwright/Chromium; NOT the user's Windows/Edge environment.
+
+Observed user error:
+- HTTP 413: Request body exceeds 128 KiB, after reading multiple long Markdown files on a DeepWeeds lab.
+- The error is consistent with concatenating full MCP results in every Gemini text-only model request.
+
+Tested:
+- npm test: PASS (11 selected Node.js regression test scripts).
+- All tests/verify-*.mjs: PASS (25/25 scripts).
+- Python/Chromium mocked React UI tests: PASS (4/4 scripts).
+- JavaScript/ESM syntax checks: see final archive build report.
+
+New regression: tests/verify-gateway-413-compaction.mjs
+- Serialised outgoing JSON body stays <= 96 / 64 / 32 KiB (UTF-8 and escapes measured exactly).
+- Vietnamese and Unicode input, very long tool outputs, and post-error repair hints remain within budget.
+- Seven large MCP file reads, eight successful model turns, and two simulated HTTP 413 responses (one plain text, one JSON) complete without re-running any MCP tool.
+- The local journal contains all seven full tool results, without truncation.
+- Existing model action schema/permission gates remain active.
+
+Not tested:
+- Actual HTTPS requests with the user's Cloud Run API key; no key in build archive.
+- Real Windows Desktop Commander, network outages, Edge Companion DOM or Windows ConPTY.
+- Proof that the AI correctly completes the underlying DeepWeeds experiments; the test exercises transport and orchestration only.
+
+Limitation: provider-side context excerpts are partial. The agent must re-read necessary file ranges, and a later independently chosen tool action may still duplicate a prior operation. A gateway may enforce a lower body cap than tested; after bounded retries Studio stops rather than send arbitrary unvalidated content.

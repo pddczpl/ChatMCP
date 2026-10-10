@@ -1,0 +1,53 @@
+CHATMCP LOCAL SETUP 1.0.0 - VALIDATION
+Checked: 2026-10-09
+
+VERIFIED PACKAGE
+@wonderwhy-er/desktop-commander 0.2.52
+Registry gitHead: c774c3b505de990219637ecdc9a830c8772fae9d
+Published bin: dist/index.js
+Tarball SHA-512 integrity matched the npm registry metadata.
+The source of this published release was inspected, not only the main branch.
+
+LIVE MCP CHECKS (LINUX, NODE.JS 24.19.0, SYNTHETIC PROJECT)
+- Connected to the actual Desktop Commander MCP package through its stdio bin.
+- Used the same generated launcher and SDK initialization as the installer.
+- Discovered required configuration, file editing and terminal tool names.
+- Called set_config_value, get_config and list_directory successfully.
+- Confirmed the selected directory was persisted to Desktop Commander config.
+- Confirmed upstream default blockedCommands were retained.
+- Confirmed paths containing spaces work in the Node launcher and MCP probe.
+- Confirmed original proxy server entries, a synthetic bearer value and unrelated
+  root settings were preserved; the original UTF-8 BOM backup was byte-identical.
+- A second successful run retained the same proxy configuration.
+- Conflicting concurrent configuration and unrelated Desktop Commander entries
+  were rejected rather than overwritten.
+
+FAILURE PATH CHECKS (MOCKED MCP FAILURES)
+- Directory read failure after scope change: old scope restored; proxy untouched.
+- Lost response after successful scope write: old scope restored; proxy untouched.
+- Synthetic credential absent from captured failure logs.
+
+SOURCE REVIEW
+- PowerShell uses syntax compatible with Windows PowerShell 5.1.
+- Single node.exe / npm.cmd paths are resolved, including duplicate PATH entries.
+- Version probing does not pass quoted JavaScript through PowerShell node -e.
+- Native stderr is tolerated; errors depend on the native exit code.
+- Install success marker is only written after npm exits successfully and is
+  removed before a repair install starts.
+- No ExecutionPolicy changes, force-killed user processes or lab file edits.
+- No configuration secrets are embedded in these deliverable files.
+
+LIMITS OF VALIDATION
+No Windows PowerShell runtime or access to the user's F: drive was available.
+The installer must complete its own MCP probe on that Windows machine before
+the new server can be considered connected there. The live package check used
+an isolated Linux test installation with npm lifecycle scripts skipped; the
+Windows installer uses normal lifecycle scripts for required binary dependencies.
+Browser-extension refresh, actual Windows Python commands, GPU operation and
+Sensor Fusion tests have not yet been run as part of this setup.
+
+UPSTREAM BEHAVIOR
+Desktop Commander configuration is shared per OS user. allowedDirectories
+restricts file tools, not arbitrary terminal commands. The official package can
+download a Chrome browser for its PDF feature during install/startup. This setup
+does not modify the upstream package to suppress that behavior.

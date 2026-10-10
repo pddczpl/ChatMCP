@@ -1,0 +1,38 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+* { box-sizing: border-box; }
+body { width: 420px; margin: 0; padding: 18px; background: #f7f9fc; color: #192435; }
+h1 { font-size: 19px; line-height: 1.25; margin: 0 0 5px; }
+header p { font-size: 12px; color: #526175; margin: 0 0 17px; }
+#summary { font-size: 14px; font-weight: 650; line-height: 1.5; margin: 0 0 14px; }
+dl { margin: 0 0 14px; padding: 12px; border: 1px solid #d6dfe9; border-radius: 9px; background: #fff; }
+dl div { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 12px; }
+dt { color: #526175; }
+dd { margin: 0; max-width: 165px; text-align: right; font-weight: 600; }
+.note { font-size: 12px; line-height: 1.55; margin: 0 0 14px; }
+.actions { display: flex; gap: 8px; }
+button { font: inherit; font-size: 12px; padding: 8px 10px; border: 1px solid #b7c6d8; border-radius: 6px; background: #fff; color: #192435; cursor: pointer; }
+button:hover { background: #edf3fc; }
+button:disabled { opacity: .45; cursor: default; }
+button:focus-visible, summary:focus-visible, textarea:focus-visible { outline: 2px solid #215fce; outline-offset: 3px; }
+details { margin-top: 14px; font-size: 12px; }
+summary { cursor: pointer; }
+label { display: block; margin: 10px 0 6px; color: #526175; }
+textarea { width: 100%; height: 185px; padding: 9px; resize: vertical; font: 11px/1.5 ui-monospace, monospace; border: 1px solid #b7c6d8; border-radius: 6px; background: #fff; color: #192435; }
+footer { border-top: 1px solid #d6dfe9; margin-top: 16px; padding-top: 12px; font-size: 11px; line-height: 1.5; color: #526175; }
+.panel { padding: 13px; margin-bottom: 15px; border: 1px solid #d6dfe9; border-radius: 10px; background: #fff; }
+h2 { margin: 0 0 9px; font-size: 14px; }
+.panel a { color: #215fce; font-size: 12px; }
+.path { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 9px; font: 12px/1.5 ui-monospace, monospace; }
+.switch { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; color: inherit; font-size: 13px; font-weight: 600; }
+.switch input { accent-color: #215fce; }
+#instruction-note { margin: 9px 0 0; }
+#instruction-preview { margin-top: 8px; }
+@media (prefers-color-scheme: dark) {
+  body { background: #171d27; color: #edf2f8; }
+  header p, dt, label, footer { color: #adbbce; }
+  dl, button, textarea { background: #212a37; border-color: #415069; color: #edf2f8; }
+  button:hover { background: #2d3a4d; }
+  footer { border-color: #415069; }
+  .panel { background: #212a37; border-color: #415069; }
+  .panel a { color: #9cbdff; }
+}

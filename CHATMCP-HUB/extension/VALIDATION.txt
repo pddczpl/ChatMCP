@@ -1,0 +1,213 @@
+ChatMCP Studio 1.3.0 / Companion 1.4.0 — bổ sung kiểm thử tiếp tục phiên; xem ../VALIDATION.txt và ../SESSION-RECOVERY.md.
+
+ChatMCP Hub 1.2.0 / Companion 1.3.7 — kiểm thử cục bộ 2026-10-10
+
+Lỗi thực tế: task đã chạy 43 lượt/11 MCP calls rồi dừng send_uncertain khi
+mất xác nhận thao tác gửi ở lượt 44. Bản này giữ tác vụ ở 'reconciling'
+cho đến khi tìm thấy bằng chứng tin nhắn khớp chính xác task/turn/nonce.
+
+KIỂM THỬ THỰC TẾ TRONG NODE / VM (không phải Edge trên máy người dùng)
+- tests/verify-network-recovery.mjs: mất ack sau SEND + Hub offline + service
+  worker restart => đọc chứng cứ trong tab, đúng 1 lần click, đúng 1 reply,
+  không gọi fail. Mất claim ack => claim idempotent, đúng 1 lần click.
+  Offline có xác nhận trước click => đợi online rồi chỉ click một lần.
+  Không có DOM proof => không gửi lại và tiếp tục chờ.
+- tests/verify-recovery-dom.mjs: sau reload trang, JSON nonce đúng hoặc
+  user bubble đúng xác minh được mà không click; nonce sai chờ; nội dung user
+  khác thì fail-closed.
+- Các bài test hiện có và kiểm tra cú pháp Node chạy lại khi đóng gói.
+
+KHÔNG ĐƯỢC QUẢNG CÁO LÀ ĐÃ KIỂM CHỨNG TRÊN WINDOWS/EDGE THẬT:
+  - Mạng LAN, ChatGPT UI, desktop-commander, Docker, tài khoản/model người dùng
+    chưa được chạy trong môi trường kiểm thử này.
+  - Kết nối mất trong lúc gọi MCP có thể khiến kết quả thao tác ghi không rõ;
+    các thao tác như vậy không tự chạy lại.
+  - Hub process restart không khôi phục được MCP session đang chạy.
+
+--- HISTORY BELOW ---
+
+ChatMCP Hub 1.1.5 / Companion 1.3.5 — 2026-10-09
+
+NEW OBSERVATION: The real ChatGPT screenshot displays a fully formatted
+JSON command with the correct task ID, turn and nonce, but browser author DOM
+selectors reported visibleUsers=0. A correct assistant reply therefore already
+exists; 1.3.4 failed before returning it to the Hub.
+
+CHANGE: The content script accepts a complete, uniquely matching JSON command
+from visible code-block DOM only if no user-author nodes are available. The
+companion validates task ID, exact turn and a 48-hex nonce passed by the
+background worker from the authenticated Hub message. A visible conflicting
+user message, a wrong nonce or multiple different authenticated command blocks
+still fail closed. The backend independently repeats nonce/task/turn checks.
+No automatic resend; first response binds the one owned tab only. Follow-up
+messages may use the verified previous command if user bubbles remain absent.
+
+Focused tests: node tests/verify-send-cycle.mjs;
+node tests/verify-reply-witness.mjs;
+node tests/verify-first-message.mjs;
+node tests/verify-result-paging.mjs.
+All 27 JavaScript source files passed node --check, and manifest.json parsed.
+The three-turn end-to-end fake-DOM send cycle confirmed exactly one click per
+turn, the first home->conversation binding, subsequent turns with hidden user
+bubbles, and reply extraction from JSON code blocks.
+Tests use Node/VM fake DOM, NOT the user's real Edge/ChatGPT session.
+The actual Sensor Fusion workspace has not been modified or tested by patch.
+
+--- PRIOR VALIDATION (HISTORICAL) ---
+
+CHATMCP HUB COMPANION 1.3.4 — focused validation (2026-10-09)
+
+The 1.3.3 route error from=home to=conversation was NOT an unsupported URL.
+It indicated missing confirmation of the newly submitted user message.
+Added known user bubble/test-ID fallback and matching inside nested user text,
+excluding Copy/Edit controls; browserInstructions is now much shorter.
+Focused VM/DOM checks passed for both user-message variants and foreign-message
+rejection. Unverified routing waits 30 seconds and reports a specific error.
+This is NOT a live Edge/ChatGPT test. Historical tests are retained below.
+
+CHATMCP HUB COMPANION 1.3.3 — VALIDATION
+Date: 2026-10-09
+
+CURRENT HOTFIX CHECKS — 1.3.3
+67 / 67 content DOM transport cases passed.
+30 / 30 service-worker pairing/journal cases passed.
+ 8 /  8 shared route parser cases passed.
+Total extension checks: 105 / 105, no failing/skipped case.
+Related backend/local HTTP: 36 / 36; dashboard: 72 assertions.
+
+Regression inputs include the user's actual local-chatgpt%3A UUID and the
+canonical UUID from the failed browser session. The previous parser rejects
+the former; the new parser accepts and classifies it as provisional.
+Literal colon and %3a normalize to the same temporary identity. Malformed
+UUID, arbitrary colon IDs, double encoding and encoded separators reject.
+
+Cases cover temporary URL before Send, URL before the owned message DOM,
+one Send click, transition to canonical URL, and an answer which stabilizes
+before that transition. No first reply is forwarded while the route is
+provisional; after canonical arrival it must stabilize for 1.8 seconds again.
+If it remains temporary for 60 seconds after stability, a specific readiness
+error is returned without another Send. Background displays the waiting
+status without re-claiming, re-sending or forwarding a premature reply.
+Backend independently rejects provisional replies without altering task
+state or executing tools. The ordinary draft-replacement suite still passes.
+
+These are source, VM/DOM and mocked-Chrome integration tests, not a browser
+session on the user's Windows machine. No real model/lab task was run here.
+
+PRIOR HOTFIX CHECKS — 1.3.2 (historical)
+59 / 59 content DOM transport cases passed.
+28 / 28 service-worker pairing/journal cases passed.
+ 5 /  5 shared route parser cases passed.
+Total extension checks for this hotfix: 92 / 92, no failing/skipped case.
+Related backend/local HTTP: 35 / 35; dashboard: 70 assertions.
+
+Current regressions cover complete draft replacement in contenteditable and
+textarea; repeated PREPARE without append; draft changes during readiness
+and before SEND; next tool-result draft replacement; no abort for an unsent
+draft while collecting a response; refusal after a separately sent user
+turn; and no replay after uncertain send confirmation. Textarea whitespace
+is checked literally. The contenteditable mock's innerText whitespace and
+native editing behavior are not a live browser fidelity guarantee.
+
+Route cases cover first home-to-chat navigation; first temporary ID to
+canonical ID before reply binding; URL-before-message-DOM waiting without
+another click; same ID across /c, /chat and /g/<scope>/c wrappers; trailing
+slash/query/hash normalization; changed ID after initial binding/next turn;
+and refusal of unsupported URLs. Background passes initialRouteBinding
+only when content explicitly attests true on turn one. Backend additionally
+requires the correct task/turn/nonce before rebinding or executing a tool.
+The content script locks identity when the first stable reply is captured.
+
+These supported routes are deliberate compatibility cases, not evidence of
+the user's actual failing URL. The precise live URL was not supplied.
+Diagnostics contain fixed route shapes and version, not full URLs or text.
+
+PRIOR HOTFIX CHECKS — 1.3.1 (historical)
+46 / 46 browser DOM transport cases passed after the send-readiness fix.
+24 / 24 service-worker pairing/journal cases passed again after the fix.
+Total for this hotfix: 70 / 70, no failing or skipped case.
+
+New regression coverage includes exact English/Vietnamese aria/title Send
+names without test IDs; composer-submit-button; unnamed native submit in
+its own form; bounded no-form composer ancestors; outside-form/message/MCP/
+editable decoys; conflicting names such as Allow/Upload/Send money; disabled
+and ambiguous buttons; one composed InputEvent after verified insertion;
+no notification after unconfirmed insertion; no reinsertion on retry; and
+draft changes during the readiness wait and before the final send.
+
+The former known_send_button_not_ready combined missing and disabled states.
+New messages distinguish send_button_missing, send_button_disabled and
+send_button_ambiguous and contain only fixed diagnostic categories/counts.
+
+The test fixture no longer assumes every button has the old data-testid or
+that DOM insertion automatically enables it. Actual Windows/ChatGPT DOM is
+still not available in this build environment; this is not a live browser
+acceptance test or a guarantee that the user's exact UI now matches.
+
+PRIOR 1.3.0 RELEASE CHECKS (historical, not all rerun for this hotfix)
+39 / 39 manual JSONL bridge regression cases passed.
+40 / 40 legacy automatic bridge, workspace and composer cases passed.
+ 6 /  6 legacy popup / Hub messaging cases passed.
+10 / 10 legacy read-only service-worker relay cases passed.
+23 / 23 new ordinary-chat browser DOM transport cases passed.
+24 / 24 new pairing / service-worker journal transport cases passed.
+Total: 142 / 142 cases. No failing/skipped case.
+
+PRIOR BROWSER DOM TRANSPORT COVERAGE (historical)
+LinkeDOM plus isolated VM exercises empty-composer preparation, known send
+controls, one confirmed click, missing user confirmation without replay,
+assistant-role selection, exact code-block extraction, observed code wrapper
+header exclusion, deduplication, 1.8-second stabilization, Stop/busy/idle
+gates, unknown DOM/completion, missing previous turn after reload, existing
+conversation preservation, extra-user interruption, route/page binding,
+login/quota/dialog/selected Work refusal, trusted extension messages only,
+owned-generation cancellation, reply byte limit and multi-turn continuation.
+LinkeDOM's missing Node.DOCUMENT_POSITION_FOLLOWING constant is supplied with
+the standard value; its compareDocumentPosition implementation is used.
+Geometry, clock, selection/edit commands and Chrome messaging are fixtures.
+Version 1.3.2 supersedes the original Hub-mode draft-preservation behavior
+with the user's explicitly requested replacement; legacy mode is unchanged.
+
+MV3 BACKGROUND TRANSPORT
+Mock storage/alarms/tabs/fetch verify explicit pairing; TRUSTED_CONTEXTS
+storage and token exclusion from content/public state; popup sender guards;
+one claim/send and same-tab continuation; new tab per new task; preclaim DOM
+failure; failure binding to an invalid current queue message; mismatched or
+ambiguous claim; ambiguous send without replay; identical sent/reply ACK
+retry; persistence of pending reply; recovery from claiming/claimed/sending
+worker restart without send; confirmed-send monitoring without reinsertion;
+cancellation, unrelated/owned tab closure, Hub instance changes, auth expiry,
+pair response after reset, reset during claimed/sending storage await, and
+storage failure before claim. Manifest permissions/CSP/site scope are checked.
+No browser credential, real tab or real network is accessed by these tests.
+
+LEGACY REGRESSION
+Manual tests reuse the inspected upstream JSON parser and functionBlock
+renderer at c26168ee2c5708a3a65ef5afd88cda1a97c81734. They cover call/parameter
+parsing, partial input, original DOM preservation, duplicate and native-pre
+guards, React replacement, changed payload, routes and large arrays.
+Legacy automatic tests cover default OFF, explicit opt-in, author/quote/result
+guards, fresh prefixes, idle state, no button click, timer cancellation,
+workspace/generation/instance checks and preparation without sending.
+Legacy popup and GET-relay cases still pass. These test only the legacy
+modules; their no-send/no-POST assertions are not claims about browser mode.
+
+LIMITATIONS OF VALIDATION
+This is unit/DOM integration with mocked Chrome APIs, not an installed
+Chrome/Edge extension running in the user's actual ChatGPT account or on
+Windows. It does not prove selectors match every ChatGPT experiment or that
+a background tab always exposes idle/author state. The real DOM route may
+stop with a precise unknown-interface/login/quota error. Native CSP, rendering,
+service-worker scheduling and browser background throttling are not emulated.
+No real MCP call is made by these extension tests. Backend/MCP integration is
+documented separately in the Hub validation. Browser image/audio attachment
+conversion is not implemented; tool output is transported as text.
+
+Test sources: chatmcp-hub/extension-tests
+node --disable-warning=ExperimentalWarning verify-manual.mjs
+node --disable-warning=ExperimentalWarning verify-auto.mjs
+node verify-popup.mjs
+node verify-background.mjs
+node --test verify-browser-runner.mjs
+node --test verify-browser-background.mjs
+node --test verify-chat-route.mjs

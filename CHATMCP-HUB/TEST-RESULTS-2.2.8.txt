@@ -1,0 +1,8 @@
+ChatMCP Studio 2.2.8 build validation
+===================================
+Run in isolated Linux build container using Node v22.16.0; NOT user's Windows/Edge machine.
+- 25/25 Node verification suites passed, including send-cycle and network recovery regression.
+- 68/68 app and test JS/MJS files passed node --check (vendor excluded).
+- tests/verify-react-ui.py passed under Chromium with mocked API. Included detection of an active claimed-but-unsent task and stale frontend/backend version.
+- Zip integrity + SHA256 manifest verified when packaged.
+- Not verified: live ChatGPT UI, Edge MV3 suspension under actual LAN flaps, user's GitHub workflow or CI.

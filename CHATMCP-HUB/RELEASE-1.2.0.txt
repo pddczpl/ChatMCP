@@ -1,0 +1,34 @@
+ChatMCP Hub 1.2.0 / Companion 1.3.7
+====================================
+
+Two modes on one localhost dashboard:
+- ChatGPT Web via paired browser Companion (same mode and LAN drop recovery as 1.1.6).
+- API Gateway via direct Hub requests: Google Gemini generateContent or OpenAI-compatible Chat Completions.
+
+Added:
+- API Base URL, model, API key and protocol configuration in dashboard; alternative auth header and endpoint paths.
+- Optional Windows CurrentUser DPAPI encryption for a saved key; unselected mode never calls the API.
+- API agent routes available MCP tools via catalog/describe/call/capabilities, logs progress and final report.
+- Live activity status and timeline in dashboard for either mode, not private model reasoning.
+- Gemini 3 function-call thoughtSignature and optional functionCall.id roundtrip support.
+- Transport retry for API model calls, with abort and task time budget; no uncertain MCP mutations automatically replayed.
+- Config change locks while tasks run and 25-second explicit API test deadline.
+
+IMPORTANT:
+- Do not reuse API keys pasted into chat. Revoke/rotate such keys and enter new key directly in dashboard.
+- API mode sends task and MCP result content to the configured external gateway.
+- Google-style gateway URL is not proof that it accepts Gemini REST. Choose the actual protocol/header/path it implements.
+- A 2-mode coding task agent, NOT yet complete feature parity with Codex Desktop, Claude Desktop or Antigravity.
+- "Thinking" view is human-readable operation/status notes, NOT hidden chain-of-thought.
+- No live real-world validation of Windows DPAPI, Edge Companion or the user's Cloud Run gateway has occurred.
+- Actual cloud-hosted or local MCP calls can read/write the user's files and run commands with the connected permissions.
+
+Install/upgrade:
+1. STOP-CHATMCP-HUB.cmd
+2. Extract this archive into F:\Personal_Project\Vin\ChatMCP, overwrite CHATMCP-HUB files.
+   Preserve repo workspace and cloud-harness-mcp\deploy\.generated data.
+3. In edge://extensions (or chrome://extensions), Reload Companion 1.3.7.
+4. START-CHATMCP-HUB.cmd; open http://127.0.0.1:3007.
+5. Choose mode, select workspace, start MCP; for API mode, save API config then test.
+
+See AGENT-MODES.md for details and limitations.

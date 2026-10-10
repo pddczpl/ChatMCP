@@ -1,0 +1,38 @@
+ChatMCP Studio 1.3.0 / Companion 1.4.0 — kết quả kiểm thử cục bộ
+
+Node.js: 22.16.0; Linux container (không phải Windows máy người dùng)
+
+Đã chạy từ gốc package:
+  for f in tests/*.mjs; do node "$f" || exit 1; done
+
+Kết quả thực tế: 11/11 bộ test PASS
+  verify-agent-http.mjs               31 HTTP checks PASS
+  verify-browser-continuation.mjs     5 nhánh resume/reject PASS
+  verify-dual-mode.mjs                64 assertions PASS
+  verify-first-message.mjs            PASS
+  verify-hub-claim-recovery.mjs       PASS
+  verify-network-recovery.mjs         4 nhánh mạng/recovery PASS
+  verify-persistent-sessions.mjs      Web/API persisted resume/reboot/delete PASS
+  verify-recovery-dom.mjs             5 nhánh DOM recovery PASS
+  verify-reply-witness.mjs            6 nhánh nonce/identity PASS
+  verify-result-paging.mjs            PASS
+  verify-send-cycle.mjs               3 lượt gửi/nhận, một click mỗi lượt PASS
+
+Kiểm tra cú pháp:
+  find . -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
+Kết quả: toàn bộ 37 file JS/MJS PASS (kiểm tra sau chỉnh sửa cuối cùng).
+
+Kiểm tra giao diện tĩnh:
+  Playwright + Chromium set_content với web/index.html + web/style.css;
+  viewport 1440x900, body.scrollWidth=1440; không tràn chiều ngang.
+  Ảnh minh hoạ nội bộ dùng dữ liệu mẫu, không phải kết quả agent chạy thật.
+
+Giới hạn: Mock DOM và HTTP local, chưa chạy thử trong Edge trên Windows,
+trong Cloud Harness chạy trên máy người dùng hoặc với API key/gateway thật.
+Không coi test mock là bảo đảm khôi phục mọi lệnh MCP sau mất điện.
+
+Lệnh kiểm thử lại trên Windows:
+  Get-ChildItem .\tests\verify-*.mjs | ForEach-Object {
+    node $_.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Test failed: $($_.Name)" }
+  }

@@ -1,0 +1,28 @@
+ChatMCP Studio 2.2.4 — Build-time validation (Linux container, 2026-10-10)
+
+SOURCE: CHATMCP-STUDIO-2.2.3.zip, patched in /mnt/data/chatmcp-studio-2.2.4-work/CHATMCP-HUB (source application folder only).
+
+NODE.JS:
+- 22 distinct tests/verify-*.mjs regression scripts executed successfully.
+- npm test executed successfully (8 selected suites including MAX_TOKENS recovery).
+- New tests/verify-gemini-truncation.mjs: 35 assertions including real agent-runner tool cycle against mocked HTTP Gemini gateway, one MCP call, MAX_TOKENS retry cap, explicit token metadata, SAFETY no retry, malformed JSON retry, invalid tool-name rejection, preservation of project checks, credential redaction.
+- 67 / 67 JavaScript/MJS files passed node --check.
+
+BROWSER UI (Chromium, mock API, NOT live Hub):
+- tests/verify-react-ui.py PASSED
+- tests/verify-auto-project-ui.py PASSED
+- tests/verify-v2-ui.py PASSED
+- tests/verify-studio-ui.py PASSED
+
+SAFETY / LIMITS:
+- Text-only Gemini retries happen BEFORE any MCP action for this model step. No model output is executed without a strictly parsed, allowlisted action.
+- Retry cap is 2 additional model requests for a retryable incomplete/invalid response. Non-retryable safety reasons are not resent.
+- Gateway may charge each repeated model request; provider limits remain. No change to user's task step/minute caps.
+- HTTP native/tool fallback already in 2.2.3 remains.
+
+NOT VERIFIED:
+- Actual Cloud Run gateway request/response, API key and upstream finishReason.
+- Real Windows 11 installation, Windows DPAPI, Docker host/sandbox, ConPTY, Edge companion, actual MCP project work.
+- Long-duration network interruption/resumption and production reliability.
+
+On persistent failures obtain finishReason, and prompt/output/thinking token numbers shown by Studio; never send API keys.

@@ -1,0 +1,34 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { AgentRunner } from '../lib/agent.mjs';
+const root=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-agent-autotools-'));
+let prompts=[];
+const manager={
+  secrets:[],workspace:root,generation:1,instanceId:'test-agent',locked:false,
+  studio:{checks:async()=>({suggested:[{from:'pyproject.toml',command:'python -m pytest -q'},{from:'package.json',command:'npm test'}]})},
+  state(){return {workspace:{path:root},generation:1,instanceId:'test-agent',services:{desktop:{state:'ready'},cloud:{state:'ready'},proxy:{state:'ready'}}};},
+  acquireTask(){if(this.locked)return false;this.locked=true;return true;},
+  releaseTask(){this.locked=false;},
+  async createAgentSession(){return {catalog:{tools:[{name:'desktop-commander.list_directory',server:'desktop-commander',inputSchema:{type:'object'}}],prompts:[],resources:[],resourceTemplates:[],servers:{}},async close(){},async callTool(){throw new Error('Not required in this fixture');}};},
+};
+const provider={
+  ready:()=>true,snapshot:()=>({provider:'fixture',model:'fixture'}),
+  async respond(payload){prompts.push(payload.instructions);return {status:'completed',output:[{type:'message',role:'assistant',phase:'final',content:[{type:'output_text',text:'Detected tests, no command executed.'}]}]};}
+};
+try{
+  const runner=new AgentRunner({manager,provider,taskDirectory:path.join(root,'tasks')});await runner.load();
+  const started=await runner.start({prompt:'Tự chọn công cụ, kiểm tra dự án.',maxSteps:4,maxMinutes:1});
+  for(let i=0;i<50&&runner.get(started.id)?.status==='running';i++)await new Promise(r=>setTimeout(r,40));
+  assert.equal(runner.get(started.id).status,'completed');
+  assert.equal(prompts.length,1);
+  assert.ok(prompts[0].includes('AUTOMATIC PROJECT CHECK DISCOVERY'));
+  assert.ok(prompts[0].includes('python -m pytest -q'));
+  assert.ok(prompts[0].includes('npm test'));
+  assert.ok(prompts[0].includes('Select the appropriate tools autonomously'));
+  assert.equal(runner.get(started.id).toolCalls,0,'discovery does not execute shell tools');
+  assert.ok(runner.get(started.id).events.some(x=>x.type==='project_detected'));
+  await runner.shutdown();
+  console.log('PASS Agent preflight auto-discovers project check tools without manual selection or executing shell commands');
+} finally {await fs.rm(root,{recursive:true,force:true});}

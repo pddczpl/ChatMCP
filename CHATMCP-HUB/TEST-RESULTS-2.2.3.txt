@@ -1,0 +1,25 @@
+ChatMCP Studio 2.2.3 — actual local build validation
+
+SOURCE: CHATMCP-STUDIO-2.2.2.zip, updated in an isolated build directory.
+DATE: 2026-10-10
+
+PASS all 21 tests/verify-*.mjs Node.js scripts (run sequentially, fixture assets excluded).
+PASS npm test (7 main suites):
+ - v2 runtime: 25 assertions
+ - v2 HTTP: 27 assertions
+ - gateway autodetect: 22 assertions
+ - Full Access: 15 assertions
+ - browser continuation: cancelled/failed/restarted + same URL and `resumeStart` forwarded to the content script, no double send
+ - gateway compatibility: plain Gemini request accepted, agent fields rejected with HTTP 400, then strict JSON-text fallback -> one real MCP mock call and final response
+ - persistent sessions: same session ID/URL, multiple follow-ups, restart protection, API checkpoints
+PASS Python tests/verify-react-ui.py (Chromium mocked HTTP): React API actions, version/CSRF, conversation UI, no browser JS errors.
+PASS Python tests/verify-v2-ui.py (Chromium mocked HTTP): light/dark themes, Files, index, preview, inspector, no browser JS errors.
+
+NOT TESTED:
+ - No live call to the user's Cloud Run gateway or any previously exposed API key.
+ - No direct Edge/ChatGPT browser DOM integration against the user's actual account.
+ - No direct installation or multi-hour soak test on Windows 11.
+ - JSON-text fallback depends on the model following the JSON action protocol; it may fail closed if not.
+ - Removing Hub caps does not remove cloud provider limits, per-tool timeouts or context limitations.
+
+No changes to the original cloud-harness-mcp repository or the user's Windows project were made by this build.

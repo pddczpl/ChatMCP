@@ -1,0 +1,15 @@
+ChatMCP Studio 2.2.2 — Build-time validation
+
+20/20 Node.js verification scripts PASS
+4/4 Playwright Python React UI scripts PASS (mock Hub API)
+64/64 JavaScript (*.js + *.mjs) syntax PASS via node --check
+Specific checks:
+  15 Full Access: confirmation, outside-workspace path, unknown/dangerous MCP tool, audit, persistence, downgrade, abort
+  27 HTTP: CSRF and authorization, enabling/disabling Full Access, sandbox isolation, index, terminal
+  22 Gateway Adapter: redacted response diagnostics, same-origin protocol autodetect, stored key not returned
+  UI React: switch policy, persistent warning, light/dark, file viewer, terminal, Agent API/Web routing, version handshake
+
+Gateway REAL POST: NOT RUN — build environment DNS returned curl (6) Could not resolve host.
+Windows 11 / Edge Full Access: NOT RUN — no access to the user's local PC from build environment.
+Windows PowerShell gateway diagnostic scripts: NOT EXECUTED ON WINDOWS — provided for user-side execution.
+No user credential is embedded in this package.

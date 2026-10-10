@@ -1,0 +1,32 @@
+ChatMCP Studio 2.2.6 — validation (2026-10-10, Linux container)
+
+SOURCE:
+- Began from the exact mounted CHATMCP-STUDIO-2.2.5 archive.
+- Updated Gemini text-only action parser and request repair instructions.
+- Did not contact the user's real Cloud Run gateway or edit any Windows files.
+
+USER-OBSERVED FAILURE:
+- Gateway text-only: phản hồi thiếu chatmcp_action tool/final hợp lệ.
+- This occurred after desktop-commander.list_directory returned directory listing.
+- No raw candidate JSON supplied, so the exact malformed top-level fields were not observed; tests use representative schema-drift fixtures.
+
+EXECUTED TESTS:
+- npm test: PASS, 10 selected suites (including new verify-gemini-action-recovery.mjs).
+- All tests/verify-*.mjs: PASS, 24/24 Node test files.
+- React/Chromium mocked UI: PASS, 4/4 (verify-react-ui.py, verify-auto-project-ui.py, verify-v2-ui.py, verify-studio-ui.py).
+- node --check: PASS, 69/69 JS/MJS files.
+
+NEW TEST SCENARIOS:
+- An MCP call completed successfully; next Gemini turn returned syntactically valid JSON lacking chatmcp_action; model-only schema retry repaired the action; original MCP tool called once.
+- Unapproved router name is rejected without automatic execution; native functionCall part is rejected in text-only mode.
+- Final answer alias with explicit chatmcp_action and multipart JSON accepted safely; plain prose is never executed as a tool call.
+- Two unsuccessful schema repairs stop with a diagnostic rather than looping indefinitely or repeating MCP operations.
+- API key used only in simulated authenticated HTTP header; not included in task journal.
+
+NOT VALIDATED:
+- Actual custom Cloud Run gateway, actual model output under failure, Windows/Edge/DPAPI/ConPTY, Desktop Commander host operations or recovery after real Ethernet interruptions.
+- This mitigation cannot force a noncompliant model to use JSON text actions. Native tool calling should be implemented correctly at the gateway for greater reliability.
+
+COST/BEHAVIOR:
+- Up to two additional MODEL requests per malformed response; these may incur API charges.
+- Model-only retries do not replay a previously completed MCP tool. A model-chosen later tool action is a separate request subject to normal validation/permissions.

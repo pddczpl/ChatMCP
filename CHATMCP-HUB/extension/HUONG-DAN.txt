@@ -1,0 +1,175 @@
+COMPANION 1.4.2 FIX: background worker forwards resumeStart=true to content script during first user-initiated continuation. See ../STUDIO-2.2.3.md.
+
+CHATMCP HUB COMPANION 1.4.0 — Tiếp tục phiên ChatGPT Web sau Hub restart
+
+Khi người dùng chọn một phiên cũ và yêu cầu Tiếp tục, Hub gửi đúng saved chat URL kèm cờ resumeStart cho gói đầu tiên. Companion tìm tab cũ hoặc mở đúng URL đã lưu, không mở trang ChatGPT home để tạo chat mới. Tác vụ trong Hub vẫn dùng ID cũ, và sau lần đầu mọi gói MCP tiếp theo phải xác minh lượt trước theo quy tắc bình thường. Ngay cả nếu journal cũ bị lỗi hoặc Hub thay instanceId, một lượt tiếp tục do người dùng chủ động gửi được khởi chạy từ cùng chat URL; không tự phát lại lượt gửi cũ chưa xác minh. Bản 1.4.0 giữ các cơ chế chờ mạng và chống gửi trùng của bản 1.3.7.
+
+Companion 1.3.7 vẫn chỉ dành cho chế độ ChatGPT Web. Chế độ API Gateway mới chạy trong Hub, không cần Companion. Companion cũng hỗ trợ ghi chú tiến độ công khai trong các lệnh JSON nếu model tự cung cấp (trường progress).
+
+CHATMCP HUB COMPANION 1.3.7
+
+BẢN 1.3.7 — MẠNG LAN NGẮT NGẮN RỒI KẾT NỐI LẠI:
+  - Đừng tự bấm Gửi lần nữa khi popup báo "đang kiểm tra lượt đã gửi".
+  - Companion giữ journal qua restart service worker; sau khi Hub và ChatGPT
+    kết nối lại, khớp message/task/turn/nonce ở cùng tab để tiếp tục.
+  - Nếu biết chắc chưa click (offline trước nút Gửi), nó sẽ tự click một lần
+    khi online. Nếu đã click nhưng không còn chứng cứ, chỉ chờ, không gửi lại.
+  - Mất xác nhận MCP ghi/xóa KHÔNG được tự thử lần hai.
+  - Chỉ hoạt động khi Hub Windows còn chạy; nếu Hub bị tắt/restart,
+    tác vụ trước đó phải kiểm tra thủ công và tạo mới nếu cần.
+
+
+CHẾ ĐỘ CHÍNH: GIAO VIỆC TRÊN LOCALHOST, DÙNG CHATGPT CHAT THÔNG THƯỜNG
+
+BẢN 1.3.5: Một tin nhắn đầu dài có thể bị ChatGPT chuyển thành tệp
+Pasted text; Hub nay dùng hướng dẫn ngắn, tìm tool qua catalog và
+chia trang các kết quả MCP dài. Đồng bộ URL/DOM chờ tối đa 30 giây,
+khớp nội dung user message trong bubble không phụ thuộc Copy/Edit.
+Nếu không xác nhận được, báo submitted_user_message_unverified và
+không tự gửi lại. Chưa xác minh trên Edge thật của người dùng.
+
+Hub nhận prompt và chọn workspace trên máy. Companion mở một tab ChatGPT
+riêng cho tác vụ, đưa yêu cầu vào ô chat thông thường và bấm gửi sau khi Hub
+xác nhận đúng bước. Khi câu trả lời mới kết thúc, Companion chuyển nội dung
+về Hub. Hub xử lý giao thức chatmcp_hub v1, gọi các MCP thật, rồi đưa kết quả
+về cùng tab để ChatGPT tiếp tục. Báo cáo cuối xuất hiện trên Hub.
+
+Đây là thao tác trên giao diện ChatGPT đang đăng nhập trong trình duyệt.
+Không cần API key OpenAI; không dùng SIWC/Codex, endpoint ChatGPT nội bộ,
+cookie/token tài khoản hoặc thủ thuật thay CSP. Hạn mức và model vẫn theo
+chế độ đang chọn trên trang ChatGPT. Extension không chọn model/tài khoản
+hoặc tự chuyển từ Work sang Chat. Giao diện không nhận diện được sẽ dừng.
+
+CÀI VÀ GHÉP MỘT LẦN
+
+1. Tắt hoặc gỡ bản ChatMCP Button Fix/Companion cũ. Chỉ bật một bản Companion.
+   TẮT MCP SuperAssistant trong trang quản lý tiện ích khi dùng chế độ Hub.
+   MCP SuperAssistant không cần thiết cho vòng chạy mới và có đường Auto
+   riêng mà Companion không kiểm soát.
+2. Mở chrome://extensions hoặc edge://extensions. Bật Developer mode,
+   chọn Load unpacked và chọn chính thư mục extension chứa manifest.json.
+   Nếu đã nạp cùng thư mục trước đây, bấm Reload. Cần Chrome/Edge 120 trở lên.
+3. Chạy launcher theo README của Hub. Mở http://127.0.0.1:3007/, chọn workspace
+   và tạo mã ghép trên Hub. Mã có 8 chữ số, hết hạn sau 5 phút.
+4. Mở popup ChatMCP Hub Companion. Dán mã vào “Mã ghép lấy trên Hub” rồi bấm
+   “Ghép và bật”. Đây là bước cho phép các yêu cầu bạn gửi trên localhost
+   được tự đưa qua ô chat ChatGPT.
+5. Tab ChatGPT mở ra để bạn kiểm tra đăng nhập và chọn CHAT THÔNG THƯỜNG.
+   Nếu trang hiện Work/Codex/Agent, tự chuyển về Chat. Extension không xử lý
+   đăng nhập, chọn tài khoản hay hộp thoại cần bạn xác nhận.
+6. Trở về Hub, nhập yêu cầu và bấm nút giao việc. Mỗi tác vụ mới mở một tab
+   ChatGPT riêng; các lượt kết quả công cụ của tác vụ dùng lại tab đó.
+
+Trong khi chạy, giữ Hub và trình duyệt hoạt động. Bản nháp văn bản trong tab
+riêng của Hub sẽ được thay toàn bộ bằng prompt mới trước khi gửi, theo yêu
+cầu của bạn. Nếu muốn giữ bản nháp cá nhân, hãy dùng tab khác. Gửi tin khác,
+đổi cuộc chat hoặc đóng tab tác vụ sẽ làm dừng điều phối. Theo dõi và hủy từ
+Hub. Popup “Cập nhật” chỉ đọc trạng thái; “Ngắt ghép” dừng nhận yêu cầu mới
+và báo dừng tác vụ đang gắn với extension. Ghép lại bằng mã mới khi cần.
+
+KHÔNG CẦN NÚT RUN TRONG CHẾ ĐỘ HUB
+
+Khối chatmcp_hub v1 có thể hiện như code JSON thông thường trong ChatGPT.
+Đó là giao thức giữa câu trả lời và Hub. Companion không chuyển khối này
+sang function_call_start hoặc thẻ native của MCP SuperAssistant. Hub thực
+thi công cụ và hiển thị sự kiện/kết quả trên localhost.
+
+GIỚI HẠN VÀ CÁCH DỪNG
+
+- Hỗ trợ ô nhập #prompt-textarea hoặc ProseMirror contenteditable đã nhận
+  diện. Chỉ tìm nút trong form chứa ô nhập hoặc các lớp chứa composer gần đó.
+  Ngoài hai test ID cũ, nhận tên Send / Send message / Send prompt và các tên
+  Gửi tiếng Việt khớp chính xác, ID composer-submit-button hoặc native submit
+  không có tên mâu thuẫn trong đúng form. Không dò nút SVG hoặc nút toàn trang.
+  Nút disabled, tên mâu thuẫn và nhiều nút không rõ ràng đều không được bấm.
+- Sau khi thay và xác minh đúng draft của tác vụ, thông báo input một lần
+  cho mỗi lần thay để ứng dụng cập nhật trạng thái. PREPARE lặp không nối
+  thêm nội dung. Nếu draft đổi trong lúc chờ hoặc ngay trước SEND, thay lại
+  toàn bộ bằng prompt đã xếp hàng rồi xác minh nút Gửi. Khi đang lấy câu trả
+  lời, draft chưa gửi được để nguyên tới lượt tiếp và không làm dừng tác vụ.
+  Các lỗi send_button_missing, send_button_disabled, send_button_ambiguous
+  kèm số đếm chẩn đoán cố định, không chứa prompt/token/nội dung tài khoản.
+- Dùng chung bộ đọc URL ở Companion, Hub và dashboard. Hỗ trợ /, /c/<id>,
+  /chat/<id>, /g/<scope>/c/<id>; bỏ query/hash/dấu slash cuối khi so sánh.
+  Từ 1.3.5 nhận URL tạm thực tế /c/local-chatgpt%3A<UUID> rồi chuyển sang
+  /c/<mã chính thức>. Chỉ tiền tố local-chatgpt với UUID đúng cấu trúc mới
+  nhận dấu : hoặc %3A/%3a; không giải mã mọi segment hoặc nới mọi URL.
+  Trong lượt đầu, URL mới phải đi cùng đúng tin user vừa gửi; có khoảng
+  chờ khi URL cập nhật trước DOM. Nếu câu trả lời đã ổn định nhưng URL còn
+  tạm, chờ cấp URL chính thức rồi kiểm tra ổn định lại trước khi giao lệnh
+  về Hub. Sau 60 giây từ lúc trả lời ổn định mà URL vẫn tạm, báo lỗi
+  local_conversation_not_saved. Hub cũng từ chối nhận lệnh từ URL tạm.
+  Chỉ cố định mã chính thức; không chấp nhận mã khác ở lượt sau. Thông báo
+  conversation_changed có loại đường dẫn và phiên bản để chẩn đoán,
+  không ghi nội dung hay toàn bộ URL. Loại temporary-chat là URL tạm đã nhận.
+- Mỗi bước phải thấy đúng tin user vừa gửi và câu trả lời có thuộc tính
+  data-message-author-role="assistant" nằm sau tin đó. Không dùng text trong
+  script, textarea, instructions hay một khối không rõ tác giả làm đáp án.
+- Phải thấy aria-busy="false" hoặc đã thấy nút Stop của lượt trả lời biến mất,
+  rồi nội dung ổn định ít nhất 1,8 giây. Code trông hoàn chỉnh chưa đủ chứng
+  minh câu trả lời đã kết thúc. Thiếu dấu hiệu cần thiết sẽ báo lỗi rõ ràng.
+- Lời nhắc tối đa 1 MiB; câu trả lời gồm text và code blocks tối đa 2 MiB.
+  Vượt ngưỡng sẽ dừng, không âm thầm cắt phần nội dung. Các lượt đang có dấu
+  hiệu trả lời hợp lệ không bị chặn bởi một tổng số bước/thời gian tùy ý.
+- Nếu mất xác nhận sau claim hoặc click, extension không tự gửi lại. Tải lại
+  tab giữa tác vụ hoặc restart worker ở bước gửi không được dùng làm lý do
+  chạy lại thao tác. Hub có thể báo interrupted/failed để bạn kiểm tra.
+- ACK đã gửi và ACK câu trả lời được retry cùng mã và cùng nội dung. Kết quả
+  chờ ACK được lưu trong extension để tránh đọc một phiên bản khác rồi gửi.
+- Khi hủy từ Hub, extension có thể bấm đúng Stop chỉ khi đã xác minh đó vẫn
+  là lượt của chính tác vụ. Nó không bấm Stop cho một tin mới do bạn gửi.
+- Thông báo hạn mức, đăng nhập hoặc hộp thoại yêu cầu người dùng sẽ dừng vòng
+  chạy; không có cơ chế vượt hạn mức hay tự chấp nhận quyền/phê duyệt.
+- Browser transport hiện mang dữ liệu dạng văn bản. Ảnh/audio/base64 trong
+  kết quả MCP chưa được biến thành tệp đính kèm để model nhìn/nghe trực tiếp.
+  Danh mục công cụ đầy đủ không đồng nghĩa mọi định dạng đầu ra đã có UI.
+
+Không đảm bảo tự động trên mọi biến thể DOM ChatGPT. Bộ kiểm tra là mock DOM
+và mock Chrome APIs, chưa phải một phiên Windows + Chrome + ChatGPT của bạn.
+Nếu báo unknown DOM, giữ nguyên tab để chẩn đoán; không tự dán lệnh DevTools
+hay thay cơ chế bảo vệ của trình duyệt. Giao diện mới có thể cần cập nhật
+adapter sau khi xác minh đúng markup.
+
+PHẠM VI DỮ LIỆU VÀ QUYỀN
+
+Quyền khai báo: storage, alarms; host permissions chỉ https://chatgpt.com/*
+và http://127.0.0.1:3007/*. Content scripts chạy top frame, ISOLATED world.
+Không có quyền tabs rộng, cookies, scripting, debugger hoặc management.
+
+Service worker POST tới các endpoint browser/clients cố định trên Hub:
+pair, poll, claim, sent, reply, fail. Token ghép là capability của Hub local,
+không phải token ChatGPT. Token lưu chrome.storage.local ở TRUSTED_CONTEXTS,
+không relay tới content script, webpage, clipboard hoặc public status.
+Fetch từ extension bỏ credentials, từ chối redirect và không nhận URL từ
+nội dung trang. Hub page chỉ gửi tín hiệu đánh thức; không cấp lệnh trực tiếp.
+
+Yêu cầu, chỉ dẫn workspace và kết quả công cụ được gửi vào ChatGPT thông
+thường, nên nội dung liên quan của workspace đi theo cuộc chat đó. Background
+đọc/lưu mã tác vụ, trạng thái, URL tab và câu trả lời đang chờ xác nhận.
+Journal chờ reply có thể chứa nội dung công việc cho đến khi ACK thành công,
+tác vụ thay thế hoặc bạn ngắt ghép. Public status không chứa prompt/result
+hoặc token. Không đọc lịch sử các tab chat khác; tạo tab riêng cho từng task.
+
+CHẾ ĐỘ MCP SUPERASSISTANT CŨ — CHỈ DÙNG RIÊNG
+
+Dừng tác vụ Hub và bấm “Ngắt ghép” trước khi dùng phần này. Bật lại MCP
+SuperAssistant nếu bạn muốn làm thủ công theo cách trước đây. Popup giữ mục
+gấp “MCP SuperAssistant — chế độ cũ”, gồm bản sửa điểm chèn cạnh nút +,
+“Chuẩn bị chat”, sao chép hướng dẫn và chuyển JSONL sang thẻ native.
+
+Chế độ cũ không tự gửi khi bấm Chuẩn bị chat. Ô nhập có bản nháp được giữ
+nguyên. Tự động chuyển mặc định OFF, chỉ dùng khối mới thuộc assistant và
+call_id có prefix của lần chuẩn bị. Trước mỗi chuyển, kiểm tra workspace,
+generation và instanceId của Hub; thiếu/đổi trạng thái sẽ tắt Auto. Nội dung
+phải là đúng một JSONL call hoàn chỉnh, không có pre/card native đã tồn tại.
+Mỗi pathname + payload được chuyển tối đa một lần trong document; nguồn đổi
+hoặc bị tháo không tạo lại thẻ đã chuyển. Native MCP có auto/settings riêng.
+Companion không thay store của nó hoặc bảo đảm các pre ngoài bridge được
+kiểm tra theo tác giả. Không chạy đồng thời mode này với tác vụ browser Hub.
+
+Nguồn adapter/parser tham chiếu cho tương thích cũ:
+https://github.com/srbhptl39/MCP-SuperAssistant/tree/c26168ee2c5708a3a65ef5afd88cda1a97c81734
+pages/content/src/plugins/adapters/chatgpt.adapter.ts
+pages/content/src/render_prescript/src/parser/jsonFunctionParser.ts
+pages/content/src/render_prescript/src/renderer/functionBlock.ts
+pages/content/src/services/automation.service.ts

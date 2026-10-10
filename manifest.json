@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "ChatMCP Button Fix",
+  "version": "1.1.0",
+  "description": "Local compatibility helper for the MCP button and manually selected JSONL tool calls on ChatGPT.",
+  "action": {
+    "default_title": "ChatMCP Button Fix",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*"],
+      "js": ["compat.js", "bridge.js"],
+      "css": ["bridge.css"],
+      "run_at": "document_start",
+      "world": "ISOLATED",
+      "all_frames": false
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; connect-src 'none'; base-uri 'none'"
+  }
+}

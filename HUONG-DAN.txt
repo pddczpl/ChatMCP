@@ -1,0 +1,125 @@
+CHATMCP BUTTON FIX 1.1.0
+Bản hỗ trợ cục bộ cho MCP SuperAssistant — 09/10/2026
+
+MỤC ĐÍCH
+Gói này hỗ trợ hai phần giao diện đã quan sát trong ảnh Elements:
+1. Giúp MCP SuperAssistant tìm nút + hiện tại của ChatGPT để chèn nút MCP.
+2. Thêm nút "Chuyển lời gọi này sang MCP" dưới khối JSONL phù hợp.
+   Khi bạn bấm, nó tạo một bản mã mà bộ đọc MCP SuperAssistant nhận diện.
+   MCP SuperAssistant hiện có sẽ tạo thẻ và xử lý nút Run/Auto.
+
+Đây là bản hỗ trợ được tạo trong cuộc chat, không phải bản phát hành
+chính thức của MCP SuperAssistant. Phần thân khối mã chưa hiện đầy đủ
+trong ảnh, nên gói kiểm tra cấu trúc trước khi cho chuyển từng khối.
+
+CẬP NHẬT BẢN 1.0.0 ĐÃ CÀI
+1. Giải nén CHATMCP-BUTTON-FIX.zip và chép đè toàn bộ tệp vào đúng thư mục
+   đã dùng khi Load unpacked, ví dụ:
+   F:\Personal_Project\Vin\ChatMCP\CHATMCP-BUTTON-FIX
+   Phải thấy trực tiếp manifest.json, compat.js, bridge.js và bridge.css
+   trong thư mục này; tránh tạo thêm một thư mục lồng cùng tên.
+2. Mở edge://extensions trong thanh địa chỉ Edge.
+3. Tìm ChatMCP Button Fix, bấm Reload (Tải lại).
+4. Xác nhận phiên bản hiện 1.1.0. Giữ MCP SuperAssistant ở trạng thái bật.
+5. Quay lại tab ChatGPT, nhấn Ctrl + R.
+
+CHẠY THỬ WORKSPACE_LIST
+1. Giữ Docker Desktop và cửa sổ START-MCP-BROWSER.ps1 đang chạy.
+   Cấu hình MCP SuperAssistant đã hoạt động:
+   Endpoint: http://127.0.0.1:3006/mcp
+   Transport: Streamable HTTP.
+2. Bấm nút MCP cạnh dấu + của ô chat, giữ MCP ở ON.
+3. Tắt Auto Execute, Auto Insert và Auto Submit cho lần kiểm tra này.
+   Việc chuyển một khối có thể kích hoạt chạy ngay nếu Auto Execute bật.
+4. Đóng menu MCP, quay lại khối JSONL chứa cloud-harness.workspace_list.
+   Chờ câu trả lời hoàn tất nếu ChatGPT còn đang viết.
+5. Ngay dưới khối mã, bấm "Chuyển lời gọi này sang MCP".
+6. Chờ MCP SuperAssistant tạo thẻ công cụ bên dưới. Bấm Run trên thẻ đó.
+   Nút chuyển do gói này thêm; Run do MCP SuperAssistant tạo.
+7. Kiểm tra kết quả thật, ví dụ ok: true và data.workspaces.
+   Khi Auto Insert/Auto Submit đang tắt, bạn có thể sao chép kết quả
+   để gửi vào cuộc chat. Có thẻ Run chưa chứng minh công cụ đã chạy.
+
+NẾU CHƯA CÓ NÚT CHUYỂN HOẶC THẺ RUN
+Mở menu Extensions (biểu tượng mảnh ghép) trên thanh công cụ Edge,
+chọn ChatMCP Button Fix, rồi bấm Kiểm tra lại.
+Bấm Sao chép kiểm tra để gửi báo cáo vào cuộc chat. Nếu trình duyệt
+không sao chép được, nội dung sẽ được chọn sẵn; nhấn Ctrl + C.
+Không cần thao tác trong DevTools Console để dùng bản sửa này.
+
+Các trạng thái hữu ích:
+- Có khối hợp lệ: nút chuyển nằm dưới khối JSONL đang hiển thị.
+- Đã chuyển, đang chờ thẻ: đã tạo bản mã, renderer chưa tạo thẻ MCP.
+- Đã có thẻ: đã thấy .function-block thật trong bản chuyển.
+- Khối có pre nhưng chưa có thẻ: một nhánh tương thích khác. Gói không
+  tạo bản sao vì renderer có thể xử lý cả hai thành hai thẻ chạy được.
+- Khối chưa hợp lệ: có thể chưa hoàn tất, sai ID, nhiều lời gọi hoặc có
+  tham số mà parser hiện tại không giữ nguyên. Gửi báo cáo để xử lý.
+
+CÁCH CHẶN CHUYỂN TRÙNG
+- Chỉ chuyển sau thao tác bấm; không tự chuyển mọi ví dụ trên trang.
+- Mỗi đường dẫn cuộc chat + cùng nội dung đã chuẩn hóa chỉ chuyển một
+  lần trong vòng đời tài liệu. Nếu thẻ còn trên trang, nút của bản trùng
+  đưa bạn đến thẻ đó.
+- Nếu trang gỡ thẻ hoặc nguồn bị sửa, không tự tạo lại bản chạy.
+  Tắt ba Auto, tải lại trang rồi chuyển để thử bằng Run thủ công.
+- Việc gỡ giao diện không hủy một công cụ đã bắt đầu chạy.
+- Tải lại trang không bảo đảm xóa lịch sử Auto Execute của tiện ích gốc.
+- Một lời gọi mới nên có call_id mới, khớp ở đầu và cuối, theo hướng dẫn
+  của MCP SuperAssistant. Gói không tự sửa call_id hoặc tham số của bạn.
+
+ĐỊNH DẠNG ĐƯỢC HỖ TRỢ
+- Đúng một function_call_start và một function_call_end cuối cùng,
+  có call_id khớp (chuỗi không rỗng hoặc số nguyên an toàn).
+- Ở giữa là tối đa một description và các parameter có key duy nhất.
+- Toàn bộ thân mã phải là chuỗi đối tượng JSON của lời gọi; không có
+  văn bản hướng dẫn chen vào. Mỗi đối tượng được chuẩn hóa thành một dòng.
+- Giới hạn 262144 đơn vị mã UTF-16, 512 sự kiện, độ lồng JSON tối đa 64.
+- Từ chối các trường/sự kiện ngoài định dạng đã kiểm tra, số không hữu
+  hạn, và key tham số __proto__, constructor, prototype, hasOwnProperty.
+- Từ chối parameter.value = null ở cấp đầu vì parser gốc đổi nó thành
+  chuỗi rỗng. null bên trong đối tượng/mảng vẫn được giữ nguyên.
+
+PHẠM VI ĐỌC VÀ THAY ĐỔI
+- Chỉ chạy trong tài liệu chính của https://chatgpt.com/*.
+- Đọc nội dung các khối mã có data-markdown-copy="code-block" trong tab
+  để nhận diện JSONL. Bỏ qua toolbar được đánh dấu exclude và các node
+  script, style, template, textarea. Không tìm lệnh trong dữ liệu router.
+- Khi bạn chọn chuyển, thêm một host riêng cạnh wrapper, chứa pre/code
+  với JSONL đã kiểm tra. Nội dung được giữ trong tab; không tải lên đâu.
+- Không sửa, bọc lại hay di chuyển phần tử mã và nút Copy/Wrap của ChatGPT.
+- Không gọi mạng, đọc token/cookie/localStorage hay gọi MCP trực tiếp.
+- Không tự click Run, gửi tin nhắn hoặc thay đổi các công tắc Auto.
+  MCP SuperAssistant có thể tự chạy sau khi tạo thẻ nếu Auto Execute bật.
+- Báo cáo sao chép chỉ chứa số lượng, phiên bản, loại đường dẫn và mã
+  chẩn đoán. Không chứa nội dung lời gọi, URL đầy đủ, ID cuộc chat hay key.
+- Phần sửa nút + giữ nguyên nguyên tắc của 1.0: chỉ bổ sung alias khi chưa
+  có data-testid; giữ nguyên node/listener và thuộc tính do trang sở hữu.
+
+CÀI MỚI NẾU CHƯA TỪNG CÀI
+Trong edge://extensions, bật Developer mode, bấm Load unpacked,
+chọn thư mục chứa trực tiếp manifest.json, rồi tải lại ChatGPT.
+Chrome dùng chrome://extensions. Đây là tiện ích đi kèm;
+MCP SuperAssistant và proxy vẫn cần hoạt động.
+
+GỠ BỎ
+Gỡ ChatMCP Button Fix trong edge://extensions rồi tải lại các tab ChatGPT
+để dừng script đã nạp và xóa thay đổi DOM tạm thời.
+
+NGUỒN ĐỐI CHIẾU
+MCP SuperAssistant, commit c26168ee2c5708a3a65ef5afd88cda1a97c81734:
+https://github.com/srbhptl39/MCP-SuperAssistant/tree/c26168ee2c5708a3a65ef5afd88cda1a97c81734/pages/content/src
+Các tệp đã đối chiếu: plugins/adapters/chatgpt.adapter.ts;
+render_prescript/src/core/config.ts; parser/jsonFunctionParser.ts;
+renderer/functionBlock.ts; observer/mutationObserver.ts.
+Chromium content scripts:
+https://developer.chrome.com/docs/extensions/develop/concepts/content-scripts
+Microsoft Edge sideloading và Reload:
+https://learn.microsoft.com/en-us/microsoft-edge/extensions/getting-started/extension-sideloading
+
+MÃ NGUỒN VÀ KIỂM TRA
+manifest.json: khai báo trang đích, scripts, CSS, popup.
+compat.js: nhận diện nút + và trả thông tin kiểm tra.
+bridge.js, bridge.css: chuyển thủ công khối JSONL và hiển thị trạng thái.
+popup.html, popup.css, popup.js: bảng kiểm tra cục bộ.
+VALIDATION.txt: phương pháp, kết quả và giới hạn kiểm tra.

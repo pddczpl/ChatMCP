@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ChatMCP Button Fix</title>
+    <link rel="stylesheet" href="popup.css">
+    <script src="popup.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <h1>ChatMCP Button Fix</h1>
+      <p>Bản hỗ trợ nút MCP và khối lệnh · 1.1.0</p>
+    </header>
+    <p id="summary" role="status" aria-live="polite">Đang kiểm tra tab hiện tại…</p>
+    <dl id="checks" hidden>
+      <div><dt>Nút thêm tệp</dt><dd id="anchor-status"></dd></div>
+      <div><dt>Điểm chèn tương thích</dt><dd id="compat-status"></dd></div>
+      <div><dt>Nút MCP</dt><dd id="mcp-status"></dd></div>
+      <div><dt>Khối lệnh có thể chuyển</dt><dd id="bridge-ready"></dd></div>
+      <div><dt>Thẻ MCP từ bản chuyển</dt><dd id="bridge-cards"></dd></div>
+    </dl>
+    <p id="next-step" class="note"></p>
+    <div class="actions">
+      <button id="refresh" type="button">Kiểm tra lại</button>
+      <button id="copy" type="button" disabled>Sao chép kiểm tra</button>
+    </div>
+    <details id="details" hidden>
+      <summary>Thông tin kiểm tra</summary>
+      <label for="diagnostics">Có thể gửi phần này lại trong cuộc chat</label>
+      <textarea id="diagnostics" readonly spellcheck="false"></textarea>
+    </details>
+    <footer>Dùng kèm tiện ích MCP SuperAssistant đang bật.</footer>
+  </body>
+</html>

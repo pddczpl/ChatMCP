@@ -1,0 +1,241 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
+import { readJson, writeJson } from './runtime.mjs';
+
+const SKIP = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__', '.next', 'dist', 'build', 'coverage', '.pytest_cache', '.mypy_cache', '.idea', '.vs', '.gradle', '.terraform']);
+const EXTENSIONS = new Set(['.py','.js','.mjs','.cjs','.jsx','.ts','.tsx','.json','.md','.yaml','.yml','.toml','.sh','.ps1','.bat','.cmd','.c','.cc','.cpp','.h','.hpp','.java','.go','.rs','.rb','.php','.sql','.r','.ipynb','.css','.html','.xml']);
+const PRIVATE = /^(?:\.env(?:\..*)?|id_rsa|id_ed25519|.*\.(?:pem|p12|pfx|key)|credentials\.json|secrets?\.json)$/i;
+const sha = (buffer) => createHash('sha256').update(buffer).digest('hex');
+const fail = (code, message, statusCode = 400) => Object.assign(new Error(message),{code,statusCode});
+const contained = (root,target) => { const relative=path.relative(root,target); return relative === '' || (!relative.startsWith('..'+path.sep) && relative !== '..' && !path.isAbsolute(relative)); };
+const capped = (value,length=120000) => String(value).slice(0,length);
+
+async function command(exe,args,{cwd,timeout=20000,max=350000,env=process.env}={}) {
+  return await new Promise((resolve,reject)=>{
+    const child=spawn(exe,args,{cwd,windowsHide:true,shell:false,env,stdio:['ignore','pipe','pipe']});
+    let out='';let err='';let stopped=false;
+    const timer=setTimeout(()=>{ stopped=true; child.kill('SIGKILL'); },timeout);
+    child.stdout.on('data',b=>{out+=b.toString('utf8'); if(out.length>max) { stopped=true; child.kill('SIGKILL'); }});
+    child.stderr.on('data',b=>{err+=b.toString('utf8'); if(err.length>max) { stopped=true; child.kill('SIGKILL'); }});
+    child.once('error',e=>{ clearTimeout(timer); reject(e); });
+    child.once('close',code=>{ clearTimeout(timer); resolve({code,stdout:capped(out,max),stderr:capped(err,3000),truncated:stopped}); });
+  });
+}
+
+export class StudioWorkspace {
+  constructor({manager, directory, now=()=>new Date().toISOString()}) {
+    this.manager=manager; this.directory=path.resolve(directory); this.now=now;
+    this.indexCache=new Map(); this.indexRoot=null; this.planCache=new Map();
+  }
+  get root() { return this.manager.workspace ? path.resolve(this.manager.workspace) : null; }
+  requireRoot() { if(!this.root) throw fail('workspace_missing','Chọn workspace trước.',409); return this.root; }
+  async resolve(relative='') {
+    const root=await fs.realpath(this.requireRoot());
+    if(typeof relative!=='string' || relative.length>4096 || relative.includes('\0')) throw fail('bad_path','Đường dẫn không hợp lệ.');
+    if(path.isAbsolute(relative) && !contained(root,path.resolve(relative))) throw fail('outside_workspace','Đường dẫn ngoài workspace.',403);
+    if(process.platform==='win32' && /(^|[\\/])[^\\/]*:/.test(relative) && !path.isAbsolute(relative)) throw fail('alternate_stream','Không hỗ trợ luồng dữ liệu thay thế.',403);
+    const target=path.resolve(root,relative || '.');
+    if(!contained(root,target)) throw fail('outside_workspace','Không cho phép đường dẫn vượt workspace.',403);
+    let probe=target;
+    while (probe!==root) {
+      try {
+        const real=await fs.realpath(probe);
+        if(!contained(root,real)) throw fail('symlink_escape','Symlink đi ra ngoài workspace.',403);
+        break;
+      } catch(e) { if(e.code!=='ENOENT') throw e; probe=path.dirname(probe); }
+    }
+    return { root,absolute:target,relative:path.relative(root,target).replaceAll('\\','/') };
+  }
+  async tree({directory='',limit=350}={}) {
+    limit=Math.max(1,Math.min(600,Number(limit)||350)); const base=await this.resolve(directory);
+    const st=await fs.stat(base.absolute); if(!st.isDirectory()) throw fail('not_directory','Đây không phải thư mục.');
+    const entries=(await fs.readdir(base.absolute,{withFileTypes:true})).filter(e=>!SKIP.has(e.name)).sort((a,b)=>Number(b.isDirectory())-Number(a.isDirectory())||a.name.localeCompare(b.name));
+    return {workspace:base.root,directory:base.relative,entries:entries.slice(0,limit).map(e=>({name:e.name,path:path.posix.join(base.relative,e.name),kind:e.isSymbolicLink()?'symlink':e.isDirectory()?'directory':e.isFile()?'file':'other'})),total:entries.length,truncated:entries.length>limit};
+  }
+  async read({file,maxBytes=120000}={}) {
+    const target=await this.resolve(file); if(!target.relative || target.relative.split('/').includes('.git') || PRIVATE.test(path.basename(target.relative))) throw fail('protected_path','Không cho phép đọc file bí mật/metadata Git qua trình đọc Studio.',403);
+    const stat=await fs.stat(target.absolute); if(!stat.isFile()) throw fail('not_file','Không phải file.');
+    maxBytes=Math.max(1,Math.min(500000,Number(maxBytes)||120000));
+    if(stat.size>maxBytes) throw fail('file_too_large',`File ${stat.size} byte vượt giới hạn xem ${maxBytes} byte.`,413);
+    const bytes=await fs.readFile(target.absolute); if(bytes.includes(0)) throw fail('binary_file','Không mở file nhị phân dưới dạng text.',415);
+    return {path:target.relative,size:stat.size,sha256:sha(bytes),content:bytes.toString('utf8')};
+  }
+  async save({file,content,expectedSha}={}){
+    if(typeof content!=='string'||Buffer.byteLength(content,'utf8')>300000)throw fail('too_large','File sửa tối đa 300 KB văn bản.',413);
+    if(typeof expectedSha!=='string'||!/^[a-f0-9]{64}$/i.test(expectedSha))throw fail('bad_revision','Cần SHA-256 bản đã đọc để lưu.',409);
+    const current=await this.read({file,maxBytes:300000});
+    if(current.sha256!==expectedSha)throw fail('stale_revision','File đã thay đổi; tải lại trước khi lưu.',409);
+    const target=await this.resolve(file);
+    const lstat=await fs.lstat(target.absolute);
+    if(!lstat.isFile()||lstat.isSymbolicLink())throw fail('file_type','Không chỉnh symlink hoặc file không thông thường.',403);
+    if(sha(Buffer.from(content,'utf8'))===expectedSha)return {ok:true,path:target.relative,unchanged:true,sha256:expectedSha};
+    const checkpoint=await this.checkpoint({label:`Before manual edit ${target.relative}`,maxFiles:250,maxTotalBytes:10*1024*1024});
+    // Check the original revision AGAIN after snapshotting. Another editor may
+    // have modified it while the checkpoint was being written.
+    const fresh=await fs.readFile(target.absolute);
+    if(sha(fresh)!==expectedSha)throw fail('stale_revision','File thay đổi trong lúc tạo checkpoint; chưa ghi dữ liệu.',409);
+    const temp=target.absolute+`.${randomUUID()}.tmp`;
+    try{await fs.writeFile(temp,content,{flag:'wx',mode:lstat.mode});await fs.rename(temp,target.absolute);}
+    finally{await fs.unlink(temp).catch(()=>{});}
+    return {ok:true,path:target.relative,checkpointId:checkpoint.id,partialCheckpoint:checkpoint.partial,previousSha:expectedSha,sha256:sha(Buffer.from(content,'utf8'))};
+  }
+  async #files({limit=4500,bytes=500000}={}) {
+    const root=await fs.realpath(this.requireRoot()); const stack=[root],files=[];
+    while(stack.length && files.length<limit) {
+      const dir=stack.pop(); let list; try { list=await fs.readdir(dir,{withFileTypes:true}); } catch {continue;}
+      for(const entry of list) {
+        if(SKIP.has(entry.name)||entry.isSymbolicLink()||PRIVATE.test(entry.name)) continue;
+        const p=path.join(dir,entry.name);
+        if(entry.isDirectory()) { if((path.relative(root,p).split(path.sep).length<10)) stack.push(p); continue; }
+        if(!entry.isFile()||!EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
+        try {const st=await fs.stat(p); if(st.size<=bytes) files.push({absolute:p,relative:path.relative(root,p).replaceAll('\\','/'),mtimeMs:st.mtimeMs,size:st.size});} catch{}
+        if(files.length>=limit) break;
+      }
+    }
+    return {files,exhausted:stack.length>0||files.length>=limit};
+  }
+  async search({query,mode='text',limit=60}={}) {
+    if(typeof query!=='string'||!query.trim()||query.length>200) throw fail('bad_query','Nhập từ khóa (tối đa 200 ký tự).');
+    if(!['text','symbol','filename'].includes(mode)) throw fail('bad_mode','mode phải là text, symbol hoặc filename.');
+    limit=Math.max(1,Math.min(100,Number(limit)||60)); const root=await fs.realpath(this.requireRoot());
+    if(this.indexRoot!==root) {this.indexCache.clear();this.indexRoot=root;}
+    const {files,exhausted}=await this.#files({limit:5000}); const needle=query.toLocaleLowerCase(),matches=[];
+    for(const file of files){
+      if(mode==='filename'){if(file.relative.toLocaleLowerCase().includes(needle)) matches.push({path:file.relative,line:null,text:file.relative});if(matches.length>=limit)break;continue;}
+      const old=this.indexCache.get(file.relative);let entry=old;
+      if(!old||old.mtimeMs!==file.mtimeMs||old.size!==file.size) {
+        const bytes=await fs.readFile(file.absolute); if(bytes.includes(0)) continue;
+        const lines=bytes.toString('utf8').split(/\r?\n/).slice(0,16000);
+        const symbols=[];
+        for(let i=0;i<lines.length;i++)if(/^\s*(?:(?:export\s+)?(?:async\s+)?(?:function|class|interface|type|enum|def)\s+[\w$]+|(?:public|private|protected)\s+(?:static\s+)?[\w$]+\s*\()/.test(lines[i]))symbols.push({line:i+1,text:lines[i].trim().slice(0,260)});
+        entry={...file,lines,symbols};this.indexCache.set(file.relative,entry);
+      }
+      const entries=mode==='symbol'?entry.symbols:entry.lines.map((text,i)=>({line:i+1,text}));
+      for(const line of entries){if(line.text.toLocaleLowerCase().includes(needle)){matches.push({path:file.relative,line:line.line,text:line.text.slice(0,260)}); if(matches.length>=limit)break;}}
+      if(matches.length>=limit)break;
+    }
+    return {query,mode,matches,limit,scannedFiles:files.length,partialScan:exhausted||matches.length===limit};
+  }
+  async #git(args,{timeout=15000,max=250000}={}) {
+    const root=await fs.realpath(this.requireRoot());
+    const check=await command('git',['-C',root,'rev-parse','--show-toplevel'],{cwd:root,timeout:7000});
+    if(check.code!==0) throw fail('not_git_repo','Workspace chưa được khởi tạo Git.',409);
+    const gitroot=await fs.realpath(check.stdout.trim());
+    if(gitroot!==root && (process.platform!=='win32'||gitroot.toLowerCase()!==root.toLowerCase())) throw fail('git_root_mismatch','Git root phải đúng workspace được chọn (không quản lý thư mục cha).',409);
+    return await command('git',['-C',root,...args],{cwd:root,timeout,max});
+  }
+  async gitStatus() {
+    const {stdout,code,stderr}=await this.#git(['status','--short','--untracked-files=all']);
+    if(code!==0) throw fail('git_error',stderr);
+    const head=await this.#git(['rev-parse','--verify','HEAD']);
+    return {head:head.code===0?head.stdout.trim():null,entries:stdout.split(/\r?\n/).filter(Boolean).slice(0,1000),partial:stdout.split(/\r?\n/).length>1001};
+  }
+  async gitDiff({file='',staged=false}={}) {
+    const target=await this.resolve(file);
+    const args=['diff','--no-ext-diff','--no-textconv',...(staged?['--cached']:[]),'--',...(target.relative?[target.relative]:[])];
+    const result=await this.#git(args,{max:300000});
+    if(result.code!==0) throw fail('git_diff_error',result.stderr);
+    return {file:target.relative,staged,diff:result.stdout,truncated:result.truncated};
+  }
+  async gitDiffCheck() {const r=await this.#git(['diff','--check']);return {ok:r.code===0,output:(r.stdout+'\n'+r.stderr).trim(),code:r.code};}
+  #checkpointDirectory(id) {if(!/^[0-9a-f-]{36}$/i.test(id))throw fail('bad_checkpoint','Mã checkpoint không hợp lệ.');return path.join(this.directory,'checkpoints',id);}
+  async checkpoints({limit=40}={}){
+    let dirs=[];try {dirs=await fs.readdir(path.join(this.directory,'checkpoints'),{withFileTypes:true});} catch(e){if(e.code!=='ENOENT')throw e;}
+    const result=[];
+    for(const dir of dirs){if(!dir.isDirectory()||!/^[0-9a-f-]{36}$/i.test(dir.name))continue;const data=await readJson(path.join(this.#checkpointDirectory(dir.name),'meta.json'));if(data?.workspace===this.root)result.push({id:data.id,at:data.at,label:data.label,fileCount:data.files.length,partial:data.partial,limitations:data.limitations??[]});}
+    return result.sort((a,b)=>b.at.localeCompare(a.at)).slice(0,Math.max(1,Math.min(limit,100)));
+  }
+  async checkpoint({label='Manual checkpoint',maxFiles=350,maxTotalBytes=30*1024*1024}={}){
+    const root=await fs.realpath(this.requireRoot());const {files,exhausted}=await this.#files({limit:5000,bytes:2*1024*1024});
+    const id=randomUUID(),dir=this.#checkpointDirectory(id);await fs.mkdir(path.join(dir,'files'),{recursive:true,mode:0o700});
+    let total=0;const stored=[];const limitations=[];
+    for(const item of files){
+      if(stored.length>=maxFiles||total+item.size>maxTotalBytes){limitations.push('Giới hạn số file hoặc tổng dung lượng; checkpoint chỉ là một phần.');break;}
+      const bytes=await fs.readFile(item.absolute);if(bytes.includes(0))continue;
+      const dest=path.join(dir,'files',item.relative);await fs.mkdir(path.dirname(dest),{recursive:true});await fs.writeFile(dest,bytes,{mode:0o600});
+      total+=bytes.length;stored.push({path:item.relative,sha256:sha(bytes),bytes:bytes.length});
+    }
+    if(exhausted)limitations.push('Workspace vượt giới hạn quét 5000 file nguồn.');
+    limitations.push('Chỉ lưu file nguồn văn bản được hỗ trợ; không bao gồm binary, .env hoặc các thư mục bỏ qua.');
+    const meta={id,at:this.now(),label:capped(label,160),workspace:root,files:stored,partial:true,limitations,totalBytes:total};
+    await writeJson(path.join(dir,'meta.json'),meta);
+    return {id:meta.id,at:meta.at,label:meta.label,fileCount:stored.length,partial:meta.partial,limitations,totalBytes:total};
+  }
+  async review({checkpointId,file='',limit=300000}={}){
+    const meta=await readJson(path.join(this.#checkpointDirectory(checkpointId),'meta.json'));
+    if(!meta||meta.workspace!==await fs.realpath(this.requireRoot()))throw fail('checkpoint_missing','Checkpoint không tồn tại cho workspace này.',404);
+    const requested=file?(await this.resolve(file)).relative:null;
+    const candidates=meta.files.filter(x=>!requested||x.path===requested),changes=[];
+    for(const item of candidates){
+      const target=await this.resolve(item.path);const before=await fs.readFile(path.join(this.#checkpointDirectory(checkpointId),'files',item.path));
+      const after=await fs.readFile(target.absolute).catch(e=>{if(e.code==='ENOENT')return null;throw e;});
+      if(after!==null&&sha(after)===item.sha256)continue;
+      const current=after===null?null:sha(after);
+      // git no-index is used strictly for reading a textual diff, not for restoring.
+      let diff='';
+      if(after!==null&&!after.includes(0)){
+        const result=await command('git',['diff','--no-index','--no-ext-diff','--',path.join(this.#checkpointDirectory(checkpointId),'files',item.path),target.absolute],{max:160000,timeout:8000});
+        diff=result.stdout; if(![0,1].includes(result.code)) diff=`Không tạo được diff: ${result.stderr}`;
+      } else diff=after===null?'File đã bị xóa.':'File sau hiện là nhị phân.';
+      changes.push({path:item.path,baselineSha:item.sha256,currentSha:current,status:after===null?'deleted':'modified',diff:capped(diff,Math.min(Number(limit)||300000,300000))});
+    }
+    // Files absent from the bounded checkpoint cannot be classified as newly
+    // created. Use Git status for additions; never offer to delete them.
+    return {checkpointId,at:meta.at,label:meta.label,partial:meta.partial,limitations:meta.limitations,changes:changes.slice(0,300),truncated:changes.length>300};
+  }
+  async accept({checkpointId,file,expectedSha}={}){
+    const target=await this.resolve(file);
+    if(typeof expectedSha!=='string'||!/^[0-9a-f]{64}$/i.test(expectedSha))throw fail('revision_required','Cần SHA-256 của file hiện tại.',409);
+    const review=await this.review({checkpointId,file:target.relative});
+    const current=review.changes.find(x=>x.path===target.relative);
+    if(!current || current.currentSha!==expectedSha) throw fail('stale_review','File đã đổi hoặc không nằm trong bản review; hãy tải lại diff.',409);
+    const fileOnDisk=path.join(this.directory,'reviews',`${checkpointId}.json`);
+    const entry=await readJson(fileOnDisk)??{checkpointId,accepted:[]};
+    entry.accepted=entry.accepted.filter(x=>x.file!==target.relative);
+    entry.accepted.push({file:target.relative,sha256:expectedSha,at:this.now()});
+    await writeJson(fileOnDisk,entry);
+    return {ok:true,file:target.relative,sha256:expectedSha,acceptedAt:this.now()};
+  }
+  async restore({checkpointId,file,expectedSha}={}){
+    const meta=await readJson(path.join(this.#checkpointDirectory(checkpointId),'meta.json'));
+    if(!meta||meta.workspace!==await fs.realpath(this.requireRoot()))throw fail('checkpoint_missing','Checkpoint không hợp lệ.',404);
+    const target=await this.resolve(file),item=meta.files.find(x=>x.path===target.relative);
+    if(!item)throw fail('not_in_checkpoint','Không thể hoàn tác file không có trong bản checkpoint.',409);
+    if(typeof expectedSha!=='string'||!/^[a-f0-9]{64}$/i.test(expectedSha))throw fail('revision_required','Cần mã SHA-256 của bản hiện tại để chống ghi đè thay đổi mới.',409);
+    const current=await fs.readFile(target.absolute).catch(e=>{if(e.code==='ENOENT')return null;throw e;});
+    if(!current||sha(current)!==expectedSha)throw fail('stale_review','File đã thay đổi kể từ khi xem diff; tải lại review.',409);
+    const original=await fs.readFile(path.join(this.#checkpointDirectory(checkpointId),'files',item.path));
+    if(sha(original)!==item.sha256)throw fail('checkpoint_corrupt','File checkpoint sai checksum.',500);
+    const undo=path.join(this.directory,'undo',`${randomUUID()}.backup`);
+    await fs.mkdir(path.dirname(undo),{recursive:true,mode:0o700});await fs.writeFile(undo,current,{mode:0o600});
+    const tmp=`${target.absolute}.${randomUUID()}.tmp`;
+    try {await fs.writeFile(tmp,original,{flag:'wx',mode:0o600});await fs.rename(tmp,target.absolute);} finally {await fs.unlink(tmp).catch(()=>{});}
+    return {ok:true,path:target.relative,restoredSha:item.sha256,previousSha:expectedSha,undoBackup:undo};
+  }
+  async plan({taskId,operation='get',items=[],title=''}={}){
+    if(typeof taskId!=='string'||!/^[0-9a-f-]{36}$/i.test(taskId))throw fail('bad_task_id','Cần ID hội thoại hợp lệ.');
+    const file=path.join(this.directory,'plans',`${taskId}.json`);
+    let plan=await readJson(file)??{taskId,workspace:this.root,title:'',items:[],updatedAt:null};
+    if(plan.workspace!==this.root)throw fail('wrong_workspace','Kế hoạch thuộc workspace khác.',409);
+    if(operation==='get')return plan;
+    if(operation==='set'){
+      if(!Array.isArray(items)||items.length>100||items.some(i=>typeof i.text!=='string'||i.text.length>500||!['todo','doing','done','blocked'].includes(i.status)))throw fail('bad_plan','Danh sách phải có tối đa 100 mục với trạng thái todo/doing/done/blocked.');
+      plan={taskId,workspace:this.root,title:capped(title,240),items:items.map(i=>({text:i.text,status:i.status,evidence:capped(i.evidence||'',600)})),updatedAt:this.now()};
+      await writeJson(file,plan);return plan;
+    }
+    throw fail('bad_operation','operation phải là get hoặc set.');
+  }
+  async skills(){
+    const root=this.requireRoot(); const locations=['AGENTS.md','SKILL.md','.github/copilot-instructions.md','.claude/CLAUDE.md','CLAUDE.md'];
+    const list=[];
+    for(const file of locations){try{const result=await this.read({file,maxBytes:75000});list.push({path:file,sha256:result.sha256,text:result.content.slice(0,15000)});}catch(e){if(!['ENOENT','not_file'].includes(e.code))continue;}}
+    return {workspace:root,skills:list};
+  }
+  async checks(){
+    const root=this.requireRoot();const defs=[['pyproject.toml','python -m pytest -q'],['pytest.ini','python -m pytest -q'],['package.json','npm test'],['Cargo.toml','cargo test'],['go.mod','go test ./...'],['Makefile','make test']];const found=[];
+    for(const [f,suggestion] of defs)try{const st=await fs.stat(path.join(root,f));if(st.isFile())found.push({from:f,command:suggestion});}catch{}
+    return {suggested:found,execution:'User must explicitly run the command or approve terminal execution; no tests executed by discovery.'};
+  }
+}

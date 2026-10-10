@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "cloud-harness": {
+      "headers": {
+        "Authorization": "Bearer W4qZlH2X4ZRmBXqbdHVHT7J27ouFCppl1GP15hgdeHC75rFjyyMGBG0xTrmJohtg"
+      },
+      "url": "http://127.0.0.1:3100/mcp"
+    }
+  }
+}

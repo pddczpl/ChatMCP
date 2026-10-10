@@ -1,0 +1,93 @@
+CHATMCP HUB COMPANION 1.2.0
+
+Mục đích
+Companion giữ bản sửa nút MCP và chuyển khối JSONL sang thẻ công cụ của
+MCP SuperAssistant. Bản này thêm đọc workspace từ Hub và chế độ tự động
+do bạn chủ động bật cho từng cuộc chat. Đây là chế độ dùng ChatGPT Web,
+không phải một agent API chạy độc lập ở localhost.
+
+Cài một lần
+1. Tắt hoặc gỡ ChatMCP Button Fix 1.0/1.1 cũ. Không bật hai bản companion
+   cùng lúc. Giữ MCP SuperAssistant đang bật.
+2. Trong chrome://extensions (hoặc edge://extensions), bật Developer mode.
+3. Chọn Load unpacked và chọn chính thư mục extension chứa manifest.json.
+4. Tải lại tab https://chatgpt.com rồi ghim ChatMCP Hub Companion nếu muốn.
+
+Chuẩn bị mỗi cuộc chat
+1. Chạy launcher của ChatMCP Hub; mở http://127.0.0.1:3007 và chọn workspace.
+2. Trong tab ChatGPT, mở popup ChatMCP Hub Companion.
+3. Nếu muốn tự chuyển lời gọi mới, bật “Tự động chuyển lời gọi mới”.
+4. Bấm “Chuẩn bị chat”. Companion lấy danh sách công cụ và workspace từ Hub,
+   điền hướng dẫn vào ô nhập trống. Xem lại và tự bấm gửi. Companion không gửi.
+5. Gõ yêu cầu bình thường. ChatGPT dùng hướng dẫn để xuất lời gọi công cụ.
+
+Nếu ô nhập đang có bản nháp, Companion giữ nguyên bản nháp. Nếu không nhận
+diện được ô nhập trên giao diện đang dùng, popup cho phép sao chép hướng dẫn
+để bạn tự dán. Chuẩn bị/sao chép ở chế độ Auto tạo mã phiên mới; sau đó phải
+gửi hướng dẫn mới trước khi mong đợi các lời gọi tiếp tục tự chuyển.
+
+Ba chế độ Auto của MCP SuperAssistant
+“Tự động chuyển” chỉ tạo thẻ native. Auto Execute, Auto Insert và Auto Submit
+vẫn là ba tùy chọn riêng trong nút MCP. Bạn tự chọn chúng theo cách muốn dùng.
+Khi bật Auto Insert/Submit, để ô nhập trống trong lúc công cụ chạy: source gốc
+có thể nối kết quả vào bản nháp đang có rồi gửi. Companion không bấm Run,
+Send, Stop, Allow hoặc các nút phê duyệt; không thay store của extension khác.
+
+Khi nào tự chuyển?
+- Chỉ các khối mới xuất hiện sau khi bật, thuộc ancestor có thuộc tính
+  data-message-author-role="assistant"; mọi boundary tác giả phải nhất quán.
+- Không lấy khối trong user/tool/system message, trích dẫn, editor, hộp thoại
+  hoặc các container kết quả/hướng dẫn được nhận diện của MCP.
+- Nội dung phải là đúng một JSONL call hoàn chỉnh, không lẫn văn bản thừa.
+- call_id phải dùng tiền tố ngẫu nhiên của lần chuẩn bị hiện tại và một số thứ
+  tự. Nút Chuẩn bị chat đưa quy tắc này vào hướng dẫn; bạn không tự gõ JSONL.
+- Phải thấy trạng thái nghỉ đã nhận diện: aria-busy="false" của assistant
+  hoặc nút send theo selector gốc có kích thước; không có busy/Stop đã nhận diện.
+  Sau đó đợi 1 giây và kiểm tra lại nội dung, tác giả, route trước khi chuyển.
+- Trước MỖI lần chuyển tự động, service worker đọc trạng thái Hub. Hub phải
+  ready và workspace.path, generation, instanceId phải khớp lần chuẩn bị.
+  Mất kết nối, đổi workspace hoặc khởi động lại Hub/proxy sẽ tắt Tự động khi
+  lần kiểm tra tiếp theo phát hiện khác biệt. Chọn lại chế độ và Chuẩn bị chat
+  với hướng dẫn mới để tiếp tục; helper không tự tiếp tục bằng ngữ cảnh cũ.
+
+Nếu Chat/Work không có các dấu hiệu tác giả/trạng thái trên, Companion không
+đoán. Khối vẫn có nút “Chuyển lời gọi này sang MCP” để thao tác thủ công.
+Bản này không bảo đảm tự động trên mọi biến thể DOM ChatGPT.
+
+Tải lại tab hoặc chuyển sang cuộc chat khác sẽ tắt tự động. Chuyển lần đầu
+từ New chat sang URL /c/... được giữ phiên. Các khối có trước khi bật không
+được tự chuyển. Tắt chế độ hủy các lần chuyển/kiểm tra đang chờ của Companion,
+nhưng không hủy thẻ/lời gọi/timer đã thuộc MCP gốc. Kiểm tra Hub diễn ra trước
+khi tạo thẻ, không phải một giao dịch khóa workspace cho tới lúc tool chạy.
+
+Chống trùng và các trường hợp còn giới hạn
+Mỗi pathname và payload canonical được chuyển tối đa một lần trong document.
+Nguồn thay đổi hoặc bị trang gỡ làm host cũ được gỡ, nhưng record đã chuyển
+vẫn được giữ; helper không tự dựng lại thẻ chạy. Tải lại cho phép chuyển thủ
+công lại; lịch sử Auto Execute của MCP gốc có thể vẫn còn.
+Khối nguồn đã chứa pre được giữ cho renderer gốc để tránh hai thẻ chạy.
+Tham số null ở cấp ngoài bị chặn vì parser MCP gốc đổi nó thành chuỗi rỗng.
+Mỗi khối tối đa 262144 ký tự, 512 event, độ sâu JSON tối đa 64.
+
+Phạm vi dữ liệu và quyền
+Content scripts chỉ chạy trong top frame của https://chatgpt.com, isolated
+world. Popup chỉ GET /api/extension-state và /api/instructions từ địa chỉ cố
+định http://127.0.0.1:3007. Service worker chỉ relay GET trạng thái giới hạn
+cho content script của chính extension ở top frame ChatGPT.
+Không gửi cookie, không theo redirect, không POST, không lấy CSRF, không có
+quyền storage, scripting hoặc tabs. Host permission chỉ là 127.0.0.1:3007.
+Hướng dẫn workspace được đưa vào ChatGPT khi bạn chuẩn bị/sao chép và tự gửi.
+Báo cáo “Sao chép kiểm tra” chỉ chứa counts/booleans/reason codes, không chứa
+nội dung chat, tham số, đường dẫn workspace hoặc mã phiên.
+
+Guard của Companion chỉ bảo vệ các pre do Companion tạo. Native renderer
+của MCP SuperAssistant còn có đường quét pre riêng không kiểm tra tác giả;
+Companion không thay đổi đường đó hoặc biến full native Auto thành một
+phạm vi thực thi mới. Quyền thực thi vẫn do công cụ/proxy/policy gốc xử lý.
+
+Nguồn tham chiếu
+https://github.com/srbhptl39/MCP-SuperAssistant/tree/c26168ee2c5708a3a65ef5afd88cda1a97c81734
+pages/content/src/plugins/adapters/chatgpt.adapter.ts
+pages/content/src/render_prescript/src/parser/jsonFunctionParser.ts
+pages/content/src/render_prescript/src/renderer/functionBlock.ts
+pages/content/src/services/automation.service.ts

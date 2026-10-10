@@ -1,0 +1,2497 @@
+[CHATMCP-HUB] Dashboard: http://127.0.0.1:3007
+[CHATMCP-HUB] MCP: http://127.0.0.1:3006/mcp
+[CHATMCP-HUB] Dùng @wonderwhy-er/desktop-commander@0.2.52 đã cài.
+[CHATMCP-HUB] Đang cài @srbhptl39/mcp-superassistant-proxy@0.1.8. Lần đầu có thể mất vài phút.
+[CHATMCP-HUB] up to date in 6s
+[CHATMCP-HUB] [MCP-LOCAL] Desktop Commander configuration backup: C:\Users\DAT PHAN\.claude-server-commander\config.json.before-chatmcp-20261009T141743753Z-3bec07c1.bak
+[CHATMCP-HUB] [MCP-LOCAL] Testing the local MCP connection (initial start can take a moment)...
+[CHATMCP-HUB] [MCP-LOCAL] PASS: Desktop Commander connected; required file and terminal tools are available.
+[CHATMCP-HUB] [MCP-LOCAL] PASS: file directory scope saved and the project folder can be read.
+[CHATMCP-HUB] [MCP-LOCAL] Browser proxy configuration backup: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json.before-local-20261009T141744615Z-50a502c6.bak
+[CHATMCP-HUB] [MCP-LOCAL] PASS: desktop-commander added to the existing browser proxy configuration.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting...
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting mcp-superassistant-proxy ...
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - outputTransport: streamableHttp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - config: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Headers: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - host: 127.0.0.1
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - port: 3006
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - streamableHttpPath: /mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - stateless: false
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - CORS: enabled (["https://chatgpt.com","chrome-extension://kngiafgkdnlkgmefdafaibkibegkcaef"])
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Health endpoints: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Loaded config with 2 servers
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connecting to streamable HTTP server cloud-harness: http://127.0.0.1:3100/mcp
+[CHATMCP-HUB] [Đã ẩn thông tin xác thực]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server cloud-harness has 92 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting server desktop-commander: C:\Program Files\nodejs\node.exe F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\desktop-commander-local\start-local.mjs --no-onboarding
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 26 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 2 resources
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Config-to-StreamableHttp gateway ready
+[CHATMCP-HUB] [mcp-superassistant-proxy] Listening on 127.0.0.1:3006
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp endpoint: http://127.0.0.1:3006/mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy] Mode: stateful
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished cecb452c-f415-4499-a8e0-77403f5699aa
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished cecb452c-f415-4499-a8e0-77403f5699aa
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished cecb452c-f415-4499-a8e0-77403f5699aa
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished cecb452c-f415-4499-a8e0-77403f5699aa
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] Đã đối chiếu đủ công cụ: Cloud Harness 92; Desktop Commander 26.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished cecb452c-f415-4499-a8e0-77403f5699aa
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished cecb452c-f415-4499-a8e0-77403f5699aa
+[CHATMCP-HUB] Cổng 3006 đang được sử dụng. Ở lần chuyển sang Hub đầu tiên, nhấn Ctrl+C trong cửa sổ START-MCP-BROWSER.ps1 cũ, rồi bấm Khởi động MCP tại đây.
+[CHATMCP-HUB] Cổng 3006 đang được sử dụng. Ở lần chuyển sang Hub đầu tiên, nhấn Ctrl+C trong cửa sổ START-MCP-BROWSER.ps1 cũ, rồi bấm Khởi động MCP tại đây.
+[CHATMCP-HUB] Đã dừng MCP do Hub quản lý.
+[CHATMCP-HUB] Dùng @wonderwhy-er/desktop-commander@0.2.52 đã cài.
+[CHATMCP-HUB] Dùng @srbhptl39/mcp-superassistant-proxy@0.1.8 đã cài.
+[CHATMCP-HUB] [MCP-LOCAL] Desktop Commander configuration backup: C:\Users\DAT PHAN\.claude-server-commander\config.json.before-chatmcp-20261009T141842654Z-264ef682.bak
+[CHATMCP-HUB] [MCP-LOCAL] Testing the local MCP connection (initial start can take a moment)...
+[CHATMCP-HUB] [MCP-LOCAL] PASS: Desktop Commander connected; required file and terminal tools are available.
+[CHATMCP-HUB] [MCP-LOCAL] PASS: file directory scope saved and the project folder can be read.
+[CHATMCP-HUB] [MCP-LOCAL] Browser proxy configuration backup: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json.before-local-20261009T141843525Z-2f6ad9ce.bak
+[CHATMCP-HUB] [MCP-LOCAL] PASS: desktop-commander added to the existing browser proxy configuration.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting...
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting mcp-superassistant-proxy ...
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - outputTransport: streamableHttp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - config: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Headers: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - host: 127.0.0.1
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - port: 3006
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - streamableHttpPath: /mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - stateless: false
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - CORS: enabled (["https://chatgpt.com","chrome-extension://kngiafgkdnlkgmefdafaibkibegkcaef"])
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Health endpoints: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Loaded config with 2 servers
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connecting to streamable HTTP server cloud-harness: http://127.0.0.1:3100/mcp
+[CHATMCP-HUB] [Đã ẩn thông tin xác thực]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server cloud-harness has 92 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting server desktop-commander: C:\Program Files\nodejs\node.exe F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\desktop-commander-local\start-local.mjs --no-onboarding
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 26 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 2 resources
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Config-to-StreamableHttp gateway ready
+[CHATMCP-HUB] [mcp-superassistant-proxy] Listening on 127.0.0.1:3006
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp endpoint: http://127.0.0.1:3006/mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy] Mode: stateful
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 59bf97fb-401b-4ba2-a1f3-2b6ec9741067
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 59bf97fb-401b-4ba2-a1f3-2b6ec9741067
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 59bf97fb-401b-4ba2-a1f3-2b6ec9741067
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 59bf97fb-401b-4ba2-a1f3-2b6ec9741067
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] Đã đối chiếu đủ công cụ: Cloud Harness 92; Desktop Commander 26.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 59bf97fb-401b-4ba2-a1f3-2b6ec9741067
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 59bf97fb-401b-4ba2-a1f3-2b6ec9741067
+[CHATMCP-HUB] Đã ghép tiện ích cho ChatGPT web thông thường.
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b0e1ae4f-dfda-4146-89b0-ecbbd95e3446
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b0e1ae4f-dfda-4146-89b0-ecbbd95e3446
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b0e1ae4f-dfda-4146-89b0-ecbbd95e3446
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b0e1ae4f-dfda-4146-89b0-ecbbd95e3446
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b0e1ae4f-dfda-4146-89b0-ecbbd95e3446
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 757a60e9-9c2d-4ab0-95d6-8a5fe78b71b8
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 757a60e9-9c2d-4ab0-95d6-8a5fe78b71b8
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 757a60e9-9c2d-4ab0-95d6-8a5fe78b71b8
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 757a60e9-9c2d-4ab0-95d6-8a5fe78b71b8
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 757a60e9-9c2d-4ab0-95d6-8a5fe78b71b8
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c8ab4816-34d8-4987-b659-9feca4e4d157
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c8ab4816-34d8-4987-b659-9feca4e4d157
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c8ab4816-34d8-4987-b659-9feca4e4d157
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c8ab4816-34d8-4987-b659-9feca4e4d157
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c8ab4816-34d8-4987-b659-9feca4e4d157
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 60be6d99-de4d-456a-bf7f-17d8fbf0ce4c
+[CHATMCP-HUB] Đã dừng MCP do Hub quản lý.
+[CHATMCP-HUB] Dùng @wonderwhy-er/desktop-commander@0.2.52 đã cài.
+[CHATMCP-HUB] Dùng @srbhptl39/mcp-superassistant-proxy@0.1.8 đã cài.
+[CHATMCP-HUB] [MCP-LOCAL] Desktop Commander configuration backup: C:\Users\DAT PHAN\.claude-server-commander\config.json.before-chatmcp-20261009T143703177Z-d7c64eb0.bak
+[CHATMCP-HUB] [MCP-LOCAL] Testing the local MCP connection (initial start can take a moment)...
+[CHATMCP-HUB] [MCP-LOCAL] PASS: Desktop Commander connected; required file and terminal tools are available.
+[CHATMCP-HUB] [MCP-LOCAL] PASS: file directory scope saved and the project folder can be read.
+[CHATMCP-HUB] [MCP-LOCAL] Browser proxy configuration backup: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json.before-local-20261009T143704047Z-cbcaf62f.bak
+[CHATMCP-HUB] [MCP-LOCAL] PASS: desktop-commander added to the existing browser proxy configuration.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting...
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting mcp-superassistant-proxy ...
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - outputTransport: streamableHttp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - config: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Headers: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - host: 127.0.0.1
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - port: 3006
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - streamableHttpPath: /mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - stateless: false
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - CORS: enabled (["https://chatgpt.com","chrome-extension://kngiafgkdnlkgmefdafaibkibegkcaef"])
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Health endpoints: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Loaded config with 2 servers
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connecting to streamable HTTP server cloud-harness: http://127.0.0.1:3100/mcp
+[CHATMCP-HUB] [Đã ẩn thông tin xác thực]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server cloud-harness has 92 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting server desktop-commander: C:\Program Files\nodejs\node.exe F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\desktop-commander-local\start-local.mjs --no-onboarding
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 26 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 2 resources
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Config-to-StreamableHttp gateway ready
+[CHATMCP-HUB] [mcp-superassistant-proxy] Listening on 127.0.0.1:3006
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp endpoint: http://127.0.0.1:3006/mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy] Mode: stateful
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished fc2f8399-ccae-4fc5-8a1c-e23d77a821db
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished fc2f8399-ccae-4fc5-8a1c-e23d77a821db
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished fc2f8399-ccae-4fc5-8a1c-e23d77a821db
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished fc2f8399-ccae-4fc5-8a1c-e23d77a821db
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] Đã đối chiếu đủ công cụ: Cloud Harness 92; Desktop Commander 26.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished fc2f8399-ccae-4fc5-8a1c-e23d77a821db
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished fc2f8399-ccae-4fc5-8a1c-e23d77a821db
+[CHATMCP-HUB] Đang dừng các tiến trình MCP do Hub quản lý...
+[CHATMCP-HUB] Dashboard: http://127.0.0.1:3007
+[CHATMCP-HUB] MCP: http://127.0.0.1:3006/mcp
+[CHATMCP-HUB] Dùng @wonderwhy-er/desktop-commander@0.2.52 đã cài.
+[CHATMCP-HUB] Dùng @srbhptl39/mcp-superassistant-proxy@0.1.8 đã cài.
+[CHATMCP-HUB] [MCP-LOCAL] Desktop Commander configuration backup: C:\Users\DAT PHAN\.claude-server-commander\config.json.before-chatmcp-20261009T143958115Z-5be1c298.bak
+[CHATMCP-HUB] [MCP-LOCAL] Testing the local MCP connection (initial start can take a moment)...
+[CHATMCP-HUB] [MCP-LOCAL] PASS: Desktop Commander connected; required file and terminal tools are available.
+[CHATMCP-HUB] [MCP-LOCAL] PASS: file directory scope saved and the project folder can be read.
+[CHATMCP-HUB] [MCP-LOCAL] Browser proxy configuration backup: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json.before-local-20261009T143958972Z-e3574927.bak
+[CHATMCP-HUB] [MCP-LOCAL] PASS: desktop-commander added to the existing browser proxy configuration.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting...
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting mcp-superassistant-proxy ...
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - outputTransport: streamableHttp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - config: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Headers: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - host: 127.0.0.1
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - port: 3006
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - streamableHttpPath: /mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - stateless: false
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - CORS: enabled (["https://chatgpt.com","chrome-extension://kngiafgkdnlkgmefdafaibkibegkcaef"])
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Health endpoints: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Loaded config with 2 servers
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connecting to streamable HTTP server cloud-harness: http://127.0.0.1:3100/mcp
+[CHATMCP-HUB] [Đã ẩn thông tin xác thực]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server cloud-harness has 92 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting server desktop-commander: C:\Program Files\nodejs\node.exe F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\desktop-commander-local\start-local.mjs --no-onboarding
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 26 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 2 resources
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Config-to-StreamableHttp gateway ready
+[CHATMCP-HUB] [mcp-superassistant-proxy] Listening on 127.0.0.1:3006
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp endpoint: http://127.0.0.1:3006/mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy] Mode: stateful
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 4354cc5e-003a-47cc-b4d0-1f710883379c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 4354cc5e-003a-47cc-b4d0-1f710883379c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 4354cc5e-003a-47cc-b4d0-1f710883379c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 4354cc5e-003a-47cc-b4d0-1f710883379c
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] Đã đối chiếu đủ công cụ: Cloud Harness 92; Desktop Commander 26.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 4354cc5e-003a-47cc-b4d0-1f710883379c
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 4354cc5e-003a-47cc-b4d0-1f710883379c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b165be20-d46d-49a4-abf8-21f3bd9274ef
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b165be20-d46d-49a4-abf8-21f3bd9274ef
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b165be20-d46d-49a4-abf8-21f3bd9274ef
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b165be20-d46d-49a4-abf8-21f3bd9274ef
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b165be20-d46d-49a4-abf8-21f3bd9274ef
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 576aa644-d6af-40ed-a3e1-c40829321462
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 576aa644-d6af-40ed-a3e1-c40829321462
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 576aa644-d6af-40ed-a3e1-c40829321462
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 576aa644-d6af-40ed-a3e1-c40829321462
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 576aa644-d6af-40ed-a3e1-c40829321462
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 24fac4f2-1fda-48b0-b121-8582f53c3a9d
+[CHATMCP-HUB] Đang dừng các tiến trình MCP do Hub quản lý...
+[CHATMCP-HUB] Dashboard: http://127.0.0.1:3007
+[CHATMCP-HUB] MCP: http://127.0.0.1:3006/mcp
+[CHATMCP-HUB] Dùng @wonderwhy-er/desktop-commander@0.2.52 đã cài.
+[CHATMCP-HUB] Dùng @srbhptl39/mcp-superassistant-proxy@0.1.8 đã cài.
+[CHATMCP-HUB] [MCP-LOCAL] Desktop Commander configuration backup: C:\Users\DAT PHAN\.claude-server-commander\config.json.before-chatmcp-20261009T150747799Z-197e19c1.bak
+[CHATMCP-HUB] [MCP-LOCAL] Testing the local MCP connection (initial start can take a moment)...
+[CHATMCP-HUB] [MCP-LOCAL] PASS: Desktop Commander connected; required file and terminal tools are available.
+[CHATMCP-HUB] [MCP-LOCAL] PASS: file directory scope saved and the project folder can be read.
+[CHATMCP-HUB] [MCP-LOCAL] Browser proxy configuration backup: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json.before-local-20261009T150748663Z-16472265.bak
+[CHATMCP-HUB] [MCP-LOCAL] PASS: desktop-commander added to the existing browser proxy configuration.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting...
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting mcp-superassistant-proxy ...
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - outputTransport: streamableHttp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - config: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Headers: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - host: 127.0.0.1
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - port: 3006
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - streamableHttpPath: /mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - stateless: false
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - CORS: enabled (["https://chatgpt.com","chrome-extension://kngiafgkdnlkgmefdafaibkibegkcaef"])
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Health endpoints: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Loaded config with 2 servers
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connecting to streamable HTTP server cloud-harness: http://127.0.0.1:3100/mcp
+[CHATMCP-HUB] [Đã ẩn thông tin xác thực]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server cloud-harness has 92 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting server desktop-commander: C:\Program Files\nodejs\node.exe F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\desktop-commander-local\start-local.mjs --no-onboarding
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 26 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 2 resources
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Config-to-StreamableHttp gateway ready
+[CHATMCP-HUB] [mcp-superassistant-proxy] Listening on 127.0.0.1:3006
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp endpoint: http://127.0.0.1:3006/mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy] Mode: stateful
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20d4df1f-fa0c-439f-bb29-1db083a9f834
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20d4df1f-fa0c-439f-bb29-1db083a9f834
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20d4df1f-fa0c-439f-bb29-1db083a9f834
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20d4df1f-fa0c-439f-bb29-1db083a9f834
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] Đã đối chiếu đủ công cụ: Cloud Harness 92; Desktop Commander 26.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20d4df1f-fa0c-439f-bb29-1db083a9f834
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20d4df1f-fa0c-439f-bb29-1db083a9f834
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1f575b0f-dc53-4c56-91cf-bfb8aa4b4810
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1f575b0f-dc53-4c56-91cf-bfb8aa4b4810
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1f575b0f-dc53-4c56-91cf-bfb8aa4b4810
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1f575b0f-dc53-4c56-91cf-bfb8aa4b4810
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1f575b0f-dc53-4c56-91cf-bfb8aa4b4810
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8ca3269b-9161-4c63-b626-7dbed0b09193
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8ca3269b-9161-4c63-b626-7dbed0b09193
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8ca3269b-9161-4c63-b626-7dbed0b09193
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8ca3269b-9161-4c63-b626-7dbed0b09193
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8ca3269b-9161-4c63-b626-7dbed0b09193
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b2d0ef3b-90d8-4774-abfc-23269dde6746
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b2d0ef3b-90d8-4774-abfc-23269dde6746
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b2d0ef3b-90d8-4774-abfc-23269dde6746
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b2d0ef3b-90d8-4774-abfc-23269dde6746
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b2d0ef3b-90d8-4774-abfc-23269dde6746
+[CHATMCP-HUB] Đang dừng các tiến trình MCP do Hub quản lý...
+[CHATMCP-HUB] Dashboard: http://127.0.0.1:3007
+[CHATMCP-HUB] MCP: http://127.0.0.1:3006/mcp
+[CHATMCP-HUB] Dùng @wonderwhy-er/desktop-commander@0.2.52 đã cài.
+[CHATMCP-HUB] Dùng @srbhptl39/mcp-superassistant-proxy@0.1.8 đã cài.
+[CHATMCP-HUB] [MCP-LOCAL] Desktop Commander configuration backup: C:\Users\DAT PHAN\.claude-server-commander\config.json.before-chatmcp-20261009T153401695Z-ac1c732b.bak
+[CHATMCP-HUB] [MCP-LOCAL] Testing the local MCP connection (initial start can take a moment)...
+[CHATMCP-HUB] [MCP-LOCAL] PASS: Desktop Commander connected; required file and terminal tools are available.
+[CHATMCP-HUB] [MCP-LOCAL] PASS: file directory scope saved and the project folder can be read.
+[CHATMCP-HUB] [MCP-LOCAL] Browser proxy configuration backup: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json.before-local-20261009T153402582Z-9c7d1be7.bak
+[CHATMCP-HUB] [MCP-LOCAL] PASS: desktop-commander added to the existing browser proxy configuration.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting...
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting mcp-superassistant-proxy ...
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - outputTransport: streamableHttp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - config: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Headers: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - host: 127.0.0.1
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - port: 3006
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - streamableHttpPath: /mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - stateless: false
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - CORS: enabled (["https://chatgpt.com","chrome-extension://kngiafgkdnlkgmefdafaibkibegkcaef"])
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Health endpoints: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Loaded config with 2 servers
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connecting to streamable HTTP server cloud-harness: http://127.0.0.1:3100/mcp
+[CHATMCP-HUB] [Đã ẩn thông tin xác thực]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server cloud-harness has 92 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting server desktop-commander: C:\Program Files\nodejs\node.exe F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\desktop-commander-local\start-local.mjs --no-onboarding
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 26 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 2 resources
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Config-to-StreamableHttp gateway ready
+[CHATMCP-HUB] [mcp-superassistant-proxy] Listening on 127.0.0.1:3006
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp endpoint: http://127.0.0.1:3006/mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy] Mode: stateful
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished dc97d96b-c271-451f-bd3c-d31e7d0be7d5
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished dc97d96b-c271-451f-bd3c-d31e7d0be7d5
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished dc97d96b-c271-451f-bd3c-d31e7d0be7d5
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished dc97d96b-c271-451f-bd3c-d31e7d0be7d5
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] Đã đối chiếu đủ công cụ: Cloud Harness 92; Desktop Commander 26.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished dc97d96b-c271-451f-bd3c-d31e7d0be7d5
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished dc97d96b-c271-451f-bd3c-d31e7d0be7d5
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42596529-c2c8-449d-ac8b-4d4e34306d3c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42596529-c2c8-449d-ac8b-4d4e34306d3c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42596529-c2c8-449d-ac8b-4d4e34306d3c
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42596529-c2c8-449d-ac8b-4d4e34306d3c
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42596529-c2c8-449d-ac8b-4d4e34306d3c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 031c8360-2d14-4163-b74d-9909c8c29948
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 031c8360-2d14-4163-b74d-9909c8c29948
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 031c8360-2d14-4163-b74d-9909c8c29948
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 031c8360-2d14-4163-b74d-9909c8c29948
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 031c8360-2d14-4163-b74d-9909c8c29948
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 685db8ef-9e5b-4c17-8a7d-e1cae0dcd7e0
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 685db8ef-9e5b-4c17-8a7d-e1cae0dcd7e0
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 685db8ef-9e5b-4c17-8a7d-e1cae0dcd7e0
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 685db8ef-9e5b-4c17-8a7d-e1cae0dcd7e0
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 685db8ef-9e5b-4c17-8a7d-e1cae0dcd7e0
+[CHATMCP-HUB] Đang dừng các tiến trình MCP do Hub quản lý...
+[CHATMCP-HUB] Dashboard: http://127.0.0.1:3007
+[CHATMCP-HUB] MCP: http://127.0.0.1:3006/mcp
+[CHATMCP-HUB] Dùng @wonderwhy-er/desktop-commander@0.2.52 đã cài.
+[CHATMCP-HUB] Dùng @srbhptl39/mcp-superassistant-proxy@0.1.8 đã cài.
+[CHATMCP-HUB] [MCP-LOCAL] Desktop Commander configuration backup: C:\Users\DAT PHAN\.claude-server-commander\config.json.before-chatmcp-20261009T153847110Z-7c29b2a3.bak
+[CHATMCP-HUB] [MCP-LOCAL] Testing the local MCP connection (initial start can take a moment)...
+[CHATMCP-HUB] [MCP-LOCAL] PASS: Desktop Commander connected; required file and terminal tools are available.
+[CHATMCP-HUB] [MCP-LOCAL] PASS: file directory scope saved and the project folder can be read.
+[CHATMCP-HUB] [MCP-LOCAL] Browser proxy configuration backup: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json.before-local-20261009T153847990Z-1ab0379a.bak
+[CHATMCP-HUB] [MCP-LOCAL] PASS: desktop-commander added to the existing browser proxy configuration.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting...
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting mcp-superassistant-proxy ...
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - outputTransport: streamableHttp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - config: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Headers: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - host: 127.0.0.1
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - port: 3006
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - streamableHttpPath: /mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - stateless: false
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - CORS: enabled (["https://chatgpt.com","chrome-extension://kngiafgkdnlkgmefdafaibkibegkcaef"])
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Health endpoints: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Loaded config with 2 servers
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connecting to streamable HTTP server cloud-harness: http://127.0.0.1:3100/mcp
+[CHATMCP-HUB] [Đã ẩn thông tin xác thực]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server cloud-harness has 92 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting server desktop-commander: C:\Program Files\nodejs\node.exe F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\desktop-commander-local\start-local.mjs --no-onboarding
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 26 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 2 resources
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Config-to-StreamableHttp gateway ready
+[CHATMCP-HUB] [mcp-superassistant-proxy] Listening on 127.0.0.1:3006
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp endpoint: http://127.0.0.1:3006/mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy] Mode: stateful
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished eebbc5b7-ab2c-42fd-b85e-b7ec85127c73
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished eebbc5b7-ab2c-42fd-b85e-b7ec85127c73
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished eebbc5b7-ab2c-42fd-b85e-b7ec85127c73
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished eebbc5b7-ab2c-42fd-b85e-b7ec85127c73
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] Đã đối chiếu đủ công cụ: Cloud Harness 92; Desktop Commander 26.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished eebbc5b7-ab2c-42fd-b85e-b7ec85127c73
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished eebbc5b7-ab2c-42fd-b85e-b7ec85127c73
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 93126d71-92a0-4580-963d-a29f34d38fbc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 93126d71-92a0-4580-963d-a29f34d38fbc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 93126d71-92a0-4580-963d-a29f34d38fbc
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 93126d71-92a0-4580-963d-a29f34d38fbc
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 93126d71-92a0-4580-963d-a29f34d38fbc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response closed 8082dbcb-182c-435d-9a2f-804125ca1da7
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response closed e3a4792d-783b-4c8b-97d9-afb3acc79646
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response closed a5720cdd-7e49-4619-834c-f1e63ab04469
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response closed 20f166b5-1d3a-4098-8a87-eff41029ba3b
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response closed c13c0d79-1e76-400f-b59e-624de872b066
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response closed 219aa57c-4822-4c45-babc-1a21cbe46f53
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished d5fb2374-1aca-45c9-b74b-532caeca7921
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished d5fb2374-1aca-45c9-b74b-532caeca7921
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished d5fb2374-1aca-45c9-b74b-532caeca7921
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished d5fb2374-1aca-45c9-b74b-532caeca7921
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished d5fb2374-1aca-45c9-b74b-532caeca7921
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c71db089-cefc-4efa-a6f4-31df07c00032
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c71db089-cefc-4efa-a6f4-31df07c00032
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c71db089-cefc-4efa-a6f4-31df07c00032
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c71db089-cefc-4efa-a6f4-31df07c00032
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c71db089-cefc-4efa-a6f4-31df07c00032
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 1920f4f8-172d-46ef-bad6-8d93c364d3ad
+[CHATMCP-HUB] Đang dừng các tiến trình MCP do Hub quản lý...
+[CHATMCP-HUB] Dashboard: http://127.0.0.1:3007
+[CHATMCP-HUB] MCP: http://127.0.0.1:3006/mcp
+[CHATMCP-HUB] Dùng @wonderwhy-er/desktop-commander@0.2.52 đã cài.
+[CHATMCP-HUB] Dùng @srbhptl39/mcp-superassistant-proxy@0.1.8 đã cài.
+[CHATMCP-HUB] [MCP-LOCAL] Desktop Commander configuration backup: C:\Users\DAT PHAN\.claude-server-commander\config.json.before-chatmcp-20261009T170251109Z-df74273f.bak
+[CHATMCP-HUB] [MCP-LOCAL] Testing the local MCP connection (initial start can take a moment)...
+[CHATMCP-HUB] [MCP-LOCAL] PASS: Desktop Commander connected; required file and terminal tools are available.
+[CHATMCP-HUB] [MCP-LOCAL] PASS: file directory scope saved and the project folder can be read.
+[CHATMCP-HUB] [MCP-LOCAL] Browser proxy configuration backup: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json.before-local-20261009T170252153Z-dbf8e6cc.bak
+[CHATMCP-HUB] [MCP-LOCAL] PASS: desktop-commander added to the existing browser proxy configuration.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting...
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting mcp-superassistant-proxy ...
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - outputTransport: streamableHttp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - config: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Headers: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - host: 127.0.0.1
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - port: 3006
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - streamableHttpPath: /mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - stateless: false
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - CORS: enabled (["https://chatgpt.com","chrome-extension://kngiafgkdnlkgmefdafaibkibegkcaef"])
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Health endpoints: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Loaded config with 2 servers
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connecting to streamable HTTP server cloud-harness: http://127.0.0.1:3100/mcp
+[CHATMCP-HUB] [Đã ẩn thông tin xác thực]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server cloud-harness has 92 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting server desktop-commander: C:\Program Files\nodejs\node.exe F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\desktop-commander-local\start-local.mjs --no-onboarding
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 26 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 2 resources
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Config-to-StreamableHttp gateway ready
+[CHATMCP-HUB] [mcp-superassistant-proxy] Listening on 127.0.0.1:3006
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp endpoint: http://127.0.0.1:3006/mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy] Mode: stateful
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 989a3b92-550d-4a3e-86ec-5a3a1235d74d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 989a3b92-550d-4a3e-86ec-5a3a1235d74d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 989a3b92-550d-4a3e-86ec-5a3a1235d74d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 989a3b92-550d-4a3e-86ec-5a3a1235d74d
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] Đã đối chiếu đủ công cụ: Cloud Harness 92; Desktop Commander 26.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 989a3b92-550d-4a3e-86ec-5a3a1235d74d
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 989a3b92-550d-4a3e-86ec-5a3a1235d74d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 04d87894-2e56-4f9e-b362-10e91574bf4d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 04d87894-2e56-4f9e-b362-10e91574bf4d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 04d87894-2e56-4f9e-b362-10e91574bf4d
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 04d87894-2e56-4f9e-b362-10e91574bf4d
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 04d87894-2e56-4f9e-b362-10e91574bf4d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 9100d2a6-85bc-4ab8-b9d7-c38ddf72e542
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 9100d2a6-85bc-4ab8-b9d7-c38ddf72e542
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 9100d2a6-85bc-4ab8-b9d7-c38ddf72e542
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 9100d2a6-85bc-4ab8-b9d7-c38ddf72e542
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 9100d2a6-85bc-4ab8-b9d7-c38ddf72e542
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response closed 25009a67-3df2-424d-a846-43de4af32adc
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 27159554-94a4-422d-91e3-d13c2f2d3f4d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 27159554-94a4-422d-91e3-d13c2f2d3f4d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 27159554-94a4-422d-91e3-d13c2f2d3f4d
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 27159554-94a4-422d-91e3-d13c2f2d3f4d
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 27159554-94a4-422d-91e3-d13c2f2d3f4d
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response closed b8ff44a4-0fc0-41db-96be-8b69d391872c
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e5325f14-fdcc-45ac-87d1-9964731c0347
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e5325f14-fdcc-45ac-87d1-9964731c0347
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e5325f14-fdcc-45ac-87d1-9964731c0347
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e5325f14-fdcc-45ac-87d1-9964731c0347
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e5325f14-fdcc-45ac-87d1-9964731c0347
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e5325f14-fdcc-45ac-87d1-9964731c0347
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e5325f14-fdcc-45ac-87d1-9964731c0347
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e5325f14-fdcc-45ac-87d1-9964731c0347
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e5325f14-fdcc-45ac-87d1-9964731c0347
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e5325f14-fdcc-45ac-87d1-9964731c0347
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e5325f14-fdcc-45ac-87d1-9964731c0347
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e5325f14-fdcc-45ac-87d1-9964731c0347
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e5325f14-fdcc-45ac-87d1-9964731c0347
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e5325f14-fdcc-45ac-87d1-9964731c0347
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e5325f14-fdcc-45ac-87d1-9964731c0347
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e5325f14-fdcc-45ac-87d1-9964731c0347
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e5325f14-fdcc-45ac-87d1-9964731c0347
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e5325f14-fdcc-45ac-87d1-9964731c0347
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response closed e5325f14-fdcc-45ac-87d1-9964731c0347
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 22a0c9f7-2afd-41db-b377-f1281321ae55
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 22a0c9f7-2afd-41db-b377-f1281321ae55
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 22a0c9f7-2afd-41db-b377-f1281321ae55
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 22a0c9f7-2afd-41db-b377-f1281321ae55
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 22a0c9f7-2afd-41db-b377-f1281321ae55
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response closed 56128891-8224-4cee-993f-f2c97761c13a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 78de0b76-67f9-4906-99f5-1c89244de027
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 78de0b76-67f9-4906-99f5-1c89244de027
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 78de0b76-67f9-4906-99f5-1c89244de027
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 78de0b76-67f9-4906-99f5-1c89244de027
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 78de0b76-67f9-4906-99f5-1c89244de027
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8b72ff45-21f2-459b-b1f7-4468af1d02a1
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8b72ff45-21f2-459b-b1f7-4468af1d02a1
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8b72ff45-21f2-459b-b1f7-4468af1d02a1
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8b72ff45-21f2-459b-b1f7-4468af1d02a1
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 8b72ff45-21f2-459b-b1f7-4468af1d02a1
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e00e0307-f6b8-42db-ba78-3a781d8292cb
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e00e0307-f6b8-42db-ba78-3a781d8292cb
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e00e0307-f6b8-42db-ba78-3a781d8292cb
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e00e0307-f6b8-42db-ba78-3a781d8292cb
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished e00e0307-f6b8-42db-ba78-3a781d8292cb
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 42f6772f-7483-49ff-9381-8298e1253372
+[CHATMCP-HUB] Dùng @wonderwhy-er/desktop-commander@0.2.52 đã cài.
+[CHATMCP-HUB] Dùng @srbhptl39/mcp-superassistant-proxy@0.1.8 đã cài.
+[CHATMCP-HUB] [MCP-LOCAL] Desktop Commander configuration backup: C:\Users\DAT PHAN\.claude-server-commander\config.json.before-chatmcp-20261009T202953162Z-9f4c570b.bak
+[CHATMCP-HUB] [MCP-LOCAL] Setting file access to the selected project folder.
+[CHATMCP-HUB] [MCP-LOCAL] Testing the local MCP connection (initial start can take a moment)...
+[CHATMCP-HUB] [MCP-LOCAL] PASS: Desktop Commander connected; required file and terminal tools are available.
+[CHATMCP-HUB] [MCP-LOCAL] PASS: file directory scope saved and the project folder can be read.
+[CHATMCP-HUB] [MCP-LOCAL] Browser proxy configuration backup: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json.before-local-20261009T202954107Z-0bcb7362.bak
+[CHATMCP-HUB] [MCP-LOCAL] PASS: desktop-commander added to the existing browser proxy configuration.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting...
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting mcp-superassistant-proxy ...
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - outputTransport: streamableHttp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - config: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Headers: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - host: 127.0.0.1
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - port: 3006
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - streamableHttpPath: /mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - stateless: false
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - CORS: enabled (["https://chatgpt.com","chrome-extension://kngiafgkdnlkgmefdafaibkibegkcaef"])
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Health endpoints: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Loaded config with 2 servers
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connecting to streamable HTTP server cloud-harness: http://127.0.0.1:3100/mcp
+[CHATMCP-HUB] [Đã ẩn thông tin xác thực]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server cloud-harness has 92 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting server desktop-commander: C:\Program Files\nodejs\node.exe F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\desktop-commander-local\start-local.mjs --no-onboarding
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 26 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 2 resources
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Config-to-StreamableHttp gateway ready
+[CHATMCP-HUB] [mcp-superassistant-proxy] Listening on 127.0.0.1:3006
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp endpoint: http://127.0.0.1:3006/mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy] Mode: stateful
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c3e7c456-440f-4924-8d01-ffd4d0813c17
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c3e7c456-440f-4924-8d01-ffd4d0813c17
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c3e7c456-440f-4924-8d01-ffd4d0813c17
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c3e7c456-440f-4924-8d01-ffd4d0813c17
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] Đã đối chiếu đủ công cụ: Cloud Harness 92; Desktop Commander 26.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c3e7c456-440f-4924-8d01-ffd4d0813c17
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c3e7c456-440f-4924-8d01-ffd4d0813c17
+[CHATMCP-HUB] Cổng 3006 đang được sử dụng. Ở lần chuyển sang Hub đầu tiên, nhấn Ctrl+C trong cửa sổ START-MCP-BROWSER.ps1 cũ, rồi bấm Khởi động MCP tại đây.
+[CHATMCP-HUB] Cổng 3006 đang được sử dụng. Ở lần chuyển sang Hub đầu tiên, nhấn Ctrl+C trong cửa sổ START-MCP-BROWSER.ps1 cũ, rồi bấm Khởi động MCP tại đây.
+[CHATMCP-HUB] Dùng @wonderwhy-er/desktop-commander@0.2.52 đã cài.
+[CHATMCP-HUB] Dùng @srbhptl39/mcp-superassistant-proxy@0.1.8 đã cài.
+[CHATMCP-HUB] [MCP-LOCAL] Desktop Commander configuration backup: C:\Users\DAT PHAN\.claude-server-commander\config.json.before-chatmcp-20261009T203013643Z-e0a7d6c3.bak
+[CHATMCP-HUB] [MCP-LOCAL] Testing the local MCP connection (initial start can take a moment)...
+[CHATMCP-HUB] [MCP-LOCAL] PASS: Desktop Commander connected; required file and terminal tools are available.
+[CHATMCP-HUB] [MCP-LOCAL] PASS: file directory scope saved and the project folder can be read.
+[CHATMCP-HUB] [MCP-LOCAL] Browser proxy configuration backup: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json.before-local-20261009T203014515Z-3f009053.bak
+[CHATMCP-HUB] [MCP-LOCAL] PASS: desktop-commander added to the existing browser proxy configuration.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting...
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting mcp-superassistant-proxy ...
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - outputTransport: streamableHttp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - config: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Headers: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - host: 127.0.0.1
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - port: 3006
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - streamableHttpPath: /mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - stateless: false
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - CORS: enabled (["https://chatgpt.com","chrome-extension://kngiafgkdnlkgmefdafaibkibegkcaef"])
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Health endpoints: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Loaded config with 2 servers
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connecting to streamable HTTP server cloud-harness: http://127.0.0.1:3100/mcp
+[CHATMCP-HUB] [Đã ẩn thông tin xác thực]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server cloud-harness has 92 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting server desktop-commander: C:\Program Files\nodejs\node.exe F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\desktop-commander-local\start-local.mjs --no-onboarding
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 26 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 2 resources
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Config-to-StreamableHttp gateway ready
+[CHATMCP-HUB] [mcp-superassistant-proxy] Listening on 127.0.0.1:3006
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp endpoint: http://127.0.0.1:3006/mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy] Mode: stateful
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 769f6d98-c9ef-4d97-9d61-a95ceb01e124
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 769f6d98-c9ef-4d97-9d61-a95ceb01e124
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 769f6d98-c9ef-4d97-9d61-a95ceb01e124
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 769f6d98-c9ef-4d97-9d61-a95ceb01e124
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] Đã đối chiếu đủ công cụ: Cloud Harness 92; Desktop Commander 26.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 769f6d98-c9ef-4d97-9d61-a95ceb01e124
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished 769f6d98-c9ef-4d97-9d61-a95ceb01e124
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b416a728-f3fb-4e0d-ac48-064478f4f298
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b416a728-f3fb-4e0d-ac48-064478f4f298
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b416a728-f3fb-4e0d-ac48-064478f4f298
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b416a728-f3fb-4e0d-ac48-064478f4f298
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished b416a728-f3fb-4e0d-ac48-064478f4f298
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished efca2290-c4ee-43db-ada3-35b9f299503a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished efca2290-c4ee-43db-ada3-35b9f299503a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished efca2290-c4ee-43db-ada3-35b9f299503a
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished efca2290-c4ee-43db-ada3-35b9f299503a
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished efca2290-c4ee-43db-ada3-35b9f299503a
+[CHATMCP-HUB] Dùng @wonderwhy-er/desktop-commander@0.2.52 đã cài.
+[CHATMCP-HUB] Dùng @srbhptl39/mcp-superassistant-proxy@0.1.8 đã cài.
+[CHATMCP-HUB] [MCP-LOCAL] Desktop Commander configuration backup: C:\Users\DAT PHAN\.claude-server-commander\config.json.before-chatmcp-20261009T203535853Z-5593f926.bak
+[CHATMCP-HUB] [MCP-LOCAL] Setting file access to the selected project folder.
+[CHATMCP-HUB] [MCP-LOCAL] Testing the local MCP connection (initial start can take a moment)...
+[CHATMCP-HUB] [MCP-LOCAL] PASS: Desktop Commander connected; required file and terminal tools are available.
+[CHATMCP-HUB] [MCP-LOCAL] PASS: file directory scope saved and the project folder can be read.
+[CHATMCP-HUB] [MCP-LOCAL] Browser proxy configuration backup: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json.before-local-20261009T203536758Z-2f96fe3c.bak
+[CHATMCP-HUB] [MCP-LOCAL] PASS: desktop-commander added to the existing browser proxy configuration.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting...
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting mcp-superassistant-proxy ...
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - outputTransport: streamableHttp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - config: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Headers: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - host: 127.0.0.1
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - port: 3006
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - streamableHttpPath: /mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - stateless: false
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - CORS: enabled (["https://chatgpt.com","chrome-extension://kngiafgkdnlkgmefdafaibkibegkcaef"])
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Health endpoints: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Loaded config with 2 servers
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connecting to streamable HTTP server cloud-harness: http://127.0.0.1:3100/mcp
+[CHATMCP-HUB] [Đã ẩn thông tin xác thực]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server cloud-harness has 92 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting server desktop-commander: C:\Program Files\nodejs\node.exe F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\desktop-commander-local\start-local.mjs --no-onboarding
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 26 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 2 resources
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Config-to-StreamableHttp gateway ready
+[CHATMCP-HUB] [mcp-superassistant-proxy] Listening on 127.0.0.1:3006
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp endpoint: http://127.0.0.1:3006/mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy] Mode: stateful
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished f3262e13-b172-4c33-a278-b2fb6c49bad6
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished f3262e13-b172-4c33-a278-b2fb6c49bad6
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished f3262e13-b172-4c33-a278-b2fb6c49bad6
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished f3262e13-b172-4c33-a278-b2fb6c49bad6
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] Đã đối chiếu đủ công cụ: Cloud Harness 92; Desktop Commander 26.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished f3262e13-b172-4c33-a278-b2fb6c49bad6
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished f3262e13-b172-4c33-a278-b2fb6c49bad6
+[CHATMCP-HUB] Dùng @wonderwhy-er/desktop-commander@0.2.52 đã cài.
+[CHATMCP-HUB] Dùng @srbhptl39/mcp-superassistant-proxy@0.1.8 đã cài.
+[CHATMCP-HUB] [MCP-LOCAL] Desktop Commander configuration backup: C:\Users\DAT PHAN\.claude-server-commander\config.json.before-chatmcp-20261009T203548462Z-d9b2dac9.bak
+[CHATMCP-HUB] [MCP-LOCAL] Setting file access to the selected project folder.
+[CHATMCP-HUB] [MCP-LOCAL] Testing the local MCP connection (initial start can take a moment)...
+[CHATMCP-HUB] [MCP-LOCAL] PASS: Desktop Commander connected; required file and terminal tools are available.
+[CHATMCP-HUB] [MCP-LOCAL] PASS: file directory scope saved and the project folder can be read.
+[CHATMCP-HUB] [MCP-LOCAL] Browser proxy configuration backup: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json.before-local-20261009T203549391Z-fee02cd4.bak
+[CHATMCP-HUB] [MCP-LOCAL] PASS: desktop-commander added to the existing browser proxy configuration.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting...
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting mcp-superassistant-proxy ...
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - outputTransport: streamableHttp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - config: F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\chatmcp-hub\mcp-client.hub.json
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Headers: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - host: 127.0.0.1
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - port: 3006
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - streamableHttpPath: /mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - stateless: false
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - CORS: enabled (["https://chatgpt.com","chrome-extension://kngiafgkdnlkgmefdafaibkibegkcaef"])
+[CHATMCP-HUB] [mcp-superassistant-proxy]   - Health endpoints: (none)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Loaded config with 2 servers
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connecting to streamable HTTP server cloud-harness: http://127.0.0.1:3100/mcp
+[CHATMCP-HUB] [Đã ẩn thông tin xác thực]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server cloud-harness has 92 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: cloud-harness
+[CHATMCP-HUB] [mcp-superassistant-proxy] Starting server desktop-commander: C:\Program Files\nodejs\node.exe F:\Personal_Project\Vin\ChatMCP\cloud-harness-mcp\deploy\.generated\desktop-commander-local\start-local.mjs --no-onboarding
+[CHATMCP-HUB] [mcp-superassistant-proxy] Connected to server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 26 tools
+[CHATMCP-HUB] [mcp-superassistant-proxy] Server desktop-commander has 2 resources
+[CHATMCP-HUB] [mcp-superassistant-proxy] Successfully initialized server: desktop-commander
+[CHATMCP-HUB] [mcp-superassistant-proxy] Config-to-StreamableHttp gateway ready
+[CHATMCP-HUB] [mcp-superassistant-proxy] Listening on 127.0.0.1:3006
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp endpoint: http://127.0.0.1:3006/mcp
+[CHATMCP-HUB] [mcp-superassistant-proxy] Mode: stateful
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished ddbb5bc3-4fb9-4bf7-be9a-6ae20efced7a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished ddbb5bc3-4fb9-4bf7-be9a-6ae20efced7a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished ddbb5bc3-4fb9-4bf7-be9a-6ae20efced7a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished ddbb5bc3-4fb9-4bf7-be9a-6ae20efced7a
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] Đã đối chiếu đủ công cụ: Cloud Harness 92; Desktop Commander 26.
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished ddbb5bc3-4fb9-4bf7-be9a-6ae20efced7a
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished ddbb5bc3-4fb9-4bf7-be9a-6ae20efced7a
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c5544827-b27d-4fb0-bb41-1f7780aac53f
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c5544827-b27d-4fb0-bb41-1f7780aac53f
+[CHATMCP-HUB] [Đã ẩn nội dung gói MCP]
+[CHATMCP-HUB] [mcp-superassistant-proxy] Servers → StreamableHttp (session undefined):
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c5544827-b27d-4fb0-bb41-1f7780aac53f
+[CHATMCP-HUB] [mcp-superassistant-proxy] StreamableHttp connection closed (session undefined)
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c5544827-b27d-4fb0-bb41-1f7780aac53f
+[CHATMCP-HUB] [mcp-superassistant-proxy] Response finished c5544827-b27d-4fb0-bb41-1f7780aac53f
+[CHATMCP-HUB] Đã dừng MCP do Hub quản lý.

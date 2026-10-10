@@ -1,0 +1,21 @@
+ChatMCP Studio 2.2.5 - build validation (Linux container, 2026-10-10)
+SOURCE: verified exact 2.2.4 ZIP artifact; patched under /mnt/data/chatmcp-studio-2.2.5-work/CHATMCP-HUB.
+
+Observed user failure: gateway_text_finish_reason MALFORMED_FUNCTION_CALL input=1670 output=50 thinking=76.
+Changes: one-user-part contents-only JSON action prompt, eliminate native-tool prompting in compatibility mode, bounded model-only retry for MALFORMED_FUNCTION_CALL, specific gateway_text_malformed_function diagnostic on exhaustion. No MCP command from unfinished candidates; tool names and args still validated.
+
+EXECUTED TESTS:
+- npm test: PASS (9 selected Node suites)
+- for t in tests/verify-*.mjs; do node "$t"; done: 23/23 PASS
+- tests/verify-gemini-malformed-function.mjs: PASS on actual AgentRunner + GatewayProvider with mocked HTTP endpoint. Same origin + key in headers, reject 3 native payload variants, return HTTP 200 + MALFORMED_FUNCTION_CALL, recover using plain JSON text, exactly ONE MCP call, repeated malformed fails safely after two model-only retries, token diagnostic and no key in task journal.
+- tests/verify-gemini-truncation.mjs: PASS MAX_TOKENS / SAFETY regression.
+- tests/verify-react-ui.py, tests/verify-auto-project-ui.py, tests/verify-v2-ui.py, tests/verify-studio-ui.py: 4/4 PASS (Chromium with mock HTTP endpoints).
+- node --check on all JS/MJS: 68/68 PASS
+- ZIP internal CRC: PASS; SHA256SUMS verification: PASS; version consistency: package/Hub/React agree 2.2.5.
+
+NOT EXECUTED:
+- Any authenticated request to the user's live Cloud Run gateway (not available from this runtime).
+- Windows 11/Edge/ConPTY/DPAPI/live Desktop Commander, network drop-and-resume.
+- No guarantee that the custom gateway's upstream native-tool behavior respects the contents-only prompt. If repeated MALFORMED_FUNCTION_CALL persists, the gateway needs native Gemini tool support or a reliably text-only upstream model.
+
+One model generation may be retried at most twice, with possible extra API charges. This is NOT a total task turn/time cap. The same prior conversation may be resumed manually.
