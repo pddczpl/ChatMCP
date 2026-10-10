@@ -1,13 +1,24 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readJson, writeJson } from './runtime.mjs';
 import { geminiTextEnvelope, normalizeGeminiTextReply, unsupportedGeminiFields } from './gemini-compat.mjs';
+import { createProtector } from './secret-box.mjs';
+import { customPresetId, detectEnvKeys, isLoopbackUrl, originOf, presetById } from './provider-presets.mjs';
+import { anthropicEndpoint, anthropicHeaders, normalizeAnthropic } from './anthropic-api.mjs';
+import { asChatMessages, normalizeChatCompletion } from './openai-chat-api.mjs';
+import { respondStandard } from './standard-adapter.mjs';
+import { estimateTokens } from './model-history.mjs';
+import { classifyHttpError, sleep as waitFor } from './model-http.mjs';
+import { fetchModelList } from './model-list.mjs';
+
+// These stay importable from here: other modules and the tests have always taken them from this file.
+export { asChatMessages, normalizeChatCompletion };
 
 // Direct API mode is deliberately independent of the ChatGPT Web companion.
 // API credentials never pass through the browser extension or the MCP transport.
-const FORMATS = ['gemini', 'openai-chat'];
+const FORMATS = ['gemini', 'openai-chat', 'anthropic'];
+const AUTH_MODES = ['auto', 'google-key', 'bearer'];
 const isObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 const modelOK = (v) => typeof v === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9._:\/-]{0,150}$/.test(v);
 const bad = (code, message, statusCode = 400) => Object.assign(new Error(message), { code, statusCode });
@@ -30,9 +41,9 @@ function noSecrets(message, redact) {
     .replace(/\bAIza[0-9A-Za-z_-]{20,}\b/g, '[REDACTED]');
 }
 function probePayload(protocol, model) {
-  return protocol === 'gemini'
-    ? { contents: [{ role: 'user', parts: [{ text: 'Reply OK.' }] }] }
-    : { model, messages: [{ role: 'user', content: 'Reply OK.' }], stream: false };
+  if (protocol === 'gemini') return { contents: [{ role: 'user', parts: [{ text: 'Reply OK.' }] }] };
+  if (protocol === 'anthropic') return { model, max_tokens: 32, messages: [{ role: 'user', content: 'Reply OK.' }] };
+  return { model, messages: [{ role: 'user', content: 'Reply OK.' }], stream: false };
 }
 
 
@@ -57,6 +68,7 @@ export function buildEndpoint(base, protocol, model, customPath = '') {
     const stem = /\/v1beta$/.test(url) ? url : `${url}/v1beta`;
     return `${stem}/models/${encodeURIComponent(model)}:generateContent`;
   }
+  if (protocol === 'anthropic') return anthropicEndpoint(url);
   const stem = /\/v1$/.test(url) ? url : `${url}/v1`;
   return `${stem}/chat/completions`;
 }
@@ -120,22 +132,6 @@ export function asGeminiContents(history) {
   }
   return result;
 }
-export function asChatMessages(history, instructions) {
-  const messages = [{ role: 'system', content: instructions }];
-  for (const x of history) {
-    if (x?.role === 'user') messages.push({ role: 'user', content: contentText(x.content) });
-    else if (x?.type === 'message' && x.role === 'assistant') messages.push({ role: 'assistant', content: contentText(x.content) });
-    else if (x?.type === 'function_call') {
-      let msg = messages.at(-1);
-      if (msg?.role !== 'assistant' || !Array.isArray(msg.tool_calls)) {
-        if (msg?.role === 'assistant' && !msg.tool_calls) msg.tool_calls = [];
-        else { msg = { role: 'assistant', content: null, tool_calls: [] }; messages.push(msg); }
-      }
-      msg.tool_calls.push({ type: 'function', id: x.call_id, function: { name: x.name, arguments: x.arguments } });
-    } else if (x?.type === 'function_call_output') messages.push({ role: 'tool', tool_call_id: x.call_id, content: outputText(x.output) });
-  }
-  return messages;
-}
 export function normalizeGemini(result) {
   if (!Array.isArray(result?.candidates) || !result.candidates.length) throw bad('model_empty', 'Gemini không trả candidate; kiểm tra safety/response của gateway.', 502);
   const candidate = result.candidates[0];
@@ -154,57 +150,61 @@ export function normalizeGemini(result) {
   if (!output.length) throw bad('model_empty', 'Gemini không trả văn bản hoặc lời gọi công cụ.', 502);
   return { status: 'completed', output, usage: { input_tokens: Number(result.usageMetadata?.promptTokenCount) || 0, output_tokens: Number(result.usageMetadata?.candidatesTokenCount) || 0 } };
 }
-export function normalizeChatCompletion(result) {
-  const choice = result?.choices?.[0];
-  if (!choice || !choice.message || !['stop', 'tool_calls'].includes(choice.finish_reason)) throw bad('model_incomplete', 'Chat Completions chưa hoàn tất (hoặc response không đúng định dạng).', 502);
-  const output = [];
-  const message = choice.message;
-  const text = typeof message.content === 'string' ? message.content : Array.isArray(message.content) ? message.content.filter((x) => x?.type === 'text').map((x) => x.text).join('\n') : '';
-  if (text.trim()) output.push({ type: 'message', role: 'assistant', phase: message.tool_calls?.length ? 'commentary' : 'final', content: [{ type: 'output_text', text }] });
-  for (const call of message.tool_calls || []) {
-    if (call.type !== 'function' || typeof call.id !== 'string' || typeof call.function?.name !== 'string' || typeof call.function?.arguments !== 'string') throw bad('model_invalid_function', 'Gateway trả tool_calls không hợp lệ.', 502);
-    output.push({ type: 'function_call', name: call.function.name, call_id: call.id, arguments: call.function.arguments, status: 'completed' });
+const CONTEXT_MIN = 2000;
+const CONTEXT_MAX = 10_000_000;
+/** null = "not set" (also what clearing sends); undefined = not a valid window. */
+function parseContextWindow(value) {
+  if (value === null || value === '' || value === 0 || value === '0') return null;
+  const number = Number(value);
+  return Number.isInteger(number) && number >= CONTEXT_MIN && number <= CONTEXT_MAX ? number : undefined;
+}
+/** Environment variables whose value may be used as the key for this endpoint: only the ones of a matching preset. */
+function envNamesFor(presetId, protocol, base) {
+  const entry = presetById(presetId);
+  if (entry?.keyEnv.length && originOf(base) === originOf(entry.apiBaseUrl) && protocol === entry.protocol) return entry.keyEnv;
+  // Installations that predate presets used GOOGLE_API_KEY for their Gemini gateway; keep that working.
+  if (!entry && protocol === 'gemini') return ['GOOGLE_API_KEY'];
+  return [];
+}
+function firstEnv(env, names) {
+  for (const name of names) {
+    const value = typeof env[name] === 'string' ? env[name].trim() : '';
+    if (value) return { name, value };
   }
-  if (!output.length) throw bad('model_empty', 'Gateway trả phản hồi rỗng.', 502);
-  return { status: 'completed', output, usage: { input_tokens: Number(result.usage?.prompt_tokens) || 0, output_tokens: Number(result.usage?.completion_tokens) || 0 } };
+  return null;
 }
-async function protectWindows(mode, text, bundleRoot) {
-  if (process.platform !== 'win32') throw bad('dpapi_unavailable', 'Chỉ Windows hỗ trợ lưu API key bằng DPAPI trong phiên bản này.');
-  const binary = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-  const script = path.join(bundleRoot, 'windows', 'Protect-ApiKey.ps1');
-  return await new Promise((resolve, reject) => {
-    const proc = spawn(binary, ['-NoProfile', '-NonInteractive', '-File', script, '-Mode', mode], { windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
-    let chunks = '', size = 0, settled = false;
-    const done = (error, result) => { if (settled) return; settled = true; clearTimeout(timeout); error ? reject(error) : resolve(result); };
-    const timeout = setTimeout(() => { proc.kill(); done(bad('dpapi_timeout', 'Windows chưa thể bảo vệ API key.')); }, 20000);
-    proc.stdout.setEncoding('utf8');
-    proc.stdout.on('data', (s) => { size += Buffer.byteLength(s); if (size > 1024*1024) { proc.kill(); done(bad('dpapi_overflow', 'Credential quá dài.')); } else chunks += s; });
-    proc.stderr.resume(); proc.stdin.on('error', () => {});
-    proc.once('error', () => done(bad('dpapi_failed', 'Không gọi được Windows DPAPI.')));
-    proc.once('close', (code) => done(code === 0 && chunks.trim() ? null : bad('dpapi_failed', 'Không thể lưu/đọc API key dưới tài khoản Windows hiện tại.'), chunks.trim()));
-    proc.stdin.end(text, 'utf8');
-  });
-}
+const checkKey = (key) => {
+  if (typeof key !== 'string' || (key && (key.trim().length < 12 || key.length > 2048 || /\s/.test(key)))) throw bad('invalid_key', 'API key không hợp lệ.');
+};
 
 export class GatewayProvider {
-  constructor({ directory, bundleRoot, manager, fetchImpl = fetch, env = process.env, protect, unprotect }) {
+  constructor({ directory, bundleRoot, manager, fetchImpl = fetch, env = process.env, protect, unprotect, sleep = waitFor, platform = process.platform, limits } = {}) {
     this.directory = directory;
     this.bundleRoot = bundleRoot;
     this.manager = manager;
     this.fetch = fetchImpl;
     this.env = env;
-    this.protect = protect || (x => protectWindows('Protect', x, bundleRoot));
-    this.unprotect = unprotect || (x => protectWindows('Unprotect', x, bundleRoot));
+    this.sleep = sleep;
+    this.limits = limits; // overrides of the standard adapter's retry/timeout limits (tests)
+    const protector = createProtector({ platform, bundleRoot, directory, env });
+    this.protector = protect || unprotect
+      ? { kind: 'custom', describe: () => ({ kind: 'custom', persistent: true, protection: 'bộ bảo vệ do ứng dụng nhúng cung cấp' }) }
+      : protector;
+    this.protect = protect || ((text) => protector.protect(text));
+    this.unprotect = unprotect || ((blob) => protector.unprotect(blob));
     this.configFile = path.join(directory, 'gateway-config.json');
-    this.keyFile = path.join(directory, 'gateway-key.dpapi');
+    this.keyFile = path.join(directory, 'gateway-key.dpapi'); // the name predates non-Windows storage; kept so existing installs still load
     this.apiBaseUrl = 'https://generativelanguage.googleapis.com';
     this.protocol = 'gemini';
+    this.preset = '';
     this.authMode = 'auto';
     this.customPath = '';
     this.model = 'gemini-2.5-flash';
+    this.contextWindowTokens = null;
     this.apiKey = '';
     this.keySource = 'none';
     this.lastError = '';
+    this.outputLimit = null; // largest output the model accepted, learned from an error; reset when the configuration changes
     this.geminiDialect = 'native'; // Reset when gateway configuration changes.
     this.dialectConfirmed = false;
   }
@@ -216,72 +216,180 @@ export class GatewayProvider {
   }
   async load() {
     await fs.mkdir(this.directory, { recursive: true, mode: 0o700 });
-    const data = await readJson(this.configFile);
+    let data = null;
+    try { data = await readJson(this.configFile); }
+    catch { this.lastError = 'File cấu hình model bị hỏng; hãy nhập lại cấu hình (file cũ chưa bị xóa).'; }
     const base = data?.apiBaseUrl || this.env.GOOGLE_API_BASE_URL;
     if (base) try { this.apiBaseUrl = validateBaseUrl(base); } catch { this.lastError = 'URL API đã lưu không hợp lệ; cần nhập lại.'; }
     if (FORMATS.includes(data?.protocol)) this.protocol = data.protocol;
-    if (['auto','google-key','bearer'].includes(data?.authMode)) this.authMode = data.authMode;
+    if (AUTH_MODES.includes(data?.authMode) && !(this.protocol === 'anthropic' && data.authMode === 'google-key')) this.authMode = data.authMode;
+    if (typeof data?.preset === 'string' && presetById(data.preset)) this.preset = data.preset;
+    this.contextWindowTokens = parseContextWindow(data?.contextWindowTokens) ?? null;
     if (typeof data?.customPath === 'string') { try { buildEndpoint(this.apiBaseUrl, this.protocol, this.model, data.customPath); this.customPath = data.customPath; } catch { this.lastError = 'Đường dẫn endpoint lưu trước đây không hợp lệ.'; } }
     if (modelOK(data?.model || this.env.GEMINI_MODEL)) this.model = data?.model || this.env.GEMINI_MODEL;
     let encrypted = '';
     try { encrypted = (await fs.readFile(this.keyFile, 'utf8')).trim(); } catch (e) { if (e.code !== 'ENOENT') throw e; }
     if (encrypted) {
       try { const record = JSON.parse(encrypted); this.apiKey = await this.unprotect(record.protected); this.keySource = 'saved'; }
-      catch { this.lastError = 'Không giải mã được key đã lưu bằng tài khoản Windows hiện tại. Nhập lại key.'; }
+      catch (error) { this.lastError = error?.code && /^(secret_|dpapi_)/.test(error.code) ? error.message : 'Không giải mã được key đã lưu. Nhập lại key.'; }
     }
-    if (!this.apiKey && this.env.GOOGLE_API_KEY) { this.apiKey = String(this.env.GOOGLE_API_KEY).trim(); this.keySource = 'environment'; }
+    if (!this.apiKey) {
+      const found = firstEnv(this.env, envNamesFor(this.preset, this.protocol, this.apiBaseUrl));
+      if (found) { this.apiKey = found.value; this.keySource = 'environment'; }
+    }
     this.registerKey(this.apiKey);
   }
-  state() { return { provider: 'gateway', protocol: this.protocol, model: this.model, apiBaseUrl: this.apiBaseUrl, authMode: this.authMode, customPath: this.customPath, configured: this.ready(), keySource: this.keySource, lastError: this.lastError, agentRequestMode: this.protocol === 'gemini' ? (this.dialectConfirmed ? this.geminiDialect : 'chưa kiểm tra tool calling') : 'openai-tool-calls' }; }
+  state() {
+    return {
+      provider: 'gateway', preset: this.preset, protocol: this.protocol, model: this.model, apiBaseUrl: this.apiBaseUrl, authMode: this.authMode, customPath: this.customPath,
+      contextWindowTokens: this.contextWindowTokens, configured: this.ready(), keyRequired: this.keyRequired(), keySource: this.keySource,
+      secretStorage: this.protector.describe(), lastError: this.lastError,
+      agentRequestMode: this.protocol === 'gemini' ? (this.dialectConfirmed ? this.geminiDialect : 'chưa kiểm tra tool calling') : this.protocol === 'anthropic' ? 'anthropic-tool-use' : 'openai-tool-calls',
+    };
+  }
   snapshot() { return { provider: `gateway:${this.protocol}`, model: this.model }; }
-  async listModels() { return [{ id: this.model, name: this.model }]; }
+  /** Names (never values) of provider key variables present in the environment, for the Settings page. */
+  envKeys() { return detectEnvKeys(this.env); }
+  keyRequired() { return !isLoopbackUrl(this.apiBaseUrl); }
   async clearKey() {
     await fs.unlink(this.keyFile).catch(e => { if (e.code !== 'ENOENT') throw e; });
     this.apiKey = ''; this.keySource = 'none';
     return this.state();
   }
-  ready() { return Boolean(this.apiKey) && modelOK(this.model) && Boolean(this.apiBaseUrl); }
-  async configure({ apiBaseUrl = this.apiBaseUrl, protocol = this.protocol, model = this.model, authMode = this.authMode, customPath = this.customPath, apiKey, remember = false } = {}) {
-    const base = validateBaseUrl(apiBaseUrl);
-    if (!FORMATS.includes(protocol)) throw bad('invalid_protocol', 'Chọn Gemini native hoặc OpenAI-compatible Chat Completions.');
-    if (!modelOK(model)) throw bad('invalid_model', 'Tên model không hợp lệ.');
-    if (!['auto','google-key','bearer'].includes(authMode)) throw bad('invalid_auth_mode', 'Kiểu xác thực API không hợp lệ.');
-    buildEndpoint(base, protocol, model, customPath);
-    const newKey = apiKey === undefined || apiKey === '' ? this.apiKey : apiKey;
-    if (typeof newKey !== 'string' || (newKey && (newKey.trim().length < 12 || newKey.length > 2048 || /\s/.test(newKey)))) throw bad('invalid_key', 'API key không hợp lệ.');
-    if (remember && !newKey) throw bad('missing_key', 'Nhập API key trước khi lưu.');
+  ready() { return (Boolean(this.apiKey) || !this.keyRequired()) && modelOK(this.model) && Boolean(this.apiBaseUrl); }
+
+  /** Everything configure() decides, without changing anything. Throws on any invalid input. */
+  #plan(input = {}) {
+    const { preset: requested, apiBaseUrl, protocol, model, authMode, customPath, contextWindowTokens, apiKey, remember = false, useEnvKey = false } = input ?? {};
+    let entry = null;
+    if (requested !== undefined && requested !== null && requested !== '') {
+      entry = presetById(String(requested));
+      if (!entry) throw bad('invalid_preset', 'Nhà cung cấp không có trong danh sách.');
+    }
+    // Choosing another provider starts from ITS values; anything else keeps what is configured now.
+    const switching = Boolean(entry) && entry.id !== this.preset;
+    const defaults = switching
+      ? { apiBaseUrl: entry.apiBaseUrl, protocol: entry.protocol, model: entry.defaultModel, authMode: entry.authMode, customPath: entry.customPath, contextWindowTokens: entry.contextWindowTokens }
+      : { apiBaseUrl: this.apiBaseUrl, protocol: this.protocol, model: this.model, authMode: this.authMode, customPath: this.customPath, contextWindowTokens: this.contextWindowTokens };
+    const base = validateBaseUrl(apiBaseUrl ?? defaults.apiBaseUrl);
+    const nextProtocol = protocol ?? defaults.protocol;
+    const nextModel = model ?? defaults.model;
+    const nextAuth = authMode ?? defaults.authMode;
+    const nextPath = customPath ?? defaults.customPath;
+    if (!FORMATS.includes(nextProtocol)) throw bad('invalid_protocol', 'Chọn giao thức Gemini, OpenAI-compatible hoặc Anthropic.');
+    if (!modelOK(nextModel)) throw bad('invalid_model', 'Tên model không hợp lệ.');
+    if (!AUTH_MODES.includes(nextAuth) || (nextProtocol === 'anthropic' && nextAuth === 'google-key')) throw bad('invalid_auth_mode', 'Kiểu xác thực API không hợp lệ.');
+    buildEndpoint(base, nextProtocol, nextModel, nextPath);
+    const window = contextWindowTokens === undefined ? defaults.contextWindowTokens : parseContextWindow(contextWindowTokens);
+    if (window === undefined) throw bad('invalid_context_window', `Ngữ cảnh model phải là số token từ ${CONTEXT_MIN.toLocaleString('en-US')} đến ${CONTEXT_MAX.toLocaleString('en-US')} (để trống nếu không biết).`);
+
+    // A preset describes one provider. If the endpoint or protocol no longer matches, it is a custom connection now.
+    let nextPreset = entry ? entry.id : this.preset;
+    const current = presetById(nextPreset);
+    if (current) {
+      const custom = current.id.startsWith('custom-');
+      const drifted = custom ? current.protocol !== nextProtocol : (originOf(base) !== originOf(current.apiBaseUrl) || nextProtocol !== current.protocol);
+      if (drifted) nextPreset = customPresetId(nextProtocol);
+    }
+
+    // Which key goes to which host. A key is never carried over to a different origin or provider.
+    let key, fromEnv = false;
+    if (apiKey !== undefined && apiKey !== null && apiKey !== '') key = apiKey;
+    else if (useEnvKey === true) {
+      const names = envNamesFor(nextPreset, nextProtocol, base);
+      const found = firstEnv(this.env, names);
+      if (!found) throw bad('missing_env_key', names.length ? `Không thấy biến môi trường ${names.join(' hoặc ')} (hoặc nó đang trống). Đặt biến rồi khởi động lại Hub, hoặc nhập key trực tiếp.` : 'Kết nối này không có biến môi trường mặc định; nhập key trực tiếp.', 409);
+      key = found.value; fromEnv = true;
+    } else if (switching || originOf(base) !== originOf(this.apiBaseUrl)) key = '';
+    else key = this.apiKey;
+    checkKey(key);
+    const keyRequired = !isLoopbackUrl(base);
+    if (remember && !key && keyRequired) throw bad('missing_key', 'Nhập API key trước khi lưu.');
+    return { base, protocol: nextProtocol, model: nextModel, authMode: nextAuth, customPath: nextPath, contextWindowTokens: window, preset: nextPreset, key, fromEnv, persist: Boolean(remember && key && !fromEnv), keyRequired };
+  }
+  /** Check a configuration without applying it. Never returns or logs the key. */
+  validateConfiguration(input) {
+    const plan = this.#plan(input);
+    return { ok: true, preset: plan.preset, protocol: plan.protocol, apiBaseUrl: plan.base, model: plan.model, authMode: plan.authMode, customPath: plan.customPath, contextWindowTokens: plan.contextWindowTokens, keyRequired: plan.keyRequired, keyProvided: Boolean(plan.key), keyFromEnvironment: plan.fromEnv };
+  }
+  async configure(input = {}) {
+    const plan = this.#plan(input);
     let ciphertext = null;
-    if (remember) ciphertext = await this.protect(newKey);
+    if (plan.persist) {
+      await fs.mkdir(this.directory, { recursive: true, mode: 0o700 });
+      ciphertext = await this.protect(plan.key);
+    }
     // Persist the public configuration first; never write plaintext credentials.
-    await writeJson(this.configFile, { version: 1, apiBaseUrl: base, protocol, model, authMode, customPath });
-    if (ciphertext) await writeJson(this.keyFile, { protected: ciphertext });
-    else if (!remember) await fs.unlink(this.keyFile).catch(e => { if (e.code !== 'ENOENT') throw e; });
-    this.apiKey = newKey;
-    this.registerKey(newKey);
-    this.keySource = remember ? 'saved' : newKey ? 'session' : 'none';
-    this.apiBaseUrl = base; this.protocol = protocol; this.model = model; this.authMode = authMode; this.customPath = customPath; this.lastError = ''; this.geminiDialect = 'native'; this.dialectConfirmed = false;
+    await writeJson(this.configFile, { version: 2, preset: plan.preset, apiBaseUrl: plan.base, protocol: plan.protocol, model: plan.model, authMode: plan.authMode, customPath: plan.customPath, contextWindowTokens: plan.contextWindowTokens });
+    if (ciphertext) await writeJson(this.keyFile, { protected: ciphertext, scheme: this.protector.kind });
+    else await fs.unlink(this.keyFile).catch(e => { if (e.code !== 'ENOENT') throw e; });
+    const sameKey = plan.key === this.apiKey;
+    this.keySource = plan.fromEnv ? 'environment' : plan.persist ? 'saved' : !plan.key ? 'none' : (sameKey && this.keySource === 'environment' ? 'environment' : 'session');
+    this.apiKey = plan.key;
+    this.registerKey(plan.key);
+    this.apiBaseUrl = plan.base; this.protocol = plan.protocol; this.model = plan.model; this.authMode = plan.authMode; this.customPath = plan.customPath;
+    this.preset = plan.preset; this.contextWindowTokens = plan.contextWindowTokens; this.outputLimit = null;
+    this.lastError = ''; this.geminiDialect = 'native'; this.dialectConfirmed = false;
     return this.state();
   }
-  // Called only by the user's explicit "Test API / Auto" action. Probe a
-  // bounded set of standard dialects against the SAME configured origin. Do
-  // not send MCP inventories or project content; these are minimal test calls.
-  // If a dialect works, persist the corrected public format without losing a
-  // DPAPI-protected key. No mutation occurs when all probes fail.
+  /** Rough size of a request, for budgets and the context meter. Estimated, not billed. */
+  estimateUsage({ input = [], instructions = '', tools = [] } = {}) {
+    const inputTokens = estimateTokens({ input, instructions, tools });
+    return { estimated: true, inputTokens, contextWindowTokens: this.contextWindowTokens, fraction: this.contextWindowTokens ? inputTokens / this.contextWindowTokens : null };
+  }
+  /** An error from any model call in one shape the UI and the agent can rely on. Never contains the key. */
+  normalizeError(error) {
+    const kind = error?.kind ?? (error?.code === 'gateway_network' || error?.code === 'gateway_timeout' ? 'network' : 'unknown');
+    return {
+      code: error?.code ?? 'gateway_error', kind, retryable: ['rate_limit', 'overloaded', 'server', 'network'].includes(kind),
+      status: error?.upstreamStatus ?? null, message: this.redact(String(error?.message ?? error)),
+    };
+  }
+  /** Request headers for one protocol. The key is passed in so a call keeps the credential it started with. */
+  #headers(protocol, authMode, apiKey) {
+    if (protocol === 'anthropic') return anthropicHeaders(apiKey, authMode === 'bearer' ? 'bearer' : 'auto');
+    const headers = { 'Content-Type': 'application/json' };
+    if (!apiKey) return headers;
+    const googleHeader = authMode === 'google-key' || (authMode === 'auto' && protocol === 'gemini');
+    if (googleHeader) headers['x-goog-api-key'] = apiKey; else headers.Authorization = `Bearer ${apiKey}`;
+    return headers;
+  }
+  /** Models the account can use. Falls back to the configured model, with a warning, when the provider cannot be asked. */
+  async discoverModels({ signal } = {}) {
+    const { protocol, apiBaseUrl: base, customPath, model, authMode, apiKey } = this;
+    if (!this.ready()) return { models: [{ id: model, name: model, configured: true, listed: false }], source: 'configured', warning: 'Nhập API key để tải danh sách model.' };
+    return await fetchModelList({
+      protocol, base, customPath, model, fetch: this.fetch, signal, headers: this.#headers(protocol, authMode, apiKey),
+      redact: (text) => noSecrets(String(text), (value) => this.redact(value)),
+    });
+  }
+  async listModels(options) { return (await this.discoverModels(options)).models; }
+  // Called only by the user's explicit "Test API / Auto" action. Probe a bounded set of standard dialects against the
+  // SAME configured origin. Do not send MCP inventories or project content; these are minimal test calls. If a dialect
+  // works, persist the corrected public format without losing a protected key. No mutation occurs when all probes fail.
   async diagnoseConnection({ signal } = {}) {
     if (!this.ready()) throw bad('gateway_not_ready','Hãy nhập URL, model và API key trước khi kiểm tra.',409);
+    const apiKey = this.apiKey; // the probe keeps the credential it started with
     const choices = [];
     const push = (protocol, authMode, apiBaseUrl, customPath = '') => {
       const endpoint = buildEndpoint(apiBaseUrl, protocol, this.model, customPath);
       if (new URL(endpoint).origin !== new URL(this.apiBaseUrl).origin) return;
       if (!choices.some(x => x.endpoint === endpoint && x.authMode === authMode)) choices.push({ protocol, authMode, apiBaseUrl, customPath, endpoint });
     };
-    const currentAuth = this.authMode === 'auto' ? (this.protocol === 'gemini' ? 'google-key':'bearer') : this.authMode;
-    push(this.protocol, currentAuth, this.apiBaseUrl, this.customPath);
-    const stem = this.apiBaseUrl.replace(/\/v1(?:beta)?$/,'');
-    push('gemini','google-key',stem);
-    push('gemini','bearer',stem);
-    push('openai-chat','bearer',stem);
-    push('openai-chat','google-key',stem);
+    if (this.protocol === 'anthropic') {
+      // Anthropic and compatible gateways: x-api-key, or Authorization: Bearer for gateways that expect it.
+      const [first, second] = this.authMode === 'bearer' ? ['bearer', 'auto'] : ['auto', 'bearer'];
+      push('anthropic', first, this.apiBaseUrl, this.customPath);
+      push('anthropic', second, this.apiBaseUrl, this.customPath);
+    } else {
+      const currentAuth = this.authMode === 'auto' ? (this.protocol === 'gemini' ? 'google-key':'bearer') : this.authMode;
+      push(this.protocol, currentAuth, this.apiBaseUrl, this.customPath);
+      const stem = this.apiBaseUrl.replace(/\/v1(?:beta)?$/,'');
+      push('gemini','google-key',stem);
+      push('gemini','bearer',stem);
+      push('openai-chat','bearer',stem);
+      push('openai-chat','google-key',stem);
+    }
     const attempts=[];
     for (const item of choices.slice(0,5)) {
       signal?.throwIfAborted();
@@ -291,23 +399,24 @@ export class GatewayProvider {
         const controller = signal ? AbortSignal.any([signal,timeout]):timeout;
         response = await this.fetch(item.endpoint,{
           method:'POST', redirect:'error',signal:controller,
-          headers: item.authMode==='google-key' ? {'Content-Type':'application/json','x-goog-api-key':this.apiKey}
-            : {'Content-Type':'application/json','Authorization':`Bearer ${this.apiKey}`},
+          headers: this.#headers(item.protocol, item.authMode, apiKey),
           body:JSON.stringify(probePayload(item.protocol,this.model)),
         });
         // Protect memory against exceptionally large responses from custom gateways.
         const raw = (await response.text()).slice(0, 32000);
         let data;
         try { data=JSON.parse(raw); } catch { data={}; }
-        const detail=noSecrets(gatewayErrorDetail(data),text=>this.redact(text));
+        const redactText = text => noSecrets(String(text), value => this.redact(value));
+        const detail=redactText(gatewayErrorDetail(data));
         let good=false;
         if(response.ok) {
           try {
-            const parsed=item.protocol==='gemini'?normalizeGemini(data):normalizeChatCompletion(data);
+            const parsed=item.protocol==='gemini'?normalizeGemini(data):item.protocol==='anthropic'?normalizeAnthropic(data):normalizeChatCompletion(data);
             good=parsed.output.some(x=>x.type==='message');
           } catch { /* HTTP 200 without a valid model response is not success */ }
         }
-        attempts.push({protocol:item.protocol,authMode:item.authMode,status:response.status,success:good,detail:detail || (!good&&response.ok?'Response không có message hợp lệ':'')});
+        const failure = response.ok ? null : classifyHttpError({ status: response.status, data, headers: response.headers, redact: redactText });
+        attempts.push({protocol:item.protocol,authMode:item.authMode,status:response.status,success:good,detail:detail || (!good&&response.ok?'Response không có message hợp lệ':''),...(failure?{kind:failure.kind,message:failure.message}:{})});
         if(good){
           const changed=this.protocol!==item.protocol || this.customPath!==item.customPath || this.authMode!==item.authMode || this.apiBaseUrl!==item.apiBaseUrl;
           if(changed)await this.configure({apiBaseUrl:item.apiBaseUrl,protocol:item.protocol,customPath:item.customPath,authMode:item.authMode,remember:this.keySource==='saved'});
@@ -320,29 +429,29 @@ export class GatewayProvider {
       }
     }
     const details=attempts.map(x=>`${x.protocol}/${x.authMode}: ${x.status?'HTTP '+x.status:'Network'}${x.detail?' ('+x.detail.slice(0,180)+')':''}`).join('; ');
-    const err=bad('gateway_probe_failed',`Không tìm được giao thức API tương thích trên gateway đã cấu hình. ${details}. Kiểm tra route và lỗi trong Cloud Run (không cần đổi model nếu model hợp lệ).`,502);
+    // A definite answer (bad key, no credit, unknown model, rate limit) says more than "no compatible protocol".
+    const definite=attempts.find(x=>['auth','quota','model','rate_limit','overloaded'].includes(x.kind));
+    const err=bad('gateway_probe_failed',`${definite?`${definite.message} `:''}Không tìm được giao thức API tương thích trên endpoint đã cấu hình. ${details}. Kiểm tra URL, đường dẫn route và nhật ký của máy chủ/gateway (không cần đổi model nếu model hợp lệ).`,502);
     err.attempts=attempts;
-    this.lastError='Test API thất bại: gateway chưa trả response tương thích.';
+    this.lastError=definite?definite.message.slice(0,300):'Test API thất bại: gateway chưa trả response tương thích.';
     throw err;
   }
 
-  async respond({ input, instructions, tools = [], signal, onStatus = async () => {} }) {
+  /** One model step. `maxOutputTokens` is honoured by the Anthropic path (where it is required); the others use the provider's own cap. */
+  async respond({ input, instructions, tools = [], signal, onStatus = async () => {}, maxOutputTokens } = {}) {
     if (!this.ready()) throw bad('gateway_not_ready', 'Hãy cấu hình API Base URL, model và API key.', 409);
     if (!Array.isArray(input)) throw bad('invalid_input', 'Ngữ cảnh Agent không hợp lệ.');
-    const protocol = this.protocol;
+    if (this.protocol !== 'gemini') return await this.#respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens });
+    // Gemini keeps its own compatibility loop: gateways in front of it differ a lot (see gemini-compat.mjs).
+    const protocol = 'gemini';
     const sourceContextBytes = Buffer.byteLength(JSON.stringify(input),'utf8') + Buffer.byteLength(instructions,'utf8');
     const endpoint = buildEndpoint(this.apiBaseUrl, protocol, this.model, this.customPath);
-    const nativeBody = protocol === 'gemini' ? {
+    const nativeBody = {
       systemInstruction: { parts: [{ text: instructions }] },
       contents: asGeminiContents(input),
       tools: tools.length ? [{ functionDeclarations: tools.map((x) => ({ name: x.name, description: x.description, parameters: geminiSchema(x.parameters) })) }] : undefined,
       generationConfig: { maxOutputTokens: 8192 },
-    } : null;
-    const openaiBody = protocol === 'openai-chat' ? {
-      model: this.model, messages: asChatMessages(input, instructions),
-      tools: tools.map((x) => ({ type: 'function', function: { name: x.name, description: x.description, parameters: x.parameters } })),
-      tool_choice: 'auto', stream: false,
-    } : null;
+    };
     const inlineInstructions = () => {
       const contents = asGeminiContents(input);
       const instructionPart = { text: `SYSTEM / AGENT INSTRUCTIONS (follow these rules):\n${instructions}` };
@@ -353,7 +462,6 @@ export class GatewayProvider {
     };
     let textRequestBudget = 96 * 1024;
     const bodyForDialect = dialect => {
-      if(protocol !== 'gemini') return openaiBody;
       if(dialect === 'native') return nativeBody;
       if(dialect === 'no-generation-config') return {...nativeBody, generationConfig:undefined};
       if(dialect === 'inline-instructions') return {contents:inlineInstructions(), tools:nativeBody.tools};
@@ -363,11 +471,9 @@ export class GatewayProvider {
     // If a minimal Test API succeeds yet native agent tool fields are rejected,
     // discover a compatible payload on that same endpoint without ever changing
     // the authentication header or sending the credential to another origin.
-    const dialects = protocol === 'gemini'
-      ? ['native','no-generation-config','inline-instructions','text-protocol']
-      : ['openai-chat'];
+    const dialects = ['native','no-generation-config','inline-instructions','text-protocol'];
     let dialect = this.geminiDialect;
-    let dialectIndex = protocol === 'gemini' ? Math.max(0, dialects.indexOf(dialect)) : 0;
+    let dialectIndex = Math.max(0, dialects.indexOf(dialect));
     // A model request has not executed MCP tools yet. If its network response is
     // lost, retry only the model step after backoff, never the preceding MCP call.
     // A repeated model request can still be charged by the gateway; document it.
@@ -381,7 +487,6 @@ export class GatewayProvider {
       const controller = AbortSignal.timeout(240000);
       const combined = signal ? AbortSignal.any([signal, controller]) : controller;
       try {
-        const useGoogleHeader = this.authMode === 'google-key' || (this.authMode === 'auto' && protocol === 'gemini');
         const activeDialect = dialects[dialectIndex];
         const requestBody = bodyForDialect(activeDialect);
         // geminiTextEnvelope applies the byte budget AFTER appending any
@@ -393,9 +498,7 @@ export class GatewayProvider {
         }
         if (activeDialect === 'text-protocol' && wireBytes > textRequestBudget)
           throw bad('gateway_context_budget','Gemini request vượt ngân sách byte cục bộ; không gửi.',413);
-        response = await this.fetch(endpoint, { method: 'POST', headers: useGoogleHeader
-          ? { 'x-goog-api-key': this.apiKey, 'Content-Type': 'application/json' }
-          : { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
+        response = await this.fetch(endpoint, { method: 'POST', headers: this.#headers('gemini', this.authMode, this.apiKey),
           body: JSON.stringify(requestBody), signal: combined, redirect: 'error' });
         let stream;
         if (response.body?.getReader) {
@@ -415,7 +518,7 @@ export class GatewayProvider {
           if (response.status === 413) data = { error: { message: 'Request body exceeds gateway size limit.' } };
           else throw bad('gateway_invalid_json', 'Gateway không trả JSON hợp lệ; không tự gửi lại.', 502);
         }
-        if (protocol === 'gemini' && response.status === 413) {
+        if (response.status === 413) {
           // A gateway may enforce an unusually small request body. Downgrade
           // only the MODEL payload; preceding MCP calls are already journaled
           // and never replayed by this compatibility loop.
@@ -430,7 +533,7 @@ export class GatewayProvider {
             continue;
           }
         }
-        if (protocol === 'gemini' && !response.ok && dialectIndex < dialects.length - 1 &&
+        if (!response.ok && dialectIndex < dialects.length - 1 &&
             unsupportedGeminiFields(response.status, gatewayErrorDetail(data))) {
           dialectIndex++;
           await onStatus(`Gateway không chấp nhận field của kiểu request ${dialects[dialectIndex - 1]}; thử tương thích ${dialects[dialectIndex]} trên cùng endpoint (không gọi lại MCP).`);
@@ -475,12 +578,7 @@ export class GatewayProvider {
         attempts++;
         const seconds = Math.min(30, 3 * 2**Math.min(attempts - 1, 4));
         await onStatus(`Mất kết nối Gateway hoặc chưa nhận được phản hồi (lần thử ${attempts}). Đang chờ ${seconds} giây rồi thử lại model; không gọi lại MCP. Yêu cầu API trước có thể vẫn bị tính phí.`);
-        await new Promise((resolve, reject) => {
-          const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(); }, seconds*1000);
-          const abort = () => { clearTimeout(timer); signal.removeEventListener('abort', abort); reject(signal.reason); };
-          signal?.addEventListener('abort', abort, { once: true });
-          if (signal?.aborted) abort();
-        });
+        await this.sleep(seconds * 1000, signal);
       }
     }
     if (!response.ok || data?.error) {
@@ -491,11 +589,28 @@ export class GatewayProvider {
         : response.status === 429 ? 'Kiểm tra hạn mức/rate limit.' : 'Kiểm tra gateway.';
       throw bad(code, `Gateway HTTP ${response.status}${detail ? ': ' + detail : '.'} ${hint}`, response.status || 502);
     }
-    const normalized = protocol === 'gemini'
-      ? dialects[dialectIndex] === 'text-protocol' ? normalizedTextReply : normalizeGemini(data)
-      : normalizeChatCompletion(data);
-    if(protocol === 'gemini') { this.geminiDialect = dialects[dialectIndex]; this.dialectConfirmed = true; }
+    const normalized = dialects[dialectIndex] === 'text-protocol' ? normalizedTextReply : normalizeGemini(data);
+    this.geminiDialect = dialects[dialectIndex]; this.dialectConfirmed = true;
     this.lastError = '';
     return normalized;
+  }
+
+  /** OpenAI-style Chat Completions and Anthropic Messages. See standard-adapter.mjs for what it guarantees. */
+  async #respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens }) {
+    const { protocol, model, authMode, apiKey, contextWindowTokens } = this;
+    const ctx = {
+      protocol, model, fetch: this.fetch, sleep: this.sleep, limits: this.limits,
+      endpoint: buildEndpoint(this.apiBaseUrl, protocol, model, this.customPath),
+      headers: this.#headers(protocol, authMode, apiKey),
+      redact: (text) => noSecrets(String(text), (value) => this.redact(value)),
+      contextWindowTokens,
+      // Prompt caching is only requested from Anthropic itself; compatible gateways may reject the field.
+      promptCaching: protocol === 'anthropic' && this.preset === 'anthropic',
+      outputLimit: this.outputLimit,
+      onOutputLimit: (limit) => { if (this.model === model) this.outputLimit = limit; },
+    };
+    const result = await respondStandard(ctx, { input, instructions, tools, signal, onStatus, maxOutputTokens });
+    this.lastError = '';
+    return result;
   }
 }

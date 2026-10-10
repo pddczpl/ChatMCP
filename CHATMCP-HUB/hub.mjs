@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process';
 import { HubManager, VERSION, BACKENDS, defaultDataDirectory } from './lib/manager.mjs';
 import { redact } from './lib/runtime.mjs';
 import { acquireInstanceLock } from './lib/instance-lock.mjs';
+import { publicPresets } from './lib/provider-presets.mjs';
 
 const APP_ID = 'chatmcp-local-hub';
 export const UI_BUILD = '2.2.8-react-offline';
@@ -160,7 +161,14 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
         return json(200,value);
       }
       if (req.method === 'GET' && url.pathname === '/api/catalog') return json(200, manager.catalog ?? { ready: false, tools: [], counts: {} });
-      if (req.method === 'GET' && url.pathname === '/api/ai/models') return json(200, { models: provider ? await changeAi(() => provider.listModels()) : [] });
+      if (req.method === 'GET' && url.pathname === '/api/ai/models') {
+        // Asking the provider for its model list changes nothing, so it does not take the "AI is being reconfigured" lock.
+        if (!provider) return json(200, { models: [], source: 'none' });
+        const signal = AbortSignal.timeout(35000);
+        if (typeof provider.discoverModels !== 'function') return json(200, { models: await provider.listModels(), source: 'configured' });
+        return json(200, await provider.discoverModels({ signal }));
+      }
+      if (req.method === 'GET' && url.pathname === '/api/ai/presets') return json(200, { presets: publicPresets(provider?.env ?? process.env), envKeys: provider?.envKeys() ?? [] });
       if (req.method === 'GET' && url.pathname === '/auth/chatgpt/callback') return json(410, { error: 'Không hỗ trợ kết nối OAuth ChatGPT trong chế độ này.' });
       const taskRoute = url.pathname.match(/^\/api\/tasks\/([0-9a-f-]{36})(\/report)?$/);
       if (req.method === 'GET' && taskRoute) {
