@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { HubManager, VERSION } from './lib/manager.mjs';
+import { HubManager, VERSION, BACKENDS, defaultDataDirectory } from './lib/manager.mjs';
 import { redact } from './lib/runtime.mjs';
 import { acquireInstanceLock } from './lib/instance-lock.mjs';
 
@@ -278,52 +278,51 @@ async function openDashboard(url, manager) {
   });
 }
 
-export function parseArguments(args) {
+// --repo-root   Cloud Harness repository (only needed for the original MCP backend)
+// --project     folder to open as the workspace
+// --state-dir   where the Hub keeps its data (default: per-user folder, or <repo>/deploy/.generated/chatmcp-hub with --repo-root)
+// --backend     local (default without --repo-root) | mcp (default with --repo-root)
+// --port        dashboard port (default 3007)
+// --no-open     do not open the browser
+const VALUE_OPTIONS = ['--repo-root', '--project', '--port', '--state-dir', '--backend'];
+export function parseArguments(args, env = process.env) {
   const values = {};
-  for (let i = 0; i < args.length; i += 2) {
-    if (!['--repo-root', '--project', '--port'].includes(args[i]) || args[i + 1] === undefined) throw new Error('Tham số launcher không hợp lệ.');
+  let open = !/^(1|true|yes)$/i.test(env.CHATMCP_NO_OPEN ?? '');
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] === '--no-open') { open = false; continue; }
+    if (!VALUE_OPTIONS.includes(args[i]) || args[i + 1] === undefined) throw new Error('Tham số launcher không hợp lệ.');
     values[args[i]] = args[i + 1];
+    i += 1;
   }
   const port = Number(values['--port'] ?? 3007);
   if (!Number.isInteger(port) || port < 1024 || port > 65535 || port === 3006) throw new Error('Cổng dashboard không hợp lệ. Cổng 3006 dành cho MCP.');
-  if (!values['--repo-root']) throw new Error('Thiếu đường dẫn repository Cloud Harness.');
-  return { repoRoot: values['--repo-root'], project: values['--project'], port };
+  const backend = values['--backend'] ?? (env.CHATMCP_BACKEND || null);
+  if (backend !== null && !BACKENDS.includes(backend)) throw new Error(`--backend phải là ${BACKENDS.join(' hoặc ')}.`);
+  const repoRoot = values['--repo-root'] ?? null;
+  if (backend === 'mcp' && !repoRoot) throw new Error('Backend mcp cần --repo-root (thư mục repository Cloud Harness).');
+  // Explicit choice > environment > the folder the original MCP flow already uses > a per-user folder.
+  const stateDir = values['--state-dir'] ? path.resolve(values['--state-dir']) : env.CHATMCP_STATE_DIR ? path.resolve(env.CHATMCP_STATE_DIR) : repoRoot ? null : defaultDataDirectory(env);
+  return { repoRoot, project: values['--project'], port, stateDir, backend, open };
 }
 
 export async function main(args = process.argv.slice(2)) {
   const options = parseArguments(args);
-  const manager = new HubManager({ repoRoot: options.repoRoot, bundleRoot: BUNDLE_ROOT });
+  const manager = new HubManager({ repoRoot: options.repoRoot, bundleRoot: BUNDLE_ROOT, dataDirectory: options.stateDir, backend: options.backend });
   await manager.load(options.project);
   const { BrowserRunner } = await import('./lib/browser-runner.mjs');
   const { AgentRunner } = await import('./lib/agent.mjs');
   const { GatewayProvider } = await import('./lib/gateway-provider.mjs');
   const { DualAgent } = await import('./lib/dual-agent.mjs');
-  const { StudioWorkspace } = await import('./lib/studio-workspace.mjs');
-  const { StudioTerminal } = await import('./lib/studio-terminal.mjs');
-  const { PermissionGate } = await import('./lib/permissions.mjs');
-  const { StudioTools } = await import('./lib/studio-tools.mjs');
+  const { assembleStudio } = await import('./lib/assemble.mjs');
   const { StudioDelegates } = await import('./lib/studio-delegates.mjs');
-  const { StudioWorkflow } = await import('./lib/studio-workflow.mjs');
-  const { StudioVerification } = await import('./lib/studio-verification.mjs');
   const { RecoveryScheduler } = await import('./lib/studio-resumer.mjs');
-  const { CodeIntelligence } = await import('./lib/studio-intelligence.mjs');
-  const { previewStatus } = await import('./lib/studio-preview.mjs');
-  manager.studio=new StudioWorkspace({manager,directory:path.join(manager.hubDirectory,'studio')});
-  manager.workflow=new StudioWorkflow({directory:path.join(manager.hubDirectory,'studio','workflows')});
-  manager.intelligence=new CodeIntelligence({workspace:manager.studio,directory:path.join(manager.hubDirectory,'studio','index'),bundleRoot:BUNDLE_ROOT});
-  manager.preview=previewStatus;
-  manager.terminal=new StudioTerminal({workspace:manager.studio});
-  manager.verification=new StudioVerification({workspace:manager.studio,terminal:manager.terminal,directory:path.join(manager.hubDirectory,'studio','verifications'),secrets:()=>manager.secrets||[]});
-  manager.permissions=new PermissionGate({manager,workspace:manager.studio,directory:path.join(manager.hubDirectory,'studio')});
-  manager.verification.permissions=manager.permissions;
-  manager.studioTools=new StudioTools({workspace:manager.studio,gate:manager.permissions,intelligence:manager.intelligence});
-  manager.permissions.onEvent=(event)=>manager.log(`${event.type}: ${event.toolName??event.name??event.id??''}`);
+  assembleStudio(manager, { bundleRoot: BUNDLE_ROOT });
   const browser = new BrowserRunner({ manager, directory: path.join(manager.hubDirectory, 'browser'), log: (line) => manager.log(line) });
   const provider = new GatewayProvider({ manager, bundleRoot: BUNDLE_ROOT, directory: path.join(manager.hubDirectory, 'gateway') });
   manager.delegates=new StudioDelegates({workspace:manager.studio,provider,directory:path.join(manager.hubDirectory,'studio','delegates')});
   await manager.delegates.load();
   const apiAgent = new AgentRunner({ manager, provider, taskDirectory: path.join(manager.hubDirectory, 'api-tasks'), log: (line) => manager.log(line) });
-  const agent = new DualAgent({ browser, api: apiAgent, directory: manager.hubDirectory });
+  const agent = new DualAgent({ browser, api: apiAgent, directory: manager.hubDirectory, defaultMode: manager.backend === 'local' ? 'api' : 'chatgpt-web' });
   const resumer = new RecoveryScheduler({ agent, manager, provider, browser, log:(line)=>manager.log(line) });
   await manager.permissions.load();
   let initialized = false;
@@ -345,8 +344,8 @@ export async function main(args = process.argv.slice(2)) {
       });
       if (!response.ok) manager.log((await response.json()).error ?? 'Hub đang xử lý một thao tác.');
     }
-    await openDashboard(url, manager);
-    manager.log('Hub đã chạy sẵn; đã mở lại trang quản lý.');
+    if (options.open) await openDashboard(url, manager);
+    manager.log(`Hub đã chạy sẵn tại ${url}.`);
     return;
   }
   try {
@@ -363,8 +362,8 @@ export async function main(args = process.argv.slice(2)) {
     throw error;
   }
   manager.log(`Dashboard: ${url}`);
-  manager.log(`MCP: ${PROXY_URL_FOR_LOG}`);
-  await openDashboard(url, manager);
+  manager.log(manager.backend === 'local' ? `Chế độ cục bộ (không cần Docker/Cloud Harness). Dữ liệu: ${manager.hubDirectory}` : `MCP: ${PROXY_URL_FOR_LOG}`);
+  if (options.open) await openDashboard(url, manager);
   if (manager.workspace) void manager.start().catch(() => {});
   else manager.log('Chọn thư mục workspace trên trang localhost để bắt đầu.');
   resumer.start();

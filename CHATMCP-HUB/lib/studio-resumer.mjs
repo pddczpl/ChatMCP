@@ -21,7 +21,10 @@ export class RecoveryScheduler {
     try{
       const a=this.agent.state(), m=this.manager.state();
       if(a.activeTaskId||!m.workspace?.path)return false;
-      if(m.services && (m.services.proxy?.state!=='ready'||m.services.desktop?.state!=='ready'))return false;
+      if(m.services){
+        const ready=m.backend==='local'?m.services.local?.state==='ready':(m.services.proxy?.state==='ready'&&m.services.desktop?.state==='ready');
+        if(!ready)return false;
+      }
       for(const item of a.tasks ?? []){
         if(!item.autoResume ||item.status!=='paused'||this.attempted.has(item.id) ||item.transport!==a.mode)continue;
         const original=this.agent.get(item.id);

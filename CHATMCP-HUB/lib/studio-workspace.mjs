@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readJson, writeJson } from './runtime.mjs';
 import { canonicalRelative } from './fs-safe.mjs';
 import { isProtectedPath } from './protected-paths.mjs';
+import { GitRunner } from './git-runner.mjs';
 
 const SKIP = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__', '.next', 'dist', 'build', 'coverage', '.pytest_cache', '.mypy_cache', '.idea', '.vs', '.gradle', '.terraform']);
 const EXTENSIONS = new Set(['.py','.js','.mjs','.cjs','.jsx','.ts','.tsx','.json','.md','.yaml','.yml','.toml','.sh','.ps1','.bat','.cmd','.c','.cc','.cpp','.h','.hpp','.java','.go','.rs','.rb','.php','.sql','.r','.ipynb','.css','.html','.xml']);
@@ -13,6 +14,7 @@ const sha = (buffer) => createHash('sha256').update(buffer).digest('hex');
 const fail = (code, message, statusCode = 400) => Object.assign(new Error(message),{code,statusCode});
 const contained = (root,target) => { const relative=path.relative(root,target); return relative === '' || (!relative.startsWith('..'+path.sep) && relative !== '..' && !path.isAbsolute(relative)); };
 const capped = (value,length=120000) => String(value).slice(0,length);
+const TARGETED_FILE_BYTES = 8 * 1024 * 1024;
 
 async function command(exe,args,{cwd,timeout=20000,max=350000,env=process.env}={}) {
   return await new Promise((resolve,reject)=>{
@@ -30,6 +32,10 @@ export class StudioWorkspace {
   constructor({manager, directory, now=()=>new Date().toISOString()}) {
     this.manager=manager; this.directory=path.resolve(directory); this.now=now;
     this.indexCache=new Map(); this.indexRoot=null; this.planCache=new Map();
+    this.lastCheckpoint=null;
+    // A repository can make plain `git status` run a program (core.fsmonitor, hooks, diff drivers).
+    // Every Git call of the workspace therefore goes through the hardened runner.
+    this.gitRunner=new GitRunner({workspace:this,hooksDirectory:path.join(this.directory,'no-hooks'),secrets:()=>this.manager?.secrets??[]});
   }
   get root() { return this.manager.workspace ? path.resolve(this.manager.workspace) : null; }
   requireRoot() { if(!this.root) throw fail('workspace_missing','Chọn workspace trước.',409); return this.root; }
@@ -122,12 +128,11 @@ export class StudioWorkspace {
     return {query,mode,matches,limit,scannedFiles:files.length,partialScan:exhausted||matches.length===limit};
   }
   async #git(args,{timeout=15000,max=250000}={}) {
-    const root=await fs.realpath(this.requireRoot());
-    const check=await command('git',['-C',root,'rev-parse','--show-toplevel'],{cwd:root,timeout:7000});
-    if(check.code!==0) throw fail('not_git_repo','Workspace chưa được khởi tạo Git.',409);
-    const gitroot=await fs.realpath(check.stdout.trim());
-    if(gitroot!==root && (process.platform!=='win32'||gitroot.toLowerCase()!==root.toLowerCase())) throw fail('git_root_mismatch','Git root phải đúng workspace được chọn (không quản lý thư mục cha).',409);
-    return await command('git',['-C',root,...args],{cwd:root,timeout,max});
+    // ensureRepo() refuses a workspace that is not itself the top level of a repository, so a parent
+    // repository is never inspected or modified on behalf of a sub-folder.
+    await this.gitRunner.ensureRepo();
+    const result=await this.gitRunner.text(args,{timeoutMs:timeout,maxBytes:max});
+    return {code:result.code,stdout:result.stdout,stderr:result.stderr.slice(0,3000),truncated:result.truncated||result.timedOut};
   }
   async gitStatus() {
     const {stdout,code,stderr}=await this.#git(['status','--short','--untracked-files=all']);
@@ -150,24 +155,62 @@ export class StudioWorkspace {
     // checkpoint() stores the canonical (realpath) root, so compare against the same form;
     // a Windows 8.3 short path or a symlinked workspace path would otherwise never match.
     const root=this.root;const canonicalRoot=root?await fs.realpath(root).catch(()=>root):null;
-    for(const dir of dirs){if(!dir.isDirectory()||!/^[0-9a-f-]{36}$/i.test(dir.name))continue;const data=await readJson(path.join(this.#checkpointDirectory(dir.name),'meta.json'));if(canonicalRoot&&data?.workspace===canonicalRoot)result.push({id:data.id,at:data.at,label:data.label,fileCount:data.files.length,partial:data.partial,limitations:data.limitations??[]});}
+    for(const dir of dirs){if(!dir.isDirectory()||!/^[0-9a-f-]{36}$/i.test(dir.name))continue;const data=await readJson(path.join(this.#checkpointDirectory(dir.name),'meta.json'));if(canonicalRoot&&data?.workspace===canonicalRoot)result.push({id:data.id,at:data.at,label:data.label,fileCount:data.files.length,partial:data.partial,targeted:data.targeted===true,limitations:data.limitations??[]});}
     return result.sort((a,b)=>b.at.localeCompare(a.at)).slice(0,Math.max(1,Math.min(limit,100)));
   }
-  async checkpoint({label='Manual checkpoint',maxFiles=350,maxTotalBytes=30*1024*1024}={}){
-    const root=await fs.realpath(this.requireRoot());const {files,exhausted}=await this.#files({limit:5000,bytes:2*1024*1024});
+  /**
+   * Saves copies of files so a change can be reviewed or undone.
+   *  - default: a bounded snapshot of the source files of the workspace (always reported as partial);
+   *  - `files`: exactly those existing files, of any content type (a targeted snapshot taken just before a
+   *    tool changes or deletes them). Files that cannot be saved are listed in `skipped`, never hidden;
+   *  - `reuseIfUnchanged`: when no file changed since the previous bounded snapshot, that snapshot is returned.
+   */
+  async checkpoint({label='Manual checkpoint',maxFiles=350,maxTotalBytes=30*1024*1024,files=null,reuseIfUnchanged=false}={}){
+    const root=await fs.realpath(this.requireRoot());
+    const targeted=Array.isArray(files);
+    const limitations=[];const skipped=[];let candidates;let exhausted=false;
+    if(targeted){
+      candidates=[];
+      for(const requested of files.slice(0,Math.max(1,maxFiles))){
+        let target;
+        try{target=await this.resolve(String(requested));}catch(error){skipped.push({path:String(requested).slice(0,300),reason:error.code||'invalid_path'});continue;}
+        if(!target.relative||isProtectedPath(target.relative)){skipped.push({path:target.relative||'.',reason:'protected'});continue;}
+        const stat=await fs.lstat(target.absolute).catch(()=>null);
+        if(!stat)continue; // it does not exist yet, so there is nothing to preserve
+        if(!stat.isFile()){skipped.push({path:target.relative,reason:'not_a_regular_file'});continue;}
+        if(stat.size>TARGETED_FILE_BYTES){skipped.push({path:target.relative,reason:'too_large'});continue;}
+        candidates.push({absolute:target.absolute,relative:target.relative,size:stat.size});
+      }
+      limitations.push('Checkpoint theo file: chỉ gồm các file được chỉ định trước thao tác (kể cả file nhị phân); không phải bản sao của cả workspace.');
+    }else{
+      ({files:candidates,exhausted}=await this.#files({limit:5000,bytes:2*1024*1024}));
+    }
+    let fingerprint=null;
+    if(!targeted&&reuseIfUnchanged){
+      fingerprint=sha(Buffer.from(JSON.stringify(candidates.map(item=>[item.relative,item.size,item.mtimeMs]))));
+      if(this.lastCheckpoint?.root===root&&this.lastCheckpoint.fingerprint===fingerprint)return {...this.lastCheckpoint.result,reused:true};
+    }
     const id=randomUUID(),dir=this.#checkpointDirectory(id);await fs.mkdir(path.join(dir,'files'),{recursive:true,mode:0o700});
-    let total=0;const stored=[];const limitations=[];
-    for(const item of files){
-      if(stored.length>=maxFiles||total+item.size>maxTotalBytes){limitations.push('Giới hạn số file hoặc tổng dung lượng; checkpoint chỉ là một phần.');break;}
-      const bytes=await fs.readFile(item.absolute);if(bytes.includes(0))continue;
+    let total=0;const stored=[];
+    for(let index=0;index<candidates.length;index+=1){
+      const item=candidates[index];
+      if(stored.length>=maxFiles||total+item.size>maxTotalBytes){
+        limitations.push('Giới hạn số file hoặc tổng dung lượng; checkpoint chỉ là một phần.');
+        if(targeted)for(const rest of candidates.slice(index))skipped.push({path:rest.relative,reason:'limit'});
+        break;
+      }
+      const bytes=await fs.readFile(item.absolute);
+      if(!targeted&&bytes.includes(0))continue;
       const dest=path.join(dir,'files',item.relative);await fs.mkdir(path.dirname(dest),{recursive:true});await fs.writeFile(dest,bytes,{mode:0o600});
       total+=bytes.length;stored.push({path:item.relative,sha256:sha(bytes),bytes:bytes.length});
     }
     if(exhausted)limitations.push('Workspace vượt giới hạn quét 5000 file nguồn.');
-    limitations.push('Chỉ lưu file nguồn văn bản được hỗ trợ; không bao gồm binary, .env hoặc các thư mục bỏ qua.');
-    const meta={id,at:this.now(),label:capped(label,160),workspace:root,files:stored,partial:true,limitations,totalBytes:total};
+    if(!targeted)limitations.push('Chỉ lưu file nguồn văn bản được hỗ trợ; không bao gồm binary, .env hoặc các thư mục bỏ qua.');
+    const meta={id,at:this.now(),label:capped(label,160),workspace:root,files:stored,partial:true,targeted,skipped,limitations,totalBytes:total};
     await writeJson(path.join(dir,'meta.json'),meta);
-    return {id:meta.id,at:meta.at,label:meta.label,fileCount:stored.length,partial:meta.partial,limitations,totalBytes:total};
+    const result={id:meta.id,at:meta.at,label:meta.label,fileCount:stored.length,partial:meta.partial,targeted,skipped,limitations,totalBytes:total,reused:false};
+    if(fingerprint)this.lastCheckpoint={root,fingerprint,result};
+    return result;
   }
   async review({checkpointId,file='',limit=300000}={}){
     const meta=await readJson(path.join(this.#checkpointDirectory(checkpointId),'meta.json'));
@@ -182,7 +225,7 @@ export class StudioWorkspace {
       // git no-index is used strictly for reading a textual diff, not for restoring.
       let diff='';
       if(after!==null&&!after.includes(0)){
-        const result=await command('git',['diff','--no-index','--no-ext-diff','--',path.join(this.#checkpointDirectory(checkpointId),'files',item.path),target.absolute],{max:160000,timeout:8000});
+        const result=await command('git',['diff','--no-index','--no-ext-diff','--no-textconv','--',path.join(this.#checkpointDirectory(checkpointId),'files',item.path),target.absolute],{max:160000,timeout:8000});
         diff=result.stdout; if(![0,1].includes(result.code)) diff=`Không tạo được diff: ${result.stderr}`;
       } else diff=after===null?'File đã bị xóa.':'File sau hiện là nhị phân.';
       changes.push({path:item.path,baselineSha:item.sha256,currentSha:current,status:after===null?'deleted':'modified',diff:capped(diff,Math.min(Number(limit)||300000,300000))});

@@ -166,7 +166,7 @@ export class PermissionGate {
     // This never elevates OS privileges, disables Windows ACLs, or grants admin.
     if(this.executionPolicy==='full-access'){
       this.onEvent({type:'full_access_tool',taskId,toolName:name,category});
-      return {allowed:true,category,reason:'Full Access: user explicitly enabled unrestricted host tools'};
+      return {allowed:true,category,risk:verdict.risk,local:verdict.local,reason:'Full Access: user explicitly enabled unrestricted host tools'};
     }
     if(!verdict.local)await this.inspectPaths(args,category);
     // STRICT MODE: external MCP tools are not OS-confined (even when they claim
@@ -178,7 +178,7 @@ export class PermissionGate {
       if(verdict.local&&(category==='execute'||String(name).toLowerCase()==='local.run_command'))
         return {allowed:false,category,reason:'Sandbox-only: lệnh shell chạy trực tiếp trên máy host nên bị chặn. Chuyển sang host-review để dùng (mỗi lệnh đều cần xác nhận).'};
     }
-    if(category==='read'||category==='checkpoint'||(category==='workspace_edit'&&this.mode==='autonomous'))return {allowed:true,category};
+    if(category==='read'||category==='checkpoint'||(category==='workspace_edit'&&this.mode==='autonomous'))return {allowed:true,category,risk:verdict.risk,local:verdict.local};
     if(this.mode==='autonomous'&&category==='unknown') return {allowed:false,category,reason:'Unknown tool requires approval even in autonomous mode'};
     if(!taskId)throw error('missing_task','Thiếu mã tác vụ khi xin quyền.');
     if(signal?.aborted)throw signal.reason;
@@ -192,7 +192,7 @@ export class PermissionGate {
     });
     this.onEvent({type:'approval_requested',...request});
     const yes=await promise;
-    return {allowed:yes,category,reason:yes?'Đã được người dùng phê duyệt':'Người dùng từ chối hoặc hết hạn phê duyệt'};
+    return {allowed:yes,category,risk:verdict.risk,local:verdict.local,reason:yes?'Đã được người dùng phê duyệt':'Người dùng từ chối hoặc hết hạn phê duyệt'};
   }
   #record(request,decision){
     // The audit trail keeps a bounded preview, never the full structured detail.

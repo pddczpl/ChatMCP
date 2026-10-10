@@ -115,6 +115,14 @@ export class LocalTools {
     return { category: verdict.category, reason: verdict.reason ?? tool.reason ?? '', summary: tool.summary(input), ...(verdict.risk ? { risk: verdict.risk } : {}), ...(verdict.command !== undefined ? { command: verdict.command } : {}) };
   }
 
+  /** Checks arguments against the tool's schema without running anything, so an invalid call never asks for approval. */
+  validate(name, args = {}) {
+    const tool = this.#lookup(name);
+    if (!tool) return { ok: false, code: 'unknown_tool', errors: [`Không có công cụ ${name}`] };
+    const checked = validateArguments(tool.schema, args ?? {});
+    return checked.ok ? { ok: true, errors: [] } : { ok: false, code: 'invalid_arguments', errors: checked.errors };
+  }
+
   /** Existing files a call is about to change or delete, for a targeted pre-change checkpoint. */
   async touchedPaths(name, args = {}) {
     const op = String(name).replace(/^local\./, '');

@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
@@ -7,32 +8,56 @@ import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { exists, readJson, writeJson, collectSecrets, redact, resolveProgram, npmCli, portOpen, spawnLogged, run, stopOwned, delay, isObject } from './runtime.mjs';
 import { makeInstructions } from './instructions.mjs';
-import { listAll, collectCatalog, verifyProxyCatalog, closeConnection, makeAgentSession } from './catalog.mjs';
+import { listAll, collectCatalog, verifyProxyCatalog, closeConnection, makeAgentSession, buildInternalCatalog } from './catalog.mjs';
 
 export const VERSION = '2.2.8';
 const PROXY_PORT = 3006;
 const PROXY_URL = `http://127.0.0.1:${PROXY_PORT}/mcp`;
 const baseService = () => ({ state: 'unknown', detail: 'Chưa kiểm tra' });
+const unusedService = () => ({ state: 'disabled', detail: 'Không dùng ở chế độ cục bộ' });
+export const BACKENDS = Object.freeze(['local', 'mcp']);
+// The local backend has its own file, search, Git and shell tools. Of the older Studio tools only those that add
+// something are offered next to them (code intelligence, test discovery, checkpoints); the rest would duplicate local.*.
+const LOCAL_BACKEND_STUDIO_TOOLS = new Set(['symbols', 'references', 'definitions', 'index_status', 'checks', 'skills', 'diff_check', 'checkpoints', 'checkpoint', 'review']);
+const CHECKPOINT_CATEGORIES = new Set(['workspace_edit', 'dangerous', 'execute', 'unknown']);
+
+/** Where the Hub keeps its state when no directory is given: per-user, outside any project. */
+export function defaultDataDirectory(env = process.env, platform = process.platform, home = os.homedir()) {
+  if (env.CHATMCP_STATE_DIR) return path.resolve(env.CHATMCP_STATE_DIR);
+  if (platform === 'win32') return path.join(env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'ChatMCP', 'hub');
+  if (platform === 'darwin') return path.join(home, 'Library', 'Application Support', 'ChatMCP', 'hub');
+  return path.join(env.XDG_STATE_HOME || path.join(home, '.local', 'state'), 'chatmcp');
+}
 
 export class HubManager {
-  constructor({ repoRoot, bundleRoot, log = console.log }) {
-    this.repoRoot = path.resolve(repoRoot);
+  /**
+   * backend 'local': tools run inside the Hub; nothing else needs to be installed or running (default without repoRoot).
+   * backend 'mcp':   the original flow through Cloud Harness + Desktop Commander + the MCP proxy (needs repoRoot).
+   */
+  constructor({ repoRoot = null, bundleRoot, dataDirectory = null, backend = null, log = console.log }) {
+    this.repoRoot = repoRoot ? path.resolve(repoRoot) : null;
     this.bundleRoot = path.resolve(bundleRoot);
-    this.generated = path.join(this.repoRoot, 'deploy', '.generated');
-    this.hubDirectory = path.join(this.generated, 'chatmcp-hub');
-    this.proxyRuntime = path.join(this.generated, 'browser-proxy-compat');
-    this.dcRuntime = path.join(this.generated, 'desktop-commander-local');
+    this.backend = backend ?? (this.repoRoot ? 'mcp' : 'local');
+    if (!BACKENDS.includes(this.backend)) throw new Error(`Backend phải là ${BACKENDS.join(' hoặc ')}.`);
+    if (this.backend === 'mcp' && !this.repoRoot) throw new Error('Backend mcp cần --repo-root (thư mục repository Cloud Harness).');
+    if (!this.repoRoot && !dataDirectory) throw new TypeError('HubManager cần repoRoot hoặc dataDirectory.');
+    this.generated = this.repoRoot ? path.join(this.repoRoot, 'deploy', '.generated') : null;
+    this.hubDirectory = dataDirectory ? path.resolve(dataDirectory) : path.join(this.generated, 'chatmcp-hub');
+    this.proxyRuntime = this.generated ? path.join(this.generated, 'browser-proxy-compat') : null;
+    this.dcRuntime = this.generated ? path.join(this.generated, 'desktop-commander-local') : null;
     this.settingsFile = path.join(this.hubDirectory, 'hub-state.json');
     this.proxyConfig = path.join(this.hubDirectory, 'mcp-client.hub.json');
-    this.proxyPackage = path.join(this.proxyRuntime, 'node_modules', '@srbhptl39', 'mcp-superassistant-proxy');
-    this.dcPackage = path.join(this.dcRuntime, 'node_modules', '@wonderwhy-er', 'desktop-commander');
+    this.proxyPackage = this.proxyRuntime ? path.join(this.proxyRuntime, 'node_modules', '@srbhptl39', 'mcp-superassistant-proxy') : null;
+    this.dcPackage = this.dcRuntime ? path.join(this.dcRuntime, 'node_modules', '@wonderwhy-er', 'desktop-commander') : null;
     this.output = log;
     this.secrets = [];
     this.logs = [];
     this.workspace = null;
     this.busy = false;
     this.lastError = null;
-    this.services = { docker: baseService(), cloud: baseService(), proxy: baseService(), desktop: baseService() };
+    this.services = this.backend === 'local'
+      ? { local: baseService(), docker: unusedService(), cloud: unusedService(), proxy: unusedService(), desktop: unusedService() }
+      : { docker: baseService(), cloud: baseService(), proxy: baseService(), desktop: baseService() };
     this.proxyChild = null;
     this.children = new Set();
     this.tools = [];
@@ -49,6 +74,8 @@ export class HubManager {
     this.studio = null;
     this.permissions = null;
     this.studioTools = null;
+    this.localTools = null;
+    this.environment = null;
     this.workflow = null;
   }
 
@@ -64,8 +91,9 @@ export class HubManager {
   status(name, state, detail) { this.services[name] = { state, detail }; }
   state() {
     return {
-      version: VERSION, workspace: { path: this.workspace }, busy: this.busy || Boolean(this.taskId),
-      services: structuredClone(this.services), proxyUrl: PROXY_URL,
+      version: VERSION, backend: this.backend, workspace: { path: this.workspace }, busy: this.busy || Boolean(this.taskId),
+      services: structuredClone(this.services), proxyUrl: this.backend === 'mcp' ? PROXY_URL : null,
+      dataDirectory: this.hubDirectory, environment: this.environment,
       lastError: this.lastError, logs: [...this.logs], toolCount: this.tools.length,
       generation: this.generation, instanceId: this.instanceId,
       toolCounts: { ...this.catalog.counts }, catalogReady: this.catalog.ready, taskId: this.taskId,
@@ -75,11 +103,15 @@ export class HubManager {
   async load(project) {
     await fs.mkdir(this.hubDirectory, { recursive: true });
     const saved = await readJson(this.settingsFile);
-    const legacy = await readJson(path.join(this.dcRuntime, 'local-settings.json'));
+    const legacy = this.dcRuntime ? await readJson(path.join(this.dcRuntime, 'local-settings.json')) : null;
     const candidate = project || saved?.workspace || legacy?.projectPath;
     if (candidate) {
       try { this.workspace = await this.validateWorkspace(candidate); }
       catch { this.log('Thư mục đã lưu không còn truy cập được. Hãy chọn lại trên trang localhost.'); }
+    }
+    if (this.backend === 'local') {
+      this.status('local', 'stopped', this.workspace ? 'Chưa khởi động' : 'Chọn một thư mục dự án để bắt đầu');
+      return;
     }
     this.status('proxy', 'stopped', 'Bấm Khởi động hoặc chọn workspace');
     this.status('desktop', 'stopped', this.workspace ? 'Chưa khởi động' : 'Chưa chọn workspace');
@@ -341,8 +373,49 @@ export class HubManager {
     catch (error) { await this.stopProxy(); throw error; }
   }
 
-  async start() { return await this.exclusive(async () => { if (this.proxyChild) await this.stopProxy(); await this.startCore(); }); }
-  async selectWorkspace(value) { return await this.exclusive(async () => this.startCore(await this.validateWorkspace(value))); }
+  async start() {
+    return await this.exclusive(async () => {
+      if (this.backend === 'local') return await this.startLocal();
+      if (this.proxyChild) await this.stopProxy();
+      await this.startCore();
+    });
+  }
+  async selectWorkspace(value) {
+    return await this.exclusive(async () => {
+      const target = await this.validateWorkspace(value);
+      if (this.backend === 'local') return await this.startLocal(target);
+      await this.startCore(target);
+    });
+  }
+
+  /** Local backend: validates the folder, checks the shell and Git, and publishes the catalog of in-process tools. */
+  async startLocal(workspace = this.workspace) {
+    if (!workspace) throw new Error('Hãy chọn thư mục workspace trước.');
+    if (!this.localTools || !this.studioTools) throw new Error('Công cụ cục bộ chưa được khởi tạo.');
+    const target = await this.validateWorkspace(workspace);
+    this.status('local', 'starting', 'Đang kiểm tra workspace, shell và Git');
+    const previous = this.workspace;
+    // The tools read manager.workspace, so it is set before they are asked about the environment.
+    this.workspace = target;
+    try {
+      this.environment = await this.localTools.diagnose();
+      const catalog = this.internalCatalog();
+      await writeJson(this.settingsFile, { version: VERSION, workspace: target, savedAt: new Date().toISOString() });
+      this.catalog = catalog;
+      this.tools = catalog.tools;
+    } catch (error) { this.workspace = previous; throw error; }
+    this.generation += 1;
+    const { shells = {}, git } = this.environment;
+    const shell = Object.keys(shells).filter((name) => shells[name]).join('/') || 'không có shell';
+    this.status('local', 'ready', `${this.catalog.counts.local} công cụ cục bộ · ${shell} · ${git ? (git.version || 'Git') : 'chưa cài Git'}`);
+    this.log(`Workspace: ${target}. Công cụ cục bộ sẵn sàng (${this.catalog.counts.local} local, ${this.catalog.counts.studio} studio).${git ? '' : ' Cảnh báo: chưa tìm thấy Git, các công cụ git_* sẽ báo lỗi.'}`);
+  }
+
+  internalCatalog() {
+    const local = this.localTools.definitions();
+    const studio = this.studioTools.definitions().filter((tool) => LOCAL_BACKEND_STUDIO_TOOLS.has(tool.originalName));
+    return buildInternalCatalog({ local, studio }, { version: VERSION });
+  }
 
   async stopProxy() {
     this.stopping = true;
@@ -356,11 +429,23 @@ export class HubManager {
       this.status('desktop', 'stopped', 'MCP đã dừng');
     } finally { this.stopping = false; }
   }
-  async stop() { return await this.exclusive(async () => { await this.stopProxy(); this.log('Đã dừng MCP do Hub quản lý.'); }); }
+  async stop() {
+    return await this.exclusive(async () => {
+      if (this.backend === 'local') {
+        this.catalog = { ...this.catalog, ready: false };
+        this.tools = [];
+        this.status('local', 'stopped', 'Đã tắt công cụ cục bộ');
+        this.log('Đã tắt công cụ cục bộ; bấm Khởi động để bật lại.');
+        return;
+      }
+      await this.stopProxy();
+      this.log('Đã dừng MCP do Hub quản lý.');
+    });
+  }
   async shutdown() {
     this.stopping = true;
     await Promise.allSettled([...this.agentSessions].map((s) => s.close()));
-    await this.stopProxy();
+    if (this.backend === 'mcp') await this.stopProxy();
     for (const child of this.children) await stopOwned(child).catch(() => {});
   }
 
@@ -393,7 +478,10 @@ export class HubManager {
     return { ok: true };
   }
 
-  instructions() { return makeInstructions(this.workspace, this.tools, VERSION); }
+  instructions() {
+    if (this.backend === 'local') throw Object.assign(new Error('Hướng dẫn cho MCP SuperAssistant chỉ dùng với backend MCP. Ở chế độ cục bộ, công cụ chạy ngay trong Hub nên không cần dán hướng dẫn.'), { statusCode: 409 });
+    return makeInstructions(this.workspace, this.tools, VERSION);
+  }
 
   registerSecret(value) {
     if (typeof value === 'string' && value.length >= 4 && !this.secrets.includes(value)) this.secrets.push(value);
@@ -401,7 +489,10 @@ export class HubManager {
 
   acquireTask(id) {
     if (this.busy || this.taskId) { const e = new Error('Một nhiệm vụ hoặc thao tác dịch vụ đang chạy.'); e.statusCode = 409; throw e; }
-    if (!this.catalog.ready || this.services.proxy.state !== 'ready' || this.services.desktop.state !== 'ready') throw new Error('MCP chưa qua kiểm tra đầy đủ. Hãy khởi động dịch vụ trước.');
+    if (this.backend === 'local') {
+      if (!this.workspace) throw Object.assign(new Error('Hãy chọn thư mục dự án trước khi giao việc.'), { statusCode: 409, code: 'workspace_missing' });
+      if (!this.catalog.ready || this.services.local?.state !== 'ready') throw Object.assign(new Error('Công cụ cục bộ chưa sẵn sàng. Bấm Khởi động rồi thử lại.'), { statusCode: 409, code: 'local_not_ready' });
+    } else if (!this.catalog.ready || this.services.proxy.state !== 'ready' || this.services.desktop.state !== 'ready') throw new Error('MCP chưa qua kiểm tra đầy đủ. Hãy khởi động dịch vụ trước.');
     this.taskId = id;
   }
   releaseTask(id) { if (this.taskId === id) this.taskId = null; }
@@ -448,13 +539,19 @@ export class HubManager {
     }
   }
 
+  #binding() {
+    const binding = { taskId: this.taskId, workspace: this.workspace, generation: this.generation, instanceId: this.instanceId };
+    const check = () => {
+      if (binding.taskId !== this.taskId || binding.workspace !== this.workspace || binding.generation !== this.generation || binding.instanceId !== this.instanceId) throw new Error('Workspace đã thay đổi; không thực thi lời gọi trong phiên cũ.');
+    };
+    return { binding, check };
+  }
+
   async createAgentSession({ signal } = {}) {
     if (!this.taskId) throw new Error('Cần khóa workspace trước khi mở phiên nhiệm vụ.');
     signal?.throwIfAborted();
-    const binding = { taskId: this.taskId, workspace: this.workspace, generation: this.generation, instanceId: this.instanceId };
-    const checkBinding = () => {
-      if (binding.taskId !== this.taskId || binding.workspace !== this.workspace || binding.generation !== this.generation || binding.instanceId !== this.instanceId) throw new Error('Workspace đã thay đổi; không thực thi lời gọi trong phiên cũ.');
-    };
+    if (this.backend === 'local') return this.#createLocalSession();
+    const { binding, check: checkBinding } = this.#binding();
     const connections = await this.openDirectConnections({ signal });
     try {
       const catalog = await collectCatalog(connections, this.sdk.schemas, { signal });
@@ -474,44 +571,107 @@ export class HubManager {
         const extras = this.studioTools.definitions();
         catalog.tools.push(...extras);
         catalog.counts.studio = extras.length;
-        catalog.servers.studio = { capabilities:{tools:{}}, tools:extras.length, serverInfo:{name:'chatmcp-studio',version:VERSION} };
+        catalog.servers.studio = { capabilities: { tools: {} }, tools: extras.length, serverInfo: { name: 'chatmcp-studio', version: VERSION } };
       }
-      const externalCall=session.callTool.bind(session);
-      session.callTool=async (name,args,options={})=>{
-        checkBinding();
-        const definition=catalog.tools.find(tool=>tool.name===name);
-        if(!definition) throw new Error('Unknown tool '+name);
-        const decision=this.permissions ? await this.permissions.authorize({name,args,definition,taskId:binding.taskId,signal:options.signal}) : {allowed:true,category:'read'};
-        await this.workflow?.mark(binding.taskId,'tool_start',{toolName:name,category:decision.category});
-        if(!decision.allowed) return {isError:true,content:[{type:'text',text:'Permission denied: '+decision.reason}]};
-        // A bounded snapshot is captured BEFORE potentially mutating calls;
-        // on failure no external mutation is performed. A partial snapshot is
-        // explicitly tagged and never advertised as a complete backup.
-        if(this.studio && ['workspace_edit','dangerous','execute','unknown'].includes(decision.category)) {
-          try {
-            const snap=await this.studio.checkpoint({label:`Before ${name} · ${binding.taskId}`,maxFiles:140,maxTotalBytes:8*1024*1024});
-            this.permissions?.onEvent({type:'checkpoint',taskId:binding.taskId,name,id:snap.id,partial:snap.partial});
-            await this.workflow?.mark(binding.taskId,'checkpoint',{toolName:name,checkpoint:snap.id});
-          } catch(e){
-            if(this.permissions?.executionPolicy==='full-access') {
-              // Explicit opt-in has no checkpoint prerequisite: the operation
-              // may touch files entirely outside the selected Git workspace.
-              this.log(`Full Access: không tạo được checkpoint workspace trước ${name}: ${e.message}`);
-            } else throw Object.assign(new Error('Could not create pre-operation checkpoint: '+e.message),{code:'checkpoint_failed'});
-          }
-        }
-        const result=name.startsWith('studio.') ? await this.studioTools.call(name,args,{taskId:binding.taskId,signal:options.signal}) : await externalCall(name,args,options);
-        const verified=name==='studio.diff_check' && result?.structuredContent?.ok===true;
-        await this.workflow?.mark(binding.taskId,'tool_result',{toolName:name,category:decision.category,isError:result?.isError===true,verified});
-        return result;
-      };
-      this.agentSessions.add(session);
-      const close = session.close;
-      session.close = async () => { try { await close(); } finally { this.agentSessions.delete(session); } };
-      return session;
+      this.#guardCalls(session, { catalog, binding, checkBinding, external: session.callTool.bind(session) });
+      return this.#trackSession(session);
     } catch (error) {
       await Promise.allSettled([...connections.values()].map(closeConnection));
       throw error;
+    }
+  }
+
+  /** Local backend: no connections to open; the tools live in this process. */
+  #createLocalSession() {
+    const { binding, check: checkBinding } = this.#binding();
+    if (!this.localTools || !this.studioTools) throw new Error('Công cụ cục bộ chưa được khởi tạo.');
+    checkBinding();
+    const catalog = this.internalCatalog();
+    this.catalog = catalog;
+    this.tools = catalog.tools;
+    let closed = false;
+    const unsupported = (what) => async () => { throw new Error(`Backend cục bộ không có ${what}.`); };
+    const session = {
+      catalog,
+      getPrompt: unsupported('MCP prompts'),
+      readResource: unsupported('MCP resources'),
+      async close() { closed = true; },
+    };
+    const external = async (name) => { throw new Error(`Không có công cụ ${name} trong danh mục cục bộ.`); };
+    this.#guardCalls(session, { catalog, binding, checkBinding: () => { if (closed) throw new Error('Phiên công cụ đã đóng.'); checkBinding(); }, external });
+    return this.#trackSession(session);
+  }
+
+  #trackSession(session) {
+    this.agentSessions.add(session);
+    const close = session.close;
+    session.close = async () => { try { await close.call(session); } finally { this.agentSessions.delete(session); } };
+    return session;
+  }
+
+  /**
+   * Every call an agent makes passes through here, whatever the backend: workspace binding, permission
+   * decision, workflow timeline, a checkpoint before changes, then the tool itself. A refusal and a failed
+   * checkpoint are returned as results that say nothing was executed, so a model can react to them.
+   */
+  #guardCalls(session, { catalog, binding, checkBinding, external }) {
+    const refused = (code, message) => ({ isError: true, content: [{ type: 'text', text: message }], structuredContent: { error: { code, message }, executed: false } });
+    session.callTool = async (name, args, options = {}) => {
+      checkBinding();
+      const definition = catalog.tools.find((tool) => tool.name === name);
+      if (!definition) throw new Error('Unknown tool ' + name);
+      if (name.startsWith('local.') && this.localTools?.has(name)) {
+        // A call that cannot run is reported straight away: the user is never asked to approve it.
+        const checked = this.localTools.validate(name, args);
+        if (!checked.ok) return { ...refused(checked.code, `Tham số không hợp lệ cho ${name}: ${checked.errors.join('; ')}.`), structuredContent: { error: { code: checked.code, message: checked.errors.join('; ') }, executed: false, details: checked.errors } };
+      }
+      const decision = this.permissions ? await this.permissions.authorize({ name, args, definition, taskId: binding.taskId, signal: options.signal }) : { allowed: true, category: 'read' };
+      await this.workflow?.mark(binding.taskId, 'tool_start', { toolName: name, category: decision.category });
+      if (!decision.allowed) return refused('permission_denied', 'Permission denied: ' + decision.reason);
+      try { await this.#checkpointBefore(name, args, decision, binding); }
+      catch (error) {
+        if (options.signal?.aborted) throw error;
+        return refused('checkpoint_failed', 'Could not create pre-operation checkpoint: ' + error.message + ' The operation was NOT executed.');
+      }
+      const result = name.startsWith('local.') && this.localTools ? await this.localTools.call(name, args, { taskId: binding.taskId, signal: options.signal })
+        : name.startsWith('studio.') ? await this.studioTools.call(name, args, { taskId: binding.taskId, signal: options.signal })
+          : await external(name, args, options);
+      const structured = result?.structuredContent;
+      const verified = (name === 'studio.diff_check' && structured?.ok === true)
+        || (name === 'local.run_command' && result?.isError !== true && structured?.kind === 'verify' && structured?.exitCode === 0);
+      await this.workflow?.mark(binding.taskId, 'tool_result', { toolName: name, category: decision.category, isError: result?.isError === true, verified });
+      return result;
+    };
+  }
+
+  /**
+   * A snapshot is captured BEFORE a call that can change files, so the change can be reviewed and undone.
+   * File tools name the files they will touch and only those are saved (a complete copy of exactly what
+   * is at risk); a shell command can touch anything, so it gets the bounded workspace snapshot, reused
+   * while nothing changed. A snapshot that is not complete is tagged as such and never presented as a backup.
+   */
+  async #checkpointBefore(name, args, decision, binding) {
+    if (!this.studio || !CHECKPOINT_CATEGORIES.has(decision.category)) return;
+    const label = `Before ${name} · ${binding.taskId}`;
+    let request = { label, maxFiles: 140, maxTotalBytes: 8 * 1024 * 1024, reuseIfUnchanged: true };
+    if (name.startsWith('local.') && name !== 'local.run_command' && this.localTools) {
+      const files = await this.localTools.touchedPaths(name, args);
+      if (!files.length) return; // nothing that exists today is about to change
+      request = { label, files, maxFiles: 140, maxTotalBytes: 32 * 1024 * 1024 };
+    }
+    try {
+      const snap = await this.studio.checkpoint(request);
+      const incomplete = snap.partial || (snap.skipped?.length ?? 0) > 0;
+      this.permissions?.onEvent({ type: 'checkpoint', taskId: binding.taskId, name, id: snap.id, partial: incomplete, reused: snap.reused === true });
+      await this.workflow?.mark(binding.taskId, 'checkpoint', { toolName: name, checkpoint: snap.id });
+    } catch (error) {
+      if (this.permissions?.executionPolicy === 'full-access') {
+        // Explicit opt-in has no checkpoint prerequisite: the operation
+        // may touch files entirely outside the selected Git workspace.
+        this.log(`Full Access: không tạo được checkpoint workspace trước ${name}: ${error.message}`);
+        return;
+      }
+      throw Object.assign(new Error(error.message), { code: 'checkpoint_failed' });
     }
   }
 }

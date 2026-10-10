@@ -6,11 +6,12 @@ const BAD_MODE = () => Object.assign(new Error('Chế độ phải là chatgpt-w
 
 /** A single task surface backed by either the original browser runner or API runner. */
 export class DualAgent {
-  constructor({ browser, api, directory }) {
+  constructor({ browser, api, directory, defaultMode = 'chatgpt-web' }) {
+    if (!['chatgpt-web', 'api'].includes(defaultMode)) throw BAD_MODE();
     this.browser = browser;
     this.api = api;
     this.file = path.join(directory, 'agent-mode.json');
-    this.mode = 'chatgpt-web';
+    this.mode = defaultMode;
   }
   async load() {
     const data = await readJson(this.file);

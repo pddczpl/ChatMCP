@@ -83,6 +83,27 @@ export async function collectCatalog(connections, schemas, options = {}) {
   return catalog;
 }
 
+/**
+ * Catalog for tools that run inside the Hub process: no MCP connection is involved, so the definitions are
+ * taken as given. `groups` maps a server name to its tool definitions ({name:'server.tool', originalName, ...}).
+ */
+export function buildInternalCatalog(groups, { version = '0' } = {}) {
+  const catalog = { ready: false, tools: [], prompts: [], resources: [], resourceTemplates: [], counts: {}, servers: {}, checkedAt: new Date().toISOString() };
+  for (const [server, definitions] of Object.entries(groups)) {
+    for (const definition of definitions) {
+      if (typeof definition?.name !== 'string' || !definition.name.startsWith(`${server}.`) || typeof definition.originalName !== 'string') throw new Error(`Định nghĩa công cụ nội bộ của ${server} thiếu tên đầy đủ.`);
+      catalog.tools.push({ ...structuredClone(definition), server });
+    }
+    catalog.counts[server] = definitions.length;
+    catalog.servers[server] = { serverInfo: { name: `chatmcp-${server}`, version }, capabilities: { tools: {} }, tools: definitions.length, prompts: 0, resources: 0, resourceTemplates: 0 };
+  }
+  const names = new Set(catalog.tools.map((tool) => tool.name));
+  if (names.size !== catalog.tools.length) throw new Error('Tên công cụ nội bộ bị trùng.');
+  catalog.fingerprint = fingerprint(catalog.tools);
+  catalog.ready = true;
+  return catalog;
+}
+
 export function verifyProxyCatalog(sourceTools, proxyTools) {
   const actual = new Map(proxyTools.map((t) => [t.name, t]));
   if (actual.size !== proxyTools.length) throw new Error('Danh mục proxy có tên công cụ trùng nhau.');
