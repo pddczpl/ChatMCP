@@ -3,6 +3,8 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { readJson, writeJson } from './runtime.mjs';
+import { canonicalRelative } from './fs-safe.mjs';
+import { isProtectedPath } from './protected-paths.mjs';
 
 const SKIP = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__', '.next', 'dist', 'build', 'coverage', '.pytest_cache', '.mypy_cache', '.idea', '.vs', '.gradle', '.terraform']);
 const EXTENSIONS = new Set(['.py','.js','.mjs','.cjs','.jsx','.ts','.tsx','.json','.md','.yaml','.yml','.toml','.sh','.ps1','.bat','.cmd','.c','.cc','.cpp','.h','.hpp','.java','.go','.rs','.rb','.php','.sql','.r','.ipynb','.css','.html','.xml']);
@@ -56,6 +58,7 @@ export class StudioWorkspace {
   }
   async read({file,maxBytes=120000}={}) {
     const target=await this.resolve(file); if(!target.relative || target.relative.split('/').includes('.git') || PRIVATE.test(path.basename(target.relative))) throw fail('protected_path','Không cho phép đọc file bí mật/metadata Git qua trình đọc Studio.',403);
+    const alias=await canonicalRelative(target.root,target.absolute); if(alias.inside && isProtectedPath(alias.relative)) throw fail('protected_path','Không cho phép đọc file bí mật/metadata Git (kể cả khi đi qua symlink hoặc tên rút gọn).',403);
     const stat=await fs.stat(target.absolute); if(!stat.isFile()) throw fail('not_file','Không phải file.');
     maxBytes=Math.max(1,Math.min(500000,Number(maxBytes)||120000));
     if(stat.size>maxBytes) throw fail('file_too_large',`File ${stat.size} byte vượt giới hạn xem ${maxBytes} byte.`,413);
