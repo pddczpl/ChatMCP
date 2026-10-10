@@ -59,11 +59,18 @@ const HISTORY_PREVIEW_CHARS = 2000;
 export class PermissionGate {
   constructor({ manager, workspace, directory=null, now=()=>Date.now(), timeout=10*60*1000 }){
     this.manager=manager;this.workspace=workspace;this.now=now;this.timeout=timeout;
-    this.mode='review';this.executionPolicy='host-review';this.requests=new Map();this.history=[];this.onEvent=()=>{};this.file=directory?path.join(directory,'permission-history.json'):null;this.writes=Promise.resolve();
+    this.mode='review';this.executionPolicy='host-review';this.requests=new Map();this.history=[];this.onEvent=()=>{};this.listeners=new Set();this.file=directory?path.join(directory,'permission-history.json'):null;this.writes=Promise.resolve();
     this.localTools=null;
   }
   /** Gives the gate exact knowledge of the local tools (per-call category, blocked paths, command analysis). */
   attachLocalTools(localTools){this.localTools=localTools;}
+  /** Several parties can watch approval events (the log, a task runner); `onEvent` stays as the single legacy hook. Returns the unsubscribe function. */
+  subscribe(listener){if(typeof listener!=='function')throw error('bad_listener','Listener phải là hàm.',400);this.listeners.add(listener);return ()=>{this.listeners.delete(listener);};}
+  #emit(event){
+    this.onEvent(event);
+    // A watcher that throws must never change what the gate decides.
+    for(const listener of [...this.listeners]){try{listener(event);}catch{ /* ignored on purpose */ }}
+  }
   async load(){
     if(!this.file)return;
     const saved=await readJson(this.file);
@@ -165,7 +172,7 @@ export class PermissionGate {
     // permissions, without Studio workspace checks or per-tool approvals.
     // This never elevates OS privileges, disables Windows ACLs, or grants admin.
     if(this.executionPolicy==='full-access'){
-      this.onEvent({type:'full_access_tool',taskId,toolName:name,category});
+      this.#emit({type:'full_access_tool',taskId,toolName:name,category});
       return {allowed:true,category,risk:verdict.risk,local:verdict.local,reason:'Full Access: user explicitly enabled unrestricted host tools'};
     }
     if(!verdict.local)await this.inspectPaths(args,category);
@@ -190,7 +197,7 @@ export class PermissionGate {
       if(signal)signal.addEventListener('abort',aborted,{once:true});
       this.requests.set(id,{...request,resolve:(yes)=>{clearTimeout(timer);signal?.removeEventListener('abort',aborted);this.requests.delete(id);this.#record(request,yes?'approved':'denied');resolve(yes);},abort:aborted});
     });
-    this.onEvent({type:'approval_requested',...request});
+    this.#emit({type:'approval_requested',...request});
     const yes=await promise;
     return {allowed:yes,category,risk:verdict.risk,local:verdict.local,reason:yes?'Đã được người dùng phê duyệt':'Người dùng từ chối hoặc hết hạn phê duyệt'};
   }
@@ -200,7 +207,7 @@ export class PermissionGate {
     this.history.push({...rest,preview:String(rest.preview??'').slice(0,HISTORY_PREVIEW_CHARS),decision,decidedAt:new Date(this.now()).toISOString()});
     if(this.history.length>100)this.history.shift();
     const type=decision==='blocked'||decision==='policy'?'tool_'+decision:'approval_'+decision;
-    this.onEvent({type,id:request.id,taskId:request.taskId,toolName:request.toolName});
+    this.#emit({type,id:request.id,taskId:request.taskId,toolName:request.toolName});
     this.#save();
   }
   decide(id,approved){const req=this.requests.get(id);if(!req)throw error('not_pending','Yêu cầu đã hết hạn hoặc không tồn tại.',404);if(typeof approved!=='boolean')throw error('bad_decision','approved phải là boolean.',400);req.resolve(approved);return {ok:true,id,approved};}

@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { ACTIVE_STATES, NOT_STARTED_PHASES, applyTransition, deriveState, describeState, isTaskState, restState } from './task-state.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
 // from disk or the environment, evaluates model text, or executes a local shell.
@@ -262,10 +263,83 @@ export class AgentRunner {
     return path.join(this.taskDirectory, id);
   }
 
+  // ---- canonical task state (lib/task-state.mjs) ----------------------------------------------------------------
+
+  #stateOf(task) {
+    const live = this.activeTaskId === task.id && task.status === 'running';
+    // During a run the runner keeps `state` precise; a stopped task must show a resting state.
+    if (isTaskState(task.state) && ACTIVE_STATES.has(task.state) === live) return task.state;
+    return deriveState(task, { live });
+  }
+
+  /** Move the task to a new state. An illegal move is logged and refused, except where the caller must record the truth. */
+  #advance(task, to, reason, { force = false } = {}) {
+    const result = applyTransition(task, to, { reason, at: now(), force });
+    if (!result.ok) this.log(this.#redact(`${result.error} (${reason})`));
+    else if (result.changed) task.updatedAt = result.entry.at;
+    return result;
+  }
+
+  /** What the record of an in-flight call means once the run has stopped. */
+  #settlePendingCall(task) {
+    const call = task.pendingCall;
+    if (!call) return null;
+    // A call that was waiting for a person, or refused, never started; a read cannot have changed anything.
+    if (NOT_STARTED_PHASES.has(call.phase)) { task.pendingCall = null; return { kind: 'not_started', toolName: call.toolName }; }
+    if (call.readOnly === true) { task.pendingCall = null; return { kind: 'read_only', toolName: call.toolName }; }
+    return { kind: 'unknown', toolName: call.toolName };
+  }
+
+  /** The permission gate says when the agent is waiting for a person. Nothing has run at that point. */
+  #onGateEvent(context, event) {
+    const { task } = context;
+    if (!event || event.taskId !== task.id) return;
+    if (event.type === 'approval_requested') {
+      if (task.pendingCall) task.pendingCall.phase = 'awaiting_approval';
+      context.activeBeforeApproval = ACTIVE_STATES.has(task.state) && task.state !== 'waiting_approval' ? task.state : 'running';
+      context.approvalOpen = true;
+      this.#advance(task, 'waiting_approval', `approval:${String(event.toolName ?? '').slice(0, 80)}`);
+    } else if (event.type === 'approval_approved' || event.type === 'approval_denied' || event.type === 'approval_expired' || event.type === 'approval_cancelled') {
+      const approved = event.type === 'approval_approved';
+      // An approved call is about to run; any other answer means it never will.
+      if (task.pendingCall?.phase === 'awaiting_approval') task.pendingCall.phase = approved ? 'executing' : 'refused';
+      this.#advance(task, approved ? 'running' : (context.activeBeforeApproval ?? 'running'), event.type);
+    } else return;
+    // Not awaited: this runs inside the gate. The marker reaches the disk in order with every other write of this task.
+    void this.#persist(task, { at: now(), type: 'state', state: task.state, reason: event.type, toolName: event.toolName ?? null });
+  }
+
+  /**
+   * Called by the permission guard once it has decided about a call and BEFORE the call can do anything. If the call was
+   * waiting for approval, the record must stop saying so before the tool starts, so that a crash is never read as
+   * "it never ran" when it did. The guard awaits this; if it throws, the call does not run.
+   */
+  async #decided(context, info) {
+    const { task } = context;
+    const call = task.pendingCall;
+    if (call) {
+      if (!info.allowed) call.phase = 'refused';
+      else {
+        call.phase = 'executing';
+        if (info.category === 'read' || info.category === 'checkpoint') call.readOnly = true;
+      }
+    }
+    if (info.allowed) {
+      if (info.kind === 'verify' || info.name === 'studio.diff_check') this.#advance(task, 'verifying', `check:${info.name}`);
+      else if (info.category !== 'read' && info.category !== 'checkpoint') this.#advance(task, 'running', `act:${info.name}`);
+    }
+    if (context.approvalOpen) {
+      context.approvalOpen = false;
+      await this.#persist(task, { at: now(), type: 'tool_decision', toolName: info.name, allowed: info.allowed, category: info.category });
+    }
+  }
+
   #public(task, summary = false) {
     if (!task) return null;
     const result = {
       id: task.id, prompt: summary ? clip(task.prompt, 600) : task.prompt, status: task.status,
+      state: this.#stateOf(task), stateReason: task.stateReason ?? null, stateChangedAt: task.stateChangedAt ?? null,
+      unverifiedCount: (task.unverifiedOperations ?? []).length,
       workspace: task.workspace, model: task.model, provider: task.provider,
       createdAt: task.createdAt, startedAt: task.startedAt, updatedAt: task.updatedAt, finishedAt: task.finishedAt,
       finalText: summary ? clip(task.finalText || '', 1200) : task.finalText || '', error: task.error || null, errorCode: task.errorCode || null,
@@ -279,6 +353,8 @@ export class AgentRunner {
     if (!summary) {
       result.events = task.events.slice(-EVENT_LIMIT);
       result.pendingCall = task.pendingCall ?? null;
+      result.unverifiedOperations = task.unverifiedOperations ?? [];
+      result.stateHistory = (task.stateHistory ?? []).slice(-50);
     }
     return structuredClone(this.#clean(result));
   }
@@ -291,7 +367,7 @@ export class AgentRunner {
 
   #reportText(task) {
     const lines = [
-      'CHATMCP HUB — BẢN GHI TÁC VỤ', `ID: ${task.id}`, `Trạng thái: ${task.status}`,
+      'CHATMCP HUB — BẢN GHI TÁC VỤ', `ID: ${task.id}`, `Trạng thái: ${task.status}${isTaskState(task.state) ? ` · ${describeState(task.state).label} (${task.state})` : ''}`,
       `Workspace: ${task.workspace?.path ?? ''}`, `Model: ${task.model ?? ''}`,
       `Bắt đầu: ${task.startedAt}`, `Kết thúc: ${task.finishedAt ?? 'Chưa kết thúc'}`,
       `Lượt model: ${task.steps}; lượt MCP: ${task.toolCalls}; input/output tokens: ${task.usage.inputTokens}/${task.usage.outputTokens}`,
@@ -334,7 +410,7 @@ export class AgentRunner {
   }
 
   async #event(task, type, message, extra = {}, detail) {
-    const full = this.#clean({ at: now(), type, message: String(message), ...extra });
+    const full = this.#clean({ at: now(), type, message: String(message), state: task.state, ...extra });
     const visible = { ...full, message: clip(full.message) };
     task.events.push(visible);
     if (task.events.length > EVENT_LIMIT) task.events.splice(0, task.events.length - EVENT_LIMIT);
@@ -363,11 +439,21 @@ export class AgentRunner {
         task.runs ??= [{startedAt:task.startedAt,finishedAt:task.finishedAt,status:task.status,startStep:0}];
         task.dialogue ??= [];
         this.tasks.set(task.id, task);
-        if (task.status === 'running') {
+        const interrupted = task.status === 'running';
+        if (interrupted) {
+          // The Hub that was running this task is gone. A call that was only waiting for approval never started.
+          const settled = this.#settlePendingCall(task);
           task.status = 'paused'; task.finishedAt = now(); task.finalText = '';
           task.errorCode = 'process_interrupted';
-          task.error = 'Hub đã khởi động lại giữa phiên. Bản ghi vẫn còn; dùng Tiếp tục ngay trong hội thoại này. Nếu có pendingCall, kiểm tra kết quả công cụ trước khi chạy lại.';
-          if (task.runs?.length) Object.assign(task.runs.at(-1),{status:'paused',finishedAt:task.finishedAt});
+          task.error = 'Hub đã khởi động lại giữa phiên. Bản ghi vẫn còn; dùng Tiếp tục ngay trong hội thoại này. Nếu có pendingCall, kiểm tra kết quả công cụ trước khi chạy lại.'
+            + (settled?.kind === 'not_started' ? ` Thao tác ${settled.toolName} chưa được chạy: nó đang chờ phê duyệt khi Hub dừng.` : '');
+        }
+        // Files written before `state` existed carry none, and one saved mid-run names a state that is no longer true.
+        // The stored evidence decides: a call that may have changed something makes the task `uncertain`.
+        const settledState = restState(task);
+        if (task.state !== settledState) this.#advance(task, settledState, interrupted ? 'hub_restarted' : isTaskState(task.state) ? 'reconciled_on_load' : 'migrated_from_status', { force: true });
+        if (interrupted) {
+          if (task.runs?.length) Object.assign(task.runs.at(-1),{status:'paused',state:task.state,finishedAt:task.finishedAt});
           await this.#event(task, 'paused', task.error, { status: task.status });
         }
       } catch (error) { this.log(this.#redact(`Không đọc được một bản ghi tác vụ: ${error.message}`)); }
@@ -451,6 +537,7 @@ export class AgentRunner {
       finalText: '', error: null, errorCode: null, steps: 0, toolCalls: 0, maxSteps, maxMinutes,
       usage: { inputTokens: 0, outputTokens: 0 }, events: [], eventCount: 0, pendingCall: null, cancelRequested: false,
       prompts: [], runs: [], dialogue: [],
+      state: 'created', stateReason: 'task_created', stateChangedAt: initial, stateHistory: [{ at: initial, from: null, to: 'created', reason: 'task_created' }],
     };
     const priorContext = existing ? this.#resumeEvidence(task) : null;
     task.workspace = binding; task.model = config.model ?? ''; task.provider = config.provider ?? null;
@@ -468,6 +555,9 @@ export class AgentRunner {
     }
     const context = { task, controller: new AbortController(), deadline: maxMinutes === null ? Infinity : Date.now() + maxMinutes * 60000, done: deferred(), session: null, closePromise: null, seenCalls: new Set(), history: [], inFlight: null, resumeEvidence:priorContext };
     this.tasks.set(id, task); this.activeTaskId = id; this.context = context;
+    // The Hub now holds the workspace lock for this run. A follow-up to a stopped conversation also starts here.
+    this.#advance(task, 'queued', existing ? 'continue_requested' : 'start_requested', { force: !!existing });
+    context.unsubscribe = this.manager.permissions?.subscribe?.((event) => this.#onGateEvent(context, event)) ?? null;
     if (maxMinutes !== null) {
       // Node timers overflow above ~24 days; #check enforces long explicit budgets.
       const wait = Math.min(maxMinutes * 60000, 2147483647);
@@ -509,6 +599,7 @@ export class AgentRunner {
       }
       if (context.resumeEvidence) context.history.push({ role:'user', content:[{type:'input_text',text:context.resumeEvidence}] });
       context.history.push({ role: 'user', content: [{ type: 'input_text', text: cleanPrompt }] });
+      this.#advance(task, 'planning', 'preflight_done');
       await this.#event(task, existing ? 'continuation' : 'started', `Đã kết nối ${task.catalogCounts.tools} công cụ${this.manager.backend === 'local' ? '' : ' MCP'}; ${existing ? 'tiếp tục cùng phiên từ lịch sử đã lưu' : 'bắt đầu phiên mới'}.`, { status: 'running' }, { prompt: cleanPrompt, workspace: task.workspace, catalog: context.catalog });
       const response = this.#public(task);
       // Returning the handle does not wait for a model call or tool execution.
@@ -530,23 +621,30 @@ export class AgentRunner {
   async #finish(context, error = null) {
     const { task } = context;
     clearTimeout(context.timer);
+    context.unsubscribe?.(); context.unsubscribe = null;
     if (error) {
       const reason = context.controller.signal.aborted ? context.controller.signal.reason : error;
       const code = reason?.code ?? 'task_failed';
       task.status = code === 'user_cancelled' || code === 'shutdown' ? 'cancelled' : code === 'time_limit' || code === 'step_limit' || code === 'context_limit' || code === 'output_limit' ? 'limit' : 'failed';
       task.errorCode = code;
       task.error = this.#redact(reason?.message ?? String(reason));
-      if (task.pendingCall) task.error += ' Công cụ có thể đã nhận thao tác cuối; việc dừng không hoàn tác nó. Không tự chạy lại thao tác này.';
+      const settled = this.#settlePendingCall(task);
+      if (settled?.kind === 'unknown') task.error += ' Công cụ có thể đã nhận thao tác cuối; việc dừng không hoàn tác nó. Không tự chạy lại thao tác này.';
+      else if (settled?.kind === 'not_started') task.error += ` Thao tác ${settled.toolName} chưa được chạy: nó đang chờ phê duyệt hoặc đã bị từ chối khi tác vụ dừng.`;
       task.finalText = '';
     }
+    // The canonical state follows from the final status and from whether a call may have changed something.
+    const reasonForState = error ? (task.errorCode ?? 'task_failed') : 'final_answer';
+    if (!this.#advance(task, restState(task), reasonForState).ok) this.#advance(task, restState(task), reasonForState, { force: true });
     task.finishedAt = now();
-    if (task.runs?.length) Object.assign(task.runs.at(-1), {status:task.status,finishedAt:task.finishedAt,endStep:task.steps,endToolCalls:task.toolCalls,finalText:task.finalText || task.error || ''});
+    if (task.runs?.length) Object.assign(task.runs.at(-1), {status:task.status,state:task.state,finishedAt:task.finishedAt,endStep:task.steps,endToolCalls:task.toolCalls,finalText:task.finalText || task.error || ''});
     if (task.finalText) { task.dialogue ??= []; task.dialogue.push({role:'assistant',at:task.finishedAt,text:task.finalText,run:task.runs?.length ?? 1}); }
     try {
       await this.#close(context);
       await this.#event(task, task.status, task.status === 'completed' ? 'Đã nhận phản hồi kết thúc của model. Xem kết quả và bằng chứng kiểm tra bên dưới.' : task.error || 'Tác vụ đã dừng.', { status: task.status });
     } catch (saveError) {
       task.status = 'failed'; task.errorCode = 'persistence_failed'; task.finalText = '';
+      this.#advance(task, 'uncertain', 'persistence_failed', { force: true });
       task.error = this.#redact(`Không lưu được đầy đủ bản ghi tác vụ: ${saveError.message}. Các thao tác đã gửi có thể đã có hiệu lực.`);
       this.log(task.error);
       await this.#persist(task).catch(() => {});
@@ -642,6 +740,7 @@ export class AgentRunner {
         if (!calls.length) {
           if (!finalTexts.some((text) => text.trim())) throw fault('empty_final', 'Model kết thúc nhưng không đưa ra kết quả văn bản cuối cùng. Thông báo tiến độ không được coi là kết quả hoàn tất.', 502);
           task.finalText = this.#redact(finalTexts.join('\n\n')); task.status = 'completed';
+          this.#advance(task, 'completed', 'final_answer');
           break;
         }
         for (const call of calls) {
@@ -735,7 +834,8 @@ export class AgentRunner {
     const { task } = context;
     this.#check(context);
     const timeout = Number.isFinite(context.deadline) ? Math.max(1, Math.min(TOOL_TIMEOUT, context.deadline - Date.now())) : TOOL_TIMEOUT;
-    task.pendingCall = { callId: call.call_id, toolName, startedAt: now(), outcome: 'pending_or_unknown' };
+    // `phase: 'executing'` is the cautious default: until the permission guard says otherwise, the call may have taken effect.
+    task.pendingCall = { callId: call.call_id, toolName, startedAt: now(), outcome: 'pending_or_unknown', phase: 'executing' };
     // Commit the crash marker BEFORE invoking a possibly mutating operation.
     await this.#event(task, 'tool_start', `Đang gọi ${toolName}.\nTham số: ${JSON.stringify(this.#clean(args)).slice(0,900)}`, { toolName, status: 'running' }, { call_id: call.call_id, arguments: args });
     this.#check(context);
@@ -743,7 +843,7 @@ export class AgentRunner {
     task.toolCalls += 1;
     let result;
     try {
-      result = await abortable(invoke({ signal: context.controller.signal, timeout }), context.controller.signal);
+      result = await abortable(invoke({ signal: context.controller.signal, timeout, onDecision: (info) => this.#decided(context, info) }), context.controller.signal);
     } catch (error) {
       if (context.controller.signal.aborted) throw context.controller.signal.reason;
       throw Object.assign(fault('tool_transport_failed', `MCP ${toolName} mất kết nối hoặc không trả về kết quả xác định: ${this.#redact(error?.message ?? String(error))}. Không tự chạy lại thao tác.`, 502), { upstream: true });
@@ -752,6 +852,7 @@ export class AgentRunner {
     // Persist the result before clearing the pending marker.
     await this.#persist(task, { at: now(), type: 'tool_result_full', toolName, call_id: call.call_id, result });
     task.pendingCall = null;
+    if (task.state === 'verifying') this.#advance(task, 'running', 'check_finished');
     const isError = result?.isError === true;
     const cleanResult = this.#clean(result);
     const preview = this.#preview(cleanResult);

@@ -616,7 +616,9 @@ export class HubManager {
    */
   #guardCalls(session, { catalog, binding, checkBinding, external }) {
     const refused = (code, message) => ({ isError: true, content: [{ type: 'text', text: message }], structuredContent: { error: { code, message }, executed: false } });
-    session.callTool = async (name, args, options = {}) => {
+    session.callTool = async (name, args, callerOptions = {}) => {
+      // `onDecision` is for this guard only; the tool itself receives the transport options (signal, timeout).
+      const { onDecision, ...options } = callerOptions;
       checkBinding();
       const definition = catalog.tools.find((tool) => tool.name === name);
       if (!definition) throw new Error('Unknown tool ' + name);
@@ -626,6 +628,9 @@ export class HubManager {
         if (!checked.ok) return { ...refused(checked.code, `Tham số không hợp lệ cho ${name}: ${checked.errors.join('; ')}.`), structuredContent: { error: { code: checked.code, message: checked.errors.join('; ') }, executed: false, details: checked.errors } };
       }
       const decision = this.permissions ? await this.permissions.authorize({ name, args, definition, taskId: binding.taskId, signal: options.signal }) : { allowed: true, category: 'read' };
+      // The caller learns what was decided BEFORE anything runs. It is awaited: whoever records "this call is now going
+      // ahead" must have finished writing that down before the call can have any effect. If it throws, nothing runs.
+      if (typeof onDecision === 'function') await onDecision({ name, allowed: decision.allowed === true, category: decision.category ?? null, kind: decision.risk?.kind ?? null });
       await this.workflow?.mark(binding.taskId, 'tool_start', { toolName: name, category: decision.category });
       if (!decision.allowed) return refused('permission_denied', 'Permission denied: ' + decision.reason);
       try { await this.#checkpointBefore(name, args, decision, binding); }
