@@ -1,6 +1,6 @@
 // Model adapters: Anthropic Messages, OpenAI-style Chat Completions, provider presets, model discovery, key storage.
 // Everything runs against mock fetch functions, so no API key and no network are needed. What this does NOT prove is that
-// a real provider accepts these requests: that needs a key (see docs/TESTING-WITH-REAL-MODELS.md once it exists).
+// a real provider accepts these requests: that needs a key (see docs/TESTING-WITH-REAL-MODELS.md).
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import net from 'node:net';

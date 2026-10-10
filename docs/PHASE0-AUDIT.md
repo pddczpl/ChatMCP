@@ -1,5 +1,7 @@
 # Phase 0 — Kiểm toán hiện trạng ChatMCP
 
+> **Tài liệu lịch sử.** Đây là ảnh chụp hiện trạng ngày 2026-10-10 trên nền `fdb7653`, *trước* Phase 1. Các khoảng trống về agent runtime, công cụ ghi/sửa file, Git, Read Only, onboarding, launcher độc lập và kiểm thử trong bảng dưới đây **đã được xử lý trong Phase 1 (2.3.0)** — xem [PHASE1-REPORT.md](PHASE1-REPORT.md), [PHASE1-DESIGN.md](PHASE1-DESIGN.md#6-đối-chiếu-thiết-kế-với-hiện-thực) và [ARCHITECTURE.md](ARCHITECTURE.md). Các phát hiện bảo mật S1–S4 **vẫn mở và chờ chủ sở hữu quyết định**: trạng thái hiện hành nằm ở [SECURITY.md](../SECURITY.md). Nội dung bên dưới được giữ nguyên để làm bằng chứng và không được cập nhật.
+
 - **Ngày:** 2026-10-10 · **Nhánh:** `dev/chatmcp-agent` · **Nền:** `fdb7653` (Initial commit)
 - **Môi trường đo:** Windows 11 (10.0.26300), Node 24.19.0, npm 12.2.0, Git 2.55.0.windows.5, Python 3.11.9, Docker 29.8.1, PowerShell 5.1.26100; và một workspace Linux (Node 22.23.2) đọc cùng mã nguồn.
 - **Phương pháp:** đọc cấu trúc và mã; kiểm tra Git (trạng thái, lịch sử, gitlink, file bị track); quét bí mật với đầu ra đã che (không in giá trị); đối chiếu bản Cloud Harness cục bộ với GitHub; chạy toàn bộ kiểm thử bằng một runner thống nhất và ghi mã thoát thật.
