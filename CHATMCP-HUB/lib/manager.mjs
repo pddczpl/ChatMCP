@@ -123,7 +123,14 @@ export class HubManager {
   async validateWorkspace(value) {
     if (typeof value !== 'string' || !value.trim() || value.length > 4096 || value.includes('\0')) throw new Error('Hãy chọn một đường dẫn thư mục hợp lệ.');
     if (!path.isAbsolute(value)) throw new Error('Đường dẫn workspace phải là đường dẫn tuyệt đối.');
-    const real = await fs.realpath(value.trim());
+    let real;
+    try { real = await fs.realpath(value.trim()); }
+    catch (error) {
+      // Public mode: a folder that is not one of the Hub's workspaces is refused the same way (403) whether or not it exists; the guard
+      // only ever refuses a path that does not exist, so what is thrown below is the original error when it does not.
+      if (this.workspaceGuard && (error?.code === 'ENOENT' || error?.code === 'ENOTDIR')) await this.workspaceGuard(path.resolve(value.trim()));
+      throw error;
+    }
     if (!(await fs.stat(real)).isDirectory()) throw new Error('Workspace phải là một thư mục.');
     // Public mode limits the choice to the folders the Hub itself created (see lib/workspaces.mjs); the hook may throw.
     if (this.workspaceGuard) await this.workspaceGuard(real);

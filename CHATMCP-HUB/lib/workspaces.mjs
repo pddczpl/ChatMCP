@@ -185,7 +185,7 @@ class WorkspaceService {
     const known = new Set();
     this.items = [];
     for (const item of saved?.items ?? []) {
-      if (!item || !NAME.test(String(item.name)) || known.has(item.name)) continue;
+      if (!item || typeof item.name !== 'string' || !NAME.test(item.name) || known.has(item.name)) continue; // a damaged registry must not crash the start or reach outside the root
       const stat = await fs.lstat(path.join(this.root, item.name)).catch(() => null);
       if (!stat?.isDirectory()) continue; // the folder is gone (a free server forgets them) - so is the entry
       known.add(item.name);
@@ -226,8 +226,8 @@ class WorkspaceService {
     if (path.dirname(real) !== this.root || !this.items.some((item) => item.name === path.basename(real))) {
       throw fault('workspace_not_allowed', 'Chế độ công khai chỉ chọn được workspace do Hub tạo (clone hoặc tạo mới).', 403);
     }
-    const stat = await fs.lstat(real);
-    if (!stat.isDirectory() || stat.isSymbolicLink()) throw fault('workspace_not_allowed', 'Workspace không phải thư mục thường.', 403);
+    const stat = await fs.lstat(real).catch(() => null);
+    if (!stat || !stat.isDirectory() || stat.isSymbolicLink()) throw fault('workspace_not_allowed', 'Workspace không còn trên đĩa hoặc không phải thư mục thường.', 403);
   }
 
   async #exclusive(label, work) {
@@ -414,12 +414,18 @@ class WorkspaceService {
     }
     const find = await resolveProgram('find');
     if (!find) throw fault('remove_failed', 'Không xóa được workspace (thiếu công cụ find).', 500);
-    await new Promise((resolve) => {
-      const child = this.execution.helperSpawn(find, [directory, '-mindepth', '1', '-delete'], { cwd: this.root, env: this.execution.agentEnv, shell: false, stdio: ['ignore', 'pipe', 'pipe'], detached: true, timeout: 120_000 });
+    const asAgent = (file, args) => new Promise((resolve) => {
+      const child = this.execution.helperSpawn(file, args, { cwd: this.root, env: this.execution.agentEnv, shell: false, stdio: ['ignore', 'pipe', 'pipe'], detached: true, timeout: 120_000 });
       child.stdout.resume(); child.stderr.resume();
       child.once('error', () => resolve());
       child.once('close', () => resolve());
     });
+    // A folder the agent made without any permission for itself (chmod 000, or 500 around files) can be neither entered nor emptied -
+    // not by the Hub, and not by the agent's own `find -delete`. Its owner may always give itself the rights back, and `chmod -R` opens
+    // each folder before it goes in. It reports an error for the entries the Hub owns (the workspace folder itself, .git); that is expected.
+    const chmod = await resolveProgram('chmod');
+    if (chmod) await asAgent(chmod, ['-R', 'u+rwX', '--', directory]);
+    await asAgent(find, [directory, '-mindepth', '1', '-delete']);
     await fs.rm(directory, { recursive: true, force: true });
   }
 

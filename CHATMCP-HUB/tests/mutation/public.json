@@ -1,0 +1,480 @@
+{
+ "suite": "verify-e2e-public.mjs",
+ "description": "What the public end-to-end suite must notice: the front door (Host, HTTPS, Origin, CSRF, default deny, disabled routes), the login (token, cookie flags, throttle, client address behind the proxy, logout), the response headers, the workspace routes (limit, select guard, export exclusions, force, delete) and - as root on Linux - the account separation of the agent's commands. Two canaries put a secret where it must never be, to prove the scan for secrets can see one.",
+ "mutations": [
+  {
+   "name": "P01-host",
+   "what": "Host header not checked",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "if (!publicGate.hostOk(req)) return json(403,",
+     "new": "if (false) return json(403,"
+    }
+   ]
+  },
+  {
+   "name": "P02-https",
+   "what": "HTTPS (X-Forwarded-Proto) not required",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "if (!publicGate.httpsOk(req)) return json(400,",
+     "new": "if (false) return json(400,"
+    }
+   ]
+  },
+  {
+   "name": "P03-proto-first",
+   "what": "the first X-Forwarded-Proto value is believed instead of the last",
+   "patches": [
+    {
+     "file": "lib/public-gate.mjs",
+     "old": "values.at(-1) === 'https'",
+     "new": "values[0] === 'https'"
+    }
+   ]
+  },
+  {
+   "name": "P04-origin-any",
+   "what": "Origin of any request not checked",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "if (!publicGate.originOk(origin)) return json(403,",
+     "new": "if (false) return json(403,"
+    }
+   ]
+  },
+  {
+   "name": "P05-login-no-origin",
+   "what": "a login without an Origin header is accepted",
+   "patches": [
+    {
+     "file": "lib/public-gate.mjs",
+     "old": "if (origin === undefined || !originAllowed(config, origin)) return reply(fail(403, 'Origin không được phép.', 'origin_denied'));",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "P06-csrf",
+   "what": "the CSRF token of a state-changing request is not compared",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "publicGate.auth.csrfOk(session, req.headers['x-chatmcp-csrf'])",
+     "new": "true"
+    }
+   ]
+  },
+  {
+   "name": "P07-marker",
+   "what": "the page's marker header of a state-changing request is not required",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "publicGate.originOk(origin) && req.headers['x-chatmcp-request'] === 'local-dashboard' && publicGate.auth",
+     "new": "publicGate.originOk(origin) && publicGate.auth"
+    }
+   ]
+  },
+  {
+   "name": "P08-default-deny",
+   "what": "a request without a session continues to the routes (both layers of the default deny removed)",
+   "patches": [
+    {
+     "file": "lib/public-gate.mjs",
+     "old": "return reply(fail(401, 'Cần đăng nhập.', 'login_required'));\n      }",
+     "new": "return { handled: false, session: null };\n      }"
+    },
+    {
+     "file": "hub.mjs",
+     "old": "if (!outcome.session) return json(401, { error: 'Cần đăng nhập.', code: 'login_required' });\n        session = outcome.session;",
+     "new": "session = outcome.session;"
+    }
+   ]
+  },
+  {
+   "name": "P09-disabled-routes",
+   "what": "routes that a public host does not offer are reachable",
+   "patches": [
+    {
+     "file": "lib/public-gate.mjs",
+     "old": "if (this.disabled(pathname)) return reply(fail(403, 'Chức năng này không có ở chế độ công khai.', 'public_mode_disabled'));",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "P10-shutdown",
+   "what": "/api/hub/shutdown is not on the list of disabled routes",
+   "patches": [
+    {
+     "file": "lib/public-gate.mjs",
+     "old": "'/api/vscode/open', '/api/hub/shutdown',",
+     "new": "'/api/vscode/open',"
+    }
+   ]
+  },
+  {
+   "name": "P11-sandbox",
+   "what": "interactive terminals and the Docker sandbox are allowed",
+   "patches": [
+    {
+     "file": "lib/public-gate.mjs",
+     "old": "if (payload.interactive || payload.sandbox) return fail(",
+     "new": "if (false) return fail("
+    }
+   ]
+  },
+  {
+   "name": "P12-commands-off",
+   "what": "commands are not switched off when the accounts could not be separated",
+   "patches": [
+    {
+     "file": "lib/public-gate.mjs",
+     "old": "if (execMode === 'no-shell') return fail(403, 'Máy chủ không tách được quyền cho lệnh của agent nên chạy lệnh đã bị tắt.'",
+     "new": "if (false) return fail(403, 'Máy chủ không tách được quyền cho lệnh của agent nên chạy lệnh đã bị tắt.'"
+    }
+   ]
+  },
+  {
+   "name": "P13-full-access",
+   "what": "the execution policy can be changed to Full Access",
+   "patches": [
+    {
+     "file": "lib/public-gate.mjs",
+     "old": "payload.executionPolicy !== undefined && payload.executionPolicy !== 'host-review'",
+     "new": "false"
+    }
+   ]
+  },
+  {
+   "name": "P14-token",
+   "what": "any token is accepted",
+   "patches": [
+    {
+     "file": "lib/auth.mjs",
+     "old": "timingSafeEqual(digest(candidate), this.tokenDigest)",
+     "new": "true"
+    }
+   ]
+  },
+  {
+   "name": "P15-cookie-httponly",
+   "what": "the session cookie is readable by scripts",
+   "patches": [
+    {
+     "file": "lib/auth.mjs",
+     "old": "return `${this.cookie.name}=${id}; Path=/; HttpOnly; SameSite=Strict;",
+     "new": "return `${this.cookie.name}=${id}; Path=/; SameSite=Strict;"
+    }
+   ]
+  },
+  {
+   "name": "P16-cookie-samesite",
+   "what": "the session cookie is SameSite=Lax",
+   "patches": [
+    {
+     "file": "lib/auth.mjs",
+     "old": "return `${this.cookie.name}=${id}; Path=/; HttpOnly; SameSite=Strict;",
+     "new": "return `${this.cookie.name}=${id}; Path=/; HttpOnly; SameSite=Lax;"
+    }
+   ]
+  },
+  {
+   "name": "P17-cookie-secure",
+   "what": "the session cookie is not marked Secure",
+   "patches": [
+    {
+     "file": "lib/auth.mjs",
+     "old": "Max-Age=${maxAge}${this.cookie.secure ? '; Secure' : ''}`",
+     "new": "Max-Age=${maxAge}`"
+    }
+   ]
+  },
+  {
+   "name": "P18-cookie-name",
+   "what": "the cookie has no __Host- prefix behind HTTPS",
+   "patches": [
+    {
+     "file": "lib/public-config.mjs",
+     "old": "name: allowInsecure ? 'chatmcp_session' : '__Host-chatmcp_session'",
+     "new": "name: 'chatmcp_session'"
+    }
+   ]
+  },
+  {
+   "name": "P19-throttle-edge",
+   "what": "the throttle lets one more wrong token through",
+   "patches": [
+    {
+     "file": "lib/auth.mjs",
+     "old": "entry.count >= this.login.perIp.max",
+     "new": "entry.count > this.login.perIp.max"
+    }
+   ]
+  },
+  {
+   "name": "P20-logout",
+   "what": "logging out leaves the session alive on the server",
+   "patches": [
+    {
+     "file": "lib/public-gate.mjs",
+     "old": "        auth.destroy(session);\n        res.setHeader('Set-Cookie', auth.clearCookie());",
+     "new": "        res.setHeader('Set-Cookie', auth.clearCookie());"
+    }
+   ]
+  },
+  {
+   "name": "P21-address-left",
+   "what": "the client address is the leftmost X-Forwarded-For entry (forgeable)",
+   "patches": [
+    {
+     "file": "lib/auth.mjs",
+     "old": "parts[parts.length - hops]",
+     "new": "parts[0]"
+    }
+   ]
+  },
+  {
+   "name": "P22-hops-render",
+   "what": "Render's default of two trusted proxies is lost",
+   "patches": [
+    {
+     "file": "lib/public-config.mjs",
+     "old": "onRender ? 2 : 0",
+     "new": "onRender ? 0 : 0"
+    }
+   ]
+  },
+  {
+   "name": "P23-hsts",
+   "what": "no Strict-Transport-Security header",
+   "patches": [
+    {
+     "file": "lib/public-gate.mjs",
+     "old": "if (config.requireHttps) res.setHeader('Strict-Transport-Security', 'max-age=31536000');",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "P24-frame",
+   "what": "pages can be framed",
+   "patches": [
+    {
+     "file": "lib/public-gate.mjs",
+     "old": "res.setHeader('X-Frame-Options', 'DENY');",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "P25-csp",
+   "what": "inline styles are allowed by the CSP",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "style-src 'self'; connect-src",
+     "new": "style-src 'self' 'unsafe-inline'; connect-src"
+    }
+   ]
+  },
+  {
+   "name": "P26-state-leak",
+   "what": "canary: the state sent to the page carries the owner token",
+   "patches": [
+    {
+     "file": "hub.mjs",
+     "old": "enabled: true, execMode, ephemeralStorage: true,",
+     "new": "enabled: true, execMode, leak: process.env.CHATMCP_OWNER_TOKEN, ephemeralStorage: true,"
+    }
+   ]
+  },
+  {
+   "name": "P27-log-leak",
+   "what": "the log line of a login carries the token that was sent (the manager's redaction still hides it)",
+   "patches": [
+    {
+     "file": "lib/public-gate.mjs",
+     "old": "log(`Đã đăng nhập từ ${address}`);",
+     "new": "log(`Đã đăng nhập từ ${address} ${payload?.token}`);"
+    }
+   ],
+   "equivalent": "the log goes through the manager, which replaces every registered secret (the owner token is one) with a placeholder before the line is kept or printed; P27b removes that layer to show the scan can see the leak"
+  },
+  {
+   "name": "P27b-log-leak-unredacted",
+   "what": "canary: the log line of a login carries the token and the manager does not know the token is a secret",
+   "patches": [
+    {
+     "file": "lib/public-gate.mjs",
+     "old": "log(`Đã đăng nhập từ ${address}`);",
+     "new": "log(`Đã đăng nhập từ ${address} ${payload?.token}`);"
+    },
+    {
+     "file": "hub.mjs",
+     "old": "manager.registerSecret(publicConfig.ownerToken);",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "P28-workspace-limit",
+   "what": "no limit on the number of workspaces",
+   "patches": [
+    {
+     "file": "lib/workspaces.mjs",
+     "old": "if (this.items.length >= this.config.max) throw fault('workspace_limit'",
+     "new": "if (false) throw fault('workspace_limit'"
+    }
+   ]
+  },
+  {
+   "name": "P29-force",
+   "what": "a push can ask for force",
+   "patches": [
+    {
+     "file": "lib/workspaces.mjs",
+     "old": "if (payload.force === true || payload.force === 'true') throw fault('force_refused'",
+     "new": "if (false) throw fault('force_refused'"
+    }
+   ]
+  },
+  {
+   "name": "P30-guard-place",
+   "what": "a folder with a workspace's name can be chosen from anywhere",
+   "patches": [
+    {
+     "file": "lib/workspaces.mjs",
+     "old": "if (path.dirname(real) !== this.root || !this.items.some(",
+     "new": "if (!this.items.some("
+    }
+   ]
+  },
+  {
+   "name": "P31-guard-registry",
+   "what": "any folder below the root can be chosen",
+   "patches": [
+    {
+     "file": "lib/workspaces.mjs",
+     "old": "if (path.dirname(real) !== this.root || !this.items.some((item) => item.name === path.basename(real))) {",
+     "new": "if (path.dirname(real) !== this.root) {"
+    }
+   ]
+  },
+  {
+   "name": "P32-missing-select",
+   "what": "a path that does not exist is a raw ENOENT again",
+   "patches": [
+    {
+     "file": "lib/manager.mjs",
+     "old": "if (this.workspaceGuard && (error?.code === 'ENOENT' || error?.code === 'ENOTDIR')) await this.workspaceGuard(path.resolve(value.trim()));",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "P33-export-all",
+   "what": "the export has no exclusions",
+   "patches": [
+    {
+     "file": "lib/workspaces.mjs",
+     "old": "const excludes = EXPORT_EXCLUDES.flatMap((pattern) => ['--exclude', pattern]);",
+     "new": "const excludes = [];"
+    }
+   ]
+  },
+  {
+   "name": "P34-export-env",
+   "what": ".env files are exported",
+   "patches": [
+    {
+     "file": "lib/workspaces.mjs",
+     "old": "'.env', '.env.*', ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "P35-export-keys",
+   "what": "key files are exported",
+   "patches": [
+    {
+     "file": "lib/workspaces.mjs",
+     "old": "'*.pem', '*.key', ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "P36-delete-unselect",
+   "what": "deleting the selected workspace leaves it selected",
+   "patches": [
+    {
+     "file": "lib/workspaces.mjs",
+     "old": "if (wasCurrent) await this.manager.clearWorkspace();",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "B01-no-new-privs",
+   "what": "the agent's commands may gain privileges (--no-new-privs dropped)",
+   "patches": [
+    {
+     "file": "lib/exec-broker.mjs",
+     "old": "'--no-new-privs', ",
+     "new": ""
+    }
+   ],
+   "platforms": [
+    "linux"
+   ]
+  },
+  {
+   "name": "B02-agent-env-token",
+   "what": "canary: the agent's environment carries the GitHub token",
+   "patches": [
+    {
+     "file": "lib/exec-mode.mjs",
+     "old": "PATH: hostEnv.CHATMCP_AGENT_PATH || DEFAULT_PATH,",
+     "new": "PATH: hostEnv.CHATMCP_AGENT_PATH || DEFAULT_PATH, GITHUB_TOKEN: hostEnv.GITHUB_TOKEN,"
+    }
+   ],
+   "platforms": [
+    "linux"
+   ]
+  },
+  {
+   "name": "P37-delete-find",
+   "what": "deleting a workspace does not let the agent's account empty the folders it made (the Hub cannot enter them)",
+   "patches": [
+    {
+     "file": "lib/workspaces.mjs",
+     "old": "await asAgent(find, [directory, '-mindepth', '1', '-delete']);",
+     "new": ""
+    }
+   ],
+   "platforms": [
+    "linux"
+   ]
+  },
+  {
+   "name": "P38-delete-chmod",
+   "what": "deleting a workspace does not first give the agent's account back the rights on a tree it made with mode 000",
+   "patches": [
+    {
+     "file": "lib/workspaces.mjs",
+     "old": "if (chmod) await asAgent(chmod, ['-R', 'u+rwX', '--', directory]);",
+     "new": ""
+    }
+   ],
+   "platforms": [
+    "linux"
+   ]
+  }
+ ]
+}

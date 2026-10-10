@@ -20,7 +20,7 @@
 // Exit code: 0 when every mutation was killed, 1 when one survived, errored or was skipped, 2 for usage errors or a failing baseline.
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -146,6 +146,9 @@ async function main() {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'chatmcp-mutation-'));
   const copy = path.join(scratch, 'hub');
   try {
+    // mkdtemp makes the folder private to this user. The suites that switch to other accounts (as root on Linux) need every folder above
+    // the Hub to be walkable by those accounts, or they report "not applicable" and cannot kill a mutation of the separation.
+    if (process.platform !== 'win32') await chmod(scratch, 0o755);
     await cp(options.hubRoot, copy, { recursive: true, filter: (source) => !/[\\/](node_modules|test-results|\.git|__pycache__|\.generated)([\\/]|$)/.test(source) });
     // The FastAPI suite looks for its Python next to the repository, which a copy in the temp folder does not have.
     const env = {};

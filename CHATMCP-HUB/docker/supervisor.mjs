@@ -4,7 +4,8 @@
 // What it does, in order:
 //   1. Looks up the three accounts the image defines: hub (runs the server), agent (runs the programs the agent asks for) and the
 //      group ws that both share for the workspace files. Nobody else may be root-equivalent.
-//   2. Prepares the folders with exact owners and modes (state: hub only; workspaces: hub writes, ws reads; agent home).
+//   2. Prepares the folders with exact owners and modes (state: hub only; workspaces: hub writes, ws reads; agent home; and the empty,
+//      root-owned folder Git is pointed at as core.hooksPath so that no repository hook can run).
 //   3. Starts the command broker (lib/exec-broker.mjs) on a Unix socket only the hub account can open, and PROVES that the
 //      separation works on this very machine: a probe command is run as the agent and must report the agent's uid, no capabilities
 //      and no_new_privs, and must be unable to read a decoy "hub" process's environment, the state folder or the socket.
@@ -118,10 +119,17 @@ export async function prepareFilesystem({ accounts, paths, gitIdentity }) {
     '[user]', `\tname = ${identity(gitIdentity?.name, 'ChatMCP Agent')}`, `\temail = ${identity(gitIdentity?.email, 'agent@chatmcp.invalid')}`,
     '[init]', '\tdefaultBranch = main', '',
   ].join('\n');
+  // The agent owns its home, so whatever sits at this name may have been put there by the agent. A link is removed (not followed), the
+  // file is created with O_EXCL (never through a link) and handed over by descriptor, so a link swapped in meanwhile cannot make root
+  // change the owner of something else.
   const target = path.join(paths.agentHome, '.gitconfig');
   await fs.rm(target, { force: true });
-  await fs.writeFile(target, gitconfig, { mode: 0o644, flag: 'wx' });
-  await fs.chown(target, agent.uid, agent.gid);
+  const handle = await fs.open(target, 'wx', 0o644);
+  try {
+    await handle.chown(agent.uid, agent.gid);
+    await handle.chmod(0o644);
+    await handle.writeFile(gitconfig);
+  } finally { await handle.close(); }
 }
 
 // ---------------------------------------------------------------------------------------------------------------- the proof
@@ -192,7 +200,7 @@ export async function probeSeparation({ client, accounts, paths, decoyPid, socke
 }
 
 /** A stand-in for the server: a process of the hub account that holds a secret in its environment. */
-async function startDecoy({ accounts, tools }) {
+export async function startDecoy({ accounts, tools }) {
   const decoy = spawn(tools.setpriv, [
     `--reuid=${accounts.hub.uid}`, `--regid=${accounts.hub.gid}`, `--groups=${[accounts.hub.gid, accounts.wsGid].join(',')}`,
     '--inh-caps=-all', '--bounding-set=-all', '--no-new-privs', '--pdeathsig=KILL', '--', '/bin/sleep', '120',
