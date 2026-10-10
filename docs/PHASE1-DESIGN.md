@@ -154,7 +154,7 @@ Cập nhật khi kết thúc Phase 1 (2.3.0). Nhãn theo README: `implemented` �
 | Autonomous: `dangerous`/`exec`/`unknown` vẫn hỏi (3.3) | `dangerous` và `exec` hỏi; **`unknown` bị từ chối, không hỏi** (an toàn hơn thiết kế). Nhãn giao diện và comment được sửa cho khớp | Với backend `local` mọi công cụ đều được phân loại, nên chỉ gặp với MCP ngoài |
 | `Start-ChatMcpHub.ps1` tự tìm `cloud-harness-mcp` cạnh repo (3.4) | `-Backend auto` = `mcp` **chỉ khi** bạn truyền `-RepoRoot`, ngược lại `local`; thư mục anh em chỉ được tìm khi bạn chọn `-Backend mcp` | Không bao giờ vô tình quay về luồng cũ |
 | Máy trạng thái cho mọi tác vụ (3.7) | Cho tác vụ **API**. Tác vụ chế độ ChatGPT Web (legacy) giữ `status` cũ, không có `state` chuẩn | Chế độ legacy, không đầu tư thêm |
-| 26 suite phải luôn xanh (đầu tài liệu) | 46 bộ Node + 5 bộ giao diện Python; lúc đóng Phase 1 chạy xanh trên cả hai hệ điều hành (xem báo cáo) | Bộ chạy chung `npm test` thay cho chạy từng file |
+| 26 suite phải luôn xanh (đầu tài liệu) | 46 bộ kiểm thử Node (số lúc đóng Phase 1) + 5 bộ giao diện Python; lúc đóng Phase 1 chạy xanh trên cả hai hệ điều hành (xem báo cáo) | Bộ chạy chung `npm test` thay cho chạy từng file |
 | Kiểm thử E2E: "ma trận quyền" riêng (mục 4) | Ma trận quyền nằm ở `verify-permissions-modes` và `verify-ui-e2e.py`; E2E thêm: kho độc hại, hai Hub cạnh nhau (mức Hub, không phải cô lập người dùng), phục hồi sau giết Hub | Cô lập người dùng A/B **trong một deployment** vẫn là `blocked` |
 
 ### 6.3 Những gì thiết kế hứa là "ngoài phạm vi" và vẫn chưa có

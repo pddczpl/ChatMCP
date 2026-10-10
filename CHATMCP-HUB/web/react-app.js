@@ -149,6 +149,8 @@
     }
     async handleResponse(response,route){
       const data=await response.json().catch(()=>null);
+      // Public mode: the login session ended (or never existed). The server answers "/" with the login page, so reloading is enough.
+      if(response.status===401&&data?.code==='login_required'){if(!this.reloadingForLogin){this.reloadingForLogin=true;location.reload();}throw new Error('Phiên đăng nhập đã hết. Đang mở lại trang đăng nhập…');}
       if(!response.ok){let message=data?.error||`HTTP ${response.status} tại ${route}`;
         if(response.status===404 && !message.includes(route))message+=` · endpoint ${route} · UI ${uiVersion}; kiểm tra tiến trình Hub đang chạy.`;
         const e=new Error(message);e.status=response.status;e.code=data?.code;throw e;
@@ -165,6 +167,10 @@
       try{response=await fetch(route,{method:'POST',headers,credentials:'same-origin',body:JSON.stringify(data)});}
       catch{throw new Error(`Mất kết nối trong khi gọi ${route}. Trạng thái thao tác chưa rõ; không gửi lại tự động. Hãy bấm Làm mới để kiểm tra.`);}
       return this.handleResponse(response,route);
+    }
+    async logout(){
+      try{await this.post('/api/auth/logout',{});}catch(error){if(error.status!==401){this.toast(error.message,true);return;}}
+      location.replace('/');
     }
     async bootstrap(){
       try{
@@ -601,6 +607,7 @@
           h('main',{className:'conversation-col'},
             this.chatHeader(selected,active,described),
             s.serverMismatch?this.versionNotice():null,
+            hub?.publicMode?.ephemeralStorage?h('div',{className:'public-storage-note',role:'note'},h(Icon,{name:'warning',size:16}),' '+str(hub.publicMode.storageNote,'Ổ đĩa của máy chủ là tạm thời.')):null,
             !s.connected?h('div',{className:'offline-alert'},h(Icon,{name:'wifi'}),' Mất kết nối với Hub. Nhật ký đã lưu vẫn nằm trên máy; đang thử kết nối lại…'):null,
             active && this.mode()==='chatgpt-web' && active.delivery && active.delivery.status!=='sent' && hub?.browser
               ? h('div',{className:'web-delivery-alert',role:'status'},h(Icon,{name:'warning',size:17}),h('div',null,
@@ -632,6 +639,7 @@
           h(Button,{variant:'outline',icon:this.state.theme==='light'?'sun':'moon',title:'Đổi giao diện sáng/tối',onClick:()=>this.setTheme(this.state.theme==='light'?'dark':'light')},this.state.theme==='light'?'Sáng':'Tối'),
           h(Button,{variant:'outline',icon:'panel',onClick:()=>this.set({inspectorOpen:!this.state.inspectorOpen})},this.state.inspectorOpen?'Ẩn công cụ':'Hiện công cụ'),
           h(Button,{variant:'outline',icon:'settings',onClick:()=>{this.set({inspectorOpen:true});this.switchTab('settings');}},'Cài đặt'),
+          hub?.publicMode?h(Button,{variant:'outline',icon:'lock',title:'Kết thúc phiên đăng nhập trên trình duyệt này',onClick:()=>void this.logout()},'Đăng xuất'):null,
           loading?h('div',{className:'action-spinner'},h('div',{className:'spin'}),str(this.state.busy)):null
         )
       );

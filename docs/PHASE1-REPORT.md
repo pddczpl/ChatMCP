@@ -61,7 +61,7 @@ Và một việc **khẩn, chỉ bạn làm được**: sự cố bảo mật Ph
 4. **Lớp mô hình.** Anthropic Messages, OpenAI-compatible (đã làm chắc), Gemini; 12 preset; tải danh sách model; thử lại có giãn cách; rút gọn ngữ cảnh có kiểm soát; che bí mật trong lỗi và nhật ký. Khóa API: Windows DPAPI (đã thử vòng khứ hồi thật), AES-256-GCM ở nơi khác, biến môi trường, hoặc chỉ giữ trong bộ nhớ.
 5. **Tác vụ và phục hồi.** Máy trạng thái chuẩn 11 trạng thái với lịch sử chuyển; Hub chết giữa chừng thì tác vụ vào `paused`/`uncertain` và **không bao giờ** chạy lại thao tác ghi chưa rõ kết quả. Hub ghi **bằng chứng** (số lần sửa file thành công, lệnh kiểm tra đã chạy và thoát mã 0) dưới kết quả: "Hoàn tất" không còn đồng nghĩa với "đạt".
 6. **Giao diện.** Hướng dẫn lần đầu 4 bước, form nhà cung cấp, công tắc quyền cạnh ô nhập, khung duyệt, banner trạng thái dừng giữa chừng, thẻ kế hoạch (`web/onboarding.js`, `web/ui-logic.js`, `web/react-app.js`).
-7. **Kiểm thử.** Bộ chạy chung `npm test` (mã thoát thật, `TIMEOUT`, `SKIP` không bao giờ là PASS, `--no-skip`), 46 bộ Node và 5 bộ giao diện, khung E2E với mô hình giả có kịch bản, công cụ kiểm thử đột biến. Xem [DEVELOPMENT.md](DEVELOPMENT.md).
+7. **Kiểm thử.** Bộ chạy chung `npm test` (mã thoát thật, `TIMEOUT`, `SKIP` không bao giờ là PASS, `--no-skip`), 46 bộ kiểm thử Node (số lúc đóng Phase 1) và 5 bộ giao diện, khung E2E với mô hình giả có kịch bản, công cụ kiểm thử đột biến. Xem [DEVELOPMENT.md](DEVELOPMENT.md).
 8. **Tài liệu và script.** README, ARCHITECTURE, DEVELOPMENT, WINDOWS-SETUP, USER-GUIDE, TROUBLESHOOTING, DEPLOYMENT, SECURITY, TESTING-WITH-REAL-MODELS, THIRD-PARTY-NOTICES, CHANGELOG, PHASE0-AUDIT, PHASE1-DESIGN và báo cáo này. Bốn script PowerShell trong `CHATMCP-HUB/windows/` (smoke, watch, soak, kiểm tra gateway qua Hub) không còn ghi cứng `2.2.x`: phiên bản mong đợi lấy từ `package.json` cạnh chúng, bản dựng giao diện lấy từ `/api/health`; mã thoát phản ánh kết quả thật (soak trước đây thoát 0 dù Hub không trả lời mẫu nào). `scripts/Rotate-CloudHarnessToken.ps1` (mặc định chỉ xem trước) và khóa phiên bản phụ thuộc ở `deps/`.
 
 Chỗ hiện thực **khác thiết kế** (không streaming, một cấu hình nhà cung cấp tại một thời điểm, Git Bash trước PowerShell, …) nằm ở [PHASE1-DESIGN.md, mục 6.2](PHASE1-DESIGN.md#62-điểm-hiện-thực-khác-thiết-kế).
@@ -312,7 +312,7 @@ Mục đích: bạn không phải tin báo cáo này.
 .\CHATMCP-HUB\START-CHATMCP-HUB.cmd -ProjectPath C:\duong\dan\toi\du-an    # mở http://127.0.0.1:3007
 .\CHATMCP-HUB\windows\Run-StudioSmoke.ps1            # chỉ đọc; báo sai phiên bản nếu Hub đang chạy là bản cũ
 .\CHATMCP-HUB\STOP-CHATMCP-HUB.cmd
-cd CHATMCP-HUB; npm test                               # 46 bộ Node
+cd CHATMCP-HUB; npm test                               # 46 bộ kiểm thử Node (số lúc đóng Phase 1)
 ```
 
 Lần đầu mở giao diện, trình hướng dẫn mời chọn thư mục dự án, nhà cung cấp, khóa, quyền. Hãy bắt đầu bằng *Review* và đọc kỹ lệnh trong hộp phê duyệt. Với dự án không tin cậy dùng *Chỉ đọc*.

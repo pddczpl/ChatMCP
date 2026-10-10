@@ -79,6 +79,7 @@ export class HubManager {
     this.localTools = null;
     this.environment = null;
     this.workflow = null;
+    this.workspaceGuard = null;
   }
 
   log(message) {
@@ -124,6 +125,8 @@ export class HubManager {
     if (!path.isAbsolute(value)) throw new Error('Đường dẫn workspace phải là đường dẫn tuyệt đối.');
     const real = await fs.realpath(value.trim());
     if (!(await fs.stat(real)).isDirectory()) throw new Error('Workspace phải là một thư mục.');
+    // Public mode limits the choice to the folders the Hub itself created (see lib/workspaces.mjs); the hook may throw.
+    if (this.workspaceGuard) await this.workspaceGuard(real);
     return real;
   }
 

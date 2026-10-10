@@ -8,7 +8,7 @@
    "patches": [
     {
      "file": "hub.mjs",
-     "old": "if (!hosts.has(req.headers.host)) return json(403, { error: 'Host không được phép.' });",
+     "old": "if (!publicMode && !hosts.has(req.headers.host)) return json(403, { error: 'Host không được phép.' });",
      "new": "if (false) return json(403, { error: 'Host không được phép.' });"
     }
    ]
@@ -19,8 +19,8 @@
    "patches": [
     {
      "file": "hub.mjs",
-     "old": "!equalToken(req.headers['x-chatmcp-csrf'], token)",
-     "new": "false"
+     "old": "&& equalToken(req.headers['x-chatmcp-csrf'], token)",
+     "new": "&& true"
     }
    ]
   },
@@ -30,8 +30,8 @@
    "patches": [
     {
      "file": "hub.mjs",
-     "old": "if (!origins.has(origin) ||",
-     "new": "if (false ||"
+     "old": ": origins.has(origin) &&",
+     "new": ": true &&"
     }
    ]
   },
@@ -145,7 +145,7 @@
    "patches": [
     {
      "file": "hub.mjs",
-     "old": "server.listen(options.port, '127.0.0.1', resolve)",
+     "old": "server.listen(options.port, publicConfig.host, resolve)",
      "new": "server.listen(options.port, '0.0.0.0', resolve)"
     }
    ]
@@ -220,8 +220,8 @@
    "patches": [
     {
      "file": "hub.mjs",
-     "old": "if (!hosts.has(req.headers.host)) return json(403, { error: 'Host không được phép.' });",
-     "new": "if (!hosts.has(req.headers.host)) return json(403, { error: 'Host không được phép.' }); delete req.headers.origin;"
+     "old": "if (!publicMode && !hosts.has(req.headers.host)) return json(403, { error: 'Host không được phép.' });",
+     "new": "if (!publicMode && !hosts.has(req.headers.host)) return json(403, { error: 'Host không được phép.' }); delete req.headers.origin;"
     }
    ]
   },
@@ -231,7 +231,7 @@
    "patches": [
     {
      "file": "hub.mjs",
-     "old": "if (origin && !origins.has(origin) &&",
+     "old": "if (!publicMode && origin && !origins.has(origin) &&",
      "new": "if (false && origin && !origins.has(origin) &&"
     }
    ]
@@ -242,8 +242,8 @@
    "patches": [
     {
      "file": "hub.mjs",
-     "old": "if (origin && !origins.has(origin) &&",
-     "new": "if (origin && !origins.has(origin) && !extensionOrigin &&"
+     "old": "if (!publicMode && origin && !origins.has(origin) &&",
+     "new": "if (!publicMode && origin && !origins.has(origin) && !extensionOrigin &&"
     }
    ]
   },

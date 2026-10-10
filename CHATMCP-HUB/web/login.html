@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#121821">
+  <title>Đăng nhập · ChatMCP Studio</title>
+  <link rel="stylesheet" href="/login.css">
+</head>
+<body>
+  <main class="card">
+    <h1>ChatMCP Studio</h1>
+    <p class="lead">Máy chủ riêng của một người dùng. Nhập token chủ sở hữu để tiếp tục.</p>
+    <form id="login" autocomplete="off" novalidate>
+      <label for="token">Token chủ sở hữu</label>
+      <input id="token" name="token" type="password" autocomplete="current-password" maxlength="512" spellcheck="false" autocapitalize="off" autocorrect="off" required autofocus>
+      <button id="submit" type="submit">Đăng nhập</button>
+      <p id="message" class="message" role="alert" aria-live="polite"></p>
+    </form>
+    <p class="note">Token là giá trị <code>CHATMCP_OWNER_TOKEN</code> trong mục <em>Environment</em> của dịch vụ trên Render. Gói free có ổ đĩa tạm thời: hãy push kết quả lên GitHub trước khi đóng phiên.</p>
+  </main>
+  <script src="/login.js" defer></script>
+</body>
+</html>

@@ -357,3 +357,13 @@ input::placeholder,textarea::placeholder{color:var(--faint)}
 .status-circle.success{background:#3aa876}
 .status-circle.error{background:var(--danger)}
 .status-circle.working{background:var(--warn)}
+
+/* Public mode: the free server's disk is temporary, so the page says so; the workspace panel manages cloned repositories. */
+.public-storage-note{display:flex;align-items:center;gap:8px;margin:10px 35px 0;padding:8px 12px;border:1px solid var(--warn);border-radius:9px;background:var(--surface);color:var(--text);font-size:12px;line-height:1.5}
+.workspace-list{display:flex;flex-direction:column;gap:8px;margin:10px 0}
+.workspace-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--surface)}
+.workspace-item.current{border-color:var(--mint)}
+.workspace-item b{display:block;overflow-wrap:anywhere}
+.workspace-item small{color:var(--muted)}
+.workspace-form{display:flex;flex-direction:column;gap:8px;margin:10px 0}
+.workspace-form input{width:100%}
