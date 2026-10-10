@@ -394,6 +394,8 @@ function classifyProgram(name, args, { ps = false } = {}) {
     if (['find', 'fd'].includes(name) && (hasFlag(args, '-delete', '-exec', '-execdir', '-ok', '-okdir', '-fprint', '-fprintf', '-fls', '-x', '--exec', '-X', '--exec-batch') || (name === 'fd' && clusterHas(args, 'xX')))) {
       return exec(`${name} với tùy chọn xóa/chạy lệnh/ghi file`);
     }
+    // BSD-style `ps e`, `ps auxe`, `ps eww` print the environment of every process: the same API keys `env` would show.
+    if (name === 'ps' && !ps && args.some((arg) => /^[a-z]*e[a-z]*$/i.test(String(arg)))) return exec('ps với tùy chọn in biến môi trường của tiến trình (ps e)');
     const problem = firstProblem(args, { glob: 'any' });
     return problem ? exec(`${name}: tham số không an toàn (${problem})`) : read(`Liệt kê: ${name}`);
   }
@@ -492,7 +494,7 @@ export function analyzeCommand(command, { shell = process.platform === 'win32' ?
       if (target !== null && INTERPRETERS.has(target)) verdict = danger(`Đường ống (pipe) vào trình thông dịch: ${target}`);
     }
     raise(verdict.kind, `${name ?? 'đường dẫn'}: ${verdict.reason}`);
-    segments.push({ program: name, args: args.map((arg) => String(arg).slice(0, 120)), kind: verdict.kind, reason: verdict.reason });
+    segments.push({ program: name, args: args.map((arg) => String(arg).slice(0, 120)), redirects: segment.redirects.map(({ op, target }) => ({ op, target: String(target).slice(0, 240) })), kind: verdict.kind, reason: verdict.reason });
   });
   return { kind, reasons: reasons.slice(0, 8), segments, flags };
 }

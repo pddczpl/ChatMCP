@@ -26,8 +26,12 @@ const ARGV_COMMAND_LIMIT = 6000;
 const KILL_GRACE_MS = 4000;
 const LINGER_MS = 1500;
 
-export const SECRET_ENV_NAME = /(?:^|_)(?:API_?KEY|APIKEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|PRIVATE_?KEY|ACCESS_?KEY|AUTH|SESSION_?KEY)(?:_|$)/i;
-const URL_WITH_PASSWORD = /^[a-z][a-z0-9+.-]*:\/\/[^/\s:@]+:[^/\s@]+@/i;
+// A variable is a credential when a whole word of its name says so (OPENAI_API_KEY, DB_PASSWORD, SIGNING_KEY), when its name ends
+// in one of the strongest words even without an underscore (PGPASSWORD, GHTOKEN), or when it is MYSQL_PWD (PWD alone is the
+// working directory and must stay). Words inside other words do not count: LESSKEY, KEYBOARD_LAYOUT, TOKENIZERS_PARALLELISM, AUTHOR.
+export const SECRET_ENV_NAME = /(?:^|_)(?:API_?KEY|APIKEY|KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|PRIVATE_?KEY|ACCESS_?KEY|AUTH|SESSION_?KEY)(?:_|$)|(?:PASSWORD|PASSWD|TOKEN|SECRET)$|^MYSQL_PWD$/i;
+// scheme://user:password@host, including the form with an empty user (redis://:password@host)
+const URL_WITH_PASSWORD = /^[a-z][a-z0-9+.-]*:\/\/[^/\s:@]*:[^/\s@]+@/i;
 const KEEP_ENV = new Set(['SSH_AUTH_SOCK', 'GPG_AGENT_INFO', 'GIT_ASKPASS', 'SSH_ASKPASS']);
 
 const fault = (code, message, statusCode = 400) => Object.assign(new Error(message), { code, statusCode });

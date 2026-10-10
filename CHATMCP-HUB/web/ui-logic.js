@@ -119,7 +119,7 @@
   const PERMISSION_MODES = Object.freeze([
     { id: 'readonly', label: 'Chỉ đọc', hint: 'Agent chỉ đọc và phân tích. Mọi thay đổi bị từ chối, không hỏi.', risk: 'low' },
     { id: 'review', label: 'Review', hint: 'Agent đọc tự do; mỗi lần sửa file hoặc chạy lệnh đều hỏi bạn trước.', risk: 'medium' },
-    { id: 'autonomous', label: 'Tự động', hint: 'Agent tự sửa file và chạy lệnh kiểm tra an toàn; lệnh khác, lệnh nguy hiểm và công cụ lạ vẫn hỏi.', risk: 'high' },
+    { id: 'autonomous', label: 'Tự động', hint: 'Agent tự sửa file và chạy lệnh kiểm tra an toàn; lệnh khác và lệnh nguy hiểm vẫn hỏi; công cụ chưa phân loại bị từ chối.', risk: 'high' },
   ]);
   /** "manual" is the old name of review; anything unknown is shown as the safe default. */
   function normalizeMode(mode) {

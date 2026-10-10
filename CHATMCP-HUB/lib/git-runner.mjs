@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import { resolveProgram } from './runtime.mjs';
 import { killTree, scrubEnv } from './shell-runner.mjs';
+import { inspectGitSafety, refusalsForRunner } from './git-trust.mjs';
 
 const fault = (code, message, statusCode = 400) => Object.assign(new Error(message), { code, statusCode });
 
@@ -50,6 +51,9 @@ export class GitRunner {
     const exe = await this.executable();
     if (!exe) throw fault('git_missing', 'Không tìm thấy Git trong PATH. Cài Git (https://git-scm.com/) rồi mở lại Hub.', 503);
     const { root } = await this.workspace.resolve('');
+    // Settings that name a program and that the flags below cannot switch off (a clean filter runs even for `git status`).
+    const refused = refusalsForRunner(await inspectGitSafety(root, { hooks: false }));
+    if (refused.length) throw fault('git_config_untrusted', `Cấu hình Git của kho này (.git/config) có mục chạy chương trình: ${refused.slice(0, 5).join(', ')}. Hub không chạy Git khi chưa kiểm tra để tránh thực thi mã của kho. Xem và xóa các mục đó nếu bạn tin tưởng kho, hoặc tự dùng terminal.`, 409);
     const prefix = ['-C', root, '-c', 'core.fsmonitor=false', '-c', 'core.pager=cat', '-c', 'core.quotepath=false', '-c', 'core.editor=true', '-c', 'diff.external=', '-c', 'color.ui=false'];
     if (!hooks) {
       await fs.mkdir(this.hooksDirectory, { recursive: true });

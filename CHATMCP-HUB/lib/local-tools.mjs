@@ -12,6 +12,8 @@ import { applyEol, canonicalRelative, decodeText, encodeText, isUnsafeWindowsNam
 import { GitRunner, isSafeRevision } from './git-runner.mjs';
 import { compileGlob } from './glob.mjs';
 import { PRIVATE_DIRECTORIES, isProtectedPath } from './protected-paths.mjs';
+import { describeProblem, pathProblems } from './command-paths.mjs';
+import { gitRisksFor, gitSubcommand, inspectGitSafety } from './git-trust.mjs';
 import { ShellRunner } from './shell-runner.mjs';
 import { validateArguments } from './tool-schema.mjs';
 
@@ -804,6 +806,24 @@ export class LocalTools {
     let { kind } = analysis;
     const reasons = [...analysis.reasons];
     if (command.length > LIMITS.commandChars) { kind = maxKind(kind, 'exec'); reasons.push(`Lệnh dài hơn ${LIMITS.commandChars} ký tự, không thể xem xét đầy đủ`); }
+    // The analyser reads text. Two things it cannot see are decided by the file system and the repository, so a command it
+    // would let through unasked gets one more look before it does.
+    if (kind !== 'exec' && kind !== 'dangerous' && command.length <= LIMITS.commandChars) {
+      try {
+        const { root, absolute: cwd } = await this.workspace.resolve(typeof args.cwd === 'string' ? args.cwd : '');
+        const problems = await pathProblems({ segments: analysis.segments, cwd, root, powershell: shellName === 'powershell' });
+        if (problems.length) { kind = maxKind(kind, 'exec'); reasons.push(`Đối số trỏ ra ngoài dự án hoặc tới file bí mật: ${problems.slice(0, 3).map(describeProblem).join('; ')}`); }
+        const gitSegments = analysis.segments.filter((segment) => segment.program === 'git');
+        if (gitSegments.length) {
+          const safety = await inspectGitSafety(root);
+          const names = [...new Set(gitSegments.flatMap((segment) => gitRisksFor(gitSubcommand(segment.args), safety)))];
+          if (names.length) { kind = maxKind(kind, 'exec'); reasons.push(`Kho Git này có cấu hình hoặc hook sẽ chạy chương trình của kho khi dùng lệnh git (${names.slice(0, 4).join(', ')})`); }
+        }
+      } catch {
+        // If the real locations cannot be worked out, the safe reading of "unknown" is the same as everywhere else: ask.
+        kind = maxKind(kind, 'exec'); reasons.push('Không xác định được vị trí thật của các đường dẫn trong lệnh');
+      }
+    }
     return {
       category: categoryForKind(kind), command,
       reason: `Lệnh shell (${kind})${reasons.length ? `: ${reasons.join('; ')}` : ''}`,

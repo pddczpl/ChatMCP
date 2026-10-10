@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 // Modes (what the agent may do without asking):
 //   readonly    - reads and bookkeeping only; every change is refused without a prompt
 //   review      - reads run; every change asks the user (legacy name: "manual")
-//   autonomous  - file edits and known-safe verification commands run; execution, deletion and unknown tools still ask
+//   autonomous  - file edits and known-safe verification commands run; execution and deletion still ask; an unclassified tool is refused (not asked)
 export const PERMISSION_MODES = Object.freeze(['readonly', 'review', 'autonomous']);
 const MODE_ALIASES = Object.freeze({ manual: 'review' });
 const EXECUTION_POLICIES = Object.freeze(['host-review', 'sandbox-only', 'full-access']);
@@ -186,7 +186,7 @@ export class PermissionGate {
         return {allowed:false,category,reason:'Sandbox-only: lệnh shell chạy trực tiếp trên máy host nên bị chặn. Chuyển sang host-review để dùng (mỗi lệnh đều cần xác nhận).'};
     }
     if(category==='read'||category==='checkpoint'||(category==='workspace_edit'&&this.mode==='autonomous'))return {allowed:true,category,risk:verdict.risk,local:verdict.local};
-    if(this.mode==='autonomous'&&category==='unknown') return {allowed:false,category,reason:'Unknown tool requires approval even in autonomous mode'};
+    if(this.mode==='autonomous'&&category==='unknown') return {allowed:false,category,reason:'Chế độ Tự động: công cụ chưa phân loại bị từ chối. Chuyển sang Review nếu muốn được hỏi từng lần.'};
     if(!taskId)throw error('missing_task','Thiếu mã tác vụ khi xin quyền.');
     if(signal?.aborted)throw signal.reason;
     const id=randomUUID();const {preview,detail,summary,reason:shownReason}=this.#describe(name,args,verdict);

@@ -583,7 +583,8 @@ else {
     ['git_add', { paths: ['a'] }, 'workspace_edit'], ['git_commit', { message: 'x' }, 'workspace_edit'], ['git_commit', { message: 'x', run_hooks: true }, 'execute'],
     ['git_branch', { action: 'list' }, 'read'], ['git_branch', { action: 'create', name: 'x' }, 'workspace_edit'], ['delete_path', { path: 'a' }, 'dangerous'],
     ['run_command', { command: 'git status' }, 'read'], ['run_command', { command: 'cat src/app.py | grep main' }, 'read'], ['run_command', { command: 'npm test' }, 'workspace_edit'],
-    ['run_command', { command: 'git add . && git commit -m x' }, 'workspace_edit'], ['run_command', { command: 'git push' }, 'dangerous'], ['run_command', { command: 'rm -rf build' }, 'dangerous'],
+    // The suite planted an active pre-commit hook earlier, so a shell commit (which would run it) must ask; without the hook it does not (below).
+    ['run_command', { command: 'git add . && git commit -m x' }, haveGit ? 'execute' : 'workspace_edit'], ['run_command', { command: 'git push' }, 'dangerous'], ['run_command', { command: 'rm -rf build' }, 'dangerous'],
     ['run_command', { command: 'curl https://example.com' }, 'execute'], ['run_command', { command: 'npm install left-pad' }, 'execute'], ['run_command', { command: 'cat .env' }, 'execute'],
     ['run_command', { command: 'ls', cwd: '.git' }, 'blocked'], ['run_command', { command: 'Get-ChildItem', shell: 'powershell' }, 'read'], ['run_command', { command: 'x'.repeat(LIMITS.commandChars + 1) }, 'execute'],
     ['nope', {}, 'unknown'], ['local.read_file', { path: 'notes.txt' }, 'read'],
@@ -600,6 +601,22 @@ else {
   assert.equal((await tools.assess('read_file', null)).category, 'read', 'malformed arguments never throw');
   assert.equal((await tools.assess('run_command', { command: 5 })).category, 'execute');
   ok(`assess: ${table.length} (tool, arguments) cases map to the right permission category`);
+}
+if (haveGit) {
+  // A shell `git commit` would run the repository's hook with the person's rights, so it is put in front of them; switch the hook
+  // off (a .sample file is inert) and the same command is an ordinary workspace edit again.
+  const hook = path.join(work, '.git', 'hooks', 'pre-commit');
+  const withHook = await tools.assess('run_command', { command: 'git commit -m x' });
+  assert.equal(withHook.category, 'execute');
+  assert.match(withHook.reason, /hooks\/pre-commit/);
+  assert.equal((await tools.assess('run_command', { command: 'git status' })).category, 'read', 'a command that never runs hooks is unaffected');
+  assert.equal((await tools.assess('run_command', { command: 'git diff' })).category, 'read');
+  await fs.rename(hook, `${hook}.sample`);
+  try {
+    assert.equal((await tools.assess('run_command', { command: 'git commit -m x' })).category, 'workspace_edit');
+    assert.equal((await tools.assess('run_command', { command: 'git add . && git commit -m x' })).category, 'workspace_edit');
+  } finally { await fs.rename(`${hook}.sample`, hook); }
+  ok('assess: a shell git command that would run a repository hook asks; without the hook it is an ordinary edit');
 }
 {
   assert.deepEqual(await tools.touchedPaths('write_file', { path: 'notes.txt' }), ['notes.txt']);

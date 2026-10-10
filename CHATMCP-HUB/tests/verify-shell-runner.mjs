@@ -36,6 +36,17 @@ setTimeout(() => { console.error('FAIL: the shell-runner suite exceeded its own 
   ok('scrubEnv drops credential variables, URLs with passwords and registered secrets, keeps ordinary ones');
 }
 {
+  // Names that say "credential" without an underscore in front of the word, or with a plain KEY, were slipping through.
+  const credentials = ['PGPASSWORD', 'MYSQL_PWD', 'SIGNING_KEY', 'ENCRYPTION_KEY', 'STRIPE_KEY', 'KEY', 'HF_TOKEN', 'GHTOKEN', 'DJANGO_SECRET_KEY', 'SENTRY_AUTH_TOKEN', 'AWS_SESSION_TOKEN', 'clientsecret'];
+  // ...while ordinary variables that merely contain such letters must stay (PWD is the working directory).
+  const ordinary = ['PATH', 'HOME', 'PWD', 'OLDPWD', 'TERM', 'NODE_ENV', 'LANG', 'LESSKEY', 'KEYBOARD_LAYOUT', 'TOKENIZERS_PARALLELISM', 'AUTHOR', 'GIT_AUTHOR_EMAIL', 'SESSIONNAME', 'PYTHONPATH', 'VIRTUAL_ENV', 'MONKEY'];
+  const clean = scrubEnv(Object.fromEntries([...credentials, ...ordinary].map((name) => [name, 'plain value'])));
+  assert.deepEqual(Object.keys(clean).sort(), [...ordinary].sort(), `scrubbed or kept the wrong names: ${Object.keys(clean).join(',')}`);
+  const urls = scrubEnv({ REDIS_URL: 'redis://:hunter2hunter2@cache.example:6379/0', DB_URL: 'postgres://app@db.example/x', API_BASE: 'https://api.example.com/v1', PROXY_URL: 'http://user:pw@proxy:8080' });
+  assert.deepEqual(Object.keys(urls).sort(), ['API_BASE', 'DB_URL'], 'a URL with a password is dropped even when the user part is empty; a URL without a password stays');
+  ok('scrubEnv also drops PGPASSWORD, MYSQL_PWD, plain *_KEY names and redis://:password@host, and keeps PWD, LESSKEY, KEYBOARD_LAYOUT, TOKENIZERS_PARALLELISM, AUTHOR');
+}
+{
   const small = new BoundedCapture(1000);
   small.push(Buffer.from('hello '));
   small.push(Buffer.from('world'));

@@ -421,7 +421,7 @@
     async loadSkills(){try{const r=await this.get('/api/studio/skills');this.set({skills:arr(r.skills)});}catch(e){this.toast(e.message,true);}}
     async decidePermission(id,approved){await this.act(approved?'Cho phép thao tác':'Từ chối thao tác',async()=>await this.post('/api/studio/permissions/decide',{id,approved}));}
     async setPermission(mode){if(mode===this.permMode())return;
-      if(mode==='autonomous'&&!confirm('Chế độ Tự động cho phép agent sửa file trong workspace và chạy lệnh kiểm tra an toàn mà không hỏi. Lệnh khác, lệnh nguy hiểm và công cụ lạ vẫn cần bạn duyệt. Bật?'))return;
+      if(mode==='autonomous'&&!confirm('Chế độ Tự động cho phép agent sửa file trong workspace và chạy lệnh kiểm tra an toàn mà không hỏi. Lệnh khác và lệnh nguy hiểm vẫn cần bạn duyệt; công cụ chưa phân loại bị từ chối. Bật?'))return;
       await this.act('Đổi quyền của agent',async()=>{await this.post('/api/studio/permissions/config',{mode});this.set({permissionMode:mode});});
     }
     async denyAll(pending){await this.act('Từ chối tất cả yêu cầu',async()=>{for(const p of pending)await this.post('/api/studio/permissions/decide',{id:p.id,approved:false});});}
