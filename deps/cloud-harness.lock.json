@@ -1,0 +1,13 @@
+{
+  "$comment": "Pinned third-party dependency. ChatMCP does not fork, patch or redistribute this source; scripts/bootstrap-cloud-harness.* fetch exactly this commit.",
+  "name": "cloud-harness-mcp",
+  "repository": "https://github.com/bestagentkits/cloud-harness-mcp.git",
+  "tag": "v0.62.8",
+  "commit": "ad1fffc9993e83c10eb46ef7fe7db6957cb315a1",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2026 AgentKit",
+  "licenseFile": "LICENSE",
+  "licenseSha256": "a5afb433ef57b04a4383db817db61954508797fe572e2bc511049bb6b154846a",
+  "verified": "2026-10-10: the tag resolves to this commit on GitHub (git ls-remote) and in the maintainer's local checkout; the checkout had no local modifications.",
+  "securityNote": "Cloud Harness runs jobs through a Docker socket and is documented by its authors as not suitable for hostile multi-tenant use. ChatMCP must not claim multi-user isolation based on it."
+}
