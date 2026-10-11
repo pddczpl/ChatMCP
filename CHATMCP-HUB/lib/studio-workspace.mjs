@@ -279,8 +279,12 @@ export class StudioWorkspace {
   }
 
   async restoreCheckpoint({ checkpointId, force = false, expectedShas = null, dryRun = false } = {}) {
+    if (!dryRun && this._restoreBusy) throw fail('restore_busy', 'Checkpoint restoration already running.', 409);
+    if (!dryRun) this._restoreBusy = true;
+    try {
     if (!checkpointId || typeof checkpointId !== 'string') throw fail('bad_checkpoint_id', 'Cần ID checkpoint hợp lệ.');
-    const activeTaskId = this.manager?.taskEngine?.state?.()?.activeTaskId
+    const activeTaskId = this.manager?.taskId
+      || this.manager?.taskEngine?.state?.()?.activeTaskId
       || this.manager?.agent?.state?.()?.activeTaskId
       || (typeof this.manager?.state === 'function' ? this.manager.state()?.agent?.activeTaskId : null);
     if (activeTaskId) {
@@ -306,17 +310,13 @@ export class StudioWorkspace {
     for (const item of meta.files) {
       const target = await this.resolve(item.path);
       // Path traversal & workspace containment check
-      if (!target.absolute.startsWith(root)) {
+      if (!contained(root, target.absolute) || !target.relative || isProtectedPath(target.relative)) {
         throw fail('path_escape', `Đường dẫn file "${item.path}" vượt ra ngoài thư mục workspace.`, 403);
       }
       // Symlink verification: neither target nor its realpath should escape
       const lstat = await fs.lstat(target.absolute).catch(() => null);
-      if (lstat && lstat.isSymbolicLink()) {
-        const real = await fs.realpath(target.absolute).catch(() => null);
-        if (!real || !real.startsWith(root)) {
-          throw fail('symlink_escape', `Symlink "${item.path}" trỏ ra ngoài workspace.`, 403);
-        }
-      }
+      if (lstat?.isSymbolicLink()) throw fail('symlink_escape', 'Checkpoint restore cannot follow symlinks.', 403);
+      if (lstat && !lstat.isFile()) throw fail('file_type', 'Checkpoint target is not a regular file.', 403);
 
       // Checkpoint backup integrity verification
       const backupPath = path.join(this.#checkpointDirectory(checkpointId), 'files', item.path);
@@ -404,6 +404,13 @@ export class StudioWorkspace {
           // File already exactly matches checkpoint
           continue;
         }
+        const fresh = await fs.readFile(p.target.absolute).catch((e) => {
+          if (e.code === 'ENOENT') return null;
+          throw e;
+        });
+        if ((fresh === null ? null : sha(fresh)) !== p.currentSha) {
+          throw fail('stale_state', 'Checkpoint target changed after preflight.', 409);
+        }
         await fs.mkdir(path.dirname(p.target.absolute), { recursive: true });
         const tmp = `${p.target.absolute}.${randomUUID()}.tmp`;
         try {
@@ -420,13 +427,23 @@ export class StudioWorkspace {
       const failedRollback = [];
       for (const w of written) {
         try {
-          if (w.currentBytes) {
-            await fs.writeFile(w.target.absolute, w.currentBytes, { mode: 0o600 });
-            rolledBack.push(w.item.path);
-          } else {
-            await fs.unlink(w.target.absolute).catch(() => {});
-            rolledBack.push(w.item.path);
+          const current = await fs.readFile(w.target.absolute).catch((e) => {
+            if (e.code === 'ENOENT') return null;
+            throw e;
+          });
+          if (!current || sha(current) !== w.item.sha256) {
+            throw fail('rollback_conflict', 'Restored file was modified concurrently; refusing to overwrite.', 409);
           }
+          if (w.currentBytes !== null) {
+            const backupTemp = `${w.target.absolute}.${randomUUID()}.rollback`;
+            try {
+              await fs.writeFile(backupTemp, w.currentBytes, { flag: 'wx', mode: 0o600 });
+              await fs.rename(backupTemp, w.target.absolute);
+            } finally { await fs.unlink(backupTemp).catch(() => {}); }
+          } else {
+            await fs.unlink(w.target.absolute);
+          }
+          rolledBack.push(w.item.path);
         } catch (rbErr) {
           failedRollback.push({ path: w.item.path, error: rbErr.message });
         }
@@ -453,6 +470,7 @@ export class StudioWorkspace {
       limitations: meta.limitations || [],
       warnings: meta.partial ? ['Bản checkpoint này là partial (chỉ chứa một phần file của workspace). Hãy kiểm tra kỹ sau khi khôi phục.'] : [],
     };
+    } finally { if (!dryRun) this._restoreBusy = false; }
   }
   async plan({taskId,operation='get',items=[],title=''}={}){
     if(typeof taskId!=='string'||!/^[0-9a-f-]{36}$/i.test(taskId))throw fail('bad_task_id','Cần ID hội thoại hợp lệ.');

@@ -731,10 +731,24 @@ export class PluginManager {
 
       const contentHash = crypto.createHash('sha256').update(skillMd).digest('hex');
 
-      // Atomic directory swap
-      await fs.rm(targetDir, { recursive: true, force: true });
-      await fs.rename(stagingDir, targetDir);
-
+      // Stage is fully written before touching any existing version.
+      // A backup gives us recovery if the final rename fails.
+      const existing = await fs.lstat(targetDir).catch((e) => {
+        if (e.code === 'ENOENT') return null;
+        throw e;
+      });
+      if (existing?.isSymbolicLink()) throw error('skill_symlink', 'Cannot replace a symlinked skill directory.', 403);
+      const backupDir = path.join(this.stateDir, `.backup-skill-${crypto.randomUUID()}`);
+      if (existing) await fs.rename(targetDir, backupDir);
+      try {
+        await fs.rename(stagingDir, targetDir);
+      } catch (moveError) {
+        if (existing) await fs.rename(backupDir, targetDir).catch((rollbackError) => {
+          throw Object.assign(error('skill_rollback_failed', 'Skill replacement and rollback failed.', 500), { cause: rollbackError });
+        });
+        throw moveError;
+      }
+      if (existing) await fs.rm(backupDir, { recursive: true, force: true });
       return { contentHash };
     } catch (err) {
       await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => {});
