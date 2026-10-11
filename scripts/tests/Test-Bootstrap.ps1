@@ -21,6 +21,7 @@ $tmp = Join-Path ([IO.Path]::GetTempPath()) ('bootstrap-test-' + [guid]::NewGuid
 $up = Join-Path $tmp 'upstream'
 New-Item -ItemType Directory -Path $up -Force | Out-Null
 Invoke-TestGit @('-C', $up, 'init', '-q', '-b', 'main')
+Invoke-TestGit @('-C', $up, 'config', 'core.autocrlf', 'false')
 Invoke-TestGit @('-C', $up, 'config', 'user.email', 'test@example.invalid')
 Invoke-TestGit @('-C', $up, 'config', 'user.name', 'test')
 [IO.File]::WriteAllText((Join-Path $up 'LICENSE'), "MIT License`nfixture`n")

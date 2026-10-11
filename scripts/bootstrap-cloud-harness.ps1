@@ -51,7 +51,7 @@ if (Test-Path -LiteralPath $Destination) {
 }
 else {
     New-Item -ItemType Directory -Path (Split-Path -Parent $Destination) -Force | Out-Null
-    $null = Invoke-Git @('-c', 'protocol.file.allow=always', 'clone', '--quiet', '--depth', '1', '--branch', $lock.tag, $lock.repository, $Destination)
+    $null = Invoke-Git @('-c', 'core.autocrlf=false', '-c', 'protocol.file.allow=always', 'clone', '--quiet', '--depth', '1', '--branch', $lock.tag, $lock.repository, $Destination)
     $mode = 'cloned'
 }
 
@@ -60,6 +60,14 @@ if ($head -ne $lock.commit) { Fail ("HEAD is {0} but the lock requires {1} ({2})
 $dirty = Invoke-Git @('-C', $Destination, 'status', '--porcelain', '--untracked-files=no')
 if ($dirty) { Fail "tracked files in $Destination were modified. ChatMCP requires an unmodified pinned checkout." }
 $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $Destination $lock.licenseFile)).Hash.ToLowerInvariant()
-if ($actual -ne $lock.licenseSha256.ToLowerInvariant()) { Fail "$($lock.licenseFile) hash differs from the lock; review the license before using this checkout." }
+if ($actual -ne $lock.licenseSha256.ToLowerInvariant()) {
+    $raw = [IO.File]::ReadAllText((Join-Path $Destination $lock.licenseFile))
+    $norm = $raw -replace "`r`n", "`n"
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    $normHash = [BitConverter]::ToString($hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($norm))).Replace('-', '').ToLowerInvariant()
+    if ($normHash -ne $lock.licenseSha256.ToLowerInvariant()) {
+        Fail "$($lock.licenseFile) hash differs from the lock; review the license before using this checkout."
+    }
+}
 
 Write-Host ("OK ({0}): {1} {2} @ {3}, {4} license verified, at {5}" -f $mode, $lock.name, $lock.tag, $lock.commit.Substring(0, 12), $lock.license, $Destination)
