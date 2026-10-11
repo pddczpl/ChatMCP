@@ -66,15 +66,46 @@ export function GitTab() {
   };
 
   const handleRevertCheckpoint = async (id: string) => {
-    if (!confirm('Khôi phục checkpoint này sẽ hoàn tác các thay đổi trên các file liên quan. Tiếp tục?')) return;
+    setLoading(true);
     try {
-      const res = await api.revertCheckpoint(id);
+      // 1. Preview changes before restore
+      const preview = await api.previewCheckpoint(id);
+      if (!preview || !preview.ok) {
+        throw new Error('Không thể tạo bản xem trước cho checkpoint.');
+      }
+
+      const fileCount = preview.files?.length ?? 0;
+      const modifiedCount = preview.modifiedFilesCount ?? 0;
+      const willOverwriteCount = preview.files?.filter((f: any) => f.willOverwriteNewer).length ?? 0;
+      const isPartial = Boolean(preview.partial);
+
+      let confirmMsg = `Khôi phục checkpoint này sẽ hoàn tác ${fileCount} file (${modifiedCount} file đang có thay đổi).`;
+      if (willOverwriteCount > 0) {
+        confirmMsg += `\nCẢNH BÁO: Có ${willOverwriteCount} file có sửa đổi mới hơn trên đĩa sẽ bị ghi đè!`;
+      }
+      if (isPartial) {
+        confirmMsg += '\nLƯU Ý: Đây là bản checkpoint một phần (partial limitations).';
+      }
+      confirmMsg += '\n\nBạn có chắc chắn muốn tiếp tục?';
+
+      if (!confirm(confirmMsg)) return;
+
+      // 2. Build expectedShas mapping for all files
+      const expectedShas: Record<string, string | null> = {};
+      for (const f of preview.files || []) {
+        expectedShas[f.path] = f.currentSha ?? null;
+      }
+
+      // 3. Restore with mandatory expectedShas
+      const res = await api.revertCheckpoint(id, expectedShas);
       showToast(`Đã khôi phục thành công ${res.restoredCount ?? 0} file từ checkpoint!`, 'success');
       refetchCheckpoints();
       refetchState();
       refetchGitStatus();
     } catch (err: any) {
       showToast(err.message || 'Lỗi khôi phục checkpoint', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 

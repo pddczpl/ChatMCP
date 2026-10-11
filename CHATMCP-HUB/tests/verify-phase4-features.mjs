@@ -2,11 +2,12 @@
 // Multi-User RBAC, Tenant Workspace Isolation, Enterprise Audit Trail, and Hub API integration.
 
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { PluginManager, MARKETPLACE_CATALOG, validateSkillUrl, parseSkillManifest, VERIFIED_REGISTRIES } from '../lib/plugins.mjs';
+import { PluginManager, MARKETPLACE_CATALOG, validateSkillUrl, parseSkillManifest, VERIFIED_REGISTRIES, normalizeSkillId, isPrivateOrReservedIp, safeFetchSkillManifest } from '../lib/plugins.mjs';
 import { GovernanceManager, ROLES, PERMISSIONS_MATRIX } from '../lib/governance.mjs';
 import { createHubServer } from '../hub.mjs';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
@@ -142,8 +143,60 @@ license: Apache-2.0
 ---
 OSI prompt body.`);
   assert.equal(parsedOsi.license, 'Apache-2.0');
-  assert.equal(parsedOsi.redistributable, true);
+  assert.equal(parsedOsi.redistributable, false);
   ok('parseSkillManifest rejects raw markdown and malformed YAML, verifies licenses and provenance');
+
+  // Custom ID validation: path separators, traversal, Windows devices
+  await assert.rejects(() => pm.install('../../etc/passwd'), { code: 'invalid_skill_id' });
+  await assert.rejects(() => pm.install('CON'), { code: 'invalid_skill_id' });
+  await assert.rejects(() => pm.install('nested/slash'), { code: 'invalid_skill_id' });
+  await assert.rejects(() => pm.install('COM1'), { code: 'invalid_skill_id' });
+  await assert.rejects(() => pm.uninstall('../../etc'), { code: 'invalid_skill_id' });
+  await assert.rejects(() => pm.uninstall('bad\\slash'), { code: 'invalid_skill_id' });
+  ok('PluginManager rejects traversal, path separators, and Windows reserved names on install/uninstall');
+
+  // Legacy persisted ID sanitization on load
+  const corruptState = path.join(root, 'corrupt-state');
+  await fs.mkdir(corruptState, { recursive: true });
+  await fs.writeFile(path.join(corruptState, 'installed-plugins.json'), JSON.stringify({
+    plugins: [
+      { id: '../../outside-target', name: 'Corrupt Traversal' },
+      { id: 'valid-recovered', name: 'Valid Plugin' },
+    ],
+  }), 'utf8');
+  const corruptPm = new PluginManager({ stateDir: corruptState });
+  await corruptPm.load();
+  assert.equal(corruptPm.installed().some((p) => p.id === '../../outside-target'), false);
+  assert.equal(corruptPm.installed().some((p) => p.id === 'valid-recovered'), true);
+  ok('PluginManager drops legacy traversal IDs and loads valid plugins safely');
+
+  // Mock DNS-based SSRF and Redirect SSRF rejection
+  await assert.rejects(
+    () => safeFetchSkillManifest('http://rebinding.test/skill.json', {
+      dnsResolver: async () => ({ url: 'http://rebinding.test/skill.json', ip: '127.0.0.1' }),
+    }),
+    { code: 'ssrf_blocked' }
+  );
+  await assert.rejects(
+    () => safeFetchSkillManifest('http://metadata.test/skill.json', {
+      dnsResolver: async () => ({ url: 'http://metadata.test/skill.json', ip: '169.254.169.254' }),
+    }),
+    { code: 'ssrf_blocked' }
+  );
+  await assert.rejects(
+    () => safeFetchSkillManifest('https://public-gateway.test/skill.json', {
+      dnsResolver: async (u) => {
+        if (u.includes('10.0.0.1') || u.includes('private')) throw Object.assign(new Error('ssrf'), { code: 'ssrf_blocked' });
+        return { url: u, ip: '93.184.216.34' };
+      },
+      fetchFn: async () => ({
+        status: 302,
+        headers: new Map([['location', 'http://10.0.0.1/admin/skill.json']]),
+      }),
+    }),
+    { code: 'ssrf_blocked' }
+  );
+  ok('safeFetchSkillManifest stops DNS rebinding and redirect SSRF to private/metadata IPs');
 
   // Multi-file directory installation & skills-lock.json
   const skillDir = path.join(state, 'skills', 'sqlite-mcp-explorer');
@@ -159,9 +212,16 @@ OSI prompt body.`);
   const gitSelected = pm2.selectSkillsForTask({ prompt: 'Please commit my changes using git', limit: 2, tokenBudget: 4000 });
   assert.ok(gitSelected.length > 0);
   assert.equal(gitSelected[0].id, 'git-workflow-pro');
-  const boundedSelected = pm2.selectSkillsForTask({ prompt: 'General coding task', limit: 1, tokenBudget: 100 });
-  assert.ok(boundedSelected.length <= 1);
-  ok('selectSkillsForTask dynamically ranks skills and respects token budget');
+
+  // Unrelated prompt selects nothing
+  const unrelatedSelected = pm2.selectSkillsForTask({ prompt: 'Tell me a funny joke about dolphins' });
+  assert.deepEqual(unrelatedSelected, []);
+
+  // Oversized first skill does not exceed context budget
+  const budgetLimited = pm2.selectSkillsForTask({ prompt: 'git commit changes', tokenBudget: 150 });
+  assert.ok(budgetLimited.length > 0);
+  assert.ok(budgetLimited[0].systemPrompt.length <= 150);
+  ok('selectSkillsForTask selects nothing when unrelated and truncates oversized first skill');
 }
 
 // ----------------------------------------------------------------------------------------------------
@@ -258,8 +318,7 @@ console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
     stateDir: state,
     stateDirectory: state,
     secrets: [],
-    state: () => ({ workspace: work, services: { proxy: { state: 'ready' }, desktop: { state: 'ready' } } }),
-    studio: new StudioWorkspace({ manager: { workspace: work, secrets: [] }, directory: path.join(state, 'studio-p4') }),
+    studio: null,
     permissions: null,
     terminal: null,
     delegates: null,
@@ -268,6 +327,7 @@ console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
     preview: null,
     log: () => {},
   };
+  dummyManager.studio = new StudioWorkspace({ manager: dummyManager, directory: path.join(state, 'studio-p4') });
 
   const hubServer = createHubServer(dummyManager, {
     port: hubPort,
@@ -383,9 +443,29 @@ console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
   assert.equal(dryRes.body.dryRun, true);
   assert.equal(await fs.readFile(path.join(work, 'test-phase4-doc.txt'), 'utf8'), 'version 2 modified\n');
 
-  // Real safe restore
+  // Missing expectedShas rejection
+  const missingShaRes = await hubRequest('POST', '/api/studio/restore-checkpoint', {
+    checkpointId: cp.id,
+  });
+  assert.equal(missingShaRes.status, 400);
+  assert.equal(missingShaRes.body.code, 'missing_expected_shas');
+
+  // Active task guard rejection
+  dummyManager.taskEngine = { state: () => ({ activeTaskId: 'active-agent-task-99' }) };
+  const busyRes = await hubRequest('POST', '/api/studio/restore-checkpoint', {
+    checkpointId: cp.id,
+    expectedShas: { 'test-phase4-doc.txt': 'placeholder-sha' },
+  });
+  assert.equal(busyRes.status, 409);
+  assert.equal(busyRes.body.code, 'task_in_progress');
+  dummyManager.taskEngine = null;
+
+  // Real safe restore with valid expectedShas
+  const currentBytes = await fs.readFile(path.join(work, 'test-phase4-doc.txt'));
+  const currentSha = crypto.createHash('sha256').update(currentBytes).digest('hex');
   const restRes = await hubRequest('POST', '/api/studio/restore-checkpoint', {
     checkpointId: cp.id,
+    expectedShas: { 'test-phase4-doc.txt': currentSha },
   });
   assert.equal(restRes.status, 200);
   assert.equal(restRes.body.ok, true);

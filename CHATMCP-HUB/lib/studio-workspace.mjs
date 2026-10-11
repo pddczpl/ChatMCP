@@ -280,7 +280,10 @@ export class StudioWorkspace {
 
   async restoreCheckpoint({ checkpointId, force = false, expectedShas = null, dryRun = false } = {}) {
     if (!checkpointId || typeof checkpointId !== 'string') throw fail('bad_checkpoint_id', 'Cần ID checkpoint hợp lệ.');
-    if (this.manager?.isTaskRunning?.() || this.manager?.taskEngine?.state?.()?.activeTaskId || this.manager?.agent?.state?.()?.activeTaskId) {
+    const activeTaskId = this.manager?.taskEngine?.state?.()?.activeTaskId
+      || this.manager?.agent?.state?.()?.activeTaskId
+      || (typeof this.manager?.state === 'function' ? this.manager.state()?.agent?.activeTaskId : null);
+    if (activeTaskId) {
       throw fail('task_in_progress', 'Không thể khôi phục checkpoint khi agent đang thực thi tác vụ trên workspace.', 409);
     }
     const meta = await readJson(path.join(this.#checkpointDirectory(checkpointId), 'meta.json'));
@@ -289,6 +292,12 @@ export class StudioWorkspace {
     }
     if (!Array.isArray(meta.files) || !meta.files.length) {
       throw fail('empty_checkpoint', 'Bản checkpoint không chứa file nào để khôi phục.', 400);
+    }
+
+    if (!dryRun) {
+      if (!expectedShas || typeof expectedShas !== 'object') {
+        throw fail('missing_expected_shas', 'Tham số expectedShas là bắt buộc cho tất cả các file bị ảnh hưởng khi khôi phục checkpoint.', 400);
+      }
     }
 
     // Phase 1: Complete preflight validation across all files
@@ -324,9 +333,12 @@ export class StudioWorkspace {
       const currentSha = currentBytes ? sha(currentBytes) : null;
 
       // Current content SHA verification / stale state rejection
-      if (expectedShas && typeof expectedShas === 'object' && Object.hasOwn(expectedShas, item.path)) {
+      if (!dryRun) {
+        if (!Object.hasOwn(expectedShas, item.path)) {
+          throw fail('missing_expected_shas', `Thiếu expected_sha cho file "${item.path}". Hãy gọi previewCheckpoint trước khi khôi phục.`, 400);
+        }
         if (currentSha !== expectedShas[item.path]) {
-          throw fail('stale_state', `File "${item.path}" đã thay đổi kể từ lần xem preview (SHA hiện tại ${currentSha?.slice(0, 8) || 'deleted'} khác với SHA mong đợi ${expectedShas[item.path]?.slice(0, 8)}). Hãy tải lại review trước khi khôi phục.`, 409);
+          throw fail('stale_state', `File "${item.path}" đã thay đổi kể từ lần xem preview (SHA hiện tại ${currentSha?.slice(0, 8) || 'deleted'} khác với SHA mong đợi ${expectedShas[item.path]?.slice(0, 8) || 'none'}). Hãy tải lại review trước khi khôi phục.`, 409);
         }
       }
 
@@ -439,6 +451,7 @@ export class StudioWorkspace {
       undoCheckpointId: undoId,
       partial: Boolean(meta.partial),
       limitations: meta.limitations || [],
+      warnings: meta.partial ? ['Bản checkpoint này là partial (chỉ chứa một phần file của workspace). Hãy kiểm tra kỹ sau khi khôi phục.'] : [],
     };
   }
   async plan({taskId,operation='get',items=[],title=''}={}){
