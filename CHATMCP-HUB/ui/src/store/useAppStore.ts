@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 export type Theme = 'dark' | 'light' | 'system';
 export type Language = 'vi' | 'en';
-export type InspectorTab = 'activity' | 'files' | 'git' | 'terminal' | 'intelligence' | 'preview' | 'plan' | 'skills' | 'settings';
+export type InspectorTab = 'activity' | 'files' | 'git' | 'terminal' | 'intelligence' | 'preview' | 'plan' | 'skills' | 'orchestrator' | 'settings';
 
 interface ToastState {
   message: string;

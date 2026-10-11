@@ -11,7 +11,6 @@ const SOURCES=Object.freeze([
   {id:'openai',repo:'openai/skills',prefix:'skills/.curated'},
   {id:'vercel',repo:'vercel-labs/agent-skills',prefix:'skills'},
   {id:'github',repo:'github/awesome-copilot',prefix:'skills'},
-  {id:'trailofbits',repo:'trailofbits/skills',prefix:'skills'},
   {id:'cloudflare',repo:'cloudflare/skills',prefix:'skills'},
 ]);
 const github=(p)=>'https://api.github.com/repos/'+p;
@@ -44,13 +43,13 @@ export class GitHubSkillRegistry {
             try {
               const {text}=await this.transport(raw(source.repo,sha,folder+'/SKILL.md'),{maxBytes:128*1024});
               const parsed=parseSkillManifest(text,folder+'/SKILL.md');
-              const id=normalizeSkillId(source.id+'-'+parsed.id).slice(0,64);
+              const id=normalizeSkillId((source.id+'-'+parsed.id).slice(0,64));
               found.push({key:source.id+':'+folder,sourceId:source.id,id,name:parsed.name,description:parsed.description||'',repo:source.repo,revision:sha,folder,manifestPath:folder+'/SKILL.md',license:parsed.license||'unknown',verifiedLicense:null,redistributable:false});
             }catch{ /* No valid skill manifest in this subdirectory. */ }
           }
         }catch(e){failures.push({source:source.id,error:String(e.message||e).slice(0,180)});}
       }
-      const updated=new Map(sourceId?this.entries.filter(x=>x.sourceId!==sourceId):[]);
+      const updated=new Map((sourceId?this.entries.filter(x=>x.sourceId!==sourceId):[]).map(x=>[x.key,x]));
       for(const item of found)updated.set(item.key,item);
       this.entries=[...updated.values()].slice(0,300);
       this.updatedAt=new Date().toISOString();
@@ -66,6 +65,7 @@ export class GitHubSkillRegistry {
     const {text}=await this.transport(raw(entry.repo,entry.revision,entry.manifestPath),{maxBytes:128*1024});
     const parsed=parseSkillManifest(text,entry.manifestPath);
     const id=normalizeSkillId(entry.id);
+    await this.pluginManager.load();
     const installed=await this.pluginManager.install(id,{name:parsed.name,description:parsed.description,version:parsed.version,systemPrompt:parsed.systemPrompt,license:parsed.license,author:parsed.author,category:'skills',tools:parsed.tools});
     // Imported instructions are lower-trust; no script execution or verified-license status is implied.
     return {...installed,sourceUrl:raw(entry.repo,entry.revision,entry.manifestPath),revision:entry.revision,readOnlyImport:true};
