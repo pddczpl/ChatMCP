@@ -51,7 +51,24 @@ Khác với các ứng dụng web thông thường đòi hỏi người dùng ph
 
 ---
 
-### Cách 1: Cài đặt phím tắt Desktop, Start Menu & Đăng ký Windows (Khuyên dùng)
+### Cách 1: Sử dụng Bộ cài đặt Thương mại ChatMCPSetup.exe (Tiêu chuẩn Thương mại)
+
+ChatMCP cung cấp bộ cài đặt dạng file EXE duy nhất `ChatMCPSetup.exe` tương tự như các ứng dụng thương mại hàng đầu (VS Code, Cursor, Discord):
+
+1. **Đóng gói bộ cài:**
+   ```powershell
+   .\scripts\Build-Installer.ps1
+   ```
+   Lệnh trên sẽ tạo ra file cài đặt standalone tại: **`dist\ChatMCPSetup.exe`** (~2 MB).
+2. **Cài đặt:**
+   - Nhấp đúp chuột vào **`ChatMCPSetup.exe`**.
+   - Giao diện cài đặt thương mại sẽ mở lên với logo chính thức và đường dẫn mặc định `%LOCALAPPDATA%\Programs\ChatMCP`.
+   - Chọn tùy chọn tạo shortcut Desktop, Start Menu -> Bấm **Install**.
+   - Trình cài đặt tự động trích xuất các thành phần, cấu hình `Uninstall.exe` và đăng ký vào Windows Apps trong 2 giây.
+
+---
+
+### Cách 2: Cài đặt phím tắt Desktop, Start Menu & Đăng ký Windows (Dành cho Developer)
 
 Mở PowerShell tại thư mục gốc của repository và chạy:
 

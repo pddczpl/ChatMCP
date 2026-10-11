@@ -30,7 +30,7 @@ secrets.*.json
 /chatmcp-hub-before-*/
 /chatmcp-state-backup-*/
 /RESCUE-*/
-/*.zip
+*.zip
 **/*.bak
 
 # --- ChatMCP runtime state: transcripts, pairing, permissions, logs ---------

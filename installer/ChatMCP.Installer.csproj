@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationIcon>..\assets\icons\chatmcp.ico</ApplicationIcon>
+    <AssemblyName>ChatMCPSetup</AssemblyName>
+    <RootNamespace>ChatMCP.Installer</RootNamespace>
+    <Version>2.3.0</Version>
+    <Authors>Phan Danh Đạt</Authors>
+    <Company>ChatMCP Project</Company>
+    <Product>ChatMCP Studio Setup</Product>
+    <Description>ChatMCP Studio - Commercial Desktop Application Installer</Description>
+  </PropertyGroup>
+
+  <ItemGroup Condition="Exists('payload.zip')">
+    <EmbeddedResource Include="payload.zip" />
+  </ItemGroup>
+
+</Project>
