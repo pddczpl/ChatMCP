@@ -98,6 +98,15 @@ $stagingScripts = Join-Path $stagingDir 'scripts'
 New-Item -ItemType Directory -Path $stagingScripts -Force | Out-Null
 Copy-Item -Path (Join-Path $repoRoot 'scripts\*') -Destination $stagingScripts -Recurse -Force
 
+# Bundle portable Node.js runtime so setup runs on any machine without Node.js installed
+$stagingNode = Join-Path $stagingDir 'runtimes\node'
+New-Item -ItemType Directory -Path $stagingNode -Force | Out-Null
+$sysNode = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
+if ($sysNode -and (Test-Path -LiteralPath $sysNode -PathType Leaf)) {
+    Copy-Item -LiteralPath $sysNode -Destination (Join-Path $stagingNode 'node.exe') -Force
+    Write-Host "  [OK] Bundled portable Node.js runtime." -ForegroundColor Green
+}
+
 # Compress staging directory to installer/payload.zip
 $payloadZip = Join-Path $installerDir 'payload.zip'
 if (Test-Path -LiteralPath $payloadZip) {

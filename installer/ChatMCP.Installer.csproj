@@ -17,7 +17,9 @@
   </PropertyGroup>
 
   <ItemGroup Condition="Exists('payload.zip')">
-    <EmbeddedResource Include="payload.zip" />
+    <EmbeddedResource Include="payload.zip">
+      <LogicalName>ChatMCP.Installer.payload.zip</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>

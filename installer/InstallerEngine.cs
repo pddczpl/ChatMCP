@@ -35,13 +35,37 @@ namespace ChatMCP.Installer
 
             // Extract embedded payload
             var assembly = Assembly.GetExecutingAssembly();
-            var resourceName = "ChatMCP.Installer.payload.zip";
-            using (var stream = assembly.GetManifestResourceStream(resourceName))
+            Stream? stream = assembly.GetManifestResourceStream("ChatMCP.Installer.payload.zip");
+            if (stream == null)
+            {
+                foreach (var name in assembly.GetManifestResourceNames())
+                {
+                    if (name.EndsWith("payload.zip", StringComparison.OrdinalIgnoreCase))
+                    {
+                        stream = assembly.GetManifestResourceStream(name);
+                        break;
+                    }
+                }
+            }
+
+            FileStream? fileStreamToDispose = null;
+            if (stream == null)
+            {
+                var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                var localZip = Path.Combine(baseDir, "payload.zip");
+                if (File.Exists(localZip))
+                {
+                    fileStreamToDispose = File.OpenRead(localZip);
+                    stream = fileStreamToDispose;
+                }
+            }
+
+            try
             {
                 if (stream != null)
                 {
                     reportProgress(15, "Extracting application components from installer payload...");
-                    using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
+                    using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
                     var totalEntries = archive.Entries.Count;
                     var processed = 0;
 
@@ -70,9 +94,14 @@ namespace ChatMCP.Installer
                 else
                 {
                     // Fallback in case of local repository installation
-                    reportProgress(20, "Copying local files...");
+                    reportProgress(20, "Extracting components from local staging...");
                     CopyLocalPayload(targetDir, reportProgress);
                 }
+            }
+            finally
+            {
+                stream?.Dispose();
+                fileStreamToDispose?.Dispose();
             }
 
             // Copy this installer executable as Uninstall.exe into target directory

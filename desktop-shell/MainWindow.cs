@@ -157,9 +157,12 @@ namespace ChatMCP.Desktop
                 throw new FileNotFoundException($"Hub entrypoint not found: {hubScript}");
             }
 
+            var bundledNode = Path.Combine(_repoRoot, "runtimes", "node", "node.exe");
+            var nodeExe = File.Exists(bundledNode) ? bundledNode : "node.exe";
+
             var psi = new ProcessStartInfo
             {
-                FileName = "node.exe",
+                FileName = nodeExe,
                 Arguments = $"\"{hubScript}\"",
                 WorkingDirectory = Path.Combine(_repoRoot, "CHATMCP-HUB"),
                 UseShellExecute = false,
