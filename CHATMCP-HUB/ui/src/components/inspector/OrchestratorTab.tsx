@@ -41,6 +41,7 @@ export function OrchestratorTab(){
     </div>)}
     <div className="flex flex-wrap gap-2">
       <Button size="sm" variant="outline" disabled={nodes.length>=8||busy} onClick={()=>setNodes(old=>[...old,{id:'worker'+(old.length+1),role:'researcher',question:'Inspect a focused concern in the workspace.',dependsOn:[]}])}>Thêm agent</Button>
+      {busy&&<Button size="sm" variant="danger" onClick={async()=>{try{await api.cancelOrchestrator();showToast('Đã yêu cầu hủy orchestration','info');}catch(e:any){showToast(e.message||'Cancel failed','error');}}}>Dừng agents</Button>}
       <Button size="sm" variant="primary" disabled={busy} onClick={async()=>{
         setBusy(true);try{const answer=await api.orchestrateAgents(nodes,concurrency);setResult(answer);showToast('Orchestration: '+answer.status,answer.status==='completed'?'success':'warning');await refetch();}
         catch(e:any){showToast(e.message||'Orchestration failed','error');}
@@ -50,6 +51,7 @@ export function OrchestratorTab(){
     <div className="space-y-2">
       <h4 className="font-semibold">Kết quả gần nhất</h4>
       {(result||latest?.last)?.workers?.map((w:any)=><div key={w.id} className="border border-[var(--line)] rounded p-2"><div className="font-semibold">{w.id} · {w.role||'researcher'} · {w.status}</div><p className="text-[var(--muted)] whitespace-pre-wrap mt-1">{w.summary||w.error||'Chờ chạy...'}</p></div>)}
+      {(result||latest?.last)?.conclusion&&<div className="border border-[var(--line)] rounded p-2"><div className="font-semibold">Coordinator synthesis</div><p className="text-[var(--muted)] whitespace-pre-wrap">{(result||latest?.last)?.conclusion}</p></div>}
       {(result||latest?.last)?.error&&<p role="alert" className="text-red-400">{(result||latest?.last)?.error}</p>}
     </div>
   </div>;

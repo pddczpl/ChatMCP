@@ -541,7 +541,9 @@ console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
   ]});
   assert.equal(outcome.status,'completed',JSON.stringify(outcome));
   assert.equal(outcome.workers.length,3);
-  assert.equal(providerCalls.length,3);
+  assert.equal(providerCalls.length,4);
+  assert.equal(providerCalls[3].role,'coordinator');
+  assert.ok(outcome.conclusion.includes('coordinator report'));
   assert.equal(providerCalls[2].dependencies.length,2);
   assert.ok(providerCalls[2].dependencies.every(x=>x.summary.includes('report')));
   await assert.rejects(()=>delegates.orchestrate({nodes:[

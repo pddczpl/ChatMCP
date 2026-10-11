@@ -118,6 +118,7 @@ export const api = {
   orchestrateAgents: (nodes: {id:string;role:string;question:string;dependsOn?:string[]}[],maxConcurrency=3) =>
     request<any>('/api/studio/delegates/orchestrate',{method:'POST',body:JSON.stringify({nodes,maxConcurrency})}),
   getOrchestrator: () => request<any>('/api/studio/delegates'),
+  cancelOrchestrator: () => request<any>('/api/studio/delegates/cancel',{method:'POST',body:'{}'}),
 
   // GitHub skills registry
   getSkillRegistry: (query='') => request<{sources:any[];skills:any[]}>(`/api/plugins/registry?query=${encodeURIComponent(query)}`),
