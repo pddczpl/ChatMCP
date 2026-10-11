@@ -402,7 +402,7 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
           case '/api/ai/profiles/upsert': result = { profile: await aiProfiles.upsert(payload) }; break;
           case '/api/ai/profiles/delete': result = await aiProfiles.delete(payload.id); break;
           case '/api/ai/profiles/default': result = await aiProfiles.setDefault(payload.id); break;
-          case '/api/plugins/install': result = { installed: await pluginManager.install(payload.id, payload.custom) }; break;
+          case '/api/plugins/install': result = { installed: await pluginManager.install(payload.id, payload.custom, payload.url) }; break;
           case '/api/plugins/uninstall': result = await pluginManager.uninstall(payload.id); break;
           case '/api/plugins/toggle': result = await pluginManager.toggle(payload.id, payload.enabled); break;
           case '/api/governance/rbac/verify': result = { allowed: governance.checkPermission(payload.role, payload.action), role: payload.role, action: payload.action }; break;

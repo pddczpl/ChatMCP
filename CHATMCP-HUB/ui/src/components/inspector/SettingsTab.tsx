@@ -178,7 +178,9 @@ export function SettingsTab() {
           <Server className="w-3.5 h-3.5" />
           <span>{t('backend_status')}</span>
         </div>
-        <div className="text-[var(--faint)]">{t('backend_host')}</div>
+        <div className="text-[var(--faint)]">
+          Host: {window.location.host || '127.0.0.1:3007'} ({window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost' ? 'Local Daemon' : 'Cloud Remote / Render'})
+        </div>
         <div className="text-[var(--faint)]">{t('backend_csp')}</div>
         <div className="text-[var(--faint)]">{t('backend_ok')}</div>
       </div>

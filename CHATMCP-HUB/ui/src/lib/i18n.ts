@@ -110,6 +110,11 @@ export const translations = {
     skill_tools_included: 'Công cụ tích hợp:',
     skill_add_online: 'Cài đặt Skill Online',
     skill_add_online_desc: 'Cài đặt kỹ năng từ URL / Manifest trực tuyến hoặc tự định nghĩa',
+    skill_install_url_tab: 'Từ URL trực tuyến (Online)',
+    skill_manual_tab: 'Tự định nghĩa (Custom)',
+    skill_url_label: 'URL Manifest trực tuyến (.json)',
+    skill_url_placeholder: 'vd: https://raw.githubusercontent.com/.../skill-manifest.json',
+    skill_fetch_btn: 'Tải & Cài đặt trực tuyến',
     skill_manifest_id: 'Mã Skill (ID)',
     skill_manifest_name: 'Tên Skill',
     skill_manifest_desc: 'Mô tả tính năng',
@@ -119,9 +124,11 @@ export const translations = {
     // Preview Tab
     preview_url_placeholder: 'http://localhost:3000 hoặc http://localhost:5173...',
     preview_reload: 'Làm mới xem trước',
-    preview_new_tab: 'Mở tab mới',
+    preview_new_tab: 'Tab mới trong App',
+    preview_tab_new: 'Tab mới',
+    preview_tab_close: 'Đóng tab',
     preview_notice_loopback: 'Xem trước ứng dụng web chạy trên local server (cổng 3000, 5173, 8000...)',
-    preview_external_note: 'Các trang bên ngoài (như google.com) có thể chặn nhúng iframe. Dùng nút Mở tab mới ↗ để truy cập.',
+    preview_external_note: 'Các trang bên ngoài (như Google) gửi header X-Frame-Options cấm nhúng iframe. Ứng dụng dev cục bộ (localhost) hoạt động 100% không bị chặn.',
     preview_quick_ports: 'Cổng nhanh:',
 
     // Activity, Files, Git, Terminal, Plan
@@ -257,6 +264,11 @@ export const translations = {
     skill_tools_included: 'Included tools:',
     skill_add_online: 'Install Online Skill',
     skill_add_online_desc: 'Install skill from an online URL / manifest or custom definition',
+    skill_install_url_tab: 'From Online URL',
+    skill_manual_tab: 'Custom Definition',
+    skill_url_label: 'Online Manifest URL (.json)',
+    skill_url_placeholder: 'e.g. https://raw.githubusercontent.com/.../skill-manifest.json',
+    skill_fetch_btn: 'Fetch & Install Online',
     skill_manifest_id: 'Skill ID',
     skill_manifest_name: 'Skill Name',
     skill_manifest_desc: 'Description',
@@ -266,9 +278,11 @@ export const translations = {
     // Preview Tab
     preview_url_placeholder: 'http://localhost:3000 or http://localhost:5173...',
     preview_reload: 'Reload Preview',
-    preview_new_tab: 'Open in new tab',
+    preview_new_tab: 'New In-App Tab',
+    preview_tab_new: 'New Tab',
+    preview_tab_close: 'Close tab',
     preview_notice_loopback: 'Preview web apps running on local server (ports 3000, 5173, 8000...)',
-    preview_external_note: 'External sites (like google.com) may block iframe embedding. Use Open in new tab ↗ instead.',
+    preview_external_note: 'External secured websites (like Google) send X-Frame-Options headers blocking iframes. Localhost dev apps run 100% unrestricted.',
     preview_quick_ports: 'Quick ports:',
 
     // Activity, Files, Git, Terminal, Plan

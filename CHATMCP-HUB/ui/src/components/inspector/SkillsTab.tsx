@@ -29,6 +29,8 @@ export function SkillsTab() {
   const [showAddModal, setShowAddModal] = useState(false);
 
   // Form for custom/online skill
+  const [installMode, setInstallMode] = useState<'url' | 'manual'>('url');
+  const [manifestUrl, setManifestUrl] = useState('');
   const [customId, setCustomId] = useState('');
   const [customName, setCustomName] = useState('');
   const [customDesc, setCustomDesc] = useState('');
@@ -69,7 +71,7 @@ export function SkillsTab() {
     setActionLoading(id);
     try {
       await api.uninstallPlugin(id);
-      showToast(`Đã gỡ cài đặt: ${id}`, 'info');
+      showToast(`Đã gỡ cài đặt ${id}`, 'info');
       refetch();
     } catch (err: any) {
       showToast(err.message || 'Lỗi gỡ plugin', 'error');
@@ -93,6 +95,29 @@ export function SkillsTab() {
 
   const handleAddCustomSkill = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (installMode === 'url') {
+      if (!manifestUrl.trim() || !/^https?:\/\//i.test(manifestUrl.trim())) {
+        showToast('Vui lòng nhập URL HTTP/HTTPS hợp lệ', 'warning');
+        return;
+      }
+      setActionLoading('custom');
+      try {
+        const res: any = await api.request('/api/plugins/install', {
+          method: 'POST',
+          body: JSON.stringify({ url: manifestUrl.trim() }),
+        });
+        showToast(`Đã tải và cài đặt thành công skill: ${res?.installed?.name || manifestUrl}`, 'success');
+        setShowAddModal(false);
+        setManifestUrl('');
+        refetch();
+      } catch (err: any) {
+        showToast(err.message || 'Lỗi tải manifest online từ URL', 'error');
+      } finally {
+        setActionLoading(null);
+      }
+      return;
+    }
+
     if (!customId.trim() || !customName.trim()) {
       showToast('Vui lòng nhập ID và tên skill', 'warning');
       return;
@@ -327,60 +352,107 @@ export function SkillsTab() {
               {t('skill_add_online_desc')}
             </p>
 
-            <form onSubmit={handleAddCustomSkill} className="space-y-2.5 text-xs">
-              <div>
-                <label className="text-[11px] text-[var(--muted)] block mb-1">
-                  {t('skill_manifest_id')}
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={customId}
-                  onChange={(e) => setCustomId(e.target.value)}
-                  placeholder="vd: online-web-scraper"
-                  className="w-full bg-[var(--surface)] text-[var(--text)] font-mono text-xs rounded px-2.5 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
-                />
+            <form onSubmit={handleAddCustomSkill} className="space-y-3 text-xs">
+              {/* Dual Mode Switcher */}
+              <div className="grid grid-cols-2 gap-1 p-0.5 rounded-lg bg-[var(--surface)] border border-[var(--line)]">
+                <button
+                  type="button"
+                  onClick={() => setInstallMode('url')}
+                  className={`py-1 text-xs rounded-md transition-all font-medium ${
+                    installMode === 'url'
+                      ? 'bg-sky-500/20 text-sky-400 font-semibold'
+                      : 'text-[var(--muted)] hover:text-[var(--text)]'
+                  }`}
+                >
+                  {t('skill_install_url_tab')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInstallMode('manual')}
+                  className={`py-1 text-xs rounded-md transition-all font-medium ${
+                    installMode === 'manual'
+                      ? 'bg-sky-500/20 text-sky-400 font-semibold'
+                      : 'text-[var(--muted)] hover:text-[var(--text)]'
+                  }`}
+                >
+                  {t('skill_manual_tab')}
+                </button>
               </div>
 
-              <div>
-                <label className="text-[11px] text-[var(--muted)] block mb-1">
-                  {t('skill_manifest_name')}
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={customName}
-                  onChange={(e) => setCustomName(e.target.value)}
-                  placeholder="vd: Web Scraping Pro"
-                  className="w-full bg-[var(--surface)] text-[var(--text)] text-xs rounded px-2.5 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
-                />
-              </div>
+              {installMode === 'url' ? (
+                <div className="space-y-2 py-1">
+                  <label className="text-[11px] text-[var(--muted)] block">
+                    {t('skill_url_label')}
+                  </label>
+                  <input
+                    type="url"
+                    required
+                    value={manifestUrl}
+                    onChange={(e) => setManifestUrl(e.target.value)}
+                    placeholder={t('skill_url_placeholder')}
+                    className="w-full bg-[var(--surface)] text-[var(--text)] font-mono text-xs rounded px-2.5 py-2 border border-[var(--line)] focus:outline-none focus:border-sky-500"
+                  />
+                  <p className="text-[10px] text-[var(--faint)] leading-relaxed">
+                    Hệ thống backend sẽ tự động kết nối mạng HTTP/HTTPS để tải và cài đặt tệp manifest trực tuyến vào agent.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-[11px] text-[var(--muted)] block mb-1">
+                      {t('skill_manifest_id')}
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={customId}
+                      onChange={(e) => setCustomId(e.target.value)}
+                      placeholder="vd: online-web-scraper"
+                      className="w-full bg-[var(--surface)] text-[var(--text)] font-mono text-xs rounded px-2.5 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
 
-              <div>
-                <label className="text-[11px] text-[var(--muted)] block mb-1">
-                  {t('skill_manifest_desc')}
-                </label>
-                <input
-                  type="text"
-                  value={customDesc}
-                  onChange={(e) => setCustomDesc(e.target.value)}
-                  placeholder="vd: Tự động trích xuất nội dung web từ URL..."
-                  className="w-full bg-[var(--surface)] text-[var(--text)] text-xs rounded px-2.5 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
-                />
-              </div>
+                  <div>
+                    <label className="text-[11px] text-[var(--muted)] block mb-1">
+                      {t('skill_manifest_name')}
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={customName}
+                      onChange={(e) => setCustomName(e.target.value)}
+                      placeholder="vd: Web Scraping Pro"
+                      className="w-full bg-[var(--surface)] text-[var(--text)] text-xs rounded px-2.5 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
 
-              <div>
-                <label className="text-[11px] text-[var(--muted)] block mb-1">
-                  {t('skill_manifest_prompt')}
-                </label>
-                <textarea
-                  rows={3}
-                  value={customPrompt}
-                  onChange={(e) => setCustomPrompt(e.target.value)}
-                  placeholder="Hướng dẫn cho AI khi kích hoạt kỹ năng này..."
-                  className="w-full bg-[var(--surface)] text-[var(--text)] text-xs rounded px-2.5 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
-                />
-              </div>
+                  <div>
+                    <label className="text-[11px] text-[var(--muted)] block mb-1">
+                      {t('skill_manifest_desc')}
+                    </label>
+                    <input
+                      type="text"
+                      value={customDesc}
+                      onChange={(e) => setCustomDesc(e.target.value)}
+                      placeholder="vd: Tự động trích xuất nội dung web từ URL..."
+                      className="w-full bg-[var(--surface)] text-[var(--text)] text-xs rounded px-2.5 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] text-[var(--muted)] block mb-1">
+                      {t('skill_manifest_prompt')}
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={customPrompt}
+                      onChange={(e) => setCustomPrompt(e.target.value)}
+                      placeholder="Hướng dẫn cho AI khi kích hoạt kỹ năng này..."
+                      className="w-full bg-[var(--surface)] text-[var(--text)] text-xs rounded px-2.5 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+                </>
+              )}
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--line-subtle)]">
                 <Button
@@ -397,7 +469,7 @@ export function SkillsTab() {
                   className="gap-1.5"
                 >
                   {actionLoading === 'custom' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  <span>{t('skill_btn_install')}</span>
+                  <span>{installMode === 'url' ? t('skill_fetch_btn') : t('skill_btn_install')}</span>
                 </Button>
               </div>
             </form>

@@ -118,6 +118,16 @@ namespace ChatMCP.Desktop
                 _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
                 _webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
 
+                // Intercept new window requests: keep everything inside ChatMCP app
+                _webView.CoreWebView2.NewWindowRequested += (s, e) =>
+                {
+                    e.Handled = true;
+                    var safeUrl = e.Uri.Replace("'", "\\'");
+                    _webView.CoreWebView2.ExecuteScriptAsync(
+                        $"window.dispatchEvent(new CustomEvent('chatmcp:open-in-app-tab', {{ detail: {{ url: '{safeUrl}' }} }}));"
+                    );
+                };
+
                 // Show WebView2 as soon as DOM is ready or navigation completes
                 _webView.CoreWebView2.DOMContentLoaded += (s, e) =>
                 {

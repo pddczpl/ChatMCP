@@ -171,11 +171,57 @@ export class PluginManager {
   }
 
   /**
-   * Installs a plugin from marketplace or custom definition.
+   * Installs a plugin from marketplace, custom definition, or remote online URL.
    * @param {string} pluginId
    * @param {object} [customDefinition]
+   * @param {string} [manifestUrl]
    */
-  async install(pluginId, customDefinition = null) {
+  async install(pluginId, customDefinition = null, manifestUrl = null) {
+    const rawTarget = manifestUrl || (customDefinition && customDefinition.url) || pluginId;
+    const isOnlineUrl = typeof rawTarget === 'string' && /^https?:\/\//i.test(rawTarget.trim());
+
+    if (isOnlineUrl) {
+      const urlToFetch = rawTarget.trim();
+      let remoteData;
+      try {
+        const res = await fetch(urlToFetch, { signal: AbortSignal.timeout(10000) });
+        if (!res.ok) {
+          throw error('fetch_manifest_failed', `Không thể tải manifest từ URL (${urlToFetch}): HTTP ${res.status}`);
+        }
+        remoteData = await res.json();
+      } catch (fetchErr) {
+        if (fetchErr.code && fetchErr.statusCode) throw fetchErr;
+        throw error('fetch_network_error', `Lỗi tải manifest online: ${fetchErr.message}`);
+      }
+
+      if (!remoteData || typeof remoteData !== 'object') {
+        throw error('invalid_manifest', 'Nội dung trả về từ URL không phải JSON hợp lệ.');
+      }
+
+      const id = String(remoteData.id || customDefinition?.id || 'online-skill').toLowerCase().trim();
+      if (this.installedPlugins.has(id)) {
+        throw error('already_installed', `Kỹ năng "${id}" đã được cài đặt.`, 409);
+      }
+
+      const installedEntry = {
+        id,
+        name: String(remoteData.name || customDefinition?.name || id).trim(),
+        version: String(remoteData.version || '1.0.0'),
+        category: String(remoteData.category || 'online'),
+        author: String(remoteData.author || 'Online Manifest'),
+        description: String(remoteData.description || ''),
+        tools: Array.isArray(remoteData.tools) ? remoteData.tools : [],
+        systemPrompt: String(remoteData.systemPrompt || remoteData.prompt || ''),
+        sourceUrl: urlToFetch,
+        enabled: true,
+        installedAt: new Date().toISOString(),
+      };
+
+      this.installedPlugins.set(id, installedEntry);
+      await this.save();
+      return installedEntry;
+    }
+
     if (!pluginId || typeof pluginId !== 'string') {
       throw error('invalid_plugin_id', 'Mã plugin không hợp lệ.');
     }
