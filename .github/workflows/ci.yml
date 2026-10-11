@@ -66,6 +66,12 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Typecheck and production build
         run: npm run build
+      - name: Upload built ChatMCP UI
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chatmcp-ui-dist
+          path: CHATMCP-HUB/web/dist
+          if-no-files-found: error
 
   script-tests:
     name: Script tests (${{ matrix.os }})

@@ -22,6 +22,8 @@ ChatMCP là một **AI Coding Agent chạy cục bộ**, thiết kế tối ưu 
 
 ---
 
+> **Lưu ý cho nhánh phát triển:** Tab Agents và GitHub Skills Hub có trong React source. Trước khi thử chức năng mới bằng bản desktop/local installer, hãy cập nhật UI bundle: `cd CHATMCP-HUB/ui && npm ci && npm run build` (sau đó quay lại thư mục gốc). CI cung cấp artifact `chatmcp-ui-dist` của PR tương ứng; các bản release cũ chưa có hai tab mới.
+
 ## Hướng dẫn chi tiết cài đặt & Khởi chạy
 
 ### Cách 1: Tải bộ cài đặt chính thức ChatMCPSetup.exe (Khuyên dùng)
