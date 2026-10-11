@@ -114,6 +114,16 @@ export const api = {
   savePlan: (taskId: string, title: string, items: any[]) =>
     request<Plan>('/api/studio/plan/set', { method: 'POST', body: JSON.stringify({ taskId, title, items }) }),
 
+  // Bounded multi-agent orchestration (read-only workers)
+  orchestrateAgents: (nodes: {id:string;role:string;question:string;dependsOn?:string[]}[],maxConcurrency=3) =>
+    request<any>('/api/studio/delegates/orchestrate',{method:'POST',body:JSON.stringify({nodes,maxConcurrency})}),
+  getOrchestrator: () => request<any>('/api/studio/delegates'),
+
+  // GitHub skills registry
+  getSkillRegistry: (query='') => request<{sources:any[];skills:any[]}>(`/api/plugins/registry?query=${encodeURIComponent(query)}`),
+  refreshSkillRegistry: (sourceId?:string) => request<any>('/api/plugins/registry/refresh',{method:'POST',body:JSON.stringify({sourceId})}),
+  installRegistrySkill: (key:string) => request<any>('/api/plugins/registry/install',{method:'POST',body:JSON.stringify({key})}),
+
   // Skills & Plugins
   getSkills: () => request<{ skills: any[] }>('/api/studio/skills'),
   getMarketplace: (category = '', query = '') =>
