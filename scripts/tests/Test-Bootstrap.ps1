@@ -80,3 +80,4 @@ finally {
 }
 if ($failures -gt 0) { Write-Host "FAILED: $failures check(s)"; exit 1 }
 Write-Host 'PASS: bootstrap-cloud-harness.ps1 tests'
+exit 0
