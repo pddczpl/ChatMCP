@@ -18,7 +18,7 @@ flowchart LR
     PROV["GatewayProvider<br/>adapter + thử lại + nén ngữ cảnh"]
     CALL["session.callTool<br/>kiểm tra → quyền → checkpoint → chạy"]
     GATE["PermissionGate<br/>chỉ đọc · review · tự động"]
-    LOCAL["LocalTools (18 công cụ)<br/>file · tìm kiếm · git · plan"]
+    LOCAL["LocalTools (36 công cụ)<br/>file · tìm kiếm · git · plan"]
     SHELL["ShellRunner + phân tích lệnh<br/>+ theo dõi đường dẫn thật + tin cậy cấu hình Git"]
     STUDIO["StudioTools (10)<br/>checkpoint · review · chỉ mục mã · kiểm tra"]
     STATE[("Thư mục dữ liệu<br/>nhiệm vụ · checkpoint · khóa API")]
@@ -123,14 +123,18 @@ Với `run_command`, chế độ không quyết định một mình: nội dung 
 
 ## 7. Công cụ cục bộ
 
-`lib/local-tools.mjs` — 18 công cụ, mỗi công cụ có `inputSchema` thật và tự kiểm tra giới hạn của mình (quyền không phải lớp bảo vệ duy nhất).
+`lib/local-tools.mjs` — 36 công cụ, mỗi công cụ có `inputSchema` thật và tự kiểm tra giới hạn của mình (quyền không phải lớp bảo vệ duy nhất).
 
 | Nhóm | Công cụ | Loại quyền |
 |---|---|---|
-| Đọc | `read_file`, `list_directory`, `find_files`, `search_files`, `git_status`, `git_diff`, `git_log`, `get_plan` | `read` |
+| Đọc & Tìm kiếm | `read_file`, `list_directory`, `find_files`, `search_files`, `git_status`, `git_diff`, `git_log`, `get_plan` | `read` |
+| Ký hiệu mã (Symbols) | `symbols_search`, `symbols_references` | `read` |
 | Kế hoạch | `update_plan` | `checkpoint` |
-| Ghi | `write_file`, `edit_file`, `make_directory`, `move_path` | `workspace_edit` |
-| Git | `git_add`, `git_commit`, `git_branch` (liệt kê = `read`) | `workspace_edit` |
+| Ghi & Patch | `write_file`, `edit_file`, `make_directory`, `move_path`, `files_write_batch`, `files_apply_patch` | `workspace_edit` |
+| Git & Worktrees | `git_add`, `git_commit`, `git_branch`, `git_checkout`, `git_merge`, `worktrees_list`, `worktrees_create`, `worktrees_remove` | `workspace_edit` / `read` |
+| Tác vụ nền (Tasks) | `tasks_run`, `tasks_list`, `tasks_status`, `tasks_cancel` | `dangerous` / `read` / theo lệnh |
+| Tri thức (Knowledge) | `knowledge_create`, `knowledge_search`, `knowledge_list` | `workspace_edit` / `read` |
+| GitHub Integration | `github_read`, `github_action` | `read` / `execute` |
 | Xóa | `delete_path` | `dangerous` (luôn hỏi) |
 | Lệnh | `run_command` | theo nội dung lệnh |
 

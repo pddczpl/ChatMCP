@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
@@ -10,12 +11,15 @@ import {
   Globe, 
   Download, 
   Server, 
-  UserCheck 
+  UserCheck,
+  Folder,
+  Sparkles,
+  RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 
 export function SettingsTab() {
-  const { theme, setTheme, lang, setLang, showToast, setFullAccessModalOpen } = useAppStore();
+  const { theme, setTheme, lang, setLang, showToast, setFullAccessModalOpen, setOnboardingOpen } = useAppStore();
   const { t } = useTranslation();
 
   const { data: hub, refetch } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 3000 });
@@ -23,6 +27,44 @@ export function SettingsTab() {
   const currentMode = permissions.mode || 'review';
   const isFullAccess = permissions.executionPolicy === 'full-access';
   const role = hub?.user?.role || 'admin';
+
+  const currentWs = hub?.workspace?.path || hub?.studio?.workspace || '';
+  const [wsInput, setWsInput] = useState(currentWs);
+  const [applyingWs, setApplyingWs] = useState(false);
+
+  useEffect(() => {
+    if (currentWs && !wsInput) {
+      setWsInput(currentWs);
+    }
+  }, [currentWs]);
+
+  const handleBrowseWs = async () => {
+    try {
+      const res = await api.browseWorkspace();
+      if (res.path) {
+        setWsInput(res.path);
+        await api.selectWorkspace(res.path);
+        showToast(`${t('workspace_changed_toast')}: ${res.path}`, 'success');
+        refetch();
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Lỗi duyệt thư mục', 'error');
+    }
+  };
+
+  const handleApplyWs = async () => {
+    if (!wsInput.trim()) return;
+    setApplyingWs(true);
+    try {
+      await api.selectWorkspace(wsInput.trim());
+      showToast(`${t('workspace_changed_toast')}: ${wsInput.trim()}`, 'success');
+      refetch();
+    } catch (err: any) {
+      showToast(err.message || 'Lỗi thay đổi thư mục', 'error');
+    } finally {
+      setApplyingWs(false);
+    }
+  };
 
   const handleModeChange = async (mode: string) => {
     if (mode === 'full-access') {
@@ -52,6 +94,66 @@ export function SettingsTab() {
 
   return (
     <div className="h-full flex flex-col p-3 overflow-y-auto space-y-4 select-none text-xs">
+      {/* Workspace Directory Selector */}
+      <div className="p-3 rounded-lg bg-[var(--surface)] border border-sky-500/30 space-y-2.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20 flex items-center justify-center">
+              <Folder className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-semibold text-[var(--text)]">
+                {t('workspace_setting_title')}
+              </div>
+              <div className="text-[10px] text-[var(--faint)]">
+                {t('workspace_setting_desc')}
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => setOnboardingOpen(true)}
+            className="flex items-center gap-1 px-2 py-1 rounded bg-[var(--panel)] hover:bg-[var(--surface-hover)] border border-[var(--line-subtle)] text-[10px] text-sky-400 hover:text-sky-300 transition-colors"
+            title={t('workspace_reopen_onboarding')}
+          >
+            <Sparkles className="w-3 h-3" />
+            <span>{t('workspace_reopen_onboarding')}</span>
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={wsInput}
+            onChange={(e) => setWsInput(e.target.value)}
+            placeholder="Đường dẫn thư mục dự án..."
+            className="flex-1 bg-[var(--panel)] font-mono text-[11px] rounded-md px-2.5 py-1.5 border border-[var(--line)] text-[var(--text)] focus:border-sky-500 focus:outline-none"
+          />
+          <Button
+            variant="secondary"
+            onClick={handleBrowseWs}
+            className="h-7 px-2.5 text-[11px] gap-1"
+          >
+            <Folder className="w-3 h-3 text-sky-400" />
+            <span>{t('workspace_browse_btn')}</span>
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleApplyWs}
+            disabled={applyingWs || !wsInput.trim() || wsInput === currentWs}
+            className="h-7 px-2.5 text-[11px]"
+          >
+            {t('workspace_apply_btn')}
+          </Button>
+        </div>
+
+        {currentWs && (
+          <div className="text-[10px] text-[var(--muted)] font-mono truncate">
+            <span className="text-[var(--faint)]">Đang dùng: </span>
+            <span className="text-emerald-400 font-semibold">{currentWs}</span>
+          </div>
+        )}
+      </div>
+
       {/* RBAC Profile Box */}
       <div className="p-3 rounded-lg bg-[var(--surface)] border border-[var(--line)] flex items-center justify-between">
         <div className="flex items-center gap-2.5">

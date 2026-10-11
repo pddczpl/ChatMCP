@@ -34,6 +34,16 @@ export function OnboardingModal() {
     }
   };
 
+  const handleDismiss = () => {
+    try {
+      localStorage.setItem('chatmcp:onboarding-completed', 'true');
+    } catch {
+      // Ignored
+    }
+    setOnboardingOpen(false);
+    showToast('Bạn có thể chọn lại thư mục và cấu hình AI bất cứ lúc nào trong tab Cài đặt', 'info');
+  };
+
   const handleFinish = async () => {
     try {
       localStorage.setItem('chatmcp:onboarding-completed', 'true');
@@ -63,7 +73,7 @@ export function OnboardingModal() {
             </div>
           </div>
           <button
-            onClick={() => setOnboardingOpen(false)}
+            onClick={handleDismiss}
             className="p-1 rounded text-[var(--faint)] hover:text-[var(--text)] hover:bg-[var(--surface-hover)]"
           >
             <X className="w-4 h-4" />
@@ -178,7 +188,7 @@ export function OnboardingModal() {
         {/* Footer Navigation */}
         <div className="flex items-center justify-between pt-4 border-t border-[var(--line-subtle)]">
           <button
-            onClick={() => setOnboardingOpen(false)}
+            onClick={handleDismiss}
             className="text-[11px] text-[var(--faint)] hover:text-[var(--text)]"
           >
             Bỏ qua

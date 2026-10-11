@@ -73,8 +73,13 @@ async function cleanup() { await fs.rm(root, { recursive: true, force: true, max
 // ------------------------------------------------------------------ catalog
 {
   const definitions = tools.definitions();
-  const expected = ['read_file', 'list_directory', 'find_files', 'search_files', 'git_status', 'git_diff', 'git_log', 'get_plan', 'update_plan', 'write_file', 'edit_file',
-    'make_directory', 'move_path', 'git_add', 'git_commit', 'git_branch', 'delete_path', 'run_command'];
+  const expected = [
+    'read_file', 'list_directory', 'find_files', 'search_files', 'git_status', 'git_diff', 'git_log', 'get_plan', 'update_plan', 'write_file', 'edit_file',
+    'make_directory', 'move_path', 'git_add', 'git_commit', 'git_branch', 'delete_path', 'run_command',
+    'symbols_search', 'symbols_references', 'tasks_run', 'tasks_list', 'tasks_status', 'tasks_cancel',
+    'files_write_batch', 'files_apply_patch', 'git_checkout', 'git_merge', 'worktrees_list', 'worktrees_create', 'worktrees_remove',
+    'knowledge_create', 'knowledge_search', 'knowledge_list', 'github_read', 'github_action',
+  ];
   assert.deepEqual(definitions.map((tool) => tool.originalName).sort(), [...expected].sort());
   for (const tool of definitions) {
     assert.equal(tool.name, `local.${tool.originalName}`);
@@ -87,8 +92,9 @@ async function cleanup() { await fs.rm(root, { recursive: true, force: true, max
   }
   assert.equal(tools.has('local.read_file'), true);
   assert.equal(tools.has('read_file'), true);
+  assert.equal(tools.has('local.symbols_search'), true);
   assert.equal(tools.has('local.nope'), false);
-  ok('definitions: 18 tools with real schemas, local.* names and descriptions');
+  ok('definitions: 36 tools with real schemas, local.* names and descriptions');
 }
 
 // ------------------------------------------------------------------ read_file
@@ -653,6 +659,40 @@ if (haveGit) {
   assert.equal(info.node, process.version);
   if (haveGit) assert.match(info.git.version, /^git version/);
   ok('call: schema errors come back as structured results (executed:false); diagnose() reports the environment');
+}
+
+// ------------------------------------------------------------------ extended local tools
+{
+  let r = await call('symbols_search', { query: 'main' });
+  assert.equal(r.isError, false);
+  assert.ok(r.structuredContent.count >= 1);
+
+  r = await call('symbols_references', { symbol: 'main' });
+  assert.equal(r.isError, false);
+  assert.ok(r.structuredContent.count >= 1);
+
+  r = await call('files_write_batch', { files: [{ path: 'batch1.txt', content: 'b1' }, { path: 'batch2.txt', content: 'b2' }] });
+  assert.equal(r.isError, false);
+  assert.equal(r.structuredContent.count, 2);
+
+  r = await call('files_apply_patch', { path: 'batch1.txt', old_text: 'b1', new_text: 'b1_patched' });
+  assert.equal(r.isError, false);
+
+  r = await call('knowledge_create', { title: 'Test Decision', content: 'Architecture note', tags: ['arch', 'db'] });
+  assert.equal(r.isError, false);
+
+  r = await call('knowledge_list', {});
+  assert.equal(r.isError, false);
+  assert.ok(r.structuredContent.count >= 1);
+
+  r = await call('knowledge_search', { query: 'Architecture' });
+  assert.equal(r.isError, false);
+  assert.ok(r.structuredContent.count >= 1);
+
+  r = await call('tasks_list', {});
+  assert.equal(r.isError, false);
+
+  ok('extended tools: symbols_search/references, files_write_batch/apply_patch, knowledge_create/list/search, tasks_list');
 }
 if (isWindows) {
   // Short (8.3) names must not be a way around the protected-name rule.

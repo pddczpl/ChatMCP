@@ -74,6 +74,12 @@ export const translations = {
     backend_host: 'Host: 127.0.0.1 (Loopback)',
     backend_csp: 'CSP: Strict Self + No Unsafe-Inline',
     backend_ok: 'Status: Hoạt động bình thường',
+    workspace_setting_title: 'Thư mục dự án (Workspace)',
+    workspace_setting_desc: 'Thư mục mã nguồn mà Agent thao tác và kiểm tra trực tiếp.',
+    workspace_browse_btn: 'Duyệt...',
+    workspace_apply_btn: 'Áp dụng',
+    workspace_reopen_onboarding: 'Mở lại hướng dẫn khởi động',
+    workspace_changed_toast: 'Đã đổi thư mục làm việc thành công',
 
     // AI Model Tab
     ai_status_ready: 'Sẵn sàng',
@@ -228,6 +234,12 @@ export const translations = {
     backend_host: 'Host: 127.0.0.1 (Loopback)',
     backend_csp: 'CSP: Strict Self + No Unsafe-Inline',
     backend_ok: 'Status: Operational',
+    workspace_setting_title: 'Project Workspace Directory',
+    workspace_setting_desc: 'Source code folder that Agent directly edits and tests on.',
+    workspace_browse_btn: 'Browse...',
+    workspace_apply_btn: 'Apply',
+    workspace_reopen_onboarding: 'Reopen Onboarding Walkthrough',
+    workspace_changed_toast: 'Workspace directory changed successfully',
 
     // AI Model Tab
     ai_status_ready: 'Ready',
