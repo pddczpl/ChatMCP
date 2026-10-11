@@ -129,7 +129,7 @@ export async function createExecution(config, { log = () => {}, env = process.en
     agentEnv: hubEnv,
     studioOptions: Object.freeze({
       exec: Object.freeze({
-        mode: 'no-shell', spawn: undefined, env: undefined, hooksDirectory: undefined, safeDirectory: false, disabledTools: ['run_command'], sharedWorkspace: false, ...limits,
+        mode: 'no-shell', spawn: undefined, env: undefined, hooksDirectory: undefined, safeDirectory: false, disabledTools: ['run_command', 'tasks_run', 'tasks_status', 'tasks_cancel', 'tasks_list', 'github_action', 'github_read'], sharedWorkspace: false, ...limits,
         terminal: Object.freeze({ maxTimeoutMinutes: terminalLimits.maxTimeoutMinutes, disabled: NO_SHELL_MESSAGE }),
         terminalEnv: undefined,
       }),

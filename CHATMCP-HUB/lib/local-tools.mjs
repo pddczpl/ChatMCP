@@ -7,7 +7,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
 import { analyzeCommand, categoryForKind, maxKind } from './command-analysis.mjs';
 import { applyEol, canonicalRelative, decodeText, encodeText, isUnsafeWindowsName, sha256, splitLines, toLf, writeFileAtomic } from './fs-safe.mjs';
 import { GitRunner, isSafeRevision } from './git-runner.mjs';
@@ -15,7 +15,7 @@ import { compileGlob } from './glob.mjs';
 import { PRIVATE_DIRECTORIES, isProtectedPath } from './protected-paths.mjs';
 import { describeProblem, pathProblems } from './command-paths.mjs';
 import { gitRisksFor, gitSubcommand, inspectGitSafety } from './git-trust.mjs';
-import { ShellRunner } from './shell-runner.mjs';
+import { ShellRunner, killTree, BoundedCapture, scrubEnv } from './shell-runner.mjs';
 import { validateArguments } from './tool-schema.mjs';
 
 export const LOCAL_SERVER = 'local';
@@ -96,6 +96,11 @@ export class LocalTools {
     this.#register();
     for (const name of disabledTools) this.tools.delete(String(name).replace(/^local\./, ''));
     this.shellDisabled = !this.tools.has('run_command');
+    if (this.shellDisabled) {
+      for (const name of ['tasks_run', 'tasks_status', 'tasks_cancel', 'tasks_list', 'github_action', 'github_read']) {
+        this.tools.delete(name);
+      }
+    }
   }
 
   // ------------------------------------------------------------------ catalog
@@ -431,11 +436,11 @@ export class LocalTools {
       summary: (a) => `tasks_cancel ${a.taskId}`, run: (a) => this.#tasksCancel(a),
     });
     define('files_write_batch', {
-      description: 'Atomically write multiple files in one call. Parent folders are created automatically.',
+      description: 'Write multiple files in one call with preflight checks and automatic rollback on error. Parent folders are created automatically.',
       schema: obj({
         files: {
           type: 'array', minItems: 1, maxItems: 50,
-          items: obj({ path: str('File path relative to workspace.'), content: str('New file content.') }, ['path', 'content']),
+          items: obj({ path: str('File path relative to workspace.'), content: str('New file content.'), expected_sha256: EXPECTED_SHA }, ['path', 'content']),
         },
       }, ['files']),
       annotations: WRITE, category: 'workspace_edit', reason: 'Ghi nhiều file',
@@ -465,13 +470,13 @@ export class LocalTools {
       run: (a, ctx) => this.#worktreesList(a, ctx),
     });
     define('worktrees_create', {
-      description: 'Create a new Git worktree at a path to work on a branch in parallel.',
+      description: 'Create a new Git worktree at a path inside workspace to work on a branch in parallel.',
       schema: obj({ path: str('Path for the worktree relative to workspace or adjacent.'), branch: str('Branch name for the worktree.', { maxLength: 200 }) }, ['path', 'branch']),
       annotations: WRITE, category: 'workspace_edit', reason: 'Tạo Git worktree', pathArgs: ['path'],
       summary: (a) => `git worktree add ${a.path} ${a.branch}`, run: (a, ctx) => this.#worktreesCreate(a, ctx),
     });
     define('worktrees_remove', {
-      description: 'Remove a specified Git worktree from the workspace repository.',
+      description: 'Remove a specified Git worktree inside the workspace from the repository.',
       schema: obj({ path: str('Path of the worktree to remove.'), force: bool('Force remove even if dirty.') }, ['path']),
       annotations: WRITE, category: 'workspace_edit', reason: 'Xóa Git worktree', pathArgs: ['path'],
       summary: (a) => `git worktree remove ${a.path}`, run: (a, ctx) => this.#worktreesRemove(a, ctx),
@@ -1052,93 +1057,248 @@ export class LocalTools {
   }
 
   // ------------------------------------------------------------------ background tasks
-  async #tasksRun({ command, cwd: p = '', description = '' }) {
+  async #tasksRun({ command, cwd: p = '', description = '' }, { taskId: callerTaskId } = {}) {
+    if (this.shellDisabled) throw fault('shell_disabled', 'Lệnh nền không được phép khi shell bị tắt.', 403);
+    if (typeof command !== 'string' || !command.trim()) throw fault('bad_command', 'Cần lệnh shell không rỗng.');
+    if (command.length > LIMITS.commandChars || command.includes('\0')) {
+      throw fault('bad_command', `Lệnh quá dài (tối đa ${LIMITS.commandChars} ký tự) hoặc chứa ký tự NUL.`);
+    }
+
     const target = await this.#target(p, { allowRoot: true });
+    const stat = await fs.stat(target.absolute).catch(() => null);
+    if (!stat?.isDirectory()) throw fault('bad_cwd', `Thư mục chạy lệnh không tồn tại: ${target.relative || '.'}`, 404);
+
+    const chosen = await this.shell.resolveShell();
+    const invocation = await this.shell.buildInvocation(chosen, command);
+    const env = this.shell.environment(chosen.name);
     const taskId = `bg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    const proc = spawn(command, {
-      shell: true,
-      cwd: target.absolute,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: false,
-    });
+
+    let proc;
+    try {
+      proc = this.shell.spawner(invocation.file, invocation.args, {
+        cwd: target.absolute,
+        env,
+        shell: false,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: process.platform !== 'win32',
+      });
+    } catch (err) {
+      await invocation.cleanup?.();
+      throw fault('spawn_failed', `Không khởi động được tác vụ nền: ${err.message}`, 500);
+    }
+
+    const stdout = new BoundedCapture(60_000);
+    const stderr = new BoundedCapture(30_000);
+
     const taskRecord = {
       id: taskId,
       command,
       description,
       cwd: target.relative || '.',
+      workspaceRoot: target.root,
+      callerTaskId: callerTaskId || null,
       status: 'running',
       exitCode: null,
-      output: [],
+      stdout,
+      stderr,
       startedAt: new Date().toISOString(),
       process: proc,
     };
-    proc.stdout.on('data', (d) => {
-      const text = d.toString('utf8');
-      taskRecord.output.push(...text.split('\n'));
-      if (taskRecord.output.length > 500) taskRecord.output = taskRecord.output.slice(-500);
+
+    proc.stdout?.on('data', (d) => stdout.push(d));
+    proc.stderr?.on('data', (d) => stderr.push(d));
+
+    const timeout = 1800_000;
+    const timer = setTimeout(() => {
+      if (taskRecord.status === 'running') {
+        taskRecord.status = 'timed_out';
+        killTree(proc);
+      }
+    }, timeout);
+    timer.unref();
+
+    proc.once('error', (err) => {
+      clearTimeout(timer);
+      taskRecord.status = 'failed';
+      taskRecord.exitCode = 1;
+      taskRecord.error = err.message;
+      void invocation.cleanup?.();
     });
-    proc.stderr.on('data', (d) => {
-      const text = d.toString('utf8');
-      taskRecord.output.push(...text.split('\n'));
-      if (taskRecord.output.length > 500) taskRecord.output = taskRecord.output.slice(-500);
+
+    proc.once('close', (code) => {
+      clearTimeout(timer);
+      if (taskRecord.status === 'running') {
+        taskRecord.status = code === 0 ? 'completed' : 'failed';
+        taskRecord.exitCode = code;
+      }
+      void invocation.cleanup?.();
     });
-    proc.on('close', (code) => {
-      taskRecord.status = code === 0 ? 'completed' : 'failed';
-      taskRecord.exitCode = code;
-    });
-    proc.on('error', (err) => {
-      taskRecord.status = 'error';
-      taskRecord.output.push(`[error: ${err.message}]`);
-    });
+
     this.backgroundTasks.set(taskId, taskRecord);
     return ok(`Đã khởi động tác vụ nền [${taskId}]: $ ${command}`, { taskId, status: 'running' });
   }
 
   async #tasksList() {
-    const list = [...this.backgroundTasks.values()].map((t) => ({
-      taskId: t.id,
-      command: t.command,
-      description: t.description,
-      status: t.status,
-      exitCode: t.exitCode,
-      startedAt: t.startedAt,
-    }));
+    const { root } = await this.workspace.resolve('');
+    const list = [...this.backgroundTasks.values()]
+      .filter((t) => !t.workspaceRoot || t.workspaceRoot === root)
+      .map((t) => ({
+        taskId: t.id,
+        command: t.command,
+        description: t.description,
+        status: t.status,
+        exitCode: t.exitCode,
+        startedAt: t.startedAt,
+      }));
     const lines = list.map((t) => `[${t.taskId}] ${t.status.toUpperCase()} (code: ${t.exitCode ?? 'running'}) - $ ${t.command} (${t.description || 'không có mô tả'})`);
     return ok(`${list.length} tác vụ nền:\n${lines.join('\n') || '(không có tác vụ nào)'}`, { tasks: list });
   }
 
   async #tasksStatus({ taskId }) {
+    const { root } = await this.workspace.resolve('');
     const task = this.backgroundTasks.get(taskId);
-    if (!task) throw fault('task_not_found', `Không tìm thấy tác vụ ${taskId}.`, 404);
-    const recent = task.output.slice(-30).join('\n');
-    return ok(`Tác vụ ${taskId}: ${task.status} (exitCode: ${task.exitCode ?? 'none'})\n--- Đầu ra gần nhất ---\n${recent || '(chưa có đầu ra)'}`, {
+    if (!task || (task.workspaceRoot && task.workspaceRoot !== root)) {
+      throw fault('task_not_found', `Không tìm thấy tác vụ ${taskId} trong workspace này.`, 404);
+    }
+    const out = task.stdout.result().text;
+    const err = task.stderr.result().text;
+    const combined = [out, err ? `--- stderr ---\n${err}` : ''].filter(Boolean).join('\n');
+    return ok(`Tác vụ ${taskId}: ${task.status} (exitCode: ${task.exitCode ?? 'running'})\n--- Đầu ra ---\n${combined || '(chưa có đầu ra)'}`, {
       taskId: task.id,
       status: task.status,
       exitCode: task.exitCode,
-      outputLines: task.output.length,
+      error: task.error || null,
     });
   }
 
   async #tasksCancel({ taskId }) {
+    const { root } = await this.workspace.resolve('');
     const task = this.backgroundTasks.get(taskId);
-    if (!task) throw fault('task_not_found', `Không tìm thấy tác vụ ${taskId}.`, 404);
+    if (!task || (task.workspaceRoot && task.workspaceRoot !== root)) {
+      throw fault('task_not_found', `Không tìm thấy tác vụ ${taskId} trong workspace này.`, 404);
+    }
     if (task.status === 'running' && task.process) {
-      task.process.kill('SIGTERM');
+      killTree(task.process);
       task.status = 'cancelled';
       return ok(`Đã hủy tác vụ nền ${taskId}.`, { taskId, cancelled: true });
     }
     return ok(`Tác vụ ${taskId} đã kết thúc trước đó (${task.status}).`, { taskId, status: task.status });
   }
 
+  async close() {
+    for (const task of this.backgroundTasks.values()) {
+      if (task.status === 'running' && task.process) {
+        try { killTree(task.process); } catch {}
+        task.status = 'cancelled';
+      }
+    }
+    this.backgroundTasks.clear();
+  }
+
   // ------------------------------------------------------------------ batch & patch
   async #filesWriteBatch({ files }) {
     if (!Array.isArray(files) || !files.length) throw fault('bad_files', 'Cần danh sách files.');
-    const results = [];
+    if (files.length > 50) throw fault('bad_files', 'Tối đa 50 file trong một lần ghi.');
+
+    const preflight = [];
+    const seenPaths = new Set();
     for (const item of files) {
-      const res = await this.#writeFile({ path: item.path, content: item.content, overwrite: true });
-      results.push({ path: item.path, unchanged: res.structuredContent?.unchanged ?? false });
+      if (!item || typeof item.path !== 'string' || !item.path.trim()) {
+        throw fault('bad_path', 'Đường dẫn file không hợp lệ trong danh sách.');
+      }
+      if (typeof item.content !== 'string') {
+        throw fault('bad_content', `Nội dung file "${item.path}" phải là chuỗi text.`);
+      }
+      const target = await this.#target(item.path, { write: true });
+      if (seenPaths.has(target.relative)) {
+        throw fault('duplicate_path', `Đường dẫn "${target.relative}" bị lặp lại trong danh sách.`);
+      }
+      seenPaths.add(target.relative);
+
+      const encoded = encodeText(item.content);
+      if (encoded.length > LIMITS.writeBytes) {
+        throw fault('file_too_large', `File "${target.relative}" (${formatBytes(encoded.length)}) vượt giới hạn ${formatBytes(LIMITS.writeBytes)}.`);
+      }
+
+      let existed = false;
+      let originalBuffer = null;
+      try {
+        const stat = await fs.lstat(target.absolute);
+        if (stat.isDirectory()) throw fault('is_directory', `"${target.relative}" là thư mục, không thể ghi đè.`);
+        if (stat.isSymbolicLink()) throw fault('symlink', `"${target.relative}" là symlink, không thể ghi đè.`);
+        originalBuffer = await fs.readFile(target.absolute);
+        existed = true;
+      } catch (err) {
+        if (err.code !== 'ENOENT') throw err;
+      }
+
+      if (item.expected_sha256) {
+        if (typeof item.expected_sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(item.expected_sha256)) {
+          throw fault('bad_revision', `expected_sha256 của file "${item.path}" không phải mã SHA-256 hợp lệ.`);
+        }
+        if (!existed) {
+          throw fault('stale_revision', `File "${target.relative}" không tồn tại trên đĩa nhưng có expected_sha256.`);
+        }
+        const currentSha = sha256(originalBuffer);
+        if (currentSha !== item.expected_sha256.toLowerCase()) {
+          throw fault('stale_revision', `File "${target.relative}" đã bị thay đổi kể từ lần đọc trước (SHA hiện tại ${currentSha.slice(0, 8)} khác với ${item.expected_sha256.slice(0, 8)}).`);
+        }
+      }
+
+      preflight.push({
+        relative: target.relative,
+        absolute: target.absolute,
+        encoded,
+        existed,
+        originalBuffer,
+      });
     }
-    return ok(`Đã ghi thành công ${results.length} file:\n${results.map((r) => `- ${r.path}`).join('\n')}`, { count: results.length, files: results });
+
+    const written = [];
+    try {
+      for (const item of preflight) {
+        await fs.mkdir(path.dirname(item.absolute), { recursive: true });
+        await writeFileAtomic(item.absolute, item.encoded, { mode: this.#fileMode(undefined) });
+        written.push(item);
+      }
+    } catch (writeError) {
+      const rolledBack = [];
+      const failedRollback = [];
+      for (const item of written) {
+        try {
+          if (item.existed && item.originalBuffer) {
+            await writeFileAtomic(item.absolute, item.originalBuffer, { mode: this.#fileMode(undefined) });
+            const check = await fs.readFile(item.absolute);
+            if (check.equals(item.originalBuffer)) {
+              rolledBack.push(item.relative);
+            } else {
+              failedRollback.push({ path: item.relative, error: 'Checksum mismatch after rollback' });
+            }
+          } else {
+            await fs.unlink(item.absolute).catch(() => {});
+            rolledBack.push(item.relative);
+          }
+        } catch (rbErr) {
+          failedRollback.push({ path: item.relative, error: rbErr.message });
+        }
+      }
+      if (failedRollback.length === 0) {
+        throw fault('batch_failed', `Ghi hàng loạt thất bại: ${writeError.message}. Đã hoàn tác an toàn ${rolledBack.length} file: ${rolledBack.join(', ')}.`);
+      } else {
+        throw Object.assign(fault('batch_partial_rollback_failed', `Ghi hàng loạt thất bại: ${writeError.message}. CẢNH BÁO: ${failedRollback.length} file không thể hoàn tác: ${failedRollback.map((f) => f.path).join(', ')}. Đã hoàn tác: ${rolledBack.join(', ') || 'không có'}.`), {
+          rolledBack,
+          failedRollback,
+        });
+      }
+    }
+
+    const results = preflight.map((p) => ({
+      path: p.relative,
+      bytes: p.encoded.length,
+      sha256: sha256(p.encoded),
+    }));
+    return ok(`Đã ghi thành công ${results.length} file:\n${results.map((r) => `- ${r.path} (${r.bytes} B)`).join('\n')}`, { count: results.length, files: results });
   }
 
   async #filesApplyPatch({ path: p, old_text: oldText, new_text: newText, expected_sha256: expectedSha }) {
@@ -1148,7 +1308,12 @@ export class LocalTools {
   // ------------------------------------------------------------------ advanced git
   async #gitCheckout({ ref, create = false }, { signal }) {
     await this.git.ensureRepo({ signal });
-    if (!ref || ref.startsWith('-')) throw fault('bad_ref', 'Revision/nhánh không hợp lệ.');
+    if (!ref || typeof ref !== 'string' || ref.startsWith('-') || !isSafeRevision(ref)) {
+      throw fault('bad_ref', 'Revision hoặc tên nhánh không hợp lệ hoặc chứa ký tự không an toàn.');
+    }
+    if (create && (!/^[a-zA-Z0-9._/-]+$/.test(ref) || ref.includes('..') || ref.startsWith('/') || ref.endsWith('/'))) {
+      throw fault('bad_ref', `Tên nhánh mới "${ref}" không hợp lệ.`);
+    }
     const args = create ? ['switch', '-c', ref] : ['switch', ref];
     let result = await this.git.text(args, { signal, writes: true });
     if (result.code !== 0) {
@@ -1160,7 +1325,9 @@ export class LocalTools {
 
   async #gitMerge({ branch, message }, { signal }) {
     await this.git.ensureRepo({ signal });
-    if (!branch || branch.startsWith('-')) throw fault('bad_branch', 'Tên nhánh cần merge không hợp lệ.');
+    if (!branch || typeof branch !== 'string' || branch.startsWith('-') || !isSafeRevision(branch)) {
+      throw fault('bad_branch', 'Tên nhánh cần merge không hợp lệ hoặc chứa ký tự không an toàn.');
+    }
     const args = ['merge', ...(message ? ['-m', message] : []), branch];
     const result = await this.git.text(args, { signal, writes: true });
     if (result.code !== 0) throw fault('git_error', `${result.stderr}${result.stdout}`.trim() || 'git merge thất bại.');
@@ -1169,58 +1336,110 @@ export class LocalTools {
 
   async #worktreesList(args, { signal }) {
     await this.git.ensureRepo({ signal });
-    const result = await this.git.text(['worktree', 'list'], { signal });
+    const result = await this.git.text(['worktree', 'list', '--porcelain'], { signal });
     if (result.code !== 0) throw fault('git_error', result.stderr.trim() || 'git worktree list thất bại.');
-    return ok(`Danh sách worktree:\n${result.stdout.trim() || '(chưa có worktree)'}`, { raw: result.stdout });
+    const worktrees = [];
+    let current = {};
+    for (const line of result.stdout.split('\n')) {
+      if (line.startsWith('worktree ')) {
+        if (current.path) worktrees.push(current);
+        current = { path: line.slice(9).trim() };
+      } else if (line.startsWith('branch ')) {
+        current.branch = line.slice(7).trim();
+      } else if (line.startsWith('HEAD ')) {
+        current.head = line.slice(5).trim();
+      } else if (line === 'bare') {
+        current.bare = true;
+      }
+    }
+    if (current.path) worktrees.push(current);
+    const summary = worktrees.map((w) => `- ${w.path} (${w.branch || 'detached'})`).join('\n');
+    return ok(`Danh sách ${worktrees.length} Git worktree:\n${summary || '(chưa có worktree nào)'}`, { worktrees, count: worktrees.length, raw: result.stdout });
   }
 
   async #worktreesCreate({ path: p, branch }, { signal }) {
     await this.git.ensureRepo({ signal });
-    if (!p || !branch) throw fault('bad_worktree', 'Cần path và branch cho worktree.');
-    const result = await this.git.text(['worktree', 'add', p, branch], { signal, writes: true });
+    if (!p || typeof p !== 'string' || !branch || !isSafeRevision(branch)) {
+      throw fault('bad_worktree', 'Cần path hợp lệ và branch an toàn cho worktree.');
+    }
+    const target = await this.#target(p, { allowRoot: false, write: true });
+    const stat = await fs.stat(target.absolute).catch(() => null);
+    if (stat) throw fault('already_exists', `Đường dẫn "${target.relative}" đã tồn tại trên đĩa.`);
+    const result = await this.git.text(['worktree', 'add', target.absolute, branch], { signal, writes: true });
     if (result.code !== 0) throw fault('git_error', `${result.stderr}${result.stdout}`.trim() || 'git worktree add thất bại.');
-    return ok(`Đã tạo Git worktree tại "${p}" cho nhánh "${branch}".`, { path: p, branch });
+    return ok(`Đã tạo Git worktree tại "${target.relative}" cho nhánh "${branch}".`, { path: target.relative, branch });
   }
 
   async #worktreesRemove({ path: p, force = false }, { signal }) {
     await this.git.ensureRepo({ signal });
-    if (!p) throw fault('bad_worktree', 'Cần đường dẫn worktree để xóa.');
-    const result = await this.git.text(['worktree', 'remove', ...(force ? ['--force'] : []), p], { signal, writes: true });
+    if (!p || typeof p !== 'string') throw fault('bad_worktree', 'Cần đường dẫn worktree để xóa.');
+    const target = await this.#target(p, { allowRoot: false, write: true });
+    if (!target.relative) throw fault('bad_path', 'Không thể xóa workspace root.');
+
+    const listRes = await this.git.text(['worktree', 'list', '--porcelain'], { signal });
+    if (listRes.code !== 0) throw fault('git_error', 'Không thể kiểm tra danh sách worktree.');
+    const registered = [];
+    for (const line of listRes.stdout.split('\n')) {
+      if (line.startsWith('worktree ')) registered.push(path.resolve(line.slice(9).trim()));
+    }
+    const targetResolved = path.resolve(target.absolute);
+    if (!registered.includes(targetResolved)) {
+      throw fault('not_a_worktree', `"${target.relative}" không phải là một Git worktree đã đăng ký. Không được xóa.`);
+    }
+
+    const result = await this.git.text(['worktree', 'remove', ...(force ? ['--force'] : []), target.absolute], { signal, writes: true });
     if (result.code !== 0) throw fault('git_error', `${result.stderr}${result.stdout}`.trim() || 'git worktree remove thất bại.');
-    return ok(`Đã gỡ bỏ Git worktree tại "${p}".`, { path: p });
+    return ok(`Đã gỡ bỏ Git worktree tại "${target.relative}".`, { path: target.relative });
   }
 
   // ------------------------------------------------------------------ project knowledge
-  async #getKnowledgeStore() {
-    const { root } = await this.workspace.resolve('');
-    const dir = path.join(root, '.chatmcp');
+  async #getKnowledgeStore({ create = false } = {}) {
+    const target = await this.#target('.chatmcp/knowledge.json', { allowRoot: false, write: create });
+    const dir = path.dirname(target.absolute);
+    const file = target.absolute;
+    if (!create) {
+      try {
+        const data = await fs.readFile(file, 'utf8');
+        return { file, items: JSON.parse(data) };
+      } catch (err) {
+        if (err.code === 'ENOENT') return { file, items: [] };
+        console.warn('knowledge.json parse error:', err.message);
+        return { file, items: [], corrupted: true };
+      }
+    }
     await fs.mkdir(dir, { recursive: true });
-    const file = path.join(dir, 'knowledge.json');
     try {
       const data = await fs.readFile(file, 'utf8');
       return { file, items: JSON.parse(data) };
-    } catch {
-      return { file, items: [] };
+    } catch (err) {
+      if (err.code === 'ENOENT') return { file, items: [] };
+      throw fault('corrupted_knowledge_file', 'Tệp .chatmcp/knowledge.json bị hỏng cú pháp JSON; không thể ghi đè để bảo vệ dữ liệu cũ. Hãy kiểm tra hoặc sao lưu tệp.', 409);
     }
   }
 
   async #knowledgeCreate({ title, content, tags = [] }) {
-    const { file, items } = await this.#getKnowledgeStore();
+    if (!title || typeof title !== 'string' || !title.trim()) throw fault('bad_title', 'Cần tiêu đề cho ghi chú tri thức.');
+    if (!content || typeof content !== 'string') throw fault('bad_content', 'Cần nội dung cho ghi chú tri thức.');
+    const { file, items } = await this.#getKnowledgeStore({ create: true });
     const id = `know_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    const newItem = { id, title: title.trim(), content: content.trim(), tags: Array.isArray(tags) ? tags : [], createdAt: new Date().toISOString() };
+    const cleanTags = Array.isArray(tags) ? tags.filter((t) => typeof t === 'string' && t.trim()).map((t) => t.trim().slice(0, 50)).slice(0, 10) : [];
+    const newItem = { id, title: title.trim().slice(0, 200), content: content.trim().slice(0, 50000), tags: cleanTags, createdAt: new Date().toISOString() };
     items.unshift(newItem);
-    await fs.writeFile(file, JSON.stringify(items, null, 2), 'utf8');
+    const buffer = Buffer.from(JSON.stringify(items, null, 2), 'utf8');
+    await writeFileAtomic(file, buffer, { mode: this.#fileMode(undefined) });
     return ok(`Đã lưu ghi chú tri thức [${id}]: "${newItem.title}"`, { id, item: newItem });
   }
 
   async #knowledgeList() {
-    const { items } = await this.#getKnowledgeStore();
+    const { items, corrupted } = await this.#getKnowledgeStore({ create: false });
+    if (corrupted) return ok('Cảnh báo: Tệp tri thức dự án bị hỏng cú pháp JSON.', { count: 0, items: [], corrupted: true });
     const lines = items.map((it) => `[${it.id}] ${it.title} (tags: ${it.tags?.join(', ') || 'none'}) - ${it.createdAt}`);
     return ok(`${items.length} ghi chú tri thức dự án:\n${lines.join('\n') || '(chưa có ghi chú nào)'}`, { count: items.length, items });
   }
 
   async #knowledgeSearch({ query }) {
-    const { items } = await this.#getKnowledgeStore();
+    if (!query || typeof query !== 'string') throw fault('bad_query', 'Cần từ khóa tìm kiếm.');
+    const { items } = await this.#getKnowledgeStore({ create: false });
     const q = query.toLowerCase();
     const hits = items.filter((it) => it.title.toLowerCase().includes(q) || it.content.toLowerCase().includes(q) || it.tags?.some((t) => t.toLowerCase().includes(q)));
     const lines = hits.map((it) => `[${it.id}] ${it.title}\n${clip(it.content, 200)}\n`);
@@ -1228,41 +1447,106 @@ export class LocalTools {
   }
 
   // ------------------------------------------------------------------ github integration
+  async #runGh(args, { signal } = {}) {
+    if (this.shellDisabled) throw fault('shell_disabled', 'Thao tác GitHub CLI không được phép khi shell bị tắt.', 403);
+    const { root } = await this.workspace.resolve('');
+    const env = this.shell ? this.shell.environment() : scrubEnv(process.env, { secrets: this.secrets?.() ?? [] });
+    const spawner = this.shell?.spawner || spawn;
+
+    return new Promise((resolve, reject) => {
+      let child;
+      try {
+        child = spawner('gh', args, {
+          cwd: root,
+          env,
+          shell: false,
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          ...(spawner === spawn ? {} : { timeout: 60_000 }),
+        });
+      } catch (err) {
+        if (err.code === 'ENOENT') {
+          return reject(fault('gh_not_found', 'GitHub CLI (gh) chưa được cài đặt hoặc không tìm thấy trong PATH.', 404));
+        }
+        return reject(fault('gh_spawn_failed', `Không thể khởi chạy GitHub CLI: ${err.message}`, 500));
+      }
+
+      let stdout = '';
+      let stderr = '';
+      let done = false;
+
+      const finish = (err, result) => {
+        if (done) return;
+        done = true;
+        if (err) reject(err);
+        else resolve(result);
+      };
+
+      child.stdout?.on('data', (c) => { if (stdout.length < 2 * 1024 * 1024) stdout += c.toString('utf8'); });
+      child.stderr?.on('data', (c) => { if (stderr.length < 1024 * 1024) stderr += c.toString('utf8'); });
+
+      child.once('error', (err) => {
+        if (err.code === 'ENOENT') {
+          finish(fault('gh_not_found', 'GitHub CLI (gh) chưa được cài đặt hoặc không tìm thấy trong PATH.', 404));
+        } else {
+          finish(fault('gh_failed', `Lỗi chạy gh: ${err.message}`, 400));
+        }
+      });
+
+      child.once('close', (code) => {
+        if (code !== 0) {
+          const msg = (stderr || stdout || `gh exited with code ${code}`).trim();
+          finish(fault('gh_failed', `GitHub CLI thất bại (mã ${code}): ${msg}`, 400));
+        } else {
+          finish(null, { stdout, stderr });
+        }
+      });
+
+      if (signal) {
+        signal.addEventListener('abort', () => {
+          killTree(child);
+          finish(fault('user_cancelled', 'Thao tác GitHub CLI đã bị hủy bởi người dùng.', 499));
+        }, { once: true });
+      }
+    });
+  }
+
   async #githubRead({ action, number }, { signal }) {
     let args = [];
     if (action === 'issue_list') args = ['issue', 'list', '--limit', '20'];
-    else if (action === 'issue_view') args = ['issue', 'view', String(number)];
+    else if (action === 'issue_view') {
+      if (!number || typeof number !== 'number') throw fault('bad_input', 'Cần issue number hợp lệ.');
+      args = ['issue', 'view', String(number)];
+    }
     else if (action === 'pr_list') args = ['pr', 'list', '--limit', '20'];
-    else if (action === 'pr_view') args = ['pr', 'view', String(number)];
+    else if (action === 'pr_view') {
+      if (!number || typeof number !== 'number') throw fault('bad_input', 'Cần PR number hợp lệ.');
+      args = ['pr', 'view', String(number)];
+    }
     else if (action === 'release_list') args = ['release', 'list', '--limit', '10'];
     else throw fault('bad_action', `Hành động ${action} không hỗ trợ.`);
 
-    const res = await this.shell.run({ command: `gh ${args.join(' ')}`, cwd: '', timeoutMs: 30000, signal }).catch((err) => ({ exitCode: 1, stderr: err.message, stdout: '' }));
-    if (res.exitCode !== 0) {
-      return ok(`GitHub CLI (gh) thông báo: ${res.stderr.trim() || res.stdout.trim() || 'Không thể thực thi lệnh gh (hãy kiểm tra xem gh CLI đã cài đặt và đăng nhập chưa).'}`);
-    }
+    const res = await this.#runGh(args, { signal });
     return ok(`Kết quả GitHub (${action}):\n${res.stdout.trim() || '(không có kết quả)'}`, { output: res.stdout });
   }
 
   async #githubAction({ action, title, body = '', base = 'main', head, number }, { signal }) {
-    let command = '';
+    let args = [];
     if (action === 'issue_create') {
-      if (!title) throw fault('bad_input', 'Cần title cho issue.');
-      command = `gh issue create --title "${title.replace(/"/g, '\\"')}" --body "${body.replace(/"/g, '\\"')}"`;
+      if (!title || typeof title !== 'string' || !title.trim()) throw fault('bad_input', 'Cần title cho issue.');
+      args = ['issue', 'create', '--title', title.trim(), '--body', String(body ?? '')];
     } else if (action === 'pr_create') {
-      if (!title) throw fault('bad_input', 'Cần title cho PR.');
-      command = `gh pr create --title "${title.replace(/"/g, '\\"')}" --body "${body.replace(/"/g, '\\"')}" --base "${base}"${head ? ` --head "${head}"` : ''}`;
+      if (!title || typeof title !== 'string' || !title.trim()) throw fault('bad_input', 'Cần title cho PR.');
+      args = ['pr', 'create', '--title', title.trim(), '--body', String(body ?? ''), '--base', String(base || 'main'), ...(head ? ['--head', String(head)] : [])];
     } else if (action === 'issue_comment') {
-      if (!number || !body) throw fault('bad_input', 'Cần number và body cho comment.');
-      command = `gh issue comment ${number} --body "${body.replace(/"/g, '\\"')}"`;
+      if (!number || typeof number !== 'number' || !body) throw fault('bad_input', 'Cần number và body cho comment.');
+      args = ['issue', 'comment', String(number), '--body', String(body)];
     } else {
       throw fault('bad_action', `Hành động ${action} không hỗ trợ.`);
     }
 
-    const res = await this.shell.run({ command, cwd: '', timeoutMs: 30000, signal }).catch((err) => ({ exitCode: 1, stderr: err.message, stdout: '' }));
-    if (res.exitCode !== 0) {
-      return ok(`GitHub CLI (gh) thực thi thất bại: ${res.stderr.trim() || res.stdout.trim() || 'Lỗi kết nối GitHub CLI.'}`);
-    }
+    const res = await this.#runGh(args, { signal });
     return ok(`Đã thực hiện thao tác GitHub (${action}) thành công:\n${res.stdout.trim()}`, { output: res.stdout });
   }
 }
+

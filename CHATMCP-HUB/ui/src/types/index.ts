@@ -252,8 +252,11 @@ export interface FileData {
 }
 
 export interface GitStatus {
+  branch?: string;
   head?: string;
+  dirty?: boolean;
   entries?: string[];
+  partial?: boolean;
 }
 
 export interface Checkpoint {
@@ -261,6 +264,9 @@ export interface Checkpoint {
   at: string;
   label: string;
   fileCount?: number;
+  partial?: boolean;
+  targeted?: boolean;
+  limitations?: string[];
 }
 
 export interface GitReview {

@@ -140,7 +140,16 @@ export class StudioWorkspace {
     const {stdout,code,stderr}=await this.#git(['status','--short','--untracked-files=all']);
     if(code!==0) throw fail('git_error',stderr);
     const head=await this.#git(['rev-parse','--verify','HEAD']);
-    return {head:head.code===0?head.stdout.trim():null,entries:stdout.split(/\r?\n/).filter(Boolean).slice(0,1000),partial:stdout.split(/\r?\n/).length>1001};
+    const branchRes=await this.#git(['branch','--show-current']);
+    const branch=branchRes.code===0 && branchRes.stdout.trim() ? branchRes.stdout.trim() : (head.code===0 ? head.stdout.trim().slice(0, 7) : 'HEAD');
+    const rawEntries=stdout.split(/\r?\n/).filter(Boolean);
+    return {
+      branch,
+      head:head.code===0?head.stdout.trim():null,
+      dirty:rawEntries.length>0,
+      entries:rawEntries.slice(0,1000),
+      partial:rawEntries.length>1000,
+    };
   }
   async gitDiff({file='',staged=false}={}) {
     const target=await this.resolve(file);
@@ -264,6 +273,204 @@ export class StudioWorkspace {
     const tmp=`${target.absolute}.${randomUUID()}.tmp`;
     try {await fs.writeFile(tmp,original,{flag:'wx',mode:0o600});await fs.rename(tmp,target.absolute);} finally {await fs.unlink(tmp).catch(()=>{});}
     return {ok:true,path:target.relative,restoredSha:item.sha256,previousSha:expectedSha,undoBackup:undo};
+  }
+  async previewCheckpoint({ checkpointId } = {}) {
+    return this.restoreCheckpoint({ checkpointId, dryRun: true });
+  }
+
+  async restoreCheckpoint({ checkpointId, force = false, expectedShas = null, dryRun = false } = {}) {
+    if (!dryRun && this._restoreBusy) throw fail('restore_busy', 'Checkpoint restoration already running.', 409);
+    if (!dryRun) this._restoreBusy = true;
+    try {
+    if (!checkpointId || typeof checkpointId !== 'string') throw fail('bad_checkpoint_id', 'Cần ID checkpoint hợp lệ.');
+    const activeTaskId = this.manager?.taskId
+      || this.manager?.taskEngine?.state?.()?.activeTaskId
+      || this.manager?.agent?.state?.()?.activeTaskId
+      || (typeof this.manager?.state === 'function' ? this.manager.state()?.agent?.activeTaskId : null);
+    if (activeTaskId) {
+      throw fail('task_in_progress', 'Không thể khôi phục checkpoint khi agent đang thực thi tác vụ trên workspace.', 409);
+    }
+    const meta = await readJson(path.join(this.#checkpointDirectory(checkpointId), 'meta.json'));
+    if (!meta || meta.workspace !== await fs.realpath(this.requireRoot())) {
+      throw fail('checkpoint_missing', 'Checkpoint không tồn tại cho workspace này.', 404);
+    }
+    if (!Array.isArray(meta.files) || !meta.files.length) {
+      throw fail('empty_checkpoint', 'Bản checkpoint không chứa file nào để khôi phục.', 400);
+    }
+
+    if (!dryRun) {
+      if (!expectedShas || typeof expectedShas !== 'object') {
+        throw fail('missing_expected_shas', 'Tham số expectedShas là bắt buộc cho tất cả các file bị ảnh hưởng khi khôi phục checkpoint.', 400);
+      }
+    }
+
+    // Phase 1: Complete preflight validation across all files
+    const preflight = [];
+    const root = await fs.realpath(this.requireRoot());
+    for (const item of meta.files) {
+      const target = await this.resolve(item.path);
+      // Path traversal & workspace containment check
+      if (!contained(root, target.absolute) || !target.relative || isProtectedPath(target.relative)) {
+        throw fail('path_escape', `Đường dẫn file "${item.path}" vượt ra ngoài thư mục workspace.`, 403);
+      }
+      // Symlink verification: neither target nor its realpath should escape
+      const lstat = await fs.lstat(target.absolute).catch(() => null);
+      if (lstat?.isSymbolicLink()) throw fail('symlink_escape', 'Checkpoint restore cannot follow symlinks.', 403);
+      if (lstat && !lstat.isFile()) throw fail('file_type', 'Checkpoint target is not a regular file.', 403);
+
+      // Checkpoint backup integrity verification
+      const backupPath = path.join(this.#checkpointDirectory(checkpointId), 'files', item.path);
+      const backupBytes = await fs.readFile(backupPath).catch(() => null);
+      if (!backupBytes || sha(backupBytes) !== item.sha256) {
+        throw fail('checkpoint_corrupt', `File "${item.path}" trong bản sao lưu checkpoint bị thiếu hoặc sai checksum SHA-256.`, 500);
+      }
+
+      // Read current disk content
+      const currentBytes = await fs.readFile(target.absolute).catch((e) => {
+        if (e.code === 'ENOENT') return null;
+        throw e;
+      });
+      const currentSha = currentBytes ? sha(currentBytes) : null;
+
+      // Current content SHA verification / stale state rejection
+      if (!dryRun) {
+        if (!Object.hasOwn(expectedShas, item.path)) {
+          throw fail('missing_expected_shas', `Thiếu expected_sha cho file "${item.path}". Hãy gọi previewCheckpoint trước khi khôi phục.`, 400);
+        }
+        if (currentSha !== expectedShas[item.path]) {
+          throw fail('stale_state', `File "${item.path}" đã thay đổi kể từ lần xem preview (SHA hiện tại ${currentSha?.slice(0, 8) || 'deleted'} khác với SHA mong đợi ${expectedShas[item.path]?.slice(0, 8) || 'none'}). Hãy tải lại review trước khi khôi phục.`, 409);
+        }
+      }
+
+      preflight.push({
+        item,
+        target,
+        backupBytes,
+        currentBytes,
+        currentSha,
+        isModified: currentSha !== item.sha256,
+        willOverwriteNewer: currentBytes !== null && currentSha !== item.sha256,
+        willRestoreDeleted: currentBytes === null,
+      });
+    }
+
+    // Dry Run / Preview Mode
+    if (dryRun) {
+      return {
+        ok: true,
+        checkpointId,
+        dryRun: true,
+        partial: Boolean(meta.partial),
+        limitations: meta.limitations || [],
+        totalFiles: preflight.length,
+        modifiedFilesCount: preflight.filter((p) => p.isModified).length,
+        files: preflight.map((p) => ({
+          path: p.item.path,
+          baselineSha: p.item.sha256,
+          currentSha: p.currentSha,
+          status: p.currentBytes === null ? 'deleted_on_disk' : (p.currentSha === p.item.sha256 ? 'unmodified' : 'modified'),
+          willOverwriteNewer: p.willOverwriteNewer,
+        })),
+      };
+    }
+
+    // Phase 2: Create undo backup before mutation
+    const undoId = randomUUID();
+    const undoDir = path.join(this.directory, 'undo', undoId);
+    await fs.mkdir(path.join(undoDir, 'files'), { recursive: true, mode: 0o700 });
+    const undoFiles = [];
+    for (const p of preflight) {
+      if (p.currentBytes) {
+        const undoDest = path.join(undoDir, 'files', p.item.path);
+        await fs.mkdir(path.dirname(undoDest), { recursive: true });
+        await fs.writeFile(undoDest, p.currentBytes, { mode: 0o600 });
+        undoFiles.push({ path: p.item.path, sha256: p.currentSha, bytes: p.currentBytes.length });
+      }
+    }
+    await writeJson(path.join(undoDir, 'meta.json'), {
+      id: undoId,
+      at: this.now(),
+      label: `Undo backup before restoring checkpoint ${checkpointId}`,
+      checkpointId,
+      workspace: meta.workspace,
+      files: undoFiles,
+    });
+
+    // Phase 3: Transactional atomic restoration with safe rollback
+    const written = [];
+    try {
+      for (const p of preflight) {
+        if (p.currentSha === p.item.sha256) {
+          // File already exactly matches checkpoint
+          continue;
+        }
+        const fresh = await fs.readFile(p.target.absolute).catch((e) => {
+          if (e.code === 'ENOENT') return null;
+          throw e;
+        });
+        if ((fresh === null ? null : sha(fresh)) !== p.currentSha) {
+          throw fail('stale_state', 'Checkpoint target changed after preflight.', 409);
+        }
+        await fs.mkdir(path.dirname(p.target.absolute), { recursive: true });
+        const tmp = `${p.target.absolute}.${randomUUID()}.tmp`;
+        try {
+          await fs.writeFile(tmp, p.backupBytes, { flag: 'w', mode: 0o600 });
+          await fs.rename(tmp, p.target.absolute);
+          written.push(p);
+        } finally {
+          await fs.unlink(tmp).catch(() => {});
+        }
+      }
+    } catch (writeErr) {
+      // Transaction rollback
+      const rolledBack = [];
+      const failedRollback = [];
+      for (const w of written) {
+        try {
+          const current = await fs.readFile(w.target.absolute).catch((e) => {
+            if (e.code === 'ENOENT') return null;
+            throw e;
+          });
+          if (!current || sha(current) !== w.item.sha256) {
+            throw fail('rollback_conflict', 'Restored file was modified concurrently; refusing to overwrite.', 409);
+          }
+          if (w.currentBytes !== null) {
+            const backupTemp = `${w.target.absolute}.${randomUUID()}.rollback`;
+            try {
+              await fs.writeFile(backupTemp, w.currentBytes, { flag: 'wx', mode: 0o600 });
+              await fs.rename(backupTemp, w.target.absolute);
+            } finally { await fs.unlink(backupTemp).catch(() => {}); }
+          } else {
+            await fs.unlink(w.target.absolute);
+          }
+          rolledBack.push(w.item.path);
+        } catch (rbErr) {
+          failedRollback.push({ path: w.item.path, error: rbErr.message });
+        }
+      }
+      if (failedRollback.length === 0) {
+        throw fail('restore_failed_rolled_back', `Khôi phục checkpoint thất bại tại file: ${writeErr.message}. Toàn bộ ${rolledBack.length} file đã được hoàn tác về trạng thái ban đầu an toàn.`, 500);
+      } else {
+        throw Object.assign(fail('restore_partial_failure', `Khôi phục checkpoint thất bại: ${writeErr.message}. CẢNH BÁO: ${failedRollback.length} file không thể hoàn tác: ${failedRollback.map((f) => f.path).join(', ')}. Đã hoàn tác: ${rolledBack.join(', ') || 'không có'}.`, 500), {
+          rolledBack,
+          failedRollback,
+          undoCheckpointId: undoId,
+        });
+      }
+    }
+
+    return {
+      ok: true,
+      checkpointId,
+      restoredCount: preflight.length,
+      filesModified: written.length,
+      files: preflight.map((p) => p.item.path),
+      undoCheckpointId: undoId,
+      partial: Boolean(meta.partial),
+      limitations: meta.limitations || [],
+      warnings: meta.partial ? ['Bản checkpoint này là partial (chỉ chứa một phần file của workspace). Hãy kiểm tra kỹ sau khi khôi phục.'] : [],
+    };
+    } finally { if (!dryRun) this._restoreBusy = false; }
   }
   async plan({taskId,operation='get',items=[],title=''}={}){
     if(typeof taskId!=='string'||!/^[0-9a-f-]{36}$/i.test(taskId))throw fail('bad_task_id','Cần ID hội thoại hợp lệ.');

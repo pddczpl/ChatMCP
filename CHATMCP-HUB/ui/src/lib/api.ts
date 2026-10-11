@@ -160,5 +160,20 @@ export const api = {
   denyAction: (id: string, reason?: string) => api.decidePermission(id, false),
   testConnection: (opts?: any) => api.testAi(),
   updateAiConfig: (config: any) => api.saveAiConfig(config),
-  revertCheckpoint: (id: string) => request<any>('/api/studio/restore-checkpoint', { method: 'POST', body: JSON.stringify({ id }) }).catch(() => ({ ok: true })),
+  revertCheckpoint: (id: string, expectedShas?: Record<string, string | null>) =>
+    request<{ ok: boolean; checkpointId: string; restoredCount: number; files: string[]; undoCheckpointId?: string; warnings?: string[] }>(
+      '/api/studio/restore-checkpoint',
+      { method: 'POST', body: JSON.stringify({ checkpointId: id, expectedShas }) }
+    ),
+  previewCheckpoint: (id: string) =>
+    request<{
+      ok: boolean;
+      checkpointId: string;
+      dryRun: boolean;
+      partial?: boolean;
+      limitations?: string[];
+      totalFiles: number;
+      modifiedFilesCount: number;
+      files: { path: string; baselineSha: string; currentSha: string | null; status: string; willOverwriteNewer: boolean }[];
+    }>('/api/studio/preview-checkpoint?checkpointId=' + encodeURIComponent(id)),
 };
