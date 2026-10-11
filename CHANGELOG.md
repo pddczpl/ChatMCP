@@ -32,6 +32,10 @@ Mục tiêu của bản này: biến Hub thành một **AI Coding Agent chạy �
 - **Quản lý Đa cấu hình AI (Phase 3):** `lib/ai-profiles.mjs` hỗ trợ lưu trữ nhiều cấu hình mô hình (Claude 3.5 Sonnet, GPT-4o, Gemini, Ollama) trong `ai-profiles.json`, che giấu API keys trong snapshot/list, mã hóa qua KeyStore, và chuyển đổi profile mặc định linh hoạt.
 - **Động cơ Sandbox hợp nhất (Phase 3):** `lib/sandbox-engine.mjs` cung cấp tầng trừu tượng thực thi linh hoạt (`host`, `broker`, `isolated`), áp dụng hạn ngạch tài nguyên (timeout, RAM, CPU, max output bytes), thu thập số liệu thời gian thực và mã thoát.
 - **Chế độ Full Access 1-Click trên UI (Phase 3):** Bổ sung nút chuyển đổi Full Access trực tiếp trên thanh công cụ Composer (`react-app.js`, `react.css`) với hộp thoại xác nhận tường minh, cảnh báo viền đỏ, tự động hạ cấp chính sách khi đổi sang chế độ an toàn, và duy trì nguyên tắc fail-closed bất biến đối với các tệp nhạy cảm (`.env`, `.git/`, DPAPI keys).
+- **Chợ kỹ năng & Quản lý Plugin (Phase 4):** `lib/plugins.mjs` cung cấp danh mục marketplace tuyển chọn (Git Workflow Pro, Python Architect, Docker DevOps, SQLite Explorer, Web Researcher, Security Guard), quản lý vòng đời plugin (cài đặt, gỡ bỏ, bật/tắt, manifest tùy chỉnh) và tự động hợp nhất các prompt chuyên môn cùng công cụ vào vòng lặp của Agent.
+- **Phân quyền người dùng RBAC (Phase 4):** `lib/governance.mjs` triển khai ma trận kiểm soát truy cập theo 3 vai trò (`viewer`, `developer`, `admin`), chặn đứng mọi hành vi can thiệp trái phép hoặc leo thang đặc quyền.
+- **Cô lập ranh giới Tenant Workspace (Phase 4):** Quản lý không gian làm việc theo tổ chức/người thuê (`tenantId`), ngăn chặn truy cập, khóa hoặc xuất dữ liệu chéo giữa các tenant.
+- **Nhật ký kiểm toán Doanh nghiệp (Phase 4):** Ghi nhận có cấu trúc (append-only JSONL) mọi hành động trọng yếu vào `enterprise-audit.jsonl` và hỗ trợ truy vấn lọc theo hành động, người dùng và số lượng bản ghi.
 
 ### Thay đổi
 

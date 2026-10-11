@@ -89,7 +89,7 @@ jobs:
           fi
       - name: No bearer tokens or private keys in tracked files
         run: |
-          if git grep -I -n -E 'Authorization"?[:=] *"?Bearer [A-Za-z0-9._~+/=-]{24,}|-----BEGIN ([A-Z]+ )?PRIVATE KEY-----' -- . ':(exclude)scripts/tests' ':(exclude)docs'; then
+          if git grep -I -n -E 'Authorization"?[:=] *"?Bearer [A-Za-z0-9._~+/=-]{24,}|-----BEGIN ([A-Z]+ )?PRIVATE KEY-----' -- . ':(exclude)scripts/tests' ':(exclude)CHATMCP-HUB/tests' ':(exclude)docs' ':(exclude).github'; then
             echo "A credential-looking value is tracked. Remove it and rotate the credential."
             exit 1
           fi

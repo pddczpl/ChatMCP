@@ -43,6 +43,10 @@ hub-instance.lock
 agent-mode.json
 browser-client.json
 mcp-client.*.json
+ai-profiles.json
+installed-plugins.json
+enterprise-audit.jsonl
+.chatmcp-workspace.lock
 *.log
 
 # --- Dependencies and build output -------------------------------------------

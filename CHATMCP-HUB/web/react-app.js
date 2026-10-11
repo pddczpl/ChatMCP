@@ -125,6 +125,7 @@
       {label:'Local App Preview',detail:'Xem localhost an toàn trong sandboxed iframe',icon:'eye',go:()=>this.switchTab('preview')},
       {label:'Chuyển theme sáng / tối',detail:'Giao diện sáng hoặc tối',icon:'sun',go:()=>this.setTheme(this.state.theme==='light'?'dark':'light')},
       {label:'Skills và Subagents',detail:'Hướng dẫn và tác nhân nghiên cứu',icon:'spark',go:()=>this.switchTab('skills')},
+      {label:'Skills Marketplace & Plugins',detail:'Khám phá và cài đặt kỹ năng, plugin, công cụ MCP',icon:'spark',go:()=>this.switchTab('skills')},
       {label:'Cài đặt Web / API',detail:'Đổi chế độ, workspace, quyền',icon:'settings',go:()=>this.openSettings()},
       {label:'Quyền: Chỉ đọc',detail:'Agent chỉ đọc và phân tích; mọi thay đổi bị từ chối',icon:'eye',go:()=>this.setPermission('readonly')},
       {label:'Quyền: Review',detail:'Hỏi bạn trước mỗi lần sửa file hoặc chạy lệnh',icon:'shield',go:()=>this.setPermission('review')},

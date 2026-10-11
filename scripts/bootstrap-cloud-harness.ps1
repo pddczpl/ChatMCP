@@ -51,7 +51,7 @@ if (Test-Path -LiteralPath $Destination) {
 }
 else {
     New-Item -ItemType Directory -Path (Split-Path -Parent $Destination) -Force | Out-Null
-    $null = Invoke-Git @('clone', '--quiet', '--depth', '1', '--branch', $lock.tag, $lock.repository, $Destination)
+    $null = Invoke-Git @('-c', 'protocol.file.allow=always', 'clone', '--quiet', '--depth', '1', '--branch', $lock.tag, $lock.repository, $Destination)
     $mode = 'cloned'
 }
 

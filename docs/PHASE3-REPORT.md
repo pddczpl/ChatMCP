@@ -13,7 +13,7 @@
 | **Phase** | **3 — Sandboxing kiên cố, Đa Workspace an toàn, Đa cấu hình AI & Chế độ Full Access 1-Click** |
 | **Trước đó** | Phase 2 — [PHASE2-REPORT.md](PHASE2-REPORT.md) (Trusted self-host, Render 0đ & Docker) |
 | **Nhánh Git** | `dev/chatmcp-agent` |
-| **Kết quả kiểm thử** | **54/54 bộ Node PASS (exit code 0)**; 17/17 tiêu chí Phase 3 PASS; 15/15 tiêu chí Full Access PASS |
+| **Kết quả kiểm thử** | **55/55 bộ Node PASS (exit code 0)**; 17/17 tiêu chí Phase 3 PASS; 15/15 tiêu chí Full Access PASS |
 
 ---
 
@@ -59,7 +59,7 @@ Phase 3 đã được triển khai hoàn chỉnh và kiểm chứng nghiêm ng�
 | **P3-10: Cảnh báo xác nhận kích hoạt Full Access** | tested · implemented | `verify-full-access.mjs` (opt-in explicit confirmation) |
 | **P3-11: Tự động hạ cấp chính sách khi đổi Mode** | tested · implemented | `verify-full-access.mjs` (downgrade to host-review on safe mode selection) |
 | **P3-12: Chặn bất biến file nhạy cảm ở Full Access** | tested · implemented | `verify-permissions-modes.mjs`, `verify-full-access.mjs` (fail-closed `.env`, `.git/`) |
-| **P3-13: Đồng bộ tài liệu và số lượng bộ kiểm thử** | tested | `verify-docs.mjs` (54 bộ Node, 5 bộ UI, 0 broken links/anchors) |
+| **P3-13: Đồng bộ tài liệu và số lượng bộ kiểm thử** | tested | `verify-docs.mjs` (55 bộ Node, 5 bộ UI, 0 broken links/anchors) |
 
 ---
 

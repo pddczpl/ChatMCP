@@ -16,6 +16,8 @@ import { resolvePublicConfig, describePublicConfig } from './lib/public-config.m
 import { AiProfiles } from './lib/ai-profiles.mjs';
 import { WorkspaceLock } from './lib/workspace-lock.mjs';
 import { SandboxEngine } from './lib/sandbox-engine.mjs';
+import { PluginManager } from './lib/plugins.mjs';
+import { GovernanceManager } from './lib/governance.mjs';
 
 const APP_ID = 'chatmcp-local-hub';
 export const UI_BUILD = '2.3.0-react-agent';
@@ -28,7 +30,7 @@ export function assertCompatibleRunningHub(health, port=3007) {
   return true;
 }
 
-export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/vscode/open','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/intelligence/index','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/workspace/pr','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default']);
+export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/vscode/open','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/intelligence/index','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/workspace/pr','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/uninstall','/api/plugins/toggle','/api/governance/rbac/verify']);
 const BUNDLE_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
 const CSP_BASE = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
@@ -85,10 +87,15 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
   const verification = manager.verification;
   const intelligence = manager.intelligence;
   const preview = manager.preview;
-  const aiProfiles = new AiProfiles({ stateDir: manager.stateDirectory ?? manager.stateDir ?? BUNDLE_ROOT, keyStore: provider?.keyStore ?? null });
+  const hubStateDir = manager.stateDirectory ?? manager.stateDir ?? BUNDLE_ROOT;
+  const aiProfiles = new AiProfiles({ stateDir: hubStateDir, keyStore: provider?.keyStore ?? null });
   aiProfiles.load().catch(() => {});
+  const pluginManager = new PluginManager({ stateDir: hubStateDir });
+  pluginManager.load().catch(() => {});
+  const governance = new GovernanceManager({ stateDir: hubStateDir });
+  governance.registerWorkspace('default-tenant', manager.workspace || BUNDLE_ROOT);
   const sandboxEngine = new SandboxEngine({ mode: publicMode && execMode === 'broker' ? 'broker' : 'host', workspaceRoot: manager.workspace, workspace: manager.studio });
-  const state = (csrf = token) => ({ ...manager.state(), ...(publicMode ? { publicMode: publicInfo() } : {}), ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions:gate?.state()??null, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null} : null, csrfToken: csrf });
+  const state = (csrf = token) => ({ ...manager.state(), ...(publicMode ? { publicMode: publicInfo() } : {}), ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions:gate?.state()??null, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null} : null, csrfToken: csrf });
   const requireNoTask = () => { if (taskEngine?.state().activeTaskId) { const e = new Error('Hủy hoặc chờ nhiệm vụ hoàn tất trước khi thay đổi kết nối AI.'); e.statusCode = 409; throw e; } };
   const changeAi = async (operation) => {
     requireNoTask();
@@ -225,6 +232,16 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
         const lock = new WorkspaceLock({ workspaceRoot: manager.workspace || BUNDLE_ROOT });
         return json(200, await lock.inspect());
       }
+      if (req.method === 'GET' && url.pathname === '/api/plugins/marketplace') {
+        return json(200, { catalog: pluginManager.marketplace({ category: url.searchParams.get('category'), query: url.searchParams.get('query') }) });
+      }
+      if (req.method === 'GET' && url.pathname === '/api/plugins/installed') {
+        return json(200, { plugins: pluginManager.installed(), activeSkills: pluginManager.activeSkills() });
+      }
+      if (req.method === 'GET' && url.pathname === '/api/governance/audit') {
+        const limit = Number(url.searchParams.get('limit') || 50);
+        return json(200, { logs: await governance.queryAudit({ limit, action: url.searchParams.get('action') }) });
+      }
       if (req.method === 'GET' && url.pathname === '/auth/chatgpt/callback') return json(410, { error: 'Không hỗ trợ kết nối OAuth ChatGPT trong chế độ này.' });
       if (req.method === 'GET' && url.pathname === '/api/tasks/events') {
         if (!taskEngine) return json(503, { error: 'Agent chưa sẵn sàng.' });
@@ -355,6 +372,10 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
           case '/api/ai/profiles/upsert': result = { profile: await aiProfiles.upsert(payload) }; break;
           case '/api/ai/profiles/delete': result = await aiProfiles.delete(payload.id); break;
           case '/api/ai/profiles/default': result = await aiProfiles.setDefault(payload.id); break;
+          case '/api/plugins/install': result = { installed: await pluginManager.install(payload.id, payload.custom) }; break;
+          case '/api/plugins/uninstall': result = await pluginManager.uninstall(payload.id); break;
+          case '/api/plugins/toggle': result = await pluginManager.toggle(payload.id, payload.enabled); break;
+          case '/api/governance/rbac/verify': result = { allowed: governance.checkPermission(payload.role, payload.action), role: payload.role, action: payload.action }; break;
           case '/api/hub/shutdown': result = { ok: true }; setTimeout(() => void onShutdown(), 150); break;
           case '/api/workspace/clone': { if (!publicMode) return unknownAction(); requireIdle('Chờ agent dừng trước khi clone kho mới.'); const cloned = await requireWorkspaces().clone(payload); await manager.selectWorkspace(cloned.path); result = { ...stateNow(), cloned }; break; }
           case '/api/workspace/create': { if (!publicMode) return unknownAction(); requireIdle('Chờ agent dừng trước khi tạo workspace mới.'); const created = await requireWorkspaces().create(payload); await manager.selectWorkspace(created.path); result = { ...stateNow(), created }; break; }

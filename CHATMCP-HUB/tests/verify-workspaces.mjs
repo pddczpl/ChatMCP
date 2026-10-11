@@ -683,7 +683,7 @@ try {
     assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
     const archive = path.join(tmp, 'export.tar.gz');
     await fs.writeFile(archive, Buffer.from(await response.arrayBuffer()));
-    const listing = (await run('tar', ['-tzf', archive], { maxBuffer: 16 * 1024 * 1024 })).stdout.split(/\r?\n/).map((line) => line.replace(/^\.\//, '')).filter(Boolean);
+    const listing = (await run('tar', ['-tzf', 'export.tar.gz'], { cwd: tmp, maxBuffer: 16 * 1024 * 1024 })).stdout.split(/\r?\n/).map((line) => line.replace(/^\.\//, '')).filter(Boolean);
     for (const wanted of ['README.md', 'src/app.py', 'src/util.py', 'src/deep/kept.txt', '.gitignore']) assert.ok(listing.includes(wanted), `${wanted} must be in the archive: ${listing.join(',')}`);
     for (const forbidden of listing) assert.ok(!/(^|\/)(\.git|node_modules)(\/|$)|(^|\/)\.env|\.pem$/.test(forbidden), `${forbidden} must not be exported`);
     for (const file of secretLike) assert.ok(!listing.includes(file), `${file} must not be exported`);

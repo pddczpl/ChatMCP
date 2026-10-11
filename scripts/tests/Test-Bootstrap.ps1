@@ -5,8 +5,13 @@ $ErrorActionPreference = 'Stop'
 $script = Join-Path $PSScriptRoot '..\bootstrap-cloud-harness.ps1'
 $powershell = (Get-Process -Id $PID).Path
 $failures = 0
-function Check([bool]$Condition, [string]$Label) {
-    if ($Condition) { Write-Host "  ok - $Label" } else { Write-Host "  FAIL - $Label"; $script:failures++ }
+function Check([bool]$Condition, [string]$Label, [string]$Details = '') {
+    if ($Condition) { Write-Host "  ok - $Label" }
+    else {
+        Write-Host "  FAIL - $Label"
+        if ($Details) { Write-Host "    Details: $Details" }
+        $script:failures++
+    }
 }
 function Invoke-TestGit([string[]]$GitArguments) {
     $previous = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
@@ -43,11 +48,11 @@ try {
     Write-Lock $commit $sha
     $dest = Join-Path $tmp 'dest'
     $r = Invoke-Bootstrap $dest
-    Check ($r.Code -eq 0 -and $r.Output -match 'OK \(cloned\)') 'fresh clone succeeds'
+    Check ($r.Code -eq 0 -and $r.Output -match 'OK \(cloned\)') 'fresh clone succeeds' $r.Output
 
     Write-Host 'verify existing checkout'
     $r = Invoke-Bootstrap $dest
-    Check ($r.Code -eq 0 -and $r.Output -match 'verified existing checkout') 'existing checkout verifies'
+    Check ($r.Code -eq 0 -and $r.Output -match 'verified existing checkout') 'existing checkout verifies' $r.Output
 
     Write-Host 'modified tracked file is rejected and not touched'
     Add-Content -LiteralPath (Join-Path $dest 'LICENSE') -Value 'extra'
