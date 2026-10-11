@@ -66,8 +66,41 @@ export class GitHubSkillRegistry {
     const parsed=parseSkillManifest(text,entry.manifestPath);
     const id=normalizeSkillId(entry.id);
     await this.pluginManager.load();
-    const installed=await this.pluginManager.install(id,{name:parsed.name,description:parsed.description,version:parsed.version,systemPrompt:parsed.systemPrompt,license:parsed.license,author:parsed.author,category:'skills',tools:parsed.tools});
-    // Imported instructions are lower-trust; no script execution or verified-license status is implied.
-    return {...installed,sourceUrl:raw(entry.repo,entry.revision,entry.manifestPath),revision:entry.revision,readOnlyImport:true};
+    // Fetch only bounded UTF-8 supporting files. Imported scripts are never executed.
+    const resourceFiles=[],skipped=[];
+    let rootEntries=[];
+    try {rootEntries=await this.#json(github(entry.repo)+'/contents/'+entry.folder+'?ref='+entry.revision);}
+    catch(e){skipped.push({path:entry.folder,reason:String(e.message||e).slice(0,120)});}
+    const allowExt=/\.(md|mdx|txt|json|yaml|yml|py|js|ts|sh|css|html|toml|xml)$/i;
+    const queue=[];
+    for(const item of Array.isArray(rootEntries)?rootEntries:[]){
+      if(item.type==='dir'&&['references','scripts','assets'].includes(item.name)){
+        try{
+          const children=await this.#json(github(entry.repo)+'/contents/'+item.path+'?ref='+entry.revision);
+          if(Array.isArray(children))queue.push(...children.filter(x=>x.type==='file'));
+        }catch(e){skipped.push({path:item.path,reason:String(e.message||e).slice(0,120)});}
+      }
+    }
+    let totalBytes=0;
+    for(const item of queue.slice(0,32)){
+      const relative=item.path.slice(entry.folder.length+1);
+      if(!item.path.startsWith(entry.folder+'/')||!allowExt.test(relative)||!/^(references|scripts|assets)\//.test(relative)){
+        skipped.push({path:item.path,reason:'unsupported file type or path'});continue;
+      }
+      if(item.size>64*1024||totalBytes+item.size>512*1024){skipped.push({path:item.path,reason:'size limit'});continue;}
+      try{
+        const {text:resource}=await this.transport(raw(entry.repo,entry.revision,item.path),{maxBytes:64*1024});
+        totalBytes+=Buffer.byteLength(resource,'utf8');
+        resourceFiles.push({path:relative,text:resource});
+      }catch(e){skipped.push({path:item.path,reason:String(e.message||e).slice(0,120)});}
+    }
+    if(queue.length>32)skipped.push({path:entry.folder,reason:'resource file count limit'});
+    const installed=await this.pluginManager.importRegistrySkill({
+      id,name:parsed.name,description:parsed.description,version:parsed.version,
+      systemPrompt:parsed.systemPrompt,license:parsed.license,author:parsed.author,tools:parsed.tools,
+      sourceUrl:raw(entry.repo,entry.revision,entry.manifestPath),commitSha:entry.revision,
+      originalSkillText:text,resourceFiles,
+    });
+    return {...installed,revision:entry.revision,readOnlyImport:true,skippedResources:skipped};
   }
 }
