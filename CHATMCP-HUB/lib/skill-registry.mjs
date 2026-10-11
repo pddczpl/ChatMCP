@@ -24,7 +24,7 @@ export class GitHubSkillRegistry {
   sources(){return SOURCES.map(s=>({...s}));}
   async load(){const data=await readJson(this.file).catch(()=>null);if(data?.version===1&&Array.isArray(data.entries)){this.entries=data.entries;this.updatedAt=data.updatedAt;}}
   list({query=''}={}){const q=String(query).toLowerCase().slice(0,100);return this.entries.filter(x=>!q||(x.name+' '+x.description+' '+x.repo).toLowerCase().includes(q)).slice(0,250);}
-  async #json(url){const {text}=await this.transport(url,{maxBytes:512*1024});return JSON.parse(text);}
+  async #json(url){const {text}=await this.transport(url,{maxBytes:2*1024*1024});return JSON.parse(text);}
   async refresh({sourceId}={}){
     if(this.busy)throw fault('registry_busy','Registry is already refreshing.',409);
     const sources=sourceId?SOURCES.filter(x=>x.id===sourceId):SOURCES;

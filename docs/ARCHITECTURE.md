@@ -240,3 +240,11 @@ Kế hoạch (chưa làm):
 1. **Phase 2 — tự host đáng tin cậy:** Docker Compose, xác thực, HTTPS, health/backup, CI/CD. Xem [DEPLOYMENT.md](DEPLOYMENT.md): hiện **chưa có**.
 2. **Streaming** phản hồi và sự kiện SSE.
 3. **Đa người dùng** chỉ sau khi có bằng chứng cô lập cấp VM/microVM (Phase 3/4); Cloud Harness một mình **không** đủ.
+
+
+## 16. Multi-Agent Orchestrator và GitHub Skills Hub (giai đoạn đầu)
+
+- `StudioDelegates.orchestrate()` hỗ trợ DAG tối đa 8 worker, concurrency 1–3, roles planner/researcher/tester/reviewer/security/summarizer. Worker chỉ nhận excerpts và dependency summaries, `tools: []`, không sửa file hay thực thi lệnh. API local trusted Hub: `POST /api/studio/delegates/orchestrate`; giao diện `Agents` cho phép cấu hình nodes. **Chưa hỗ trợ coding agents có quyền ghi trên worktrees độc lập.**
+- `GitHubSkillRegistry` khám phá `SKILL.md` từ danh sách GitHub repositories cố định, lưu commit SHA và source path, có lưu chỉ mục để tìm kiếm. API `GET /api/plugins/registry`, `POST /api/plugins/registry/refresh`, `POST /api/plugins/registry/install`. Trên public Hub, các thao tác refresh/install qua hai POST endpoints bị chặn; dữ liệu skill bên ngoài được xử lý như lower-trust instructions.
+- Lần triển khai này mới nhập nội dung `SKILL.md` vào plugin runtime, **chưa tải scripts/references/assets hoặc chạy kỹ năng third-party scripts**, chưa có engine scheduling coding workers, không phải multi-tenant orchestration. Việc xác minh license của upstream yêu cầu kiểm toán bổ sung; không được khẳng định đã có quyền redistributing.
+- Test regression về DAG, dependency, model tool isolation, cycle validation, GitHub revision pinning và registry persistence được tích hợp trong `verify-phase4-features.mjs`.

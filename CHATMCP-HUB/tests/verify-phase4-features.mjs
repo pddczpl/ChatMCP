@@ -11,6 +11,8 @@ import { PluginManager, MARKETPLACE_CATALOG, validateSkillUrl, parseSkillManifes
 import { GovernanceManager, ROLES, PERMISSIONS_MATRIX } from '../lib/governance.mjs';
 import { createHubServer } from '../hub.mjs';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
+import { StudioDelegates } from '../lib/studio-delegates.mjs';
+import { GitHubSkillRegistry } from '../lib/skill-registry.mjs';
 
 let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
@@ -505,6 +507,81 @@ console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
 
   hubServer.closeAllConnections();
   await new Promise((resolve) => hubServer.close(resolve));
+}
+
+
+// ----------------------------------------------------------------------------------------------------
+// Phase 5: bounded read-only multi-agent DAG and pinned GitHub Skills Registry.
+// ----------------------------------------------------------------------------------------------------
+{
+  const agentDir=path.join(root,'agent-dag');
+  await fs.mkdir(agentDir,{recursive:true});
+  const providerCalls=[];
+  const delegates=new StudioDelegates({
+    directory:agentDir,
+    workspace:{
+      root:work,
+      search:async({query})=>({matches:[{path:'module.mjs',line:2,text:'export function demo() {}',query}]}),
+    },
+    provider:{
+      ready:()=>true,
+      respond:async({input,tools,instructions})=>{
+        assert.deepEqual(tools,[],'subagents must not receive executable tools');
+        const content=JSON.parse(input[0].content[0].text);
+        providerCalls.push({role:content.role,dependencies:content.dependencies});
+        assert.match(instructions,/read-only/i);
+        return {output:[{type:'message',content:[{type:'output_text',text:content.role+' report with file:line evidence'}]}]};
+      }
+    }
+  });
+  const outcome=await delegates.orchestrate({maxConcurrency:2,nodes:[
+    {id:'planner',role:'planner',question:'Plan the main modules',dependsOn:[]},
+    {id:'researcher',role:'researcher',question:'Research implementation requirements',dependsOn:[]},
+    {id:'reviewer',role:'reviewer',question:'Review the initial findings',dependsOn:['planner','researcher']},
+  ]});
+  assert.equal(outcome.status,'completed',JSON.stringify(outcome));
+  assert.equal(outcome.workers.length,3);
+  assert.equal(providerCalls.length,3);
+  assert.equal(providerCalls[2].dependencies.length,2);
+  assert.ok(providerCalls[2].dependencies.every(x=>x.summary.includes('report')));
+  await assert.rejects(()=>delegates.orchestrate({nodes:[
+    {id:'a',role:'reviewer',question:'Check A',dependsOn:['b']},
+    {id:'b',role:'reviewer',question:'Check B',dependsOn:['a']},
+  ]}),/chu trình/);
+  ok('Multi-agent DAG parallel roles, dependencies, tool-free execution and cycle rejection');
+}
+{
+  const registryDir=path.join(root,'registry');
+  await fs.mkdir(registryDir,{recursive:true});
+  const skillSha='a'.repeat(40);
+  const calls=[];
+  const transport=async(url)=>{
+    calls.push(url);
+    if(url.endsWith('/commits/HEAD'))return {text:JSON.stringify({sha:skillSha})};
+    if(url.includes('/contents/skills?ref='))return {text:JSON.stringify([{type:'dir',path:'skills/test-skill'},{type:'file',path:'skills/ignored.txt'}])};
+    if(url.includes('skills/test-skill/SKILL.md'))return {text:'---\nname: test-skill\ndescription: Integration fixture\nlicense: unknown\n---\nRead-only skill guidance.'};
+    throw Error('Unexpected GitHub URL '+url);
+  };
+  const pm=new PluginManager({stateDir:registryDir});
+  await pm.load();
+  const registry=new GitHubSkillRegistry({pluginManager:pm,stateDir:registryDir,transport});
+  await registry.load();
+  const first=await registry.refresh({sourceId:'anthropic'});
+  assert.equal(first.found,1,JSON.stringify(first));
+  const results=registry.list({query:'test-skill'});
+  assert.equal(results.length,1);
+  assert.equal(results[0].revision,skillSha);
+  assert.equal(results[0].redistributable,false);
+  const installed=await registry.install({key:results[0].key});
+  assert.ok(installed.readOnlyImport);
+  assert.ok(pm.installed().some(p=>p.id===results[0].id));
+  assert.ok(calls.some(x=>x.includes(skillSha+'/skills/test-skill/SKILL.md')));
+  const second=await registry.refresh({sourceId:'anthropic'});
+  assert.equal(second.total,1,'refresh must replace previous source index without duplicates');
+  const restored=new GitHubSkillRegistry({pluginManager:pm,stateDir:registryDir,transport});
+  await restored.load();
+  assert.equal(restored.list().length,1);
+  ok('GitHub SKILL.md discovery, pinned import, persistence and repeat refresh');
 }
 
 console.log(`\nPASS: ${checks} Phase 4 feature and integration checks passed cleanly.`);
