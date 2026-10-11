@@ -11,6 +11,7 @@ import path from 'node:path';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 import { readJson, writeJson } from './runtime.mjs';
+import { fetchPinnedSkillResponse } from './skill-http.mjs';
 import { isUnsafeWindowsName } from './fs-safe.mjs';
 
 const INSTALLED_FILENAME = 'installed-plugins.json';
@@ -132,7 +133,9 @@ export function validateSkillUrl(rawUrl) {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw error('invalid_url', `Giao thức không được hỗ trợ (${parsed.protocol}): chỉ cho phép HTTP/HTTPS.`);
   }
+  if (parsed.username || parsed.password) throw error('invalid_url', 'Remote skill URL must not contain credentials.', 400);
   const host = parsed.hostname.toLowerCase();
+  const literalHost = host.replace(/^\[|\]$/g, '');
   if (
     host === 'localhost' ||
     host.endsWith('.localhost') ||
@@ -145,7 +148,7 @@ export function validateSkillUrl(rawUrl) {
   }
 
   // Check IP literal directly
-  if (net.isIP(host) && isPrivateOrReservedIp(host)) {
+  if (net.isIP(literalHost) && isPrivateOrReservedIp(literalHost)) {
     throw error('ssrf_blocked', `Địa chỉ IP (${host}) thuộc dải mạng nội bộ hoặc không an toàn.`, 403);
   }
 
@@ -162,7 +165,7 @@ export function validateSkillUrl(rawUrl) {
 export async function resolvePublicUrl(rawUrl) {
   const validated = validateSkillUrl(rawUrl);
   const parsed = new URL(validated);
-  const hostname = parsed.hostname.toLowerCase();
+  const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
 
   if (net.isIP(hostname)) {
     if (isPrivateOrReservedIp(hostname)) {
@@ -208,7 +211,7 @@ export async function safeFetchSkillManifest(rawUrl, {
   maxRedirects = 3,
   timeoutMs = 8000,
   maxBytes = 512 * 1024,
-  fetchFn = fetch,
+  fetchFn = null,
   dnsResolver = resolvePublicUrl,
 } = {}) {
   let currentUrl = rawUrl;
@@ -223,10 +226,9 @@ export async function safeFetchSkillManifest(rawUrl, {
 
     let res;
     try {
-      res = await fetchFn(validatedUrl, {
-        redirect: 'manual',
-        signal: AbortSignal.timeout(timeoutMs),
-      });
+      res = fetchFn
+        ? await fetchFn(validatedUrl, { redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) })
+        : await fetchPinnedSkillResponse(validatedUrl, { ip: resolved.ip, timeoutMs, maxBytes });
     } catch (fetchErr) {
       if (fetchErr.code && fetchErr.statusCode) throw fetchErr;
       throw error('fetch_network_error', `Lỗi tải manifest: ${fetchErr.message}`, 400);
@@ -254,9 +256,30 @@ export async function safeFetchSkillManifest(rawUrl, {
       throw error('response_too_large', `Kích thước manifest (${contentLength} B) vượt quá giới hạn cho phép (${maxBytes} B).`, 400);
     }
 
-    const text = await res.text();
-    if (Buffer.byteLength(text, 'utf8') > maxBytes) {
-      throw error('response_too_large', `Nội dung manifest vượt quá giới hạn cho phép (${maxBytes} B).`, 400);
+    // The production transport caps raw bytes as they arrive. For injected test
+    // fetchers, also read Web streams incrementally when available.
+    let text;
+    if (res.body?.getReader) {
+      const reader = res.body.getReader();
+      const chunks = [];
+      let count = 0;
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          const part = Buffer.from(value);
+          count += part.length;
+          if (count > maxBytes) throw error('response_too_large', 'Manifest stream exceeds the download limit.', 413);
+          chunks.push(part);
+        }
+      } finally {
+        await reader.cancel().catch(() => {});
+        reader.releaseLock();
+      }
+      text = Buffer.concat(chunks, count).toString('utf8');
+    } else {
+      text = await res.text();
+      if (Buffer.byteLength(text, 'utf8') > maxBytes) throw error('response_too_large', 'Manifest exceeds the download limit.', 413);
     }
 
     return { text, finalUrl: validatedUrl };
