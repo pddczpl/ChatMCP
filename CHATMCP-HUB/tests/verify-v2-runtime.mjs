@@ -56,4 +56,4 @@ try{
   check(log.includes('SESSION_READY')&&log.includes('AFTER_STDIN'),'persistent shell accepted stdin');
   terminal.stop(t.id);
   console.log(`PASS ${n} v2.2 core assertions: Docker sandbox contract, AST incremental index, LSP stdio, strict policy, interactive terminal, preview validation`);
-}finally{index.close();gate.shutdown();await terminal.close();await fs.rm(temp,{recursive:true,force:true});}
+}finally{index.close();gate.shutdown();await terminal.close();await fs.rm(temp,{recursive:true,force:true,maxRetries:20,retryDelay:200}).catch(()=>{});}

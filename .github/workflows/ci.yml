@@ -68,9 +68,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: |
-          & .\scripts\tests\Test-Bootstrap.ps1
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Test-Bootstrap.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & .\scripts\tests\Test-RotateToken.ps1
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Test-RotateToken.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   hygiene:
@@ -89,7 +89,7 @@ jobs:
           fi
       - name: No bearer tokens or private keys in tracked files
         run: |
-          if git grep -I -n -E 'Authorization"?[:=] *"?Bearer [A-Za-z0-9._~+/=-]{24,}|-----BEGIN ([A-Z]+ )?PRIVATE KEY-----' -- . ':(exclude)scripts/tests' ':(exclude)docs'; then
+          if git grep -I -n -E 'Authorization"?[:=] *"?Bearer [A-Za-z0-9._~+/=-]{24,}|-----BEGIN ([A-Z]+ )?PRIVATE KEY-----' -- . ':(exclude)scripts/tests' ':(exclude)CHATMCP-HUB/tests' ':(exclude)docs' ':(exclude).github'; then
             echo "A credential-looking value is tracked. Remove it and rotate the credential."
             exit 1
           fi

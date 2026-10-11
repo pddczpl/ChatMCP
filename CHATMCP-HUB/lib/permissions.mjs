@@ -83,7 +83,13 @@ export class PermissionGate {
   state(){return {mode:this.mode,modes:[...PERMISSION_MODES],executionPolicy:this.executionPolicy,fullAccess:this.executionPolicy==='full-access',approvalTimeoutMs:this.timeout,pending:[...this.requests.values()].map(({id,taskId,toolName,category,reason,summary,preview,detail,at,expiresAt})=>({id,taskId,toolName,category,reason,summary,preview,detail,at,expiresAt})),recent:this.history.slice(-60)};}
   configure({mode,executionPolicy,confirmation}={}){
     let nextMode;
-    if(mode!==undefined){nextMode=normalizeMode(mode);if(!nextMode)throw error('bad_mode','Chế độ phải là readonly (chỉ đọc), review hoặc autonomous.',400);}
+    if(mode==='full-access'){
+      executionPolicy='full-access';
+      nextMode='autonomous';
+    } else if(mode!==undefined){
+      nextMode=normalizeMode(mode);
+      if(!nextMode)throw error('bad_mode','Chế độ phải là readonly (chỉ đọc), review hoặc autonomous.',400);
+    }
     if(executionPolicy!==undefined&&!EXECUTION_POLICIES.includes(executionPolicy))throw error('bad_policy','Chính sách sandbox không hợp lệ.',400);
     if(executionPolicy==='full-access' && this.executionPolicy!=='full-access' && confirmation!=='FULL ACCESS') throw error('full_access_confirmation_required','Nhập chính xác FULL ACCESS để cho phép agent đọc/sửa file ngoài workspace, sử dụng Internet và chạy công cụ nguy hiểm với quyền Windows hiện tại.',403);
     if(nextMode!==undefined)this.mode=nextMode;

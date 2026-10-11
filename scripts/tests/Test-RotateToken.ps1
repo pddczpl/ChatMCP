@@ -86,3 +86,4 @@ Remove-Item -LiteralPath $f.Root -Recurse -Force
 
 if ($failures -gt 0) { Write-Host "FAILED: $failures check(s)"; exit 1 }
 Write-Host 'PASS: Rotate-CloudHarnessToken tests'
+exit 0

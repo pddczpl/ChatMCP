@@ -41,7 +41,9 @@ try{
   [r,v]=await post('/api/studio/accept',{checkpointId:id,file:'main.py',expectedSha:change.currentSha});ok(r.ok);
   [r,v]=await post('/api/studio/restore',{checkpointId:id,file:'main.py',expectedSha:change.currentSha});ok(r.ok&&(await fs.readFile(path.join(dir,'main.py'),'utf8')).includes('123'));
   [r,v]=await post('/api/studio/terminal/start',{command:'echo HTTP-ok',timeoutMinutes:1});ok(r.ok&&v.id);
-  await new Promise(r=>setTimeout(r,150));[r,v]=await get('/api/studio/terminal');ok(r.ok&&v[0].logs.some(x=>x.message.includes('HTTP-ok')));
+  let sawTermLog=false;
+  for(let i=0;i<30;i++){await new Promise(r=>setTimeout(r,100));[r,v]=await get('/api/studio/terminal');if(r.ok&&v[0]?.logs?.some(x=>x.message.includes('HTTP-ok'))){sawTermLog=true;break;}}
+  ok(sawTermLog);
   [r,v]=await post('/api/studio/plan/set',{taskId,title:'Roadmap',items:[{text:'Verify',status:'done',evidence:''}]});ok(r.ok&&v.items.length===1);
   [r,v]=await get('/api/studio/plan?taskId='+taskId);ok(r.ok&&v.title==='Roadmap');
   [r,v]=await post('/api/tasks/auto-resume',{id:taskId,enabled:true});ok(r.ok&&v.task.id===taskId&&v.task.autoResume);
@@ -53,4 +55,4 @@ try{
   const script=await fetch(origin+'/react-app.js').then(r=>r.text());ok(script.includes('/api/studio/permissions/decide')&&script.includes('/api/studio/restore'));
   const css=await fetch(origin+'/react.css').then(r=>r.text());ok(css.includes('.studio-columns'));
   console.log(`PASS: ${n} Studio 2.0 HTTP checks (CSRF, path security, review, Git rollback, terminal, plan, UI assets)`);
-}finally{await manager.terminal.close();server.closeAllConnections();await new Promise(r=>server.close(r));await fs.rm(temp,{recursive:true,force:true});}
+}finally{await manager.terminal.close();server.closeAllConnections();await new Promise(r=>server.close(r));await fs.rm(temp,{recursive:true,force:true,maxRetries:20,retryDelay:200}).catch(()=>{});}

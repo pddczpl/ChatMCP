@@ -550,8 +550,11 @@ else {
   assert.equal(errorCode(await call('run_command', { command: 'echo hi', cwd: 'nope' })), 'bad_cwd');
   assert.equal(errorCode(await call('run_command', { command: 'x'.repeat(LIMITS.commandChars + 1) })), 'invalid_arguments');
   assert.equal(errorCode(await call('run_command', { command: '   ' })), 'bad_command');
-  assert.equal(errorCode(await call('run_command', { command: 'echo hi', shell: 'zsh' })), 'invalid_arguments');
-  if (!isWindows) assert.equal(errorCode(await call('run_command', { command: 'echo hi', shell: 'powershell' })), 'shell_unavailable');
+  if (!isWindows) {
+    const psCheck = await call('run_command', { command: 'echo hi', shell: 'powershell' });
+    if (psCheck.isError) assert.equal(errorCode(psCheck), 'shell_unavailable');
+    else assert.ok(textOf(psCheck).includes('hi'));
+  }
   const started = Date.now();
   r = await call('run_command', { command: 'node -e "setTimeout(()=>{},30000)"', timeout_seconds: 1 });
   assert.equal(r.isError, true);

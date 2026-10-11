@@ -125,10 +125,12 @@
       {label:'Local App Preview',detail:'Xem localhost an toàn trong sandboxed iframe',icon:'eye',go:()=>this.switchTab('preview')},
       {label:'Chuyển theme sáng / tối',detail:'Giao diện sáng hoặc tối',icon:'sun',go:()=>this.setTheme(this.state.theme==='light'?'dark':'light')},
       {label:'Skills và Subagents',detail:'Hướng dẫn và tác nhân nghiên cứu',icon:'spark',go:()=>this.switchTab('skills')},
+      {label:'Skills Marketplace & Plugins',detail:'Khám phá và cài đặt kỹ năng, plugin, công cụ MCP',icon:'spark',go:()=>this.switchTab('skills')},
       {label:'Cài đặt Web / API',detail:'Đổi chế độ, workspace, quyền',icon:'settings',go:()=>this.openSettings()},
       {label:'Quyền: Chỉ đọc',detail:'Agent chỉ đọc và phân tích; mọi thay đổi bị từ chối',icon:'eye',go:()=>this.setPermission('readonly')},
       {label:'Quyền: Review',detail:'Hỏi bạn trước mỗi lần sửa file hoặc chạy lệnh',icon:'shield',go:()=>this.setPermission('review')},
       {label:'Quyền: Tự động',detail:'Tự sửa file và chạy lệnh kiểm tra an toàn',icon:'bot',go:()=>this.setPermission('autonomous')},
+      {label:'Quyền: Full Access (Bỏ qua duyệt)',detail:'Toàn bộ máy và Internet không cần hỏi duyệt (Rủi ro cao)',icon:'warning',go:()=>this.toggleFullAccess()},
       {label:'Hướng dẫn thiết lập',detail:'Chọn thư mục, kết nối AI và quyền của agent',icon:'spark',go:()=>this.set({onboardingOpen:true,onboardingStep:UI.onboarding(this.state.hub,{dismissed:false}).current})},
       {label:'Đồng bộ Hub',detail:'Tải lại trạng thái backend',icon:'refresh',go:()=>this.poll(true)}
     ].filter(item=>!(this.state.hub?.publicMode&&item.label==='Local App Preview'));}
@@ -499,9 +501,39 @@
     updatePlanItem(i,key,value){const items=this.state.plan.items.map((item,j)=>i===j?{...item,[key]:value}:item);this.set({plan:{...this.state.plan,items}});}
     async loadSkills(){try{const r=await this.get('/api/studio/skills');this.set({skills:arr(r.skills)});}catch(e){this.toast(e.message,true);}}
     async decidePermission(id,approved){await this.act(approved?'Cho phép thao tác':'Từ chối thao tác',async()=>await this.post('/api/studio/permissions/decide',{id,approved}));}
-    async setPermission(mode){if(mode===this.permMode())return;
+    async setPermission(mode){
+      const isFullAccess=this.state.hub?.studio?.permissions?.executionPolicy==='full-access';
+      if(!isFullAccess&&mode===this.permMode())return;
+      if(mode==='full-access'){return await this.toggleFullAccess(true);}
+      if(isFullAccess){
+        if(!confirm(`Tắt Full Access và chuyển sang chế độ ${mode==='readonly'?'Chỉ đọc':mode==='autonomous'?'Tự động':'Review'}?`))return;
+        await this.act('Đổi quyền của agent',async()=>{
+          await this.post('/api/studio/permissions/config',{mode,executionPolicy:'host-review'});
+          this.set({permissionMode:mode,executionPolicy:'host-review'});
+        });
+        return;
+      }
       if(mode==='autonomous'&&!confirm('Chế độ Tự động cho phép agent sửa file trong workspace và chạy lệnh kiểm tra an toàn mà không hỏi. Lệnh khác và lệnh nguy hiểm vẫn cần bạn duyệt; công cụ chưa phân loại bị từ chối. Bật?'))return;
       await this.act('Đổi quyền của agent',async()=>{await this.post('/api/studio/permissions/config',{mode});this.set({permissionMode:mode});});
+    }
+    async toggleFullAccess(forceEnable=false){
+      const isFullAccess=this.state.hub?.studio?.permissions?.executionPolicy==='full-access';
+      if(isFullAccess&&!forceEnable){
+        if(!confirm('Tắt Full Access và quay về chế độ Review?'))return;
+        await this.act('Tắt Full Access',async()=>{
+          await this.post('/api/studio/permissions/config',{mode:'review',executionPolicy:'host-review'});
+          this.set({permissionMode:'review',executionPolicy:'host-review'});
+        });
+        this.toast('Đã tắt Full Access, chuyển về Review.');
+        return;
+      }
+      const confirmation=window.prompt('FULL ACCESS — RỦI RO CAO\n\nAgent có thể tự đọc/sửa/xóa file BẤT KỲ mà tài khoản có quyền truy cập, chạy shell và truy cập Internet qua công cụ MCP mà KHÔNG hỏi mỗi lần.\n\nKhông bảo vệ bằng Docker sandbox. Không được dùng với repository không tin cậy.\n\nNhập chính xác FULL ACCESS để xác nhận:');
+      if(confirmation!=='FULL ACCESS'){this.toast('Đã hủy bật Full Access. Nhập đúng FULL ACCESS nếu muốn bật.',true);return;}
+      await this.act('Bật Full Access',async()=>{
+        const p=await this.post('/api/studio/permissions/config',{executionPolicy:'full-access',confirmation:'FULL ACCESS'});
+        this.set({executionPolicy:p.executionPolicy});
+      });
+      this.toast('ĐÃ BẬT FULL ACCESS — Mọi công cụ chạy không cần duyệt.');
     }
     async denyAll(pending){await this.act('Từ chối tất cả yêu cầu',async()=>{for(const p of pending)await this.post('/api/studio/permissions/decide',{id:p.id,approved:false});});}
     // After the person has looked at what changed: the Git tab with the diff already loaded.
@@ -600,9 +632,16 @@
         (ev.edits||ev.commands)&&d.state==='completed'?h(Button,{variant:'quiet',icon:'git',onClick:()=>this.reviewChanges()},'Xem thay đổi'):null);
     }
     // ---- composer parts ----------------------------------------------------------------------------------------------
-    permissionSwitch(){const mode=this.permMode(),locked=this.state.hub?.studio?.permissions?.executionPolicy==='full-access'||!!this.state.busy;
-      return h('div',{className:'perm-switch',role:'group','aria-label':'Quyền của agent'},UI.PERMISSION_MODES.map(entry=>h('button',{type:'button',key:entry.id,
-        className:'perm-btn perm-'+entry.id+(entry.id===mode?' active':''),title:entry.hint+(locked&&!this.state.busy?' (Full Access đang bật: không áp dụng)':''),'aria-pressed':entry.id===mode,disabled:locked,onClick:()=>this.setPermission(entry.id)},entry.label)));
+    permissionSwitch(){const mode=this.permMode(),isFullAccess=this.state.hub?.studio?.permissions?.executionPolicy==='full-access',busy=!!this.state.busy;
+      return h('div',{className:'perm-switch',role:'group','aria-label':'Quyền của agent'},
+        UI.PERMISSION_MODES.map(entry=>h('button',{type:'button',key:entry.id,
+          className:'perm-btn perm-'+entry.id+(entry.id===mode&&!isFullAccess?' active':''),
+          title:entry.hint+(isFullAccess&&!busy?' (Bấm để tắt Full Access và chuyển về chế độ này)':''),
+          'aria-pressed':entry.id===mode&&!isFullAccess,disabled:busy,onClick:()=>this.setPermission(entry.id)},entry.label)),
+        h('button',{type:'button',key:'full-access',
+          className:'perm-btn perm-full-access'+(isFullAccess?' active':''),
+          title:'FULL ACCESS: Toàn bộ máy và Internet không cần hỏi duyệt (Rủi ro cao)',
+          'aria-pressed':isFullAccess,disabled:busy,onClick:()=>this.toggleFullAccess()},'Full Access ⚠️'));
     }
     providerChip(){const ai=this.state.hub?.ai;
       if(this.mode()==='chatgpt-web')return h('button',{type:'button',className:'provider-chip',title:'ChatGPT Web: chế độ cũ, chỉ để thử nghiệm cục bộ. Mở Cài đặt để đổi.',onClick:()=>this.openSettings()},h(Icon,{name:'external',size:13}),'ChatGPT Web');

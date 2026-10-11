@@ -9,7 +9,7 @@
 | Kiểu triển khai | Trạng thái | Bằng chứng |
 |---|---|---|
 | Một người dùng, Windows 11, `127.0.0.1`, tự khởi động bằng launcher | **implemented · integration-tested · e2e-verified** | toàn bộ bộ Node chạy trên Windows 11 (Node 24); smoke thật trên Windows |
-| Một người dùng, Linux/macOS, `127.0.0.1`, `node hub.mjs` | **implemented · integration-tested trên Linux** | toàn bộ 53 bộ Node chạy trên Linux (Node 22) |
+| Một người dùng, Linux/macOS, `127.0.0.1`, `node hub.mjs` | **implemented · integration-tested trên Linux** | toàn bộ 55 bộ Node chạy trên Linux (Node 22) |
 | Tự host VPS (Docker Compose), một chủ sở hữu qua token + HTTPS | **implemented · integration-tested · docker-verified** | `Dockerfile`, `docker-compose.yml`, supervisor tách quyền uid 10000/10001, test container pass 51/51 |
 | Triển khai 0 đồng Render (Docker Web Service, gói free) | **implemented · integration-tested · docker-verified** | `render.yaml`, heap cap 192 MB, `verify-e2e-public.mjs` giả lập proxy Render |
 | Truy cập từ xa bằng đường hầm SSH tới Hub loopback | **implemented** (dựa trên loopback chuẩn) | Hub bind `127.0.0.1`, SSH port forwarding |

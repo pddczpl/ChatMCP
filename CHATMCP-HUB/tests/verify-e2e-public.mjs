@@ -165,9 +165,11 @@ function filesMentioning(directory, secrets) {
 }
 
 async function archiveEntries(buffer, directory) {
-  const archive = path.join(directory, `export-${randomBytes(4).toString('hex')}.tar.gz`);
+  const archiveName = `export-${randomBytes(4).toString('hex')}.tar.gz`;
+  const archive = path.join(directory, archiveName);
   await fs.writeFile(archive, buffer);
-  const listing = (await run('tar', ['-tzf', archive], { maxBuffer: 16 * 1024 * 1024 })).stdout.split(/\r?\n/).map((line) => line.replace(/^\.\//, '').replace(/\/$/, '')).filter(Boolean);
+  // On Windows, GNU tar treats "C:\..." as a remote host because of the colon. Running inside directory with relative filename avoids this.
+  const listing = (await run('tar', ['-tzf', archiveName], { cwd: directory, maxBuffer: 16 * 1024 * 1024 })).stdout.split(/\r?\n/).map((line) => line.replace(/^\.\//, '').replace(/\/$/, '')).filter(Boolean);
   await fs.rm(archive, { force: true });
   return listing;
 }

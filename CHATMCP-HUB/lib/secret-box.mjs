@@ -23,10 +23,10 @@ async function dpapi(mode, text, bundleRoot) {
   const binary = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   const script = path.join(bundleRoot, 'windows', 'Protect-ApiKey.ps1');
   return await new Promise((resolve, reject) => {
-    const proc = spawn(binary, ['-NoProfile', '-NonInteractive', '-File', script, '-Mode', mode], { windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
+    const proc = spawn(binary, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Mode', mode], { windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
     let chunks = '', size = 0, settled = false;
     const done = (error, result) => { if (settled) return; settled = true; clearTimeout(timeout); error ? reject(error) : resolve(result); };
-    const timeout = setTimeout(() => { proc.kill(); done(fail('dpapi_timeout', 'Windows chưa thể bảo vệ API key.')); }, 20000);
+    const timeout = setTimeout(() => { proc.kill(); done(fail('dpapi_timeout', 'Windows chưa thể bảo vệ API key.')); }, 30000);
     proc.stdout.setEncoding('utf8');
     proc.stdout.on('data', (s) => { size += Buffer.byteLength(s); if (size > 1024 * 1024) { proc.kill(); done(fail('dpapi_overflow', 'Credential quá dài.')); } else chunks += s; });
     proc.stderr.resume(); proc.stdin.on('error', () => {});

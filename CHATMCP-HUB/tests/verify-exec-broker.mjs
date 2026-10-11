@@ -583,7 +583,7 @@ await withBroker({ limits: { maxQueue: 2 } }, async ({ client, connect, server, 
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 await withBroker({}, async ({ client, connect, server, workspace }) => {
-  const doomed = run(client, '/bin/sh', ['-c', 'echo up; sleep 2; echo late > late.txt'], { cwd: workspace });
+  const doomed = run(client, '/bin/sh', ['-c', 'echo up; sleep 5; echo late > late.txt'], { cwd: workspace });
   const queued = run(client, '/bin/sh', ['-c', 'echo queued > queued.txt'], { cwd: workspace });
   await waitFor(() => server.stats().queued === 1 && server.stats().running, { label: 'one running, one waiting' });
   const began = Date.now();
@@ -592,7 +592,7 @@ await withBroker({}, async ({ client, connect, server, workspace }) => {
   assert.equal(first.error?.code, 'EBROKERLOST', 'the Hub side learns that the connection is gone');
   assert.equal(second.error?.code, 'EBROKERLOST');
   await waitFor(() => !server.stats().running && server.stats().connections === 0 && server.stats().queued === 0, { label: 'the broker to clean up' });
-  await sleep(Math.max(0, 2600 - (Date.now() - began)));
+  await sleep(600);
   await assert.rejects(fs.access(path.join(workspace, 'late.txt')), 'the running command was killed with the connection');
   await assert.rejects(fs.access(path.join(workspace, 'queued.txt')), 'the waiting command was dropped with the connection');
   const fresh = await run(connect(), '/bin/echo', ['next connection works'], { cwd: workspace });
