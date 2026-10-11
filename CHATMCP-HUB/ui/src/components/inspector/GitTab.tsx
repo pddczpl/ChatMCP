@@ -21,6 +21,17 @@ export function GitTab() {
   const [loading, setLoading] = useState(false);
 
   const { data: hub, refetch: refetchState } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 3000 });
+  const { data: gitStatus, refetch: refetchGitStatus } = useQuery({
+    queryKey: ['gitStatus'],
+    queryFn: async () => {
+      try {
+        return await api.getGitStatus();
+      } catch {
+        return null;
+      }
+    },
+    refetchInterval: 3000,
+  });
   const { data: checkpointsList = [], refetch: refetchCheckpoints } = useQuery({
     queryKey: ['checkpointsList'],
     queryFn: async () => {
@@ -34,6 +45,8 @@ export function GitTab() {
     refetchInterval: 5000,
   });
   const git = hub?.workspace?.git;
+  const currentBranch = gitStatus?.branch || git?.branch || 'HEAD';
+  const isDirty = gitStatus ? Boolean(gitStatus.dirty) : Boolean(git?.dirty);
 
   const handleCreateCheckpoint = async () => {
     if (!checkpointName.trim()) return;
@@ -44,6 +57,7 @@ export function GitTab() {
       setCheckpointName('');
       refetchCheckpoints();
       refetchState();
+      refetchGitStatus();
     } catch (err: any) {
       showToast(err.message || 'Lỗi tạo checkpoint', 'error');
     } finally {
@@ -58,6 +72,7 @@ export function GitTab() {
       showToast(`Đã khôi phục thành công ${res.restoredCount ?? 0} file từ checkpoint!`, 'success');
       refetchCheckpoints();
       refetchState();
+      refetchGitStatus();
     } catch (err: any) {
       showToast(err.message || 'Lỗi khôi phục checkpoint', 'error');
     }
@@ -70,11 +85,11 @@ export function GitTab() {
         <div className="flex items-center gap-2">
           <GitBranch className="w-4 h-4 text-sky-400" />
           <span className="font-mono font-semibold text-[var(--text)]">
-            {git?.branch || 'main'}
+            {currentBranch}
           </span>
         </div>
         <div>
-          {git?.dirty ? (
+          {isDirty ? (
             <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30">
               {t('git_dirty')}
             </span>
@@ -132,7 +147,14 @@ export function GitTab() {
                 className="p-2.5 rounded-lg bg-[var(--surface)] border border-[var(--line-subtle)] flex items-center justify-between gap-2"
               >
                 <div className="min-w-0">
-                  <div className="font-medium text-[var(--text)] truncate">{cp.label || cp.name || cp.message || 'Checkpoint'}</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium text-[var(--text)] truncate">{cp.label || cp.name || cp.message || 'Checkpoint'}</span>
+                    {cp.partial && (
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                        Partial
+                      </span>
+                    )}
+                  </div>
                   <div className="text-[10px] font-mono text-[var(--faint)]">
                     {cp.id ? cp.id.slice(0, 12) : ''} • {cp.fileCount ?? cp.files?.length ?? 0} files • {cp.at || cp.timestamp ? new Date(cp.at || cp.timestamp).toLocaleTimeString() : ''}
                   </div>

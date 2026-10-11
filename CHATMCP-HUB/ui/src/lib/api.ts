@@ -161,4 +161,5 @@ export const api = {
   testConnection: (opts?: any) => api.testAi(),
   updateAiConfig: (config: any) => api.saveAiConfig(config),
   revertCheckpoint: (id: string) => request<{ ok: boolean; checkpointId: string; restoredCount: number; files: string[] }>('/api/studio/restore-checkpoint', { method: 'POST', body: JSON.stringify({ checkpointId: id }) }),
+  previewCheckpoint: (id: string) => request<{ ok: boolean; checkpoint: any; plan: any }>('/api/studio/preview-checkpoint?checkpointId=' + encodeURIComponent(id)),
 };

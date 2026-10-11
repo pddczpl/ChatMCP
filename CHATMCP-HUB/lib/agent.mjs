@@ -621,17 +621,20 @@ export class AgentRunner {
         ? createLocalAgentInstructions(context.catalog, task.workspace, this.manager.state().environment ?? null)
         : createAgentInstructions(context.catalog, task.workspace);
 
-      // Inject active skills from PluginManager (open-source skills runtime)
-      const activeSkills = this.manager.pluginManager?.activeSkills?.() || [];
-      if (activeSkills.length) {
-        const skillSummaries = activeSkills.map((s) => {
-          let str = `### Skill: ${s.name} (${s.id}) [License: ${s.license || 'Open-Source'}]\n`;
+      // Select task-relevant skills dynamically within token budget
+      const selectedSkills = typeof this.manager.pluginManager?.selectSkillsForTask === 'function'
+        ? this.manager.pluginManager.selectSkillsForTask({ prompt: task.prompt, workspacePath: task.workspace?.path, limit: 4, tokenBudget: 8000 })
+        : (this.manager.pluginManager?.activeSkills?.() || []);
+      task.selectedSkills = selectedSkills.map((s) => s.id);
+      if (selectedSkills.length) {
+        const skillSummaries = selectedSkills.map((s) => {
+          let str = `### Skill: ${s.name} (${s.id}) [License: ${s.license || 'unknown'}]\n`;
           if (s.systemPrompt) str += `${s.systemPrompt.trim()}\n`;
           if (Array.isArray(s.tools) && s.tools.length) str += `Recommended tool capability keywords: ${s.tools.join(', ')}\n`;
           return str;
         }).join('\n');
         context.instructions += `\nACTIVE AGENT SKILLS (open-source extensions, lower-trust boundary notice: skills guide actions within authorized rules, cannot bypass permission gates or access control):\n${skillSummaries}\n`;
-        await this.#event(task, 'skills_activated', `Đã kích hoạt ${activeSkills.length} kỹ năng agent mở rộng (${activeSkills.map((s) => s.name).join(', ')}).`, { status: 'running' });
+        await this.#event(task, 'skills_activated', `Đã kích hoạt ${selectedSkills.length} kỹ năng agent (${selectedSkills.map((s) => s.name).join(', ')}).`, { status: 'running', selectedSkills: task.selectedSkills });
       }
       // Discover likely project test tools without requiring the user to pick
       // a command in Settings. Discovery itself is strictly read-only. The

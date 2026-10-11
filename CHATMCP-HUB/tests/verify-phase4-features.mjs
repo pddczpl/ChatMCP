@@ -6,7 +6,7 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { PluginManager, MARKETPLACE_CATALOG } from '../lib/plugins.mjs';
+import { PluginManager, MARKETPLACE_CATALOG, validateSkillUrl, parseSkillManifest, VERIFIED_REGISTRIES } from '../lib/plugins.mjs';
 import { GovernanceManager, ROLES, PERMISSIONS_MATRIX } from '../lib/governance.mjs';
 import { createHubServer } from '../hub.mjs';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
@@ -108,6 +108,60 @@ console.log('--- Section 1: PluginManager & Skills Marketplace ---');
   await pm2.load();
   assert.ok(pm2.installed().some((p) => p.id === 'sqlite-mcp-explorer'));
   ok('Plugin configuration persists and reloads');
+
+  // SSRF protection on skill manifest URL
+  assert.throws(() => validateSkillUrl('http://localhost:8080/skill.json'), { code: 'ssrf_blocked' });
+  assert.throws(() => validateSkillUrl('http://127.0.0.1:3000/manifest.json'), { code: 'ssrf_blocked' });
+  assert.throws(() => validateSkillUrl('http://169.254.169.254/latest/meta-data'), { code: 'ssrf_blocked' });
+  assert.throws(() => validateSkillUrl('http://192.168.1.1/skill.md'), { code: 'ssrf_blocked' });
+  assert.throws(() => validateSkillUrl('file:///etc/passwd'), { code: 'invalid_url' });
+  assert.equal(validateSkillUrl('https://example.com/skill.md'), 'https://example.com/skill.md');
+  ok('validateSkillUrl prevents SSRF to internal, loopback and cloud-metadata addresses');
+
+  // parseSkillManifest strict verification
+  assert.throws(() => parseSkillManifest('# Arbitrary Title\nSome content without frontmatter'), { code: 'invalid_manifest' });
+  assert.throws(() => parseSkillManifest('---\nid: "unclosed quote\n---\nPrompt'), { code: 'malformed_yaml' });
+  const parsedYaml = parseSkillManifest(`---
+id: test-skill
+name: Test Skill
+version: 1.0.0
+tools:
+  - tool_a
+  - tool_b
+---
+Skill prompt body.`);
+  assert.equal(parsedYaml.id, 'test-skill');
+  assert.equal(parsedYaml.license, 'unknown');
+  assert.equal(parsedYaml.redistributable, false);
+  assert.deepEqual(parsedYaml.tools, ['tool_a', 'tool_b']);
+
+  const parsedOsi = parseSkillManifest(`---
+id: osi-skill
+name: OSI Skill
+license: Apache-2.0
+---
+OSI prompt body.`);
+  assert.equal(parsedOsi.license, 'Apache-2.0');
+  assert.equal(parsedOsi.redistributable, true);
+  ok('parseSkillManifest rejects raw markdown and malformed YAML, verifies licenses and provenance');
+
+  // Multi-file directory installation & skills-lock.json
+  const skillDir = path.join(state, 'skills', 'sqlite-mcp-explorer');
+  const manifestStat = await fs.stat(path.join(skillDir, 'manifest.json'));
+  assert.ok(manifestStat.isFile(), 'manifest.json written to skill directory');
+  const skillMdStat = await fs.stat(path.join(skillDir, 'SKILL.md'));
+  assert.ok(skillMdStat.isFile(), 'SKILL.md written to skill directory');
+  const lockData = JSON.parse(await fs.readFile(path.join(state, 'skills-lock.json'), 'utf8'));
+  assert.ok(lockData.skills['sqlite-mcp-explorer']);
+  ok('Multi-file skill directory structure and skills-lock.json tracking');
+
+  // Dynamic token-budgeted skill selection
+  const gitSelected = pm2.selectSkillsForTask({ prompt: 'Please commit my changes using git', limit: 2, tokenBudget: 4000 });
+  assert.ok(gitSelected.length > 0);
+  assert.equal(gitSelected[0].id, 'git-workflow-pro');
+  const boundedSelected = pm2.selectSkillsForTask({ prompt: 'General coding task', limit: 1, tokenBudget: 100 });
+  assert.ok(boundedSelected.length <= 1);
+  ok('selectSkillsForTask dynamically ranks skills and respects token budget');
 }
 
 // ----------------------------------------------------------------------------------------------------
@@ -297,6 +351,47 @@ console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
   assert.equal(uninstRes.status, 200);
   assert.equal(uninstRes.body.ok, true);
   ok('POST /api/plugins/uninstall removes plugin via Hub');
+
+  // 8. Safe checkpoint preview and restore via Hub API
+  await fs.writeFile(path.join(work, 'test-phase4-doc.txt'), 'version 1 content\n', 'utf8');
+  const cp = await dummyManager.studio.checkpoint({ label: 'phase4-checkpoint', files: ['test-phase4-doc.txt'] });
+  assert.ok(cp.id);
+
+  // Preview checkpoint
+  const prevRes = await hubRequest('GET', `/api/studio/preview-checkpoint?checkpointId=${cp.id}`);
+  assert.equal(prevRes.status, 200);
+  assert.equal(prevRes.body.ok, true);
+  assert.equal(prevRes.body.checkpointId, cp.id);
+
+  // Mutate file
+  await fs.writeFile(path.join(work, 'test-phase4-doc.txt'), 'version 2 modified\n', 'utf8');
+
+  // Stale expectedSha rejection
+  const staleRes = await hubRequest('POST', '/api/studio/restore-checkpoint', {
+    checkpointId: cp.id,
+    expectedShas: { 'test-phase4-doc.txt': '0000000000000000000000000000000000000000000000000000000000000000' },
+  });
+  assert.equal(staleRes.status, 409);
+  assert.equal(staleRes.body.code, 'stale_state');
+
+  // Dry run
+  const dryRes = await hubRequest('POST', '/api/studio/restore-checkpoint', {
+    checkpointId: cp.id,
+    dryRun: true,
+  });
+  assert.equal(dryRes.status, 200);
+  assert.equal(dryRes.body.dryRun, true);
+  assert.equal(await fs.readFile(path.join(work, 'test-phase4-doc.txt'), 'utf8'), 'version 2 modified\n');
+
+  // Real safe restore
+  const restRes = await hubRequest('POST', '/api/studio/restore-checkpoint', {
+    checkpointId: cp.id,
+  });
+  assert.equal(restRes.status, 200);
+  assert.equal(restRes.body.ok, true);
+  assert.equal(await fs.readFile(path.join(work, 'test-phase4-doc.txt'), 'utf8'), 'version 1 content\n');
+  assert.ok(restRes.body.undoCheckpointId, 'undo backup created');
+  ok('Safe checkpoint restoration: preview, dryRun, stale-state rejection, and verified undo backup');
 
   hubServer.closeAllConnections();
   await new Promise((resolve) => hubServer.close(resolve));

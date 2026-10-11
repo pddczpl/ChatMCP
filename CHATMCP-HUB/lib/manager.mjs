@@ -395,6 +395,7 @@ export class HubManager {
   async selectWorkspace(value) {
     return await this.exclusive(async () => {
       const target = await this.validateWorkspace(value);
+      if (this.localTools) await this.localTools.close?.();
       if (this.backend === 'local') return await this.startLocal(target);
       await this.startCore(target);
     });
@@ -473,6 +474,7 @@ export class HubManager {
     await Promise.allSettled([...this.agentSessions].map((s) => s.close()));
     if (this.backend === 'mcp') await this.stopProxy();
     for (const child of this.children) await stopOwned(child).catch(() => {});
+    if (this.localTools) await this.localTools.close?.();
   }
 
   async browse() {

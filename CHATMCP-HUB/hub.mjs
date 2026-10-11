@@ -236,6 +236,7 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
           case '/api/studio/git/check': value=await studio.gitDiffCheck();break;
           case '/api/studio/checkpoints': value=await studio.checkpoints();break;
           case '/api/studio/review': value=await studio.review({checkpointId:pick('checkpointId'),file:pick('file')});break;
+          case '/api/studio/preview-checkpoint': value=await studio.previewCheckpoint({checkpointId:pick('checkpointId')});break;
           case '/api/studio/checks': value=await studio.checks();break;
           case '/api/studio/verifications': value=await verification?.list({taskId:pick('taskId')}) ?? {runs:[],total:0};break;
           case '/api/studio/skills': value=await studio.skills();break;

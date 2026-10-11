@@ -15,7 +15,7 @@ import { compileGlob } from './glob.mjs';
 import { PRIVATE_DIRECTORIES, isProtectedPath } from './protected-paths.mjs';
 import { describeProblem, pathProblems } from './command-paths.mjs';
 import { gitRisksFor, gitSubcommand, inspectGitSafety } from './git-trust.mjs';
-import { ShellRunner, killTree, BoundedCapture } from './shell-runner.mjs';
+import { ShellRunner, killTree, BoundedCapture, scrubEnv } from './shell-runner.mjs';
 import { validateArguments } from './tool-schema.mjs';
 
 export const LOCAL_SERVER = 'local';
@@ -440,7 +440,7 @@ export class LocalTools {
       schema: obj({
         files: {
           type: 'array', minItems: 1, maxItems: 50,
-          items: obj({ path: str('File path relative to workspace.'), content: str('New file content.') }, ['path', 'content']),
+          items: obj({ path: str('File path relative to workspace.'), content: str('New file content.'), expected_sha256: EXPECTED_SHA }, ['path', 'content']),
         },
       }, ['files']),
       annotations: WRITE, category: 'workspace_edit', reason: 'Ghi nhiều file',
@@ -1140,21 +1140,27 @@ export class LocalTools {
   }
 
   async #tasksList() {
-    const list = [...this.backgroundTasks.values()].map((t) => ({
-      taskId: t.id,
-      command: t.command,
-      description: t.description,
-      status: t.status,
-      exitCode: t.exitCode,
-      startedAt: t.startedAt,
-    }));
+    const { root } = await this.workspace.resolve('');
+    const list = [...this.backgroundTasks.values()]
+      .filter((t) => !t.workspaceRoot || t.workspaceRoot === root)
+      .map((t) => ({
+        taskId: t.id,
+        command: t.command,
+        description: t.description,
+        status: t.status,
+        exitCode: t.exitCode,
+        startedAt: t.startedAt,
+      }));
     const lines = list.map((t) => `[${t.taskId}] ${t.status.toUpperCase()} (code: ${t.exitCode ?? 'running'}) - $ ${t.command} (${t.description || 'không có mô tả'})`);
     return ok(`${list.length} tác vụ nền:\n${lines.join('\n') || '(không có tác vụ nào)'}`, { tasks: list });
   }
 
   async #tasksStatus({ taskId }) {
+    const { root } = await this.workspace.resolve('');
     const task = this.backgroundTasks.get(taskId);
-    if (!task) throw fault('task_not_found', `Không tìm thấy tác vụ ${taskId}.`, 404);
+    if (!task || (task.workspaceRoot && task.workspaceRoot !== root)) {
+      throw fault('task_not_found', `Không tìm thấy tác vụ ${taskId} trong workspace này.`, 404);
+    }
     const out = task.stdout.result().text;
     const err = task.stderr.result().text;
     const combined = [out, err ? `--- stderr ---\n${err}` : ''].filter(Boolean).join('\n');
@@ -1167,14 +1173,27 @@ export class LocalTools {
   }
 
   async #tasksCancel({ taskId }) {
+    const { root } = await this.workspace.resolve('');
     const task = this.backgroundTasks.get(taskId);
-    if (!task) throw fault('task_not_found', `Không tìm thấy tác vụ ${taskId}.`, 404);
+    if (!task || (task.workspaceRoot && task.workspaceRoot !== root)) {
+      throw fault('task_not_found', `Không tìm thấy tác vụ ${taskId} trong workspace này.`, 404);
+    }
     if (task.status === 'running' && task.process) {
       killTree(task.process);
       task.status = 'cancelled';
       return ok(`Đã hủy tác vụ nền ${taskId}.`, { taskId, cancelled: true });
     }
     return ok(`Tác vụ ${taskId} đã kết thúc trước đó (${task.status}).`, { taskId, status: task.status });
+  }
+
+  async close() {
+    for (const task of this.backgroundTasks.values()) {
+      if (task.status === 'running' && task.process) {
+        try { killTree(task.process); } catch {}
+        task.status = 'cancelled';
+      }
+    }
+    this.backgroundTasks.clear();
   }
 
   // ------------------------------------------------------------------ batch & patch
@@ -1214,6 +1233,19 @@ export class LocalTools {
         if (err.code !== 'ENOENT') throw err;
       }
 
+      if (item.expected_sha256) {
+        if (typeof item.expected_sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(item.expected_sha256)) {
+          throw fault('bad_revision', `expected_sha256 của file "${item.path}" không phải mã SHA-256 hợp lệ.`);
+        }
+        if (!existed) {
+          throw fault('stale_revision', `File "${target.relative}" không tồn tại trên đĩa nhưng có expected_sha256.`);
+        }
+        const currentSha = sha256(originalBuffer);
+        if (currentSha !== item.expected_sha256.toLowerCase()) {
+          throw fault('stale_revision', `File "${target.relative}" đã bị thay đổi kể từ lần đọc trước (SHA hiện tại ${currentSha.slice(0, 8)} khác với ${item.expected_sha256.slice(0, 8)}).`);
+        }
+      }
+
       preflight.push({
         relative: target.relative,
         absolute: target.absolute,
@@ -1231,16 +1263,34 @@ export class LocalTools {
         written.push(item);
       }
     } catch (writeError) {
+      const rolledBack = [];
+      const failedRollback = [];
       for (const item of written) {
         try {
           if (item.existed && item.originalBuffer) {
             await writeFileAtomic(item.absolute, item.originalBuffer, { mode: this.#fileMode(undefined) });
+            const check = await fs.readFile(item.absolute);
+            if (check.equals(item.originalBuffer)) {
+              rolledBack.push(item.relative);
+            } else {
+              failedRollback.push({ path: item.relative, error: 'Checksum mismatch after rollback' });
+            }
           } else {
             await fs.unlink(item.absolute).catch(() => {});
+            rolledBack.push(item.relative);
           }
-        } catch { /* best effort rollback */ }
+        } catch (rbErr) {
+          failedRollback.push({ path: item.relative, error: rbErr.message });
+        }
       }
-      throw fault('batch_failed', `Ghi hàng loạt thất bại: ${writeError.message}. Toàn bộ thay đổi đã được hoàn tác an toàn.`);
+      if (failedRollback.length === 0) {
+        throw fault('batch_failed', `Ghi hàng loạt thất bại: ${writeError.message}. Đã hoàn tác an toàn ${rolledBack.length} file: ${rolledBack.join(', ')}.`);
+      } else {
+        throw Object.assign(fault('batch_partial_rollback_failed', `Ghi hàng loạt thất bại: ${writeError.message}. CẢNH BÁO: ${failedRollback.length} file không thể hoàn tác: ${failedRollback.map((f) => f.path).join(', ')}. Đã hoàn tác: ${rolledBack.join(', ') || 'không có'}.`), {
+          rolledBack,
+          failedRollback,
+        });
+      }
     }
 
     const results = preflight.map((p) => ({
@@ -1400,17 +1450,64 @@ export class LocalTools {
   async #runGh(args, { signal } = {}) {
     if (this.shellDisabled) throw fault('shell_disabled', 'Thao tác GitHub CLI không được phép khi shell bị tắt.', 403);
     const { root } = await this.workspace.resolve('');
-    const env = this.shell.environment();
+    const env = this.shell ? this.shell.environment() : scrubEnv(process.env, { secrets: this.secrets?.() ?? [] });
+    const spawner = this.shell?.spawner || spawn;
+
     return new Promise((resolve, reject) => {
-      execFile('gh', args, { cwd: root, env, maxBuffer: 2 * 1024 * 1024, signal, windowsHide: true }, (err, stdout, stderr) => {
-        if (err) {
-          if (err.code === 'ENOENT') {
-            return reject(fault('gh_not_found', 'GitHub CLI (gh) chưa được cài đặt hoặc không tìm thấy trong PATH.', 404));
-          }
-          return reject(fault('gh_failed', (stderr || stdout || err.message).trim(), 400));
+      let child;
+      try {
+        child = spawner('gh', args, {
+          cwd: root,
+          env,
+          shell: false,
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          ...(spawner === spawn ? {} : { timeout: 60_000 }),
+        });
+      } catch (err) {
+        if (err.code === 'ENOENT') {
+          return reject(fault('gh_not_found', 'GitHub CLI (gh) chưa được cài đặt hoặc không tìm thấy trong PATH.', 404));
         }
-        resolve({ stdout: stdout || '', stderr: stderr || '' });
+        return reject(fault('gh_spawn_failed', `Không thể khởi chạy GitHub CLI: ${err.message}`, 500));
+      }
+
+      let stdout = '';
+      let stderr = '';
+      let done = false;
+
+      const finish = (err, result) => {
+        if (done) return;
+        done = true;
+        if (err) reject(err);
+        else resolve(result);
+      };
+
+      child.stdout?.on('data', (c) => { if (stdout.length < 2 * 1024 * 1024) stdout += c.toString('utf8'); });
+      child.stderr?.on('data', (c) => { if (stderr.length < 1024 * 1024) stderr += c.toString('utf8'); });
+
+      child.once('error', (err) => {
+        if (err.code === 'ENOENT') {
+          finish(fault('gh_not_found', 'GitHub CLI (gh) chưa được cài đặt hoặc không tìm thấy trong PATH.', 404));
+        } else {
+          finish(fault('gh_failed', `Lỗi chạy gh: ${err.message}`, 400));
+        }
       });
+
+      child.once('close', (code) => {
+        if (code !== 0) {
+          const msg = (stderr || stdout || `gh exited with code ${code}`).trim();
+          finish(fault('gh_failed', `GitHub CLI thất bại (mã ${code}): ${msg}`, 400));
+        } else {
+          finish(null, { stdout, stderr });
+        }
+      });
+
+      if (signal) {
+        signal.addEventListener('abort', () => {
+          killTree(child);
+          finish(fault('user_cancelled', 'Thao tác GitHub CLI đã bị hủy bởi người dùng.', 499));
+        }, { once: true });
+      }
     });
   }
 
