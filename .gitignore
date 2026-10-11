@@ -60,6 +60,8 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 dist/
+!CHATMCP-HUB/web/dist/
+!CHATMCP-HUB/web/dist/**
 build/
 bin/
 obj/

@@ -88,7 +88,7 @@ Copy-Item -Path (Join-Path $repoRoot 'assets\*') -Destination $stagingAssets -Re
 $stagingHub = Join-Path $stagingDir 'CHATMCP-HUB'
 New-Item -ItemType Directory -Path $stagingHub -Force | Out-Null
 Get-ChildItem -Path (Join-Path $repoRoot 'CHATMCP-HUB') | ForEach-Object {
-    if ($_.Name -notmatch '^(tests|node_modules|\.git)$') {
+    if ($_.Name -notmatch '^(tests|node_modules|ui|\.git)$') {
         Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stagingHub $_.Name) -Recurse -Force
     }
 }

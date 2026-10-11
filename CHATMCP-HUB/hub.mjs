@@ -32,14 +32,44 @@ export function assertCompatibleRunningHub(health, port=3007) {
 
 export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/vscode/open','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/intelligence/index','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/workspace/pr','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/uninstall','/api/plugins/toggle','/api/governance/rbac/verify']);
 const BUNDLE_ROOT = path.dirname(fileURLToPath(import.meta.url));
-const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
+const MIME = Object.freeze({
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.wasm': 'application/wasm'
+});
 const CSP_BASE = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const CSP_LOOPBACK = `${CSP_BASE}; frame-src http://127.0.0.1:* http://localhost:*`;
 // A remote page cannot show the owner's localhost, so no frames at all.
 const CSP_PUBLIC = `${CSP_BASE}; frame-src 'none'`;
-const STATIC_FILES = Object.freeze({ '/': 'web/index.html', '/index.html': 'web/index.html', '/legacy': 'web/legacy.html', '/legacy.html': 'web/legacy.html', '/app.js': 'web/app.js', '/style.css': 'web/style.css', '/studio.css': 'web/studio.css', '/studio.js': 'web/studio.js', '/react-app.js': 'web/react-app.js', '/ui-logic.js': 'web/ui-logic.js', '/onboarding.js': 'web/onboarding.js', '/react.css': 'web/react.css', '/vendor/react.production.min.js': 'web/vendor/react.production.min.js', '/vendor/react-dom.production.min.js': 'web/vendor/react-dom.production.min.js', '/chat-route.js': 'extension/chat-route.js' });
+const STATIC_FILES = Object.freeze({
+  '/': 'web/dist/index.html',
+  '/index.html': 'web/dist/index.html',
+  '/classic': 'web/index.html',
+  '/classic.html': 'web/index.html',
+  '/legacy': 'web/legacy.html',
+  '/legacy.html': 'web/legacy.html',
+  '/app.js': 'web/app.js',
+  '/style.css': 'web/style.css',
+  '/studio.css': 'web/studio.css',
+  '/studio.js': 'web/studio.js',
+  '/react-app.js': 'web/react-app.js',
+  '/ui-logic.js': 'web/ui-logic.js',
+  '/onboarding.js': 'web/onboarding.js',
+  '/react.css': 'web/react.css',
+  '/vendor/react.production.min.js': 'web/vendor/react.production.min.js',
+  '/vendor/react-dom.production.min.js': 'web/vendor/react-dom.production.min.js',
+  '/chat-route.js': 'extension/chat-route.js'
+});
 // The public site serves the React app only; the older single-file pages are not offered to the Internet.
-const PUBLIC_STATIC_FILES = Object.freeze(Object.fromEntries(['/', '/index.html', '/react-app.js', '/ui-logic.js', '/onboarding.js', '/react.css', '/vendor/react.production.min.js', '/vendor/react-dom.production.min.js'].map((key) => [key, STATIC_FILES[key]])));
+const PUBLIC_STATIC_FILES = Object.freeze(Object.fromEntries(['/', '/index.html', '/classic', '/classic.html', '/react-app.js', '/ui-logic.js', '/onboarding.js', '/react.css', '/vendor/react.production.min.js', '/vendor/react-dom.production.min.js'].map((key) => [key, STATIC_FILES[key]])));
 
 function equalToken(a, b) {
   if (typeof a !== 'string' || a.length !== b.length) return false;
@@ -387,11 +417,43 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
         return json(200, { ...result, csrfToken: csrfNow });
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') return json(405, { error: 'Phương thức không được hỗ trợ.' });
-      const filename = Object.hasOwn(staticFiles, url.pathname) ? staticFiles[url.pathname] : undefined;
+      let filename = Object.hasOwn(staticFiles, url.pathname) ? staticFiles[url.pathname] : undefined;
+      let isImmutable = false;
+      if (!filename && url.pathname.startsWith('/assets/')) {
+        let decoded = '';
+        try { decoded = decodeURIComponent(url.pathname); } catch { return json(400, { error: 'Đường dẫn không hợp lệ.' }); }
+        const normalized = path.posix.normalize(decoded);
+        if (!normalized.includes('..') && normalized.startsWith('/assets/')) {
+          const ext = path.extname(normalized).toLowerCase();
+          if (Object.hasOwn(MIME, ext)) {
+            filename = path.join('web/dist', normalized).replace(/\\/g, '/');
+            isImmutable = true;
+          }
+        }
+      }
       if (!filename) return json(404, { error: 'Không tìm thấy trang.' });
-      const data = await fs.readFile(path.join(bundleRoot, filename));
-      res.setHeader('Content-Type', MIME[path.extname(filename)]);
+      const fullPath = path.resolve(bundleRoot, filename);
+      if (!fullPath.startsWith(bundleRoot)) return json(403, { error: 'Đường dẫn không hợp lệ.' });
+      let data;
+      try {
+        data = await fs.readFile(fullPath);
+      } catch {
+        if ((url.pathname === '/' || url.pathname === '/index.html') && filename === 'web/dist/index.html') {
+          try {
+            data = await fs.readFile(path.join(bundleRoot, 'web/index.html'));
+            filename = 'web/index.html';
+          } catch {
+            return json(404, { error: 'Không tìm thấy trang.' });
+          }
+        } else {
+          return json(404, { error: 'Không tìm thấy trang.' });
+        }
+      }
+      res.setHeader('Content-Type', MIME[path.extname(filename)] || 'application/octet-stream');
       res.setHeader('Content-Length', data.length);
+      if (isImmutable) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
       res.writeHead(200);
       res.end(req.method === 'HEAD' ? undefined : data);
     } catch (error) {

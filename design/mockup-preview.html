@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChatMCP Studio — Calm Precision Mockup Preview</title>
+  <style>
+    :root, [data-theme="dark"] {
+      --bg: #0e1217;
+      --panel: #131820;
+      --surface: #18202b;
+      --surface-hover: #222c3a;
+      --line: #293444;
+      --line-subtle: #1e2734;
+      --text: #f0f4f8;
+      --muted: #96a5b8;
+      --faint: #67788d;
+      --primary: #38bdf8; /* Precision Cyan */
+      --primary-hover: #7dd3fc;
+      --primary-bg: #082838;
+      --accent: #2dd4bf; /* Mint Teal */
+      --success: #34d399;
+      --success-bg: #064e3b33;
+      --warning: #fbbf24;
+      --warning-bg: #78350f33;
+      --danger: #f87171;
+      --danger-bg: #7f1d1d33;
+      --info: #60a5fa;
+      --radius-sm: 4px;
+      --radius-md: 6px;
+      --radius-lg: 8px;
+      --radius-xl: 12px;
+      --font-ui: "Segoe UI Variable", -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+      color-scheme: dark;
+    }
+
+    [data-theme="light"] {
+      --bg: #f8fafc;
+      --panel: #ffffff;
+      --surface: #f1f5f9;
+      --surface-hover: #e2e8f0;
+      --line: #cbd5e1;
+      --line-subtle: #e2e8f0;
+      --text: #0f172a;
+      --muted: #475569;
+      --faint: #64748b;
+      --primary: #0284c7;
+      --primary-hover: #0369a1;
+      --primary-bg: #e0f2fe;
+      --accent: #0d9488;
+      --success: #059669;
+      --success-bg: #d1fae5;
+      --warning: #d97706;
+      --warning-bg: #fef3c7;
+      --danger: #dc2626;
+      --danger-bg: #fee2e2;
+      --info: #2563eb;
+      color-scheme: light;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-ui);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.5;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Top Preview Control Bar */
+    .preview-bar {
+      height: 42px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      z-index: 100;
+    }
+    .preview-tabs { display: flex; gap: 4px; }
+    .tab-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--muted);
+      padding: 4px 12px;
+      border-radius: var(--radius-md);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .tab-btn.active {
+      background: var(--surface);
+      color: var(--text);
+      border-color: var(--line);
+    }
+    .theme-toggle-btn {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      color: var(--text);
+      padding: 4px 10px;
+      border-radius: var(--radius-md);
+      font-size: 11px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+
+    /* App Shell */
+    .app-shell {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Main Header */
+    header.main-header {
+      height: 48px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: -0.2px;
+    }
+    .brand-logo {
+      width: 24px;
+      height: 24px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      display: grid;
+      place-items: center;
+      color: #000;
+      font-weight: 800;
+      font-size: 12px;
+    }
+    .ws-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      padding: 3px 8px;
+      border-radius: var(--radius-md);
+      font-size: 12px;
+      color: var(--text);
+      cursor: pointer;
+      font-family: var(--font-mono);
+    }
+    .cmd-bar-trigger {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      padding: 4px 12px;
+      border-radius: var(--radius-md);
+      color: var(--muted);
+      width: 280px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .kbd {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: 1px 4px;
+      border-radius: 3px;
+      margin-left: auto;
+    }
+    .header-right { display: flex; align-items: center; gap: 8px; }
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 6px var(--success);
+    }
+
+    /* Agent Phase Ribbon */
+    .agent-phase-ribbon {
+      height: 28px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 16px;
+      font-size: 11px;
+    }
+    .phase-label {
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 10px;
+    }
+    .phase-steps {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .phase-step {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--faint);
+    }
+    .phase-step.active {
+      color: var(--primary);
+      font-weight: 600;
+    }
+    .phase-step.done {
+      color: var(--success);
+    }
+    .phase-timer {
+      margin-left: auto;
+      font-family: var(--font-mono);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    /* Content Area (3 Columns) */
+    .workspace-body {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 240px 1fr 340px;
+      overflow: hidden;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+    }
+    .sidebar-header {
+      padding: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .new-btn {
+      background: var(--primary);
+      color: #000;
+      border: 0;
+      padding: 5px 10px;
+      border-radius: var(--radius-md);
+      font-weight: 600;
+      font-size: 11px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .session-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0 8px;
+    }
+    .session-group-title {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--faint);
+      padding: 8px 6px 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .session-card {
+      padding: 8px;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      margin-bottom: 2px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      border: 1px solid transparent;
+    }
+    .session-card:hover {
+      background: var(--surface);
+    }
+    .session-card.active {
+      background: var(--surface);
+      border-color: var(--line);
+    }
+    .session-title {
+      font-weight: 600;
+      font-size: 12px;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .session-sub {
+      font-size: 11px;
+      color: var(--faint);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* Conversation Column */
+    .conversation-col {
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+      overflow: hidden;
+      position: relative;
+    }
+    .messages-stream {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      max-width: 820px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    .msg-row {
+      display: flex;
+      gap: 12px;
+      width: 100%;
+    }
+    .msg-row.user {
+      justify-content: flex-end;
+    }
+    .msg-bubble {
+      max-width: 85%;
+      border-radius: var(--radius-lg);
+      padding: 12px 16px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .msg-row.user .msg-bubble {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      color: var(--text);
+    }
+    .msg-row.agent .msg-bubble {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      color: var(--text);
+      flex: 1;
+    }
+    .agent-avatar-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      display: grid;
+      place-items: center;
+      color: var(--primary);
+      flex-shrink: 0;
+    }
+
+    /* Tool Call Receipt Card */
+    .tool-receipt {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      margin: 10px 0;
+      overflow: hidden;
+    }
+    .tool-receipt-head {
+      padding: 6px 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      user-select: none;
+    }
+    .tool-name {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--primary);
+    }
+    .tool-target {
+      font-family: var(--font-mono);
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .tool-duration {
+      margin-left: auto;
+      font-size: 10px;
+      color: var(--faint);
+      font-family: var(--font-mono);
+    }
+    .tool-badge {
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: var(--success-bg);
+      color: var(--success);
+      font-weight: 600;
+    }
+    .tool-receipt-body {
+      padding: 8px 10px;
+      border-top: 1px solid var(--line-subtle);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      background: var(--bg);
+      color: var(--muted);
+      white-space: pre-wrap;
+    }
+
+    /* Composer */
+    .composer-box {
+      padding: 16px;
+      background: var(--bg);
+      border-top: 1px solid var(--line);
+      max-width: 820px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    .composer-input-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+    }
+    .composer-textarea {
+      background: transparent;
+      border: 0;
+      color: var(--text);
+      font-family: var(--font-ui);
+      font-size: 13px;
+      resize: none;
+      min-height: 48px;
+      outline: none;
+      line-height: 1.5;
+    }
+    .composer-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid var(--line-subtle);
+      padding-top: 8px;
+    }
+    .mode-pill {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      color: var(--muted);
+    }
+    .mode-pill.review {
+      color: var(--info);
+      border-color: var(--info);
+      background: color-mix(in srgb, var(--info) 10%, transparent);
+    }
+    .mode-pill.full-access {
+      color: var(--danger);
+      border-color: var(--danger);
+      background: color-mix(in srgb, var(--danger) 15%, transparent);
+    }
+    .send-btn {
+      background: var(--primary);
+      color: #000;
+      border: 0;
+      padding: 6px 14px;
+      border-radius: var(--radius-md);
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    /* Inspector Column */
+    .inspector-col {
+      background: var(--panel);
+      border-left: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+    }
+    .inspector-tabs-header {
+      display: flex;
+      border-bottom: 1px solid var(--line);
+      overflow-x: auto;
+      padding: 0 6px;
+    }
+    .ins-tab {
+      padding: 10px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .ins-tab.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+    .ins-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+    }
+
+    /* Screen 2: Approval Modal View */
+    .approval-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      backdrop-filter: blur(4px);
+      display: grid;
+      place-items: center;
+      z-index: 50;
+      padding: 20px;
+    }
+    .approval-modal {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      width: 100%;
+      max-width: 640px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .approval-modal-head {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .risk-badge {
+      padding: 3px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .risk-high { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); }
+    .risk-medium { background: var(--warning-bg); color: var(--warning); border: 1px solid var(--warning); }
+    .approval-timer {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--warning);
+    }
+    .approval-modal-body {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      max-height: 480px;
+      overflow-y: auto;
+    }
+    .diff-box {
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 8px;
+      overflow-x: auto;
+      line-height: 1.5;
+    }
+    .diff-line { display: flex; gap: 8px; }
+    .diff-del { background: var(--danger-bg); color: var(--danger); }
+    .diff-add { background: var(--success-bg); color: var(--success); }
+    .approval-modal-footer {
+      padding: 14px 20px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      background: var(--surface);
+    }
+    .btn-action {
+      padding: 8px 16px;
+      border-radius: var(--radius-md);
+      font-weight: 600;
+      font-size: 12px;
+      cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .btn-approve { background: var(--success); color: #000; }
+    .btn-deny { background: var(--surface); border-color: var(--line); color: var(--danger); }
+
+    /* Screen 3: Skills Marketplace View */
+    .marketplace-container {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      height: 100%;
+      overflow-y: auto;
+    }
+    .mp-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+    .mp-title h2 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+    .mp-title p { color: var(--muted); font-size: 13px; }
+    .mp-filter-bar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .mp-search {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: 6px 12px;
+      color: var(--text);
+      font-size: 12px;
+      width: 220px;
+      outline: none;
+    }
+    .mp-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+    .skill-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: border-color 0.15s;
+    }
+    .skill-card:hover {
+      border-color: var(--primary);
+    }
+    .skill-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .skill-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      display: grid;
+      place-items: center;
+      font-size: 16px;
+    }
+    .skill-meta h4 { font-size: 13px; font-weight: 600; }
+    .skill-meta span { font-size: 11px; color: var(--faint); }
+    .skill-desc {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+      flex: 1;
+    }
+    .skill-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid var(--line-subtle);
+      padding-top: 10px;
+    }
+    .skill-tag {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: var(--surface);
+      color: var(--faint);
+    }
+    .skill-btn {
+      padding: 4px 10px;
+      border-radius: var(--radius-md);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--text);
+    }
+    .skill-btn.installed {
+      color: var(--success);
+      border-color: var(--success);
+      background: var(--success-bg);
+    }
+
+    /* Utilities */
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <!-- Mockup Control Bar -->
+  <div class="preview-bar">
+    <div class="preview-tabs">
+      <button class="tab-btn active" onclick="switchMockup('conversation')">1. Conversation & Phase Ribbon</button>
+      <button class="tab-btn" onclick="switchMockup('approval')">2. Approval Modal & Diff</button>
+      <button class="tab-btn" onclick="switchMockup('skills')">3. Skills Marketplace</button>
+    </div>
+    <div style="display: flex; gap: 8px; align-items: center;">
+      <span style="font-size: 11px; color: var(--faint);">Mẫu thiết kế "Calm Precision"</span>
+      <button class="theme-toggle-btn" onclick="toggleTheme()">🌓 Đổi Dark / Light</button>
+    </div>
+  </div>
+
+  <div class="app-shell">
+    <!-- Main App Header -->
+    <header class="main-header">
+      <div class="brand">
+        <div class="brand-logo">C</div>
+        <span>ChatMCP <span style="font-weight: 400; color: var(--muted);">Studio</span></span>
+        <div class="ws-pill" title="Thư mục làm việc">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+          sensor-fusion
+        </div>
+      </div>
+
+      <div class="cmd-bar-trigger">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <span>Tìm hoặc chạy lệnh…</span>
+        <span class="kbd">Ctrl K</span>
+      </div>
+
+      <div class="header-right">
+        <div class="status-badge">
+          <div class="status-dot"></div>
+          <span>Hub kết nối</span>
+        </div>
+        <div style="width: 1px; height: 16px; background: var(--line);"></div>
+        <button class="mode-pill review" style="cursor: pointer;">Review (Mặc định)</button>
+        <button class="mode-pill" style="cursor: pointer;">Anthropic Claude 3.5</button>
+      </div>
+    </header>
+
+    <!-- Signature 1: Agent Phase Ribbon -->
+    <div class="agent-phase-ribbon">
+      <span class="phase-label">Tiến trình Agent:</span>
+      <div class="phase-steps">
+        <div class="phase-step done">✓ Đang nghĩ (320ms)</div>
+        <span style="color: var(--line);">→</span>
+        <div class="phase-step done">✓ Đọc file (1.1s)</div>
+        <span style="color: var(--line);">→</span>
+        <div class="phase-step active">⚡ Sửa đổi mã nguồn (đang chạy)</div>
+        <span style="color: var(--line);">→</span>
+        <div class="phase-step">○ Chạy kiểm thử</div>
+        <span style="color: var(--line);">→</span>
+        <div class="phase-step">○ Hoàn tất</div>
+      </div>
+      <div class="phase-timer">00:04.2 · Bước 2/4</div>
+    </div>
+
+    <!-- Main Workspace (3 columns) -->
+    <div class="workspace-body">
+      <!-- Col 1: Sessions -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <span style="font-weight: 700; font-size: 12px; color: var(--muted);">PHIÊN LÀM VIỆC</span>
+          <button class="new-btn">+ Phiên mới</button>
+        </div>
+        <div class="session-list">
+          <div class="session-group-title">Hôm nay</div>
+          <div class="session-card active">
+            <div class="session-title">Tối ưu Kalman Filter & Fix Test</div>
+            <div class="session-sub">
+              <span>Đang sửa file…</span>
+              <span>Vừa xong</span>
+            </div>
+          </div>
+          <div class="session-card">
+            <div class="session-title">Rà soát mã nguồn demo sensor</div>
+            <div class="session-sub">
+              <span>Hoàn tất · 2 edits</span>
+              <span>10:30</span>
+            </div>
+          </div>
+          <div class="session-group-title">7 ngày trước</div>
+          <div class="session-card">
+            <div class="session-title">Cấu hình PyTest & GitHub CI</div>
+            <div class="session-sub">
+              <span>Hoàn tất</span>
+              <span>Hôm qua</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Col 2: Conversation Stream / Active Screen -->
+      <main class="conversation-col">
+        
+        <!-- VIEW 1: CONVERSATION -->
+        <div id="view-conversation" style="display: flex; flex-direction: column; height: 100%; overflow: hidden;">
+          <div class="messages-stream">
+            <!-- User Message -->
+            <div class="msg-row user">
+              <div class="msg-bubble">
+                Hãy đọc <code>student/kalman.py</code>, kiểm tra ma trận covariance, viết 1 test kiểm chứng và sửa lỗi division-by-zero khi sensor mất tín hiệu.
+              </div>
+            </div>
+
+            <!-- Agent Message with Tool Receipts -->
+            <div class="msg-row agent">
+              <div class="agent-avatar-icon">⚡</div>
+              <div class="msg-bubble">
+                <div style="font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 6px;">AGENT · BƯỚC 2</div>
+                <p>Tôi đã đọc mã nguồn và phát hiện hàm <code>update_state()</code> chưa kiểm tra điều kiện <code>determinant == 0</code> trước khi nghịch đảo ma trận.</p>
+                
+                <!-- Signature 2: Tool Call Receipt -->
+                <div class="tool-receipt">
+                  <div class="tool-receipt-head">
+                    <span class="tool-name">studio.read</span>
+                    <span class="tool-target">student/kalman.py</span>
+                    <span class="tool-duration">450ms</span>
+                    <span class="tool-badge">Đã đọc 142 dòng</span>
+                  </div>
+                </div>
+
+                <!-- Another Tool Call Receipt (Edit) -->
+                <div class="tool-receipt">
+                  <div class="tool-receipt-head">
+                    <span class="tool-name">studio.save_file</span>
+                    <span class="tool-target">tests/test_kalman_edge.py</span>
+                    <span class="tool-duration">180ms</span>
+                    <span class="tool-badge">Tạo mới (48 dòng)</span>
+                  </div>
+                  <div class="tool-receipt-body">def test_kalman_zero_covariance():
+    filter = KalmanFilter(dim_x=4, dim_z=2)
+    # verify singular matrix does not raise ZeroDivisionError
+    res = filter.update(np.zeros((2, 1)))
+    assert res is not None</div>
+                </div>
+
+                <p style="margin-top: 10px;">Bây giờ tôi đang chuẩn bị áp dụng patch sửa lỗi vào <code>student/kalman.py</code>.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Signature 3: Composer with Mode Pill -->
+          <div class="composer-box">
+            <div class="composer-input-card">
+              <textarea class="composer-textarea" placeholder="Nhập yêu cầu tiếp theo hoặc gõ @ để nhắc tới file…"></textarea>
+              <div class="composer-footer">
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <button class="mode-pill review">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    Review
+                  </button>
+                  <button class="mode-pill" style="font-size: 11px;">@ Mention file</button>
+                  <span style="font-size: 11px; color: var(--faint);">~1,240 tokens</span>
+                </div>
+                <button class="send-btn">Gửi (Enter)</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- VIEW 2: APPROVAL MODAL OVERLAY -->
+        <div id="view-approval" class="approval-overlay hidden">
+          <div class="approval-modal">
+            <div class="approval-modal-head">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="risk-badge risk-high">RỦI RO CAO</span>
+                <strong style="font-size: 14px;">Xác nhận ghi đè file cấu hình</strong>
+              </div>
+              <span class="approval-timer">Còn lại: 04:32</span>
+            </div>
+            <div class="approval-modal-body">
+              <p style="font-size: 13px; color: var(--muted);">Agent đề xuất chỉnh sửa file <code>config/pipeline_settings.py</code> để cập nhật ngưỡng timeout và chuyển đổi chế độ debug.</p>
+              
+              <!-- Signature 4: Diff Viewer -->
+              <div class="diff-box">
+                <div class="diff-line" style="color: var(--faint);">@@ -14,5 +14,5 @@</div>
+                <div class="diff-line diff-del">- TIMEOUT_SECONDS = 10</div>
+                <div class="diff-line diff-del">- DEBUG_MODE = False</div>
+                <div class="diff-line diff-add">+ TIMEOUT_SECONDS = 60</div>
+                <div class="diff-line diff-add">+ DEBUG_MODE = True</div>
+                <div class="diff-line diff-add">+ SAFE_GUARD_ENABLED = True</div>
+              </div>
+
+              <div style="background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); padding: 10px; font-size: 11px; color: var(--muted);">
+                <strong>Bảo vệ Checkpoint:</strong> Hub đã tự động tạo snapshot trước khi ghi. Bạn có thể hoàn tác (Restore) bất cứ lúc nào trong tab Git.
+              </div>
+            </div>
+            <div class="approval-modal-footer">
+              <button class="btn-action btn-deny" onclick="switchMockup('conversation')">Từ chối (Esc)</button>
+              <button class="btn-action btn-approve" onclick="switchMockup('conversation')">Chấp nhận thay đổi (Enter)</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- VIEW 3: SKILLS MARKETPLACE -->
+        <div id="view-skills" class="marketplace-container hidden">
+          <div class="mp-header">
+            <div class="mp-title">
+              <h2>Skills & Plugins Marketplace</h2>
+              <p>Mở rộng khả năng của ChatMCP với các bộ công cụ MCP, hướng dẫn chuyên gia và tác nhân chuyên biệt.</p>
+            </div>
+            <div class="mp-filter-bar">
+              <input class="mp-search" placeholder="Tìm kiếm kỹ năng hoặc MCP…" />
+              <button class="skill-btn">+ Tự tạo Skill</button>
+            </div>
+          </div>
+
+          <div class="mp-grid">
+            <!-- Card 1 -->
+            <div class="skill-card">
+              <div class="skill-head">
+                <div class="skill-icon">🧪</div>
+                <div class="skill-meta">
+                  <h4>PyTest Runner & Coverage</h4>
+                  <span>by ChatMCP Core · v1.4</span>
+                </div>
+              </div>
+              <p class="skill-desc">Tự động phát hiện test suite, chạy pytest có cô lập tiến trình và phân tích báo cáo coverage.</p>
+              <div class="skill-foot">
+                <span class="skill-tag">Testing</span>
+                <button class="skill-btn installed">Đang bật ✓</button>
+              </div>
+            </div>
+
+            <!-- Card 2 -->
+            <div class="skill-card">
+              <div class="skill-head">
+                <div class="skill-icon">🛡️</div>
+                <div class="skill-meta">
+                  <h4>Security Audit & Secret Scan</h4>
+                  <span>by DevSecOps · v2.1</span>
+                </div>
+              </div>
+              <p class="skill-desc">Quét các secret rò rỉ (.env, khóa API, private key) và kiểm tra lỗ hổng bảo mật trước khi commit Git.</p>
+              <div class="skill-foot">
+                <span class="skill-tag">Security</span>
+                <button class="skill-btn installed">Đang bật ✓</button>
+              </div>
+            </div>
+
+            <!-- Card 3 -->
+            <div class="skill-card">
+              <div class="skill-head">
+                <div class="skill-icon">⚡</div>
+                <div class="skill-meta">
+                  <h4>Docker Sandbox Execution</h4>
+                  <span>by Container Tools · v1.0</span>
+                </div>
+              </div>
+              <p class="skill-desc">Cô lập mọi lệnh shell trong Linux Docker container không có kết nối internet để bảo vệ máy chủ host.</p>
+              <div class="skill-foot">
+                <span class="skill-tag">Sandboxing</span>
+                <button class="skill-btn">Cài đặt</button>
+              </div>
+            </div>
+
+            <!-- Card 4 -->
+            <div class="skill-card">
+              <div class="skill-head">
+                <div class="skill-icon">🔍</div>
+                <div class="skill-meta">
+                  <h4>Code AST Intelligence</h4>
+                  <span>by Language Tools · v2.0</span>
+                </div>
+              </div>
+              <p class="skill-desc">Lập chỉ mục cú pháp cây AST không cần thực thi code, tìm kiếm hàm, class và references chính xác.</p>
+              <div class="skill-foot">
+                <span class="skill-tag">Intelligence</span>
+                <button class="skill-btn installed">Đang bật ✓</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </main>
+
+      <!-- Col 3: Inspector 9 Tabs -->
+      <aside class="inspector-col">
+        <div class="inspector-tabs-header">
+          <div class="ins-tab active">Hoạt động</div>
+          <div class="ins-tab">Files</div>
+          <div class="ins-tab">Git</div>
+          <div class="ins-tab">Terminal</div>
+          <div class="ins-tab">Plan</div>
+          <div class="ins-tab">Skills</div>
+        </div>
+        <div class="ins-body">
+          <div style="font-weight: 700; font-size: 12px; margin-bottom: 8px;">Nhật ký lượt hiện tại</div>
+          <div style="font-size: 11px; color: var(--muted); line-height: 1.6;">
+            <div>• <strong>10:45:02</strong> Khởi tạo lượt 2 (Model: Claude 3.5 Sonnet)</div>
+            <div>• <strong>10:45:03</strong> Đọc file <code>student/kalman.py</code> (142 dòng)</div>
+            <div>• <strong>10:45:04</strong> Tạo checkpoint an toàn <code>before_edit_1</code></div>
+            <div>• <strong>10:45:05</strong> Viết test <code>tests/test_kalman_edge.py</code></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    function switchMockup(view) {
+      document.querySelectorAll('.preview-tabs .tab-btn').forEach(btn => btn.classList.remove('active'));
+      document.getElementById('view-conversation').classList.add('hidden');
+      document.getElementById('view-approval').classList.add('hidden');
+      document.getElementById('view-skills').classList.add('hidden');
+
+      if (view === 'conversation') {
+        document.querySelectorAll('.preview-tabs .tab-btn')[0].classList.add('active');
+        document.getElementById('view-conversation').classList.remove('hidden');
+      } else if (view === 'approval') {
+        document.querySelectorAll('.preview-tabs .tab-btn')[1].classList.add('active');
+        document.getElementById('view-conversation').classList.remove('hidden');
+        document.getElementById('view-approval').classList.remove('hidden');
+      } else if (view === 'skills') {
+        document.querySelectorAll('.preview-tabs .tab-btn')[2].classList.add('active');
+        document.getElementById('view-skills').classList.remove('hidden');
+      }
+    }
+
+    function toggleTheme() {
+      const current = document.documentElement.getAttribute('data-theme');
+      const next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+    }
+  </script>
+</body>
+</html>
