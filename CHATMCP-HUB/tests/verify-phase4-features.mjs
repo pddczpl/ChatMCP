@@ -551,6 +551,34 @@ console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
     {id:'b',role:'reviewer',question:'Check B',dependsOn:['a']},
   ]}),/chu trình/);
   ok('Multi-agent DAG parallel roles, dependencies, tool-free execution and cycle rejection');
+  // Cancellation must propagate to the provider and leave no worker running.
+  const cancelDir=path.join(root,'cancel-agent');
+  await fs.mkdir(cancelDir,{recursive:true});
+  let started;
+  const startedPromise=new Promise(resolve=>{started=resolve;});
+  const cancellable=new StudioDelegates({
+    directory:cancelDir,
+    workspace:{root:work,search:async()=>({matches:[]})},
+    provider:{
+      ready:()=>true,
+      respond:async({signal,tools})=>{
+        assert.deepEqual(tools,[]);
+        started();
+        return await new Promise((resolve,reject)=>{
+          if(signal.aborted)return reject(signal.reason);
+          signal.addEventListener('abort',()=>reject(signal.reason),{once:true});
+        });
+      }
+    }
+  });
+  const cancelledRun=cancellable.orchestrate({nodes:[{id:'research',role:'researcher',question:'Research project safety',dependsOn:[]}]});
+  await startedPromise;
+  assert.equal(cancellable.cancel().cancelled,true);
+  const cancelledResult=await cancelledRun;
+  assert.equal(cancelledResult.status,'cancelled');
+  assert.equal(cancellable.running,false);
+  ok('Multi-agent cancellation propagates to model calls and persists cancelled state');
+
 }
 {
   const registryDir=path.join(root,'registry');
