@@ -11,6 +11,7 @@ import {
   Sparkles 
 } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
+import { useTranslation } from '@/lib/i18n';
 
 interface ComposerProps {
   onSendMessage: (text: string) => void;
@@ -27,14 +28,17 @@ export function Composer({
   onStop,
   isWorking,
   disabled,
-  placeholder = 'Giao việc cho agent bằng tiếng Việt hoặc tiếng Anh... (Nhấn Enter để gửi)',
+  placeholder,
   currentMode = 'review',
   onModeChange,
 }: ComposerProps) {
+  const { t } = useTranslation();
   const [text, setText] = useState('');
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { setFullAccessModalOpen } = useAppStore();
+
+  const activePlaceholder = placeholder || t('composer_placeholder');
 
   // Auto resize textarea
   useEffect(() => {
@@ -61,10 +65,10 @@ export function Composer({
   };
 
   const modes = [
-    { id: 'readonly', label: 'Chỉ đọc', icon: Eye, desc: 'Agent chỉ đọc file và tìm kiếm, không sửa file.' },
-    { id: 'review', label: 'Review', icon: ShieldCheck, desc: 'Mặc định: Phải có bạn phê duyệt trước khi ghi file/chạy lệnh.' },
-    { id: 'autonomous', label: 'Tự động', icon: Bot, desc: 'Tự động chạy các tool thông thường trong workspace.' },
-    { id: 'full-access', label: 'FULL ACCESS ⚠️', icon: ShieldAlert, desc: 'Quyền tối đa không hỏi xác nhận. Cần gõ FULL ACCESS.' },
+    { id: 'readonly', label: t('perm_read_only'), icon: Eye, desc: t('perm_read_only_desc') },
+    { id: 'review', label: t('perm_review'), icon: ShieldCheck, desc: t('perm_review_desc') },
+    { id: 'autonomous', label: t('perm_auto'), icon: Bot, desc: t('perm_auto_desc') },
+    { id: 'full-access', label: t('perm_full_access'), icon: ShieldAlert, desc: t('perm_full_access_desc') },
   ];
 
   const currentModeObj = modes.find((m) => m.id === currentMode) || modes[1];
@@ -90,7 +94,7 @@ export function Composer({
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={placeholder}
+          placeholder={activePlaceholder}
           disabled={disabled}
           rows={1}
           className="w-full bg-transparent px-3.5 pt-3 pb-2 text-[13px] text-[var(--text)] placeholder-[var(--faint)] resize-none focus:outline-none max-h-56 min-h-[44px] leading-relaxed font-sans"
@@ -104,7 +108,7 @@ export function Composer({
               type="button"
               onClick={() => setModeMenuOpen(!modeMenuOpen)}
               className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium bg-[var(--surface-hover)] hover:bg-[var(--line)] text-[var(--text)] border border-[var(--line)] transition-colors"
-              title="Chọn chế độ quyền"
+              title={t('agent_exec_mode')}
             >
               <ModeIcon className={`w-3.5 h-3.5 ${currentMode === 'full-access' ? 'text-rose-400' : 'text-sky-400'}`} />
               <span>{currentModeObj.label}</span>
@@ -115,7 +119,7 @@ export function Composer({
             {modeMenuOpen && (
               <div className="absolute left-0 bottom-full mb-1 w-64 rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-xl z-50 p-1.5 space-y-1 modal-3d-enter">
                 <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--faint)]">
-                  Chế độ quyền thực thi
+                  {t('agent_exec_mode')}
                 </div>
                 {modes.map((m) => {
                   const Icon = m.icon;
@@ -145,7 +149,7 @@ export function Composer({
           {/* Right: Hint & Send/Stop Button */}
           <div className="flex items-center gap-2">
             <span className="hidden sm:inline text-[11px] text-[var(--faint)]">
-              Shift + Enter xuống dòng
+              {t('enter_to_send')}
             </span>
 
             {isWorking ? (
@@ -153,10 +157,10 @@ export function Composer({
                 type="button"
                 onClick={onStop}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shadow-md shadow-rose-900/30 transition-all"
-                title="Dừng tác vụ hiện tại"
+                title={t('stop')}
               >
                 <Square className="w-3.5 h-3.5 fill-current" />
-                <span>Dừng</span>
+                <span>{t('stop')}</span>
               </button>
             ) : (
               <button
@@ -168,9 +172,9 @@ export function Composer({
                     ? 'bg-sky-500 hover:bg-sky-400 text-slate-950 shadow-sky-500/20 active:scale-95'
                     : 'bg-[var(--surface-hover)] text-[var(--faint)] cursor-not-allowed opacity-50'
                 }`}
-                title="Gửi cho agent"
+                title={t('send')}
               >
-                <span>Gửi</span>
+                <span>{t('send')}</span>
                 <Send className="w-3.5 h-3.5" />
               </button>
             )}

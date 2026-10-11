@@ -19,7 +19,7 @@ export function StateBanner({ status, message, onResume, onRetry, onCancel }: St
   const isOffline = status === 'offline';
 
   return (
-    <div className="mx-4 my-3 p-3 rounded-lg border border-[var(--line)] bg-[var(--surface)] text-xs flex items-center justify-between gap-3 shadow-md tilt-3d animate-in fade-in slide-in-from-top-2">
+    <div className="mx-4 my-3 p-3 rounded-lg border border-[var(--line)] bg-[var(--surface)] text-xs flex items-center justify-between gap-3 shadow-md animate-in fade-in slide-in-from-top-2">
       <div className="flex items-center gap-2.5 min-w-0">
         {isPaused && (
           <div className="w-7 h-7 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center flex-shrink-0">

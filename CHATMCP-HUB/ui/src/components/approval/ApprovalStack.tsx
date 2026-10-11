@@ -51,7 +51,7 @@ export function ApprovalStack({ approvals, onApprove, onDeny }: ApprovalStackPro
         return (
           <div
             key={item.id}
-            className={`rounded-xl border p-4 shadow-lg tilt-3d transition-all ${riskBorder}`}
+            className={`rounded-xl border p-4 shadow-lg transition-all ${riskBorder}`}
           >
             {/* Header */}
             <div className="flex items-start justify-between gap-3 select-none">

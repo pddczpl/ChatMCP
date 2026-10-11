@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 export type Theme = 'dark' | 'light' | 'system';
+export type Language = 'vi' | 'en';
 export type InspectorTab = 'activity' | 'files' | 'git' | 'terminal' | 'intelligence' | 'preview' | 'plan' | 'skills' | 'settings';
 
 interface ToastState {
@@ -11,6 +12,8 @@ interface ToastState {
 interface AppStore {
   theme: Theme;
   setTheme: (theme: Theme) => void;
+  lang: Language;
+  setLang: (lang: Language) => void;
   selectedTaskId: string;
   setSelectedTaskId: (id: string) => void;
   inspectorOpen: boolean;
@@ -36,6 +39,7 @@ interface AppStore {
 }
 
 const initialTheme = (typeof window !== 'undefined' && (localStorage.getItem('chatmcp:theme') as Theme)) || 'dark';
+const initialLang = (typeof window !== 'undefined' && (localStorage.getItem('chatmcp:language') as Language)) || 'vi';
 const initialTask = (typeof window !== 'undefined' && localStorage.getItem('chatmcp:selected-conversation')) || '';
 
 export const useAppStore = create<AppStore>((set) => ({
@@ -47,6 +51,11 @@ export const useAppStore = create<AppStore>((set) => ({
       : theme;
     document.documentElement.setAttribute('data-theme', resolved);
     set({ theme });
+  },
+  lang: initialLang,
+  setLang: (lang) => {
+    localStorage.setItem('chatmcp:language', lang);
+    set({ lang });
   },
   selectedTaskId: initialTask,
   setSelectedTaskId: (id) => {

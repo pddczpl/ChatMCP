@@ -9,6 +9,7 @@ import { StateBanner } from './StateBanner';
 import { Composer } from './Composer';
 import { ApprovalStack, PendingApproval } from '@/components/approval/ApprovalStack';
 import { Card } from '@/components/ui/Card';
+import { useTranslation } from '@/lib/i18n';
 import { 
   Sparkles, 
   Code2, 
@@ -114,32 +115,34 @@ export function ConversationView() {
     }
   };
 
+  const { t } = useTranslation();
+
   // Starter Prompts for Empty State
   const starters = [
     {
-      title: 'Phân tích kiến trúc codebase',
-      desc: 'Quét toàn bộ cấu trúc dự án và lập tài liệu tổng quan.',
+      title: t('starter_1_title'),
+      desc: t('starter_1_desc'),
       prompt: 'Hãy quét cấu trúc thư mục hiện tại của workspace, phân tích kiến trúc dự án và chỉ ra các module chính.',
       icon: FolderSearch,
       color: 'text-sky-400',
     },
     {
-      title: 'Tạo unit test cho các module',
-      desc: 'Viết test tự động và chạy xác minh ngay trong workspace.',
+      title: t('starter_2_title'),
+      desc: t('starter_2_desc'),
       prompt: 'Hãy tìm các file logic hoặc module quan trọng chưa có test và viết unit test bao phủ đầy đủ.',
       icon: CheckCircle2,
       color: 'text-emerald-400',
     },
     {
-      title: 'Rà soát bảo mật & CSP',
-      desc: 'Kiểm tra Content Security Policy, sanitize dữ liệu và an toàn runtime.',
+      title: t('starter_3_title'),
+      desc: t('starter_3_desc'),
       prompt: 'Hãy rà soát toàn bộ cấu hình CSP, các endpoint API và sanitize input để phát hiện rủi ro bảo mật.',
       icon: ShieldAlert,
       color: 'text-rose-400',
     },
     {
-      title: 'Tối ưu hóa & Refactor',
-      desc: 'Cải thiện hiệu năng, giảm duplicate code và làm sạch logic.',
+      title: t('starter_4_title'),
+      desc: t('starter_4_desc'),
       prompt: 'Hãy phân tích các file code có kích thước lớn hoặc nợ kỹ thuật để thực hiện refactor tối ưu.',
       icon: Zap,
       color: 'text-amber-400',
@@ -156,21 +159,21 @@ export function ConversationView() {
       {/* Main Conversation Stream */}
       <div className="flex-1 overflow-y-auto min-h-0 flex flex-col">
         {!hasMessages ? (
-          /* Empty / Welcome State with 3D tilt cards */
-          <div className="flex-1 flex flex-col items-center justify-center p-6 max-w-3xl mx-auto w-full select-none perspective-container">
+          /* Empty / Welcome State with smooth cards */
+          <div className="flex-1 flex flex-col items-center justify-center p-6 max-w-3xl mx-auto w-full select-none">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-500 to-teal-400 flex items-center justify-center text-slate-950 shadow-lg shadow-sky-500/20 mb-4 floating-step">
               <Bot className="w-6 h-6 stroke-[2.2]" />
             </div>
 
             <h1 className="text-xl font-bold tracking-tight text-[var(--text)] text-center">
-              ChatMCP Studio
+              {t('welcome_title')}
             </h1>
             <p className="text-xs text-[var(--muted)] text-center max-w-md mt-1 mb-6">
-              AI Coding Agent chuyên nghiệp chạy trực tiếp trên workspace của bạn. Chọn gợi ý bên dưới hoặc nhập yêu cầu trực tiếp.
+              {t('welcome_desc')}
             </p>
 
-            {/* 3D Suggestion Cards Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full transform-style-3d">
+            {/* Suggestion Cards Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
               {starters.map((item, idx) => {
                 const Icon = item.icon;
                 return (
@@ -178,7 +181,7 @@ export function ConversationView() {
                     key={idx}
                     tilt3d
                     onClick={() => handleSendMessage(item.prompt)}
-                    className="p-3.5 cursor-pointer bg-[var(--panel)] hover:bg-[var(--surface-hover)] border-[var(--line)] hover:border-sky-500/50 group"
+                    className="p-3.5 cursor-pointer bg-[var(--panel)] hover:bg-[var(--surface-hover)] border-[var(--line)] hover:border-sky-500/50 group transition-all duration-150"
                   >
                     <div className="flex items-start gap-3">
                       <div className="p-2 rounded-lg bg-[var(--surface)] border border-[var(--line)] group-hover:border-sky-500/30 transition-colors">

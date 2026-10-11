@@ -3,8 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Terminal, Copy, Trash2, Check, ArrowDown } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { useTranslation } from '@/lib/i18n';
 
 export function TerminalTab() {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -32,7 +34,7 @@ export function TerminalTab() {
       <div className="px-3 py-1.5 bg-[var(--surface)] border-b border-[var(--line)] flex items-center justify-between text-[11px] text-[var(--muted)] flex-shrink-0 font-sans">
         <div className="flex items-center gap-2">
           <Terminal className="w-3.5 h-3.5 text-sky-400" />
-          <span className="font-semibold text-xs">Terminal Output</span>
+          <span className="font-semibold text-xs">{t('terminal_title')}</span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -41,16 +43,16 @@ export function TerminalTab() {
             className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors ${
               autoScroll ? 'text-sky-400 bg-sky-950/40' : 'text-[var(--faint)]'
             }`}
-            title="Tự động cuộn theo log mới"
+            title={t('terminal_autoscroll')}
           >
             <ArrowDown className="w-3 h-3" />
-            <span>Auto-scroll</span>
+            <span>{t('terminal_autoscroll')}</span>
           </button>
 
           <button
             onClick={handleCopy}
             className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-[var(--line)] text-[var(--faint)] hover:text-[var(--text)] transition-colors"
-            title="Sao chép toàn bộ log"
+            title="Copy all logs"
           >
             {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
           </button>
@@ -61,7 +63,7 @@ export function TerminalTab() {
       <div className="flex-1 overflow-y-auto p-3 text-[11px] leading-relaxed text-slate-300 space-y-1">
         {terminalLogs.length === 0 ? (
           <div className="text-[var(--faint)] italic py-8 text-center font-sans">
-            Không có nhật ký terminal nào đang chạy
+            {t('terminal_empty')}
           </div>
         ) : (
           terminalLogs.map((item: any, idx: number) => {

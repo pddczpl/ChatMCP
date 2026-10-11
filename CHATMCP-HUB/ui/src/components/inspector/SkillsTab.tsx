@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
+import { useTranslation } from '@/lib/i18n';
 import { 
   Puzzle, 
   Search, 
@@ -10,113 +11,139 @@ import {
   Trash2, 
   ShieldCheck, 
   Sparkles, 
-  ExternalLink 
+  Plus, 
+  Loader2, 
+  Wrench, 
+  ToggleLeft, 
+  ToggleRight 
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 
-interface Skill {
-  id: string;
-  name: string;
-  description: string;
-  author: string;
-  category: 'code' | 'test' | 'security' | 'devops' | 'general';
-  installed: boolean;
-  official?: boolean;
-}
-
 export function SkillsTab() {
   const { showToast } = useAppStore();
+  const { t } = useTranslation();
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('all');
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
 
-  const { data: hub, refetch } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 5000 });
+  // Form for custom/online skill
+  const [customId, setCustomId] = useState('');
+  const [customName, setCustomName] = useState('');
+  const [customDesc, setCustomDesc] = useState('');
+  const [customPrompt, setCustomPrompt] = useState('');
 
-  const [skills, setSkills] = useState<Skill[]>([
-    {
-      id: 'git-sentinel',
-      name: 'Git Sentinel',
-      description: 'Tự động kiểm tra branch, staged changes và tạo commit message chuẩn Conventional Commits.',
-      author: 'ChatMCP Core',
-      category: 'devops',
-      installed: true,
-      official: true,
-    },
-    {
-      id: 'ast-refactor',
-      name: 'AST Code Refactor',
-      description: 'Phân tích Abstract Syntax Tree TypeScript/Python và thực hiện refactor cấu trúc sạch.',
-      author: 'ChatMCP Core',
-      category: 'code',
-      installed: true,
-      official: true,
-    },
-    {
-      id: 'jest-playwright-generator',
-      name: 'Auto Test Generator',
-      description: 'Sinh test tự động với Playwright và Vitest/Jest kèm mock data và kiểm tra coverage.',
-      author: 'Community',
-      category: 'test',
-      installed: false,
-      official: false,
-    },
-    {
-      id: 'sec-audit-guard',
-      name: 'Security Audit Guard',
-      description: 'Rà soát lỗ hổng bảo mật OWASP, kiểm tra token rò rỉ, phân tích dependency CVE và CSP.',
-      author: 'ChatMCP Core',
-      category: 'security',
-      installed: false,
-      official: true,
-    },
-    {
-      id: 'docker-compose-helper',
-      name: 'Container DevOps Hub',
-      description: 'Tạo và tối ưu Dockerfile multi-stage, docker-compose.yml và pipeline GitHub Actions.',
-      author: 'Community',
-      category: 'devops',
-      installed: false,
-      official: false,
-    },
-  ]);
-
-  const categories = [
-    { id: 'all', label: 'Tất cả' },
-    { id: 'code', label: 'Lập trình' },
-    { id: 'test', label: 'Kiểm thử' },
-    { id: 'security', label: 'Bảo mật' },
-    { id: 'devops', label: 'DevOps' },
-  ];
-
-  const filteredSkills = skills.filter((s) => {
-    const matchCat = activeCategory === 'all' || s.category === activeCategory;
-    const matchSearch = `${s.name} ${s.description}`.toLowerCase().includes(search.toLowerCase());
-    return matchCat && matchSearch;
+  // Fetch real marketplace & installed plugins from Hub backend
+  const { data: marketplaceData, isLoading, refetch } = useQuery({
+    queryKey: ['pluginsMarketplace', activeCategory, search],
+    queryFn: () => api.getMarketplace(activeCategory === 'all' ? '' : activeCategory, search),
+    refetchInterval: 5000,
   });
 
-  const handleToggleInstall = (id: string) => {
-    setSkills((prev) =>
-      prev.map((s) => {
-        if (s.id === id) {
-          const next = !s.installed;
-          showToast(next ? `Đã cài đặt skill ${s.name}` : `Đã gỡ cài đặt skill ${s.name}`, 'info');
-          return { ...s, installed: next };
-        }
-        return s;
-      })
-    );
+  const catalog = marketplaceData?.catalog || [];
+
+  const categories = [
+    { id: 'all', label: t('cat_all') },
+    { id: 'coding', label: t('cat_coding') },
+    { id: 'devops', label: t('cat_devops') },
+    { id: 'research', label: t('cat_research') },
+    { id: 'governance', label: t('cat_governance') },
+    { id: 'mcp-servers', label: t('cat_mcp') },
+  ];
+
+  const handleInstall = async (id: string) => {
+    setActionLoading(id);
+    try {
+      await api.installPlugin(id);
+      showToast(`${t('skill_installed')}: ${id}`, 'success');
+      refetch();
+    } catch (err: any) {
+      showToast(err.message || 'Lỗi cài đặt plugin', 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleUninstall = async (id: string) => {
+    setActionLoading(id);
+    try {
+      await api.uninstallPlugin(id);
+      showToast(`Đã gỡ cài đặt: ${id}`, 'info');
+      refetch();
+    } catch (err: any) {
+      showToast(err.message || 'Lỗi gỡ plugin', 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleToggle = async (id: string, currentEnabled: boolean) => {
+    setActionLoading(id);
+    try {
+      await api.togglePlugin(id, !currentEnabled);
+      showToast(!currentEnabled ? `Đã kích hoạt ${id}` : `Đã tắt ${id}`, 'info');
+      refetch();
+    } catch (err: any) {
+      showToast(err.message || 'Lỗi bật/tắt plugin', 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleAddCustomSkill = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customId.trim() || !customName.trim()) {
+      showToast('Vui lòng nhập ID và tên skill', 'warning');
+      return;
+    }
+    setActionLoading('custom');
+    try {
+      await api.request('/api/plugins/install', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: customId.trim().toLowerCase(),
+          custom: {
+            name: customName.trim(),
+            description: customDesc.trim(),
+            category: 'custom',
+            systemPrompt: customPrompt.trim(),
+            tools: ['custom_online_tool'],
+          },
+        }),
+      });
+      showToast(`Đã cài đặt skill online: ${customName}`, 'success');
+      setShowAddModal(false);
+      setCustomId('');
+      setCustomName('');
+      setCustomDesc('');
+      setCustomPrompt('');
+      refetch();
+    } catch (err: any) {
+      showToast(err.message || 'Lỗi cài đặt skill online', 'error');
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   return (
-    <div className="h-full flex flex-col p-3 overflow-y-auto space-y-3 select-none text-xs perspective-container">
+    <div className="h-full flex flex-col p-3 overflow-y-auto space-y-3 select-none text-xs">
       {/* Header and Search */}
       <div className="space-y-2 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Puzzle className="w-4 h-4 text-sky-400" />
-            <span className="font-semibold text-xs text-[var(--text)]">Chợ kỹ năng (Skills Marketplace)</span>
+            <span className="font-semibold text-xs text-[var(--text)]">{t('skills_title')}</span>
           </div>
-          <span className="text-[10px] text-[var(--faint)]">Mở rộng sức mạnh agent</span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowAddModal(true)}
+            className="h-6 px-2 text-[10px] gap-1"
+          >
+            <Plus className="w-3 h-3" />
+            <span>{t('skill_add_online')}</span>
+          </Button>
         </div>
 
         <div className="relative">
@@ -125,13 +152,13 @@ export function SkillsTab() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Tìm kiếm skill..."
+            placeholder={t('skills_search_placeholder')}
             className="w-full bg-[var(--surface)] text-[var(--text)] text-xs rounded-md pl-8 pr-2.5 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
           />
         </div>
 
         {/* Categories Bar */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
           {categories.map((c) => (
             <button
               key={c.id}
@@ -139,7 +166,7 @@ export function SkillsTab() {
               className={`px-2.5 py-1 rounded-md text-[11px] font-medium whitespace-nowrap transition-colors ${
                 activeCategory === c.id
                   ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
-                  : 'bg-[var(--surface)] text-[var(--muted)] hover:bg-[var(--surface-hover)] border border-transparent'
+                  : 'bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--text)] border border-[var(--line-subtle)]'
               }`}
             >
               {c.label}
@@ -148,72 +175,235 @@ export function SkillsTab() {
         </div>
       </div>
 
-      {/* Skills Grid with 3D Tilt */}
-      <div className="space-y-2.5 transform-style-3d">
-        {filteredSkills.map((s) => (
-          <Card
-            key={s.id}
-            tilt3d
-            className="p-3 bg-[var(--panel)] border-[var(--line)] hover:border-sky-500/40 transition-all flex flex-col justify-between gap-2.5"
-          >
-            <div>
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-xs text-[var(--text)]">
-                    {s.name}
-                  </span>
-                  {s.official && (
-                    <span className="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider bg-teal-500/20 text-teal-300 border border-teal-500/30 flex items-center gap-1">
-                      <ShieldCheck className="w-2.5 h-2.5" />
-                      Official
+      {/* Skills Grid */}
+      <div className="space-y-2.5 flex-1">
+        {isLoading ? (
+          <div className="flex items-center justify-center p-8 text-[var(--muted)] gap-2">
+            <Loader2 className="w-4 h-4 animate-spin text-sky-400" />
+            <span>Đang tải chợ kỹ năng...</span>
+          </div>
+        ) : catalog.length === 0 ? (
+          <div className="p-8 text-center text-[var(--muted)] border border-dashed border-[var(--line)] rounded-lg">
+            Không tìm thấy kỹ năng phù hợp.
+          </div>
+        ) : (
+          catalog.map((s: any) => {
+            const isInstalled = Boolean(s.isInstalled);
+            const isEnabled = Boolean(s.isEnabled);
+            const isBusy = actionLoading === s.id;
+
+            return (
+              <div
+                key={s.id}
+                className="p-3 bg-[var(--panel)] border border-[var(--line)] hover:border-sky-500/40 rounded-lg transition-all flex flex-col justify-between gap-2.5 shadow-sm"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-xs text-[var(--text)]">
+                        {s.name}
+                      </span>
+                      {s.author === 'ChatMCP Team' && (
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider bg-teal-500/20 text-teal-300 border border-teal-500/30 flex items-center gap-1">
+                          <ShieldCheck className="w-2.5 h-2.5" />
+                          Official
+                        </span>
+                      )}
+                      <span className="text-[10px] text-[var(--faint)]">v{s.version}</span>
+                    </div>
+
+                    <span className="text-[10px] text-[var(--faint)]">
+                      {t('skill_by')} {s.author}
                     </span>
+                  </div>
+
+                  <p className="text-[11px] text-[var(--muted)] mt-1.5 leading-relaxed">
+                    {s.description}
+                  </p>
+
+                  {s.tools && s.tools.length > 0 && (
+                    <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                      <Wrench className="w-3 h-3 text-[var(--faint)]" />
+                      {s.tools.map((tool: string) => (
+                        <span
+                          key={tool}
+                          className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-[var(--surface)] border border-[var(--line-subtle)] text-[var(--muted)]"
+                        >
+                          {tool}
+                        </span>
+                      ))}
+                    </div>
                   )}
                 </div>
 
-                <span className="text-[10px] text-[var(--faint)]">
-                  bởi {s.author}
-                </span>
+                {/* Card Actions Footer */}
+                <div className="flex items-center justify-between pt-2 border-t border-[var(--line-subtle)]">
+                  <div className="flex items-center gap-2">
+                    {isInstalled ? (
+                      <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-400">
+                        <Check className="w-3.5 h-3.5" />
+                        <span>{t('skill_installed')}</span>
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-[var(--faint)]">Sẵn sàng cài đặt</span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {isInstalled ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="quiet"
+                          disabled={isBusy}
+                          onClick={() => handleToggle(s.id, isEnabled)}
+                          className="h-7 px-2 text-[11px] gap-1"
+                        >
+                          {isEnabled ? (
+                            <>
+                              <ToggleRight className="w-4 h-4 text-emerald-400" />
+                              <span className="text-emerald-400">{t('skill_enable')}</span>
+                            </>
+                          ) : (
+                            <>
+                              <ToggleLeft className="w-4 h-4 text-[var(--muted)]" />
+                              <span className="text-[var(--muted)]">{t('skill_disable')}</span>
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          disabled={isBusy}
+                          onClick={() => handleUninstall(s.id)}
+                          className="h-7 px-2 text-[11px] gap-1"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>{t('skill_uninstall')}</span>
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        disabled={isBusy}
+                        onClick={() => handleInstall(s.id)}
+                        className="h-7 px-2.5 text-[11px] gap-1"
+                      >
+                        {isBusy ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Download className="w-3 h-3" />
+                        )}
+                        <span>{t('skill_install')}</span>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Add Custom / Online Skill Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-[var(--panel)] border border-[var(--line)] rounded-xl p-4 shadow-2xl space-y-3">
+            <div className="flex items-center justify-between border-b border-[var(--line)] pb-2">
+              <div className="font-semibold text-xs text-[var(--text)] flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-sky-400" />
+                <span>{t('skill_add_online')}</span>
+              </div>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="text-[var(--muted)] hover:text-white text-xs px-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-[11px] text-[var(--muted)]">
+              {t('skill_add_online_desc')}
+            </p>
+
+            <form onSubmit={handleAddCustomSkill} className="space-y-2.5 text-xs">
+              <div>
+                <label className="text-[11px] text-[var(--muted)] block mb-1">
+                  {t('skill_manifest_id')}
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={customId}
+                  onChange={(e) => setCustomId(e.target.value)}
+                  placeholder="vd: online-web-scraper"
+                  className="w-full bg-[var(--surface)] text-[var(--text)] font-mono text-xs rounded px-2.5 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
+                />
               </div>
 
-              <p className="text-[11px] text-[var(--muted)] mt-1 line-clamp-2 leading-relaxed">
-                {s.description}
-              </p>
-            </div>
+              <div>
+                <label className="text-[11px] text-[var(--muted)] block mb-1">
+                  {t('skill_manifest_name')}
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={customName}
+                  onChange={(e) => setCustomName(e.target.value)}
+                  placeholder="vd: Web Scraping Pro"
+                  className="w-full bg-[var(--surface)] text-[var(--text)] text-xs rounded px-2.5 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
+                />
+              </div>
 
-            <div className="flex items-center justify-between pt-1 border-t border-[var(--line-subtle)]">
-              <span className="text-[10px] font-mono text-[var(--faint)] uppercase">
-                #{s.category}
-              </span>
+              <div>
+                <label className="text-[11px] text-[var(--muted)] block mb-1">
+                  {t('skill_manifest_desc')}
+                </label>
+                <input
+                  type="text"
+                  value={customDesc}
+                  onChange={(e) => setCustomDesc(e.target.value)}
+                  placeholder="vd: Tự động trích xuất nội dung web từ URL..."
+                  className="w-full bg-[var(--surface)] text-[var(--text)] text-xs rounded px-2.5 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
+                />
+              </div>
 
-              {s.installed ? (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
-                    <Check className="w-3 h-3" />
-                    Đã cài
-                  </span>
-                  <button
-                    onClick={() => handleToggleInstall(s.id)}
-                    className="p-1 rounded text-[var(--faint)] hover:text-rose-400 hover:bg-rose-950/30 transition-colors"
-                    title="Gỡ bỏ skill"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
-              ) : (
+              <div>
+                <label className="text-[11px] text-[var(--muted)] block mb-1">
+                  {t('skill_manifest_prompt')}
+                </label>
+                <textarea
+                  rows={3}
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                  placeholder="Hướng dẫn cho AI khi kích hoạt kỹ năng này..."
+                  className="w-full bg-[var(--surface)] text-[var(--text)] text-xs rounded px-2.5 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--line-subtle)]">
                 <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={() => handleToggleInstall(s.id)}
-                  className="h-6 text-[11px] px-2 gap-1"
+                  type="button"
+                  variant="quiet"
+                  onClick={() => setShowAddModal(false)}
                 >
-                  <Download className="w-3 h-3" />
-                  <span>Cài đặt</span>
+                  Hủy
                 </Button>
-              )}
-            </div>
-          </Card>
-        ))}
-      </div>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={actionLoading === 'custom'}
+                  className="gap-1.5"
+                >
+                  {actionLoading === 'custom' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{t('skill_btn_install')}</span>
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

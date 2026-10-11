@@ -20,20 +20,22 @@ import { PreviewTab } from './PreviewTab';
 import { IntelligenceTab } from './IntelligenceTab';
 import { SkillsTab } from './SkillsTab';
 import { SettingsTab } from './SettingsTab';
+import { useTranslation } from '@/lib/i18n';
 
 export function InspectorPanel() {
   const { activeTab, setActiveTab, setInspectorOpen } = useAppStore();
+  const { t } = useTranslation();
 
   const tabs: { id: InspectorTab; label: string; icon: any }[] = [
-    { id: 'activity', label: 'Hoạt động', icon: Activity },
-    { id: 'files', label: 'Tệp', icon: FileCode },
-    { id: 'git', label: 'Git', icon: GitBranch },
-    { id: 'terminal', label: 'Terminal', icon: Terminal },
-    { id: 'plan', label: 'Kế hoạch', icon: ListTodo },
-    { id: 'preview', label: 'Preview', icon: Globe },
-    { id: 'intelligence', label: 'AI Model', icon: Cpu },
-    { id: 'skills', label: 'Skills', icon: Puzzle },
-    { id: 'settings', label: 'Cài đặt', icon: Settings },
+    { id: 'activity', label: t('tab_activity'), icon: Activity },
+    { id: 'files', label: t('tab_files'), icon: FileCode },
+    { id: 'git', label: t('tab_git'), icon: GitBranch },
+    { id: 'terminal', label: t('tab_terminal'), icon: Terminal },
+    { id: 'plan', label: t('tab_plan'), icon: ListTodo },
+    { id: 'preview', label: t('tab_preview'), icon: Globe },
+    { id: 'intelligence', label: t('tab_ai_model'), icon: Cpu },
+    { id: 'skills', label: t('tab_skills'), icon: Puzzle },
+    { id: 'settings', label: t('tab_settings'), icon: Settings },
   ];
 
   return (

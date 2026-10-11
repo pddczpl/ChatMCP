@@ -33,7 +33,7 @@ export function Card({ className, tilt3D = false, tilt3d = false, children, ...p
     rafRef.current = requestAnimationFrame(() => {
       if (!cardRef.current) return;
       cardRef.current.style.transform = `perspective(1000px) rotateX(${rotateX.toFixed(2)}deg) rotateY(${rotateY.toFixed(2)}deg) translateY(-2px)`;
-      cardRef.current.style.transition = 'transform 0.05s ease-out, box-shadow 0.2s ease, border-color 0.2s ease';
+      cardRef.current.style.transition = 'none';
     });
   }, [isTilt]);
 
@@ -43,8 +43,8 @@ export function Card({ className, tilt3D = false, tilt3d = false, children, ...p
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
-    cardRef.current.style.transform = 'perspective(1000px) rotateX(0deg) rotateY(0deg) translateY(0px)';
     cardRef.current.style.transition = 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease, border-color 0.25s ease';
+    cardRef.current.style.transform = 'perspective(1000px) rotateX(0deg) rotateY(0deg) translateY(0px)';
   }, [isTilt]);
 
   React.useEffect(() => {

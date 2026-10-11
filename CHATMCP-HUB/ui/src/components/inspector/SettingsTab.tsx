@@ -1,7 +1,7 @@
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
+import { useTranslation } from '@/lib/i18n';
 import { 
   Settings, 
   Shield, 
@@ -9,15 +9,14 @@ import {
   Sun, 
   Globe, 
   Download, 
-  RotateCcw, 
   Server, 
   UserCheck 
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 
 export function SettingsTab() {
-  const { theme, setTheme, showToast, setFullAccessModalOpen } = useAppStore();
-  const [lang, setLang] = useState<'vi' | 'en'>('vi');
+  const { theme, setTheme, lang, setLang, showToast, setFullAccessModalOpen } = useAppStore();
+  const { t } = useTranslation();
 
   const { data: hub, refetch } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 3000 });
   const permissions: any = hub?.studio?.permissions || {};
@@ -54,37 +53,37 @@ export function SettingsTab() {
   return (
     <div className="h-full flex flex-col p-3 overflow-y-auto space-y-4 select-none text-xs">
       {/* RBAC Profile Box */}
-      <div className="p-3 rounded-lg bg-[var(--surface)] border border-[var(--line)] flex items-center justify-between tilt-3d">
+      <div className="p-3 rounded-lg bg-[var(--surface)] border border-[var(--line)] flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20 flex items-center justify-center">
             <UserCheck className="w-4 h-4" />
           </div>
           <div>
             <div className="font-semibold text-[var(--text)]">
-              Vai trò người dùng (RBAC)
+              {t('rbac_title')}
             </div>
             <div className="text-[10px] text-[var(--faint)] font-mono uppercase">
-              Cấp bậc: {role}
+              LEVEL: {role}
             </div>
           </div>
         </div>
 
         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-500/20 text-sky-400 border border-sky-500/30">
-          Đầy đủ quyền
+          {t('rbac_full')}
         </span>
       </div>
 
       {/* Permission Execution Modes */}
       <div className="space-y-2">
         <label className="text-[11px] font-semibold text-[var(--muted)] block">
-          Chế độ quyền thực thi của Agent
+          {t('agent_exec_mode')}
         </label>
         <div className="space-y-1.5">
           {[
-            { id: 'readonly', label: 'Chỉ đọc (Read-only)', desc: 'Agent chỉ đọc file và tìm kiếm, không sửa đổi.' },
-            { id: 'review', label: 'Review (Mặc định)', desc: 'Yêu cầu phê duyệt trước khi ghi file hoặc chạy lệnh shell.' },
-            { id: 'autonomous', label: 'Tự động (Autonomous)', desc: 'Tự động chạy các tool trong workspace mà không hỏi lại.' },
-            { id: 'full-access', label: 'FULL ACCESS ⚠️', desc: 'Quyền tối đa không giới hạn, vượt qua xác nhận.' },
+            { id: 'readonly', label: t('perm_read_only'), desc: t('perm_read_only_desc') },
+            { id: 'review', label: t('perm_review'), desc: t('perm_review_desc') },
+            { id: 'autonomous', label: t('perm_auto'), desc: t('perm_auto_desc') },
+            { id: 'full-access', label: t('perm_full_access'), desc: t('perm_full_access_desc') },
           ].map((m) => {
             const isSelected = m.id === 'full-access' ? isFullAccess : currentMode === m.id && !isFullAccess;
             return (
@@ -110,20 +109,20 @@ export function SettingsTab() {
       {/* Theme */}
       <div className="space-y-2">
         <label className="text-[11px] font-semibold text-[var(--muted)] block">
-          Giao diện (Theme)
+          {t('theme_label')}
         </label>
         <div className="grid grid-cols-3 gap-2">
           {[
-            { id: 'dark', label: 'Tối', icon: Moon },
-            { id: 'light', label: 'Sáng', icon: Sun },
-            { id: 'system', label: 'Hệ thống', icon: Globe },
-          ].map((t) => {
-            const Icon = t.icon;
-            const isSelected = theme === t.id;
+            { id: 'dark', label: t('theme_dark'), icon: Moon },
+            { id: 'light', label: t('theme_light'), icon: Sun },
+            { id: 'system', label: t('theme_system'), icon: Globe },
+          ].map((tItem) => {
+            const Icon = tItem.icon;
+            const isSelected = theme === tItem.id;
             return (
               <button
-                key={t.id}
-                onClick={() => setTheme(t.id as any)}
+                key={tItem.id}
+                onClick={() => setTheme(tItem.id as any)}
                 className={`flex items-center justify-center gap-1.5 p-2 rounded-lg border text-xs transition-all ${
                   isSelected
                     ? 'bg-sky-500/15 border-sky-500/50 text-sky-300 font-semibold'
@@ -131,7 +130,7 @@ export function SettingsTab() {
                 }`}
               >
                 <Icon className="w-3.5 h-3.5" />
-                <span>{t.label}</span>
+                <span>{tItem.label}</span>
               </button>
             );
           })}
@@ -141,31 +140,34 @@ export function SettingsTab() {
       {/* Language */}
       <div className="space-y-2">
         <label className="text-[11px] font-semibold text-[var(--muted)] block">
-          Ngôn ngữ (Language)
+          {t('lang_label')}
         </label>
         <div className="grid grid-cols-2 gap-2">
           <button
-            onClick={() => setLang('vi')}
+            onClick={() => {
+              setLang('vi');
+              showToast('Đã chuyển ngôn ngữ sang Tiếng Việt', 'info');
+            }}
             className={`p-2 rounded-lg border text-xs text-center transition-all ${
               lang === 'vi'
                 ? 'bg-sky-500/15 border-sky-500/50 text-sky-300 font-semibold'
-                : 'bg-[var(--surface)] border-[var(--line-subtle)] text-[var(--muted)]'
+                : 'bg-[var(--surface)] border-[var(--line-subtle)] text-[var(--muted)] hover:bg-[var(--surface-hover)]'
             }`}
           >
-            Tiếng Việt (Mặc định)
+            {t('lang_vi')}
           </button>
           <button
             onClick={() => {
               setLang('en');
-              showToast('English i18n mode enabled', 'info');
+              showToast('Switched language to English', 'info');
             }}
             className={`p-2 rounded-lg border text-xs text-center transition-all ${
               lang === 'en'
                 ? 'bg-sky-500/15 border-sky-500/50 text-sky-300 font-semibold'
-                : 'bg-[var(--surface)] border-[var(--line-subtle)] text-[var(--muted)]'
+                : 'bg-[var(--surface)] border-[var(--line-subtle)] text-[var(--muted)] hover:bg-[var(--surface-hover)]'
             }`}
           >
-            English
+            {t('lang_en')}
           </button>
         </div>
       </div>
@@ -174,11 +176,11 @@ export function SettingsTab() {
       <div className="p-3 rounded-lg bg-[var(--surface)] border border-[var(--line)] space-y-1.5 font-mono text-[11px]">
         <div className="flex items-center gap-2 text-sky-400 font-sans font-semibold text-xs">
           <Server className="w-3.5 h-3.5" />
-          <span>ChatMCP Hub Backend</span>
+          <span>{t('backend_status')}</span>
         </div>
-        <div className="text-[var(--faint)]">Host: 127.0.0.1 (Loopback)</div>
-        <div className="text-[var(--faint)]">CSP: Strict Self + No Unsafe-Inline</div>
-        <div className="text-[var(--faint)]">Status: Hoạt động bình thường</div>
+        <div className="text-[var(--faint)]">{t('backend_host')}</div>
+        <div className="text-[var(--faint)]">{t('backend_csp')}</div>
+        <div className="text-[var(--faint)]">{t('backend_ok')}</div>
       </div>
 
       {/* Export / Reset Actions */}
@@ -189,7 +191,7 @@ export function SettingsTab() {
           className="flex-1 gap-1.5 h-8 text-xs"
         >
           <Download className="w-3.5 h-3.5" />
-          <span>Xuất dữ liệu</span>
+          <span>{t('export_data')}</span>
         </Button>
       </div>
     </div>

@@ -16,9 +16,11 @@ import {
   Cpu
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { useTranslation } from '@/lib/i18n';
 
 export function Header() {
   const { data: hub } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 2500 });
+  const { t, lang } = useTranslation();
   const { 
     theme, 
     setTheme, 
@@ -95,7 +97,7 @@ export function Header() {
         {/* Hub Connection Badge */}
         <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-[var(--muted)]">
           <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
-          <span className="hidden sm:inline">Hub kết nối</span>
+          <span className="hidden sm:inline">{t('hub_connected')}</span>
         </div>
 
         {/* Mode Pill */}
@@ -115,13 +117,13 @@ export function Header() {
         <button
           onClick={() => {
             setInspectorOpen(true);
-            setActiveTab('settings');
+            setActiveTab('intelligence');
           }}
           className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--line)] text-[var(--muted)] hover:text-[var(--text)] transition-colors"
           title="Cấu hình mô hình AI"
         >
           <Cpu className="w-3.5 h-3.5 text-teal-400" />
-          <span className="max-w-[120px] truncate">{hub?.ai?.model || 'Chưa kết nối AI'}</span>
+          <span className="max-w-[120px] truncate">{hub?.ai?.model || (lang === 'en' ? 'No AI configured' : 'Chưa kết nối AI')}</span>
         </button>
 
         {/* Theme Switcher */}

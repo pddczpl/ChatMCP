@@ -52,6 +52,7 @@ export async function request<T>(route: string, options: RequestInit = {}): Prom
 }
 
 export const api = {
+  request,
   getHealth: () => request<HubHealth>('/api/health'),
   getState: () => request<HubState>('/api/state').then((st) => {
     if (st.csrfToken) setCsrfToken(st.csrfToken);

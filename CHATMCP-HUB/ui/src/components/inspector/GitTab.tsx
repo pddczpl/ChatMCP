@@ -12,8 +12,10 @@ import {
   Plus 
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { useTranslation } from '@/lib/i18n';
 
 export function GitTab() {
+  const { t } = useTranslation();
   const { showToast } = useAppStore();
   const [checkpointName, setCheckpointName] = useState('');
   const [loading, setLoading] = useState(false);
@@ -26,7 +28,7 @@ export function GitTab() {
     setLoading(true);
     try {
       await api.createCheckpoint(checkpointName.trim());
-      showToast(`Đã tạo checkpoint: ${checkpointName}`, 'success');
+      showToast(`${t('git_checkpoint_create')}: ${checkpointName}`, 'success');
       setCheckpointName('');
       refetch();
     } catch (err: any) {
@@ -50,7 +52,7 @@ export function GitTab() {
   return (
     <div className="h-full flex flex-col p-3 overflow-y-auto space-y-4 select-none text-xs">
       {/* Branch & Dirty Status */}
-      <div className="p-3 rounded-lg bg-[var(--surface)] border border-[var(--line)] flex items-center justify-between tilt-3d">
+      <div className="p-3 rounded-lg bg-[var(--surface)] border border-[var(--line)] flex items-center justify-between">
         <div className="flex items-center gap-2">
           <GitBranch className="w-4 h-4 text-sky-400" />
           <span className="font-mono font-semibold text-[var(--text)]">
@@ -60,11 +62,11 @@ export function GitTab() {
         <div>
           {git?.dirty ? (
             <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30">
-              Có thay đổi chưa commit
+              {t('git_dirty')}
             </span>
           ) : (
             <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-              Workspace sạch
+              {t('git_clean')}
             </span>
           )}
         </div>
@@ -73,12 +75,12 @@ export function GitTab() {
       {/* Checkpoint Creator */}
       <div className="space-y-2">
         <div className="flex items-center justify-between text-[var(--muted)]">
-          <span className="font-semibold uppercase tracking-wider text-[10px]">Tạo điểm an toàn (Checkpoint)</span>
+          <span className="font-semibold uppercase tracking-wider text-[10px]">{t('git_checkpoint_create')}</span>
         </div>
         <div className="flex gap-2">
           <input
             type="text"
-            placeholder="Tên checkpoint (vd: Trước khi refactor)..."
+            placeholder={t('git_checkpoint_placeholder')}
             value={checkpointName}
             onChange={(e) => setCheckpointName(e.target.value)}
             className="flex-1 bg-[var(--surface)] text-xs rounded-md px-3 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
@@ -91,7 +93,7 @@ export function GitTab() {
             className="h-8 gap-1.5 text-xs"
           >
             <Bookmark className="w-3.5 h-3.5" />
-            <span>Lưu</span>
+            <span>{t('git_checkpoint_save')}</span>
           </Button>
         </div>
       </div>
@@ -99,21 +101,21 @@ export function GitTab() {
       {/* Checkpoints History */}
       <div className="space-y-2">
         <div className="flex items-center justify-between text-[var(--muted)] border-b border-[var(--line-subtle)] pb-1">
-          <span className="font-semibold uppercase tracking-wider text-[10px]">Lịch sử Checkpoints</span>
-          <span className="text-[10px] font-mono">{git?.checkpoints?.length || 0} điểm lưu</span>
+          <span className="font-semibold uppercase tracking-wider text-[10px]">{t('git_checkpoint_history')}</span>
+          <span className="text-[10px] font-mono">{git?.checkpoints?.length || 0}</span>
         </div>
 
         {!git?.checkpoints || git.checkpoints.length === 0 ? (
           <div className="py-8 text-center text-[var(--faint)] flex flex-col items-center gap-1.5">
             <GitCommit className="w-6 h-6 opacity-40" />
-            <p className="text-[11px]">Chưa có checkpoint nào được tạo</p>
+            <p className="text-[11px]">{t('git_checkpoint_empty')}</p>
           </div>
         ) : (
           <div className="space-y-1.5">
             {git.checkpoints.map((cp: any, idx: number) => (
               <div
                 key={idx}
-                className="p-2.5 rounded-lg bg-[var(--surface)] border border-[var(--line-subtle)] flex items-center justify-between gap-2 tilt-3d"
+                className="p-2.5 rounded-lg bg-[var(--surface)] border border-[var(--line-subtle)] flex items-center justify-between gap-2"
               >
                 <div className="min-w-0">
                   <div className="font-medium text-[var(--text)] truncate">{cp.name || cp.message}</div>
@@ -127,10 +129,10 @@ export function GitTab() {
                   variant="secondary"
                   onClick={() => handleRevertCheckpoint(cp.id || cp.hash)}
                   className="h-7 text-[11px] gap-1 text-amber-400 hover:text-amber-300"
-                  title="Hoàn tác về điểm lưu này"
+                  title={t('git_checkpoint_revert')}
                 >
                   <RotateCcw className="w-3 h-3" />
-                  <span>Khôi phục</span>
+                  <span>{t('git_checkpoint_revert')}</span>
                 </Button>
               </div>
             ))}

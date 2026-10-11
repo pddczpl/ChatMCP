@@ -14,9 +14,11 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { useTranslation } from '@/lib/i18n';
 
 export function SessionSidebar() {
   const { selectedTaskId, setSelectedTaskId } = useAppStore();
+  const { t } = useTranslation();
   const [search, setSearch] = useState('');
 
   const { data: hub, refetch: refetchHub } = useQuery({ 
@@ -113,7 +115,7 @@ export function SessionSidebar() {
       <div
         key={t.id}
         onClick={() => setSelectedTaskId(t.id)}
-        className={`group relative flex items-start gap-2.5 p-2.5 rounded-lg cursor-pointer transition-all duration-200 select-none tilt-3d ${
+        className={`group relative flex items-start gap-2.5 p-2.5 rounded-lg cursor-pointer transition-all duration-150 select-none ${
           isSelected
             ? 'bg-sky-500/10 border border-sky-500/30 text-[var(--text)] shadow-sm'
             : 'hover:bg-[var(--surface-hover)] border border-transparent text-[var(--muted)] hover:text-[var(--text)]'
@@ -154,7 +156,7 @@ export function SessionSidebar() {
       <div className="p-3 border-b border-[var(--line)] flex flex-col gap-2.5">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
-            Phiên làm việc
+            {t('sessions_title')}
           </span>
           <Button
             size="sm"
@@ -163,7 +165,7 @@ export function SessionSidebar() {
             className="h-7 text-xs px-2.5 gap-1.5"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Phiên mới</span>
+            <span>{t('new_conversation_btn')}</span>
           </Button>
         </div>
 
@@ -174,7 +176,7 @@ export function SessionSidebar() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Tìm kiếm phiên..."
+            placeholder={t('search_sessions')}
             className="w-full bg-[var(--surface)] text-[var(--text)] text-xs rounded-md pl-8 pr-2.5 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500 transition-colors"
           />
         </div>
@@ -182,7 +184,7 @@ export function SessionSidebar() {
 
       {/* Workspace Quick Card */}
       {workspace && (
-        <div className="p-2.5 mx-2.5 my-2 rounded-lg bg-[var(--surface)] border border-[var(--line)] flex items-center gap-2.5 text-xs text-[var(--muted)] tilt-3d">
+        <div className="p-2.5 mx-2.5 my-2 rounded-lg bg-[var(--surface)] border border-[var(--line)] flex items-center gap-2.5 text-xs text-[var(--muted)]">
           <FolderGit2 className="w-4 h-4 text-sky-400 flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="font-mono text-[11px] truncate text-[var(--text)] font-medium">
@@ -190,7 +192,7 @@ export function SessionSidebar() {
             </div>
             <div className="text-[10px] text-[var(--faint)] flex items-center gap-2">
               <span>{workspace.git?.branch || 'main'}</span>
-              {workspace.git?.dirty && <span className="text-amber-400 font-semibold">• Có thay đổi</span>}
+              {workspace.git?.dirty && <span className="text-amber-400 font-semibold">• {t('git_dirty')}</span>}
             </div>
           </div>
         </div>
@@ -201,14 +203,14 @@ export function SessionSidebar() {
         {filteredTasks.length === 0 ? (
           <div className="py-12 px-4 text-center text-[var(--faint)] flex flex-col items-center gap-2">
             <MessageSquare className="w-8 h-8 opacity-40" />
-            <p className="text-xs">Chưa có phiên làm việc nào</p>
+            <p className="text-xs">{t('no_sessions')}</p>
             <Button
               size="sm"
               variant="secondary"
               onClick={handleCreateNewTask}
               className="text-xs mt-1"
             >
-              Bắt đầu ngay
+              {t('start_conversation')}
             </Button>
           </div>
         ) : (

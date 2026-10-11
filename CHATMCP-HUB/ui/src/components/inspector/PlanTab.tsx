@@ -2,17 +2,19 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
 import { CheckCircle2, Circle, Loader2, ListTodo, AlertCircle } from 'lucide-react';
+import { useTranslation } from '@/lib/i18n';
 
 export function PlanTab() {
+  const { t } = useTranslation();
   const { selectedTaskId } = useAppStore();
   const { data: hub } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 2500 });
   const task = hub?.tasks?.find((t) => t.id === selectedTaskId) || hub?.tasks?.[0];
 
   const planSteps = task?.plan || [
-    { title: 'Đọc và phân tích yêu cầu từ người dùng', status: 'completed' },
-    { title: 'Quét workspace và lập danh sách file cần sửa', status: 'completed' },
-    { title: 'Thực thi các thay đổi mã nguồn an toàn', status: task?.status === 'working' ? 'in_progress' : 'completed' },
-    { title: 'Chạy kiểm thử và xác minh tính toàn vẹn', status: task?.status === 'working' ? 'pending' : 'completed' },
+    { title: 'Read & analyze user request', status: 'completed' },
+    { title: 'Scan workspace & locate affected modules', status: 'completed' },
+    { title: 'Safely execute codebase modifications', status: task?.status === 'working' ? 'in_progress' : 'completed' },
+    { title: 'Run verification tests & ensure integrity', status: task?.status === 'working' ? 'pending' : 'completed' },
   ];
 
   const completedCount = planSteps.filter((s: any) => s.status === 'completed').length;
@@ -21,9 +23,9 @@ export function PlanTab() {
   return (
     <div className="h-full flex flex-col p-3 overflow-y-auto space-y-4 select-none text-xs">
       {/* Progress Bar Header */}
-      <div className="p-3 rounded-lg bg-[var(--surface)] border border-[var(--line)] space-y-2 tilt-3d">
+      <div className="p-3 rounded-lg bg-[var(--surface)] border border-[var(--line)] space-y-2">
         <div className="flex items-center justify-between">
-          <span className="font-semibold text-xs text-[var(--text)]">Tiến độ kế hoạch</span>
+          <span className="font-semibold text-xs text-[var(--text)]">{t('plan_progress')}</span>
           <span className="font-mono text-sky-400 font-bold">{progressPercent}%</span>
         </div>
         <div className="w-full h-1.5 rounded-full bg-[var(--panel)] overflow-hidden">
@@ -33,14 +35,14 @@ export function PlanTab() {
           />
         </div>
         <div className="text-[11px] text-[var(--faint)]">
-          Đã hoàn thành {completedCount} trên {planSteps.length} bước
+          {completedCount} / {planSteps.length} {t('plan_step_completed')}
         </div>
       </div>
 
       {/* Steps List */}
       <div className="space-y-2">
         <div className="flex items-center justify-between text-[var(--muted)] pb-1 border-b border-[var(--line-subtle)]">
-          <span className="font-semibold uppercase tracking-wider text-[10px]">Các bước thực thi</span>
+          <span className="font-semibold uppercase tracking-wider text-[10px]">{t('plan_steps')}</span>
         </div>
 
         <div className="space-y-2">
@@ -52,7 +54,7 @@ export function PlanTab() {
             return (
               <div
                 key={idx}
-                className={`p-2.5 rounded-lg border flex items-start gap-2.5 transition-all tilt-3d ${
+                className={`p-2.5 rounded-lg border flex items-start gap-2.5 transition-all ${
                   isRunning
                     ? 'bg-sky-500/10 border-sky-500/40 text-[var(--text)]'
                     : isDone

@@ -55,7 +55,7 @@ export function ToolReceipt({ tool }: ToolReceiptProps) {
   };
 
   return (
-    <div className="mx-4 my-2 border border-[var(--line)] rounded-lg bg-[var(--surface)] overflow-hidden text-xs select-none tilt-3d shadow-sm transition-all">
+    <div className="mx-4 my-2 border border-[var(--line)] rounded-lg bg-[var(--surface)] overflow-hidden text-xs select-none shadow-sm transition-all">
       {/* Header Bar */}
       <div
         onClick={() => setExpanded(!expanded)}
