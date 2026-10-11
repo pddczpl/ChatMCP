@@ -281,6 +281,9 @@ input::placeholder,textarea::placeholder{color:var(--faint)}
 .perm-btn:hover:not(:disabled){background:var(--surface-hover)}
 .perm-btn.active{background:var(--selected);color:var(--mint)}
 .perm-btn.active.perm-autonomous{color:var(--warn)}
+.perm-btn.perm-full-access{color:#f87171}
+.perm-btn.perm-full-access:hover:not(:disabled){background:rgba(239,68,68,0.15);color:#fca5a5}
+.perm-btn.active.perm-full-access{background:#dc2626;color:#ffffff;box-shadow:0 0 8px rgba(239,68,68,0.5);font-weight:700}
 .provider-chip{display:inline-flex;align-items:center;gap:6px;max-width:260px;padding:6px 9px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .provider-chip:hover{background:var(--surface-hover);color:var(--text)}
 .tc-dot{width:7px;height:7px;border-radius:50%;background:var(--faint);flex-shrink:0}

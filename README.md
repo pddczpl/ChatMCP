@@ -96,7 +96,7 @@ Một bộ chỉ được báo PASS khi chạy thật; thiếu Python/gói/trìn
 - [docs/TESTING-WITH-REAL-MODELS.md](docs/TESTING-WITH-REAL-MODELS.md) — cách tự thử với mô hình thật
 - [SECURITY.md](SECURITY.md) — mô hình đe dọa, giới hạn đã biết, sự cố cần quyết định, xoay token
 - [CHANGELOG.md](CHANGELOG.md) — thay đổi theo phiên bản
-- [docs/PHASE0-AUDIT.md](docs/PHASE0-AUDIT.md) · [docs/PHASE1-DESIGN.md](docs/PHASE1-DESIGN.md) · [docs/PHASE1-REPORT.md](docs/PHASE1-REPORT.md) · [docs/PHASE2-DESIGN.md](docs/PHASE2-DESIGN.md) · [docs/PHASE2-REPORT.md](docs/PHASE2-REPORT.md) — kiểm toán, thiết kế và báo cáo các phase
+- [docs/PHASE0-AUDIT.md](docs/PHASE0-AUDIT.md) · [docs/PHASE1-DESIGN.md](docs/PHASE1-DESIGN.md) · [docs/PHASE1-REPORT.md](docs/PHASE1-REPORT.md) · [docs/PHASE2-DESIGN.md](docs/PHASE2-DESIGN.md) · [docs/PHASE2-REPORT.md](docs/PHASE2-REPORT.md) · [docs/PHASE3-DESIGN.md](docs/PHASE3-DESIGN.md) · [docs/PHASE3-REPORT.md](docs/PHASE3-REPORT.md) — kiểm toán, thiết kế và báo cáo các phase
 - [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) — giấy phép bên thứ ba
 - [CHATMCP-HUB/README.md](CHATMCP-HUB/README.md) — lịch sử phát hành của Hub (2.x), giữ nguyên
 
