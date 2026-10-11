@@ -1,15 +1,14 @@
 # A real diagnostic POST, executed on the user's Windows PC. Never embeds a key.
 [CmdletBinding()]
 param(
-    [string]$BaseUrl = 'https://p090-vertex-gateway-1036721532620.asia-southeast1.run.app',
-    [string]$Model = 'gemini-3.8-flash',
+    [Parameter(Mandatory = $true)][string]$BaseUrl,
+    [string]$Model = 'gemini-2.5-flash',
     [ValidateSet('google-key', 'bearer')][string]$AuthMode = 'google-key'
 )
 $ErrorActionPreference = 'Stop'
-$expectedHost = 'p090-vertex-gateway-1036721532620.asia-southeast1.run.app'
 try { $base = [Uri]$BaseUrl.TrimEnd('/') } catch { throw 'Gateway URL is invalid.' }
-if ($base.Scheme -ne 'https' -or $base.Host -ne $expectedHost -or $base.UserInfo -or $base.Query -or $base.Fragment) {
-    throw 'Safety check: only the explicitly requested HTTPS gateway hostname is accepted.'
+if ($base.Scheme -ne 'https' -or $base.UserInfo -or $base.Query -or $base.Fragment) {
+    throw 'Safety check: only HTTPS gateway URLs without credentials or query strings are accepted.'
 }
 if ($Model -notmatch '^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,150}$') { throw 'Model name is not valid.' }
 $stem = $BaseUrl.TrimEnd('/') -replace '/v1beta$', ''

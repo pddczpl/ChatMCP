@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ACTIVE_STATES, NOT_STARTED_PHASES, applyTransition, deriveState, describeState, isTaskState, restState } from './task-state.mjs';
+import { writeFileAtomic } from './fs-safe.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
 // from disk or the environment, evaluates model text, or executes a local shell.
@@ -202,11 +203,7 @@ async function boundedClose(close) {
   finally { clearTimeout(timer); }
 }
 async function atomicWrite(file, data) {
-  const temp = `${file}.${randomUUID()}.tmp`;
-  try {
-    await fs.writeFile(temp, data, { flag: 'wx', mode: 0o600 });
-    await fs.rename(temp, file);
-  } finally { await fs.unlink(temp).catch(() => {}); }
+  await writeFileAtomic(file, data, { mode: 0o600 });
 }
 
 export class AgentRunner {
@@ -221,6 +218,19 @@ export class AgentRunner {
     this.context = null;
     this.writes = new Map();
     this.closing = false;
+    this.listeners = new Set();
+  }
+
+  subscribe(listener) {
+    if (typeof listener !== 'function') return () => {};
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+
+  #emit(event) {
+    for (const listener of this.listeners) {
+      try { listener(event); } catch (err) { this.log(this.#redact(`Listener error: ${err.message}`)); }
+    }
   }
 
   #redact(value) {
@@ -276,7 +286,10 @@ export class AgentRunner {
   #advance(task, to, reason, { force = false } = {}) {
     const result = applyTransition(task, to, { reason, at: now(), force });
     if (!result.ok) this.log(this.#redact(`${result.error} (${reason})`));
-    else if (result.changed) task.updatedAt = result.entry.at;
+    else if (result.changed) {
+      task.updatedAt = result.entry.at;
+      this.#emit({ type: 'state', taskId: task.id, state: to, reason, stateChangedAt: task.stateChangedAt });
+    }
     return result;
   }
 
@@ -416,6 +429,7 @@ export class AgentRunner {
     if (task.events.length > EVENT_LIMIT) task.events.splice(0, task.events.length - EVENT_LIMIT);
     task.eventCount += 1;
     task.updatedAt = full.at;
+    this.#emit({ type: 'event', taskId: task.id, event: visible, state: task.state });
     await this.#persist(task, { ...full, ...(detail === undefined ? {} : { detail }) });
   }
 
@@ -701,6 +715,7 @@ export class AgentRunner {
           signal: context.controller.signal, maxOutputTokens: MAX_OUTPUT_TOKENS,
           store: false, parallel_tool_calls: false, include: ['reasoning.encrypted_content'],
           onStatus: async (message, kind) => { await this.#event(task, kind === 'model_repair' ? 'model_repair' : kind === 'context_compaction' ? 'context_compaction' : 'network_wait', String(message).slice(0,1000), { status:'running' }); },
+          onToken: (token) => { this.#emit({ type: 'token', taskId: task.id, token }); },
         }), context.controller.signal);
         context.inFlight = null;
         this.#check(context);

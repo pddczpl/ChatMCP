@@ -22,6 +22,11 @@ Mục tiêu của bản này: biến Hub thành một **AI Coding Agent chạy �
 - **Launcher Windows độc lập** `START-CHATMCP-HUB.cmd` / `STOP-CHATMCP-HUB.cmd`: chạy Hub ở nền, chờ kiểm tra sức khỏe, dùng lại Hub đang chạy, không đụng cổng của chương trình khác, không đổi ExecutionPolicy.
 - **Bộ kiểm thử:** bộ chạy chung `npm test` (46 bộ kiểm thử Node lúc phát hành 2.3.0, mỗi bộ một tiến trình, có `--json`/`--filter`/`--no-skip`; có cả bộ kiểm tra chính bộ chạy test, bộ đối chiếu tài liệu với mã và bộ kiểm tra công cụ đột biến), 5 bộ giao diện Playwright (`--python`), khung E2E với **mô hình giả có kịch bản** (6 kịch bản: FastAPI thật, sửa lỗi, Git/nhánh, phục hồi phiên, cô lập hai người dùng ở mức Hub, kho độc hại), công cụ **kiểm thử đột biến** `tests/mutation/run-mutations.mjs` (hỏng mã một chỗ nhỏ mỗi lần trong bản sao tạm, xem bộ test có nhận ra không) cùng 4 danh sách đột biến đã dùng (xem DEVELOPMENT.md). CI: `.github/workflows/ci.yml` (Linux + Windows × Node 22/24, mọi action ghim theo SHA; **chưa chạy trên GitHub**). Bản cập nhật workflow (cài Python cho bộ FastAPI, job giao diện Chromium, `--no-skip all` để một bộ bị bỏ qua không làm CI xanh giả) **chưa được áp dụng**: công cụ của phiên làm việc không được ghi vào `.github/workflows/`, nên bản đề xuất nằm ở [docs/ci-proposal.yml](docs/ci-proposal.yml) và báo cáo Phase 1 hướng dẫn cách áp dụng.
 - **Tài liệu:** README, ARCHITECTURE, DEVELOPMENT, WINDOWS-SETUP, USER-GUIDE, TROUBLESHOOTING, DEPLOYMENT, SECURITY, TESTING-WITH-REAL-MODELS, THIRD-PARTY-NOTICES, PHASE0-AUDIT, PHASE1-DESIGN, PHASE1-REPORT.
+- **Chế độ công khai và tự host (Phase 2):** Bật bằng `CHATMCP_PUBLIC=1`. Đăng nhập token chủ sở hữu (`CHATMCP_OWNER_TOKEN`), so sánh constant-time, cookie phiên `__Host-chatmcp_session` (`HttpOnly`, `Secure`, `SameSite=Strict`), CSRF theo phiên, chống brute-force theo IP và toàn cục. Cổng kiểm tra mặc định từ chối (`lib/public-gate.mjs`) trước mọi route nội bộ.
+- **Tách quyền tiến trình Linux (Docker):** `docker/supervisor.mjs` (root, tini) khởi chạy Hub dưới quyền user không đặc quyền `hub` (uid 10000). Môi giới lệnh qua socket Unix (`lib/exec-broker.mjs`) khởi chạy lệnh workspace dưới quyền user `agent` (uid 10001) với `no_new_privs` và tước toàn bộ capabilities.
+- **Đóng gói Docker và Render:** `Dockerfile` phân tầng bảo mật, `docker-compose.yml`, `.env.example`, `render.yaml` cho Render free tier (giới hạn heap Node 192 MB, tương thích 512 MB RAM). Đã build ảnh `chatmcp:latest` và vượt qua 51/51 bộ test trong container.
+- **Quản lý Workspace từ xa & GitHub PR:** `lib/workspaces.mjs` hỗ trợ clone an toàn qua HTTPS, giới hạn dung lượng kho, push lên nhánh cô lập `chatmcp/...`, tạo Pull Request qua GitHub REST API (`POST /api/workspace/pr`), và tải tarball workspace.
+- **Streaming thời gian thực (SSE):** `GET /api/tasks/:id/stream` và `GET /api/tasks/events` truyền sự kiện trạng thái và từng token văn bản từ mô hình; giao diện React cập nhật hiệu ứng gõ chữ trực tiếp với con trỏ nhấp nháy.
 - **Công cụ xoay token Cloud Harness** (`scripts/Rotate-CloudHarnessToken.ps1`, mặc định chỉ xem trước) và khóa phiên bản phụ thuộc bên thứ ba (`deps/`).
 
 ### Thay đổi
@@ -37,21 +42,25 @@ Mục tiêu của bản này: biến Hub thành một **AI Coding Agent chạy �
 - `Stop-ChatMcpHub` và thừa kế pipe của tiến trình con làm `Start` treo.
 - Bốn script `CHATMCP-HUB/windows/` (smoke, soak, watchdog, kiểm tra gateway) ghi cứng phiên bản 2.2.x nên báo sai với Hub 2.3.0; nay lấy phiên bản từ `package.json` và bản dựng giao diện từ `/api/health`. `Run-StudioSoak` trước đây thoát mã 0 dù Hub không trả lời mẫu nào; nay thoát 1 nếu có mẫu xấu.
 - Các lỗ hổng do kiểm thử đối kháng tìm ra và đã đóng (mỗi mục có test hồi quy): lệnh "chỉ đọc" đi theo symlink tới file bí mật; `core.fsmonitor` và hook `pre-commit` của kho tải về chạy chương trình; ổ PowerShell (`Env:`, `HKCU:`, `FileSystem::`) và `ps e` lộ bí mật; bộ lọc môi trường bỏ sót `PGPASSWORD`, `MYSQL_PWD`, biến kết thúc bằng `_KEY` và URL có mật khẩu. Chi tiết ở [SECURITY.md](SECURITY.md).
+- Lỗi flaky trong `tests/verify-task-state.mjs` do va chạm khóa file trong atomic rename trên Windows được xử lý bằng cách chờ disk write và catch transient lock.
+- Lỗi biến môi trường daemon thừa kế trong `tests/run-all.mjs` khi chạy trong container Docker với `CHATMCP_PUBLIC=1` và `CHATMCP_EXEC_MODE=broker`.
+- Trùng mẫu đột biến trong `verify-docs.mjs` khi triển khai `createPullRequest` (sử dụng `github_token_missing`).
 
 ### Bảo mật
 
 - Các phát hiện Phase 0 (S1–S4, token Cloud Harness trong lịch sử Git công khai, dữ liệu trạng thái trong lịch sử, định danh cá nhân, telemetry của Desktop Commander) được **ghi lại và đang chờ chủ sở hữu quyết định**; chưa ai xoay token, chưa ai viết lại lịch sử Git. Xem [SECURITY.md](SECURITY.md).
-- Giới hạn đã biết (chưa khắc phục) được liệt kê đầy đủ ở SECURITY.md, trong đó: Hub không có xác thực nên **chỉ chạy ở loopback cho một người dùng**; đa người dùng **bị chặn**.
+- Giới hạn đã biết (chưa khắc phục) được liệt kê đầy đủ ở SECURITY.md, trong đó: Hub không có xác thực khi ở chế độ cục bộ nên **chỉ chạy ở loopback cho một người dùng**; đa người dùng **bị chặn**.
+- Khi mở ra mạng công cộng (`CHATMCP_PUBLIC=1`), bắt buộc có token chủ sở hữu mạnh, cookie phiên an toàn và tách quyền người dùng Linux.
 
 ### Vệ sinh repository
 
 - Thêm `.gitignore`, `.gitattributes`, `.editorconfig`; ngừng theo dõi (không xóa khỏi đĩa) các bản clone lồng nhau, thư mục phụ thuộc, bản sao lưu trạng thái, thư mục "rescue" và file ZIP (`e9cfba4`, `2089911`, `3571def`). **Không viết lại lịch sử Git, không force-push.**
-- Lưu ý: `CHATMCP-HUB/SHA256SUMS.txt` là của bản phát hành cũ và đã lỗi thời.
+- Đã gỡ bỏ mã OAuth cũ không còn sử dụng (`CHATMCP-HUB/lib/chatgpt-auth.mjs`, `CHATMCP-HUB/lib/provider.mjs`) và tệp băm lỗi thời `CHATMCP-HUB/SHA256SUMS.txt`.
+- Làm sạch URL dịch vụ cá nhân trong `CHATMCP-HUB/windows/Test-Gateway-Live.ps1`.
 
 ### Chưa làm / bị chặn
 
-- Triển khai self-host (Phase 2), HTTPS, đăng nhập, Docker Compose, CI/CD triển khai: **chưa làm** ([DEPLOYMENT.md](docs/DEPLOYMENT.md)).
-- Thử với mô hình thật và tạo Pull Request GitHub thật: **blocked** (cần khóa/xác thực của bạn; [TESTING-WITH-REAL-MODELS.md](docs/TESTING-WITH-REAL-MODELS.md)).
+- Thử với mô hình thật và tạo Pull Request GitHub thật trên github.com: **blocked** (cần khóa/xác thực của bạn; [TESTING-WITH-REAL-MODELS.md](docs/TESTING-WITH-REAL-MODELS.md)).
 - Cô lập đa người dùng: **blocked** (không có bằng chứng; yêu cầu VM/microVM).
 - Cập nhật workflow CI: **blocked** ở phía công cụ (file nằm trong `.github/workflows/` bị bảo vệ); bản đề xuất đã soạn và kiểm tra cú pháp, chờ bạn áp dụng.
 - Chọn giấy phép cho repository: chưa có `LICENSE` (cần chủ sở hữu quyết định).

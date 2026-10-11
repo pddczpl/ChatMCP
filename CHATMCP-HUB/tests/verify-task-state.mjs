@@ -458,7 +458,15 @@ await section('review mode: waiting_approval is visible, and nothing has run whi
     equal(agent.state().tasks.find((item) => item.id === started.id).state, 'waiting_approval', 'the task list shows it too');
     await assert.rejects(() => fs.access(target)); checks += 1;
     // The marker reaches the disk while the person decides.
-    await until(async () => JSON.parse(await fs.readFile(taskJson(started.id), 'utf8')).pendingCall?.phase === 'awaiting_approval', { label: 'the waiting marker on disk' });
+    await until(async () => {
+      await agent.writes.get(started.id)?.catch(() => {});
+      try {
+        const text = await fs.readFile(taskJson(started.id), 'utf8');
+        return JSON.parse(text).pendingCall?.phase === 'awaiting_approval';
+      } catch {
+        return false;
+      }
+    }, { label: 'the waiting marker on disk' });
     // A Hub that dies right now must not claim the write may have happened: copy the files as they are and load them.
     const crashDir = path.join(root, 'crash-while-waiting');
     await agent.writes.get(started.id)?.catch(() => {}); // let the in-flight write finish so the copy is a consistent picture

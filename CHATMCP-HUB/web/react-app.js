@@ -224,14 +224,62 @@
       catch(error){this.toast(error.message,true);return null;}
       finally{this.set({busy:''});void this.poll(true);}
     }
+    connectTaskStream(id){
+      if(!window.EventSource || !id) return;
+      if(this.taskStreamId === id && this.taskStream) return;
+      if(this.taskStream){ try{ this.taskStream.close(); }catch{} this.taskStream = null; }
+      this.taskStreamId = id;
+      try {
+        const stream = new EventSource('/api/tasks/' + encodeURIComponent(id) + '/stream');
+        this.taskStream = stream;
+        stream.onmessage = (e) => {
+          if(!e?.data) return;
+          try {
+            const data = JSON.parse(e.data);
+            if(data.type === 'token' && typeof data.token === 'string'){
+              this.set((prev) => ({ streamingToken: (prev.streamingToken || '') + data.token }));
+            } else if(data.type === 'event' && data.event){
+              this.set((prev) => {
+                if(prev.selectedId !== id || !prev.selectedTask) return null;
+                const events = [...(prev.selectedTask.events || [])];
+                events.push(data.event);
+                return { selectedTask: { ...prev.selectedTask, events, state: data.state || prev.selectedTask.state } };
+              });
+            } else if(data.type === 'state'){
+              this.set((prev) => {
+                if(prev.selectedId !== id || !prev.selectedTask) return null;
+                return { selectedTask: { ...prev.selectedTask, state: data.state } };
+              });
+            }
+          } catch {}
+        };
+        stream.onerror = () => {
+          if(this.taskStream === stream){ try{ stream.close(); }catch{} this.taskStream = null; }
+        };
+      } catch {}
+    }
     choose(id='',silent=false){
+      if(this.taskStream){ try{ this.taskStream.close(); }catch{} this.taskStream = null; this.taskStreamId = null; }
+      this.set({ streamingToken: '' });
       sessionStore.set(id);
       this.lastTaskKey='';this.set({selectedId:id,selectedTask:null,prompt:'',plan:{title:'',items:[]},livePlan:null,workflow:null});
-      if(id)void this.loadTask(id);
+      if(id){ void this.loadTask(id); this.connectTaskStream(id); }
       if(!silent)this.set({tab:'activity'});
     }
     async loadTask(id){if(!id || this.taskLoadingIds.has(id))return;this.taskLoadingIds.add(id);
-      try{const task=await this.get(`/api/tasks/${encodeURIComponent(id)}`);if(this.alive&&this.state.selectedId===id){this.set({selectedTask:task.task||task});void this.loadTaskSide(id);}}
+      try{
+        const task=await this.get(`/api/tasks/${encodeURIComponent(id)}`);
+        const item = task.task || task;
+        if(this.alive&&this.state.selectedId===id){
+          this.set({selectedTask:item});
+          void this.loadTaskSide(id);
+          if(['running','queued','planning','waiting_approval','verifying'].includes(item.state)){
+            this.connectTaskStream(id);
+          } else if(this.taskStream && this.taskStreamId === id){
+            try{ this.taskStream.close(); }catch{} this.taskStream = null;
+          }
+        }
+      }
       catch(error){if(this.state.selectedId===id && error.status!==404)this.toast(error.message,true);}
       finally{this.taskLoadingIds.delete(id);}
     }
@@ -727,6 +775,7 @@
           ].map(([title,prompt])=>h('button',{key:title,onClick:()=>this.set({prompt})},h('strong',null,title),h('span',null,'↗'))))
         ):h('div',{className:'chat-stream'},this.planCard(),exchanges,
           inProgress?h('div',{className:'live-card',title:d.hint},h('div',{className:'spin'}),h('div',null,h('strong',null,d.label),h('p',null,str(events[events.length-1]?.message,'Đang chờ bước tiếp theo…')))):null,
+          inProgress&&this.state.streamingToken?h('div',{className:'message message-agent streaming',key:'streaming'},h('div',{className:'agent-avatar'},h(Icon,{name:'bot',size:17})),h('div',{className:'message-card'},h('span',{className:'message-role'},'AGENT · Đang trả lời…'),h('div',{className:'message-text streaming-text'},this.state.streamingToken))):null,
           task?.error&&d.state!=='failed'?h('div',{className:'inline-error'},h(Icon,{name:'warning',size:16}),h('div',null,h('strong',null,task.errorCode||'Tác vụ cần xử lý'),h('p',null,task.error))):null,
           !inProgress&&task?.finalText&&!runs.some(r=>r.finalText)?h('div',{className:'message message-agent'},h('div',{className:'message-card'},h('div',{className:'message-text'},task.finalText))):null,
           this.resultFooter(task,d)

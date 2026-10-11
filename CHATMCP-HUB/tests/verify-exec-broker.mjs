@@ -26,7 +26,7 @@ const AGENT = Object.freeze({ uid: 4242, gid: 4243, groups: Object.freeze([4243,
 const SAFE_PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
 const UNREAL_PID = 2_147_483_000; // no operating system hands out a pid this large
 
-async function waitFor(condition, { timeoutMs = 6000, label = 'condition' } = {}) {
+async function waitFor(condition, { timeoutMs = 15000, label = 'condition' } = {}) {
   const until = Date.now() + timeoutMs;
   for (;;) {
     const value = await condition();

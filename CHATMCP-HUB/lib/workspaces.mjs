@@ -557,6 +557,51 @@ class WorkspaceService {
       }
     });
   }
+
+  async createPullRequest(payload = {}) {
+    return this.#exclusive('tạo Pull Request trên GitHub', async () => {
+      if (!this.config.githubToken) throw fault('github_token_missing', 'Chưa đặt GITHUB_TOKEN nên không thể tạo Pull Request qua GitHub API.', 409);
+      const item = this.#find(payload.name);
+      if (!item.origin || !this.tokenHosts.has(item.origin.host)) throw fault('push_unsupported', 'Chỉ hỗ trợ tạo Pull Request cho workspace clone từ github.com.', 409);
+      const title = String(payload.title ?? '').trim();
+      if (!title) throw fault('bad_title', 'Cần nhập tiêu đề Pull Request.', 400);
+      const body = String(payload.body ?? '').trim();
+      const head = String(payload.head ?? '').trim();
+      if (!head) throw fault('bad_head', 'Cần chọn branch nguồn (head) cho Pull Request.', 400);
+      const base = String(payload.base ?? item.branch ?? 'main').trim();
+
+      const url = `https://api.github.com/repos/${encodeURIComponent(item.origin.owner)}/${encodeURIComponent(item.origin.repo)}/pulls`;
+      let res;
+      try {
+        res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            Accept: 'application/vnd.github+json',
+            Authorization: `Bearer ${this.config.githubToken}`,
+            'User-Agent': 'ChatMCP-Hub',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ title, body, head, base }),
+        });
+      } catch (err) {
+        throw fault('network_error', `Không kết nối được tới GitHub API: ${err.message}`, 502);
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = data?.message || `HTTP ${res.status}`;
+        throw fault('pr_failed', `GitHub từ chối tạo Pull Request: ${detail}`, res.status >= 400 && res.status < 500 ? res.status : 502);
+      }
+      this.log(`Đã tạo Pull Request #${data.number}: ${data.html_url}`);
+      return {
+        number: data.number,
+        html_url: data.html_url,
+        title: data.title,
+        state: data.state,
+        head: data.head?.ref ?? head,
+        base: data.base?.ref ?? base,
+      };
+    });
+  }
 }
 
 export async function createWorkspaceService({ config, manager, execution, env = process.env, log = () => {}, testing = null }) {

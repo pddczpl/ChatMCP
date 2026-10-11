@@ -25,7 +25,7 @@ export function assertCompatibleRunningHub(health, port=3007) {
   return true;
 }
 
-export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/vscode/open','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/intelligence/index','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown']);
+export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/vscode/open','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/intelligence/index','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/workspace/pr']);
 const BUNDLE_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
 const CSP_BASE = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
@@ -214,9 +214,45 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
       }
       if (req.method === 'GET' && url.pathname === '/api/ai/presets') return json(200, { presets: publicPresets(provider?.env ?? process.env), envKeys: provider?.envKeys() ?? [] });
       if (req.method === 'GET' && url.pathname === '/auth/chatgpt/callback') return json(410, { error: 'Không hỗ trợ kết nối OAuth ChatGPT trong chế độ này.' });
-      const taskRoute = url.pathname.match(/^\/api\/tasks\/([0-9a-f-]{36})(\/report)?$/);
+      if (req.method === 'GET' && url.pathname === '/api/tasks/events') {
+        if (!taskEngine) return json(503, { error: 'Agent chưa sẵn sàng.' });
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform',
+          'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no',
+        });
+        res.write(': connected\n\n');
+        const dispose = taskEngine.subscribe?.((event) => {
+          if (!res.destroyed) res.write(`data: ${JSON.stringify(event)}\n\n`);
+        });
+        const heartbeat = setInterval(() => { if (!res.destroyed) res.write(': heartbeat\n\n'); }, 15000);
+        req.on('close', () => { clearInterval(heartbeat); dispose?.(); });
+        return;
+      }
+      const taskRoute = url.pathname.match(/^\/api\/tasks\/([0-9a-f-]{36})(\/report|\/stream)?$/);
       if (req.method === 'GET' && taskRoute) {
-        const value = taskRoute[2] ? await taskEngine?.report(taskRoute[1]) : taskEngine?.get(taskRoute[1]);
+        if (taskRoute[2] === '/stream') {
+          const task = taskEngine?.get(taskRoute[1]);
+          if (!task) return json(404, { error: 'Không tìm thấy nhiệm vụ.' });
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no',
+          });
+          res.write(': connected\n\n');
+          res.write(`data: ${JSON.stringify({ type: 'task_snapshot', task })}\n\n`);
+          const dispose = taskEngine.subscribe?.((event) => {
+            if (event.taskId === taskRoute[1] && !res.destroyed) {
+              res.write(`data: ${JSON.stringify(event)}\n\n`);
+            }
+          });
+          const heartbeat = setInterval(() => { if (!res.destroyed) res.write(': heartbeat\n\n'); }, 15000);
+          req.on('close', () => { clearInterval(heartbeat); dispose?.(); });
+          return;
+        }
+        const value = taskRoute[2] === '/report' ? await taskEngine?.report(taskRoute[1]) : taskEngine?.get(taskRoute[1]);
         if (value === null || value === undefined) return json(404, { error: 'Không tìm thấy nhiệm vụ.' });
         if (!taskRoute[2]) return json(200, value);
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
@@ -309,6 +345,7 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
           case '/api/workspace/create': { if (!publicMode) return unknownAction(); requireIdle('Chờ agent dừng trước khi tạo workspace mới.'); const created = await requireWorkspaces().create(payload); await manager.selectWorkspace(created.path); result = { ...stateNow(), created }; break; }
           case '/api/workspace/delete': { if (!publicMode) return unknownAction(); requireIdle('Chờ agent dừng trước khi xóa workspace.'); const removed = await requireWorkspaces().remove(payload, { current: manager.workspace }); result = { ...stateNow(), removed }; break; }
           case '/api/workspace/push': { if (!publicMode) return unknownAction(); requireIdle('Chờ agent dừng trước khi đẩy lên GitHub.'); result = { pushed: await requireWorkspaces().push(payload) }; break; }
+          case '/api/workspace/pr': { if (!publicMode) return unknownAction(); requireIdle('Chờ agent dừng trước khi tạo Pull Request.'); result = { pr: await requireWorkspaces().createPullRequest(payload) }; break; }
           default: return unknownAction();
         }
         return json(200, { ...result, csrfToken: csrfNow });

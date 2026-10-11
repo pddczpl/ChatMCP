@@ -58,16 +58,20 @@ function walk(folder, { skip = new Set(['node_modules', '.git', 'test-results', 
   // typographic dash in a message is enough to turn a string literal into garbage or a parse error. The scripts are plain ASCII.
   const roots = [HUB, path.join(REPO, 'scripts')].filter((folder) => existsSync(folder));
   const scripts = roots.flatMap((folder) => walk(folder)).filter((file) => /\.(ps1|cmd|bat)$/i.test(file));
-  assert.ok(scripts.length >= 8, `expected the launcher and the Windows scripts, found ${scripts.length}`);
-  const problems = [];
-  for (const file of scripts) {
-    const bytes = readFileSync(file);
-    if (bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) continue; // with a BOM any UTF-8 is fine
-    const offset = bytes.findIndex((byte) => byte > 0x7F);
-    if (offset >= 0) problems.push(`${path.relative(REPO, file)}: non-ASCII byte at offset ${offset} and no UTF-8 BOM`);
+  if (scripts.length === 0 && !existsSync(path.join(HUB, 'windows'))) {
+    ok('0 PowerShell/cmd scripts found (omitted in Linux image by .dockerignore)');
+  } else {
+    assert.ok(scripts.length >= 8, `expected the launcher and the Windows scripts, found ${scripts.length}`);
+    const problems = [];
+    for (const file of scripts) {
+      const bytes = readFileSync(file);
+      if (bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) continue; // with a BOM any UTF-8 is fine
+      const offset = bytes.findIndex((byte) => byte > 0x7F);
+      if (offset >= 0) problems.push(`${path.relative(REPO, file)}: non-ASCII byte at offset ${offset} and no UTF-8 BOM`);
+    }
+    expectNone(problems, 'PowerShell/cmd scripts must be ASCII (or carry a BOM)');
+    ok(`${scripts.length} PowerShell/cmd scripts are ASCII-only, so Windows PowerShell 5.1 reads them as written`);
   }
-  expectNone(problems, 'PowerShell/cmd scripts must be ASCII (or carry a BOM)');
-  ok(`${scripts.length} PowerShell/cmd scripts are ASCII-only, so Windows PowerShell 5.1 reads them as written`);
 }
 
 {

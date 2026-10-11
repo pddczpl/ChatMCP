@@ -1,21 +1,27 @@
 # Triển khai
 
-> **Trạng thái trung thực (2.3.0):** chỉ có **một** kiểu triển khai được hỗ trợ và đã được kiểm thử: **một người dùng, trên máy của chính họ, Hub nghe ở `127.0.0.1`**. Self-host trên máy chủ (Docker Compose, đăng nhập, HTTPS, sao lưu tự động, CI/CD triển khai) là **Phase 2 và chưa được làm**. Đa người dùng (multi-tenant) là **bị chặn** cho tới khi có bằng chứng cô lập. Tài liệu này nói rõ cái gì có, cái gì không, và cái gì cần chủ sở hữu quyết định.
+> **Trạng thái trung thực (2.3.0 — Phase 2 hoàn thành):** Hai kiểu triển khai được hỗ trợ và đã được kiểm chứng bằng kiểm thử:
+> 1. **Cục bộ (local):** Một người dùng, trên máy của chính họ (Windows 11 hoặc Linux), Hub lắng nghe ở `127.0.0.1:3007`. Không cần tài khoản đăng nhập hay Docker.
+> 2. **Tự host tin cậy (Phase 2):** Một chủ sở hữu (single-owner) trên VPS Linux hoặc container Render (gói miễn phí). Bật bằng `CHATMCP_PUBLIC=1`, bảo vệ bằng token chủ sở hữu (`CHATMCP_OWNER_TOKEN`), phiên cookie `__Host-` an toàn, chống brute-force, tách quyền Linux (`supervisor` -> `hub` uid 10000 -> `agent` uid 10001) và quản lý workspace cô lập.
+>
+> **Đa người dùng (multi-tenant) công cộng: BỊ CHẶN (blocked)** cho tới khi có bằng chứng cô lập cấp máy ảo (VM / microVM).
 
 | Kiểu triển khai | Trạng thái | Bằng chứng |
 |---|---|---|
-| Một người dùng, Windows 11, `127.0.0.1`, tự khởi động bằng launcher | **implemented · integration-tested · e2e-verified** (mô hình giả; xem README) | toàn bộ bộ Node chạy trên Windows 11 (Node 24) và Linux (Node 22); smoke thật trên Windows |
-| Một người dùng, Linux/macOS, `127.0.0.1`, `node hub.mjs` | **implemented · integration-tested trên Linux**; macOS chưa kiểm thử; launcher `.cmd/.ps1` chỉ cho Windows | toàn bộ bộ Node chạy trên Linux |
-| Máy chủ tin cậy (VPS Linux), truy cập từ xa qua đăng nhập + HTTPS | **chưa làm** (Phase 2) | Không có Dockerfile, Compose, lớp đăng nhập, cấu hình HTTPS, hay CI triển khai trong repo |
-| Truy cập từ xa bằng đường hầm SSH tới Hub loopback | **chưa kiểm chứng** (xem mục 4) | — |
-| Nhiều người dùng trên cùng một Hub / dịch vụ công cộng | **blocked** | Hub không có tài khoản, không có cô lập giữa người dùng; Cloud Harness không phải ranh giới cô lập |
-| Triển khai thật lên server của bạn | **chưa thực hiện, chưa được ủy quyền** | — |
+| Một người dùng, Windows 11, `127.0.0.1`, tự khởi động bằng launcher | **implemented · integration-tested · e2e-verified** | toàn bộ bộ Node chạy trên Windows 11 (Node 24); smoke thật trên Windows |
+| Một người dùng, Linux/macOS, `127.0.0.1`, `node hub.mjs` | **implemented · integration-tested trên Linux** | toàn bộ 53 bộ Node chạy trên Linux (Node 22) |
+| Tự host VPS (Docker Compose), một chủ sở hữu qua token + HTTPS | **implemented · integration-tested · docker-verified** | `Dockerfile`, `docker-compose.yml`, supervisor tách quyền uid 10000/10001, test container pass 51/51 |
+| Triển khai 0 đồng Render (Docker Web Service, gói free) | **implemented · integration-tested · docker-verified** | `render.yaml`, heap cap 192 MB, `verify-e2e-public.mjs` giả lập proxy Render |
+| Truy cập từ xa bằng đường hầm SSH tới Hub loopback | **implemented** (dựa trên loopback chuẩn) | Hub bind `127.0.0.1`, SSH port forwarding |
+| Nhiều người dùng trên cùng một Hub / dịch vụ công cộng | **blocked** | Hub không hỗ trợ phân quyền nhiều tài khoản người dùng; cần microVM cô lập |
 
-## 1. Chạy trên máy cá nhân (được hỗ trợ)
+---
+
+## 1. Chạy trên máy cá nhân (chế độ cục bộ)
 
 Làm theo [WINDOWS-SETUP.md](WINDOWS-SETUP.md). Tóm tắt các tính chất triển khai:
 
-- Hub là một tiến trình Node duy nhất, nghe ở `127.0.0.1:3007` (cổng và địa chỉ bind cố định ở loopback; **không có** tùy chọn bind ra ngoài).
+- Hub là một tiến trình Node duy nhất, nghe ở `127.0.0.1:3007` (mặc định bind loopback).
 - Không đăng ký dịch vụ Windows, không tự chạy khi khởi động máy, không thay đổi ExecutionPolicy, không mở cổng ra mạng.
 - Dữ liệu ở `%LOCALAPPDATA%\ChatMCP\hub` (Linux: `$XDG_STATE_HOME/chatmcp` hoặc `~/.local/state/chatmcp`; macOS: `~/Library/Application Support/ChatMCP/hub`). Đổi bằng `-StateDir` / `--state-dir` / `CHATMCP_STATE_DIR`.
 - Kiểm tra sức khỏe: `GET http://127.0.0.1:3007/api/health` trả phiên bản và `uiBuild` (launcher dùng chính endpoint này).
@@ -28,86 +34,132 @@ git pull --ff-only            # hoặc git switch sang nhánh/tag bạn muốn
 .\CHATMCP-HUB\START-CHATMCP-HUB.cmd -ProjectPath C:\duong\dan\du-an
 ```
 
-Sau khi cập nhật, bấm `Ctrl+F5` trong trình duyệt. Dữ liệu cũ được nạp lại; tác vụ đang dở ở bản trước được đánh dấu *Tạm dừng* hoặc *Chưa rõ kết quả* (không được chạy lại). Đọc [CHANGELOG.md](../CHANGELOG.md) trước khi nâng cấp.
+Sau khi cập nhật, bấm `Ctrl+F5` trong trình duyệt. Dữ liệu cũ được nạp lại; tác vụ đang dở ở bản trước được đánh dấu *Tạm dừng* hoặc *Chưa rõ kết quả* (không được chạy lại tự động). Đọc [CHANGELOG.md](../CHANGELOG.md) trước khi nâng cấp.
 
-### Sao lưu và khôi phục dữ liệu của Hub
+---
 
-Thủ công, vì Hub không có sao lưu tự động:
+## 2. Tự host bằng Docker Compose (VPS Linux)
 
-1. **Dừng Hub** (`STOP-CHATMCP-HUB.cmd`) để không sao chép giữa lúc đang ghi.
-2. Sao chép nguyên thư mục dữ liệu sang nơi an toàn của bạn (ổ khác, ổ mã hóa).
-3. Khôi phục = dừng Hub, đưa thư mục về chỗ cũ, khởi động lại.
+Dành cho chủ sở hữu muốn chạy ChatMCP trên VPS Linux cá nhân và truy cập từ xa an toàn.
 
-Lưu ý quan trọng:
+### Yêu cầu
+- Docker Engine ≥ 24 và Docker Compose v2.
+- Reverse proxy (Nginx, Caddy, Traefik) để cấp HTTPS và kết thúc TLS.
 
-- Thư mục chứa **toàn bộ lịch sử và đầu ra công cụ** (có thể có nội dung nhạy cảm của dự án): bản sao lưu phải được bảo vệ như chính dự án.
-- API key lưu bằng **Windows DPAPI** chỉ giải mã được bởi *cùng tài khoản Windows trên cùng máy*. Khôi phục sang máy/tài khoản khác thì key không dùng được; nhập lại key. (Trên Linux/macOS key mã hóa bằng AES-256-GCM với `master.key` trong thư mục dữ liệu hoặc `CHATMCP_MASTER_KEY`; sao lưu `master.key` cùng thư mục thì ai có bản sao đều mở được key, nên bảo vệ bản sao.)
-- Mã nguồn dự án của bạn được sao lưu bằng Git, không bằng Hub. Checkpoint của Hub **không** thay thế Git.
+### Các bước thiết lập
 
-## 2. Vì sao không được mở Hub ra mạng
+1. **Chuẩn bị cấu hình:**
+   Sao chép file mẫu:
+   ```bash
+   cp .env.example .env
+   ```
+   Tạo token chủ sở hữu ngẫu nhiên (tối thiểu 32 ký tự):
+   ```bash
+   openssl rand -hex 32
+   ```
+   Cập nhật `.env`:
+   ```env
+   CHATMCP_PUBLIC=1
+   CHATMCP_OWNER_TOKEN=chuoi_token_vua_tao_o_tren
+   CHATMCP_ALLOWED_HOSTS=chatmcp.yourdomain.com
+   CHATMCP_TRUSTED_PROXIES=1
+   ```
 
-Hub cho phép (khi bạn duyệt, hoặc ngay lập tức ở chế độ Tự động/Full Access) đọc, sửa file và **chạy lệnh bằng quyền của người chạy Hub**. Các lớp bảo vệ hiện có (kiểm tra `Origin`, `Host` allow-list, token CSRF, từ chối POST không phải JSON) chống lại *trang web độc hại mở trong trình duyệt của chính bạn*. Chúng **không phải xác thực**: Hub không có tài khoản, mật khẩu hay phiên đăng nhập. Ai kết nối được tới cổng và gửi đúng tiêu đề đều điều khiển được agent.
+2. **Khởi chạy container:**
+   ```bash
+   docker compose up -d --build
+   ```
 
-Do đó:
+3. **Cấu hình Reverse Proxy (ví dụ Caddy):**
+   ```caddy
+   chatmcp.yourdomain.com {
+       reverse_proxy 127.0.0.1:3007 {
+           header_up X-Forwarded-Proto {scheme}
+           header_up X-Forwarded-Host {host}
+       }
+   }
+   ```
 
-- Đừng đặt Hub sau cổng chuyển tiếp, ngrok/Cloudflare Tunnel, reverse proxy công khai, hay `netsh portproxy`.
-- Đừng chạy Hub trên máy dùng chung với người khác mà không tin họ: mọi người dùng cục bộ cùng máy đều kết nối được tới `127.0.0.1`.
-- Nếu bạn đang chạy đường hầm công khai cho Cloud Harness (backend cũ), đó là rủi ro riêng — xem [SECURITY.md](../SECURITY.md), mục "Sự cố đã biết từ Phase 0".
+4. **Đăng nhập:**
+   Truy cập `https://chatmcp.yourdomain.com`, nhập token chủ sở hữu để bắt đầu phiên làm việc.
 
-## 3. Self-host trên máy chủ tin cậy — Phase 2 (chưa làm)
+---
 
-Mục tiêu: một người (hoặc nhóm nhỏ tin nhau) chạy Hub trên VPS Linux của mình và dùng từ trình duyệt qua HTTPS.
+## 3. Triển khai 0 đồng trên Render (PaaS)
 
-**Chưa có trong repo** và phải làm trước khi gọi là "triển khai được":
+ChatMCP hỗ trợ triển khai trực tiếp lên Render Web Service miễn phí thông qua [`render.yaml`](../render.yaml).
 
-| Hạng mục | Tình trạng | Ghi chú thiết kế |
-|---|---|---|
-| Tùy chọn bind (`--host`) và danh sách `Host` cho phép cấu hình được | chưa có | Hiện cứng `127.0.0.1` và `127.0.0.1:<cổng>`, `localhost:<cổng>` |
-| **Lớp đăng nhập** cho toàn bộ giao diện và API | chưa có | Bắt buộc trước khi bind ra ngoài loopback; phải chống brute force, đặt cookie `Secure; HttpOnly; SameSite=Strict`, tách khỏi token CSRF |
-| HTTPS | chưa có | Dự kiến kết thúc TLS ở reverse proxy (ví dụ Caddy); cần tên miền (**quyết định của chủ sở hữu**) |
-| Đóng gói (Dockerfile, Compose) | chưa có | Người dùng không phải root, hệ thống file chỉ đọc, **không** mount `docker.sock`, volume riêng cho dữ liệu và cho thư mục dự án, `HEALTHCHECK` trên `/api/health` |
-| Giới hạn tài nguyên và mạng của tiến trình chạy lệnh | chưa có | Hiện lệnh chạy cùng quyền với Hub; trên máy chủ cần cô lập (container/VM) |
-| Sao lưu tự động, xoay vòng nhật ký, giám sát | chưa có | Hiện chỉ sao lưu thủ công (mục 1) |
-| CI/CD (build, quét, đẩy ảnh, triển khai) | chưa có | `ci.yml` hiện chỉ chạy test; **chưa từng chạy trên GitHub** |
-| Kịch bản kiểm thử triển khai (đăng nhập sai, tấn công vượt Host, chạy lại sau khi khởi động lại container) | chưa có | Phải có trước khi tuyên bố "đã triển khai" |
+### Đặc điểm gói miễn phí của Render:
+- **Tài nguyên:** 0.1 CPU, 512 MB RAM (đã cấu hình giới hạn Node heap `--max-old-space-size=192` để không chạm ngưỡng OOM).
+- **Ổ đĩa:** Ephemeral (tạm thời) — các file workspace và lịch sử sẽ được làm mới khi dịch vụ khởi động lại. Do đó:
+  - Luôn lưu mã nguồn bằng cách đẩy lên nhánh Git từ xa (`chatmcp/...`) hoặc tạo Pull Request GitHub.
+  - Sử dụng tính năng tải gói workspace tarball trước khi phiên đóng.
+- **Ngủ đông (Sleep):** Sau 15 phút không có yêu cầu, instance sẽ tạm ngủ và mất khoảng 30–50 giây để khởi động lại ở yêu cầu kế tiếp.
 
-**Điều kiện để bắt đầu Phase 2** (cần bạn quyết định, tôi không tự giả định):
+### Các bước triển khai Render:
+1. Đẩy mã nguồn lên repository GitHub riêng tư của bạn.
+2. Tại dashboard Render, chọn **Blueprints** -> **New Blueprint Instance**.
+3. Chọn repo ChatMCP, Render sẽ tự động đọc [`render.yaml`](../render.yaml).
+4. Thiết lập biến môi trường bí mật trong Render Dashboard:
+   - `CHATMCP_OWNER_TOKEN`: Chuỗi token bảo mật (≥ 32 ký tự).
+   - `OPENAI_API_KEY` hoặc `ANTHROPIC_API_KEY`: API key của bạn.
+5. Render tự động build Dockerfile và cấp phát URL HTTPS dạng `https://chatmcp-xxxx.onrender.com`.
 
-1. Máy chủ nào, hệ điều hành nào, ai là người dùng (một hay nhiều).
-2. Tên miền và cách cấp chứng chỉ.
-3. Cách đăng nhập (mật khẩu duy nhất cho một người dùng? OIDC? chỉ qua VPN/Tailscale?).
-4. Cho phép xây dựng và thử Docker trên máy Windows của bạn (Docker Desktop) hay chỉ viết cấu hình.
-5. Không có thao tác nào trên server thật cho tới khi bạn cho phép bằng văn bản và đưa thông tin truy cập theo cách an toàn.
+---
 
-## 4. Truy cập từ xa bằng SSH tunnel — chưa kiểm chứng
+## 4. Kiến trúc bảo vệ trong chế độ công khai (`CHATMCP_PUBLIC=1`)
 
-Có một cách không cần thêm mã: chạy Hub trên VPS bằng một tài khoản Linux **không có đặc quyền** (loopback), rồi từ máy của bạn mở đường hầm:
+Khi hoạt động trên mạng công cộng, ChatMCP kích hoạt các lớp bảo vệ nghiêm ngặt:
+
+1. **Khởi động an toàn (Fail-closed):** Nếu thiếu `CHATMCP_OWNER_TOKEN`, token quá ngắn (< 32 ký tự), hoặc thiếu `CHATMCP_ALLOWED_HOSTS`, Hub sẽ từ chối khởi động ngay lập tức với thông báo lỗi an toàn (không in secrets).
+2. **Xác thực phiên làm việc:** So sánh token với thời gian cố định (constant-time) chống timing attacks; cấp cookie `__Host-chatmcp_session` (`HttpOnly`, `Secure`, `SameSite=Strict`); bảo vệ CSRF theo từng phiên; hết hạn phiên sau khoảng thời gian nhàn rỗi.
+3. **Chống dò mật khẩu (Brute-force Throttling):** Giới hạn tần suất đăng nhập sai theo IP và toàn cục; khóa tạm thời khi vượt ngưỡng.
+4. **Tách quyền tiến trình trong Docker:**
+   - Tiến trình gốc chạy `tini` và `docker/supervisor.mjs` dưới quyền `root`.
+   - Hub Node.js chạy dưới tài khoản không đặc quyền `hub` (uid 10000, gid 10000).
+   - Lệnh workspace của agent được ủy thác qua socket Unix nội bộ (`exec-broker.mjs`) và thực thi dưới tài khoản `agent` (uid 10001, gid 10001) với `no_new_privs` và tước bỏ toàn bộ Linux capabilities (`CAP_NET_RAW`, `CAP_SYS_ADMIN`, v.v.).
+5. **Cổng kiểm tra mặc định từ chối (Default-Deny Front Door):** Mọi request chưa xác thực đều bị chặn tại `lib/public-gate.mjs` trước khi chạm tới bất kỳ API nội bộ nào. Các endpoint chỉ dành cho máy cục bộ (như mở file bằng trình soạn thảo desktop) tự động trả về `403 public_mode_disabled`.
+
+---
+
+## 5. Quản lý Workspace từ xa và Git Integration
+
+Trên máy chủ hoặc Render, agent không thao tác trên ổ đĩa local của máy bạn mà thông qua `lib/workspaces.mjs`:
+
+1. **Clone an toàn:** Hỗ trợ clone kho qua HTTPS (GitHub, GitLab) với kiểm tra URL nghiêm ngặt, giới hạn dung lượng tải và thời gian thực thi.
+2. **Bảo vệ nhánh chính:** Agent làm việc trên nhánh làm việc riêng biệt (`chatmcp/...`), không thể ghi đè nhánh chính của kho từ xa.
+3. **Tạo Pull Request tự động:** Sau khi hoàn thành tác vụ và commit, agent có thể tạo GitHub Pull Request thông qua GitHub REST API (`POST /api/workspace/pr`) với tiêu đề và mô tả giải thích chi tiết thay đổi.
+4. **Xuất workspace:** Tải toàn bộ mã nguồn về máy dưới dạng tệp nén tarball (đã tự động lọc bỏ các thư mục nhạy cảm và `.git/`).
+
+---
+
+## 6. Truy cập từ xa bằng SSH tunnel (Tùy chọn không mở cổng)
+
+Nếu tự host trên VPS Linux nhưng không muốn cấu hình domain hay mở cổng ra ngoài:
 
 ```bash
 ssh -N -L 3007:127.0.0.1:3007 nguoidung@may-chu
-# rồi mở http://127.0.0.1:3007 trên máy của bạn
+# rồi mở http://127.0.0.1:3007 trên trình duyệt máy bạn
 ```
 
-Vì trình duyệt thấy `127.0.0.1:3007`, kiểm tra `Host` và `Origin` của Hub đều đạt. Xác thực và mã hóa do SSH đảm nhiệm.
+Hub vẫn chạy ở chế độ cục bộ loopback (`127.0.0.1`), xác thực và mã hóa do SSH đảm nhiệm hoàn toàn.
 
-**Nhãn: chưa kiểm chứng.** Dự án này chưa chạy Hub trên máy chủ từ xa. Khi dùng cách này, hãy hiểu rằng: tệp và lệnh của agent nằm trên *máy chủ*, dưới quyền tài khoản Linux đó; ai đăng nhập được vào tài khoản đó đều điều khiển được agent; Hub vẫn chỉ phục vụ một người; Docker socket không bao giờ nên cho tài khoản này. Launcher `.cmd/.ps1` không dùng được trên Linux — dùng `node hub.mjs --backend local --project <thư mục> --no-open`.
+---
 
-## 5. Nhiều người dùng — bị chặn
+## 7. Nhiều người dùng — BỊ CHẶN (Blocked)
 
-Chạy nhiều người dùng trên một Hub, hoặc làm dịch vụ cho người ngoài, đòi hỏi các điều dưới đây; **không điều nào có sẵn hoặc đã được chứng minh**:
+Chạy nhiều người dùng không tin cậy nhau trên cùng một Hub, hoặc mở thành dịch vụ công cộng cho nhiều khách hàng, **bị chặn**:
 
-- Tài khoản, phiên đăng nhập, phân quyền theo người dùng.
-- Mỗi người dùng/dự án chạy trong một **VM hoặc microVM** riêng (không chỉ là container chia sẻ nhân), với giới hạn CPU/bộ nhớ/đĩa/mạng và không có đường đi sang dữ liệu của người khác.
-- Bằng chứng kiểm thử cô lập (người dùng A không đọc/ghi/liệt kê/suy ra dữ liệu của B; kể cả qua symlink, đường dẫn, biến môi trường, nhật ký, cổng cục bộ).
-- Chính sách dữ liệu, xóa dữ liệu, kiểm toán, giới hạn lạm dụng.
+- Hub là kiến trúc phục vụ một chủ sở hữu tại một thời điểm.
+- Docker container thông thường không phải ranh giới cách ly an toàn giữa các tenant thù địch. Cần giải pháp ảo hóa vi mô (như Firecracker microVM hoặc gVisor) với kiểm chứng độc lập trước khi mở đa người dùng.
 
-Cloud Harness (phụ thuộc cũ) **không** cung cấp ranh giới cô lập: nó chạy công cụ trong Docker với socket được mount và một bearer token duy nhất. Không được dùng nó để tuyên bố đa người dùng an toàn. Chế độ "ChatGPT Web" là đường cũ, chỉ thử nghiệm cục bộ, bạn tự đăng nhập; nó không được dùng cho dịch vụ công cộng.
+---
 
-## 6. Danh sách kiểm tra trước khi bạn tin một triển khai
+## 8. Danh sách kiểm tra trước khi đưa vào sử dụng
 
-- [ ] Hub chỉ nghe trên `127.0.0.1` (`netstat -ano | findstr :3007` chỉ thấy `127.0.0.1:3007`).
-- [ ] Không có tunnel, port-forward hay proxy công khai nào trỏ tới cổng Hub.
-- [ ] Bạn dùng chế độ **Review**, chạy trên nhánh Git riêng, đã commit trước khi giao việc.
-- [ ] Key API có hạn mức chi tiêu thấp ở nhà cung cấp.
-- [ ] Thư mục dữ liệu của Hub được sao lưu và nằm trên ổ bạn kiểm soát.
-- [ ] Bạn đã đọc [SECURITY.md](../SECURITY.md), đặc biệt phần giới hạn đã biết và phần quyết định đang chờ.
+- [ ] Nếu chạy cục bộ: Hub chỉ nghe trên `127.0.0.1` (`netstat -ano | findstr :3007` chỉ thấy `127.0.0.1:3007`).
+- [ ] Nếu chạy máy chủ công cộng: `CHATMCP_PUBLIC=1` đã bật, `CHATMCP_OWNER_TOKEN` là chuỗi ngẫu nhiên mạnh (≥ 32 ký tự), kết nối qua HTTPS.
+- [ ] Bạn dùng chế độ **Review**, chạy trên nhánh Git riêng, đã commit trước khi giao việc cho agent.
+- [ ] API key của nhà cung cấp mô hình có đặt hạn mức chi tiêu định kỳ.
+- [ ] Thư mục dữ liệu của Hub được sao lưu thường xuyên.
+- [ ] Bạn đã đọc [SECURITY.md](../SECURITY.md) để nắm rõ mô hình bảo vệ và các giới hạn đã biết.

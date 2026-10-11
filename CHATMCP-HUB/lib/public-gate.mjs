@@ -29,7 +29,7 @@ const DISABLED = Object.freeze({
   prefixes: Object.freeze(['/api/browser/']),
 });
 
-export const PUBLIC_POST_ROUTES = Object.freeze(['/api/auth/login', '/api/auth/logout', '/api/workspace/clone', '/api/workspace/create', '/api/workspace/delete', '/api/workspace/push']);
+export const PUBLIC_POST_ROUTES = Object.freeze(['/api/auth/login', '/api/auth/logout', '/api/workspace/clone', '/api/workspace/create', '/api/workspace/delete', '/api/workspace/push', '/api/workspace/pr']);
 
 export function createPublicGate({ config, auth, bundleRoot, isInitialized = () => true, log = () => {} }) {
   const fail = (status, error, code, extra = {}) => ({ status, body: { error, code, ...extra } });

@@ -4,8 +4,8 @@ ChatMCP là một **Coding Agent chạy cục bộ**, ưu tiên Windows 11: bạ
 
 > **Trạng thái trung thực** (nhánh `dev/chatmcp-agent`, Hub `2.3.0`)
 > Đây là bản đang hoàn thiện, **chưa phải bản phát hành ổn định** và chưa được merge vào `main`.
-> Toàn bộ kiểm thử tự động chạy với **mô hình giả có kịch bản**; **chưa có chạy đầu-cuối nào với mô hình thật** (cần khóa API của bạn) và **chưa tạo Pull Request GitHub thật**. Tự host trên máy chủ (Phase 2) **chưa được làm**; dịch vụ nhiều người dùng bị **chặn** (xem bảng dưới).
-> Bằng chứng và cách tái chạy: [docs/PHASE1-REPORT.md](docs/PHASE1-REPORT.md).
+> Toàn bộ kiểm thử tự động chạy với **mô hình giả có kịch bản**; **chưa có chạy đầu-cuối nào với mô hình thật** (cần khóa API của bạn). Tự host trên máy chủ (Phase 2) **đã hoàn thành và được kiểm chứng trong container Docker** (Docker Compose, Render free tier, tách quyền Linux `hub`/`agent`, bảo vệ token/cookie); dịch vụ nhiều người dùng bị **chặn** (xem bảng dưới).
+> Bằng chứng và cách tái chạy: [docs/PHASE1-REPORT.md](docs/PHASE1-REPORT.md) và [docs/PHASE2-REPORT.md](docs/PHASE2-REPORT.md).
 
 ## Nó làm được gì
 
@@ -33,10 +33,11 @@ Nhãn: `implemented` · `unit-tested` · `integration-tested` · `e2e-verified` 
 | Giao diện + hướng dẫn lần đầu | implemented · browser-tested (Playwright, Hub thật, mô hình giả) | Chromium hoặc Edge/Chrome có sẵn trên máy; cần Python + Playwright |
 | Sửa lỗi dự án có sẵn / dựng FastAPI test-first | e2e-verified | FastAPI: pytest và uvicorn thật; bộ này **SKIP** nếu máy thiếu gói Python |
 | Git cục bộ: nhánh, commit, push tới remote | e2e-verified (remote là kho bare cục bộ) | |
-| Tạo Pull Request GitHub thật | **blocked** | cần xác thực GitHub của bạn |
+| Tạo Pull Request GitHub (REST API) | implemented · integration-tested | `createPullRequest` qua GitHub API, đã test với mock server; chạy với github.com thật cần token của bạn |
+| Streaming phản hồi thời gian thực (SSE) | implemented · integration-tested · browser-verified | `/api/tasks/:id/stream`, token stream thời gian thực trên UI |
 | Hai Hub tách biệt, mỗi Hub một dữ liệu | e2e-verified | |
 | Cô lập người dùng A/B **trong một deployment** | **blocked** | Hub là ứng dụng một người dùng |
-| Tự host tin cậy (Docker Compose, xác thực, HTTPS, backup) | **chưa làm** (Phase 2) | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
+| Tự host tin cậy (Docker Compose, Render free tier, tách quyền Linux) | implemented · integration-tested · docker-verified | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), 51/51 suites pass trong container |
 | CI GitHub Actions | implemented (workflow) | **chưa từng chạy trên GitHub** |
 | Dịch vụ nhiều người dùng / công cộng | **blocked** | cần cô lập VM/microVM có bằng chứng |
 | Chế độ ChatGPT Web (tiện ích trình duyệt) | legacy, thử nghiệm cục bộ | bạn tự đăng nhập; không dùng cho dịch vụ công cộng |

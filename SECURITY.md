@@ -12,7 +12,7 @@ Dùng **GitHub Security Advisories** của repository (Security → Report a vul
 |---|---|
 | Một người dùng, máy Windows 11 của chính họ, Hub chỉ nghe trên `127.0.0.1` | **Có** (mục tiêu chính) |
 | Một người dùng, máy Linux/macOS của chính họ, Hub trên loopback | Dùng được (toàn bộ bộ test chạy trên Linux); chưa phải mục tiêu chính |
-| Tự host trên VPS Linux cho một người/nhóm tin cậy | **Chưa** — Phase 2 (xác thực, HTTPS, hardening) chưa được làm. Xem [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
+| Tự host trên VPS Linux / Render cho một chủ sở hữu | **Có** (Phase 2): `CHATMCP_PUBLIC=1`, đăng nhập token chủ sở hữu, cookie `__Host-`, tách quyền Linux `hub`/`agent` trong Docker. Xem [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 | Dịch vụ nhiều người dùng / công cụ công cộng | **Không.** Cần cô lập cấp VM/microVM và kiểm chứng riêng; chưa có |
 
 ## Ai có thể là kẻ tấn công
@@ -39,7 +39,8 @@ Chi tiết kỹ thuật: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Tóm tắ
 7. **Phục hồi an toàn.** Sau khi Hub chết giữa chừng, thao tác ghi/chạy chưa rõ kết quả **không bao giờ được phát lại**; nhiệm vụ ở trạng thái `uncertain` để bạn kiểm tra Git diff trước khi đi tiếp.
 8. **Hub ↔ MCP ngoài (backend `mcp`, legacy).** Cloud Harness, Desktop Commander và proxy chạy trên loopback. Bearer token của Cloud Harness tương đương **quyền điều khiển 92 công cụ** (gồm chạy lệnh trong Docker; runner mount Docker socket) — hãy coi nó như mật khẩu quản trị. Backend `local` mặc định không dùng chúng. Cloud Harness **không** là ranh giới cô lập.
 9. **Chế độ ChatGPT Web (legacy, thử nghiệm).** Chỉ dành cho máy của chính bạn, bạn tự đăng nhập. Tiện ích xin quyền `storage`, `alarms` và host `chatgpt.com`/`127.0.0.1:3007`; không có quyền `cookies`; không gọi endpoint nội bộ của ChatGPT. Không dùng cho dịch vụ công cộng, không để vượt hạn mức hay điều khoản của nhà cung cấp.
-10. **Mã OAuth ChatGPT (`lib/chatgpt-auth.mjs`, `lib/provider.mjs`).** Không được nối vào Hub; các route tương ứng trả HTTP 410. Là mã chết, đề xuất xóa (chờ chủ sở hữu). Không bật.
+10. **Mã OAuth ChatGPT cũ (`lib/chatgpt-auth.mjs`, `lib/provider.mjs`):** Đã xóa hoàn toàn khỏi repository.
+11. **Tách quyền và bảo vệ chế độ công khai (`CHATMCP_PUBLIC=1`):** Cửa trước mặc định từ chối (`lib/public-gate.mjs`), so sánh token chủ sở hữu constant-time, cookie phiên `__Host-chatmcp_session` (`HttpOnly`, `Secure`, `SameSite=Strict`), chống brute-force theo IP và toàn cục. Trong Docker, supervisor (root) khởi chạy Hub dưới user `hub` (uid 10000) và lệnh agent chạy dưới user `agent` (uid 10001) qua môi giới socket Unix với `no_new_privs` và tước bỏ toàn bộ capabilities. Chi tiết: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Đã được thử bằng tấn công (E2E, Windows 11 + Linux)
 

@@ -367,3 +367,9 @@ input::placeholder,textarea::placeholder{color:var(--faint)}
 .workspace-item small{color:var(--muted)}
 .workspace-form{display:flex;flex-direction:column;gap:8px;margin:10px 0}
 .workspace-form input{width:100%}
+
+/* Real-time SSE streaming typewriter animation */
+.message-agent.streaming{opacity:0.95}
+.streaming-text::after{content:'▋';display:inline-block;animation:blink 1s infinite;margin-left:2px;color:var(--mint)}
+@keyframes blink{0%,50%{opacity:1}51%,100%{opacity:0}}
+

@@ -602,6 +602,16 @@ try {
     assert.ok(!denied.message.includes('RefusedToken'), 'the rejected token is not repeated in the message');
     ok('push: a token the server rejects is reported as git_auth without repeating it');
 
+    // pull request validation
+    const noTokenService = await open('no-token-pr', { overrides: { githubToken: '' } });
+    const noTokenWs = await noTokenService.service.clone({ url: repoUrl('octo/hello') });
+    await rejects(noTokenService.service.createPullRequest({ name: noTokenWs.name, title: 'Test PR', head: 'chatmcp/test' }), 'github_token_missing');
+    const prService = await open('pr-test', { overrides: { githubToken: 'ghp_ValidTokenSampleForMockTesting123' } });
+    const prWs = await prService.service.clone({ url: repoUrl('octo/hello') });
+    await rejects(prService.service.createPullRequest({ name: prWs.name, head: 'chatmcp/feat' }), 'bad_title');
+    await rejects(prService.service.createPullRequest({ name: prWs.name, title: 'A PR' }), 'bad_head');
+    ok('pull request: validates token, title and head branch');
+
     if (!spy) console.log('  skip - environment of the Git processes: the recording wrapper is a POSIX shell script');
     else {
       const calls = await spy.calls();

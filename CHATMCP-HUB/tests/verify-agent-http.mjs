@@ -9,7 +9,7 @@ const origin=`http://127.0.0.1:${port}`;
 let mode='chatgpt-web', key='', active=null, requests=0, resumes=0, deletes=0;
 const taskId='123e4567-e89b-42d3-a456-426614174000';
 const manager={secrets:[],log:()=>{},catalog:{ready:true,tools:[]},state:()=>({version:'1.3.0',workspace:{path:'C:\\Example'},generation:1,instanceId:'mock',busy:false,services:{docker:{state:'ready'},cloud:{state:'ready'},proxy:{state:'ready'},desktop:{state:'ready'}}})};
-const apiAgent={state:()=>({mode,activeTaskId:active?.id || null,active,tasks:active?[active]:[]}),get:(id)=>id===taskId?active:null,report:async()=> 'mock report',configure:async({mode:next})=>{if(active)throw Object.assign(new Error('Running'),{statusCode:409}); mode=next; return {mode}},start:async()=>{active={id:taskId,status:'running',provider:mode,steps:0,toolCalls:0,events:[]};return active},continue:async({id,prompt})=>{assert.equal(id,taskId);assert.equal(prompt,'Continue lab');resumes++;active={id,status:'running',provider:mode,prompt,steps:3,toolCalls:1,events:[]};return active},delete:async(id)=>{assert.equal(id,taskId);deletes++;active=null;return {ok:true,deletedId:id}},cancel:async()=>{active=null;return {id:taskId,status:'cancelled'}}};
+const apiAgent={state:()=>({mode,activeTaskId:active?.id || null,active,tasks:active?[active]:[]}),get:(id)=>id===taskId?active:null,report:async()=> 'mock report',subscribe:()=>()=> {},configure:async({mode:next})=>{if(active)throw Object.assign(new Error('Running'),{statusCode:409}); mode=next; return {mode}},start:async()=>{active={id:taskId,status:'running',provider:mode,steps:0,toolCalls:0,events:[]};return active},continue:async({id,prompt})=>{assert.equal(id,taskId);assert.equal(prompt,'Continue lab');resumes++;active={id,status:'running',provider:mode,prompt,steps:3,toolCalls:1,events:[]};return active},delete:async(id)=>{assert.equal(id,taskId);deletes++;active=null;return {ok:true,deletedId:id}},cancel:async()=>{active=null;return {id:taskId,status:'cancelled'}}};
 const browser={browserState:()=>({paired:false,mode:'chatgpt-web'}),createPairCode:async()=>({code:'12345678'}),unpair:async()=>{},shutdown:async()=>{}};
 const provider={state:()=>({provider:'gateway',model:'gemini-3.8-flash',apiBaseUrl:'https://gw.example',protocol:'gemini',configured:Boolean(key),keySource:key?'session':'none'}),ready:()=>Boolean(key),snapshot:()=>({model:'gemini-3.8-flash'}),configure:async(data)=>{key=data.apiKey;return {}},clearKey:async()=>{key='';return {}},respond:async()=>{requests++;return {status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:'OK'}]}]}}};
 const server=createHubServer(manager,{port,browser,agent:apiAgent,provider});
@@ -41,6 +41,15 @@ try {
   response=await post('/api/tasks/continue',{id:taskId,prompt:'Continue lab'},state.csrfToken);
   check(response.ok,'resume HTTP route');check((await response.json()).task.id===taskId,'resume preserved conversation ID');
   check(resumes===1,'resume executed once');
+
+  // Verify SSE stream connection
+  const streamRes = await fetch(origin + `/api/tasks/${taskId}/stream`);
+  check(streamRes.status === 200 && streamRes.headers.get('content-type')?.includes('text/event-stream'), 'task SSE stream route');
+  const streamReader = streamRes.body.getReader();
+  const firstChunk = await streamReader.read();
+  check(new TextDecoder().decode(firstChunk.value).includes('connected'), 'stream connects');
+  await streamReader.cancel();
+
   response=await post('/api/tasks/delete',{id:taskId},state.csrfToken);
   check(response.ok,'explicit delete route');check(deletes===1,'delete dispatched once');
   response=await post('/api/ai/clear-key',{},state.csrfToken);check(response.ok,'clear key');
@@ -54,5 +63,5 @@ try {
   check(browserUi.includes('/api/ai/config') && browserUi.includes('/api/agent/mode'), 'dashboard actions wired to API and mode endpoints');
   check(browserUi.includes('/api/tasks/continue') && browserUi.includes('/api/tasks/delete'), 'resume and explicit delete actions connected');
   check(!homepage.includes('mock-secret-token') && !browserUi.includes('mock-secret-token'), 'static assets contain no API secrets');
-  console.log('PASS:',assertions,'HTTP integration checks: mode selection, key config, test model, routing, locking, CSRF, key redaction');
+  console.log('PASS:',assertions,'HTTP integration checks: mode selection, key config, test model, routing, locking, CSRF, key redaction, task SSE streaming');
 } finally {server.closeAllConnections();await new Promise(r=>server.close(r));}
