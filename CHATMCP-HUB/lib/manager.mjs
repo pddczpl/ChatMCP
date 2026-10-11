@@ -689,7 +689,16 @@ export class HubManager {
     if (!this.studio || !CHECKPOINT_CATEGORIES.has(decision.category)) return;
     const label = `Before ${name} · ${binding.taskId}`;
     let request = { label, maxFiles: 140, maxTotalBytes: 8 * 1024 * 1024, reuseIfUnchanged: true };
-    if (name.startsWith('local.') && name !== 'local.run_command' && this.localTools) {
+    const BROAD_CHECKPOINT_TOOLS = new Set([
+      'local.run_command',
+      'local.tasks_run',
+      'local.git_checkout',
+      'local.git_merge',
+      'local.git_commit',
+      'local.worktrees_create',
+      'local.worktrees_remove',
+    ]);
+    if (name.startsWith('local.') && !BROAD_CHECKPOINT_TOOLS.has(name) && this.localTools) {
       const files = await this.localTools.touchedPaths(name, args);
       if (!files.length) return; // nothing that exists today is about to change
       request = { label, files, maxFiles: 140, maxTotalBytes: 32 * 1024 * 1024 };

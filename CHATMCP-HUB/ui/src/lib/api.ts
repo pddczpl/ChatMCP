@@ -160,5 +160,5 @@ export const api = {
   denyAction: (id: string, reason?: string) => api.decidePermission(id, false),
   testConnection: (opts?: any) => api.testAi(),
   updateAiConfig: (config: any) => api.saveAiConfig(config),
-  revertCheckpoint: (id: string) => request<any>('/api/studio/restore-checkpoint', { method: 'POST', body: JSON.stringify({ id }) }).catch(() => ({ ok: true })),
+  revertCheckpoint: (id: string) => request<{ ok: boolean; checkpointId: string; restoredCount: number; files: string[] }>('/api/studio/restore-checkpoint', { method: 'POST', body: JSON.stringify({ checkpointId: id }) }),
 };

@@ -265,6 +265,30 @@ export class StudioWorkspace {
     try {await fs.writeFile(tmp,original,{flag:'wx',mode:0o600});await fs.rename(tmp,target.absolute);} finally {await fs.unlink(tmp).catch(()=>{});}
     return {ok:true,path:target.relative,restoredSha:item.sha256,previousSha:expectedSha,undoBackup:undo};
   }
+  async restoreCheckpoint({checkpointId}={}){
+    if(!checkpointId || typeof checkpointId!=='string') throw fail('bad_checkpoint_id','Cần ID checkpoint hợp lệ.');
+    const meta=await readJson(path.join(this.#checkpointDirectory(checkpointId),'meta.json'));
+    if(!meta||meta.workspace!==await fs.realpath(this.requireRoot())) throw fail('checkpoint_missing','Checkpoint không tồn tại cho workspace này.',404);
+    const restored=[];
+    for(const item of meta.files){
+      const target=await this.resolve(item.path);
+      const backupPath=path.join(this.#checkpointDirectory(checkpointId),'files',item.path);
+      const original=await fs.readFile(backupPath).catch(()=>null);
+      if(!original || sha(original)!==item.sha256){
+        throw fail('checkpoint_corrupt',`File ${item.path} trong checkpoint bị lỗi hoặc sai checksum.`,500);
+      }
+      await fs.mkdir(path.dirname(target.absolute),{recursive:true});
+      const tmp=`${target.absolute}.${randomUUID()}.tmp`;
+      try{
+        await fs.writeFile(tmp,original,{flag:'w',mode:0o600});
+        await fs.rename(tmp,target.absolute);
+        restored.push(item.path);
+      }finally{
+        await fs.unlink(tmp).catch(()=>{});
+      }
+    }
+    return {ok:true,checkpointId,restoredCount:restored.length,files:restored};
+  }
   async plan({taskId,operation='get',items=[],title=''}={}){
     if(typeof taskId!=='string'||!/^[0-9a-f-]{36}$/i.test(taskId))throw fail('bad_task_id','Cần ID hội thoại hợp lệ.');
     const file=path.join(this.directory,'plans',`${taskId}.json`);

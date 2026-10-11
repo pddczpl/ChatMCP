@@ -14,6 +14,7 @@ import { previewStatus } from './studio-preview.mjs';
 import { LocalTools } from './local-tools.mjs';
 import { GitRunner } from './git-runner.mjs';
 import { ShellRunner } from './shell-runner.mjs';
+import { PluginManager } from './plugins.mjs';
 
 /**
  * @param {object} options
@@ -23,6 +24,11 @@ import { ShellRunner } from './shell-runner.mjs';
 export function assembleStudio(manager, { bundleRoot, exec = null }) {
   const studioDirectory = path.join(manager.hubDirectory, 'studio');
   const localDirectory = path.join(manager.hubDirectory, 'local');
+  if (!manager.pluginManager) {
+    const hubStateDir = manager.stateDirectory ?? manager.stateDir ?? manager.hubDirectory;
+    manager.pluginManager = new PluginManager({ stateDir: hubStateDir });
+    manager.pluginManager.load().catch(() => {});
+  }
   const secrets = () => manager.secrets || [];
   // Options for every GitRunner of the Hub. With a spawner, Git runs under the agent's account, in a repository that account owns.
   const gitOptions = exec ? {

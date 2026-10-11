@@ -689,8 +689,40 @@ if (haveGit) {
   assert.equal(r.isError, false);
   assert.ok(r.structuredContent.count >= 1);
 
-  r = await call('tasks_list', {});
-  assert.equal(r.isError, false);
+  // Security checks:
+  // 1. no-shell enforcement
+  {
+    const toolsNoShell = new LocalTools({ workspace, disabledTools: ['run_command'] });
+    assert.equal(toolsNoShell.has('run_command'), false);
+    assert.equal(toolsNoShell.has('tasks_run'), false);
+    assert.equal(toolsNoShell.has('github_action'), false);
+    const rNoShell = await toolsNoShell.call('tasks_run', { command: 'echo 1' });
+    assert.equal(rNoShell.isError, true);
+    assert.equal(rNoShell.structuredContent?.error?.code, 'unknown_tool');
+  }
+
+  // 2. batch preflight checks: rejecting protected .env and duplicate paths
+  {
+    const rBadBatch = await call('files_write_batch', { files: [{ path: 'valid_x.txt', content: 'x' }, { path: '.env', content: 'KEY=1' }] });
+    assert.equal(rBadBatch.isError, true);
+    assert.equal(rBadBatch.structuredContent?.error?.code, 'protected_path');
+    assert.equal(await exists(path.join(work, 'valid_x.txt')), false, 'preflight prevents partial write');
+
+    const rDup = await call('files_write_batch', { files: [{ path: 'dup.txt', content: '1' }, { path: 'dup.txt', content: '2' }] });
+    assert.equal(rDup.isError, true);
+    assert.equal(rDup.structuredContent?.error?.code, 'duplicate_path');
+  }
+
+  // 3. worktree & git safety: non-worktree deletion refused, bad ref refused
+  {
+    const rBadRemove = await call('worktrees_remove', { path: 'notes.txt' });
+    assert.equal(rBadRemove.isError, true);
+    assert.ok(['not_a_worktree', 'git_error'].includes(rBadRemove.structuredContent?.error?.code));
+
+    const rBadRef = await call('git_checkout', { ref: '--help' });
+    assert.equal(rBadRef.isError, true);
+    assert.equal(rBadRef.structuredContent?.error?.code, 'bad_ref');
+  }
 
   ok('extended tools: symbols_search/references, files_write_batch/apply_patch, knowledge_create/list/search, tasks_list');
 }

@@ -252,6 +252,10 @@ export class ShellRunner {
     return env;
   }
 
+  environment(shellName = null) {
+    return this.#environment(shellName);
+  }
+
   /**
    * Run `command`. Resolves (never rejects) for process-level outcomes: non-zero exit, timeout and
    * cancellation are reported in the result; invalid input and an unavailable shell throw.

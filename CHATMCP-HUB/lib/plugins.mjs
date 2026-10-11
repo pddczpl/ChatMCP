@@ -11,13 +11,77 @@ const INSTALLED_FILENAME = 'installed-plugins.json';
 const error = (code, message, statusCode = 400) => Object.assign(new Error(message), { code, statusCode });
 
 /**
- * Built-in curated marketplace plugins catalog.
+ * Parses skill manifest from JSON or agentskills.io SKILL.md format (Markdown with YAML frontmatter).
+ */
+export function parseSkillManifest(rawText, fallbackUrl = '') {
+  const trimmed = String(rawText ?? '').trim();
+  if (trimmed.startsWith('{')) {
+    try {
+      return JSON.parse(trimmed);
+    } catch { /* try frontmatter fallback */ }
+  }
+
+  // agentskills.io YAML frontmatter pattern
+  const frontmatterMatch = trimmed.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  if (frontmatterMatch) {
+    const yamlBlock = frontmatterMatch[1];
+    const body = frontmatterMatch[2].trim();
+    const meta = {};
+    for (const line of yamlBlock.split('\n')) {
+      const kv = line.match(/^([a-zA-Z0-9_-]+):\s*(.*)$/);
+      if (kv) {
+        let val = kv[2].trim();
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+          val = val.slice(1, -1);
+        } else if (val.startsWith('[') && val.endsWith(']')) {
+          val = val.slice(1, -1).split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+        }
+        meta[kv[1]] = val;
+      }
+    }
+    const id = meta.id || meta.name || path.basename(fallbackUrl, '.md').toLowerCase();
+    return {
+      id: String(id).toLowerCase().replace(/[^a-z0-9_-]/g, '-'),
+      name: meta.name || id,
+      version: meta.version || '1.0.0',
+      license: meta.license || 'MIT',
+      category: meta.category || 'skills',
+      author: meta.author || 'Open-Source Author',
+      description: meta.description || '',
+      tools: Array.isArray(meta.tools) ? meta.tools : [],
+      systemPrompt: body || meta.prompt || '',
+    };
+  }
+
+  if (trimmed.startsWith('#')) {
+    const lines = trimmed.split('\n');
+    const title = lines[0].replace(/^#+\s*/, '').trim();
+    const id = title.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+    return {
+      id,
+      name: title,
+      version: '1.0.0',
+      license: 'MIT',
+      category: 'skills',
+      author: 'Community',
+      description: lines.slice(1, 4).join(' ').trim().slice(0, 200),
+      tools: [],
+      systemPrompt: trimmed,
+    };
+  }
+
+  throw error('invalid_manifest', 'Nội dung trả về không phải JSON manifest hoặc SKILL.md hợp lệ.');
+}
+
+/**
+ * Built-in curated marketplace plugins catalog (all MIT / Apache-2.0 open-source).
  */
 export const MARKETPLACE_CATALOG = Object.freeze([
   {
     id: 'git-workflow-pro',
     name: 'Git Workflow Pro',
     version: '1.2.0',
+    license: 'MIT',
     category: 'coding',
     author: 'ChatMCP Team',
     description: 'Semantic git commits, branching automation, pull request templates, and merge conflict assistance.',
@@ -29,6 +93,7 @@ export const MARKETPLACE_CATALOG = Object.freeze([
     id: 'python-architect',
     name: 'Python Architect & Pytest',
     version: '1.1.0',
+    license: 'MIT',
     category: 'coding',
     author: 'ChatMCP Team',
     description: 'AST-based Python code analysis, automated pytest fixtures generator, and type-hint verification.',
@@ -37,9 +102,46 @@ export const MARKETPLACE_CATALOG = Object.freeze([
     installedByDefault: true,
   },
   {
+    id: 'fastapi-backend-developer',
+    name: 'FastAPI Backend Developer',
+    version: '1.0.0',
+    license: 'MIT',
+    category: 'coding',
+    author: 'Open-Source Community',
+    description: 'FastAPI REST API design with Pydantic v2 schemas, async database sessions, dependency injection, and automatic OpenAPI validation.',
+    tools: ['pydantic_schema', 'fastapi_router'],
+    systemPrompt: 'You have FastAPI Backend Developer skill: use Pydantic v2 BaseModels with Field validation, async SQLAlchemy/Tortoise sessions, and HTTP exception handlers.',
+    installedByDefault: false,
+  },
+  {
+    id: 'react-typescript-expert',
+    name: 'React 19 & TypeScript Expert',
+    version: '1.0.0',
+    license: 'MIT',
+    category: 'coding',
+    author: 'Open-Source Community',
+    description: 'Modern React 19 / TypeScript component design with strict type-safety, accessible Radix UI primitives, Tailwind CSS, and memoization.',
+    tools: ['react_component', 'ts_interface'],
+    systemPrompt: 'You have React & TypeScript Expert skill: follow functional component patterns, custom hooks for state, strict typing without `any`, and clean Tailwind styling.',
+    installedByDefault: false,
+  },
+  {
+    id: 'github-actions-ci-cd',
+    name: 'GitHub Actions CI/CD Hardener',
+    version: '1.0.0',
+    license: 'Apache-2.0',
+    category: 'devops',
+    author: 'Open-Source Community',
+    description: 'Hardened GitHub Actions workflows with full commit SHA pinning, matrix testing, permissions scoping, and automated release publishing.',
+    tools: ['workflow_lint', 'sha_pinning'],
+    systemPrompt: 'You have GitHub Actions CI/CD skill: always pin third-party actions to full 40-character commit SHAs, declare explicit top-level permissions: read-all, and run matrix builds.',
+    installedByDefault: false,
+  },
+  {
     id: 'docker-devops',
     name: 'Docker DevOps Engine',
     version: '1.0.5',
+    license: 'Apache-2.0',
     category: 'devops',
     author: 'Community',
     description: 'Multi-stage Dockerfile linting, Docker Compose health checks, and container logs diagnostics.',
@@ -51,6 +153,7 @@ export const MARKETPLACE_CATALOG = Object.freeze([
     id: 'sqlite-mcp-explorer',
     name: 'SQLite MCP Explorer',
     version: '1.3.0',
+    license: 'MIT',
     category: 'mcp-servers',
     author: 'MCP Community',
     description: 'MCP server plugin for querying local SQLite databases, extracting schemas, and running data sanity checks.',
@@ -62,6 +165,7 @@ export const MARKETPLACE_CATALOG = Object.freeze([
     id: 'web-researcher',
     name: 'Web & Docs Researcher',
     version: '2.0.0',
+    license: 'MIT',
     category: 'research',
     author: 'ChatMCP Team',
     description: 'Web search, technical documentation scraping, and library changelog analysis via MCP.',
@@ -73,6 +177,7 @@ export const MARKETPLACE_CATALOG = Object.freeze([
     id: 'security-compliance-guard',
     name: 'Security & Secret Compliance Guard',
     version: '1.1.2',
+    license: 'Apache-2.0',
     category: 'governance',
     author: 'Security SIG',
     description: 'Pre-commit scanner for hardcoded credentials, JWTs, private keys, and suspicious open-source package licenses.',
@@ -161,12 +266,14 @@ export class PluginManager {
       id: p.id,
       name: p.name,
       version: p.version,
+      license: p.license || 'MIT',
       category: p.category,
       description: p.description,
       author: p.author || 'Custom',
       enabled: Boolean(p.enabled),
       tools: Array.isArray(p.tools) ? p.tools : [],
       installedAt: p.installedAt || null,
+      sourceUrl: p.sourceUrl || null,
     }));
   }
 
@@ -188,14 +295,15 @@ export class PluginManager {
         if (!res.ok) {
           throw error('fetch_manifest_failed', `Không thể tải manifest từ URL (${urlToFetch}): HTTP ${res.status}`);
         }
-        remoteData = await res.json();
+        const rawText = await res.text();
+        remoteData = parseSkillManifest(rawText, urlToFetch);
       } catch (fetchErr) {
         if (fetchErr.code && fetchErr.statusCode) throw fetchErr;
         throw error('fetch_network_error', `Lỗi tải manifest online: ${fetchErr.message}`);
       }
 
       if (!remoteData || typeof remoteData !== 'object') {
-        throw error('invalid_manifest', 'Nội dung trả về từ URL không phải JSON hợp lệ.');
+        throw error('invalid_manifest', 'Nội dung trả về từ URL không phải JSON manifest hoặc SKILL.md hợp lệ.');
       }
 
       const id = String(remoteData.id || customDefinition?.id || 'online-skill').toLowerCase().trim();
@@ -207,8 +315,9 @@ export class PluginManager {
         id,
         name: String(remoteData.name || customDefinition?.name || id).trim(),
         version: String(remoteData.version || '1.0.0'),
-        category: String(remoteData.category || 'online'),
-        author: String(remoteData.author || 'Online Manifest'),
+        license: String(remoteData.license || customDefinition?.license || 'MIT'),
+        category: String(remoteData.category || 'skills'),
+        author: String(remoteData.author || 'Open-Source Author'),
         description: String(remoteData.description || ''),
         tools: Array.isArray(remoteData.tools) ? remoteData.tools : [],
         systemPrompt: String(remoteData.systemPrompt || remoteData.prompt || ''),
@@ -301,6 +410,8 @@ export class PluginManager {
       .map((p) => ({
         id: p.id,
         name: p.name,
+        license: p.license || 'MIT',
+        author: p.author || 'Open-Source Author',
         tools: p.tools || [],
         systemPrompt: p.systemPrompt || '',
       }));

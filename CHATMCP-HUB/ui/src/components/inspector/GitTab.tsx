@@ -20,7 +20,19 @@ export function GitTab() {
   const [checkpointName, setCheckpointName] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const { data: hub, refetch } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 3000 });
+  const { data: hub, refetch: refetchState } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 3000 });
+  const { data: checkpointsList = [], refetch: refetchCheckpoints } = useQuery({
+    queryKey: ['checkpointsList'],
+    queryFn: async () => {
+      try {
+        const res = await api.getCheckpoints();
+        return Array.isArray(res) ? res : [];
+      } catch {
+        return [];
+      }
+    },
+    refetchInterval: 5000,
+  });
   const git = hub?.workspace?.git;
 
   const handleCreateCheckpoint = async () => {
@@ -30,7 +42,8 @@ export function GitTab() {
       await api.createCheckpoint(checkpointName.trim());
       showToast(`${t('git_checkpoint_create')}: ${checkpointName}`, 'success');
       setCheckpointName('');
-      refetch();
+      refetchCheckpoints();
+      refetchState();
     } catch (err: any) {
       showToast(err.message || 'Lỗi tạo checkpoint', 'error');
     } finally {
@@ -39,11 +52,12 @@ export function GitTab() {
   };
 
   const handleRevertCheckpoint = async (id: string) => {
-    if (!confirm('Khôi phục checkpoint này sẽ hoàn tác các thay đổi chưa lưu. Tiếp tục?')) return;
+    if (!confirm('Khôi phục checkpoint này sẽ hoàn tác các thay đổi trên các file liên quan. Tiếp tục?')) return;
     try {
-      await api.revertCheckpoint(id);
-      showToast('Đã khôi phục checkpoint', 'success');
-      refetch();
+      const res = await api.revertCheckpoint(id);
+      showToast(`Đã khôi phục thành công ${res.restoredCount ?? 0} file từ checkpoint!`, 'success');
+      refetchCheckpoints();
+      refetchState();
     } catch (err: any) {
       showToast(err.message || 'Lỗi khôi phục checkpoint', 'error');
     }
@@ -102,32 +116,32 @@ export function GitTab() {
       <div className="space-y-2">
         <div className="flex items-center justify-between text-[var(--muted)] border-b border-[var(--line-subtle)] pb-1">
           <span className="font-semibold uppercase tracking-wider text-[10px]">{t('git_checkpoint_history')}</span>
-          <span className="text-[10px] font-mono">{git?.checkpoints?.length || 0}</span>
+          <span className="text-[10px] font-mono">{checkpointsList.length}</span>
         </div>
 
-        {!git?.checkpoints || git.checkpoints.length === 0 ? (
+        {checkpointsList.length === 0 ? (
           <div className="py-8 text-center text-[var(--faint)] flex flex-col items-center gap-1.5">
             <GitCommit className="w-6 h-6 opacity-40" />
             <p className="text-[11px]">{t('git_checkpoint_empty')}</p>
           </div>
         ) : (
           <div className="space-y-1.5">
-            {git.checkpoints.map((cp: any, idx: number) => (
+            {checkpointsList.map((cp: any, idx: number) => (
               <div
-                key={idx}
+                key={cp.id || idx}
                 className="p-2.5 rounded-lg bg-[var(--surface)] border border-[var(--line-subtle)] flex items-center justify-between gap-2"
               >
                 <div className="min-w-0">
-                  <div className="font-medium text-[var(--text)] truncate">{cp.name || cp.message}</div>
+                  <div className="font-medium text-[var(--text)] truncate">{cp.label || cp.name || cp.message || 'Checkpoint'}</div>
                   <div className="text-[10px] font-mono text-[var(--faint)]">
-                    {cp.hash ? cp.hash.slice(0, 7) : 'checkpoint'} • {cp.timestamp ? new Date(cp.timestamp).toLocaleTimeString() : ''}
+                    {cp.id ? cp.id.slice(0, 12) : ''} • {cp.fileCount ?? cp.files?.length ?? 0} files • {cp.at || cp.timestamp ? new Date(cp.at || cp.timestamp).toLocaleTimeString() : ''}
                   </div>
                 </div>
 
                 <Button
                   size="sm"
                   variant="secondary"
-                  onClick={() => handleRevertCheckpoint(cp.id || cp.hash)}
+                  onClick={() => handleRevertCheckpoint(cp.id)}
                   className="h-7 text-[11px] gap-1 text-amber-400 hover:text-amber-300"
                   title={t('git_checkpoint_revert')}
                 >
@@ -141,4 +155,5 @@ export function GitTab() {
       </div>
     </div>
   );
+
 }
