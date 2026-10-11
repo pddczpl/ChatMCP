@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationIcon>..\assets\icons\chatmcp.ico</ApplicationIcon>
+    <AssemblyName>ChatMCP</AssemblyName>
+    <RootNamespace>ChatMCP.Desktop</RootNamespace>
+    <Version>2.3.0</Version>
+    <Authors>Phan Danh Đạt</Authors>
+    <Company>ChatMCP Project</Company>
+    <Product>ChatMCP Studio</Product>
+    <Description>ChatMCP - Autonomous AI Coding Agent Desktop Studio</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.*" />
+  </ItemGroup>
+
+</Project>
