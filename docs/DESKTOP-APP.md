@@ -59,7 +59,7 @@ ChatMCP cung cấp bộ cài đặt dạng file EXE duy nhất `ChatMCPSetup.exe
    ```powershell
    .\scripts\Build-Installer.ps1
    ```
-   Lệnh trên sẽ tạo ra file cài đặt standalone tại: **`dist\ChatMCPSetup.exe`** (~2 MB).
+   Lệnh trên sẽ tạo ra file cài đặt standalone tại: **`dist\ChatMCPSetup.exe`** (~35.7 MB).
 2. **Cài đặt:**
    - Nhấp đúp chuột vào **`ChatMCPSetup.exe`**.
    - Giao diện cài đặt thương mại sẽ mở lên với logo chính thức và đường dẫn mặc định `%LOCALAPPDATA%\Programs\ChatMCP`.

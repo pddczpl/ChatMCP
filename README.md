@@ -20,31 +20,81 @@ ChatMCP là một **AI Coding Agent chạy cục bộ**, thiết kế tối ưu 
 
 ---
 
-## Hướng dẫn chi tiết cài đặt từ A-Z
+## Hướng dẫn chi tiết cài đặt & Khởi chạy
 
-### Cách 1: Cài đặt bằng bộ cài thương mại ChatMCPSetup.exe (Khuyên dùng)
-1. Đóng gói bộ cài đặt standalone:
+### Cách 1: Tải bộ cài đặt chính thức ChatMCPSetup.exe (Khuyên dùng)
+
+Dành cho người dùng cuối trên Windows 10/11. Không cần cài đặt trước Node.js, Git hay bất kỳ công cụ phát triển nào.
+
+1. **Tải bộ cài đặt:**
+   Truy cập **[GitHub Releases](https://github.com/pddczpl/ChatMCP/releases/latest)** và tải file **`ChatMCPSetup.exe`** (~35.7 MB).
+2. **Cài đặt trong 2 giây:**
+   - Nhấp đúp chuột vào file **`ChatMCPSetup.exe`** để mở trình cài đặt thương mại.
+   - Thư mục cài đặt mặc định: `%LOCALAPPDATA%\Programs\ChatMCP`.
+   - Trình cài đặt tự động tạo shortcut Desktop & Start Menu với icon chính thức, tích hợp trình gỡ cài đặt `Uninstall.exe` và đăng ký vào Windows Apps (`Installed apps`).
+3. **Sử dụng:**
+   - Mở **ChatMCP Studio** từ biểu tượng trên Desktop hoặc Start Menu.
+   - Chọn thư mục dự án và bắt đầu làm việc với AI Agent ngay lập tức.
+
+---
+
+### Cách 2: Khởi chạy Native Desktop App từ mã nguồn (Dành cho Developer)
+
+Dành cho lập trình viên muốn chạy hoặc tùy biến từ mã nguồn repository:
+
+1. **Yêu cầu môi trường:**
+   - Windows 10/11 (hỗ trợ cả PowerShell 5.1 và PowerShell 7).
+   - [Node.js](https://nodejs.org/) ≥ 22.x và [Git](https://git-scm.com/).
+   - (.NET SDK 9+ nếu muốn tự biên dịch lại desktop shell C#).
+2. **Clone repository:**
    ```powershell
-   .\scripts\Build-Installer.ps1
+   git clone https://github.com/pddczpl/ChatMCP.git
+   cd ChatMCP
    ```
-   File cài đặt duy nhất **`dist\ChatMCPSetup.exe`** (~2 MB) sẽ được tạo ra.
-2. Nhấp đúp chuột vào file **`ChatMCPSetup.exe`** để mở trình cài đặt thương mại:
-   - Chọn thư mục cài đặt (mặc định `%LOCALAPPDATA%\Programs\ChatMCP`).
-   - Tự động tạo Desktop & Start Menu shortcut với icon chính thức.
-   - Đăng ký vào Windows Settings -> Apps -> Installed apps.
-3. Bấm **Install** -> Hoàn tất trong 2 giây! Bạn có thể khởi chạy ngay từ Desktop hoặc Start Menu.
-
-### Cách 2: Khởi chạy Native Desktop App trên Windows 11
-1. Cài đặt phím tắt Desktop & Start Menu:
+3. **Khởi chạy tức thì (Không cần npm install / build frontend):**
+   Mã nguồn đã tích hợp sẵn bản build tĩnh sản xuất của UI tại `CHATMCP-HUB/web/dist/`. Bạn chỉ cần chạy:
    ```powershell
-   .\scripts\install-desktop.ps1
+   .\START-CHATMCP-DESKTOP.cmd
    ```
-2. Nhấp đúp vào icon **ChatMCP Studio** trên màn hình Desktop hoặc chạy file `START-CHATMCP-DESKTOP.cmd`.
+   *(Tùy chọn: Chạy `.\scripts\install-desktop.ps1` để tự động tạo shortcut Desktop & Start Menu trỏ vào repo).*
 
-### Cách 3: Khởi chạy Hub qua dòng lệnh
+---
+
+### Cách 3: Khởi chạy Hub Server qua dòng lệnh (Headless / Web Browser)
+
+Nếu muốn khởi chạy Hub server độc lập và truy cập qua trình duyệt web:
+
 ```powershell
 .\CHATMCP-HUB\START-CHATMCP-HUB.cmd -ProjectPath C:\duong\dan\du-an
 ```
+Mở trình duyệt tại địa chỉ `http://localhost:3000` (hoặc cổng được hiển thị trong console).
+
+---
+
+### Cách 4: Tự đóng gói bộ cài đặt độc lập (Build Standalone Installer)
+
+Nếu bạn muốn tự đóng gói file cài đặt `ChatMCPSetup.exe` từ mã nguồn:
+
+```powershell
+.\scripts\Build-Installer.ps1
+```
+Script sẽ tự động:
+1. Chuẩn bị runtime Node.js portable và assets UI.
+2. Biên dịch desktop shell C# WinForms / WebView2.
+3. Đóng gói toàn bộ thành file duy nhất tại **`dist\ChatMCPSetup.exe`** (~35.7 MB).
+
+---
+
+### Cách 5: Triển khai Docker & Tự host (Linux / VPS / Render)
+
+ChatMCP hỗ trợ chạy trên server Linux hoặc đám mây qua Docker:
+
+```bash
+docker build -t chatmcp-hub .
+docker run -d -p 3000:3000 -v /path/to/project:/workspace chatmcp-hub
+```
+Chi tiết cấu hình biến môi trường, bảo mật đa người dùng và triển khai trên Render free tier: xem [docs/DEPLOYMENT.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/DEPLOYMENT.md).
+
 
 ---
 
