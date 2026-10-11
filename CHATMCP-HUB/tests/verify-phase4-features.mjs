@@ -197,6 +197,27 @@ OSI prompt body.`);
     { code: 'ssrf_blocked' }
   );
   ok('safeFetchSkillManifest stops DNS rebinding and redirect SSRF to private/metadata IPs');
+  // Verify the production, DNS-pinned HTTP transport enforces size limits
+  // before buffering a complete chunked response.
+  const { fetchPinnedSkillResponse } = await import('../lib/skill-http.mjs');
+  const chunkServer = http.createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.write(Buffer.alloc(8192, 'a'));
+    res.end(Buffer.alloc(8192, 'b'));
+  });
+  await new Promise(resolve => chunkServer.listen(0, '127.0.0.1', resolve));
+  try {
+    await assert.rejects(
+      () => fetchPinnedSkillResponse('http://localhost:' + chunkServer.address().port + '/manifest', {
+        ip: '127.0.0.1', maxBytes: 4096, timeoutMs: 4000,
+      }),
+      { code: 'response_too_large' }
+    );
+  } finally {
+    await new Promise(resolve => chunkServer.close(resolve));
+  }
+  ok('Real pinned HTTP transport refuses oversized chunked responses');
+
 
   // Multi-file directory installation & skills-lock.json
   const skillDir = path.join(state, 'skills', 'sqlite-mcp-explorer');
@@ -450,6 +471,15 @@ console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
   assert.equal(missingShaRes.status, 400);
   assert.equal(missingShaRes.body.code, 'missing_expected_shas');
 
+  // Guard uses the actual HubManager.taskId even without a mock taskEngine.
+  dummyManager.taskId = 'active-local-task';
+  const concurrentRestore = await hubRequest('POST', '/api/studio/restore-checkpoint', {
+    checkpointId: cp.id,
+    expectedShas: { 'test-phase4-doc.txt': 'placeholder-sha' },
+  });
+  assert.equal(concurrentRestore.status, 409);
+  assert.equal(concurrentRestore.body.code, 'task_in_progress');
+  dummyManager.taskId = null;
   // Active task guard rejection
   dummyManager.taskEngine = { state: () => ({ activeTaskId: 'active-agent-task-99' }) };
   const busyRes = await hubRequest('POST', '/api/studio/restore-checkpoint', {
