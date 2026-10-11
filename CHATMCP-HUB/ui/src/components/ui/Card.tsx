@@ -8,44 +8,61 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
 
 export function Card({ className, tilt3D = false, tilt3d = false, children, ...props }: CardProps) {
   const isTilt = tilt3D || tilt3d;
-  const [style, setStyle] = React.useState<React.CSSProperties>({});
   const cardRef = React.useRef<HTMLDivElement>(null);
+  const rafRef = React.useRef<number | null>(null);
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleMouseMove = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!isTilt || !cardRef.current) return;
-    const rect = cardRef.current.getBoundingClientRect();
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    const card = cardRef.current;
+    const rect = card.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const centerX = rect.width / 2;
     const centerY = rect.height / 2;
-    
-    // Very subtle tilt: max 3.5 degrees
-    const rotateX = ((y - centerY) / centerY) * -3.5;
-    const rotateY = ((x - centerX) / centerX) * 3.5;
 
-    setStyle({
-      transform: `perspective(800px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale3d(1.01, 1.01, 1.01)`,
-      transition: 'transform 0.08s ease-out',
-    });
-  };
+    // Subtle, clean 3D tilt (max 3 degrees)
+    const rotateX = ((y - centerY) / (centerY || 1)) * -3.0;
+    const rotateY = ((x - centerX) / (centerX || 1)) * 3.0;
 
-  const handleMouseLeave = () => {
-    if (!isTilt) return;
-    setStyle({
-      transform: 'perspective(800px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)',
-      transition: 'transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)',
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+    }
+
+    rafRef.current = requestAnimationFrame(() => {
+      if (!cardRef.current) return;
+      cardRef.current.style.transform = `perspective(1000px) rotateX(${rotateX.toFixed(2)}deg) rotateY(${rotateY.toFixed(2)}deg) translateY(-2px)`;
+      cardRef.current.style.transition = 'transform 0.05s ease-out, box-shadow 0.2s ease, border-color 0.2s ease';
     });
-  };
+  }, [isTilt]);
+
+  const handleMouseLeave = React.useCallback(() => {
+    if (!isTilt || !cardRef.current) return;
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    cardRef.current.style.transform = 'perspective(1000px) rotateX(0deg) rotateY(0deg) translateY(0px)';
+    cardRef.current.style.transition = 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease, border-color 0.25s ease';
+  }, [isTilt]);
+
+  React.useEffect(() => {
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div
       ref={cardRef}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
-      style={style}
       className={cn(
         'rounded-lg border border-[var(--line)] bg-[var(--panel)] text-[var(--text)] transition-colors',
-        isTilt && 'transform-style-3d will-change-transform cursor-pointer',
+        isTilt && 'transform-style-3d will-change-transform cursor-pointer shadow-sm hover:shadow-lg hover:border-sky-500/30',
         className
       )}
       {...props}

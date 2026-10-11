@@ -118,15 +118,31 @@ namespace ChatMCP.Desktop
                 _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
                 _webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
 
-                // Navigate to Studio
-                _webView.Source = new Uri(_hubUrl);
-
-                // Display UI when navigation completes
-                _webView.NavigationCompleted += (s, e) =>
+                // Show WebView2 as soon as DOM is ready or navigation completes
+                _webView.CoreWebView2.DOMContentLoaded += (s, e) =>
                 {
                     _statusLabel.Visible = false;
                     _webView.Visible = true;
+                    _webView.BringToFront();
                 };
+
+                _webView.NavigationCompleted += (s, e) =>
+                {
+                    if (e.IsSuccess)
+                    {
+                        _statusLabel.Visible = false;
+                        _webView.Visible = true;
+                        _webView.BringToFront();
+                    }
+                    else
+                    {
+                        _statusLabel.Text = $"Failed to load Studio UI: {e.WebErrorStatus}";
+                        _statusLabel.ForeColor = Color.FromArgb(239, 68, 68);
+                    }
+                };
+
+                // Navigate to Studio
+                _webView.Source = new Uri(_hubUrl);
             }
             catch (Exception ex)
             {
@@ -139,8 +155,8 @@ namespace ChatMCP.Desktop
         {
             try
             {
-                using var client = new HttpClient { Timeout = TimeSpan.FromMilliseconds(800) };
-                var res = await client.GetAsync($"http://127.0.0.1:{HubPort}/api/status");
+                using var client = new HttpClient { Timeout = TimeSpan.FromMilliseconds(1000) };
+                var res = await client.GetAsync($"http://127.0.0.1:{HubPort}/api/health");
                 return res.IsSuccessStatusCode;
             }
             catch
@@ -163,7 +179,7 @@ namespace ChatMCP.Desktop
             var psi = new ProcessStartInfo
             {
                 FileName = nodeExe,
-                Arguments = $"\"{hubScript}\"",
+                Arguments = $"\"{hubScript}\" --port {HubPort} --no-open",
                 WorkingDirectory = Path.Combine(_repoRoot, "CHATMCP-HUB"),
                 UseShellExecute = false,
                 CreateNoWindow = true,
@@ -171,6 +187,7 @@ namespace ChatMCP.Desktop
             };
 
             psi.EnvironmentVariables["PORT"] = HubPort.ToString();
+            psi.EnvironmentVariables["CHATMCP_NO_OPEN"] = "1";
 
             _hubProcess = Process.Start(psi);
             if (_hubProcess != null)

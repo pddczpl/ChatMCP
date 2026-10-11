@@ -26,6 +26,20 @@ $repoRoot = [IO.Path]::GetFullPath((Join-Path $scriptDir '..'))
 $hubDir = Join-Path $repoRoot 'CHATMCP-HUB'
 $hubScript = Join-Path $hubDir 'hub.mjs'
 
+# 0. Check for Native ChatMCP.exe desktop shell first
+$nativeExe = Join-Path $repoRoot 'desktop-shell\bin\dist\ChatMCP.exe'
+if (-not (Test-Path -LiteralPath $nativeExe -PathType Leaf)) {
+    $nativeExe = Join-Path $repoRoot 'ChatMCP.exe'
+}
+if (Test-Path -LiteralPath $nativeExe -PathType Leaf) {
+    $procArgs = @()
+    if (-not [string]::IsNullOrWhiteSpace($ProjectPath)) {
+        $procArgs += @($ProjectPath)
+    }
+    Start-Process -FilePath $nativeExe -ArgumentList $procArgs
+    exit 0
+}
+
 # 1. Verify Node.js
 $nodeCmd = Get-Command node.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($null -eq $nodeCmd) {

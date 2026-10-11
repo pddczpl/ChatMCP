@@ -55,16 +55,13 @@ export function PhaseRibbon({ task, onCancel }: PhaseRibbonProps) {
           return (
             <div
               key={p.key}
-              className={`flex items-center gap-2 px-2.5 py-1 rounded-md transition-all duration-300 transform-style-3d ${
+              className={`flex items-center gap-2 px-2.5 py-1 rounded-md transition-all duration-300 ${
                 isCurrent
                   ? 'bg-sky-500/15 border border-sky-400/50 text-sky-400 font-semibold floating-step shadow-lg shadow-sky-500/10'
                   : isDone
                   ? 'text-emerald-400 font-medium hover:bg-emerald-500/10'
                   : 'text-[var(--faint)] opacity-60'
               }`}
-              style={{
-                transform: isCurrent ? 'translateZ(10px) scale(1.02)' : isDone ? 'translateZ(2px)' : 'none',
-              }}
             >
               <div className="flex items-center justify-center">
                 {isDone ? (

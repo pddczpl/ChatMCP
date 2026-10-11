@@ -2,6 +2,10 @@
 rem ============================================================================
 rem  ChatMCP Studio - Native Desktop Application Launcher
 rem ============================================================================
+if exist "%~dp0ChatMCP.exe" (
+    start "" "%~dp0ChatMCP.exe" %*
+    exit /b 0
+)
 set "DIST_EXE=%~dp0desktop-shell\bin\dist\ChatMCP.exe"
 if exist "%DIST_EXE%" (
     start "" "%DIST_EXE%" %*
