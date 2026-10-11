@@ -195,7 +195,7 @@ function anchorsOf(markdown) {
 
 {
   const linked = new Set();
-  for (const match of docs['README.md'].matchAll(/\]\((docs\/[^)#\s]+\.md)/g)) linked.add(match[1]);
+  for (const match of docs['README.md'].matchAll(/\]\((?:https:\/\/github\.com\/pddczpl\/ChatMCP\/blob\/main\/)?(docs\/[^)#\s]+\.md)/g)) linked.add(match[1]);
   const orphans = DOC_FILES.filter((name) => name.startsWith('docs/') && !linked.has(name));
   expectNone(orphans, 'documents in docs/ that README.md does not link to');
   ok(`README.md links to all ${linked.size} documents in docs/`);
