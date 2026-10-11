@@ -232,7 +232,7 @@ export function SkillsTab() {
           </div>)}
         </div>
       </section>
-      {/* Skills Grid */
+      {/* Skills Grid */}
       <div className="space-y-2.5 flex-1">
         {isLoading ? (
           <div className="flex items-center justify-center p-8 text-[var(--muted)] gap-2">
