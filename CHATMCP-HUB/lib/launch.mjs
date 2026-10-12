@@ -81,16 +81,10 @@ async function startHubDetached(args, logFile) {
   return { pid: child.pid ?? null, exited: () => child.exitCode !== null || child.signalCode !== null };
 }
 
-/**
- * Where the Hub keeps its data. Mirrors what HubManager does with the same
- * options: an explicit state directory wins, then the legacy folder inside the
- * Cloud Harness repository (only when --repo-root is given), and the per-user
- * default is already resolved by parseArguments when there is no repository.
- */
+/** Per-user local Hub state directory. */
 export function hubDirectoryFor(options) {
-  if (options.stateDir) return options.stateDir;
-  if (options.repoRoot) return path.join(path.resolve(options.repoRoot), 'deploy', '.generated', 'chatmcp-hub');
-  throw new Error('Không xác định được thư mục dữ liệu của Hub. Dùng --state-dir.');
+  if(options.stateDir)return options.stateDir;
+  throw new Error('Không xác định được state directory. Specify --state-dir.');
 }
 
 /**
@@ -101,7 +95,7 @@ export function hubDirectoryFor(options) {
  */
 export async function launch(args = process.argv.slice(2), { log = console.log, warn = console.error } = {}) {
   const options = parseArguments(args);
-  const backend = options.backend ?? (options.repoRoot ? 'mcp' : 'local');
+  const backend = 'local';
   const url = `http://127.0.0.1:${options.port}`;
   const running = await health(url);
   if (running?.app === 'chatmcp-local-hub') {
@@ -110,9 +104,8 @@ export async function launch(args = process.argv.slice(2), { log = console.log, 
       if (Date.now() >= deadline) throw new Error('Hub chưa nạp xong cấu hình. Xem hub.log rồi mở lại launcher.');
       await delay(250);
     }
-    if (running.backend && running.backend !== backend) {
-      log(`[CHATMCP-HUB] Hub dang chay o che do "${running.backend}", khong phai "${backend}". Chay STOP-CHATMCP-HUB.cmd roi mo lai neu muon doi che do.`);
-    }
+    if(running.backend&&running.backend!=='local')
+      throw new Error('A legacy MCP Hub is using this port. Stop it explicitly; do not reuse it.');
     if (options.project) {
       const state = await fetch(`${url}/api/state`, { signal: AbortSignal.timeout(3000), redirect: 'error' }).then((r) => r.json());
       if (state.workspace?.path !== options.project) {
@@ -145,9 +138,7 @@ export async function launch(args = process.argv.slice(2), { log = console.log, 
     const ready = await health(url);
     if (ready?.app === 'chatmcp-local-hub' && ready.initialized) {
       log(`[CHATMCP-HUB] Dang chay nen: ${url}`);
-      log(backend === 'local'
-        ? '[CHATMCP-HUB] Che do cuc bo: chi can Node.js. Co the dong terminal; trang localhost de chon thu muc du an va nhap API key.'
-        : '[CHATMCP-HUB] Che do MCP: co the dong terminal. Trang localhost se hien tien trinh khoi dong MCP.');
+      log('[CHATMCP-HUB] Local mode. Configure your AI model and choose a workspace in the dashboard.');
       return { url, reused: false, backend, logFile, pid: started.pid };
     }
     if (started.exited()) break;
