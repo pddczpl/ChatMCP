@@ -45,7 +45,7 @@ try {
     Assert-Payload ($builder.Contains('Copy-InstallerDesktopPayload -PublishDirectory $shellDist -Destination $payloadDir')) 'real builder requires the tested native payload check'
     Assert-Payload ($builder.Contains('$supervisorProject = Join-Path $repoRoot') -and $builder.Contains('GuestSupervisor.exe.sha256')) 'trusted guest helper built and hashed explicitly, never from tracked C# sources'
     $assembler = [IO.File]::ReadAllText((Join-Path $scriptDir '..\..\CHATMCP-HUB\lib\assemble.mjs'))
-    Assert-Payload ($builder.Contains("$" + "stagingNode = Join-Path $" + "payloadDir 'runtimes\\node'") -and
+    Assert-Payload ($builder.Contains('$stagingNode = Join-Path $payloadDir ''runtimes\node''') -and
         $assembler.Contains("nodeToolchainDirectory:path.resolve(bundleRoot,'..','runtimes','node')")) 'pinned Node runtime path matches installed payload layout'
     Assert-Payload ($builder.Contains('$shellDist = Join-Path $stagingDir ''desktop-publish''') -and $builder.Contains('$installerPublish = Join-Path $stagingDir ''installer-publish''')) 'each native publish uses private fresh output'
     New-Item -ItemType Directory -Path $fixture -Force | Out-Null
