@@ -32,7 +32,7 @@ export function assertCompatibleRunningHub(health, port=3007) {
   return true;
 }
 
-export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/vscode/open','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/intelligence/index','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/workspace/pr','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/uninstall','/api/plugins/toggle','/api/governance/rbac/verify']);
+export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/vscode/open','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/intelligence/index','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/workspace/pr','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle','/api/governance/rbac/verify']);
 const BUNDLE_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MIME = Object.freeze({
   '.html': 'text/html; charset=utf-8',
@@ -271,7 +271,7 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
         return json(200, await lock.inspect());
       }
       if (req.method === 'GET' && url.pathname === '/api/plugins/registry') {
-        return json(200, { sources: skillRegistry.sources(), skills: skillRegistry.list({ query: url.searchParams.get('query') || '' }) });
+        return json(200, { sources: skillRegistry.sources(), skills: skillRegistry.list({ query: url.searchParams.get('query') || '' }), updates: skillRegistry.updates() });
       }
       if (req.method === 'GET' && url.pathname === '/api/plugins/marketplace') {
         return json(200, { catalog: pluginManager.marketplace({ category: url.searchParams.get('category'), query: url.searchParams.get('query') }) });
@@ -420,8 +420,10 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
           case '/api/ai/profiles/upsert': result = { profile: await aiProfiles.upsert(payload) }; break;
           case '/api/ai/profiles/delete': result = await aiProfiles.delete(payload.id); break;
           case '/api/ai/profiles/default': result = await aiProfiles.setDefault(payload.id); break;
+          case '/api/plugins/registry/source/add': if(publicMode)throw Object.assign(new Error('Only local Hub may configure GitHub sources.'),{statusCode:403});result=await skillRegistry.addSource(payload);break;
+          case '/api/plugins/registry/source/remove': if(publicMode)throw Object.assign(new Error('Only local Hub may remove GitHub sources.'),{statusCode:403});result=await skillRegistry.removeSource(payload);break;
           case '/api/plugins/registry/refresh': if(publicMode)throw Object.assign(new Error('Registry refresh chỉ dành cho local Hub.'),{statusCode:403});result=await skillRegistry.refresh({sourceId:payload.sourceId});break;
-          case '/api/plugins/registry/install': if(publicMode)throw Object.assign(new Error('Registry install chỉ dành cho local Hub.'),{statusCode:403});if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Chờ agent hoàn thành trước khi cài skill.'),{statusCode:409});result={installed:await skillRegistry.install({key:payload.key})};break;
+          case '/api/plugins/registry/install': if(publicMode)throw Object.assign(new Error('Registry install chỉ dành cho local Hub.'),{statusCode:403});if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Chờ agent hoàn thành trước khi cài skill.'),{statusCode:409});result={installed:await skillRegistry.install({key:payload.key,update:payload.update===true})};break;
           case '/api/plugins/install': result = { installed: await pluginManager.install(payload.id, payload.custom, payload.url) }; break;
           case '/api/plugins/uninstall': result = await pluginManager.uninstall(payload.id); break;
           case '/api/plugins/toggle': result = await pluginManager.toggle(payload.id, payload.enabled); break;

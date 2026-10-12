@@ -432,7 +432,8 @@ export function parseSkillManifest(rawText, fallbackUrl = '') {
     if (!idCandidate) {
       throw error('invalid_manifest', 'Không tìm thấy id hoặc name trong YAML frontmatter.');
     }
-    const id = normalizeSkillId(String(idCandidate));
+    const normalizedName=String(idCandidate).toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,64);
+    const id = normalizeSkillId(normalizedName);
     const declaredLicense = meta.license ? String(meta.license).trim() : 'unknown';
 
     return {
@@ -767,8 +768,8 @@ export class PluginManager {
         const body = item?.encoding === 'base64' && typeof item?.data === 'string'
           ? Buffer.from(item.data, 'base64')
           : typeof item?.text === 'string' ? Buffer.from(item.text, 'utf8') : null;
-        if (!/^[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*$/.test(rel) ||
-            rel.split('/').some(x => x === '..' || x === '.' || x === '.git' || x === 'node_modules') ||
+        if (!/^[a-zA-Z0-9_.@+() -]+(?:\/[a-zA-Z0-9_.@+() -]+)*$/.test(rel) ||
+            rel.split('/').some(x => x === '..' || x === '.' || x === '.git' || x === 'node_modules' || isUnsafeWindowsName(x)) ||
             ['SKILL.md','manifest.json'].includes(rel) || !body) {
           throw error('invalid_resource_path', 'Imported skill resource path or content is unsafe.', 403);
         }

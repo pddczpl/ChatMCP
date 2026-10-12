@@ -20,15 +20,33 @@ const hashValid=(sha)=>/^[a-f0-9]{40}$/i.test(sha);
 export class GitHubSkillRegistry {
   constructor({pluginManager,stateDir,transport=safeFetchSkillManifest,binaryTransport=safeFetchSkillBytes}){
     this.pluginManager=pluginManager;this.file=path.join(stateDir,'registry-index.json');this.transport=transport;
-    this.entries=[];this.updatedAt=null;this.busy=false;this.binaryTransport=binaryTransport;
+    this.entries=[];this.updatedAt=null;this.busy=false;this.binaryTransport=binaryTransport;this.sourceRecords=SOURCES.map(s=>({...s,official:true}));
   }
-  sources(){return SOURCES.map(s=>({...s}));}
-  async load(){const data=await readJson(this.file).catch(()=>null);if(data?.version===1&&Array.isArray(data.entries)){this.entries=data.entries;this.updatedAt=data.updatedAt;}}
+  sources(){return this.sourceRecords.map(s=>({...s}));}
+  async load(){const data=await readJson(this.file).catch(()=>null);if([1,2].includes(data?.version)&&Array.isArray(data.entries)){this.entries=data.entries;this.updatedAt=data.updatedAt;if(Array.isArray(data.sources)&&data.sources.length){const safe=data.sources.filter(x=>x&&/^[a-z0-9_-]{1,32}$/.test(x.id)&&/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(x.repo)&&/^[a-zA-Z0-9_.\/-]+$/.test(x.prefix)&&!x.prefix.includes('..'));if(safe.length)this.sourceRecords=safe.slice(0,20);}}}
   list({query=''}={}){const q=String(query).toLowerCase().slice(0,100);return this.entries.filter(x=>!q||(x.name+' '+(x.description||'')+' '+x.folder+' '+x.repo).toLowerCase().includes(q)).slice(0,500);}
+  async addSource({id,repo,prefix='skills',confirmation}={}){
+    if(confirmation!=='TRUST GITHUB SOURCE')throw fault('confirmation_required','Confirm trusted GitHub source.',403);
+    if(!/^[a-zA-Z0-9_-]{1,32}$/.test(String(id||''))||!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(String(repo||''))||
+      !/^[a-zA-Z0-9_.\/-]+$/.test(prefix)||prefix.includes('..')||prefix.startsWith('/'))throw fault('invalid_source','Invalid GitHub source.',400);
+    const source={id:id.toLowerCase(),repo,prefix,official:false};
+    if(this.sourceRecords.some(x=>x.id===source.id||x.repo===repo&&x.prefix===prefix))throw fault('duplicate_source','Source already indexed.',409);
+    if(this.sourceRecords.length>=20)throw fault('too_many_sources','Maximum 20 sources.',413);
+    this.sourceRecords.push(source);await this.#persist();return source;
+  }
+  async removeSource({sourceId,confirmation}={}){
+    if(confirmation!=='REMOVE GITHUB SOURCE')throw fault('confirmation_required','Confirm removal of source.',403);
+    if(SOURCES.some(x=>x.id===sourceId))throw fault('protected_source','Default sources cannot be removed.',403);
+    if(!this.sourceRecords.some(x=>x.id===sourceId))throw fault('unknown_source','Unknown source.',404);
+    this.sourceRecords=this.sourceRecords.filter(x=>x.id!==sourceId);
+    this.entries=this.entries.filter(x=>x.sourceId!==sourceId);
+    await this.#persist();return {removed:sourceId};
+  }
+  async #persist(){await writeJson(this.file,{version:2,updatedAt:this.updatedAt,entries:this.entries,sources:this.sourceRecords});}
   async #json(url){const {text}=await this.transport(url,{maxBytes:8*1024*1024});return JSON.parse(text);}
   async refresh({sourceId}={}){
     if(this.busy)throw fault('registry_busy','Registry is already refreshing.',409);
-    const sources=sourceId?SOURCES.filter(x=>x.id===sourceId):SOURCES;
+    const sources=sourceId?this.sourceRecords.filter(x=>x.id===sourceId):this.sourceRecords;
     if(!sources.length)throw fault('unknown_source','Unknown registry source.',404);
     this.busy=true;const found=[];const failures=[];
     try{
@@ -73,7 +91,7 @@ export class GitHubSkillRegistry {
       for(const item of found)updated.set(item.key,item);
       this.entries=[...updated.values()].slice(0,5000);
       this.updatedAt=new Date().toISOString();
-      await writeJson(this.file,{version:1,updatedAt:this.updatedAt,entries:this.entries});
+      await this.#persist();
       return {found:found.length,total:this.entries.length,failures,updatedAt:this.updatedAt};
     }finally{this.busy=false;}
   }
@@ -82,7 +100,7 @@ export class GitHubSkillRegistry {
     const entry=this.entries.find(x=>x.key===key);
     if(!entry)throw fault('not_indexed','Skill is not indexed.',404);
     if(entry.treeSha)return this.#installPinnedTree(entry,{update});
-    if(!SOURCES.some(x=>x.id===entry.sourceId&&x.repo===entry.repo)||!hashValid(entry.revision))throw fault('invalid_source','Source is not trusted.',403);
+    if(!this.sourceRecords.some(x=>x.id===entry.sourceId&&x.repo===entry.repo)||!hashValid(entry.revision))throw fault('invalid_source','Source is not trusted.',403);
     const {text}=await this.transport(raw(entry.repo,entry.revision,entry.manifestPath),{maxBytes:128*1024});
     const parsed=parseSkillManifest(text,entry.manifestPath);
     const id=normalizeSkillId(entry.id);
@@ -128,7 +146,7 @@ export class GitHubSkillRegistry {
   /** Complete recursive, binary-safe installation from a pinned Git tree. */
   async #installPinnedTree(entry,{update=false}={}){
     if(this.busy)throw fault('registry_busy','Registry operation already running.',409);
-    if(!SOURCES.some(x=>x.id===entry.sourceId&&x.repo===entry.repo)||!hashValid(entry.revision)||!hashValid(entry.treeSha))
+    if(!this.sourceRecords.some(x=>x.id===entry.sourceId&&x.repo===entry.repo)||!hashValid(entry.revision)||!hashValid(entry.treeSha))
       throw fault('invalid_source','Skill source or revision is invalid.',403);
     this.busy=true;
     try{
