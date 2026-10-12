@@ -1452,6 +1452,210 @@ try {
     ok('23. PermissionGate rejects isolationRequired fail-closed; ExecutionRegistry contract ready for PR 2/3 broker');
   }
 
+  // ------------------------------------------------------------------ 24. Final cancellation check before backend execution begins (Stage A)
+  {
+    // Test 1: Cancellation during deferred capability probe
+    let probeResolve;
+    const probePromise = new Promise((resolve) => {
+      probeResolve = resolve;
+    });
+
+    class DeferredProbeBackend extends ExecutionBackend {
+      constructor() {
+        super('deferred-probe');
+        this.executed = false;
+      }
+      async probe() {
+        await probePromise;
+        return validateCapabilityReport({
+          backend: 'deferred-probe',
+          available: true,
+          osIsolated: false,
+          platform: 'win32',
+          networkPolicy: 'host-governed',
+          writeScope: 'workspace-only',
+          concurrency: 1,
+          enforcedLimits: ['timeoutSeconds'],
+          unsupportedLimits: ['maxMemoryMb'],
+          reasons: [],
+          observedAt: new Date().toISOString(),
+        });
+      }
+      async execute(request) {
+        this.executed = true;
+        throw new Error('DeferredProbeBackend execute() should NEVER be called on cancelled run');
+      }
+    }
+
+    const deferredBackend = new DeferredProbeBackend();
+    const deferredRegistry = new ExecutionRegistry();
+    deferredRegistry.register(deferredBackend);
+
+    const probeRunId = 'r-cancel-deferred-probe';
+    const probeDispatchPromise = deferredRegistry.dispatch(
+      {
+        runId: probeRunId,
+        snapshotId: 's',
+        checkId: 'c',
+        command: 'echo deferred',
+        backend: 'deferred-probe',
+        isolationRequired: false,
+      },
+      { trustedInternal: true }
+    );
+
+    // Cancel while probe is still running
+    const cancelProbeRes = await deferredRegistry.cancel(probeRunId);
+    assert.equal(cancelProbeRes, true, 'cancel() must succeed while waiting for capability probe');
+
+    // Resolve the probe promise
+    probeResolve();
+
+    const probeReceipt = await probeDispatchPromise;
+    assert.equal(probeReceipt.status, 'cancelled');
+    assert.equal(probeReceipt.exitCode, null);
+    assert.equal(deferredBackend.executed, false, 'Backend execute must NEVER be invoked after probe cancellation');
+    assert.equal(deferredRegistry.activeRuns.size, 0, 'Registry activeRuns must release ownership cleanly');
+
+    // Test 2: Cancellation during pending permission decision & late approval refusal
+    class MonitoredBackend extends ExecutionBackend {
+      constructor() {
+        super('monitored');
+        this.executed = false;
+      }
+      async probe() {
+        return validateCapabilityReport({
+          backend: 'monitored',
+          available: true,
+          osIsolated: false,
+          platform: 'win32',
+          networkPolicy: 'host-governed',
+          writeScope: 'workspace-only',
+          concurrency: 1,
+          enforcedLimits: ['timeoutSeconds'],
+          unsupportedLimits: ['maxMemoryMb'],
+          reasons: [],
+          observedAt: new Date().toISOString(),
+        });
+      }
+      async execute(request) {
+        this.executed = true;
+        return validateExecutionReceipt({
+          runId: request.runId,
+          status: 'completed',
+          exitCode: 0,
+          stdout: 'ran\n',
+          stderr: '',
+          startedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+          durationMs: 10,
+          backend: this.id,
+          truncated: false,
+        });
+      }
+    }
+
+    const gate = new PermissionGate({ manager: { secrets: [] }, workspace: null, timeout: 60000 });
+    gate.classify = () => ({ category: 'execute', reason: 'Needs review' });
+
+    const monitoredBackend = new MonitoredBackend();
+    const gateRegistry = new ExecutionRegistry({ defaultGate: gate });
+    gateRegistry.register(monitoredBackend);
+
+    const gateRunId = 'r-cancel-pending-gate';
+    const gateDispatchPromise = gateRegistry.dispatch({
+      runId: gateRunId,
+      snapshotId: 's',
+      checkId: 'c',
+      command: 'echo pending-permission',
+      backend: 'monitored',
+      isolationRequired: false,
+    });
+
+    // Wait until request is registered in gate
+    await new Promise((r) => setTimeout(r, 20));
+    const pendingReqs = [...gate.requests.values()];
+    assert.equal(pendingReqs.length, 1, 'Request must be pending in PermissionGate');
+    const pendingId = pendingReqs[0].id;
+
+    // Cancel while waiting for permission decision
+    const cancelGateRes = await gateRegistry.cancel(gateRunId);
+    assert.equal(cancelGateRes, true, 'cancel() must succeed while waiting for permission decision');
+
+    // Verify request was aborted and removed from gate
+    assert.equal(gate.requests.has(pendingId), false, 'Pending request must be removed from gate on cancellation');
+    assert.throws(
+      () => gate.decide(pendingId, true),
+      (err) => err.code === 'not_pending',
+      'Late approval after cancellation must be rejected as not_pending'
+    );
+
+    const gateReceipt = await gateDispatchPromise;
+    assert.equal(gateReceipt.status, 'cancelled');
+    assert.equal(gateReceipt.exitCode, null);
+    assert.equal(monitoredBackend.executed, false, 'Command must NEVER execute after gate cancellation');
+    assert.equal(gateRegistry.activeRuns.size, 0, 'Registry activeRuns must release ownership cleanly');
+
+    // Test 3: Cancellation does not affect an unrelated run
+    const concurrentBackend = new MonitoredBackend();
+    const concurrentRegistry = new ExecutionRegistry();
+    concurrentRegistry.register(concurrentBackend);
+
+    let blockerResolve;
+    const blockerPromise = new Promise((resolve) => { blockerResolve = resolve; });
+    class BlockingBackend extends ExecutionBackend {
+      constructor() { super('blocking'); }
+      async probe() { return concurrentBackend.probe(); }
+      async execute(request, { signal }) {
+        await new Promise((resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
+          blockerPromise.then(resolve);
+        });
+        return validateExecutionReceipt({
+          runId: request.runId,
+          status: 'completed',
+          exitCode: 0,
+          stdout: 'ok',
+          stderr: '',
+          startedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+          durationMs: 5,
+          backend: this.id,
+          truncated: false,
+        });
+      }
+    }
+
+    const blocker = new BlockingBackend();
+    concurrentRegistry.register(blocker);
+
+    const runA = 'run-to-cancel';
+    const runB = 'run-to-succeed';
+
+    const promiseA = concurrentRegistry.dispatch(
+      { runId: runA, snapshotId: 's', checkId: 'c', command: 'echo a', backend: 'blocking', isolationRequired: false },
+      { trustedInternal: true }
+    );
+    const promiseB = concurrentRegistry.dispatch(
+      { runId: runB, snapshotId: 's', checkId: 'c', command: 'echo b', backend: 'blocking', isolationRequired: false },
+      { trustedInternal: true }
+    );
+
+    // Cancel ONLY run A
+    assert.equal(await concurrentRegistry.cancel(runA), true);
+
+    // Allow blocker to finish for remaining runs
+    blockerResolve();
+
+    const receiptA = await promiseA;
+    const receiptB = await promiseB;
+
+    assert.equal(receiptA.status, 'cancelled');
+    assert.equal(receiptB.status, 'completed', 'Unrelated run B must succeed without being affected by cancellation of run A');
+
+    ok('24. Pre-execution cancellation verified during probe and permission phases with 0 orphaned executions');
+  }
+
   console.log(`\nAll ${checks} verification checks passed successfully.`);
 } finally {
   const resolved = await fs.realpath(root);

@@ -687,24 +687,34 @@ export class ExecutionRegistry {
   }
 
   async cancel(runId, backendId = null) {
+    let cancelled = false;
+    const active = this.activeRuns.get(runId);
+    if (active) {
+      active.abortController.abort(new Error(`Execution ${runId} was cancelled.`));
+      cancelled = true;
+    }
     if (backendId) {
       const backend = this.get(backendId);
-      return backend ? backend.cancel(runId) : false;
-    }
-    const trackedBackendId = this.activeRuns.get(runId);
-    if (trackedBackendId) {
-      const backend = this.get(trackedBackendId);
       if (backend) {
-        const cancelled = await backend.cancel(runId);
-        if (cancelled) return true;
+        const backendCancelled = await backend.cancel(runId);
+        if (backendCancelled) cancelled = true;
+      }
+      return cancelled;
+    }
+    const targetBackendId = active?.backendId;
+    if (targetBackendId) {
+      const backend = this.get(targetBackendId);
+      if (backend) {
+        const backendCancelled = await backend.cancel(runId);
+        if (backendCancelled) cancelled = true;
+      }
+    } else {
+      for (const backend of this.backends.values()) {
+        const res = await backend.cancel(runId);
+        if (res) cancelled = true;
       }
     }
-    let anyCancelled = false;
-    for (const backend of this.backends.values()) {
-      const res = await backend.cancel(runId);
-      if (res) anyCancelled = true;
-    }
-    return anyCancelled;
+    return cancelled;
   }
 
   /**
@@ -744,17 +754,28 @@ export class ExecutionRegistry {
       throw fault('unknown_backend', `Backend '${targetBackendId}' is not registered.`, 404);
     }
 
-    this.activeRuns.set(request.runId, targetBackendId);
+    const dispatchController = new AbortController();
+    const onCallerAbort = () => dispatchController.abort(signal?.reason);
+    if (signal) {
+      if (signal.aborted) {
+        dispatchController.abort(signal.reason);
+      } else {
+        signal.addEventListener('abort', onCallerAbort, { once: true });
+      }
+    }
+
+    const dispatchSignal = dispatchController.signal;
+    this.activeRuns.set(request.runId, { backendId: targetBackendId, abortController: dispatchController });
 
     try {
       // 2. Cancellation check before doing work
-      if (signal?.aborted) {
+      if (dispatchSignal.aborted) {
         return validateExecutionReceipt({
           runId: request.runId,
           status: 'cancelled',
           exitCode: null,
           stdout: '',
-          stderr: signal.reason ? String(signal.reason) : 'Execution cancelled before dispatch.',
+          stderr: dispatchSignal.reason ? String(dispatchSignal.reason) : 'Execution cancelled before dispatch.',
           startedAt,
           completedAt: startedAt,
           durationMs: 0,
@@ -773,6 +794,25 @@ export class ExecutionRegistry {
         report = await this.getCapabilityReport(targetBackendId);
       } catch (err) {
         throw fault('backend_probe_failed', `Failed to probe backend '${targetBackendId}': ${err.message}`, 500);
+      }
+
+      if (dispatchSignal.aborted) {
+        return validateExecutionReceipt({
+          runId: request.runId,
+          status: 'cancelled',
+          exitCode: null,
+          stdout: '',
+          stderr: dispatchSignal.reason ? String(dispatchSignal.reason) : 'Execution cancelled while probing capabilities.',
+          startedAt,
+          completedAt: startedAt,
+          durationMs: 0,
+          backend: targetBackendId,
+          snapshotHash: request.snapshotHash,
+          checkHash: request.checkHash,
+          truncated: false,
+          evidencePath: null,
+          reasons: ['Cancelled before backend execution'],
+        });
       }
 
       // 4. Fail-closed: Check backend availability
@@ -852,12 +892,55 @@ export class ExecutionRegistry {
       }
 
       if (gate) {
-        const auth = await gate.authorize({
-          name: 'local.run_command',
-          args: { command: request.command, cwd: request.cwd, isolationRequired: request.isolationRequired },
-          taskId: taskId || request.runId,
-          signal,
-        });
+        let auth;
+        try {
+          auth = await gate.authorize({
+            name: 'local.run_command',
+            args: { command: request.command, cwd: request.cwd, isolationRequired: request.isolationRequired },
+            taskId: taskId || request.runId,
+            signal: dispatchSignal,
+          });
+        } catch (err) {
+          if (dispatchSignal.aborted) {
+            return validateExecutionReceipt({
+              runId: request.runId,
+              status: 'cancelled',
+              exitCode: null,
+              stdout: '',
+              stderr: dispatchSignal.reason ? String(dispatchSignal.reason) : 'Execution cancelled during permission authorization.',
+              startedAt,
+              completedAt: startedAt,
+              durationMs: 0,
+              backend: targetBackendId,
+              snapshotHash: request.snapshotHash,
+              checkHash: request.checkHash,
+              truncated: false,
+              evidencePath: null,
+              reasons: ['Cancelled while waiting for permission approval'],
+            });
+          }
+          throw err;
+        }
+
+        if (dispatchSignal.aborted) {
+          return validateExecutionReceipt({
+            runId: request.runId,
+            status: 'cancelled',
+            exitCode: null,
+            stdout: '',
+            stderr: dispatchSignal.reason ? String(dispatchSignal.reason) : 'Execution cancelled after permission authorization.',
+            startedAt,
+            completedAt: startedAt,
+            durationMs: 0,
+            backend: targetBackendId,
+            snapshotHash: request.snapshotHash,
+            checkHash: request.checkHash,
+            truncated: false,
+            evidencePath: null,
+            reasons: ['Cancelled before backend execution'],
+          });
+        }
+
         if (!auth.allowed) {
           return validateExecutionReceipt({
             runId: request.runId,
@@ -895,10 +978,32 @@ export class ExecutionRegistry {
         });
       }
 
+      if (dispatchSignal.aborted) {
+        return validateExecutionReceipt({
+          runId: request.runId,
+          status: 'cancelled',
+          exitCode: null,
+          stdout: '',
+          stderr: dispatchSignal.reason ? String(dispatchSignal.reason) : 'Execution cancelled before backend execution.',
+          startedAt,
+          completedAt: startedAt,
+          durationMs: 0,
+          backend: targetBackendId,
+          snapshotHash: request.snapshotHash,
+          checkHash: request.checkHash,
+          truncated: false,
+          evidencePath: null,
+          reasons: ['Cancelled before backend execution'],
+        });
+      }
+
       // 8. Execute via target backend
-      return await backend.execute(request, { signal });
+      return await backend.execute(request, { signal: dispatchSignal });
     } finally {
-      this.activeRuns.delete(request.runId);
+      if (signal) signal.removeEventListener('abort', onCallerAbort);
+      if (this.activeRuns.get(request.runId)?.abortController === dispatchController) {
+        this.activeRuns.delete(request.runId);
+      }
     }
   }
 }
