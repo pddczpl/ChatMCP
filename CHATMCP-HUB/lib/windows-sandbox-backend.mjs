@@ -45,7 +45,9 @@ export class WindowsSandboxBackend extends ExecutionBackend {
     // Never treat that situation as a free slot or silently relaunch.
     try {
       await fs.access(path.join(this.stateDirectory,'active.lock'));
-      this.quarantined=true;
+      // A lock owned by a currently running job is normal busy state.
+      // Quarantine only a stale lock without a corresponding live owner.
+      if (this.active.size === 0) this.quarantined=true;
     } catch (e) {
       if(e?.code!=='ENOENT')this.quarantined=true;
     }
