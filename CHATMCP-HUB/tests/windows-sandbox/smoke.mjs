@@ -122,7 +122,11 @@ export async function runSmokeTests() {
     ok('Execution request prepared with 256-bit cryptographic nonce');
 
     console.log('# 4. Host-only synthetic supervisor fixture (NOT Windows Sandbox guest)');
-    const supervisorDll = path.resolve('CHATMCP-HUB/windows/sandbox/GuestSupervisor/bin/Debug/net10.0/GuestSupervisor.dll');
+    const candidateDlls = [
+      path.resolve('CHATMCP-HUB/windows/sandbox/GuestSupervisor/bin/Release/net10.0/GuestSupervisor.dll'),
+      path.resolve('CHATMCP-HUB/windows/sandbox/GuestSupervisor/bin/Debug/net10.0/GuestSupervisor.dll'),
+    ];
+    const supervisorDll = candidateDlls.find((p) => fs.existsSync(p)) || candidateDlls[1];
     let hasDotnet = false;
     try {
       execFileSync('dotnet', ['--version'], { stdio: 'ignore' });
@@ -136,12 +140,39 @@ export async function runSmokeTests() {
       throw new Error('Required Windows host fixture unavailable: build GuestSupervisor with .NET 10 first.');
     }
     if (hostNativeReady) {
+      // P0-A: Reject contradictory flags
+      let contradictoryExitedWith3 = false;
+      try {
+        execFileSync(
+          'dotnet',
+          [supervisorDll, '--host-fixture', '--guest-fixture', '--request', prep.requestPath, '--output', outputDir],
+          { encoding: 'utf8', windowsHide: true, stdio: 'pipe' }
+        );
+      } catch (err) {
+        if (err.status === 3) {
+          contradictoryExitedWith3 = true;
+        }
+      }
+      assert.equal(contradictoryExitedWith3, true, 'GuestSupervisor must exit with code 3 when given contradictory flags');
+      ok('GuestSupervisor rejected contradictory --host-fixture and --guest-fixture flags with code 3');
+
       // Run GuestSupervisor against synthetic request
       execFileSync(
         'dotnet',
         [supervisorDll, '--host-fixture', '--request', prep.requestPath, '--output', outputDir],
         { encoding: 'utf8', windowsHide: true }
       );
+
+      // P0-C: Unauthenticated provenance check fails closed without opt-in
+      await assert.rejects(
+        () => readAndVerifyExecutionReceipt({
+          exportDirectory: outputDir,
+          expectedRunId: runId,
+          expectedNonce: prep.nonce,
+        }),
+        { code: 'unverified_guest_origin' }
+      );
+      ok('Receipt rejected with unverified_guest_origin when fixture opt-in is absent');
 
       const receipt = await readAndVerifyExecutionReceipt({
         exportDirectory: outputDir,

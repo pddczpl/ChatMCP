@@ -29,10 +29,23 @@ const ok = (label) => {
   console.log(`  ok - ${label}`);
 };
 
-setTimeout(() => {
-  console.error('FAIL: real-guest test suite exceeded time budget (120s)');
+let activeSandboxId = null;
+let activeWsbCli = null;
+
+const watchdogTimer = setTimeout(() => {
+  console.error('FAIL: real-guest test suite exceeded time budget (180s)');
+  if (activeSandboxId && activeWsbCli) {
+    try {
+      console.error(`Emergency watchdog stopping owned sandbox ${activeSandboxId}...`);
+      execFileSync(activeWsbCli, ['stop', '--id', activeSandboxId, '--raw'], { encoding: 'utf8', timeout: 15_000 });
+      console.error('Emergency sandbox stop completed.');
+    } catch (e) {
+      console.error('Emergency stop error:', e.message);
+    }
+  }
   process.exit(2);
-}, 120_000).unref();
+}, 180_000);
+watchdogTimer.unref();
 
 export async function runRealGuestTests() {
   console.log('=== CHATMCP PHASE 1: REAL WINDOWS SANDBOX GUEST VALIDATION ===\n');
@@ -113,6 +126,8 @@ export async function runRealGuestTests() {
     );
     const startOutput = JSON.parse(startOutputRaw);
     ownedSandboxId = startOutput.Id;
+    activeSandboxId = ownedSandboxId;
+    activeWsbCli = wsbCli;
     assert.ok(ownedSandboxId, 'Sandbox start must return valid Id');
     assert.match(ownedSandboxId, /^[0-9a-fA-F-]{36}$/, 'Sandbox ID must be UUID');
 
@@ -146,13 +161,30 @@ export async function runRealGuestTests() {
 
     // Step 8: Real Trusted GuestSupervisor Execution
     console.log('# 8. Real Trusted GuestSupervisor Execution in Guest');
+
+    // P0-A: GuestSupervisor rejects contradictory flags inside Sandbox
+    const contradictoryExecRaw = execFileSync(
+      wsbCli,
+      [
+        'exec',
+        '--id', ownedSandboxId,
+        '-r', 'System',
+        '-c', 'C:\\ChatMCP\\Input\\GuestSupervisor.exe --host-fixture --guest-fixture',
+        '--raw'
+      ],
+      { encoding: 'utf8', timeout: 15_000 }
+    );
+    const contradictoryExec = JSON.parse(contradictoryExecRaw);
+    assert.equal(contradictoryExec.ExitCode, 3, 'GuestSupervisor must exit with code 3 on conflicting flags in guest');
+    ok('GuestSupervisor inside Sandbox rejected conflicting flags with exit code 3');
+
     const req1 = await prepareExecutionRequest({
       inputDirectory: inputDir,
       runId: 'exec-smoke-' + crypto.randomBytes(4).toString('hex'),
       command: 'cmd.exe',
-      args: ['/c', 'echo HELLO_FROM_RESTRICTED_CHILD && whoami'],
+      args: ['/c', 'echo HELLO_FROM_RESTRICTED_CHILD && whoami && whoami /priv'],
       timeoutSeconds: 20,
-      maxOutputBytes: 10240,
+      maxOutputBytes: 20480,
     });
 
     const supExecRaw = execFileSync(
@@ -169,7 +201,19 @@ export async function runRealGuestTests() {
     const supExec = JSON.parse(supExecRaw);
     assert.equal(supExec.ExitCode, 0, 'GuestSupervisor execution must exit 0');
 
-    // Verify receipt returned via output mapping
+    // P0-C: Unauthenticated provenance check fails closed without fixture opt-in
+    await assert.rejects(
+      () => readAndVerifyExecutionReceipt({
+        exportDirectory: outputDir,
+        expectedRunId: req1.runId,
+        expectedNonce: req1.nonce,
+        backend: 'windows-sandbox',
+      }),
+      { code: 'unverified_guest_origin' }
+    );
+    ok('Guest receipt rejected with unverified_guest_origin when fixture bypass is absent');
+
+    // Verify receipt returned via output mapping with explicit prototype verification opt-in
     const receipt1 = await readAndVerifyExecutionReceipt({
       exportDirectory: outputDir,
       expectedRunId: req1.runId,
@@ -186,9 +230,17 @@ export async function runRealGuestTests() {
     // Inspect detailed receipt fields
     const rawReceipt1 = JSON.parse(fs.readFileSync(path.join(outputDir, 'receipt.json'), 'utf8'));
     assert.equal(rawReceipt1.isGuestExecution, true, 'Receipt must record guest execution flag');
+    assert.equal(rawReceipt1.restrictedChild, true, 'Receipt must record restricted token child flag');
     assert.equal(rawReceipt1.jobObjectAttached, true, 'Receipt must record Job Object attachment');
     assert.ok(rawReceipt1.childPid > 0, 'Child PID must be recorded');
-    ok(`Child process contained under Job Object (Child PID: ${rawReceipt1.childPid}, Supervisor PID: ${rawReceipt1.supervisorPid})`);
+    ok(`Child process contained under Job Object with restricted token (Child PID: ${rawReceipt1.childPid}, Supervisor PID: ${rawReceipt1.supervisorPid})`);
+
+    // P0-A: Child token privilege verification (whoami /priv)
+    // When running under CreateRestrictedToken with DISABLE_MAX_PRIVILEGE from SYSTEM,
+    // dangerous administrative privileges must not be Enabled
+    const dangerousPrivRegex = /Se(Debug|Tcb|LoadDriver|Backup|Restore|TakeOwnership|AssignPrimaryToken)Privilege\s+Enabled/i;
+    assert.ok(!dangerousPrivRegex.test(receipt1.stdout), 'Dangerous administrative privileges must not be Enabled in restricted child');
+    ok('Child OS-level token privileges verified: dangerous administrative privileges stripped/disabled');
 
     // Step 9: Guest Timeout Enforcement under Job Object
     console.log('# 9. Guest Timeout Enforcement');
@@ -254,6 +306,28 @@ export async function runRealGuestTests() {
 
     // Step 12: Real Negative Isolation Test F3: Network Isolation
     console.log('# 12. Negative Isolation Test F3: Network Isolation');
+
+    // Positive host control: verify that host itself has network connectivity
+    let hostReachable = false;
+    try {
+      const net = await import('node:net');
+      await new Promise((resolve, reject) => {
+        const s = net.createConnection({ host: '8.8.8.8', port: 53, timeout: 3000 }, () => {
+          s.destroy();
+          resolve();
+        });
+        s.on('error', reject);
+        s.on('timeout', () => { s.destroy(); reject(new Error('timeout')); });
+      });
+      hostReachable = true;
+    } catch { }
+
+    if (hostReachable) {
+      ok('Positive host network control verified (host can reach 8.8.8.8:53)');
+    } else {
+      console.log('NOTICE: Host cannot connect to 8.8.8.8:53 directly; proceeding with guest network isolation test');
+    }
+
     const netAttemptRaw = execFileSync(
       wsbCli,
       ['exec', '--id', ownedSandboxId, '-r', 'System', '-c', 'powershell.exe -NoProfile -Command "try { (New-Object System.Net.Sockets.TcpClient).Connect(\'8.8.8.8\', 53); exit 0 } catch { exit 99 }"', '--raw'],
@@ -320,6 +394,7 @@ export async function runRealGuestTests() {
     // Step 14: Stop and Cleanup Owned Sandbox Instance
     console.log('# 14. Stop Owned Sandbox & Lifecycle Termination');
     if (ownedSandboxId) {
+      activeSandboxId = null;
       try {
         const stopOutputRaw = execFileSync(
           wsbCli,

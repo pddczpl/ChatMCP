@@ -2,7 +2,8 @@
 //
 // Provides bounded execution under a kill-on-close Windows Job Object,
 // eliminates process-start races via CREATE_SUSPENDED, creates restricted
-// tokens when running as privileged SYSTEM, captures bounded output streams,
+// tokens when running as privileged SYSTEM/Admin, prevents any privileged fallback,
+// validates all Win32 process lifecycle return codes, captures bounded output streams,
 // and produces cryptographic execution receipts.
 
 using System;
@@ -233,6 +234,8 @@ internal static class NativeProcessManager
 
     public const uint WAIT_OBJECT_0 = 0x00000000;
     public const uint WAIT_TIMEOUT = 0x00000102;
+    public const uint WAIT_FAILED = 0xFFFFFFFF;
+    public const int STILL_ACTIVE = 259;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct SECURITY_ATTRIBUTES
@@ -370,6 +373,12 @@ public static class Program
             }
         }
 
+        if (hostFixture && guestFixture)
+        {
+            Console.Error.WriteLine("BLOCKED: Cannot specify both --host-fixture and --guest-fixture.");
+            return 3;
+        }
+
         if (!hostFixture && !guestFixture)
         {
             Console.Error.WriteLine("BLOCKED: GuestSupervisor requires explicit --host-fixture or --guest-fixture mode.");
@@ -436,42 +445,62 @@ public static class Program
         NativeProcessManager.SetHandleInformation(hStdErrRead, NativeProcessManager.HANDLE_FLAG_INHERIT, 0);
 
         IntPtr hRestrictedToken = IntPtr.Zero;
+        IntPtr hChildProcess = IntPtr.Zero;
+        IntPtr hChildThread = IntPtr.Zero;
+
         try
         {
             bool isSystem = false;
+            bool isAdmin = false;
             if (OperatingSystem.IsWindows())
             {
                 try
                 {
                     using var id = WindowsIdentity.GetCurrent();
                     isSystem = id.IsSystem;
+                    var principal = new WindowsPrincipal(id);
+                    isAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator);
                 }
                 catch { }
             }
 
-            // When running as privileged SYSTEM in guest, drop privileges to a restricted non-admin token
-            if (isSystem && guestFixture)
+            // In guest mode, if supervisor has System or Administrator privileges, token restriction is MANDATORY.
+            // Under NO circumstance is a fallback to privileged CreateProcessW permitted.
+            if (guestFixture)
             {
-                if (NativeProcessManager.OpenProcessToken(
-                    NativeProcessManager.GetCurrentProcess(),
-                    NativeProcessManager.TOKEN_ASSIGN_PRIMARY | NativeProcessManager.TOKEN_DUPLICATE |
-                    NativeProcessManager.TOKEN_QUERY | NativeProcessManager.TOKEN_ADJUST_DEFAULT,
-                    out IntPtr hCurrentToken))
+                if (isSystem || isAdmin)
                 {
+                    if (!NativeProcessManager.OpenProcessToken(
+                        NativeProcessManager.GetCurrentProcess(),
+                        NativeProcessManager.TOKEN_ASSIGN_PRIMARY | NativeProcessManager.TOKEN_DUPLICATE |
+                        NativeProcessManager.TOKEN_QUERY | NativeProcessManager.TOKEN_ADJUST_DEFAULT,
+                        out IntPtr hCurrentToken))
+                    {
+                        int tokenErr = Marshal.GetLastWin32Error();
+                        throw new Win32Exception(tokenErr, $"Security failure: Failed to open supervisor process token for restriction (error {tokenErr}).");
+                    }
+
                     try
                     {
-                        if (NativeProcessManager.CreateRestrictedToken(
+                        if (!NativeProcessManager.CreateRestrictedToken(
                             hCurrentToken,
                             NativeProcessManager.DISABLE_MAX_PRIVILEGE | NativeProcessManager.LUA_TOKEN,
                             0, IntPtr.Zero, 0, IntPtr.Zero, 0, IntPtr.Zero,
                             out hRestrictedToken))
                         {
-                            isRestrictedChild = true;
+                            int restrErr = Marshal.GetLastWin32Error();
+                            throw new Win32Exception(restrErr, $"Security failure: Failed to create restricted non-admin token for child (error {restrErr}).");
                         }
+                        isRestrictedChild = true;
                     }
                     finally
                     {
                         NativeProcessManager.CloseHandle(hCurrentToken);
+                    }
+
+                    if (hRestrictedToken == IntPtr.Zero)
+                    {
+                        throw new InvalidOperationException("Security failure: Restricted token handle is null; refusing privileged child spawn.");
                     }
                 }
             }
@@ -509,6 +538,12 @@ public static class Program
             }
             else
             {
+                // In guest mode, if privileged, CreateProcessW is strictly forbidden
+                if (guestFixture && (isSystem || isAdmin))
+                {
+                    throw new InvalidOperationException("Fatal security invariant violation: Attempted privileged CreateProcessW fallback for guest supervisor.");
+                }
+
                 created = NativeProcessManager.CreateProcessW(
                     null,
                     commandLine,
@@ -534,23 +569,32 @@ public static class Program
                 throw new Win32Exception(err, $"CreateProcess failed with Win32 error {err}.");
             }
 
+            hChildProcess = pi.hProcess;
+            hChildThread = pi.hThread;
             childPid = pi.dwProcessId;
 
             // RACE-FREE JOB OBJECT ASSIGNMENT:
             // Child was created in SUSPENDED state. It has not executed a single user instruction.
             // Assign to Job Object before resuming. If assignment fails, kill child immediately!
-            if (!jobObject.AssignProcess(pi.hProcess))
+            if (!jobObject.AssignProcess(hChildProcess))
             {
                 int assignErr = Marshal.GetLastWin32Error();
-                NativeProcessManager.TerminateProcess(pi.hProcess, 1);
-                NativeProcessManager.CloseHandle(pi.hThread);
-                NativeProcessManager.CloseHandle(pi.hProcess);
+                NativeProcessManager.TerminateProcess(hChildProcess, 1);
                 throw new Win32Exception(assignErr, "AssignProcessToJobObject failed on suspended process; child terminated.");
             }
 
-            // Now that the process is securely contained in the Job Object, resume execution
-            NativeProcessManager.ResumeThread(pi.hThread);
-            NativeProcessManager.CloseHandle(pi.hThread);
+            // Resume suspended primary thread and check result
+            uint resumeResult = NativeProcessManager.ResumeThread(hChildThread);
+            if (resumeResult == uint.MaxValue)
+            {
+                int resumeErr = Marshal.GetLastWin32Error();
+                NativeProcessManager.TerminateProcess(hChildProcess, 1);
+                throw new Win32Exception(resumeErr, $"ResumeThread failed with error {resumeErr}; child terminated.");
+            }
+
+            // Thread handle no longer needed
+            NativeProcessManager.CloseHandle(hChildThread);
+            hChildThread = IntPtr.Zero;
 
             // Read bounded output streams asynchronously
             using var outStream = new FileStream(new SafeFileHandle(hStdOutRead, ownsHandle: true), FileAccess.Read);
@@ -566,28 +610,58 @@ public static class Program
             uint waitResult = await Task.Run(() =>
             {
                 int timeoutMs = (int)(request.TimeoutSeconds * 1000);
-                return NativeProcessManager.WaitForSingleObject(pi.hProcess, (uint)Math.Max(1000, timeoutMs));
+                return NativeProcessManager.WaitForSingleObject(hChildProcess, (uint)Math.Max(1000, timeoutMs));
             });
 
-            if (waitResult == NativeProcessManager.WAIT_TIMEOUT)
+            if (waitResult == NativeProcessManager.WAIT_FAILED)
+            {
+                int waitErr = Marshal.GetLastWin32Error();
+                NativeProcessManager.TerminateProcess(hChildProcess, 1);
+                status = "failed";
+                exitCode = null;
+                reasons.Add($"WaitForSingleObject failed with error {waitErr}");
+            }
+            else if (waitResult == NativeProcessManager.WAIT_TIMEOUT)
             {
                 status = "timed_out";
                 exitCode = null;
                 reasons.Add("Command execution exceeded timeout");
-                NativeProcessManager.TerminateProcess(pi.hProcess, 1);
+                NativeProcessManager.TerminateProcess(hChildProcess, 1);
+                NativeProcessManager.WaitForSingleObject(hChildProcess, 2000);
+            }
+            else if (waitResult == NativeProcessManager.WAIT_OBJECT_0)
+            {
+                if (!NativeProcessManager.GetExitCodeProcess(hChildProcess, out int cExitCode))
+                {
+                    int exitErr = Marshal.GetLastWin32Error();
+                    status = "failed";
+                    exitCode = null;
+                    reasons.Add($"GetExitCodeProcess failed with error {exitErr}");
+                }
+                else if (cExitCode == NativeProcessManager.STILL_ACTIVE)
+                {
+                    NativeProcessManager.TerminateProcess(hChildProcess, 1);
+                    status = "failed";
+                    exitCode = null;
+                    reasons.Add("Process reported STILL_ACTIVE after wait completed; forced termination.");
+                }
+                else
+                {
+                    exitCode = cExitCode;
+                    status = exitCode == 0 ? "completed" : "failed";
+                    if (exitCode != 0)
+                    {
+                        reasons.Add($"Process exited with non-zero exit code {exitCode}");
+                    }
+                }
             }
             else
             {
-                NativeProcessManager.GetExitCodeProcess(pi.hProcess, out int cExitCode);
-                exitCode = cExitCode;
-                status = exitCode == 0 ? "completed" : "failed";
-                if (exitCode != 0)
-                {
-                    reasons.Add($"Process exited with non-zero exit code {exitCode}");
-                }
+                NativeProcessManager.TerminateProcess(hChildProcess, 1);
+                status = "failed";
+                exitCode = null;
+                reasons.Add($"Unexpected wait result: {waitResult}");
             }
-
-            NativeProcessManager.CloseHandle(pi.hProcess);
 
             var (outStr, outTrunc) = await stdoutTask;
             var (errStr, errTrunc) = await stderrTask;
@@ -604,11 +678,13 @@ public static class Program
         }
         finally
         {
-            if (hStdOutWrite != IntPtr.Zero) NativeProcessManager.CloseHandle(hStdOutWrite);
-            if (hStdErrWrite != IntPtr.Zero) NativeProcessManager.CloseHandle(hStdErrWrite);
-            if (hStdOutRead != IntPtr.Zero) NativeProcessManager.CloseHandle(hStdOutRead);
-            if (hStdErrRead != IntPtr.Zero) NativeProcessManager.CloseHandle(hStdErrRead);
-            if (hRestrictedToken != IntPtr.Zero) NativeProcessManager.CloseHandle(hRestrictedToken);
+            if (hStdOutWrite != IntPtr.Zero) { NativeProcessManager.CloseHandle(hStdOutWrite); hStdOutWrite = IntPtr.Zero; }
+            if (hStdErrWrite != IntPtr.Zero) { NativeProcessManager.CloseHandle(hStdErrWrite); hStdErrWrite = IntPtr.Zero; }
+            if (hStdOutRead != IntPtr.Zero) { NativeProcessManager.CloseHandle(hStdOutRead); hStdOutRead = IntPtr.Zero; }
+            if (hStdErrRead != IntPtr.Zero) { NativeProcessManager.CloseHandle(hStdErrRead); hStdErrRead = IntPtr.Zero; }
+            if (hRestrictedToken != IntPtr.Zero) { NativeProcessManager.CloseHandle(hRestrictedToken); hRestrictedToken = IntPtr.Zero; }
+            if (hChildThread != IntPtr.Zero) { NativeProcessManager.CloseHandle(hChildThread); hChildThread = IntPtr.Zero; }
+            if (hChildProcess != IntPtr.Zero) { NativeProcessManager.CloseHandle(hChildProcess); hChildProcess = IntPtr.Zero; }
             sw.Stop();
         }
 
