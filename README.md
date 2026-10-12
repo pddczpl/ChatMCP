@@ -1,151 +1,145 @@
-# ChatMCP — AI Coding Agent
+# ChatMCP — Local-first AI Coding Agent
 
-ChatMCP là một **AI Coding Agent chạy cục bộ**, thiết kế tối ưu cho Windows 11 và môi trường tự host: bạn chọn một thư mục dự án, kết nối nhà cung cấp mô hình (Anthropic, OpenAI, Gemini, OpenRouter, DeepSeek, Ollama…), giao việc bằng tiếng Việt hoặc tiếng Anh; agent tự động đọc mã, lập kế hoạch đa bước, sửa file nguyên tử, chạy kiểm thử, dùng Git và báo cáo kết quả dựa trên đầu ra thực tế.
+**ChatMCP** is a multi-provider coding agent with a Windows desktop app and a local web UI. It works inside your selected project, can inspect/edit code, prepare plans, run allowed checks, use Git, and retain reviewable task evidence. A legacy MCP backend remains available; the default local backend does **not** require Cloud Harness or Docker.
 
----
+> **Status:** This branch includes beta worktree coding agents and GitHub Agent Skills Hub improvements. Features are not part of a stable Windows installer until this PR has been merged, built and released. A green CI run does not replace end-user installer tests.
 
-## Tính năng nổi bật
+**[Windows setup](docs/WINDOWS-SETUP.md)** · **[User guide](docs/USER-GUIDE.md)** · **[Architecture](docs/ARCHITECTURE.md)** · **[Security](SECURITY.md)** · **[Deployment](docs/DEPLOYMENT.md)** · **[Releases](https://github.com/pddczpl/ChatMCP/releases)**
 
-- **Desktop Native App (Windows 11):** Phân phối qua file cài đặt độc lập `dist/ChatMCPSetup.exe`. Tự động tạo shortcut, đăng ký vào Windows Apps (`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\ChatMCP`) và tạo sẵn bộ gỡ cài đặt `Uninstall.exe`. Ứng dụng chạy qua `ChatMCP.exe` trong cửa sổ native độc lập, không thanh URL, không tabs. Chi tiết: [docs/DESKTOP-APP.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/DESKTOP-APP.md).
-- **Multi-Agent Orchestrator (beta):** Tab Agents hỗ trợ DAG tối đa 8 read-only workers, chạy tối đa 3 worker song song, truyền kết quả giữa các bước, coordinator tổng hợp và có thể hủy tác vụ. Chưa có quyền sửa mã đồng thời hoặc triển khai subagent lên các worktree độc lập.
-- **GitHub Agent Skills Hub (beta):** Tìm SKILL.md thực từ các thư mục GitHub chọn lọc, ghim SHA, cho phép cài SKILL.md và tối đa 32 resources văn bản trong references/scripts/assets với giới hạn dung lượng, lưu hash vào lockfile. Các skill bên thứ ba mặc định tắt; không thực thi scripts và chưa hỗ trợ binary assets. Tính năng refresh/import chỉ hoạt động ở local trusted Hub.
-- **Skills Marketplace & Plugin System:** Chợ kỹ năng chọn lọc (`git-workflow-pro`, `python-architect`, `docker-devops`, `sqlite-explorer`, `web-researcher`, `security-compliance-guard`), hỗ trợ cài đặt, cấu hình, bật/tắt và tự động tiêm ngữ cảnh vào Agent qua Command Palette (`Ctrl+K`).
-- **Phân quyền Multi-User RBAC & Cách ly Workspace:** Kiểm soát truy cập theo vai trò (`viewer`, `developer`, `admin`), đảm bảo an toàn biên giới thư mục giữa các workspace và ghi nhật ký kiểm toán bất biến vào `enterprise-audit.jsonl`.
-- **Bốn chế độ phê duyệt quyền linh hoạt:**
-  - *Chỉ đọc*: Agent chỉ phân tích, tìm kiếm mã nguồn và Git.
-  - *Review* (mặc định): Phê duyệt từng thay đổi file và lệnh thực thi kèm diff chi tiết.
-  - *Tự động*: Tự động chạy lệnh kiểm thử đã biết (`npm test`, `pytest`) và sửa file an toàn.
-  - *FULL ACCESS*: Chế độ tốc độ cao cho lập trình viên chuyên nghiệp, bắt buộc gõ xác nhận 'FULL ACCESS' kèm bảo vệ CSRF.
-- **Terminal tương tác ConPTY & AST Code Index:** Console thời gian thực tương tác trực tiếp với tiến trình hệ thống, kết hợp bộ phân tích cú pháp AST lập chỉ mục ký hiệu và tra cứu tham chiếu nhanh.
-- **Quản lý đa cấu hình AI (Multi-Profile):** Quản lý đồng thời nhiều tài khoản, mô hình và nhà cung cấp AI khác nhau (OpenAI, Anthropic, Gemini, OpenRouter, Ollama...) với cơ chế test kết nối trước khi áp dụng.
-- **Tự host & Triển khai đám mây tin cậy:** Hỗ trợ Docker Compose, Render free tier và máy chủ Linux VPS với cơ chế tách quyền người dùng Unix `hub`/`agent` và cổng kiểm tra bảo mật mặc định từ chối. Chi tiết: [docs/DEPLOYMENT.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/DEPLOYMENT.md).
+## What you can do
 
----
+| Capability | Status | Notes |
+| --- | --- | --- |
+| Local AI coding agent | Available | Supports several model providers (OpenAI, Anthropic, Gemini, compatible gateways, Ollama); provider/tool support depends on the model |
+| File tools / Git / checkpoints / terminal | Available | Approval policies, workspace path protections and resumable task records |
+| Windows desktop | Available | WinForms + WebView2 frontend, local Hub background process |
+| Research multi-agent DAG | Available | Up to 8 read-only nodes, maximum 3 active in parallel, cancellation and coordinator synthesis |
+| Parallel coding agents in Git worktrees | **Beta (this branch)** | Separate Git worktrees/branches; bounded file-editing toolset; branch review before integration |
+| Integration / Draft PR creation | **Beta (this branch)** | Explicit confirmation; merges into a **new integration branch** rather than directly into the user's branch |
+| GitHub Agent Skills Hub | **Beta (this branch)** | Nested SKILL.md discovery, pinned source revisions, checksummed binary/text assets, evidence-based license status, opt-in installation and updates |
+| Single-owner remote deployment | Available with limits | HTTPS + owner authentication + restricted execution modes |
+| Public multi-tenant SaaS / isolated hostile code execution | **Not supported** | Git worktrees are Git isolation, **not an OS security sandbox** |
 
-> **Lưu ý cho nhánh phát triển:** Tab Agents và GitHub Skills Hub có trong React source. Trước khi thử chức năng mới bằng bản desktop/local installer, hãy cập nhật UI bundle: `cd CHATMCP-HUB/ui && npm ci && npm run build` (sau đó quay lại thư mục gốc). CI cung cấp artifact `chatmcp-ui-dist` của PR tương ứng; các bản release cũ chưa có hai tab mới.
+## Quick start on Windows
 
-## Hướng dẫn chi tiết cài đặt & Khởi chạy
+**From an existing published release:** Download a verified ChatMCPSetup.exe from [GitHub Releases](https://github.com/pddczpl/ChatMCP/releases), check its SHA-256 against the release checksum, install and open **ChatMCP Studio**. The target Windows machine needs **Microsoft Edge WebView2 Runtime** (often already installed). Git for Windows is recommended for Git/worktree operations. The build pipeline bundles a portable Node.js runtime; the installer does not bundle Git.
 
-### Cách 1: Tải bộ cài đặt chính thức ChatMCPSetup.exe (Khuyên dùng)
+**From source (latest development code):**
 
-Dành cho người dùng cuối trên Windows 10/11. Không cần cài đặt trước Node.js, Git hay bất kỳ công cụ phát triển nào.
+Prerequisites: Windows 10/11, Git for Windows, Node.js 22+, npm. .NET SDK **10.0+** is needed only if you are building the native desktop/installer. For offline installer packaging, an internet connection is needed initially to restore npm and NuGet dependencies.
 
-1. **Tải bộ cài đặt:**
-   Truy cập **[GitHub Releases](https://github.com/pddczpl/ChatMCP/releases/latest)** và tải file **`ChatMCPSetup.exe`** (~35.7 MB).
-2. **Cài đặt trong 2 giây:**
-   - Nhấp đúp chuột vào file **`ChatMCPSetup.exe`** để mở trình cài đặt thương mại.
-   - Thư mục cài đặt mặc định: `%LOCALAPPDATA%\Programs\ChatMCP`.
-   - Trình cài đặt tự động tạo shortcut Desktop & Start Menu với icon chính thức, tích hợp trình gỡ cài đặt `Uninstall.exe` và đăng ký vào Windows Apps (`Installed apps`).
-3. **Sử dụng:**
-   - Mở **ChatMCP Studio** từ biểu tượng trên Desktop hoặc Start Menu.
-   - Chọn thư mục dự án và bắt đầu làm việc với AI Agent ngay lập tức.
+From PowerShell in the repository root:
 
----
+~~~powershell
+git clone https://github.com/pddczpl/ChatMCP.git
+cd ChatMCP
+# For development of features not yet in main:
+# git fetch origin
+# git switch feat/parallel-coding-agents-skills-registry-v2
+npm ci --prefix .\CHATMCP-HUB\ui
+npm run build --prefix .\CHATMCP-HUB\ui
+.\START-CHATMCP-DESKTOP.cmd
+~~~
 
-### Cách 2: Khởi chạy Native Desktop App từ mã nguồn (Dành cho Developer)
+To use the Hub via a browser instead of Windows desktop:
 
-Dành cho lập trình viên muốn chạy hoặc tùy biến từ mã nguồn repository:
+~~~powershell
+.\CHATMCP-HUB\START-CHATMCP-HUB.cmd -ProjectPath "C:\Projects\MyRepository"
+~~~
 
-1. **Yêu cầu môi trường:**
-   - Windows 10/11 (hỗ trợ cả PowerShell 5.1 và PowerShell 7).
-   - [Node.js](https://nodejs.org/) ≥ 22.x và [Git](https://git-scm.com/).
-   - (.NET SDK 9+ nếu muốn tự biên dịch lại desktop shell C#).
-2. **Clone repository:**
-   ```powershell
-   git clone https://github.com/pddczpl/ChatMCP.git
-   cd ChatMCP
-   ```
-3. **Khởi chạy tức thì (Không cần npm install / build frontend):**
-   Mã nguồn đã tích hợp sẵn bản build tĩnh sản xuất của UI tại `CHATMCP-HUB/web/dist/`. Bạn chỉ cần chạy:
-   ```powershell
-   .\START-CHATMCP-DESKTOP.cmd
-   ```
-   *(Tùy chọn: Chạy `.\scripts\install-desktop.ps1` để tự động tạo shortcut Desktop & Start Menu trỏ vào repo).*
+Open the local URL shown by the launcher (normally \`http://127.0.0.1:3007\`). Configure your model provider, select the workspace and use the permissions panel.
 
----
+## Multi-Agent Orchestrator
 
-### Cách 3: Khởi chạy Hub Server qua dòng lệnh (Headless / Web Browser)
+Open **Inspector → Agents**. The research DAG offers Planner, Researcher, Tester (analysis, not shell execution), Reviewer, Security and Summarizer roles. Nodes can depend on earlier findings. A Coordinator creates a synthesis and points out uncertainty. These read-only workers receive **no executable tools**.
 
-Nếu muốn khởi chạy Hub server độc lập và truy cập qua trình duyệt web:
+For **Coding Workers** (local trusted mode only):
 
-```powershell
-.\CHATMCP-HUB\START-CHATMCP-HUB.cmd -ProjectPath C:\duong\dan\du-an
-```
-Mở trình duyệt tại địa chỉ `http://localhost:3000` (hoặc cổng được hiển thị trong console).
+1. Commit/stash any edits in your original Git workspace so the base revision is unambiguous.
+2. Provide 1–4 independent coding tasks, choose concurrency 1–3 and confirm **CREATE WORKTREES**.
+3. Each worker runs as a separate agent in its own **Git worktree and branch**, with a limited allowlist of file editing/search tools. Shell execution, external MCP, direct Git push, delete/merge and credential access are deliberately withheld.
+4. Review each result, branch, file list and diff with Git before choosing which workers to integrate. Model-reported completion **does not prove** a task passed tests.
+5. Confirm **INTEGRATE WORKTREES** to combine selected branches into a **new integration branch**. Conflicts stop the operation for manual inspection; your original branch is not overwritten.
+6. Only after reviewing and running your project's tests, confirm **PUBLISH DRAFT PR** (requires a configured GitHub origin and authenticated GitHub CLI). No automatic merge into main.
 
----
+**Important limits:** parallel worktrees isolate file/index changes, not the operating-system account. Coding workers do not execute unit tests automatically; run project tests on the resulting integration branch before approval. Network/shell execution requires a separate audited sandbox implementation.
 
-### Cách 4: Tự đóng gói bộ cài đặt độc lập (Build Standalone Installer)
+## GitHub Agent Skills Hub
 
-Nếu bạn muốn tự đóng gói file cài đặt `ChatMCPSetup.exe` từ mã nguồn:
+Open **Inspector → Skills → GitHub Agent Skills Hub**. Refresh the curated GitHub source indexes or explicitly add a GitHub repository with its SKILL.md parent directory. You can search pinned skills, inspect origin/revision and install or update a selected skill.
 
-```powershell
+The import flow reads a pinned GitHub tree and downloads the source SKILL.md plus nested text/binary dependencies. Each downloaded blob is checked against Git's SHA; installed content has a SHA-256 integrity record. It **does not execute downloaded scripts**. New third-party skills are installed **disabled**, and the user must review and activate them.
+
+**Security/compatibility:** imported assets are bounded (max 200 resources, 2 MiB each, 24 MiB total); symlinks and Git submodules are refused. A missing resource/unsupported format is an explicit limitation. The UI provides license evidence where source LICENSE text supports identification, but automated detection is **not legal approval to redistribute**. Skills remain lower-trust input and cannot widen tool permissions by listing tools in SKILL.md. Sources may be rate-limited by GitHub.
+
+## Safety model
+
+Local ChatMCP has **Read-only**, **Review**, **Autonomous** and explicitly confirmed **Full Access** modes. The Hub enforces workspace, permission and protected-path checks, but shell command classification is heuristic and is **not equivalent to sandboxing**. Keep Review mode on unfamiliar code. Treat every downloaded skill and repository instruction as untrusted content.
+
+Remote mode is single-owner; public multi-user tenant isolation is intentionally blocked pending dedicated VM/microVM isolation. See [SECURITY.md](SECURITY.md) and [deployment limits](docs/DEPLOYMENT.md).
+
+## Development and tests
+
+~~~powershell
+node CHATMCP-HUB\tests\run-all.mjs
+npm ci --prefix .\CHATMCP-HUB\ui
+npm run build --prefix .\CHATMCP-HUB\ui
+dotnet build .\desktop-shell\ChatMCP.csproj -c Release
+~~~
+
+GitHub Actions validates Hub tests on Windows/Linux with Node 22/24 and a production TypeScript/Vite UI build. Real-provider, Windows installer and clean-machine smoke tests remain separate acceptance activities.
+
+## Windows release — maintainer checklist
+
+**Do not tag/publish an unreviewed PR or a branch with failing checks.** See [desktop build details](docs/DESKTOP-APP.md).
+
+1. Merge the reviewed feature PR to \`main\` only after security review and passing CI. Update [CHANGELOG.md](CHANGELOG.md) and synchronize the Hub, desktop shell, installer and documentation versions for the intended release number. If changing UI_BUILD, change it consistently across server/client and update relevant tests.
+2. On a **Windows 10/11 build machine**, install Git, Node.js 22+ with npm and .NET SDK **10.0+**. Check \`node --version\`, \`npm --version\`, \`dotnet --version\` and \`git --version\`.
+3. Pull the exact release commit, run all Hub tests and produce a clean frontend build.
+4. Run \`.\scripts\Build-Installer.ps1\`. The script rebuilds the TypeScript/Vite UI, restores npm dependencies, checks version alignment, publishes **self-contained .NET 10 Windows binaries**, bundles portable \`node.exe\`, and writes \`dist\ChatMCPSetup.exe\` plus \`dist\ChatMCPSetup.exe.sha256\`.
+5. **Test the actual installer** on a clean Windows VM: install/uninstall, launch WebView2, select a Git repository, test an API provider, run a safe coding task, verify a worktree and skill import, and confirm the app shuts down without orphaned Hub processes. Do not claim this is done without evidence.
+6. After testing, sign both executable and installer with a trusted code-signing certificate if one is available; recompute SHA-256 **after signing**.
+7. Tag the exact tested commit and create a GitHub Release. Publish the EXE, checksum and release notes; start with a **Draft Release** if further verification is needed.
+
+Example commands, **only after step 1 is complete**:
+
+~~~powershell
+git switch main
+git pull --ff-only origin main
+git status --short
+node .\CHATMCP-HUB\tests\run-all.mjs
 .\scripts\Build-Installer.ps1
-```
-Script sẽ tự động:
-1. Chuẩn bị runtime Node.js portable và assets UI.
-2. Biên dịch desktop shell C# WinForms / WebView2.
-3. Đóng gói toàn bộ thành file duy nhất tại **`dist\ChatMCPSetup.exe`** (~35.7 MB).
+Get-FileHash .\dist\ChatMCPSetup.exe -Algorithm SHA256
+# Replace X.Y.Z with the synchronized project version:
+git tag -a vX.Y.Z -m "ChatMCP vX.Y.Z"
+git push origin vX.Y.Z
+gh auth status
+gh release create vX.Y.Z .\dist\ChatMCPSetup.exe .\dist\ChatMCPSetup.exe.sha256 --draft --title "ChatMCP vX.Y.Z" --generate-notes
+~~~
 
----
+The GitHub tag should point to the **same commit used to build and test** the installer. A signed installer requires a new checksum. Building a setup EXE is not proof of a usable release; verify the binary on Windows before announcing it.
 
-### Cách 5: Triển khai Docker & Tự host (Linux / VPS / Render)
+## Documentation
 
-ChatMCP hỗ trợ chạy trên server Linux hoặc đám mây qua Docker:
+- [User Guide](docs/USER-GUIDE.md)
+- [Windows Setup](docs/WINDOWS-SETUP.md)
+- [Desktop App & Installer](docs/DESKTOP-APP.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Development](docs/DEVELOPMENT.md)
+- [Deployment](docs/DEPLOYMENT.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Testing with Real Models](docs/TESTING-WITH-REAL-MODELS.md)
+- [Phase 0 Audit](docs/PHASE0-AUDIT.md)
+- [Phase 1 Design](docs/PHASE1-DESIGN.md)
+- [Phase 1 Report](docs/PHASE1-REPORT.md)
+- [Phase 2 Design](docs/PHASE2-DESIGN.md)
+- [Phase 2 Report](docs/PHASE2-REPORT.md)
+- [Phase 3 Design](docs/PHASE3-DESIGN.md)
+- [Phase 3 Report](docs/PHASE3-REPORT.md)
+- [Phase 4 Design](docs/PHASE4-DESIGN.md)
+- [Phase 4 Report](docs/PHASE4-REPORT.md)
+- [Security Policy](SECURITY.md) · [Changelog](CHANGELOG.md) · [Third-party Notices](THIRD-PARTY-NOTICES.md) · [Hub README](CHATMCP-HUB/README.md)
 
-```bash
-docker build -t chatmcp-hub .
-docker run -d -p 3000:3000 -v /path/to/project:/workspace chatmcp-hub
-```
-Chi tiết cấu hình biến môi trường, bảo mật đa người dùng và triển khai trên Render free tier: xem [docs/DEPLOYMENT.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/DEPLOYMENT.md).
+## License and contributions
 
-
----
-
-## Chế độ quyền của Agent
-
-| Chế độ | Hành vi của Agent | Mức độ an toàn |
-| :--- | :--- | :--- |
-| **Chỉ đọc** | Đọc file, tìm kiếm cú pháp, xem git log/diff. Mọi yêu cầu ghi bị từ chối ngay lập tức. | Cao nhất |
-| **Review (mặc định)** | Đọc file tự do; mỗi thao tác ghi/sửa file hoặc chạy lệnh đều hiện popup phê duyệt có diff trực quan. | Khuyên dùng |
-| **Tự động** | Tự động sửa file (có checkpoint) và chạy lệnh test đã biết; lệnh mạng, xóa file, git push vẫn hỏi. | Dự án quen thuộc |
-| **FULL ACCESS** | Thực hiện toàn bộ quyền tự trị không cần phê duyệt; bắt buộc gõ xác nhận 'FULL ACCESS' và CSRF. | Dành cho chuyên gia |
-
-Các file nhạy cảm (`.env`, private keys, `.git/`) luôn được bảo vệ tuyệt đối ở tất cả các chế độ. Xem chi tiết tại [SECURITY.md](https://github.com/pddczpl/ChatMCP/blob/main/SECURITY.md).
-
----
-
-## Cấu trúc Repository
-
-| Thư mục / Tệp | Vai trò | Trạng thái |
-| :--- | :--- | :--- |
-| `CHATMCP-HUB/` | Mã nguồn cốt lõi: Hub server, Agent loop, Plugin Manager, Governance, API routes | Hoàn thiện (v2.3.0) |
-| `START-CHATMCP-DESKTOP.cmd` | Bộ khởi chạy Desktop Native App 1-click cho Windows | Mới |
-| `scripts/` | Bộ công cụ cài đặt Desktop, bootstrap Cloud Harness và xoay khóa bảo mật | Hoàn thiện |
-| `docs/` | Toàn bộ 17 tài liệu kiến trúc, hướng dẫn sử dụng, triển khai và báo cáo kỹ thuật | Hoàn thiện |
-| `deploy/` | Cấu hình Docker, supervisor tách quyền Linux và các kịch bản kiểm thử E2E | Hoàn thiện |
-| `Dockerfile`, `render.yaml` | Cấu hình triển khai container cho Render và các nền tảng đám mây | Hoàn thiện |
-
----
-
-## Danh mục Tài liệu Kỹ thuật
-
-- [docs/USER-GUIDE.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/USER-GUIDE.md) — Hướng dẫn sử dụng chi tiết cho người dùng
-- [docs/DESKTOP-APP.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/DESKTOP-APP.md) — Hướng dẫn cài đặt và đóng gói ứng dụng Desktop Native
-- [docs/WINDOWS-SETUP.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/WINDOWS-SETUP.md) — Hướng dẫn thiết lập môi trường Windows 11
-- [docs/TROUBLESHOOTING.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/TROUBLESHOOTING.md) — Khắc phục sự cố thường gặp
-- [docs/ARCHITECTURE.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/ARCHITECTURE.md) — Kiến trúc tổng thể và ranh giới bảo mật
-- [docs/DEVELOPMENT.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/DEVELOPMENT.md) — Hướng dẫn phát triển và quy chuẩn kiểm thử
-- [docs/DEPLOYMENT.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/DEPLOYMENT.md) — Hướng dẫn tự host (Docker, Render, VPS)
-- [docs/TESTING-WITH-REAL-MODELS.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/TESTING-WITH-REAL-MODELS.md) — Hướng dẫn thử nghiệm với mô hình AI thực tế
-- [SECURITY.md](https://github.com/pddczpl/ChatMCP/blob/main/SECURITY.md) — Chính sách bảo mật, mô hình đe dọa và thu hồi token
-- [CHANGELOG.md](https://github.com/pddczpl/ChatMCP/blob/main/CHANGELOG.md) — Lịch sử thay đổi và cập nhật phiên bản
-- [docs/PHASE0-AUDIT.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/PHASE0-AUDIT.md) · [docs/PHASE1-DESIGN.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/PHASE1-DESIGN.md) · [docs/PHASE1-REPORT.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/PHASE1-REPORT.md) · [docs/PHASE2-DESIGN.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/PHASE2-DESIGN.md) · [docs/PHASE2-REPORT.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/PHASE2-REPORT.md) · [docs/PHASE3-DESIGN.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/PHASE3-DESIGN.md) · [docs/PHASE3-REPORT.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/PHASE3-REPORT.md) · [docs/PHASE4-DESIGN.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/PHASE4-DESIGN.md) · [docs/PHASE4-REPORT.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/PHASE4-REPORT.md) — Báo cáo kiểm toán, thiết kế và kết quả 4 phase
-- [THIRD-PARTY-NOTICES.md](https://github.com/pddczpl/ChatMCP/blob/main/THIRD-PARTY-NOTICES.md) — Giấy phép các thành phần bên thứ ba
-- [CHATMCP-HUB/README.md](https://github.com/pddczpl/ChatMCP/blob/main/CHATMCP-HUB/README.md) — Lịch sử phát hành của Hub
-
----
-
-## Giấy phép & Đóng góp
-
-Repository được phát triển độc lập cho ChatMCP. Phụ thuộc bên thứ ba [Cloud Harness MCP](https://github.com/bestagentkits/cloud-harness-mcp) (MIT License) được clone để sử dụng và tích hợp, không sao chép nguyên bản nhãn hiệu hay phân phối lại.
+Read [LICENSE](LICENSE) and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) before redistribution. ChatMCP may use optional upstream MCP components and third-party skills subject to their **own** licenses and terms; being publicly downloadable does not automatically confer redistribution permission. Bug reports and pull requests are welcome via [GitHub Issues](https://github.com/pddczpl/ChatMCP/issues).
