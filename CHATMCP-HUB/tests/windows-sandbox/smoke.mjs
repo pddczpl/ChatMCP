@@ -429,6 +429,18 @@ export async function runSmokeTests() {
         () => readAndVerifyExecutionReceipt({exportDirectory:dir,expectedRunId:candidate.runId,expectedNonce:candidate.nonce}),
         {code:'unverified_guest_origin'}
       );
+      for (const optIn of ['false', 'true', 1, {}, null]) {
+        await assert.rejects(
+          () => readAndVerifyExecutionReceipt({
+            exportDirectory: dir,
+            expectedRunId: candidate.runId,
+            expectedNonce: candidate.nonce,
+            allowUntrustedHostFixture: optIn,
+          }),
+          {code:'unverified_guest_origin'}
+        );
+      }
+      ok('Truthy non-boolean fixture bypass values rejected');
       candidate.version=99;writePair();
       await assert.rejects(
         () => readAndVerifyExecutionReceipt({exportDirectory:dir,expectedRunId:candidate.runId,expectedNonce:candidate.nonce,allowUntrustedHostFixture:true}),
