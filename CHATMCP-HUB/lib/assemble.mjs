@@ -88,7 +88,8 @@ export function assembleStudio(manager, { bundleRoot, exec = null }) {
     ? new LazyWindowsSandboxDriver({
         preflight:probeWindowsSandboxPreflight,
         runtimeDirectory:path.join(bundleRoot,'runtimes','windows-sandbox'),
-        nodeToolchainDirectory:path.join(bundleRoot,'runtimes','node'),
+        // Installer layout: runtime is a sibling of CHATMCP-HUB, not inside it.
+        nodeToolchainDirectory:path.resolve(bundleRoot,'..','runtimes','node'),
         stateDirectory:path.join(sandboxState,'driver'),
       })
     : null;
