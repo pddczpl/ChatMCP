@@ -110,13 +110,18 @@ export async function probeWindowsSandboxPreflight() {
   }
 
   // 3. Virtualization in firmware (VT-x / AMD-V)
+  // When a hypervisor is active (Hyper-V, WSL2, VBS), Win32_Processor hides VirtualizationFirmwareEnabled,
+  // but Win32_ComputerSystem reports HypervisorPresent: True. Either confirms CPU virtualization is enabled in BIOS.
   const virtFirmware = safePowerShell(
     '(Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty VirtualizationFirmwareEnabled)'
   );
-  const virtualizationEnabled = virtFirmware?.toLowerCase() === 'true';
+  const hypervisorPresent = safePowerShell(
+    '(Get-CimInstance Win32_ComputerSystem | Select-Object -First 1 -ExpandProperty HypervisorPresent)'
+  );
+  const virtualizationEnabled = virtFirmware?.toLowerCase() === 'true' || hypervisorPresent?.toLowerCase() === 'true';
 
   if (!virtualizationEnabled) {
-    blockers.push('Hardware virtualization is disabled in BIOS/firmware (VirtualizationFirmwareEnabled: False).');
+    blockers.push('Hardware virtualization is disabled in BIOS/firmware (VirtualizationFirmwareEnabled: False and HypervisorPresent: False).');
     remediations.push('Enable Intel Virtualization Technology (VT-x) or AMD SVM in the host system BIOS/UEFI settings.');
   }
 
