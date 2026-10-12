@@ -34,7 +34,7 @@ try {
       if (args[0]==='list') return JSON.stringify({WindowsSandboxEnvironments:calls.some(x=>x[0]==='start')&&!calls.some(x=>x[0]==='stop')?[{Id:ownerId}]:[]});
       if (args[0]==='start') return JSON.stringify({Id:ownerId});
       if (args[0]==='stop') return JSON.stringify({Stopped:true});
-      if (args[0]==='exec') return JSON.stringify({ExitCode:args[4]?.startsWith('robocopy.exe')?1:13});
+      if (args[0]==='exec') return JSON.stringify({ExitCode:args[args.indexOf('-c')+1]?.startsWith('robocopy.exe')?1:13});
       throw Error('Unexpected CLI verb');
     }
   });
@@ -53,7 +53,7 @@ try {
   const reqText=await fs.readFile(path.join(state,'run-'+generation,'input','request.json'),'utf8');
   assert.equal(reqText.includes(raw.expectedAuthKey),false,'Key must never appear in guest input');
   assert.equal(calls.filter(x=>x[0]==='exec').length,2);
-  assert.ok(calls.at(-1)[4].includes('--auth-key '+raw.expectedAuthKey));
+  assert.ok(calls.at(-1)[calls.at(-1).indexOf('-c')+1].includes('--auth-key '+raw.expectedAuthKey));
   assert.ok(await fs.readFile(path.join(state,'run-'+generation,'input','request.json'),'utf8').then(x=>x.includes('cmd.exe')));
   await assert.rejects(driver.stop({instanceId:ownerId,generation:'33333333-2222-3333-4444-555555555555'}), {code:'sandbox_not_owned'});
   const stopped=await driver.stop({instanceId:ownerId,generation});

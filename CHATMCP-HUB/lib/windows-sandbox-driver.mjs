@@ -14,8 +14,8 @@ import { prepareExecutionRequest } from './windows-sandbox-transport.mjs';
 const executeFile = promisify(execFile);
 const HASH = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
-const GUEST_WORK = 'C:\ChatMCP\Work';
-const GUEST_INPUT = 'C:\ChatMCP\Input';
+const GUEST_WORK = 'C:\\ChatMCP\\Work';
+const GUEST_INPUT = 'C:\\ChatMCP\\Input';
 
 export class WindowsSandboxCliDriver {
   constructor({ cliPath, runtimeDirectory, nodeToolchainDirectory, stateDirectory, runCli = null } = {}) {
