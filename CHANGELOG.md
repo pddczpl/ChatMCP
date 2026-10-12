@@ -1,5 +1,15 @@
 # Lịch sử thay đổi
 
+## [2.6.0] — 2026-10-12 — Local-only Windows release
+
+- Removed Render, Docker public server, public auth/workspaces/tenancy, Linux execution broker and legacy Cloud Harness MCP proxy backend.
+- Removed obsolete Cloud Harness setup snapshot, bootstrap scripts, cloud-only tests and mutation fixtures.
+- Hub now accepts local-only startup flags and binds to 127.0.0.1; hosted/public settings fail closed.
+- Preserved desktop coding agents, Git worktrees, browser companion, AI gateway, GitHub Skills Hub and optional local test sandbox.
+- Reworked README, SECURITY, Windows Setup and deployment retirement notice; retained historical notes without treating retired capabilities as supported.
+- Version 2.6.0 is built from a CI-verified commit and checked with SHA-256. Authenticode signing, live-provider E2E and a clean-Windows VM installation/upgrade smoke test were not established by CI.
+
+
 ## [2.5.0] — 2026-10-12 — Multi-Agent coding worktrees, GitHub Skills Hub & hardening
 
 Bản này nối tiếp bản cài đặt `v2.4.0` (giao diện React/Vite/Tailwind, đã phát hành riêng); `v2.4.0` không bị sửa hay gắn lại. Số phiên bản của Hub, Desktop, Installer và giao diện được đồng bộ về `2.5.0`.
@@ -23,7 +33,7 @@ Bản này nối tiếp bản cài đặt `v2.4.0` (giao diện React/Vite/Tailw
 
 
 
-Định dạng theo [Keep a Changelog](https://keepachangelog.com/vi/1.1.0/). Phiên bản của Hub (`CHATMCP-HUB/package.json`) và bản dựng giao diện (`2.5.0-react-agent`) cùng đi theo mục dưới đây.
+Định dạng theo [Keep a Changelog](https://keepachangelog.com/vi/1.1.0/). Phiên bản Hub (`CHATMCP-HUB/package.json`) và UI_BUILD hiện tại (`2.6.0-react-agent`) được đồng bộ; bản 2.5.0 được giữ trong phần lịch sử.
 
 Các bản trước 2.3.0 (2.0.0 … 2.2.8) có ghi chú riêng ở `CHATMCP-HUB/STUDIO-*.md`, `UPGRADE-*.md`, `TEST-RESULTS-*.txt`; chúng là tài liệu lịch sử và không được cập nhật.
 

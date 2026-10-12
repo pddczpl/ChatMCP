@@ -1,39 +1,16 @@
 #requires -Version 5.1
 <#
-Start the ChatMCP local dashboard in the background.
-
-By default the Hub runs on its own: only Node.js 22.12 or newer is required.
-The coding tools run inside the Hub, so Docker, Cloud Harness and Desktop
-Commander are NOT needed. The original MCP flow is still available with
--Backend mcp.
-
-Examples, from Windows PowerShell or a VS Code PowerShell terminal (the .cmd
-file next to this script passes all arguments on):
-  .\START-CHATMCP-HUB.cmd                         standalone; choose the folder in the dashboard
-  .\START-CHATMCP-HUB.cmd -ProjectPath .          open the current folder as the workspace
-  .\START-CHATMCP-HUB.cmd -StateDir D:\ChatMCP    keep Hub data (settings, sessions, checkpoints) elsewhere
-  .\START-CHATMCP-HUB.cmd -Backend mcp            original flow; needs the Cloud Harness repository
-
-Parameters
-  -ProjectPath  Folder to open as the workspace (optional).
-  -Backend      auto (default) = local, or mcp when -RepoRoot is given | local | mcp
-  -RepoRoot     Cloud Harness repository (mcp backend only). With -Backend mcp and no
-                -RepoRoot, the folder "cloud-harness-mcp" next to this repository is used.
-  -StateDir     Where the Hub keeps its data. Default: %LOCALAPPDATA%\ChatMCP\hub
-                (the mcp backend keeps it inside the Cloud Harness repository).
-  -Port         Dashboard port, default 3007 (3006 belongs to the MCP proxy).
-  -NoOpen       Do not open the browser.
-
-This launcher does not change PowerShell execution policy, register login
-startup, or kill other processes.
+Local-only ChatMCP Windows launcher.
+  .\START-CHATMCP-HUB.cmd -ProjectPath C:\Projects\Repo
+  .\START-CHATMCP-HUB.cmd -StateDir D:\ChatMCP -NoOpen
+Always binds localhost. No Docker, Cloud Harness or legacy MCP mode.
 #>
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [string]$ProjectPath,
-    [ValidateSet('auto', 'local', 'mcp')]
+    [ValidateSet('auto', 'local')]
     [string]$Backend = 'auto',
-    [string]$RepoRoot,
     [string]$StateDir,
     [ValidateRange(1024, 65535)]
     [int]$Port = 3007,
@@ -84,27 +61,12 @@ try {
         throw 'lib\launch.mjs is missing. Extract the entire CHATMCP-HUB folder first.'
     }
     if ($Port -eq 3006) {
-        throw 'Port 3006 is reserved for the MCP proxy. Choose another -Port.'
+        throw 'Port 3006 is reserved for compatibility. Choose another -Port.'
     }
 
-    # Decide the backend first. Without -RepoRoot the Hub needs nothing but Node.js.
-    $repoGiven = $PSBoundParameters.ContainsKey('RepoRoot') -and -not [string]::IsNullOrWhiteSpace($RepoRoot)
-    $chosenBackend = $Backend
-    if ($chosenBackend -eq 'auto') {
-        if ($repoGiven) { $chosenBackend = 'mcp' } else { $chosenBackend = 'local' }
-    }
-    if ($chosenBackend -eq 'mcp') {
-        if (-not $repoGiven) {
-            $sibling = Join-Path (Split-Path -Parent $PSScriptRoot) 'cloud-harness-mcp'
-            if (-not (Test-Path -LiteralPath $sibling -PathType Container)) {
-                throw 'The mcp backend needs the Cloud Harness repository. Pass -RepoRoot <folder> or put a "cloud-harness-mcp" folder next to this repository. The local backend needs neither.'
-            }
-            $RepoRoot = $sibling
-        }
-        $RepoRoot = Resolve-HubFolder -Path $RepoRoot -Label '-RepoRoot (Cloud Harness repository)' -MustExist
-    }
-    elseif ($repoGiven) {
-        Write-Host '[CHATMCP-HUB] -RepoRoot is only used by the mcp backend. Ignored.'
+    $chosenBackend='local'
+    if ($env:CHATMCP_PUBLIC -match '^(1|true|yes|on)$') {
+        throw 'Cloud/public hosting was removed; unset CHATMCP_PUBLIC.'
     }
 
     if (-not [string]::IsNullOrWhiteSpace($ProjectPath)) {
@@ -154,7 +116,6 @@ try {
     }
 
     $hubArguments = @($hubPath, '--port', ([string]$Port), '--backend', $chosenBackend)
-    if ($chosenBackend -eq 'mcp') { $hubArguments += @('--repo-root', $RepoRoot) }
     if (-not [string]::IsNullOrWhiteSpace($StateDir)) { $hubArguments += @('--state-dir', $StateDir) }
     if (-not [string]::IsNullOrWhiteSpace($ProjectPath)) { $hubArguments += @('--project', $ProjectPath) }
     if ($NoOpen) { $hubArguments += '--no-open' }

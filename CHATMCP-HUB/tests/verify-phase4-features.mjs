@@ -9,7 +9,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { PluginManager, MARKETPLACE_CATALOG, validateSkillUrl, parseSkillManifest, VERIFIED_REGISTRIES, normalizeSkillId, isPrivateOrReservedIp, safeFetchSkillManifest } from '../lib/plugins.mjs';
-import { GovernanceManager, ROLES, PERMISSIONS_MATRIX } from '../lib/governance.mjs';
 import { createHubServer } from '../hub.mjs';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { StudioDelegates } from '../lib/studio-delegates.mjs';
@@ -272,82 +271,9 @@ OSI prompt body.`);
 }
 
 // ----------------------------------------------------------------------------------------------------
-// Section 2: Multi-User RBAC, Tenant Isolation & Enterprise Audit
+// Section 2: retired hosted tenant/RBAC subsystem; local PermissionGate remains authoritative.
 // ----------------------------------------------------------------------------------------------------
-console.log('--- Section 2: GovernanceManager (RBAC, Tenant Isolation & Audit) ---');
-{
-  assert.deepEqual([...ROLES], ['viewer', 'developer', 'admin']);
-  const gov = new GovernanceManager({ stateDir: state });
-
-  // RBAC checks
-  assert.equal(gov.checkPermission('viewer', 'read'), true);
-  assert.equal(gov.checkPermission('viewer', 'search'), true);
-  assert.equal(gov.checkPermission('viewer', 'edit'), false);
-  assert.equal(gov.checkPermission('viewer', 'manage_plugins'), false);
-
-  assert.equal(gov.checkPermission('developer', 'read'), true);
-  assert.equal(gov.checkPermission('developer', 'edit'), true);
-  assert.equal(gov.checkPermission('developer', 'exec_cmd'), true);
-  assert.equal(gov.checkPermission('developer', 'manage_plugins'), false);
-
-  assert.equal(gov.checkPermission('admin', 'read'), true);
-  assert.equal(gov.checkPermission('admin', 'edit'), true);
-  assert.equal(gov.checkPermission('admin', 'manage_plugins'), true);
-  assert.equal(gov.checkPermission('admin', 'shutdown'), true);
-
-  // Enforcement
-  assert.equal(gov.enforce('developer', 'edit'), true);
-  assert.throws(() => gov.enforce('viewer', 'edit'), /không có quyền thực hiện thao tác "edit"/);
-  ok('RBAC matrix and permission enforcement verify correctly');
-
-  // Tenant workspace isolation
-  const wsTenantA = path.join(work, 'tenant-a-ws');
-  const wsTenantB = path.join(work, 'tenant-b-ws');
-  await fs.mkdir(wsTenantA, { recursive: true });
-  await fs.mkdir(wsTenantB, { recursive: true });
-
-  gov.registerWorkspace('tenant-alpha', wsTenantA);
-  gov.registerWorkspace('tenant-beta', wsTenantB);
-
-  assert.equal(gov.canAccessWorkspace('tenant-alpha', wsTenantA), true);
-  assert.equal(gov.canAccessWorkspace('tenant-alpha', wsTenantB), false);
-  assert.equal(gov.canAccessWorkspace('tenant-beta', wsTenantB), true);
-  assert.equal(gov.canAccessWorkspace('tenant-beta', wsTenantA), false);
-  ok('Tenant workspace boundaries prevent cross-tenant access');
-
-  // Structured Audit Logging
-  await gov.logAudit({
-    actor: 'user-alice',
-    role: 'developer',
-    action: 'edit',
-    target: 'src/app.py',
-    allowed: true,
-  });
-
-  await gov.logAudit({
-    actor: 'user-bob',
-    role: 'viewer',
-    action: 'delete_file',
-    target: 'src/app.py',
-    allowed: false,
-    reason: 'insufficient_role',
-  });
-
-  const logs = await gov.queryAudit({ limit: 10 });
-  assert.equal(logs.length, 2);
-  assert.equal(logs[0].actor, 'user-bob');
-  assert.equal(logs[0].allowed, false);
-  assert.equal(logs[1].actor, 'user-alice');
-  assert.equal(logs[1].allowed, true);
-
-  const filteredLogs = await gov.queryAudit({ action: 'edit' });
-  assert.equal(filteredLogs.length, 1);
-  assert.equal(filteredLogs[0].actor, 'user-alice');
-  ok('Structured enterprise audit logging and compliance query');
-}
-
-// ----------------------------------------------------------------------------------------------------
-// Section 3: Hub HTTP API Integration
+// // Section 3: Hub HTTP API Integration
 // ----------------------------------------------------------------------------------------------------
 console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
 {
@@ -441,17 +367,12 @@ console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
   assert.equal(toggleRes.body.enabled, false);
   ok('POST /api/plugins/toggle changes active status via Hub');
 
-  // 5. POST /api/governance/rbac/verify
-  const rbacRes = await hubRequest('POST', '/api/governance/rbac/verify', { role: 'viewer', action: 'edit' });
-  assert.equal(rbacRes.status, 200);
-  assert.equal(rbacRes.body.allowed, false);
-  ok('POST /api/governance/rbac/verify evaluates role permissions');
-
-  // 6. GET /api/governance/audit
-  const auditRes = await hubRequest('GET', '/api/governance/audit?limit=20');
-  assert.equal(auditRes.status, 200);
-  assert.ok(Array.isArray(auditRes.body.logs));
-  ok('GET /api/governance/audit returns audit logs via Hub');
+  // Retired hosted tenancy routes must never reappear on local dashboard.
+  const formerRbac=await hubRequest('POST','/api/governance/rbac/verify',{role:'viewer',action:'edit'});
+  assert.equal(formerRbac.status,404);
+  const formerAudit=await hubRequest('GET','/api/governance/audit?limit=20');
+  assert.equal(formerAudit.status,404);
+  ok('Hosted RBAC and tenant audit HTTP endpoints are unavailable');
 
   // 7. POST /api/plugins/uninstall
   const uninstRes = await hubRequest('POST', '/api/plugins/uninstall', { id: 'docker-devops' });

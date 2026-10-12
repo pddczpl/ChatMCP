@@ -1,3 +1,5 @@
+> **LƯU TRỮ LỊCH SỬ:** Mô tả Hub 1.x bên dưới thuộc luồng Cloud Harness/MCP đã được gỡ. Chế độ local-only mới chỉ dùng local tools, Git worktrees và Skills Hub. Xem README.md ở repository gốc để biết hướng dẫn hiện hành.
+
 # ChatMCP Studio 1.3.0 — Ghi chú phiên lâu dài
 
 Cả hai chế độ cùng dùng danh sách **phiên hội thoại** ở thanh bên trái. Chọn phiên cũ, nhập prompt rồi dùng `Tiếp tục trong chat này` để nối đúng ID lịch sử. Web mode mở lại URL chat cũ; API mode tái tạo ngữ cảnh từ checkpoints và báo cáo đã lưu (không phải native conversation ID của bên cung cấp model). Sau sự cố mất mạng/Hub restart, trạng thái được đánh dấu `paused` thay vì xóa. Không tự thực thi lại các thao tác MCP có kết quả chưa rõ. Đọc [SESSION-RECOVERY.md](SESSION-RECOVERY.md) để biết chi tiết an toàn, sao lưu và giới hạn.

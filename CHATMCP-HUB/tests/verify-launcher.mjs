@@ -65,12 +65,13 @@ try {
   await section('the data directory is the one the Hub itself will use', async () => {
     const state = path.join(root, 'explicit-state');
     equal(hubDirectoryFor(parseArguments(['--state-dir', state], {})), state, '--state-dir wins');
-    equal(hubDirectoryFor(parseArguments(['--state-dir', state, '--repo-root', path.join(root, 'repo')], {})), state, '--state-dir wins over a repository');
+    assert.throws(() => parseArguments(['--state-dir',state,'--repo-root',path.join(root,'repo')],{}),/unsupported|option/i); checks += 1;
     equal(hubDirectoryFor(parseArguments([], { CHATMCP_STATE_DIR: state })), state, 'environment variable');
-    equal(hubDirectoryFor(parseArguments(['--repo-root', path.join(root, 'repo')], {})), path.join(root, 'repo', 'deploy', '.generated', 'chatmcp-hub'), 'legacy folder inside the repository');
+    assert.throws(() => parseArguments(['--repo-root',path.join(root,'repo')],{}),/unsupported|option/i); checks += 1;
     equal(hubDirectoryFor(parseArguments([], {})), defaultDataDirectory({}), 'per-user default without any option');
     assert.throws(() => hubDirectoryFor({ stateDir: null, repoRoot: null }), /state-dir/); checks += 1;
-    assert.throws(() => parseArguments(['--backend', 'mcp'], {}), /repo-root/); checks += 1;
+    assert.throws(() => parseArguments(['--backend','mcp'],{}),/Only backend local/); checks += 1;
+    assert.throws(() => parseArguments([],{CHATMCP_PUBLIC:'1'}),/Cloud\/public execution removed/); checks += 1;
     assert.throws(() => parseArguments(['--port', '3006'], {}), /3006/); checks += 1;
     equal(parseArguments(['--log-file', path.join(root, 'x.log')], {}).logFile, path.join(root, 'x.log'), '--log-file is understood');
   });
@@ -132,13 +133,10 @@ try {
     equal(processes.length, 1, 'only one Hub process was ever started');
   });
 
-  await section('says so when the running Hub is in another mode, and changes nothing', async () => {
-    const lines = [];
-    const result = await launch(['--backend', 'mcp', '--repo-root', path.join(root, 'no-such-repo'), '--state-dir', state, '--port', String(port), '--no-open'], { log: (line) => lines.push(line), warn: (line) => lines.push(line) });
-    equal([result.reused, result.backend], [true, 'local'], 'it reports the mode that is really running');
-    check(lines.some((line) => /che do "local"/.test(line) && /"mcp"/.test(line)), `the mismatch is explained:\n${lines.join('\n')}`);
-    const health = await getJson(`${base}/api/health`);
-    equal(health.backend, 'local', 'the running Hub was not touched');
+  await section('deprecated backend arguments are rejected without disrupting local Hub',async()=>{
+    await assert.rejects(()=>launch(['--backend','mcp','--port',String(port),'--no-open']),/Only backend local/);
+    const health=await getJson(`${base}/api/health`);
+    equal(health.backend,'local','local process is unaffected');
   });
 
   await section('the Hub stops through its shutdown endpoint and releases its lock', async () => {
@@ -209,23 +207,11 @@ try {
       equal(full.code, 0, `full run succeeds\n${full.output}`);
       equal(argsOf(full), ['--port', '3011', '--backend', 'local', '--state-dir', path.join(root, 'relative', 'state dir'), '--project', spaced, '--no-open'], 'paths with spaces stay one argument; a relative -StateDir is resolved; the trailing backslash is dropped');
 
-      const repo = await project('some-repo');
-      const auto = runScript(fakeStart, ['-RepoRoot', repo]);
-      equal(argsOf(auto), ['--port', '3007', '--backend', 'mcp', '--repo-root', repo], '-RepoRoot alone selects the original MCP flow');
-      const ignored = runScript(fakeStart, ['-Backend', 'local', '-RepoRoot', repo]);
-      equal(argsOf(ignored), ['--port', '3007', '--backend', 'local'], '-Backend local ignores -RepoRoot');
-      check(/only used by the mcp backend/.test(ignored.output), 'and says so');
-
-      const missingSibling = runScript(fakeStart, ['-Backend', 'mcp']);
-      equal(missingSibling.code, 1, 'the mcp backend without a repository stops');
-      check(/needs the Cloud Harness repository/.test(missingSibling.output) && /STOPPED during checking prerequisites/.test(missingSibling.output), `with a clear reason\n${missingSibling.output}`);
-      await fs.mkdir(path.join(fakeParent, 'cloud-harness-mcp'), { recursive: true });
-      const sibling = runScript(fakeStart, ['-Backend', 'mcp']);
-      equal(argsOf(sibling), ['--port', '3007', '--backend', 'mcp', '--repo-root', path.join(fakeParent, 'cloud-harness-mcp')], 'a cloud-harness-mcp folder next to the repository is found');
-
-      const missingRepo = runScript(fakeStart, ['-Backend', 'mcp', '-RepoRoot', path.join(root, 'nope')]);
-      equal(missingRepo.code, 1, 'a repository folder that does not exist stops');
-      check(/does not exist/.test(missingRepo.output), 'with a clear reason');
+      const repo=await project('some-repo');
+      const noRepo=runScript(fakeStart,['-RepoRoot',repo]);
+      check(noRepo.code!==0,'PowerShell no longer accepts -RepoRoot');
+      const noMcp=runScript(fakeStart,['-Backend','mcp']);
+      check(noMcp.code!==0,'PowerShell no longer accepts -Backend mcp');
       const reserved = runScript(fakeStart, ['-Port', '3006']);
       equal(reserved.code, 1, 'port 3006 is refused');
       check(/reserved/.test(reserved.output), 'with a clear reason');

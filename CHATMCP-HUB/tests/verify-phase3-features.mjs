@@ -177,7 +177,9 @@ console.log('--- Section 2: AiProfiles ---');
 // ----------------------------------------------------------------------------------------------------
 console.log('--- Section 3: SandboxEngine ---');
 {
-  assert.deepEqual([...SANDBOX_MODES], ['host', 'broker', 'isolated']);
+  assert.deepEqual([...SANDBOX_MODES],['host']);
+  assert.throws(()=>new SandboxEngine({mode:'broker'}),/sandbox không hợp lệ/);
+  assert.throws(()=>new SandboxEngine({mode:'isolated'}),/sandbox không hợp lệ/);
   assert.throws(() => new SandboxEngine({ mode: 'invalid-sandbox' }), /Chế độ sandbox không hợp lệ/);
 
   const engine = new SandboxEngine({
@@ -190,7 +192,7 @@ console.log('--- Section 3: SandboxEngine ---');
   assert.equal(status.mode, 'host');
   assert.equal(status.workspaceRoot, work);
   assert.equal(status.limits.timeoutSeconds, 30);
-  assert.equal(status.brokerAvailable, false);
+  assert.equal(status.osIsolated,false,'host mode must not be represented as an OS sandbox');
   ok('sandbox engine initialization and status check');
 
   // Missing command validation
