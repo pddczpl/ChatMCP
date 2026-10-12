@@ -61,7 +61,10 @@ export class PermissionGate {
     this.manager=manager;this.workspace=workspace;this.now=now;this.timeout=timeout;
     this.mode='review';this.executionPolicy='host-review';this.requests=new Map();this.history=[];this.onEvent=()=>{};this.listeners=new Set();this.file=directory?path.join(directory,'permission-history.json'):null;this.writes=Promise.resolve();
     this.localTools=null;
+    this.executionRegistry=null;
   }
+  /** Gives the gate knowledge of the execution capability registry. */
+  attachExecutionRegistry(registry){this.executionRegistry=registry;}
   /** Gives the gate exact knowledge of the local tools (per-call category, blocked paths, command analysis). */
   attachLocalTools(localTools){this.localTools=localTools;}
   /** Several parties can watch approval events (the log, a task runner); `onEvent` stays as the single legacy hook. Returns the unsubscribe function. */
@@ -171,6 +174,9 @@ export class PermissionGate {
     if(signal?.aborted)throw signal.reason || error('cancelled','Tác vụ đã dừng.');
     // Protected files (.env, private keys, .git ...) are never touched and never prompt, in any mode or policy.
     if(category==='blocked')return this.#refuse(name,args,verdict,taskId,'blocked',reason);
+    if(args?.isolationRequired){
+      return this.#refuse(name,args,verdict,taskId,'policy','Yêu cầu cách ly hệ điều hành (isolationRequired), nhưng lệnh shell host không có cách ly OS. Bị từ chối fail-closed.');
+    }
     // Read Only is the strictest choice and wins over Full Access: nothing but reads and bookkeeping runs.
     if(this.mode==='readonly'&&category!=='read'&&category!=='checkpoint')
       return this.#refuse(name,args,verdict,taskId,'policy',`Chế độ Chỉ đọc: ${reason}. Chuyển sang Review hoặc Autonomous nếu muốn cho phép thay đổi.`);

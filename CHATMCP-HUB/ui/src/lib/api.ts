@@ -1,6 +1,44 @@
 import type { HubState, HubHealth, Task, TaskDetail, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset } from '@/types';
 import { normalizeTask } from './task-view.ts';
 
+export interface BackendCapabilityReport {
+  backend: string;
+  available: boolean;
+  osIsolated: boolean;
+  platform: string;
+  networkPolicy: string;
+  writeScope: string;
+  concurrency: number;
+  enforcedLimits: string[];
+  unsupportedLimits: string[];
+  reasons: string[];
+  observedAt: string;
+}
+
+export interface SandboxStatus {
+  mode: string;
+  backend: string;
+  available: boolean;
+  osIsolated: boolean;
+  platform: string;
+  workspaceRoot: string;
+  networkPolicy?: string;
+  writeScope?: string;
+  concurrency?: number;
+  limits: {
+    timeoutSeconds: number;
+    maxMemoryMb?: number | null;
+    maxCpuCores?: number | null;
+    maxOutputBytes: number;
+  };
+  enforcedLimits: string[];
+  unsupportedLimits: string[];
+  reasons: string[];
+  observedAt: string;
+  capabilities?: BackendCapabilityReport;
+  backends?: BackendCapabilityReport[];
+}
+
 const UI_BUILD = '2.6.0-react-agent';
 let currentCsrfToken = '';
 
@@ -65,6 +103,7 @@ export const api = {
     return { ...st, tasks: (st.agent?.tasks ?? []).map(normalizeTask) };
   }),
   getCapabilities: () => request<any>('/api/capabilities'),
+  getSandboxStatus: () => request<SandboxStatus>('/api/sandbox/status'),
   
   // Tasks
   getTask: (id: string): Promise<Task> => request<TaskDetail>(`/api/tasks/${encodeURIComponent(id)}`).then(normalizeTask),

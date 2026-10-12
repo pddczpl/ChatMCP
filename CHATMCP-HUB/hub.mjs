@@ -110,7 +110,14 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   pluginManager.load().catch(() => {});
   const skillRegistry = new GitHubSkillRegistry({ pluginManager, stateDir: hubStateDir });
   skillRegistry.load().catch(() => {});
-  const sandboxEngine = new SandboxEngine({mode:'host',workspaceRoot:manager.workspace,workspace:manager.studio});
+  const sandboxEngine = manager.sandboxEngine || new SandboxEngine({
+    mode: 'host',
+    workspaceRoot: manager.workspace,
+    workspace: manager.studio,
+    registry: manager.executionRegistry,
+  });
+  manager.sandboxEngine = sandboxEngine;
+  manager.executionRegistry = sandboxEngine.registry;
   const state = (csrf = token) => ({ ...manager.state(), ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions:gate?.state()??null, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null} : null, csrfToken: csrf });
   const requireNoTask = () => { if (taskEngine?.state().activeTaskId) { const e = new Error('Hủy hoặc chờ nhiệm vụ hoàn tất trước khi thay đổi kết nối AI.'); e.statusCode = 409; throw e; } };
   const changeAi = async (operation) => {

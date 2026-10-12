@@ -15,6 +15,8 @@ import { LocalTools } from './local-tools.mjs';
 import { GitRunner } from './git-runner.mjs';
 import { ShellRunner } from './shell-runner.mjs';
 import { PluginManager } from './plugins.mjs';
+import { createDefaultExecutionRegistry } from './execution-contract.mjs';
+import { SandboxEngine } from './sandbox-engine.mjs';
 
 /**
  * @param {object} options
@@ -62,5 +64,18 @@ export function assembleStudio(manager, { bundleRoot, exec = null }) {
   manager.localTools = new LocalTools(localOptions);
   manager.permissions.attachLocalTools(manager.localTools);
   manager.permissions.onEvent = (event) => manager.log(`${event.type}: ${event.toolName ?? event.name ?? event.id ?? ''}`);
+  const effectiveShell = localOptions.shell || manager.localTools?.shell || new ShellRunner({ workspace: manager.studio, stateDirectory: localDirectory, secrets });
+  manager.executionRegistry = createDefaultExecutionRegistry({
+    workspaceRoot: manager.studio?.root || manager.hubDirectory,
+    workspace: manager.studio,
+    shellRunner: effectiveShell,
+  });
+  manager.permissions.attachExecutionRegistry(manager.executionRegistry);
+  manager.sandboxEngine = new SandboxEngine({
+    workspaceRoot: manager.studio?.root || manager.hubDirectory,
+    workspace: manager.studio,
+    shellRunner: effectiveShell,
+    registry: manager.executionRegistry,
+  });
   return manager;
 }

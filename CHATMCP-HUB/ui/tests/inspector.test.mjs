@@ -27,8 +27,9 @@ try {
         import { FilesTab } from './src/components/inspector/FilesTab';
         import { GitTab } from './src/components/inspector/GitTab';
         import { TerminalTab } from './src/components/inspector/TerminalTab';
+        import { SettingsTab } from './src/components/inspector/SettingsTab';
         import { Header } from './src/components/layout/Header';
-        const components = { InspectorPanel, PlanTab, ActivityTab, FilesTab, GitTab, TerminalTab, Header };
+        const components = { InspectorPanel, PlanTab, ActivityTab, FilesTab, GitTab, TerminalTab, Header, SettingsTab };
         export async function render(name, entries, errors = [], store = {}) {
           const client = new QueryClient({ defaultOptions: { queries: { retry: false, retryOnMount: false, staleTime: Infinity } } });
           Object.assign(useAppStore.getInitialState(), { selectedTaskId: 'task-1', lang: 'en', activeTab: 'activity', ...store });
@@ -145,6 +146,58 @@ try {
     const html = await render('Header', [], [[['hubState'], 'Connection refused']]);
     assert.match(html, /Hub disconnected/i);
     assert.doesNotMatch(html, />Hub connected</i);
+  });
+  await test('SettingsTab renders honest unisolated host backend without false safe badge', async () => {
+    const sandboxReport = {
+      mode: 'host',
+      backend: 'host',
+      available: true,
+      osIsolated: false,
+      platform: 'win32',
+      workspaceRoot: '/fixture',
+      enforcedLimits: ['timeoutSeconds', 'maxOutputBytes'],
+      unsupportedLimits: ['maxMemoryMb', 'maxCpuCores'],
+      reasons: ['Host execution shares the host OS kernel and user account credentials'],
+    };
+    const html = await render('SettingsTab', [...base, [['sandboxStatus'], sandboxReport]]);
+    assert.match(html, /Host Unisolated|Không cách ly OS/);
+    assert.match(html, /timeoutSeconds, maxOutputBytes/);
+    assert.match(html, /maxMemoryMb, maxCpuCores/);
+    assert.doesNotMatch(html, /OS Isolated|Đã cách ly OS/);
+  });
+  await test('SettingsTab renders probing state when sandbox status is loading', async () => {
+    const html = await render('SettingsTab', base);
+    assert.match(html, /Probing\.\.\.|Đang kiểm tra\.\.\./);
+  });
+  await test('SettingsTab renders unavailable state when backend reports unavailable', async () => {
+    const unavailableReport = {
+      mode: 'windows-sandbox',
+      backend: 'windows-sandbox',
+      available: false,
+      osIsolated: true,
+      platform: 'win32',
+      enforcedLimits: [],
+      unsupportedLimits: [],
+      reasons: ['Windows Sandbox provider is unavailable'],
+    };
+    const html = await render('SettingsTab', [...base, [['sandboxStatus'], unavailableReport]]);
+    assert.match(html, /Unavailable|Không khả dụng/);
+    assert.doesNotMatch(html, /OS Isolated|Đã cách ly OS/);
+  });
+  await test('SettingsTab renders verified state only when osIsolated and available are both true', async () => {
+    const verifiedReport = {
+      mode: 'windows-sandbox',
+      backend: 'windows-sandbox',
+      available: true,
+      osIsolated: true,
+      platform: 'win32',
+      enforcedLimits: ['timeoutSeconds', 'maxMemoryMb'],
+      unsupportedLimits: [],
+      reasons: [],
+    };
+    const html = await render('SettingsTab', [...base, [['sandboxStatus'], verifiedReport]]);
+    assert.match(html, /OS Isolated|Đã cách ly OS/);
+    assert.doesNotMatch(html, /Host Unisolated|Không cách ly OS/);
   });
 } finally {
   const resolved = await fs.realpath(scratch);
