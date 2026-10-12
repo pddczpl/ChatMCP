@@ -38,7 +38,7 @@ Nằm tại [`CHATMCP-HUB/lib/plugins.mjs`](../CHATMCP-HUB/lib/plugins.mjs).
 
 ### 2.2. Quản trị Doanh nghiệp, RBAC & Cô lập Tenant (`GovernanceManager`)
 
-Nằm tại [`CHATMCP-HUB/lib/governance.mjs`](../CHATMCP-HUB/lib/governance.mjs).
+Nằm tại [`CHATMCP-HUB/lib/governance.mjs`](../SECURITY.md) (historical multi-tenant governance module was removed).
 
 - **Ma trận phân quyền (RBAC Matrix):**
   - **`viewer`**: Chỉ đọc (`read`, `search`, `view_diff`, `view_status`, `view_audit`). Không được sửa file, không được chạy lệnh, không được cấu hình AI.

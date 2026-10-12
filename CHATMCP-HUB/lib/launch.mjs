@@ -138,7 +138,7 @@ export async function launch(args = process.argv.slice(2), { log = console.log, 
     const ready = await health(url);
     if (ready?.app === 'chatmcp-local-hub' && ready.initialized) {
       log(`[CHATMCP-HUB] Dang chay nen: ${url}`);
-      log('[CHATMCP-HUB] Local mode. Configure your AI model and choose a workspace in the dashboard.');
+      log('[CHATMCP-HUB] Local Node.js Hub. Configure your AI model and choose a workspace in the dashboard.');
       return { url, reused: false, backend, logFile, pid: started.pid };
     }
     if (started.exited()) break;
