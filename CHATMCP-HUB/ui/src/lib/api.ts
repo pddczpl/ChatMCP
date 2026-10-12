@@ -126,7 +126,7 @@ export const api = {
   cancelOrchestrator: () => request<any>('/api/studio/delegates/cancel',{method:'POST',body:'{}'}),
 
   // GitHub skills registry
-  getSkillRegistry: (query='') => request<{sources:any[];skills:any[]}>(`/api/plugins/registry?query=${encodeURIComponent(query)}`),
+  getSkillRegistry: (query='') => request<{sources:any[];skills:any[];updates:any[]}>(`/api/plugins/registry?query=${encodeURIComponent(query)}`),
   refreshSkillRegistry: (sourceId?:string) => request<any>('/api/plugins/registry/refresh',{method:'POST',body:JSON.stringify({sourceId})}),
   installRegistrySkill: (key:string,update=false) => request<any>('/api/plugins/registry/install',{method:'POST',body:JSON.stringify({key,update})}),
   addRegistrySource: (id:string,repo:string,prefix:string) => request<any>('/api/plugins/registry/source/add',{method:'POST',body:JSON.stringify({id,repo,prefix,confirmation:'TRUST GITHUB SOURCE'})}),

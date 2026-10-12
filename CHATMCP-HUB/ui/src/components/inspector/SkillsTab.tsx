@@ -26,6 +26,9 @@ export function SkillsTab() {
   const [search, setSearch] = useState('');
   const [registryBusy,setRegistryBusy]=useState(false);
   const [registryError,setRegistryError]=useState('');
+  const [sourceId,setSourceId]=useState('');
+  const [sourceRepo,setSourceRepo]=useState('');
+  const [sourcePrefix,setSourcePrefix]=useState('skills');
   const {data: registryData,refetch: refreshRegistryView}=useQuery({queryKey:['skillsRegistry',search],queryFn:()=>api.getSkillRegistry(search),refetchInterval:12000,retry:false});
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -218,7 +221,23 @@ export function SkillsTab() {
             finally{setRegistryBusy(false);}
           }}>{registryBusy?'Đang khám phá...':'Làm mới GitHub'}</Button>
         </div>
+        <div className="flex flex-wrap gap-1 items-center">
+          <input aria-label="Source ID" className="w-20 p-1 rounded bg-[var(--panel)] border border-[var(--line)]" placeholder="id" value={sourceId} onChange={e=>setSourceId(e.target.value)}/>
+          <input aria-label="GitHub owner/repository" className="flex-1 min-w-32 p-1 rounded bg-[var(--panel)] border border-[var(--line)]" placeholder="owner/repo" value={sourceRepo} onChange={e=>setSourceRepo(e.target.value)}/>
+          <input aria-label="Skills prefix" className="w-24 p-1 rounded bg-[var(--panel)] border border-[var(--line)]" placeholder="skills" value={sourcePrefix} onChange={e=>setSourcePrefix(e.target.value)}/>
+          <Button size="sm" variant="outline" disabled={registryBusy} onClick={async()=>{
+            if(prompt('Type TRUST GITHUB SOURCE to add this unverified third-party repository')!=='TRUST GITHUB SOURCE')return;
+            setRegistryBusy(true);try{await api.addRegistrySource(sourceId,sourceRepo,sourcePrefix);await refreshRegistryView();showToast('GitHub source added','success');setSourceId('');setSourceRepo('');}
+            catch(e:any){showToast(e.message||'Source not added','error');}finally{setRegistryBusy(false);}
+          }}>Thêm nguồn</Button>
+        </div>
         <div className="text-[10px] text-[var(--muted)]">Nguồn được phép: {(registryData?.sources||[]).map((x:any)=>x.repo).join(', ')||'Chưa tải nguồn'}. Import chỉ thêm hướng dẫn, không thực thi scripts.</div>
+        <div className="flex flex-wrap gap-1">{(registryData?.sources||[]).filter((x:any)=>!x.official).map((x:any)=>
+          <Button key={x.id} size="sm" variant="danger" disabled={registryBusy} onClick={async()=>{
+            if(prompt('Type REMOVE GITHUB SOURCE to remove '+x.repo)!=='REMOVE GITHUB SOURCE')return;
+            setRegistryBusy(true);try{await api.removeRegistrySource(x.id);await refreshRegistryView();showToast('Source removed','info');}
+            catch(e:any){showToast(e.message||'Removal failed','error');}finally{setRegistryBusy(false);}
+          }}>Remove {x.id}</Button>)}</div>
         {registryError&&<p role="alert" className="text-amber-400 text-[10px]">{registryError}</p>}
         <div className="max-h-48 overflow-y-auto space-y-1">
           {(registryData?.skills||[]).length===0?<p className="text-[var(--muted)]">Chưa lập chỉ mục; bấm Làm mới GitHub để khám phá.</p>:
@@ -226,9 +245,11 @@ export function SkillsTab() {
             <div className="min-w-0"><div className="font-medium truncate">{s.name}</div><div className="text-[10px] text-[var(--muted)] truncate">{s.repo} · {s.revision?.slice(0,8)} · license: {s.license}</div></div>
             <Button size="sm" variant="outline" disabled={actionLoading===s.key} onClick={async()=>{
               setActionLoading(s.key);
-              try{await api.installRegistrySkill(s.key);showToast('Đã cài: '+s.name,'success');refetch();}catch(e:any){showToast(e.message||'Lỗi cài đặt skill','error');}
+              const hasUpdate=(registryData?.updates||[]).some((u:any)=>u.key===s.key);
+              try{const x=await api.installRegistrySkill(s.key,hasUpdate);showToast((hasUpdate?'Updated: ':'Installed (disabled): ')+s.name,'success');refetch();await refreshRegistryView();if(x?.installed?.missingDependencies?.length)showToast('Skill reports unresolved local dependencies','warning');}
+              catch(e:any){showToast(e.message||'Skill installation failed','error');}
               finally{setActionLoading(null);}
-            }}>Cài</Button>
+            }}>{(registryData?.updates||[]).some((u:any)=>u.key===s.key)?'Cập nhật':'Cài'}</Button>
           </div>)}
         </div>
       </section>
