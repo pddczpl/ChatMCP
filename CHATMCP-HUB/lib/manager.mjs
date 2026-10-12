@@ -1,21 +1,14 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { constants } from 'node:fs';
-import { exists, readJson, writeJson, collectSecrets, redact, resolveProgram, npmCli, portOpen, spawnLogged, run, stopOwned, delay, isObject } from './runtime.mjs';
-import { makeInstructions } from './instructions.mjs';
-import { listAll, collectCatalog, verifyProxyCatalog, closeConnection, makeAgentSession, buildInternalCatalog } from './catalog.mjs';
+import { readJson, writeJson, redact, resolveProgram, spawnLogged, stopOwned } from './runtime.mjs';
+import { buildInternalCatalog } from './catalog.mjs';
 
 export const VERSION = '2.5.0';
-const PROXY_PORT = 3006;
-const PROXY_URL = `http://127.0.0.1:${PROXY_PORT}/mcp`;
-const baseService = () => ({ state: 'unknown', detail: 'Chưa kiểm tra' });
-const unusedService = () => ({ state: 'disabled', detail: 'Không dùng ở chế độ cục bộ' });
-export const BACKENDS = Object.freeze(['local', 'mcp']);
+const baseService = () => ({ state:'unknown', detail:'Chưa kiểm tra' });
+export const BACKENDS = Object.freeze(['local']);
 // The local backend has its own file, search, Git and shell tools. Of the older Studio tools only those that add
 // something are offered next to them (code intelligence, test discovery, checkpoints); the rest would duplicate local.*.
 const LOCAL_BACKEND_STUDIO_TOOLS = new Set(['symbols', 'references', 'definitions', 'index_status', 'checks', 'skills', 'diff_check', 'checkpoints', 'checkpoint', 'review']);
@@ -32,46 +25,30 @@ export function defaultDataDirectory(env = process.env, platform = process.platf
 }
 
 export class HubManager {
-  /**
-   * backend 'local': tools run inside the Hub; nothing else needs to be installed or running (default without repoRoot).
-   * backend 'mcp':   the original flow through Cloud Harness + Desktop Commander + the MCP proxy (needs repoRoot).
-   */
-  constructor({ repoRoot = null, bundleRoot, dataDirectory = null, backend = null, log = console.log }) {
-    this.repoRoot = repoRoot ? path.resolve(repoRoot) : null;
+  /** Local-only manager. Cloud Harness/hosted runtime no longer exists. */
+  constructor({ bundleRoot, dataDirectory = null, backend = 'local', repoRoot = null, log = console.log } = {}) {
+    if (!bundleRoot) throw new TypeError('HubManager requires bundleRoot.');
+    if (backend !== 'local' || repoRoot)
+      throw Object.assign(new Error('Chỉ hỗ trợ backend local; Cloud Harness/MCP backend đã được loại bỏ.'), { code:'legacy_backend_removed', statusCode:400 });
     this.bundleRoot = path.resolve(bundleRoot);
-    this.backend = backend ?? (this.repoRoot ? 'mcp' : 'local');
-    if (!BACKENDS.includes(this.backend)) throw new Error(`Backend phải là ${BACKENDS.join(' hoặc ')}.`);
-    if (this.backend === 'mcp' && !this.repoRoot) throw new Error('Backend mcp cần --repo-root (thư mục repository Cloud Harness).');
-    if (!this.repoRoot && !dataDirectory) throw new TypeError('HubManager cần repoRoot hoặc dataDirectory.');
-    this.generated = this.repoRoot ? path.join(this.repoRoot, 'deploy', '.generated') : null;
-    this.hubDirectory = dataDirectory ? path.resolve(dataDirectory) : path.join(this.generated, 'chatmcp-hub');
-    this.proxyRuntime = this.generated ? path.join(this.generated, 'browser-proxy-compat') : null;
-    this.dcRuntime = this.generated ? path.join(this.generated, 'desktop-commander-local') : null;
-    this.settingsFile = path.join(this.hubDirectory, 'hub-state.json');
-    this.proxyConfig = path.join(this.hubDirectory, 'mcp-client.hub.json');
-    this.proxyPackage = this.proxyRuntime ? path.join(this.proxyRuntime, 'node_modules', '@srbhptl39', 'mcp-superassistant-proxy') : null;
-    this.dcPackage = this.dcRuntime ? path.join(this.dcRuntime, 'node_modules', '@wonderwhy-er', 'desktop-commander') : null;
+    this.backend = 'local';
+    this.hubDirectory = path.resolve(dataDirectory || defaultDataDirectory());
+    this.settingsFile = path.join(this.hubDirectory,'hub-state.json');
     this.output = log;
     this.secrets = [];
     this.logs = [];
     this.workspace = null;
     this.busy = false;
     this.lastError = null;
-    this.services = this.backend === 'local'
-      ? { local: baseService(), docker: unusedService(), cloud: unusedService(), proxy: unusedService(), desktop: unusedService() }
-      : { docker: baseService(), cloud: baseService(), proxy: baseService(), desktop: baseService() };
-    this.proxyChild = null;
+    this.services = { local:baseService() };
     this.children = new Set();
     this.tools = [];
-    this.sdk = null;
     this.stopping = false;
-    this.config = null;
     this.generation = 0;
     this.instanceId = randomUUID();
-    this.expectedStops = new WeakSet();
     this.pickerOpen = false;
     this.taskId = null;
-    this.catalog = { ready: false, tools: [], prompts: [], resources: [], resourceTemplates: [], counts: {}, servers: {} };
+    this.catalog = {ready:false,tools:[],prompts:[],resources:[],resourceTemplates:[],counts:{},servers:{}};
     this.agentSessions = new Set();
     this.studio = null;
     this.permissions = null;
@@ -79,7 +56,6 @@ export class HubManager {
     this.localTools = null;
     this.environment = null;
     this.workflow = null;
-    this.workspaceGuard = null;
   }
 
   log(message) {
@@ -95,7 +71,7 @@ export class HubManager {
   state() {
     return {
       version: VERSION, backend: this.backend, workspace: { path: this.workspace }, busy: this.busy || Boolean(this.taskId),
-      services: structuredClone(this.services), proxyUrl: this.backend === 'mcp' ? PROXY_URL : null,
+      services: structuredClone(this.services), proxyUrl: null,
       dataDirectory: this.hubDirectory, environment: this.environment,
       lastError: this.lastError, logs: [...this.logs], toolCount: this.tools.length,
       generation: this.generation, instanceId: this.instanceId,
@@ -106,34 +82,20 @@ export class HubManager {
   async load(project) {
     await fs.mkdir(this.hubDirectory, { recursive: true });
     const saved = await readJson(this.settingsFile);
-    const legacy = this.dcRuntime ? await readJson(path.join(this.dcRuntime, 'local-settings.json')) : null;
-    const candidate = project || saved?.workspace || legacy?.projectPath;
+    const candidate = project || saved?.workspace;
     if (candidate) {
       try { this.workspace = await this.validateWorkspace(candidate); }
       catch { this.log('Thư mục đã lưu không còn truy cập được. Hãy chọn lại trên trang localhost.'); }
     }
-    if (this.backend === 'local') {
-      this.status('local', 'stopped', this.workspace ? 'Chưa khởi động' : 'Chọn một thư mục dự án để bắt đầu');
-      return;
-    }
-    this.status('proxy', 'stopped', 'Bấm Khởi động hoặc chọn workspace');
-    this.status('desktop', 'stopped', this.workspace ? 'Chưa khởi động' : 'Chưa chọn workspace');
+    this.status('local','stopped',this.workspace ? 'Chưa khởi động' : 'Chọn một thư mục dự án để bắt đầu');
   }
 
   async validateWorkspace(value) {
-    if (typeof value !== 'string' || !value.trim() || value.length > 4096 || value.includes('\0')) throw new Error('Hãy chọn một đường dẫn thư mục hợp lệ.');
+    if (typeof value !== 'string' || !value.trim() || value.length > 4096 || value.includes('\0'))
+      throw new Error('Hãy chọn một đường dẫn thư mục hợp lệ.');
     if (!path.isAbsolute(value)) throw new Error('Đường dẫn workspace phải là đường dẫn tuyệt đối.');
-    let real;
-    try { real = await fs.realpath(value.trim()); }
-    catch (error) {
-      // Public mode: a folder that is not one of the Hub's workspaces is refused the same way (403) whether or not it exists; the guard
-      // only ever refuses a path that does not exist, so what is thrown below is the original error when it does not.
-      if (this.workspaceGuard && (error?.code === 'ENOENT' || error?.code === 'ENOTDIR')) await this.workspaceGuard(path.resolve(value.trim()));
-      throw error;
-    }
+    const real = await fs.realpath(value.trim());
     if (!(await fs.stat(real)).isDirectory()) throw new Error('Workspace phải là một thư mục.');
-    // Public mode limits the choice to the folders the Hub itself created (see lib/workspaces.mjs); the hook may throw.
-    if (this.workspaceGuard) await this.workspaceGuard(real);
     return real;
   }
 
@@ -161,127 +123,6 @@ export class HubManager {
     } finally { this.children.delete(proc.child); }
   }
 
-  async ensurePackage(runtime, name, version) {
-    const packageRoot = path.join(runtime, 'node_modules', ...name.split('/'));
-    const installed = await readJson(path.join(packageRoot, 'package.json'));
-    const marker = path.join(runtime, `hub-install-${version}.ok`);
-    const previousInstallerMarker = path.join(runtime, `install-complete-${version}.txt`);
-    if (installed?.version === version && await exists(path.join(packageRoot, 'dist', 'index.js')) && (await exists(marker) || await exists(previousInstallerMarker))) {
-      this.log(`Dùng ${name}@${version} đã cài.`);
-      return;
-    }
-    await fs.mkdir(runtime, { recursive: true });
-    const ownManifest = path.join(runtime, 'package.json');
-    if (!await exists(ownManifest)) await writeJson(ownManifest, { name: 'chatmcp-hub-runtime', version: VERSION, private: true });
-    this.log(`Đang cài ${name}@${version}. Lần đầu có thể mất vài phút.`);
-    const npm = await npmCli();
-    await fs.unlink(marker).catch((e) => { if (e.code !== 'ENOENT') throw e; });
-    await fs.unlink(previousInstallerMarker).catch((e) => { if (e.code !== 'ENOENT') throw e; });
-    await this.checkedRun(process.execPath, [npm, 'install', '--prefix', runtime, '--save-exact', '--prefer-offline', '--omit=dev', '--no-audit', '--no-fund', '--loglevel', 'warn', `${name}@${version}`], { timeout: 900000 });
-    const verified = await readJson(path.join(packageRoot, 'package.json'));
-    if (verified?.version !== version) throw new Error(`Chưa cài được đúng ${name}@${version}.`);
-    await fs.writeFile(marker, `${name}@${version}\n`, 'utf8');
-  }
-
-  async ensurePackages() {
-    await this.ensurePackage(this.dcRuntime, '@wonderwhy-er/desktop-commander', '0.2.52');
-    await this.ensurePackage(this.proxyRuntime, '@srbhptl39/mcp-superassistant-proxy', '0.1.8');
-    const require = createRequire(path.join(this.dcPackage, 'package.json'));
-    try {
-      const { Client } = await import(pathToFileURL(require.resolve('@modelcontextprotocol/sdk/client/index.js')).href);
-      const { StreamableHTTPClientTransport } = await import(pathToFileURL(require.resolve('@modelcontextprotocol/sdk/client/streamableHttp.js')).href);
-      const { StdioClientTransport } = await import(pathToFileURL(require.resolve('@modelcontextprotocol/sdk/client/stdio.js')).href);
-      const schemas = await import(pathToFileURL(require.resolve('@modelcontextprotocol/sdk/types.js')).href);
-      this.sdk = { Client, StreamableHTTPClientTransport, StdioClientTransport, schemas };
-    } catch {
-      throw new Error('Các dependency MCP chưa đầy đủ. Chạy lại bộ SETUP-MCP-LOCAL hoặc npm install trong desktop-commander-local rồi mở Hub lại.');
-    }
-  }
-
-  async withMcp(url, headers, callback, { signal } = {}) {
-    if (!this.sdk) throw new Error('MCP SDK chưa sẵn sàng.');
-    signal?.throwIfAborted();
-    const { Client, StreamableHTTPClientTransport } = this.sdk;
-    const client = new Client({ name: 'chatmcp-hub', version: VERSION }, { capabilities: {} });
-    const transport = new StreamableHTTPClientTransport(new URL(url), headers ? { requestInit: { headers } } : {});
-    let deadline;
-    let abort;
-    try {
-      return await Promise.race([
-        (async () => { await client.connect(transport, { signal, timeout: 30000 }); signal?.throwIfAborted(); return await callback(client); })(),
-        new Promise((_, reject) => { deadline = setTimeout(() => reject(new Error('MCP không phản hồi kịp. Kiểm tra dịch vụ rồi bấm Khởi động lại.')), 30000); }),
-        ...(signal ? [new Promise((_, reject) => { abort = () => reject(signal.reason); signal.addEventListener('abort', abort, { once: true }); })] : []),
-      ]);
-    } finally {
-      clearTimeout(deadline);
-      if (abort) signal.removeEventListener('abort', abort);
-      // Explicitly end only the hub's short-lived probe session. This does not
-      // terminate sessions belonging to the user's browser extension.
-      await closeConnection({ client, transport });
-    }
-  }
-
-  async readSourceConfig() {
-    const source = path.join(this.generated, 'mcp-client.proxy.json');
-    const config = await readJson(source);
-    if (!isObject(config?.mcpServers) || !isObject(config.mcpServers['cloud-harness'])) throw new Error('Chưa có mcp-client.proxy.json hợp lệ của bộ Cloud Harness hiện tại.');
-    this.secrets = [...new Set([...this.secrets, ...collectSecrets(config)])];
-    const cloud = config.mcpServers['cloud-harness'];
-    let target;
-    try { target = new URL(cloud.url); } catch { throw new Error('URL Cloud Harness trong cấu hình không hợp lệ.'); }
-    if (target.protocol !== 'http:' || target.hostname !== '127.0.0.1' || !/^\/mcp\/?$/.test(target.pathname)) throw new Error('Hub cần URL Cloud Harness local http://127.0.0.1:3100/mcp trong mcp-client.proxy.json.');
-    if (!isObject(cloud.headers) || !/^Bearer\s+\S+$/i.test(cloud.headers.Authorization ?? '')) throw new Error('Cấu hình Cloud Harness thiếu thông tin xác thực. Chạy lại launcher Cloud Harness đã dùng trước đây.');
-    this.config = config;
-    return cloud;
-  }
-
-  async ensureDocker() {
-    this.status('docker', 'starting', 'Đang kiểm tra Docker Desktop');
-    const docker = await resolveProgram('docker.exe', [path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Docker', 'Docker', 'resources', 'bin', 'docker.exe')]);
-    if (!docker) throw new Error('Không tìm thấy docker.exe. Cần bản Docker Desktop bạn đã dùng với Cloud Harness.');
-    const available = async () => {
-      try { await run(docker, ['info', '--format', '{{.ServerVersion}}'], { quiet: true, timeout: 12000 }); return true; }
-      catch { return false; }
-    };
-    if (!await available()) {
-      const desktop = await resolveProgram('Docker Desktop.exe', [
-        path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Docker', 'Docker', 'Docker Desktop.exe'),
-        path.join(process.env.LOCALAPPDATA ?? '', 'Programs', 'Docker', 'Docker', 'Docker Desktop.exe'),
-      ]);
-      if (!desktop) throw new Error('Hãy mở Docker Desktop, chờ engine sẵn sàng rồi bấm Khởi động MCP.');
-      this.log('Đang mở Docker Desktop...');
-      await this.openProgram(desktop, []);
-      const until = Date.now() + 150000;
-      while (Date.now() < until) {
-        if (await available()) { this.status('docker', 'ready', 'Docker engine sẵn sàng'); return; }
-        await delay(2000);
-      }
-      throw new Error('Docker Desktop chưa sẵn sàng. Kiểm tra cửa sổ Docker rồi bấm Khởi động MCP.');
-    }
-    this.status('docker', 'ready', 'Docker engine sẵn sàng');
-  }
-
-  async ensureCloud() {
-    let cloud = await this.readSourceConfig();
-    this.status('cloud', 'starting', 'Đang kiểm tra Cloud Harness local');
-    const probe = async () => this.withMcp(cloud.url, cloud.headers, async (client) => {
-      const listing = await listAll(client, 'tools', this.sdk.schemas);
-      if (!listing.some((t) => t.name === 'workspace_list')) throw new Error('Endpoint không cung cấp công cụ Cloud Harness mong đợi.');
-    });
-    let ready = false;
-    if (await portOpen(Number(new URL(cloud.url).port || 80))) { try { await probe(); ready = true; } catch {} }
-    if (!ready) {
-      const startup = path.join(this.generated, 'start-cloud-harness.ps1');
-      if (!await exists(startup)) throw new Error('Không tìm thấy deploy/.generated/start-cloud-harness.ps1 của bộ Cloud Harness hiện tại.');
-      const powershell = await this.powerShell();
-      this.log('Đang gọi launcher Cloud Harness hiện tại...');
-      await this.checkedRun(powershell, ['-NoLogo', '-NoProfile', '-File', startup], { cwd: path.dirname(this.repoRoot), timeout: 240000 });
-      cloud = await this.readSourceConfig();
-      await probe();
-    }
-    this.status('cloud', 'ready', 'Cloud Harness local đã phản hồi MCP');
-  }
-
   async powerShell() {
     const program = await resolveProgram('powershell.exe', [path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')]);
     if (!program) throw new Error('Không tìm thấy Windows PowerShell.');
@@ -296,122 +137,21 @@ export class HubManager {
     });
   }
 
-  async configureWorkspace(workspace) {
-    this.status('desktop', 'starting', 'Đang đặt và kiểm tra workspace Windows');
-    const config = structuredClone(this.config);
-    // The hub maintains its own copy. The user's original proxy configuration
-    // and launcher remain available for returning to the previous workflow.
-    delete config.mcpServers['desktop-commander'];
-    if (await exists(this.proxyConfig)) {
-      const backup = `${this.proxyConfig}.before-${Date.now()}.bak`;
-      await fs.copyFile(this.proxyConfig, backup, constants.COPYFILE_EXCL);
-    }
-    await writeJson(this.proxyConfig, config);
-    await this.checkedRun(process.execPath, [path.join(this.bundleRoot, 'lib', 'configure-local.mjs'), workspace, this.proxyConfig, this.dcRuntime], { timeout: 120000 });
-    this.workspace = workspace;
-    await writeJson(this.settingsFile, { version: VERSION, workspace, savedAt: new Date().toISOString() });
-    this.status('desktop', 'starting', 'Đã kiểm tra thư mục; đang nối vào proxy');
-  }
+  async start() {return await this.exclusive(async()=>{await this.startLocal();});}
+  async selectWorkspace(value) {return await this.exclusive(async()=>{
+    const target=await this.validateWorkspace(value);
+    await this.localTools?.close?.();
+    await this.startLocal(target);
+  });}
 
-  async startProxy() {
-    this.status('proxy', 'starting', 'Đang mở MCP tại 127.0.0.1:3006');
-    const proc = spawnLogged(process.execPath, [
-      path.join(this.bundleRoot, 'lib', 'proxy-adapter.mjs'), '--package-root', this.proxyPackage,
-      '--config', this.proxyConfig, '--outputTransport', 'streamableHttp', '--stateful',
-      '--host', '127.0.0.1', '--port', String(PROXY_PORT), '--logLevel', 'info',
-      '--cors', 'https://chatgpt.com', 'chrome-extension://kngiafgkdnlkgmefdafaibkibegkcaef',
-    ], { cwd: this.workspace, log: (line) => this.log(line) });
-    this.proxyChild = proc.child;
-    this.children.add(proc.child);
-    proc.completion.then((result) => {
-      this.children.delete(proc.child);
-      if (this.proxyChild === proc.child) this.proxyChild = null;
-      if (!this.expectedStops.has(proc.child)) {
-        this.tools = [];
-        this.catalog.ready = false;
-        this.status('proxy', 'error', `Proxy đã dừng (${result.code ?? result.signal})`);
-        this.status('desktop', 'stopped', 'Kết nối proxy đã dừng');
-        this.lastError = 'Proxy đã dừng. Xem nhật ký rồi bấm Khởi động MCP.';
-      }
-    }).catch((error) => {
-      this.children.delete(proc.child);
-      if (this.proxyChild === proc.child) this.proxyChild = null;
-      this.log(error.message);
-      this.status('proxy', 'error', 'Không khởi động được proxy');
-    });
-    const until = Date.now() + 45000;
-    while (Date.now() < until) {
-      if (proc.child.exitCode !== null || proc.child.signalCode !== null) throw new Error('Proxy dừng trước khi kết nối. Xem nhật ký bên dưới.');
-      if (await portOpen(PROXY_PORT)) break;
-      await delay(300);
-    }
-    if (!await portOpen(PROXY_PORT)) throw new Error('Proxy chưa mở được cổng 3006.');
-    await this.withMcp(PROXY_URL, null, async (client) => {
-      const tools = await listAll(client, 'tools', this.sdk.schemas);
-      const names = new Set(tools.map((t) => t.name));
-      if (!names.has('desktop-commander.list_directory') || !names.has('cloud-harness.workspace_list')) throw new Error('Proxy chưa cung cấp đủ Desktop Commander và Cloud Harness.');
-      const read = await client.callTool({ name: 'desktop-commander.list_directory', arguments: { path: this.workspace, depth: 1 } });
-      if (read.isError) throw new Error('Desktop Commander chưa đọc được workspace đã chọn.');
-      const connections = await this.openDirectConnections();
-      try {
-        const catalog = await collectCatalog(connections, this.sdk.schemas);
-        if (!catalog.counts['cloud-harness'] || !catalog.counts['desktop-commander']) throw new Error('Một server không trả công cụ. Chưa cho chạy nhiệm vụ.');
-        catalog.proxyVerification = verifyProxyCatalog(catalog.tools, tools);
-        this.catalog = catalog;
-        this.tools = catalog.tools;
-      } finally { await Promise.allSettled([...connections.values()].map(closeConnection)); }
-    });
-    this.generation += 1;
-    this.status('proxy', 'ready', `Đã kết nối ${this.tools.length} công cụ; do Hub quản lý`);
-    this.status('desktop', 'ready', 'Đã đọc được workspace Windows');
-    this.log(`Đã đối chiếu đủ công cụ: Cloud Harness ${this.catalog.counts['cloud-harness']}; Desktop Commander ${this.catalog.counts['desktop-commander']}.`);
-  }
-
-  async startCore(workspace = this.workspace) {
-    if (!workspace) throw new Error('Hãy chọn thư mục workspace trước.');
-    const target = await this.validateWorkspace(workspace);
-    if (this.proxyChild && target === this.workspace && this.services.proxy.state === 'ready') return;
-    if (!this.proxyChild && await portOpen(PROXY_PORT)) {
-      this.status('proxy', 'error', 'Cổng 3006 đang do cửa sổ proxy cũ hoặc ứng dụng khác sử dụng');
-      throw new Error('Cổng 3006 đang được sử dụng. Ở lần chuyển sang Hub đầu tiên, nhấn Ctrl+C trong cửa sổ START-MCP-BROWSER.ps1 cũ, rồi bấm Khởi động MCP tại đây.');
-    }
-    if (this.proxyChild) await this.stopProxy();
-    await this.readSourceConfig();
-    await this.ensurePackages();
-    await this.ensureDocker();
-    await this.ensureCloud();
-    await this.configureWorkspace(target);
-    try { await this.startProxy(); }
-    catch (error) { await this.stopProxy(); throw error; }
-  }
-
-  async start() {
-    return await this.exclusive(async () => {
-      if (this.backend === 'local') return await this.startLocal();
-      if (this.proxyChild) await this.stopProxy();
-      await this.startCore();
-    });
-  }
-  async selectWorkspace(value) {
-    return await this.exclusive(async () => {
-      const target = await this.validateWorkspace(value);
-      if (this.localTools) await this.localTools.close?.();
-      if (this.backend === 'local') return await this.startLocal(target);
-      await this.startCore(target);
-    });
-  }
-
-  /**
-   * Public mode: the selected workspace is about to be deleted. The tools go dark (like after "stop"), the selection and the saved
-   * selection are forgotten, and anything that still holds the old generation is refused. The caller has checked that nothing runs.
-   */
+  /** Forget a selected workspace without deleting any files. */
   async clearWorkspace() {
     if (this.busy || this.taskId) { const error = new Error('Hub đang xử lý một thao tác hoặc nhiệm vụ; chưa bỏ chọn workspace được.'); error.statusCode = 409; throw error; }
     this.workspace = null;
     this.generation += 1;
     this.tools = [];
     this.catalog = { ...this.catalog, ready: false };
-    if (this.backend === 'local') this.status('local', 'stopped', 'Chọn hoặc tạo một workspace để bắt đầu');
+    this.status('local', 'stopped', 'Chọn hoặc tạo một workspace để bắt đầu');
     await writeJson(this.settingsFile, { version: VERSION, workspace: null, savedAt: new Date().toISOString() });
   }
 
@@ -444,37 +184,16 @@ export class HubManager {
     return buildInternalCatalog({ local, studio }, { version: VERSION });
   }
 
-  async stopProxy() {
-    this.stopping = true;
-    try {
-      const child = this.proxyChild;
-      if (child) { this.expectedStops.add(child); await stopOwned(child); }
-      if (this.proxyChild === child) this.proxyChild = null;
-      this.tools = [];
-      this.catalog.ready = false;
-      this.status('proxy', 'stopped', 'MCP đã dừng');
-      this.status('desktop', 'stopped', 'MCP đã dừng');
-    } finally { this.stopping = false; }
-  }
-  async stop() {
-    return await this.exclusive(async () => {
-      if (this.backend === 'local') {
-        this.catalog = { ...this.catalog, ready: false };
-        this.tools = [];
-        this.status('local', 'stopped', 'Đã tắt công cụ cục bộ');
-        this.log('Đã tắt công cụ cục bộ; bấm Khởi động để bật lại.');
-        return;
-      }
-      await this.stopProxy();
-      this.log('Đã dừng MCP do Hub quản lý.');
-    });
-  }
+  async stop() {return await this.exclusive(async()=>{
+    this.catalog={...this.catalog,ready:false};this.tools=[];
+    this.status('local','stopped','Đã tắt công cụ cục bộ');
+    this.log('Đã tắt công cụ cục bộ; bấm Khởi động để bật lại.');
+  });}
   async shutdown() {
-    this.stopping = true;
-    await Promise.allSettled([...this.agentSessions].map((s) => s.close()));
-    if (this.backend === 'mcp') await this.stopProxy();
-    for (const child of this.children) await stopOwned(child).catch(() => {});
-    if (this.localTools) await this.localTools.close?.();
+    this.stopping=true;
+    await Promise.allSettled([...this.agentSessions].map(s=>s.close()));
+    for(const child of this.children)await stopOwned(child).catch(()=>{});
+    await this.localTools?.close?.();
   }
 
   async browse() {
@@ -507,8 +226,7 @@ export class HubManager {
   }
 
   instructions() {
-    if (this.backend === 'local') throw Object.assign(new Error('Hướng dẫn cho MCP SuperAssistant chỉ dùng với backend MCP. Ở chế độ cục bộ, công cụ chạy ngay trong Hub nên không cần dán hướng dẫn.'), { statusCode: 409 });
-    return makeInstructions(this.workspace, this.tools, VERSION);
+    throw Object.assign(new Error('Legacy MCP/Cloud Harness integration removed. Use the local agent.'), {code:'legacy_backend_removed',statusCode:410});
   }
 
   registerSecret(value) {
@@ -517,55 +235,12 @@ export class HubManager {
 
   acquireTask(id) {
     if (this.busy || this.taskId) { const e = new Error('Một nhiệm vụ hoặc thao tác dịch vụ đang chạy.'); e.statusCode = 409; throw e; }
-    if (this.backend === 'local') {
-      if (!this.workspace) throw Object.assign(new Error('Hãy chọn thư mục dự án trước khi giao việc.'), { statusCode: 409, code: 'workspace_missing' });
-      if (!this.catalog.ready || this.services.local?.state !== 'ready') throw Object.assign(new Error('Công cụ cục bộ chưa sẵn sàng. Bấm Khởi động rồi thử lại.'), { statusCode: 409, code: 'local_not_ready' });
-    } else if (!this.catalog.ready || this.services.proxy.state !== 'ready' || this.services.desktop.state !== 'ready') throw new Error('MCP chưa qua kiểm tra đầy đủ. Hãy khởi động dịch vụ trước.');
+    if (!this.workspace) throw Object.assign(new Error('Hãy chọn thư mục dự án trước khi giao việc.'),{statusCode:409,code:'workspace_missing'});
+    if (!this.catalog.ready || this.services.local?.state!=='ready')
+      throw Object.assign(new Error('Công cụ cục bộ chưa sẵn sàng.'),{statusCode:409,code:'local_not_ready'});
     this.taskId = id;
   }
   releaseTask(id) { if (this.taskId === id) this.taskId = null; }
-
-  async openDirectConnections({ signal } = {}) {
-    if (!this.sdk) throw new Error('MCP SDK chưa sẵn sàng.');
-    signal?.throwIfAborted();
-    const config = await readJson(this.proxyConfig);
-    const connections = new Map();
-    try {
-      for (const server of ['cloud-harness', 'desktop-commander']) {
-        signal?.throwIfAborted();
-        const source = config?.mcpServers?.[server];
-        if (!source) throw new Error(`Cấu hình thiếu ${server}.`);
-        const client = new this.sdk.Client({ name: 'chatmcp-local-agent', version: VERSION }, { capabilities: {} });
-        let transport;
-        if (server === 'cloud-harness') {
-          transport = new this.sdk.StreamableHTTPClientTransport(new URL(source.url), { requestInit: { headers: source.headers ?? {} } });
-        } else {
-          const env = { ...process.env, ...(source.env ?? {}) };
-          delete env.OPENAI_API_KEY;
-          transport = new this.sdk.StdioClientTransport({ command: source.command, args: source.args ?? [], env, cwd: this.workspace, stderr: 'pipe' });
-          // Desktop Commander logs get_config contents to stderr. Drain it,
-          // without sending credentials or config contents to the dashboard.
-          transport.stderr?.on('data', () => {});
-        }
-        const connection = { client, transport };
-        connections.set(server, connection);
-        let timer;
-        let abort;
-        try {
-          await Promise.race([
-            client.connect(transport, { signal, timeout: 30000 }),
-            new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${server} không kết nối trong 30 giây.`)), 30000); }),
-            ...(signal ? [new Promise((_, reject) => { abort = () => reject(signal.reason); signal.addEventListener('abort', abort, { once: true }); })] : []),
-          ]);
-          signal?.throwIfAborted();
-        } finally { clearTimeout(timer); if (abort) signal.removeEventListener('abort', abort); }
-      }
-      return connections;
-    } catch (error) {
-      await Promise.allSettled([...connections.values()].map(closeConnection));
-      throw error;
-    }
-  }
 
   #binding() {
     const binding = { taskId: this.taskId, workspace: this.workspace, generation: this.generation, instanceId: this.instanceId };
@@ -576,37 +251,9 @@ export class HubManager {
   }
 
   async createAgentSession({ signal } = {}) {
-    if (!this.taskId) throw new Error('Cần khóa workspace trước khi mở phiên nhiệm vụ.');
+    if(!this.taskId)throw new Error('Cần khóa workspace trước khi mở phiên nhiệm vụ.');
     signal?.throwIfAborted();
-    if (this.backend === 'local') return this.#createLocalSession();
-    const { binding, check: checkBinding } = this.#binding();
-    const connections = await this.openDirectConnections({ signal });
-    try {
-      const catalog = await collectCatalog(connections, this.sdk.schemas, { signal });
-      if (!catalog.counts['cloud-harness'] || !catalog.counts['desktop-commander']) throw new Error('Danh mục MCP chưa đầy đủ.');
-      await this.withMcp(PROXY_URL, null, async (client) => {
-        const tools = await listAll(client, 'tools', this.sdk.schemas, { signal });
-        catalog.proxyVerification = verifyProxyCatalog(catalog.tools, tools);
-      }, { signal });
-      signal?.throwIfAborted();
-      checkBinding();
-      this.catalog = catalog;
-      this.tools = catalog.tools;
-      const session = makeAgentSession(connections, catalog, this.sdk.schemas, { bindingCheck: checkBinding });
-      // Local coding features are additive; the complete verified upstream MCP
-      // inventory remains available and is never truncated or substituted.
-      if (this.studioTools) {
-        const extras = this.studioTools.definitions();
-        catalog.tools.push(...extras);
-        catalog.counts.studio = extras.length;
-        catalog.servers.studio = { capabilities: { tools: {} }, tools: extras.length, serverInfo: { name: 'chatmcp-studio', version: VERSION } };
-      }
-      this.#guardCalls(session, { catalog, binding, checkBinding, external: session.callTool.bind(session) });
-      return this.#trackSession(session);
-    } catch (error) {
-      await Promise.allSettled([...connections.values()].map(closeConnection));
-      throw error;
-    }
+    return this.#createLocalSession();
   }
 
   /** Local backend: no connections to open; the tools live in this process. */
