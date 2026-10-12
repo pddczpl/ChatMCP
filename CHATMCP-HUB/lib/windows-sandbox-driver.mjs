@@ -14,26 +14,20 @@ import { prepareExecutionRequest } from './windows-sandbox-transport.mjs';
 const executeFile = promisify(execFile);
 const HASH = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
-const GENERATED_LAUNCH_SCRIPT = [
-  '@echo off',
-  'setlocal',
-  'mkdir C:\\ChatMCP\\Work 2>nul',
-  'robocopy C:\\ChatMCP\\Input\\project C:\\ChatMCP\\Work /E /R:0 /W:0 /NFL /NDL /NJH /NJS /NC /NS >nul',
-  'if %ERRORLEVEL% GEQ 8 exit /b %ERRORLEVEL%',
-  'C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output',
-  'exit /b %ERRORLEVEL%',
-  '',
-].join('\r\n');
+const GUEST_WORK = 'C:\ChatMCP\Work';
+const GUEST_INPUT = 'C:\ChatMCP\Input';
 
 export class WindowsSandboxCliDriver {
-  constructor({ cliPath, runtimeDirectory, stateDirectory, runCli = null } = {}) {
+  constructor({ cliPath, runtimeDirectory, nodeToolchainDirectory, stateDirectory, runCli = null } = {}) {
     if (!cliPath || !path.isAbsolute(cliPath) ||
         !runtimeDirectory || !path.isAbsolute(runtimeDirectory) ||
+        !nodeToolchainDirectory || !path.isAbsolute(nodeToolchainDirectory) ||
         !stateDirectory || !path.isAbsolute(stateDirectory)) {
       throw fault('invalid_windows_driver', 'CLI, runtime and state paths must be absolute and broker-controlled.');
     }
     this.cliPath = cliPath;
     this.runtimeDirectory = runtimeDirectory;
+    this.nodeToolchainDirectory = nodeToolchainDirectory;
     this.stateDirectory = stateDirectory;
     this.runCli = runCli || (async(args,{signal,timeout=30000}={})=>{
       const out=await executeFile(this.cliPath,args,{
@@ -44,7 +38,10 @@ export class WindowsSandboxCliDriver {
     this.owned = new Map();
   }
   async #cli(args, options) {
-    const text=await this.runCli(args,options);
+    // ExecFile exceptions can contain full sensitive -c command-line arguments.
+    let text;
+    try { text=await this.runCli(args,options); }
+    catch { throw fault('sandbox_cli_failed', 'Windows Sandbox CLI operation failed (sensitive arguments redacted).'); }
     if (typeof text !== 'string' || text.length > 1024*1024) {
       throw fault('invalid_cli_output', 'Windows Sandbox CLI did not return bounded textual output.');
     }
@@ -72,6 +69,16 @@ export class WindowsSandboxCliDriver {
       throw fault('untrusted_supervisor','Installed trusted supervisor does not match its pinned SHA-256 manifest.');
     }
     await fs.writeFile(path.join(input,'GuestSupervisor.exe'),executable,{flag:'wx',mode:0o400});
+    const nodeSource=path.join(this.nodeToolchainDirectory,'node.exe');
+    const nodeHash=(await fs.readFile(path.join(this.nodeToolchainDirectory,'node.exe.sha256'),'utf8')).trim();
+    if (!/^[a-fA-F0-9]{64}  node\.exe$/.test(nodeHash)) throw fault('untrusted_toolchain','Node runtime manifest format is invalid.');
+    const nodeBytes=await fs.readFile(nodeSource);
+    if (!crypto.timingSafeEqual(Buffer.from(HASH(nodeBytes),'hex'),Buffer.from(nodeHash.slice(0,64),'hex'))) {
+      throw fault('untrusted_toolchain','Installed offline Node runtime hash does not match installer manifest.');
+    }
+    const toolchainDir=path.join(input,'toolchain');
+    await fs.mkdir(toolchainDir,{mode:0o700});
+    await fs.writeFile(path.join(toolchainDir,'node.exe'),nodeBytes,{flag:'wx',mode:0o400});
     const project=path.join(input,'project');
     await fs.mkdir(project,{mode:0o700});
     for (const file of snapshot.manifest.files) {
@@ -86,19 +93,24 @@ export class WindowsSandboxCliDriver {
       }
       await fs.writeFile(target,content,{flag:'wx',mode:0o400});
     }
+    // Never interpolate arbitrary model/project shell strings into SYSTEM launch.
+    // Phase 1 supports one pinned, network-free Node test runner only.
+    if (request.command !== 'node --test') {
+      throw fault('unsupported_toolchain','Only pinned offline node --test is supported.');
+    }
     const requestMeta=await prepareExecutionRequest({
-      inputDirectory:input,runId:request.runId,command:'cmd.exe',
-      args:['/d','/s','/c',request.command],
-      cwd:'C:\\ChatMCP\\Work',
+      inputDirectory:input,runId:request.runId,
+      command:GUEST_INPUT+'\\toolchain\\node.exe',
+      args:['--test'],cwd:GUEST_WORK,
       timeoutSeconds:request.limits?.timeoutSeconds ?? 120,
       maxOutputBytes:request.limits?.maxOutputBytes ?? 100*1024,
     });
-    await fs.writeFile(path.join(input,'launch.cmd'),GENERATED_LAUNCH_SCRIPT,{flag:'wx',mode:0o400});
+    // Authentication key is host-only and is NEVER staged into mapped files.
     const xml=createSandboxConfiguration({
       inputDirectory:input,exportDirectory:output,
       workspaceRoot:snapshot.directory,memoryMb:4096,protectedClient:true,
     });
-    return {root,input,output,xml,nonce:requestMeta.nonce};
+    return {root,input,output,xml,nonce:requestMeta.nonce,authKey:requestMeta.authKey};
   }
   async start({request,snapshot,generation,signal}) {
     if (this.owned.size) throw fault('sandbox_busy','This driver already owns an active Sandbox.');
@@ -126,9 +138,20 @@ export class WindowsSandboxCliDriver {
     if (!owned || owned.generation!==generation || owned.runId!==request.runId) {
       throw fault('sandbox_not_owned','Refusing to execute in an unowned or stale Windows Sandbox.');
     }
+    // Staging is a fixed copy-only bootstrap and never runs project hooks.
+    const copyResult=await this.#cli([
+      'exec','--id',instanceId,'-r','System',
+      '-c','robocopy.exe C:\\ChatMCP\\Input\\project C:\\ChatMCP\\Work /E /R:0 /W:0 /NFL /NDL /NJH /NJS /NC /NS','--raw'
+    ],{signal,timeout:30000});
+    if (!Number.isInteger(copyResult.ExitCode) || copyResult.ExitCode<0 || copyResult.ExitCode>=8) {
+      throw fault('guest_stage_failed','Guest-local input copy failed.');
+    }
+    // Key is carried in SYSTEM supervisor argv only. The OS security gate
+    // must prove untrusted child cannot inspect its parent's command line.
     const response=await this.#cli([
       'exec','--id',instanceId,'-r','System',
-      '-c','cmd.exe /d /s /c C:\\ChatMCP\\Input\\launch.cmd','--raw'
+      '-c','C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output --auth-key '+owned.authKey,
+      '--raw'
     ],{signal,timeout:Math.ceil((request.limits?.timeoutSeconds??120)*1000)+15000});
     if (!Number.isInteger(response.ExitCode)) {
       throw fault('unknown_guest_exit','Windows Sandbox CLI returned no definitive guest execution exit code.');
@@ -136,7 +159,7 @@ export class WindowsSandboxCliDriver {
     // Raw export data are UNTRUSTED. The publisher (not this driver) must prove
     // supervisor origin, verify bounds and bind run/snapshot/check/generation.
     return Object.freeze({
-      exportDirectory:owned.output,expectedNonce:owned.nonce,
+      exportDirectory:owned.output,expectedNonce:owned.nonce,expectedAuthKey:owned.authKey,
       runId:request.runId,instanceId,generation,
       cliExitCode:response.ExitCode,
       publisherAuthenticated:false,

@@ -141,8 +141,11 @@ $stagingNode = Join-Path $payloadDir 'runtimes\node'
 New-Item -ItemType Directory -Path $stagingNode -Force | Out-Null
 $sysNode = $nodeCmd.Path
 if ($sysNode -and (Test-Path -LiteralPath $sysNode -PathType Leaf)) {
-    Copy-Item -LiteralPath $sysNode -Destination (Join-Path $stagingNode 'node.exe') -Force
-    Write-Host "  [OK] Bundled portable Node.js runtime." -ForegroundColor Green
+    $nodeDestination = Join-Path $stagingNode 'node.exe'
+    Copy-Item -LiteralPath $sysNode -Destination $nodeDestination -Force
+    $nodeSha = (Get-FileHash -LiteralPath $nodeDestination -Algorithm SHA256).Hash.ToLowerInvariant()
+    [IO.File]::WriteAllText((Join-Path $stagingNode 'node.exe.sha256'), $nodeSha + '  node.exe' + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    Write-Host "  [OK] Bundled portable Node.js runtime with SHA-256 manifest." -ForegroundColor Green
 }
 
 # Compress staging directory to installer/payload.zip

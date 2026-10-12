@@ -15,6 +15,12 @@ const generation='11111111-2222-3333-4444-555555555555';
 const calls=[];
 try {
   await fs.mkdir(workspace);await fs.mkdir(runtime);
+  const nodeDir=path.join(dir,'node-toolchain');
+  await fs.mkdir(nodeDir);
+  const nodeBytes=Buffer.from('synthetic test runner');
+  await fs.writeFile(path.join(nodeDir,'node.exe'),nodeBytes);
+  await fs.writeFile(path.join(nodeDir,'node.exe.sha256'),
+    crypto.createHash('sha256').update(nodeBytes).digest('hex')+'  node.exe\n');
   await fs.writeFile(path.join(workspace,'test.js'),'console.log("synthetic");\n');
   const bytes=Buffer.from('synthetic exe');
   await fs.writeFile(path.join(runtime,'GuestSupervisor.exe'),bytes);
@@ -22,13 +28,13 @@ try {
     crypto.createHash('sha256').update(bytes).digest('hex')+'  GuestSupervisor.exe\n');
   const snapshot=await createExecutionSnapshot({workspace,files:['test.js'],outputRoot:path.join(dir,'snapshots')});
   const driver=new WindowsSandboxCliDriver({
-    cliPath:path.join(dir,'wsb.exe'),runtimeDirectory:runtime,stateDirectory:state,
+    cliPath:path.join(dir,'wsb.exe'),runtimeDirectory:runtime,nodeToolchainDirectory:nodeDir,stateDirectory:state,
     runCli:async(args)=>{
       calls.push(args);
       if (args[0]==='list') return JSON.stringify({WindowsSandboxEnvironments:calls.some(x=>x[0]==='start')&&!calls.some(x=>x[0]==='stop')?[{Id:ownerId}]:[]});
       if (args[0]==='start') return JSON.stringify({Id:ownerId});
       if (args[0]==='stop') return JSON.stringify({Stopped:true});
-      if (args[0]==='exec') return JSON.stringify({ExitCode:13});
+      if (args[0]==='exec') return JSON.stringify({ExitCode:args[4]?.startsWith('robocopy.exe')?1:13});
       throw Error('Unexpected CLI verb');
     }
   });
@@ -42,6 +48,12 @@ try {
   const raw=await driver.execute({request,instanceId:ownerId,generation});
   assert.equal(raw.cliExitCode,13);
   assert.equal(raw.publisherAuthenticated,false);
+  assert.match(raw.expectedAuthKey,/^[0-9a-f]{64}$/);
+  assert.match(raw.expectedNonce,/^[0-9a-f]{64}$/);
+  const reqText=await fs.readFile(path.join(state,'run-'+generation,'input','request.json'),'utf8');
+  assert.equal(reqText.includes(raw.expectedAuthKey),false,'Key must never appear in guest input');
+  assert.equal(calls.filter(x=>x[0]==='exec').length,2);
+  assert.ok(calls.at(-1)[4].includes('--auth-key '+raw.expectedAuthKey));
   assert.ok(await fs.readFile(path.join(state,'run-'+generation,'input','request.json'),'utf8').then(x=>x.includes('cmd.exe')));
   await assert.rejects(driver.stop({instanceId:ownerId,generation:'33333333-2222-3333-4444-555555555555'}), {code:'sandbox_not_owned'});
   const stopped=await driver.stop({instanceId:ownerId,generation});
