@@ -266,3 +266,10 @@ The HMAC-backed reader in `lib/windows-sandbox-publisher.mjs` validates a per-ru
 `verify-phase1-coding-e2e.mjs` exercises an actual local AgentRunner and managed Git worktree against **scripted** isolated receipts, including approval, failing check, model repair and retest. No OS Sandbox or paid model is exercised by that fixture.
 
 The run-owned `ExecutionSnapshotStore` shares immutable staging between the broker and the Windows backend. Portable tests verify stale UUID refusal and cleanup. OS-level filesystem ACLs remain a Windows acceptance requirement.
+
+
+## Model-provider usage policy (Phase 1)
+
+The user selects their compatible model API Base URL, API key, and model. ChatMCP does not implement a token allowance, usage reservation, dollar cap, or parallel-worker spending ledger. The provider is responsible for billing, credits and rate limits. Recorded token counts may be shown as diagnostics but never block further model requests solely because a ChatMCP spending threshold was reached. Optional explicit user-set step/time limits are supported, with unlimited defaults for normal coding model turns. Process concurrency, Windows Sandbox instance ownership, test retries, cancellation and execution timeouts remain safety controls, **not token/price quotas**.
+
+ChatMCP is a standalone local desktop app; no IDE/VS Code integration is needed. PermissionGate supports explicit Full Access confirmation; it does not elevate the OS account or cancel Windows Sandbox isolation requirements for untrusted automated tests.

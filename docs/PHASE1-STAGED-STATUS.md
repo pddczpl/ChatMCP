@@ -22,3 +22,7 @@ This branch is a **work-in-progress implementation**, not Phase 1 security/relea
 7. Run all GitHub-hosted CI jobs and dedicated real Windows gate on exact final SHA; review and sign off before merge/tag.
 
 All unverified capabilities must be reported as blocked. No release, no merge, no live model API spending is authorized by this source change.
+
+## Standalone desktop / API usage policy
+
+The owner chooses Base URL, model and API key. ChatMCP has no artificial token/request/spend cap or shared monetary budget. Provider-side usage/billing is the owner's responsibility. Workers still obey host process concurrency, OS isolation, bounded test grants and explicit Full Access permission confirmation where selected. No integration with external IDEs (including VS Code) is required. User-selected Full Access is an existing host execution policy, not a way to silently bypass required OS isolation for automated worker checks.

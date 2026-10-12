@@ -40,7 +40,7 @@ export function OrchestratorTab(){
   const edit=(i:number,patch:Partial<Node>)=>setNodes(old=>old.map((v,j)=>j===i?{...v,...patch}:v));
   return <div className="h-full overflow-y-auto p-3 text-xs space-y-3 text-[var(--text)]">
     <div><h3 className="font-semibold text-sm">Multi-Agent Orchestrator</h3>
-      <p className="text-[var(--muted)] mt-1">Read-only DAG workers: nghiên cứu, lập kế hoạch, review và tổng hợp. Không cấp công cụ ghi hay terminal cho subagents.</p>
+      <p className="text-[var(--muted)] mt-1">Standalone desktop AI agents with your configured Base URL/model/API key. Provider usage and costs remain under your account; ChatMCP has no model token/spend quota. Read-only DAG workers cannot execute host commands.</p>
     </div>
     <div className="flex items-center justify-between">
       <span>Song song tối đa</span>

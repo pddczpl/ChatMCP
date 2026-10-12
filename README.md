@@ -20,7 +20,7 @@ The unreleased Phase 0 fixes reconnect the current React UI to persisted task hi
 | Coding agent with local tools | Available | LocalTools (36 công cụ): workspace-scoped files/search, terminal, Git, plans, checkpoints, approvals |
 | AI providers | Available | OpenAI, Anthropic, Gemini and compatible providers; Ollama/LM Studio via loopback; model must support tool calls |
 | Research Multi-Agent DAG | Available | Up to 8 read-only roles; at most 3 concurrent; coordinator summary; no tools for research subagents |
-| Parallel Coding Workers | Beta | Up to 4 tasks on separate Git worktrees; at most 3 concurrent; no worker shell/network/push |
+| Parallel Coding Workers | Beta | Up to 4 tasks on separate Git worktrees; 2 concurrent model workers by default for local process stability; no worker shell/network/push |
 | Review and Draft PR | Beta | Exact Git diff review token required; integration uses a new branch; explicit confirmation required for publishing |
 | GitHub Agent Skills Hub | Beta | Nested SKILL.md discovery, pinned revisions, SHA-checked bounded text/binary assets, source and license evidence; third-party scripts not auto-run |
 | Hosted Cloud Harness / public server | **Removed** | No Render, VPS, public/multi-tenant auth, Cloud Harness proxy or Linux execution broker in the runtime |
@@ -48,7 +48,9 @@ You can also launch the local browser dashboard without the native window:
 .\CHATMCP-HUB\START-CHATMCP-HUB.cmd -ProjectPath 'C:\Projects\MyRepository'
 ~~~
 
-It is available only at **http://127.0.0.1:3007** by default. Select a workspace and your AI model/provider. Start with Review permissions. The model API key is optional if you use a local tool-capable Ollama or LM Studio model.
+It is available only at **http://127.0.0.1:3007** by default. Select a workspace and your AI model/provider. Start with Review permissions. The model API key is optional if you use a local tool-capable Ollama or LM Studio model. Configure your own compatible **Base URL, API key and model**; ChatMCP does not impose an API-token, model-call or monetary spending quota. Your provider may still enforce rate limits, credits and billing.
+
+The native desktop UI includes its own workspace browser, editor, terminal, Git review and tool panels. **VS Code and other IDEs are not required or integrated as external control surfaces.** Settings offers Read Only, Review, Autonomous and an explicit **Full Access** option; choosing Full Access requires typing `FULL ACCESS`, runs permitted host tools under the current Windows account and does not grant OS administrator privileges. Worker test isolation remains an independent safety requirement.
 
 You do **not** need Docker, Render, Cloud Harness or a server account. Do not set CHATMCP_PUBLIC, use --repo-root, or select the removed mcp backend.
 
