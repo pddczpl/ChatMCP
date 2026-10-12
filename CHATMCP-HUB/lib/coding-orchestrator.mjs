@@ -228,7 +228,8 @@ export class CodingWorktreeOrchestrator {
     if(!worker&&!['ready_for_review','draft_pr_created'].includes(job.integration?.status))throw fail('integration_missing','Integrate first or select a reviewed individual worker.',409);
     if(!job.baseBranch)throw fail('detached_base','Cannot target an implicit GitHub base while workspace HEAD is detached.',409);
     const publishBranch=worker?.branch||job.integration.branch;
-    if((worker?.prUrl||job.integration?.prUrl))return {status:'draft_pr_created',prUrl:worker?.prUrl||job.integration.prUrl,branch:publishBranch,workerId};
+    const existingPr = worker ? worker.prUrl : job.integration?.prUrl;
+    if(existingPr)return {status:'draft_pr_created',prUrl:existingPr,branch:publishBranch,workerId};
     const remote=await this.#git(['remote','get-url','origin']);
     if(!/^(https:\/\/github\.com\/[a-z0-9_.-]+\/[a-z0-9_.-]+(?:\.git)?|git@github\.com:[a-z0-9_.-]+\/[a-z0-9_.-]+(?:\.git)?)$/i.test(remote)){
       throw fail('unsupported_remote','Only GitHub origin remotes are supported for automated PR publishing.',403);

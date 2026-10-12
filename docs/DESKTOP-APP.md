@@ -1,5 +1,23 @@
 # Đóng gói Ứng dụng Desktop Native (ChatMCP Desktop Studio)
 
+> **Cập nhật release Windows:** Mã nguồn native `desktop-shell/ChatMCP.csproj` và installer `installer/ChatMCP.Installer.csproj` hiện dùng **.NET 10**. Build từ source yêu cầu .NET SDK 10, Node.js 22+ và npm. `scripts/Build-Installer.ps1` bắt buộc biên dịch lại frontend bằng `npm ci && npm run build`, publish Windows self-contained, đóng gói portable Node và tạo file checksum `dist/ChatMCPSetup.exe.sha256`. Sử dụng `dist/ChatMCPSetup.exe` đúng revision đã vượt CI; phải test cài/gỡ trên Windows máy sạch. Windows desktop cần WebView2 Runtime; Git worktrees cần Git for Windows. Đừng công bố bản cài khi chưa test ứng dụng thực tế.
+
+**Lệnh duy trì release** (sau khi PR đã review và merge vào main):
+
+```powershell
+git switch main
+git pull --ff-only origin main
+node .\CHATMCP-HUB\tests\run-all.mjs
+.\scripts\Build-Installer.ps1
+Get-FileHash .\dist\ChatMCPSetup.exe -Algorithm SHA256
+# Test EXE trên Windows sạch; chọn phiên bản đã thống nhất trong các manifest.
+# Ví dụ sau khi chọn version X.Y.Z và test build:
+git tag -a vX.Y.Z -m "ChatMCP vX.Y.Z"
+git push origin vX.Y.Z
+gh release create vX.Y.Z .\dist\ChatMCPSetup.exe .\dist\ChatMCPSetup.exe.sha256 --draft --title "ChatMCP vX.Y.Z" --generate-notes
+```
+
+
 Tài liệu này hướng dẫn cách cài đặt, chạy và đóng gói **ChatMCP Studio** thành ứng dụng Desktop độc lập trên Windows 11, Windows 10 và Linux.
 
 ---

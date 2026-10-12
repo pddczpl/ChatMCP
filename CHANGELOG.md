@@ -1,5 +1,15 @@
 # Lịch sử thay đổi
 
+## [Unreleased] — Multi-Agent coding worktrees & GitHub Skills Hub
+
+- **Parallel Coding Agents (beta):** Git worktrees/branches riêng cho từng coding worker (tối đa 4, song song tối đa 3), công cụ đọc/sửa file giới hạn, không shell/network/Git push trực tiếp. Có integration branch và Draft PR theo từng worker khi người dùng xác nhận. Git worktrees không phải OS sandbox.
+- **Agent Skills Hub (beta):** Tìm SKILL.md lồng nhau từ GitHub tree revision được ghim; nhập tài nguyên nhị phân và văn bản theo hạn mức và kiểm tra SHA; quản lý nguồn được phép, xem/cập nhật revision, lưu giấy phép dạng evidence (không tự suy ra quyền redistribution).
+- **README:** Viết lại theo tính năng, hướng dẫn bắt đầu, an toàn, cấu trúc thử nghiệm và checklist Windows release.
+- **Windows packaging:** Build UI mới trước khi đóng gói, xác thực .NET SDK 10/Node.js 22+, self-contained Windows publish, tạo installer checksum và CI job build Windows installer.
+- **Validation:** Mở rộng `verify-phase4-features.mjs` để kiểm tra real Git worktrees, agent tool permissions và GitHub skill blob integrity. Phải nghiệm thu CI và thử installer trên Windows sạch trước khi phát hành.
+
+
+
 Định dạng theo [Keep a Changelog](https://keepachangelog.com/vi/1.1.0/). Phiên bản của Hub (`CHATMCP-HUB/package.json`) và bản dựng giao diện (`2.3.0-react-agent`) cùng đi theo mục dưới đây.
 
 Các bản trước 2.3.0 (2.0.0 … 2.2.8) có ghi chú riêng ở `CHATMCP-HUB/STUDIO-*.md`, `UPGRADE-*.md`, `TEST-RESULTS-*.txt`; chúng là tài liệu lịch sử và không được cập nhật.
