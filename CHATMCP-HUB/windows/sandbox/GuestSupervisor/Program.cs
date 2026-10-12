@@ -350,6 +350,8 @@ public static class Program
     {
         string? requestPath = null;
         string? outputPath = null;
+        string? authKey = null;
+        string? faultInject = null;
         bool hostFixture = false;
         bool guestFixture = false;
 
@@ -371,6 +373,20 @@ public static class Program
             {
                 guestFixture = true;
             }
+            else if (args[i] == "--auth-key" && i + 1 < args.Length)
+            {
+                authKey = args[++i];
+            }
+            else if (args[i] == "--fault-inject" && i + 1 < args.Length)
+            {
+                faultInject = args[++i];
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(authKey) && !Regex.IsMatch(authKey, "^[0-9a-fA-F]{64}$"))
+        {
+            Console.Error.WriteLine("BLOCKED: --auth-key must be a 64-character hex string (32 bytes).");
+            return 3;
         }
 
         if (hostFixture && guestFixture)
@@ -433,16 +449,44 @@ public static class Program
             lpSecurityDescriptor = IntPtr.Zero
         };
 
-        if (!NativeProcessManager.CreatePipe(out IntPtr hStdOutRead, out IntPtr hStdOutWrite, ref sa, 0) ||
-            !NativeProcessManager.CreatePipe(out IntPtr hStdErrRead, out IntPtr hStdErrWrite, ref sa, 0))
+        IntPtr hStdOutRead = IntPtr.Zero;
+        IntPtr hStdOutWrite = IntPtr.Zero;
+        IntPtr hStdErrRead = IntPtr.Zero;
+        IntPtr hStdErrWrite = IntPtr.Zero;
+
+        try
         {
-            await WriteErrorReceiptAsync(outputPath, "error", "Failed to create I/O redirection pipes.", startedAt, sw.ElapsedMilliseconds);
+            if (!NativeProcessManager.CreatePipe(out hStdOutRead, out hStdOutWrite, ref sa, 0))
+            {
+                int pipeErr = Marshal.GetLastWin32Error();
+                throw new Win32Exception(pipeErr, $"Failed to create stdout pipe (Win32 error {pipeErr}).");
+            }
+            if (!NativeProcessManager.CreatePipe(out hStdErrRead, out hStdErrWrite, ref sa, 0))
+            {
+                int pipeErr = Marshal.GetLastWin32Error();
+                throw new Win32Exception(pipeErr, $"Failed to create stderr pipe (Win32 error {pipeErr}).");
+            }
+
+            if (!NativeProcessManager.SetHandleInformation(hStdOutRead, NativeProcessManager.HANDLE_FLAG_INHERIT, 0))
+            {
+                int setErr = Marshal.GetLastWin32Error();
+                throw new Win32Exception(setErr, $"Failed to configure stdout read pipe handle inheritance (Win32 error {setErr}).");
+            }
+            if (!NativeProcessManager.SetHandleInformation(hStdErrRead, NativeProcessManager.HANDLE_FLAG_INHERIT, 0))
+            {
+                int setErr = Marshal.GetLastWin32Error();
+                throw new Win32Exception(setErr, $"Failed to configure stderr read pipe handle inheritance (Win32 error {setErr}).");
+            }
+        }
+        catch (Exception ex)
+        {
+            if (hStdOutRead != IntPtr.Zero) NativeProcessManager.CloseHandle(hStdOutRead);
+            if (hStdOutWrite != IntPtr.Zero) NativeProcessManager.CloseHandle(hStdOutWrite);
+            if (hStdErrRead != IntPtr.Zero) NativeProcessManager.CloseHandle(hStdErrRead);
+            if (hStdErrWrite != IntPtr.Zero) NativeProcessManager.CloseHandle(hStdErrWrite);
+            await WriteErrorReceiptAsync(outputPath, "error", ex.Message, startedAt, sw.ElapsedMilliseconds, authKey);
             return 1;
         }
-
-        // Ensure read ends are NOT inherited by the child process
-        NativeProcessManager.SetHandleInformation(hStdOutRead, NativeProcessManager.HANDLE_FLAG_INHERIT, 0);
-        NativeProcessManager.SetHandleInformation(hStdErrRead, NativeProcessManager.HANDLE_FLAG_INHERIT, 0);
 
         IntPtr hRestrictedToken = IntPtr.Zero;
         IntPtr hChildProcess = IntPtr.Zero;
@@ -452,56 +496,69 @@ public static class Program
         {
             bool isSystem = false;
             bool isAdmin = false;
-            if (OperatingSystem.IsWindows())
-            {
-                try
-                {
-                    using var id = WindowsIdentity.GetCurrent();
-                    isSystem = id.IsSystem;
-                    var principal = new WindowsPrincipal(id);
-                    isAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator);
-                }
-                catch { }
-            }
 
-            // In guest mode, if supervisor has System or Administrator privileges, token restriction is MANDATORY.
-            // Under NO circumstance is a fallback to privileged CreateProcessW permitted.
             if (guestFixture)
             {
-                if (isSystem || isAdmin)
+                if (faultInject == "identity_fail")
                 {
-                    if (!NativeProcessManager.OpenProcessToken(
-                        NativeProcessManager.GetCurrentProcess(),
-                        NativeProcessManager.TOKEN_ASSIGN_PRIMARY | NativeProcessManager.TOKEN_DUPLICATE |
-                        NativeProcessManager.TOKEN_QUERY | NativeProcessManager.TOKEN_ADJUST_DEFAULT,
-                        out IntPtr hCurrentToken))
+                    throw new System.Security.SecurityException("Fault injection: WindowsIdentity lookup failed.");
+                }
+
+                if (!OperatingSystem.IsWindows())
+                {
+                    throw new PlatformNotSupportedException("Guest fixture requires Windows.");
+                }
+
+                using var id = WindowsIdentity.GetCurrent();
+                if (id == null)
+                {
+                    throw new InvalidOperationException("Security failure: Unable to retrieve current Windows identity.");
+                }
+                isSystem = id.IsSystem;
+                var principal = new WindowsPrincipal(id);
+                isAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator);
+
+                if (faultInject == "open_token_fail")
+                {
+                    throw new Win32Exception(5, "Fault injection: Failed to open supervisor process token.");
+                }
+
+                if (!NativeProcessManager.OpenProcessToken(
+                    NativeProcessManager.GetCurrentProcess(),
+                    NativeProcessManager.TOKEN_ASSIGN_PRIMARY | NativeProcessManager.TOKEN_DUPLICATE |
+                    NativeProcessManager.TOKEN_QUERY | NativeProcessManager.TOKEN_ADJUST_DEFAULT,
+                    out IntPtr hCurrentToken))
+                {
+                    int tokenErr = Marshal.GetLastWin32Error();
+                    throw new Win32Exception(tokenErr, $"Security failure: Failed to open supervisor process token for restriction (error {tokenErr}).");
+                }
+
+                try
+                {
+                    if (faultInject == "create_restricted_token_fail")
                     {
-                        int tokenErr = Marshal.GetLastWin32Error();
-                        throw new Win32Exception(tokenErr, $"Security failure: Failed to open supervisor process token for restriction (error {tokenErr}).");
+                        throw new Win32Exception(87, "Fault injection: Failed to create restricted token.");
                     }
 
-                    try
+                    if (!NativeProcessManager.CreateRestrictedToken(
+                        hCurrentToken,
+                        NativeProcessManager.DISABLE_MAX_PRIVILEGE | NativeProcessManager.LUA_TOKEN,
+                        0, IntPtr.Zero, 0, IntPtr.Zero, 0, IntPtr.Zero,
+                        out hRestrictedToken))
                     {
-                        if (!NativeProcessManager.CreateRestrictedToken(
-                            hCurrentToken,
-                            NativeProcessManager.DISABLE_MAX_PRIVILEGE | NativeProcessManager.LUA_TOKEN,
-                            0, IntPtr.Zero, 0, IntPtr.Zero, 0, IntPtr.Zero,
-                            out hRestrictedToken))
-                        {
-                            int restrErr = Marshal.GetLastWin32Error();
-                            throw new Win32Exception(restrErr, $"Security failure: Failed to create restricted non-admin token for child (error {restrErr}).");
-                        }
-                        isRestrictedChild = true;
+                        int restrErr = Marshal.GetLastWin32Error();
+                        throw new Win32Exception(restrErr, $"Security failure: Failed to create restricted non-admin token for child (error {restrErr}).");
                     }
-                    finally
-                    {
-                        NativeProcessManager.CloseHandle(hCurrentToken);
-                    }
+                    isRestrictedChild = true;
+                }
+                finally
+                {
+                    NativeProcessManager.CloseHandle(hCurrentToken);
+                }
 
-                    if (hRestrictedToken == IntPtr.Zero)
-                    {
-                        throw new InvalidOperationException("Security failure: Restricted token handle is null; refusing privileged child spawn.");
-                    }
+                if (hRestrictedToken == IntPtr.Zero)
+                {
+                    throw new InvalidOperationException("Security failure: Restricted token handle is null; refusing privileged child spawn.");
                 }
             }
 
@@ -521,8 +578,18 @@ public static class Program
             NativeProcessManager.PROCESS_INFORMATION pi;
             bool created;
 
-            if (hRestrictedToken != IntPtr.Zero)
+            if (guestFixture)
             {
+                if (hRestrictedToken == IntPtr.Zero)
+                {
+                    throw new InvalidOperationException("Fatal security invariant violation: Attempted child spawn without restricted token in guest supervisor.");
+                }
+
+                if (faultInject == "create_process_as_user_fail")
+                {
+                    throw new Win32Exception(5, "Fault injection: CreateProcessAsUserW failed.");
+                }
+
                 created = NativeProcessManager.CreateProcessAsUserW(
                     hRestrictedToken,
                     null,
@@ -538,12 +605,6 @@ public static class Program
             }
             else
             {
-                // In guest mode, if privileged, CreateProcessW is strictly forbidden
-                if (guestFixture && (isSystem || isAdmin))
-                {
-                    throw new InvalidOperationException("Fatal security invariant violation: Attempted privileged CreateProcessW fallback for guest supervisor.");
-                }
-
                 created = NativeProcessManager.CreateProcessW(
                     null,
                     commandLine,
@@ -576,18 +637,19 @@ public static class Program
             // RACE-FREE JOB OBJECT ASSIGNMENT:
             // Child was created in SUSPENDED state. It has not executed a single user instruction.
             // Assign to Job Object before resuming. If assignment fails, kill child immediately!
-            if (!jobObject.AssignProcess(hChildProcess))
+            bool assigned = (faultInject != "assign_job_fail") && jobObject.AssignProcess(hChildProcess);
+            if (!assigned)
             {
-                int assignErr = Marshal.GetLastWin32Error();
+                int assignErr = (faultInject == "assign_job_fail") ? 5 : Marshal.GetLastWin32Error();
                 NativeProcessManager.TerminateProcess(hChildProcess, 1);
                 throw new Win32Exception(assignErr, "AssignProcessToJobObject failed on suspended process; child terminated.");
             }
 
             // Resume suspended primary thread and check result
-            uint resumeResult = NativeProcessManager.ResumeThread(hChildThread);
+            uint resumeResult = (faultInject == "resume_thread_fail") ? uint.MaxValue : NativeProcessManager.ResumeThread(hChildThread);
             if (resumeResult == uint.MaxValue)
             {
-                int resumeErr = Marshal.GetLastWin32Error();
+                int resumeErr = (faultInject == "resume_thread_fail") ? 5 : Marshal.GetLastWin32Error();
                 NativeProcessManager.TerminateProcess(hChildProcess, 1);
                 throw new Win32Exception(resumeErr, $"ResumeThread failed with error {resumeErr}; child terminated.");
             }
@@ -607,15 +669,20 @@ public static class Program
             var stdoutTask = ReadBoundedStreamAsync(outStream, request.MaxOutputBytes, cts.Token);
             var stderrTask = ReadBoundedStreamAsync(errStream, request.MaxOutputBytes, cts.Token);
 
-            uint waitResult = await Task.Run(() =>
+            (uint waitResult, int waitErr) = await Task.Run(() =>
             {
+                if (faultInject == "wait_failed")
+                {
+                    return (NativeProcessManager.WAIT_FAILED, 6);
+                }
                 int timeoutMs = (int)(request.TimeoutSeconds * 1000);
-                return NativeProcessManager.WaitForSingleObject(hChildProcess, (uint)Math.Max(1000, timeoutMs));
+                uint res = NativeProcessManager.WaitForSingleObject(hChildProcess, (uint)Math.Max(1000, timeoutMs));
+                int err = (res == NativeProcessManager.WAIT_FAILED) ? Marshal.GetLastWin32Error() : 0;
+                return (res, err);
             });
 
             if (waitResult == NativeProcessManager.WAIT_FAILED)
             {
-                int waitErr = Marshal.GetLastWin32Error();
                 NativeProcessManager.TerminateProcess(hChildProcess, 1);
                 status = "failed";
                 exitCode = null;
@@ -631,14 +698,14 @@ public static class Program
             }
             else if (waitResult == NativeProcessManager.WAIT_OBJECT_0)
             {
-                if (!NativeProcessManager.GetExitCodeProcess(hChildProcess, out int cExitCode))
+                if (faultInject == "get_exit_code_fail" || !NativeProcessManager.GetExitCodeProcess(hChildProcess, out int cExitCode))
                 {
-                    int exitErr = Marshal.GetLastWin32Error();
+                    int exitErr = (faultInject == "get_exit_code_fail") ? 6 : Marshal.GetLastWin32Error();
                     status = "failed";
                     exitCode = null;
                     reasons.Add($"GetExitCodeProcess failed with error {exitErr}");
                 }
-                else if (cExitCode == NativeProcessManager.STILL_ACTIVE)
+                else if (cExitCode == NativeProcessManager.STILL_ACTIVE || faultInject == "still_active")
                 {
                     NativeProcessManager.TerminateProcess(hChildProcess, 1);
                     status = "failed";
@@ -711,7 +778,7 @@ public static class Program
             JobObjectAttached = true,
         };
 
-        await WriteReceiptFilesAsync(outputPath, receipt);
+        await WriteReceiptFilesAsync(outputPath, receipt, authKey);
         return status == "completed" ? 0 : (exitCode ?? 1);
     }
 
@@ -781,7 +848,7 @@ public static class Program
         return (text, truncated);
     }
 
-    private static async Task WriteReceiptFilesAsync(string outputDir, ExecutionReceipt receipt)
+    private static async Task WriteReceiptFilesAsync(string outputDir, ExecutionReceipt receipt, string? authKey = null)
     {
         Directory.CreateDirectory(outputDir);
         string receiptJsonPath = Path.Combine(outputDir, "receipt.json");
@@ -789,14 +856,25 @@ public static class Program
         var utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         await File.WriteAllTextAsync(receiptJsonPath, json, utf8NoBom);
 
+        byte[] rawBytes = utf8NoBom.GetBytes(json);
+
         using var sha256 = SHA256.Create();
-        byte[] hash = sha256.ComputeHash(utf8NoBom.GetBytes(json));
+        byte[] hash = sha256.ComputeHash(rawBytes);
         string hashHex = Convert.ToHexStringLower(hash);
         string receiptShaPath = Path.Combine(outputDir, "receipt.sha256");
         await File.WriteAllTextAsync(receiptShaPath, hashHex + "  receipt.json\n", utf8NoBom);
+
+        if (!string.IsNullOrWhiteSpace(authKey))
+        {
+            byte[] keyBytes = Convert.FromHexString(authKey);
+            byte[] hmac = HMACSHA256.HashData(keyBytes, rawBytes);
+            string hmacHex = Convert.ToHexStringLower(hmac);
+            string receiptSigPath = Path.Combine(outputDir, "receipt.sig");
+            await File.WriteAllTextAsync(receiptSigPath, hmacHex + "  receipt.json\n", utf8NoBom);
+        }
     }
 
-    private static async Task WriteErrorReceiptAsync(string outputDir, string status, string error, DateTime startedAt, long durationMs)
+    private static async Task WriteErrorReceiptAsync(string outputDir, string status, string error, DateTime startedAt, long durationMs, string? authKey = null)
     {
         try
         {
@@ -812,7 +890,7 @@ public static class Program
                 SupervisorPid = Environment.ProcessId,
                 Reasons = new[] { error }
             };
-            await WriteReceiptFilesAsync(outputDir, receipt);
+            await WriteReceiptFilesAsync(outputDir, receipt, authKey);
         }
         catch
         {

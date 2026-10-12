@@ -291,6 +291,81 @@ export async function runSmokeTests() {
       assert.equal(truncReceipt.truncated, true);
       assert.ok(Buffer.byteLength(truncReceipt.stdout, 'utf8') <= 1024, 'Stdout bounded to maxOutputBytes');
       ok('GuestSupervisor bounded output byte limits and flagged truncated: true');
+
+      console.log('# 7b. Publisher Authentication & Fault Injection Tests');
+      // Authenticated Publisher Signature verification
+      const authRunId = 'auth-run-' + crypto.randomBytes(6).toString('hex');
+      const authInputDir = path.join(testBaseDir, 'auth-input');
+      const authOutputDir = path.join(testBaseDir, 'auth-output');
+      fs.mkdirSync(authInputDir, { recursive: true });
+      fs.mkdirSync(authOutputDir, { recursive: true });
+
+      const authPrep = await prepareExecutionRequest({
+        inputDirectory: authInputDir,
+        runId: authRunId,
+        command: 'cmd.exe',
+        args: ['/c', 'echo AUTH_PUBLISHER_OK'],
+        timeoutSeconds: 5,
+        maxOutputBytes: 1024,
+      });
+
+      execFileSync(
+        'dotnet',
+        [supervisorDll, '--host-fixture', '--request', authPrep.requestPath, '--output', authOutputDir, '--auth-key', authPrep.authKey],
+        { encoding: 'utf8', windowsHide: true }
+      );
+
+      // Verify authentic receipt with matching authKey
+      const authReceipt = await readAndVerifyExecutionReceipt({
+        exportDirectory: authOutputDir,
+        expectedRunId: authRunId,
+        expectedNonce: authPrep.nonce,
+        expectedAuthKey: authPrep.authKey,
+      });
+      assert.equal(authReceipt.publisherAuthenticated, true);
+      assert.equal(authReceipt.provenance, 'publisher_authenticated');
+      assert.equal(authReceipt.status, 'completed');
+      ok('Receipt verified with authenticated publisher signature (provenance: publisher_authenticated)');
+
+      // Tampered receipt with recomputed SHA-256 but unauthentic HMAC signature rejected
+      const authReceiptPath = path.join(authOutputDir, 'receipt.json');
+      const authReceiptContent = fs.readFileSync(authReceiptPath, 'utf8');
+      const tamperedContent = authReceiptContent.replace('AUTH_PUBLISHER_OK', 'FORGED_OUTPUT');
+      fs.writeFileSync(authReceiptPath, tamperedContent, 'utf8');
+      // Recompute sha256 to simulate malicious child recomputing checksum
+      const forgedSha = crypto.createHash('sha256').update(Buffer.from(tamperedContent, 'utf8')).digest('hex');
+      fs.writeFileSync(path.join(authOutputDir, 'receipt.sha256'), `${forgedSha}  receipt.json\n`, 'utf8');
+
+      await assert.rejects(
+        () => readAndVerifyExecutionReceipt({
+          exportDirectory: authOutputDir,
+          expectedRunId: authRunId,
+          expectedNonce: authPrep.nonce,
+          expectedAuthKey: authPrep.authKey,
+        }),
+        { code: 'invalid_publisher_signature' }
+      );
+      ok('Malicious child receipt tampering with recomputed SHA-256 strictly rejected by publisher signature');
+
+      // Deterministic Fault Injections
+      const faultModes = ['assign_job_fail', 'resume_thread_fail', 'wait_failed', 'still_active'];
+      for (const mode of faultModes) {
+        const faultDir = path.join(testBaseDir, `fault-${mode}`);
+        fs.mkdirSync(faultDir, { recursive: true });
+        try {
+          execFileSync(
+            'dotnet',
+            [supervisorDll, '--host-fixture', '--request', authPrep.requestPath, '--output', faultDir, '--fault-inject', mode],
+            { encoding: 'utf8', windowsHide: true }
+          );
+        } catch {
+          // Expected non-zero exit on injected fault
+        }
+        const faultReceiptJson = JSON.parse(fs.readFileSync(path.join(faultDir, 'receipt.json'), 'utf8'));
+        assert.equal(faultReceiptJson.status, 'failed', `Fault ${mode} must produce failed status`);
+        assert.ok(faultReceiptJson.reasons.length > 0, `Fault ${mode} must record failure reason`);
+      }
+      ok('Deterministic native API fault injections verified (assign_job_fail, resume_thread_fail, wait_failed, still_active)');
     } else {
       console.log('BLOCKED: Windows host fixture not run (missing Windows/.NET 10/built helper). No guest execution attempted.');
     }
