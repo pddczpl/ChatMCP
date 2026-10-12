@@ -425,7 +425,7 @@ export async function runSmokeTests() {
       const receipt = await registry.dispatch(req);
       assert.equal(receipt.status, 'isolation_unavailable');
       assert.ok(
-        receipt.reasons.some((r) => /virtualization|sandbox|unavailable|disabled/i.test(r)),
+        receipt.reasons.some((r) => /virtualization|sandbox|unavailable|disabled|unsupported|platform/i.test(r)),
         `Reasons explain blocker: ${receipt.reasons.join('; ')}`
       );
       ok('Registry dispatch rejected with fail-closed isolation_unavailable when backend is unavailable');

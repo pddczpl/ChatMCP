@@ -46,8 +46,9 @@ export function validateHostMappingPath(dirPath, { isWritable = false, workspace
 
   const rawPath = dirPath.trim();
 
-  // 1. Must be an absolute path
-  if (!path.isAbsolute(rawPath)) {
+  // 1. Must be an absolute path (POSIX or Windows)
+  const isAbs = path.posix.isAbsolute(rawPath) || path.win32.isAbsolute(rawPath);
+  if (!isAbs) {
     throw fault('invalid_path', `Host mapping path must be an absolute path: '${rawPath}'.`);
   }
 
@@ -71,14 +72,19 @@ export function validateHostMappingPath(dirPath, { isWritable = false, workspace
     }
   }
 
-  const normalized = path.resolve(rawPath);
+  const normalized = process.platform === 'win32'
+    ? path.resolve(rawPath)
+    : (path.win32.isAbsolute(rawPath) ? path.win32.normalize(rawPath) : path.resolve(rawPath));
 
   // 5. If writable, strictly forbid mapping drive roots, user workspace, or home profile directories
   if (isWritable) {
     const userHome = path.resolve(os.homedir());
 
     // Never map root of any drive as writable
-    if (path.parse(normalized).root === normalized) {
+    const normWin = path.win32.normalize(normalized);
+    const normPosix = path.posix.normalize(normalized);
+    const isRoot = path.win32.parse(normWin).root === normWin || path.posix.parse(normPosix).root === normPosix;
+    if (isRoot) {
       throw fault('unsafe_mapping', `Cannot map drive root as writable in Windows Sandbox: '${normalized}'.`);
     }
 
