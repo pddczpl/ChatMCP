@@ -6,6 +6,7 @@
 
 import process from 'node:process';
 import { ShellRunner } from './shell-runner.mjs';
+import { PermissionGate } from './permissions.mjs';
 
 export const EXECUTION_STATUSES = Object.freeze([
   'completed',
@@ -105,6 +106,12 @@ export function validateCapabilityReport(report) {
   }
   if (!Array.isArray(report.unsupportedLimits) || !report.unsupportedLimits.every((x) => typeof x === 'string')) {
     throw fault('invalid_capability_report', 'unsupportedLimits must be an array of strings.');
+  }
+  const enforcedSet = new Set(report.enforcedLimits);
+  for (const limit of report.unsupportedLimits) {
+    if (enforcedSet.has(limit)) {
+      throw fault('invalid_capability_report', `Contradictory capability report: limit '${limit}' cannot be both enforced and unsupported.`);
+    }
   }
   if (!Array.isArray(report.reasons) || !report.reasons.every((x) => typeof x === 'string')) {
     throw fault('invalid_capability_report', 'reasons must be an array of strings.');
@@ -382,6 +389,10 @@ export class HostExecutionBackend extends ExecutionBackend {
     const startTime = Date.now();
     const runId = request.runId;
 
+    if (this.activeRuns.has(runId)) {
+      throw fault('duplicate_run_id', `Execution run '${runId}' is already active.`, 409);
+    }
+
     if (signal?.aborted) {
       return validateExecutionReceipt({
         runId,
@@ -529,7 +540,9 @@ export class HostExecutionBackend extends ExecutionBackend {
       });
     } finally {
       if (signal) signal.removeEventListener('abort', onParentAbort);
-      this.activeRuns.delete(runId);
+      if (this.activeRuns.get(runId) === abortController) {
+        this.activeRuns.delete(runId);
+      }
     }
   }
 
@@ -611,14 +624,21 @@ export class WindowsSandboxPlaceholderBackend extends ExecutionBackend {
  */
 export class ExecutionRegistry {
   constructor({ maxCapabilityAgeMs = 30000, now = () => Date.now(), defaultGate = null } = {}) {
+    if (defaultGate && !(defaultGate instanceof PermissionGate)) {
+      throw fault('invalid_permission_gate', 'defaultGate must be an authoritative PermissionGate instance.', 400);
+    }
     this.backends = new Map();
     this.cachedReports = new Map();
+    this.activeRuns = new Map();
     this.maxCapabilityAgeMs = maxCapabilityAgeMs;
     this.now = now;
     this.permissionGate = defaultGate;
   }
 
   attachPermissionGate(gate) {
+    if (gate && !(gate instanceof PermissionGate)) {
+      throw fault('invalid_permission_gate', 'permissionGate must be an authoritative PermissionGate instance.', 400);
+    }
     this.permissionGate = gate;
   }
 
@@ -671,6 +691,14 @@ export class ExecutionRegistry {
       const backend = this.get(backendId);
       return backend ? backend.cancel(runId) : false;
     }
+    const trackedBackendId = this.activeRuns.get(runId);
+    if (trackedBackendId) {
+      const backend = this.get(trackedBackendId);
+      if (backend) {
+        const cancelled = await backend.cancel(runId);
+        if (cancelled) return true;
+      }
+    }
     let anyCancelled = false;
     for (const backend of this.backends.values()) {
       const res = await backend.cancel(runId);
@@ -683,13 +711,14 @@ export class ExecutionRegistry {
    * Dispatches an ExecutionRequest fail-closed:
    *
    * 1. Validates request structure.
-   * 2. Rejects unknown backends without falling back to host.
-   * 3. Probes capabilities (re-probing if stale).
-   * 4. Fails closed if backend is unavailable.
-   * 5. Fails closed with 'isolation_unavailable' if OS isolation is required but unavailable.
-   * 6. Fails closed if any required resource limit is unsupported.
-   * 7. Fail-closed: Authoritative permission check (untrusted execution requires gate).
-   * 8. Executes via verified backend only.
+   * 2. Rejects duplicate active runIds across the registry.
+   * 3. Rejects unknown backends without falling back to host.
+   * 4. Probes capabilities (re-probing if stale).
+   * 5. Fails closed if backend is unavailable.
+   * 6. Fails closed with 'isolation_unavailable' if OS isolation is required but unavailable.
+   * 7. Fails closed if any required resource limit is not strictly enforced by the backend.
+   * 8. Fail-closed: Authoritative permission check (untrusted execution requires gate; forged gates rejected).
+   * 9. Executes via verified backend only.
    *
    * @param {object} requestInput
    * @param {object} [options]
@@ -704,6 +733,10 @@ export class ExecutionRegistry {
     const request = validateExecutionRequest(requestInput);
     const startedAt = new Date(this.now()).toISOString();
 
+    if (this.activeRuns.has(request.runId)) {
+      throw fault('duplicate_run_id', `Execution run '${request.runId}' is already active in registry.`, 409);
+    }
+
     // 1. Identify target backend
     const targetBackendId = request.backend || (request.isolationRequired ? 'windows-sandbox' : 'host');
     const backend = this.get(targetBackendId);
@@ -711,43 +744,72 @@ export class ExecutionRegistry {
       throw fault('unknown_backend', `Backend '${targetBackendId}' is not registered.`, 404);
     }
 
-    // 2. Cancellation check before doing work
-    if (signal?.aborted) {
-      return validateExecutionReceipt({
-        runId: request.runId,
-        status: 'cancelled',
-        exitCode: null,
-        stdout: '',
-        stderr: signal.reason ? String(signal.reason) : 'Execution cancelled before dispatch.',
-        startedAt,
-        completedAt: startedAt,
-        durationMs: 0,
-        backend: targetBackendId,
-        snapshotHash: request.snapshotHash,
-        checkHash: request.checkHash,
-        truncated: false,
-        evidencePath: null,
-        reasons: ['Aborted by caller before launch'],
-      });
-    }
+    this.activeRuns.set(request.runId, targetBackendId);
 
-    // 3. Obtain capability report (re-probing if stale)
-    let report;
     try {
-      report = await this.getCapabilityReport(targetBackendId);
-    } catch (err) {
-      throw fault('backend_probe_failed', `Failed to probe backend '${targetBackendId}': ${err.message}`, 500);
-    }
+      // 2. Cancellation check before doing work
+      if (signal?.aborted) {
+        return validateExecutionReceipt({
+          runId: request.runId,
+          status: 'cancelled',
+          exitCode: null,
+          stdout: '',
+          stderr: signal.reason ? String(signal.reason) : 'Execution cancelled before dispatch.',
+          startedAt,
+          completedAt: startedAt,
+          durationMs: 0,
+          backend: targetBackendId,
+          snapshotHash: request.snapshotHash,
+          checkHash: request.checkHash,
+          truncated: false,
+          evidencePath: null,
+          reasons: ['Aborted by caller before launch'],
+        });
+      }
 
-    // 4. Fail-closed: Check backend availability
-    if (!report.available) {
-      if (request.isolationRequired) {
+      // 3. Obtain capability report (re-probing if stale)
+      let report;
+      try {
+        report = await this.getCapabilityReport(targetBackendId);
+      } catch (err) {
+        throw fault('backend_probe_failed', `Failed to probe backend '${targetBackendId}': ${err.message}`, 500);
+      }
+
+      // 4. Fail-closed: Check backend availability
+      if (!report.available) {
+        if (request.isolationRequired) {
+          return validateExecutionReceipt({
+            runId: request.runId,
+            status: 'isolation_unavailable',
+            exitCode: null,
+            stdout: '',
+            stderr: `Target backend '${targetBackendId}' is not available.`,
+            startedAt,
+            completedAt: startedAt,
+            durationMs: 0,
+            backend: targetBackendId,
+            snapshotHash: request.snapshotHash,
+            checkHash: request.checkHash,
+            truncated: false,
+            evidencePath: null,
+            reasons: report.reasons.length > 0 ? report.reasons : [`Backend '${targetBackendId}' is unavailable`],
+          });
+        }
+        throw fault(
+          'backend_unavailable',
+          `Backend '${targetBackendId}' is currently unavailable: ${report.reasons.join('; ')}`,
+          503
+        );
+      }
+
+      // 5. Fail-closed: Check OS isolation requirement
+      if (request.isolationRequired && !report.osIsolated) {
         return validateExecutionReceipt({
           runId: request.runId,
           status: 'isolation_unavailable',
           exitCode: null,
           stdout: '',
-          stderr: `Target backend '${targetBackendId}' is not available.`,
+          stderr: `Execution requires OS isolation, but backend '${targetBackendId}' is not OS-isolated.`,
           startedAt,
           completedAt: startedAt,
           durationMs: 0,
@@ -756,68 +818,71 @@ export class ExecutionRegistry {
           checkHash: request.checkHash,
           truncated: false,
           evidencePath: null,
-          reasons: report.reasons.length > 0 ? report.reasons : [`Backend '${targetBackendId}' is unavailable`],
+          reasons: ['Backend does not provide OS isolation', ...report.reasons],
         });
       }
-      throw fault(
-        'backend_unavailable',
-        `Backend '${targetBackendId}' is currently unavailable: ${report.reasons.join('; ')}`,
-        503
-      );
-    }
 
-    // 5. Fail-closed: Check OS isolation requirement
-    if (request.isolationRequired && !report.osIsolated) {
-      return validateExecutionReceipt({
-        runId: request.runId,
-        status: 'isolation_unavailable',
-        exitCode: null,
-        stdout: '',
-        stderr: `Execution requires OS isolation, but backend '${targetBackendId}' is not OS-isolated.`,
-        startedAt,
-        completedAt: startedAt,
-        durationMs: 0,
-        backend: targetBackendId,
-        snapshotHash: request.snapshotHash,
-        checkHash: request.checkHash,
-        truncated: false,
-        evidencePath: null,
-        reasons: ['Backend does not provide OS isolation', ...report.reasons],
-      });
-    }
+      // 6. Fail-closed: Check required resource limits
+      // Limit must be explicitly in enforcedLimits and NOT in unsupportedLimits
+      const allRequiredLimits = new Set([
+        ...(request.requiredLimits || []),
+        ...(requiredLimits || []),
+      ]);
 
-    // 6. Fail-closed: Check required resource limits
-    const allRequiredLimits = new Set([
-      ...(request.requiredLimits || []),
-      ...(requiredLimits || []),
-    ]);
-
-    for (const reqLimit of allRequiredLimits) {
-      if (report.unsupportedLimits.includes(reqLimit)) {
-        throw fault(
-          'unsupported_limit',
-          `Required resource limit '${reqLimit}' is not supported or enforced by backend '${targetBackendId}'.`,
-          400
-        );
+      for (const reqLimit of allRequiredLimits) {
+        if (!report.enforcedLimits.includes(reqLimit) || report.unsupportedLimits.includes(reqLimit)) {
+          throw fault(
+            'unsupported_limit',
+            `Required resource limit '${reqLimit}' is not supported or enforced by backend '${targetBackendId}'.`,
+            400
+          );
+        }
       }
-    }
 
-    // 7. Fail-closed: Authoritative permission check
-    const gate = permissionGate || this.permissionGate;
-    if (gate) {
-      const auth = await gate.authorize({
-        name: 'local.run_command',
-        args: { command: request.command, cwd: request.cwd, isolationRequired: request.isolationRequired },
-        taskId: taskId || request.runId,
-        signal,
-      });
-      if (!auth.allowed) {
+      // 7. Fail-closed: Authoritative permission check
+      let gate = this.permissionGate;
+      if (permissionGate) {
+        if (!(permissionGate instanceof PermissionGate)) {
+          throw fault('invalid_permission_gate', 'permissionGate must be an authoritative PermissionGate instance.', 400);
+        }
+        if (this.permissionGate && permissionGate !== this.permissionGate) {
+          throw fault('unauthorized_gate_override', 'Cannot override registry authoritative PermissionGate with another gate instance.', 403);
+        }
+        gate = permissionGate;
+      }
+
+      if (gate) {
+        const auth = await gate.authorize({
+          name: 'local.run_command',
+          args: { command: request.command, cwd: request.cwd, isolationRequired: request.isolationRequired },
+          taskId: taskId || request.runId,
+          signal,
+        });
+        if (!auth.allowed) {
+          return validateExecutionReceipt({
+            runId: request.runId,
+            status: 'blocked',
+            exitCode: null,
+            stdout: '',
+            stderr: `Permission denied: ${auth.reason}`,
+            startedAt,
+            completedAt: startedAt,
+            durationMs: 0,
+            backend: targetBackendId,
+            snapshotHash: request.snapshotHash,
+            checkHash: request.checkHash,
+            truncated: false,
+            evidencePath: null,
+            reasons: [auth.reason],
+          });
+        }
+      } else if (!trustedInternal) {
         return validateExecutionReceipt({
           runId: request.runId,
           status: 'blocked',
           exitCode: null,
           stdout: '',
-          stderr: `Permission denied: ${auth.reason}`,
+          stderr: 'Permission gate missing: untrusted execution requires an authoritative PermissionGate or explicit trustedInternal authorization.',
           startedAt,
           completedAt: startedAt,
           durationMs: 0,
@@ -826,30 +891,15 @@ export class ExecutionRegistry {
           checkHash: request.checkHash,
           truncated: false,
           evidencePath: null,
-          reasons: [auth.reason],
+          reasons: ['Untrusted execution requires an authoritative PermissionGate or explicit trustedInternal authorization'],
         });
       }
-    } else if (!trustedInternal) {
-      return validateExecutionReceipt({
-        runId: request.runId,
-        status: 'blocked',
-        exitCode: null,
-        stdout: '',
-        stderr: 'Permission gate missing: untrusted execution requires an authoritative PermissionGate or explicit trustedInternal authorization.',
-        startedAt,
-        completedAt: startedAt,
-        durationMs: 0,
-        backend: targetBackendId,
-        snapshotHash: request.snapshotHash,
-        checkHash: request.checkHash,
-        truncated: false,
-        evidencePath: null,
-        reasons: ['Untrusted execution requires an authoritative PermissionGate or explicit trustedInternal authorization'],
-      });
-    }
 
-    // 8. Execute via target backend
-    return backend.execute(request, { signal });
+      // 8. Execute via target backend
+      return await backend.execute(request, { signal });
+    } finally {
+      this.activeRuns.delete(request.runId);
+    }
   }
 }
 

@@ -1081,6 +1081,377 @@ try {
     ok('19. In-flight cancellation and double-cancel verified without race conditions');
   }
 
+  // ------------------------------------------------------------------ 20. Unknown required limits & contradictory capabilities fail closed (Issue A)
+  {
+    const spy = new SpySpawner();
+    const registry = createTestRegistry(spy);
+
+    // 1. Unknown required limit (not in enforcedLimits and not in unsupportedLimits)
+    await assert.rejects(
+      () =>
+        registry.dispatch(
+          {
+            runId: 'r-unknown-limit',
+            snapshotId: 's',
+            checkId: 'c',
+            command: 'echo limit',
+            backend: 'host',
+            isolationRequired: false,
+            requiredLimits: ['totallyUnknownConstraint999'],
+          },
+          { trustedInternal: true }
+        ),
+      (err) => {
+        assert.equal(err.code, 'unsupported_limit');
+        assert.match(err.message, /totallyUnknownConstraint999/);
+        return true;
+      }
+    );
+    assert.equal(spy.calls, 0, 'Host spawner must never be called for unknown required limits');
+
+    // 2. Contradictory capability report rejected at schema validation
+    assert.throws(
+      () =>
+        validateCapabilityReport({
+          backend: 'contradictory',
+          available: true,
+          osIsolated: false,
+          platform: 'win32',
+          networkPolicy: 'host-governed',
+          writeScope: 'host-filesystem',
+          concurrency: 1,
+          enforcedLimits: ['timeoutSeconds', 'maxMemoryMb'],
+          unsupportedLimits: ['maxMemoryMb'], // contradicts enforcedLimits!
+          reasons: [],
+          observedAt: new Date().toISOString(),
+        }),
+      (err) => {
+        assert.equal(err.code, 'invalid_capability_report');
+        assert.match(err.message, /cannot be both enforced and unsupported/);
+        return true;
+      }
+    );
+
+    // 3. Backend with contradictory report rejected during dispatch
+    class ContradictoryBackend extends ExecutionBackend {
+      constructor() {
+        super('contradictory');
+      }
+      async probe() {
+        return {
+          backend: 'contradictory',
+          available: true,
+          osIsolated: false,
+          platform: 'win32',
+          networkPolicy: 'host-governed',
+          writeScope: 'host-filesystem',
+          concurrency: 1,
+          enforcedLimits: ['timeoutSeconds'],
+          unsupportedLimits: ['timeoutSeconds'], // contradictory!
+          reasons: [],
+          observedAt: new Date().toISOString(),
+        };
+      }
+    }
+    const regContra = new ExecutionRegistry();
+    regContra.register(new ContradictoryBackend());
+    await assert.rejects(
+      () =>
+        regContra.dispatch(
+          {
+            runId: 'r-contra-disp',
+            snapshotId: 's',
+            checkId: 'c',
+            command: 'echo hi',
+            backend: 'contradictory',
+            isolationRequired: false,
+          },
+          { trustedInternal: true }
+        ),
+      (err) => err.code === 'backend_probe_failed'
+    );
+
+    ok('20. Unknown required limits fail closed; contradictory capability reports rejected');
+  }
+
+  // ------------------------------------------------------------------ 21. Duplicate runId & cancellation race conditions (Issue B)
+  {
+    // Fake runner with concurrency barrier
+    let runnerStartedResolve;
+    const runnerStarted = new Promise((resolve) => {
+      runnerStartedResolve = resolve;
+    });
+
+    let continueResolve;
+    const continuePromise = new Promise((resolve) => {
+      continueResolve = resolve;
+    });
+
+    class BarrierShellRunner {
+      async run(options) {
+        runnerStartedResolve();
+        // Wait until instructed to continue or aborted
+        await new Promise((resolve, reject) => {
+          const onAbort = () => reject(new Error('Runner aborted'));
+          if (options.signal?.aborted) return onAbort();
+          options.signal?.addEventListener('abort', onAbort, { once: true });
+          continuePromise.then(() => {
+            options.signal?.removeEventListener('abort', onAbort);
+            resolve();
+          });
+        });
+        return {
+          shell: 'bash',
+          transport: 'argv',
+          cwd: '.',
+          pid: 40401,
+          exitCode: 0,
+          signal: null,
+          timedOut: false,
+          cancelled: false,
+          lingering: false,
+          stuck: false,
+          durationMs: 50,
+          stdout: 'barrier done\n',
+          stderr: '',
+          truncated: { stdout: false, stderr: false },
+          outputBytes: { stdout: 13, stderr: 0 },
+        };
+      }
+    }
+
+    const barrierBackend = new HostExecutionBackend({
+      workspaceRoot: work,
+      workspace: studio,
+      shellRunner: new BarrierShellRunner(),
+    });
+    const registry = new ExecutionRegistry();
+    registry.register(barrierBackend);
+
+    const runId = 'r-duplicate-barrier';
+
+    // Start first execution
+    const firstPromise = registry.dispatch(
+      {
+        runId,
+        snapshotId: 's',
+        checkId: 'c',
+        command: 'echo barrier',
+        backend: 'host',
+        isolationRequired: false,
+      },
+      { trustedInternal: true }
+    );
+
+    // Wait until runner has actually started
+    await runnerStarted;
+
+    // Dispatch second request with the same runId while first is active -> must fail closed with duplicate_run_id (409)
+    await assert.rejects(
+      () =>
+        registry.dispatch(
+          {
+            runId,
+            snapshotId: 's',
+            checkId: 'c',
+            command: 'echo barrier 2',
+            backend: 'host',
+            isolationRequired: false,
+          },
+          { trustedInternal: true }
+        ),
+      (err) => {
+        assert.equal(err.code, 'duplicate_run_id');
+        assert.equal(err.statusCode, 409);
+        return true;
+      }
+    );
+
+    // Cancel the first run
+    const cancelResult = await registry.cancel(runId);
+    assert.equal(cancelResult, true, 'Cancellation of active run must succeed');
+
+    const firstReceipt = await firstPromise;
+    assert.equal(firstReceipt.status, 'cancelled');
+
+    // After completion and cleanup in finally, runId is no longer active in activeRuns
+    // A fresh execution with same runId can now run
+    class QuickRunner {
+      async run() {
+        return {
+          shell: 'bash',
+          cwd: '.',
+          pid: 40402,
+          exitCode: 0,
+          signal: null,
+          timedOut: false,
+          cancelled: false,
+          lingering: false,
+          stuck: false,
+          durationMs: 10,
+          stdout: 'quick ok',
+          stderr: '',
+          truncated: { stdout: false, stderr: false },
+          outputBytes: { stdout: 8, stderr: 0 },
+        };
+      }
+    }
+    const freshBackend = new HostExecutionBackend({ workspaceRoot: work, workspace: studio, shellRunner: new QuickRunner() });
+    const freshRegistry = new ExecutionRegistry();
+    freshRegistry.register(freshBackend);
+
+    const subsequentReceipt = await freshRegistry.dispatch(
+      { runId, snapshotId: 's', checkId: 'c', command: 'echo quick', backend: 'host', isolationRequired: false },
+      { trustedInternal: true }
+    );
+    assert.equal(subsequentReceipt.status, 'completed');
+
+    ok('21. Duplicate runId strictly rejected with duplicate_run_id (409) without corrupting active runs');
+  }
+
+  // ------------------------------------------------------------------ 22. Trusted internal authorization & forged gate prevention (Issue C)
+  {
+    const spy = new SpySpawner();
+    const authoritativeGate = new PermissionGate({ manager, workspace: studio });
+    const registry = createDefaultExecutionRegistry({
+      workspaceRoot: work,
+      workspace: studio,
+      shellRunner: new ShellRunner({ workspace: studio, stateDirectory: state, spawner: (...args) => spy.spawn(...args) }),
+      permissionGate: authoritativeGate,
+    });
+
+    // 1. Forged gate object rejected
+    const forgedGate = {
+      authorize: async () => ({ allowed: true, reason: 'forged pass' }),
+    };
+    await assert.rejects(
+      () =>
+        registry.dispatch(
+          { runId: 'r-forged-gate', snapshotId: 's', checkId: 'c', command: 'echo hack', backend: 'host', isolationRequired: false },
+          { permissionGate: forgedGate }
+        ),
+      (err) => {
+        assert.equal(err.code, 'invalid_permission_gate');
+        return true;
+      }
+    );
+
+    // 2. Unauthorized override of authoritative PermissionGate
+    const anotherValidGate = new PermissionGate({ manager, workspace: studio });
+    await assert.rejects(
+      () =>
+        registry.dispatch(
+          { runId: 'r-override-gate', snapshotId: 's', checkId: 'c', command: 'echo override', backend: 'host', isolationRequired: false },
+          { permissionGate: anotherValidGate }
+        ),
+      (err) => {
+        assert.equal(err.code, 'unauthorized_gate_override');
+        return true;
+      }
+    );
+
+    // 3. Default SandboxEngine constructor defaults trustedInternal to false
+    const untrustedEngine = new SandboxEngine({
+      mode: 'host',
+      workspaceRoot: work,
+      workspace: studio,
+      // No permissionGate, no trustedInternal
+    });
+    assert.equal(untrustedEngine.trustedInternal, false, 'SandboxEngine default trustedInternal must be false');
+
+    const blockedResult = await untrustedEngine.execute({
+      command: 'echo unauthenticated',
+    });
+    assert.equal(blockedResult.status, 'blocked');
+    assert.match(blockedResult.stderr, /Permission gate missing/);
+
+    // 4. Registry constructor rejects non-PermissionGate defaultGate
+    assert.throws(
+      () => new ExecutionRegistry({ defaultGate: { fake: true } }),
+      (err) => err.code === 'invalid_permission_gate'
+    );
+
+    assert.equal(spy.calls, 0, 'Host spawner must never be called during gate forging or unauthorized overrides');
+    ok('22. Forged gate objects and unauthorized gate overrides strictly rejected; default untrusted verified');
+  }
+
+  // ------------------------------------------------------------------ 23. Future Windows isolation compatibility & broker contract (Issue D)
+  {
+    const gate = new PermissionGate({ manager, workspace: studio });
+
+    // 1. PermissionGate in PR 1 rejects isolationRequired fail-closed
+    const authResult = await gate.authorize({
+      name: 'local.run_command',
+      args: { command: 'echo isolated', isolationRequired: true },
+      taskId: 'task-iso-check',
+    });
+    assert.equal(authResult.allowed, false);
+    assert.match(authResult.reason, /Yêu cầu cách ly hệ điều hành \(isolationRequired\)/);
+
+    // 2. Registry dispatch contract readiness: in PR 2/3, a verified OS-isolated backend
+    // reporting osIsolated: true and available: true can be dispatched to with isolationRequired: true
+    class MockVerifiedIsolatedBackend extends ExecutionBackend {
+      constructor() {
+        super('mock-isolated');
+        this.executedRequests = [];
+      }
+      async probe() {
+        return validateCapabilityReport({
+          backend: 'mock-isolated',
+          available: true,
+          osIsolated: true,
+          platform: 'win32',
+          networkPolicy: 'denied',
+          writeScope: 'guest-ephemeral',
+          concurrency: 1,
+          enforcedLimits: ['timeoutSeconds', 'maxOutputBytes'],
+          unsupportedLimits: ['maxMemoryMb', 'maxCpuCores', 'customEnv'],
+          reasons: ['Verified OS guest isolation container'],
+          observedAt: new Date().toISOString(),
+        });
+      }
+      async execute(request) {
+        this.executedRequests.push(request);
+        return validateExecutionReceipt({
+          runId: request.runId,
+          status: 'completed',
+          exitCode: 0,
+          stdout: 'isolated guest output\n',
+          stderr: '',
+          startedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+          durationMs: 15,
+          backend: this.id,
+          truncated: false,
+        });
+      }
+    }
+
+    const isolatedBackend = new MockVerifiedIsolatedBackend();
+    const isolatedRegistry = new ExecutionRegistry();
+    isolatedRegistry.register(isolatedBackend);
+
+    const isolatedReceipt = await isolatedRegistry.dispatch(
+      {
+        runId: 'r-verified-isolated',
+        snapshotId: 's',
+        checkId: 'c',
+        command: 'echo guest',
+        backend: 'mock-isolated',
+        isolationRequired: true,
+      },
+      { trustedInternal: true }
+    );
+
+    assert.equal(isolatedReceipt.status, 'completed');
+    assert.equal(isolatedReceipt.backend, 'mock-isolated');
+    assert.equal(isolatedReceipt.exitCode, 0);
+    assert.equal(isolatedBackend.executedRequests.length, 1);
+    assert.equal(isolatedBackend.executedRequests[0].isolationRequired, true);
+
+    ok('23. PermissionGate rejects isolationRequired fail-closed; ExecutionRegistry contract ready for PR 2/3 broker');
+  }
+
   console.log(`\nAll ${checks} verification checks passed successfully.`);
 } finally {
   const resolved = await fs.realpath(root);

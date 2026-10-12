@@ -186,6 +186,7 @@ console.log('--- Section 3: SandboxEngine ---');
     mode: 'host',
     workspaceRoot: work,
     limits: { timeoutSeconds: 30, maxMemoryMb: 256 },
+    trustedInternal: true,
   });
 
   const status = engine.status();

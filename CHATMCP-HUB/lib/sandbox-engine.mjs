@@ -41,7 +41,7 @@ export class SandboxEngine {
     shellRunner = null,
     registry = null,
     permissionGate = null,
-    trustedInternal = null,
+    trustedInternal = false,
   } = {}) {
     if (!SANDBOX_MODES.includes(mode)) {
       throw fault('invalid_mode', `Chế độ sandbox không hợp lệ (${mode}). Cho phép: ${SANDBOX_MODES.join(', ')}.`);
@@ -54,7 +54,7 @@ export class SandboxEngine {
       : { resolve: async (rel = '') => ({ absolute: path.resolve(this.workspaceRoot, String(rel || '.')), relative: String(rel || '.') }) };
     this.shellRunner = shellRunner || new ShellRunner({ workspace: effectiveWs });
     this.permissionGate = permissionGate;
-    this.trustedInternal = trustedInternal !== null ? Boolean(trustedInternal) : !permissionGate;
+    this.trustedInternal = Boolean(trustedInternal);
     this.registry = registry || createDefaultExecutionRegistry({
       workspaceRoot: this.workspaceRoot,
       workspace: effectiveWs,
