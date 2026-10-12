@@ -54,7 +54,9 @@ try {
   assert.equal(reqText.includes(raw.expectedAuthKey),false,'Key must never appear in guest input');
   assert.equal(calls.filter(x=>x[0]==='exec').length,2);
   assert.ok(calls.at(-1)[calls.at(-1).indexOf('-c')+1].includes('--auth-key '+raw.expectedAuthKey));
-  assert.ok(await fs.readFile(path.join(state,'run-'+generation,'input','request.json'),'utf8').then(x=>x.includes('cmd.exe')));
+  const stagedRequest=JSON.parse(await fs.readFile(path.join(state,'run-'+generation,'input','request.json'),'utf8'));
+  assert.ok(stagedRequest.command.endsWith('\\toolchain\\node.exe'),'guest runs the pinned offline Node binary, never cmd.exe');
+  assert.deepEqual(stagedRequest.args,['--test']);
   await assert.rejects(driver.stop({instanceId:ownerId,generation:'33333333-2222-3333-4444-555555555555'}), {code:'sandbox_not_owned'});
   const stopped=await driver.stop({instanceId:ownerId,generation});
   assert.deepEqual(stopped,{stopped:true,instanceId:ownerId});
