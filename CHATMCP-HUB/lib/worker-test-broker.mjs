@@ -1,6 +1,9 @@
 // Grant-bound isolated worker checks: no host command, model-supplied shell,
 // credential access, path expansion, arbitrary Git write or publication.
 import { randomUUID, createHash } from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { constants } from 'node:fs';
 import { fault, validateExecutionRequest, validateExecutionReceipt } from './execution-contract.mjs';
 import { createExecutionSnapshot } from './execution-snapshots.mjs';
 import { hashCheck, recordVerificationAttempt } from './verification-receipt.mjs';
@@ -36,7 +39,39 @@ export class WorkerTestBroker {
     const worker = await this.#worker(workerId);
     const suggestions = await worker.checks(); // trusted workspace discovery reads untrusted repository metadata
     const commands = suggestions?.suggested || [];
-    const sourceHash = hash(JSON.stringify(commands));
+    // Each discovered command is deliberately fixed to a well-known project
+    // configuration file. Hash the actual configuration bytes as well as the
+    // command: a package script changing under the same 'npm test' name must
+    // invalidate the previous approval. Reading test configuration never
+    // executes it, and link/special files fail closed.
+    const checkFiles = new Set(['package.json','pyproject.toml','pytest.ini','Cargo.toml','go.mod','Makefile']);
+    const configHashes = [];
+    for (const check of commands) {
+      if (!checkFiles.has(check.from) || !worker.files.includes(check.from)) {
+        throw fault('unsafe_check_source','Registered test definition is not owned by the selected worktree.');
+      }
+      const full=path.join(worker.workspace,check.from);
+      const stat=await fs.lstat(full);
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.size > 1024*1024) {
+        throw fault('unsafe_check_source','Check source file is linked, special or oversized.');
+      }
+      const nofollow=process.platform==='win32'?0:(constants.O_NOFOLLOW||0);
+      const file=await fs.open(full,constants.O_RDONLY|nofollow);
+      try {
+        const opened=await file.stat();
+        if (!opened.isFile() || opened.nlink!==1 || opened.size!==stat.size ||
+            opened.mtimeMs!==stat.mtimeMs || opened.ino!==stat.ino || opened.dev!==stat.dev) {
+          throw fault('stale_check','Check configuration changed while being read.');
+        }
+        const bytes=await file.readFile();
+        const after=await file.stat();
+        if (bytes.length!==stat.size || after.size!==stat.size || after.mtimeMs!==stat.mtimeMs) {
+          throw fault('stale_check','Check configuration changed while being hashed.');
+        }
+        configHashes.push({from:check.from,sha256:hash(bytes)});
+      } finally {await file.close();}
+    }
+    const sourceHash = hash(JSON.stringify({commands,configHashes}));
     const descriptors = commands.slice(0, 30).filter(x =>
       typeof x.command === 'string' && x.command.trim() && x.command.length <= 2048
     ).map(({ command, from }) => {
