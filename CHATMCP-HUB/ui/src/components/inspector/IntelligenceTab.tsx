@@ -14,6 +14,7 @@ import {
   Save 
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { reconcileSavedAiConfig, type AiConfigForm } from '@/lib/ai-config-form';
 
 export function IntelligenceTab() {
   const { showToast } = useAppStore();
@@ -34,59 +35,66 @@ export function IntelligenceTab() {
     { id: 'custom-openai', name: 'Custom (OpenAI)', defaultModel: 'custom-model', defaultUrl: 'https://api.openai.com/v1' },
   ];
 
-  const [provider, setProvider] = useState((ai as any).preset || ai.provider || 'anthropic');
-  const [model, setModel] = useState(ai.model || 'claude-sonnet-5-5');
-  const [apiBaseUrl, setApiBaseUrl] = useState(ai.apiBaseUrl || 'https://api.anthropic.com');
-  const [apiKey, setApiKey] = useState('');
+  const [form, setForm] = useState<AiConfigForm>({
+    provider: (ai as any).preset || ai.provider || 'anthropic',
+    model: ai.model || 'claude-sonnet-5-5',
+    apiBaseUrl: ai.apiBaseUrl || 'https://api.anthropic.com',
+    apiKey: '',
+  });
+  const { provider, model, apiBaseUrl, apiKey } = form;
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; latencyMs?: number; error?: string } | null>(null);
   const [formInitialized, setFormInitialized] = useState(false);
 
   useEffect(() => {
     if (!hub || formInitialized) return;
-    if (ai.apiBaseUrl) setApiBaseUrl(ai.apiBaseUrl);
-    if (ai.model) setModel(ai.model);
-    if ((ai as any).preset) setProvider((ai as any).preset);
+    setForm(current => ({ ...current,
+      apiBaseUrl: ai.apiBaseUrl || current.apiBaseUrl,
+      model: ai.model || current.model,
+      provider: (ai as any).preset || current.provider,
+    }));
     setFormInitialized(true);
   }, [hub, formInitialized, ai]);
 
   const handleProviderChange = (pId: string) => {
-    setApiKey('');
-    setProvider(pId);
     const p = providers.find((x) => x.id === pId);
-    if (p) {
-      setModel(p.defaultModel);
-      setApiBaseUrl(p.defaultUrl);
-    }
+    setForm(current => ({ ...current, provider: pId, apiKey: '',
+      ...(p ? { model: p.defaultModel, apiBaseUrl: p.defaultUrl } : {}),
+    }));
     setTestResult(null);
   };
 
   const handleEndpointChange = (nextUrl: string) => {
     // Never carry an unsaved credential to a different destination.
-    try {
-      if (new URL(nextUrl).origin !== new URL(apiBaseUrl).origin) setApiKey('');
-    } catch {
-      setApiKey('');
-    }
-    setApiBaseUrl(nextUrl);
+    setForm(current => {
+      let sameOrigin = false;
+      try { sameOrigin = new URL(nextUrl).origin === new URL(current.apiBaseUrl).origin; } catch { /* Incomplete URL. */ }
+      return { ...current, apiBaseUrl: nextUrl, apiKey: sameOrigin ? current.apiKey : '' };
+    });
     setTestResult(null);
+  };
+
+  const saveForm = async () => {
+    const submitted = form;
+    const result = await api.updateAiConfig({
+      preset: submitted.provider,
+      apiBaseUrl: submitted.apiBaseUrl.trim(),
+      model: submitted.model.trim(),
+      apiKey: submitted.apiKey.trim() || undefined,
+      remember: true,
+    });
+    const saved = result.ai || {};
+    setForm(current => reconcileSavedAiConfig(current, submitted, saved));
+    return reconcileSavedAiConfig(submitted, submitted, saved);
   };
 
   const handleTestConnection = async () => {
     setTesting(true);
     setTestResult(null);
     const start = Date.now();
+    let savedForm: AiConfigForm | undefined;
     try {
-      // First save or send active settings
-      await api.updateAiConfig({
-        preset: provider,
-        apiBaseUrl: apiBaseUrl.trim(),
-        model: model.trim(),
-        apiKey: apiKey.trim() || undefined,
-        remember: true,
-      });
-
-      setApiKey('');
+      savedForm = await saveForm();
       const res = await api.testConnection();
       const latency = Date.now() - start;
       if (res?.ok !== false) {
@@ -96,26 +104,22 @@ export function IntelligenceTab() {
         setTestResult({ ok: false, error: res?.error || t('ai_test_fail') });
         showToast(t('ai_test_fail'), 'error');
       }
-      refetch();
     } catch (err: any) {
       setTestResult({ ok: false, error: err.message || t('ai_test_fail') });
       showToast(err.message || t('ai_test_fail'), 'error');
     } finally {
       setTesting(false);
-      refetch();
+      const refreshed = await refetch();
+      if (savedForm && refreshed.data?.ai) {
+        const submitted = savedForm;
+        setForm(current => reconcileSavedAiConfig(current, submitted, refreshed.data.ai!));
+      }
     }
   };
 
   const handleSave = async () => {
     try {
-      await api.updateAiConfig({
-        preset: provider,
-        apiBaseUrl: apiBaseUrl.trim(),
-        model: model.trim(),
-        apiKey: apiKey.trim() || undefined,
-        remember: true,
-      });
-      setApiKey('');
+      await saveForm();
       showToast(t('ai_save_success'), 'success');
       refetch();
     } catch (err: any) {
@@ -196,7 +200,7 @@ export function IntelligenceTab() {
           type="text"
           aria-label="Model"
           value={model}
-          onChange={(e) => setModel(e.target.value)}
+          onChange={(e) => setForm(current => ({ ...current, model: e.target.value }))}
           placeholder="vd: claude-sonnet-5-5, gpt-4o, deepseek-chat..."
           className="w-full bg-[var(--surface)] text-[var(--text)] font-mono text-xs rounded-md px-3 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
         />
@@ -214,7 +218,7 @@ export function IntelligenceTab() {
             type="password"
             aria-label="API key"
             value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
+            onChange={(e) => setForm(current => ({ ...current, apiKey: e.target.value }))}
             placeholder="sk-..."
             className="w-full bg-[var(--surface)] text-[var(--text)] font-mono text-xs rounded-md pl-8 pr-3 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
           />

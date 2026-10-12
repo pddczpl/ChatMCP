@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 
 const result = await build({
   stdin: {
@@ -13,12 +14,12 @@ const result = await build({
       export const phase = props => renderToStaticMarkup(React.createElement(PhaseRibbon, props));
       export const banner = props => renderToStaticMarkup(React.createElement(StateBanner, props));
       export const approval = props => renderToStaticMarkup(React.createElement(ApprovalStack, props));`,
-    resolveDir: new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'),
+    resolveDir: fileURLToPath(new URL('..', import.meta.url)),
     loader: 'tsx',
   },
   bundle: true, write: false, platform: 'node', format: 'cjs', packages: 'external',
   define: { 'process.env.NODE_ENV': '"production"' },
-  tsconfig: new URL('../tsconfig.json', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'),
+  tsconfig: fileURLToPath(new URL('../tsconfig.json', import.meta.url)),
 });
 const compiled = { exports: {} };
 new Function('require', 'module', 'exports', result.outputFiles[0].text)(createRequire(import.meta.url), compiled, compiled.exports);
