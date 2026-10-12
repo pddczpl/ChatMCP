@@ -166,6 +166,8 @@ export const api = {
   getCodingRuns: () => request<any>('/api/studio/coding'),
   runCodingAgents: (tasks:{id:string;prompt:string}[],maxConcurrency=2) => request<any>('/api/studio/coding/run',{method:'POST',body:JSON.stringify({tasks,maxConcurrency,confirmation:'CREATE WORKTREES'})}),
   cancelCodingAgents: () => request<any>('/api/studio/coding/cancel',{method:'POST',body:'{}'}),
+  getWorkerChecks: (workerId:string) => request<{workerId:string;checks:any[]}>(`/api/studio/coding/checks?workerId=${encodeURIComponent(workerId)}`),
+  approveIsolatedCheck: (workerId:string,checkId:string,maxAttempts=3) => request<any>('/api/studio/coding/check-grant',{method:'POST',body:JSON.stringify({workerId,checkId,maxAttempts,confirmation:'AUTHORIZE ISOLATED CHECK'})}),
   getCodingDiff: (runId:string,workerId?:string) => request<any>(`/api/studio/coding/review?runId=${encodeURIComponent(runId)}&workerId=${encodeURIComponent(workerId||'')}`),
   integrateCodingAgents: (runId:string,workerIds:string[],reviewTokens:Record<string,string>) => request<any>('/api/studio/coding/integrate',{method:'POST',body:JSON.stringify({runId,workerIds,reviewTokens,confirmation:'INTEGRATE WORKTREES'})}),
   publishCodingAgents: (runId:string,reviewToken:string,workerId?:string) => request<any>('/api/studio/coding/publish',{method:'POST',body:JSON.stringify({runId,workerId:workerId??null,reviewToken,confirmation:'PUBLISH DRAFT PR'})}),

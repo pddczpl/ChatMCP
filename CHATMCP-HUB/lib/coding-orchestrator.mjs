@@ -10,13 +10,16 @@ import { AgentRunner } from './agent.mjs';
 import { assembleStudio } from './assemble.mjs';
 import { scrubEnv, killTree } from './shell-runner.mjs';
 import { readJson, writeJson } from './runtime.mjs';
+import { WorkerTestBroker } from './worker-test-broker.mjs';
+import { attachWorkerTestTools } from './worker-tools.mjs';
 
 const fail = (code, msg, statusCode=400)=>Object.assign(new Error(msg),{code,statusCode});
 const allowedTools = new Set([
   'read_file','list_directory','find_files','search_files','file_info',
   'symbols_search','symbols_references','get_plan','update_plan',
   'write_file','edit_file','files_apply_patch','files_write_batch',
-  'make_directory','move_path','git_status','git_diff','git_log'
+  'make_directory','move_path','git_status','git_diff','git_log',
+  'checks_list','checks_run'
 ]);
 const slug=(s)=>typeof s==='string'&&/^[a-z][a-z0-9-]{0,30}$/.test(s);
 const bounded=(s,n=250)=>String(s||'').slice(0,n);
@@ -35,6 +38,7 @@ export class CodingWorktreeOrchestrator {
     this.bundleRoot=bundleRoot;this.createWorker=createWorker;
     this.active=null;this.controller=null;this.runners=new Map();this.jobs=new Map();this.integrating=false;
     this.writes=Promise.resolve();
+    this.checkBrokers=new Map();
   }
   async load(){
     const saved=await readJson(path.join(this.directory,'jobs.json')).catch(()=>null);
@@ -93,12 +97,35 @@ export class CodingWorktreeOrchestrator {
       await manager.load(worktree);
       manager.pluginManager=this.manager.pluginManager;
       assembleStudio(manager,{bundleRoot:this.bundleRoot});
+      // The test broker only resolves worker identity, paths and commands from
+      // managed Hub/worktree records, never from agent request arguments.
+      const broker = new WorkerTestBroker({
+        resolveWorker: async (workerId) => {
+          if (workerId !== node.id || signal.aborted) return null;
+          const gitFiles = await this.#git(['-C',worktree,'ls-files','--cached','--others','--exclude-standard','-z'],{maxBytes:250000});
+          return {
+            id:node.id, workspace:worktree, baseSha:job.baseSha,
+            files:gitFiles.split('\\0').filter(Boolean).slice(0,257),
+            parentPolicy:this.manager.permissions?.mode || 'review',
+            capabilities:{checksRun:this.manager.permissions?.mode === 'autonomous'},
+            revoked:signal.aborted, checks:()=>manager.studio.checks(),
+          };
+        },
+        registry:manager.executionRegistry,
+        // Only CodingWorktreeOrchestrator.grantCheck() invokes issueGrant(),
+        // and that HTTP endpoint needs explicit CSRF + owner confirmation.
+        authorizeGrant:async()=>({approved:true}),
+      });
+      this.checkBrokers.set(node.id,broker);
+      attachWorkerTestTools({localTools:manager.localTools, permissionGate:manager.permissions, broker, workerId:node.id});
       // Revoke ALL capabilities except constrained file editing and read-only
       // analysis before publishing the model tool catalog. No arbitrary shell.
       for(const name of [...manager.localTools.tools.keys()]) if(!allowedTools.has(name))manager.localTools.tools.delete(name);
       manager.localTools.shellDisabled=true;
-      manager.permissions.mode='autonomous';
-      manager.permissions.executionPolicy='host-review';
+      // Never elevate a read-only or Review parent silently in a detached child.
+      // The real coding worker requires an explicitly selected Autonomous parent.
+      manager.permissions.mode=this.manager.permissions?.mode || 'review';
+      manager.permissions.executionPolicy=this.manager.permissions?.executionPolicy || 'host-review';
       await manager.startLocal(worktree);
       signal.throwIfAborted();
       const runner=new AgentRunner({manager,provider:this.provider,taskDirectory:path.join(stateDir,'tasks'),log:()=>{}});
@@ -122,14 +149,31 @@ export class CodingWorktreeOrchestrator {
         return {state:result?.state||result?.status,summary:bounded(result?.finalText||result?.error,12000),taskId:task.id,steps:result?.steps,toolCalls:result?.toolCalls};
       }finally{signal.removeEventListener('abort',onAbort);}
     }finally{
+      this.checkBrokers.delete(node.id);
       this.runners.delete(node.id);
       await active.runner?.shutdown?.().catch(()=>{});
       await manager.shutdown().catch(()=>{});
     }
   }
+  async discoverWorkerChecks({workerId}={}) {
+    const broker=this.checkBrokers.get(workerId);
+    if (!broker || this.active===null) throw fail('worker_not_active','Worker has no active managed test broker.',404);
+    return {workerId,checks:await broker.discoverChecks({workerId})};
+  }
+  async grantCheck({workerId,checkId,confirmation,maxAttempts=3}={}) {
+    if (confirmation!=='AUTHORIZE ISOLATED CHECK') throw fail('confirmation_required','Type AUTHORIZE ISOLATED CHECK for a scoped sandbox test grant.',403);
+    const broker=this.checkBrokers.get(workerId);
+    if (!broker || this.active===null) throw fail('worker_not_active','Worker has no active managed test broker.',404);
+    if (this.manager.permissions?.mode!=='autonomous') throw fail('worker_permission_denied','Parent is not in Autonomous mode.',403);
+    return broker.issueGrant({workerId,checkId,maxAttempts});
+  }
   async run({tasks,confirmation,maxConcurrency=2}={}){
     if(this.active||this.integrating)throw fail('coding_busy','Another coding job is active.',409);
     if(confirmation!=='CREATE WORKTREES')throw fail('confirmation_required','Type CREATE WORKTREES to permit isolated coding workers.',403);
+    // Real AgentRunner edits require a parent policy permitting autonomous
+    // scoped worktree writes. Do not silently reinterpret Review as Autonomous.
+    if (!this.createWorker && this.manager.permissions?.mode !== 'autonomous')
+      throw fail('worker_permission_denied','Set parent permissions to Autonomous explicitly for delegated worktree edits.',403);
     if(!this.provider.ready())throw fail('provider_unavailable','Configure a working API model.',409);
     if(!Array.isArray(tasks)||tasks.length<1||tasks.length>4)throw fail('invalid_tasks','Provide between 1 and 4 coding tasks.');
     if(!Number.isInteger(maxConcurrency)||maxConcurrency<1||maxConcurrency>3)throw fail('bad_concurrency','Concurrency must be 1–3.');
