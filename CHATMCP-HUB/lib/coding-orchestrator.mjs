@@ -190,11 +190,11 @@ export class CodingWorktreeOrchestrator {
         node.status='testing';await this.#save();
         const contentHash=async()=>{
           const current=await broker.resolveWorker(node.id);
-          const snapshot=await createExecutionSnapshot({
+          const snapshot=await this.manager.executionSnapshots.create({
             workspace:worktree,files:current.files,baseSha:job.baseSha,signal,
           });
           try{return snapshot.contentHash;}
-          finally {await fs.rm(snapshot.directory,{recursive:true,force:true}).catch(()=>{});}
+          finally {await this.manager.executionSnapshots.release(snapshot.snapshotId);}
         };
         const repair=async({failures,cycle})=>{
           signal.throwIfAborted();
