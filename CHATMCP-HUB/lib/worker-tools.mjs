@@ -12,7 +12,14 @@ export function attachWorkerTestTools({ localTools, permissionGate, broker, work
     summary:()=>'List discovered test checks',
     run:async()=>{
       const checks=await broker.discoverChecks({workerId});
-      return {isError:false,content:[{type:'text',text:JSON.stringify(checks).slice(0,18000)}],structuredContent:{checks}};
+      const approved=[...broker.grants.values()].filter(g=>g.workerId===workerId && !g.revoked &&
+        g.expiresAt>broker.clock() && g.attempts<g.maxAttempts);
+      const available=checks.map(check=>{
+        const grant=approved.find(g=>g.checkId===check.id && g.checkHash===check.checkHash &&
+          g.sourceHash===check.sourceHash);
+        return {...check,approvedGrantId:grant?.id||null,remainingAttempts:grant?grant.maxAttempts-grant.attempts:0};
+      });
+      return {isError:false,content:[{type:'text',text:JSON.stringify(available).slice(0,18000)}],structuredContent:{checks:available}};
     },
   });
   localTools.tools.set('checks_run', {

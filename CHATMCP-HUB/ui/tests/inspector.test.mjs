@@ -105,6 +105,14 @@ try {
     assert.match(html, /Command succeeded.*tests unverified/i);
     assert.doesNotMatch(html, /Verified check evidence/);
   });
+  await test('no isolated worker test grants appear without a running managed worker', async () => {
+    const html = await render('PlanTab', [
+      ...base,
+      [['plan','task-1'],{title:'Review safe changes',items:[]}],
+      [['coding-runs'],{activeRunId:null,jobs:[]}],
+    ]);
+    assert.doesNotMatch(html,/Owner-approved isolated checks/);
+  });
   await test('activity displays actual selected task events', async () => {
     const html = await render('ActivityTab', [...base, [['task', 'task-1'], { id: 'task-1', events: [
       { type: 'tool_error', toolName: 'run_command', status: 'error', message: 'Test exited 1', at: '2026-10-12T10:00:00Z' },
