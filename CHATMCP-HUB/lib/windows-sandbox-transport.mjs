@@ -170,7 +170,7 @@ export async function readAndVerifyExecutionReceipt({
   });
   // A checksum and guest-readable nonce do not attest to the execution origin.
   // Keep the future worker broker blocked until trusted publication exists.
-  if (!allowUntrustedHostFixture) {
+  if (allowUntrustedHostFixture !== true) {
     throw fault('unverified_guest_origin', 'Receipt consistency checked, but guest origin and supervisor identity are NOT authenticated.');
   }
   return checked;
