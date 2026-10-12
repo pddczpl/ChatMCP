@@ -44,7 +44,7 @@ node tests/run-all.mjs --no-skip all             # một bộ bị SKIP bị tí
 npm run test:ui                                  # bộ giao diện Python/Playwright (tùy chọn)
 ```
 
-Hiện có **61 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
+Hiện có **62 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
 
 Runner in một dòng cho mỗi bộ (`PASS`/`FAIL`/`TIMEOUT`/`SKIP`, thời gian, mã thoát thật) và thoát khác 0 nếu có bộ nào fail hoặc quá hạn (mặc định 180 giây/bộ, đổi bằng `--timeout`). Bộ kiểm thử in một dòng `CHATMCP_TEST_SKIP: <lý do>` rồi thoát 0 để được báo là **SKIP — không bao giờ được tính là PASS**. `--no-skip all` (hoặc `--no-skip tên1,tên2`) biến SKIP thành FAIL. Workflow hiện tại cài Python 3.11 và các gói ghim trong `tests/requirements-e2e.txt`, rồi chạy **`--no-skip all`** trên cả Windows và Linux, Node 22 và 24. Một bộ bắt buộc bị bỏ qua vì thiếu môi trường vì thế làm CI thất bại. Một phần không thể kiểm chứng trong bản này được in `BLOCKED: <gì> - <vì sao>`.
 
@@ -273,3 +273,5 @@ The run-owned `ExecutionSnapshotStore` shares immutable staging between the brok
 The user selects their compatible model API Base URL, API key, and model. ChatMCP does not implement a token allowance, usage reservation, dollar cap, or parallel-worker spending ledger. The provider is responsible for billing, credits and rate limits. Recorded token counts may be shown as diagnostics but never block further model requests solely because a ChatMCP spending threshold was reached. Optional explicit user-set step/time limits are supported, with unlimited defaults for normal coding model turns. Process concurrency, Windows Sandbox instance ownership, test retries, cancellation and execution timeouts remain safety controls, **not token/price quotas**.
 
 ChatMCP is a standalone local desktop app; no IDE/VS Code integration is needed. PermissionGate supports explicit Full Access confirmation; it does not elevate the OS account or cancel Windows Sandbox isolation requirements for untrusted automated tests.
+
+`dynamic-delegates.mjs` executes user-triggered dynamically planned read-only subagents through the same configured Gateway Provider and requires the literal `AUTHORIZE READONLY DELEGATION` confirmation. It has no internal token/spend budget; workers have no execution tools, and cancellation/restart are explicit.
