@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { constants } from 'node:fs';
 import { fault, validateExecutionRequest, validateExecutionReceipt } from './execution-contract.mjs';
-import { createExecutionSnapshot } from './execution-snapshots.mjs';
+import { createExecutionSnapshot, validateSnapshotPath } from './execution-snapshots.mjs';
 import { hashCheck, recordVerificationAttempt } from './verification-receipt.mjs';
 const hash = s => createHash('sha256').update(s).digest('hex');
 const trustedWorker = w => w && typeof w.id === 'string' && typeof w.workspace === 'string' && Array.isArray(w.files);
@@ -84,7 +84,41 @@ export class WorkerTestBroker {
         }
       } finally {await file.close();}
     }
-    const sourceHash = hash(JSON.stringify({commands,configHashes}));
+    // Node --test can discover multiple project tests. Bind every registered
+    // test file to the grant so a model cannot weaken/delete assertions between
+    // failed and successful attempts without new approval.
+    const testFiles=worker.files.filter(name =>
+      /(?:^|\/)(?:test|tests)\/|(?:\.test|\.spec)\.(?:[cm]?js)$/.test(name)
+    ).map(validateSnapshotPath).sort();
+    if (!testFiles.length || testFiles.length > 200) {
+      throw fault('missing_test_sources','At least one bounded Node test file is required.');
+    }
+    const testFileHashes=[];
+    for (const name of testFiles) {
+      const full=path.join(worker.workspace,...name.split('/'));
+      const before=await fs.lstat(full);
+      if (!before.isFile() || before.isSymbolicLink() ||
+          before.nlink!==1 || before.size>1024*1024) {
+        throw fault('unsafe_test_source','Registered test file is linked, special or oversized.');
+      }
+      const flags=constants.O_RDONLY | (process.platform==='win32'?0:(constants.O_NOFOLLOW||0));
+      const handle=await fs.open(full,flags);
+      try {
+        const opened=await handle.stat();
+        if (!opened.isFile() || opened.nlink!==1 || opened.size!==before.size ||
+            opened.dev!==before.dev || opened.ino!==before.ino ||
+            opened.mtimeMs!==before.mtimeMs) {
+          throw fault('stale_test_source','Test file changed during discovery.');
+        }
+        const bytes=await handle.readFile();
+        const after=await handle.stat();
+        if (bytes.length!==before.size || after.mtimeMs!==before.mtimeMs || after.size!==before.size) {
+          throw fault('stale_test_source','Test file changed while calculating grant identity.');
+        }
+        testFileHashes.push({path:name,sha256:hash(bytes),size:bytes.length});
+      } finally {await handle.close();}
+    }
+    const sourceHash = hash(JSON.stringify({commands,configHashes,testFileHashes}));
     const descriptors = supportedCommands.slice(0, 30).filter(x =>
       typeof x.command === 'string' && x.command.trim() && x.command.length <= 2048
     ).map(({ command, from }) => {
@@ -92,6 +126,7 @@ export class WorkerTestBroker {
       const checkHash = hashCheck(info);
       return Object.freeze({
         id: checkHash.slice(0, 28), checkHash, ...info, from: String(from || '').slice(0, 250),
+        testFiles:testFileHashes.map(x=>({...x})),
       });
     });
     this.descriptors.set(workerId, descriptors);
@@ -140,6 +175,16 @@ export class WorkerTestBroker {
     const snapshot = await this.snapshotFactory({
       workspace: worker.workspace, files: [...worker.files], baseSha: worker.baseSha || null, signal,
     });
+    // Verify that the exact test sources named by the grant made it into the
+    // immutable staged snapshot, rather than a new test suite after approval.
+    if (Array.isArray(snapshot.manifest?.files)) {
+      for (const pinned of descriptor.testFiles) {
+        const copied=snapshot.manifest.files.find(x=>x.path===pinned.path);
+        if (!copied || copied.sha256!==pinned.sha256) {
+          throw fault('stale_test_source','Staged test file differs from granted baseline.');
+        }
+      }
+    }
     if (worker.revoked) throw fault('worker_permission_denied', 'Worker was revoked before guest execution.', 403);
     const runId = randomUUID();
     const request = validateExecutionRequest({
