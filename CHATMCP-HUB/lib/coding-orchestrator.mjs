@@ -34,6 +34,7 @@ export class CodingWorktreeOrchestrator {
     this.manager=manager;this.provider=provider;this.directory=path.resolve(directory);
     this.bundleRoot=bundleRoot;this.createWorker=createWorker;
     this.active=null;this.controller=null;this.runners=new Map();this.jobs=new Map();this.integrating=false;
+    this.writes=Promise.resolve();
   }
   async load(){
     const saved=await readJson(path.join(this.directory,'jobs.json')).catch(()=>null);
@@ -48,7 +49,14 @@ export class CodingWorktreeOrchestrator {
     id:j.id,status:j.status,baseSha:j.baseSha,baseBranch:j.baseBranch,createdAt:j.createdAt,
     finishedAt:j.finishedAt,workers:j.workers.map(w=>({...w})),integration:j.integration||null,error:j.error||null,
   }))};}
-  async #save(){await fs.mkdir(this.directory,{recursive:true});await writeJson(path.join(this.directory,'jobs.json'),{version:1,jobs:[...this.jobs.values()].slice(-20)});}
+  #save(){
+    // Every worker replaces the same file. Capture its state now and serialize
+    // replacements so an older write cannot win or overlap a Windows rename.
+    const snapshot=structuredClone({version:1,jobs:[...this.jobs.values()].slice(-20)});
+    const write=this.writes.then(()=>writeJson(path.join(this.directory,'jobs.json'),snapshot));
+    this.writes=write.catch(()=>{});
+    return write;
+  }
   async #git(args,{writes=false,timeoutMs=45000,maxBytes=2_000_000}={}){
     const git=this.manager.studio?.gitRunner;
     if(!git)throw fail('git_unavailable','Git Runner is not configured.',409);
@@ -135,8 +143,8 @@ export class CodingWorktreeOrchestrator {
     const job={id,workspace:root,baseSha,baseBranch,createdAt:new Date().toISOString(),status:'preparing',workers:nodes,integration:null};
     this.active=id;this.controller=new AbortController();this.jobs.set(id,job);
     const signal=this.controller.signal;
-    await this.#save();
     try{
+      await this.#save();
       const runRoot=path.join(this.directory,'runs',id,'trees');
       await fs.mkdir(runRoot,{recursive:true});
       // Git worktree operations mutate shared Git metadata: serialize setup
@@ -152,12 +160,20 @@ export class CodingWorktreeOrchestrator {
       // Bounded parallel model calls. Isolated worktrees never share the same
       // working index, and workers cannot merge/push or spawn processes.
       let cursor=0;
+      let persistenceFailure=null;
+      const saveProgress=async()=>{
+        try{await this.#save();}
+        catch(error){persistenceFailure??=error;throw error;}
+      };
       const workerLoop=async()=>{
-        while(cursor<nodes.length){
+        while(!persistenceFailure&&cursor<nodes.length){
           signal.throwIfAborted();
           const node=nodes[cursor++];
-          node.status='running';await this.#save();
+          node.status='running';
           try{
+            await saveProgress();
+            if(persistenceFailure)throw persistenceFailure;
+            signal.throwIfAborted();
             const out=await this.#worker({worktree:node.worktree,job,node,signal});
             node.agentTaskId=out.taskId;
             node.summary=out.summary;
@@ -177,13 +193,16 @@ export class CodingWorktreeOrchestrator {
             node.status=signal.aborted?'cancelled':'failed';
             node.error=bounded(error.message,500);
           }
-          await this.#save();
+          await saveProgress();
         }
       };
-      await Promise.all(Array.from({length:Math.min(maxConcurrency,nodes.length)},()=>workerLoop()));
+      const settled=await Promise.allSettled(Array.from({length:Math.min(maxConcurrency,nodes.length)},()=>workerLoop()));
+      if(persistenceFailure)throw persistenceFailure;
+      const rejected=settled.find(outcome=>outcome.status==='rejected');
+      if(rejected)throw rejected.reason;
       job.status=signal.aborted?'cancelled':nodes.some(x=>x.status==='failed')?'partial_failure':'ready_for_review';
     }catch(error){job.status=signal.aborted?'cancelled':'failed';job.error=bounded(error.message,500);}
-    finally{job.finishedAt=new Date().toISOString();this.active=null;this.controller=null;await this.#save();}
+    finally{job.finishedAt=new Date().toISOString();try{await this.#save();}finally{this.active=null;this.controller=null;}}
     return this.state().jobs.find(x=>x.id===id);
   }
   /**

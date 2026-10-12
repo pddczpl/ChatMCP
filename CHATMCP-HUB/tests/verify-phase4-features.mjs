@@ -459,6 +459,76 @@ console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
 // Phase 5: bounded read-only multi-agent DAG and pinned GitHub Skills Registry.
 // ----------------------------------------------------------------------------------------------------
 {
+  // Windows can reject simultaneous atomic replacements of the same destination.
+  // Delay only the filesystem boundary to make overlap observable on every OS;
+  // the delegate runner and actual file writes remain real.
+  const directory = path.join(root, 'delegate-persistence');
+  const target = path.join(directory, 'last.json');
+  const originalRename = fs.rename;
+  let activeRenames = 0;
+  let maxRenames = 0;
+  fs.rename = async (from, to) => {
+    if (to !== target) return originalRename(from, to);
+    activeRenames += 1;
+    maxRenames = Math.max(maxRenames, activeRenames);
+    try {
+      await new Promise(resolve => setTimeout(resolve, 15));
+      return await originalRename(from, to);
+    } finally { activeRenames -= 1; }
+  };
+  try {
+    const delegates = new StudioDelegates({ directory,
+      workspace: { root: work, search: async () => ({ matches: [] }) },
+      provider: { ready: () => true, respond: async () => ({ output: [{ type: 'message', content: [{ type: 'output_text', text: 'Recorded research evidence' }] }] }) },
+    });
+    for (const execute of [
+      () => delegates.orchestrate({ maxConcurrency: 3, nodes: ['first', 'second', 'third'].map(id => ({ id, role: 'researcher', question: `Inspect ${id} module` })) }),
+      () => delegates.research({ queries: ['Inspect first module', 'Inspect second module', 'Inspect third module'] }),
+    ]) {
+      maxRenames = 0;
+      const result = await execute();
+      assert.equal(maxRenames, 1, 'parallel workers must serialize writes to last.json');
+      assert.equal(result.status, 'completed', result.error);
+      assert.equal(delegates.state().running, false);
+      assert.deepEqual(JSON.parse(await fs.readFile(target, 'utf8')), result, 'the final settled result must be the persisted snapshot');
+    }
+  } finally { fs.rename = originalRename; }
+  ok('Research and DAG workers serialize atomic persistence and retain the final settled snapshot');
+}
+{
+  const directory = path.join(root, 'delegate-write-failure');
+  const target = path.join(directory, 'last.json');
+  const originalRename = fs.rename;
+  let writes = 0;
+  let activeProviders = 0;
+  fs.rename = async (from, to) => {
+    if (to === target && ++writes === 1) throw Object.assign(new Error('Injected disk write failure'), { code: 'EIO' });
+    return originalRename(from, to);
+  };
+  try {
+    const delegates = new StudioDelegates({ directory,
+      workspace: { root: work, search: async () => ({ matches: [] }) },
+      provider: { ready: () => true, respond: async () => {
+        activeProviders += 1;
+        try {
+          await new Promise(resolve => setTimeout(resolve, 40));
+          return { output: [{ type: 'message', content: [{ type: 'output_text', text: 'Finished bounded research' }] }] };
+        } finally { activeProviders -= 1; }
+      } },
+    });
+    const result = await delegates.orchestrate({ nodes: ['first', 'second'].map(id => ({ id, role: 'researcher', question: `Inspect ${id} module` })) });
+    assert.equal(result.status, 'failed');
+    assert.equal(activeProviders, 0, 'a failed save must not release the orchestration while another provider is still running');
+    assert.ok(result.workers.every(worker => worker.status !== 'running'));
+    assert.deepEqual(JSON.parse(await fs.readFile(target, 'utf8')), result);
+  } finally {
+    // Allow any buggy in-flight callback to finish before restoring the shared boundary.
+    await new Promise(resolve => setTimeout(resolve, 50));
+    fs.rename = originalRename;
+  }
+  ok('Persistence failure waits for all research workers and preserves a failed final result');
+}
+{
   const agentDir=path.join(root,'agent-dag');
   await fs.mkdir(agentDir,{recursive:true});
   const providerCalls=[];
@@ -567,6 +637,147 @@ console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
   ok('GitHub SKILL.md discovery, pinned import, persistence and repeat refresh');
 }
 
+
+// Persistence scheduling is exercised without spawning models or Git. The real
+// worktree integration tests below cover the trusted Git boundary separately.
+{
+  const deferred=()=>{let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};};
+  const fixture=(directory,createWorker)=>new CodingWorktreeOrchestrator({
+    directory,bundleRoot:path.resolve('.'),provider:{ready:()=>true},createWorker,
+    manager:{backend:'local',workspace:work,studio:{gitRunner:{
+      ensureRepo:async()=>work,
+      text:async(args)=>({code:0,stdout:args.includes('rev-parse')?'a'.repeat(40):args.includes('symbolic-ref')?'main':'',stderr:''}),
+    }}},
+  });
+  const tasks=['alpha','beta'].map(id=>({id,prompt:'Inspect '+id}));
+  const options={tasks,confirmation:'CREATE WORKTREES',maxConcurrency:2};
+
+  {
+    const directory=path.join(root,'coding-persistence');
+    const target=path.join(directory,'jobs.json');
+    const originalRename=fs.rename;
+    let activeRenames=0,maxRenames=0;
+    const snapshots=[];
+    const runtime=fixture(directory,async()=>({state:'completed',summary:'No edits'}));
+    fs.rename=async(from,to)=>{
+      if(to!==target)return originalRename(from,to);
+      const snapshot=JSON.parse(await fs.readFile(from,'utf8'));
+      snapshots.push(snapshot);
+      const job=snapshot.jobs.at(-1);
+      if(job.finishedAt)assert.equal(runtime.active,job.id,'keep the job lock until its final snapshot is saved');
+      activeRenames++;maxRenames=Math.max(maxRenames,activeRenames);
+      try{await new Promise(resolve=>setTimeout(resolve,15));return await originalRename(from,to);}
+      finally{activeRenames--;}
+    };
+    try{
+      const result=await runtime.run(options);
+      assert.equal(result.status,'ready_for_review');
+      assert.equal(maxRenames,1,'parallel coding workers must never replace jobs.json concurrently');
+      assert.ok(snapshots.some(snapshot=>{
+        const workers=snapshot.jobs.at(-1).workers;
+        return workers[0].status==='running'&&workers[1].status==='queued';
+      }),'a queued save must retain the immutable state captured before the next worker starts');
+      const saved=JSON.parse(await fs.readFile(target,'utf8')).jobs.at(-1);
+      assert.deepEqual(saved,JSON.parse(JSON.stringify(runtime.jobs.get(result.id))));
+      assert.equal(runtime.active,null);
+    }finally{fs.rename=originalRename;}
+    ok('Coding workers serialize immutable snapshots and hold the job lock through final persistence');
+  }
+
+  {
+    const directory=path.join(root,'coding-write-failure');
+    const target=path.join(directory,'jobs.json');
+    const originalRename=fs.rename;
+    const betaStarted=deferred(),releaseBeta=deferred(),writeFailed=deferred();
+    let activeWorkers=0,injected=false,settled=false;
+    const started=[];
+    const runtime=fixture(directory,async({node})=>{
+      started.push(node.id);activeWorkers++;
+      try{
+        if(node.id==='alpha')await betaStarted.promise;
+        if(node.id==='beta'){betaStarted.resolve();await releaseBeta.promise;}
+        return {state:'completed',summary:'No edits'};
+      }finally{activeWorkers--;}
+    });
+    fs.rename=async(from,to)=>{
+      if(to===target&&!injected){
+        const job=JSON.parse(await fs.readFile(from,'utf8')).jobs.at(-1);
+        if(job.workers[0].status==='no_changes'&&job.workers[1].status==='running'){
+          injected=true;writeFailed.resolve();
+          throw Object.assign(new Error('Injected coding progress save failure'),{code:'EIO'});
+        }
+      }
+      return originalRename(from,to);
+    };
+    const execution=runtime.run({...options,tasks:[...tasks,{id:'gamma',prompt:'Must remain queued after disk failure'}]});
+    execution.then(()=>{settled=true;},()=>{settled=true;});
+    try{
+      await writeFailed.promise;
+      await new Promise(resolve=>setImmediate(resolve));
+      assert.equal(activeWorkers,1);
+      assert.equal(settled,false,'a rejected save cannot finish the job while a sibling worker is still running');
+      assert.ok(runtime.active);
+      await assert.rejects(()=>runtime.run(options),{code:'coding_busy'});
+      releaseBeta.resolve();
+      const result=await execution;
+      assert.equal(result.status,'failed');
+      assert.match(result.error,/progress save failure/);
+      assert.equal(activeWorkers,0);
+      assert.deepEqual(started,['alpha','beta'],'no queued model work starts after persistence fails');
+      assert.ok(result.workers.every(worker=>worker.status!=='running'));
+      assert.equal(runtime.active,null);
+      assert.equal(runtime.controller,null);
+      assert.deepEqual(JSON.parse(await fs.readFile(target,'utf8')).jobs.at(-1),JSON.parse(JSON.stringify(runtime.jobs.get(result.id))));
+    }finally{releaseBeta.resolve();await execution.catch(()=>{});fs.rename=originalRename;}
+    ok('Coding save failure settles active workers, retains failed state and stops queued work');
+  }
+
+  for(const failureStage of ['initial','final']){
+    const directory=path.join(root,'coding-'+failureStage+'-write-failure');
+    const target=path.join(directory,'jobs.json');
+    const originalRename=fs.rename;
+    let injected=false;
+    const runtime=fixture(directory,async()=>({state:'completed',summary:'No edits'}));
+    fs.rename=async(from,to)=>{
+      if(to===target&&!injected){
+        const job=JSON.parse(await fs.readFile(from,'utf8')).jobs.at(-1);
+        if(failureStage==='initial'||job.finishedAt){
+          injected=true;
+          throw Object.assign(new Error('Injected '+failureStage+' save failure'),{code:'EIO'});
+        }
+      }
+      return originalRename(from,to);
+    };
+    try{
+      if(failureStage==='initial')assert.equal((await runtime.run(options)).status,'failed');
+      else await assert.rejects(()=>runtime.run(options),/final save failure/);
+      assert.equal(runtime.active,null,'failed persistence must not strand the active job');
+      assert.equal(runtime.controller,null);
+      assert.equal((await runtime.run(options)).status,'ready_for_review','a rejected write must not poison later saves');
+    }finally{fs.rename=originalRename;}
+  }
+  ok('Initial and final coding persistence failures release locks without poisoning the save queue');
+
+  {
+    const directory=path.join(root,'coding-cancel-persistence');
+    const bothStarted=deferred();let started=0,activeWorkers=0;
+    const runtime=fixture(directory,async({signal})=>{
+      activeWorkers++;if(++started===2)bothStarted.resolve();
+      try{await new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}));return {state:'cancelled',summary:'Stopped'};}
+      finally{activeWorkers--;}
+    });
+    const execution=runtime.run(options);
+    await bothStarted.promise;
+    assert.equal(runtime.cancel().cancelled,true);
+    const result=await execution;
+    assert.equal(result.status,'cancelled');
+    assert.equal(activeWorkers,0);
+    assert.ok(result.workers.every(worker=>worker.status==='cancelled'));
+    assert.equal(runtime.active,null);
+    assert.equal(JSON.parse(await fs.readFile(path.join(directory,'jobs.json'),'utf8')).jobs.at(-1).status,'cancelled');
+    ok('Coding cancellation waits for every worker and persists the cancelled result');
+  }
+}
 
 // V2: Real separate Git worktrees, serial integration and explicit publish gate.
 {

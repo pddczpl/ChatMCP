@@ -12,26 +12,44 @@ import {
   Check 
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { IntelligenceTab } from '@/components/inspector/IntelligenceTab';
+import { useQueryClient } from '@tanstack/react-query';
 
 export function OnboardingModal() {
   const { onboardingOpen, setOnboardingOpen, showToast } = useAppStore();
   const [step, setStep] = useState(1);
   const [selectedFolder, setSelectedFolder] = useState('');
-  const [aiProvider, setAiProvider] = useState('anthropic');
   const [permMode, setPermMode] = useState('review');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [appliedFolder, setAppliedFolder] = useState('');
+  const queryClient = useQueryClient();
 
   if (!onboardingOpen) return null;
 
   const handleBrowseFolder = async () => {
+    setError('');
     try {
       const res = await api.browseWorkspace();
       if (res.path) {
         setSelectedFolder(res.path);
         await api.selectWorkspace(res.path);
+        setAppliedFolder(res.path);
+        await queryClient.invalidateQueries();
       }
-    } catch {
-      setSelectedFolder('F:\\Personal_Project\\Vin\\ChatMCP');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể chọn workspace.');
     }
+  };
+
+  const handleApplyFolder = async () => {
+    setBusy(true); setError('');
+    try {
+      await api.selectWorkspace(selectedFolder.trim());
+      setAppliedFolder(selectedFolder.trim());
+      await queryClient.invalidateQueries();
+    } catch (err) { setError(err instanceof Error ? err.message : 'Không thể chọn workspace.'); }
+    finally { setBusy(false); }
   };
 
   const handleDismiss = () => {
@@ -45,18 +63,22 @@ export function OnboardingModal() {
   };
 
   const handleFinish = async () => {
+    setBusy(true); setError('');
     try {
+      // Choosing a permission mode does not grant permission to lower sandbox-only.
+      const current = await api.getState();
+      await api.configurePermissions({ mode: permMode, ...(current.studio?.permissions?.executionPolicy === 'full-access' ? { executionPolicy: 'host-review' } : {}) });
+      await queryClient.invalidateQueries({ queryKey: ['hubState'] });
       localStorage.setItem('chatmcp:onboarding-completed', 'true');
       setOnboardingOpen(false);
       showToast('Chào mừng bạn đến với ChatMCP Studio!', 'success');
-    } catch {
-      setOnboardingOpen(false);
-    }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Không thể lưu quyền thực thi.'); }
+    finally { setBusy(false); }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm perspective-container">
-      <div className="w-full max-w-lg rounded-2xl border border-sky-500/30 bg-[var(--panel)] p-6 shadow-2xl modal-3d-enter text-xs select-none">
+      <div role="dialog" aria-label="Thiết lập ChatMCP" className="w-full max-w-lg max-h-[95vh] overflow-y-auto rounded-2xl border border-sky-500/30 bg-[var(--panel)] p-6 shadow-2xl modal-3d-enter text-xs select-none">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-[var(--line-subtle)]">
           <div className="flex items-center gap-2.5">
@@ -73,6 +95,7 @@ export function OnboardingModal() {
             </div>
           </div>
           <button
+            aria-label="Đóng thiết lập"
             onClick={handleDismiss}
             className="p-1 rounded text-[var(--faint)] hover:text-[var(--text)] hover:bg-[var(--surface-hover)]"
           >
@@ -116,8 +139,10 @@ export function OnboardingModal() {
               <div className="flex gap-2">
                 <input
                   type="text"
-                  readOnly
-                  value={selectedFolder || 'Chưa chọn thư mục...'}
+                  aria-label="Đường dẫn workspace"
+                  placeholder="Chưa chọn thư mục..."
+                  value={selectedFolder}
+                  onChange={(e) => setSelectedFolder(e.target.value)}
                   className="flex-1 bg-[var(--surface)] font-mono text-xs rounded-lg px-3 py-2 border border-[var(--line)] text-[var(--text)]"
                 />
                 <Button variant="secondary" onClick={handleBrowseFolder} className="gap-1.5">
@@ -125,36 +150,12 @@ export function OnboardingModal() {
                   <span>Duyệt...</span>
                 </Button>
               </div>
+              <Button onClick={handleApplyFolder} disabled={busy || !selectedFolder.trim()}>Áp dụng workspace</Button>
+              {appliedFolder && <p role="status">Workspace đã chọn: {appliedFolder}</p>}
             </div>
           )}
 
-          {step === 2 && (
-            <div className="space-y-3">
-              <p className="text-[11px] text-[var(--muted)]">
-                Chọn nhà cung cấp AI bạn muốn sử dụng (có thể cấu hình API key sau):
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { id: 'anthropic', name: 'Anthropic (Claude 3.5 Sonnet)' },
-                  { id: 'openai', name: 'OpenAI (GPT-4o)' },
-                  { id: 'gemini', name: 'Google Gemini (1.5 Pro)' },
-                  { id: 'deepseek', name: 'DeepSeek / Ollama' },
-                ].map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => setAiProvider(item.id)}
-                    className={`p-2.5 rounded-lg border text-left transition-all ${
-                      aiProvider === item.id
-                        ? 'bg-sky-500/15 border-sky-500/50 text-sky-300 font-semibold'
-                        : 'bg-[var(--surface)] border-[var(--line-subtle)] text-[var(--muted)]'
-                    }`}
-                  >
-                    <div className="text-xs">{item.name}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          {step === 2 && <IntelligenceTab />}
 
           {step === 3 && (
             <div className="space-y-3">
@@ -165,7 +166,7 @@ export function OnboardingModal() {
                 {[
                   { id: 'review', label: 'Review (Khuyên dùng)', desc: 'Agent hỏi phê duyệt trước mỗi lần ghi file hoặc chạy lệnh' },
                   { id: 'readonly', label: 'Chỉ đọc', desc: 'Chỉ phân tích mã nguồn và giải thích, không sửa file' },
-                  { id: 'autonomous', label: 'Tự động', desc: 'Cho phép agent tự động ghi file và thực thi tool' },
+                  { id: 'autonomous', label: 'Tự động', desc: 'Tự sửa file và chạy kiểm tra đã nhận diện; thao tác rủi ro vẫn cần duyệt' },
                 ].map((m) => (
                   <button
                     key={m.id}
@@ -184,6 +185,7 @@ export function OnboardingModal() {
             </div>
           )}
         </div>
+        {error && <p role="alert" className="text-rose-400 py-2">{error}</p>}
 
         {/* Footer Navigation */}
         <div className="flex items-center justify-between pt-4 border-t border-[var(--line-subtle)]">
@@ -207,7 +209,7 @@ export function OnboardingModal() {
                 <ArrowRight className="w-3.5 h-3.5" />
               </Button>
             ) : (
-              <Button variant="primary" onClick={handleFinish} className="gap-1.5">
+              <Button variant="primary" onClick={handleFinish} disabled={busy} className="gap-1.5">
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 <span>Bắt đầu làm việc ngay</span>
               </Button>

@@ -1,4 +1,5 @@
-import type { HubState, HubHealth, TaskDetail, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin } from '@/types';
+import type { HubState, HubHealth, Task, TaskDetail, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset } from '@/types';
+import { normalizeTask } from './task-view.ts';
 
 const UI_BUILD = '2.6.0-react-agent';
 let currentCsrfToken = '';
@@ -29,7 +30,12 @@ export async function request<T>(route: string, options: RequestInit = {}): Prom
     credentials: 'same-origin',
   });
 
-  const data = await res.json().catch(() => null);
+  let data;
+  try { data = await res.json(); }
+  catch {
+    if (res.ok) throw new Error(`Phản hồi JSON không hợp lệ tại ${route}`);
+    data = null;
+  }
 
   if (res.status === 401 && data?.code === 'login_required') {
     window.location.reload();
@@ -56,15 +62,15 @@ export const api = {
   getHealth: () => request<HubHealth>('/api/health'),
   getState: () => request<HubState>('/api/state').then((st) => {
     if (st.csrfToken) setCsrfToken(st.csrfToken);
-    return st;
+    return { ...st, tasks: (st.agent?.tasks ?? []).map(normalizeTask) };
   }),
   getCapabilities: () => request<any>('/api/capabilities'),
   
   // Tasks
-  getTask: (id: string) => request<{ task: TaskDetail } | TaskDetail>(`/api/tasks/${encodeURIComponent(id)}`).then((r) => ('task' in r ? r.task : r)),
-  startTask: (prompt: string) => request<{ task: TaskDetail }>('/api/tasks/start', { method: 'POST', body: JSON.stringify({ prompt }) }),
-  continueTask: (id: string, prompt: string) => request<{ task: TaskDetail }>('/api/tasks/continue', { method: 'POST', body: JSON.stringify({ id, prompt }) }),
-  cancelTask: (id: string) => request<{ task: TaskDetail }>('/api/tasks/cancel', { method: 'POST', body: JSON.stringify({ id }) }),
+  getTask: (id: string): Promise<Task> => request<TaskDetail>(`/api/tasks/${encodeURIComponent(id)}`).then(normalizeTask),
+  startTask: (prompt: string) => request<{ task: TaskDetail }>('/api/tasks/start', { method: 'POST', body: JSON.stringify({ prompt }) }).then((r) => ({ task: normalizeTask(r.task) })),
+  continueTask: (id: string, prompt: string) => request<{ task: TaskDetail }>('/api/tasks/continue', { method: 'POST', body: JSON.stringify({ id, prompt }) }).then((r) => ({ task: normalizeTask(r.task) })),
+  cancelTask: (id: string) => request<{ task: TaskDetail }>('/api/tasks/cancel', { method: 'POST', body: JSON.stringify({ id }) }).then((r) => ({ task: normalizeTask(r.task) })),
   deleteTask: (id: string) => request<{ ok: boolean; removed: string }>('/api/tasks/delete', { method: 'POST', body: JSON.stringify({ id }) }),
   setAutoResume: (id: string, enabled: boolean) => request<{ task: TaskDetail }>('/api/tasks/auto-resume', { method: 'POST', body: JSON.stringify({ id, enabled }) }),
   
@@ -90,7 +96,7 @@ export const api = {
     
   // Git & Review
   getGitStatus: () => request<GitStatus>('/api/studio/git/status'),
-  getGitDiff: () => request<{ diff: string }>('/api/studio/git/diff'),
+  getGitDiff: (staged = false) => request<{ diff: string; staged?: boolean; truncated?: boolean }>(`/api/studio/git/diff?staged=${staged}`),
   createCheckpoint: (label: string) => request<Checkpoint>('/api/studio/checkpoint', { method: 'POST', body: JSON.stringify({ label }) }),
   getCheckpoints: () => request<Checkpoint[]>('/api/studio/checkpoints'),
   getReview: (checkpointId: string) => request<GitReview>(`/api/studio/review?checkpointId=${encodeURIComponent(checkpointId)}`),
@@ -142,7 +148,7 @@ export const api = {
   togglePlugin: (id: string, enabled: boolean) => request<any>('/api/plugins/toggle', { method: 'POST', body: JSON.stringify({ id, enabled }) }),
 
   // AI & Profiles
-  getPresets: () => request<{ presets: any[]; envKeys: string[] }>('/api/ai/presets'),
+  getPresets: () => request<{ presets: ProviderPreset[]; envKeys: string[] }>('/api/ai/presets'),
   getModels: () => request<{ models: string[]; source?: string }>('/api/ai/models'),
   getProfiles: () => request<{ profiles: any[]; defaultProfileId?: string }>('/api/ai/profiles'),
   upsertProfile: (profile: any) => request<any>('/api/ai/profiles/upsert', { method: 'POST', body: JSON.stringify(profile) }),

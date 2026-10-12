@@ -61,17 +61,7 @@ export function CommandPalette() {
     setCommandPaletteOpen(false);
   };
 
-  const handleCreateNewTask = async () => {
-    try {
-      const res = await api.createTask({ task: 'Phiên làm việc mới' });
-      if (res?.task?.id) {
-        setSelectedTaskId(res.task.id);
-        showToast('Đã tạo phiên mới', 'success');
-      }
-    } catch {
-      setSelectedTaskId('');
-    }
-  };
+  const handleCreateNewTask = () => setSelectedTaskId('');
 
   const handleSelectMode = async (mode: string) => {
     if (mode === 'full-access') {
@@ -79,7 +69,7 @@ export function CommandPalette() {
       return;
     }
     try {
-      await api.setPermissions({ mode: mode as any, executionPolicy: 'review' });
+      await api.configurePermissions({ mode, ...(hub?.studio?.permissions?.executionPolicy === 'full-access' ? { executionPolicy: 'host-review' } : {}) });
       showToast(`Đã chuyển quyền sang ${mode}`, 'info');
     } catch (err: any) {
       showToast(err.message || 'Lỗi chuyển quyền', 'error');

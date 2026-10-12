@@ -1,179 +1,58 @@
-import { useState } from 'react';
-import { 
-  ShieldCheck, 
-  ShieldAlert, 
-  Check, 
-  X, 
-  FileEdit, 
-  Terminal, 
-  AlertTriangle 
-} from 'lucide-react';
-import { diffLines, Change } from 'diff';
+import { useState, useEffect } from 'react';
+import { Check, X, ShieldAlert } from 'lucide-react';
+import { diffLines } from 'diff';
 import { Button } from '@/components/ui/Button';
+import type { ApprovalView } from '@/lib/task-view';
 
-export interface PendingApproval {
-  id: string;
-  tool: string;
-  description: string;
-  risk: 'low' | 'medium' | 'high';
-  targetPath?: string;
-  oldContent?: string;
-  newContent?: string;
-  command?: string;
-}
-
+export type PendingApproval = ApprovalView;
 interface ApprovalStackProps {
   approvals: PendingApproval[];
-  onApprove: (id: string) => void;
-  onDeny: (id: string, reason?: string) => void;
+  onApprove: (id: string) => void | Promise<void>;
+  onDeny: (id: string, reason?: string) => void | Promise<void>;
+  busy?: boolean;
 }
+const decisions: Record<string, string> = { approved: 'Đã phê duyệt', denied: 'Đã từ chối', expired: 'Đã hết hạn', cancelled: 'Đã hủy', blocked: 'Bị chặn', policy: 'Bị từ chối theo chính sách' };
 
-export function ApprovalStack({ approvals, onApprove, onDeny }: ApprovalStackProps) {
-  const [denyReason, setDenyReason] = useState<Record<string, string>>({});
-  const [showDenyInput, setShowDenyInput] = useState<Record<string, boolean>>({});
-
-  if (!approvals || approvals.length === 0) return null;
-
+export function ApprovalStack({ approvals, onApprove, onDeny, busy }: ApprovalStackProps) {
+  const [now, setNow] = useState(Date.now);
+  const [confirmDeny, setConfirmDeny] = useState<string | null>(null);
+  useEffect(() => {
+    if (!approvals.some(item => !item.decision && item.expiresAt)) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [approvals]);
+  if (!approvals.length) return null;
   return (
-    <div className="mx-4 my-3 space-y-3 z-20">
-      {approvals.map((item) => {
-        const isFile = !!item.targetPath || (item.oldContent !== undefined && item.newContent !== undefined);
-        const diffs = isFile && item.oldContent !== undefined && item.newContent !== undefined
-          ? diffLines(item.oldContent, item.newContent)
-          : null;
-
-        const riskBorder = item.risk === 'high'
-          ? 'border-rose-500/60 bg-rose-950/20 shadow-rose-950/20'
-          : item.risk === 'medium'
-          ? 'border-amber-500/50 bg-amber-950/20 shadow-amber-950/20'
-          : 'border-sky-500/40 bg-sky-950/20 shadow-sky-950/20';
-
+    <div className="mx-4 my-3 space-y-3">
+      {approvals.map(item => {
+        const expired = !!item.expiresAt && Date.parse(item.expiresAt) <= now;
+        const decision = item.decision || (expired ? 'expired' : undefined);
+        const disabled = !!decision || busy;
+        const diffs = item.oldContent !== undefined && item.newContent !== undefined ? diffLines(item.oldContent, item.newContent) : null;
         return (
-          <div
-            key={item.id}
-            className={`rounded-xl border p-4 shadow-lg transition-all ${riskBorder}`}
-          >
-            {/* Header */}
-            <div className="flex items-start justify-between gap-3 select-none">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-[var(--surface)] border border-[var(--line)] flex items-center justify-center flex-shrink-0">
-                  {isFile ? (
-                    <FileEdit className="w-4 h-4 text-sky-400" />
-                  ) : (
-                    <Terminal className="w-4 h-4 text-amber-400" />
-                  )}
-                </div>
-
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-xs text-[var(--text)]">
-                      Yêu cầu phê duyệt hành động
-                    </span>
-                    <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                        item.risk === 'high'
-                          ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                          : item.risk === 'medium'
-                          ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                          : 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                      }`}
-                    >
-                      Mức độ: {item.risk}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-[var(--muted)] mt-0.5">
-                    {item.description || `Thực thi công cụ: ${item.tool}`}
-                  </p>
-                </div>
+          <section key={item.id} className="rounded-xl border border-amber-500/50 bg-[var(--surface)] p-4" aria-label={`Phê duyệt ${item.tool}`} data-approval-id={item.id}>
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="min-w-0 text-xs">
+                <div className="flex items-center gap-2 font-semibold"><ShieldAlert className="w-4 h-4 text-amber-400" />{decision ? decisions[decision] || decision : 'Yêu cầu phê duyệt hành động'}</div>
+                <div className="font-mono mt-1 text-sky-300">{item.tool}</div>
+                <p className="mt-1">{item.description}</p>
+                <p className="mt-1 text-amber-300">Phân loại rủi ro: {item.risk}</p>
+                {item.reason && <p className="mt-1 text-[var(--muted)]">{item.reason}</p>}
+                {item.expiresAt && <p className="mt-1 text-[var(--muted)]">Hết hạn: <time dateTime={item.expiresAt}>{new Date(item.expiresAt).toLocaleString()}</time></p>}
               </div>
-
-              {/* Quick Actions */}
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={() => onApprove(item.id)}
-                  className="gap-1.5 h-7 text-xs bg-emerald-600 hover:bg-emerald-500 text-white border-none shadow-sm"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Phê duyệt</span>
-                </Button>
-
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => {
-                    if (!showDenyInput[item.id]) {
-                      setShowDenyInput((prev) => ({ ...prev, [item.id]: true }));
-                    } else {
-                      onDeny(item.id, denyReason[item.id]);
-                    }
-                  }}
-                  className="gap-1.5 h-7 text-xs text-rose-400 hover:text-rose-300"
-                >
-                  <X className="w-3.5 h-3.5" />
-                  <span>Từ chối</span>
-                </Button>
+              <div className="flex gap-2">
+                <Button size="sm" variant="primary" disabled={disabled} onClick={() => { if (!disabled) void onApprove(item.id); }} className="gap-1"><Check className="w-3 h-3" />Phê duyệt</Button>
+                <Button size="sm" variant="secondary" disabled={disabled} onClick={() => { if (!disabled) { if (confirmDeny === item.id) void onDeny(item.id); else setConfirmDeny(item.id); } }} className="gap-1"><X className="w-3 h-3" />Từ chối</Button>
               </div>
             </div>
-
-            {/* Content: Diff or Command Preview */}
-            {item.command && (
-              <div className="mt-3 p-2.5 rounded-lg bg-[#0b0e14] border border-[var(--line)] font-mono text-[11px] text-amber-300 overflow-x-auto">
-                <div className="text-[10px] text-[var(--faint)] font-sans uppercase mb-1">
-                  Lệnh Shell sắp thực thi:
-                </div>
-                <code>$ {item.command}</code>
-              </div>
-            )}
-
-            {diffs && (
-              <div className="mt-3 rounded-lg bg-[#0b0e14] border border-[var(--line)] font-mono text-[11px] overflow-hidden">
-                <div className="px-3 py-1.5 bg-[var(--surface)] border-b border-[var(--line)] text-[11px] text-[var(--muted)] flex items-center justify-between font-sans">
-                  <span>{item.targetPath || 'Tệp thay đổi'}</span>
-                  <span className="text-[10px] text-[var(--faint)]">So sánh thay đổi (Diff)</span>
-                </div>
-                <div className="max-h-64 overflow-y-auto p-2 leading-relaxed">
-                  {diffs.map((part, index) => {
-                    const color = part.added
-                      ? 'bg-emerald-950/40 text-emerald-300'
-                      : part.removed
-                      ? 'bg-rose-950/40 text-rose-400'
-                      : 'text-[var(--faint)]';
-                    const prefix = part.added ? '+ ' : part.removed ? '- ' : '  ';
-                    return (
-                      <div key={index} className={`${color} px-1.5 py-0.5 rounded whitespace-pre-wrap`}>
-                        {part.value.split('\n').filter((l, i, arr) => !(i === arr.length - 1 && !l)).map((line, li) => (
-                          <div key={li}>{prefix}{line}</div>
-                        ))}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Deny Reason input if opened */}
-            {showDenyInput[item.id] && (
-              <div className="mt-3 flex items-center gap-2 pt-2 border-t border-[var(--line-subtle)]">
-                <input
-                  type="text"
-                  placeholder="Lý do từ chối (tùy chọn để agent điều chỉnh)..."
-                  value={denyReason[item.id] || ''}
-                  onChange={(e) => setDenyReason((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                  className="flex-1 bg-[var(--surface)] text-xs rounded-md px-3 py-1.5 border border-[var(--line)] focus:outline-none focus:border-rose-500"
-                />
-                <Button
-                  size="sm"
-                  variant="danger"
-                  onClick={() => onDeny(item.id, denyReason[item.id])}
-                  className="h-7 text-xs"
-                >
-                  Xác nhận từ chối
-                </Button>
-              </div>
-            )}
-          </div>
+            {confirmDeny === item.id && !decision && <Button size="sm" variant="danger" disabled={disabled} onClick={() => void onDeny(item.id)} className="mt-2">Xác nhận từ chối</Button>}
+            {item.targetPath && <p className="font-mono text-xs mt-3 break-all">{item.targetPath}</p>}
+            {item.command && <pre className="mt-3 p-3 text-xs bg-[var(--bg)] rounded overflow-auto whitespace-pre-wrap"><code>{item.command}</code></pre>}
+            {diffs && <div className="mt-3 font-mono text-xs bg-[var(--bg)] rounded p-2 max-h-64 overflow-auto" aria-label="Diff được yêu cầu">{diffs.map((part, index) => <pre key={index} className={`whitespace-pre-wrap ${part.added ? 'text-emerald-300' : part.removed ? 'text-rose-400' : 'text-[var(--muted)]'}`}>{part.added ? '+ ' : part.removed ? '- ' : '  '}{part.value}</pre>)}</div>}
+            {item.diff && <pre className="mt-3 text-xs whitespace-pre-wrap max-h-64 overflow-auto">{item.diff}</pre>}
+            {item.detail && <details className="mt-3 text-xs"><summary>Chi tiết thao tác (bản xem trước do Hub cung cấp)</summary><pre className="mt-2 whitespace-pre-wrap max-h-64 overflow-auto">{JSON.stringify(item.detail, null, 2)}</pre></details>}
+            {!item.detail && item.preview && <pre className="mt-3 text-xs whitespace-pre-wrap max-h-64 overflow-auto">{item.preview}</pre>}
+          </section>
         );
       })}
     </div>

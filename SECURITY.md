@@ -35,6 +35,10 @@ Nếu từng triển khai public server từ bản cũ, cần tắt riêng nhữ
 
 ## Kiểm thử và phát hành
 
+React approval review reads the actual PermissionGate request IDs and server-provided previews; only explicit Approve/Deny actions submit a decision. Expired/cancelled decisions remain visible in history. New-conversation and SSE handling do not authorize tools or replay mutations. UI/mock-provider regression tests establish these specific flows, not OS isolation or live-model safety.
+
+The AI configuration form clears typed credentials after successful persistence and when the selected provider or endpoint origin changes. This prevents an unsaved key being carried to another destination; backend key storage and provider transmission still follow the existing local secret policy.
+
 - Chạy regression tests, desktop frontend build, Windows installer build và kiểm thử cài/gỡ trên máy ảo Windows sạch.
 - Không mở cổng Hub ra Internet. Không bypass Origin/CSRF để dùng ở mạng LAN.
 - Không xem CI xanh như penetration test hay chứng nhận legal license.

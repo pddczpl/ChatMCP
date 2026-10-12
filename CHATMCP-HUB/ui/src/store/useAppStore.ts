@@ -34,6 +34,10 @@ interface AppStore {
   showToast: (message: string, type?: ToastState['type']) => void;
   clearToast: () => void;
   streamingToken: string;
+  streamingTaskId: string;
+  streamConnected: boolean;
+  setStreamConnected: (connected: boolean) => void;
+  appendTaskToken: (taskId: string, token: string) => void;
   appendStreamingToken: (token: string) => void;
   clearStreamingToken: () => void;
 }
@@ -61,7 +65,7 @@ export const useAppStore = create<AppStore>((set) => ({
   setSelectedTaskId: (id) => {
     if (id) localStorage.setItem('chatmcp:selected-conversation', id);
     else localStorage.removeItem('chatmcp:selected-conversation');
-    set({ selectedTaskId: id, streamingToken: '' });
+    set({ selectedTaskId: id, streamingToken: '', streamingTaskId: '' });
   },
   inspectorOpen: true,
   toggleInspector: () => set((state) => ({ inspectorOpen: !state.inspectorOpen })),
@@ -88,6 +92,12 @@ export const useAppStore = create<AppStore>((set) => ({
   },
   clearToast: () => set({ toast: null }),
   streamingToken: '',
+  streamingTaskId: '',
+  streamConnected: false,
+  setStreamConnected: (streamConnected) => set({ streamConnected }),
+  appendTaskToken: (taskId, token) => set((s) => taskId === s.selectedTaskId
+    ? { streamingTaskId: taskId, streamingToken: (s.streamingTaskId === taskId ? s.streamingToken : '') + token }
+    : {}),
   appendStreamingToken: (token) => set((s) => ({ streamingToken: s.streamingToken + token })),
-  clearStreamingToken: () => set({ streamingToken: '' }),
+  clearStreamingToken: () => set({ streamingToken: '', streamingTaskId: '' }),
 }));

@@ -9,8 +9,10 @@ import { CommandPalette } from '@/components/palette/CommandPalette';
 import { FullAccessDialog } from '@/components/approval/FullAccessDialog';
 import { OnboardingModal } from '@/components/onboarding/OnboardingModal';
 import { ToastContainer } from '@/components/ui/Toast';
+import { useTaskStream } from '@/lib/useTaskStream';
 
 export function AppShell() {
+  useTaskStream();
   const { 
     sidebarOpen, 
     toggleSidebar, 
