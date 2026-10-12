@@ -12,7 +12,7 @@ Hướng dẫn này dành cho chạy ChatMCP Hub **trên máy Windows 11 của c
 | Docker Desktop | **Không** | chỉ cho backend `mcp` cũ và sandbox chạy test tùy chọn. Backend mặc định không cần. |
 | Khóa API của một nhà cung cấp mô hình | Có (hoặc Ollama/LM Studio chạy cục bộ) | Anthropic, OpenAI, Gemini, OpenRouter… Xem [USER-GUIDE.md](USER-GUIDE.md). |
 
-Hub không cần `npm install`, không có bước build.
+Hub backend không cần `npm install`. Khi dùng mã React mới trên nhánh phát triển, hãy chạy `npm ci --prefix .\CHATMCP-HUB\ui` và `npm run build --prefix .\CHATMCP-HUB\ui` trước khi khởi động Hub. Installer được đóng gói với UI bundle đã build.
 
 **Về shell của agent.** Trên Windows, agent chạy lệnh bằng **Git Bash** nếu tìm thấy (`C:\Program Files\Git\bin\bash.exe` hoặc cạnh `git.exe`), vì mô hình quen cú pháp bash nhất. Không có Git Bash thì Hub dùng Windows PowerShell. Có thể chỉ định bash khác bằng biến môi trường `CHATMCP_BASH`. `C:\Windows\System32\bash.exe` (WSL) **không** được dùng.
 
@@ -21,7 +21,9 @@ Hub không cần `npm install`, không có bước build.
 ```powershell
 git clone https://github.com/pddczpl/ChatMCP.git
 cd ChatMCP
-git switch dev/chatmcp-agent        # nhánh phát triển (khi nhánh đã được push)
+# Mặc định dùng main. Để thử tính năng chưa release:
+# git fetch origin
+# git switch feat/parallel-coding-agents-skills-registry-v2
 ```
 
 Nếu bạn nhận mã dưới dạng ZIP, hãy bỏ chặn một lần để Windows không từ chối script:

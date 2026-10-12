@@ -1,4 +1,10 @@
-# ChatMCP — Local-first AI Coding Agent
+# ChatMCP — Local-first Multi-Model AI Coding Agent
+
+**AI coding workspace for Windows, with parallel Git-worktree agents and a pinned GitHub Agent Skills Hub.**
+
+ChatMCP hỗ trợ tiếng Việt và tiếng Anh, cho phép bạn chọn nhà cung cấp AI, giao nhiều tác vụ lập trình, review Git diff và mở Draft PR theo quy trình kiểm soát quyền.
+
+[![CI](https://github.com/pddczpl/ChatMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/pddczpl/ChatMCP/actions/workflows/ci.yml) · [Releases](https://github.com/pddczpl/ChatMCP/releases) · [Issues](https://github.com/pddczpl/ChatMCP/issues)
 
 **ChatMCP** is a multi-provider coding agent with a Windows desktop app and a local web UI. It works inside your selected project, can inspect/edit code, prepare plans, run allowed checks, use Git, and retain reviewable task evidence. A legacy MCP backend remains available; the default local backend does **not** require Cloud Harness or Docker.
 
@@ -58,9 +64,9 @@ For **Coding Workers** (local trusted mode only):
 1. Commit/stash any edits in your original Git workspace so the base revision is unambiguous.
 2. Provide 1–4 independent coding tasks, choose concurrency 1–3 and confirm **CREATE WORKTREES**.
 3. Each worker runs as a separate agent in its own **Git worktree and branch**, with a limited allowlist of file editing/search tools. Shell execution, external MCP, direct Git push, delete/merge and credential access are deliberately withheld.
-4. Review each result, branch, file list and diff with Git before choosing which workers to integrate. Model-reported completion **does not prove** a task passed tests.
-5. Confirm **INTEGRATE WORKTREES** to combine selected branches into a **new integration branch**. Conflicts stop the operation for manual inspection; your original branch is not overwritten.
-6. Only after reviewing and running your project's tests, confirm **PUBLISH DRAFT PR** (requires a configured GitHub origin and authenticated GitHub CLI). No automatic merge into main.
+4. Click **Review diff** on each coding worker and inspect the actual edits, not just the agent's summary. Review is bound to the exact commit and diff; stale branches require a fresh review. Model-reported completion **does not prove** tests passed.
+5. After reviewing every selected worker, confirm **INTEGRATE WORKTREES** to combine their commits into a **new integration branch**. Review tokens prevent merging unreviewed/stale revisions. Conflicts stop the operation for manual inspection; your original branch is not overwritten.
+6. Click **Review integration diff** too. Only after reviewing and running your project's tests, confirm **PUBLISH DRAFT PR** (requires GitHub origin and authenticated GitHub CLI). You can alternatively publish an individual reviewed worker. There is no automatic merge into main.
 
 **Important limits:** parallel worktrees isolate file/index changes, not the operating-system account. Coding workers do not execute unit tests automatically; run project tests on the resulting integration branch before approval. Network/shell execution requires a separate audited sandbox implementation.
 
@@ -94,9 +100,9 @@ GitHub Actions validates Hub tests on Windows/Linux with Node 22/24 and a produc
 **Do not tag/publish an unreviewed PR or a branch with failing checks.** See [desktop build details](docs/DESKTOP-APP.md).
 
 1. Merge the reviewed feature PR to `main` only after security review and passing CI. Update [CHANGELOG.md](CHANGELOG.md) and synchronize the Hub, desktop shell, installer and documentation versions for the intended release number. If changing UI_BUILD, change it consistently across server/client and update relevant tests.
-2. On a **Windows 10/11 build machine**, install Git, Node.js 22+ with npm and .NET SDK **10.0+**. Check `node --version`, `npm --version`, `dotnet --version` and `git --version`.
+2. On a **Windows 10/11 build machine**, install Git for Windows, Node.js 22+ with npm and .NET SDK **10.0+**. Check `node --version`, `npm --version`, `dotnet --version` and `git --version`. WebView2 Runtime is required when testing the installed desktop app.
 3. Pull the exact release commit, run all Hub tests and produce a clean frontend build.
-4. Run `.\scripts\Build-Installer.ps1`. The script rebuilds the TypeScript/Vite UI, restores npm dependencies, checks version alignment, publishes **self-contained .NET 10 Windows binaries**, bundles portable `node.exe`, and writes `dist\ChatMCPSetup.exe` plus `dist\ChatMCPSetup.exe.sha256`.
+4. Run `.\scripts\Build-Installer.ps1`. The script rebuilds the TypeScript/Vite UI, restores npm dependencies, checks version alignment, publishes **self-contained .NET 10 Windows binaries**, bundles portable `node.exe`, and writes `dist\ChatMCPSetup.exe` plus `dist\ChatMCPSetup.exe.sha256`. Verify the file checksum before distribution. GitHub Actions also produces a Windows installer build artifact, but this is not an approved public release.
 5. **Test the actual installer** on a clean Windows VM: install/uninstall, launch WebView2, select a Git repository, test an API provider, run a safe coding task, verify a worktree and skill import, and confirm the app shuts down without orphaned Hub processes. Do not claim this is done without evidence.
 6. After testing, sign both executable and installer with a trusted code-signing certificate if one is available; recompute SHA-256 **after signing**.
 7. Tag the exact tested commit and create a GitHub Release. Publish the EXE, checksum and release notes; start with a **Draft Release** if further verification is needed.
