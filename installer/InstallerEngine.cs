@@ -11,7 +11,7 @@ namespace ChatMCP.Installer
     {
         public const string AppName = "ChatMCP Studio";
         public const string AppDescription = "ChatMCP - Autonomous AI Coding Agent";
-        public const string AppVersion = "2.5.0";
+        public const string AppVersion = "2.6.0";
         public const string Publisher = "Phan Danh Dat";
         public const string RegistryKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ChatMCP";
 
