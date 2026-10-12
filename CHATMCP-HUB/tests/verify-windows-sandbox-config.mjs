@@ -59,11 +59,11 @@ try {
     assert.ok(xml.includes('<MemoryInMB>1024</MemoryInMB>'), 'Memory must be 1024');
 
     // Mappings
-    assert.ok(xml.includes(`<HostFolder>${dummyInput}</HostFolder>`), 'Input directory host folder matches');
+    assert.ok(xml.includes(`<HostFolder>${fs.realpathSync.native(dummyInput)}</HostFolder>`), 'Input directory maps canonical host path');
     assert.ok(xml.includes('<SandboxFolder>C:\\ChatMCP\\Input</SandboxFolder>'), 'Sandbox input mount matches');
     assert.ok(xml.includes('<ReadOnly>true</ReadOnly>'), 'Input must be read-only');
 
-    assert.ok(xml.includes(`<HostFolder>${dummyOutput}</HostFolder>`), 'Output directory host folder matches');
+    assert.ok(xml.includes(`<HostFolder>${fs.realpathSync.native(dummyOutput)}</HostFolder>`), 'Output directory maps canonical host path');
     assert.ok(xml.includes('<SandboxFolder>C:\\ChatMCP\\Output</SandboxFolder>'), 'Sandbox output mount matches');
     assert.ok(xml.includes('<ReadOnly>false</ReadOnly>'), 'Output must be writable');
 

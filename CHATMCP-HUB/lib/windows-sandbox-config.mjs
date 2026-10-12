@@ -97,7 +97,7 @@ export function validateHostMappingPath(dirPath, { isWritable = false, workspace
 
   // 5. If writable, strictly forbid mapping drive roots, user workspace, or home profile directories
   if (isWritable) {
-    const userHome = path.resolve(os.homedir());
+    const userHome = fs.existsSync(os.homedir()) ? fs.realpathSync.native(os.homedir()) : path.resolve(os.homedir());
 
     // Never map root of any drive as writable
     const normWin = path.win32.normalize(normalized);
@@ -113,7 +113,9 @@ export function validateHostMappingPath(dirPath, { isWritable = false, workspace
     }
 
     // Export must be neither a parent nor a descendant of the selected workspace.
-    if (workspaceRoot && pathsOverlap(normalized, path.resolve(workspaceRoot))) {
+    const canonicalWorkspace = workspaceRoot && fs.existsSync(workspaceRoot)
+      ? fs.realpathSync.native(workspaceRoot) : (workspaceRoot ? path.resolve(workspaceRoot) : null);
+    if (canonicalWorkspace && pathsOverlap(normalized, canonicalWorkspace)) {
       throw fault('unsafe_mapping', `Export directory overlaps workspace: '${normalized}'.`);
     }
   }
@@ -141,7 +143,13 @@ export function validateHostMappingPath(dirPath, { isWritable = false, workspace
   if (fs.existsSync(normalized)) {
     const real = fs.realpathSync.native(normalized);
     if (normalizedPathKey(real).key !== normalizedPathKey(normalized).key) {
-      throw fault('unsafe_mapping', `Mapped path resolves through an alias: '${normalized}'.`);
+      // Windows 8.3 DOS short aliases (e.g. RUNNER~1) can resolve to a
+      // canonical long name WITHOUT traversing a reparse point. Accept only
+      // that known alias form and RE-RUN all safety checks on the real path.
+      if (process.platform === 'win32' && /(?:^|[\\/])[^\\/]*~[0-9]+(?:[\\/]|$)/i.test(normalized)) {
+        return validateHostMappingPath(real, { isWritable, workspaceRoot });
+      }
+      throw fault('unsafe_mapping', `Mapped path resolves through a non-canonical alias: '${normalized}'.`);
     }
   }
 
