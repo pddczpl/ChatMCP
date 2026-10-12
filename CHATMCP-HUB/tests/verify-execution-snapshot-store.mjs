@@ -17,6 +17,7 @@ try {
   await assert.rejects(store.lookup(snapshot.snapshotId),{code:'unknown_snapshot'});
   assert.equal(await store.release(snapshot.snapshotId),false);
   const corrupted=await store.create({workspace:project,files:['app.js']});
+  await fs.chmod(path.join(corrupted.directory,'app.js'),0o600);
   await fs.writeFile(path.join(corrupted.directory,'app.js'),'tampered');
   await assert.rejects(store.lookup(corrupted.snapshotId),/snapshot|changed|stale/i);
   await store.release(corrupted.snapshotId);
