@@ -24,6 +24,16 @@ export function OrchestratorTab(){
   const {data:codingState,refetch:refetchCoding}=useQuery({queryKey:['codingWorkers'],queryFn:api.getCodingRuns,refetchInterval:3000});
   const activeCoding=codingState?.jobs?.find((x:any)=>x.id===codingRun?.id)||codingRun||codingState?.jobs?.at(-1);
   const [selectedWorkers,setSelectedWorkers]=useState<string[]>([]);
+  const [reviewedTokens,setReviewedTokens]=useState<Record<string,string>>({});
+  const [codingReview,setCodingReview]=useState<any>(null);
+  const showCodingDiff=async(runId:string,workerId?:string)=>{
+    try{
+      const review=await api.getCodingDiff(runId,workerId);
+      setCodingReview(review);
+      setReviewedTokens(current=>({...current,[workerId||'integration']:review.reviewToken}));
+      showToast('Diff retrieved for review. Inspect it before continuing.','info');
+    }catch(e:any){showToast(e.message||'Cannot review branch diff','error');}
+  };
   const {data:latest,refetch}=useQuery({queryKey:['delegates'],queryFn:api.getOrchestrator,refetchInterval:4000});
   const edit=(i:number,patch:Partial<Node>)=>setNodes(old=>old.map((v,j)=>j===i?{...v,...patch}:v));
   return <div className="h-full overflow-y-auto p-3 text-xs space-y-3 text-[var(--text)]">
@@ -69,7 +79,7 @@ export function OrchestratorTab(){
         <Button size="sm" variant="outline" disabled={codingTasks.length>=4||codingBusy} onClick={()=>setCodingTasks(a=>[...a,{id:'task-'+(a.length+1),prompt:'Describe the next coding task.'}])}>Add coding worker</Button>
         <Button size="sm" variant="primary" disabled={codingBusy||Boolean(codingState?.activeRunId)} onClick={async()=>{
           if(!confirm('Create Git branches/worktrees, granting limited file-write access to the selected AI model? No shell and no automatic merge.'))return;
-          setCodingBusy(true);try{const j=await api.runCodingAgents(codingTasks,concurrency);setCodingRun(j);setSelectedWorkers((j.workers||[]).filter((w:any)=>w.status==='ready_for_review').map((w:any)=>w.id));await refetchCoding();showToast('Coding workers: '+j.status,'success');}
+          setCodingBusy(true);try{const j=await api.runCodingAgents(codingTasks,concurrency);setCodingRun(j);setReviewedTokens({});setCodingReview(null);setSelectedWorkers((j.workers||[]).filter((w:any)=>w.status==='ready_for_review').map((w:any)=>w.id));await refetchCoding();showToast('Coding workers: '+j.status,'success');}
           catch(e:any){showToast(e.message||'Coding workers failed','error');}finally{setCodingBusy(false);}
         }}>{codingBusy?'Running...':'Run coding workers'}</Button>
         {(codingBusy||codingState?.activeRunId)&&<Button size="sm" variant="danger" onClick={async()=>{try{await api.cancelCodingAgents();showToast('Stop requested','info');}catch(e:any){showToast(e.message||'Stop failed','error');}}}>Stop</Button>}
@@ -82,9 +92,10 @@ export function OrchestratorTab(){
             <strong>{w.id} · {w.status}</strong>
           </label>
           <p className="text-[10px] text-[var(--muted)] break-all">{w.branch}</p><p>Changed: {(w.changedFiles||[]).join(', ')||'none'}</p>
-          {w.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy} onClick={async()=>{
+          {w.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy} onClick={()=>showCodingDiff(activeCoding.id,w.id)}>Review diff</Button>}
+          {w.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy||!reviewedTokens[w.id]} onClick={async()=>{
             if(prompt('Type PUBLISH DRAFT PR to push ONLY worker '+w.id+' and create a draft GitHub PR')!=='PUBLISH DRAFT PR')return;
-            setCodingBusy(true);try{const result=await api.publishCodingAgents(activeCoding.id,w.id);showToast('Worker Draft PR: '+result.prUrl,'success');await refetchCoding();}
+            setCodingBusy(true);try{const result=await api.publishCodingAgents(activeCoding.id,reviewedTokens[w.id],w.id);showToast('Worker Draft PR: '+result.prUrl,'success');await refetchCoding();}
             catch(e:any){showToast(e.message||'Worker publishing failed','error');}finally{setCodingBusy(false);}
           }}>Draft PR for {w.id}</Button>}
           {w.prUrl&&<p className="text-[var(--muted)] break-all">PR: {w.prUrl}</p>}
@@ -92,17 +103,24 @@ export function OrchestratorTab(){
         </div>)}
         {activeCoding.integration&&<p>Integration: {activeCoding.integration.status} · {activeCoding.integration.branch}</p>}
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" disabled={!selectedWorkers.length||codingBusy} onClick={async()=>{
+          <Button size="sm" variant="outline" disabled={!selectedWorkers.length||codingBusy||selectedWorkers.some(id=>!reviewedTokens[id])} onClick={async()=>{
             if(prompt('Type INTEGRATE WORKTREES to merge these workers into a NEW integration branch')!=='INTEGRATE WORKTREES')return;
-            setCodingBusy(true);try{const v=await api.integrateCodingAgents(activeCoding.id,selectedWorkers);showToast('Integration: '+v.status,v.status==='ready_for_review'?'success':'warning');await refetchCoding();}
+            setCodingBusy(true);try{const v=await api.integrateCodingAgents(activeCoding.id,selectedWorkers,reviewedTokens);showToast('Integration: '+v.status,v.status==='ready_for_review'?'success':'warning');await refetchCoding();}
             catch(e:any){showToast(e.message||'Integration failed','error');}finally{setCodingBusy(false);}
           }}>Review + integrate</Button>
-          <Button size="sm" variant="outline" disabled={activeCoding.integration?.status!=='ready_for_review'||codingBusy} onClick={async()=>{
+          {activeCoding.integration?.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy} onClick={()=>showCodingDiff(activeCoding.id)}>Review integration diff</Button>}
+          <Button size="sm" variant="outline" disabled={activeCoding.integration?.status!=='ready_for_review'||codingBusy||!reviewedTokens.integration} onClick={async()=>{
             if(prompt('Type PUBLISH DRAFT PR to explicitly push the integration branch and create a draft GitHub PR')!=='PUBLISH DRAFT PR')return;
-            setCodingBusy(true);try{const v=await api.publishCodingAgents(activeCoding.id);showToast('Draft PR: '+v.prUrl,'success');await refetchCoding();}
+            setCodingBusy(true);try{const v=await api.publishCodingAgents(activeCoding.id,reviewedTokens.integration);showToast('Draft PR: '+v.prUrl,'success');await refetchCoding();}
             catch(e:any){showToast(e.message||'Publish failed','error');}finally{setCodingBusy(false);}
           }}>Push + Draft PR</Button>
         </div>
+      </div>}
+      {codingReview&&<div className="border border-[var(--line)] bg-[var(--surface)] p-2 rounded">
+        <div className="font-semibold flex justify-between"><span>Git diff preview · {codingReview.branch}</span>
+          <Button size="sm" variant="quiet" onClick={()=>setCodingReview(null)}>Close</Button></div>
+        <p className="text-[var(--muted)]">Revision: {codingReview.revision} · Read the complete diff before authorizing integration or PR.</p>
+        <pre className="mt-2 text-[10px] overflow-x-auto whitespace-pre-wrap break-all max-h-80 overflow-y-auto select-text">{codingReview.diff||'No changes'}</pre>
       </div>}
     </section>
     <div className="space-y-2">

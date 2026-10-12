@@ -249,6 +249,7 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
           case '/api/studio/terminal/capabilities': value=await terminal?.capabilities()??{};break;
           case '/api/studio/delegates': value=delegates?.state()??null;break;
           case '/api/studio/coding': value=coding?.state()??{activeRunId:null,jobs:[]};break;
+          case '/api/studio/coding/review': if(publicMode)throw Object.assign(new Error('Coding review requires a local trusted Hub.'),{statusCode:403});value=await coding.review({runId:pick('runId'),workerId:pick('workerId')||null});break;
           case '/api/studio/workflow': value=await manager.workflow.state(pick('taskId'));break;
           case '/api/studio/plan': value=await studio.plan({taskId:pick('taskId')});break;
           default:return json(404,{error:'Không tìm thấy Studio endpoint.'});

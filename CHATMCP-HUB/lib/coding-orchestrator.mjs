@@ -3,7 +3,7 @@
 // read/edit/plan tools, never shell, Git push/merge, external MCP or secrets.
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { HubManager } from './manager.mjs';
 import { AgentRunner } from './agent.mjs';
@@ -186,14 +186,53 @@ export class CodingWorktreeOrchestrator {
     finally{job.finishedAt=new Date().toISOString();this.active=null;this.controller=null;await this.#save();}
     return this.state().jobs.find(x=>x.id===id);
   }
-  async integrate({runId,workerIds,confirmation}={}){
+  /**
+   * Return a bounded exact Git diff plus a revision-specific review token.
+   * A subsequent integration or publication must present the token of every
+   * selected worker (or the completed integration branch), so stale changes
+   * cannot pass through the review screen unnoticed.
+   */
+  async review({runId,workerId=null}={}){
+    if(this.active||this.integrating)throw fail('coding_busy','Wait until coding/integration finishes.',409);
+    const job=this.jobs.get(runId);
+    if(!job||job.workspace!==this.manager.workspace)throw fail('run_not_found','Coding job is not in the selected workspace.',404);
+    const worker=workerId===null?null:job.workers.find(x=>x.id===workerId&&x.status==='ready_for_review'&&x.commitSha);
+    if(workerId!==null&&!worker)throw fail('worker_not_ready','Worker has no completed commit to review.',409);
+    const integration=job.integration;
+    if(!worker&&integration?.status!=='ready_for_review'&&integration?.status!=='draft_pr_created')
+      throw fail('integration_missing','Create a clean integration commit before reviewing it.',409);
+    const branch=worker?.branch||integration.branch;
+    const revision=worker?.commitSha||integration.sha;
+    const expectedPrefix=worker?'chatmcp/coder/'+job.id.slice(0,12)+'/':'chatmcp/integration/';
+    if(typeof branch!=='string'||!branch.startsWith(expectedPrefix)||!/^chatmcp\/[a-z0-9/-]+$/.test(branch))
+      throw fail('invalid_branch','Managed branch is malformed.',403);
+    const actual=await this.#git(['rev-parse','--verify','refs/heads/'+branch]);
+    if(actual!==revision)throw fail('stale_revision','Managed branch changed since it was committed; refuse review.',409);
+    const diff=await this.#git(['diff','--no-ext-diff','--no-textconv','--no-color',job.baseSha,revision,'--'],{maxBytes:500000,timeoutMs:60000});
+    const key=worker?.id||'integration';
+    const reviewToken=createHash('sha256').update(job.id+'\0'+key+'\0'+revision+'\0'+diff).digest('hex');
+    job.reviews??={};
+    job.reviews[key]={revision,token:reviewToken,at:new Date().toISOString()};
+    await this.#save();
+    return {runId,workerId,branch,baseSha:job.baseSha,revision,reviewToken,diff,
+      changedFiles:worker?.changedFiles||integration?.merged||[],reviewedAt:job.reviews[key].at};
+  }
+  async #requireReview(job,key,branch,sha,token){
+    if(typeof token!=='string'||!/^[0-9a-f]{64}$/i.test(token)||job.reviews?.[key]?.token!==token||
+       job.reviews[key].revision!==sha)throw fail('review_required','Review the current branch diff before integrating or publishing.',403);
+    const actual=await this.#git(['rev-parse','--verify','refs/heads/'+branch]);
+    if(actual!==sha)throw fail('stale_revision','Branch HEAD changed after review; review its diff again.',409);
+  }
+  async integrate({runId,workerIds,confirmation,reviewTokens=null}={}){
     if(this.active||this.integrating)throw fail('coding_busy','Coding tasks/integration already running.',409);
     if(confirmation!=='INTEGRATE WORKTREES')throw fail('confirmation_required','Type INTEGRATE WORKTREES.',403);
     const job=this.jobs.get(runId);
     if(!job||job.workspace!==this.manager.workspace||!['ready_for_review','partial_failure'].includes(job.status))throw fail('run_not_ready','Coding run not ready in this workspace.',409);
     if(!Array.isArray(workerIds)||!workerIds.length||workerIds.length>4||new Set(workerIds).size!==workerIds.length)throw fail('invalid_workers','Select distinct workers.',400);
     const workers=workerIds.map(id=>job.workers.find(w=>w.id===id&&w.status==='ready_for_review'&&w.commitSha));
-    if(workers.some(w=>!w))throw fail('not_reviewed','Only completed workers with committed changes can be integrated.',409);
+    if(workers.some(w=>!w))throw fail('worker_not_ready','Only completed workers with committed changes can be integrated.',409);
+    for(const worker of workers)await this.#requireReview(job,worker.id,worker.branch,worker.commitSha,reviewTokens?.[worker.id]);
+    if(job.integration)throw fail('integration_exists','An integration worktree already exists. Review or resolve it before trying again.',409);
     this.integrating=true;
     try{
       const repo=await this.#verifyRepo();
@@ -218,7 +257,7 @@ export class CodingWorktreeOrchestrator {
       return job.integration;
     }finally{this.integrating=false;}
   }
-  async publish({runId,confirmation,workerId=null}={}){
+  async publish({runId,confirmation,workerId=null,reviewToken=null}={}){
     if(this.active||this.integrating)throw fail('coding_busy','Another coding job is active.',409);
     if(confirmation!=='PUBLISH DRAFT PR')throw fail('confirmation_required','Type PUBLISH DRAFT PR to push/create a GitHub pull request.',403);
     const job=this.jobs.get(runId);
@@ -228,6 +267,7 @@ export class CodingWorktreeOrchestrator {
     if(!worker&&!['ready_for_review','draft_pr_created'].includes(job.integration?.status))throw fail('integration_missing','Integrate first or select a reviewed individual worker.',409);
     if(!job.baseBranch)throw fail('detached_base','Cannot target an implicit GitHub base while workspace HEAD is detached.',409);
     const publishBranch=worker?.branch||job.integration.branch;
+    await this.#requireReview(job,worker?.id||'integration',publishBranch,worker?.commitSha||job.integration.sha,reviewToken);
     const existingPr = worker ? worker.prUrl : job.integration?.prUrl;
     if(existingPr)return {status:'draft_pr_created',prUrl:existingPr,branch:publishBranch,workerId};
     const remote=await this.#git(['remote','get-url','origin']);
