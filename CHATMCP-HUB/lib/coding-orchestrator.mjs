@@ -149,6 +149,10 @@ export class CodingWorktreeOrchestrator {
         return {state:result?.state||result?.status,summary:bounded(result?.finalText||result?.error,12000),taskId:task.id,steps:result?.steps,toolCalls:result?.toolCalls};
       }finally{signal.removeEventListener('abort',onAbort);}
     }finally{
+      // Evidence is captured by the broker itself, never by the model's final
+      // message. Persist attempts even when the worker fails or is cancelled.
+      const broker=this.checkBrokers.get(node.id);
+      node.verificationAttempts=broker?.listAttempts({workerId:node.id})?.slice(-100) || [];
       this.checkBrokers.delete(node.id);
       this.runners.delete(node.id);
       await active.runner?.shutdown?.().catch(()=>{});
@@ -176,7 +180,7 @@ export class CodingWorktreeOrchestrator {
       throw fail('worker_permission_denied','Set parent permissions to Autonomous explicitly for delegated worktree edits.',403);
     if(!this.provider.ready())throw fail('provider_unavailable','Configure a working API model.',409);
     if(!Array.isArray(tasks)||tasks.length<1||tasks.length>4)throw fail('invalid_tasks','Provide between 1 and 4 coding tasks.');
-    if(!Number.isInteger(maxConcurrency)||maxConcurrency<1||maxConcurrency>3)throw fail('bad_concurrency','Concurrency must be 1–3.');
+    if(!Number.isInteger(maxConcurrency)||maxConcurrency<1||maxConcurrency>2)throw fail('bad_concurrency','Concurrency must be 1–2 for model workers.');
     const ids=new Set();
     const nodes=tasks.map((x)=>{
       if(!slug(x?.id)||ids.has(x.id)||typeof x.prompt!=='string'||!x.prompt.trim()||x.prompt.length>3000)throw fail('invalid_tasks','Tasks require unique safe IDs and prompts <=3000 characters.');

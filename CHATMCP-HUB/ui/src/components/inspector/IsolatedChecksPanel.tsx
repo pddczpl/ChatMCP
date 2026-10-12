@@ -37,13 +37,23 @@ function WorkerChecks({workerId}:{workerId:string}) {
 }
 export function IsolatedChecksPanel() {
   const {data,error}=useQuery({queryKey:['coding-runs'],queryFn:api.getCodingRuns,refetchInterval:3000});
-  if(error || !data?.activeRunId || !Array.isArray(data.jobs)) return null;
-  const job=data.jobs.find((x:{id:string})=>x.id===data.activeRunId);
+  if(error || !Array.isArray(data?.jobs) || data.jobs.length===0) return null;
+  const job=data.jobs.find((x:{id:string})=>x.id===data.activeRunId) || data.jobs.at(-1);
   const workers=(job?.workers??[]).filter((w:{status:string})=>w.status==='running');
-  if(!workers.length)return null;
+  const prior=(job?.workers??[]).flatMap((w:{id:string;verificationAttempts?:any[]})=>
+    (w.verificationAttempts||[]).map(record=>({...record,workerId:w.id})));
+  if(!workers.length && !prior.length)return null;
   return <section data-testid="isolated-checks-panel" className="space-y-2 border-t border-[var(--line-subtle)] pt-3">
     <h3 className="font-semibold uppercase text-[11px] text-[var(--muted)]">Owner-approved isolated checks</h3>
     <p className="text-[var(--faint)]">Grants are bound to worker, check definition, retry limit, and current permission policy. Approval cannot enable an unverified Sandbox backend.</p>
     {workers.map((w:{id:string})=><WorkerChecks key={w.id} workerId={w.id}/>)}
+    {prior.length>0 && <div className="space-y-2">
+      <p className="font-semibold text-[11px]">Recorded worker execution attempts (not model assertions)</p>
+      {prior.slice(-30).map((x:any,index:number)=><div key={String(x.id||index)} className="border border-[var(--line)] p-2 rounded">
+        <p>{x.workerId} · {x.checkId} · {x.status} · exit {x.exitCode??'?'}</p>
+        <p className="text-[var(--muted)]">{x.testOutcomeVerified===true?'Independent check verified':'No independently verified passing test outcome'}</p>
+        {x.snapshotHash && <p className="font-mono text-[10px]">Snapshot {String(x.snapshotHash).slice(0,16)}…</p>}
+      </div>)}
+    </div>}
   </section>;
 }
