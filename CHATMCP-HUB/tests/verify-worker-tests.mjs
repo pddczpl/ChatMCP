@@ -58,7 +58,7 @@ liveBroker=new WorkerTestBroker({
   authorizeGrant:async()=>({approved:true}),
   snapshotFactory:async()=>({
     snapshotId:'late-fixture',contentHash:'f'.repeat(64),
-    manifest:{files:[]},directory:'/unused',
+    manifest:{files:descriptor.testFiles.map(file=>({path:file.path,sha256:file.sha256}))},directory:'/unused',
   }),
   registry:{get:()=>({
     async probe(){
@@ -81,7 +81,7 @@ let downgradeDispatches=0;
 const downgraded=new WorkerTestBroker({
   resolveWorker:async id=>id===worker.id?worker:null,
   authorizeGrant:async()=>({approved:true}),
-  snapshotFactory:async()=>({snapshotId:'downgrade',contentHash:'f'.repeat(64),manifest:{files:[]},directory:'/unused'}),
+  snapshotFactory:async()=>({snapshotId:'downgrade',contentHash:'f'.repeat(64),manifest:{files:descriptor.testFiles.map(file=>({path:file.path,sha256:file.sha256}))},directory:'/unused'}),
   registry:{get:()=>({
     async probe(){
       worker.parentPolicy='readonly';
