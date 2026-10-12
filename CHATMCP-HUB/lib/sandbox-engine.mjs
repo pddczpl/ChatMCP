@@ -1,13 +1,13 @@
 // Unified Sandbox Engine for ChatMCP (Phase 3).
 //
 // Provides an extensible execution layer for running agent shell commands and tests under
-// different isolation modes ('host', 'broker', 'isolated') with enforced resource quotas,
+// the local host execution mode with bounded resources,
 // environment variable sanitization, and execution metrics.
 
 import path from 'node:path';
 import { ShellRunner } from './shell-runner.mjs';
 
-export const SANDBOX_MODES = Object.freeze(['host', 'broker', 'isolated']);
+export const SANDBOX_MODES = Object.freeze(['host']);
 
 const DEFAULT_LIMITS = Object.freeze({
   timeoutSeconds: 120,
@@ -21,11 +21,10 @@ const fault = (code, message, statusCode = 400) => Object.assign(new Error(messa
 export class SandboxEngine {
   /**
    * @param {object} options
-   * @param {string} [options.mode='host'] Execution mode ('host', 'broker', 'isolated')
+   * @param {string} [options.mode='host'] Execution mode ('host' only; OS isolation is not implemented)
    * @param {string} [options.workspaceRoot] Working directory root
    * @param {object} [options.workspace] StudioWorkspace or adapter with resolve()
    * @param {object} [options.limits] Resource limit overrides
-   * @param {object} [options.broker] ExecBroker instance (when mode === 'broker')
    * @param {ShellRunner} [options.shellRunner] Custom ShellRunner instance
    */
   constructor({
@@ -33,7 +32,6 @@ export class SandboxEngine {
     workspaceRoot,
     workspace = null,
     limits = {},
-    broker = null,
     shellRunner = null,
   } = {}) {
     if (!SANDBOX_MODES.includes(mode)) {
@@ -42,7 +40,6 @@ export class SandboxEngine {
     this.mode = mode;
     this.workspaceRoot = workspaceRoot || process.cwd();
     this.limits = { ...DEFAULT_LIMITS, ...limits };
-    this.broker = broker;
     const effectiveWs = workspace && typeof workspace.resolve === 'function'
       ? workspace
       : { resolve: async (rel = '') => ({ absolute: path.resolve(this.workspaceRoot, String(rel || '.')), relative: String(rel || '.') }) };
@@ -57,7 +54,7 @@ export class SandboxEngine {
       mode: this.mode,
       workspaceRoot: this.workspaceRoot,
       limits: { ...this.limits },
-      brokerAvailable: Boolean(this.broker),
+      osIsolated: false,
     };
   }
 
@@ -91,25 +88,6 @@ export class SandboxEngine {
     );
 
     const startedAt = Date.now();
-
-    if (this.mode === 'broker' && this.broker) {
-      // Dispatched via Unix socket command broker (uid separation)
-      const res = await this.broker.execute({
-        command,
-        cwd,
-        timeoutSeconds: effectiveTimeout,
-        env,
-        signal,
-      });
-      return {
-        exitCode: res.exitCode,
-        stdout: res.stdout || '',
-        stderr: res.stderr || '',
-        durationMs: Date.now() - startedAt,
-        timedOut: Boolean(res.timedOut),
-        mode: 'broker',
-      };
-    }
 
     // Default 'host' execution through ShellRunner with full guards
     const result = await this.shellRunner.run({

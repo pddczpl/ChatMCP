@@ -16,7 +16,6 @@ import { SandboxEngine } from './lib/sandbox-engine.mjs';
 import { PluginManager } from './lib/plugins.mjs';
 import { CodingWorktreeOrchestrator } from './lib/coding-orchestrator.mjs';
 import { GitHubSkillRegistry } from './lib/skill-registry.mjs';
-import { GovernanceManager } from './lib/governance.mjs';
 
 const APP_ID = 'chatmcp-local-hub';
 export const UI_BUILD = '2.5.0-react-agent';
@@ -111,8 +110,6 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   pluginManager.load().catch(() => {});
   const skillRegistry = new GitHubSkillRegistry({ pluginManager, stateDir: hubStateDir });
   skillRegistry.load().catch(() => {});
-  const governance = new GovernanceManager({ stateDir: hubStateDir });
-  governance.registerWorkspace('local-owner', manager.workspace || BUNDLE_ROOT);
   const sandboxEngine = new SandboxEngine({mode:'host',workspaceRoot:manager.workspace,workspace:manager.studio});
   const state = (csrf = token) => ({ ...manager.state(), ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions:gate?.state()??null, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null} : null, csrfToken: csrf });
   const requireNoTask = () => { if (taskEngine?.state().activeTaskId) { const e = new Error('Hủy hoặc chờ nhiệm vụ hoàn tất trước khi thay đổi kết nối AI.'); e.statusCode = 409; throw e; } };
@@ -243,10 +240,6 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
       }
       if (req.method === 'GET' && url.pathname === '/api/plugins/installed') {
         return json(200, { plugins: pluginManager.installed(), activeSkills: pluginManager.activeSkills() });
-      }
-      if (req.method === 'GET' && url.pathname === '/api/governance/audit') {
-        const limit = Number(url.searchParams.get('limit') || 50);
-        return json(200, { logs: await governance.queryAudit({ limit, action: url.searchParams.get('action') }) });
       }
       if (req.method === 'GET' && url.pathname === '/auth/chatgpt/callback') return json(410, { error: 'Không hỗ trợ kết nối OAuth ChatGPT trong chế độ này.' });
       if (req.method === 'GET' && url.pathname === '/api/tasks/events') {
