@@ -9,7 +9,7 @@ import { makeCalcProject, gitInit, WRONG_EXPECTATION_TEST } from '../../tests/e2
 
 export const test = base.extend({
   failingProject: [false, { option: true }],
-  app: async ({ failingProject, context }, use, testInfo) => {
+  app: async ({ failingProject, context, browserErrors }, use, testInfo) => {
     // Windows TEMP may use an 8.3 alias; compare the canonical path the Hub returns.
     const scratch = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-react-e2e-')));
     const project = path.join(scratch, 'workspace');
@@ -39,7 +39,7 @@ export const test = base.extend({
       expect(html).toMatch(/assets\/index-[^" ]+\.js/);
       await use(app);
     } finally {
-      await Promise.all(context.pages().map((page) => page.close()));
+      await Promise.all(context.pages().map((page) => browserErrors.closePage(page)));
       await hub?.stop();
       await mock?.close();
       for (const name of ['hub.log', 'hub-restart.log']) {
@@ -58,7 +58,9 @@ export const test = base.extend({
     const warnings = [];
     const requests = new Set();
     const checks = [];
+    const observedPages = new Map();
     const inspectPage = (page) => {
+      const pageChecks = [];
       page.on('pageerror', (error) => errors.push(`Runtime: ${error.message}`));
       page.on('console', (message) => {
         if (message.type() === 'error') errors.push(`Console: ${message.text()}`);
@@ -69,22 +71,50 @@ export const test = base.extend({
         // Navigation/closing a page cancels its live SSE request intentionally.
         if (!reason.includes('ERR_ABORTED')) errors.push(`Network: ${request.url()}: ${reason}`);
       });
-      page.on('response', (response) => {
-        if (!new URL(response.url()).pathname.startsWith('/api/')) return;
-        requests.add(new URL(response.url()).pathname);
-        checks.push((async () => {
+      const onResponse = (response) => {
+        const route = new URL(response.url()).pathname;
+        if (!route.startsWith('/api/')) return;
+        requests.add(route);
+        const check = (async () => {
           if (!response.ok()) errors.push(`HTTP ${response.status()}: ${response.url()}`);
-          if (response.headers()['content-type']?.includes('application/json')) {
-            const value = await response.json().catch(() => null);
-            // A task's persisted cancellation/failure is domain data, not an API failure envelope.
-            if (value?.ok === false || (value?.error && !value?.id)) errors.push(`API error: ${response.url()}: ${JSON.stringify(value)}`);
+          const mediaType = (response.headers()['content-type'] ?? '').split(';', 1)[0].trim().toLowerCase();
+          const taskStream = route === '/api/tasks/events' || /^\/api\/tasks\/[0-9a-f-]{36}\/stream$/.test(route);
+          // These are the Hub's explicit non-JSON API contracts. An HTML fallback
+          // or an unexpected event stream on another API route is still a failure.
+          if (taskStream && mediaType === 'text/event-stream') return;
+          if (/^\/api\/tasks\/[0-9a-f-]{36}\/report$/.test(route) && mediaType === 'text/plain') return;
+          if (mediaType !== 'application/json') {
+            errors.push(`Unexpected API content type: ${response.url()}: ${mediaType || '(missing)'}`);
+            return;
           }
-        })());
-      });
+          let value;
+          try { value = await response.json(); }
+          catch (error) {
+            errors.push(`Invalid API JSON: ${response.url()}: ${error.message}`);
+            return;
+          }
+          // A task's persisted cancellation/failure is domain data, not an API failure envelope.
+          if (value?.ok === false || (value?.error && !value?.id)) errors.push(`API error: ${response.url()}: ${JSON.stringify(value)}`);
+        })();
+        checks.push(check);
+        pageChecks.push(check);
+      };
+      observedPages.set(page, { onResponse, checks: pageChecks });
+      page.on('response', onResponse);
+    };
+    const closePage = async (page) => {
+      const observed = observedPages.get(page);
+      if (observed) {
+        // Seal capture at the deliberate close boundary, then finish reading
+        // every response already observed before destroying its browser page.
+        page.off('response', observed.onResponse);
+        await Promise.all(observed.checks);
+      }
+      await page.close();
     };
     context.on('page', inspectPage);
     context.pages().forEach(inspectPage);
-    await use({ errors, requests });
+    await use({ errors, requests, closePage });
     await Promise.all(checks);
     await testInfo.attach('browser-errors.json', { body: JSON.stringify(errors, null, 2), contentType: 'application/json' });
     await testInfo.attach('browser-warnings.json', { body: JSON.stringify(warnings, null, 2), contentType: 'application/json' });

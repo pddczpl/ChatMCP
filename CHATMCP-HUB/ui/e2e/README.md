@@ -27,14 +27,23 @@ model request, task/tool display, pending approval details and diff, approve and
 deny, passing and failing project tests, Git/Files/Activity/Terminal/Skills tabs,
 empty and saved plans, Stop/Resume, restored conversation history after a Hub
 restart, Settings permission changes, and clearing a typed dummy key when saving
-or changing destinations. Console exceptions, failed requests,
-HTTP failures and API error envelopes fail the test; a task's recorded
-cancellation is treated as task data.
+or changing destinations. Saving a custom loopback endpoint twice retains its
+canonical provider and saved dummy key without submitting a model request.
+Stop/Resume uses a read-only task and verifies the same conversation ID and
+restored history; it does not establish mutation replay behavior.
+Console exceptions, failed requests, HTTP failures, malformed API JSON,
+unexpected API content types and API error envelopes fail the test; task SSE
+and plain-text report endpoints retain their explicit response formats, and a
+task's recorded cancellation is treated as task data.
+Deliberate page closes stop response capture and finish checking response bodies
+already received before disposing the page, including the restart scenario.
 
 Playwright writes its JSON result, Hub logs, and failure screenshots/traces to
 `test-results/`. The required reporter also fails a run containing skipped tests;
-`tests/e2e-gate.test.mjs` checks its real process exit codes. CI runs these checks
-on Windows and Linux with Chromium. These results do **not** verify a live AI
+`tests/e2e-gate.test.mjs` checks real process exit codes for skips and malformed
+API responses using a temporary local HTTP server and isolated reports.
+Delayed-body cases verify cleanup still catches malformed responses. CI runs
+these checks on Windows and Linux with Chromium. These results do **not** verify a live AI
 provider, paid model quality, OS sandboxing, installer lifecycle, or WebView2;
 those require their own evidence.
 

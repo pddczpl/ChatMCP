@@ -131,7 +131,39 @@ test('AI config clears a typed fixture key after save and destination changes', 
   expect((await changedResponse).ok()).toBe(true);
 });
 
-test('Stop, Resume and Hub restart preserve the same conversation without replaying edits', async ({ page, context, app }) => {
+test('saving a custom endpoint twice retains its canonical provider and saved fixture key', async ({ page, app }) => {
+  await onboard(page, app);
+  const callsBefore = app.mock.state.requests.length;
+  await page.getByRole('button', { name: 'AI Model', exact: true }).click();
+  await page.getByRole('button', { name: 'Ollama (Local)', exact: true }).click();
+  await page.getByLabel('API base URL', { exact: true }).fill(app.mock.url);
+  await page.getByLabel('Model', { exact: true }).fill('mock-coder');
+  const key = page.getByLabel('API key', { exact: true });
+  await key.fill('E2E-DUMMY-CUSTOM-ENDPOINT-KEY');
+  const firstSave = page.waitForResponse((response) => response.url().endsWith('/api/ai/config') && response.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Lưu cấu hình', exact: true }).click();
+  expect((await firstSave).ok()).toBe(true);
+  await expect(key).toHaveValue('');
+  await expect.poll(async () => {
+    const ai = (await app.hub.state()).ai;
+    return { preset: ai.preset, keySource: ai.keySource };
+  }).toEqual({ preset: 'custom-openai', keySource: 'saved' });
+  const secondRequest = page.waitForRequest((request) => request.url().endsWith('/api/ai/config') && request.method() === 'POST');
+  const secondResponse = page.waitForResponse((response) => response.url().endsWith('/api/ai/config') && response.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Lưu cấu hình', exact: true }).click();
+  const payload = (await secondRequest).postDataJSON();
+  expect(payload.preset).toBe('custom-openai');
+  expect(payload).not.toHaveProperty('apiKey');
+  expect((await secondResponse).ok()).toBe(true);
+  const ai = (await app.hub.state()).ai;
+  expect(ai.preset).toBe('custom-openai');
+  expect(ai.apiBaseUrl).toBe(app.mock.url);
+  expect(ai.keySource).toBe('saved');
+  expect(app.mock.state.requests).toHaveLength(callsBefore);
+  expect((await app.hub.state()).agent.tasks).toHaveLength(0);
+});
+
+test('Stop, Resume and Hub restart preserve the same read-only conversation', async ({ page, context, app, browserErrors }) => {
   await onboard(page, app);
   app.mock.define('slow-read', async ({ turn }) => {
     if (turn === 0) return call('read_file', { path: 'calc.js' });
@@ -153,7 +185,7 @@ test('Stop, Resume and Hub restart preserve the same conversation without replay
   await expect(page.locator('#panel-conversation').getByText('Resumed the same conversation; no files were changed.', { exact: true })).toBeVisible();
   expect((await app.hub.state()).agent.tasks).toHaveLength(1);
   // Disconnect the browser first: planned downtime is not an application runtime error.
-  await page.close();
+  await browserErrors.closePage(page);
   await app.restart();
   const recovered = await context.newPage();
   await recovered.goto(app.hub.origin);
