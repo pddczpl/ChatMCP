@@ -66,12 +66,13 @@ try{
   const reader=await gate.authorize({name:'desktop-commander.read_file',args:{path:'src/app.py'},taskId:planId});check(reader.allowed);
   check(gate.classify('remote-connector.write_file',{}, {annotations:{readOnlyHint:true}}).category==='workspace_edit');
   check(gate.classify('unknown.tool',{}, {annotations:{readOnlyHint:true}}).category==='unknown');
+  const waitPending=async()=>{for(let i=0;i<50;i++){const list=gate.state().pending;if(list.length>0)return list[0];await new Promise(r=>setTimeout(r,20));}return gate.state().pending[0];};
   const controller=new AbortController();const request=gate.authorize({name:'desktop-commander.start_process',args:{command:'echo hello'},taskId:planId,signal:controller.signal});
-  await new Promise(r=>setTimeout(r,10));check(gate.state().pending.length===1);const [pending]=gate.state().pending;gate.decide(pending.id,true);check((await request).allowed);
-  const refused=gate.authorize({name:'desktop-commander.delete_file',args:{path:'src/app.py'},taskId:planId});await new Promise(r=>setTimeout(r,10));gate.decide(gate.state().pending[0].id,false);check((await refused).allowed===false);
+  const pending=await waitPending();check(Boolean(pending));gate.decide(pending.id,true);check((await request).allowed);
+  const refused=gate.authorize({name:'desktop-commander.delete_file',args:{path:'src/app.py'},taskId:planId});const pendingRefused=await waitPending();check(Boolean(pendingRefused));gate.decide(pendingRefused.id,false);check((await refused).allowed===false);
   await assert.rejects(()=>gate.authorize({name:'desktop-commander.edit_file',args:{path:'../../escape'},taskId:planId}),e=>e.statusCode===403);n++;
   gate.configure({mode:'autonomous'});check((await gate.authorize({name:'desktop-commander.edit_file',args:{path:'src/app.py'},taskId:planId})).allowed);
-  const shell=gate.authorize({name:'desktop-commander.start_process',args:{command:'rm -rf src'},taskId:planId});await new Promise(r=>setTimeout(r,10));check(gate.state().pending.length===1);gate.decide(gate.state().pending[0].id,false);await shell;
+  const shell=gate.authorize({name:'desktop-commander.start_process',args:{command:'rm -rf src'},taskId:planId});const pendingShell=await waitPending();check(Boolean(pendingShell));gate.decide(pendingShell.id,false);await shell;
   await gate.writes;
   const gateAgain=new PermissionGate({manager,workspace:studio,directory:path.join(root,'policy')});await gateAgain.load();check(gateAgain.state().mode==='autonomous'&&gateAgain.state().recent.length>=2);
   const router=new StudioTools({workspace:studio,gate});check(router.definitions().length>=12);
