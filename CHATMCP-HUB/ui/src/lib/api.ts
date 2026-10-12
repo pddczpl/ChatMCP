@@ -1,6 +1,6 @@
 import type { HubState, HubHealth, TaskDetail, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin } from '@/types';
 
-const UI_BUILD = '2.3.0-react-agent';
+const UI_BUILD = '2.5.0-react-agent';
 let currentCsrfToken = '';
 
 export function setCsrfToken(token: string) {

@@ -10,7 +10,7 @@ import { exists, readJson, writeJson, collectSecrets, redact, resolveProgram, np
 import { makeInstructions } from './instructions.mjs';
 import { listAll, collectCatalog, verifyProxyCatalog, closeConnection, makeAgentSession, buildInternalCatalog } from './catalog.mjs';
 
-export const VERSION = '2.3.0';
+export const VERSION = '2.5.0';
 const PROXY_PORT = 3006;
 const PROXY_URL = `http://127.0.0.1:${PROXY_PORT}/mcp`;
 const baseService = () => ({ state: 'unknown', detail: 'Chưa kiểm tra' });

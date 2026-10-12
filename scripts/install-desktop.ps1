@@ -121,7 +121,7 @@ try {
         New-Item -Path $uninstallKey -Force | Out-Null
     }
     Set-ItemProperty -Path $uninstallKey -Name "DisplayName" -Value "ChatMCP Studio - AI Coding Agent"
-    Set-ItemProperty -Path $uninstallKey -Name "DisplayVersion" -Value "2.3.0"
+    Set-ItemProperty -Path $uninstallKey -Name "DisplayVersion" -Value "2.5.0"
     Set-ItemProperty -Path $uninstallKey -Name "Publisher" -Value "Phan Danh Dat"
     Set-ItemProperty -Path $uninstallKey -Name "InstallLocation" -Value $repoRoot
     Set-ItemProperty -Path $uninstallKey -Name "UninstallString" -Value "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$uninstallScript`""

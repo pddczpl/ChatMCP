@@ -51,8 +51,13 @@ try{
   gate.configure({executionPolicy:'host-review'});check(gate.state().executionPolicy==='host-review','host review opt in');
   const t=await terminal.start({interactive:true,command:'echo SESSION_READY',timeoutMinutes:.2});
   check(t.interactive&&['conpty','pipes'].includes(t.mode),'interactive session started');
-  await new Promise(r=>setTimeout(r,350));terminal.write(t.id,'echo AFTER_STDIN\n');await new Promise(r=>setTimeout(r,600));
-  const log=terminal.state().find(x=>x.id===t.id).logs.map(x=>x.message).join('');
+  // Poll with a generous bound instead of fixed sleeps: loaded CI runners can take well over a second to start a shell.
+  const terminalLog=()=>terminal.state().find(x=>x.id===t.id).logs.map(x=>x.message).join('');
+  const waitForLog=async(text,ms=15000)=>{const until=Date.now()+ms;while(!terminalLog().includes(text)&&Date.now()<until)await new Promise(r=>setTimeout(r,25));};
+  await waitForLog('SESSION_READY');
+  terminal.write(t.id,'echo AFTER_STDIN\n');
+  await waitForLog('AFTER_STDIN');
+  const log=terminalLog();
   check(log.includes('SESSION_READY')&&log.includes('AFTER_STDIN'),'persistent shell accepted stdin');
   terminal.stop(t.id);
   console.log(`PASS ${n} v2.2 core assertions: Docker sandbox contract, AST incremental index, LSP stdio, strict policy, interactive terminal, preview validation`);

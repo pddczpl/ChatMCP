@@ -1,6 +1,18 @@
 # Lịch sử thay đổi
 
-## [Unreleased] — Multi-Agent coding worktrees & GitHub Skills Hub
+## [2.5.0] — 2026-10-12 — Multi-Agent coding worktrees, GitHub Skills Hub & hardening
+
+Bản này nối tiếp bản cài đặt `v2.4.0` (giao diện React/Vite/Tailwind, đã phát hành riêng); `v2.4.0` không bị sửa hay gắn lại. Số phiên bản của Hub, Desktop, Installer và giao diện được đồng bộ về `2.5.0`.
+
+### Bảo mật và độ tin cậy (PR #2)
+
+- **Khôi phục checkpoint an toàn:** bắt buộc `expectedShas` cho mọi file, từ chối bản cũ bằng HTTP 409 (`stale_state`), có preview/dry-run, sao lưu hoàn tác trước khi ghi, và chặn khi agent đang chạy (`task_in_progress`). Giao diện luôn gọi preview trước khi khôi phục.
+- **Skill ID và hệ thống tệp:** chuẩn hóa ID, từ chối `..`, dấu `/` `\`, đường dẫn tuyệt đối và tên thiết bị Windows (`CON`, `NUL`, `COM1`…); kiểm tra containment và symlink trước khi cài/gỡ; bỏ ID cũ không an toàn khi nạp.
+- **SSRF khi cài skill từ URL:** phân giải DNS trước khi tải, chỉ chấp nhận IP công khai (chặn loopback, RFC 1918, CGNAT, link-local, metadata, IPv6 ULA và IPv4-mapped), kiểm tra lại từng bước chuyển hướng, giới hạn 512 KB và thời gian chờ.
+- **Nguồn gốc và giấy phép:** bỏ nhãn `github-verified` và SHA commit giả khỏi danh mục; giấy phép tự khai không được coi là đã xác minh quyền phân phối lại (`redistributable: false`).
+- **Chọn skill:** chỉ đưa vào ngữ cảnh khi đủ liên quan (ngưỡng điểm), có ngân sách ngữ cảnh; lỗi ghi lockfile không bị nuốt.
+
+### Tính năng
 
 - **Parallel Coding Agents (beta):** Git worktrees/branches riêng cho từng coding worker (tối đa 4, song song tối đa 3), công cụ đọc/sửa file giới hạn, không shell/network/Git push trực tiếp. Có integration branch và Draft PR theo từng worker khi người dùng xác nhận. Git worktrees không phải OS sandbox.
 - **Agent Skills Hub (beta):** Tìm SKILL.md lồng nhau từ GitHub tree revision được ghim; nhập tài nguyên nhị phân và văn bản theo hạn mức và kiểm tra SHA; quản lý nguồn được phép, xem/cập nhật revision, lưu giấy phép dạng evidence (không tự suy ra quyền redistribution).
@@ -11,11 +23,11 @@
 
 
 
-Định dạng theo [Keep a Changelog](https://keepachangelog.com/vi/1.1.0/). Phiên bản của Hub (`CHATMCP-HUB/package.json`) và bản dựng giao diện (`2.3.0-react-agent`) cùng đi theo mục dưới đây.
+Định dạng theo [Keep a Changelog](https://keepachangelog.com/vi/1.1.0/). Phiên bản của Hub (`CHATMCP-HUB/package.json`) và bản dựng giao diện (`2.5.0-react-agent`) cùng đi theo mục dưới đây.
 
 Các bản trước 2.3.0 (2.0.0 … 2.2.8) có ghi chú riêng ở `CHATMCP-HUB/STUDIO-*.md`, `UPGRADE-*.md`, `TEST-RESULTS-*.txt`; chúng là tài liệu lịch sử và không được cập nhật.
 
-## [2.3.0] — nhánh `dev/chatmcp-agent` (chưa gắn tag, chưa push)
+## [2.3.0] — nhánh `dev/chatmcp-agent` (đã gộp vào `main`; không có tag riêng)
 
 Mục tiêu của bản này: biến Hub thành một **AI Coding Agent chạy được trên Windows 11 cho một người dùng**, không cần Docker, Cloud Harness hay Desktop Commander. Nhãn từng tính năng nằm ở [README.md](README.md); báo cáo và bằng chứng ở [docs/PHASE1-REPORT.md](docs/PHASE1-REPORT.md).
 
