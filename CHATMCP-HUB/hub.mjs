@@ -461,10 +461,10 @@ export function parseArguments(args,env=process.env){
   if(/^(1|true|yes|on)$/i.test(String(env.CHATMCP_PUBLIC??'').trim())||
      (env.CHATMCP_EXEC_MODE&&env.CHATMCP_EXEC_MODE!=='host'))
     throw new Error('Cloud/public execution removed: CHATMCP_PUBLIC and hosted execution modes unsupported.');
-  const backend=values['--backend']??env.CHATMCP_BACKEND??'local';
+  const backend=values['--backend']??(env.CHATMCP_BACKEND||'local');
   if(backend!=='local')throw new Error('Only backend local is supported. Legacy MCP/Cloud Harness backend was removed.');
   const port=Number(values['--port']??3007);
-  if(!Number.isInteger(port)||port<1024||port>65535||port===3006)throw new Error('Invalid local dashboard port.');
+  if(!Number.isInteger(port)||port<1024||port>65535||port===3006)throw new Error('Invalid local dashboard port (3006 reserved).');
   return {repoRoot:null,project:values['--project'],port,
     stateDir:path.resolve(values['--state-dir']??defaultDataDirectory(env)),
     backend:'local',host:'127.0.0.1',open,

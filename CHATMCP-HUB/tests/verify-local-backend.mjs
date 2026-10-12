@@ -408,7 +408,7 @@ try {
     equal(snapshot.dataDirectory, state, 'data goes where --state-dir says');
     check(snapshot.toolCounts.local === 36, 'tools registered');
     const text = await fetch(`${base}/api/instructions`).then((response) => response.status);
-    equal(text, 409, 'the SuperAssistant instructions route explains itself instead of failing');
+    equal(text, 410, 'removed legacy MCP instructions explicitly return Gone');
     const response = await fetch(`${base}/api/hub/shutdown`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base, 'X-ChatMCP-Request': 'local-dashboard', 'X-ChatMCP-CSRF': snapshot.csrfToken }, body: '{}' });
     equal(response.status, 200, 'shutdown accepted');
     const code = await Promise.race([exited, sleep(20_000).then(() => 'timeout')]);
