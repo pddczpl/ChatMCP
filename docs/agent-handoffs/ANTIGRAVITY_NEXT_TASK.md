@@ -9,16 +9,16 @@
 ## 0. Current verified facts
 
 - Repository: https://github.com/pddczpl/ChatMCP
-- Windows workspace: \`F:\Personal_Project\Vin\ChatMCP\`
+- Windows workspace: `F:\Personal_Project\Vin\ChatMCP`
 - PR: https://github.com/pddczpl/ChatMCP/pull/12
-- PR branch: \`feat/phase1-integrate-windows-sandbox-experimental\`, base \`main\`.
-- PR HEAD **at review time**: \`9807da021c1c25264fd7590d7e407543242e66cc\`. Check HEAD again before modifying anything.
+- PR branch: `feat/phase1-integrate-windows-sandbox-experimental`, base `main`.
+- PR HEAD **at review time**: `9807da021c1c25264fd7590d7e407543242e66cc`. Check HEAD again before modifying anything.
 - Blocking independent review round 2: https://github.com/pddczpl/ChatMCP/pull/12#issuecomment-6132228188
 - Previous review: https://github.com/pddczpl/ChatMCP/pull/12#issuecomment-6131872111
 - Current PR job run: https://github.com/pddczpl/ChatMCP/actions/runs/38304488892 (9/9 GitHub-hosted jobs successful, NOT a real-guest security gate).
 - Current Antigravity report: 24 real Windows Sandbox checkpoints **reported** on its machine; cannot be independently replayed by GitHub-hosted CI.
-- Earlier ChatGPT code changes \`54b32e2\` and \`bfed033\` are **already integrated into PR #12**. Do not cherry-pick these commits again.
-- Latest source \`docs/WINDOWS-SANDBOX-REAL-FEASIBILITY.md\` STILL contains an old 20-check GO report; it was not updated with this round's changes.
+- Earlier ChatGPT code changes `54b32e2` and `bfed033` are **already integrated into PR #12**. Do not cherry-pick these commits again.
+- Latest source `docs/WINDOWS-SANDBOX-REAL-FEASIBILITY.md` STILL contains an old 20-check GO report; it was not updated with this round's changes.
 
 ### Exact objective
 
@@ -47,31 +47,31 @@ If local work is dirty, preserve and inspect it before switching or applying cha
 
 ## 2. P0-A remains open: unknown privileged identity permits guest CreateProcessW
 
-**File:** \`CHATMCP-HUB/windows/sandbox/GuestSupervisor/Program.cs\`  
+**File:** `CHATMCP-HUB/windows/sandbox/GuestSupervisor/Program.cs`  
 **Lines:** 453–465 and 524–558 at HEAD 9807da0.
 
-Existing code swallows exceptions from \`WindowsIdentity.GetCurrent()\` / \`WindowsPrincipal.IsInRole()\` using \`catch { }\`. On failure, both flags remain false. For \`--guest-fixture\` the code can then enter \`CreateProcessW\` without a restricted token, including after a SYSTEM bootstrap.
+Existing code swallows exceptions from `WindowsIdentity.GetCurrent()` / `WindowsPrincipal.IsInRole()` using `catch { }`. On failure, both flags remain false. For `--guest-fixture` the code can then enter `CreateProcessW` without a restricted token, including after a SYSTEM bootstrap.
 
 **Required change:**
 
 1. Fail closed if identity inspection fails or produces insufficient information. No empty catch.
-2. Since the trusted supervisor starts via \`wsb exec -r System\`, define/enforce the expected bootstrap identity. Under \`--guest-fixture\`, **no untrusted child starts without a separately validated restricted token**, regardless of parent-role heuristics. Do not allow a 'non-admin parent' shortcut to arbitrary \`CreateProcessW\`.
-3. If \`OpenProcessToken\`, \`CreateRestrictedToken\`, token verification or \`CreateProcessAsUserW\` fails, produce an error and ensure zero untrusted privileged spawns. Reject contradictory fixture flags.
-4. Prove effective child identity/SID, group membership, administrative SID enablement, privileges/elevation/integrity and guest protected-path access, independently of JSON \`restrictedChild\`. A token with disabled privileges is not necessarily sufficient evidence of no access via its SIDs or filesystem ACL.
+2. Since the trusted supervisor starts via `wsb exec -r System`, define/enforce the expected bootstrap identity. Under `--guest-fixture`, **no untrusted child starts without a separately validated restricted token**, regardless of parent-role heuristics. Do not allow a 'non-admin parent' shortcut to arbitrary `CreateProcessW`.
+3. If `OpenProcessToken`, `CreateRestrictedToken`, token verification or `CreateProcessAsUserW` fails, produce an error and ensure zero untrusted privileged spawns. Reject contradictory fixture flags.
+4. Prove effective child identity/SID, group membership, administrative SID enablement, privileges/elevation/integrity and guest protected-path access, independently of JSON `restrictedChild`. A token with disabled privileges is not necessarily sufficient evidence of no access via its SIDs or filesystem ACL.
 5. Add **deterministic fault injection** for identity retrieval, OpenProcessToken, CreateRestrictedToken, CreateProcessAsUserW and any denied-token validation. Assert the actual child process did not execute, plus correct error/cleanup.
 
-Use Microsoft documentation on \`CreateRestrictedToken\` and distinguish privilege reduction from SID and ACL restrictions:
+Use Microsoft documentation on `CreateRestrictedToken` and distinguish privilege reduction from SID and ACL restrictions:
 https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-createrestrictedtoken
 
 ## 3. P0-C remains open: default rejection is NOT authenticated publication
 
 **Files:**
-- \`CHATMCP-HUB/lib/windows-sandbox-transport.mjs\`
-- \`CHATMCP-HUB/tests/windows-sandbox/real-guest.mjs\`
-- \`CHATMCP-HUB/windows/sandbox/GuestSupervisor/Program.cs\`
+- `CHATMCP-HUB/lib/windows-sandbox-transport.mjs`
+- `CHATMCP-HUB/tests/windows-sandbox/real-guest.mjs`
+- `CHATMCP-HUB/windows/sandbox/GuestSupervisor/Program.cs`
 - Any new dedicated broker/transport code that is demonstrably necessary.
 
-Current behavior: \`readAndVerifyExecutionReceipt\` rejects any exported receipt with \`unverified_guest_origin\` unless the caller explicitly passes \`allowUntrustedHostFixture: true\`. That is a **correct temporary fail-closed gate**, but it provides **no authentic production guest result**. Real-guest tests pass the fixture bypass, and nonce + SHA-256 can be recomputed by any writer.
+Current behavior: `readAndVerifyExecutionReceipt` rejects any exported receipt with `unverified_guest_origin` unless the caller explicitly passes `allowUntrustedHostFixture: true`. That is a **correct temporary fail-closed gate**, but it provides **no authentic production guest result**. Real-guest tests pass the fixture bypass, and nonce + SHA-256 can be recomputed by any writer.
 
 **Required solution / proof:**
 
@@ -79,20 +79,20 @@ Current behavior: \`readAndVerifyExecutionReceipt\` rejects any exported receipt
 2. Establish a *separate trusted publication boundary* which the untrusted child provably cannot write/replace, including after trying file rename/reparse/symlink/hardlink and directory manipulation as permitted by the fixture.
 3. Independently verify effective ACLs and permissions **from the actual child identity**, not solely from configured ACL strings or supervisor claims.
 4. Bind publisher / owned Sandbox instance ID / durable launch generation / run ID / immutable snapshot/check/toolchain/supervisor hash to the published evidence. No model-controlled bypass or secret handed to the child. Prevent stale/replay and replacement races.
-5. Create an **in-guest malicious-child test** that reads any visible run nonce, attempts to write or replace BOTH \`receipt.json\` and \`receipt.sha256\`, fully recomputes a matching SHA-256 for fake \`status:"completed", exitCode:0\`, and tries stale replay. The host must not accept it as publisher-authenticated evidence.
-6. Separate \`rawObservation\`, \`schemaConsistent\`, \`publisherAuthenticated\`, and \`testOutcomeVerified\`. A zero exit code is not proof that the tests actually ran correctly.
+5. Create an **in-guest malicious-child test** that reads any visible run nonce, attempts to write or replace BOTH `receipt.json` and `receipt.sha256`, fully recomputes a matching SHA-256 for fake `status:"completed", exitCode:0`, and tries stale replay. The host must not accept it as publisher-authenticated evidence.
+6. Separate `rawObservation`, `schemaConsistent`, `publisherAuthenticated`, and `testOutcomeVerified`. A zero exit code is not proof that the tests actually ran correctly.
 7. Ensure result collection has bounded bytes, no unauthorized host write scope and an OS-validated publication pathway. If the current writable host mapping cannot be safely protected, propose a small prerequisite transport redesign PR and **leave Gate 4 BLOCKED**.
 
-Do not 'solve' this by adding more nonces, merely changing \`allowUntrustedHostFixture\` or renaming the bypass. Preserve fixture mode for clearly labeled host/guest *prototype* diagnostics only, unreachable from production/model-issued worker calls.
+Do not 'solve' this by adding more nonces, merely changing `allowUntrustedHostFixture` or renaming the bypass. Preserve fixture mode for clearly labeled host/guest *prototype* diagnostics only, unreachable from production/model-issued worker calls.
 
 Microsoft explicitly cautions that writable mapped folders may permit guest content to modify host data:
 https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/windows-sandbox-configure-using-wsb-file
 
 ## 4. P0/P1 — Fix false-positive child-token verification
 
-**File:** \`CHATMCP-HUB/tests/windows-sandbox/real-guest.mjs\`, lines 181–243.
+**File:** `CHATMCP-HUB/tests/windows-sandbox/real-guest.mjs`, lines 181–243.
 
-The current regex \`/Se(Debug|Tcb|LoadDriver|Backup|Restore|TakeOwnership|AssignPrimaryToken)Privilege\s+Enabled/i\` fails against a standard \`whoami /priv\` line containing a middle DESCRIPTION column, e.g.:
+The current regex `/Se(Debug|Tcb|LoadDriver|Backup|Restore|TakeOwnership|AssignPrimaryToken)Privilege\s+Enabled/i` fails against a standard `whoami /priv` line containing a middle DESCRIPTION column, e.g.:
 
 ~~~text
 SeDebugPrivilege       Debug programs       Enabled
@@ -103,20 +103,20 @@ The regex returns false on that dangerous Enabled example, so the suite can fals
 **Required:**
 
 - Regression test first: above deliberately dangerous fixture MUST fail validation.
-- Prefer native Windows token inspection of TokenUser, TokenGroups, TokenPrivileges, TokenIntegrityLevel and TokenElevation. If parsing \`whoami\`, parse all columns carefully and fail closed for missing/unparseable output.
+- Prefer native Windows token inspection of TokenUser, TokenGroups, TokenPrivileges, TokenIntegrityLevel and TokenElevation. If parsing `whoami`, parse all columns carefully and fail closed for missing/unparseable output.
 - Validate expected SID, deny-only/admin groups, privileges, integrity and actual filesystem access, not just the absence of a regex match.
-- Retest with child launched via the supervisor; do not use a SYSTEM \`wsb exec\` shell as proof of reduced child privilege.
+- Retest with child launched via the supervisor; do not use a SYSTEM `wsb exec` shell as proof of reduced child privilege.
 
 ## 5. P0-B completion: native API fault-injection and handle robustness
 
-**File:** \`CHATMCP-HUB/windows/sandbox/GuestSupervisor/Program.cs\` (P0-B changes at lines 436–445 and 579–689).
+**File:** `CHATMCP-HUB/windows/sandbox/GuestSupervisor/Program.cs` (P0-B changes at lines 436–445 and 579–689).
 
 Recognize the existing improvements to ResumeThread, WAIT_FAILED, WAIT_TIMEOUT, WAIT_OBJECT_0, STILL_ACTIVE and GetExitCodeProcess, but verify/fix these gaps:
 
-- \`Marshal.GetLastWin32Error()\` for \`WaitForSingleObject\` is invoked **after an awaited Task.Run**. Capture the error on the *same thread immediately after the native call* and return it together with the wait outcome.
-- \`CreatePipe\` can partially succeed before the second creation fails: release all already-created handles, including when no main try/finally has begun.
-- Check \`SetHandleInformation\` calls; if either fails, block execution and clean up.
-- Verify \`TerminateProcess\`, the follow-up wait, child-process-tree termination and all \`CloseHandle\` ownership/error paths (never false success or resource leak).
+- `Marshal.GetLastWin32Error()` for `WaitForSingleObject` is invoked **after an awaited Task.Run**. Capture the error on the *same thread immediately after the native call* and return it together with the wait outcome.
+- `CreatePipe` can partially succeed before the second creation fails: release all already-created handles, including when no main try/finally has begun.
+- Check `SetHandleInformation` calls; if either fails, block execution and clean up.
+- Verify `TerminateProcess`, the follow-up wait, child-process-tree termination and all `CloseHandle` ownership/error paths (never false success or resource leak).
 - Test fault injections (native wrapper or test hooks) for CreateProcessAsUser, AssignJob, ResumeThread, WAIT_FAILED, WAIT_TIMEOUT, unexpected wait, GetExitCodeProcess error and output drain error.
 - State clearly what is unit fault-injection, Windows host fixture, and actual guest evidence.
 
@@ -124,17 +124,17 @@ Do not mark all native negative error paths verified merely because one happy-pa
 
 ## 6. Sandbox test harness correctness: cleanup and network gate
 
-**File:** \`CHATMCP-HUB/tests/windows-sandbox/real-guest.mjs\`.
+**File:** `CHATMCP-HUB/tests/windows-sandbox/real-guest.mjs`.
 
-- Current watchdog still calls \`process.exit(2)\` after a best-effort \`wsb stop\`, bypassing normal finally cleanup; it does not have a durable owned instance record before parsing \`wsb start\` output. Refactor with bounded cooperative abort, ownership journal/reconciliation, and explicit quarantine on uncertainty. Never stop an unowned Sandbox. Ensure an unexpected crash or stop error is reported as BLOCKED/UNKNOWN, not PASS.
-- Current positive host network control logs NOTICE when host \`8.8.8.8:53\` fails, but still lets a failed guest connection count as verified network isolation. Positive control must be **valid** or security gate BLOCKED/INCONCLUSIVE. Prefer a controlled reachable endpoint; do not change Sandbox network policy to make the test pass.
-- Guest file canary tests currently execute as raw \`wsb exec -r System\`. Keep them as OS boundary probes, but **also** test malicious actions from the restricted child using GuestSupervisor: unauthorized read AND write, supervisor/request replacement, output receipt forgery and child descendants after cancellation.
+- Current watchdog still calls `process.exit(2)` after a best-effort `wsb stop`, bypassing normal finally cleanup; it does not have a durable owned instance record before parsing `wsb start` output. Refactor with bounded cooperative abort, ownership journal/reconciliation, and explicit quarantine on uncertainty. Never stop an unowned Sandbox. Ensure an unexpected crash or stop error is reported as BLOCKED/UNKNOWN, not PASS.
+- Current positive host network control logs NOTICE when host `8.8.8.8:53` fails, but still lets a failed guest connection count as verified network isolation. Positive control must be **valid** or security gate BLOCKED/INCONCLUSIVE. Prefer a controlled reachable endpoint; do not change Sandbox network policy to make the test pass.
+- Guest file canary tests currently execute as raw `wsb exec -r System`. Keep them as OS boundary probes, but **also** test malicious actions from the restricted child using GuestSupervisor: unauthorized read AND write, supervisor/request replacement, output receipt forgery and child descendants after cancellation.
 - Separate fixture setup, staging, CLI exit, canaries, real negative tests, timeout, and cleanup in the count/report. Do not call all 24 checkpoints '24 negative security tests'.
 - On Windows unsupported hardware or occupied Sandbox, print BLOCKED and fail the dedicated gate. Do not call this job a green optional skip.
 
 ## 7. Correct docs and PR claims on the FINAL SHA
 
-**Files:** \`docs/WINDOWS-SANDBOX-REAL-FEASIBILITY.md\`, PR #12 description/comment as needed.
+**Files:** `docs/WINDOWS-SANDBOX-REAL-FEASIBILITY.md`, PR #12 description/comment as needed.
 
 The feasibility doc still says 20 checks and 'PR 2 GO' at 9807da0. PR body claims **all P0 resolved** and trusted receipt provenance while its code still denies all non-fixture receipts. Update truthful current claims, keep historical results dated and labeled as historical, and write separate gates:
 
@@ -184,7 +184,7 @@ Verify relevant scripts in repository before invoking; adapt working directory a
 
 ## 9. Git integration and deliverables
 
-1. After fixes, inspect \`git diff\` and \`git status\`; ensure no unrelated user data/keys/build artifacts committed. Use logically scoped commits on PR #12 branch.
+1. After fixes, inspect `git diff` and `git status`; ensure no unrelated user data/keys/build artifacts committed. Use logically scoped commits on PR #12 branch.
 2. Push without force. Inspect GH PR HEAD and Actions from the actual new SHA, diagnose/redesign if failed, and rerun affected real guest tests after security-impacting edits.
 3. Update docs and PR body to **truthful** current verdict. Do not merge PR #12 or tag/release.
 4. If an architectural blocker requires a separate prerequisite PR, explain why and the smallest viable boundary change, leave production disabled, and request ChatGPT review of that proposal.
