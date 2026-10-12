@@ -116,6 +116,8 @@ export class CodingWorktreeOrchestrator {
         // The broker executes only through the trusted parent Hub's registry.
         // The child model never receives that registry or a host shell.
         registry:this.manager.executionRegistry,
+        snapshotFactory: (input) => this.manager.executionSnapshots.create(input),
+        releaseSnapshot: (id) => this.manager.executionSnapshots.release(id),
         // Only CodingWorktreeOrchestrator.grantCheck() invokes issueGrant(),
         // and that HTTP endpoint needs explicit CSRF + owner confirmation.
         authorizeGrant:async()=>({approved:true}),

@@ -11,7 +11,8 @@ const hash = s => createHash('sha256').update(s).digest('hex');
 const trustedWorker = w => w && typeof w.id === 'string' && typeof w.workspace === 'string' && Array.isArray(w.files);
 const now = () => Date.now();
 export class WorkerTestBroker {
-  constructor({ resolveWorker, registry, authorizeGrant, snapshotFactory = createExecutionSnapshot, clock = now } = {}) {
+  constructor({ resolveWorker, registry, authorizeGrant, snapshotFactory = createExecutionSnapshot,
+    releaseSnapshot = null, clock = now } = {}) {
     if (typeof resolveWorker !== 'function' || !registry || typeof authorizeGrant !== 'function') {
       throw new TypeError('Broker requires authoritative worker registry, ExecutionRegistry and grant authorizer.');
     }
@@ -19,6 +20,7 @@ export class WorkerTestBroker {
     this.registry = registry;
     this.authorizeGrant = authorizeGrant;
     this.snapshotFactory = snapshotFactory;
+    this.releaseSnapshot = releaseSnapshot;
     this.clock = clock;
     this.descriptors = new Map();
     this.grants = new Map();
@@ -175,6 +177,7 @@ export class WorkerTestBroker {
     const snapshot = await this.snapshotFactory({
       workspace: worker.workspace, files: [...worker.files], baseSha: worker.baseSha || null, signal,
     });
+    try {
     // Verify that the exact test sources named by the grant made it into the
     // immutable staged snapshot, rather than a new test suite after approval.
     if (Array.isArray(snapshot.manifest?.files)) {
@@ -219,5 +222,10 @@ export class WorkerTestBroker {
     });
     this.attempts.set(workerId, [...(this.attempts.get(workerId) || []), bound].slice(-100));
     return bound;
+    } finally {
+      // Releasing immutable host staging is a trusted lifecycle operation;
+      // an error must never be hidden under a successful test receipt.
+      if (typeof this.releaseSnapshot === 'function') await this.releaseSnapshot(snapshot.snapshotId);
+    }
   }
 }

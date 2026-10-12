@@ -44,7 +44,7 @@ node tests/run-all.mjs --no-skip all             # một bộ bị SKIP bị tí
 npm run test:ui                                  # bộ giao diện Python/Playwright (tùy chọn)
 ```
 
-Hiện có **60 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
+Hiện có **61 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
 
 Runner in một dòng cho mỗi bộ (`PASS`/`FAIL`/`TIMEOUT`/`SKIP`, thời gian, mã thoát thật) và thoát khác 0 nếu có bộ nào fail hoặc quá hạn (mặc định 180 giây/bộ, đổi bằng `--timeout`). Bộ kiểm thử in một dòng `CHATMCP_TEST_SKIP: <lý do>` rồi thoát 0 để được báo là **SKIP — không bao giờ được tính là PASS**. `--no-skip all` (hoặc `--no-skip tên1,tên2`) biến SKIP thành FAIL. Workflow hiện tại cài Python 3.11 và các gói ghim trong `tests/requirements-e2e.txt`, rồi chạy **`--no-skip all`** trên cả Windows và Linux, Node 22 và 24. Một bộ bắt buộc bị bỏ qua vì thiếu môi trường vì thế làm CI thất bại. Một phần không thể kiểm chứng trong bản này được in `BLOCKED: <gì> - <vì sao>`.
 
@@ -264,3 +264,5 @@ Offline benchmark manifest `CHATMCP-HUB/tests/benchmarks/manifest.json` and runn
 The HMAC-backed reader in `lib/windows-sandbox-publisher.mjs` validates a per-run signed receipt, but production publisher availability remains false without independent Windows token/key non-disclosure and owned-instance evidence. Portable `verify-sandbox-publisher.mjs` runs synthetic fixtures and must not be counted as an OS security test.
 
 `verify-phase1-coding-e2e.mjs` exercises an actual local AgentRunner and managed Git worktree against **scripted** isolated receipts, including approval, failing check, model repair and retest. No OS Sandbox or paid model is exercised by that fixture.
+
+The run-owned `ExecutionSnapshotStore` shares immutable staging between the broker and the Windows backend. Portable tests verify stale UUID refusal and cleanup. OS-level filesystem ACLs remain a Windows acceptance requirement.

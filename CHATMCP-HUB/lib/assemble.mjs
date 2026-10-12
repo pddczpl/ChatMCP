@@ -18,6 +18,7 @@ import { PluginManager } from './plugins.mjs';
 import { createDefaultExecutionRegistry } from './execution-contract.mjs';
 import { SandboxEngine } from './sandbox-engine.mjs';
 import { WindowsSandboxBackend } from './windows-sandbox-backend.mjs';
+import { ExecutionSnapshotStore } from './execution-snapshot-store.mjs';
 
 /**
  * @param {object} options
@@ -72,10 +73,14 @@ export function assembleStudio(manager, { bundleRoot, exec = null }) {
     shellRunner: effectiveShell,
     permissionGate: manager.permissions,
   });
+  manager.executionSnapshots ??= new ExecutionSnapshotStore({
+    directory:path.join(manager.hubDirectory,'execution-snapshots'),
+  });
   // Register the production-shaped backend without enabling it. Its capability
   // remains unavailable until a real guest publisher/authentication gate passes.
   manager.executionRegistry.register(new WindowsSandboxBackend({
     stateDirectory: path.join(manager.hubDirectory, 'sandbox-execution'),
+    snapshotLookup: (id) => manager.executionSnapshots.lookup(id),
   }));
   manager.permissions.attachExecutionRegistry(manager.executionRegistry);
   manager.sandboxEngine = new SandboxEngine({
