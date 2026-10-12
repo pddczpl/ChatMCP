@@ -186,7 +186,7 @@ export async function probeWindowsSandboxPreflight() {
   const totalMemoryMb = memRaw ? Math.round(Number(memRaw) / (1024 * 1024)) : 0;
   if (totalMemoryMb > 0 && totalMemoryMb < MIN_MEMORY_MB) {
     blockers.push(`Host RAM (${totalMemoryMb} MB) is below the minimum required for Windows Sandbox (${MIN_MEMORY_MB} MB).`);
-    remediations.push('Provide at least 8 GB of RAM for the initial small offline fixture (not Microsoft's base minimum).');
+    remediations.push('Provide at least 8 GB of RAM for the initial small offline fixture (not the Microsoft base minimum).');
   }
 
   const sysDrive = (process.env.SystemDrive || 'C:').slice(0, 1);
