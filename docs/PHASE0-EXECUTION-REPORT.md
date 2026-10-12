@@ -9,7 +9,8 @@ Evidence snapshot: 2026-10-12. Target: Windows 10/11 x64, local-first, single us
 | Phase 0 base | `b1160c6862c658d85c90fb1f157cc085d9cfc244` (v2.6.0) |
 | [PR #7](https://github.com/pddczpl/ChatMCP/pull/7) | Merged 2026-10-12 10:50:01 UTC; final source head `cd51d5df8b2f14689e050d756cc8afb272ce8176`; merge commit `270e5b9ac104389aa7c11778d7bd1612f073f561`. |
 | #7 source commits | Initial contracts `bda62dd`; canonical AI configuration/path correction `e51a782`; coding persistence correction `cd51d5d`. |
-| [PR #8](https://github.com/pddczpl/ChatMCP/pull/8) | Follow-up E2E/CI/packaging change; updated with the #7 main merge using merge commit `8688f47`. This pre-merge report does not claim its new head has passed remote CI or merged. |
+| [PR #8](https://github.com/pddczpl/ChatMCP/pull/8) | Merged 2026-10-12 11:06:19 UTC; final head `8a56d85d08dc6b897ef49d13db28b8339ec2195c`; merge commit `2764000da93b466f933ecfadfad2f4c0bec1abca`. The branch first received the #7 main merge through `8688f47`, then passed strict CI before being marked Ready and merged. |
+| Integrated Phase 0 main | `2764000da93b466f933ecfadfad2f4c0bec1abca`; [CI 38240516292](https://github.com/pddczpl/ChatMCP/actions/runs/38240516292) passed **9/9 jobs** before this report and the next-phase plan were finalized. |
 | Review policy | Owner explicitly waived independent review in this task on 2026-10-12. No independent approval was submitted or claimed. No repository rulesets or protected-main requirement were present at merge verification. |
 | Tags/releases | No new tag/release or modification to published v2.6.0. |
 
@@ -67,9 +68,10 @@ Payload checks cover tracked-file boundaries, private-state exclusion, generated
 
 ## 6. GitHub CI and review evidence
 
-- #7 final head `cd51d5d`: [CI 38238282472](https://github.com/pddczpl/ChatMCP/actions/runs/38238282472), **7/7 jobs successful**, verified before merge. Its old workflow allows FastAPI to skip when dependencies are absent; the local strict 48-suite run includes it. #8 supplies the required remote no-skip gate.
+- #7 final head `cd51d5d`: [CI 38238282472](https://github.com/pddczpl/ChatMCP/actions/runs/38238282472), **7/7 jobs successful**, verified before merge. Downloaded summaries confirm the old workflow reported **47 passed / 1 skipped suite** in each Hub job: FastAPI lacked `fastapi`, `httpx`, `pytest` and `uvicorn`. The local strict 48-suite run included it; #8 subsequently supplies and passes the remote no-skip gate on the inherited runtime fixes.
 - Main after #7, `270e5b9`: [CI 38238789064](https://github.com/pddczpl/ChatMCP/actions/runs/38238789064), successful. The separate existing v2.6.0 publication workflow [38239305225](https://github.com/pddczpl/ChatMCP/actions/runs/38239305225) failed its intentional release-title guard (`Not the authorized v2.6.0 merge`); no release/tag was created. CI and release authorization are distinct.
-- #8 original head `9f487839`: [CI 38234496170](https://github.com/pddczpl/ChatMCP/actions/runs/38234496170), **9/9 successful**, each Hub matrix job 48/0/0, both React jobs 36 unit tests and six browser cases. This is historical baseline evidence and does not certify the updated #8 head.
+- #8 final head `8a56d85`: [PR CI 38239781287](https://github.com/pddczpl/ChatMCP/actions/runs/38239781287) and [push CI 38239775768](https://github.com/pddczpl/ChatMCP/actions/runs/38239775768), **9/9 jobs successful in each run**, verified before Ready/merge. Downloaded summaries from both runs show every Windows/Linux, Node 22/24 Hub job at **48 passed / 0 failed / 0 timed out / 0 skipped suites**. All four React reports show **7 passed / 0 failed / 0 skipped / 0 flaky**; logs confirm **40 unit tests**, payload **39 checks**, native smoke and installer checksum success.
+- Integrated main `2764000`: [CI 38240516292](https://github.com/pddczpl/ChatMCP/actions/runs/38240516292), **9/9 successful**. Downloaded artifacts independently confirm all four Hub jobs at **48/0/0/0** (pass/fail/timeout/skip) and both React reports at **7 passed / 0 failed / 0 skipped / 0 flaky**. This is the Phase 0 integration gate, not release certification.
 - Phoenix Mentor exists as a GitHub App and `phoenix-mentor[bot]` exists, but the repository permission lookup returned `none`. GitHub rejected the attempted #7 review request because it could not resolve the bot as a reviewer. App installation could not be established with the available token. The only listed collaborator was the author, `pddczpl`.
 - At the pre-merge inspection there were no reviews, review requests or blocking comments. The owner then explicitly said an independent reviewer was unnecessary. Self-review and green CI are not recorded as approval.
 
@@ -78,7 +80,7 @@ Payload checks cover tracked-file boundaries, private-state exclusion, generated
 | Track | State and evidence boundary |
 | --- | --- |
 | Phase 0 runtime/UI contracts | Implemented and verified in #7; merged. Real Hub and scripted-provider evidence. |
-| Phase 0 E2E/CI/packaging | Implemented in dependent #8; final updated-head gates and merge recorded separately below. |
+| Phase 0 E2E/CI/packaging | Implemented and verified in #8; merged after strict final-head checks. |
 | Phase 1 OS-isolated worker tests | Not implemented. Existing worker shell restriction remains. |
 | Phase 1 bounded repair and dynamic delegation | Planning only; existing orchestration does not establish these new capabilities. |
 | Live-model E2E/benchmarks | Not run; no provider/model/data/spend authorization was granted. |
@@ -86,7 +88,7 @@ Payload checks cover tracked-file boundaries, private-state exclusion, generated
 
 ## 8. Remaining work
 
-Complete #8 strict CI on its final head, then observe the merged main CI. After both integrations, publish the current Phase 1 implementation plan with concrete prerequisites and acceptance gates. Phase 1 must establish trustworthy Windows execution before enabling worker tests, then bounded repair and attenuated dynamic delegation.
+The [Phase 1 implementation plan](PHASE1-IMPLEMENTATION-PLAN.md) defines seven ordered PRs, concrete files/contracts, regression and real-machine gates, budgets, capability restrictions and stop conditions. It retains Windows 10/11 application support while proposing Windows 11 24H2+ x64 as the initial isolated-execution backend target. Windows Sandbox/CLI was absent on this development machine at read-only inspection; no OS setup or live-model spending was performed. Implementing the plan is separate from this Phase 0 task.
 
 Before release, gather clean-Windows install/upgrade/uninstall and state-preservation evidence, authorized live-provider and performance results, signing evidence where an authorized certificate exists, and resolve missing top-level license/provenance with the owner.
 

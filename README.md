@@ -10,7 +10,7 @@
 
 ## Features and status
 
-The unreleased Phase 0 fixes reconnect the current React UI to persisted task history, the live permission gate, plans, Git and terminal data. See the [desktop contract audit](docs/PHASE0-DESKTOP-CONTRACT-AUDIT.md) for confirmed defects and the [Phase 0 execution report](docs/PHASE0-EXECUTION-REPORT.md) for verification evidence and remaining gates. A model's final answer does not certify that tests passed.
+The unreleased Phase 0 fixes reconnect the current React UI to persisted task history, the live permission gate, plans, Git and terminal data. See the [desktop contract audit](docs/PHASE0-DESKTOP-CONTRACT-AUDIT.md), [execution report](docs/PHASE0-EXECUTION-REPORT.md) and [next Phase 1 implementation plan](docs/PHASE1-IMPLEMENTATION-PLAN.md) for verified behavior, remaining gates and ordered work. A model's final answer does not certify that tests passed.
 
 | Capability | Status | Important limitations |
 | --- | --- | --- |
