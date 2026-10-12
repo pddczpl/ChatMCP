@@ -14,7 +14,7 @@ import { useAppStore } from '@/store/useAppStore';
 import { useTranslation } from '@/lib/i18n';
 
 interface ComposerProps {
-  onSendMessage: (text: string) => void;
+  onSendMessage: (text: string) => boolean | void | Promise<boolean | void>;
   onStop?: () => void;
   isWorking?: boolean;
   disabled?: boolean;
@@ -35,6 +35,8 @@ export function Composer({
   const { t } = useTranslation();
   const [text, setText] = useState('');
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const submitPending = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { setFullAccessModalOpen } = useAppStore();
 
@@ -49,18 +51,23 @@ export function Composer({
   }, [text]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSubmit();
     }
   };
 
-  const handleSubmit = () => {
-    if (!text.trim() || disabled || isWorking) return;
-    onSendMessage(text.trim());
-    setText('');
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
+  const handleSubmit = async () => {
+    if (!text.trim() || disabled || isWorking || submitPending.current) return;
+    const submittedText = text;
+    submitPending.current = true;
+    setSubmitting(true);
+    try {
+      const accepted = await onSendMessage(submittedText.trim());
+      if (accepted !== false) setText(current => current === submittedText ? '' : current);
+    } finally {
+      submitPending.current = false;
+      setSubmitting(false);
     }
   };
 
@@ -95,7 +102,7 @@ export function Composer({
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={activePlaceholder}
-          disabled={disabled}
+          disabled={disabled || submitting}
           rows={1}
           className="w-full bg-transparent px-3.5 pt-3 pb-2 text-[13px] text-[var(--text)] placeholder-[var(--faint)] resize-none focus:outline-none max-h-56 min-h-[44px] leading-relaxed font-sans"
         />
@@ -166,7 +173,7 @@ export function Composer({
               <button
                 type="button"
                 onClick={handleSubmit}
-                disabled={!text.trim() || disabled}
+                disabled={!text.trim() || disabled || submitting}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-md transition-all ${
                   text.trim() && !disabled
                     ? 'bg-sky-500 hover:bg-sky-400 text-slate-950 shadow-sky-500/20 active:scale-95'

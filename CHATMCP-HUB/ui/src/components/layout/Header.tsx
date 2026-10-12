@@ -19,7 +19,7 @@ import { Button } from '@/components/ui/Button';
 import { useTranslation } from '@/lib/i18n';
 
 export function Header() {
-  const { data: hub } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 2500 });
+  const { data: hub, error } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 2500 });
   const { t, lang } = useTranslation();
   const { 
     theme, 
@@ -28,7 +28,8 @@ export function Header() {
     toggleInspector, 
     setCommandPaletteOpen,
     setActiveTab,
-    setInspectorOpen
+    setInspectorOpen,
+    showToast
   } = useAppStore();
 
   const workspacePath = hub?.workspace?.path || hub?.studio?.workspace || 'Chưa chọn workspace';
@@ -42,8 +43,8 @@ export function Header() {
       if (res.path) {
         await api.selectWorkspace(res.path);
       }
-    } catch {
-      // Ignored
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Không thể chọn workspace.', 'error');
     }
   };
 
@@ -96,8 +97,8 @@ export function Header() {
       <div className="flex items-center gap-2">
         {/* Hub Connection Badge */}
         <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-[var(--muted)]">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
-          <span className="hidden sm:inline">{t('hub_connected')}</span>
+          <span className={`w-2 h-2 rounded-full ${error ? 'bg-rose-400' : hub ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+          <span className="hidden sm:inline" title={error?.message}>{error ? (lang === 'en' ? 'Hub disconnected' : 'Mất kết nối Hub') : hub ? t('hub_connected') : (lang === 'en' ? 'Connecting to Hub' : 'Đang kết nối Hub')}</span>
         </div>
 
         {/* Mode Pill */}

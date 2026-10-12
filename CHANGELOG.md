@@ -1,5 +1,16 @@
 # Lịch sử thay đổi
 
+## [Unreleased] — React / Local Hub contract corrections
+
+- Map real AgentRunner summaries and full conversation records through a typed React adapter; use canonical task states for Stop/Resume and retain drafts after failed sends.
+- Show actual PermissionGate pending requests and decision history, including structured command/content previews and expiry; no automatic approval.
+- Create a blank conversation without calling a model. Replace synthetic plan/stage completion with persisted plans and actual tool evidence.
+- Read task activity, Git changes/diffs and terminal output from their existing APIs; surface request failures. Mount task SSE with scoped deltas and state reconciliation after reconnect.
+- Connect onboarding workspace and permission selections, reuse the actual AI configuration/test form, and stop reporting a failed browse as a selected workspace.
+- Clear typed API keys after saving and on destination changes; remove stale RBAC and static health claims from local Settings.
+- Serialize concurrent research snapshot writes and wait for all active workers after a persistence failure before releasing the run.
+- Add regression coverage for the current React components and adapters. Release number and the published v2.6.0 tag remain unchanged.
+
 ## [2.6.0] — 2026-10-12 — Local-only Windows release
 
 - Removed Render, Docker public server, public auth/workspaces/tenancy, Linux execution broker and legacy Cloud Harness MCP proxy backend.

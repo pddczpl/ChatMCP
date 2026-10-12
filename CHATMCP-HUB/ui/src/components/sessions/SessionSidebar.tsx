@@ -15,9 +15,10 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useTranslation } from '@/lib/i18n';
+import { isTaskActive, taskStateLabel } from '@/lib/task-view';
 
 export function SessionSidebar() {
-  const { selectedTaskId, setSelectedTaskId } = useAppStore();
+  const { selectedTaskId, setSelectedTaskId, showToast } = useAppStore();
   const { t } = useTranslation();
   const [search, setSearch] = useState('');
 
@@ -50,7 +51,7 @@ export function SessionSidebar() {
     const older: typeof tasks = [];
 
     filteredTasks.forEach((t) => {
-      const time = t.createdAt ? new Date(t.createdAt).getTime() : now;
+      const time = t.updatedAt || t.createdAt ? new Date(t.updatedAt || t.createdAt!).getTime() : 0;
       const diff = now - time;
       if (diff < oneDay) {
         today.push(t);
@@ -64,20 +65,7 @@ export function SessionSidebar() {
     return { today, week, older };
   }, [filteredTasks]);
 
-  const handleCreateNewTask = async () => {
-    try {
-      const res = await api.createTask({
-        task: 'Phiên làm việc mới',
-      });
-      if (res?.task?.id) {
-        setSelectedTaskId(res.task.id);
-        refetchHub();
-      }
-    } catch {
-      // Fallback: clear selected task to show composer welcome
-      setSelectedTaskId('');
-    }
-  };
+  const handleCreateNewTask = () => setSelectedTaskId('');
 
   const handleDeleteTask = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -88,13 +76,13 @@ export function SessionSidebar() {
         setSelectedTaskId('');
       }
       refetchHub();
-    } catch {
-      // Ignore
+    } catch (error: any) {
+      showToast(error.message || 'Không thể xóa hội thoại', 'error');
     }
   };
 
   const renderStatusIcon = (status: string) => {
-    if (status === 'working' || status === 'in_progress') {
+    if (isTaskActive({ status })) {
       return <Loader2 className="w-3.5 h-3.5 text-sky-400 animate-spin" />;
     }
     if (status === 'completed' || status === 'success') {
@@ -115,6 +103,10 @@ export function SessionSidebar() {
       <div
         key={t.id}
         onClick={() => setSelectedTaskId(t.id)}
+        role="button"
+        tabIndex={0}
+        aria-label={title}
+        onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedTaskId(t.id); } }}
         className={`group relative flex items-start gap-2.5 p-2.5 rounded-lg cursor-pointer transition-all duration-150 select-none ${
           isSelected
             ? 'bg-sky-500/10 border border-sky-500/30 text-[var(--text)] shadow-sm'
@@ -136,13 +128,14 @@ export function SessionSidebar() {
             )}
           </div>
           <p className="text-[11px] text-[var(--faint)] line-clamp-1 mt-0.5">
-            {t.stage || t.lastMessage || 'Chưa có hoạt động'}
+            {taskStateLabel(t.status)}
           </p>
         </div>
         <button
           onClick={(e) => handleDeleteTask(t.id, e)}
           className="opacity-0 group-hover:opacity-100 p-1 hover:text-rose-400 rounded transition-opacity"
           title="Xóa phiên"
+          disabled={isTaskActive(t)}
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
@@ -191,7 +184,7 @@ export function SessionSidebar() {
               {workspace.path?.split(/[\\/]/).filter(Boolean).pop() || 'Workspace'}
             </div>
             <div className="text-[10px] text-[var(--faint)] flex items-center gap-2">
-              <span>{workspace.git?.branch || 'main'}</span>
+              <span>{workspace.git?.branch || 'Chưa rõ nhánh'}</span>
               {workspace.git?.dirty && <span className="text-amber-400 font-semibold">• {t('git_dirty')}</span>}
             </div>
           </div>

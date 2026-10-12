@@ -1,5 +1,13 @@
 # Hướng dẫn sử dụng ChatMCP Studio
 
+## Current React UI — unreleased Phase 0 corrections
+
+Choose **Hội thoại mới** to open an empty draft; the model starts only after **Gửi**. Select a saved session to load its recorded conversation. **Dừng** requests cancellation without undoing edits; **Tiếp tục** starts a new run in the same conversation. For an uncertain operation, inspect Git changes before continuing.
+
+Pending approvals show the real tool, operation preview, risk category and expiry. **Phê duyệt** and **Từ chối** send your decision to the gate; resolved decisions are available in history. The Plan tab says **Chưa có kế hoạch** until a plan has been stored. A final model answer does not prove tests were run or passed: inspect tool results and the real Git diff.
+
+Onboarding accepts a typed workspace path as well as the native folder picker. Apply the path, configure and test the actual AI endpoint, then save the chosen permission mode. Failed operations stay visible. The older guide below describes historical labels and should not override this workflow.
+
 Dành cho người dùng cuối: bạn đã cài và chạy được Hub (xem [WINDOWS-SETUP.md](WINDOWS-SETUP.md)) và muốn giao việc lập trình cho agent trong một thư mục dự án trên máy mình.
 
 > Tài liệu này mô tả đúng các nhãn trên giao diện bản **2.3.0**. Nếu giao diện của bạn khác, hãy kiểm tra phiên bản ở Cài đặt → "Phiên bản hệ thống".

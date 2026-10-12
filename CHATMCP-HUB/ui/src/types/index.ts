@@ -1,5 +1,6 @@
 export type PermissionMode = 'readonly' | 'review' | 'autonomous';
 export type ExecutionPolicy = 'host-review' | 'sandbox-only' | 'full-access';
+export type TaskStatus = 'created' | 'queued' | 'planning' | 'running' | 'waiting_approval' | 'verifying' | 'paused' | 'completed' | 'failed' | 'cancelled' | 'uncertain' | 'unknown';
 
 export interface TaskSummary {
   id: string;
@@ -11,6 +12,8 @@ export interface TaskSummary {
   promptCount?: number;
   updatedAt?: string;
   startedAt?: string;
+  createdAt?: string;
+  finishedAt?: string;
   workspace?: { path: string };
   transport?: string;
   autoResume?: boolean;
@@ -24,11 +27,15 @@ export interface TaskEvent {
   durationMs?: number;
   input?: any;
   output?: any;
+  status?: string;
+  state?: string;
 }
 
 export interface TaskRun {
   status?: string;
   finalText?: string;
+  startedAt?: string;
+  finishedAt?: string;
 }
 
 export interface TaskPrompt {
@@ -37,6 +44,7 @@ export interface TaskPrompt {
 }
 
 export interface TaskDetail extends TaskSummary {
+  dialogue?: { role: 'user' | 'assistant' | 'system'; at?: string; text: string; run?: number }[];
   prompts?: TaskPrompt[];
   runs?: TaskRun[];
   finalText?: string;
@@ -50,13 +58,20 @@ export interface TaskDetail extends TaskSummary {
 export interface ApprovalRequest {
   id: string;
   category: string;
-  risk: 'low' | 'medium' | 'high';
+  risk?: string;
+  taskId?: string;
+  toolName?: string;
+  reason?: string;
+  preview?: string;
+  at?: string;
+  decision?: string;
+  decidedAt?: string;
   title?: string;
   file?: string;
   command?: string;
-  detail?: string;
+  detail?: Record<string, unknown> | string;
   summary?: string;
-  requestedAt: string;
+  requestedAt?: string;
   expiresAt?: string;
   diff?: string;
   currentSha?: string;
@@ -82,6 +97,7 @@ export interface ProviderPreset {
   keyUrl?: string;
   envKey?: string;
   model?: string;
+  defaultModel?: string;
   protocol?: string;
   apiBaseUrl?: string;
   authMode?: string;
@@ -99,7 +115,8 @@ export interface ToolCall {
   name: string;
   args?: any;
   result?: any;
-  status?: 'running' | 'success' | 'error';
+  status?: 'running' | 'success' | 'error' | 'unknown';
+  timestamp?: string;
   durationMs?: number;
   summary?: string;
 }
@@ -107,7 +124,12 @@ export interface ToolCall {
 export interface Task {
   id: string;
   task?: string;
-  status: string;
+  status: TaskStatus;
+  state?: string;
+  runnerStatus?: string;
+  stateReason?: string;
+  updatedAt?: string;
+  events?: TaskEvent[];
   phase?: string;
   stage?: string;
   startedAt?: string;
@@ -184,6 +206,7 @@ export interface HubState {
       mode: PermissionMode;
       executionPolicy?: ExecutionPolicy;
       pending?: ApprovalRequest[];
+      recent?: ApprovalRequest[];
       approvalTimeoutMs?: number;
       fullAccess?: boolean;
     };
@@ -209,11 +232,11 @@ export interface HubState {
 export interface TerminalState {
   id: string;
   command: string;
-  status: 'running' | 'completed' | 'failed';
+  status: 'running' | 'stopping' | 'stopped' | 'completed' | 'failed';
   exitCode: number | null;
   mode?: string;
   interactive?: boolean;
-  logs?: { message: string; type?: string }[];
+  logs?: { message: string; type?: string; seq?: number; at?: string }[];
 }
 
 export interface VerificationRun {

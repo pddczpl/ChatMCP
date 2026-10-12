@@ -459,6 +459,76 @@ console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
 // Phase 5: bounded read-only multi-agent DAG and pinned GitHub Skills Registry.
 // ----------------------------------------------------------------------------------------------------
 {
+  // Windows can reject simultaneous atomic replacements of the same destination.
+  // Delay only the filesystem boundary to make overlap observable on every OS;
+  // the delegate runner and actual file writes remain real.
+  const directory = path.join(root, 'delegate-persistence');
+  const target = path.join(directory, 'last.json');
+  const originalRename = fs.rename;
+  let activeRenames = 0;
+  let maxRenames = 0;
+  fs.rename = async (from, to) => {
+    if (to !== target) return originalRename(from, to);
+    activeRenames += 1;
+    maxRenames = Math.max(maxRenames, activeRenames);
+    try {
+      await new Promise(resolve => setTimeout(resolve, 15));
+      return await originalRename(from, to);
+    } finally { activeRenames -= 1; }
+  };
+  try {
+    const delegates = new StudioDelegates({ directory,
+      workspace: { root: work, search: async () => ({ matches: [] }) },
+      provider: { ready: () => true, respond: async () => ({ output: [{ type: 'message', content: [{ type: 'output_text', text: 'Recorded research evidence' }] }] }) },
+    });
+    for (const execute of [
+      () => delegates.orchestrate({ maxConcurrency: 3, nodes: ['first', 'second', 'third'].map(id => ({ id, role: 'researcher', question: `Inspect ${id} module` })) }),
+      () => delegates.research({ queries: ['Inspect first module', 'Inspect second module', 'Inspect third module'] }),
+    ]) {
+      maxRenames = 0;
+      const result = await execute();
+      assert.equal(maxRenames, 1, 'parallel workers must serialize writes to last.json');
+      assert.equal(result.status, 'completed', result.error);
+      assert.equal(delegates.state().running, false);
+      assert.deepEqual(JSON.parse(await fs.readFile(target, 'utf8')), result, 'the final settled result must be the persisted snapshot');
+    }
+  } finally { fs.rename = originalRename; }
+  ok('Research and DAG workers serialize atomic persistence and retain the final settled snapshot');
+}
+{
+  const directory = path.join(root, 'delegate-write-failure');
+  const target = path.join(directory, 'last.json');
+  const originalRename = fs.rename;
+  let writes = 0;
+  let activeProviders = 0;
+  fs.rename = async (from, to) => {
+    if (to === target && ++writes === 1) throw Object.assign(new Error('Injected disk write failure'), { code: 'EIO' });
+    return originalRename(from, to);
+  };
+  try {
+    const delegates = new StudioDelegates({ directory,
+      workspace: { root: work, search: async () => ({ matches: [] }) },
+      provider: { ready: () => true, respond: async () => {
+        activeProviders += 1;
+        try {
+          await new Promise(resolve => setTimeout(resolve, 40));
+          return { output: [{ type: 'message', content: [{ type: 'output_text', text: 'Finished bounded research' }] }] };
+        } finally { activeProviders -= 1; }
+      } },
+    });
+    const result = await delegates.orchestrate({ nodes: ['first', 'second'].map(id => ({ id, role: 'researcher', question: `Inspect ${id} module` })) });
+    assert.equal(result.status, 'failed');
+    assert.equal(activeProviders, 0, 'a failed save must not release the orchestration while another provider is still running');
+    assert.ok(result.workers.every(worker => worker.status !== 'running'));
+    assert.deepEqual(JSON.parse(await fs.readFile(target, 'utf8')), result);
+  } finally {
+    // Allow any buggy in-flight callback to finish before restoring the shared boundary.
+    await new Promise(resolve => setTimeout(resolve, 50));
+    fs.rename = originalRename;
+  }
+  ok('Persistence failure waits for all research workers and preserves a failed final result');
+}
+{
   const agentDir=path.join(root,'agent-dag');
   await fs.mkdir(agentDir,{recursive:true});
   const providerCalls=[];

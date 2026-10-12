@@ -22,11 +22,10 @@ export function SettingsTab() {
   const { theme, setTheme, lang, setLang, showToast, setFullAccessModalOpen, setOnboardingOpen } = useAppStore();
   const { t } = useTranslation();
 
-  const { data: hub, refetch } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 3000 });
+  const { data: hub, error: hubError, refetch } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 3000 });
   const permissions: any = hub?.studio?.permissions || {};
   const currentMode = permissions.mode || 'review';
   const isFullAccess = permissions.executionPolicy === 'full-access';
-  const role = hub?.user?.role || 'admin';
 
   const currentWs = hub?.workspace?.path || hub?.studio?.workspace || '';
   const [wsInput, setWsInput] = useState(currentWs);
@@ -72,7 +71,7 @@ export function SettingsTab() {
       return;
     }
     try {
-      await api.setPermissions({ mode: mode as any, executionPolicy: 'review' });
+      await api.setPermissions({ mode, ...(isFullAccess ? { executionPolicy: 'host-review' } : {}) });
       showToast(`Đã đổi quyền sang ${mode}`, 'info');
       refetch();
     } catch (err: any) {
@@ -154,7 +153,7 @@ export function SettingsTab() {
         )}
       </div>
 
-      {/* RBAC Profile Box */}
+      {/* Local desktop scope */}
       <div className="p-3 rounded-lg bg-[var(--surface)] border border-[var(--line)] flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20 flex items-center justify-center">
@@ -162,16 +161,16 @@ export function SettingsTab() {
           </div>
           <div>
             <div className="font-semibold text-[var(--text)]">
-              {t('rbac_title')}
+              Máy tính cá nhân
             </div>
             <div className="text-[10px] text-[var(--faint)] font-mono uppercase">
-              LEVEL: {role}
+              Một người dùng · Local Hub
             </div>
           </div>
         </div>
 
         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-500/20 text-sky-400 border border-sky-500/30">
-          {t('rbac_full')}
+          Local-only
         </span>
       </div>
 
@@ -283,8 +282,9 @@ export function SettingsTab() {
         <div className="text-[var(--faint)]">
           Host: {window.location.host || '127.0.0.1:3007'} (Local-only daemon; external hosting is not supported)
         </div>
-        <div className="text-[var(--faint)]">{t('backend_csp')}</div>
-        <div className="text-[var(--faint)]">{t('backend_ok')}</div>
+        <div className={hubError ? 'text-rose-400' : 'text-[var(--faint)]'} role="status">
+          {hubError ? `Không kết nối được Hub: ${hubError.message}` : hub ? 'Đã nhận trạng thái từ Hub' : 'Đang kết nối Hub…'}
+        </div>
       </div>
 
       {/* Export / Reset Actions */}

@@ -40,20 +40,35 @@ export function IntelligenceTab() {
   const [apiKey, setApiKey] = useState('');
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; latencyMs?: number; error?: string } | null>(null);
+  const [formInitialized, setFormInitialized] = useState(false);
 
   useEffect(() => {
-    if (ai.apiBaseUrl && !apiBaseUrl) setApiBaseUrl(ai.apiBaseUrl);
-    if (ai.model && !model) setModel(ai.model);
-    if ((ai as any).preset || ai.provider) setProvider((ai as any).preset || ai.provider);
-  }, [ai]);
+    if (!hub || formInitialized) return;
+    if (ai.apiBaseUrl) setApiBaseUrl(ai.apiBaseUrl);
+    if (ai.model) setModel(ai.model);
+    if ((ai as any).preset) setProvider((ai as any).preset);
+    setFormInitialized(true);
+  }, [hub, formInitialized, ai]);
 
   const handleProviderChange = (pId: string) => {
+    setApiKey('');
     setProvider(pId);
     const p = providers.find((x) => x.id === pId);
     if (p) {
       setModel(p.defaultModel);
       setApiBaseUrl(p.defaultUrl);
     }
+    setTestResult(null);
+  };
+
+  const handleEndpointChange = (nextUrl: string) => {
+    // Never carry an unsaved credential to a different destination.
+    try {
+      if (new URL(nextUrl).origin !== new URL(apiBaseUrl).origin) setApiKey('');
+    } catch {
+      setApiKey('');
+    }
+    setApiBaseUrl(nextUrl);
     setTestResult(null);
   };
 
@@ -71,6 +86,7 @@ export function IntelligenceTab() {
         remember: true,
       });
 
+      setApiKey('');
       const res = await api.testConnection();
       const latency = Date.now() - start;
       if (res?.ok !== false) {
@@ -80,6 +96,7 @@ export function IntelligenceTab() {
         setTestResult({ ok: false, error: res?.error || t('ai_test_fail') });
         showToast(t('ai_test_fail'), 'error');
       }
+      refetch();
     } catch (err: any) {
       setTestResult({ ok: false, error: err.message || t('ai_test_fail') });
       showToast(err.message || t('ai_test_fail'), 'error');
@@ -98,6 +115,7 @@ export function IntelligenceTab() {
         apiKey: apiKey.trim() || undefined,
         remember: true,
       });
+      setApiKey('');
       showToast(t('ai_save_success'), 'success');
       refetch();
     } catch (err: any) {
@@ -154,14 +172,15 @@ export function IntelligenceTab() {
       <div className="space-y-1.5">
         <label className="text-[11px] font-semibold text-[var(--muted)] flex items-center justify-between">
           <span>{t('ai_base_url')}</span>
-          <span className="text-[10px] text-[var(--faint)] font-normal">Tùy biến URL / Render / Proxy</span>
+          <span className="text-[10px] text-[var(--faint)] font-normal">API hoặc model cục bộ</span>
         </label>
         <div className="relative">
           <Globe className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--faint)]" />
           <input
             type="text"
+            aria-label="API base URL"
             value={apiBaseUrl}
-            onChange={(e) => setApiBaseUrl(e.target.value)}
+            onChange={(e) => handleEndpointChange(e.target.value)}
             placeholder={t('ai_base_url_hint')}
             className="w-full bg-[var(--surface)] text-[var(--text)] font-mono text-xs rounded-md pl-8 pr-3 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
           />
@@ -175,6 +194,7 @@ export function IntelligenceTab() {
         </label>
         <input
           type="text"
+          aria-label="Model"
           value={model}
           onChange={(e) => setModel(e.target.value)}
           placeholder="vd: claude-sonnet-5-5, gpt-4o, deepseek-chat..."
@@ -192,6 +212,7 @@ export function IntelligenceTab() {
           <Key className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--faint)]" />
           <input
             type="password"
+            aria-label="API key"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             placeholder="sk-..."
@@ -227,6 +248,7 @@ export function IntelligenceTab() {
       <div className="flex items-center gap-2 pt-2 border-t border-[var(--line-subtle)]">
         <Button
           variant="secondary"
+          aria-label="Lưu & kiểm tra"
           onClick={handleTestConnection}
           disabled={testing}
           className="flex-1 gap-1.5 h-8 text-xs"

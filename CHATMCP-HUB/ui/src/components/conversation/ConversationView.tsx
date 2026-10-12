@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
 import { PhaseRibbon } from '@/components/layout/PhaseRibbon';
@@ -20,12 +20,15 @@ import {
   Terminal, 
   FolderSearch 
 } from 'lucide-react';
-import { Task, Message, ToolCall } from '@/types';
+import { isTaskActive, normalizeApproval, taskTimeline } from '@/lib/task-view';
 
 export function ConversationView() {
   const queryClient = useQueryClient();
-  const { selectedTaskId, setSelectedTaskId, showToast, streamingToken } = useAppStore();
+  const { selectedTaskId, setSelectedTaskId, showToast, streamingToken, streamingTaskId } = useAppStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const requestPending = useRef(false);
+  const [sending, setSending] = useState(false);
+  const [approving, setApproving] = useState(false);
 
   // Fetch full Hub state
   const { data: hub } = useQuery({
@@ -34,40 +37,62 @@ export function ConversationView() {
     refetchInterval: 2000,
   });
 
-  // Current task
-  const task: Task | undefined = hub?.tasks?.find((t) => t.id === selectedTaskId) || hub?.tasks?.[0];
-  const isWorking = task?.status === 'working' || task?.status === 'in_progress';
-  const mode = hub?.studio?.permissions?.mode || 'review';
+  // State contains summaries; the selected conversation needs its full persisted record.
+  const { data: task, isLoading, error: taskError } = useQuery({
+    queryKey: ['task', selectedTaskId],
+    queryFn: () => api.getTask(selectedTaskId),
+    enabled: !!selectedTaskId,
+    refetchInterval: selectedTaskId ? 2000 : false,
+  });
+  const isWorking = isTaskActive(task);
+  const otherTaskWorking = !!hub?.agent?.activeTaskId && hub.agent.activeTaskId !== selectedTaskId;
+  const permissions = hub?.studio?.permissions;
+  const mode = permissions?.executionPolicy === 'full-access' ? 'full-access' : permissions?.mode || 'review';
+  const visibleToken = isWorking && streamingTaskId === selectedTaskId ? streamingToken : '';
+  const refreshTask = () => {
+    void queryClient.invalidateQueries({ queryKey: ['hubState'] });
+    void queryClient.invalidateQueries({ queryKey: ['task', selectedTaskId] });
+  };
 
   // Auto-scroll on new message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [task?.messages, streamingToken]);
+  }, [task?.messages, task?.toolCalls, visibleToken]);
 
   // Send message handler
   const handleSendMessage = async (text: string) => {
+    if (!text.trim() || requestPending.current || isWorking || otherTaskWorking) return false;
+    requestPending.current = true;
+    setSending(true);
     try {
       if (!selectedTaskId) {
-        // Create new task with this initial prompt
-        const res = await api.createTask({ task: text });
+        const res = await api.startTask(text);
         if (res?.task?.id) {
+          queryClient.setQueryData(['task', res.task.id], res.task);
           setSelectedTaskId(res.task.id);
         }
       } else {
-        await api.sendMessage(selectedTaskId, text);
+        const res = await api.continueTask(selectedTaskId, text);
+        queryClient.setQueryData(['task', selectedTaskId], res.task);
       }
-      queryClient.invalidateQueries({ queryKey: ['hubState'] });
+      refreshTask();
+      return true;
     } catch (err: any) {
       showToast(err.message || 'Không thể gửi tin nhắn', 'error');
+      return false;
+    } finally {
+      requestPending.current = false;
+      setSending(false);
     }
   };
 
   const handleStopTask = async () => {
     if (!task) return;
     try {
-      await api.cancelTask(task.id);
-      showToast('Đã dừng tác vụ', 'info');
-      queryClient.invalidateQueries({ queryKey: ['hubState'] });
+      const res = await api.cancelTask(task.id);
+      queryClient.setQueryData(['task', task.id], res.task);
+      showToast('Đã gửi yêu cầu dừng tác vụ', 'info');
+      refreshTask();
     } catch (err: any) {
       showToast(err.message || 'Không thể dừng tác vụ', 'error');
     }
@@ -75,7 +100,7 @@ export function ConversationView() {
 
   const handleModeChange = async (newMode: string) => {
     try {
-      await api.setPermissions({ mode: newMode as any, executionPolicy: 'review' });
+      await api.configurePermissions({ mode: newMode, ...(mode === 'full-access' ? { executionPolicy: 'host-review' } : {}) });
       showToast(`Đã chuyển sang chế độ ${newMode}`, 'info');
       queryClient.invalidateQueries({ queryKey: ['hubState'] });
     } catch (err: any) {
@@ -83,35 +108,33 @@ export function ConversationView() {
     }
   };
 
-  // Approvals mapped from task approvals
-  const pendingApprovals: PendingApproval[] = (task?.pendingApprovals || []).map((a: any) => ({
-    id: a.id || a.approvalId,
-    tool: a.tool || a.toolName || 'tool',
-    description: a.description || a.summary || 'Yêu cầu hành động',
-    risk: a.risk || 'medium',
-    targetPath: a.args?.path || a.args?.TargetFile,
-    oldContent: a.oldContent,
-    newContent: a.newContent,
-    command: a.args?.command || a.args?.cmd,
-  }));
+  // The global gate also contains requests from Studio actions and other active conversations.
+  const pendingApprovals = (permissions?.pending || []).map(normalizeApproval);
+  const approvalHistory = (permissions?.recent || []).filter(item => item.taskId === selectedTaskId).map(normalizeApproval);
 
   const handleApprove = async (id: string) => {
+    setApproving(true);
     try {
-      await api.approveAction(id);
+      await api.decidePermission(id, true);
       showToast('Đã phê duyệt hành động', 'success');
-      queryClient.invalidateQueries({ queryKey: ['hubState'] });
     } catch (err: any) {
       showToast(err.message || 'Lỗi phê duyệt', 'error');
+    } finally {
+      setApproving(false);
+      refreshTask();
     }
   };
 
   const handleDeny = async (id: string, reason?: string) => {
+    setApproving(true);
     try {
-      await api.denyAction(id, reason);
+      await api.decidePermission(id, false);
       showToast('Đã từ chối hành động', 'info');
-      queryClient.invalidateQueries({ queryKey: ['hubState'] });
     } catch (err: any) {
       showToast(err.message || 'Lỗi từ chối', 'error');
+    } finally {
+      setApproving(false);
+      refreshTask();
     }
   };
 
@@ -149,7 +172,8 @@ export function ConversationView() {
     },
   ];
 
-  const hasMessages = task && task.messages && task.messages.length > 0;
+  const timeline = task ? taskTimeline(task) : [];
+  const continueTask = () => handleSendMessage('Tiếp tục tác vụ trong cùng cuộc hội thoại. Kiểm tra trạng thái hiện tại trước khi thao tác; không tự chạy lại thao tác có kết quả chưa rõ.');
 
   return (
     <div className="h-full flex flex-col bg-[var(--bg)] min-w-0 overflow-hidden relative">
@@ -158,7 +182,7 @@ export function ConversationView() {
 
       {/* Main Conversation Stream */}
       <div className="flex-1 overflow-y-auto min-h-0 flex flex-col">
-        {!hasMessages ? (
+        {isLoading && selectedTaskId ? <p className="p-4 text-xs text-[var(--muted)]">Đang tải hội thoại…</p> : taskError ? <p role="alert" className="p-4 text-xs text-rose-400">{taskError.message}</p> : !selectedTaskId ? (
           /* Empty / Welcome State with smooth cards */
           <div className="flex-1 flex flex-col items-center justify-center p-6 max-w-3xl mx-auto w-full select-none">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-500 to-teal-400 flex items-center justify-center text-slate-950 shadow-lg shadow-sky-500/20 mb-4 floating-step">
@@ -180,7 +204,7 @@ export function ConversationView() {
                   <Card
                     key={idx}
                     tilt3d
-                    onClick={() => handleSendMessage(item.prompt)}
+                    onClick={() => { if (!sending && !otherTaskWorking) void handleSendMessage(item.prompt); }}
                     className="p-3.5 cursor-pointer bg-[var(--panel)] hover:bg-[var(--surface-hover)] border-[var(--line)] hover:border-sky-500/50 group transition-all duration-150"
                   >
                     <div className="flex items-start gap-3">
@@ -204,58 +228,47 @@ export function ConversationView() {
         ) : (
           /* Message List */
           <div className="flex-1 py-2">
-            {task.messages.map((m: Message, idx: number) => (
-              <MessageItem key={m.id || idx} message={m} />
-            ))}
-
-            {/* Tool Receipts */}
-            {task.toolCalls && task.toolCalls.length > 0 && (
-              <div className="my-2">
-                {task.toolCalls.map((tool: ToolCall, idx: number) => (
-                  <ToolReceipt key={tool.id || idx} tool={tool} />
-                ))}
-              </div>
-            )}
+            {timeline.map((item, index) => item.kind === 'message'
+              ? <MessageItem key={`message:${item.value.id || index}`} message={item.value} />
+              : <ToolReceipt key={`receipt:${item.value.id || index}`} tool={item.value} />)}
+            {task && timeline.length === 0 && <p className="p-4 text-xs text-[var(--muted)]">Chưa có nội dung hội thoại được lưu.</p>}
 
             {/* Streaming Token Chunk */}
-            {streamingToken && (
+            {visibleToken && (
               <div className="py-3.5 px-4 flex gap-3 text-xs border-b border-[var(--line-subtle)] bg-[var(--surface)]/20 animate-pulse">
                 <div className="w-6 h-6 rounded-full bg-teal-500/20 text-teal-400 border border-teal-500/30 flex items-center justify-center flex-shrink-0">
                   <Bot className="w-3.5 h-3.5" />
                 </div>
                 <div className="flex-1 min-w-0 font-sans text-[13px] text-[var(--text)] whitespace-pre-wrap">
-                  {streamingToken}
+                  {visibleToken}
                 </div>
               </div>
             )}
 
-            {/* Pending Approvals in Stream */}
-            {pendingApprovals.length > 0 && (
-              <ApprovalStack
-                approvals={pendingApprovals}
-                onApprove={handleApprove}
-                onDeny={handleDeny}
-              />
-            )}
-
             {/* State Banner */}
-            <StateBanner
+            {task && <StateBanner
               status={task.status}
-              message={task.error || task.stage}
-              onRetry={() => handleSendMessage('Tiếp tục hoàn thành tác vụ')}
-              onCancel={handleStopTask}
-            />
+              message={task.error}
+              onRetry={() => { void continueTask(); }}
+              onResume={() => { void continueTask(); }}
+              disabled={sending || otherTaskWorking}
+            />}
+            {approvalHistory.length > 0 && <details className="mx-4 my-3 text-xs"><summary>Lịch sử phê duyệt ({approvalHistory.length})</summary><ApprovalStack approvals={approvalHistory} onApprove={handleApprove} onDeny={handleDeny} /></details>}
 
             <div ref={messagesEndRef} />
           </div>
         )}
+        <ApprovalStack approvals={pendingApprovals} onApprove={handleApprove} onDeny={handleDeny} busy={approving} />
       </div>
+      {otherTaskWorking && <p className="px-4 py-2 text-xs text-amber-300">Một hội thoại khác đang chạy. Dừng hoặc đợi hội thoại đó trước khi gửi.</p>}
 
       {/* Bottom Composer */}
       <Composer
+        key={selectedTaskId || 'new-conversation'}
         onSendMessage={handleSendMessage}
         onStop={handleStopTask}
         isWorking={isWorking}
+        disabled={sending || otherTaskWorking || (!!selectedTaskId && (isLoading || !!taskError))}
         currentMode={mode}
         onModeChange={handleModeChange}
       />
