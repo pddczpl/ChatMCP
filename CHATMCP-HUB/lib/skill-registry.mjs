@@ -198,6 +198,17 @@ export class GitHubSkillRegistry {
           text.includes('redistribution and use in source and binary forms')?'BSD':null;
         licenseEvidence={status:match&&(!parsed.license||parsed.license==='unknown'||parsed.license.toLowerCase()===match.toLowerCase())?'matched_file':'unverified',
           spdx:match,path:entry.folder+'/'+candidate.path,scope:'skill',redistributionReviewed:false};
+      }else{
+        // Repository-wide license evidence is advisory. Do not claim the
+        // individual skill was legally reviewed or can be redistributed.
+        const rootLicense=tree.tree.find(x=>x.type==='blob'&&/^(LICENSE|LICENCE)(?:\.(?:md|txt))?$/i.test(x.path)&&x.size<=128*1024);
+        if(rootLicense){
+          const text=(await download(rootLicense,128*1024)).toString('utf8').toLowerCase();
+          const match=text.includes('permission is hereby granted, free of charge')?'MIT':
+            text.includes('apache license')&&text.includes('version 2.0')?'Apache-2.0':
+            text.includes('redistribution and use in source and binary forms')?'BSD':null;
+          licenseEvidence={status:'repository_license',spdx:match,path:rootLicense.path,scope:'repository',redistributionReviewed:false};
+        }
       }
       await this.pluginManager.load();
       const installed=await this.pluginManager.importRegistrySkill({

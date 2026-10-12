@@ -47,7 +47,7 @@ To use the Hub via a browser instead of Windows desktop:
 .\CHATMCP-HUB\START-CHATMCP-HUB.cmd -ProjectPath "C:\Projects\MyRepository"
 ~~~
 
-Open the local URL shown by the launcher (normally \`http://127.0.0.1:3007\`). Configure your model provider, select the workspace and use the permissions panel.
+Open the local URL shown by the launcher (normally `http://127.0.0.1:3007`). Configure your model provider, select the workspace and use the permissions panel.
 
 ## Multi-Agent Orchestrator
 
@@ -93,10 +93,10 @@ GitHub Actions validates Hub tests on Windows/Linux with Node 22/24 and a produc
 
 **Do not tag/publish an unreviewed PR or a branch with failing checks.** See [desktop build details](docs/DESKTOP-APP.md).
 
-1. Merge the reviewed feature PR to \`main\` only after security review and passing CI. Update [CHANGELOG.md](CHANGELOG.md) and synchronize the Hub, desktop shell, installer and documentation versions for the intended release number. If changing UI_BUILD, change it consistently across server/client and update relevant tests.
-2. On a **Windows 10/11 build machine**, install Git, Node.js 22+ with npm and .NET SDK **10.0+**. Check \`node --version\`, \`npm --version\`, \`dotnet --version\` and \`git --version\`.
+1. Merge the reviewed feature PR to `main` only after security review and passing CI. Update [CHANGELOG.md](CHANGELOG.md) and synchronize the Hub, desktop shell, installer and documentation versions for the intended release number. If changing UI_BUILD, change it consistently across server/client and update relevant tests.
+2. On a **Windows 10/11 build machine**, install Git, Node.js 22+ with npm and .NET SDK **10.0+**. Check `node --version`, `npm --version`, `dotnet --version` and `git --version`.
 3. Pull the exact release commit, run all Hub tests and produce a clean frontend build.
-4. Run \`.\scripts\Build-Installer.ps1\`. The script rebuilds the TypeScript/Vite UI, restores npm dependencies, checks version alignment, publishes **self-contained .NET 10 Windows binaries**, bundles portable \`node.exe\`, and writes \`dist\ChatMCPSetup.exe\` plus \`dist\ChatMCPSetup.exe.sha256\`.
+4. Run `.\scripts\Build-Installer.ps1`. The script rebuilds the TypeScript/Vite UI, restores npm dependencies, checks version alignment, publishes **self-contained .NET 10 Windows binaries**, bundles portable `node.exe`, and writes `dist\ChatMCPSetup.exe` plus `dist\ChatMCPSetup.exe.sha256`.
 5. **Test the actual installer** on a clean Windows VM: install/uninstall, launch WebView2, select a Git repository, test an API provider, run a safe coding task, verify a worktree and skill import, and confirm the app shuts down without orphaned Hub processes. Do not claim this is done without evidence.
 6. After testing, sign both executable and installer with a trusted code-signing certificate if one is available; recompute SHA-256 **after signing**.
 7. Tag the exact tested commit and create a GitHub Release. Publish the EXE, checksum and release notes; start with a **Draft Release** if further verification is needed.
