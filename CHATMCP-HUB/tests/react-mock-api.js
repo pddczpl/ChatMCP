@@ -3,9 +3,9 @@ window.confirm=()=>true;
 window.prompt=()=> 'Checkpoint test';
 const taskId='123e4567-e89b-42d3-a456-426614174000';
 const task={id:taskId,prompt:'Rà soát mã nguồn demo',status:'completed',steps:3,toolCalls:2,updatedAt:new Date().toISOString(),startedAt:new Date().toISOString(),workspace:{path:'C:\\Projects\\sensor-fusion'},prompts:[{text:'Rà soát mã nguồn demo',at:new Date().toISOString()}],runs:[{status:'completed',finalText:'Đã đọc README.md và kiểm tra main.py.'}],finalText:'Đã đọc README.md và kiểm tra main.py.',events:[{type:'tool',toolName:'studio.read',message:'Đã đọc README.md',at:new Date().toISOString()}],transport:'chatgpt-web',autoResume:false};
-window.__apiState={version:'2.3.0',csrfToken:'x'.repeat(64),workspace:{path:'C:\\Projects\\sensor-fusion'},services:Object.fromEntries(['docker','cloud','proxy','desktop'].map(x=>[x,{state:'ready',detail:'ready'}])),agent:{mode:'chatgpt-web',active:null,activeTaskId:null,tasks:[task]},ai:{configured:true,protocol:'gemini',model:'gemini-demo',apiBaseUrl:'https://example.invalid'},browser:{paired:true,connected:true},studio:{workspace:'C:\\Projects\\sensor-fusion',permissions:{mode:'review',pending:[]},terminals:[]},logs:['Mock Hub ready']};
+window.__apiState={version:'2.5.0',csrfToken:'x'.repeat(64),workspace:{path:'C:\\Projects\\sensor-fusion'},services:Object.fromEntries(['docker','cloud','proxy','desktop'].map(x=>[x,{state:'ready',detail:'ready'}])),agent:{mode:'chatgpt-web',active:null,activeTaskId:null,tasks:[task]},ai:{configured:true,protocol:'gemini',model:'gemini-demo',apiBaseUrl:'https://example.invalid'},browser:{paired:true,connected:true},studio:{workspace:'C:\\Projects\\sensor-fusion',permissions:{mode:'review',pending:[]},terminals:[]},logs:['Mock Hub ready']};
 const base={
- '/api/health':()=>({app:'chatmcp-local-hub',version:'2.3.0',uiBuild:'2.3.0-react-agent',initialized:true}),
+ '/api/health':()=>({app:'chatmcp-local-hub',version:'2.5.0',uiBuild:'2.5.0-react-agent',initialized:true}),
  '/api/state':()=>window.__apiState,
  '/api/studio/tree':()=>({workspace:'C:\\Projects\\sensor-fusion',directory:'',entries:[{name:'README.md',kind:'file',path:'README.md'},{name:'main.py',kind:'file',path:'main.py'}]}),
  '/api/studio/intelligence/status':()=>({indexedAt:null,fileCount:0,symbolCount:0,parser:'not-indexed',capabilities:{index:true},lsp:[]}),
