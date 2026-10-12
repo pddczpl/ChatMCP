@@ -92,6 +92,9 @@ The latest released version is **v2.5.0**; a potential subsequent version (e.g.,
 
 ## Documentation
 
+**Full documentation index (current and historical):** [PHASE0-AUDIT](docs/PHASE0-AUDIT.md) · [PHASE1-DESIGN](docs/PHASE1-DESIGN.md) · [PHASE1-REPORT](docs/PHASE1-REPORT.md) · [PHASE2-DESIGN](docs/PHASE2-DESIGN.md) · [PHASE2-REPORT](docs/PHASE2-REPORT.md) · [PHASE3-DESIGN](docs/PHASE3-DESIGN.md) · [PHASE3-REPORT](docs/PHASE3-REPORT.md) · [PHASE4-DESIGN](docs/PHASE4-DESIGN.md) · [PHASE4-REPORT](docs/PHASE4-REPORT.md). Historical PHASE docs describe previous Cloud architecture and are not current operating instructions.
+
+
 [Windows Setup](docs/WINDOWS-SETUP.md) · [User Guide](docs/USER-GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Development](docs/DEVELOPMENT.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Real Model Testing](docs/TESTING-WITH-REAL-MODELS.md) · [Historical Cloud Deployment Notice](docs/DEPLOYMENT.md)
 
 Historical phase documents are retained as archives of earlier releases. Any instructions referring to Render, Cloud Harness, Docker server or public mode are **retired**, not current product capabilities.

@@ -9,7 +9,7 @@
 | Git Bash | đi kèm Git for Windows | shell mặc định của agent trên Windows (không có thì dùng PowerShell) |
 | PowerShell | Windows PowerShell 5.1 (có sẵn trên Windows 11) | launcher, script, kiểm thử script |
 | Python 3.11+ | tùy chọn | (a) chỉ mục ký hiệu Python của Hub (`py -3.11` trên Windows); (b) bộ E2E FastAPI; (c) bộ giao diện Playwright |
-| Docker Desktop | tùy chọn | chỉ cho backend `mcp` (Cloud Harness) và sandbox chạy test |
+| Docker Desktop | tùy chọn | chỉ cho sandbox test cục bộ, không phải cloud hosting |
 
 Hub **không có bước build** và không có dependency bắt buộc để `npm install`. `node-pty` (ConPTY) là tùy chọn: `CHATMCP-HUB\windows\Install-OptionalConPTY.ps1`; khi thiếu hoặc hỏng, terminal tương tác tự dùng pipe.
 
@@ -25,7 +25,7 @@ node tests/run-all.mjs --no-skip all             # một bộ bị SKIP bị tí
 npm run test:ui                                  # bộ giao diện Python/Playwright (tùy chọn)
 ```
 
-Hiện có **55 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
+Hiện có **48 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
 
 Runner in một dòng cho mỗi bộ (`PASS`/`FAIL`/`TIMEOUT`/`SKIP`, thời gian, mã thoát thật) và thoát khác 0 nếu có bộ nào fail hoặc quá hạn (mặc định 180 giây/bộ, đổi bằng `--timeout`). Bộ kiểm thử in một dòng `CHATMCP_TEST_SKIP: <lý do>` rồi thoát 0 để được báo là **SKIP — không bao giờ được tính là PASS**. `--no-skip all` (hoặc `--no-skip tên1,tên2`) biến SKIP thành FAIL. Hãy dùng nó ở nơi môi trường đã cài đủ Git, shell và Python (CI): một bộ bị bỏ qua khi đó nghĩa là môi trường hỏng chứ không phải "không áp dụng". Workflow hiện có trong repo **chưa** dùng `--no-skip` (xem mục "Giới hạn đã biết" bên dưới). Một phần không thể kiểm chứng trong bản này được in `BLOCKED: <gì> - <vì sao>`.
 
@@ -82,11 +82,10 @@ Thiếu gói hoặc trình duyệt → bộ **SKIP** (có lý do), không giả 
 
 Script ở thư mục gốc có kiểm thử riêng, chạy bằng dữ liệu giả trong thư mục tạm:
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tests\Test-RotateToken.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tests\Test-Bootstrap.ps1
-bash scripts/tests/test-bootstrap.sh              # Linux/macOS/Git Bash
-```
+~~~powershell
+node CHATMCP-HUB/tests/run-all.mjs
+# Build frontend/installer chạy qua CI; CloudHarness bootstrap tests đã được gỡ.
+~~~
 
 ## Bộ E2E: thật ở đâu, giả ở đâu
 
@@ -187,7 +186,7 @@ CHATMCP-HUB/       Hub (hub.mjs, lib/, web/, extension/, tests/, windows/, worke
   web/             giao diện: index.html, react-app.js, ui-logic.js, onboarding.js, vendor/
   tests/           verify-*.mjs (Node), verify-*.py (Playwright), e2e/ (khung E2E)
 deps/              khóa phiên bản phụ thuộc bên thứ ba
-scripts/           bootstrap Cloud Harness, xoay token, kiểm thử script
+scripts/           Windows packaging, local developer tooling, tests
 docs/              kiến trúc, thiết kế, audit, hướng dẫn
 CHATMCP-LOCAL-SETUP/, START-*.{cmd,ps1}, install.sh, manifest.json, bridge.js …   legacy
 ```
