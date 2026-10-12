@@ -6,8 +6,8 @@ This branch is a **work-in-progress implementation**, not Phase 1 security/relea
 
 - PR3-shaped: immutable private snapshots, Windows Sandbox CLI guest driver (untrusted export) and Windows Sandbox Backend lifecycle interface; default provider remains unavailable until real publisher authentication.
 - PR4-shaped: check IDs, content-bound grant reservations, stale-definition rejection, execution facts distinct from test outcome.
-- PR5-shaped: bounded Test → Diagnose → Repair → Retest workflow, 2 repair cycles/3 attempts/20 minutes max; refuses unverified success.
-- PR6-shaped: capability attenuation, shared token ledger, dynamic dependency-aware worker scheduling with bounded worker count/depth.
+- PR5-shaped: bounded Test → Diagnose → Repair → Retest workflow, 2 repair cycles/3 test attempts/20 minutes safety bound; refuses unverified success.
+- PR6-shaped: capability attenuation and dynamic dependency-aware workers with bounded concurrent processes/depth, without ChatMCP token or spending budgets.
 - PR7-shaped: React inspector shows recorded verification history separately from model self-reports.
 - Registry wiring installs the production-shaped backend with an honest unavailable capability by default.
 

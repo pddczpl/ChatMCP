@@ -44,10 +44,10 @@
       "expect": "blocked"
     },
     {
-      "id": "multi-worker-budget",
+      "id": "no-local-token-cap",
       "kind": "workers",
-      "description": "Shared reservation prevents over-commit",
-      "expect": "blocked"
+      "description": "No ChatMCP-imposed API token/spend allowance; only process concurrency safety limits",
+      "expect": "unlimited"
     }
   ]
 }

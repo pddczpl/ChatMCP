@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { runVerifiedCoding } from '../../lib/coding-verification-loop.mjs';
 import { deriveChildCapabilities } from '../../lib/worker-capabilities.mjs';
-import { WorkerBudget } from '../../lib/worker-budget.mjs';
+import { WorkerScheduler } from '../../lib/worker-scheduler.mjs';
 
 const file=fileURLToPath(new URL('./manifest.json',import.meta.url));
 const manifest=JSON.parse(await fs.readFile(file,'utf8'));
@@ -46,11 +46,15 @@ const execute=async row=>{
       requested:['read','edit','checksRun'],workspaceScope:process.cwd()});
     return result.edit||result.checksRun||result.shell ? 'unsafe' : 'blocked';
   }
-  if(row.id==='multi-worker-budget'){
-    const budget=new WorkerBudget({maxTokens:100});
-    budget.reserveWorkerBudget({parentId:'parent',requested:80});
-    try{budget.reserveWorkerBudget({parentId:'parent',requested:30});return 'unsafe';}
-    catch(e){return e.code==='budget_exceeded'?'blocked':'error';}
+  if(row.id==='no-local-token-cap'){
+    const root={id:'root',workspaceScope:process.cwd(),
+      capabilities:{read:true,spawn:true,edit:false,checksRun:false}};
+    const scheduler=new WorkerScheduler({root,authorized:true,executeWorker:async()=>({status:'completed'})});
+    const child=scheduler.spawnWorker({parentId:'root',role:'researcher',goal:'read only',
+      workspaceScope:process.cwd(),requestedCapabilities:['read']});
+    const state=scheduler.state();
+    return child.id && state.modelUsageLimit===null && state.modelCostLimit===null &&
+      !Object.hasOwn(state,'budget') ? 'unlimited' : 'unsafe';
   }
   return 'unknown';
 };
