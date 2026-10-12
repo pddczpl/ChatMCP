@@ -23,8 +23,8 @@ export class GitHubSkillRegistry {
   }
   sources(){return SOURCES.map(s=>({...s}));}
   async load(){const data=await readJson(this.file).catch(()=>null);if(data?.version===1&&Array.isArray(data.entries)){this.entries=data.entries;this.updatedAt=data.updatedAt;}}
-  list({query=''}={}){const q=String(query).toLowerCase().slice(0,100);return this.entries.filter(x=>!q||(x.name+' '+x.description+' '+x.repo).toLowerCase().includes(q)).slice(0,250);}
-  async #json(url){const {text}=await this.transport(url,{maxBytes:2*1024*1024});return JSON.parse(text);}
+  list({query=''}={}){const q=String(query).toLowerCase().slice(0,100);return this.entries.filter(x=>!q||(x.name+' '+(x.description||'')+' '+x.folder+' '+x.repo).toLowerCase().includes(q)).slice(0,500);}
+  async #json(url){const {text}=await this.transport(url,{maxBytes:8*1024*1024});return JSON.parse(text);}
   async refresh({sourceId}={}){
     if(this.busy)throw fault('registry_busy','Registry is already refreshing.',409);
     const sources=sourceId?SOURCES.filter(x=>x.id===sourceId):SOURCES;
@@ -36,6 +36,25 @@ export class GitHubSkillRegistry {
           const branch=await this.#json(github(source.repo)+'/commits/HEAD');
           const sha=branch.sha;
           if(!hashValid(sha))throw Error('Commit SHA was not verified');
+          // Pinned tree recursion discovers nested SKILL.md entries in one
+          // request, including deeper paths ignored by the legacy listing.
+          const treeSha=branch?.commit?.tree?.sha;
+          if (treeSha && hashValid(treeSha)) {
+            const tree=await this.#json(github(source.repo)+'/git/trees/'+treeSha+'?recursive=1');
+            if(tree?.truncated||!Array.isArray(tree?.tree)) throw Error('GitHub tree is truncated or unavailable');
+            const matches=tree.tree.filter(x=>x.type==='blob'&&x.path.startsWith(source.prefix+'/')&&x.path.endsWith('/SKILL.md'));
+            if(matches.length>1500)throw Error('More than 1500 skills in one source');
+            for(const item of matches){
+              const folder=item.path.slice(0,-'/SKILL.md'.length);
+              if(folder.split('/').some(x=>!x||x==='.'||x==='..'))continue;
+              const slug=(source.id+'-'+folder.slice(source.prefix.length+1)).toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'');
+              const id=normalizeSkillId(slug.length<=64?slug:slug.slice(0,55)+'-'+sha.slice(0,8));
+              found.push({key:source.id+':'+folder,sourceId:source.id,id,name:folder.split('/').at(-1),description:'',repo:source.repo,
+                revision:sha,treeSha,blobSha:item.sha,folder,manifestPath:item.path,license:'unknown',verifiedLicense:null,redistributable:false});
+            }
+            succeeded.add(source.id);
+            continue;
+          }
           const items=await this.#json(github(source.repo)+'/contents/'+source.prefix+'?ref='+sha);
           if(!Array.isArray(items))throw Error('Expected a GitHub directory listing');
           for(const entry of items.filter(x=>x.type==='dir').slice(0,45)){
@@ -51,7 +70,7 @@ export class GitHubSkillRegistry {
       }
       const updated=new Map((sourceId?this.entries.filter(x=>x.sourceId!==sourceId):[]).map(x=>[x.key,x]));
       for(const item of found)updated.set(item.key,item);
-      this.entries=[...updated.values()].slice(0,300);
+      this.entries=[...updated.values()].slice(0,5000);
       this.updatedAt=new Date().toISOString();
       await writeJson(this.file,{version:1,updatedAt:this.updatedAt,entries:this.entries});
       return {found:found.length,total:this.entries.length,failures,updatedAt:this.updatedAt};
