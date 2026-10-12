@@ -155,7 +155,9 @@ export class GitHubSkillRegistry {
       const files=tree.tree.filter(x=>x.path?.startsWith(entry.folder+'/'));
       const manifest=files.find(x=>x.path===entry.manifestPath&&x.type==='blob');
       if(!manifest||manifest.sha!==entry.blobSha)throw fault('integrity_mismatch','Pinned SKILL.md checksum differs from index.',409);
-      const other=files.filter(x=>x!==manifest);
+      // Recursive Git trees contain directory entries (mode 040000) as well
+      // as blobs; directories are not assets and must not invalidate a skill.
+      const other=files.filter(x=>x!==manifest&&x.type!=='tree');
       if(other.some(x=>x.type!=='blob'||!['100644','100755'].includes(x.mode)))
         throw fault('unsupported_asset','Symlinks/submodules cannot be imported as skill dependencies.',409);
       if(other.length>200||other.some(x=>x.size>2*1024*1024)||other.reduce((n,x)=>n+(x.size||0),0)>24*1024*1024)
