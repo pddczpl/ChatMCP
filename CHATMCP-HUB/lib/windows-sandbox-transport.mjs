@@ -90,6 +90,10 @@ export async function readAndVerifyExecutionReceipt({
   if (!exportDirectory || !fs.existsSync(exportDirectory)) {
     throw fault('missing_export_dir', `Export directory does not exist: '${exportDirectory}'.`);
   }
+  const exportStat=fs.lstatSync(exportDirectory);
+  if (!exportStat.isDirectory() || exportStat.isSymbolicLink()) {
+    throw fault('unsafe_export_dir','Guest result export must be a real, host-owned directory (not a link).');
+  }
 
   const receiptPath = path.join(exportDirectory, 'receipt.json');
   if (!fs.existsSync(receiptPath)) {
@@ -98,8 +102,8 @@ export async function readAndVerifyExecutionReceipt({
 
   // 1. rawObservation: inspect reparse point / symlink on the receipt file
   const stat = fs.lstatSync(receiptPath);
-  if (stat.isSymbolicLink()) {
-    throw fault('unsafe_receipt', 'receipt.json is a symbolic link, which is forbidden.');
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    throw fault('unsafe_receipt', 'receipt.json must be a regular file, not a directory or reparse point.');
   }
 
   // 1. rawObservation: enforce hard file size limit (5 MB)
