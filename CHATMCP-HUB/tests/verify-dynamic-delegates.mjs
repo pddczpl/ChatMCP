@@ -31,7 +31,7 @@ try{
   assert.equal(modelCalls,3);
   assert.equal(Object.hasOwn(outcome,'budget'),false);
   assert.equal(Object.hasOwn(outcome,'maxTokens'),false);
-  assert.equal(await delegates.cancel().then(x=>x.cancelled),false);
+  assert.equal(delegates.cancel().cancelled,false);
   const reopened=new DynamicDelegates({workspace,provider,directory:path.join(root,'state')});
   await reopened.load();
   assert.equal(reopened.state().last.status,'completed');
