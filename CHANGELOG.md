@@ -10,6 +10,8 @@
 - Clear typed API keys after saving and on destination changes; remove stale RBAC and static health claims from local Settings.
 - Serialize concurrent research snapshot writes and wait for all active workers after a persistence failure before releasing the run.
 - Add regression coverage for the current React components and adapters. Release number and the published v2.6.0 tag remain unchanged.
+- Add current React/real-Hub Playwright scenarios with a scripted local provider, strict no-skip CI gates, pinned Python E2E dependencies, and a native WinForms/WebView2 smoke harness.
+- Package tracked runtime sources and fresh UI output only; exclude local state, imported skills and development dependencies, and validate staging cleanup paths.
 
 ## [2.6.0] — 2026-10-12 — Local-only Windows release
 
