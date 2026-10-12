@@ -314,79 +314,90 @@ export async function safeFetchSkillBytes(rawUrl, {maxBytes=2*1024*1024,maxRedir
 }
 
 /**
- * Standard-compliant mini YAML parser for SKILL.md frontmatter blocks.
+ * Strict subset parser for common Agent Skills frontmatter fields.
  * Throws `malformed_yaml` on syntax errors, unsupported nested types, or unclosed quotes.
  */
 function parseYamlBlock(yamlText) {
-  const meta = {};
+  // An intentionally strict, dependency-free subset of YAML 1.2:
+  // top-level scalars, inline lists, one-level string mappings, item lists,
+  // and folded/literal block scalars. Unsupported structures fail closed.
+  const result = Object.create(null);
   const lines = yamlText.split(/\r?\n/);
-  let currentKey = null;
+  let parent = null, block = null;
+
+  const invalid = (line) => error('malformed_yaml', 'Unsupported or malformed SKILL.md YAML on line ' + line + '.', 400);
+  const scalar = (raw, line) => {
+    let value = raw.trim();
+    if (value.startsWith('"') || value.startsWith("'")) {
+      const quote = value[0];
+      if (value.length < 2 || !value.endsWith(quote)) throw invalid(line);
+      // Keep scalar values as text; never evaluate YAML tags or aliases.
+      return value.slice(1, -1).replace(quote === '"' ? /\\"/g : /''/g, quote);
+    }
+    if (value.includes('!') && /^!/.test(value)) throw invalid(line);
+    return value.replace(/\s+#.*$/, '').trim();
+  };
+  const finishBlock = () => {
+    if (!block) return;
+    const parts = block.lines;
+    result[block.key] = block.style === '>'
+      ? parts.join(' ').replace(/\s+/g, ' ').trim()
+      : parts.join('\n').trim();
+    block = null;
+  };
 
   for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i];
-    const stripped = rawLine.replace(/#.*$/, '').trimEnd();
-    if (!stripped.trim()) continue;
-
-    // Sequence list item: "  - value" or "- value"
-    const listItemMatch = stripped.match(/^(\s*)-\s*(.*)$/);
-    if (listItemMatch) {
-      if (!currentKey) {
-        throw error('malformed_yaml', `Mục danh sách không có khóa cha ở dòng ${i + 1}: "${rawLine}"`, 400);
-      }
-      let val = listItemMatch[2].trim();
-      if ((val.startsWith('"') && !val.endsWith('"')) || (val.startsWith("'") && !val.endsWith("'"))) {
-        throw error('malformed_yaml', `Chuỗi không đóng ngoặc kép ở dòng ${i + 1}: "${rawLine}"`, 400);
-      }
-      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-        val = val.slice(1, -1);
-      }
-      if (!Array.isArray(meta[currentKey])) {
-        meta[currentKey] = [];
-      }
-      meta[currentKey].push(val);
+    const raw = lines[i], number = i + 1;
+    if (/^\s*\t/.test(raw)) throw invalid(number);
+    const indent = (/^ */.exec(raw) || [''])[0].length;
+    if (block) {
+      if (!raw.trim()) { block.lines.push(''); continue; }
+      if (indent > block.indent) { block.lines.push(raw.slice(block.indent + 1).trimEnd()); continue; }
+      finishBlock();
+    }
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    if (indent === 0) {
+      const match = /^([a-zA-Z0-9_-]+):(?:\s*(.*))?$/.exec(trimmed);
+      if (!match) throw invalid(number);
+      const [,key,rawValue=''] = match;
+      if (Object.hasOwn(result,key)) throw invalid(number);
+      const value = scalar(rawValue,number);
+      parent = key;
+      if (value === '>' || value === '|') {
+        block = {key,style:value,indent,lines:[]};
+        result[key] = '';
+      } else if (!value) result[key] = [];
+      else if (value.startsWith('[') && value.endsWith(']')) {
+        result[key] = value.slice(1,-1).split(',').map(v=>scalar(v,number)).filter(Boolean);
+      } else result[key] = value;
       continue;
     }
-
-    // Key-value pair: "key: value" or "key:"
-    const kvMatch = stripped.match(/^([a-zA-Z0-9_-]+):\s*(.*)$/);
-    if (!kvMatch) {
-      throw error('malformed_yaml', `Cú pháp YAML không hợp lệ ở dòng ${i + 1}: "${rawLine}"`, 400);
-    }
-
-    const key = kvMatch[1];
-    let val = kvMatch[2].trim();
-    currentKey = key;
-
-    if (!val) {
-      meta[key] = [];
+    if (!parent || indent < 2) throw invalid(number);
+    const listMatch = /^-\s+(.+)$/.exec(trimmed);
+    if (listMatch) {
+      if (!Array.isArray(result[parent])) throw invalid(number);
+      result[parent].push(scalar(listMatch[1],number));
       continue;
     }
-
-    // Inline list: [a, b, c]
-    if (val.startsWith('[') && val.endsWith(']')) {
-      const items = val
-        .slice(1, -1)
-        .split(',')
-        .map((s) => s.trim().replace(/^['"]|['"]$/g, ''))
-        .filter(Boolean);
-      meta[key] = items;
-      continue;
+    const pair = /^([a-zA-Z0-9_-]+):\s*(.*)$/.exec(trimmed);
+    if (!pair || !Array.isArray(result[parent]) || result[parent].length) throw invalid(number);
+    result[parent] = Object.create(null);
+    result[parent][pair[1]] = scalar(pair[2],number);
+    // Consume further sibling entries of a shallow mapping.
+    for (let j=i+1;j<lines.length;j++) {
+      const next=lines[j], ni=(/^ */.exec(next)||[''])[0].length;
+      if (!next.trim() || next.trim().startsWith('#')) {i=j;continue;}
+      if (ni !== indent) break;
+      const sub=/^([a-zA-Z0-9_-]+):\s*(.*)$/.exec(next.trim());
+      if (!sub || Object.hasOwn(result[parent],sub[1])) throw invalid(j+1);
+      result[parent][sub[1]]=scalar(sub[2],j+1);
+      i=j;
     }
-
-    // Quoted string
-    if ((val.startsWith('"') && !val.endsWith('"')) || (val.startsWith("'") && !val.endsWith("'"))) {
-      throw error('malformed_yaml', `Chuỗi không đóng ngoặc kép ở dòng ${i + 1}: "${rawLine}"`, 400);
-    }
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1);
-    }
-
-    meta[key] = val;
   }
-
-  return meta;
+  finishBlock();
+  return result;
 }
-
 /**
  * Parses skill manifest from JSON or agentskills.io SKILL.md format (Markdown with YAML frontmatter).
  * Rejects arbitrary markdown files starting with '#' without frontmatter.
@@ -434,18 +445,22 @@ export function parseSkillManifest(rawText, fallbackUrl = '') {
     }
     const normalizedName=String(idCandidate).toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,64);
     const id = normalizeSkillId(normalizedName);
+    if (typeof meta.name !== 'string' || !meta.name.trim() ||
+        (meta.description !== undefined && typeof meta.description !== 'string')) {
+      throw error('invalid_manifest', 'SKILL.md requires a name and a scalar description.', 400);
+    }
     const declaredLicense = meta.license ? String(meta.license).trim() : 'unknown';
 
     return {
       id,
       name: meta.name || id,
-      version: meta.version || '1.0.0',
+      version: meta.version || meta.metadata?.version || '1.0.0',
       license: declaredLicense,
       declaredLicense,
       verifiedLicense: null,
       redistributable: false,
       category: meta.category || 'skills',
-      author: meta.author ? String(meta.author).trim() : 'unknown',
+      author: meta.author || meta.metadata?.author ? String(meta.author || meta.metadata.author).trim() : 'unknown',
       description: meta.description || '',
       tools: Array.isArray(meta.tools) ? meta.tools : [],
       systemPrompt: body || meta.prompt || '',

@@ -151,6 +151,26 @@ OSI prompt body.`);
   assert.equal(parsedOsi.license, 'Apache-2.0');
   assert.equal(parsedOsi.redistributable, false);
   ok('parseSkillManifest rejects raw markdown and malformed YAML, verifies licenses and provenance');
+  const vercelManifest = parseSkillManifest([
+    '---',
+    'name: vercel-react-best-practices',
+    'description: >',
+    '  React and Next.js',
+    '  performance guidelines.',
+    'license: MIT',
+    'metadata:',
+    '  author: vercel',
+    '  version: "1.0.0"',
+    '---',
+    'Use this skill only when relevant to React.',
+  ].join('\n'));
+  assert.equal(vercelManifest.author,'vercel');
+  assert.equal(vercelManifest.version,'1.0.0');
+  assert.equal(vercelManifest.description,'React and Next.js performance guidelines.');
+  assert.equal(vercelManifest.redistributable,false);
+  assert.throws(()=>parseSkillManifest('---\nname: demo\nmetadata:\n  author:\n    nested: bad\n---\nbody'),{code:'malformed_yaml'});
+  ok('Agent Skills frontmatter handles Vercel nested metadata and folded descriptions safely');
+
 
   // Custom ID validation: path separators, traversal, Windows devices
   await assert.rejects(() => pm.install('../../etc/passwd'), { code: 'invalid_skill_id' });
