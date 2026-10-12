@@ -6,12 +6,16 @@ import os from 'node:os';
 import path from 'node:path';
 const work=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-worker-test-'));
 await fs.writeFile(path.join(work,'package.json'),JSON.stringify({scripts:{test:'node --test'}}));
+await fs.mkdir(path.join(work,'test'));
+const testPath=path.join(work,'test','math.test.mjs');
+const initialTest="import { test } from 'node:test'; test('math',()=>{});\n";
+await fs.writeFile(testPath,initialTest);
 const registry = { get: name => name === 'windows-sandbox' ? {
   async probe() { return { available:false,osIsolated:true,enforcedLimits:[],reasons:['No attested guest publisher'] }; },
   async execute() { throw new Error('MUST_NOT_EXECUTE'); },
 } : null };
 const worker = {
-  id:'worker-a', workspace:work, files:['package.json'], baseSha:'a'.repeat(40),
+  id:'worker-a', workspace:work, files:['package.json','test/math.test.mjs'], baseSha:'a'.repeat(40),
   parentPolicy:'review', capabilities:{ checksRun:true },
   async checks() { return { suggested:[{from:'package.json',command:'npm test'}] }; },
 };
@@ -30,6 +34,9 @@ assert.equal(result.testOutcomeVerified,false);
 assert.equal(broker.listAttempts({workerId:'worker-a'}).length,1);
 assert.ok(verificationIsFresh(result,{snapshotHash:'f'.repeat(64),checkHash:descriptor.checkHash,sourceHash:descriptor.sourceHash}));
 await assert.rejects(broker.requestCheck({workerId:'other',checkId:descriptor.id,grantId:grant.id}),/worker/i);
+await fs.writeFile(testPath,"import { test } from 'node:test'; test('disabled',()=>{});\n");
+await assert.rejects(broker.requestCheck({workerId:'worker-a',checkId:descriptor.id,grantId:grant.id}),/check|test|stale/i);
+await fs.writeFile(testPath,initialTest);
 // A changed test definition must revoke the immutable check approval even
 // when the suggested shell command string ("npm test") is unchanged.
 await fs.writeFile(path.join(work,'package.json'),JSON.stringify({scripts:{test:'node -e "process.exit(0)"'}}));
