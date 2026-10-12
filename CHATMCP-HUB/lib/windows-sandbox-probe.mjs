@@ -92,6 +92,11 @@ export async function probeWindowsSandboxPreflight() {
     }
   }
 
+  if (!osCaption || osBuild === 0) {
+    blockers.push('Cannot verify Windows edition/build from CIM; availability remains blocked.');
+    remediations.push('Retry host preflight when Windows WMI/CIM is responsive; do not infer OS eligibility.');
+  }
+
   const isHomeEdition = /home/i.test(osCaption);
   const isServerOrProOrEnt = /pro|enterprise|education/i.test(osCaption) && !/server/i.test(osCaption);
 

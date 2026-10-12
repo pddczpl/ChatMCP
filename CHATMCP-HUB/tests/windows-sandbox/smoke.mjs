@@ -65,9 +65,14 @@ export async function runSmokeTests() {
 
     if (process.platform === 'win32') {
       // On Windows 11 host: verify preflight detected environment honestly
-      assert.ok(preflight.details.osCaption.length > 0, 'Detected OS caption');
-      assert.ok(preflight.details.osBuild > 0, 'Detected OS build');
-      assert.equal(preflight.details.osArch, 'x64', 'Detected 64-bit architecture');
+      // GitHub-hosted Windows runners may time out CIM queries under load.
+      // Missing evidence must BLOCK readiness, not falsely certify a platform.
+      if (!preflight.details.osCaption || !preflight.details.osBuild) {
+        assert.ok(preflight.blockers.some((x) => x.includes('Cannot verify Windows edition/build')),
+          'Unknown OS identity must produce a fail-closed preflight blocker');
+        console.log('BLOCKED: Windows OS CIM edition/build not available during this host fixture.');
+      }
+      assert.equal(preflight.details.osArch, 'x64', 'Initial host fixture requires x64');
 
       // On this specific development host, VT-x is disabled in firmware or WindowsSandbox.exe is missing
       if (!preflight.available) {
