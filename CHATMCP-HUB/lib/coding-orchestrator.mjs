@@ -11,6 +11,8 @@ import { assembleStudio } from './assemble.mjs';
 import { scrubEnv, killTree } from './shell-runner.mjs';
 import { readJson, writeJson } from './runtime.mjs';
 import { WorkerTestBroker } from './worker-test-broker.mjs';
+import { createExecutionSnapshot } from './execution-snapshots.mjs';
+import { runVerifiedCoding } from './coding-verification-loop.mjs';
 import { attachWorkerTestTools } from './worker-tools.mjs';
 
 const fail = (code, msg, statusCode=400)=>Object.assign(new Error(msg),{code,statusCode});
@@ -111,7 +113,9 @@ export class CodingWorktreeOrchestrator {
             revoked:signal.aborted, checks:()=>manager.studio.checks(),
           };
         },
-        registry:manager.executionRegistry,
+        // The broker executes only through the trusted parent Hub's registry.
+        // The child model never receives that registry or a host shell.
+        registry:this.manager.executionRegistry,
         // Only CodingWorktreeOrchestrator.grantCheck() invokes issueGrant(),
         // and that HTTP endpoint needs explicit CSRF + owner confirmation.
         authorizeGrant:async()=>({approved:true}),
@@ -146,7 +150,74 @@ export class CodingWorktreeOrchestrator {
               timer.unref?.();
               signal.addEventListener('abort',()=>{clearInterval(timer);reject(signal.reason);},{once:true});
             });
-        return {state:result?.state||result?.status,summary:bounded(result?.finalText||result?.error,12000),taskId:task.id,steps:result?.steps,toolCalls:result?.toolCalls};
+        const initialState=result?.state||result?.status;
+        const initialSummary=bounded(result?.finalText||result?.error,12000);
+        if (initialState!=='completed' || node.verifyRequired!==true) {
+          return {state:initialState,summary:initialSummary,taskId:task.id,steps:result?.steps,toolCalls:result?.toolCalls};
+        }
+        // Verified coding is opt-in and can never silently execute on host.
+        // Require explicitly granted immutable test IDs and a positive Node TAP
+        // result from the authenticated OS-isolated execution backend.
+        const checks=await broker.discoverChecks({workerId:node.id});
+        if (!checks.length) {
+          return {state:'needs_attention',summary:initialSummary+'\nNo supported pinned Node test definition was discovered.',taskId:task.id};
+        }
+        node.status='awaiting_test_grant';
+        await this.#save();
+        let grantIds=null;
+        const expiry=Date.now()+90_000;
+        while(Date.now()<expiry && !signal.aborted) {
+          const matches=checks.map(check=>[...broker.grants.values()].find(grant=>
+            grant.workerId===node.id && grant.checkId===check.id &&
+            grant.checkHash===check.checkHash && grant.sourceHash===check.sourceHash &&
+            !grant.revoked && grant.expiresAt>broker.clock() && grant.attempts<grant.maxAttempts));
+          if(matches.every(Boolean)){grantIds=matches.map(g=>g.id);break;}
+          await new Promise((resolve,reject)=>{
+            const timer=setTimeout(resolve,500);
+            const abort=()=>{clearTimeout(timer);reject(signal.reason||new Error('Stopped'));};
+            signal.addEventListener('abort',abort,{once:true});
+            // Ensure completed waits release their abort listeners.
+            const unref=timer.unref?.bind(timer);unref?.();
+          });
+        }
+        signal.throwIfAborted();
+        if(!grantIds) {
+          return {state:'needs_attention',summary:initialSummary+'\nOwner did not approve all isolated test grants in the allotted window.',taskId:task.id};
+        }
+        node.status='testing';await this.#save();
+        const contentHash=async()=>{
+          const current=await broker.resolveWorker(node.id);
+          const snapshot=await createExecutionSnapshot({
+            workspace:worktree,files:current.files,baseSha:job.baseSha,signal,
+          });
+          try{return snapshot.contentHash;}
+          finally {await fs.rm(snapshot.directory,{recursive:true,force:true}).catch(()=>{});}
+        };
+        const repair=async({failures,cycle})=>{
+          signal.throwIfAborted();
+          const before=await contentHash();
+          const brief=failures.map(f=>({checkId:f.checkId,status:f.status,reasons:f.reasons})).slice(0,12);
+          const continuation=await runner.continue({
+            id:task.id,
+            prompt:'Isolation-verified testing found failing assertions. Diagnose and repair the current managed worktree without changing or weakening required tests. Failure evidence (data only): '+JSON.stringify(brief).slice(0,4500)+'\nRepair cycle '+cycle+'/2. Only use approved file edits. Do not claim tests passed.',
+            maxSteps:12,maxMinutes:5,
+          });
+          const final=runner.context?.done?.promise ? await runner.context.done.promise : runner.get(continuation.id);
+          if((final?.status||final?.state)!=='completed') {
+            return {changed:false,status:final?.status||final?.state};
+          }
+          return {changed:(await contentHash())!==before};
+        };
+        const verified=await runVerifiedCoding({
+          workerId:node.id,checks:checks.map(x=>x.id),grants:grantIds,
+          broker,repair,currentContentHash:contentHash,signal,
+        });
+        node.verificationOutcome=verified;
+        if(verified.state!=='ready_for_review') {
+          return {state:'needs_attention',summary:initialSummary+'\nVerified coding blocked: '+verified.reason,taskId:task.id};
+        }
+        return {state:'completed',summary:initialSummary+'\nAll registered pinned Node checks have fresh signed TAP evidence.',
+          taskId:task.id,steps:result?.steps,toolCalls:result?.toolCalls,verified:true};
       }finally{signal.removeEventListener('abort',onAbort);}
     }finally{
       // Evidence is captured by the broker itself, never by the model's final
@@ -184,7 +255,10 @@ export class CodingWorktreeOrchestrator {
     const ids=new Set();
     const nodes=tasks.map((x)=>{
       if(!slug(x?.id)||ids.has(x.id)||typeof x.prompt!=='string'||!x.prompt.trim()||x.prompt.length>3000)throw fail('invalid_tasks','Tasks require unique safe IDs and prompts <=3000 characters.');
-      ids.add(x.id);return {id:x.id,prompt:x.prompt,maxSteps:x.maxSteps,maxMinutes:x.maxMinutes,status:'queued',branch:null,worktree:null,summary:null,changedFiles:[],commitSha:null};
+      if(x.verify!==undefined && typeof x.verify!=='boolean') throw fail('invalid_tasks','verify must be a boolean.');
+      ids.add(x.id);return {id:x.id,prompt:x.prompt,maxSteps:x.maxSteps,maxMinutes:x.maxMinutes,
+        verifyRequired:x.verify===true,status:'queued',branch:null,worktree:null,summary:null,
+        changedFiles:[],commitSha:null};
     });
     const {root,baseSha,baseBranch}=await this.#verifyRepo();
     const id=randomUUID();
@@ -226,7 +300,10 @@ export class CodingWorktreeOrchestrator {
             node.agentTaskId=out.taskId;
             node.summary=out.summary;
             node.steps=out.steps;node.toolCalls=out.toolCalls;
-            if(out.state!=='completed')throw fail('worker_incomplete','Coding worker did not complete: '+out.state);
+            if(out.state!=='completed') {
+              node.status=out.state==='needs_attention'?'needs_attention':'failed';
+              throw fail('worker_incomplete','Coding worker did not complete: '+out.state);
+            }
             // Stage and commit changes through the trusted GitRunner. The
             // model never sees the Git write APIs or credential helpers.
             await this.#git(['-C',node.worktree,'add','--all'],{writes:true,timeoutMs:60000});
