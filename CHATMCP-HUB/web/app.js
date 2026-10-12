@@ -142,7 +142,6 @@
     pathInput.disabled = !enabled;
     byId('browse-workspace').disabled = !enabled;
     byId('apply-workspace').disabled = !enabled || !inputPath();
-    byId('open-vscode').disabled = !canMutate() || !workspacePath();
     byId('start-services').disabled = !enabled;
     byId('stop-services').disabled = !enabled;
     byId('shutdown-hub').disabled = !enabled;
@@ -638,10 +637,6 @@
   byId('stop-services').addEventListener('click', () => {
     void runAction('Đang dừng kết nối MCP do Hub quản lý…', async () => { renderState(await post('/api/services/stop')); showNotice('Đã thực hiện yêu cầu dừng kết nối.'); });
   });
-  byId('open-vscode').addEventListener('click', () => {
-    void runAction('Đang mở workspace trong VS Code…', async () => { await post('/api/vscode/open'); showNotice('Đã gửi yêu cầu mở workspace trong VS Code.'); }, { allowDuringTask: true });
-  });
-
   byId('create-pair-code').addEventListener('click', () => {
     if (!browserHubSupported() || browserState().paired === true || browserState().pairingAvailable === false) return;
     void runAction('Đang tạo mã ghép tiện ích…', async () => {
