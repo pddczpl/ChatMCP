@@ -72,9 +72,10 @@ export function validateHostMappingPath(dirPath, { isWritable = false, workspace
     }
   }
 
+  const hasDrive = /^[a-zA-Z]:/.test(rawPath);
   const normalized = process.platform === 'win32'
     ? path.resolve(rawPath)
-    : (path.win32.isAbsolute(rawPath) ? path.win32.normalize(rawPath) : path.resolve(rawPath));
+    : (hasDrive ? path.win32.normalize(rawPath) : path.resolve(rawPath));
 
   // 5. If writable, strictly forbid mapping drive roots, user workspace, or home profile directories
   if (isWritable) {
