@@ -23,6 +23,11 @@ export function SettingsTab() {
   const { t } = useTranslation();
 
   const { data: hub, error: hubError, refetch } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 3000 });
+  const { data: sandboxStatus, isLoading: isSandboxLoading } = useQuery({
+    queryKey: ['sandboxStatus'],
+    queryFn: api.getSandboxStatus,
+    refetchInterval: 5000,
+  });
   const permissions: any = hub?.studio?.permissions || {};
   const currentMode = permissions.mode || 'review';
   const isFullAccess = permissions.executionPolicy === 'full-access';
@@ -174,6 +179,84 @@ export function SettingsTab() {
         </span>
       </div>
 
+      {/* Execution Backend & OS Isolation */}
+      <div data-testid="execution-backend-card" className="p-3 rounded-lg bg-[var(--surface)] border border-[var(--line)] space-y-2.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className={`w-7 h-7 rounded-lg flex items-center justify-center border ${
+              isSandboxLoading
+                ? 'bg-sky-500/10 text-sky-400 border-sky-500/20'
+                : sandboxStatus?.osIsolated && sandboxStatus?.available
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+            }`}>
+              <Shield className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-semibold text-[var(--text)]">
+                {t('sandbox_title')}
+              </div>
+              <div className="text-[10px] text-[var(--faint)]">
+                {t('sandbox_desc')}
+              </div>
+            </div>
+          </div>
+
+          <span
+            data-testid="backend-status-badge"
+            className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
+              isSandboxLoading
+                ? 'bg-sky-500/20 text-sky-400 border-sky-500/30'
+                : !sandboxStatus?.available
+                  ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                  : sandboxStatus?.osIsolated
+                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                    : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+            }`}
+          >
+            {isSandboxLoading
+              ? t('sandbox_probing')
+              : !sandboxStatus?.available
+                ? (lang === 'vi' ? 'Không khả dụng' : 'Unavailable')
+                : sandboxStatus?.osIsolated
+                  ? t('sandbox_isolated')
+                  : t('sandbox_unisolated')}
+          </span>
+        </div>
+
+        <div className="space-y-1.5 font-mono text-[10px] bg-[var(--panel)] p-2.5 rounded border border-[var(--line-subtle)]">
+          <div className="flex justify-between items-center text-[var(--text)]">
+            <span className="text-[var(--faint)]">{t('sandbox_backend')}:</span>
+            <span className="font-semibold">{sandboxStatus?.backend || 'host'} ({sandboxStatus?.platform || 'local'})</span>
+          </div>
+          <div className="flex justify-between items-center text-[var(--text)]">
+            <span className="text-[var(--faint)]">{t('sandbox_os_isolation')}:</span>
+            <span className={sandboxStatus?.osIsolated ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold'}>
+              {sandboxStatus?.osIsolated ? t('sandbox_isolation_active') : t('sandbox_isolation_none')}
+            </span>
+          </div>
+          <div className="flex justify-between items-center text-[var(--text)]">
+            <span className="text-[var(--faint)]">{t('sandbox_enforced')}:</span>
+            <span className="text-emerald-400">
+              {sandboxStatus?.enforcedLimits?.join(', ') || 'timeoutSeconds, maxOutputBytes'}
+            </span>
+          </div>
+          <div className="flex justify-between items-center text-[var(--text)]">
+            <span className="text-[var(--faint)]">{t('sandbox_unsupported')}:</span>
+            <span className="text-amber-400/90">
+              {sandboxStatus?.unsupportedLimits?.join(', ') || 'maxMemoryMb, maxCpuCores'} ({t('sandbox_unenforced_hint')})
+            </span>
+          </div>
+          {sandboxStatus?.reasons && sandboxStatus.reasons.length > 0 && (
+            <div className="pt-1 text-[10px] border-t border-[var(--line-subtle)] space-y-0.5">
+              {sandboxStatus.reasons.map((r: string, idx: number) => (
+                <div key={idx} className="leading-tight text-amber-400/80">• {r}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Permission Execution Modes */}
       <div className="space-y-2">
         <label className="text-[11px] font-semibold text-[var(--muted)] block">
@@ -280,7 +363,7 @@ export function SettingsTab() {
           <span>{t('backend_status')}</span>
         </div>
         <div className="text-[var(--faint)]">
-          Host: {window.location.host || '127.0.0.1:3007'} (Local-only daemon; external hosting is not supported)
+          Host: {typeof window !== 'undefined' ? window.location?.host || '127.0.0.1:3007' : '127.0.0.1:3007'} (Local-only daemon; external hosting is not supported)
         </div>
         <div className={hubError ? 'text-rose-400' : 'text-[var(--faint)]'} role="status">
           {hubError ? `Không kết nối được Hub: ${hubError.message}` : hub ? 'Đã nhận trạng thái từ Hub' : 'Đang kết nối Hub…'}

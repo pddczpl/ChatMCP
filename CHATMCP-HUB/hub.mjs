@@ -13,6 +13,7 @@ import { publicPresets } from './lib/provider-presets.mjs';
 import { AiProfiles } from './lib/ai-profiles.mjs';
 import { WorkspaceLock } from './lib/workspace-lock.mjs';
 import { SandboxEngine } from './lib/sandbox-engine.mjs';
+import { PermissionGate } from './lib/permissions.mjs';
 import { PluginManager } from './lib/plugins.mjs';
 import { CodingWorktreeOrchestrator } from './lib/coding-orchestrator.mjs';
 import { GitHubSkillRegistry } from './lib/skill-registry.mjs';
@@ -95,7 +96,8 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   let aiBusy = false;
   const taskEngine = agent ?? browser;
   const studio = manager.studio;
-  const gate = manager.permissions;
+  const permissions = manager.permissions;
+  const gate = manager.permissions instanceof PermissionGate ? manager.permissions : null;
   const terminal = manager.terminal;
   const delegates = manager.delegates;
   const coding = manager.codingOrchestrator;
@@ -110,8 +112,16 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   pluginManager.load().catch(() => {});
   const skillRegistry = new GitHubSkillRegistry({ pluginManager, stateDir: hubStateDir });
   skillRegistry.load().catch(() => {});
-  const sandboxEngine = new SandboxEngine({mode:'host',workspaceRoot:manager.workspace,workspace:manager.studio});
-  const state = (csrf = token) => ({ ...manager.state(), ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions:gate?.state()??null, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null} : null, csrfToken: csrf });
+  const sandboxEngine = manager.sandboxEngine || new SandboxEngine({
+    mode: 'host',
+    workspaceRoot: manager.workspace,
+    workspace: manager.studio,
+    registry: manager.executionRegistry,
+    permissionGate: gate,
+  });
+  manager.sandboxEngine = sandboxEngine;
+  manager.executionRegistry = sandboxEngine.registry;
+  const state = (csrf = token) => ({ ...manager.state(), ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions:permissions?.state?.()??gate?.state()??null, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null} : null, csrfToken: csrf });
   const requireNoTask = () => { if (taskEngine?.state().activeTaskId) { const e = new Error('Hủy hoặc chờ nhiệm vụ hoàn tất trước khi thay đổi kết nối AI.'); e.statusCode = 409; throw e; } };
   const changeAi = async (operation) => {
     requireNoTask();
