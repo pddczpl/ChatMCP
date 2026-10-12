@@ -760,6 +760,21 @@ console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
   assert.ok((await fs.readFile(path.join(store,'skills-lock.json'),'utf8')).includes(result.contentHash));
   assert.equal(reg.updates().length,0);
   ok('Skills registry recursively imports binary assets with Git SHA integrity, license evidence and lockfile hash');
+  assert.deepEqual(refreshed.succeeded,['anthropic']);
+  const noNetwork=new GitHubSkillRegistry({
+    pluginManager:pm,stateDir:store,
+    transport:async()=>{throw new Error('temporary registry outage');},
+    binaryTransport,
+  });
+  await noNetwork.load();
+  const oldCount=noNetwork.list().length;
+  const unavailable=await noNetwork.refresh({sourceId:'anthropic'});
+  assert.equal(unavailable.found,0);
+  assert.equal(unavailable.failures.length,1);
+  assert.equal(unavailable.total,oldCount);
+  assert.equal(noNetwork.list().length,oldCount);
+  ok('Failed registry refresh retains previous index and reports genuine discovery outcome');
+
 }
 
 console.log(`\nPASS: ${checks} Phase 4 feature and integration checks passed cleanly.`);

@@ -48,7 +48,7 @@ export class GitHubSkillRegistry {
     if(this.busy)throw fault('registry_busy','Registry is already refreshing.',409);
     const sources=sourceId?this.sourceRecords.filter(x=>x.id===sourceId):this.sourceRecords;
     if(!sources.length)throw fault('unknown_source','Unknown registry source.',404);
-    this.busy=true;const found=[];const failures=[];
+    this.busy=true;const found=[];const failures=[];const succeeded=new Set();
     try{
       for(const source of sources){
         try{
@@ -67,7 +67,8 @@ export class GitHubSkillRegistry {
               const folder=item.path.slice(0,-'/SKILL.md'.length);
               if(folder.split('/').some(x=>!x||x==='.'||x==='..'))continue;
               const slug=(source.id+'-'+folder.slice(source.prefix.length+1)).toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'');
-              const id=normalizeSkillId(slug.length<=64?slug:slug.slice(0,55)+'-'+sha.slice(0,8));
+              const sourcePathHash=crypto.createHash('sha256').update(source.repo+'\0'+folder).digest('hex').slice(0,8);
+              const id=normalizeSkillId(slug.length<=64?slug:slug.slice(0,55)+'-'+sourcePathHash);
               found.push({key:source.id+':'+folder,sourceId:source.id,id,name:folder.split('/').at(-1),description:'',repo:source.repo,
                 revision:sha,treeSha,blobSha:item.sha,folder,manifestPath:item.path,license:'unknown',verifiedLicense:null,redistributable:false});
             }
@@ -85,14 +86,16 @@ export class GitHubSkillRegistry {
               found.push({key:source.id+':'+folder,sourceId:source.id,id,name:parsed.name,description:parsed.description||'',repo:source.repo,revision:sha,folder,manifestPath:folder+'/SKILL.md',license:parsed.license||'unknown',verifiedLicense:null,redistributable:false});
             }catch{ /* No valid skill manifest in this subdirectory. */ }
           }
+          succeeded.add(source.id);
         }catch(e){failures.push({source:source.id,error:String(e.message||e).slice(0,180)});}
       }
-      const updated=new Map((sourceId?this.entries.filter(x=>x.sourceId!==sourceId):[]).map(x=>[x.key,x]));
-      for(const item of found)updated.set(item.key,item);
+      // Keep the last known-good entries for every source that failed.
+      const updated=new Map(this.entries.filter(x=>!succeeded.has(x.sourceId)).map(x=>[x.key,x]));
+      for(const item of found.filter(x=>succeeded.has(x.sourceId)))updated.set(item.key,item);
       this.entries=[...updated.values()].slice(0,5000);
       this.updatedAt=new Date().toISOString();
       await this.#persist();
-      return {found:found.length,total:this.entries.length,failures,updatedAt:this.updatedAt};
+      return {found:found.filter(x=>succeeded.has(x.sourceId)).length,total:this.entries.length,failures,updatedAt:this.updatedAt,succeeded:[...succeeded]};
     }finally{this.busy=false;}
   }
   async install({key,update=false}={}){
