@@ -915,6 +915,10 @@ export class PluginManager {
       installedAt: p.installedAt || null,
       sourceUrl: p.sourceUrl || null,
       commitSha: p.commitSha || null,
+      resourcePaths: p.resourcePaths || [],
+      contentHash: p.contentHash || null,
+      licenseEvidence: p.licenseEvidence || null,
+      dependencies: p.dependencies || null,
     }));
   }
 
@@ -1022,7 +1026,8 @@ export class PluginManager {
     const resourcePaths=resourceFiles.map(x=>x.path);
     const entry={
       id:safeId,name,description,version,license,declaredLicense:license,
-      verifiedLicense:licenseEvidence?.status==='matched_file' ? licenseEvidence.spdx : null,
+      // Automated pattern matching is license evidence, not verified legal permission.
+      verifiedLicense:null,
       licenseEvidence:licenseEvidence||null,dependencies,redistributable:false,author,tools,
       systemPrompt,sourceUrl,commitSha,resourcePaths,
       category:'skills',provenance:'github-registry',enabled:false,

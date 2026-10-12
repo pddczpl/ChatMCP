@@ -191,7 +191,8 @@ export class GitHubSkillRegistry {
       // Report links to missing dependencies (never fetch outside the pinned folder).
       const refs=[...originalSkillText.matchAll(/\]\((?:\.\/)?([^()\s#?]+)(?:#[^)]*)?\)/g)].map(m=>m[1]);
       const missing=[...new Set(refs)].filter(x=>!names.has(x)&&x!=='SKILL.md'&&
-        !/^(https?:|mailto:|#)/.test(x)&&!x.startsWith('../')).slice(0,100);
+        !/^(https?:|mailto:|#)/.test(x)).slice(0,100);
+      const externalReferences=[...new Set(refs.filter(x=>/^https?:/i.test(x)))].slice(0,50);
       const candidate=resourceFiles.find(x=>/^(LICENSE|LICENCE)(?:\.(?:md|txt))?$/i.test(x.path));
       let licenseEvidence={status:'unknown',spdx:null,path:null,scope:null,redistributionReviewed:false};
       if(candidate){
@@ -219,7 +220,7 @@ export class GitHubSkillRegistry {
         author:parsed.author,systemPrompt:parsed.systemPrompt,tools:parsed.tools,
         sourceUrl:raw(entry.repo,entry.revision,entry.manifestPath),commitSha:entry.revision,
         originalSkillText,resourceFiles,licenseEvidence,
-        dependencies:{referenced:refs,unresolved:missing,fileCount:resourceFiles.length,bytes:byteCount},update
+        dependencies:{referenced:refs,unresolved:missing,externalReferences,fileCount:resourceFiles.length,bytes:byteCount},update
       });
       return {...installed,resourceCount:resourceFiles.length,missingDependencies:missing,readOnlyImport:true,licenseEvidence};
     }finally{this.busy=false;}
