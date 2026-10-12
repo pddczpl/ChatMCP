@@ -46,6 +46,7 @@ export class WorkerTestBroker {
     // executes it, and link/special files fail closed.
     const checkFiles = new Set(['package.json','pyproject.toml','pytest.ini','Cargo.toml','go.mod','Makefile']);
     const configHashes = [];
+    const supportedCommands = [];
     for (const check of commands) {
       if (!checkFiles.has(check.from) || !worker.files.includes(check.from)) {
         throw fault('unsafe_check_source','Registered test definition is not owned by the selected worktree.');
@@ -69,10 +70,22 @@ export class WorkerTestBroker {
           throw fault('stale_check','Check configuration changed while being hashed.');
         }
         configHashes.push({from:check.from,sha256:hash(bytes)});
+        // Only a pinned offline Node --test is supported in this first backend.
+        // Never execute project-defined npm lifecycle hooks under SYSTEM.
+        if (check.from === 'package.json') {
+          let pkg;
+          try { pkg = JSON.parse(bytes.toString('utf8')); }
+          catch { throw fault('invalid_check_config', 'package.json test configuration is invalid.'); }
+          if (typeof pkg?.scripts?.test === 'string' &&
+              pkg.scripts.test.trim() === 'node --test' &&
+              !pkg.scripts.pretest && !pkg.scripts.posttest) {
+            supportedCommands.push({from:check.from,command:'node --test'});
+          }
+        }
       } finally {await file.close();}
     }
     const sourceHash = hash(JSON.stringify({commands,configHashes}));
-    const descriptors = commands.slice(0, 30).filter(x =>
+    const descriptors = supportedCommands.slice(0, 30).filter(x =>
       typeof x.command === 'string' && x.command.trim() && x.command.length <= 2048
     ).map(({ command, from }) => {
       const info = { workerId, sourceHash, command, cwd: '.', toolchain: 'offline-node-pinned', policy: 'windows-sandbox' };
