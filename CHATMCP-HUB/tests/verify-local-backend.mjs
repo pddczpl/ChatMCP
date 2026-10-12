@@ -132,20 +132,12 @@ try {
   await section('manager construction and command-line options', async () => {
     const standalone = new HubManager({ dataDirectory: path.join(root, 'standalone'), bundleRoot });
     equal(standalone.backend, 'local', 'without --repo-root the backend is local');
-    equal(Object.keys(standalone.services).sort(), ['cloud', 'desktop', 'docker', 'local', 'proxy'], 'service entries');
-    equal(standalone.services.docker.state, 'disabled', 'Docker is not used by the local backend');
-    equal(standalone.state().proxyUrl, null, 'no MCP proxy URL in local mode');
-
-    const legacy = new HubManager({ repoRoot: path.join(root, 'cloud-harness-mcp'), bundleRoot });
-    equal(legacy.backend, 'mcp', 'with --repo-root the original MCP backend is kept');
-    equal(legacy.hubDirectory, path.join(root, 'cloud-harness-mcp', 'deploy', '.generated', 'chatmcp-hub'), 'legacy state folder is unchanged');
-    equal(Object.keys(legacy.services).sort(), ['cloud', 'desktop', 'docker', 'proxy'], 'legacy service entries');
-    assert.throws(() => legacy.acquireTask('11111111-1111-4111-8111-111111111111'), /MCP chưa qua kiểm tra/); checks += 1;
-    assert.throws(() => new HubManager({ bundleRoot, backend: 'mcp', dataDirectory: root }), /cần --repo-root/); checks += 1;
-    assert.throws(() => new HubManager({ bundleRoot }), /repoRoot hoặc dataDirectory/); checks += 1;
-    assert.throws(() => new HubManager({ bundleRoot, dataDirectory: root, backend: 'cloud' }), /Backend phải là/); checks += 1;
-    const mcpPaths = legacy.state();
-    check(mcpPaths.proxyUrl === 'http://127.0.0.1:3006/mcp', 'legacy keeps its proxy URL');
+    equal(Object.keys(standalone.services),['local'],'only local services remain');
+    equal(standalone.state().proxyUrl,null,'legacy proxy URL removed');
+    assert.throws(()=>new HubManager({repoRoot:path.join(root,'old-cloud'),bundleRoot}),/Cloud Harness|backend local/);checks++;
+    assert.throws(()=>new HubManager({bundleRoot,backend:'mcp',dataDirectory:root}),/Cloud Harness|backend local/);checks++;
+    assert.throws(()=>new HubManager({bundleRoot,backend:'cloud',dataDirectory:root}),/Cloud Harness|backend local/);checks++;
+    equal(new HubManager({bundleRoot}).backend,'local','per-user default requires no Cloud Harness');
 
     equal(defaultDataDirectory({ LOCALAPPDATA: 'C:\\Users\\a\\AppData\\Local' }, 'win32', 'C:\\Users\\a').replaceAll('\\', '/').endsWith('ChatMCP/hub'), true, 'Windows state folder under LOCALAPPDATA');
     check(defaultDataDirectory({ XDG_STATE_HOME: '/state' }, 'linux', '/home/a').replaceAll('\\', '/').endsWith('/state/chatmcp'), 'XDG state folder on Linux');
@@ -153,10 +145,9 @@ try {
     check(defaultDataDirectory({ CHATMCP_STATE_DIR: path.join(root, 'env-state') }, 'linux', '/home/a') === path.join(root, 'env-state'), 'CHATMCP_STATE_DIR wins');
 
     const none = parseArguments([], {});
-    equal([none.repoRoot, none.backend, none.open, none.port], [null, null, true, 3007], 'defaults');
+    equal([none.repoRoot,none.backend,none.open,none.port],[null,'local',true,3007],'defaults');
     check(none.stateDir === defaultDataDirectory({}), 'default state folder');
-    const withRepo = parseArguments(['--repo-root', 'X'], {});
-    equal([withRepo.repoRoot, withRepo.stateDir], ['X', null], '--repo-root keeps the legacy state folder');
+    assert.throws(()=>parseArguments(['--repo-root','X'],{}),/unsupported|option/i); checks++;
     equal(parseArguments(['--no-open', '--port', '4000', '--backend', 'local', '--state-dir', root], {}).open, false, '--no-open');
     equal(parseArguments(['--state-dir', root], { CHATMCP_STATE_DIR: '/other' }).stateDir, root, '--state-dir beats the environment');
     equal(parseArguments([], { CHATMCP_NO_OPEN: '1' }).open, false, 'CHATMCP_NO_OPEN');
@@ -170,7 +161,7 @@ try {
   await section('workspace selection starts the local tools', async () => {
     equal(manager.state().services.local.state, 'stopped', 'stopped before a workspace is chosen');
     assert.throws(() => manager.acquireTask('11111111-1111-4111-8111-111111111111'), /thư mục dự án/); checks += 1;
-    assert.throws(() => manager.instructions(), /chỉ dùng với backend MCP/); checks += 1;
+    assert.throws(() => manager.instructions(), /removed/); checks += 1;
     const dir = await project('first');
     const state = await manager.selectWorkspace(dir);
     equal(state.workspace.path, dir, 'workspace selected');
