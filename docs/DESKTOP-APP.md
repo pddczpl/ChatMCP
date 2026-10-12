@@ -34,7 +34,7 @@ dotnet --version
 
 ## 2. Chọn release commit và đồng bộ phiên bản
 
-Trước khi build bản công khai, merge PR sau review/CI và **chọn số version chính thức**, ví dụ v2.4.0 nếu phù hợp với quy tắc phiên bản dự án.
+Trước khi build bản công khai, merge PR sau review/CI và **chọn số version chính thức**, ví dụ v2.5.0 nếu v2.4.0 đã được phát hành và phạm vi thay đổi phù hợp; luôn kiểm tra phiên bản/tags mới nhất trên GitHub trước khi chọn.
 
 Đồng bộ các vị trí sau khi tăng version:
 - CHATMCP-HUB/package.json và VERSION trong CHATMCP-HUB/lib/manager.mjs
