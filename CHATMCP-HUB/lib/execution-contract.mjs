@@ -32,6 +32,44 @@ export const fault = (code, message, statusCode = 400) =>
   Object.assign(new Error(message), { code, statusCode });
 
 /**
+ * Safely truncates a UTF-8 string to stay within maxBytes without splitting multi-byte characters.
+ *
+ * @param {string} str
+ * @param {number} maxBytes
+ * @returns {{ text: string, truncated: boolean, byteLength: number }}
+ */
+export function truncateUtf8Bytes(str, maxBytes) {
+  if (typeof str !== 'string' || !str) {
+    return { text: '', truncated: false, byteLength: 0 };
+  }
+  const buf = Buffer.from(str, 'utf8');
+  if (buf.length <= maxBytes) {
+    return { text: str, truncated: false, byteLength: buf.length };
+  }
+  let end = maxBytes;
+  // Step backward over partial UTF-8 multibyte characters if we split in the middle of one
+  for (let i = 0; i < 4 && end - i > 0; i++) {
+    const b = buf[end - 1 - i];
+    if ((b & 0x80) === 0) {
+      // ASCII single byte (0xxxxxxx)
+      break;
+    } else if ((b & 0xC0) === 0xC0) {
+      // Multibyte start byte: 110xxxxx (2 bytes), 1110xxxx (3 bytes), 11110xxx (4 bytes)
+      let seqLen = 1;
+      if ((b & 0xE0) === 0xC0) seqLen = 2;
+      else if ((b & 0xF0) === 0xE0) seqLen = 3;
+      else if ((b & 0xF8) === 0xF0) seqLen = 4;
+      if (end - 1 - i + seqLen > end) {
+        end = end - 1 - i;
+      }
+      break;
+    }
+  }
+  const text = buf.subarray(0, end).toString('utf8');
+  return { text, truncated: true, byteLength: Buffer.byteLength(text, 'utf8') };
+}
+
+/**
  * Validates and freezes a CapabilityReport.
  *
  * @param {object} report
@@ -204,6 +242,9 @@ export function validateExecutionReceipt(receipt) {
   if (receipt.exitCode !== null && (typeof receipt.exitCode !== 'number' || !Number.isInteger(receipt.exitCode))) {
     throw fault('invalid_receipt', 'exitCode must be an integer or null.');
   }
+  if (receipt.status === 'completed' && receipt.exitCode !== 0) {
+    throw fault('invalid_receipt', 'status cannot be "completed" when exitCode is non-zero or null.');
+  }
   if (typeof receipt.stdout !== 'string') {
     throw fault('invalid_receipt', 'stdout must be a string.');
   }
@@ -318,13 +359,15 @@ export class HostExecutionBackend extends ExecutionBackend {
       osIsolated: false,
       platform: process.platform,
       networkPolicy: 'host-governed',
-      writeScope: 'workspace-only',
+      writeScope: 'host-filesystem',
       concurrency: 1,
       enforcedLimits: ['timeoutSeconds', 'maxOutputBytes'],
-      unsupportedLimits: ['maxMemoryMb', 'maxCpuCores'],
+      unsupportedLimits: ['maxMemoryMb', 'maxCpuCores', 'customEnv'],
       reasons: [
         'Host execution shares the host OS kernel and user account credentials',
         'OS-level memory/CPU limits are not enforced by host backend',
+        'Process has unconfined host filesystem write access (no OS filesystem jail)',
+        'Per-call environment variable overrides are not supported by host shell runner',
       ],
       observedAt: new Date().toISOString(),
     });
@@ -358,63 +401,97 @@ export class HostExecutionBackend extends ExecutionBackend {
       });
     }
 
+    // Fail-closed: Sub-second timeout check (ShellRunner minimum is 1000ms)
+    if (request.limits.timeoutSeconds < 1) {
+      throw fault(
+        'unsupported_limit',
+        `Host backend cannot enforce sub-second timeout (${request.limits.timeoutSeconds}s < 1s).`,
+        400
+      );
+    }
+
+    // Fail-closed: custom environment overrides are not supported per-call
+    if (request.env && Object.keys(request.env).length > 0) {
+      throw fault(
+        'unsupported_limit',
+        'Host backend does not support per-call custom environment overrides (customEnv).',
+        400
+      );
+    }
+
     const abortController = new AbortController();
-    const onParentAbort = () => abortController.abort(signal.reason);
+    const onParentAbort = () => abortController.abort(signal?.reason);
     if (signal) signal.addEventListener('abort', onParentAbort, { once: true });
 
     this.activeRuns.set(runId, abortController);
 
     try {
-      const env = {};
-      if (request.envAllowlist && request.envAllowlist.length > 0) {
-        for (const key of request.envAllowlist) {
-          if (request.env && request.env[key] !== undefined) {
-            env[key] = request.env[key];
-          } else if (process.env[key] !== undefined) {
-            env[key] = process.env[key];
-          }
-        }
-      } else if (request.env) {
-        Object.assign(env, request.env);
-      }
+      const timeoutMs = Math.round(request.limits.timeoutSeconds * 1000);
+      const maxOutputBytes = request.limits.maxOutputBytes || DEFAULT_EXECUTION_LIMITS.maxOutputBytes;
 
       const result = await this.shellRunner.run({
         command: request.command,
         cwd: request.cwd || '.',
         shell: request.shell || 'auto',
-        timeout_seconds: request.limits.timeoutSeconds,
-        env,
+        timeoutMs,
+        maxOutputBytes,
         signal: abortController.signal,
       });
 
       const completedAt = new Date().toISOString();
       const durationMs = Date.now() - startTime;
-      const timedOut = Boolean(result.timed_out || result.timedOut);
-      const isCancelled = abortController.signal.aborted;
+      const timedOut = Boolean(result?.timed_out || result?.timedOut);
+      const isCancelled = abortController.signal.aborted || Boolean(result?.cancelled);
+      const hasSignal = result?.signal !== null && result?.signal !== undefined;
+      const isStuck = Boolean(result?.stuck);
+      const rawExitCode = result?.exitCode !== undefined ? result.exitCode : result?.exit_code;
 
-      let status = 'completed';
-      let exitCode = result.exit_code ?? result.exitCode ?? 0;
+      let status;
+      let exitCode;
+      let reasons = [];
+
       if (isCancelled) {
         status = 'cancelled';
         exitCode = null;
+        reasons = ['Execution cancelled by caller or abort signal'];
       } else if (timedOut) {
         status = 'timed_out';
         exitCode = null;
-      } else if (exitCode !== 0) {
+        reasons = ['Command execution exceeded timeout'];
+      } else if (isStuck) {
         status = 'failed';
+        exitCode = null;
+        reasons = ['Process became stuck/unresponsive and was forcefully terminated'];
+      } else if (hasSignal) {
+        status = 'failed';
+        exitCode = null;
+        reasons = [`Process terminated by signal ${result.signal}`];
+      } else if (typeof rawExitCode !== 'number') {
+        status = 'failed';
+        exitCode = null;
+        reasons = ['Process exited with unknown or missing exit code'];
+      } else if (rawExitCode !== 0) {
+        status = 'failed';
+        exitCode = rawExitCode;
+        reasons = [`Process exited with non-zero exit code ${rawExitCode}`];
+      } else {
+        status = 'completed';
+        exitCode = 0;
       }
 
-      const stdout = result.stdout || '';
-      const stderr = result.stderr || '';
-      const maxOutputBytes = request.limits.maxOutputBytes || DEFAULT_EXECUTION_LIMITS.maxOutputBytes;
-      const truncated = stdout.length > maxOutputBytes || stderr.length > maxOutputBytes;
+      const rawStdout = typeof result?.stdout === 'string' ? result.stdout : '';
+      const rawStderr = typeof result?.stderr === 'string' ? result.stderr : '';
+      const outCut = truncateUtf8Bytes(rawStdout, maxOutputBytes);
+      const errCut = truncateUtf8Bytes(rawStderr, maxOutputBytes);
+      const runnerTruncated = Boolean(result?.truncated?.stdout || result?.truncated?.stderr);
+      const truncated = runnerTruncated || outCut.truncated || errCut.truncated;
 
       return validateExecutionReceipt({
         runId,
         status,
         exitCode,
-        stdout: truncated ? stdout.slice(0, maxOutputBytes) : stdout,
-        stderr: truncated ? stderr.slice(0, maxOutputBytes) : stderr,
+        stdout: outCut.text,
+        stderr: errCut.text,
         startedAt,
         completedAt,
         durationMs,
@@ -423,12 +500,16 @@ export class HostExecutionBackend extends ExecutionBackend {
         checkHash: request.checkHash,
         truncated,
         evidencePath: null,
-        reasons: timedOut ? ['Command execution exceeded timeout'] : isCancelled ? ['Execution cancelled'] : [],
+        reasons,
       });
     } catch (err) {
       const completedAt = new Date().toISOString();
       const durationMs = Date.now() - startTime;
       const isCancelled = abortController.signal.aborted;
+
+      if (err?.code === 'unsupported_limit') {
+        throw err;
+      }
 
       return validateExecutionReceipt({
         runId,
@@ -483,11 +564,12 @@ export class WindowsSandboxPlaceholderBackend extends ExecutionBackend {
       networkPolicy: 'denied',
       writeScope: 'guest-ephemeral',
       concurrency: 1,
-      enforcedLimits: ['timeoutSeconds', 'maxMemoryMb'],
-      unsupportedLimits: ['maxCpuCores'],
+      enforcedLimits: [],
+      unsupportedLimits: ['timeoutSeconds', 'maxOutputBytes', 'maxMemoryMb', 'maxCpuCores', 'customEnv'],
       reasons: [
         'Windows Sandbox execution provider is not implemented in PR 1 (feasibility gate prerequisite for PR 2/3)',
         'Windows Sandbox guest supervisor and execution transport are not yet provisioned',
+        'No isolation capabilities or limits have been verified on this machine',
       ],
       observedAt: new Date().toISOString(),
     });
@@ -528,11 +610,16 @@ export class WindowsSandboxPlaceholderBackend extends ExecutionBackend {
  * Execution Registry that manages backends and dispatches execution requests fail-closed.
  */
 export class ExecutionRegistry {
-  constructor({ maxCapabilityAgeMs = 30000, now = () => Date.now() } = {}) {
+  constructor({ maxCapabilityAgeMs = 30000, now = () => Date.now(), defaultGate = null } = {}) {
     this.backends = new Map();
     this.cachedReports = new Map();
     this.maxCapabilityAgeMs = maxCapabilityAgeMs;
     this.now = now;
+    this.permissionGate = defaultGate;
+  }
+
+  attachPermissionGate(gate) {
+    this.permissionGate = gate;
   }
 
   register(backend) {
@@ -601,17 +688,19 @@ export class ExecutionRegistry {
    * 4. Fails closed if backend is unavailable.
    * 5. Fails closed with 'isolation_unavailable' if OS isolation is required but unavailable.
    * 6. Fails closed if any required resource limit is unsupported.
-   * 7. Checks permission gate if supplied.
+   * 7. Fail-closed: Authoritative permission check (untrusted execution requires gate).
    * 8. Executes via verified backend only.
    *
    * @param {object} requestInput
    * @param {object} [options]
    * @param {AbortSignal} [options.signal]
    * @param {object} [options.permissionGate]
+   * @param {string} [options.taskId]
+   * @param {boolean} [options.trustedInternal=false]
    * @param {string[]} [options.requiredLimits]
    * @returns {Promise<ExecutionReceipt>}
    */
-  async dispatch(requestInput, { signal, permissionGate = null, requiredLimits = [] } = {}) {
+  async dispatch(requestInput, { signal, permissionGate = null, taskId = null, trustedInternal = false, requiredLimits = [] } = {}) {
     const request = validateExecutionRequest(requestInput);
     const startedAt = new Date(this.now()).toISOString();
 
@@ -713,12 +802,13 @@ export class ExecutionRegistry {
       }
     }
 
-    // 7. Permission check if a PermissionGate was provided
-    if (permissionGate) {
-      const auth = await permissionGate.authorize({
+    // 7. Fail-closed: Authoritative permission check
+    const gate = permissionGate || this.permissionGate;
+    if (gate) {
+      const auth = await gate.authorize({
         name: 'local.run_command',
-        args: { command: request.command, cwd: request.cwd },
-        taskId: request.runId,
+        args: { command: request.command, cwd: request.cwd, isolationRequired: request.isolationRequired },
+        taskId: taskId || request.runId,
         signal,
       });
       if (!auth.allowed) {
@@ -739,6 +829,23 @@ export class ExecutionRegistry {
           reasons: [auth.reason],
         });
       }
+    } else if (!trustedInternal) {
+      return validateExecutionReceipt({
+        runId: request.runId,
+        status: 'blocked',
+        exitCode: null,
+        stdout: '',
+        stderr: 'Permission gate missing: untrusted execution requires an authoritative PermissionGate or explicit trustedInternal authorization.',
+        startedAt,
+        completedAt: startedAt,
+        durationMs: 0,
+        backend: targetBackendId,
+        snapshotHash: request.snapshotHash,
+        checkHash: request.checkHash,
+        truncated: false,
+        evidencePath: null,
+        reasons: ['Untrusted execution requires an authoritative PermissionGate or explicit trustedInternal authorization'],
+      });
     }
 
     // 8. Execute via target backend
@@ -754,8 +861,9 @@ export function createDefaultExecutionRegistry({
   workspace = null,
   shellRunner = null,
   limits = {},
+  permissionGate = null,
 } = {}) {
-  const registry = new ExecutionRegistry();
+  const registry = new ExecutionRegistry({ defaultGate: permissionGate });
   const hostBackend = new HostExecutionBackend({ workspaceRoot, workspace, shellRunner, limits });
   const sandboxBackend = new WindowsSandboxPlaceholderBackend();
   registry.register(hostBackend);

@@ -40,6 +40,8 @@ export class SandboxEngine {
     limits = {},
     shellRunner = null,
     registry = null,
+    permissionGate = null,
+    trustedInternal = null,
   } = {}) {
     if (!SANDBOX_MODES.includes(mode)) {
       throw fault('invalid_mode', `Chế độ sandbox không hợp lệ (${mode}). Cho phép: ${SANDBOX_MODES.join(', ')}.`);
@@ -51,11 +53,14 @@ export class SandboxEngine {
       ? workspace
       : { resolve: async (rel = '') => ({ absolute: path.resolve(this.workspaceRoot, String(rel || '.')), relative: String(rel || '.') }) };
     this.shellRunner = shellRunner || new ShellRunner({ workspace: effectiveWs });
+    this.permissionGate = permissionGate;
+    this.trustedInternal = trustedInternal !== null ? Boolean(trustedInternal) : !permissionGate;
     this.registry = registry || createDefaultExecutionRegistry({
       workspaceRoot: this.workspaceRoot,
       workspace: effectiveWs,
       shellRunner: this.shellRunner,
       limits: this.limits,
+      permissionGate: this.permissionGate,
     });
   }
 
@@ -73,13 +78,15 @@ export class SandboxEngine {
           osIsolated: false,
           platform: process.platform,
           networkPolicy: 'host-governed',
-          writeScope: 'workspace-only',
+          writeScope: 'host-filesystem',
           concurrency: 1,
           enforcedLimits: ['timeoutSeconds', 'maxOutputBytes'],
-          unsupportedLimits: ['maxMemoryMb', 'maxCpuCores'],
+          unsupportedLimits: ['maxMemoryMb', 'maxCpuCores', 'customEnv'],
           reasons: [
             'Host execution shares the host OS kernel and user account credentials',
             'OS-level memory/CPU limits are not enforced by host backend',
+            'Process has unconfined host filesystem write access (no OS filesystem jail)',
+            'Per-call environment variable overrides are not supported by host shell runner',
           ],
           observedAt: new Date().toISOString(),
         };
@@ -133,6 +140,9 @@ export class SandboxEngine {
    * @param {string} [options.snapshotId] Optional snapshot identifier
    * @param {string} [options.checkId] Optional check identifier
    * @param {string[]} [options.requiredLimits] Optional array of strictly required limits
+   * @param {object} [options.permissionGate] Optional PermissionGate instance
+   * @param {string} [options.taskId] Optional taskId for permission authorization
+   * @param {boolean} [options.trustedInternal] Optional trusted internal bypass flag
    * @returns {Promise<{ exitCode: number|null, stdout: string, stderr: string, durationMs: number, timedOut: boolean, mode: string, receipt: object, status: string }>}
    */
   async execute({
@@ -147,6 +157,9 @@ export class SandboxEngine {
     snapshotId,
     checkId,
     requiredLimits = [],
+    permissionGate = null,
+    taskId = null,
+    trustedInternal = null,
   } = {}) {
     if (!command || typeof command !== 'string') {
       throw fault('missing_command', 'Lệnh thực thi không được để trống.');
@@ -172,7 +185,15 @@ export class SandboxEngine {
       env,
     };
 
-    const receipt = await this.registry.dispatch(request, { signal });
+    const effectiveGate = permissionGate !== null ? permissionGate : this.permissionGate;
+    const effectiveTrusted = trustedInternal !== null ? Boolean(trustedInternal) : this.trustedInternal;
+
+    const receipt = await this.registry.dispatch(request, {
+      signal,
+      permissionGate: effectiveGate,
+      taskId: taskId || effectiveRunId,
+      trustedInternal: effectiveTrusted,
+    });
 
     return {
       exitCode: receipt.exitCode,

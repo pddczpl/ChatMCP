@@ -115,6 +115,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
     workspaceRoot: manager.workspace,
     workspace: manager.studio,
     registry: manager.executionRegistry,
+    permissionGate: gate,
   });
   manager.sandboxEngine = sandboxEngine;
   manager.executionRegistry = sandboxEngine.registry;

@@ -563,20 +563,24 @@ try {
     assert.equal(status.available, true);
     assert.equal(status.osIsolated, false);
     assert.equal(status.platform, process.platform);
+    assert.equal(status.writeScope, 'host-filesystem');
     assert.deepEqual(status.enforcedLimits, ['timeoutSeconds', 'maxOutputBytes']);
-    assert.deepEqual(status.unsupportedLimits, ['maxMemoryMb', 'maxCpuCores']);
+    assert.deepEqual(status.unsupportedLimits, ['maxMemoryMb', 'maxCpuCores', 'customEnv']);
     assert.ok(status.backends.length >= 2, 'Must list both host and windows-sandbox placeholder');
 
     const sandboxBackendInfo = status.backends.find((b) => b.backend === 'windows-sandbox');
     assert.ok(sandboxBackendInfo);
     assert.equal(sandboxBackendInfo.available, false);
     assert.equal(sandboxBackendInfo.osIsolated, true);
+    assert.deepEqual(sandboxBackendInfo.enforcedLimits, []);
+    assert.deepEqual(sandboxBackendInfo.unsupportedLimits, ['timeoutSeconds', 'maxOutputBytes', 'maxMemoryMb', 'maxCpuCores', 'customEnv']);
 
     // Asynchronous probe matches status
     const probed = await engine.probe('host');
     assert.equal(probed.backend, 'host');
     assert.equal(probed.osIsolated, false);
     assert.equal(probed.available, true);
+    assert.equal(probed.writeScope, 'host-filesystem');
 
     // Executing with isolationRequired fails closed
     const isoResult = await engine.execute({
@@ -595,9 +599,10 @@ try {
       mode: 'host',
       workspaceRoot: work,
       workspace: studio,
+      trustedInternal: true,
     });
 
-    // Run a standard safe command on the host (like node -e "console.log('hello host')")
+    // Run a standard safe command on the host
     const result = await engine.execute({
       command: 'node -e "console.log(\'hello host\')"',
       cwd: '.',
@@ -612,6 +617,468 @@ try {
     assert.equal(result.receipt.exitCode, 0);
 
     ok('12. Existing host execution behavior works without regression');
+  }
+
+  // ------------------------------------------------------------------ 13. ShellRunner timeoutMs and limits conversion & sub-second rejection
+  {
+    class TrackingShellRunner {
+      constructor() {
+        this.lastOptions = null;
+      }
+      async run(options) {
+        this.lastOptions = options;
+        return {
+          shell: 'bash',
+          transport: 'argv',
+          cwd: '.',
+          pid: 10101,
+          exitCode: 0,
+          signal: null,
+          timedOut: false,
+          cancelled: false,
+          lingering: false,
+          stuck: false,
+          durationMs: 40,
+          stdout: 'tracking ok\n',
+          stderr: '',
+          truncated: { stdout: false, stderr: false },
+          outputBytes: { stdout: 12, stderr: 0 },
+        };
+      }
+    }
+
+    const trackingRunner = new TrackingShellRunner();
+    const hostBackend = new HostExecutionBackend({
+      workspaceRoot: work,
+      workspace: studio,
+      shellRunner: trackingRunner,
+    });
+    const registry = new ExecutionRegistry();
+    registry.register(hostBackend);
+
+    // Timeout in seconds (45s) must be accurately converted to timeoutMs (45000ms)
+    const receipt = await registry.dispatch(
+      {
+        runId: 'run-timeout-conv',
+        snapshotId: 's',
+        checkId: 'c',
+        command: 'echo timing',
+        backend: 'host',
+        isolationRequired: false,
+        limits: { timeoutSeconds: 45, maxOutputBytes: 4096 },
+      },
+      { trustedInternal: true }
+    );
+
+    assert.equal(receipt.status, 'completed');
+    assert.equal(trackingRunner.lastOptions.timeoutMs, 45000, 'timeoutSeconds (45) must be converted to timeoutMs (45000)');
+    assert.equal(trackingRunner.lastOptions.maxOutputBytes, 4096, 'maxOutputBytes must be passed to ShellRunner');
+
+    // Sub-second timeout (< 1s) cannot be enforced by ShellRunner and must be rejected fail-closed
+    await assert.rejects(
+      () =>
+        registry.dispatch(
+          {
+            runId: 'run-subsecond-fail',
+            snapshotId: 's',
+            checkId: 'c',
+            command: 'echo quick',
+            backend: 'host',
+            isolationRequired: false,
+            limits: { timeoutSeconds: 0.5 },
+          },
+          { trustedInternal: true }
+        ),
+      (err) => {
+        assert.equal(err.code, 'unsupported_limit');
+        assert.match(err.message, /sub-second timeout/);
+        return true;
+      }
+    );
+
+    // Per-call custom env overrides must be rejected fail-closed
+    await assert.rejects(
+      () =>
+        registry.dispatch(
+          {
+            runId: 'run-env-unsupported',
+            snapshotId: 's',
+            checkId: 'c',
+            command: 'echo env',
+            backend: 'host',
+            isolationRequired: false,
+            env: { SECRET_OVERRIDE: 'custom' },
+          },
+          { trustedInternal: true }
+        ),
+      (err) => {
+        assert.equal(err.code, 'unsupported_limit');
+        assert.match(err.message, /custom environment overrides/);
+        return true;
+      }
+    );
+
+    ok('13. ShellRunner timeoutMs and maxOutputBytes enforced accurately; sub-second and env overrides fail closed');
+  }
+
+  // ------------------------------------------------------------------ 14. Output byte cap and UTF-8 multi-byte character boundary safety
+  {
+    const multiByteText = 'Xin chào ChatMCP: Tiếng Việt có dấu và biểu tượng cảm xúc 🎉 hoàn toàn hợp lệ!';
+    const rawBytes = Buffer.byteLength(multiByteText, 'utf8');
+
+    class OutputCapShellRunner {
+      async run() {
+        return {
+          shell: 'bash',
+          transport: 'argv',
+          cwd: '.',
+          pid: 20202,
+          exitCode: 0,
+          signal: null,
+          timedOut: false,
+          cancelled: false,
+          lingering: false,
+          stuck: false,
+          durationMs: 20,
+          stdout: multiByteText,
+          stderr: '',
+          truncated: { stdout: false, stderr: false },
+          outputBytes: { stdout: rawBytes, stderr: 0 },
+        };
+      }
+    }
+
+    const hostBackend = new HostExecutionBackend({
+      workspaceRoot: work,
+      workspace: studio,
+      shellRunner: new OutputCapShellRunner(),
+    });
+    const registry = new ExecutionRegistry();
+    registry.register(hostBackend);
+
+    // Byte limit set to 25 bytes (must cut cleanly without breaking multi-byte characters)
+    const receipt = await registry.dispatch(
+      {
+        runId: 'run-unicode-cap',
+        snapshotId: 's',
+        checkId: 'c',
+        command: 'echo unicode',
+        backend: 'host',
+        isolationRequired: false,
+        limits: { maxOutputBytes: 25 },
+      },
+      { trustedInternal: true }
+    );
+
+    assert.equal(receipt.status, 'completed');
+    assert.equal(receipt.truncated, true);
+    assert.ok(Buffer.byteLength(receipt.stdout, 'utf8') <= 25, 'Stdout byte length must not exceed 25 bytes');
+    assert.ok(!receipt.stdout.includes('\uFFFD'), 'Must not contain UTF-8 replacement characters from broken multibyte sequences');
+
+    // Also verify when ShellRunner itself reported truncation
+    class TruncatedShellRunner {
+      async run() {
+        return {
+          shell: 'bash',
+          transport: 'argv',
+          cwd: '.',
+          pid: 20203,
+          exitCode: 0,
+          signal: null,
+          timedOut: false,
+          cancelled: false,
+          lingering: false,
+          stuck: false,
+          durationMs: 30,
+          stdout: 'truncated text',
+          stderr: '',
+          truncated: { stdout: true, stderr: false },
+          outputBytes: { stdout: 100000, stderr: 0 },
+        };
+      }
+    }
+
+    const runner2 = new HostExecutionBackend({ workspaceRoot: work, workspace: studio, shellRunner: new TruncatedShellRunner() });
+    const reg2 = new ExecutionRegistry();
+    reg2.register(runner2);
+
+    const receipt2 = await reg2.dispatch(
+      { runId: 'r-tr', snapshotId: 's', checkId: 'c', command: 'big', backend: 'host', isolationRequired: false },
+      { trustedInternal: true }
+    );
+    assert.equal(receipt2.truncated, true);
+
+    ok('14. Output byte cap and UTF-8 multi-byte boundary truncation verified strictly');
+  }
+
+  // ------------------------------------------------------------------ 15. Unknown/null exit code, signal termination, and stuck process never report completed/PASS
+  {
+    // Fake runner returning exitCode: null without a signal (stuck or abnormal exit)
+    class NullExitShellRunner {
+      async run() {
+        return {
+          shell: 'bash',
+          transport: 'argv',
+          cwd: '.',
+          pid: 30301,
+          exitCode: null,
+          signal: null,
+          timedOut: false,
+          cancelled: false,
+          lingering: false,
+          stuck: false,
+          durationMs: 100,
+          stdout: '',
+          stderr: 'process terminated abnormally',
+          truncated: { stdout: false, stderr: false },
+          outputBytes: { stdout: 0, stderr: 30 },
+        };
+      }
+    }
+
+    const hostBackend = new HostExecutionBackend({
+      workspaceRoot: work,
+      workspace: studio,
+      shellRunner: new NullExitShellRunner(),
+    });
+    const registry = new ExecutionRegistry();
+    registry.register(hostBackend);
+
+    const receiptNull = await registry.dispatch(
+      { runId: 'r-null-exit', snapshotId: 's', checkId: 'c', command: 'crash', backend: 'host', isolationRequired: false },
+      { trustedInternal: true }
+    );
+
+    assert.equal(receiptNull.status, 'failed', 'Null exit code must report failed, NEVER completed');
+    assert.equal(receiptNull.exitCode, null);
+    assert.match(receiptNull.reasons[0], /unknown or missing exit code/);
+
+    // Verify validateExecutionReceipt rejects completed status with null or non-zero exit code
+    assert.throws(
+      () =>
+        validateExecutionReceipt({
+          runId: 'r-bad-receipt',
+          status: 'completed',
+          exitCode: null,
+          stdout: '',
+          stderr: '',
+          startedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+          durationMs: 10,
+          backend: 'host',
+          truncated: false,
+        }),
+      (err) => err.code === 'invalid_receipt'
+    );
+
+    assert.throws(
+      () =>
+        validateExecutionReceipt({
+          runId: 'r-bad-receipt-2',
+          status: 'completed',
+          exitCode: 1,
+          stdout: '',
+          stderr: '',
+          startedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+          durationMs: 10,
+          backend: 'host',
+          truncated: false,
+        }),
+      (err) => err.code === 'invalid_receipt'
+    );
+
+    // Process killed by signal (SIGTERM)
+    class SignalShellRunner {
+      async run() {
+        return {
+          shell: 'bash',
+          transport: 'argv',
+          cwd: '.',
+          pid: 30302,
+          exitCode: null,
+          signal: 'SIGTERM',
+          timedOut: false,
+          cancelled: false,
+          lingering: false,
+          stuck: false,
+          durationMs: 150,
+          stdout: '',
+          stderr: 'Terminated',
+          truncated: { stdout: false, stderr: false },
+          outputBytes: { stdout: 0, stderr: 10 },
+        };
+      }
+    }
+
+    const hostSignal = new HostExecutionBackend({ workspaceRoot: work, workspace: studio, shellRunner: new SignalShellRunner() });
+    const regSignal = new ExecutionRegistry();
+    regSignal.register(hostSignal);
+
+    const receiptSignal = await regSignal.dispatch(
+      { runId: 'r-sig', snapshotId: 's', checkId: 'c', command: 'killme', backend: 'host', isolationRequired: false },
+      { trustedInternal: true }
+    );
+
+    assert.equal(receiptSignal.status, 'failed', 'Signal termination must NEVER be reported as completed');
+    assert.equal(receiptSignal.exitCode, null);
+    assert.match(receiptSignal.reasons[0], /SIGTERM/);
+
+    // Stuck process forcefully terminated
+    class StuckShellRunner {
+      async run() {
+        return {
+          shell: 'bash',
+          transport: 'argv',
+          cwd: '.',
+          pid: 30303,
+          exitCode: null,
+          signal: 'SIGKILL',
+          timedOut: false,
+          cancelled: false,
+          lingering: false,
+          stuck: true,
+          durationMs: 4000,
+          stdout: '',
+          stderr: 'Hard kill',
+          truncated: { stdout: false, stderr: false },
+          outputBytes: { stdout: 0, stderr: 9 },
+        };
+      }
+    }
+
+    const hostStuck = new HostExecutionBackend({ workspaceRoot: work, workspace: studio, shellRunner: new StuckShellRunner() });
+    const regStuck = new ExecutionRegistry();
+    regStuck.register(hostStuck);
+
+    const receiptStuck = await regStuck.dispatch(
+      { runId: 'r-stuck', snapshotId: 's', checkId: 'c', command: 'hang', backend: 'host', isolationRequired: false },
+      { trustedInternal: true }
+    );
+    assert.equal(receiptStuck.status, 'failed');
+    assert.equal(receiptStuck.exitCode, null);
+    assert.match(receiptStuck.reasons[0], /stuck\/unresponsive/);
+
+    ok('15. Unknown/null exit code, signals, and stuck processes strictly report failure and never PASS');
+  }
+
+  // ------------------------------------------------------------------ 16. PermissionGate cannot be bypassed; untrusted execution blocked fail-closed
+  {
+    const spy = new SpySpawner();
+    const registry = createTestRegistry(spy);
+
+    // Dispatch WITHOUT PermissionGate and WITHOUT trustedInternal: true
+    const blockedReceipt = await registry.dispatch({
+      runId: 'r-untrusted-no-gate',
+      snapshotId: 's',
+      checkId: 'c',
+      command: 'dir',
+      backend: 'host',
+      isolationRequired: false,
+    });
+
+    assert.equal(blockedReceipt.status, 'blocked', 'Untrusted execution without gate must be blocked');
+    assert.equal(blockedReceipt.exitCode, null);
+    assert.match(blockedReceipt.stderr, /Permission gate missing/);
+    assert.match(blockedReceipt.reasons[0], /Untrusted execution requires an authoritative PermissionGate/);
+    assert.equal(spy.calls, 0, 'Host spawner must NEVER be called when untrusted execution lacks a PermissionGate');
+
+    // Trusted internal execution with trustedInternal: true
+    const trustedReceipt = await registry.dispatch(
+      {
+        runId: 'r-trusted-internal',
+        snapshotId: 's',
+        checkId: 'c',
+        command: 'echo internal',
+        backend: 'host',
+        isolationRequired: false,
+      },
+      { trustedInternal: true }
+    );
+
+    assert.equal(trustedReceipt.status, 'completed');
+    assert.equal(trustedReceipt.exitCode, 0);
+    assert.equal(spy.calls, 1, 'Host spawner called exactly once for verified trusted internal execution');
+
+    ok('16. Untrusted execution without PermissionGate blocked fail-closed; trusted internal execution isolated');
+  }
+
+  // ------------------------------------------------------------------ 17. No silent host fallback when backend unavailable or failing
+  {
+    const spy = new SpySpawner();
+    const registry = createTestRegistry(spy);
+
+    // Target windows-sandbox directly when unavailable
+    await assert.rejects(
+      () =>
+        registry.dispatch(
+          {
+            runId: 'r-no-fallback',
+            snapshotId: 's',
+            checkId: 'c',
+            command: 'echo isolated',
+            backend: 'windows-sandbox',
+            isolationRequired: false,
+          },
+          { trustedInternal: true }
+        ),
+      (err) => {
+        assert.equal(err.code, 'backend_unavailable');
+        return true;
+      }
+    );
+
+    assert.equal(spy.calls, 0, 'Host spawner must NEVER be silently invoked as fallback');
+    ok('17. No silent fallback to host shell when designated backend is unavailable');
+  }
+
+  // ------------------------------------------------------------------ 18. Windows Sandbox placeholder honesty: no unverified capabilities
+  {
+    const placeholder = new WindowsSandboxPlaceholderBackend();
+    const report = await placeholder.probe();
+
+    assert.equal(report.backend, 'windows-sandbox');
+    assert.equal(report.available, false);
+    assert.equal(report.osIsolated, true);
+    assert.deepEqual(report.enforcedLimits, [], 'Placeholder must not claim any limits are enforced yet');
+    assert.ok(report.unsupportedLimits.includes('timeoutSeconds'));
+    assert.ok(report.unsupportedLimits.includes('maxOutputBytes'));
+    assert.ok(report.unsupportedLimits.includes('maxMemoryMb'));
+    assert.ok(report.unsupportedLimits.includes('maxCpuCores'));
+    assert.ok(report.reasons.some((r) => r.includes('feasibility gate prerequisite')));
+
+    ok('18. Windows Sandbox placeholder strictly avoids advertising unverified capabilities');
+  }
+
+  // ------------------------------------------------------------------ 19. In-flight cancellation safety and double-cancel idempotency
+  {
+    const controller = new AbortController();
+    const registry = createTestRegistry();
+
+    // Trigger cancel during active run
+    const activePromise = registry.dispatch(
+      {
+        runId: 'r-in-flight-cancel',
+        snapshotId: 's',
+        checkId: 'c',
+        command: 'dir',
+        backend: 'host',
+        isolationRequired: false,
+      },
+      { signal: controller.signal, trustedInternal: true }
+    );
+
+    controller.abort(new Error('User aborted operation'));
+    const receipt = await activePromise;
+
+    assert.equal(receipt.status, 'cancelled');
+    assert.equal(receipt.exitCode, null);
+
+    // Double cancel or non-existent cancel is completely safe and returns false
+    assert.equal(await registry.cancel('r-in-flight-cancel'), false);
+    assert.equal(await registry.cancel('r-never-existed'), false);
+
+    ok('19. In-flight cancellation and double-cancel verified without race conditions');
   }
 
   console.log(`\nAll ${checks} verification checks passed successfully.`);

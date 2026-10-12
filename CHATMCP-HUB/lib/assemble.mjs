@@ -69,6 +69,7 @@ export function assembleStudio(manager, { bundleRoot, exec = null }) {
     workspaceRoot: manager.studio?.root || manager.hubDirectory,
     workspace: manager.studio,
     shellRunner: effectiveShell,
+    permissionGate: manager.permissions,
   });
   manager.permissions.attachExecutionRegistry(manager.executionRegistry);
   manager.sandboxEngine = new SandboxEngine({
@@ -76,6 +77,7 @@ export function assembleStudio(manager, { bundleRoot, exec = null }) {
     workspace: manager.studio,
     shellRunner: effectiveShell,
     registry: manager.executionRegistry,
+    permissionGate: manager.permissions,
   });
   return manager;
 }
