@@ -3,8 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
 import { Button } from '@/components/ui/Button';
+import { IsolatedChecksPanel } from './IsolatedChecksPanel';
 
 type Node = {id:string;role:string;question:string;dependsOn:string[]};
+type CodingTask = {id:string;prompt:string;verify:boolean};
 const roles = ['planner','researcher','tester','reviewer','security','summarizer'];
 const initial:Node[] = [
   {id:'plan',role:'planner',question:'Identify the implementation plan and important modules.',dependsOn:[]},
@@ -18,7 +20,7 @@ export function OrchestratorTab(){
   const [busy,setBusy]=useState(false);
   const [result,setResult]=useState<any>(null);
   const [concurrency,setConcurrency]=useState(2);
-  const [codingTasks,setCodingTasks]=useState([{id:'task-a',prompt:'Implement the first independent coding task.'}]);
+  const [codingTasks,setCodingTasks]=useState<CodingTask[]>([{id:'task-a',prompt:'Implement the first independent coding task.',verify:false}]);
   const [codingBusy,setCodingBusy]=useState(false);
   const [codingRun,setCodingRun]=useState<any>(null);
   const {data:codingState,refetch:refetchCoding}=useQuery({queryKey:['codingWorkers'],queryFn:api.getCodingRuns,refetchInterval:3000});
@@ -74,16 +76,22 @@ export function OrchestratorTab(){
           <Button size="sm" variant="danger" disabled={codingBusy||codingTasks.length<=1} onClick={()=>setCodingTasks(a=>a.filter((_,j)=>j!==i))}>Xóa</Button>
         </div>
         <textarea aria-label="Coding task" rows={2} className="w-full p-1 rounded border border-[var(--line)] bg-[var(--panel)]" value={x.prompt} onChange={e=>setCodingTasks(a=>a.map((v,j)=>j===i?{...v,prompt:e.target.value}:v))}/>
+        <label className="flex items-center gap-2 text-[11px] text-[var(--muted)]">
+          <input type="checkbox" checked={x.verify} disabled={codingBusy}
+            onChange={e=>setCodingTasks(a=>a.map((v,j)=>j===i?{...v,verify:e.target.checked}:v))}/>
+          Require signed isolated test evidence before ready-for-review. Unsupported systems will report needs_attention; the agent never runs a host shell.
+        </label>
       </div>)}
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" disabled={codingTasks.length>=4||codingBusy} onClick={()=>setCodingTasks(a=>[...a,{id:'task-'+(a.length+1),prompt:'Describe the next coding task.'}])}>Add coding worker</Button>
+        <Button size="sm" variant="outline" disabled={codingTasks.length>=4||codingBusy} onClick={()=>setCodingTasks(a=>[...a,{id:'task-'+(a.length+1),prompt:'Describe the next coding task.',verify:false}])}>Add coding worker</Button>
         <Button size="sm" variant="primary" disabled={codingBusy||Boolean(codingState?.activeRunId)} onClick={async()=>{
           if(!confirm('Create Git branches/worktrees, granting limited file-write access to the selected AI model? No shell and no automatic merge.'))return;
-          setCodingBusy(true);try{const j=await api.runCodingAgents(codingTasks,concurrency);setCodingRun(j);setReviewedTokens({});setCodingReview(null);setSelectedWorkers((j.workers||[]).filter((w:any)=>w.status==='ready_for_review').map((w:any)=>w.id));await refetchCoding();showToast('Coding workers: '+j.status,'success');}
+          setCodingBusy(true);try{const j=await api.runCodingAgents(codingTasks,Math.min(concurrency,2));setCodingRun(j);setReviewedTokens({});setCodingReview(null);setSelectedWorkers((j.workers||[]).filter((w:any)=>w.status==='ready_for_review').map((w:any)=>w.id));await refetchCoding();showToast('Coding workers: '+j.status,'success');}
           catch(e:any){showToast(e.message||'Coding workers failed','error');}finally{setCodingBusy(false);}
         }}>{codingBusy?'Running...':'Run coding workers'}</Button>
         {(codingBusy||codingState?.activeRunId)&&<Button size="sm" variant="danger" onClick={async()=>{try{await api.cancelCodingAgents();showToast('Stop requested','info');}catch(e:any){showToast(e.message||'Stop failed','error');}}}>Stop</Button>}
       </div>
+      <IsolatedChecksPanel />
       {activeCoding&&<div className="space-y-2 border-t border-[var(--line)] pt-2">
         <div className="font-semibold">Run {activeCoding.id?.slice(0,8)} — {activeCoding.status}</div>
         {(activeCoding.workers||[]).map((w:any)=><div key={w.id} className="p-2 border border-[var(--line-subtle)] rounded">
@@ -99,6 +107,8 @@ export function OrchestratorTab(){
             catch(e:any){showToast(e.message||'Worker publishing failed','error');}finally{setCodingBusy(false);}
           }}>Draft PR for {w.id}</Button>}
           {w.prUrl&&<p className="text-[var(--muted)] break-all">PR: {w.prUrl}</p>}
+          {w.verifyRequired && <p className="text-[11px] text-sky-400">Verified coding requested: {w.verificationOutcome?.state||'awaiting signed checks'}. A model's completion is not test evidence.</p>}
+          {w.verificationAttempts?.length>0 && <p className="text-[11px] text-[var(--muted)]">Recorded attempts: {w.verificationAttempts.length} · parsed passes: {w.verificationAttempts.filter((a:any)=>a.testOutcomeVerified===true).length}</p>}
           {w.summary&&<p className="text-[var(--muted)] whitespace-pre-wrap">{w.summary}</p>}{w.error&&<p role="alert" className="text-red-400">{w.error}</p>}
         </div>)}
         {activeCoding.integration&&<p>Integration: {activeCoding.integration.status} · {activeCoding.integration.branch}</p>}
