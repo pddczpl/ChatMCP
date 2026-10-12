@@ -323,7 +323,17 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
         const requireIdle = (message) => { if (taskEngine?.state()?.activeTaskId) throw Object.assign(new Error(message), { statusCode: 409 }); };
         let result;
         switch (url.pathname) {
-          case '/api/studio/permissions/config': if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Đợi tác vụ hiện tại dừng trước khi đổi quyền công cụ.'),{statusCode:409});result=gate.configure(payload);break;
+          case '/api/studio/permissions/config':
+            // A live detached coding or dynamic worker may have inherited the
+            // previous authority. Refuse permission changes until its owner
+            // has explicitly stopped/reconciled that run, rather than letting
+            // stale workers continue with the wrong Full Access policy.
+            if(taskEngine?.state()?.activeTaskId||coding?.active||coding?.integrating||
+               dynamic?.activeRunId||delegates?.running)
+              throw Object.assign(new Error('Dừng các coding/dynamic/research workers và tác vụ chính trước khi đổi quyền.'),{
+                code:'workers_active',statusCode:409,
+              });
+            result=gate.configure(payload);break;
           case '/api/studio/permissions/decide': result=gate.decide(payload.id,payload.approved);break;
           case '/api/studio/checkpoint': result=await studio.checkpoint(payload);break;
           case '/api/studio/file/save': if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không ghi file trên Windows host. Đổi sang host-review để lưu bản chỉnh sửa sau khi review.'),{statusCode:403});if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Đợi agent dừng trước khi lưu file từ editor.'),{statusCode:409});result=await studio.save(payload);break;
