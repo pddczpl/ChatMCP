@@ -1,3 +1,6 @@
+ARCHIVED 1.x/2.x INTEGRATION NOTES — NOT CURRENT LOCAL-ONLY RUNTIME.
+Legacy references below to Cloud Harness, Desktop Commander and MCP proxy describe historical releases. Read THIRD-PARTY-NOTICES.md and SECURITY.md for current behavior.
+
 ChatMCP Hub 1.1.5 — integration notes
 Prepared 2026-10-09 for the user's existing Windows installation.
 

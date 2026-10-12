@@ -1,43 +1,60 @@
-# Thông báo về phần mềm bên thứ ba
+# Third-party notices — ChatMCP local-only
 
-ChatMCP không phân phối lại mã nguồn của các thành phần dưới đây trong repository (trừ khi ghi rõ). Mỗi thành phần giữ giấy phép và thông báo của riêng nó; hãy đọc tệp giấy phép gốc trước khi phân phối lại.
+This file describes the **current local-only development branch**, not the
+retired Cloud Harness deployment. Licenses remain those supplied by each
+third-party copyright owner; this summary is **not** a substitute for complete
+notices/individual LICENSE files when distributing binaries.
 
-**Giấy phép của chính ChatMCP:** repository này hiện **chưa có tệp `LICENSE`**. Cho tới khi chủ sở hữu chọn giấy phép, mọi quyền được bảo lưu cho tác giả; việc chọn giấy phép là quyết định của chủ sở hữu (xem `docs/PHASE1-REPORT.md`, mục quyết định đang chờ). Điều này không ảnh hưởng đến giấy phép của các thành phần bên thứ ba bên dưới.
+**ChatMCP's own code:** the repository has not yet adopted a top-level
+LICENSE. The maintainer must decide the project's license before promising
+redistribution rights. Imported third-party skills have independent terms.
 
-## 1. Thành phần có trong hoặc được Hub nạp khi chạy
+## Bundled / built into the Windows user interface
 
-Backend mặc định (`local`) **chỉ cần Node.js** và phần React nhúng sẵn; các thành phần còn lại chỉ dùng khi bạn chủ động chọn backend `mcp` (cũ) hoặc cài thêm tùy chọn.
+- [React](https://github.com/facebook/react) / React DOM, currently 19.x
+  in `CHATMCP-HUB/ui/package.json` (MIT per upstream). Frontend dependencies
+  are installed from the pinned package-lock and bundled by the Vite build.
+- [Radix UI](https://www.radix-ui.com/), [TanStack Query](https://tanstack.com/query),
+  [Zustand](https://zustand.docs.pmnd.rs/), [Lucide](https://lucide.dev/),
+  Tailwind CSS and other UI dependencies: see `ui/package-lock.json` and the
+  package-level license files for complete attribution and versions.
+- Historic React 16 UMD bundles may remain under `CHATMCP-HUB/web/vendor/`
+  for compatibility pages; they are **not** the current React 19 UI source.
+  Preserve copyright headers/notices when distributing these files.
 
-| Thành phần | Phiên bản | Giấy phép | Cách dùng trong ChatMCP |
-|---|---|---|---|
-| React / ReactDOM (UMD, rút gọn) | `16.0.0` / `16.0.1` — nhúng ở `CHATMCP-HUB/web/vendor/` | MIT — "Copyright (c) 2013-present, Facebook, Inc." (ghi trong đầu tệp) | Giao diện dashboard, chạy offline; **nằm trong repo** |
-| [node-pty](https://github.com/microsoft/node-pty) | `^1.0.0` (đã kiểm tra bản cài: `1.0.0`) | MIT | Phụ thuộc **tùy chọn** cho ConPTY (`optionalDependencies`); không được commit; cài bằng `windows/Install-OptionalConPTY.ps1` |
-| [nan](https://github.com/nodejs/nan) | `2.29.0` (đã kiểm tra bản cài) | MIT | Phụ thuộc bắc cầu của node-pty; không được commit |
+## Runtime and optional local dependencies
 
-## 2. Chỉ dùng cho backend `mcp` (cũ, tùy chọn)
+- The Windows installer packages a portable [Node.js](https://nodejs.org/)
+  runtime; its upstream licensing and bundled dependencies must be retained.
+- [node-pty](https://github.com/microsoft/node-pty) is optional for Windows
+  ConPTY, with its own package licenses and transitive dependencies.
+- Git for Windows, Microsoft Edge WebView2 Runtime, local Ollama/LM Studio,
+  and configured model-provider clients are separate installations/services
+  where noted; ChatMCP does not automatically acquire all of them.
 
-| Thành phần | Phiên bản | Giấy phép | Cách dùng trong ChatMCP |
-|---|---|---|---|
-| [Cloud Harness MCP](https://github.com/bestagentkits/cloud-harness-mcp) (AgentKit) | `v0.62.8` (`ad1fffc9993e83c10eb46ef7fe7db6957cb315a1`) | MIT — "Copyright (c) 2026 AgentKit" (SHA-256 của `LICENSE` được ghi trong `deps/cloud-harness.lock.json`) | Phụ thuộc bên ngoài, **không fork, không đổi tên, không nằm trong repo**; tải/xác minh bằng `scripts/bootstrap-cloud-harness.*`. Không phải ranh giới cô lập (xem `SECURITY.md`) |
-| [Desktop Commander MCP](https://github.com/wonderwhy-er/DesktopCommanderMCP) (`@wonderwhy-er/desktop-commander`) | `0.2.52` | theo gói upstream (kiểm tra trước khi phân phối lại) | Hub cài vào thư mục chạy sinh tự động; **có telemetry/kiểm tra feature-flag** theo upstream |
-| [MCP SuperAssistant proxy](https://github.com/srbhptl39/MCP-SuperAssistant) (`@srbhptl39/mcp-superassistant-proxy`) | `0.1.8` | theo gói upstream | Hub cài vào thư mục chạy sinh tự động, nạp qua bộ điều hợp tương thích |
-| [@modelcontextprotocol/sdk](https://github.com/modelcontextprotocol/typescript-sdk) | phụ thuộc bắc cầu của Desktop Commander | theo gói upstream | Client MCP |
-| MCP SuperAssistant (tiện ích trình duyệt) | không đi kèm | theo upstream | Chỉ cần cho quy trình thủ công cũ; ChatMCP không đóng gói |
+## Removed integrations
 
-## 3. Chỉ dùng khi phát triển và kiểm thử (không phân phối cùng ChatMCP)
+The former Cloud Harness MCP server, Desktop Commander MCP runtime and
+MCP SuperAssistant proxy are **not installed, started or included as required
+backend dependencies by the local-only Hub**. Historical versions and old
+integration notes remain accessible in Git history. They should not be
+represented as current optional runtime requirements.
 
-Các công cụ này **không** nằm trong repository và **không** cần để chạy Hub. Người phát triển cài chúng riêng khi muốn chạy các bộ test tương ứng (xem `docs/DEVELOPMENT.md`).
+## Agent Skills and external tools
 
-| Thành phần | Dùng cho | Giấy phép |
-|---|---|---|
-| Python 3.11+ | chỉ mục ký hiệu (tùy chọn) và bộ E2E FastAPI | theo bản phân phối Python của bạn |
-| `fastapi`, `uvicorn`, `httpx`, `pytest` (cài bằng `pip`) | bộ `verify-e2e-fastapi` — ứng dụng FastAPI thật mà agent làm việc trên đó | theo gói upstream (chưa đối chiếu trong audit này) |
-| `playwright` (Python) + Chromium | các bộ giao diện `tests/verify-*-ui.py` và `verify-ui-e2e.py` | theo gói upstream (chưa đối chiếu trong audit này) |
-| GitHub Actions: `actions/checkout`, `actions/setup-node`, `actions/upload-artifact` (ghim theo SHA; bản workflow đề xuất thêm `actions/setup-python`) | `.github/workflows/ci.yml` — chỉ chạy trên GitHub | theo repository upstream |
+The GitHub Skills Hub imports content pinned to a repository revision with
+integrity evidence. A public GitHub repository and heuristic detection of a
+LICENSE text **do not automatically grant redistribution permission**.
+Review each upstream license and imported asset before reusing, publishing
+or repackaging it. Imported scripts are not automatically executed.
 
-## Ghi chú
+## Development-only dependencies
 
-- Các phiên bản trên là phiên bản cấp cao nhất được ghim hoặc đã quan sát; phụ thuộc bắc cầu của gói npm chạy lúc sử dụng chưa được ghim bằng lockfile. Hãy giữ các file lock sinh ra khi cài để tái tạo cây phụ thuộc.
-- Giấy phép ghi "theo gói upstream" nghĩa là chưa được đối chiếu với tệp giấy phép trong audit này; đừng suy ra giấy phép từ bảng này.
-- Thông báo lịch sử của Hub 1.x nằm ở `CHATMCP-HUB/THIRD-PARTY-NOTICES.txt`.
-- Tên thương hiệu (Anthropic, OpenAI, Google, Ollama, LM Studio, GitHub…) thuộc về chủ sở hữu tương ứng. ChatMCP không liên kết với họ; các preset chỉ là cấu hình địa chỉ API công khai.
+Python, pytest, FastAPI, Playwright, TypeScript/Vite and GitHub Actions
+dependencies may be installed separately for tests or release builds.
+Check their upstream license files; development tools are not all shipped
+inside the desktop installer.
+
+The historical notice for ChatMCP Hub 1.x remains in
+`CHATMCP-HUB/THIRD-PARTY-NOTICES.txt` as an archival record, **not** a
+current dependency manifest.
