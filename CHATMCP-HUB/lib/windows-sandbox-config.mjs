@@ -15,6 +15,24 @@ const DOS_RESERVED_NAMES = Object.freeze([
   'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9',
 ]);
 
+
+/** Compare canonical path boundaries, including case-insensitive Windows drive paths. */
+function normalizedPathKey(value) {
+  const isWindowsPath = /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith('\\\\');
+  const syntax = isWindowsPath ? path.win32 : path;
+  const normalized = syntax.normalize(value).replace(/[\\/]$/, '');
+  return { key: isWindowsPath ? normalized.toLowerCase() : normalized, separator: isWindowsPath ? '\\' : path.sep };
+}
+
+function pathsOverlap(first, second) {
+  const a = normalizedPathKey(first);
+  const b = normalizedPathKey(second);
+  if (a.separator !== b.separator) return false;
+  return a.key === b.key ||
+    a.key.startsWith(b.key + b.separator) ||
+    b.key.startsWith(a.key + a.separator);
+}
+
 /**
  * Escapes text for XML element content and attributes.
  *
@@ -94,24 +112,36 @@ export function validateHostMappingPath(dirPath, { isWritable = false, workspace
       throw fault('unsafe_mapping', `User home directory cannot be mapped writable: '${normalized}'.`);
     }
 
-    // Never map workspace root directory as writable
-    if (workspaceRoot) {
-      const normalizedWs = path.resolve(workspaceRoot);
-      if (normalized === normalizedWs) {
-        throw fault('unsafe_mapping', `Workspace directory cannot be mapped writable: '${normalized}'.`);
-      }
+    // Export must be neither a parent nor a descendant of the selected workspace.
+    if (workspaceRoot && pathsOverlap(normalized, path.resolve(workspaceRoot))) {
+      throw fault('unsafe_mapping', `Export directory overlaps workspace: '${normalized}'.`);
     }
   }
 
-  // 6. Check for reparse points / junctions on host if directory exists
-  if (fs.existsSync(normalized)) {
+  // 6. Reject symlinks and junctions at EVERY existing ancestor, not only at the leaf.
+  // Fail closed on unexpected file-system errors; do not follow reparse points.
+  let cursor = normalized;
+  while (true) {
     try {
-      const lstat = fs.lstatSync(normalized);
-      if (lstat.isSymbolicLink()) {
-        throw fault('unsafe_mapping', `Symbolic link is forbidden for mapped host folder: '${normalized}'.`);
+      const entry = fs.lstatSync(cursor);
+      if (entry.isSymbolicLink()) {
+        throw fault('unsafe_mapping', `Reparse/symlink ancestor is forbidden: '${cursor}'.`);
+      }
+      if (cursor === normalized && !entry.isDirectory()) {
+        throw fault('unsafe_mapping', `Mapped host path is not a directory: '${normalized}'.`);
       }
     } catch (err) {
-      if (err.code === 'unsafe_mapping') throw err;
+      if (err.code !== 'ENOENT') throw err;
+    }
+    const parent = path.dirname(cursor);
+    if (parent === cursor || parent === '.') break;
+    cursor = parent;
+  }
+
+  if (fs.existsSync(normalized)) {
+    const real = fs.realpathSync.native(normalized);
+    if (normalizedPathKey(real).key !== normalizedPathKey(normalized).key) {
+      throw fault('unsafe_mapping', `Mapped path resolves through an alias: '${normalized}'.`);
     }
   }
 
@@ -134,15 +164,25 @@ export function createSandboxConfiguration({
   inputDirectory,
   exportDirectory,
   memoryMb = 1024,
-  protectedClient = false,
+  protectedClient = true,
   logonCommand = '',
   workspaceRoot = null,
 }) {
   const validatedInput = validateHostMappingPath(inputDirectory, { isWritable: false });
   const validatedExport = validateHostMappingPath(exportDirectory, { isWritable: true, workspaceRoot });
 
-  if (validatedInput === validatedExport) {
-    throw fault('unsafe_mapping', 'Input directory and export directory must be separate paths.');
+  if (pathsOverlap(validatedInput, validatedExport)) {
+    throw fault('unsafe_mapping', 'Input and export must be disjoint, including nested/aliased paths.');
+  }
+  if (protectedClient !== true) {
+    throw fault('unsafe_configuration', 'ProtectedClient cannot be disabled for a hardened Sandbox configuration.');
+  }
+  // This generator is not a production TOCTOU/ACL boundary; the future broker must
+  // exclusively create and own both directories and pin their handles.
+  for (const mapped of [validatedInput, validatedExport]) {
+    if (!fs.existsSync(mapped) || !fs.statSync(mapped).isDirectory()) {
+      throw fault('unsafe_mapping', `Mapped directory must already exist: '${mapped}'.`);
+    }
   }
 
   const memory = Math.max(512, Math.min(Number(memoryMb) || 1024, 8192));
@@ -162,9 +202,7 @@ export function createSandboxConfiguration({
     `  <MemoryInMB>${memory}</MemoryInMB>`,
   ];
 
-  if (protectedClient) {
-    lines.push('  <ProtectedClient>Enable</ProtectedClient>');
-  }
+  lines.push('  <ProtectedClient>Enable</ProtectedClient>');
 
   lines.push('  <MappedFolders>');
   // Read-only input mapping

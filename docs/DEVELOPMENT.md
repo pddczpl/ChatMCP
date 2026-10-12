@@ -15,6 +15,23 @@
 
 Hub **không có bước build** và không có dependency bắt buộc để `npm install`. `node-pty` (ConPTY) là tùy chọn: `CHATMCP-HUB\windows\Install-OptionalConPTY.ps1`; khi thiếu hoặc hỏng, terminal tương tác tự dùng pipe.
 
+## Trạng thái Windows Sandbox (Phase 1 experimental)
+
+**Chưa có bằng chứng cách ly Windows Sandbox guest thật.** Việc build .NET GuestSupervisor
+và chạy lệnh synthetic trực tiếp trên Windows host chỉ chứng minh hành vi host-fixture
+(timeout, Job Object, parser). Phần này tuyệt đối không được tính là kiểm thử host/guest
+isolation, network denial, supervisor identity hay receipt authenticity.
+
+CI Windows installer phải build GuestSupervisor và chạy
+`CHATMCP_REQUIRE_HOST_SUPERVISOR=1 node CHATMCP-HUB/tests/windows-sandbox/smoke.mjs`.
+Trên Linux/Windows thiếu .NET, bộ source test nêu rõ **BLOCKED** đối với fixture chưa chạy;
+bộ kiểm thử guest thực thụ vẫn chưa được triển khai. Chưa có production sandbox backend.
+
+`receipt.json` và `receipt.sha256` chỉ kiểm tra dữ liệu nhất quán; guest có thể tạo
+lại cả hai file và đọc nonce, nên đây KHÔNG phải bằng chứng về danh tính supervisor.
+Thư mục export có thể ghi vẫn là bề mặt tấn công host, chưa có quota OS/ACL pinning.
+Windows Feature đang chờ khởi động lại không chặn các bài test này.
+
 ## Chạy kiểm thử
 
 ```powershell
@@ -45,7 +62,7 @@ Tổng thời gian cả bộ Node: khoảng 3 phút (Linux, 180 s đã đo) đ�
 | | `verify-shell-runner` (44) | `ShellRunner` với shell thật: trích dẫn, mã thoát, timeout giết cả cây tiến trình, hủy, giới hạn đầu ra, **lọc biến môi trường** |
 | | `verify-execution-contract` (24) | hợp đồng ExecutionBackend, CapabilityReport, ExecutionReceipt, fail-closed dispatch, huỷ bỏ pre-execution, không bao giờ tự fallback |
 | | `verify-windows-sandbox-config` (7) | cấu hình .wsb bảo mật cao: cấm mạng, clipboard, thiết bị, vGPU; kẹp bộ nhớ [512, 8192] MB; kiểm tra an toàn đường dẫn và ngăn chặn xung đột |
-| | `verify-windows-sandbox-smoke` (14) | preflight phát hiện trung thực trạng thái ảo hóa/tính năng máy chủ; giao thức transport nonce/receipt; Job Object quản lý tiến trình con; kiểm tra cách ly canary và tấn công tiêu cực |
+| | `verify-windows-sandbox-smoke` | kiểm tra config/transport và từ chối lỗi trên mọi OS; các kiểm thử C# trên **Windows host** chỉ chạy khi có .NET 10 và build helper. Không kiểm chứng cách ly guest; không coi nhánh BLOCKED nội bộ là PASS |
 | | `verify-fs-helpers` | kiểm tra đối số, ghi nguyên tử, glob, Git runner |
 | | `verify-local-tools` | các công cụ cục bộ trên workspace và kho Git thật; nhấn vào điều *không bao giờ* được xảy ra |
 | | `verify-permissions-modes`, `verify-full-access` | `PermissionGate`: ba chế độ, đường dẫn bị chặn, `sandbox-only`, Full Access, lịch sử phê duyệt |

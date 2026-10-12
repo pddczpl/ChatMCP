@@ -10,8 +10,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { validateCapabilityReport } from './execution-contract.mjs';
 
-const MIN_MEMORY_MB = 4096; // 4 GB minimum
-const MIN_DISK_MB = 1024;   // 1 GB minimum free disk space
+const MIN_MEMORY_MB = 8192; // Initial offline fixture target, not Microsoft's base minimum
+const MIN_DISK_MB = 10240;  // Initial fixture target; per-project toolchains vary
 
 /**
  * Safely executes a PowerShell command without elevation and returns trimmed stdout, or null on error.
@@ -93,7 +93,7 @@ export async function probeWindowsSandboxPreflight() {
   }
 
   const isHomeEdition = /home/i.test(osCaption);
-  const isServerOrProOrEnt = /pro|enterprise|education|server/i.test(osCaption);
+  const isServerOrProOrEnt = /pro|enterprise|education/i.test(osCaption) && !/server/i.test(osCaption);
 
   if (isHomeEdition) {
     blockers.push(`Windows Home edition ('${osCaption}') does not natively support Windows Sandbox.`);
@@ -103,10 +103,14 @@ export async function probeWindowsSandboxPreflight() {
     remediations.push('Run on Windows 10/11 Pro, Enterprise, or Education edition.');
   }
 
-  // Architecture check: x64 or arm64 required
-  if (osArch !== 'x64' && osArch !== 'arm64') {
-    blockers.push(`Architecture '${osArch}' is unsupported. Windows Sandbox requires x64 or arm64.`);
-    remediations.push('Run on a 64-bit (x64 or arm64) CPU architecture.');
+  // This experimental CLI backend initially targets Windows 11 24H2+ x64.
+  if (osArch !== 'x64') {
+    blockers.push(`Initial ChatMCP Sandbox backend requires x64 (detected '${osArch}').`);
+    remediations.push('Use a supported Windows 11 x64 host.');
+  }
+  if (osBuild < 26100) {
+    blockers.push('Windows Sandbox CLI feasibility needs Windows 11 24H2+ (build 26100+).');
+    remediations.push('Use Windows 11 24H2+ x64 for the initial backend.');
   }
 
   // 3. Virtualization in firmware (VT-x / AMD-V)
@@ -121,8 +125,8 @@ export async function probeWindowsSandboxPreflight() {
   const virtualizationEnabled = virtFirmware?.toLowerCase() === 'true' || hypervisorPresent?.toLowerCase() === 'true';
 
   if (!virtualizationEnabled) {
-    blockers.push('Hardware virtualization is disabled in BIOS/firmware (VirtualizationFirmwareEnabled: False and HypervisorPresent: False).');
-    remediations.push('Enable Intel Virtualization Technology (VT-x) or AMD SVM in the host system BIOS/UEFI settings.');
+    blockers.push('Firmware virtualization readiness is not confirmed by CIM; this does not prove BIOS virtualization is disabled.');
+    remediations.push('Check virtualization and Hyper-V state before changing BIOS settings.');
   }
 
   // 4. Windows Sandbox optional feature / executable availability
@@ -143,11 +147,28 @@ export async function probeWindowsSandboxPreflight() {
   }
 
   const featureInstalled = Boolean(executablePath);
+  const featureState = safePowerShell(
+    '(Get-WindowsOptionalFeature -Online -FeatureName Containers-DisposableClientVM -ErrorAction SilentlyContinue).State'
+  );
+  if (featureState && /Pending/i.test(featureState)) {
+    blockers.push(`Windows Sandbox optional feature is '${featureState}' and a user-controlled restart is pending.`);
+    remediations.push('Restart when convenient; ChatMCP must never reboot automatically.');
+  } else if (featureState !== 'Enabled') {
+    blockers.push('Windows Sandbox optional-feature state is not confirmed Enabled.');
+    remediations.push('Check Get-WindowsOptionalFeature after any pending restart.');
+  }
   if (!featureInstalled) {
     blockers.push("Windows Sandbox feature is not enabled ('WindowsSandbox.exe' not found in system directory).");
     remediations.push(
       'Enable the Windows Sandbox optional feature by running as Administrator: Enable-WindowsOptionalFeature -Online -FeatureName "Containers-DisposableClientVM" -NoRestart, then restart the machine.'
     );
+  }
+
+  // Presence of WindowsSandbox.exe does not prove the CLI or guest transport works.
+  const cliPath = safePowerShell('(Get-Command wsb -ErrorAction SilentlyContinue).Source');
+  if (!cliPath) {
+    blockers.push('Windows Sandbox CLI (wsb) is unavailable or unverified.');
+    remediations.push('After restart, check availability of wsb CLI separately from the GUI executable.');
   }
 
   // 5. Check if Windows Sandbox is already running (multi-instance conflict prevention)
@@ -165,7 +186,7 @@ export async function probeWindowsSandboxPreflight() {
   const totalMemoryMb = memRaw ? Math.round(Number(memRaw) / (1024 * 1024)) : 0;
   if (totalMemoryMb > 0 && totalMemoryMb < MIN_MEMORY_MB) {
     blockers.push(`Host RAM (${totalMemoryMb} MB) is below the minimum required for Windows Sandbox (${MIN_MEMORY_MB} MB).`);
-    remediations.push('Ensure host machine has at least 4 GB physical RAM.');
+    remediations.push('Provide at least 8 GB of RAM for the initial small offline fixture (not Microsoft's base minimum).');
   }
 
   const sysDrive = (process.env.SystemDrive || 'C:').slice(0, 1);
@@ -173,16 +194,16 @@ export async function probeWindowsSandboxPreflight() {
   const freeDiskMb = diskRaw ? Math.round(Number(diskRaw) / (1024 * 1024)) : 0;
   if (freeDiskMb > 0 && freeDiskMb < MIN_DISK_MB) {
     blockers.push(`Available disk space on drive ${sysDrive}: (${freeDiskMb} MB) is below required minimum (${MIN_DISK_MB} MB).`);
-    remediations.push('Free at least 1 GB of disk space on the system drive.');
+    remediations.push('Free at least 10 GB for the initial offline fixture.');
   }
 
-  const supported = !isHomeEdition && isServerOrProOrEnt && (osArch === 'x64' || osArch === 'arm64');
+  const supported = !isHomeEdition && isServerOrProOrEnt && osArch === 'x64' && osBuild >= 26100;
   const available = blockers.length === 0 && featureInstalled && virtualizationEnabled && !alreadyRunning;
 
   return {
     supported,
     available,
-    osIsolated: available, // Only true if the backend is physically available and can enforce isolation
+    osIsolated: false, // Preflight cannot prove isolation, even when prerequisites appear ready
     platform: 'win32',
     details: {
       osCaption,
@@ -191,6 +212,10 @@ export async function probeWindowsSandboxPreflight() {
       osArch,
       editionSupported: !isHomeEdition && isServerOrProOrEnt,
       virtualizationEnabled,
+      hypervisorPresent: hypervisorPresent?.toLowerCase() === 'true',
+      featureState: featureState || 'unknown',
+      cliPath: cliPath || null,
+      runtimeVerified: false,
       featureInstalled,
       executablePath,
       alreadyRunning,
@@ -214,15 +239,15 @@ export async function probeWindowsSandboxCapability() {
 
   return validateCapabilityReport({
     backend: 'windows-sandbox',
-    available: preflight.available,
-    osIsolated: true, // Capability definition: Windows Sandbox is an OS container isolation technology
+    available: false, // Requires a REAL guest-isolation validation gate before production dispatch.
+    osIsolated: true, // Design property only; no guest was successfully verified
     platform: 'win32',
     networkPolicy: 'denied',
     writeScope: 'guest-ephemeral',
     concurrency: 1,
-    enforcedLimits: preflight.available ? ['timeoutSeconds', 'maxOutputBytes'] : [],
-    unsupportedLimits: ['maxMemoryMb', 'maxCpuCores', 'customEnv'],
-    reasons: preflight.reasons,
+    enforcedLimits: [],
+    unsupportedLimits: ['timeoutSeconds', 'maxOutputBytes', 'maxMemoryMb', 'maxCpuCores', 'customEnv'],
+    reasons: [...preflight.reasons, 'Actual guest execution, ownership and trusted transport are not yet verified.'],
     observedAt: preflight.observedAt,
   });
 }

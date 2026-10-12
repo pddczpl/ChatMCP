@@ -67,7 +67,7 @@ try {
     assert.ok(xml.includes('<SandboxFolder>C:\\ChatMCP\\Output</SandboxFolder>'), 'Sandbox output mount matches');
     assert.ok(xml.includes('<ReadOnly>false</ReadOnly>'), 'Output must be writable');
 
-    assert.ok(!xml.includes('<ProtectedClient>'), 'ProtectedClient omitted by default');
+    assert.ok(xml.includes('<ProtectedClient>Enable</ProtectedClient>'), 'ProtectedClient enabled by default');
     assert.ok(!xml.includes('<LogonCommand>'), 'LogonCommand omitted when empty');
     ok('Strict denial policies and mappings generated in .wsb XML');
   }
@@ -253,7 +253,40 @@ try {
     }
   }
 
-  console.log(`\nAll ${checks} Windows Sandbox configuration checks PASSED.`);
+
+  console.log('# 8. Nested mapping, workspace subtree and ancestor link refusal');
+  {
+    const nested = path.join(dummyInput, 'nested');
+    fs.mkdirSync(nested, { recursive: true });
+    assert.throws(
+      () => createSandboxConfiguration({inputDirectory: dummyInput, exportDirectory: nested}),
+      {code:'unsafe_mapping'}
+    );
+    assert.throws(
+      () => createSandboxConfiguration({inputDirectory: dummyInput, exportDirectory: dummyOutput, protectedClient:false}),
+      {code:'unsafe_configuration'}
+    );
+    assert.throws(
+      () => createSandboxConfiguration({inputDirectory: dummyInput, exportDirectory: dummyOutput, workspaceRoot:testBaseDir}),
+      {code:'unsafe_mapping'}
+    );
+    const alias = path.join(testBaseDir,'ancestor-alias');
+    const target = path.join(testBaseDir,'actual-parent');
+    fs.mkdirSync(target, {recursive:true});
+    try {
+      fs.symlinkSync(target, alias, process.platform === 'win32' ? 'junction' : 'dir');
+      const child = path.join(alias,'subdir');
+      fs.mkdirSync(path.join(target,'subdir'),{recursive:true});
+      assert.throws(() => validateHostMappingPath(child), {code:'unsafe_mapping'});
+      console.log('  ancestor symlink verified');
+    } catch(error) {
+      if (error?.code !== 'EPERM' && error?.code !== 'EACCES') throw error;
+      console.log('  BLOCKED: cannot create ancestor junction with current OS permissions');
+    }
+    ok('Nested mappings, unsafe workspace exports and unprotected configurations refused');
+  }
+
+  console.log(`\nAll ${checks} Windows Sandbox configuration checks PASSED (source/config only, NOT guest isolation).`);
 } finally {
   try {
     fs.rmSync(testBaseDir, { recursive: true, force: true });

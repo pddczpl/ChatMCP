@@ -3,8 +3,10 @@
 // Manages the host <-> guest execution protocol:
 // 1. Prepares versioned execution requests with cryptographic nonces.
 // 2. Reads, verifies, and validates execution receipts returned in the export folder.
-// 3. Enforces that receipts are never trusted purely on nonce presence:
-//    checks for reparse points, file quotas, schema validity, and checksums.
+// 3. Checks untrusted guest outputs for size, schema, identity correlation and consistency.
+// NONCE AND SHA-256 DO NOT AUTHENTICATE THE GUEST: a writer of both receipt files
+// can recompute the checksum. Real isolated execution remains BLOCKED until the
+// broker proves instance ownership, supervisor identity and safe result publication.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -77,6 +79,8 @@ export async function readAndVerifyExecutionReceipt({
   expectedRunId,
   expectedNonce,
   backend = 'windows-sandbox',
+  // Explicit fixture opt-in; NEVER pass this from a model, browser or production worker.
+  allowUntrustedHostFixture = false,
 }) {
   if (!exportDirectory || !fs.existsSync(exportDirectory)) {
     throw fault('missing_export_dir', `Export directory does not exist: '${exportDirectory}'.`);
@@ -118,15 +122,26 @@ export async function readAndVerifyExecutionReceipt({
     throw fault('run_id_mismatch', `Receipt runId '${rawReceipt.runId}' does not match expected runId '${expectedRunId}'.`);
   }
 
-  // Checksum verification if receipt.sha256 is present
+  // Versioned wire format: never silently accept another schema as a successful check.
+  if (rawReceipt.version !== 1) {
+    throw fault('unsupported_receipt_version', 'Only version 1 execution receipts are supported.');
+  }
+
+  // Integrity, not provenance: the guest can read its nonce and can forge BOTH files.
   const shaPath = path.join(exportDirectory, 'receipt.sha256');
-  if (fs.existsSync(shaPath)) {
-    const shaContent = fs.readFileSync(shaPath, 'utf8').trim();
-    const expectedHash = shaContent.split(/\s+/)[0];
-    const actualHash = crypto.createHash('sha256').update(rawBuffer).digest('hex');
-    if (expectedHash && expectedHash.toLowerCase() !== actualHash.toLowerCase()) {
-      throw fault('checksum_mismatch', `receipt.sha256 mismatch (expected: ${expectedHash}, computed: ${actualHash}).`);
-    }
+  if (!fs.existsSync(shaPath)) {
+    throw fault('missing_receipt_checksum', 'receipt.sha256 is required for consistency checking.');
+  }
+  const shaStat = fs.lstatSync(shaPath);
+  if (!shaStat.isFile() || shaStat.isSymbolicLink() || shaStat.size > 256) {
+    throw fault('unsafe_receipt', 'receipt.sha256 must be a small regular file.');
+  }
+  const shaContent = fs.readFileSync(shaPath, 'utf8').trim();
+  const parsed = /^([0-9a-fA-F]{64})\s+receipt\.json$/.exec(shaContent);
+  if (!parsed) throw fault('invalid_receipt_checksum', 'receipt.sha256 has an invalid format.');
+  const actualHash = crypto.createHash('sha256').update(rawBuffer).digest('hex');
+  if (!crypto.timingSafeEqual(Buffer.from(parsed[1].toLowerCase()), Buffer.from(actualHash))) {
+    throw fault('checksum_mismatch', 'receipt.sha256 does not match receipt.json.');
   }
 
   // Normalize status
@@ -139,18 +154,24 @@ export async function readAndVerifyExecutionReceipt({
   const stderr = typeof rawReceipt.stderr === 'string' ? rawReceipt.stderr : '';
   const reasons = Array.isArray(rawReceipt.reasons) ? rawReceipt.reasons : [];
 
-  return validateExecutionReceipt({
+  const checked = validateExecutionReceipt({
     runId: rawReceipt.runId,
     status,
     exitCode: typeof rawReceipt.exitCode === 'number' ? rawReceipt.exitCode : null,
     stdout,
     stderr,
-    startedAt: rawReceipt.startedAt || new Date().toISOString(),
-    completedAt: rawReceipt.completedAt || new Date().toISOString(),
-    durationMs: typeof rawReceipt.durationMs === 'number' && rawReceipt.durationMs >= 0 ? rawReceipt.durationMs : 0,
+    startedAt: rawReceipt.startedAt,
+    completedAt: rawReceipt.completedAt,
+    durationMs: rawReceipt.durationMs,
     backend,
     truncated: Boolean(rawReceipt.truncated),
     evidencePath: receiptPath,
     reasons,
   });
+  // A checksum and guest-readable nonce do not attest to the execution origin.
+  // Keep the future worker broker blocked until trusted publication exists.
+  if (!allowUntrustedHostFixture) {
+    throw fault('unverified_guest_origin', 'Receipt consistency checked, but guest origin and supervisor identity are NOT authenticated.');
+  }
+  return checked;
 }

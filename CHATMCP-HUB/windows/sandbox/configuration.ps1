@@ -31,7 +31,23 @@ function Test-SafePath([string]$pathToCheck, [bool]$isWritable) {
         throw "Path traversal sequences ('..') are strictly prohibited: $pathToCheck"
     }
     $resolved = [System.IO.Path]::GetFullPath($pathToCheck)
+    if (-not (Test-Path -LiteralPath $resolved -PathType Container)) {
+        throw "Mapped directory must already exist: $resolved"
+    }
+    $cursor = $resolved
+    while ($cursor) {
+        $entry = Get-Item -LiteralPath $cursor -Force -ErrorAction Stop
+        if (($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Mapped path contains reparse point: $cursor"
+        }
+        $parent = [System.IO.Directory]::GetParent($cursor)
+        if ($null -eq $parent) { break }
+        $cursor = $parent.FullName
+    }
     if ($isWritable) {
+        if ($resolved.TrimEnd('\\') -eq [System.IO.Path]::GetPathRoot($resolved).TrimEnd('\\')) {
+            throw "Drive root may not be mapped writable: $resolved"
+        }
         $userHome = [System.IO.Path]::GetFullPath($HOME)
         if ($resolved -eq $userHome) {
             throw "User home directory cannot be mapped as writable: $resolved"
@@ -43,8 +59,10 @@ function Test-SafePath([string]$pathToCheck, [bool]$isWritable) {
 $safeInput = Test-SafePath -pathToCheck $InputDirectory -isWritable $false
 $safeExport = Test-SafePath -pathToCheck $ExportDirectory -isWritable $true
 
-if ($safeInput -eq $safeExport) {
-    throw "Input and Export directories must be distinct paths."
+$inputCmp = $safeInput.TrimEnd('\\') + '\\'
+$exportCmp = $safeExport.TrimEnd('\\') + '\\'
+if ($safeInput -eq $safeExport -or $safeInput.StartsWith($exportCmp, [StringComparison]::OrdinalIgnoreCase) -or $safeExport.StartsWith($inputCmp, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Input and Export directories must be disjoint, including nested paths."
 }
 
 $memory = [Math]::Max(512, [Math]::Min($MemoryMb, 8192))
@@ -64,9 +82,7 @@ $xmlLines = @(
     "  <MemoryInMB>$memory</MemoryInMB>"
 )
 
-if ($ProtectedClient) {
-    $xmlLines += '  <ProtectedClient>Enable</ProtectedClient>'
-}
+$xmlLines += '  <ProtectedClient>Enable</ProtectedClient>'
 
 $xmlLines += @(
     '  <MappedFolders>',

@@ -1,11 +1,15 @@
 // ChatMCP Windows Sandbox Guest Supervisor (Phase 1, PR 2)
 //
-// Trusted in-guest supervisor running inside Windows Sandbox.
-// Loads a host-signed execution request, enforces bounded execution under a
+// EXPERIMENTAL HOST FIXTURE ONLY: this prototype cannot safely run arbitrary
+// project code until suspended-process assignment, restricted child identity,
+// and guest-owned receipt publication have been independently verified.
+// Loads an UNAUTHENTICATED synthetic request and enforces bounded execution under a
 // kill-on-close Windows Job Object, captures outputs, and produces an immutable receipt.
 
 using System;
 using System.Diagnostics;
+using System.ComponentModel;
+using System.Text.RegularExpressions;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -152,10 +156,10 @@ internal static class NativeJobObject
 
         public SafeJobHandle()
         {
-            if (!OperatingSystem.IsWindows()) return;
+            if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Job Object requires Windows.");
 
             _handle = CreateJobObject(IntPtr.Zero, null);
-            if (_handle == IntPtr.Zero) return;
+            if (_handle == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateJobObject failed.");
 
             var extendedInfo = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION
             {
@@ -170,7 +174,13 @@ internal static class NativeJobObject
             try
             {
                 Marshal.StructureToPtr(extendedInfo, extendedInfoPtr, false);
-                SetInformationJobObject(_handle, JobObjectExtendedLimitInformation, extendedInfoPtr, (uint)length);
+                if (!SetInformationJobObject(_handle, JobObjectExtendedLimitInformation, extendedInfoPtr, (uint)length))
+                {
+                    int code = Marshal.GetLastWin32Error();
+                    CloseHandle(_handle);
+                    _handle = IntPtr.Zero;
+                    throw new Win32Exception(code, "SetInformationJobObject failed; refusing execution.");
+                }
             }
             finally
             {
@@ -201,6 +211,7 @@ public static class Program
     {
         string? requestPath = null;
         string? outputPath = null;
+        bool hostFixture = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -212,11 +223,23 @@ public static class Program
             {
                 outputPath = args[++i];
             }
+            else if (args[i] == "--host-fixture")
+            {
+                hostFixture = true;
+            }
+        }
+
+        // Until a restricted identity + suspended Job Object launch is proven, never
+        // silently accept this executable as a production in-guest supervisor.
+        if (!hostFixture)
+        {
+            Console.Error.WriteLine("BLOCKED: GuestSupervisor is a host-only synthetic fixture; isolated execution is not implemented.");
+            return 3;
         }
 
         if (string.IsNullOrWhiteSpace(requestPath) || string.IsNullOrWhiteSpace(outputPath))
         {
-            Console.Error.WriteLine("Usage: GuestSupervisor.exe --request <request.json> --output <output-directory>");
+            Console.Error.WriteLine("Usage (synthetic fixture only): GuestSupervisor.exe --host-fixture --request <request.json> --output <output-directory>");
             return 1;
         }
 
@@ -228,6 +251,14 @@ public static class Program
         {
             string json = await File.ReadAllTextAsync(requestPath);
             request = JsonSerializer.Deserialize<ExecutionRequest>(json) ?? throw new InvalidOperationException("Failed to parse request JSON.");
+            if (request.Version != 1 || !Regex.IsMatch(request.RunId ?? "", "^[A-Za-z0-9_-]{1,128}$") ||
+                !Regex.IsMatch(request.Nonce ?? "", "^[0-9a-fA-F]{64}$") ||
+                string.IsNullOrWhiteSpace(request.Command) ||
+                !double.IsFinite(request.TimeoutSeconds) || request.TimeoutSeconds < 1 || request.TimeoutSeconds > 900 ||
+                request.MaxOutputBytes < 1 || request.MaxOutputBytes > 1024 * 1024)
+            {
+                throw new InvalidOperationException("Invalid or unsupported synthetic execution request.");
+            }
         }
         catch (Exception ex)
         {
@@ -269,8 +300,15 @@ public static class Program
             process.Start();
             childPid = process.Id;
 
-            // Attach to kill-on-close Job Object
-            jobObject.AssignProcess(process.Handle);
+            // The process may execute briefly before assignment: this is NOT a
+            // suspended-start or a production security boundary. Fail closed on
+            // assignment failure and do not publish a successful receipt.
+            if (!jobObject.AssignProcess(process.Handle))
+            {
+                int nativeError = Marshal.GetLastWin32Error();
+                try { process.Kill(entireProcessTree: true); process.WaitForExit(5000); } catch { }
+                throw new Win32Exception(nativeError, "AssignProcessToJobObject failed; child terminated.");
+            }
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(1, request.TimeoutSeconds)));
 

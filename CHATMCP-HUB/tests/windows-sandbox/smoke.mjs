@@ -1,10 +1,11 @@
-// Windows Sandbox Smoke and Feasibility Test Suite (Phase 1, PR 2).
+// Windows Sandbox SOURCE/CONFIG and Windows HOST-only fixture tests (Phase 1, PR 2).
+// NO code here launches a Windows Sandbox guest; real guest isolation is BLOCKED.
 //
 // Tests:
 //  1. Read-only host preflight and honest detection of virtualization/feature blockers
 //  2. Validated CapabilityReport schema (osIsolated, denied network, ephemeral scope)
 //  3. Synthetic execution request preparation (cryptographic nonce, schema)
-//  4. In-guest supervisor bounded execution under Job Object (if dotnet available)
+//  4. Synthetic HOST fixture bounded execution under Job Object (optional, required in Windows CI)
 //  5. Receipt transport verification (checksum, nonce, runId, bounds)
 //  6. Host canary file isolation integrity
 //  7. Negative security attack tests:
@@ -115,7 +116,7 @@ export async function runSmokeTests() {
     assert.equal(writtenReq.command, 'cmd.exe');
     ok('Execution request prepared with 256-bit cryptographic nonce');
 
-    console.log('# 4. In-Guest Supervisor Execution & Transport Protocol');
+    console.log('# 4. Host-only synthetic supervisor fixture (NOT Windows Sandbox guest)');
     const supervisorDll = path.resolve('CHATMCP-HUB/windows/sandbox/GuestSupervisor/bin/Debug/net10.0/GuestSupervisor.dll');
     let hasDotnet = false;
     try {
@@ -125,11 +126,15 @@ export async function runSmokeTests() {
       // dotnet not in PATH
     }
 
-    if (hasDotnet && fs.existsSync(supervisorDll) && process.platform === 'win32') {
+    const hostNativeReady = hasDotnet && fs.existsSync(supervisorDll) && process.platform === 'win32';
+    if (process.env.CHATMCP_REQUIRE_HOST_SUPERVISOR === '1' && !hostNativeReady) {
+      throw new Error('Required Windows host fixture unavailable: build GuestSupervisor with .NET 10 first.');
+    }
+    if (hostNativeReady) {
       // Run GuestSupervisor against synthetic request
       execFileSync(
         'dotnet',
-        [supervisorDll, '--request', prep.requestPath, '--output', outputDir],
+        [supervisorDll, '--host-fixture', '--request', prep.requestPath, '--output', outputDir],
         { encoding: 'utf8', windowsHide: true }
       );
 
@@ -137,6 +142,7 @@ export async function runSmokeTests() {
         exportDirectory: outputDir,
         expectedRunId: runId,
         expectedNonce: prep.nonce,
+        allowUntrustedHostFixture: true,
       });
 
       assert.equal(receipt.runId, runId);
@@ -145,14 +151,15 @@ export async function runSmokeTests() {
       assert.ok(receipt.stdout.includes('CHATMCP_SANDBOX_SMOKE_OK'));
       assert.equal(receipt.truncated, false);
       assert.ok(receipt.durationMs >= 0);
-      ok('GuestSupervisor bounded execution produced verified receipt and SHA256 checksum');
+      ok('Host fixture produced a consistency-checked receipt (NOT an authenticated guest result)');
 
       console.log('# 5. Host Canary File Isolation Integrity');
       const canaryPath = path.join(testBaseDir, 'host-canary-secret.txt');
       const canaryContent = 'CRITICAL_HOST_TOKEN_' + crypto.randomBytes(8).toString('hex');
       fs.writeFileSync(canaryPath, canaryContent, 'utf8');
 
-      // Execute supervisor with command attempting to read/overwrite host canary
+      // A harmless echo is NOT an access-denial test. Only verify that our host
+      // fixture leaves unrelated synthetic files unchanged; guest denial is BLOCKED.
       const canaryRunId = 'canary-run-' + crypto.randomBytes(6).toString('hex');
       const canaryInputDir = path.join(testBaseDir, 'canary-input');
       const canaryOutputDir = path.join(testBaseDir, 'canary-output');
@@ -170,13 +177,13 @@ export async function runSmokeTests() {
 
       execFileSync(
         'dotnet',
-        [supervisorDll, '--request', canaryPrep.requestPath, '--output', canaryOutputDir],
+        [supervisorDll, '--host-fixture', '--request', canaryPrep.requestPath, '--output', canaryOutputDir],
         { encoding: 'utf8', windowsHide: true }
       );
 
       // Verify host canary file remained completely untouched
       assert.equal(fs.readFileSync(canaryPath, 'utf8'), canaryContent, 'Host canary file was not modified');
-      ok('Host canary file untouched outside execution export boundaries');
+      ok('Host fixture did not modify synthetic canary (no OS-isolation claim)');
 
       console.log('# 6. Timeout Bounded Execution');
       const timeoutRunId = 'timeout-run-' + crypto.randomBytes(6).toString('hex');
@@ -197,7 +204,7 @@ export async function runSmokeTests() {
       try {
         execFileSync(
           'dotnet',
-          [supervisorDll, '--request', timeoutPrep.requestPath, '--output', timeoutOutputDir],
+          [supervisorDll, '--host-fixture', '--request', timeoutPrep.requestPath, '--output', timeoutOutputDir],
           { encoding: 'utf8', windowsHide: true }
         );
       } catch {
@@ -208,6 +215,7 @@ export async function runSmokeTests() {
         exportDirectory: timeoutOutputDir,
         expectedRunId: timeoutRunId,
         expectedNonce: timeoutPrep.nonce,
+        allowUntrustedHostFixture: true,
       });
 
       assert.equal(timeoutReceipt.status, 'timed_out');
@@ -233,7 +241,7 @@ export async function runSmokeTests() {
 
       execFileSync(
         'dotnet',
-        [supervisorDll, '--request', truncPrep.requestPath, '--output', truncOutputDir],
+        [supervisorDll, '--host-fixture', '--request', truncPrep.requestPath, '--output', truncOutputDir],
         { encoding: 'utf8', windowsHide: true }
       );
 
@@ -241,13 +249,14 @@ export async function runSmokeTests() {
         exportDirectory: truncOutputDir,
         expectedRunId: truncRunId,
         expectedNonce: truncPrep.nonce,
+        allowUntrustedHostFixture: true,
       });
 
       assert.equal(truncReceipt.truncated, true);
       assert.ok(Buffer.byteLength(truncReceipt.stdout, 'utf8') <= 1024, 'Stdout bounded to maxOutputBytes');
       ok('GuestSupervisor bounded output byte limits and flagged truncated: true');
     } else {
-      ok('In-guest supervisor live invocation skipped (dotnet or platform not applicable)');
+      console.log('BLOCKED: Windows host fixture not run (missing Windows/.NET 10/built helper). No guest execution attempted.');
     }
 
     console.log('# 8. Negative Transport Attacks & Boundary Validation');
@@ -372,7 +381,7 @@ export async function runSmokeTests() {
         ok('Symlinked receipt.json rejected as unsafe reparse point');
         fs.unlinkSync(rPath);
       } else {
-        ok('Symlink receipt check skipped (insufficient OS permissions for symlink on test path)');
+        console.log('BLOCKED: symlink receipt attack cannot run with current OS privileges');
       }
     }
 
@@ -389,6 +398,43 @@ export async function runSmokeTests() {
         { code: 'missing_receipt' }
       );
       ok('Missing receipt rejected cleanly');
+    }
+
+
+    // Unknown/missing version, missing checksum and untrusted origins may never
+    // be accepted as independent evidence that guest code executed safely.
+    {
+      const dir = path.join(testBaseDir,'receipt-origin-tests');
+      fs.mkdirSync(dir,{recursive:true});
+      const candidate = {
+        version: 1, runId:'origin-run', nonce:'ORIGIN_NONCE', status:'completed',
+        exitCode:0, stdout:'forged output', stderr:'',
+        startedAt:new Date().toISOString(), completedAt:new Date().toISOString(),
+        durationMs:0, truncated:false,
+      };
+      const receiptFile = path.join(dir,'receipt.json');
+      const hashFile = path.join(dir,'receipt.sha256');
+      const writePair = () => {
+        const raw = JSON.stringify(candidate);
+        fs.writeFileSync(receiptFile,raw);
+        fs.writeFileSync(hashFile,crypto.createHash('sha256').update(raw).digest('hex')+'  receipt.json\n');
+      };
+      writePair();
+      await assert.rejects(
+        () => readAndVerifyExecutionReceipt({exportDirectory:dir,expectedRunId:candidate.runId,expectedNonce:candidate.nonce}),
+        {code:'unverified_guest_origin'}
+      );
+      candidate.version=99;writePair();
+      await assert.rejects(
+        () => readAndVerifyExecutionReceipt({exportDirectory:dir,expectedRunId:candidate.runId,expectedNonce:candidate.nonce,allowUntrustedHostFixture:true}),
+        {code:'unsupported_receipt_version'}
+      );
+      candidate.version=1;writePair();fs.unlinkSync(hashFile);
+      await assert.rejects(
+        () => readAndVerifyExecutionReceipt({exportDirectory:dir,expectedRunId:candidate.runId,expectedNonce:candidate.nonce,allowUntrustedHostFixture:true}),
+        {code:'missing_receipt_checksum'}
+      );
+      ok('Forged checksum/nonce cannot authorize verified guest execution; version and checksum mandatory');
     }
 
     console.log('# 9. Fail-Closed Dispatch When Isolation Backend Unavailable');
@@ -431,7 +477,7 @@ export async function runSmokeTests() {
       ok('Registry dispatch rejected with fail-closed isolation_unavailable when backend is unavailable');
     }
 
-    console.log(`\nAll ${checks} Windows Sandbox smoke & feasibility checks PASSED.`);
+    console.log(`\nPASS: ${checks} portable/host-fixture checks; REAL WINDOWS SANDBOX GUEST ISOLATION: BLOCKED (not executed).`);
   } finally {
     try {
       fs.rmSync(testBaseDir, { recursive: true, force: true });
