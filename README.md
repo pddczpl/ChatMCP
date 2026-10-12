@@ -12,7 +12,7 @@
 
 The unreleased Phase 0 fixes reconnect the current React UI to persisted task history, the live permission gate, plans, Git and terminal data. See the [desktop contract audit](docs/PHASE0-DESKTOP-CONTRACT-AUDIT.md), [execution report](docs/PHASE0-EXECUTION-REPORT.md) and [next Phase 1 implementation plan](docs/PHASE1-IMPLEMENTATION-PLAN.md) for verified behavior, remaining gates and ordered work. A model's final answer does not certify that tests passed.
 
-**Current Phase 1 development:** [staged implementation and outstanding safety gates](docs/PHASE1-STAGED-STATUS.md). This work is unreleased: backend sandbox execution remains blocked pending authenticated supervisor publication and supported Windows hardware acceptance.
+**Current Phase 1 development:** [staged implementation and outstanding safety gates](docs/PHASE1-STAGED-STATUS.md). For the exact current Windows hardware handoff, see [Antigravity Phase 1 acceptance task](docs/agent-handoffs/ANTIGRAVITY_NEXT_TASK.md). This work is unreleased: backend sandbox execution remains blocked pending authenticated supervisor publication and supported Windows hardware acceptance.
 
 | Capability | Status | Important limitations |
 | --- | --- | --- |

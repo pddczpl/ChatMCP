@@ -13,7 +13,7 @@ This branch is a **work-in-progress implementation**, not Phase 1 security/relea
 
 ## Verification requirements before Phase 1 can be called complete
 
-1. Resolve the remaining PR #12 P0 privileged-token, native lifecycle and authenticated guest receipt-publication findings.
+1. PR #12 commit 6f22d58 (token/Win32/HMAC prototype hardening) is already integrated. **Revalidate that OS security boundary against final PR #13 built binaries and current source SHA**; earlier guest test reports on PR #12 are not release acceptance for PR #13.
 2. Integrate a trusted Windows CLI supervisor publication mechanism with the backend driver, verify OS token and filesystem permission boundary, implement durable cancellation reconciliation.
 3. Join the coding worker's check ID/grant broker to model tool catalog **without enabling host shell or role escalation**.
 4. Prove an actual disposable coding-worker cycle changes a failed test into a passing test through the Windows isolated broker.
@@ -28,3 +28,7 @@ All unverified capabilities must be reported as blocked. No release, no merge, n
 The owner chooses Base URL, model and API key. ChatMCP has no artificial token/request/spend cap or shared monetary budget. Provider-side usage/billing is the owner's responsibility. Workers still obey host process concurrency, OS isolation, bounded test grants and explicit Full Access permission confirmation where selected. No integration with external IDEs (including VS Code) is required. User-selected Full Access is an existing host execution policy, not a way to silently bypass required OS isolation for automated worker checks.
 
 - PR6 dynamic read-only subagents now have an explicit owner-approved Local Hub API and standalone desktop UI, use the configured model gateway, and maintain a durable interrupted state. Dynamic scheduling has no model token/monetary quota; concurrency is bounded for host stability.
+
+### Native Windows acceptance task
+
+The complete branch-specific [Antigravity acceptance task](agent-handoffs/ANTIGRAVITY_NEXT_TASK.md) covers actual integrated Windows guest verification, credential-safe BYO model settings, Full Access opt-in, clean-machine installer validation and test evidence. Source/mock or GitHub-hosted CI green alone is not OS isolation proof.
