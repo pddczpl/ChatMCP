@@ -289,6 +289,31 @@ export async function safeFetchSkillManifest(rawUrl, {
 }
 
 /**
+ * DNS-pinned, bounded raw download. GitHub content may be binary.
+ * Every redirected URL receives new DNS checks, and bytes are capped
+ * as they arrive in fetchPinnedSkillResponse.
+ */
+export async function safeFetchSkillBytes(rawUrl, {maxBytes=2*1024*1024,maxRedirects=3,timeoutMs=12000,transport=fetchPinnedSkillResponse,resolver=resolvePublicUrl}={}){
+  let url=rawUrl;
+  for(let hop=0;hop<=maxRedirects;hop++){
+    const approved=await resolver(url);
+    if(!approved?.ip||isPrivateOrReservedIp(approved.ip))throw error('ssrf_blocked','Unapproved skill asset address.',403);
+    const res=await transport(approved.url,{ip:approved.ip,maxBytes,timeoutMs});
+    if([301,302,303,307,308].includes(res.status)){
+      const target=res.headers.get('location');
+      if(!target)throw error('bad_redirect','Missing redirect destination.',400);
+      url=new URL(target,url).toString();
+      continue;
+    }
+    if(!res.ok)throw error('asset_fetch_failed','Remote asset returned HTTP '+res.status,res.status||400);
+    const bytes=res.buffer;
+    if(!Buffer.isBuffer(bytes)||bytes.length>maxBytes)throw error('asset_too_large','Asset exceeds download limit.',413);
+    return {bytes,finalUrl:approved.url};
+  }
+  throw error('too_many_redirects','Skill asset exceeded redirect limit.',400);
+}
+
+/**
  * Standard-compliant mini YAML parser for SKILL.md frontmatter blocks.
  * Throws `malformed_yaml` on syntax errors, unsupported nested types, or unclosed quotes.
  */
@@ -705,6 +730,8 @@ export class PluginManager {
           sourceUrl: skill.sourceUrl || null,
           commitSha: skill.commitSha || null,
           resourcePaths: skill.resourcePaths || [],
+          licenseEvidence: skill.licenseEvidence || null,
+          dependencies: skill.dependencies || [],
           installedAt: skill.installedAt || new Date().toISOString(),
         },
         null,
@@ -734,22 +761,27 @@ export class PluginManager {
       const digest = crypto.createHash('sha256').update('SKILL.md\0').update(skillMd);
       let total = 0;
       const resources = Array.isArray(skill.resourceFiles) ? skill.resourceFiles : [];
-      if (resources.length > 32) throw error('too_many_skill_files', 'Maximum 32 additional skill resources.', 413);
+      if (resources.length > 200) throw error('too_many_skill_files', 'Maximum 200 additional skill resources.', 413);
       for (const item of resources) {
         const rel = String(item?.path || '').replaceAll('\\', '/');
-        const text = item?.text;
-        if (!/^(references|scripts|assets)\/[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*$/.test(rel) ||
-            rel.split('/').includes('..') || typeof text !== 'string') {
-          throw error('invalid_resource_path', 'Imported skill resource path is unsafe.', 403);
+        const body = item?.encoding === 'base64' && typeof item?.data === 'string'
+          ? Buffer.from(item.data, 'base64')
+          : typeof item?.text === 'string' ? Buffer.from(item.text, 'utf8') : null;
+        if (!/^[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*$/.test(rel) ||
+            rel.split('/').some(x => x === '..' || x === '.' || x === '.git' || x === 'node_modules') ||
+            ['SKILL.md','manifest.json'].includes(rel) || !body) {
+          throw error('invalid_resource_path', 'Imported skill resource path or content is unsafe.', 403);
         }
-        const size = Buffer.byteLength(text, 'utf8');
+        if (item.encoding === 'base64' && Buffer.from(body.toString('base64'),'base64').compare(body) !== 0)
+          throw error('invalid_resource_data','Invalid base64 asset.',400);
+        const size = body.length;
         total += size;
-        if (size > 64 * 1024 || total > 512 * 1024) throw error('skill_resources_too_large', 'Skill resources exceed size limits.', 413);
+        if (size > 2 * 1024 * 1024 || total > 24 * 1024 * 1024) throw error('skill_resources_too_large', 'Skill resources exceed size limits.', 413);
         const dest = path.resolve(stagingDir, rel);
         if (!dest.startsWith(stagingDir + path.sep)) throw error('directory_traversal', 'Invalid skill resource.', 403);
         await fs.mkdir(path.dirname(dest), { recursive: true, mode: 0o700 });
-        await fs.writeFile(dest, text, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
-        digest.update('\0'+rel+'\0').update(text);
+        await fs.writeFile(dest, body, { flag: 'wx', mode: 0o600 });
+        digest.update('\0'+rel+'\0').update(body);
       }
       const contentHash = digest.digest('hex');
 
@@ -831,6 +863,8 @@ export class PluginManager {
         commitSha: p.commitSha || null,
         contentHash: p.contentHash || null,
         resourcePaths: p.resourcePaths || [],
+        licenseEvidence: p.licenseEvidence || null,
+        dependencies: p.dependencies || [],
         installedAt: p.installedAt || new Date().toISOString(),
       };
     }
@@ -974,9 +1008,11 @@ export class PluginManager {
   }
 
   /** Import an immutable GitHub SKILL.md and supporting text files. No script execution. */
-  async importRegistrySkill({id,name,description='',version='1.0.0',license='unknown',author='unknown',tools=[],systemPrompt='',sourceUrl,commitSha,originalSkillText,resourceFiles=[]}={}){
+  async importRegistrySkill({id,name,description='',version='1.0.0',license='unknown',author='unknown',tools=[],systemPrompt='',sourceUrl,commitSha,originalSkillText,resourceFiles=[],licenseEvidence=null,dependencies=[],update=false}={}){
     const safeId=normalizeSkillId(id);
-    if(this.installedPlugins.has(safeId))throw error('already_installed','Skill already installed.',409);
+    const previous=this.installedPlugins.get(safeId) ?? null;
+    if(previous&&!update)throw error('already_installed','Skill already installed.',409);
+    if(update&&(!previous||previous.provenance!=='github-registry'))throw error('not_registry_skill','Only a managed registry skill can be updated.',409);
     if(!/^[a-f0-9]{40}$/i.test(String(commitSha||'')) ||
       !/^https:\/\/raw\.githubusercontent\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/[a-f0-9]{40}\/.+SKILL\.md$/i.test(String(sourceUrl||''))) {
       throw error('invalid_source','Registry import requires a pinned GitHub SKILL.md URL.',403);
@@ -985,17 +1021,36 @@ export class PluginManager {
     const resourcePaths=resourceFiles.map(x=>x.path);
     const entry={
       id:safeId,name,description,version,license,declaredLicense:license,
-      verifiedLicense:null,redistributable:false,author,tools,
+      verifiedLicense:licenseEvidence?.status==='matched_file' ? licenseEvidence.spdx : null,
+      licenseEvidence:licenseEvidence||null,dependencies,redistributable:false,author,tools,
       systemPrompt,sourceUrl,commitSha,resourcePaths,
       category:'skills',provenance:'github-registry',enabled:false,
       installedAt:new Date().toISOString()
     };
-    const {contentHash}=await this.#writeSkillDirectory({...entry,originalSkillText,resourceFiles});
-    entry.contentHash=contentHash;
-    this.installedPlugins.set(safeId,entry);
-    try {await this.save();}
-    catch(e){this.installedPlugins.delete(safeId);await this.#removeSkillDirectory(safeId).catch(()=>{});throw e;}
-    return entry;
+    // Preserve a recovery copy across the directory swap AND state writes;
+    // failure does not replace the last known-good imported skill.
+    const backupPath=path.join(this.stateDir,'.rollback-registry-'+crypto.randomUUID());
+    if(previous)await fs.cp(this.#resolveSkillDir(safeId).absolute,backupPath,{recursive:true,force:false,errorOnExist:true});
+    try{
+      const {contentHash}=await this.#writeSkillDirectory({...entry,originalSkillText,resourceFiles});
+      entry.contentHash=contentHash;
+      this.installedPlugins.set(safeId,entry);
+      await this.save();
+      return entry;
+    }catch(e){
+      if(previous){
+        this.installedPlugins.set(safeId,previous);
+        await fs.rm(this.#resolveSkillDir(safeId).absolute,{recursive:true,force:true}).catch(()=>{});
+        await fs.rename(backupPath,this.#resolveSkillDir(safeId).absolute).catch(()=>{});
+      }else{
+        this.installedPlugins.delete(safeId);
+        await this.#removeSkillDirectory(safeId).catch(()=>{});
+      }
+      await this.save().catch(()=>{});
+      throw e;
+    }finally{
+      await fs.rm(backupPath,{recursive:true,force:true}).catch(()=>{});
+    }
   }
 
   /**
