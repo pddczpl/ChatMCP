@@ -8,7 +8,9 @@
 | Git | 2.4x trở lên (đã chạy với 2.55 trên Windows) | quy trình phát triển; công cụ Git của agent; nhiều bộ test tạo kho thật |
 | Git Bash | đi kèm Git for Windows | shell mặc định của agent trên Windows (không có thì dùng PowerShell) |
 | PowerShell | Windows PowerShell 5.1 (có sẵn trên Windows 11) | launcher, script, kiểm thử script |
-| Python 3.11+ | tùy chọn | (a) chỉ mục ký hiệu Python của Hub (`py -3.11` trên Windows); (b) bộ E2E FastAPI; (c) bộ giao diện Playwright |
+| Python 3.11+ | cần cho bộ E2E FastAPI bắt buộc trong CI; tùy chọn khi chạy Hub | (a) chỉ mục ký hiệu Python của Hub (`py -3.11` trên Windows); (b) bộ E2E FastAPI; (c) các bộ giao diện Python cũ |
+| Playwright Chromium | cài bằng `npx playwright install chromium` trong `CHATMCP-HUB/ui` | E2E React/Vite hiện tại, phiên bản Playwright ghim trong lockfile |
+| .NET SDK 10 + WebView2 Runtime | Windows installer và native smoke | biên dịch WinForms, kiểm tra React trong WebView2 thật |
 | Docker Desktop | tùy chọn | chỉ cho sandbox test cục bộ, không phải cloud hosting |
 
 Hub **không có bước build** và không có dependency bắt buộc để `npm install`. `node-pty` (ConPTY) là tùy chọn: `CHATMCP-HUB\windows\Install-OptionalConPTY.ps1`; khi thiếu hoặc hỏng, terminal tương tác tự dùng pipe.
@@ -27,7 +29,7 @@ npm run test:ui                                  # bộ giao diện Python/Playw
 
 Hiện có **48 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
 
-Runner in một dòng cho mỗi bộ (`PASS`/`FAIL`/`TIMEOUT`/`SKIP`, thời gian, mã thoát thật) và thoát khác 0 nếu có bộ nào fail hoặc quá hạn (mặc định 180 giây/bộ, đổi bằng `--timeout`). Bộ kiểm thử in một dòng `CHATMCP_TEST_SKIP: <lý do>` rồi thoát 0 để được báo là **SKIP — không bao giờ được tính là PASS**. `--no-skip all` (hoặc `--no-skip tên1,tên2`) biến SKIP thành FAIL. Hãy dùng nó ở nơi môi trường đã cài đủ Git, shell và Python (CI): một bộ bị bỏ qua khi đó nghĩa là môi trường hỏng chứ không phải "không áp dụng". Workflow hiện có trong repo **chưa** dùng `--no-skip` (xem mục "Giới hạn đã biết" bên dưới). Một phần không thể kiểm chứng trong bản này được in `BLOCKED: <gì> - <vì sao>`.
+Runner in một dòng cho mỗi bộ (`PASS`/`FAIL`/`TIMEOUT`/`SKIP`, thời gian, mã thoát thật) và thoát khác 0 nếu có bộ nào fail hoặc quá hạn (mặc định 180 giây/bộ, đổi bằng `--timeout`). Bộ kiểm thử in một dòng `CHATMCP_TEST_SKIP: <lý do>` rồi thoát 0 để được báo là **SKIP — không bao giờ được tính là PASS**. `--no-skip all` (hoặc `--no-skip tên1,tên2`) biến SKIP thành FAIL. Workflow hiện tại cài Python 3.11 và các gói ghim trong `tests/requirements-e2e.txt`, rồi chạy **`--no-skip all`** trên cả Windows và Linux, Node 22 và 24. Một bộ bắt buộc bị bỏ qua vì thiếu môi trường vì thế làm CI thất bại. Một phần không thể kiểm chứng trong bản này được in `BLOCKED: <gì> - <vì sao>`.
 
 Tổng thời gian cả bộ Node: khoảng 3 phút (Linux, 180 s đã đo) đến 4 phút (Windows, 243 s đã đo); bộ lâu nhất là `verify-e2e-recovery` (~57 s, vì phải giết và khởi động lại Hub nhiều lần).
 
@@ -53,7 +55,10 @@ Tổng thời gian cả bộ Node: khoảng 3 phút (Linux, 180 s đã đo) đ�
 | **Phiên & HTTP** | `verify-persistent-sessions`, `verify-studio-recovery`, `verify-hub-claim-recovery`, `verify-network-recovery` | phục hồi phiên, tự tiếp tục, mất mạng |
 | | `verify-studio-core`, `verify-studio-http`, `verify-studio-verifications`, `verify-v2-http`, `verify-v2-runtime`, `verify-agent-http`, `verify-agent-autotools` | workspace/checkpoint/review, route HTTP, CSRF/Origin, sandbox |
 | **ChatGPT Web (legacy)** | `verify-browser-continuation`, `verify-first-message`, `verify-recovery-dom`, `verify-reply-witness`, `verify-result-paging`, `verify-send-cycle` | tiện ích trình duyệt và `BrowserRunner` (giữ để không hồi quy) |
-| **Giao diện** | `verify-ui-logic` | quyết định của dashboard (`web/ui-logic.js`) chạy không cần trình duyệt, đối chiếu với từ vựng của máy chủ thật |
+| **Giao diện cũ** | `verify-ui-logic` | quyết định của dashboard (`web/ui-logic.js`) chạy không cần trình duyệt; không thay thế bằng chứng React/Vite |
+| **React hiện tại** | `ui/tests/*.test.mjs` | typed Hub adapter, task/approval/history, trạng thái thật, SSE event mapping, inspector và lỗi API |
+| | `ui/e2e/studio.spec.mjs` | Playwright Chromium với build React/Vite hiện tại, Local Hub thật và nhà cung cấp mô hình theo kịch bản |
+| **Windows native** | `ui/e2e/webview2-smoke.mjs` | WinForms + WebView2 thật tải React từ Hub tạm, lỗi JavaScript/API và điều hướng cơ bản |
 | **E2E** | `verify-e2e-bugfix` (34) | sửa một lỗi trong dự án có sẵn và chứng minh bằng test của dự án |
 | | `verify-e2e-fastapi` (24) | dựng dịch vụ FastAPI test-first, rồi tác vụ thứ hai ở chế độ Tự động |
 | | `verify-e2e-git` (25) | nhánh, commit, và chỉ push khi bạn đồng ý (remote là kho bare cục bộ) |
@@ -61,7 +66,33 @@ Tổng thời gian cả bộ Node: khoảng 3 phút (Linux, 180 s đã đo) đ�
 | | `verify-e2e-isolation` (52) | hai Hub cạnh nhau không thấy dữ liệu của nhau; cửa vào của Hub |
 | | `verify-e2e-adversarial` (74) | repo độc hại + mô hình "ngoan ngoãn" làm mọi thứ README bảo; kiểm tra điều gì **đúng** sau đó |
 
-Bộ giao diện (cần Python + Playwright; xem bên dưới): `verify-ui-e2e.py` (trình duyệt thật + Hub thật + mô hình giả: hướng dẫn lần đầu, duyệt/từ chối, Chỉ đọc, Tự động), `verify-react-ui.py`, `verify-v2-ui.py`, `verify-studio-ui.py`, `verify-auto-project-ui.py`.
+Bộ giao diện Python cũ (tùy chọn, cần Python + Playwright; xem bên dưới): `verify-ui-e2e.py`, `verify-react-ui.py`, `verify-v2-ui.py`, `verify-studio-ui.py`, `verify-auto-project-ui.py`. Tên có chữ React không chứng minh bộ đó kiểm tra frontend TypeScript/Vite hiện tại; cổng bắt buộc cho frontend này là bộ bên dưới.
+
+### React/Vite E2E và Windows WebView2
+
+Chạy từ thư mục gốc của repository:
+
+```powershell
+cd CHATMCP-HUB/ui
+npm ci --no-audit --no-fund
+npx playwright install chromium
+npm run test:unit
+npm run test:e2e
+# Chỉ dùng khi đã build cùng mã nguồn cần kiểm tra:
+npm run test:e2e:built
+# Windows: cần .NET SDK 10 và WebView2 Runtime, dùng build React vừa tạo:
+node e2e/webview2-smoke.mjs
+```
+
+`test:e2e` chạy TypeScript + Vite build trước khi mở Chromium headless. Local Hub thật phục vụ `web/dist`; không chặn hoặc giả response của Hub, không dùng trang legacy. Mỗi ca tạo kho Git, state Hub và model server loopback riêng trong thư mục tạm; môi trường tiến trình Hub được lọc credential và cấu hình Git cá nhân. File, command, permission gate và Git đều chạy thật. Bộ test dọn tiến trình và dữ liệu tạm sau khi chạy.
+
+Các luồng được kiểm tra từ React: onboarding, chọn workspace, lưu và kiểm tra model, tạo hội thoại trống không gọi model, gửi prompt, tool receipts, preview/rủi ro và Approve/Deny, sửa file và chạy test, Git diff, Files/Activity/Skills, kế hoạch trống và checklist có bằng chứng, Stop/Resume cùng ID, lịch sử sau khi khởi động lại Hub ở trạng thái đã dừng, đổi quyền trong Settings, và test thất bại không trở thành thông báo thành công. Terminal được tạo qua API được bảo vệ của Hub để xác minh tab đọc output/mã thoát của phiên thật. Bộ browser xác nhận kết nối `/api/tasks/events`; token routing có unit test. Streaming token từ provider thật vẫn cần kiểm chứng riêng.
+
+Console errors, runtime exceptions, HTTP lỗi và API error envelopes làm E2E thất bại. Trạng thái task bị hủy theo yêu cầu vẫn là dữ liệu hợp lệ. Một ca dùng API key giả trong fixture để kiểm tra input được xóa sau lưu/đổi provider/đổi origin, và request cấu hình mới không mang key cũ; không dùng credential cá nhân hay gọi model trả phí. Reporter bắt buộc làm cả run thất bại nếu có `test.skip`; `ui/tests/e2e-gate.test.mjs` xác minh mã thoát thật của trường hợp đó. Kết quả JSON, Hub logs và ảnh/trace khi thất bại nằm trong `ui/test-results/` và được CI lưu làm artifact.
+
+CI chạy React unit + Chromium E2E trên Windows và Linux. Job Windows installer chạy smoke WinForms/WebView2 sau build và thất bại nếu thiếu prerequisite; tham số `--allow-unavailable` chỉ dành cho khảo sát local và không dùng trong CI. Native smoke này kiểm tra tải/điều hướng, không thay thế toàn bộ luồng agent của Chromium. Restart React kiểm tra phiên đã dừng; crash giữa thao tác và chống phát lại mutation thuộc các regression Hub như `verify-e2e-recovery`.
+
+Mô hình ở các ca này là máy chủ **theo kịch bản**, không phải model thật. Kết quả không xác nhận chất lượng model trả phí, OS isolation, hay fresh install/upgrade/uninstall trên Windows sạch. Xem thêm [hướng dẫn E2E React](../CHATMCP-HUB/ui/e2e/README.md).
 
 ### Bộ cần Python
 
@@ -84,7 +115,9 @@ Script ở thư mục gốc có kiểm thử riêng, chạy bằng dữ liệu g
 
 ~~~powershell
 node CHATMCP-HUB/tests/run-all.mjs
-# Build frontend/installer chạy qua CI; CloudHarness bootstrap tests đã được gỡ.
+# Windows PowerShell 5.1: payload phải loại state/dev dependencies và dọn đúng thư mục staging.
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/Test-InstallerPayload.ps1
+# CI yêu cầu regression này trước khi build installer; không có nhánh skip.
 ~~~
 
 ## Bộ E2E: thật ở đâu, giả ở đâu
@@ -183,7 +216,9 @@ Giới hạn trung thực: đây là một tập đột biến **nhỏ, viết t
 ```
 CHATMCP-HUB/       Hub (hub.mjs, lib/, web/, extension/, tests/, windows/, workers/)
   lib/             mã máy chủ (xem ARCHITECTURE.md); *.mjs, không cần build
-  web/             giao diện: index.html, react-app.js, ui-logic.js, onboarding.js, vendor/
+  ui/              React/TypeScript/Vite: src/, tests/ (regression), e2e/ (Playwright và native smoke)
+  web/dist/        build React được Local Hub và desktop phục vụ
+  web/             giữ thêm frontend legacy và tài nguyên phục vụ regression cũ
   tests/           verify-*.mjs (Node), verify-*.py (Playwright), e2e/ (khung E2E)
 deps/              khóa phiên bản phụ thuộc bên thứ ba
 scripts/           Windows packaging, local developer tooling, tests
@@ -193,6 +228,6 @@ CHATMCP-LOCAL-SETUP/, START-*.{cmd,ps1}, install.sh, manifest.json, bridge.js �
 
 ## Giới hạn đã biết của quy trình
 
-- Workflow CI (`.github/workflows/ci.yml`) đã được viết nhưng **chưa từng chạy trên GitHub** — chỉ chạy sau khi nhánh được push; đừng coi CI là xanh cho tới khi thấy kết quả thật. Bản đang có trong repo gồm `hub-tests` (Linux + Windows × Node 22 + 24, `run-all.mjs --json`), `script-tests` (script bootstrap/xoay token trên Linux và Windows PowerShell 5.1) và `hygiene` (không file nào bị `.gitignore` loại, không có bearer token/khóa riêng). Mọi action được ghim theo SHA commit — `verify-docs` kiểm tra điều đó. **Chưa có** trong bản này: Python cho bộ E2E FastAPI, job giao diện Chromium và `--no-skip all`, nên trên CI hai nhóm đó sẽ SKIP chứ không được chạy. Một bản workflow đã bổ sung đủ ba thứ đó được soạn sẵn ở [`ci-proposal.yml`](ci-proposal.yml) nhưng chưa áp dụng (công cụ của phiên làm việc không được phép ghi vào `.github/workflows/`); cách áp dụng ở [báo cáo Phase 1](PHASE1-REPORT.md#blockers).
+- Workflow CI (`.github/workflows/ci.yml`) gồm `hub-tests` (Linux + Windows × Node 22 + 24, pinned Python E2E dependencies, `--no-skip all`), `frontend-build`, `react-e2e` (Linux + Windows), `windows-installer` (kèm native WebView2 smoke và kiểm tra SHA-256) và `hygiene`. Mọi action được ghim theo SHA commit; `verify-docs` kiểm tra điều đó. `docs/ci-proposal.yml` là đề xuất lịch sử, không phải cấu hình CI đang chạy. Chỉ báo CI xanh khi đã đọc kết quả GitHub Actions trên đúng commit; kết quả local không thay thế trạng thái CI hoặc kiểm thử cài đặt trên máy Windows sạch.
 - `CHATMCP-HUB/SHA256SUMS.txt` là của bản phát hành cũ, đã lỗi thời; không dùng để xác minh bản này.
 - Các script `windows/Run-StudioSmoke.ps1`, `windows/Test-Gateway-ViaHub.ps1`, `windows/Watch-StudioHub.ps1`, `windows/Run-StudioSoak.ps1`, `windows/Test-Gateway-Live.ps1` là công cụ thủ công, không nằm trong `npm test`. `Run-StudioSmoke`, `Watch-StudioHub` và `Run-StudioSoak` so phiên bản của Hub đang chạy (lấy từ `/api/health`) với `version` trong `package.json` cạnh chúng (tham số `-ExpectedVersion` để ghi đè); `Test-Gateway-ViaHub` dùng đúng bản dựng giao diện mà Hub báo. Không script nào ghi cứng số phiên bản, nên không phải sửa mỗi lần phát hành. Mã thoát phản ánh kết quả thật: `Run-StudioSmoke` thoát 1 nếu có kiểm tra fail (kể cả sai phiên bản hay không có Hub), `Run-StudioSoak` thoát 1 nếu có mẫu nào xấu (kể cả khi Hub không trả lời mẫu nào), `Test-Gateway-ViaHub` thoát 1 nếu kết nối thử lỗi, `Watch-StudioHub` thoát 2 khi cổng đang bị một dịch vụ hay phiên bản khác chiếm (và không khởi động lại gì). Cả bốn đã được chạy thật dưới Windows PowerShell 5.1 với một Hub tạm và mô hình giả (xem báo cáo Phase 1). `Test-Gateway-Live.ps1` chỉ nói chuyện với một gateway Cloud Run có tên máy chủ ghi cứng trong script và không dùng cho việc khác — xem mục quyết định của chủ sở hữu trong báo cáo.

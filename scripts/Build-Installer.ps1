@@ -24,9 +24,12 @@ Write-Host "==========================================================" -Foregro
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $scriptDir '..'))
+. (Join-Path $scriptDir 'InstallerPayload.ps1')
 $distDir = Join-Path $repoRoot 'dist'
 $installerDir = Join-Path $repoRoot 'installer'
-$stagingDir = Join-Path $env:TEMP 'ChatMCP-Staging'
+$temporaryRoot = [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\', '/')
+Assert-InstallerNoReparsePath -Path $temporaryRoot
+$stagingDir = Join-Path $temporaryRoot ('ChatMCP-Staging-' + [guid]::NewGuid().ToString('N'))
 
 # 1. Prerequisite checks
 Write-Host "`n[1/5] Checking build prerequisites..." -ForegroundColor Yellow
@@ -45,6 +48,7 @@ $npmCmd = Get-Command npm.cmd -ErrorAction SilentlyContinue | Select-Object -Fir
 if ($null -eq $nodeCmd -or $null -eq $npmCmd) {
     throw "Node.js 22+ and npm are required to compile and package the offline frontend."
 }
+$null = Get-Command git.exe -CommandType Application -ErrorAction Stop
 $nodeVersion = (& $nodeCmd.Path --version).Trim()
 if ([version]($nodeVersion.TrimStart('v').Split('-')[0]) -lt [version]'22.0') {
     throw "Node.js 22+ is required; found $nodeVersion."
@@ -89,55 +93,32 @@ Write-Host "  [OK] Brand icons ready." -ForegroundColor Green
 
 # 3. Compile Native Desktop Shell (ChatMCP.exe)
 Write-Host "`n[3/5] Compiling native desktop shell (ChatMCP.exe)..." -ForegroundColor Yellow
+if (Test-Path -LiteralPath $stagingDir) { throw "Private staging directory already exists: $stagingDir" }
+New-Item -ItemType Directory -Path $stagingDir | Out-Null
+try {
 $shellCsproj = Join-Path $repoRoot 'desktop-shell\ChatMCP.csproj'
-$shellDist = Join-Path $repoRoot 'desktop-shell\bin\dist'
+$shellDist = Join-Path $stagingDir 'desktop-publish'
+$payloadDir = Join-Path $stagingDir 'payload'
 & $dotnetCmd.Path publish $shellCsproj -c Release -r win-x64 --self-contained true -o $shellDist -p:PublishSingleFile=true | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Desktop publish failed with exit code $LASTEXITCODE" }
 $desktopExe = Join-Path $shellDist 'ChatMCP.exe'
 if (-not (Test-Path -LiteralPath $desktopExe -PathType Leaf)) {
-    Write-Error "Failed to compile desktop shell: $desktopExe not found."
-    exit 1
+    throw "Failed to compile desktop shell: $desktopExe not found."
 }
-if ($LASTEXITCODE -ne 0) { throw "Desktop publish failed with exit code $LASTEXITCODE" }
 Write-Host "  [OK] Compiled ChatMCP.exe: $([Math]::Round((Get-Item $desktopExe).Length / 1MB, 2)) MB" -ForegroundColor Green
 
 # 4. Prepare Staging & Build Payload Zip
 Write-Host "`n[4/5] Packaging payload archive..." -ForegroundColor Yellow
-if (Test-Path -LiteralPath $stagingDir) {
-    Remove-Item -LiteralPath $stagingDir -Recurse -Force
-}
-New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
+# Both the executable and a valid x64 WebView2 loader are mandatory. A reused
+# publish folder can silently omit native files on incremental publish.
+Copy-InstallerDesktopPayload -PublishDirectory $shellDist -Destination $payloadDir
 
-# Copy main executable and loader
-Copy-Item -LiteralPath $desktopExe -Destination (Join-Path $stagingDir 'ChatMCP.exe') -Force
-$loaderDll = Join-Path $shellDist 'WebView2Loader.dll'
-if (Test-Path -LiteralPath $loaderDll -PathType Leaf) {
-    Copy-Item -LiteralPath $loaderDll -Destination (Join-Path $stagingDir 'WebView2Loader.dll') -Force
-}
-
-# Copy launcher cmd
-Copy-Item -LiteralPath (Join-Path $repoRoot 'START-CHATMCP-DESKTOP.cmd') -Destination (Join-Path $stagingDir 'START-CHATMCP-DESKTOP.cmd') -Force
-
-# Copy assets
-$stagingAssets = Join-Path $stagingDir 'assets'
-New-Item -ItemType Directory -Path $stagingAssets -Force | Out-Null
-Copy-Item -Path (Join-Path $repoRoot 'assets\*') -Destination $stagingAssets -Recurse -Force
-
-# Copy CHATMCP-HUB (excluding tests, .git)
-$stagingHub = Join-Path $stagingDir 'CHATMCP-HUB'
-New-Item -ItemType Directory -Path $stagingHub -Force | Out-Null
-Get-ChildItem -Path (Join-Path $repoRoot 'CHATMCP-HUB') | ForEach-Object {
-    if ($_.Name -notmatch '^(tests|node_modules|ui|\.git)$') {
-        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stagingHub $_.Name) -Recurse -Force
-    }
-}
-
-# Copy scripts (utilities and uninstall)
-$stagingScripts = Join-Path $stagingDir 'scripts'
-New-Item -ItemType Directory -Path $stagingScripts -Force | Out-Null
-Copy-Item -Path (Join-Path $repoRoot 'scripts\*') -Destination $stagingScripts -Recurse -Force
+# Copy tracked runtime source files and the freshly generated UI only. Never
+# recurse over source folders: ignored files may contain private user state.
+Copy-InstallerSourcePayload -RepositoryRoot $repoRoot -Destination $payloadDir
 
 # Bundle portable Node.js runtime so setup runs on any machine without Node.js installed
-$stagingNode = Join-Path $stagingDir 'runtimes\node'
+$stagingNode = Join-Path $payloadDir 'runtimes\node'
 New-Item -ItemType Directory -Path $stagingNode -Force | Out-Null
 $sysNode = $nodeCmd.Path
 if ($sysNode -and (Test-Path -LiteralPath $sysNode -PathType Leaf)) {
@@ -151,12 +132,9 @@ if (Test-Path -LiteralPath $payloadZip) {
     Remove-Item -LiteralPath $payloadZip -Force
 }
 Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
-[System.IO.Compression.ZipFile]::CreateFromDirectory($stagingDir, $payloadZip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+[System.IO.Compression.ZipFile]::CreateFromDirectory($payloadDir, $payloadZip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
 $zipSizeMb = [Math]::Round((Get-Item $payloadZip).Length / 1MB, 2)
 Write-Host "  [OK] Created payload.zip ($zipSizeMb MB)" -ForegroundColor Green
-
-# Clean staging dir
-Remove-Item -LiteralPath $stagingDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # 5. Compile Standalone Installer (ChatMCPSetup.exe)
 Write-Host "`n[5/5] Compiling commercial ChatMCPSetup.exe..." -ForegroundColor Yellow
@@ -165,22 +143,29 @@ if (-not (Test-Path -LiteralPath $distDir)) {
 }
 
 $installerCsproj = Join-Path $installerDir 'ChatMCP.Installer.csproj'
-& $dotnetCmd.Path publish $installerCsproj -c Release -r win-x64 --self-contained true -o $distDir -p:PublishSingleFile=true | Out-Null
+$installerPublish = Join-Path $stagingDir 'installer-publish'
+& $dotnetCmd.Path publish $installerCsproj -c Release -r win-x64 --self-contained true -o $installerPublish -p:PublishSingleFile=true | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Installer publish failed with exit code $LASTEXITCODE" }
 
-$setupExe = Join-Path $distDir 'ChatMCPSetup.exe'
-if (-not (Test-Path -LiteralPath $setupExe -PathType Leaf)) {
-    Write-Error "Failed to build ChatMCPSetup.exe."
-    exit 1
+$publishedSetup = Join-Path $installerPublish 'ChatMCPSetup.exe'
+if (-not (Test-Path -LiteralPath $publishedSetup -PathType Leaf)) {
+    throw 'Failed to build ChatMCPSetup.exe.'
 }
+$setupExe = Join-Path $distDir 'ChatMCPSetup.exe'
+Copy-Item -LiteralPath $publishedSetup -Destination $setupExe -Force
 
 $setupSizeMb = [Math]::Round((Get-Item $setupExe).Length / 1MB, 2)
-if ($LASTEXITCODE -ne 0) { throw "Installer publish failed with exit code $LASTEXITCODE" }
 Write-Host "  [OK] Built standalone installer: $setupExe ($setupSizeMb MB)" -ForegroundColor Green
 $checksum = (Get-FileHash -LiteralPath $setupExe -Algorithm SHA256).Hash.ToLowerInvariant()
 $checksumFile = "$setupExe.sha256"
 Set-Content -LiteralPath $checksumFile -Value "$checksum  ChatMCPSetup.exe" -Encoding Ascii
 Write-Host "  [OK] SHA-256: $checksum" -ForegroundColor Green
 Write-Host "  [OK] Checksum file: $checksumFile" -ForegroundColor Green
+} finally {
+    # Absolute parent/name/reparse checks cover both fresh publish outputs and
+    # the separate payload directory before recursive cleanup on every exit.
+    Remove-InstallerStagingDirectory -StagingDirectory $stagingDir -TemporaryRoot $temporaryRoot
+}
 
 Write-Host "`n==========================================================" -ForegroundColor Cyan
 Write-Host "         ChatMCPSetup.exe Built Successfully!             " -ForegroundColor Cyan

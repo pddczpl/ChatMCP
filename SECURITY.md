@@ -39,6 +39,8 @@ React approval review reads the actual PermissionGate request IDs and server-pro
 
 The AI configuration form clears typed credentials after successful persistence and when the selected provider or endpoint origin changes. This prevents an unsaved key being carried to another destination; backend key storage and provider transmission still follow the existing local secret policy.
 
+Installer builds enumerate tracked runtime files and fresh Vite output instead of copying whole checkout folders. Ignored user state, imported skills, test output and development dependencies are excluded; symlink/junction payload sources and unsafe staging cleanup paths fail the build. This packaging check does not certify installer lifecycle behavior on a clean machine.
+
 - Chạy regression tests, desktop frontend build, Windows installer build và kiểm thử cài/gỡ trên máy ảo Windows sạch.
 - Không mở cổng Hub ra Internet. Không bypass Origin/CSRF để dùng ở mạng LAN.
 - Không xem CI xanh như penetration test hay chứng nhận legal license.
