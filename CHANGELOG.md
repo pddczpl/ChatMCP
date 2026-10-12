@@ -1,5 +1,15 @@
 # Lịch sử thay đổi
 
+## [Unreleased] — Local-only ChatMCP (proposed v2.6.0; NOT YET RELEASED)
+
+- Removed Render, Docker public server, public auth/workspaces/tenancy, Linux execution broker and legacy Cloud Harness MCP proxy backend.
+- Removed obsolete Cloud Harness setup snapshot, bootstrap scripts, cloud-only tests and mutation fixtures.
+- Hub now accepts local-only startup flags and binds to 127.0.0.1; hosted/public settings fail closed.
+- Preserved desktop coding agents, Git worktrees, browser companion, AI gateway, GitHub Skills Hub and optional local test sandbox.
+- Reworked README, SECURITY, Windows Setup and deployment retirement notice; retained historical notes without treating retired capabilities as supported.
+- Release version must be chosen, tests pass and installer smoke-tested before publication.
+
+
 ## [2.5.0] — 2026-10-12 — Multi-Agent coding worktrees, GitHub Skills Hub & hardening
 
 Bản này nối tiếp bản cài đặt `v2.4.0` (giao diện React/Vite/Tailwind, đã phát hành riêng); `v2.4.0` không bị sửa hay gắn lại. Số phiên bản của Hub, Desktop, Installer và giao diện được đồng bộ về `2.5.0`.
