@@ -289,79 +289,115 @@ export async function safeFetchSkillManifest(rawUrl, {
 }
 
 /**
- * Standard-compliant mini YAML parser for SKILL.md frontmatter blocks.
+ * DNS-pinned, bounded raw download. GitHub content may be binary.
+ * Every redirected URL receives new DNS checks, and bytes are capped
+ * as they arrive in fetchPinnedSkillResponse.
+ */
+export async function safeFetchSkillBytes(rawUrl, {maxBytes=2*1024*1024,maxRedirects=3,timeoutMs=12000,transport=fetchPinnedSkillResponse,resolver=resolvePublicUrl}={}){
+  let url=rawUrl;
+  for(let hop=0;hop<=maxRedirects;hop++){
+    const approved=await resolver(url);
+    if(!approved?.ip||isPrivateOrReservedIp(approved.ip))throw error('ssrf_blocked','Unapproved skill asset address.',403);
+    const res=await transport(approved.url,{ip:approved.ip,maxBytes,timeoutMs});
+    if([301,302,303,307,308].includes(res.status)){
+      const target=res.headers.get('location');
+      if(!target)throw error('bad_redirect','Missing redirect destination.',400);
+      url=new URL(target,url).toString();
+      continue;
+    }
+    if(!res.ok)throw error('asset_fetch_failed','Remote asset returned HTTP '+res.status,res.status||400);
+    const bytes=res.buffer;
+    if(!Buffer.isBuffer(bytes)||bytes.length>maxBytes)throw error('asset_too_large','Asset exceeds download limit.',413);
+    return {bytes,finalUrl:approved.url};
+  }
+  throw error('too_many_redirects','Skill asset exceeded redirect limit.',400);
+}
+
+/**
+ * Strict subset parser for common Agent Skills frontmatter fields.
  * Throws `malformed_yaml` on syntax errors, unsupported nested types, or unclosed quotes.
  */
 function parseYamlBlock(yamlText) {
-  const meta = {};
+  // An intentionally strict, dependency-free subset of YAML 1.2:
+  // top-level scalars, inline lists, one-level string mappings, item lists,
+  // and folded/literal block scalars. Unsupported structures fail closed.
+  const result = Object.create(null);
   const lines = yamlText.split(/\r?\n/);
-  let currentKey = null;
+  let parent = null, block = null;
+
+  const invalid = (line) => error('malformed_yaml', 'Unsupported or malformed SKILL.md YAML on line ' + line + '.', 400);
+  const scalar = (raw, line) => {
+    let value = raw.trim();
+    if (value.startsWith('"') || value.startsWith("'")) {
+      const quote = value[0];
+      if (value.length < 2 || !value.endsWith(quote)) throw invalid(line);
+      // Keep scalar values as text; never evaluate YAML tags or aliases.
+      return value.slice(1, -1).replace(quote === '"' ? /\\"/g : /''/g, quote);
+    }
+    if (value.includes('!') && /^!/.test(value)) throw invalid(line);
+    return value.replace(/\s+#.*$/, '').trim();
+  };
+  const finishBlock = () => {
+    if (!block) return;
+    const parts = block.lines;
+    result[block.key] = block.style === '>'
+      ? parts.join(' ').replace(/\s+/g, ' ').trim()
+      : parts.join('\n').trim();
+    block = null;
+  };
 
   for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i];
-    const stripped = rawLine.replace(/#.*$/, '').trimEnd();
-    if (!stripped.trim()) continue;
-
-    // Sequence list item: "  - value" or "- value"
-    const listItemMatch = stripped.match(/^(\s*)-\s*(.*)$/);
-    if (listItemMatch) {
-      if (!currentKey) {
-        throw error('malformed_yaml', `Mục danh sách không có khóa cha ở dòng ${i + 1}: "${rawLine}"`, 400);
-      }
-      let val = listItemMatch[2].trim();
-      if ((val.startsWith('"') && !val.endsWith('"')) || (val.startsWith("'") && !val.endsWith("'"))) {
-        throw error('malformed_yaml', `Chuỗi không đóng ngoặc kép ở dòng ${i + 1}: "${rawLine}"`, 400);
-      }
-      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-        val = val.slice(1, -1);
-      }
-      if (!Array.isArray(meta[currentKey])) {
-        meta[currentKey] = [];
-      }
-      meta[currentKey].push(val);
+    const raw = lines[i], number = i + 1;
+    if (/^\s*\t/.test(raw)) throw invalid(number);
+    const indent = (/^ */.exec(raw) || [''])[0].length;
+    if (block) {
+      if (!raw.trim()) { block.lines.push(''); continue; }
+      if (indent > block.indent) { block.lines.push(raw.slice(block.indent + 1).trimEnd()); continue; }
+      finishBlock();
+    }
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    if (indent === 0) {
+      const match = /^([a-zA-Z0-9_-]+):(?:\s*(.*))?$/.exec(trimmed);
+      if (!match) throw invalid(number);
+      const [,key,rawValue=''] = match;
+      if (Object.hasOwn(result,key)) throw invalid(number);
+      const value = scalar(rawValue,number);
+      parent = key;
+      if (value === '>' || value === '|') {
+        block = {key,style:value,indent,lines:[]};
+        result[key] = '';
+      } else if (!value) result[key] = [];
+      else if (value.startsWith('[') && value.endsWith(']')) {
+        result[key] = value.slice(1,-1).split(',').map(v=>scalar(v,number)).filter(Boolean);
+      } else result[key] = value;
       continue;
     }
-
-    // Key-value pair: "key: value" or "key:"
-    const kvMatch = stripped.match(/^([a-zA-Z0-9_-]+):\s*(.*)$/);
-    if (!kvMatch) {
-      throw error('malformed_yaml', `Cú pháp YAML không hợp lệ ở dòng ${i + 1}: "${rawLine}"`, 400);
-    }
-
-    const key = kvMatch[1];
-    let val = kvMatch[2].trim();
-    currentKey = key;
-
-    if (!val) {
-      meta[key] = [];
+    if (!parent || indent < 2) throw invalid(number);
+    const listMatch = /^-\s+(.+)$/.exec(trimmed);
+    if (listMatch) {
+      if (!Array.isArray(result[parent])) throw invalid(number);
+      result[parent].push(scalar(listMatch[1],number));
       continue;
     }
-
-    // Inline list: [a, b, c]
-    if (val.startsWith('[') && val.endsWith(']')) {
-      const items = val
-        .slice(1, -1)
-        .split(',')
-        .map((s) => s.trim().replace(/^['"]|['"]$/g, ''))
-        .filter(Boolean);
-      meta[key] = items;
-      continue;
+    const pair = /^([a-zA-Z0-9_-]+):\s*(.*)$/.exec(trimmed);
+    if (!pair || !Array.isArray(result[parent]) || result[parent].length) throw invalid(number);
+    result[parent] = Object.create(null);
+    result[parent][pair[1]] = scalar(pair[2],number);
+    // Consume further sibling entries of a shallow mapping.
+    for (let j=i+1;j<lines.length;j++) {
+      const next=lines[j], ni=(/^ */.exec(next)||[''])[0].length;
+      if (!next.trim() || next.trim().startsWith('#')) {i=j;continue;}
+      if (ni !== indent) break;
+      const sub=/^([a-zA-Z0-9_-]+):\s*(.*)$/.exec(next.trim());
+      if (!sub || Object.hasOwn(result[parent],sub[1])) throw invalid(j+1);
+      result[parent][sub[1]]=scalar(sub[2],j+1);
+      i=j;
     }
-
-    // Quoted string
-    if ((val.startsWith('"') && !val.endsWith('"')) || (val.startsWith("'") && !val.endsWith("'"))) {
-      throw error('malformed_yaml', `Chuỗi không đóng ngoặc kép ở dòng ${i + 1}: "${rawLine}"`, 400);
-    }
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1);
-    }
-
-    meta[key] = val;
   }
-
-  return meta;
+  finishBlock();
+  return result;
 }
-
 /**
  * Parses skill manifest from JSON or agentskills.io SKILL.md format (Markdown with YAML frontmatter).
  * Rejects arbitrary markdown files starting with '#' without frontmatter.
@@ -407,19 +443,24 @@ export function parseSkillManifest(rawText, fallbackUrl = '') {
     if (!idCandidate) {
       throw error('invalid_manifest', 'Không tìm thấy id hoặc name trong YAML frontmatter.');
     }
-    const id = normalizeSkillId(String(idCandidate));
+    const normalizedName=String(idCandidate).toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,64);
+    const id = normalizeSkillId(normalizedName);
+    if (typeof meta.name !== 'string' || !meta.name.trim() ||
+        (meta.description !== undefined && typeof meta.description !== 'string')) {
+      throw error('invalid_manifest', 'SKILL.md requires a name and a scalar description.', 400);
+    }
     const declaredLicense = meta.license ? String(meta.license).trim() : 'unknown';
 
     return {
       id,
       name: meta.name || id,
-      version: meta.version || '1.0.0',
+      version: meta.version || meta.metadata?.version || '1.0.0',
       license: declaredLicense,
       declaredLicense,
       verifiedLicense: null,
       redistributable: false,
       category: meta.category || 'skills',
-      author: meta.author ? String(meta.author).trim() : 'unknown',
+      author: meta.author || meta.metadata?.author ? String(meta.author || meta.metadata.author).trim() : 'unknown',
       description: meta.description || '',
       tools: Array.isArray(meta.tools) ? meta.tools : [],
       systemPrompt: body || meta.prompt || '',
@@ -705,6 +746,8 @@ export class PluginManager {
           sourceUrl: skill.sourceUrl || null,
           commitSha: skill.commitSha || null,
           resourcePaths: skill.resourcePaths || [],
+          licenseEvidence: skill.licenseEvidence || null,
+          dependencies: skill.dependencies || [],
           installedAt: skill.installedAt || new Date().toISOString(),
         },
         null,
@@ -734,22 +777,27 @@ export class PluginManager {
       const digest = crypto.createHash('sha256').update('SKILL.md\0').update(skillMd);
       let total = 0;
       const resources = Array.isArray(skill.resourceFiles) ? skill.resourceFiles : [];
-      if (resources.length > 32) throw error('too_many_skill_files', 'Maximum 32 additional skill resources.', 413);
+      if (resources.length > 200) throw error('too_many_skill_files', 'Maximum 200 additional skill resources.', 413);
       for (const item of resources) {
         const rel = String(item?.path || '').replaceAll('\\', '/');
-        const text = item?.text;
-        if (!/^(references|scripts|assets)\/[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*$/.test(rel) ||
-            rel.split('/').includes('..') || typeof text !== 'string') {
-          throw error('invalid_resource_path', 'Imported skill resource path is unsafe.', 403);
+        const body = item?.encoding === 'base64' && typeof item?.data === 'string'
+          ? Buffer.from(item.data, 'base64')
+          : typeof item?.text === 'string' ? Buffer.from(item.text, 'utf8') : null;
+        if (!/^[a-zA-Z0-9_.@+() -]+(?:\/[a-zA-Z0-9_.@+() -]+)*$/.test(rel) ||
+            rel.split('/').some(x => x === '..' || x === '.' || x === '.git' || x === 'node_modules' || isUnsafeWindowsName(x)) ||
+            ['SKILL.md','manifest.json'].includes(rel) || !body) {
+          throw error('invalid_resource_path', 'Imported skill resource path or content is unsafe.', 403);
         }
-        const size = Buffer.byteLength(text, 'utf8');
+        if (item.encoding === 'base64' && Buffer.from(body.toString('base64'),'base64').compare(body) !== 0)
+          throw error('invalid_resource_data','Invalid base64 asset.',400);
+        const size = body.length;
         total += size;
-        if (size > 64 * 1024 || total > 512 * 1024) throw error('skill_resources_too_large', 'Skill resources exceed size limits.', 413);
+        if (size > 2 * 1024 * 1024 || total > 24 * 1024 * 1024) throw error('skill_resources_too_large', 'Skill resources exceed size limits.', 413);
         const dest = path.resolve(stagingDir, rel);
         if (!dest.startsWith(stagingDir + path.sep)) throw error('directory_traversal', 'Invalid skill resource.', 403);
         await fs.mkdir(path.dirname(dest), { recursive: true, mode: 0o700 });
-        await fs.writeFile(dest, text, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
-        digest.update('\0'+rel+'\0').update(text);
+        await fs.writeFile(dest, body, { flag: 'wx', mode: 0o600 });
+        digest.update('\0'+rel+'\0').update(body);
       }
       const contentHash = digest.digest('hex');
 
@@ -831,6 +879,8 @@ export class PluginManager {
         commitSha: p.commitSha || null,
         contentHash: p.contentHash || null,
         resourcePaths: p.resourcePaths || [],
+        licenseEvidence: p.licenseEvidence || null,
+        dependencies: p.dependencies || [],
         installedAt: p.installedAt || new Date().toISOString(),
       };
     }
@@ -880,6 +930,10 @@ export class PluginManager {
       installedAt: p.installedAt || null,
       sourceUrl: p.sourceUrl || null,
       commitSha: p.commitSha || null,
+      resourcePaths: p.resourcePaths || [],
+      contentHash: p.contentHash || null,
+      licenseEvidence: p.licenseEvidence || null,
+      dependencies: p.dependencies || null,
     }));
   }
 
@@ -974,9 +1028,11 @@ export class PluginManager {
   }
 
   /** Import an immutable GitHub SKILL.md and supporting text files. No script execution. */
-  async importRegistrySkill({id,name,description='',version='1.0.0',license='unknown',author='unknown',tools=[],systemPrompt='',sourceUrl,commitSha,originalSkillText,resourceFiles=[]}={}){
+  async importRegistrySkill({id,name,description='',version='1.0.0',license='unknown',author='unknown',tools=[],systemPrompt='',sourceUrl,commitSha,originalSkillText,resourceFiles=[],licenseEvidence=null,dependencies=[],update=false}={}){
     const safeId=normalizeSkillId(id);
-    if(this.installedPlugins.has(safeId))throw error('already_installed','Skill already installed.',409);
+    const previous=this.installedPlugins.get(safeId) ?? null;
+    if(previous&&!update)throw error('already_installed','Skill already installed.',409);
+    if(update&&(!previous||previous.provenance!=='github-registry'))throw error('not_registry_skill','Only a managed registry skill can be updated.',409);
     if(!/^[a-f0-9]{40}$/i.test(String(commitSha||'')) ||
       !/^https:\/\/raw\.githubusercontent\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/[a-f0-9]{40}\/.+SKILL\.md$/i.test(String(sourceUrl||''))) {
       throw error('invalid_source','Registry import requires a pinned GitHub SKILL.md URL.',403);
@@ -985,17 +1041,37 @@ export class PluginManager {
     const resourcePaths=resourceFiles.map(x=>x.path);
     const entry={
       id:safeId,name,description,version,license,declaredLicense:license,
-      verifiedLicense:null,redistributable:false,author,tools,
+      // Automated pattern matching is license evidence, not verified legal permission.
+      verifiedLicense:null,
+      licenseEvidence:licenseEvidence||null,dependencies,redistributable:false,author,tools,
       systemPrompt,sourceUrl,commitSha,resourcePaths,
       category:'skills',provenance:'github-registry',enabled:false,
       installedAt:new Date().toISOString()
     };
-    const {contentHash}=await this.#writeSkillDirectory({...entry,originalSkillText,resourceFiles});
-    entry.contentHash=contentHash;
-    this.installedPlugins.set(safeId,entry);
-    try {await this.save();}
-    catch(e){this.installedPlugins.delete(safeId);await this.#removeSkillDirectory(safeId).catch(()=>{});throw e;}
-    return entry;
+    // Preserve a recovery copy across the directory swap AND state writes;
+    // failure does not replace the last known-good imported skill.
+    const backupPath=path.join(this.stateDir,'.rollback-registry-'+crypto.randomUUID());
+    if(previous)await fs.cp(this.#resolveSkillDir(safeId).absolute,backupPath,{recursive:true,force:false,errorOnExist:true});
+    try{
+      const {contentHash}=await this.#writeSkillDirectory({...entry,originalSkillText,resourceFiles});
+      entry.contentHash=contentHash;
+      this.installedPlugins.set(safeId,entry);
+      await this.save();
+      return entry;
+    }catch(e){
+      if(previous){
+        this.installedPlugins.set(safeId,previous);
+        await fs.rm(this.#resolveSkillDir(safeId).absolute,{recursive:true,force:true}).catch(()=>{});
+        await fs.rename(backupPath,this.#resolveSkillDir(safeId).absolute).catch(()=>{});
+      }else{
+        this.installedPlugins.delete(safeId);
+        await this.#removeSkillDirectory(safeId).catch(()=>{});
+      }
+      await this.save().catch(()=>{});
+      throw e;
+    }finally{
+      await fs.rm(backupPath,{recursive:true,force:true}).catch(()=>{});
+    }
   }
 
   /**

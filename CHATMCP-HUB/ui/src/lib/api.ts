@@ -118,12 +118,20 @@ export const api = {
   orchestrateAgents: (nodes: {id:string;role:string;question:string;dependsOn?:string[]}[],maxConcurrency=3) =>
     request<any>('/api/studio/delegates/orchestrate',{method:'POST',body:JSON.stringify({nodes,maxConcurrency})}),
   getOrchestrator: () => request<any>('/api/studio/delegates'),
+  getCodingRuns: () => request<any>('/api/studio/coding'),
+  runCodingAgents: (tasks:{id:string;prompt:string}[],maxConcurrency=2) => request<any>('/api/studio/coding/run',{method:'POST',body:JSON.stringify({tasks,maxConcurrency,confirmation:'CREATE WORKTREES'})}),
+  cancelCodingAgents: () => request<any>('/api/studio/coding/cancel',{method:'POST',body:'{}'}),
+  getCodingDiff: (runId:string,workerId?:string) => request<any>(`/api/studio/coding/review?runId=${encodeURIComponent(runId)}&workerId=${encodeURIComponent(workerId||'')}`),
+  integrateCodingAgents: (runId:string,workerIds:string[],reviewTokens:Record<string,string>) => request<any>('/api/studio/coding/integrate',{method:'POST',body:JSON.stringify({runId,workerIds,reviewTokens,confirmation:'INTEGRATE WORKTREES'})}),
+  publishCodingAgents: (runId:string,reviewToken:string,workerId?:string) => request<any>('/api/studio/coding/publish',{method:'POST',body:JSON.stringify({runId,workerId:workerId??null,reviewToken,confirmation:'PUBLISH DRAFT PR'})}),
   cancelOrchestrator: () => request<any>('/api/studio/delegates/cancel',{method:'POST',body:'{}'}),
 
   // GitHub skills registry
-  getSkillRegistry: (query='') => request<{sources:any[];skills:any[]}>(`/api/plugins/registry?query=${encodeURIComponent(query)}`),
+  getSkillRegistry: (query='') => request<{sources:any[];skills:any[];updates:any[]}>(`/api/plugins/registry?query=${encodeURIComponent(query)}`),
   refreshSkillRegistry: (sourceId?:string) => request<any>('/api/plugins/registry/refresh',{method:'POST',body:JSON.stringify({sourceId})}),
-  installRegistrySkill: (key:string) => request<any>('/api/plugins/registry/install',{method:'POST',body:JSON.stringify({key})}),
+  installRegistrySkill: (key:string,update=false) => request<any>('/api/plugins/registry/install',{method:'POST',body:JSON.stringify({key,update})}),
+  addRegistrySource: (id:string,repo:string,prefix:string) => request<any>('/api/plugins/registry/source/add',{method:'POST',body:JSON.stringify({id,repo,prefix,confirmation:'TRUST GITHUB SOURCE'})}),
+  removeRegistrySource: (sourceId:string) => request<any>('/api/plugins/registry/source/remove',{method:'POST',body:JSON.stringify({sourceId,confirmation:'REMOVE GITHUB SOURCE'})}),
 
   // Skills & Plugins
   getSkills: () => request<{ skills: any[] }>('/api/studio/skills'),

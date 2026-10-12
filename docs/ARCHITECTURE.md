@@ -242,6 +242,14 @@ Kế hoạch (chưa làm):
 3. **Đa người dùng** chỉ sau khi có bằng chứng cô lập cấp VM/microVM (Phase 3/4); Cloud Harness một mình **không** đủ.
 
 
+## 17. Parallel Coding Workers và Skills Registry nâng cao (nhánh phát triển)
+
+**Coding Worktree Orchestrator:** `lib/coding-orchestrator.mjs` tạo một Git worktree/branch riêng cho mỗi coding worker, có `HubManager` và `AgentRunner` độc lập. Danh mục công cụ của worker chỉ cho phép đọc/sửa file có kiểm soát, không shell hoặc công cụ Git push/merge. Hạn mức tối đa 4 workers, concurrency 1–3. Worker có thể tạo commit trên branch riêng; người dùng kiểm tra bằng chứng rồi xác nhận tích hợp vào **nhánh integration riêng**, hoặc xuất bản Draft PR riêng cho từng worker. Không tự merge `main`. Hệ thống Git worktree chỉ cách ly file/index, **không phải sandbox cấp OS** và không bảo đảm code tạo ra đạt test.
+
+**GitHub Agent Skills Hub:** `lib/skill-registry.mjs` khám phá `SKILL.md` lồng sâu qua pinned Git tree, cho phép nguồn GitHub do người dùng phê duyệt, kiểm tra blob SHA trước khi lưu tài nguyên văn bản/nhị phân, giới hạn file/dung lượng và ghi hash nội dung. Có thể xem bản cập nhật khi revision nguồn thay đổi, thử cập nhật với cơ chế hoàn tác. LICENSE tại skill và repository được dùng để tạo **bằng chứng**, không tự động cấp quyền tái phân phối; third-party scripts được lưu nhưng **không tự chạy** và skills mới mặc định tắt.
+
+**Bảo vệ:** Chỉ dành cho local trusted Hub. Public Hub không được gọi các API write/coding-orchestration/skills-install. Worker không có tool thực thi tùy ý, nhưng cùng tài khoản hệ điều hành trên máy cá nhân; không dùng nó để thực thi mã không tin cậy. Các chức năng mới cần test bằng model thật và chạy thử installer Windows trên máy sạch trước khi gắn nhãn stable.
+
 ## 16. Multi-Agent Orchestrator và GitHub Skills Hub (giai đoạn đầu)
 
 - `StudioDelegates.orchestrate()` hỗ trợ DAG tối đa 8 worker, concurrency 1–3, roles planner/researcher/tester/reviewer/security/summarizer. Worker chỉ nhận excerpts và dependency summaries, `tools: []`, không sửa file hay thực thi lệnh. API local trusted Hub: `POST /api/studio/delegates/orchestrate`; giao diện `Agents` cho phép cấu hình nodes. **Chưa hỗ trợ coding agents có quyền ghi trên worktrees độc lập.**

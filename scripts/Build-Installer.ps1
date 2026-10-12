@@ -37,6 +37,43 @@ if ($null -eq $dotnetCmd) {
 }
 $dotnetVer = (& $dotnetCmd.Path --version).Trim()
 Write-Host "  [OK] .NET SDK found: $dotnetVer" -ForegroundColor Green
+if ([version]$dotnetVer -lt [version]'10.0') {
+    throw ".NET SDK 10.0+ is required (desktop-shell and installer target net10.0-windows)."
+}
+$nodeCmd = Get-Command node.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+$npmCmd = Get-Command npm.cmd -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($null -eq $nodeCmd -or $null -eq $npmCmd) {
+    throw "Node.js 22+ and npm are required to compile and package the offline frontend."
+}
+$nodeVersion = (& $nodeCmd.Path --version).Trim()
+if ([version]($nodeVersion.TrimStart('v').Split('-')[0]) -lt [version]'22.0') {
+    throw "Node.js 22+ is required; found $nodeVersion."
+}
+$hubManifest = Get-Content -LiteralPath (Join-Path $repoRoot 'CHATMCP-HUB\package.json') -Raw | ConvertFrom-Json
+[xml]$shellManifest = Get-Content -LiteralPath (Join-Path $repoRoot 'desktop-shell\ChatMCP.csproj') -Raw
+[xml]$installerManifest = Get-Content -LiteralPath (Join-Path $repoRoot 'installer\ChatMCP.Installer.csproj') -Raw
+if ($hubManifest.version -ne [string]$shellManifest.Project.PropertyGroup.Version -or
+    $hubManifest.version -ne [string]$installerManifest.Project.PropertyGroup.Version) {
+    throw "Version mismatch: Hub, Desktop and Installer must share one version before release."
+}
+Write-Host "  [OK] Node $nodeVersion and release version $($hubManifest.version)." -ForegroundColor Green
+
+# Build the frontend from source. Packaging stale web/dist would make new
+# React features invisible even when the backend and installer are updated.
+Write-Host "  Building the latest offline React/TypeScript UI..." -ForegroundColor Cyan
+Push-Location (Join-Path $repoRoot 'CHATMCP-HUB\ui')
+try {
+    & $npmCmd.Path ci --no-audit --no-fund
+    if ($LASTEXITCODE -ne 0) { throw "npm ci failed with exit code $LASTEXITCODE" }
+    & $npmCmd.Path run build
+    if ($LASTEXITCODE -ne 0) { throw "Frontend build failed with exit code $LASTEXITCODE" }
+} finally {
+    Pop-Location
+}
+if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'CHATMCP-HUB\web\dist\index.html') -PathType Leaf)) {
+    throw "Built React UI not found at CHATMCP-HUB\web\dist\index.html."
+}
+Write-Host "  [OK] Fresh UI compiled and ready for packaging." -ForegroundColor Green
 
 # 2. Brand Icons
 Write-Host "`n[2/5] Ensuring brand icons..." -ForegroundColor Yellow
@@ -54,12 +91,13 @@ Write-Host "  [OK] Brand icons ready." -ForegroundColor Green
 Write-Host "`n[3/5] Compiling native desktop shell (ChatMCP.exe)..." -ForegroundColor Yellow
 $shellCsproj = Join-Path $repoRoot 'desktop-shell\ChatMCP.csproj'
 $shellDist = Join-Path $repoRoot 'desktop-shell\bin\dist'
-& $dotnetCmd.Path publish $shellCsproj -c Release -r win-x64 --self-contained false -o $shellDist -p:PublishSingleFile=true | Out-Null
+& $dotnetCmd.Path publish $shellCsproj -c Release -r win-x64 --self-contained true -o $shellDist -p:PublishSingleFile=true | Out-Null
 $desktopExe = Join-Path $shellDist 'ChatMCP.exe'
 if (-not (Test-Path -LiteralPath $desktopExe -PathType Leaf)) {
     Write-Error "Failed to compile desktop shell: $desktopExe not found."
     exit 1
 }
+if ($LASTEXITCODE -ne 0) { throw "Desktop publish failed with exit code $LASTEXITCODE" }
 Write-Host "  [OK] Compiled ChatMCP.exe: $([Math]::Round((Get-Item $desktopExe).Length / 1MB, 2)) MB" -ForegroundColor Green
 
 # 4. Prepare Staging & Build Payload Zip
@@ -101,7 +139,7 @@ Copy-Item -Path (Join-Path $repoRoot 'scripts\*') -Destination $stagingScripts -
 # Bundle portable Node.js runtime so setup runs on any machine without Node.js installed
 $stagingNode = Join-Path $stagingDir 'runtimes\node'
 New-Item -ItemType Directory -Path $stagingNode -Force | Out-Null
-$sysNode = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
+$sysNode = $nodeCmd.Path
 if ($sysNode -and (Test-Path -LiteralPath $sysNode -PathType Leaf)) {
     Copy-Item -LiteralPath $sysNode -Destination (Join-Path $stagingNode 'node.exe') -Force
     Write-Host "  [OK] Bundled portable Node.js runtime." -ForegroundColor Green
@@ -127,7 +165,7 @@ if (-not (Test-Path -LiteralPath $distDir)) {
 }
 
 $installerCsproj = Join-Path $installerDir 'ChatMCP.Installer.csproj'
-& $dotnetCmd.Path publish $installerCsproj -c Release -r win-x64 --self-contained false -o $distDir -p:PublishSingleFile=true | Out-Null
+& $dotnetCmd.Path publish $installerCsproj -c Release -r win-x64 --self-contained true -o $distDir -p:PublishSingleFile=true | Out-Null
 
 $setupExe = Join-Path $distDir 'ChatMCPSetup.exe'
 if (-not (Test-Path -LiteralPath $setupExe -PathType Leaf)) {
@@ -136,7 +174,13 @@ if (-not (Test-Path -LiteralPath $setupExe -PathType Leaf)) {
 }
 
 $setupSizeMb = [Math]::Round((Get-Item $setupExe).Length / 1MB, 2)
+if ($LASTEXITCODE -ne 0) { throw "Installer publish failed with exit code $LASTEXITCODE" }
 Write-Host "  [OK] Built standalone installer: $setupExe ($setupSizeMb MB)" -ForegroundColor Green
+$checksum = (Get-FileHash -LiteralPath $setupExe -Algorithm SHA256).Hash.ToLowerInvariant()
+$checksumFile = "$setupExe.sha256"
+Set-Content -LiteralPath $checksumFile -Value "$checksum  ChatMCPSetup.exe" -Encoding Ascii
+Write-Host "  [OK] SHA-256: $checksum" -ForegroundColor Green
+Write-Host "  [OK] Checksum file: $checksumFile" -ForegroundColor Green
 
 Write-Host "`n==========================================================" -ForegroundColor Cyan
 Write-Host "         ChatMCPSetup.exe Built Successfully!             " -ForegroundColor Cyan

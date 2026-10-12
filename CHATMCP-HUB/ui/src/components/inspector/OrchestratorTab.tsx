@@ -18,6 +18,22 @@ export function OrchestratorTab(){
   const [busy,setBusy]=useState(false);
   const [result,setResult]=useState<any>(null);
   const [concurrency,setConcurrency]=useState(2);
+  const [codingTasks,setCodingTasks]=useState([{id:'task-a',prompt:'Implement the first independent coding task.'}]);
+  const [codingBusy,setCodingBusy]=useState(false);
+  const [codingRun,setCodingRun]=useState<any>(null);
+  const {data:codingState,refetch:refetchCoding}=useQuery({queryKey:['codingWorkers'],queryFn:api.getCodingRuns,refetchInterval:3000});
+  const activeCoding=codingState?.jobs?.find((x:any)=>x.id===codingRun?.id)||codingRun||codingState?.jobs?.at(-1);
+  const [selectedWorkers,setSelectedWorkers]=useState<string[]>([]);
+  const [reviewedTokens,setReviewedTokens]=useState<Record<string,string>>({});
+  const [codingReview,setCodingReview]=useState<any>(null);
+  const showCodingDiff=async(runId:string,workerId?:string)=>{
+    try{
+      const review=await api.getCodingDiff(runId,workerId);
+      setCodingReview(review);
+      setReviewedTokens(current=>({...current,[workerId||'integration']:review.reviewToken}));
+      showToast('Diff retrieved for review. Inspect it before continuing.','info');
+    }catch(e:any){showToast(e.message||'Cannot review branch diff','error');}
+  };
   const {data:latest,refetch}=useQuery({queryKey:['delegates'],queryFn:api.getOrchestrator,refetchInterval:4000});
   const edit=(i:number,patch:Partial<Node>)=>setNodes(old=>old.map((v,j)=>j===i?{...v,...patch}:v));
   return <div className="h-full overflow-y-auto p-3 text-xs space-y-3 text-[var(--text)]">
@@ -48,6 +64,65 @@ export function OrchestratorTab(){
         finally{setBusy(false);}
       }}>{busy?'Đang điều phối...':'Chạy agents'}</Button>
     </div>
+
+    <section className="border border-[var(--line)] rounded-lg p-3 bg-[var(--surface)] space-y-2">
+      <h3 className="font-semibold">Coding Agents — isolated Git worktrees</h3>
+      <p className="text-[var(--muted)]">Parallel coding workers edit only their own branches. No shell, network, Git push or automatic merge. Worktrees isolate Git state, not OS processes.</p>
+      {codingTasks.map((x,i)=><div key={i} className="p-2 rounded border border-[var(--line-subtle)] space-y-1">
+        <div className="flex gap-2">
+          <input aria-label="Coder ID" className="w-32 p-1 bg-[var(--panel)] rounded border border-[var(--line)]" value={x.id} onChange={e=>setCodingTasks(a=>a.map((v,j)=>j===i?{...v,id:e.target.value}:v))}/>
+          <Button size="sm" variant="danger" disabled={codingBusy||codingTasks.length<=1} onClick={()=>setCodingTasks(a=>a.filter((_,j)=>j!==i))}>Xóa</Button>
+        </div>
+        <textarea aria-label="Coding task" rows={2} className="w-full p-1 rounded border border-[var(--line)] bg-[var(--panel)]" value={x.prompt} onChange={e=>setCodingTasks(a=>a.map((v,j)=>j===i?{...v,prompt:e.target.value}:v))}/>
+      </div>)}
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="outline" disabled={codingTasks.length>=4||codingBusy} onClick={()=>setCodingTasks(a=>[...a,{id:'task-'+(a.length+1),prompt:'Describe the next coding task.'}])}>Add coding worker</Button>
+        <Button size="sm" variant="primary" disabled={codingBusy||Boolean(codingState?.activeRunId)} onClick={async()=>{
+          if(!confirm('Create Git branches/worktrees, granting limited file-write access to the selected AI model? No shell and no automatic merge.'))return;
+          setCodingBusy(true);try{const j=await api.runCodingAgents(codingTasks,concurrency);setCodingRun(j);setReviewedTokens({});setCodingReview(null);setSelectedWorkers((j.workers||[]).filter((w:any)=>w.status==='ready_for_review').map((w:any)=>w.id));await refetchCoding();showToast('Coding workers: '+j.status,'success');}
+          catch(e:any){showToast(e.message||'Coding workers failed','error');}finally{setCodingBusy(false);}
+        }}>{codingBusy?'Running...':'Run coding workers'}</Button>
+        {(codingBusy||codingState?.activeRunId)&&<Button size="sm" variant="danger" onClick={async()=>{try{await api.cancelCodingAgents();showToast('Stop requested','info');}catch(e:any){showToast(e.message||'Stop failed','error');}}}>Stop</Button>}
+      </div>
+      {activeCoding&&<div className="space-y-2 border-t border-[var(--line)] pt-2">
+        <div className="font-semibold">Run {activeCoding.id?.slice(0,8)} — {activeCoding.status}</div>
+        {(activeCoding.workers||[]).map((w:any)=><div key={w.id} className="p-2 border border-[var(--line-subtle)] rounded">
+          <label className="flex gap-2 items-center">
+            <input type="checkbox" disabled={w.status!=='ready_for_review'} checked={selectedWorkers.includes(w.id)} onChange={e=>setSelectedWorkers(a=>e.target.checked?[...a,w.id]:a.filter(id=>id!==w.id))}/>
+            <strong>{w.id} · {w.status}</strong>
+          </label>
+          <p className="text-[10px] text-[var(--muted)] break-all">{w.branch}</p><p>Changed: {(w.changedFiles||[]).join(', ')||'none'}</p>
+          {w.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy} onClick={()=>showCodingDiff(activeCoding.id,w.id)}>Review diff</Button>}
+          {w.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy||!reviewedTokens[w.id]} onClick={async()=>{
+            if(prompt('Type PUBLISH DRAFT PR to push ONLY worker '+w.id+' and create a draft GitHub PR')!=='PUBLISH DRAFT PR')return;
+            setCodingBusy(true);try{const result=await api.publishCodingAgents(activeCoding.id,reviewedTokens[w.id],w.id);showToast('Worker Draft PR: '+result.prUrl,'success');await refetchCoding();}
+            catch(e:any){showToast(e.message||'Worker publishing failed','error');}finally{setCodingBusy(false);}
+          }}>Draft PR for {w.id}</Button>}
+          {w.prUrl&&<p className="text-[var(--muted)] break-all">PR: {w.prUrl}</p>}
+          {w.summary&&<p className="text-[var(--muted)] whitespace-pre-wrap">{w.summary}</p>}{w.error&&<p role="alert" className="text-red-400">{w.error}</p>}
+        </div>)}
+        {activeCoding.integration&&<p>Integration: {activeCoding.integration.status} · {activeCoding.integration.branch}</p>}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" disabled={!selectedWorkers.length||codingBusy||selectedWorkers.some(id=>!reviewedTokens[id])} onClick={async()=>{
+            if(prompt('Type INTEGRATE WORKTREES to merge these workers into a NEW integration branch')!=='INTEGRATE WORKTREES')return;
+            setCodingBusy(true);try{const v=await api.integrateCodingAgents(activeCoding.id,selectedWorkers,reviewedTokens);showToast('Integration: '+v.status,v.status==='ready_for_review'?'success':'warning');await refetchCoding();}
+            catch(e:any){showToast(e.message||'Integration failed','error');}finally{setCodingBusy(false);}
+          }}>Review + integrate</Button>
+          {activeCoding.integration?.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy} onClick={()=>showCodingDiff(activeCoding.id)}>Review integration diff</Button>}
+          <Button size="sm" variant="outline" disabled={activeCoding.integration?.status!=='ready_for_review'||codingBusy||!reviewedTokens.integration} onClick={async()=>{
+            if(prompt('Type PUBLISH DRAFT PR to explicitly push the integration branch and create a draft GitHub PR')!=='PUBLISH DRAFT PR')return;
+            setCodingBusy(true);try{const v=await api.publishCodingAgents(activeCoding.id,reviewedTokens.integration);showToast('Draft PR: '+v.prUrl,'success');await refetchCoding();}
+            catch(e:any){showToast(e.message||'Publish failed','error');}finally{setCodingBusy(false);}
+          }}>Push + Draft PR</Button>
+        </div>
+      </div>}
+      {codingReview&&<div className="border border-[var(--line)] bg-[var(--surface)] p-2 rounded">
+        <div className="font-semibold flex justify-between"><span>Git diff preview · {codingReview.branch}</span>
+          <Button size="sm" variant="quiet" onClick={()=>setCodingReview(null)}>Close</Button></div>
+        <p className="text-[var(--muted)]">Revision: {codingReview.revision} · Read the complete diff before authorizing integration or PR.</p>
+        <pre className="mt-2 text-[10px] overflow-x-auto whitespace-pre-wrap break-all max-h-80 overflow-y-auto select-text">{codingReview.diff||'No changes'}</pre>
+      </div>}
+    </section>
     <div className="space-y-2">
       <h4 className="font-semibold">Kết quả gần nhất</h4>
       {(result||latest?.last)?.workers?.map((w:any)=><div key={w.id} className="border border-[var(--line)] rounded p-2"><div className="font-semibold">{w.id} · {w.role||'researcher'} · {w.status}</div><p className="text-[var(--muted)] whitespace-pre-wrap mt-1">{w.summary||w.error||'Chờ chạy...'}</p></div>)}

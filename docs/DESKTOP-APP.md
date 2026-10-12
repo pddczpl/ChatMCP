@@ -1,139 +1,142 @@
-# Đóng gói Ứng dụng Desktop Native (ChatMCP Desktop Studio)
+# ChatMCP Desktop — Windows build and release guide
 
-Tài liệu này hướng dẫn cách cài đặt, chạy và đóng gói **ChatMCP Studio** thành ứng dụng Desktop độc lập trên Windows 11, Windows 10 và Linux.
+Hướng dẫn phát hành ChatMCP Studio trên **Windows 10/11 x64** từ mã nguồn đã được review. Đây là tài liệu dành cho maintainer; người dùng cuối tải bản cài tại [GitHub Releases](https://github.com/pddczpl/ChatMCP/releases).
 
----
+## Tổng quan
 
-## 1. Tổng quan Kiến trúc Desktop Native
+- **Ứng dụng Windows:** WinForms + WebView2, xuất thành ChatMCP.exe từ desktop-shell/ChatMCP.csproj.
+- **Bộ cài:** ChatMCPSetup.exe từ installer/ChatMCP.Installer.csproj.
+- Hai dự án C# hiện nhắm **net10.0-windows**, build self-contained win-x64.
+- **Frontend React:** CHATMCP-HUB/ui -> CHATMCP-HUB/web/dist. Bắt buộc build lại UI nếu thêm tab/tính năng.
+- **Backend:** Node.js portable được đóng cùng installer; Git for Windows, WebView2 Runtime và nhà cung cấp AI/API key không đi kèm.
+- Coding workers chỉ cô lập Git worktree, **không cô lập tiến trình hệ điều hành**. Đừng sử dụng như sandbox cho người dùng không tin cậy.
+- CI xanh là điều kiện cần, **không phải bằng chứng đã test cài/gỡ trên máy Windows sạch**.
 
-Khác với các ứng dụng web thông thường đòi hỏi người dùng phải mở trình duyệt và gõ URL `http://127.0.0.1:3007`, ChatMCP cung cấp trải nghiệm **Native Desktop Application**:
+## 1. Điều kiện cần trước khi build
 
-```
-+-------------------------------------------------------------+
-|                ChatMCP.exe (Native Desktop App)             |
-|                                                             |
-|  +-------------------------------------------------------+  |
-|  | Native Window (WebView2 / WinForms / Fluent Design)   |  |
-|  | - Biểu tượng ứng dụng ChatMCP chính thức (chatmcp.ico)|  |
-|  | - Không thanh địa chỉ (no URL bar)                    |  |
-|  | - Không thanh tab (no browser tabs)                   |  |
-|  | - Tiêu đề: "ChatMCP Studio - AI Coding Agent"         |  |
-|  | - Quản lý tiến trình trong Task Manager: ChatMCP.exe  |  |
-|  | - Runtime Profile độc lập tại %LOCALAPPDATA%\ChatMCP   |  |
-|  +---------------------------^---------------------------+  |
-|                              | IPC / Embedded Engine        |
-|  +---------------------------v---------------------------+  |
-|  |               ChatMCP Hub Background Daemon           |  |
-|  | - Agent Execution Engine & Cổng bảo mật Gate          |  |
-|  | - Plugin Manager & Curated Skills Marketplace         |  |
-|  | - Multi-User RBAC & Workspace Isolation               |  |
-|  | - ConPTY Interactive Terminal & AST Code Index        |  |
-|  +-------------------------------------------------------+  |
-+-------------------------------------------------------------+
-```
+| Thành phần | Yêu cầu |
+| --- | --- |
+| Windows | Windows 10/11 x64 |
+| Git for Windows | Checkout mã, Git worktrees |
+| Node.js | 22+ kèm npm |
+| .NET SDK | 10.0+ |
+| Internet lúc build | Để tải npm/NuGet nếu cache chưa có |
+| WebView2 Runtime | Cần trên máy chạy/test desktop |
 
-### Ưu điểm
-1. **Trải nghiệm ứng dụng bản địa (Native Feel):** Chạy trực tiếp file `ChatMCP.exe` với tên tiến trình riêng trong Task Manager, có icon chính thức trên Taskbar và Alt+Tab.
-2. **Bộ nhận diện thương hiệu cao cấp:** Biểu tượng `chatmcp.ico` đa độ phân giải (16x16 đến 256x256) thiết kế theo phong cách Cyber Shield AI hiện đại.
-3. **Đăng ký chính thức với Windows:** Xuất hiện trực tiếp trong **Windows Settings -> Apps -> Installed apps** và Control Panel, hỗ trợ gỡ cài đặt sạch sẽ chuẩn Windows.
-4. **Cách ly môi trường (Isolated Profile):** Dữ liệu phiên, cache và cookie được lưu riêng tại `%LOCALAPPDATA%\ChatMCP\webview2-data`, hoàn toàn tách biệt với trình duyệt hàng ngày.
-5. **Khởi động 1-Click (Zero-Configuration):** Tự động phát hiện và khởi động Hub ở chế độ nền (hidden background process), tự động dọn dẹp khi tắt app.
+Mở PowerShell:
 
----
+~~~powershell
+git --version
+node --version
+npm --version
+dotnet --version
+~~~
 
-## 2. Hướng dẫn Cài đặt & Khởi chạy (Windows 11 / Windows 10)
+## 2. Chọn release commit và đồng bộ phiên bản
 
-### Yêu cầu hệ thống
-- Hệ điều hành: Windows 10 (Build 19041+) hoặc Windows 11.
-- Môi trường: [Node.js 22+](https://nodejs.org/) (đã được xác thực qua CI matrix trên cả Node 22 & Node 24).
-- Git: [Git for Windows](https://git-scm.com/download/win).
-- (.NET SDK 9+ nếu muốn tự biên dịch lại từ mã nguồn C#).
+Trước khi build bản công khai, merge PR sau review/CI và **chọn số version chính thức**, ví dụ v2.5.0 nếu v2.4.0 đã được phát hành và phạm vi thay đổi phù hợp; luôn kiểm tra phiên bản/tags mới nhất trên GitHub trước khi chọn.
 
----
+Đồng bộ các vị trí sau khi tăng version:
+- CHATMCP-HUB/package.json và VERSION trong CHATMCP-HUB/lib/manager.mjs
+- desktop-shell/ChatMCP.csproj và installer/ChatMCP.Installer.csproj
+- CHATMCP-HUB/ui/package.json và package-lock.json nếu tăng version UI
+- UI_BUILD ở CHATMCP-HUB/hub.mjs cùng CHATMCP-HUB/ui/src/lib/api.ts khi thay build identity
+- README.md, CHANGELOG.md và các assertion phụ thuộc version
 
-### Cách 1: Sử dụng Bộ cài đặt Thương mại ChatMCPSetup.exe (Tiêu chuẩn Thương mại)
+~~~powershell
+git switch main
+git pull --ff-only origin main
+git status --short
+git rev-parse HEAD
+~~~
 
-ChatMCP cung cấp bộ cài đặt dạng file EXE duy nhất `ChatMCPSetup.exe` tương tự như các ứng dụng thương mại hàng đầu (VS Code, Cursor, Discord):
+Chỉ release khi trạng thái Git sạch và HEAD đúng commit đã review.
 
-1. **Đóng gói bộ cài:**
-   ```powershell
-   .\scripts\Build-Installer.ps1
-   ```
-   Lệnh trên sẽ tạo ra file cài đặt standalone tại: **`dist\ChatMCPSetup.exe`** (~35.7 MB).
-2. **Cài đặt:**
-   - Nhấp đúp chuột vào **`ChatMCPSetup.exe`**.
-   - Giao diện cài đặt thương mại sẽ mở lên với logo chính thức và đường dẫn mặc định `%LOCALAPPDATA%\Programs\ChatMCP`.
-   - Chọn tùy chọn tạo shortcut Desktop, Start Menu -> Bấm **Install**.
-   - Trình cài đặt tự động trích xuất các thành phần, cấu hình `Uninstall.exe` và đăng ký vào Windows Apps trong 2 giây.
+## 3. Kiểm thử và build installer
 
----
+~~~powershell
+node .\CHATMCP-HUB\tests\run-all.mjs
+npm ci --prefix .\CHATMCP-HUB\ui
+npm run build --prefix .\CHATMCP-HUB\ui
+.\scripts\Build-Installer.ps1
+~~~
 
-### Cách 2: Cài đặt phím tắt Desktop, Start Menu & Đăng ký Windows (Dành cho Developer)
+Script tự kiểm tra .NET SDK 10 / Node.js 22, chạy lại npm ci và frontend build, publish self-contained executable, chép tài nguyên Hub, portable node.exe rồi nén vào installer.
 
-Mở PowerShell tại thư mục gốc của repository và chạy:
+Sau khi thành công:
 
-```powershell
-.\scripts\install-desktop.ps1
-```
+~~~text
+dist\ChatMCPSetup.exe
+dist\ChatMCPSetup.exe.sha256
+~~~
 
-Script sẽ tự động:
-1. Kiểm tra môi trường Node.js và Git.
-2. Xác nhận hoặc biên dịch bộ thực thi native `desktop-shell\bin\dist\ChatMCP.exe`.
-3. Tạo shortcut **ChatMCP Studio** trên màn hình Desktop của bạn với icon chính thức.
-4. Tạo mục **ChatMCP Studio** trong Start Menu (`Start -> ChatMCP -> ChatMCP Studio`).
-5. Đăng ký phần mềm vào **Windows Installed Apps** (`HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ChatMCP`).
+Kiểm tra SHA-256:
 
-Sau khi cài đặt, bạn chỉ cần nhấp đúp vào icon trên Desktop hoặc tìm "ChatMCP" trong Start Menu để mở ứng dụng.
+~~~powershell
+$exe = '.\dist\ChatMCPSetup.exe'
+$actual = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+$expected = ((Get-Content "$exe.sha256" -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+if ($actual -ne $expected) { throw 'Installer checksum mismatch; stop release' }
+Write-Host "SHA-256 OK: $actual"
+~~~
 
----
+GitHub Actions ở đúng commit cũng xuất artifact **ChatMCPSetup-win-x64** (EXE và checksum) và **chatmcp-ui-dist**. Đây là build artifact, không phải bản release đã phát hành.
 
-### Cách 2: Khởi chạy nhanh 1-Click bằng file CMD hoặc EXE
+## 4. Kiểm thử trên Windows sạch trước khi công bố
 
-Nhấp đúp chuột trực tiếp vào file:
+Dùng máy ảo Windows sạch, ghi lại kết quả:
+1. Cài ChatMCPSetup.exe, khởi chạy ChatMCP Studio, kiểm tra WebView2 và launcher/Hub.
+2. Tạo/chọn repository Git thử nghiệm không chứa thông tin bí mật. Chọn chế độ Review.
+3. Cấu hình model có khả năng gọi công cụ (hoặc Ollama/LM Studio hỗ trợ tool calling).
+4. Kiểm tra đọc file, sửa file có phê duyệt, Git diff, checkpoint và restore.
+5. Chạy 2 coding workers trong các worktree riêng, mở **Review diff** cho từng worker, thử integrate vào nhánh mới, bảo đảm nhánh gốc không thay đổi.
+6. Mở **Review integration diff** trước khi xuất Draft PR. Không khẳng định tests pass nếu agent không thực sự chạy test.
+7. Thử Skills Hub: tìm SKILL.md thật, tải nested/binary resources, kiểm tra file hash và mặc định disabled. Script của nguồn bên ngoài không được tự thực thi.
+8. Tắt ứng dụng, kiểm tra Hub không còn tiến trình con ngoài ý muốn; thử uninstall và hành vi lưu trữ dữ liệu theo chính sách.
 
-```cmd
-START-CHATMCP-DESKTOP.cmd
-```
+Không đánh dấu bước này hoàn tất chỉ vì dotnet build hoặc CI xanh.
 
-Hoặc chạy file thực thi native:
+## 5. Code signing và GitHub Release
 
-```cmd
-.\desktop-shell\bin\dist\ChatMCP.exe
-```
+Nếu có chứng chỉ Authenticode hợp lệ, ký các executable theo quy trình ký Windows. **Sau khi ký bất kỳ file phân phối nào, tính lại SHA-256**. Chữ ký giúp xác định nhà phát hành nhưng không thay thế kiểm thử bảo mật.
 
----
+Tag phải trỏ đến **chính commit đã kiểm thử/build**:
 
-## 3. Khởi chạy trên Linux & macOS
+~~~powershell
+git rev-parse HEAD
+git tag -a vX.Y.Z -m "ChatMCP vX.Y.Z"
+git push origin vX.Y.Z
+gh auth status
+gh release create vX.Y.Z .\dist\ChatMCPSetup.exe .\dist\ChatMCPSetup.exe.sha256 --draft --title "ChatMCP vX.Y.Z" --generate-notes
+~~~
 
-Trên các hệ thống Linux hoặc macOS, bạn có thể khởi chạy ứng dụng desktop thông qua chế độ App Mode của Google Chrome hoặc Chromium:
+Xem lại nội dung và file checksum trên Draft Release rồi publish thủ công. Chưa chọn version / chưa test máy sạch thì không tạo tag hay release.
 
-```bash
-# 1. Khởi động Hub
-node CHATMCP-HUB/hub.mjs --port 3007 --no-open &
+## 6. Chạy development từ source
 
-# 2. Mở cửa sổ Desktop App Mode
-google-chrome --app="http://127.0.0.1:3007/" --window-size=1440,900
-# Hoặc trên macOS:
-# /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --app="http://127.0.0.1:3007/"
-```
+~~~powershell
+git clone https://github.com/pddczpl/ChatMCP.git
+cd ChatMCP
+# Test nhánh beta PR chưa merge:
+# git fetch origin
+# git switch feat/parallel-coding-agents-skills-registry-v2
+npm ci --prefix .\CHATMCP-HUB\ui
+npm run build --prefix .\CHATMCP-HUB\ui
+.\START-CHATMCP-DESKTOP.cmd
+~~~
 
----
+Chỉ cần Hub qua browser:
 
-## 4. Quản lý Vòng đời & Tắt Ứng dụng
+~~~powershell
+.\CHATMCP-HUB\START-CHATMCP-HUB.cmd -ProjectPath 'C:\Projects\Demo'
+~~~
 
-- **Đóng cửa sổ:** Khi tắt cửa sổ `ChatMCP.exe`, ứng dụng tự động đóng Hub daemon nếu do nó khởi chạy.
-- **Tắt hoàn toàn tiến trình Hub thủ công:**
-  - Nhấp đúp vào: `.\CHATMCP-HUB\STOP-CHATMCP-HUB.cmd`
-  - Hoặc gửi lệnh từ giao diện web / API: `POST /api/hub/shutdown`
+Sau khi cập nhật code, hãy dừng Hub cũ trước khi khởi động bản mới. Không tự tắt tiến trình không thuộc ChatMCP.
 
----
+## 7. Gỡ cài đặt và xử lý lỗi
 
-## 5. Gỡ bỏ Ứng dụng (Uninstall)
+Gỡ bằng Windows Settings -> Apps -> Installed apps hoặc trình Uninstall.exe của bản cài. Trước khi xóa dữ liệu trong %LOCALAPPDATA%\ChatMCP, sao lưu những cuộc hội thoại và cấu hình bạn muốn giữ.
 
-Để gỡ bỏ ChatMCP Studio, bạn có thể:
-1. Vào **Windows Settings -> Apps -> Installed apps -> ChatMCP Studio -> Uninstall**.
-2. Hoặc chạy script từ PowerShell:
+Nếu Desktop không mở, kiểm tra WebView2 Runtime, cổng 3007, Git for Windows, Hub log và phiên bản frontend/backend.
 
-```powershell
-.\scripts\uninstall-desktop.ps1
-```
+Tài liệu liên quan: [Windows setup](WINDOWS-SETUP.md), [User guide](USER-GUIDE.md), [Troubleshooting](TROUBLESHOOTING.md), [Architecture](ARCHITECTURE.md), [Security](../SECURITY.md).

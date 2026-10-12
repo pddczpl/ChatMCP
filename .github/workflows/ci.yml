@@ -73,6 +73,38 @@ jobs:
           path: CHATMCP-HUB/web/dist
           if-no-files-found: error
 
+  windows-installer:
+    name: Windows installer build (self-contained)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build fresh UI and Windows installer
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Installer.ps1
+      - name: Verify installer and checksum
+        shell: powershell
+        run: |
+          if (-not (Test-Path .\dist\ChatMCPSetup.exe)) { throw 'Installer was not created' }
+          if (-not (Test-Path .\dist\ChatMCPSetup.exe.sha256)) { throw 'Missing checksum' }
+          $actual = (Get-FileHash .\dist\ChatMCPSetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = ((Get-Content .\dist\ChatMCPSetup.exe.sha256 -Raw).Trim() -split '\s+')[0]
+          if ($actual -ne $expected) { throw 'Installer checksum verification failed' }
+      - name: Upload Windows installer build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ChatMCPSetup-win-x64
+          path: |
+            dist/ChatMCPSetup.exe
+            dist/ChatMCPSetup.exe.sha256
+          if-no-files-found: error
+
   script-tests:
     name: Script tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

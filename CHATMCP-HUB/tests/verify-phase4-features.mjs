@@ -7,12 +7,16 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { PluginManager, MARKETPLACE_CATALOG, validateSkillUrl, parseSkillManifest, VERIFIED_REGISTRIES, normalizeSkillId, isPrivateOrReservedIp, safeFetchSkillManifest } from '../lib/plugins.mjs';
 import { GovernanceManager, ROLES, PERMISSIONS_MATRIX } from '../lib/governance.mjs';
 import { createHubServer } from '../hub.mjs';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { StudioDelegates } from '../lib/studio-delegates.mjs';
 import { GitHubSkillRegistry } from '../lib/skill-registry.mjs';
+import { CodingWorktreeOrchestrator } from '../lib/coding-orchestrator.mjs';
+import { HubManager } from '../lib/manager.mjs';
+import { assembleStudio } from '../lib/assemble.mjs';
 
 let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
@@ -147,6 +151,26 @@ OSI prompt body.`);
   assert.equal(parsedOsi.license, 'Apache-2.0');
   assert.equal(parsedOsi.redistributable, false);
   ok('parseSkillManifest rejects raw markdown and malformed YAML, verifies licenses and provenance');
+  const vercelManifest = parseSkillManifest([
+    '---',
+    'name: vercel-react-best-practices',
+    'description: >',
+    '  React and Next.js',
+    '  performance guidelines.',
+    'license: MIT',
+    'metadata:',
+    '  author: vercel',
+    '  version: "1.0.0"',
+    '---',
+    'Use this skill only when relevant to React.',
+  ].join('\n'));
+  assert.equal(vercelManifest.author,'vercel');
+  assert.equal(vercelManifest.version,'1.0.0');
+  assert.equal(vercelManifest.description,'React and Next.js performance guidelines.');
+  assert.equal(vercelManifest.redistributable,false);
+  assert.throws(()=>parseSkillManifest('---\nname: demo\nmetadata:\n  author:\n    nested: bad\n---\nbody'),{code:'malformed_yaml'});
+  ok('Agent Skills frontmatter handles Vercel nested metadata and folded descriptions safely');
+
 
   // Custom ID validation: path separators, traversal, Windows devices
   await assert.rejects(() => pm.install('../../etc/passwd'), { code: 'invalid_skill_id' });
@@ -620,6 +644,167 @@ console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
   await restored.load();
   assert.equal(restored.list().length,1);
   ok('GitHub SKILL.md discovery, pinned import, persistence and repeat refresh');
+}
+
+
+// V2: Real separate Git worktrees, serial integration and explicit publish gate.
+{
+  const repoRoot=path.join(root,'isolated-coding-repo');
+  await fs.mkdir(repoRoot,{recursive:true});
+  const git=(args,cwd=repoRoot)=>execFileSync('git',args,{cwd,encoding:'utf8',windowsHide:true});
+  git(['init','-b','main']);
+  git(['config','user.name','ChatMCP Test']);
+  git(['config','user.email','chatmcp-test@example.invalid']);
+  await fs.writeFile(path.join(repoRoot,'README.md'),'safe original\n');
+  git(['add','README.md']);git(['commit','-m','base']);
+  const baseSha=git(['rev-parse','HEAD']).trim();
+  const mgr=new HubManager({bundleRoot:path.resolve('.'),dataDirectory:path.join(root,'coding-state'),backend:'local',log:()=>{}});
+  await mgr.load(repoRoot);assembleStudio(mgr,{bundleRoot:path.resolve('.')});await mgr.startLocal();
+  const orchestrator=new CodingWorktreeOrchestrator({
+    manager:mgr,provider:{ready:()=>true},directory:path.join(root,'coding-orchestrator'),bundleRoot:path.resolve('.'),
+    createWorker:async({worktree,node})=>{
+      await fs.writeFile(path.join(worktree,node.id+'.txt'),node.prompt,'utf8');
+      return {state:'completed',summary:'Created file in isolated worktree.',taskId:node.id,steps:1,toolCalls:1};
+    }
+  });
+  await assert.rejects(()=>orchestrator.run({tasks:[{id:'alpha',prompt:'code'}]}),{code:'confirmation_required'});
+  const job=await orchestrator.run({
+    tasks:[{id:'alpha',prompt:'Implement feature A'},{id:'beta',prompt:'Implement feature B'}],
+    maxConcurrency:2,confirmation:'CREATE WORKTREES',
+  });
+  assert.equal(job.status,'ready_for_review',JSON.stringify(job));
+  assert.deepEqual(job.workers.map(x=>x.status),['ready_for_review','ready_for_review']);
+  assert.deepEqual(job.workers.map(x=>x.changedFiles[0]),['alpha.txt','beta.txt']);
+  assert.notEqual(job.workers[0].worktree,job.workers[1].worktree);
+  assert.equal(git(['rev-parse','HEAD']).trim(),baseSha,'main branch must not be modified');
+  await assert.rejects(()=>orchestrator.integrate({runId:job.id,workerIds:['alpha']}),{code:'confirmation_required'});
+  await assert.rejects(()=>orchestrator.integrate({runId:job.id,workerIds:['alpha','beta'],confirmation:'INTEGRATE WORKTREES'}),{code:'review_required'});
+  const a=await orchestrator.review({runId:job.id,workerId:'alpha'});
+  const b=await orchestrator.review({runId:job.id,workerId:'beta'});
+  assert.match(a.diff,/alpha\.txt/);
+  const merged=await orchestrator.integrate({runId:job.id,workerIds:['alpha','beta'],confirmation:'INTEGRATE WORKTREES',reviewTokens:{alpha:a.reviewToken,beta:b.reviewToken}});
+  assert.equal(merged.status,'ready_for_review',JSON.stringify(merged));
+  assert.equal(merged.merged.length,2);
+  assert.equal(await fs.readFile(path.join(merged.worktree,'alpha.txt'),'utf8'),'Implement feature A');
+  assert.equal(await fs.readFile(path.join(merged.worktree,'beta.txt'),'utf8'),'Implement feature B');
+  assert.equal(git(['rev-parse','HEAD']).trim(),baseSha,'integration must never change main HEAD');
+  await assert.rejects(()=>orchestrator.publish({runId:job.id,confirmation:'PUBLISH DRAFT PR'}),{code:'review_required'});
+  const integrationReview=await orchestrator.review({runId:job.id});
+  assert.match(integrationReview.diff,/alpha\.txt/);
+  assert.ok(integrationReview.reviewToken);
+  await assert.rejects(()=>orchestrator.publish({runId:job.id}),{code:'confirmation_required'});
+  await mgr.shutdown();
+  ok('Coding agents isolate edits in real Git worktrees and only integrate after explicit review/confirmation');
+}
+// Real AgentRunner + actual permission gate: fake model requests a permitted file
+// edit, no shell tools are present, and the file changes ONLY in worker worktree.
+{
+  const codingRepo=path.join(root,'coding-agent-tool-repo');
+  await fs.mkdir(codingRepo,{recursive:true});
+  const git=(args)=>execFileSync('git',args,{cwd:codingRepo,encoding:'utf8',windowsHide:true});
+  git(['init','-b','main']);git(['config','user.name','ChatMCP CI']);git(['config','user.email','ci@example.invalid']);
+  await fs.writeFile(path.join(codingRepo,'baseline.md'),'Original\n');
+  git(['add','baseline.md']);git(['commit','-m','base']);
+  const before=git(['rev-parse','HEAD']).trim();
+  const manager=new HubManager({bundleRoot:path.resolve('.'),dataDirectory:path.join(root,'real-coder-state'),backend:'local',log:()=>{}});
+  await manager.load(codingRepo);
+  assembleStudio(manager,{bundleRoot:path.resolve('.')});
+  await manager.startLocal();
+  let responses=0;
+  const provider={
+    ready:()=>true,
+    snapshot:()=>({provider:'coding-fixture',model:'coding-fixture'}),
+    async respond({input,tools}){
+      responses++;
+      assert.ok(tools.some(x=>x.name==='write_file'),'coding worker must receive write_file');
+      for(const forbidden of ['run_command','tasks_run','delete_path','git_merge','git_add','git_commit','github_action']){
+        assert.ok(!tools.some(x=>x.name===forbidden),'worker must not receive '+forbidden);
+      }
+      if(input.some(x=>x.type==='function_call_output')){
+        return {status:'completed',output:[{type:'message',role:'assistant',phase:'final',
+          content:[{type:'output_text',text:'File edited using approved file tool. Tests were not run.'}]}]};
+      }
+      return {status:'completed',output:[{type:'function_call',call_id:'coding-fixture-call',name:'write_file',
+        arguments:JSON.stringify({path:'agent-generated.md',content:'# Generated by real AgentRunner\n'})}]};
+    }
+  };
+  const runtime=new CodingWorktreeOrchestrator({
+    manager,provider,directory:path.join(root,'real-coder-orch'),bundleRoot:path.resolve('.'),
+  });
+  const job=await runtime.run({
+    tasks:[{id:'coder',prompt:'Create agent-generated.md with a Markdown header.'}],
+    maxConcurrency:1,confirmation:'CREATE WORKTREES',
+  });
+  assert.equal(job.status,'ready_for_review',JSON.stringify(job));
+  assert.equal(job.workers[0].status,'ready_for_review',JSON.stringify(job.workers[0]));
+  assert.ok(responses>=2,'mock model must receive tool result and finish');
+  assert.equal(await fs.readFile(path.join(job.workers[0].worktree,'agent-generated.md'),'utf8'),
+    '# Generated by real AgentRunner\n');
+  assert.ok(job.workers[0].changedFiles.includes('agent-generated.md'));
+  assert.equal(git(['rev-parse','HEAD']).trim(),before,'real AgentRunner must not mutate original branch');
+  await assert.rejects(fs.access(path.join(codingRepo,'agent-generated.md')));
+  await manager.shutdown();
+  ok('Real AgentRunner edits only its own Git worktree through restricted tool and permission gate');
+}
+
+// V2: Recursive pinned manifest, binary resource fidelity, license evidence and update availability.
+{
+  const store=path.join(root,'registry-binary');await fs.mkdir(store,{recursive:true});
+  const bytesByPath=new Map();
+  const put=(file,bytes)=>{
+    const b=Buffer.from(bytes);
+    bytesByPath.set(file,b);
+    return {path:file,mode:'100644',type:'blob',size:b.length,
+      sha:crypto.createHash('sha1').update('blob '+b.length+'\0').update(b).digest('hex')};
+  };
+  const sourceFiles=[
+    put('skills/nested/demo/SKILL.md','---\nname: Demo Skill\ndescription: Nested GitHub fixture\nlicense: MIT\n---\nRead references/guide.md.'),
+    put('skills/nested/demo/references/guide.md','# Guide\nSee assets/logo.png.'),
+    put('skills/nested/demo/assets/logo.png',Buffer.from([0,1,2,255,137,80,78,71])),
+    put('skills/nested/demo/LICENSE','Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software").')
+  ];
+  const revision='a'.repeat(40),treeSha='b'.repeat(40);
+  const transport=async(url)=>{
+    if(url.endsWith('/commits/HEAD'))return {text:JSON.stringify({sha:revision,commit:{tree:{sha:treeSha}}})};
+    if(url.includes('/git/trees/'))return {text:JSON.stringify({truncated:false,tree:sourceFiles})};
+    throw Error('Unexpected GitHub mock URL '+url);
+  };
+  const binaryTransport=async(url)=>({
+    bytes:bytesByPath.get(decodeURIComponent(new URL(url).pathname).split('/').slice(4).join('/'))||Buffer.alloc(0),
+  });
+  const pm=new PluginManager({stateDir:store});await pm.load();
+  const reg=new GitHubSkillRegistry({pluginManager:pm,stateDir:store,transport,binaryTransport});
+  const refreshed=await reg.refresh({sourceId:'anthropic'});
+  assert.equal(refreshed.found,1,JSON.stringify(refreshed));
+  const entry=reg.list({query:'nested/demo'})[0];
+  assert.ok(entry&&entry.folder==='skills/nested/demo');
+  const result=await reg.install({key:entry.key});
+  assert.equal(result.resourceCount,3);
+  assert.equal(result.enabled,false,'third-party skills must remain disabled by default');
+  assert.equal(result.licenseEvidence?.status,'matched_file');
+  assert.equal(result.verifiedLicense,null,'license evidence must not imply legal verification');
+  const logo=await fs.readFile(path.join(store,'skills',entry.id,'assets','logo.png'));
+  assert.deepEqual(logo,bytesByPath.get('skills/nested/demo/assets/logo.png'));
+  assert.ok(result.contentHash);
+  assert.ok(pm.installed().find(x=>x.id===entry.id)?.licenseEvidence,'installed metadata must expose license evidence');
+  assert.ok((await fs.readFile(path.join(store,'skills-lock.json'),'utf8')).includes(result.contentHash));
+  assert.equal(reg.updates().length,0);
+  ok('Skills registry recursively imports binary assets with Git SHA integrity, license evidence and lockfile hash');
+  assert.deepEqual(refreshed.succeeded,['anthropic']);
+  const noNetwork=new GitHubSkillRegistry({
+    pluginManager:pm,stateDir:store,
+    transport:async()=>{throw new Error('temporary registry outage');},
+    binaryTransport,
+  });
+  await noNetwork.load();
+  const oldCount=noNetwork.list().length;
+  const unavailable=await noNetwork.refresh({sourceId:'anthropic'});
+  assert.equal(unavailable.found,0);
+  assert.equal(unavailable.failures.length,1);
+  assert.equal(unavailable.total,oldCount);
+  assert.equal(noNetwork.list().length,oldCount);
+  ok('Failed registry refresh retains previous index and reports genuine discovery outcome');
+
 }
 
 console.log(`\nPASS: ${checks} Phase 4 feature and integration checks passed cleanly.`);
