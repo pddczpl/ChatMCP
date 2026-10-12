@@ -173,11 +173,12 @@ export class CodingWorktreeOrchestrator {
             !grant.revoked && grant.expiresAt>broker.clock() && grant.attempts<grant.maxAttempts));
           if(matches.every(Boolean)){grantIds=matches.map(g=>g.id);break;}
           await new Promise((resolve,reject)=>{
-            const timer=setTimeout(resolve,500);
             const abort=()=>{clearTimeout(timer);reject(signal.reason||new Error('Stopped'));};
+            const timer=setTimeout(()=>{
+              signal.removeEventListener('abort',abort);
+              resolve();
+            },500);
             signal.addEventListener('abort',abort,{once:true});
-            // Ensure completed waits release their abort listeners.
-            const unref=timer.unref?.bind(timer);unref?.();
           });
         }
         signal.throwIfAborted();
@@ -315,7 +316,7 @@ export class CodingWorktreeOrchestrator {
               node.status='ready_for_review';
             }else node.status='no_changes';
           }catch(error){
-            node.status=signal.aborted?'cancelled':'failed';
+            if(node.status!=='needs_attention')node.status=signal.aborted?'cancelled':'failed';
             node.error=bounded(error.message,500);
           }
           await saveProgress();

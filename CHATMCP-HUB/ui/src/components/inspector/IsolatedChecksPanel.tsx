@@ -39,7 +39,7 @@ export function IsolatedChecksPanel() {
   const {data,error}=useQuery({queryKey:['coding-runs'],queryFn:api.getCodingRuns,refetchInterval:3000});
   if(error || !Array.isArray(data?.jobs) || data.jobs.length===0) return null;
   const job=data.jobs.find((x:{id:string})=>x.id===data.activeRunId) || data.jobs.at(-1);
-  const workers=(job?.workers??[]).filter((w:{status:string})=>w.status==='running');
+  const workers=(job?.workers??[]).filter((w:{status:string})=>['running','awaiting_test_grant','testing'].includes(w.status));
   const prior=(job?.workers??[]).flatMap((w:{id:string;verificationAttempts?:any[]})=>
     (w.verificationAttempts||[]).map(record=>({...record,workerId:w.id})));
   if(!workers.length && !prior.length)return null;
