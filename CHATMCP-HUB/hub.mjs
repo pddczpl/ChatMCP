@@ -10,9 +10,6 @@ import { HubManager, VERSION, BACKENDS, defaultDataDirectory } from './lib/manag
 import { redact } from './lib/runtime.mjs';
 import { acquireInstanceLock } from './lib/instance-lock.mjs';
 import { publicPresets } from './lib/provider-presets.mjs';
-import { OwnerAuth } from './lib/auth.mjs';
-import { createPublicGate, PUBLIC_POST_ROUTES } from './lib/public-gate.mjs';
-import { resolvePublicConfig, describePublicConfig } from './lib/public-config.mjs';
 import { AiProfiles } from './lib/ai-profiles.mjs';
 import { WorkspaceLock } from './lib/workspace-lock.mjs';
 import { SandboxEngine } from './lib/sandbox-engine.mjs';
@@ -32,7 +29,7 @@ export function assertCompatibleRunningHub(health, port=3007) {
   return true;
 }
 
-export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/vscode/open','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/intelligence/index','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/workspace/pr','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle','/api/governance/rbac/verify']);
+export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/vscode/open','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/intelligence/index','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle']);
 const BUNDLE_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MIME = Object.freeze({
   '.html': 'text/html; charset=utf-8',
@@ -49,8 +46,6 @@ const MIME = Object.freeze({
 });
 const CSP_BASE = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const CSP_LOOPBACK = `${CSP_BASE}; frame-src http://127.0.0.1:* http://localhost:*`;
-// A remote page cannot show the owner's localhost, so no frames at all.
-const CSP_PUBLIC = `${CSP_BASE}; frame-src 'none'`;
 const STATIC_FILES = Object.freeze({
   '/': 'web/dist/index.html',
   '/index.html': 'web/dist/index.html',
@@ -70,9 +65,6 @@ const STATIC_FILES = Object.freeze({
   '/vendor/react-dom.production.min.js': 'web/vendor/react-dom.production.min.js',
   '/chat-route.js': 'extension/chat-route.js'
 });
-// The public site serves the React app only; the older single-file pages are not offered to the Internet.
-const PUBLIC_STATIC_FILES = Object.freeze(Object.fromEntries(['/', '/index.html', '/classic', '/classic.html', '/react-app.js', '/ui-logic.js', '/onboarding.js', '/react.css', '/vendor/react.production.min.js', '/vendor/react-dom.production.min.js'].map((key) => [key, STATIC_FILES[key]])));
-
 function equalToken(a, b) {
   if (typeof a !== 'string' || a.length !== b.length) return false;
   const left = Buffer.from(a);
@@ -96,20 +88,11 @@ async function bodyJson(req, limit = 65536) {
   catch { const e = new Error('JSON không hợp lệ.'); e.statusCode = 400; throw e; }
 }
 
-/**
- * `publicGate` (see lib/public-gate.mjs) switches the server into public mode: it answers /healthz, checks Host, HTTPS and Origin, requires a
- * login session for everything else and has its own per-session CSRF token. Without it nothing below changes (loopback, no login).
- * `workspaces` is the public-mode workspace service (clone, list, delete, export, push) and `execMode` how agent commands are isolated.
- */
-export function createHubServer(manager, { port = 3007, token = randomBytes(32).toString('hex'), bundleRoot = BUNDLE_ROOT, provider = null, agent = null, browser = null, onShutdown = () => {}, isInitialized = () => true, publicGate = null, workspaces = null, execMode = 'no-shell' } = {}) {
-  const publicMode = publicGate !== null;
-  const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
-  const origins = new Set([...hosts].map((host) => `http://${host}`));
-  const staticFiles = publicMode ? PUBLIC_STATIC_FILES : STATIC_FILES;
-  const publicInfo = () => publicMode ? {
-    enabled: true, execMode, ephemeralStorage: true, storageNote: 'Máy chủ free có ổ đĩa tạm: workspace mất khi dịch vụ ngủ, khởi động lại hoặc triển khai lại. Hãy push kết quả lên GitHub.',
-    workspaces: workspaces?.summary() ?? null, disabled: ['browser-companion', 'interactive-terminal', 'language-server', 'local-preview', 'native-folder-picker', 'vscode', 'shutdown', 'full-access', 'docker-sandbox'],
-  } : null;
+/** Local-only HTTP Hub: localhost and 127.0.0.1 only. */
+export function createHubServer(manager, {port=3007,token=randomBytes(32).toString('hex'),bundleRoot=BUNDLE_ROOT,provider=null,agent=null,browser=null,onShutdown=()=>{},isInitialized=()=>true}={}) {
+  const hosts=new Set([`127.0.0.1:${port}`,`localhost:${port}`]);
+  const origins=new Set([...hosts].map(host=>`http://${host}`));
+  const staticFiles=STATIC_FILES;
   let aiBusy = false;
   const taskEngine = agent ?? browser;
   const studio = manager.studio;
@@ -129,9 +112,9 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
   const skillRegistry = new GitHubSkillRegistry({ pluginManager, stateDir: hubStateDir });
   skillRegistry.load().catch(() => {});
   const governance = new GovernanceManager({ stateDir: hubStateDir });
-  governance.registerWorkspace('default-tenant', manager.workspace || BUNDLE_ROOT);
-  const sandboxEngine = new SandboxEngine({ mode: publicMode && execMode === 'broker' ? 'broker' : 'host', workspaceRoot: manager.workspace, workspace: manager.studio });
-  const state = (csrf = token) => ({ ...manager.state(), ...(publicMode ? { publicMode: publicInfo() } : {}), ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions:gate?.state()??null, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null} : null, csrfToken: csrf });
+  governance.registerWorkspace('local-owner', manager.workspace || BUNDLE_ROOT);
+  const sandboxEngine = new SandboxEngine({mode:'host',workspaceRoot:manager.workspace,workspace:manager.studio});
+  const state = (csrf = token) => ({ ...manager.state(), ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions:gate?.state()??null, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null} : null, csrfToken: csrf });
   const requireNoTask = () => { if (taskEngine?.state().activeTaskId) { const e = new Error('Hủy hoặc chờ nhiệm vụ hoàn tất trước khi thay đổi kết nối AI.'); e.statusCode = 409; throw e; } };
   const changeAi = async (operation) => {
     requireNoTask();
@@ -143,37 +126,22 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('Content-Security-Policy', publicMode ? CSP_PUBLIC : CSP_LOOPBACK);
-    if (publicMode) publicGate.securityHeaders(res);
+    res.setHeader('Content-Security-Policy', CSP_LOOPBACK);
     const json = (status, value) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(value)); };
     try {
-      if (!publicMode && !hosts.has(req.headers.host)) return json(403, { error: 'Host không được phép.' });
+      if (!hosts.has(req.headers.host)) return json(403, { error: 'Host không được phép.' });
       // Only the pathname and query are used below; the base just lets a relative request target parse. Who the request is for is
       // decided by the Host check, never by what a client puts in the request line.
       const url = new URL(req.url, `http://127.0.0.1:${port}`);
       // Treat trailing slashes on API paths consistently across builds.
       if (url.pathname.startsWith('/api/') && url.pathname.length > 1) url.pathname = url.pathname.replace(/\/+$/, '');
       const origin = req.headers.origin;
-      let session = null; // set in public mode: the login session behind this request
-      if (publicMode) {
-        // The platform's health probe is answered before anything that looks at Host; everything else goes through the front door.
-        if (publicGate.healthz(req, res, url)) return;
-        if (!publicGate.hostOk(req)) return json(403, { error: 'Host không được phép.', code: 'host_denied' });
-        if (!publicGate.httpsOk(req)) return json(400, { error: 'Chỉ chấp nhận kết nối HTTPS.', code: 'https_required' });
-        if (!publicGate.originOk(origin)) return json(403, { error: 'Origin không được phép.', code: 'origin_denied' });
-        if (req.method === 'OPTIONS') return json(405, { error: 'Phương thức không được hỗ trợ.' });
-        const outcome = await publicGate.handle({ req, res, url, origin, json, bodyJson });
-        if (outcome.handled) return;
-        // The gate promises a live session here; if that ever stops being true the request is refused rather than served.
-        if (!outcome.session) return json(401, { error: 'Cần đăng nhập.', code: 'login_required' });
-        session = outcome.session;
-      }
-      const csrfNow = session?.csrf ?? token;
+      const csrfNow = token;
       const stateNow = () => state(csrfNow);
-      const extensionRead = !publicMode && ['/api/extension-state', '/api/instructions'].includes(url.pathname);
-      const browserRoute = !publicMode ? /^\/api\/browser\/clients\/(pair|poll|claim|sent|reply|fail)$/.exec(url.pathname) : null;
+      const extensionRead = ['/api/extension-state', '/api/instructions'].includes(url.pathname);
+      const browserRoute = /^\/api\/browser\/clients\/(pair|poll|claim|sent|reply|fail)$/.exec(url.pathname);
       const extensionOrigin = typeof origin === 'string' && /^chrome-extension:\/\/[a-p]{32}$/.test(origin);
-      if (!publicMode && origin && !origins.has(origin) && !((extensionRead && ['GET', 'OPTIONS'].includes(req.method) || browserRoute && ['POST', 'OPTIONS'].includes(req.method)) && extensionOrigin)) {
+      if (origin && !origins.has(origin) && !((extensionRead && ['GET', 'OPTIONS'].includes(req.method) || browserRoute && ['POST', 'OPTIONS'].includes(req.method)) && extensionOrigin)) {
         return json(403, { error: 'Origin không được phép.' });
       }
       if ((extensionRead || browserRoute) && extensionOrigin) {
@@ -189,12 +157,8 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
         return json(405, { error: 'Phương thức không được hỗ trợ.' });
       }
       if (req.method === 'GET' && url.pathname === '/api/health') return json(200, { app: APP_ID, version: VERSION, uiBuild: UI_BUILD, initialized: isInitialized(), backend: manager.backend });
-      if (req.method === 'GET' && url.pathname === '/api/capabilities') return json(200, { app: APP_ID, version: VERSION, uiBuild: UI_BUILD, postRoutes: publicMode ? [...POST_ROUTES.filter((route) => !publicGate.disabled(route)), ...PUBLIC_POST_ROUTES] : POST_ROUTES, frontend: 'React', offlineAssets: true });
+      if (req.method === 'GET' && url.pathname === '/api/capabilities') return json(200, { app: APP_ID, version: VERSION, uiBuild: UI_BUILD, postRoutes: POST_ROUTES, frontend: 'React', offlineAssets: true });
       if (req.method === 'GET' && url.pathname === '/api/state') return json(200, state(csrfNow));
-      if (publicMode && workspaces && req.method === 'GET' && (url.pathname === '/api/workspace/list' || url.pathname === '/api/workspace/export')) {
-        if (url.pathname === '/api/workspace/list') return json(200, await workspaces.list());
-        return await workspaces.exportArchive(res, url.searchParams.get('name') ?? '', { onError: (status, message, code) => json(status, { error: message, code }) });
-      }
       if (!isInitialized() && (req.method === 'POST' || url.pathname === '/auth/chatgpt/callback')) return json(503, { error: 'Hub đang nạp cấu hình. Chờ vài giây rồi thử lại.' });
       if (req.method === 'POST' && browserRoute) {
         if (!browser) return json(503, { error: 'Browser runner chưa khởi tạo.' });
@@ -249,7 +213,7 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
           case '/api/studio/terminal/capabilities': value=await terminal?.capabilities()??{};break;
           case '/api/studio/delegates': value=delegates?.state()??null;break;
           case '/api/studio/coding': value=coding?.state()??{activeRunId:null,jobs:[]};break;
-          case '/api/studio/coding/review': if(publicMode)throw Object.assign(new Error('Coding review requires a local trusted Hub.'),{statusCode:403});value=await coding.review({runId:pick('runId'),workerId:pick('workerId')||null});break;
+          case '/api/studio/coding/review':value=await coding.review({runId:pick('runId'),workerId:pick('workerId')||null});break;
           case '/api/studio/workflow': value=await manager.workflow.state(pick('taskId'));break;
           case '/api/studio/plan': value=await studio.plan({taskId:pick('taskId')});break;
           default:return json(404,{error:'Không tìm thấy Studio endpoint.'});
@@ -332,7 +296,7 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
       }
       if (req.method === 'GET' && url.pathname === '/api/extension-state') {
         const state = manager.state();
-        return json(200, { version: VERSION, workspace: state.workspace, proxyUrl: state.proxyUrl, ready: state.services.proxy.state === 'ready' && state.services.desktop.state === 'ready', generation: state.generation, instanceId: state.instanceId });
+        return json(200, { version: VERSION, workspace: state.workspace, proxyUrl: state.proxyUrl, ready: state.services.local?.state === 'ready', generation: state.generation, instanceId: state.instanceId });
       }
       if (req.method === 'GET' && url.pathname === '/api/instructions') {
         const text = manager.instructions();
@@ -343,23 +307,14 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
       if (req.method === 'POST') {
         const expectedUi = req.headers['x-chatmcp-ui-build'];
         if (expectedUi && expectedUi !== UI_BUILD) return json(409, { error: `Giao diện phiên bản ${expectedUi} không khớp Hub ${VERSION}. Hãy STOP Hub cũ, START bản mới và nhấn Ctrl+F5.`, code: 'ui_backend_version_mismatch', serverVersion: VERSION, uiBuild: UI_BUILD });
-        // A state-changing request needs the right Origin, the marker header and the CSRF token of the page that sent it. In public mode the
-        // token belongs to the login session, so a token from one session (or from loopback mode) never works for another.
-        const requestOk = publicMode
-          ? origin !== undefined && publicGate.originOk(origin) && req.headers['x-chatmcp-request'] === 'local-dashboard' && publicGate.auth.csrfOk(session, req.headers['x-chatmcp-csrf'])
-          : origins.has(origin) && req.headers['x-chatmcp-request'] === 'local-dashboard' && equalToken(req.headers['x-chatmcp-csrf'], token);
-        if (!requestOk) {
-          return json(403, publicMode ? { error: 'Phiên trang không hợp lệ. Tải lại trang rồi thử lại.', code: 'csrf' } : { error: 'Phiên trang localhost không hợp lệ. Tải lại trang rồi thử lại.' });
-        }
+        // Local dashboard mutations require the matching Origin and CSRF.
+        const requestOk=origins.has(origin)&&req.headers['x-chatmcp-request']==='local-dashboard'
+          &&equalToken(req.headers['x-chatmcp-csrf'],token);
+        if(!requestOk)return json(403,{error:'Phiên trang localhost không hợp lệ. Tải lại trang.',code:'csrf'});
         const payload = await bodyJson(req);
         if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return json(400, { error: 'Nội dung yêu cầu phải là JSON object.' });
-        if (publicMode) {
-          const refusal = publicGate.checkPost(url.pathname, payload, { execMode });
-          if (refusal) return json(refusal.status, refusal.body);
-        }
         const unknownAction = () => json(404, { error: `Không tìm thấy thao tác POST ${url.pathname} trên Hub ${VERSION}. Có thể dashboard và tiến trình Hub không cùng phiên bản; hãy STOP/START Hub và Ctrl+F5.`, code:'unknown_action', path:url.pathname, method:'POST', serverVersion:VERSION, uiBuild:UI_BUILD });
         const requireIdle = (message) => { if (taskEngine?.state()?.activeTaskId) throw Object.assign(new Error(message), { statusCode: 409 }); };
-        const requireWorkspaces = () => { if (!workspaces) throw Object.assign(new Error('Dịch vụ workspace chưa khởi tạo.'), { statusCode: 503 }); return workspaces; };
         let result;
         switch (url.pathname) {
           case '/api/studio/permissions/config': if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Đợi tác vụ hiện tại dừng trước khi đổi quyền công cụ.'),{statusCode:409});result=gate.configure(payload);break;
@@ -369,12 +324,12 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
           case '/api/studio/restore': if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không khôi phục file trực tiếp trên Windows host.'),{statusCode:403});result=await studio.restore(payload);break;
           case '/api/studio/restore-checkpoint': if(taskEngine?.state()?.activeTaskId || agent?.state()?.activeTaskId || manager?.taskEngine?.state()?.activeTaskId || manager?.agent?.state()?.activeTaskId)throw Object.assign(new Error('Để tránh xung đột file, chờ agent dừng trước khi khôi phục checkpoint.'),{code:'task_in_progress',statusCode:409});if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không khôi phục checkpoint trực tiếp trên Windows host.'),{statusCode:403});result=await studio.restoreCheckpoint(payload);break;
           case '/api/studio/accept': if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không thay đổi file trực tiếp trên Windows host.'),{statusCode:403});result=await studio.accept(payload);break;
-          case '/api/studio/coding/run': if(publicMode)throw Object.assign(new Error('Coding worktrees require trusted local Hub.'),{statusCode:403});if(manager.taskId||delegates?.running)throw Object.assign(new Error('Wait for active agent/research tasks.'),{statusCode:409});result=await coding.run(payload);break;
-          case '/api/studio/coding/cancel': if(publicMode)throw Object.assign(new Error('Coding workers unavailable in public mode.'),{statusCode:403});result=coding.cancel();break;
-          case '/api/studio/coding/integrate': if(publicMode)throw Object.assign(new Error('Git integration unavailable in public mode.'),{statusCode:403});result=await coding.integrate(payload);break;
-          case '/api/studio/coding/publish': if(publicMode)throw Object.assign(new Error('Git publishing unavailable in public mode.'),{statusCode:403});result=await coding.publish(payload);break;
-          case '/api/studio/delegates/cancel': if(publicMode)throw Object.assign(new Error('Orchestrator only available in trusted local mode.'),{statusCode:403});result=delegates.cancel();break;
-          case '/api/studio/delegates/orchestrate': if(publicMode)throw Object.assign(new Error('Multi-agent orchestration chỉ được bật trên local trusted Hub.'),{statusCode:403});if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Chờ agent chính hoàn thành.'),{statusCode:409});result=await delegates.orchestrate(payload);break;
+          case '/api/studio/coding/run': if(manager.taskId||delegates?.running)throw Object.assign(new Error('Wait for active agent/research tasks.'),{statusCode:409});result=await coding.run(payload);break;
+          case '/api/studio/coding/cancel': result=coding.cancel();break;
+          case '/api/studio/coding/integrate': result=await coding.integrate(payload);break;
+          case '/api/studio/coding/publish': result=await coding.publish(payload);break;
+          case '/api/studio/delegates/cancel': result=delegates.cancel();break;
+          case '/api/studio/delegates/orchestrate': if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Chờ agent chính hoàn thành.'),{statusCode:409});result=await delegates.orchestrate(payload);break;
           case '/api/studio/delegates/research': if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Đợi agent chính hoàn tất trước khi phân tích song song.'),{statusCode:409});result=await delegates.research(payload);break;
           case '/api/studio/terminal/start': if(gate?.executionPolicy==='sandbox-only'&&!payload.sandbox)throw Object.assign(new Error('Sandbox-only: terminal phải bật Docker sandbox; không cho chạy trực tiếp trên Windows host.'),{statusCode:403});if(taskEngine?.state()?.activeTaskId) throw Object.assign(new Error('Để tránh xung đột file, dừng agent trước khi chạy terminal thủ công.'),{statusCode:409});result=await terminal.start(payload);break;
           case '/api/studio/terminal/stop': result=terminal.stop(payload.id);break;
@@ -421,20 +376,14 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
           case '/api/ai/profiles/upsert': result = { profile: await aiProfiles.upsert(payload) }; break;
           case '/api/ai/profiles/delete': result = await aiProfiles.delete(payload.id); break;
           case '/api/ai/profiles/default': result = await aiProfiles.setDefault(payload.id); break;
-          case '/api/plugins/registry/source/add': if(publicMode)throw Object.assign(new Error('Only local Hub may configure GitHub sources.'),{statusCode:403});result=await skillRegistry.addSource(payload);break;
-          case '/api/plugins/registry/source/remove': if(publicMode)throw Object.assign(new Error('Only local Hub may remove GitHub sources.'),{statusCode:403});result=await skillRegistry.removeSource(payload);break;
-          case '/api/plugins/registry/refresh': if(publicMode)throw Object.assign(new Error('Registry refresh chỉ dành cho local Hub.'),{statusCode:403});result=await skillRegistry.refresh({sourceId:payload.sourceId});break;
-          case '/api/plugins/registry/install': if(publicMode)throw Object.assign(new Error('Registry install chỉ dành cho local Hub.'),{statusCode:403});if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Chờ agent hoàn thành trước khi cài skill.'),{statusCode:409});result={installed:await skillRegistry.install({key:payload.key,update:payload.update===true})};break;
+          case '/api/plugins/registry/source/add': result=await skillRegistry.addSource(payload);break;
+          case '/api/plugins/registry/source/remove': result=await skillRegistry.removeSource(payload);break;
+          case '/api/plugins/registry/refresh': result=await skillRegistry.refresh({sourceId:payload.sourceId});break;
+          case '/api/plugins/registry/install': if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Chờ agent hoàn thành trước khi cài skill.'),{statusCode:409});result={installed:await skillRegistry.install({key:payload.key,update:payload.update===true})};break;
           case '/api/plugins/install': result = { installed: await pluginManager.install(payload.id, payload.custom, payload.url) }; break;
           case '/api/plugins/uninstall': result = await pluginManager.uninstall(payload.id); break;
           case '/api/plugins/toggle': result = await pluginManager.toggle(payload.id, payload.enabled); break;
-          case '/api/governance/rbac/verify': result = { allowed: governance.checkPermission(payload.role, payload.action), role: payload.role, action: payload.action }; break;
           case '/api/hub/shutdown': result = { ok: true }; setTimeout(() => void onShutdown(), 150); break;
-          case '/api/workspace/clone': { if (!publicMode) return unknownAction(); requireIdle('Chờ agent dừng trước khi clone kho mới.'); const cloned = await requireWorkspaces().clone(payload); await manager.selectWorkspace(cloned.path); result = { ...stateNow(), cloned }; break; }
-          case '/api/workspace/create': { if (!publicMode) return unknownAction(); requireIdle('Chờ agent dừng trước khi tạo workspace mới.'); const created = await requireWorkspaces().create(payload); await manager.selectWorkspace(created.path); result = { ...stateNow(), created }; break; }
-          case '/api/workspace/delete': { if (!publicMode) return unknownAction(); requireIdle('Chờ agent dừng trước khi xóa workspace.'); const removed = await requireWorkspaces().remove(payload, { current: manager.workspace }); result = { ...stateNow(), removed }; break; }
-          case '/api/workspace/push': { if (!publicMode) return unknownAction(); requireIdle('Chờ agent dừng trước khi đẩy lên GitHub.'); result = { pushed: await requireWorkspaces().push(payload) }; break; }
-          case '/api/workspace/pr': { if (!publicMode) return unknownAction(); requireIdle('Chờ agent dừng trước khi tạo Pull Request.'); result = { pr: await requireWorkspaces().createPullRequest(payload) }; break; }
           default: return unknownAction();
         }
         return json(200, { ...result, csrfToken: csrfNow });
@@ -505,36 +454,28 @@ async function openDashboard(url, manager) {
   });
 }
 
-// --repo-root   Cloud Harness repository (only needed for the original MCP backend)
-// --project     folder to open as the workspace
-// --state-dir   where the Hub keeps its data (default: per-user folder, or <repo>/deploy/.generated/chatmcp-hub with --repo-root)
-// --backend     local (default without --repo-root) | mcp (default with --repo-root)
-// --port        dashboard port (default 3007)
-// --no-open     do not open the browser
-// --log-file    also append every log line (and a fatal startup error) to this file; used by the background launcher
-// --host        address to listen on (public mode only; default 0.0.0.0 there, 127.0.0.1 otherwise)
-const VALUE_OPTIONS = ['--repo-root', '--project', '--port', '--state-dir', '--backend', '--log-file', '--host'];
-export function parseArguments(args, env = process.env) {
-  const values = {};
-  let open = !/^(1|true|yes)$/i.test(env.CHATMCP_NO_OPEN ?? '');
-  for (let i = 0; i < args.length; i += 1) {
-    if (args[i] === '--no-open') { open = false; continue; }
-    if (!VALUE_OPTIONS.includes(args[i]) || args[i + 1] === undefined) throw new Error('Tham số launcher không hợp lệ.');
-    values[args[i]] = args[i + 1];
-    i += 1;
+// Local-only Hub command line; public hosting and the old Cloud Harness
+// backend are intentionally unsupported and must fail closed.
+const VALUE_OPTIONS=['--project','--port','--state-dir','--log-file','--backend'];
+export function parseArguments(args,env=process.env){
+  const values={};
+  let open=!/^(1|true|yes)$/i.test(env.CHATMCP_NO_OPEN??'');
+  for(let i=0;i<args.length;i++){
+    if(args[i]==='--no-open'){open=false;continue;}
+    if(!VALUE_OPTIONS.includes(args[i])||args[i+1]===undefined)throw new Error('Unknown/unsupported local Hub option.');
+    values[args[i]]=args[++i];
   }
-  // Hosting platforms hand the port over in PORT; it is only honoured in public mode so a stray PORT never moves a local Hub.
-  const publicRequested = /^(1|true|yes|on)$/i.test(String(env.CHATMCP_PUBLIC ?? '').trim());
-  const port = Number(values['--port'] ?? (publicRequested && String(env.PORT ?? '').trim() ? env.PORT : 3007));
-  if (!Number.isInteger(port) || port < 1024 || port > 65535 || port === 3006) throw new Error('Cổng dashboard không hợp lệ. Cổng 3006 dành cho MCP.');
-  const backend = values['--backend'] ?? (env.CHATMCP_BACKEND || null);
-  if (backend !== null && !BACKENDS.includes(backend)) throw new Error(`--backend phải là ${BACKENDS.join(' hoặc ')}.`);
-  const repoRoot = values['--repo-root'] ?? null;
-  if (backend === 'mcp' && !repoRoot) throw new Error('Backend mcp cần --repo-root (thư mục repository Cloud Harness).');
-  // Explicit choice > environment > the folder the original MCP flow already uses > a per-user folder.
-  const stateDir = values['--state-dir'] ? path.resolve(values['--state-dir']) : env.CHATMCP_STATE_DIR ? path.resolve(env.CHATMCP_STATE_DIR) : repoRoot ? null : defaultDataDirectory(env);
-  const logFile = values['--log-file'] ? path.resolve(values['--log-file']) : null;
-  return { repoRoot, project: values['--project'], port, stateDir, backend, open, logFile, host: values['--host'] ?? null };
+  if(/^(1|true|yes|on)$/i.test(String(env.CHATMCP_PUBLIC??'').trim())||
+     (env.CHATMCP_EXEC_MODE&&env.CHATMCP_EXEC_MODE!=='host'))
+    throw new Error('Cloud/public execution removed: CHATMCP_PUBLIC and hosted execution modes unsupported.');
+  const backend=values['--backend']??env.CHATMCP_BACKEND??'local';
+  if(backend!=='local')throw new Error('Only backend local is supported. Legacy MCP/Cloud Harness backend was removed.');
+  const port=Number(values['--port']??3007);
+  if(!Number.isInteger(port)||port<1024||port>65535||port===3006)throw new Error('Invalid local dashboard port.');
+  return {repoRoot:null,project:values['--project'],port,
+    stateDir:path.resolve(values['--state-dir']??defaultDataDirectory(env)),
+    backend:'local',host:'127.0.0.1',open,
+    logFile:values['--log-file']?path.resolve(values['--log-file']):null};
 }
 
 // Console output, plus an append-only file when the launcher asked for one. The background launcher on Windows
@@ -551,29 +492,12 @@ function logFileOf(args) {
 
 export async function main(args = process.argv.slice(2), env = process.env) {
   const options = parseArguments(args, env);
-  // Throws - before anything is created, opened or listened on - when the environment would leave the Hub reachable without a login,
-  // or behind a weak one. Public mode is never a side effect of some other setting.
-  const publicConfig = resolvePublicConfig(env, { host: options.host, port: options.port, stateDir: options.stateDir });
-  const publicMode = publicConfig.enabled;
-  if (publicMode && (options.backend === 'mcp' || options.repoRoot)) throw new Error('Chế độ công khai chỉ chạy với backend local: bỏ --repo-root và --backend mcp.');
-  if (publicMode) options.open = false;
-  if (options.logFile) {
-    const fatal = (error) => { appendToLog(options.logFile, `[CHATMCP-HUB] Lỗi không xử lý: ${redact(error?.stack ?? error?.message ?? error)}`); process.exit(1); };
-    process.once('uncaughtException', fatal);
+  if(options.logFile){
+    const fatal=error=>{appendToLog(options.logFile,`[CHATMCP-HUB] Fatal: ${redact(error?.stack??error?.message??error)}`);process.exit(1);};
+    process.once('uncaughtException',fatal);
   }
-  const manager = new HubManager({ repoRoot: options.repoRoot, bundleRoot: BUNDLE_ROOT, dataDirectory: options.stateDir, backend: publicMode ? 'local' : options.backend, log: (line) => { console.log(line); appendToLog(options.logFile, line); } });
-  let workspaces = null;
-  let execution = null;
-  if (publicMode) {
-    // Everything that must never appear in a log line or an error message is registered before the first line can be written.
-    manager.registerSecret(publicConfig.ownerToken);
-    if (publicConfig.workspaces.githubToken) manager.registerSecret(publicConfig.workspaces.githubToken);
-    const { createExecution } = await import('./lib/exec-mode.mjs');
-    const { createWorkspaceService } = await import('./lib/workspaces.mjs');
-    execution = await createExecution(publicConfig, { log: (line) => manager.log(line), env, secrets: () => manager.secrets || [] });
-    workspaces = await createWorkspaceService({ config: publicConfig, manager, execution, env, log: (line) => manager.log(line) });
-    manager.workspaceGuard = workspaces.guard;
-  }
+  const manager=new HubManager({bundleRoot:BUNDLE_ROOT,dataDirectory:options.stateDir,backend:'local',
+    log:line=>{console.log(line);appendToLog(options.logFile,line);}});
   await manager.load(options.project);
   const { BrowserRunner } = await import('./lib/browser-runner.mjs');
   const { AgentRunner } = await import('./lib/agent.mjs');
@@ -582,7 +506,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   const { assembleStudio } = await import('./lib/assemble.mjs');
   const { StudioDelegates } = await import('./lib/studio-delegates.mjs');
   const { RecoveryScheduler } = await import('./lib/studio-resumer.mjs');
-  assembleStudio(manager, { bundleRoot: BUNDLE_ROOT, ...(execution ? execution.studioOptions : {}) });
+  assembleStudio(manager,{bundleRoot:BUNDLE_ROOT});
   const browser = new BrowserRunner({ manager, directory: path.join(manager.hubDirectory, 'browser'), log: (line) => manager.log(line) });
   const provider = new GatewayProvider({ manager, bundleRoot: BUNDLE_ROOT, directory: path.join(manager.hubDirectory, 'gateway'), env });
   manager.delegates=new StudioDelegates({workspace:manager.studio,provider,directory:path.join(manager.hubDirectory,'studio','delegates')});
@@ -590,31 +514,18 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   manager.codingOrchestrator=new CodingWorktreeOrchestrator({manager,provider,directory:path.join(manager.hubDirectory,'coding-orchestrator'),bundleRoot:BUNDLE_ROOT});
   await manager.codingOrchestrator.load();
   const apiAgent = new AgentRunner({ manager, provider, taskDirectory: path.join(manager.hubDirectory, 'api-tasks'), log: (line) => manager.log(line) });
-  const agent = new DualAgent({ browser, api: apiAgent, directory: manager.hubDirectory, defaultMode: manager.backend === 'local' ? 'api' : 'chatgpt-web' });
+  const agent = new DualAgent({ browser, api: apiAgent, directory: manager.hubDirectory, defaultMode:'api' });
   const resumer = new RecoveryScheduler({ agent, manager, provider, browser, log:(line)=>manager.log(line) });
   await manager.permissions.load();
-  // A free server has nobody watching it: the policy that lets the agent leave the workspace or use the Internet unreviewed cannot be on.
-  if (publicMode && manager.permissions.executionPolicy !== 'host-review') manager.permissions.configure({ executionPolicy: 'host-review' });
-  let initialized = false;
-  let closing = false;
-  let releaseInstance = async () => {};
-  let auth = null;
-  let gate = null;
-  if (publicMode) {
-    auth = new OwnerAuth({ token: publicConfig.ownerToken, cookie: publicConfig.cookie, session: publicConfig.session, login: publicConfig.login, trustedProxyHops: publicConfig.trustedProxyHops });
-    gate = createPublicGate({ config: publicConfig, auth, bundleRoot: BUNDLE_ROOT, isInitialized: () => initialized, log: (line) => manager.log(line) });
-  }
-  const server = createHubServer(manager, { port: options.port, browser, agent, provider, onShutdown: close, isInitialized: () => initialized, publicGate: gate, workspaces, execMode: execution?.mode });
-  if (publicMode) {
-    // Slow or idle sockets are a cheap way to exhaust a 512 MB server; the people who need long-lived requests (the native folder picker) are not here.
-    server.requestTimeout = 60_000;
-    server.maxConnections = 128;
-  }
-  const url = publicMode ? `${publicConfig.requireHttps ? 'https' : 'http'}://${[...publicConfig.allowedHosts][0]}` : `http://127.0.0.1:${options.port}`;
+  let initialized=false,closing=false;
+  let releaseInstance=async()=>{};
+  const server=createHubServer(manager,{port:options.port,browser,agent,provider,onShutdown:close,
+    isInitialized:()=>initialized});
+  const url=`http://127.0.0.1:${options.port}`;
   try {
-    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(options.port, publicConfig.host, resolve); });
+    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(options.port,'127.0.0.1',resolve); });
   } catch (error) {
-    if (error.code !== 'EADDRINUSE' || publicMode) throw error;
+    if(error.code!=='EADDRINUSE') throw error;
     const health = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(2000) }).then((r) => r.json()).catch(() => null);
     assertCompatibleRunningHub(health, options.port);
     if (options.project) {
@@ -633,11 +544,6 @@ export async function main(args = process.argv.slice(2), env = process.env) {
     releaseInstance = await acquireInstanceLock(manager.hubDirectory, options.port);
     await browser.load();
     await provider.load();
-    if (publicMode && publicConfig.ai.preset) {
-      // The key itself comes from the preset's usual variable (GEMINI_API_KEY ...); only the choice of provider and model is applied here.
-      await provider.configure({ preset: publicConfig.ai.preset, ...(publicConfig.ai.model ? { model: publicConfig.ai.model } : {}), useEnvKey: true })
-        .catch((error) => manager.log(`Chưa áp dụng được CHATMCP_AI_PRESET=${publicConfig.ai.preset}: ${error.message}. Vào Cài đặt để chọn nhà cung cấp.`));
-    }
     await apiAgent.load();
     await agent.load();
     initialized = true;
@@ -645,22 +551,19 @@ export async function main(args = process.argv.slice(2), env = process.env) {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
     await releaseInstance().catch(() => {});
-    auth?.close();
-    await execution?.close().catch(() => {});
     throw error;
   }
   manager.log(`Dashboard: ${url}`);
-  if (publicMode) manager.log(`Chế độ công khai ${JSON.stringify(describePublicConfig(publicConfig))}; lệnh của agent: ${execution.mode}.`);
-  else manager.log(manager.backend === 'local' ? `Chế độ cục bộ (không cần Docker/Cloud Harness). Dữ liệu: ${manager.hubDirectory}` : `MCP: ${PROXY_URL_FOR_LOG}`);
+  manager.log(`Local-only Hub: 127.0.0.1 · Data: ${manager.hubDirectory}`);
   if (options.open) await openDashboard(url, manager);
   if (manager.workspace) void manager.start().catch(() => {});
-  else manager.log(publicMode ? 'Đăng nhập rồi clone một kho GitHub (hoặc tạo workspace trống) để bắt đầu.' : 'Chọn thư mục workspace trên trang localhost để bắt đầu.');
+  else manager.log('Chọn thư mục workspace trên trang localhost để bắt đầu.');
   resumer.start();
   async function close() {
     if (closing) return;
     closing = true;
     resumer.stop();
-    manager.log('Đang dừng các tiến trình MCP do Hub quản lý...');
+    manager.log('Đang dừng ChatMCP local Hub...');
     const deadline = setTimeout(() => process.exit(1), 12000);
     manager.codingOrchestrator?.cancel();
     manager.permissions?.shutdown(); await manager.terminal?.close(); manager.intelligence?.close();
@@ -668,8 +571,6 @@ export async function main(args = process.argv.slice(2), env = process.env) {
     await manager.shutdown().catch(() => {});
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
-    auth?.close();
-    await execution?.close().catch(() => {});
     await releaseInstance().catch(() => {});
     clearTimeout(deadline);
     process.exit(0);
@@ -677,7 +578,6 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   process.once('SIGINT', () => void close());
   process.once('SIGTERM', () => void close());
 }
-const PROXY_URL_FOR_LOG = 'http://127.0.0.1:3006/mcp';
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   main().catch((error) => {
