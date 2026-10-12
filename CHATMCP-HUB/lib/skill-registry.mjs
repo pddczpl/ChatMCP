@@ -1,9 +1,10 @@
 // GitHub-backed, allowlisted SKILL.md registry.
 // Discovery only reads manifests: imported third-party scripts never execute.
 import fs from 'node:fs/promises';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { readJson, writeJson } from './runtime.mjs';
-import { normalizeSkillId, parseSkillManifest, safeFetchSkillManifest } from './plugins.mjs';
+import { normalizeSkillId, parseSkillManifest, safeFetchSkillManifest, safeFetchSkillBytes } from './plugins.mjs';
 
 const fault=(code,message,statusCode=400)=>Object.assign(new Error(message),{code,statusCode});
 const SOURCES=Object.freeze([
@@ -17,9 +18,9 @@ const github=(p)=>'https://api.github.com/repos/'+p;
 const raw=(repo,sha,file)=>'https://raw.githubusercontent.com/'+repo+'/'+sha+'/'+file;
 const hashValid=(sha)=>/^[a-f0-9]{40}$/i.test(sha);
 export class GitHubSkillRegistry {
-  constructor({pluginManager,stateDir,transport=safeFetchSkillManifest}){
+  constructor({pluginManager,stateDir,transport=safeFetchSkillManifest,binaryTransport=safeFetchSkillBytes}){
     this.pluginManager=pluginManager;this.file=path.join(stateDir,'registry-index.json');this.transport=transport;
-    this.entries=[];this.updatedAt=null;this.busy=false;
+    this.entries=[];this.updatedAt=null;this.busy=false;this.binaryTransport=binaryTransport;
   }
   sources(){return SOURCES.map(s=>({...s}));}
   async load(){const data=await readJson(this.file).catch(()=>null);if(data?.version===1&&Array.isArray(data.entries)){this.entries=data.entries;this.updatedAt=data.updatedAt;}}
@@ -76,10 +77,11 @@ export class GitHubSkillRegistry {
       return {found:found.length,total:this.entries.length,failures,updatedAt:this.updatedAt};
     }finally{this.busy=false;}
   }
-  async install({key}={}){
+  async install({key,update=false}={}){
     if(typeof key!=='string')throw fault('invalid_key','Missing skill key');
     const entry=this.entries.find(x=>x.key===key);
     if(!entry)throw fault('not_indexed','Skill is not indexed.',404);
+    if(entry.treeSha)return this.#installPinnedTree(entry,{update});
     if(!SOURCES.some(x=>x.id===entry.sourceId&&x.repo===entry.repo)||!hashValid(entry.revision))throw fault('invalid_source','Source is not trusted.',403);
     const {text}=await this.transport(raw(entry.repo,entry.revision,entry.manifestPath),{maxBytes:128*1024});
     const parsed=parseSkillManifest(text,entry.manifestPath);
@@ -121,5 +123,76 @@ export class GitHubSkillRegistry {
       originalSkillText:text,resourceFiles,
     });
     return {...installed,revision:entry.revision,readOnlyImport:true,skippedResources:skipped};
+  }
+
+  /** Complete recursive, binary-safe installation from a pinned Git tree. */
+  async #installPinnedTree(entry,{update=false}={}){
+    if(this.busy)throw fault('registry_busy','Registry operation already running.',409);
+    if(!SOURCES.some(x=>x.id===entry.sourceId&&x.repo===entry.repo)||!hashValid(entry.revision)||!hashValid(entry.treeSha))
+      throw fault('invalid_source','Skill source or revision is invalid.',403);
+    this.busy=true;
+    try{
+      const tree=await this.#json(github(entry.repo)+'/git/trees/'+entry.treeSha+'?recursive=1');
+      if(tree?.truncated||!Array.isArray(tree?.tree))throw fault('truncated_tree','Source tree is incomplete.',413);
+      const files=tree.tree.filter(x=>x.path?.startsWith(entry.folder+'/'));
+      const manifest=files.find(x=>x.path===entry.manifestPath&&x.type==='blob');
+      if(!manifest||manifest.sha!==entry.blobSha)throw fault('integrity_mismatch','Pinned SKILL.md checksum differs from index.',409);
+      const other=files.filter(x=>x!==manifest);
+      if(other.some(x=>x.type!=='blob'||!['100644','100755'].includes(x.mode)))
+        throw fault('unsupported_asset','Symlinks/submodules cannot be imported as skill dependencies.',409);
+      if(other.length>200||other.some(x=>x.size>2*1024*1024)||other.reduce((n,x)=>n+(x.size||0),0)>24*1024*1024)
+        throw fault('skill_too_large','Skill has more than 200 files or exceeds asset size limits.',413);
+      const download=async(file,maxBytes)=>{
+        const {bytes}=await this.binaryTransport(raw(entry.repo,entry.revision,file.path),{maxBytes});
+        const b=Buffer.isBuffer(bytes)?bytes:Buffer.from(bytes||[]);
+        if(b.length>maxBytes)throw fault('asset_too_large','Downloaded asset exceeds limit.',413);
+        const gitSha=crypto.createHash('sha1').update('blob '+b.length+'\0').update(b).digest('hex');
+        if(!hashValid(file.sha)||gitSha!==file.sha.toLowerCase())throw fault('asset_hash_mismatch','Git blob checksum mismatch: '+file.path,409);
+        return b;
+      };
+      const skillBytes=await download(manifest,128*1024);
+      const originalSkillText=skillBytes.toString('utf8');
+      if(originalSkillText.includes('\uFFFD'))throw fault('bad_encoding','SKILL.md is not UTF-8.');
+      const parsed=parseSkillManifest(originalSkillText,entry.manifestPath);
+      const resourceFiles=[],names=new Set();let byteCount=0;
+      for(const file of other){
+        const rel=file.path.slice(entry.folder.length+1);
+        if(!/^[a-zA-Z0-9_.@+() -]+(?:\/[a-zA-Z0-9_.@+() -]+)*$/.test(rel)||
+          rel.split('/').some(x=>x==='.'||x==='..'||x==='.git')||rel==='manifest.json')
+          throw fault('invalid_resource_path','Unsafe skill asset path: '+rel,403);
+        const b=await download(file,2*1024*1024);
+        byteCount+=b.length;if(byteCount>24*1024*1024)throw fault('skill_too_large','Total asset limit reached.',413);
+        resourceFiles.push({path:rel,encoding:'base64',data:b.toString('base64')});
+        names.add(rel);
+      }
+      // Report links to missing dependencies (never fetch outside the pinned folder).
+      const refs=[...originalSkillText.matchAll(/\]\((?:\.\/)?([^()\s#?]+)(?:#[^)]*)?\)/g)].map(m=>m[1]);
+      const missing=[...new Set(refs)].filter(x=>!names.has(x)&&x!=='SKILL.md'&&
+        !/^(https?:|mailto:|#)/.test(x)&&!x.startsWith('../')).slice(0,100);
+      const candidate=resourceFiles.find(x=>/^(LICENSE|LICENCE)(?:\.(?:md|txt))?$/i.test(x.path));
+      let licenseEvidence={status:'unknown',spdx:null,path:null,scope:null,redistributionReviewed:false};
+      if(candidate){
+        const text=Buffer.from(candidate.data,'base64').toString('utf8').toLowerCase();
+        const match=text.includes('permission is hereby granted, free of charge')?'MIT':
+          text.includes('apache license')&&text.includes('version 2.0')?'Apache-2.0':
+          text.includes('redistribution and use in source and binary forms')?'BSD':null;
+        licenseEvidence={status:match&&(!parsed.license||parsed.license==='unknown'||parsed.license.toLowerCase()===match.toLowerCase())?'matched_file':'unverified',
+          spdx:match,path:entry.folder+'/'+candidate.path,scope:'skill',redistributionReviewed:false};
+      }
+      await this.pluginManager.load();
+      const installed=await this.pluginManager.importRegistrySkill({
+        id:entry.id,name:parsed.name,description:parsed.description,version:parsed.version,license:parsed.license,
+        author:parsed.author,systemPrompt:parsed.systemPrompt,tools:parsed.tools,
+        sourceUrl:raw(entry.repo,entry.revision,entry.manifestPath),commitSha:entry.revision,
+        originalSkillText,resourceFiles,licenseEvidence,
+        dependencies:{referenced:refs,unresolved:missing,fileCount:resourceFiles.length,bytes:byteCount},update
+      });
+      return {...installed,resourceCount:resourceFiles.length,missingDependencies:missing,readOnlyImport:true,licenseEvidence};
+    }finally{this.busy=false;}
+  }
+  updates(){
+    const installed=new Map(this.pluginManager.installed().map(x=>[x.id,x]));
+    return this.entries.filter(x=>installed.get(x.id)?.provenance==='github-registry'&&installed.get(x.id).commitSha!==x.revision)
+      .map(x=>({...x,installedRevision:installed.get(x.id).commitSha,updateAvailable:true}));
   }
 }
