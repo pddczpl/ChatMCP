@@ -44,7 +44,7 @@ node tests/run-all.mjs --no-skip all             # một bộ bị SKIP bị tí
 npm run test:ui                                  # bộ giao diện Python/Playwright (tùy chọn)
 ```
 
-Hiện có **56 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
+Hiện có **57 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
 
 Runner in một dòng cho mỗi bộ (`PASS`/`FAIL`/`TIMEOUT`/`SKIP`, thời gian, mã thoát thật) và thoát khác 0 nếu có bộ nào fail hoặc quá hạn (mặc định 180 giây/bộ, đổi bằng `--timeout`). Bộ kiểm thử in một dòng `CHATMCP_TEST_SKIP: <lý do>` rồi thoát 0 để được báo là **SKIP — không bao giờ được tính là PASS**. `--no-skip all` (hoặc `--no-skip tên1,tên2`) biến SKIP thành FAIL. Workflow hiện tại cài Python 3.11 và các gói ghim trong `tests/requirements-e2e.txt`, rồi chạy **`--no-skip all`** trên cả Windows và Linux, Node 22 và 24. Một bộ bắt buộc bị bỏ qua vì thiếu môi trường vì thế làm CI thất bại. Một phần không thể kiểm chứng trong bản này được in `BLOCKED: <gì> - <vì sao>`.
 
@@ -256,3 +256,5 @@ CHATMCP-LOCAL-SETUP/, START-*.{cmd,ps1}, install.sh, manifest.json, bridge.js �
 ## Phase 1 staged coding verification (chưa phát hành)
 
 Các mô-đun `execution-snapshots.mjs`, `windows-sandbox-backend.mjs`, `worker-test-broker.mjs`, `verification-receipt.mjs`, `coding-verification-loop.mjs`, `worker-capabilities.mjs`, `worker-budget.mjs`, `worker-scheduler.mjs` triển khai nền tảng lập trình với quota và test broker. Chúng **không có quyền host-shell dự phòng**, không được xác thực guest output chỉ từ SHA-256/nonce. Đường thực thi tự động vẫn BLOCKED cho tới khi chuyên gia Windows kiểm tra identity, Job Object, snapshot race, ownership và trusted publication trên mã tích hợp cuối. Suite Node mô phỏng logic không chứng minh guest OS isolation. Xem `docs/PHASE1-STAGED-STATUS.md` cho từng gate.
+
+Windows Sandbox CLI driver `lib/windows-sandbox-driver.mjs` hoạt động qua run-owned disposable guest staging và synthetic CLI tests; dữ liệu receipt trả về vẫn UNTRUSTED, không có production publisher đã chứng nhận. Bộ suite `verify-windows-driver.mjs` chỉ kiểm tra giao thức và vòng đời với CLI mô phỏng, KHÔNG chứng minh cách ly Windows thật.
