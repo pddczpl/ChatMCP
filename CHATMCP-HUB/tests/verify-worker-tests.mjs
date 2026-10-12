@@ -47,6 +47,56 @@ worker.parentPolicy='readonly';
 await assert.rejects(broker.issueGrant({workerId:'worker-a',checkId:descriptor.id}),/authority/i);
 worker.parentPolicy='review'; worker.revoked=true;
 await assert.rejects(broker.issueGrant({workerId:'worker-a',checkId:descriptor.id}),/authority/i);
+// A revoked immutable grant must never dispatch after an asynchronous OS probe.
+await fs.writeFile(path.join(work,'package.json'),JSON.stringify({scripts:{test:'node --test'}}));
+worker.revoked=false;worker.parentPolicy='autonomous';
+let lateDispatches=0;
+let liveGrant;
+let liveBroker;
+liveBroker=new WorkerTestBroker({
+  resolveWorker:async id=>id===worker.id?worker:null,
+  authorizeGrant:async()=>({approved:true}),
+  snapshotFactory:async()=>({
+    snapshotId:'late-fixture',contentHash:'f'.repeat(64),
+    manifest:{files:[]},directory:'/unused',
+  }),
+  registry:{get:()=>({
+    async probe(){
+      // Simulates an owner revoking the grant while Windows is probing.
+      liveBroker.revokeGrant(liveGrant.id);
+      return {available:true,osIsolated:true,enforcedLimits:['timeoutSeconds','maxOutputBytes'],reasons:[]};
+    },
+    async execute(){lateDispatches++;throw new Error('must not execute after revoke');},
+  })},
+});
+const [lateCheck]=await liveBroker.discoverChecks({workerId:worker.id});
+liveGrant=await liveBroker.issueGrant({workerId:worker.id,checkId:lateCheck.id});
+await assert.rejects(
+  liveBroker.requestCheck({workerId:worker.id,checkId:lateCheck.id,grantId:liveGrant.id}),
+  {code:'stale_grant'}
+);
+assert.equal(lateDispatches,0,'No isolated guest starts with an asynchronously revoked grant');
+// A parent policy downgrade while probing must also block dispatch.
+let downgradeDispatches=0;
+const downgraded=new WorkerTestBroker({
+  resolveWorker:async id=>id===worker.id?worker:null,
+  authorizeGrant:async()=>({approved:true}),
+  snapshotFactory:async()=>({snapshotId:'downgrade',contentHash:'f'.repeat(64),manifest:{files:[]},directory:'/unused'}),
+  registry:{get:()=>({
+    async probe(){
+      worker.parentPolicy='readonly';
+      return {available:true,osIsolated:true,enforcedLimits:['timeoutSeconds','maxOutputBytes']};
+    },
+    async execute(){downgradeDispatches++;throw new Error('must not execute after downgrade');}
+  })},
+});
+const [downgradeCheck]=await downgraded.discoverChecks({workerId:worker.id});
+const downgradeGrant=await downgraded.issueGrant({workerId:worker.id,checkId:downgradeCheck.id});
+await assert.rejects(
+  downgraded.requestCheck({workerId:worker.id,checkId:downgradeCheck.id,grantId:downgradeGrant.id}),
+  {code:'worker_permission_denied'}
+);
+assert.equal(downgradeDispatches,0,'No isolated execution after parent policy downgrade');
 await fs.rm(work,{recursive:true,force:true});
 const tap='TAP version 13\n# Subtest: basic\nok 1 - basic\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 4\n';
 assert.equal(parseNodeTapSummary(tap)?.tests,1);

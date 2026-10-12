@@ -214,6 +214,25 @@ export class WorkerTestBroker {
         reasons: [...(capability.reasons || []), 'Isolated check was not run; no host fallback.'],
       });
     } else {
+      // The probe can await Windows preflight, OS launch-slot ownership or
+      // IPC. A human can revoke the grant or permissions in the meantime.
+      // Re-read the authoritative worker and grant IMMEDIATELY before dispatch;
+      // do not trust the worker's previously captured revoked boolean.
+      const currentWorker = await this.#worker(workerId);
+      this.#policy(currentWorker);
+      const currentGrant = this.grants.get(grantId);
+      const currentDescriptor = (this.descriptors.get(workerId) || [])
+        .find(entry => entry.id === checkId);
+      signal?.throwIfAborted();
+      if (currentGrant !== grant || grant.revoked ||
+          grant.workerId !== workerId || grant.checkId !== checkId ||
+          grant.expiresAt <= this.clock() || grant.attempts > grant.maxAttempts) {
+        throw fault('stale_grant', 'Approved isolated check was revoked, expired or replaced before dispatch.', 403);
+      }
+      if (!currentDescriptor || currentDescriptor.sourceHash !== grant.sourceHash ||
+          currentDescriptor.checkHash !== grant.checkHash) {
+        throw fault('stale_check', 'Check definition changed after capability probe.', 409);
+      }
       // Only the pre-registered OS-isolated provider, never ShellRunner.
       receipt = await backend.execute(request, { signal });
     }
