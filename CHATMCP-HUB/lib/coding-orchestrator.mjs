@@ -58,7 +58,7 @@ export class CodingWorktreeOrchestrator {
   async #verifyRepo({clean=true}={}){
     if(this.manager.backend!=='local')throw fail('unsupported_backend','Coding worktrees require local backend.',403);
     if(!this.manager.workspace||!this.manager.studio)throw fail('workspace_missing','Select a local Git workspace.',409);
-    if(this.manager.taskId||this.manager.busy||this.integrating)throw fail('hub_busy','Wait for the active coding task.',409);
+    if(this.manager.taskId||this.manager.busy||this.active)throw fail('hub_busy','Wait for the active coding task.',409);
     const root=await this.manager.studio.gitRunner.ensureRepo();
     if(clean){
       const status=await this.#git(['status','--porcelain','--untracked-files=normal']);

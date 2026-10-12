@@ -17,6 +17,7 @@ import { AiProfiles } from './lib/ai-profiles.mjs';
 import { WorkspaceLock } from './lib/workspace-lock.mjs';
 import { SandboxEngine } from './lib/sandbox-engine.mjs';
 import { PluginManager } from './lib/plugins.mjs';
+import { CodingWorktreeOrchestrator } from './lib/coding-orchestrator.mjs';
 import { GitHubSkillRegistry } from './lib/skill-registry.mjs';
 import { GovernanceManager } from './lib/governance.mjs';
 
@@ -31,7 +32,7 @@ export function assertCompatibleRunningHub(health, port=3007) {
   return true;
 }
 
-export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/vscode/open','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/intelligence/index','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/workspace/pr','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/uninstall','/api/plugins/toggle','/api/governance/rbac/verify']);
+export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/vscode/open','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/intelligence/index','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/workspace/pr','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/uninstall','/api/plugins/toggle','/api/governance/rbac/verify']);
 const BUNDLE_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MIME = Object.freeze({
   '.html': 'text/html; charset=utf-8',
@@ -115,6 +116,7 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
   const gate = manager.permissions;
   const terminal = manager.terminal;
   const delegates = manager.delegates;
+  const coding = manager.codingOrchestrator;
   const verification = manager.verification;
   const intelligence = manager.intelligence;
   const preview = manager.preview;
@@ -246,6 +248,7 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
           case '/api/studio/terminal': value=terminal?.state()??[];break;
           case '/api/studio/terminal/capabilities': value=await terminal?.capabilities()??{};break;
           case '/api/studio/delegates': value=delegates?.state()??null;break;
+          case '/api/studio/coding': value=coding?.state()??{activeRunId:null,jobs:[]};break;
           case '/api/studio/workflow': value=await manager.workflow.state(pick('taskId'));break;
           case '/api/studio/plan': value=await studio.plan({taskId:pick('taskId')});break;
           default:return json(404,{error:'Không tìm thấy Studio endpoint.'});
@@ -365,6 +368,10 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
           case '/api/studio/restore': if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không khôi phục file trực tiếp trên Windows host.'),{statusCode:403});result=await studio.restore(payload);break;
           case '/api/studio/restore-checkpoint': if(taskEngine?.state()?.activeTaskId || agent?.state()?.activeTaskId || manager?.taskEngine?.state()?.activeTaskId || manager?.agent?.state()?.activeTaskId)throw Object.assign(new Error('Để tránh xung đột file, chờ agent dừng trước khi khôi phục checkpoint.'),{code:'task_in_progress',statusCode:409});if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không khôi phục checkpoint trực tiếp trên Windows host.'),{statusCode:403});result=await studio.restoreCheckpoint(payload);break;
           case '/api/studio/accept': if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không thay đổi file trực tiếp trên Windows host.'),{statusCode:403});result=await studio.accept(payload);break;
+          case '/api/studio/coding/run': if(publicMode)throw Object.assign(new Error('Coding worktrees require trusted local Hub.'),{statusCode:403});if(manager.taskId||delegates?.running)throw Object.assign(new Error('Wait for active agent/research tasks.'),{statusCode:409});result=await coding.run(payload);break;
+          case '/api/studio/coding/cancel': if(publicMode)throw Object.assign(new Error('Coding workers unavailable in public mode.'),{statusCode:403});result=coding.cancel();break;
+          case '/api/studio/coding/integrate': if(publicMode)throw Object.assign(new Error('Git integration unavailable in public mode.'),{statusCode:403});result=await coding.integrate(payload);break;
+          case '/api/studio/coding/publish': if(publicMode)throw Object.assign(new Error('Git publishing unavailable in public mode.'),{statusCode:403});result=await coding.publish(payload);break;
           case '/api/studio/delegates/cancel': if(publicMode)throw Object.assign(new Error('Orchestrator only available in trusted local mode.'),{statusCode:403});result=delegates.cancel();break;
           case '/api/studio/delegates/orchestrate': if(publicMode)throw Object.assign(new Error('Multi-agent orchestration chỉ được bật trên local trusted Hub.'),{statusCode:403});if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Chờ agent chính hoàn thành.'),{statusCode:409});result=await delegates.orchestrate(payload);break;
           case '/api/studio/delegates/research': if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Đợi agent chính hoàn tất trước khi phân tích song song.'),{statusCode:409});result=await delegates.research(payload);break;
@@ -377,9 +384,9 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
           case '/api/studio/plan/set': result=await studio.plan({...payload,operation:'set'});break;
           case '/api/studio/verify/run': if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Để tránh xung đột file, chờ agent dừng trước khi chạy kiểm thử thủ công.'),{statusCode:409});if(!verification)throw Object.assign(new Error('Bộ kiểm thử chưa khởi tạo.'),{statusCode:503});result=await verification.start(payload);break;
           case '/api/workspace/browse': result = await manager.browse(); break;
-          case '/api/workspace/select': await manager.selectWorkspace(payload.path); result = stateNow(); break;
+          case '/api/workspace/select': if(coding?.active||coding?.integrating)throw Object.assign(new Error('Stop coding workers before switching workspace.'),{statusCode:409});await manager.selectWorkspace(payload.path); result = stateNow(); break;
           case '/api/services/start': await manager.start(); result = stateNow(); break;
-          case '/api/services/stop': await manager.stop(); result = stateNow(); break;
+          case '/api/services/stop': if(coding?.active||coding?.integrating)throw Object.assign(new Error('Stop coding workers before stopping services.'),{statusCode:409});await manager.stop(); result = stateNow(); break;
           case '/api/vscode/open': result = await manager.openVsCode(); break;
           case '/api/browser/pair-code': if (!browser) throw new Error('Browser runner chưa khởi tạo.'); result = await browser.createPairCode(); break;
           case '/api/browser/unpair': if (!browser) throw new Error('Browser runner chưa khởi tạo.'); await browser.unpair(); result = stateNow(); break;
@@ -577,6 +584,8 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   const provider = new GatewayProvider({ manager, bundleRoot: BUNDLE_ROOT, directory: path.join(manager.hubDirectory, 'gateway'), env });
   manager.delegates=new StudioDelegates({workspace:manager.studio,provider,directory:path.join(manager.hubDirectory,'studio','delegates')});
   await manager.delegates.load();
+  manager.codingOrchestrator=new CodingWorktreeOrchestrator({manager,provider,directory:path.join(manager.hubDirectory,'coding-orchestrator'),bundleRoot:BUNDLE_ROOT});
+  await manager.codingOrchestrator.load();
   const apiAgent = new AgentRunner({ manager, provider, taskDirectory: path.join(manager.hubDirectory, 'api-tasks'), log: (line) => manager.log(line) });
   const agent = new DualAgent({ browser, api: apiAgent, directory: manager.hubDirectory, defaultMode: manager.backend === 'local' ? 'api' : 'chatgpt-web' });
   const resumer = new RecoveryScheduler({ agent, manager, provider, browser, log:(line)=>manager.log(line) });
@@ -650,6 +659,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
     resumer.stop();
     manager.log('Đang dừng các tiến trình MCP do Hub quản lý...');
     const deadline = setTimeout(() => process.exit(1), 12000);
+    manager.codingOrchestrator?.cancel();
     manager.permissions?.shutdown(); await manager.terminal?.close(); manager.intelligence?.close();
     await agent.shutdown().catch(() => {});
     await manager.shutdown().catch(() => {});

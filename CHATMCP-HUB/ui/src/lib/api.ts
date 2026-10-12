@@ -118,6 +118,11 @@ export const api = {
   orchestrateAgents: (nodes: {id:string;role:string;question:string;dependsOn?:string[]}[],maxConcurrency=3) =>
     request<any>('/api/studio/delegates/orchestrate',{method:'POST',body:JSON.stringify({nodes,maxConcurrency})}),
   getOrchestrator: () => request<any>('/api/studio/delegates'),
+  getCodingRuns: () => request<any>('/api/studio/coding'),
+  runCodingAgents: (tasks:{id:string;prompt:string}[],maxConcurrency=2) => request<any>('/api/studio/coding/run',{method:'POST',body:JSON.stringify({tasks,maxConcurrency,confirmation:'CREATE WORKTREES'})}),
+  cancelCodingAgents: () => request<any>('/api/studio/coding/cancel',{method:'POST',body:'{}'}),
+  integrateCodingAgents: (runId:string,workerIds:string[]) => request<any>('/api/studio/coding/integrate',{method:'POST',body:JSON.stringify({runId,workerIds,confirmation:'INTEGRATE WORKTREES'})}),
+  publishCodingAgents: (runId:string) => request<any>('/api/studio/coding/publish',{method:'POST',body:JSON.stringify({runId,confirmation:'PUBLISH DRAFT PR'})}),
   cancelOrchestrator: () => request<any>('/api/studio/delegates/cancel',{method:'POST',body:'{}'}),
 
   // GitHub skills registry
