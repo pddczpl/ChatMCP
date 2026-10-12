@@ -27,7 +27,7 @@ node tests/run-all.mjs --no-skip all             # một bộ bị SKIP bị tí
 npm run test:ui                                  # bộ giao diện Python/Playwright (tùy chọn)
 ```
 
-Hiện có **49 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
+Hiện có **51 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
 
 Runner in một dòng cho mỗi bộ (`PASS`/`FAIL`/`TIMEOUT`/`SKIP`, thời gian, mã thoát thật) và thoát khác 0 nếu có bộ nào fail hoặc quá hạn (mặc định 180 giây/bộ, đổi bằng `--timeout`). Bộ kiểm thử in một dòng `CHATMCP_TEST_SKIP: <lý do>` rồi thoát 0 để được báo là **SKIP — không bao giờ được tính là PASS**. `--no-skip all` (hoặc `--no-skip tên1,tên2`) biến SKIP thành FAIL. Workflow hiện tại cài Python 3.11 và các gói ghim trong `tests/requirements-e2e.txt`, rồi chạy **`--no-skip all`** trên cả Windows và Linux, Node 22 và 24. Một bộ bắt buộc bị bỏ qua vì thiếu môi trường vì thế làm CI thất bại. Một phần không thể kiểm chứng trong bản này được in `BLOCKED: <gì> - <vì sao>`.
 
@@ -43,6 +43,9 @@ Tổng thời gian cả bộ Node: khoảng 3 phút (Linux, 180 s đã đo) đ�
 | **Lõi an toàn** | `verify-command-analysis` | bảng ca của bộ phân loại lệnh và vùng cấm, kể cả các cách lách (mở rộng, lồng nhau, pipe) |
 | | `verify-shell-guards` (14) | cấu hình/hook Git của kho, theo dõi symlink/junction/bí danh tới nơi thật, ổ PowerShell (`Env:`, registry), phân loại quyền và công cụ Git |
 | | `verify-shell-runner` (44) | `ShellRunner` với shell thật: trích dẫn, mã thoát, timeout giết cả cây tiến trình, hủy, giới hạn đầu ra, **lọc biến môi trường** |
+| | `verify-execution-contract` (24) | hợp đồng ExecutionBackend, CapabilityReport, ExecutionReceipt, fail-closed dispatch, huỷ bỏ pre-execution, không bao giờ tự fallback |
+| | `verify-windows-sandbox-config` (7) | cấu hình .wsb bảo mật cao: cấm mạng, clipboard, thiết bị, vGPU; kẹp bộ nhớ [512, 8192] MB; kiểm tra an toàn đường dẫn và ngăn chặn xung đột |
+| | `verify-windows-sandbox-smoke` (14) | preflight phát hiện trung thực trạng thái ảo hóa/tính năng máy chủ; giao thức transport nonce/receipt; Job Object quản lý tiến trình con; kiểm tra cách ly canary và tấn công tiêu cực |
 | | `verify-fs-helpers` | kiểm tra đối số, ghi nguyên tử, glob, Git runner |
 | | `verify-local-tools` | các công cụ cục bộ trên workspace và kho Git thật; nhấn vào điều *không bao giờ* được xảy ra |
 | | `verify-permissions-modes`, `verify-full-access` | `PermissionGate`: ba chế độ, đường dẫn bị chặn, `sandbox-only`, Full Access, lịch sử phê duyệt |
