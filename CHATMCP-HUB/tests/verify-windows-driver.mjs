@@ -43,7 +43,7 @@ try {
   assert.equal(raw.cliExitCode,13);
   assert.equal(raw.publisherAuthenticated,false);
   assert.ok(await fs.readFile(path.join(state,'run-'+generation,'input','request.json'),'utf8').then(x=>x.includes('cmd.exe')));
-  await assert.rejects(driver.stop({instanceId:ownerId,generation:'33333333-2222-3333-4444-555555555555'}),/owned/i);
+  await assert.rejects(driver.stop({instanceId:ownerId,generation:'33333333-2222-3333-4444-555555555555'}), {code:'sandbox_not_owned'});
   const stopped=await driver.stop({instanceId:ownerId,generation});
   assert.deepEqual(stopped,{stopped:true,instanceId:ownerId});
   assert.equal(driver.owned.size,0);

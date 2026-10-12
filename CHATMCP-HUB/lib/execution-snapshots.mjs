@@ -43,14 +43,20 @@ async function verifyParents(root, relative) {
   }
 }
 async function readRegular(root, relative, maxFileBytes) {
-  await verifyParents(root, relative);
-  const absolute = path.resolve(root, ...relative.split('/'));
-  if (!inside(root, absolute)) throw fault('snapshot_escape', 'File path escaped workspace.');
+  // Windows temp/worktree roots can be provided through a DOS 8.3 alias while
+  // fs.realpath(file) yields a long canonical path. Compare canonical roots,
+  // never the spelling of one path against a different spelling of another.
+  // Refuse any linked root before canonicalization.
+  checkStat(await fs.lstat(root), 'dir');
+  const canonicalRoot = await fs.realpath(root);
+  await verifyParents(canonicalRoot, relative);
+  const absolute = path.resolve(canonicalRoot, ...relative.split('/'));
+  if (!inside(canonicalRoot, absolute)) throw fault('snapshot_escape', 'File path escaped workspace.');
   const before = await fs.lstat(absolute);
   checkStat(before, 'file');
   if (before.size > maxFileBytes) throw fault('snapshot_too_large', 'File exceeds snapshot byte limit.');
   const real = await fs.realpath(absolute);
-  if (!inside(root, real)) throw fault('snapshot_escape', 'File resolved outside workspace.');
+  if (!inside(canonicalRoot, real)) throw fault('snapshot_escape', 'File resolved outside workspace.');
   const nofollow = process.platform === 'win32' ? 0 : (constants.O_NOFOLLOW || 0);
   const handle = await fs.open(absolute, constants.O_RDONLY | nofollow);
   try {
