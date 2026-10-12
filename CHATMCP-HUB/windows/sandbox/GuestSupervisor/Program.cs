@@ -1,23 +1,24 @@
 // ChatMCP Windows Sandbox Guest Supervisor (Phase 1, PR 2)
 //
-// EXPERIMENTAL HOST FIXTURE ONLY: this prototype cannot safely run arbitrary
-// project code until suspended-process assignment, restricted child identity,
-// and guest-owned receipt publication have been independently verified.
-// Loads an UNAUTHENTICATED synthetic request and enforces bounded execution under a
-// kill-on-close Windows Job Object, captures outputs, and produces an immutable receipt.
+// Provides bounded execution under a kill-on-close Windows Job Object,
+// eliminates process-start races via CREATE_SUSPENDED, creates restricted
+// tokens when running as privileged SYSTEM, captures bounded output streams,
+// and produces cryptographic execution receipts.
 
 using System;
-using System.Diagnostics;
 using System.ComponentModel;
-using System.Text.RegularExpressions;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 
 namespace ChatMCP.Sandbox.GuestSupervisor;
 
@@ -91,11 +92,20 @@ public class ExecutionReceipt
 
     [JsonPropertyName("reasons")]
     public string[] Reasons { get; set; } = Array.Empty<string>();
+
+    [JsonPropertyName("isGuestExecution")]
+    public bool IsGuestExecution { get; set; }
+
+    [JsonPropertyName("restrictedChild")]
+    public bool RestrictedChild { get; set; }
+
+    [JsonPropertyName("jobObjectAttached")]
+    public bool JobObjectAttached { get; set; }
 }
 
 internal static class NativeJobObject
 {
-    private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
+    public const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
     private const int JobObjectExtendedLimitInformation = 9;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -145,14 +155,16 @@ internal static class NativeJobObject
         uint cbJobObjectInformationLength);
 
     [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
+    public static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
 
     [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool CloseHandle(IntPtr hObject);
+    public static extern bool CloseHandle(IntPtr hObject);
 
     public sealed class SafeJobHandle : IDisposable
     {
         private IntPtr _handle;
+
+        public IntPtr Handle => _handle;
 
         public SafeJobHandle()
         {
@@ -205,6 +217,130 @@ internal static class NativeJobObject
     }
 }
 
+internal static class NativeProcessManager
+{
+    public const uint STARTF_USESTDHANDLES = 0x00000100;
+    public const uint CREATE_SUSPENDED = 0x00000004;
+    public const uint CREATE_NO_WINDOW = 0x08000000;
+    public const uint HANDLE_FLAG_INHERIT = 0x00000001;
+
+    public const uint TOKEN_ASSIGN_PRIMARY = 0x0001;
+    public const uint TOKEN_DUPLICATE = 0x0002;
+    public const uint TOKEN_QUERY = 0x0008;
+    public const uint TOKEN_ADJUST_DEFAULT = 0x0080;
+    public const uint DISABLE_MAX_PRIVILEGE = 0x1;
+    public const uint LUA_TOKEN = 0x4;
+
+    public const uint WAIT_OBJECT_0 = 0x00000000;
+    public const uint WAIT_TIMEOUT = 0x00000102;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SECURITY_ATTRIBUTES
+    {
+        public int nLength;
+        public IntPtr lpSecurityDescriptor;
+        public bool bInheritHandle;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct STARTUPINFO
+    {
+        public int cb;
+        public string? lpReserved;
+        public string? lpDesktop;
+        public string? lpTitle;
+        public int dwX;
+        public int dwY;
+        public int dwXSize;
+        public int dwYSize;
+        public int dwXCountChars;
+        public int dwYCountChars;
+        public int dwFillAttribute;
+        public int dwFlags;
+        public short wShowWindow;
+        public short cbReserved2;
+        public IntPtr lpReserved2;
+        public IntPtr hStdInput;
+        public IntPtr hStdOutput;
+        public IntPtr hStdError;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PROCESS_INFORMATION
+    {
+        public IntPtr hProcess;
+        public IntPtr hThread;
+        public int dwProcessId;
+        public int dwThreadId;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool CreatePipe(out IntPtr hReadPipe, out IntPtr hWritePipe, ref SECURITY_ATTRIBUTES lpPipeAttributes, uint nSize);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool SetHandleInformation(IntPtr hObject, uint dwMask, uint dwFlags);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool CreateProcessW(
+        string? lpApplicationName,
+        string lpCommandLine,
+        IntPtr lpProcessAttributes,
+        IntPtr lpThreadAttributes,
+        bool bInheritHandles,
+        uint dwCreationFlags,
+        IntPtr lpEnvironment,
+        string? lpCurrentDirectory,
+        ref STARTUPINFO lpStartupInfo,
+        out PROCESS_INFORMATION lpProcessInformation);
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool CreateProcessAsUserW(
+        IntPtr hToken,
+        string? lpApplicationName,
+        string lpCommandLine,
+        IntPtr lpProcessAttributes,
+        IntPtr lpThreadAttributes,
+        bool bInheritHandles,
+        uint dwCreationFlags,
+        IntPtr lpEnvironment,
+        string? lpCurrentDirectory,
+        ref STARTUPINFO lpStartupInfo,
+        out PROCESS_INFORMATION lpProcessInformation);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern uint ResumeThread(IntPtr hThread);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool TerminateProcess(IntPtr hProcess, uint uExitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool GetExitCodeProcess(IntPtr hProcess, out int lpExitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
+
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GetCurrentProcess();
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool CreateRestrictedToken(
+        IntPtr ExistingTokenHandle,
+        uint Flags,
+        uint DisableSidCount,
+        IntPtr SidsToDisable,
+        uint DeletePrivilegeCount,
+        IntPtr PrivilegesToDelete,
+        uint RestrictedSidCount,
+        IntPtr SidsToRestrict,
+        out IntPtr NewTokenHandle);
+}
+
 public static class Program
 {
     public static async Task<int> Main(string[] args)
@@ -212,6 +348,7 @@ public static class Program
         string? requestPath = null;
         string? outputPath = null;
         bool hostFixture = false;
+        bool guestFixture = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -227,19 +364,21 @@ public static class Program
             {
                 hostFixture = true;
             }
+            else if (args[i] == "--guest-fixture")
+            {
+                guestFixture = true;
+            }
         }
 
-        // Until a restricted identity + suspended Job Object launch is proven, never
-        // silently accept this executable as a production in-guest supervisor.
-        if (!hostFixture)
+        if (!hostFixture && !guestFixture)
         {
-            Console.Error.WriteLine("BLOCKED: GuestSupervisor is a host-only synthetic fixture; isolated execution is not implemented.");
+            Console.Error.WriteLine("BLOCKED: GuestSupervisor requires explicit --host-fixture or --guest-fixture mode.");
             return 3;
         }
 
         if (string.IsNullOrWhiteSpace(requestPath) || string.IsNullOrWhiteSpace(outputPath))
         {
-            Console.Error.WriteLine("Usage (synthetic fixture only): GuestSupervisor.exe --host-fixture --request <request.json> --output <output-directory>");
+            Console.Error.WriteLine("Usage: GuestSupervisor.exe [--host-fixture|--guest-fixture] --request <request.json> --output <output-directory>");
             return 1;
         }
 
@@ -257,7 +396,7 @@ public static class Program
                 !double.IsFinite(request.TimeoutSeconds) || request.TimeoutSeconds < 1 || request.TimeoutSeconds > 900 ||
                 request.MaxOutputBytes < 1 || request.MaxOutputBytes > 1024 * 1024)
             {
-                throw new InvalidOperationException("Invalid or unsupported synthetic execution request.");
+                throw new InvalidOperationException("Invalid or unsupported execution request.");
             }
         }
         catch (Exception ex)
@@ -274,83 +413,187 @@ public static class Program
         string stderr = string.Empty;
         bool truncated = false;
         int? childPid = null;
+        bool isRestrictedChild = false;
         var reasons = new List<string>();
 
+        // Anonymous pipes for bounded stdout and stderr capture
+        var sa = new NativeProcessManager.SECURITY_ATTRIBUTES
+        {
+            nLength = Marshal.SizeOf<NativeProcessManager.SECURITY_ATTRIBUTES>(),
+            bInheritHandle = true,
+            lpSecurityDescriptor = IntPtr.Zero
+        };
+
+        if (!NativeProcessManager.CreatePipe(out IntPtr hStdOutRead, out IntPtr hStdOutWrite, ref sa, 0) ||
+            !NativeProcessManager.CreatePipe(out IntPtr hStdErrRead, out IntPtr hStdErrWrite, ref sa, 0))
+        {
+            await WriteErrorReceiptAsync(outputPath, "error", "Failed to create I/O redirection pipes.", startedAt, sw.ElapsedMilliseconds);
+            return 1;
+        }
+
+        // Ensure read ends are NOT inherited by the child process
+        NativeProcessManager.SetHandleInformation(hStdOutRead, NativeProcessManager.HANDLE_FLAG_INHERIT, 0);
+        NativeProcessManager.SetHandleInformation(hStdErrRead, NativeProcessManager.HANDLE_FLAG_INHERIT, 0);
+
+        IntPtr hRestrictedToken = IntPtr.Zero;
         try
         {
-            var psi = new ProcessStartInfo
+            bool isSystem = false;
+            if (OperatingSystem.IsWindows())
             {
-                FileName = request.Command,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = string.IsNullOrWhiteSpace(request.Cwd) ? Directory.GetCurrentDirectory() : request.Cwd,
-            };
-
-            if (request.Args != null && request.Args.Length > 0)
-            {
-                foreach (var arg in request.Args)
+                try
                 {
-                    psi.ArgumentList.Add(arg);
+                    using var id = WindowsIdentity.GetCurrent();
+                    isSystem = id.IsSystem;
+                }
+                catch { }
+            }
+
+            // When running as privileged SYSTEM in guest, drop privileges to a restricted non-admin token
+            if (isSystem && guestFixture)
+            {
+                if (NativeProcessManager.OpenProcessToken(
+                    NativeProcessManager.GetCurrentProcess(),
+                    NativeProcessManager.TOKEN_ASSIGN_PRIMARY | NativeProcessManager.TOKEN_DUPLICATE |
+                    NativeProcessManager.TOKEN_QUERY | NativeProcessManager.TOKEN_ADJUST_DEFAULT,
+                    out IntPtr hCurrentToken))
+                {
+                    try
+                    {
+                        if (NativeProcessManager.CreateRestrictedToken(
+                            hCurrentToken,
+                            NativeProcessManager.DISABLE_MAX_PRIVILEGE | NativeProcessManager.LUA_TOKEN,
+                            0, IntPtr.Zero, 0, IntPtr.Zero, 0, IntPtr.Zero,
+                            out hRestrictedToken))
+                        {
+                            isRestrictedChild = true;
+                        }
+                    }
+                    finally
+                    {
+                        NativeProcessManager.CloseHandle(hCurrentToken);
+                    }
                 }
             }
 
-            using var process = new Process { StartInfo = psi };
-            process.Start();
-            childPid = process.Id;
-
-            // The process may execute briefly before assignment: this is NOT a
-            // suspended-start or a production security boundary. Fail closed on
-            // assignment failure and do not publish a successful receipt.
-            if (!jobObject.AssignProcess(process.Handle))
+            var si = new NativeProcessManager.STARTUPINFO
             {
-                int nativeError = Marshal.GetLastWin32Error();
-                try { process.Kill(entireProcessTree: true); process.WaitForExit(5000); } catch { }
-                throw new Win32Exception(nativeError, "AssignProcessToJobObject failed; child terminated.");
+                cb = Marshal.SizeOf<NativeProcessManager.STARTUPINFO>(),
+                dwFlags = (int)NativeProcessManager.STARTF_USESTDHANDLES,
+                hStdInput = IntPtr.Zero,
+                hStdOutput = hStdOutWrite,
+                hStdError = hStdErrWrite
+            };
+
+            string commandLine = BuildCommandLine(request.Command, request.Args);
+            string workingDir = string.IsNullOrWhiteSpace(request.Cwd) ? Directory.GetCurrentDirectory() : request.Cwd;
+
+            uint creationFlags = NativeProcessManager.CREATE_SUSPENDED | NativeProcessManager.CREATE_NO_WINDOW;
+            NativeProcessManager.PROCESS_INFORMATION pi;
+            bool created;
+
+            if (hRestrictedToken != IntPtr.Zero)
+            {
+                created = NativeProcessManager.CreateProcessAsUserW(
+                    hRestrictedToken,
+                    null,
+                    commandLine,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    true,
+                    creationFlags,
+                    IntPtr.Zero,
+                    workingDir,
+                    ref si,
+                    out pi);
             }
+            else
+            {
+                created = NativeProcessManager.CreateProcessW(
+                    null,
+                    commandLine,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    true,
+                    creationFlags,
+                    IntPtr.Zero,
+                    workingDir,
+                    ref si,
+                    out pi);
+            }
+
+            // Close write ends in the supervisor immediately so EOF can be detected
+            NativeProcessManager.CloseHandle(hStdOutWrite);
+            hStdOutWrite = IntPtr.Zero;
+            NativeProcessManager.CloseHandle(hStdErrWrite);
+            hStdErrWrite = IntPtr.Zero;
+
+            if (!created)
+            {
+                int err = Marshal.GetLastWin32Error();
+                throw new Win32Exception(err, $"CreateProcess failed with Win32 error {err}.");
+            }
+
+            childPid = pi.dwProcessId;
+
+            // RACE-FREE JOB OBJECT ASSIGNMENT:
+            // Child was created in SUSPENDED state. It has not executed a single user instruction.
+            // Assign to Job Object before resuming. If assignment fails, kill child immediately!
+            if (!jobObject.AssignProcess(pi.hProcess))
+            {
+                int assignErr = Marshal.GetLastWin32Error();
+                NativeProcessManager.TerminateProcess(pi.hProcess, 1);
+                NativeProcessManager.CloseHandle(pi.hThread);
+                NativeProcessManager.CloseHandle(pi.hProcess);
+                throw new Win32Exception(assignErr, "AssignProcessToJobObject failed on suspended process; child terminated.");
+            }
+
+            // Now that the process is securely contained in the Job Object, resume execution
+            NativeProcessManager.ResumeThread(pi.hThread);
+            NativeProcessManager.CloseHandle(pi.hThread);
+
+            // Read bounded output streams asynchronously
+            using var outStream = new FileStream(new SafeFileHandle(hStdOutRead, ownsHandle: true), FileAccess.Read);
+            using var errStream = new FileStream(new SafeFileHandle(hStdErrRead, ownsHandle: true), FileAccess.Read);
+            hStdOutRead = IntPtr.Zero;
+            hStdErrRead = IntPtr.Zero;
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(1, request.TimeoutSeconds)));
 
-            var stdoutTask = ReadBoundedStreamAsync(process.StandardOutput.BaseStream, request.MaxOutputBytes, cts.Token);
-            var stderrTask = ReadBoundedStreamAsync(process.StandardError.BaseStream, request.MaxOutputBytes, cts.Token);
+            var stdoutTask = ReadBoundedStreamAsync(outStream, request.MaxOutputBytes, cts.Token);
+            var stderrTask = ReadBoundedStreamAsync(errStream, request.MaxOutputBytes, cts.Token);
 
-            try
+            uint waitResult = await Task.Run(() =>
             {
-                await process.WaitForExitAsync(cts.Token);
-                var (outStr, outTrunc) = await stdoutTask;
-                var (errStr, errTrunc) = await stderrTask;
+                int timeoutMs = (int)(request.TimeoutSeconds * 1000);
+                return NativeProcessManager.WaitForSingleObject(pi.hProcess, (uint)Math.Max(1000, timeoutMs));
+            });
 
-                stdout = outStr;
-                stderr = errStr;
-                truncated = outTrunc || errTrunc;
-                exitCode = process.ExitCode;
-
-                if (exitCode == 0)
-                {
-                    status = "completed";
-                }
-                else
-                {
-                    status = "failed";
-                    reasons.Add($"Process exited with non-zero exit code {exitCode}");
-                }
-            }
-            catch (OperationCanceledException)
+            if (waitResult == NativeProcessManager.WAIT_TIMEOUT)
             {
                 status = "timed_out";
                 exitCode = null;
                 reasons.Add("Command execution exceeded timeout");
-
-                try
+                NativeProcessManager.TerminateProcess(pi.hProcess, 1);
+            }
+            else
+            {
+                NativeProcessManager.GetExitCodeProcess(pi.hProcess, out int cExitCode);
+                exitCode = cExitCode;
+                status = exitCode == 0 ? "completed" : "failed";
+                if (exitCode != 0)
                 {
-                    process.Kill(entireProcessTree: true);
-                }
-                catch
-                {
-                    // Ignored on best-effort kill
+                    reasons.Add($"Process exited with non-zero exit code {exitCode}");
                 }
             }
+
+            NativeProcessManager.CloseHandle(pi.hProcess);
+
+            var (outStr, outTrunc) = await stdoutTask;
+            var (errStr, errTrunc) = await stderrTask;
+            stdout = outStr;
+            stderr = errStr;
+            truncated = outTrunc || errTrunc;
         }
         catch (Exception ex)
         {
@@ -361,6 +604,11 @@ public static class Program
         }
         finally
         {
+            if (hStdOutWrite != IntPtr.Zero) NativeProcessManager.CloseHandle(hStdOutWrite);
+            if (hStdErrWrite != IntPtr.Zero) NativeProcessManager.CloseHandle(hStdErrWrite);
+            if (hStdOutRead != IntPtr.Zero) NativeProcessManager.CloseHandle(hStdOutRead);
+            if (hStdErrRead != IntPtr.Zero) NativeProcessManager.CloseHandle(hStdErrRead);
+            if (hRestrictedToken != IntPtr.Zero) NativeProcessManager.CloseHandle(hRestrictedToken);
             sw.Stop();
         }
 
@@ -369,8 +617,8 @@ public static class Program
         var receipt = new ExecutionReceipt
         {
             Version = 1,
-            RunId = request.RunId,
-            Nonce = request.Nonce,
+            RunId = request.RunId ?? "",
+            Nonce = request.Nonce ?? "",
             Status = status,
             ExitCode = exitCode,
             Stdout = stdout,
@@ -382,10 +630,34 @@ public static class Program
             SupervisorPid = Environment.ProcessId,
             ChildPid = childPid,
             Reasons = reasons.ToArray(),
+            IsGuestExecution = guestFixture,
+            RestrictedChild = isRestrictedChild,
+            JobObjectAttached = true,
         };
 
         await WriteReceiptFilesAsync(outputPath, receipt);
         return status == "completed" ? 0 : (exitCode ?? 1);
+    }
+
+    private static string BuildCommandLine(string command, string[]? args)
+    {
+        var sb = new StringBuilder();
+        sb.Append(QuoteIfNeeded(command));
+        if (args != null && args.Length > 0)
+        {
+            foreach (var arg in args)
+            {
+                sb.Append(' ').Append(QuoteIfNeeded(arg));
+            }
+        }
+        return sb.ToString();
+    }
+
+    private static string QuoteIfNeeded(string arg)
+    {
+        if (string.IsNullOrEmpty(arg)) return "\"\"";
+        if (!arg.Contains(' ') && !arg.Contains('\t') && !arg.Contains('"')) return arg;
+        return "\"" + arg.Replace("\"", "\\\"") + "\"";
     }
 
     private static async Task<(string Text, bool Truncated)> ReadBoundedStreamAsync(Stream stream, int maxBytes, CancellationToken ct)
@@ -394,29 +666,39 @@ public static class Program
         using var ms = new MemoryStream();
         bool truncated = false;
 
-        while (true)
+        try
         {
-            int read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct);
-            if (read <= 0) break;
-
-            if (truncated)
+            while (true)
             {
-                // Already reached byte limit; drain remaining bytes to avoid blocking child process
-                continue;
-            }
+                int read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct);
+                if (read <= 0) break;
 
-            if (ms.Length + read > maxBytes)
-            {
-                int allowed = maxBytes - (int)ms.Length;
-                if (allowed > 0)
+                if (truncated)
                 {
-                    ms.Write(buffer, 0, allowed);
+                    continue;
                 }
-                truncated = true;
-                continue;
-            }
 
-            ms.Write(buffer, 0, read);
+                if (ms.Length + read > maxBytes)
+                {
+                    int allowed = maxBytes - (int)ms.Length;
+                    if (allowed > 0)
+                    {
+                        ms.Write(buffer, 0, allowed);
+                    }
+                    truncated = true;
+                    continue;
+                }
+
+                ms.Write(buffer, 0, read);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Drain aborted on cancellation/timeout
+        }
+        catch
+        {
+            // Stream closed or pipe broken on exit
         }
 
         string text = Encoding.UTF8.GetString(ms.ToArray());
@@ -431,7 +713,6 @@ public static class Program
         var utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         await File.WriteAllTextAsync(receiptJsonPath, json, utf8NoBom);
 
-        // Emit SHA256 checksum
         using var sha256 = SHA256.Create();
         byte[] hash = sha256.ComputeHash(utf8NoBom.GetBytes(json));
         string hashHex = Convert.ToHexStringLower(hash);

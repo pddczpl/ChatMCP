@@ -152,9 +152,26 @@ export async function probeWindowsSandboxPreflight() {
   }
 
   const featureInstalled = Boolean(executablePath);
-  const featureState = safePowerShell(
+  let featureState = safePowerShell(
     '(Get-WindowsOptionalFeature -Online -FeatureName Containers-DisposableClientVM -ErrorAction SilentlyContinue).State'
   );
+  if (!featureState) {
+    // When non-elevated, DISM requires elevation; check CBS package registry & reboot status
+    const rebootPending = safePowerShell(
+      '(Test-Path "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending") -or (Test-Path "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired")'
+    );
+    if (rebootPending?.toLowerCase() === 'true') {
+      featureState = 'EnablePending';
+    } else {
+      const cbsInstalled = safePowerShell(
+        '(Get-ChildItem "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\Packages\\*Containers*ClientVM*" -ErrorAction SilentlyContinue | Where-Object { (Get-ItemProperty $_.PSPath).CurrentState -eq 112 } | Select-Object -First 1).PSChildName'
+      );
+      if (cbsInstalled && featureInstalled) {
+        featureState = 'Enabled';
+      }
+    }
+  }
+
   if (featureState && /Pending/i.test(featureState)) {
     blockers.push(`Windows Sandbox optional feature is '${featureState}' and a user-controlled restart is pending.`);
     remediations.push('Restart when convenient; ChatMCP must never reboot automatically.');
@@ -169,8 +186,23 @@ export async function probeWindowsSandboxPreflight() {
     );
   }
 
-  // Presence of WindowsSandbox.exe does not prove the CLI or guest transport works.
-  const cliPath = safePowerShell('(Get-Command wsb -ErrorAction SilentlyContinue).Source');
+  // Probe wsb CLI in PATH or user WindowsApps directory (Windows execution alias)
+  let cliPath = safePowerShell('(Get-Command wsb -ErrorAction SilentlyContinue).Source');
+  if (!cliPath) {
+    const localAppsWsb = path.join(
+      process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || 'C:\\Users\\Default', 'AppData', 'Local'),
+      'Microsoft',
+      'WindowsApps',
+      'wsb.exe'
+    );
+    try {
+      if (fs.lstatSync(localAppsWsb)) {
+        cliPath = localAppsWsb;
+      }
+    } catch {
+      // not found
+    }
+  }
   if (!cliPath) {
     blockers.push('Windows Sandbox CLI (wsb) is unavailable or unverified.');
     remediations.push('After restart, check availability of wsb CLI separately from the GUI executable.');
