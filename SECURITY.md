@@ -1,6 +1,6 @@
 # Bảo mật ChatMCP — local-only
 
-> This security policy describes the **local-only development branch**. Hosted public mode, Cloud Harness MCP proxy, multi-tenant RBAC, Linux execution broker and Render/VPS deployment were removed from the current runtime. Older commits and previously deployed copies may still contain those features.
+> This security policy describes the **v2.6.0 local-only release**. Hosted public mode, Cloud Harness MCP proxy, multi-tenant RBAC, Linux execution broker and Render/VPS deployment were removed from the current runtime. Older commits and previously deployed copies may still contain those features.
 
 ## Báo lỗi bảo mật
 

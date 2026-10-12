@@ -4,9 +4,9 @@
 
 [![CI](https://github.com/pddczpl/ChatMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/pddczpl/ChatMCP/actions/workflows/ci.yml) · [Windows Releases](https://github.com/pddczpl/ChatMCP/releases) · [Issues](https://github.com/pddczpl/ChatMCP/issues) · [Security](SECURITY.md)
 
-> **Local-only development:** This branch removes the formerly hosted Docker/Render deployment stack and legacy Cloud Harness/Desktop Commander MCP proxy backend. The Hub listens on 127.0.0.1, with no cloud account, server deployment, tenant database or owner-login service. Outbound connectivity remains available for chosen AI providers, GitHub, trusted Skills sources and user-authorized research. **Local-only does not mean fully offline.**
+> **Local-only release v2.6.0:** This release removes the formerly hosted Docker/Render deployment stack and legacy Cloud Harness/Desktop Commander MCP proxy backend. The Hub listens on 127.0.0.1, with no cloud account, server deployment, tenant database or owner-login service. Outbound connectivity remains available for chosen AI providers, GitHub, trusted Skills sources and user-authorized research. **Local-only does not mean fully offline.**
 >
-> Stable releases are tagged on GitHub. This migration is a **Draft PR**, not a shipped release. The code is not an OS security sandbox and may execute approved commands with your Windows account's privileges.
+> Stable releases are tagged on GitHub. This is the **v2.6.0 local-only release** (PR #6); the code is not an OS security sandbox and may execute approved commands with your Windows account's privileges.
 
 ## Features and status
 
@@ -30,7 +30,7 @@
 ~~~powershell
 git clone https://github.com/pddczpl/ChatMCP.git
 cd ChatMCP
-# To test this unmerged local-only PR:
+# To inspect the local-only development branch instead:
 # git fetch origin
 # git switch refactor/local-only-remove-cloud
 npm ci --prefix .\CHATMCP-HUB\ui
@@ -88,7 +88,7 @@ npm run build --prefix .\CHATMCP-HUB\ui
 
 CI checks Hub tests on Windows/Linux (Node 22/24), the frontend build, repository hygiene and Windows installer creation. An installer artifact is **not** proof of a tested release. Test on a clean Windows VM before tagging or publishing.
 
-The latest released version is **v2.5.0**; a potential subsequent version (e.g., v2.6.0) must be chosen and synchronized by the maintainer. Do not tag an unreviewed branch. See [Windows desktop release guide](docs/DESKTOP-APP.md) and [Changelog](CHANGELOG.md).
+This release is **v2.6.0**, following v2.5.0. Verify the installer checksum and test installation on a clean Windows machine; CI build success does not prove installation/upgrade compatibility. See [Windows desktop release guide](docs/DESKTOP-APP.md) and [Changelog](CHANGELOG.md).
 
 ## Documentation
 
