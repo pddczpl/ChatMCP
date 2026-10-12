@@ -17,6 +17,7 @@ import { ShellRunner } from './shell-runner.mjs';
 import { PluginManager } from './plugins.mjs';
 import { createDefaultExecutionRegistry } from './execution-contract.mjs';
 import { SandboxEngine } from './sandbox-engine.mjs';
+import { WindowsSandboxBackend } from './windows-sandbox-backend.mjs';
 
 /**
  * @param {object} options
@@ -71,6 +72,11 @@ export function assembleStudio(manager, { bundleRoot, exec = null }) {
     shellRunner: effectiveShell,
     permissionGate: manager.permissions,
   });
+  // Register the production-shaped backend without enabling it. Its capability
+  // remains unavailable until a real guest publisher/authentication gate passes.
+  manager.executionRegistry.register(new WindowsSandboxBackend({
+    stateDirectory: path.join(manager.hubDirectory, 'sandbox-execution'),
+  }));
   manager.permissions.attachExecutionRegistry(manager.executionRegistry);
   manager.sandboxEngine = new SandboxEngine({
     workspaceRoot: manager.studio?.root || manager.hubDirectory,
