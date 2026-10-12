@@ -18,6 +18,9 @@ import { PluginManager } from './plugins.mjs';
 import { createDefaultExecutionRegistry } from './execution-contract.mjs';
 import { SandboxEngine } from './sandbox-engine.mjs';
 import { WindowsSandboxBackend } from './windows-sandbox-backend.mjs';
+import { WindowsSandboxPublisher } from './windows-sandbox-publisher.mjs';
+import { LazyWindowsSandboxDriver } from './windows-sandbox-driver.mjs';
+import { probeWindowsSandboxPreflight } from './windows-sandbox-probe.mjs';
 import { ExecutionSnapshotStore } from './execution-snapshot-store.mjs';
 
 /**
@@ -76,11 +79,23 @@ export function assembleStudio(manager, { bundleRoot, exec = null }) {
   manager.executionSnapshots ??= new ExecutionSnapshotStore({
     directory:path.join(manager.hubDirectory,'execution-snapshots'),
   });
-  // Register the production-shaped backend without enabling it. Its capability
-  // remains unavailable until a real guest publisher/authentication gate passes.
+  // Wire every production component on Windows but keep execution fail-closed.
+  // A supported-machine security acceptance gate must explicitly establish
+  // supervisor key confidentiality and output provenance before enabling
+  // publisher.productionAuthenticated. User Full Access does NOT bypass it.
+  const sandboxState=path.join(manager.hubDirectory,'sandbox-execution');
+  const driver=process.platform==='win32'
+    ? new LazyWindowsSandboxDriver({
+        preflight:probeWindowsSandboxPreflight,
+        runtimeDirectory:path.join(bundleRoot,'runtimes','windows-sandbox'),
+        nodeToolchainDirectory:path.join(bundleRoot,'runtimes','node'),
+        stateDirectory:path.join(sandboxState,'driver'),
+      })
+    : null;
   manager.executionRegistry.register(new WindowsSandboxBackend({
-    stateDirectory: path.join(manager.hubDirectory, 'sandbox-execution'),
-    snapshotLookup: (id) => manager.executionSnapshots.lookup(id),
+    stateDirectory:sandboxState,driver,
+    publisher:new WindowsSandboxPublisher({hostAttested:false}),
+    snapshotLookup:(id)=>manager.executionSnapshots.lookup(id),
   }));
   manager.permissions.attachExecutionRegistry(manager.executionRegistry);
   manager.sandboxEngine = new SandboxEngine({

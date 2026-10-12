@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { WindowsSandboxCliDriver } from '../lib/windows-sandbox-driver.mjs';
+import { WindowsSandboxCliDriver, LazyWindowsSandboxDriver } from '../lib/windows-sandbox-driver.mjs';
 import { createExecutionSnapshot } from '../lib/execution-snapshots.mjs';
 
 const dir=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-cli-driver-'));
@@ -61,5 +61,29 @@ try {
   const stopped=await driver.stop({instanceId:ownerId,generation});
   assert.deepEqual(stopped,{stopped:true,instanceId:ownerId});
   assert.equal(driver.owned.size,0);
-  console.log('PASS: private staging, hardened guest mapping, owned CLI lifecycle, no trusted output claim');
+  const lazyCalls=[];
+  const lazy=new LazyWindowsSandboxDriver({
+    runtimeDirectory:runtime,nodeToolchainDirectory:nodeDir,
+    stateDirectory:path.join(dir,'lazy-state'),
+    preflight:async()=>({available:true,details:{cliPath:path.join(dir,'wsb.exe')}}),
+    runCli:async(args)=>{
+      lazyCalls.push(args);
+      if(args[0]==='list')return JSON.stringify({WindowsSandboxEnvironments:
+        lazyCalls.some(x=>x[0]==='start')&&!lazyCalls.some(x=>x[0]==='stop')?[{Id:ownerId}]:[]});
+      if(args[0]==='start')return JSON.stringify({Id:ownerId});
+      if(args[0]==='stop')return JSON.stringify({Stopped:true});
+      if(args[0]==='exec')return JSON.stringify({ExitCode:0});
+      throw new Error('Unexpected CLI verb');
+    },
+  });
+  const second=await lazy.start({request,snapshot,
+    generation:'22222222-3333-4444-5555-666666666666'});
+  assert.equal(second.instanceId,ownerId);
+  await assert.rejects(lazy.start({request,snapshot,generation}),{code:'sandbox_busy'});
+  const again=await lazy.execute({request,instanceId:ownerId,
+    generation:'22222222-3333-4444-5555-666666666666'});
+  assert.equal(again.publisherAuthenticated,false);
+  assert.equal((await lazy.stop({instanceId:ownerId,
+    generation:'22222222-3333-4444-5555-666666666666'})).stopped,true);
+  console.log('PASS: private staging, HMAC input, lazy verified CLI discovery, strict owned lifecycle and no production attestation bypass');
 } finally { await fs.rm(dir,{recursive:true,force:true}); }

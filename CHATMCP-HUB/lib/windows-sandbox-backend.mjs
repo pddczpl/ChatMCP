@@ -41,6 +41,14 @@ export class WindowsSandboxBackend extends ExecutionBackend {
     });
   }
   async probe() {
+    // A previous crash may leave the immutable run ownership lock behind.
+    // Never treat that situation as a free slot or silently relaunch.
+    try {
+      await fs.access(path.join(this.stateDirectory,'active.lock'));
+      this.quarantined=true;
+    } catch (e) {
+      if(e?.code!=='ENOENT')this.quarantined=true;
+    }
     let host;
     try { host = await this.preflight(); }
     catch (e) { host = { available: false, blockers: ['Preflight failure: ' + e.message] }; }
