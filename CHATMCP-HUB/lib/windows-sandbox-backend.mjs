@@ -108,7 +108,10 @@ export class WindowsSandboxBackend extends ExecutionBackend {
           receipt.checkHash !== request.checkHash || receipt.backend !== this.id) {
         throw fault('stale_receipt', 'Publisher receipt does not match the requested code/check/backend.');
       }
-      return receipt;
+      return Object.freeze({...receipt,
+        publisherAuthenticated:true,
+        provenance:'publisher_authenticated'
+      });
     } catch (e) {
       if (controller.signal.aborted) return reply(request, 'cancelled', ['Execution cancelled; see ownership reconciliation.']);
       return reply(request, 'error', [String(e.message || e).slice(0, 300)]);
