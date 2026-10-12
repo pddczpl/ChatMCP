@@ -24,6 +24,9 @@ export function SkillsTab() {
   const { showToast } = useAppStore();
   const { t } = useTranslation();
   const [search, setSearch] = useState('');
+  const [registryBusy,setRegistryBusy]=useState(false);
+  const [registryError,setRegistryError]=useState('');
+  const {data: registryData,refetch: refreshRegistryView}=useQuery({queryKey:['skillsRegistry',search],queryFn:()=>api.getSkillRegistry(search),refetchInterval:12000,retry:false});
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -200,6 +203,35 @@ export function SkillsTab() {
         </div>
       </div>
 
+      {/* Live GitHub SKILL.md registry — discovery never executes downloaded scripts. */}
+      <section className="border border-[var(--line)] bg-[var(--surface)] rounded-lg p-3 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="font-semibold text-[var(--text)]">GitHub Agent Skills Hub</div>
+          <Button size="sm" variant="outline" disabled={registryBusy} onClick={async()=>{
+            setRegistryBusy(true);setRegistryError('');
+            try{
+              const result=await api.refreshSkillRegistry();
+              await refreshRegistryView();
+              if(result.failures?.length)setRegistryError(result.failures.map((x:any)=>x.source+': '+x.error).join('; '));
+              showToast('Đã lập chỉ mục '+result.found+' skill từ GitHub','success');
+            }catch(e:any){setRegistryError(e.message||String(e));showToast(e.message||'Registry lỗi','error');}
+            finally{setRegistryBusy(false);}
+          }}>{registryBusy?'Đang khám phá...':'Làm mới GitHub'}</Button>
+        </div>
+        <div className="text-[10px] text-[var(--muted)]">Nguồn được phép: {(registryData?.sources||[]).map((x:any)=>x.repo).join(', ')||'Chưa tải nguồn'}. Import chỉ thêm hướng dẫn, không thực thi scripts.</div>
+        {registryError&&<p role="alert" className="text-amber-400 text-[10px]">{registryError}</p>}
+        <div className="max-h-48 overflow-y-auto space-y-1">
+          {(registryData?.skills||[]).length===0?<p className="text-[var(--muted)]">Chưa lập chỉ mục; bấm Làm mới GitHub để khám phá.</p>:
+          (registryData?.skills||[]).slice(0,70).map((s:any)=><div key={s.key} className="p-2 border border-[var(--line-subtle)] rounded flex items-center justify-between gap-2">
+            <div className="min-w-0"><div className="font-medium truncate">{s.name}</div><div className="text-[10px] text-[var(--muted)] truncate">{s.repo} · {s.revision?.slice(0,8)} · license: {s.license}</div></div>
+            <Button size="sm" variant="outline" disabled={actionLoading===s.key} onClick={async()=>{
+              setActionLoading(s.key);
+              try{await api.installRegistrySkill(s.key);showToast('Đã cài: '+s.name,'success');refetch();}catch(e:any){showToast(e.message||'Lỗi cài đặt skill','error');}
+              finally{setActionLoading(null);}
+            }}>Cài</Button>
+          </div>)}
+        </div>
+      </section>
       {/* Skills Grid */}
       <div className="space-y-2.5 flex-1">
         {isLoading ? (

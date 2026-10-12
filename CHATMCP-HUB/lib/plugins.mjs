@@ -704,6 +704,7 @@ export class PluginManager {
           tools: skill.tools || [],
           sourceUrl: skill.sourceUrl || null,
           commitSha: skill.commitSha || null,
+          resourcePaths: skill.resourcePaths || [],
           installedAt: skill.installedAt || new Date().toISOString(),
         },
         null,
@@ -713,7 +714,7 @@ export class PluginManager {
 
       // 2. Write SKILL.md
       const toolsYaml = (skill.tools || []).map((t) => `  - ${t}`).join('\n');
-      const skillMd = [
+      const generatedSkillMd = [
         '---',
         `id: ${skill.id}`,
         `name: "${skill.name}"`,
@@ -727,9 +728,30 @@ export class PluginManager {
         '',
         skill.systemPrompt || '',
       ].join('\n');
-      await fs.writeFile(path.join(stagingDir, 'SKILL.md'), skillMd, 'utf8');
-
-      const contentHash = crypto.createHash('sha256').update(skillMd).digest('hex');
+      const skillMd = typeof skill.originalSkillText === 'string' ? skill.originalSkillText : generatedSkillMd;
+      if (Buffer.byteLength(skillMd, 'utf8') > 128 * 1024) throw error('skill_too_large', 'SKILL.md exceeds 128 KiB.', 413);
+      await fs.writeFile(path.join(stagingDir, 'SKILL.md'), skillMd, { encoding: 'utf8', mode: 0o600 });
+      const digest = crypto.createHash('sha256').update('SKILL.md\0').update(skillMd);
+      let total = 0;
+      const resources = Array.isArray(skill.resourceFiles) ? skill.resourceFiles : [];
+      if (resources.length > 32) throw error('too_many_skill_files', 'Maximum 32 additional skill resources.', 413);
+      for (const item of resources) {
+        const rel = String(item?.path || '').replaceAll('\\', '/');
+        const text = item?.text;
+        if (!/^(references|scripts|assets)\/[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*$/.test(rel) ||
+            rel.split('/').includes('..') || typeof text !== 'string') {
+          throw error('invalid_resource_path', 'Imported skill resource path is unsafe.', 403);
+        }
+        const size = Buffer.byteLength(text, 'utf8');
+        total += size;
+        if (size > 64 * 1024 || total > 512 * 1024) throw error('skill_resources_too_large', 'Skill resources exceed size limits.', 413);
+        const dest = path.resolve(stagingDir, rel);
+        if (!dest.startsWith(stagingDir + path.sep)) throw error('directory_traversal', 'Invalid skill resource.', 403);
+        await fs.mkdir(path.dirname(dest), { recursive: true, mode: 0o700 });
+        await fs.writeFile(dest, text, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+        digest.update('\0'+rel+'\0').update(text);
+      }
+      const contentHash = digest.digest('hex');
 
       // Stage is fully written before touching any existing version.
       // A backup gives us recovery if the final rename fails.
@@ -807,6 +829,8 @@ export class PluginManager {
         provenance: p.provenance || 'custom',
         sourceUrl: p.sourceUrl || null,
         commitSha: p.commitSha || null,
+        contentHash: p.contentHash || null,
+        resourcePaths: p.resourcePaths || [],
         installedAt: p.installedAt || new Date().toISOString(),
       };
     }
@@ -947,6 +971,31 @@ export class PluginManager {
     this.installedPlugins.set(id, installedEntry);
     await this.save();
     return installedEntry;
+  }
+
+  /** Import an immutable GitHub SKILL.md and supporting text files. No script execution. */
+  async importRegistrySkill({id,name,description='',version='1.0.0',license='unknown',author='unknown',tools=[],systemPrompt='',sourceUrl,commitSha,originalSkillText,resourceFiles=[]}={}){
+    const safeId=normalizeSkillId(id);
+    if(this.installedPlugins.has(safeId))throw error('already_installed','Skill already installed.',409);
+    if(!/^[a-f0-9]{40}$/i.test(String(commitSha||'')) ||
+      !/^https:\/\/raw\.githubusercontent\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/[a-f0-9]{40}\/.+SKILL\.md$/i.test(String(sourceUrl||''))) {
+      throw error('invalid_source','Registry import requires a pinned GitHub SKILL.md URL.',403);
+    }
+    if(!String(sourceUrl).includes('/'+commitSha+'/'))throw error('invalid_source','Source revision mismatch.',403);
+    const resourcePaths=resourceFiles.map(x=>x.path);
+    const entry={
+      id:safeId,name,description,version,license,declaredLicense:license,
+      verifiedLicense:null,redistributable:false,author,tools,
+      systemPrompt,sourceUrl,commitSha,resourcePaths,
+      category:'skills',provenance:'github-registry',enabled:false,
+      installedAt:new Date().toISOString()
+    };
+    const {contentHash}=await this.#writeSkillDirectory({...entry,originalSkillText,resourceFiles});
+    entry.contentHash=contentHash;
+    this.installedPlugins.set(safeId,entry);
+    try {await this.save();}
+    catch(e){this.installedPlugins.delete(safeId);await this.#removeSkillDirectory(safeId).catch(()=>{});throw e;}
+    return entry;
   }
 
   /**

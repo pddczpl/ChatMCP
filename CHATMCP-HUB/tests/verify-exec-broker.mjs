@@ -584,6 +584,10 @@ await withBroker({ limits: { maxQueue: 2 } }, async ({ client, connect, server, 
 // ---------------------------------------------------------------------------------------------------------------------------------
 await withBroker({}, async ({ client, connect, server, workspace }) => {
   const doomed = run(client, '/bin/sh', ['-c', 'echo up; sleep 5; echo late > late.txt'], { cwd: workspace });
+  // Establish the running state before queueing the second command. Under
+  // Node 24 a fast client can deliver both requests in one socket read,
+  // making an immediate queued/running polling window timing-dependent.
+  await waitFor(() => server.stats().running, { label: 'first command to start' });
   const queued = run(client, '/bin/sh', ['-c', 'echo queued > queued.txt'], { cwd: workspace });
   await waitFor(() => server.stats().queued === 1 && server.stats().running, { label: 'one running, one waiting' });
   const began = Date.now();

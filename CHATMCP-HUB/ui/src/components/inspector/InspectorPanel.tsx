@@ -8,6 +8,7 @@ import {
   Globe, 
   Cpu, 
   Puzzle, 
+  Network, 
   Settings, 
   X 
 } from 'lucide-react';
@@ -19,6 +20,7 @@ import { PlanTab } from './PlanTab';
 import { PreviewTab } from './PreviewTab';
 import { IntelligenceTab } from './IntelligenceTab';
 import { SkillsTab } from './SkillsTab';
+import { OrchestratorTab } from './OrchestratorTab';
 import { SettingsTab } from './SettingsTab';
 import { useTranslation } from '@/lib/i18n';
 
@@ -35,6 +37,7 @@ export function InspectorPanel() {
     { id: 'preview', label: t('tab_preview'), icon: Globe },
     { id: 'intelligence', label: t('tab_ai_model'), icon: Cpu },
     { id: 'skills', label: t('tab_skills'), icon: Puzzle },
+    { id: 'orchestrator', label: 'Agents', icon: Network },
     { id: 'settings', label: t('tab_settings'), icon: Settings },
   ];
 
@@ -83,6 +86,7 @@ export function InspectorPanel() {
         {activeTab === 'preview' && <PreviewTab />}
         {activeTab === 'intelligence' && <IntelligenceTab />}
         {activeTab === 'skills' && <SkillsTab />}
+        {activeTab === 'orchestrator' && <OrchestratorTab />}
         {activeTab === 'settings' && <SettingsTab />}
       </div>
     </aside>

@@ -17,6 +17,7 @@ import { AiProfiles } from './lib/ai-profiles.mjs';
 import { WorkspaceLock } from './lib/workspace-lock.mjs';
 import { SandboxEngine } from './lib/sandbox-engine.mjs';
 import { PluginManager } from './lib/plugins.mjs';
+import { GitHubSkillRegistry } from './lib/skill-registry.mjs';
 import { GovernanceManager } from './lib/governance.mjs';
 
 const APP_ID = 'chatmcp-local-hub';
@@ -30,7 +31,7 @@ export function assertCompatibleRunningHub(health, port=3007) {
   return true;
 }
 
-export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/vscode/open','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/intelligence/index','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/workspace/pr','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/uninstall','/api/plugins/toggle','/api/governance/rbac/verify']);
+export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/vscode/open','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/intelligence/index','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/workspace/pr','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/uninstall','/api/plugins/toggle','/api/governance/rbac/verify']);
 const BUNDLE_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MIME = Object.freeze({
   '.html': 'text/html; charset=utf-8',
@@ -123,6 +124,8 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
   const pluginManager = manager.pluginManager ?? new PluginManager({ stateDir: hubStateDir });
   manager.pluginManager = pluginManager;
   pluginManager.load().catch(() => {});
+  const skillRegistry = new GitHubSkillRegistry({ pluginManager, stateDir: hubStateDir });
+  skillRegistry.load().catch(() => {});
   const governance = new GovernanceManager({ stateDir: hubStateDir });
   governance.registerWorkspace('default-tenant', manager.workspace || BUNDLE_ROOT);
   const sandboxEngine = new SandboxEngine({ mode: publicMode && execMode === 'broker' ? 'broker' : 'host', workspaceRoot: manager.workspace, workspace: manager.studio });
@@ -264,6 +267,9 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
         const lock = new WorkspaceLock({ workspaceRoot: manager.workspace || BUNDLE_ROOT });
         return json(200, await lock.inspect());
       }
+      if (req.method === 'GET' && url.pathname === '/api/plugins/registry') {
+        return json(200, { sources: skillRegistry.sources(), skills: skillRegistry.list({ query: url.searchParams.get('query') || '' }) });
+      }
       if (req.method === 'GET' && url.pathname === '/api/plugins/marketplace') {
         return json(200, { catalog: pluginManager.marketplace({ category: url.searchParams.get('category'), query: url.searchParams.get('query') }) });
       }
@@ -359,6 +365,8 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
           case '/api/studio/restore': if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không khôi phục file trực tiếp trên Windows host.'),{statusCode:403});result=await studio.restore(payload);break;
           case '/api/studio/restore-checkpoint': if(taskEngine?.state()?.activeTaskId || agent?.state()?.activeTaskId || manager?.taskEngine?.state()?.activeTaskId || manager?.agent?.state()?.activeTaskId)throw Object.assign(new Error('Để tránh xung đột file, chờ agent dừng trước khi khôi phục checkpoint.'),{code:'task_in_progress',statusCode:409});if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không khôi phục checkpoint trực tiếp trên Windows host.'),{statusCode:403});result=await studio.restoreCheckpoint(payload);break;
           case '/api/studio/accept': if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không thay đổi file trực tiếp trên Windows host.'),{statusCode:403});result=await studio.accept(payload);break;
+          case '/api/studio/delegates/cancel': if(publicMode)throw Object.assign(new Error('Orchestrator only available in trusted local mode.'),{statusCode:403});result=delegates.cancel();break;
+          case '/api/studio/delegates/orchestrate': if(publicMode)throw Object.assign(new Error('Multi-agent orchestration chỉ được bật trên local trusted Hub.'),{statusCode:403});if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Chờ agent chính hoàn thành.'),{statusCode:409});result=await delegates.orchestrate(payload);break;
           case '/api/studio/delegates/research': if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Đợi agent chính hoàn tất trước khi phân tích song song.'),{statusCode:409});result=await delegates.research(payload);break;
           case '/api/studio/terminal/start': if(gate?.executionPolicy==='sandbox-only'&&!payload.sandbox)throw Object.assign(new Error('Sandbox-only: terminal phải bật Docker sandbox; không cho chạy trực tiếp trên Windows host.'),{statusCode:403});if(taskEngine?.state()?.activeTaskId) throw Object.assign(new Error('Để tránh xung đột file, dừng agent trước khi chạy terminal thủ công.'),{statusCode:409});result=await terminal.start(payload);break;
           case '/api/studio/terminal/stop': result=terminal.stop(payload.id);break;
@@ -405,6 +413,8 @@ export function createHubServer(manager, { port = 3007, token = randomBytes(32).
           case '/api/ai/profiles/upsert': result = { profile: await aiProfiles.upsert(payload) }; break;
           case '/api/ai/profiles/delete': result = await aiProfiles.delete(payload.id); break;
           case '/api/ai/profiles/default': result = await aiProfiles.setDefault(payload.id); break;
+          case '/api/plugins/registry/refresh': if(publicMode)throw Object.assign(new Error('Registry refresh chỉ dành cho local Hub.'),{statusCode:403});result=await skillRegistry.refresh({sourceId:payload.sourceId});break;
+          case '/api/plugins/registry/install': if(publicMode)throw Object.assign(new Error('Registry install chỉ dành cho local Hub.'),{statusCode:403});if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Chờ agent hoàn thành trước khi cài skill.'),{statusCode:409});result={installed:await skillRegistry.install({key:payload.key})};break;
           case '/api/plugins/install': result = { installed: await pluginManager.install(payload.id, payload.custom, payload.url) }; break;
           case '/api/plugins/uninstall': result = await pluginManager.uninstall(payload.id); break;
           case '/api/plugins/toggle': result = await pluginManager.toggle(payload.id, payload.enabled); break;

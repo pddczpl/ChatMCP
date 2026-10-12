@@ -7,6 +7,8 @@ ChatMCP là một **AI Coding Agent chạy cục bộ**, thiết kế tối ưu 
 ## Tính năng nổi bật
 
 - **Desktop Native App (Windows 11):** Phân phối qua file cài đặt độc lập `dist/ChatMCPSetup.exe`. Tự động tạo shortcut, đăng ký vào Windows Apps (`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\ChatMCP`) và tạo sẵn bộ gỡ cài đặt `Uninstall.exe`. Ứng dụng chạy qua `ChatMCP.exe` trong cửa sổ native độc lập, không thanh URL, không tabs. Chi tiết: [docs/DESKTOP-APP.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/DESKTOP-APP.md).
+- **Multi-Agent Orchestrator (beta):** Tab Agents hỗ trợ DAG tối đa 8 read-only workers, chạy tối đa 3 worker song song, truyền kết quả giữa các bước, coordinator tổng hợp và có thể hủy tác vụ. Chưa có quyền sửa mã đồng thời hoặc triển khai subagent lên các worktree độc lập.
+- **GitHub Agent Skills Hub (beta):** Tìm SKILL.md thực từ các thư mục GitHub chọn lọc, ghim SHA, cho phép cài SKILL.md và tối đa 32 resources văn bản trong references/scripts/assets với giới hạn dung lượng, lưu hash vào lockfile. Các skill bên thứ ba mặc định tắt; không thực thi scripts và chưa hỗ trợ binary assets. Tính năng refresh/import chỉ hoạt động ở local trusted Hub.
 - **Skills Marketplace & Plugin System:** Chợ kỹ năng chọn lọc (`git-workflow-pro`, `python-architect`, `docker-devops`, `sqlite-explorer`, `web-researcher`, `security-compliance-guard`), hỗ trợ cài đặt, cấu hình, bật/tắt và tự động tiêm ngữ cảnh vào Agent qua Command Palette (`Ctrl+K`).
 - **Phân quyền Multi-User RBAC & Cách ly Workspace:** Kiểm soát truy cập theo vai trò (`viewer`, `developer`, `admin`), đảm bảo an toàn biên giới thư mục giữa các workspace và ghi nhật ký kiểm toán bất biến vào `enterprise-audit.jsonl`.
 - **Bốn chế độ phê duyệt quyền linh hoạt:**
@@ -19,6 +21,8 @@ ChatMCP là một **AI Coding Agent chạy cục bộ**, thiết kế tối ưu 
 - **Tự host & Triển khai đám mây tin cậy:** Hỗ trợ Docker Compose, Render free tier và máy chủ Linux VPS với cơ chế tách quyền người dùng Unix `hub`/`agent` và cổng kiểm tra bảo mật mặc định từ chối. Chi tiết: [docs/DEPLOYMENT.md](https://github.com/pddczpl/ChatMCP/blob/main/docs/DEPLOYMENT.md).
 
 ---
+
+> **Lưu ý cho nhánh phát triển:** Tab Agents và GitHub Skills Hub có trong React source. Trước khi thử chức năng mới bằng bản desktop/local installer, hãy cập nhật UI bundle: `cd CHATMCP-HUB/ui && npm ci && npm run build` (sau đó quay lại thư mục gốc). CI cung cấp artifact `chatmcp-ui-dist` của PR tương ứng; các bản release cũ chưa có hai tab mới.
 
 ## Hướng dẫn chi tiết cài đặt & Khởi chạy
 
