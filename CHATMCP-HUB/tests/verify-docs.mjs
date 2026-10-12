@@ -218,6 +218,9 @@ function anchorsOf(markdown) {
   const uiSuites = readdirSync(TESTS).filter((name) => /^verify-.+\.py$/.test(name)).length;
   const problems = [];
   for (const [name, text] of Object.entries(docs)) {
+    // Phase reports preserve their original historical test counts.
+    // Only currently maintained documentation claims the present suite count.
+    if (/^docs\/PHASE[0-9]+-(?:DESIGN|REPORT)\.md$/.test(name)) continue;
     for (const match of text.matchAll(/(\d+) bộ Node/g)) if (Number(match[1]) !== nodeSuites) problems.push(`${name}: says ${match[1]} Node suites, tests/ has ${nodeSuites}`);
     for (const match of text.matchAll(/(\d+) bộ giao diện/g)) if (Number(match[1]) !== uiSuites) problems.push(`${name}: says ${match[1]} UI suites, tests/ has ${uiSuites}`);
   }
