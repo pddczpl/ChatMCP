@@ -29,7 +29,7 @@ export function assertCompatibleRunningHub(health, port=3007) {
   return true;
 }
 
-export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle']);
+export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle']);
 const BUNDLE_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MIME = Object.freeze({
   '.html': 'text/html; charset=utf-8',
@@ -100,6 +100,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   const gate = manager.permissions instanceof PermissionGate ? manager.permissions : null;
   const terminal = manager.terminal;
   const delegates = manager.delegates;
+  const dynamic = manager.dynamicDelegates;
   const coding = manager.codingOrchestrator;
   const verification = manager.verification;
   const intelligence = manager.intelligence;
@@ -121,8 +122,8 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   });
   manager.sandboxEngine = sandboxEngine;
   manager.executionRegistry = sandboxEngine.registry;
-  const state = (csrf = token) => ({ ...manager.state(), ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions:permissions?.state?.()??gate?.state()??null, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null} : null, csrfToken: csrf });
-  const requireNoTask = () => { if (taskEngine?.state().activeTaskId) { const e = new Error('Hủy hoặc chờ nhiệm vụ hoàn tất trước khi thay đổi kết nối AI.'); e.statusCode = 409; throw e; } };
+  const state = (csrf = token) => ({ ...manager.state(), ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions:permissions?.state?.()??gate?.state()??null, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null,dynamicDelegates:dynamic?.state()??null} : null, csrfToken: csrf });
+  const requireNoTask = () => { if (taskEngine?.state().activeTaskId || dynamic?.activeRunId || coding?.active || delegates?.running) { const e = new Error('Dừng các tác vụ AI đang chạy trước khi đổi Base URL, API key hoặc model.'); e.statusCode = 409; throw e; } };
   const changeAi = async (operation) => {
     requireNoTask();
     if (aiBusy) { const e = new Error('Đang thay đổi kết nối AI. Chờ thao tác hiện tại hoàn tất.'); e.statusCode = 409; throw e; }
@@ -219,6 +220,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/studio/terminal': value=terminal?.state()??[];break;
           case '/api/studio/terminal/capabilities': value=await terminal?.capabilities()??{};break;
           case '/api/studio/delegates': value=delegates?.state()??null;break;
+          case '/api/studio/dynamic-delegates': value=dynamic?.state()??{activeRunId:null,last:null};break;
           case '/api/studio/coding': value=coding?.state()??{activeRunId:null,jobs:[]};break;
           case '/api/studio/coding/review':value=await coding.review({runId:pick('runId'),workerId:pick('workerId')||null});break;
           case '/api/studio/coding/checks': value=await coding.discoverWorkerChecks({workerId:pick('workerId')});break;
@@ -334,6 +336,12 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/studio/coding/integrate': result=await coding.integrate(payload);break;
           case '/api/studio/coding/publish': result=await coding.publish(payload);break;
           case '/api/studio/delegates/cancel': result=delegates.cancel();break;
+          case '/api/studio/dynamic-delegates/run':
+            if(!dynamic) throw Object.assign(new Error('Dynamic delegation is not initialized.'),{statusCode:503});
+            if(manager.taskId||coding?.active||delegates?.running||aiBusy)
+              throw Object.assign(new Error('Finish other active agent/model jobs before dynamic delegation.'),{statusCode:409});
+            result=await dynamic.run(payload);break;
+          case '/api/studio/dynamic-delegates/cancel': result=dynamic?.cancel()??{cancelled:false};break;
           case '/api/studio/delegates/orchestrate': if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Chờ agent chính hoàn thành.'),{statusCode:409});result=await delegates.orchestrate(payload);break;
           case '/api/studio/delegates/research': if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Đợi agent chính hoàn tất trước khi phân tích song song.'),{statusCode:409});result=await delegates.research(payload);break;
           case '/api/studio/terminal/start': if(gate?.executionPolicy==='sandbox-only'&&!payload.sandbox)throw Object.assign(new Error('Sandbox-only: terminal phải bật Docker sandbox; không cho chạy trực tiếp trên Windows host.'),{statusCode:403});if(taskEngine?.state()?.activeTaskId) throw Object.assign(new Error('Để tránh xung đột file, dừng agent trước khi chạy terminal thủ công.'),{statusCode:409});result=await terminal.start(payload);break;
@@ -345,9 +353,9 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/studio/plan/set': result=await studio.plan({...payload,operation:'set'});break;
           case '/api/studio/verify/run': if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Để tránh xung đột file, chờ agent dừng trước khi chạy kiểm thử thủ công.'),{statusCode:409});if(!verification)throw Object.assign(new Error('Bộ kiểm thử chưa khởi tạo.'),{statusCode:503});result=await verification.start(payload);break;
           case '/api/workspace/browse': result = await manager.browse(); break;
-          case '/api/workspace/select': if(coding?.active||coding?.integrating)throw Object.assign(new Error('Stop coding workers before switching workspace.'),{statusCode:409});await manager.selectWorkspace(payload.path); result = stateNow(); break;
+          case '/api/workspace/select': if(coding?.active||coding?.integrating||dynamic?.activeRunId)throw Object.assign(new Error('Stop coding/dynamic workers before switching workspace.'),{statusCode:409});await manager.selectWorkspace(payload.path); result = stateNow(); break;
           case '/api/services/start': await manager.start(); result = stateNow(); break;
-          case '/api/services/stop': if(coding?.active||coding?.integrating)throw Object.assign(new Error('Stop coding workers before stopping services.'),{statusCode:409});await manager.stop(); result = stateNow(); break;
+          case '/api/services/stop': if(coding?.active||coding?.integrating||dynamic?.activeRunId)throw Object.assign(new Error('Stop coding/dynamic workers before stopping services.'),{statusCode:409});await manager.stop(); result = stateNow(); break;
           case '/api/browser/pair-code': if (!browser) throw new Error('Browser runner chưa khởi tạo.'); result = await browser.createPairCode(); break;
           case '/api/browser/unpair': if (!browser) throw new Error('Browser runner chưa khởi tạo.'); await browser.unpair(); result = stateNow(); break;
           case '/api/ai/config': if (!provider) throw new Error('Kết nối AI chưa khởi tạo.'); await changeAi(() => provider.configure(payload)); result = stateNow(); break;
@@ -509,12 +517,15 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   const { DualAgent } = await import('./lib/dual-agent.mjs');
   const { assembleStudio } = await import('./lib/assemble.mjs');
   const { StudioDelegates } = await import('./lib/studio-delegates.mjs');
+  const { DynamicDelegates } = await import('./lib/dynamic-delegates.mjs');
   const { RecoveryScheduler } = await import('./lib/studio-resumer.mjs');
   assembleStudio(manager,{bundleRoot:BUNDLE_ROOT});
   const browser = new BrowserRunner({ manager, directory: path.join(manager.hubDirectory, 'browser'), log: (line) => manager.log(line) });
   const provider = new GatewayProvider({ manager, bundleRoot: BUNDLE_ROOT, directory: path.join(manager.hubDirectory, 'gateway'), env });
   manager.delegates=new StudioDelegates({workspace:manager.studio,provider,directory:path.join(manager.hubDirectory,'studio','delegates')});
   await manager.delegates.load();
+  manager.dynamicDelegates=new DynamicDelegates({workspace:manager.studio,provider,directory:path.join(manager.hubDirectory,'studio','dynamic-delegates')});
+  await manager.dynamicDelegates.load();
   manager.codingOrchestrator=new CodingWorktreeOrchestrator({manager,provider,directory:path.join(manager.hubDirectory,'coding-orchestrator'),bundleRoot:BUNDLE_ROOT});
   await manager.codingOrchestrator.load();
   const apiAgent = new AgentRunner({ manager, provider, taskDirectory: path.join(manager.hubDirectory, 'api-tasks'), log: (line) => manager.log(line) });
@@ -570,6 +581,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
     manager.log('Đang dừng ChatMCP local Hub...');
     const deadline = setTimeout(() => process.exit(1), 12000);
     manager.codingOrchestrator?.cancel();
+    manager.dynamicDelegates?.cancel();
     manager.permissions?.shutdown(); await manager.terminal?.close(); manager.intelligence?.close();
     await agent.shutdown().catch(() => {});
     await manager.shutdown().catch(() => {});

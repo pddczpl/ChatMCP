@@ -19,7 +19,7 @@ The unreleased Phase 0 fixes reconnect the current React UI to persisted task hi
 | Windows Desktop Studio | Available | WinForms + WebView2, bundled local Node runtime; Git for Windows is separate |
 | Coding agent with local tools | Available | LocalTools (36 công cụ): workspace-scoped files/search, terminal, Git, plans, checkpoints, approvals |
 | AI providers | Available | OpenAI, Anthropic, Gemini and compatible providers; Ollama/LM Studio via loopback; model must support tool calls |
-| Research Multi-Agent DAG | Available | Up to 8 read-only roles; at most 3 concurrent; coordinator summary; no tools for research subagents |
+| Research Multi-Agent DAG | Available | Static DAG plus explicit dynamic read-only planning; no model usage quota in ChatMCP; no host execution tools for research subagents |
 | Parallel Coding Workers | Beta | Up to 4 tasks on separate Git worktrees; 2 concurrent model workers by default for local process stability; no worker shell/network/push |
 | Review and Draft PR | Beta | Exact Git diff review token required; integration uses a new branch; explicit confirmation required for publishing |
 | GitHub Agent Skills Hub | Beta | Nested SKILL.md discovery, pinned revisions, SHA-checked bounded text/binary assets, source and license evidence; third-party scripts not auto-run |

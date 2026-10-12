@@ -4,6 +4,7 @@ import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
 import { Button } from '@/components/ui/Button';
 import { IsolatedChecksPanel } from './IsolatedChecksPanel';
+import { DynamicSubagents } from './DynamicSubagents';
 
 type Node = {id:string;role:string;question:string;dependsOn:string[]};
 type CodingTask = {id:string;prompt:string;verify:boolean};
@@ -67,6 +68,7 @@ export function OrchestratorTab(){
       }}>{busy?'Đang điều phối...':'Chạy agents'}</Button>
     </div>
 
+    <DynamicSubagents />
     <section className="border border-[var(--line)] rounded-lg p-3 bg-[var(--surface)] space-y-2">
       <h3 className="font-semibold">Coding Agents — isolated Git worktrees</h3>
       <p className="text-[var(--muted)]">Parallel coding workers edit only their own branches. No shell, network, Git push or automatic merge. Worktrees isolate Git state, not OS processes.</p>

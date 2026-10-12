@@ -32,12 +32,12 @@ jobs:
           node-version: '24'
       - name: Syntax check
         run: |
-          for f in lib/*.mjs tests/verify-{execution-snapshots,execution-lifecycle,worker-tests,worker-scheduler,coding-loop,windows-driver,sandbox-publisher,phase1-benchmarks,phase1-coding-e2e,execution-snapshot-store}.mjs; do
+          for f in lib/*.mjs tests/verify-{execution-snapshots,execution-lifecycle,worker-tests,worker-scheduler,coding-loop,windows-driver,sandbox-publisher,phase1-benchmarks,phase1-coding-e2e,execution-snapshot-store,dynamic-delegates}.mjs; do
             node --check "$f"
           done
       - name: Offline regression checks
         run: |
           set -euo pipefail
-          for suite in execution-snapshots execution-lifecycle worker-tests worker-scheduler coding-loop windows-driver sandbox-publisher phase1-benchmarks phase1-coding-e2e execution-snapshot-store; do
+          for suite in execution-snapshots execution-lifecycle worker-tests worker-scheduler coding-loop windows-driver sandbox-publisher phase1-benchmarks phase1-coding-e2e execution-snapshot-store dynamic-delegates; do
             node "tests/verify-$suite.mjs"
           done

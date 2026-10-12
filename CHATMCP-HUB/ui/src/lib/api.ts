@@ -163,6 +163,11 @@ export const api = {
   orchestrateAgents: (nodes: {id:string;role:string;question:string;dependsOn?:string[]}[],maxConcurrency=3) =>
     request<any>('/api/studio/delegates/orchestrate',{method:'POST',body:JSON.stringify({nodes,maxConcurrency})}),
   getOrchestrator: () => request<any>('/api/studio/delegates'),
+  getDynamicDelegates: () => request<{activeRunId:string|null;last:any}>('/api/studio/dynamic-delegates'),
+  runDynamicDelegates: (goal:string) => request<any>('/api/studio/dynamic-delegates/run',{
+    method:'POST',body:JSON.stringify({goal,confirmation:'AUTHORIZE READONLY DELEGATION'}),
+  }),
+  cancelDynamicDelegates: () => request<any>('/api/studio/dynamic-delegates/cancel',{method:'POST',body:'{}'}),
   getCodingRuns: () => request<any>('/api/studio/coding'),
   runCodingAgents: (tasks:{id:string;prompt:string;verify?:boolean}[],maxConcurrency=2) => request<any>('/api/studio/coding/run',{method:'POST',body:JSON.stringify({tasks,maxConcurrency,confirmation:'CREATE WORKTREES'})}),
   cancelCodingAgents: () => request<any>('/api/studio/coding/cancel',{method:'POST',body:'{}'}),
