@@ -105,7 +105,7 @@ export class CodingWorktreeOrchestrator {
           const gitFiles = await this.#git(['-C',worktree,'ls-files','--cached','--others','--exclude-standard','-z'],{maxBytes:250000});
           return {
             id:node.id, workspace:worktree, baseSha:job.baseSha,
-            files:gitFiles.split('\\0').filter(Boolean).slice(0,257),
+            files:gitFiles.split('\0').filter(Boolean).slice(0,257),
             parentPolicy:this.manager.permissions?.mode || 'review',
             capabilities:{checksRun:this.manager.permissions?.mode === 'autonomous'},
             revoked:signal.aborted, checks:()=>manager.studio.checks(),

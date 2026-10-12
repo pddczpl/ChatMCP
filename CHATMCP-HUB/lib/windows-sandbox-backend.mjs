@@ -114,19 +114,41 @@ export class WindowsSandboxBackend extends ExecutionBackend {
       return reply(request, 'error', [String(e.message || e).slice(0, 300)]);
     } finally {
       if (owner.instanceId) {
-        try { await this.driver.stop({ instanceId: owner.instanceId, generation: runGeneration }); owner.state = 'stopped'; }
-        catch { owner.state = 'quarantined'; this.quarantined = true; }
+        try {
+          // A driver returning nothing or claiming success without an owned-ID
+          // confirmation is not evidence that termination finished.
+          const stopped = await this.driver.stop({ instanceId: owner.instanceId, generation: runGeneration });
+          if (!stopped || stopped.stopped !== true || stopped.instanceId !== owner.instanceId) {
+            throw fault('unconfirmed_stop', 'Owned instance termination is not independently confirmed.');
+          }
+          owner.state = 'stopped';
+        } catch {
+          owner.state = 'quarantined'; this.quarantined = true;
+        }
       } else if (owner.state === 'launching' || owner.state === 'running') {
         owner.state = 'quarantined'; this.quarantined = true;
       }
       try { if (runDir) await fs.writeFile(ownershipPath, JSON.stringify(owner)); } catch {}
       if (owner.state !== 'quarantined') {
-        try { await lock?.close(); await fs.unlink(path.join(this.stateDirectory, 'active.lock')); } catch {}
-        this.active.delete(request.runId);
+        if (lock) {
+          try {
+            await lock.close();
+            await fs.unlink(path.join(this.stateDirectory, 'active.lock'));
+          } catch {
+            owner.state = 'quarantined'; this.quarantined = true;
+          }
+        }
+        if (owner.state !== 'quarantined') this.active.delete(request.runId);
       } else {
         await lock?.close().catch(() => {});
       }
       signal?.removeEventListener('abort', onAbort);
+      // Override any already-prepared successful receipt when cleanup/ownership
+      // cannot be confirmed. Returning success before finally would be a false
+      // attestation and might allow the next worker to run in a shared guest.
+      if (owner.state === 'quarantined') {
+        return reply(request, 'error', ['Owned guest termination or state-lock cleanup is unverified; execution quarantined.']);
+      }
     }
   }
   async cancel(runId) {
