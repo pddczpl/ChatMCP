@@ -183,3 +183,70 @@ export class WindowsSandboxCliDriver {
     return {stopped:true,instanceId};
   }
 }
+
+
+/**
+ * Resolve the real Windows Sandbox CLI only after a trusted host preflight.
+ * Reuse the SAME underlying driver for start/exec/stop: a later preflight
+ * naturally reports the owned guest as running and must not lose ownership.
+ * No automatic host fallback and no arbitrary user/model CLI path overrides.
+ */
+export class LazyWindowsSandboxDriver {
+  constructor({preflight,runtimeDirectory,nodeToolchainDirectory,stateDirectory,runCli=null}={}){
+    if(typeof preflight!=='function'||!runtimeDirectory||!nodeToolchainDirectory||
+        !stateDirectory||!path.isAbsolute(stateDirectory)) {
+      throw fault('invalid_windows_driver','Host preflight and private driver directories are required.');
+    }
+    this.preflight=preflight;
+    this.runtimeDirectory=runtimeDirectory;
+    this.nodeToolchainDirectory=nodeToolchainDirectory;
+    this.stateDirectory=stateDirectory;
+    this.runCli=runCli;
+    this.delegate=null;
+    this.launching=false;
+    this.quarantined=false;
+  }
+  async start(args){
+    if(this.delegate||this.launching||this.quarantined)
+      throw fault('sandbox_busy','A previous owned guest is running or requires manual reconciliation.');
+    this.launching=true;
+    try{
+      const pre=await this.preflight();
+      if(!pre?.available || typeof pre?.details?.cliPath!=='string' ||
+          !path.isAbsolute(pre.details.cliPath)){
+        throw fault('sandbox_preflight_blocked','Windows Sandbox CLI path or OS requirements are not verified.');
+      }
+      // Pin this instance to the preflight-selected CLI until it is stopped.
+      const delegate=new WindowsSandboxCliDriver({
+        cliPath:pre.details.cliPath,
+        runtimeDirectory:this.runtimeDirectory,
+        nodeToolchainDirectory:this.nodeToolchainDirectory,
+        stateDirectory:this.stateDirectory,
+        runCli:this.runCli,
+      });
+      this.delegate=delegate; // persist intent before invoking wsb start
+      return await delegate.start(args);
+    }catch(error){
+      // If guest launch began and status is uncertain, block new attempts.
+      // An explicit host investigation is safer than an automatic replay.
+      if(this.delegate)this.quarantined=true;
+      throw error;
+    }finally{this.launching=false;}
+  }
+  async execute(args){
+    if(!this.delegate||this.quarantined)
+      throw fault('sandbox_not_owned','No trusted active owned Windows guest.');
+    return this.delegate.execute(args);
+  }
+  async stop(args){
+    if(!this.delegate)throw fault('sandbox_not_owned','Cannot stop a guest without trusted ownership.');
+    try{
+      const result=await this.delegate.stop(args);
+      if(!result?.stopped||result.instanceId!==args.instanceId)
+        throw fault('sandbox_stop_unconfirmed','Guest termination has not been independently confirmed.');
+      this.delegate=null;
+      this.quarantined=false;
+      return result;
+    }catch(error){this.quarantined=true;throw error;}
+  }
+}
