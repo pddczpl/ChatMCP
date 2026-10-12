@@ -82,6 +82,12 @@ export function OrchestratorTab(){
             <strong>{w.id} · {w.status}</strong>
           </label>
           <p className="text-[10px] text-[var(--muted)] break-all">{w.branch}</p><p>Changed: {(w.changedFiles||[]).join(', ')||'none'}</p>
+          {w.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy} onClick={async()=>{
+            if(prompt('Type PUBLISH DRAFT PR to push ONLY worker '+w.id+' and create a draft GitHub PR')!=='PUBLISH DRAFT PR')return;
+            setCodingBusy(true);try{const result=await api.publishCodingAgents(activeCoding.id,w.id);showToast('Worker Draft PR: '+result.prUrl,'success');await refetchCoding();}
+            catch(e:any){showToast(e.message||'Worker publishing failed','error');}finally{setCodingBusy(false);}
+          }}>Draft PR for {w.id}</Button>}
+          {w.prUrl&&<p className="text-[var(--muted)] break-all">PR: {w.prUrl}</p>}
           {w.summary&&<p className="text-[var(--muted)] whitespace-pre-wrap">{w.summary}</p>}{w.error&&<p role="alert" className="text-red-400">{w.error}</p>}
         </div>)}
         {activeCoding.integration&&<p>Integration: {activeCoding.integration.status} · {activeCoding.integration.branch}</p>}

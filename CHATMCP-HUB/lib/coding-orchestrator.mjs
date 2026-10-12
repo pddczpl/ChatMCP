@@ -218,20 +218,28 @@ export class CodingWorktreeOrchestrator {
       return job.integration;
     }finally{this.integrating=false;}
   }
-  async publish({runId,confirmation}={}){
+  async publish({runId,confirmation,workerId=null}={}){
     if(this.active||this.integrating)throw fail('coding_busy','Another coding job is active.',409);
     if(confirmation!=='PUBLISH DRAFT PR')throw fail('confirmation_required','Type PUBLISH DRAFT PR to push/create a GitHub pull request.',403);
     const job=this.jobs.get(runId);
-    if(!job||job.workspace!==this.manager.workspace||job.integration?.status!=='ready_for_review')throw fail('integration_missing','Integrate and review changes before publishing.',409);
+    if(!job||job.workspace!==this.manager.workspace)throw fail('run_not_found','Coding run is not in the active workspace.',409);
+    const worker=workerId===null?null:job.workers.find(x=>x.id===workerId&&x.status==='ready_for_review'&&x.commitSha);
+    if(workerId!==null&&!worker)throw fail('worker_not_ready','Only reviewed committed coding workers can create individual PRs.',409);
+    if(!worker&&!['ready_for_review','draft_pr_created'].includes(job.integration?.status))throw fail('integration_missing','Integrate first or select a reviewed individual worker.',409);
+    if(!job.baseBranch)throw fail('detached_base','Cannot target an implicit GitHub base while workspace HEAD is detached.',409);
+    const publishBranch=worker?.branch||job.integration.branch;
+    if((worker?.prUrl||job.integration?.prUrl))return {status:'draft_pr_created',prUrl:worker?.prUrl||job.integration.prUrl,branch:publishBranch,workerId};
     const remote=await this.#git(['remote','get-url','origin']);
     if(!/^(https:\/\/github\.com\/[a-z0-9_.-]+\/[a-z0-9_.-]+(?:\.git)?|git@github\.com:[a-z0-9_.-]+\/[a-z0-9_.-]+(?:\.git)?)$/i.test(remote)){
       throw fail('unsupported_remote','Only GitHub origin remotes are supported for automated PR publishing.',403);
     }
     const git=this.manager.studio.gitRunner;
-    const push=await git.text(['push','--set-upstream','origin',job.integration.branch],{writes:true,timeoutMs:90000});
+    const push=await git.text(['push','--set-upstream','origin',publishBranch],{writes:true,timeoutMs:90000});
     getError(push,'GitHub branch push');
-    const args=['pr','create','--draft','--head',job.integration.branch,'--base',job.baseBranch||'main','--title','ChatMCP coding agents: '+job.id.slice(0,12),'--body',
-      'Worktree integration of '+job.integration.merged.join(', ')+'.\nGenerated changes require manual review and real project tests.'];
+    const args=['pr','create','--draft','--head',publishBranch,'--base',job.baseBranch,'--title',
+      'ChatMCP '+(worker?'worker '+worker.id:'integration')+': '+job.id.slice(0,12),'--body',
+      (worker?'Individual coding agent '+worker.id:'Worktree integration of '+job.integration.merged.join(', '))+
+      '.\nAI-generated changes require manual review and real project tests.'];
     // GitHub CLI intentionally runs only in this explicit, confirmed action.
     const env=scrubEnv(process.env,{secrets:this.manager.secrets||[]});
     const output=await new Promise((resolve,reject)=>{
@@ -243,8 +251,8 @@ export class CodingWorktreeOrchestrator {
       proc.on('error',reject);
       proc.on('close',code=>{clearTimeout(timeout);code===0?resolve(out.trim()):reject(fail('gh_failed','GitHub CLI PR creation failed: '+bounded(err,300),409));});
     });
-    job.integration.prUrl=output;job.integration.status='draft_pr_created';
+    if(worker){worker.prUrl=output;}else{job.integration.prUrl=output;job.integration.status='draft_pr_created';}
     await this.#save();
-    return job.integration;
+    return {status:'draft_pr_created',prUrl:output,branch:publishBranch,workerId};
   }
 }
