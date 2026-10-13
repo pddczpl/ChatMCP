@@ -1,3 +1,71 @@
+# ANTIGRAVITY_NEXT_TASK — Round 5: Genuine WMI Evidence, Native Token Errors and Trusted Publisher Transport
+
+Date: 2026-10-13
+Assigned to: Antigravity, real Windows workspace F:\Personal_Project\Vin\ChatMCP
+Repository: https://github.com/pddczpl/ChatMCP
+Integration branch: feat/phase1-complete-autonomous-coding
+PR: https://github.com/pddczpl/ChatMCP/pull/13
+Issue: https://github.com/pddczpl/ChatMCP/issues/14
+Decision: Phase 1 G4 BLOCKED. Do NOT merge PR #12/#13, tag or release.
+
+## A. Why Round 5 supersedes Round 4
+
+Antigravity's Round 4 report at commit 504168d246de03692671263efc627b5ed8ef50e2 reports G3 child token/security improvements, 9/9 push and 9/9 PR CI, 62/62 Hub tests, 46/46 UI tests, 42/42 installer payload checks and 17/17 actual Windows Sandbox coding functional checks. GitHub independently verified the hosted CI on that SHA. The reported G4 BLOCKED verdict is correct because the HMAC key still traverses a guest-writable mapped host output directory; host NTFS ACL behavior through the VM redirector cannot be assumed to isolate low-trust guest users.
+
+Independent GitHub review found a critical error in the evidence: GuestSupervisor's RunChildProbe() had been printing PARENT_CMDLINE_EMPTY=True and PARENT_AUTH_KEY_VISIBLE=False as hard-coded constants rather than querying WMI. Those booleans cannot establish key confidentiality. GitHub has replaced them with a real Get-CimInstance Win32_Process query launched by the restricted child, with explicit PARENT_WMI_STATUS, and has made the acceptance test refuse missing/failed/unsupported queries. Source-only regressions guard against restoring the hardcoded PASS behavior.
+
+Additional security patch: SecureSupervisorProcess() now fails closed if OpenProcessToken or SetKernelObjectSecurity fails rather than silently continuing without token hardening.
+
+Do not revert these checks simply to make 28/28 green. The new changes MUST be compiled and tested on real Windows at the final PR HEAD. Read current remote HEAD first; older fixed hashes are only historical references.
+
+## B. Initial steps
+
+1. Open the actual authorized workspace. Inspect git status, branch, remote, uncommitted changes, AGENTS.md and instructions. Preserve unrelated changes; use a safe separate worktree if necessary.
+2. Run git fetch origin and gh pr view 13; read the latest file directly using:
+   git show origin/feat/phase1-complete-autonomous-coding:docs/agent-handoffs/ANTIGRAVITY_NEXT_TASK.md
+3. Read the current source BEFORE editing:
+   - CHATMCP-HUB/windows/sandbox/GuestSupervisor/Program.cs (ProbeParentWmi, RunChildProbe, SecureSupervisorProcess, WDAG token)
+   - CHATMCP-HUB/tests/windows-sandbox/real-guest.mjs (G3, WMI and mapped key G4)
+   - CHATMCP-HUB/tests/verify-windows-driver.mjs
+   - CHATMCP-HUB/lib/windows-sandbox-driver.mjs, windows-sandbox-publisher.mjs and windows-sandbox-backend.mjs
+   - docs/PHASE1-STAGED-STATUS.md and Issue #14 comments
+
+## C. Real G3 restricted-child evidence and native failure handling
+
+1. Build/publish the self-contained GuestSupervisor.exe for win-x64 from current source, record exact SHA-256.
+2. Execute the updated child probe inside an OWNED disposable Windows Sandbox. Confirm child User SID is separate from SYSTEM and the actual Get-CimInstance parent query returns a real PARENT_WMI_STATUS. If a limited WDAG account cannot use CIM/PowerShell, report the real failure (including native error) as NOT VERIFIED and implement a supported native COM/WMI read-only probe; do not restore synthetic constant booleans.
+3. Check OpenProcess query/VM_READ/ALL_ACCESS errors, windowstation/desktop WRITE_DAC/WRITE_OWNER errors, TokenUser/groups/integrity, native Job Object process tree ownership and cancellation.
+4. Verify supervisor process and token DACL hardening. New source intentionally rejects failed OpenProcessToken/SetKernelObjectSecurity. If Windows denies required operations, fix the object-access design while preserving fail-closed semantics; never ignore native ACL return values.
+5. Check that rotating the system-managed WDAGUtilityAccount password, modifying Session 0 WindowStation/Desktop and spawned handles cannot mutate persistent host identities or other unowned guests.
+
+## D. G4 publisher transport must be secured before production
+
+A missing auth key in parent argv is not proof that mapped output file key material is inaccessible. Even a single synthetic file-read denial at one moment does not prove security against pre-existing guest child processes or redirector ACL races. The updated security suite keeps G4 BLOCKED instead of upgrading it from these observations.
+
+1. Use a disposable synthetic key and an independently launched lower-trust guest process already running BEFORE the host creates the key. Probe read/open/reparse/replace/race while the HMAC key exists; record only access granted/denied and Win32 codes. Never print/hash/commit key material.
+2. Investigate a supported supervisor-only publish/response channel that never exposes a bearer key through a guest-writable mapped folder. Probe the actual installed wsb exec --raw stdout/stderr and instance-bound result pathway; prove the untrusted child cannot forge supervisor-owned output. Consider any native pipe only after proving actual cross-VM transport works. If no mechanism is secure, leave G4 BLOCKED and shipping hostAttested:false.
+3. Preserve owned instance UUID, launch generation, immutable snapshot/check hashes, pinned supervisor/toolchain and anti-replay binding. Test malicious guest-generated fake completed/exitCode 0 receipt plus matching SHA256 and attempted HMAC signature, with host reading the resulting files UNMODIFIED.
+4. Verify output limits, junction/hardlink/reparse swaps, forged signals, WMI/argv/handle key reads, process restart, timeout, concurrent pre-existing guest and cleanup. Distinguish source/mock and diagnostic signed results from production security attestation.
+
+## E. Integration, CI and installer
+
+1. Repeat actual WorkerTestBroker → ExecutionSnapshotStore → WindowsSandboxBackend → owned CLI → GuestSupervisor → trusted publisher, with scripted model and disposable Node project: FAIL → change implementation (not assertions) → PASS. Test grant revocation and permission changes during asynchronous probe; no native host fallback.
+2. Re-run actual real-guest.mjs and real-coding-e2e.mjs SERIALIZED, plus all relevant Hub regression suites, React unit/E2E/build, Native DLL publish and installer payload/build, after any security-affecting edit. Each PASS or FAIL must include actual exit code, binary and source SHA.
+3. Do not stop other users' Sandbox instances. Stop only positively owned UUID+generation. Ambiguous launch/stop, stale lock and orphan process must quarantine, not blindly retry.
+4. A packaged installer build plus WebView2 smoke is not a clean-machine install/upgrade/uninstall trial. Perform the latter only in an owner-approved disposable Windows environment, or report NOT VERIFIED.
+
+## F. Product constraints, Git rules, final report
+
+ChatMCP is a standalone local Windows desktop app, not an IDE or VS Code plugin. User chooses Base URL, API key and model; provider manages billing/usage. DO NOT reintroduce ChatMCP token, request or monetary budgets. Preserve explicit Full Access confirmation, which does not imply Windows administrator elevation and does not bypass isolated worker tests. No paid model calls in these diagnostics.
+
+No destructive git reset/clean, force push, merging PR #12/PR #13, changing main, enabling OS features, reboot, stopping unowned Sandbox or release. Keep production publisher hostAttested:false until independent Windows security review passes.
+
+Commit scoped changes only to feat/phase1-complete-autonomous-coding; verify all 9 PR + 9 push CI jobs on exact final SHA. Final Vietnamese report MUST contain initial/final SHA, changed files, native binary hash, real child SID/token DACL, genuine WMI status (not fabricated), separate key-read and guest forgery evidence, fail→repair→PASS receipts, OS build and CLI, owned instance/cleanup proof, clean-installer status and G1–G6 PASS/FAIL/BLOCKED/NOT VERIFIED with exact command exit codes. If WMI support or key transfer cannot be proven, report the blocker and leave production disabled.
+
+Round 4 and earlier instructions follow as historical context. Round 5 above takes precedence.
+
+---
+
 # ANTIGRAVITY_NEXT_TASK — Round 4: Validate Windows ACL and HMAC-Key Handoff
 
 **Date:** 2026-10-13. **Decision:** G3 non-SYSTEM child SID improved; **G4 production publisher attestation remains BLOCKED/NOT VERIFIED.** Keep PR #12/#13 Draft; no merge or release.
