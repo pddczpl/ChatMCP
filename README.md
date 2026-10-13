@@ -12,6 +12,8 @@
 
 The unreleased Phase 0 fixes reconnect the current React UI to persisted task history, the live permission gate, plans, Git and terminal data. See the [desktop contract audit](docs/PHASE0-DESKTOP-CONTRACT-AUDIT.md), [execution report](docs/PHASE0-EXECUTION-REPORT.md) and [next Phase 1 implementation plan](docs/PHASE1-IMPLEMENTATION-PLAN.md) for verified behavior, remaining gates and ordered work. A model's final answer does not certify that tests passed.
 
+**Phase 2 (unreleased, stacked above Phase 1):** [Reliable autonomous development — recovery and owner-reviewed context previews](docs/PHASE2-LOCAL-RELIABILITY.md). Recovery journals are human-review only and cannot authenticate tests. This Draft PR does not modify the validated Phase 1 Windows Sandbox publisher or enable host fallbacks.
+
 **Current Phase 1 development:** [G4/G6 acceptance and exact artifact evidence](docs/agent-handoffs/G4-G6-EXECUTION-2026-10-13.md). Supported Windows machines can run approved [native black-box checks](docs/PHASE1-BLACKBOX-CHECKS.md) with a separate native grader and authenticated sealed results. Ordinary Node tests remain unverified and cannot use this scoped production path. See the [publisher transport decision](docs/PHASE1-G4-PUBLISHER-TRANSPORT-ADR.md), [clean Windows lifecycle harness](docs/PHASE1-G6-CLEAN-WINDOWS.md), and [staged history](docs/PHASE1-STAGED-STATUS.md). This branch remains unreleased and PR #13 remains Draft.
 
 | Capability | Status | Important limitations |

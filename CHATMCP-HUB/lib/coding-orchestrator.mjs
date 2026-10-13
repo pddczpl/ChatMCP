@@ -13,6 +13,8 @@ import { readJson, writeJson } from './runtime.mjs';
 import { WorkerTestBroker } from './worker-test-broker.mjs';
 import { createExecutionSnapshot } from './execution-snapshots.mjs';
 import { runVerifiedCoding } from './coding-verification-loop.mjs';
+import { CodingRecoveryJournal } from './coding-recovery-journal.mjs';
+import { previewManagedCodingContext } from './coding-context-preview.mjs';
 import { attachWorkerTestTools } from './worker-tools.mjs';
 
 const fail = (code, msg, statusCode=400)=>Object.assign(new Error(msg),{code,statusCode});
@@ -40,29 +42,190 @@ export class CodingWorktreeOrchestrator {
     this.bundleRoot=bundleRoot;this.createWorker=createWorker;
     this.active=null;this.controller=null;this.runners=new Map();this.jobs=new Map();this.integrating=false;
     this.writes=Promise.resolve();
+    this.recoveryFault=null;
     this.checkBrokers=new Map();
+    this.recoveryJournal=new CodingRecoveryJournal({directory:path.join(this.directory,'recovery')});
   }
   async load(){
-    const saved=await readJson(path.join(this.directory,'jobs.json')).catch(()=>null);
-    if(Array.isArray(saved?.jobs))for(const j of saved.jobs.slice(-20)){
-      if(j?.id&&/^[a-f0-9-]{36}$/i.test(j.id)){
-        if(j.status==='running'||j.status==='preparing')j.status='interrupted';
-        this.jobs.set(j.id,j);
+    // Corrupt/truncated jobs.json MUST NOT silently become an empty history.
+    // The desktop may still open, but starting new coding work stays blocked
+    // until the owner explicitly reconciles the on-disk recovery state.
+    const file=path.join(this.directory,'jobs.json');
+    let saved;
+    try {
+      saved=await readJson(file);
+    }catch(error){
+      if(error?.code==='ENOENT')return;
+      this.recoveryFault='Unreadable saved coding jobs; inspect the journal before new work.';
+      return;
+    }
+    if(saved==null)return;
+    if(saved.version!==1||!Array.isArray(saved.jobs)||
+       saved.jobs.length>20||saved.jobs.some(j=>
+         !j||typeof j!=='object'||!(/^[a-f0-9-]{36}$/i.test(j.id||''))||
+         typeof j.status!=='string'||typeof j.baseSha!=='string'||
+         !/^[0-9a-f]{40}$/i.test(j.baseSha)||
+         !Array.isArray(j.workers)||j.workers.length>4||
+         j.workers.some(w=>!w||typeof w!=='object'||
+           typeof w.status!=='string'||typeof w.id!=='string'))) {
+      this.recoveryFault='Invalid saved coding job schema; manual recovery required.';
+      return;
+    }
+    const inFlight=new Set(['queued','running','preparing','testing','awaiting_test_grant','committing']);
+    for(const original of saved.jobs){
+      const j=structuredClone(original);
+      // Journal entries are fsynced BEFORE jobs.json. A crash between
+      // the two writes can leave an older jobs.json falsely reporting a
+      // completed run. Compare only runs WITH an existing journal; legacy
+      // archived runs without one stay on the normal migration path.
+      let checkpoint;
+      try { checkpoint=await this.recoveryJournal.inspect(j.id); }
+      catch(error) {
+        this.recoveryFault='Recovery journal unreadable, locked or tampered; manual reconciliation required.';
+        return;
       }
+      if(checkpoint?.found) {
+        const expectedWorkerRecords=(j.workers||[]).map(w=>({
+          id:w.id,status:w.status,commitSha:w.commitSha||null,
+        }));
+        const mismatch=checkpoint.status!==j.status ||
+          checkpoint.baseSha!==j.baseSha.toLowerCase() ||
+          JSON.stringify(checkpoint.workers)!==JSON.stringify(expectedWorkerRecords);
+        if(mismatch) {
+          j.status='interrupted';
+          j.error='Checkpoint and jobs.json disagree after possible crash. Re-review managed Git worktrees and obtain fresh tests.';
+          for(const worker of j.workers) {
+            worker.status='interrupted';
+            worker.error='Checkpoint mismatch; prior worker/test result is not verified.';
+          }
+          j.verificationOutcome=null;
+        }
+      }
+      if(inFlight.has(j.status))j.status='interrupted';
+      for(const worker of j.workers){
+        if(inFlight.has(worker.status)) {
+          worker.status='interrupted';
+          worker.error='Worker interrupted by host restart. Review source and obtain fresh test evidence.';
+        }
+      }
+      this.jobs.set(j.id,j);
     }
   }
-  state(){return {activeRunId:this.active,integrating:this.integrating,jobs:[...this.jobs.values()].slice(-20).map(j=>({
+  state(){return {activeRunId:this.active,integrating:this.integrating,
+    recoveryFault:this.recoveryFault,jobs:[...this.jobs.values()].slice(-20).map(j=>({
     id:j.id,status:j.status,baseSha:j.baseSha,baseBranch:j.baseBranch,createdAt:j.createdAt,
     finishedAt:j.finishedAt,workers:j.workers.map(w=>({...w})),integration:j.integration||null,error:j.error||null,
   }))};}
-  #save(){
+  #save({checkpointRunId=this.active}={}){
+    if(this.recoveryFault)throw fail('recovery_unresolved',this.recoveryFault,409);
     // Every worker replaces the same file. Capture its state now and serialize
     // replacements so an older write cannot win or overlap a Windows rename.
     const snapshot=structuredClone({version:1,jobs:[...this.jobs.values()].slice(-20)});
-    const write=this.writes.then(()=>writeJson(path.join(this.directory,'jobs.json'),snapshot));
+    // The human-review-only journal stores status/hash/worker identifiers,
+    // never code, credentials, prompts, provider text or receipts. Record
+    // BEFORE replacing jobs.json so a crash cannot silently claim a checkpoint
+    // that the separate durable sequence never contained.
+    // Owner acknowledgement happens AFTER the active run stops; checkpoint
+    // that run as well so a later restart cannot mistake it for a crash.
+    const activeJob=checkpointRunId?snapshot.jobs.find(j=>j.id===checkpointRunId):null;
+    const write=this.writes.then(async()=>{
+      if(this.recoveryFault)throw fail('recovery_unresolved',this.recoveryFault,409);
+      if(activeJob)await this.recoveryJournal.append({
+        runId:activeJob.id,
+        job:{status:activeJob.status,baseSha:activeJob.baseSha,
+          workers:activeJob.workers.map(w=>({
+            id:w.id,status:w.status,commitSha:w.commitSha||null,
+          })),
+        },
+      });
+      await writeJson(path.join(this.directory,'jobs.json'),snapshot);
+    });
+    // A single failed snapshot write must fail its run, but cannot poison
+    // the persistence queue for a *new* explicitly confirmed run. The run()
+    // controller records the failure and waits for active workers to stop.
+    // Truly corrupt persisted history is handled separately by load(), which
+    // sets recoveryFault and blocks later execution until manual review.
     this.writes=write.catch(()=>{});
     return write;
   }
+  // Read-only restart assessment. Never replay previously running tools or
+  // resume a worker automatically from journal metadata.
+  async recoveryStatus({runId}={}){
+    const job=this.jobs.get(runId);
+    if(!job||job.workspace!==this.manager.workspace)
+      throw fail('run_not_found','Coding run not available in the current workspace.',404);
+    const ledger=await this.recoveryJournal.inspect(runId);
+    return Object.freeze({
+      ...ledger,jobStatus:job.status,
+      automaticToolReplay:false,requiresExplicitReview:true,
+      // Exact prior OS test receipts must be rediscovered/reauthorized.
+      verificationReceiptsTrusted:false,
+    });
+  }
+  // OWNER-ONLY acknowledgement: do NOT replay an uncertain worker action.
+  // Bind the review to the most recent journal digest so a stale UI click
+  // cannot silently dismiss a newer recovery record.
+  async acknowledgeRecovery({runId,expectedDigest,confirmation}={}){
+    if(this.active||this.integrating)throw fail('coding_busy','Wait until active workers finish.',409);
+    if(confirmation!=='REVIEW INTERRUPTED RUN')
+      throw fail('confirmation_required','Type REVIEW INTERRUPTED RUN to acknowledge the interrupted worktree.',403);
+    const job=this.jobs.get(runId);
+    if(!job||job.workspace!==this.manager.workspace)
+      throw fail('run_not_found','Coding job is not in the selected workspace.',404);
+    if(job.status!=='interrupted')
+      throw fail('recovery_not_interrupted','Only an interrupted run can be acknowledged.',409);
+    const snapshot=await this.recoveryJournal.inspect(runId);
+    if(!snapshot.found||snapshot.integrityDigest!==expectedDigest||
+       !/^[a-f0-9]{64}$/i.test(expectedDigest||''))
+      throw fail('stale_recovery','Checkpoint missing or changed; inspect recovery again.',409);
+    // Do not trust previous model/test success, mutate the user's checkout,
+    // resume a process, or release any original worktree Git lock here.
+    const previousStatus=job.status,previousError=job.error;
+    job.status='needs_attention';
+    job.error='Run interrupted; owner acknowledged review requirement. Reinspect Git worktrees and obtain fresh verification before any new integration.';
+    try{
+      await this.#save({checkpointRunId:runId});
+    }catch(error){
+      // A failed atomic jobs.json save must not remove the in-memory
+      // interrupted-run safety barrier in this still-running Hub.
+      job.status=previousStatus;job.error=previousError;
+      throw error;
+    }
+    return Object.freeze({
+      runId,status:'needs_attention',acknowledged:true,
+      autoResume:false,verificationReceiptsTrusted:false,
+    });
+  }
+
+  // Manual owner UI only: read small ordinary changed files from a verified
+  // managed committed worker revision. Never send snippets to a model.
+  async contextPreview({runId,workerId,maxFiles=6}={}){
+    if(this.active||this.integrating)
+      throw fail('coding_busy','Wait until the managed coding run has stopped.',409);
+    const job=this.jobs.get(runId);
+    if(!job||job.workspace!==this.manager.workspace)
+      throw fail('run_not_found','Run is not owned by the current workspace.',404);
+    const worker=job.workers.find(w=>w.id===workerId&&
+      w.status==='ready_for_review'&&/^[a-f0-9]{40}$/i.test(w.commitSha||''));
+    if(!worker)throw fail('worker_not_ready','Only committed workers can provide a manual source preview.',409);
+    const expected=path.resolve(this.directory,'runs',runId,'trees',worker.id);
+    if(typeof worker.worktree!=='string'||path.resolve(worker.worktree)!==expected)
+      throw fail('context_unsafe_root','Untrusted or stale worker worktree record.',409);
+    if(typeof worker.branch!=='string'||
+       !worker.branch.startsWith('chatmcp/coder/'+runId.slice(0,12)+'/'))
+      throw fail('invalid_branch','Preview requires a managed worker branch.',409);
+    const sha=await this.#git(['rev-parse','--verify','refs/heads/'+worker.branch]);
+    const head=await this.#git(['-C',expected,'rev-parse','HEAD']);
+    if(sha!==worker.commitSha||head!==worker.commitSha)
+      throw fail('stale_revision','Worker revision changed; re-review before reading context.',409);
+    const dirty=await this.#git(['-C',expected,'status','--porcelain','--untracked-files=all']);
+    if(dirty)throw fail('stale_revision','Worker worktree changed after its committed revision.',409);
+    const data=await previewManagedCodingContext({
+      worktree:expected,changedFiles:worker.changedFiles,maxFiles,
+    });
+    return Object.freeze({runId,workerId,revision:sha,...data});
+  }
+
   async #git(args,{writes=false,timeoutMs=45000,maxBytes=2_000_000}={}){
     const git=this.manager.studio?.gitRunner;
     if(!git)throw fail('git_unavailable','Git Runner is not configured.',409);
@@ -70,6 +233,11 @@ export class CodingWorktreeOrchestrator {
     return getError(result,'git '+args.slice(-3).join(' '));
   }
   async #verifyRepo({clean=true}={}){
+    if(this.recoveryFault)throw fail('recovery_unresolved',this.recoveryFault,409);
+    if([...this.jobs.values()].some(j=>
+      j.workspace===this.manager.workspace && j.status==='interrupted'))
+      throw fail('recovery_review_required',
+        'An interrupted coding worktree requires owner checkpoint review before another run.',409);
     if(this.manager.backend!=='local')throw fail('unsupported_backend','Coding worktrees require local backend.',403);
     if(!this.manager.workspace||!this.manager.studio)throw fail('workspace_missing','Select a local Git workspace.',409);
     if(this.manager.taskId||this.manager.busy||this.active)throw fail('hub_busy','Wait for the active coding task.',409);
