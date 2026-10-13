@@ -23,7 +23,7 @@ const MAX_RECEIPT_FILE_BYTES = 5 * 1024 * 1024; // 5 MB ceiling for receipt JSON
  * O_NOFOLLOW is available on POSIX; Windows reparse point validation is
  * necessarily best-effort until a native no-reparse handle is audited.
  */
-function readBoundedReceiptFile(filePath, maxBytes, oversizeCode = 'unsafe_receipt') {
+export function readBoundedReceiptFile(filePath, maxBytes, oversizeCode = 'unsafe_receipt') {
   const before = fs.lstatSync(filePath);
   if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) {
     throw fault('unsafe_receipt', 'Guest output is linked or is not a regular single-link file.');
@@ -89,6 +89,7 @@ export async function prepareExecutionRequest({
   cwd = null,
   timeoutSeconds = 120,
   maxOutputBytes = 100 * 1024,
+  grader = null,
 }) {
   if (!inputDirectory || !fs.existsSync(inputDirectory)) {
     throw fault('invalid_input_dir', 'Input directory must exist.');
@@ -105,6 +106,7 @@ export async function prepareExecutionRequest({
     cwd: cwd || null,
     timeoutSeconds: Math.max(1, Number(timeoutSeconds) || 120),
     maxOutputBytes: Math.max(1024, Number(maxOutputBytes) || 100 * 1024),
+    ...(grader == null ? {} : { grader }),
   };
 
   const requestPath = path.join(inputDirectory, 'request.json');

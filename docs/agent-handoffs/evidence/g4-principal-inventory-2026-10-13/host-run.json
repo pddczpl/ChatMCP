@@ -1,0 +1,9 @@
+{
+    "runId":  "6adfd099-c6e1-4921-9928-cf5f7b7d503f",
+    "startedUtc":  "2026-10-13T15:20:28.2085333Z",
+    "purpose":  "Read-only clean guest principal inventory",
+    "owned":  true,
+    "cleanupConfirmed":  true,
+    "guestExitCode":  0,
+    "finishedUtc":  "2026-10-13T15:20:40.1184353Z"
+}

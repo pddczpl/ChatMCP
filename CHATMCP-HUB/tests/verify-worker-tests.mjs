@@ -105,7 +105,7 @@ assert.equal(parseNodeTapSummary('TAP version 13\n1..0\n# tests 0\n# pass 0\n# f
 const timestamp=new Date().toISOString();
 const sourceReceipt={
   runId:'signed-check',backend:'windows-sandbox',status:'completed',exitCode:0,
-  stdout:tap,stderr:'',startedAt:timestamp,completedAt:timestamp,durationMs:2,
+  stdout:'CHATMCP_NODE_TEST_SUMMARY:'+JSON.stringify({version:1,valid:true,tests:1,pass:1,fail:0,files:1,reasons:[],sourceProven:false,productionAuthenticated:false})+'\n',stderr:'',startedAt:timestamp,completedAt:timestamp,durationMs:2,
   truncated:false,snapshotHash:'f'.repeat(64),checkHash:descriptor.checkHash,
 };
 const sourceDescriptor={...descriptor,runId:'signed-check'};
@@ -114,11 +114,16 @@ const fixtureEvidence=recordVerificationAttempt({
   execution:{...sourceReceipt,publisherAuthenticated:true,provenance:'publisher_authenticated'},
   attempt:1,
 });
-assert.equal(fixtureEvidence.testOutcomeVerified,true);
-assert.equal(fixtureEvidence.parsedAssertions.pass,1);
+assert.equal(fixtureEvidence.testOutcomeVerified,false,'Legacy same-user Node reporting never gains native-grader authority');
+assert.equal(fixtureEvidence.registeredTests.pass,1);
 const unsignedEvidence=recordVerificationAttempt({
   descriptor:sourceDescriptor,snapshot:{contentHash:'f'.repeat(64)},grantId:grant.id,
   execution:{...sourceReceipt,publisherAuthenticated:false},attempt:1,
 });
 assert.equal(unsignedEvidence.testOutcomeVerified,false);
-console.log('PASS: scoped check grants, changed script denial, authentic positive TAP parsing and zero-test rejection');
+const legacyTapEvidence=recordVerificationAttempt({
+  descriptor:sourceDescriptor,snapshot:{contentHash:'f'.repeat(64)},grantId:grant.id,
+  execution:{...sourceReceipt,stdout:tap,publisherAuthenticated:true,provenance:'publisher_authenticated'},attempt:1,
+});
+assert.equal(legacyTapEvidence.testOutcomeVerified,false,'Authenticated TAP can still represent only an empty file wrapper');
+console.log('PASS: scoped check grants, changed script denial, registered-test parsing and legacy TAP rejection');

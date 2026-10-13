@@ -9,12 +9,12 @@ import { HubManager } from '../lib/manager.mjs';
 import { assembleStudio } from '../lib/assemble.mjs';
 import { CodingWorktreeOrchestrator } from '../lib/coding-orchestrator.mjs';
 import { ExecutionBackend, validateCapabilityReport, validateExecutionReceipt } from '../lib/execution-contract.mjs';
+import { BLACKBOX_KIND, BLACKBOX_COMMAND } from '../lib/native-blackbox-contract.mjs';
 
 const root=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-phase1-autocoding-'));
 const work=path.join(root,'project');
 const state=path.join(root,'state');
 const git=args=>execFileSync('git',args,{cwd:work,encoding:'utf8',timeout:15000,windowsHide:true});
-const TAP='TAP version 13\n# Subtest: repaired\nok 1 - repaired\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 3\n';
 class FakeIsolatedBackend extends ExecutionBackend {
   constructor(){super('windows-sandbox');this.executions=0;}
   async probe(){return validateCapabilityReport({
@@ -29,12 +29,15 @@ class FakeIsolatedBackend extends ExecutionBackend {
     const failure=id===1;
     const receipt=validateExecutionReceipt({
       runId:request.runId,status:failure?'failed':'completed',exitCode:failure?1:0,
-      stdout:failure?'TAP version 13\nnot ok 1 - broken\n1..1\n# tests 1\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n':TAP,
+      stdout:failure?'Synthetic native comparison mismatch':'Synthetic native comparison matched',
       stderr:'',startedAt:stamp,completedAt:stamp,durationMs:1,
       backend:'windows-sandbox',snapshotHash:request.snapshotHash,checkHash:request.checkHash,
       truncated:false,evidencePath:null,reasons:failure?['Assertion failed']:[],
+      grader:{version:1,kind:'native-blackbox',manifestSha256:request.grader.manifestSha256,
+        cases:1,passed:failure?0:1,failed:failure?1:0,valid:!failure},
     });
-    return Object.freeze({...receipt,publisherAuthenticated:true,provenance:'publisher_authenticated'});
+    return Object.freeze({...receipt,publisherAuthenticated:true,provenance:'publisher_authenticated',
+      graderAuthenticated:true,publicationProtocol:'system-sealed-exit-v1'});
   }
   async cancel(){return true;}
 }
@@ -44,9 +47,13 @@ try {
   git(['config','user.name','Phase1 CI']);
   git(['config','user.email','phase1@example.invalid']);
   await fs.writeFile(path.join(work,'package.json'),JSON.stringify({
-    name:'chatmcp-test-project',version:'0.0.1',type:'module',scripts:{test:'node --test'}
+    name:'chatmcp-test-project',version:'0.0.1',type:'module'
   }));
-  await fs.writeFile(path.join(work,'example.test.mjs'),"import {test} from 'node:test'; test('placeholder',()=>{});\n");
+  await fs.writeFile(path.join(work,'adapter.mjs'),'// Scripted backend does not execute this adapter.\n');
+  await fs.mkdir(path.join(work,'chatmcp.checks'),{recursive:true});
+  await fs.writeFile(path.join(work,'chatmcp.checks','basic.json'),JSON.stringify({
+    version:1,kind:BLACKBOX_KIND,adapter:'adapter.mjs',cases:[{id:'basic',input:1,expected:2}],
+  }));
   git(['add','.']);git(['commit','-m','baseline']);
   const parent=new HubManager({bundleRoot:path.resolve('.'),dataDirectory:state,backend:'local',log:()=>{}});
   await parent.load(work);
@@ -91,8 +98,8 @@ try {
   }
   assert.equal(workerReady,true,'Verified worker must request a scoped test grant after editing.');
   const checks=(await agent.discoverWorkerChecks({workerId:'coder'})).checks;
-  assert.equal(checks.length,1,'Pinned node --test from package.json');
-  assert.equal(checks[0].command,'node --test');
+  assert.equal(checks.length,1,'Immutable declarative black-box check discovered from worker files');
+  assert.equal(checks[0].command,BLACKBOX_COMMAND);
   await agent.grantCheck({workerId:'coder',checkId:checks[0].id,confirmation:'AUTHORIZE ISOLATED CHECK'});
   const finished=await running;
   assert.equal(finished.status,'ready_for_review',JSON.stringify(finished));

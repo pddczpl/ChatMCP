@@ -1,0 +1,11 @@
+{
+    "runId":  "0edf8eda-eb16-4487-99cb-44c244c96704",
+    "hostOS":  "Microsoft Windows NT 10.0.26300.0",
+    "commit":  "497c082bdde937dad935dcec60244909dc341b6e",
+    "dirty":  true,
+    "startedUtc":  "2026-10-13T15:04:12.2354851Z",
+    "ownedId":  "0edf8eda-eb16-4487-99cb-44c244c96704",
+    "guestExitCode":  0,
+    "cleanupConfirmed":  true,
+    "finishedUtc":  "2026-10-13T15:06:11.2208205Z"
+}

@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { validateCapabilityReport } from './execution-contract.mjs';
+import { pinSandboxCliPackage } from './windows-sandbox-cli-identity.mjs';
 
 const MIN_MEMORY_MB = 8192; // Initial offline fixture target, not Microsoft's base minimum
 const MIN_DISK_MB = 10240;  // Initial fixture target; per-project toolchains vary
@@ -22,7 +23,7 @@ const MIN_DISK_MB = 10240;  // Initial fixture target; per-project toolchains va
 function safePowerShell(command) {
   try {
     return execFileSync(
-      'powershell.exe',
+      path.join(process.env.SystemRoot||'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe'),
       ['-NoProfile', '-NonInteractive', '-Command', command],
       {
         encoding: 'utf8',
@@ -144,11 +145,6 @@ export async function probeWindowsSandboxPreflight() {
   let executablePath = null;
   if (fs.existsSync(system32SandboxExe)) {
     executablePath = system32SandboxExe;
-  } else {
-    const whereResult = safePowerShell('where.exe WindowsSandbox.exe');
-    if (whereResult && fs.existsSync(whereResult.split('\r\n')[0])) {
-      executablePath = whereResult.split('\r\n')[0];
-    }
   }
 
   const featureInstalled = Boolean(executablePath);
@@ -186,26 +182,27 @@ export async function probeWindowsSandboxPreflight() {
     );
   }
 
-  // Probe wsb CLI in PATH or user WindowsApps directory (Windows execution alias)
-  let cliPath = safePowerShell('(Get-Command wsb -ErrorAction SilentlyContinue).Source');
+  // Select only the current user's exact OS-registered signed Store package.
+  // PATH and per-user execution aliases do not establish package provenance.
+  const cliPackages=safePowerShell(
+    'Import-Module "$env:SystemRoot\\System32\\WindowsPowerShell\\v1.0\\Modules\\Appx\\Appx.psd1" -ErrorAction Stop; '+
+    '@(Appx\\Get-AppxPackage -Name MicrosoftWindows.WindowsSandbox -ErrorAction Stop | ForEach-Object { '+
+    '[ordered]@{name=$_.Name;packageFullName=$_.PackageFullName;packageFamilyName=$_.PackageFamilyName;'+
+    'version=$_.Version.ToString();publisher=$_.Publisher;publisherId=$_.PublisherId;'+
+    'signatureKind=$_.SignatureKind.ToString();status=$_.Status.ToString();'+
+    'architecture=$_.Architecture.ToString();isDevelopmentMode=$_.IsDevelopmentMode;installLocation=$_.InstallLocation}'+
+    '}) | ConvertTo-Json -Compress -Depth 3'
+  );
+  let cliPackage=null;
+  try {
+    const parsed=JSON.parse(cliPackages);
+    const packages=Array.isArray(parsed)?parsed:[parsed];
+    if(packages.length===1)cliPackage=pinSandboxCliPackage(packages[0]);
+  } catch { /* Missing, ambiguous or untrusted package fails preflight. */ }
+  const cliPath=cliPackage?.cliPath||null;
   if (!cliPath) {
-    const localAppsWsb = path.join(
-      process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || 'C:\\Users\\Default', 'AppData', 'Local'),
-      'Microsoft',
-      'WindowsApps',
-      'wsb.exe'
-    );
-    try {
-      if (fs.lstatSync(localAppsWsb)) {
-        cliPath = localAppsWsb;
-      }
-    } catch {
-      // not found
-    }
-  }
-  if (!cliPath) {
-    blockers.push('Windows Sandbox CLI (wsb) is unavailable or unverified.');
-    remediations.push('After restart, check availability of wsb CLI separately from the GUI executable.');
+    blockers.push('The installed Microsoft Windows Sandbox Store CLI package is unavailable or unverified.');
+    remediations.push('Check that MicrosoftWindows.WindowsSandbox is installed with Store signature, status Ok, and its protected WindowsApps executable.');
   }
 
   // 5. Check if Windows Sandbox is already running (multi-instance conflict prevention)
@@ -252,6 +249,7 @@ export async function probeWindowsSandboxPreflight() {
       hypervisorPresent: hypervisorPresent?.toLowerCase() === 'true',
       featureState: featureState || 'unknown',
       cliPath: cliPath || null,
+      cliPackage,
       runtimeVerified: false,
       featureInstalled,
       executablePath,

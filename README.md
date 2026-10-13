@@ -12,7 +12,7 @@
 
 The unreleased Phase 0 fixes reconnect the current React UI to persisted task history, the live permission gate, plans, Git and terminal data. See the [desktop contract audit](docs/PHASE0-DESKTOP-CONTRACT-AUDIT.md), [execution report](docs/PHASE0-EXECUTION-REPORT.md) and [next Phase 1 implementation plan](docs/PHASE1-IMPLEMENTATION-PLAN.md) for verified behavior, remaining gates and ordered work. A model's final answer does not certify that tests passed.
 
-**Current Phase 1 development:** [staged implementation and outstanding safety gates](docs/PHASE1-STAGED-STATUS.md). The [G4 trusted publisher transport ADR](docs/PHASE1-G4-PUBLISHER-TRANSPORT-ADR.md) explains why writable mapped-folder HMAC remains blocked and the experimental, non-attesting CLI output probe. For the exact current Windows hardware handoff, see [Antigravity Phase 1 acceptance task](docs/agent-handoffs/ANTIGRAVITY_NEXT_TASK.md). This work is unreleased: backend sandbox execution remains blocked pending authenticated supervisor publication and supported Windows hardware acceptance.
+**Current Phase 1 development:** [staged implementation and outstanding safety gates](docs/PHASE1-STAGED-STATUS.md). The [G4 trusted publisher transport ADR](docs/PHASE1-G4-PUBLISHER-TRANSPORT-ADR.md) records the native sealed-digest experiment and remaining independent security blockers. [Native black-box checks](docs/PHASE1-BLACKBOX-CHECKS.md) use approved public examples and a separate native grader. The [G6 clean Windows lifecycle harness](docs/PHASE1-G6-CLEAN-WINDOWS.md) checks real installation, desktop launch, upgrade and uninstall with data retention. For the previous Windows hardware handoff, see [Antigravity Phase 1 acceptance task](docs/agent-handoffs/ANTIGRAVITY_NEXT_TASK.md). This work is unreleased: backend sandbox execution remains blocked pending full authenticated supervisor publication and supported Windows hardware acceptance.
 
 | Capability | Status | Important limitations |
 | --- | --- | --- |
@@ -88,7 +88,7 @@ AI providers and selected integrations can receive source/context as part of req
 node .\CHATMCP-HUB\tests\run-all.mjs
 npm ci --prefix .\CHATMCP-HUB\ui
 npm run build --prefix .\CHATMCP-HUB\ui
-# Maintainers only: .NET SDK 10+ on Windows
+# Maintainers only: .NET SDK 10+ and Visual Studio C++ build tools on Windows
 .\scripts\Build-Installer.ps1
 ~~~
 

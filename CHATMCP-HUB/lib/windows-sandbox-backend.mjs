@@ -72,6 +72,8 @@ export class WindowsSandboxBackend extends ExecutionBackend {
     });
   }
   async execute(request, { signal } = {}) {
+    if(this.publisher?.productionAuthenticated===true && typeof this.publisher.supportsRequest==='function' && !this.publisher.supportsRequest(request))
+      return reply(request,'blocked',['This check kind has not passed its scoped execution security gate.']);
     const report = await this.probe();
     if (!report.available || !request.isolationRequired || !request.snapshotHash ||
         typeof this.snapshotLookup !== 'function') {
@@ -120,7 +122,9 @@ export class WindowsSandboxBackend extends ExecutionBackend {
       }
       return Object.freeze({...receipt,
         publisherAuthenticated:true,
-        provenance:'publisher_authenticated'
+        provenance:'publisher_authenticated',
+        publicationProtocol:authenticated.publicationProtocol ?? null,
+        graderAuthenticated:authenticated.graderAuthenticated === true,
       });
     } catch (e) {
       if (controller.signal.aborted) return reply(request, 'cancelled', ['Execution cancelled; see ownership reconciliation.']);

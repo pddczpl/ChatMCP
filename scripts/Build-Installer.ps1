@@ -123,7 +123,7 @@ Copy-InstallerSourcePayload -RepositoryRoot $repoRoot -Destination $payloadDir
 # broker authenticates published guest results and the dedicated gate passes.
 $supervisorProject = Join-Path $repoRoot 'CHATMCP-HUB\windows\sandbox\GuestSupervisor\GuestSupervisor.csproj'
 $supervisorPublish = Join-Path $stagingDir 'supervisor-publish'
-& $dotnetCmd.Path publish $supervisorProject -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o $supervisorPublish | Out-Null
+& $dotnetCmd.Path publish $supervisorProject -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:PublishSingleFile=false -o $supervisorPublish | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "GuestSupervisor publish failed with exit code $LASTEXITCODE" }
 $trustedSupervisor = Join-Path $supervisorPublish 'GuestSupervisor.exe'
 if (-not (Test-Path -LiteralPath $trustedSupervisor -PathType Leaf)) { throw 'Published GuestSupervisor.exe is missing.' }
