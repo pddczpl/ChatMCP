@@ -95,6 +95,9 @@ export function OrchestratorTab(){
         {(codingBusy||codingState?.activeRunId)&&<Button size="sm" variant="danger" onClick={async()=>{try{await api.cancelCodingAgents();showToast('Stop requested','info');}catch(e:any){showToast(e.message||'Stop failed','error');}}}>Stop</Button>}
       </div>
       <IsolatedChecksPanel />
+      {codingState?.recoveryFault&&<p role="alert" className="text-red-400 border border-red-400 rounded p-2">
+        Coding recovery locked: {codingState.recoveryFault}. Inspect the local recovery journal; no interrupted tools will be replayed.
+      </p>}
       {activeCoding&&<div className="space-y-2 border-t border-[var(--line)] pt-2">
         <div className="font-semibold">Run {activeCoding.id?.slice(0,8)} — {activeCoding.status}</div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -108,6 +111,19 @@ export function OrchestratorTab(){
               showToast(e.message||'Recovery journal unavailable; manual review required.','error');
             }
           }}>Inspect recovery</Button>
+          {activeCoding.status==='interrupted'&&codingRecovery?.runId===activeCoding.id&&
+            codingRecovery.found&&codingRecovery.integrityDigest&&
+            <Button size="sm" variant="outline" disabled={codingBusy} onClick={async()=>{
+              if(prompt('Review the interrupted worktree and checkpoint first. Type REVIEW INTERRUPTED RUN to mark it needs_attention (NO automatic resume)')!=='REVIEW INTERRUPTED RUN')return;
+              setCodingBusy(true);
+              try{
+                await api.acknowledgeCodingRecovery(activeCoding.id,codingRecovery.integrityDigest);
+                setCodingRecovery(null);
+                await refetchCoding();
+                showToast('Interrupted run acknowledged; fresh manual review and verification remain required.','warning');
+              }catch(e:any){showToast(e.message||'Recovery checkpoint changed; re-inspect before acknowledgement.','error');}
+              finally{setCodingBusy(false);}
+            }}>Acknowledge interrupted run</Button>}
           <span className="text-[10px] text-[var(--muted)]">Crash recovery is read-only. No uncertain tool/test/merge is replayed.</span>
         </div>
         {codingRecovery?.runId===activeCoding.id&&
