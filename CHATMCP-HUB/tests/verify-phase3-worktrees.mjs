@@ -47,6 +47,13 @@ try{
       }else if(node.id==='left'||node.id==='right'){
         await fs.writeFile(path.join(worktree,'shared.js'),
           'export const worker='+JSON.stringify(node.id)+';\n');
+      }else if(node.id==='overflow'){
+        // Exceeds the trusted 250-file conflict inventory limit. The
+        // orchestrator must refuse to commit rather than silently truncate.
+        for(let i=0;i<251;i++){
+          await fs.writeFile(path.join(worktree,'overflow-'+String(i).padStart(3,'0')+'.js'),
+            'export const n='+i+';\n');
+        }
       }
       return {state:'completed',summary:'Scripted worker completed; no model tools used.',toolCalls:0};
     },
@@ -101,6 +108,19 @@ try{
   assert.equal(orchestrator.jobs.get(conflict.id).integration,null,
     'Conflict must be detected BEFORE integration worktree creation');
   assert.equal(git('rev-parse','HEAD').trim(),run.baseSha);
+  const overflow=await orchestrator.run({
+    confirmation:'CREATE WORKTREES',tasks:[
+      {id:'overflow',prompt:'Create more files than safely reportable'},
+    ],
+  });
+  const overflowWorker=orchestrator.jobs.get(overflow.id).workers[0];
+  assert.equal(overflow.status,'partial_failure');
+  assert.equal(overflowWorker.status,'failed');
+  assert.equal(overflowWorker.commitSha,null,
+    'Over-limit worker must not publish a commit missing some changed paths');
+  assert.match(overflowWorker.error,/more than 250 files/i);
+  assert.equal(git('rev-parse','HEAD').trim(),run.baseSha,
+    'User checkout remains unchanged after overflow');
   console.log('PASS: Phase3 real Git-worktree DAG inheritance, review tokens, manual-only recovery and conflict preflight; no host model shell');
 }finally{
   if(parent)await parent.shutdown().catch(()=>{});
