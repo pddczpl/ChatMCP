@@ -141,6 +141,7 @@ function updateJournal(status, extra = {}) {
 
 export async function runRealGuestTests() {
   let publisherKeyGate='NOT_VERIFIED';
+  let childUserSidGate='NOT_VERIFIED';
   console.log('=== CHATMCP PHASE 1: REAL WINDOWS SANDBOX GUEST VALIDATION ===\n');
 
   // [A] Host Preflight & Ownership Initialization
@@ -267,7 +268,7 @@ export async function runRealGuestTests() {
       inputDirectory: inputDir,
       runId: 'exec-priv-' + crypto.randomBytes(4).toString('hex'),
       command: 'cmd.exe',
-      args: ['/c', 'echo HELLO_RESTRICTED && whoami && whoami /priv && echo ---GROUPS--- && whoami /groups'],
+      args: ['/c', 'echo HELLO_RESTRICTED && whoami && echo ---USER--- && whoami /user && echo ---PRIV--- && whoami /priv && echo ---GROUPS--- && whoami /groups'],
       timeoutSeconds: 20,
       maxOutputBytes: 40960,
     });
@@ -312,7 +313,14 @@ export async function runRealGuestTests() {
     const privResult = parseAndVerifyChildPrivileges(receipt1.stdout);
     assert.ok(privResult.parsedCount > 0, 'Must have parsed child token privileges');
     parseAndVerifyChildGroups(receipt1.stdout);
-    ok(`[C] Child OS token verified: zero dangerous privileges enabled, admin group deny-only (${privResult.parsedCount} privileges audited)`);
+    const userRegion=receipt1.stdout.split('---USER---')[1]?.split('---PRIV---')[0] || '';
+    const reportedChildSid=userRegion.match(/\bS-1-[0-9-]+\b/)?.[0];
+    assert.ok(reportedChildSid,'Guest must expose an independently parsed child User SID.');
+    childUserSidGate=reportedChildSid==='S-1-5-18'?'FAIL':'NOT_VERIFIED';
+    if(childUserSidGate==='FAIL'){
+      console.error('    [G3 SECURITY FAIL] Project test child retains SYSTEM User SID S-1-5-18.');
+    }
+    ok(`[C] Child privileges/groups audited; SID=${reportedChildSid}; G3=${childUserSidGate}`);
 
     // Adversarial: Restricted child attempts to inspect supervisor command line & process handles
     const reqInspect = await prepareExecutionRequest({
@@ -375,7 +383,7 @@ export async function runRealGuestTests() {
     const keyVisible=audit.includes('PARENT_AUTH_KEY_VISIBLE=True');
     const keyHidden=audit.includes('PARENT_AUTH_KEY_VISIBLE=False');
     assert.ok(keyVisible||keyHidden,'Guest WMI probe did not return a definitive boolean key observation.');
-    publisherKeyGate=keyVisible?'FAIL':'BLOCKED';
+    publisherKeyGate=keyVisible||childUserSidGate==='FAIL'?'FAIL':'BLOCKED';
     if(keyVisible){
       console.error('    [G4 SECURITY FAIL] Restricted test child read SYSTEM supervisor HMAC bearer-key command-line value through WMI.');
     }else{
@@ -735,12 +743,12 @@ export async function runRealGuestTests() {
     } catch {}
   }
 
-  if(publisherKeyGate!=='PASS'){
-    console.error('PHASE 1 SECURITY GATE G4 '+publisherKeyGate+
+  if(publisherKeyGate!=='PASS'||childUserSidGate!=='PASS'){
+    console.error('PHASE 1 SECURITY GATES G3='+childUserSidGate+' G4='+publisherKeyGate+
       ': supervisor key confidentiality is not independently established. NO MERGE / NO RELEASE.');
     console.log('Functional Windows guest checks completed: '+checks+
       '; this is NOT a passing production security suite.');
-    return {success:false,checks,securityGate:'G4',verdict:publisherKeyGate};
+    return {success:false,checks,securityGates:{G3:childUserSidGate,G4:publisherKeyGate}};
   }
   console.log(`\nPASS: All ${checks} real Windows Sandbox validation checks SUCCEEDED.`);
   return {success:true,checks,securityGate:'G4',verdict:'PASS'};
