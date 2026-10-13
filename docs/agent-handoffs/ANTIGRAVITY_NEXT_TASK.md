@@ -1,5 +1,10 @@
 # ANTIGRAVITY_NEXT_TASK — Round 3, Confirmed HMAC Key Leak (2026-10-13)
 
+
+**New acceptance-test contract:** The current real-guest.mjs now includes the child User SID (whoami /user), parses that SID and checks the Boolean PARENT_AUTH_KEY_VISIBLE via restricted-child WMI, without logging any HMAC secret. It deliberately returns **nonzero G3/G4 security acceptance** while the child remains SYSTEM or the key remains exposed. Do NOT "fix" that failing test by bypassing its verdict. Make the OS boundary genuinely secure and re-run the real guest test on the final SHA.
+
+The owner-only cleanup utility is exercised by verify-windows-driver.mjs and the real-coding-e2e.mjs diagnostic. Any new or unowned Windows Sandbox guest seen during cleanup must NEVER be stopped by the test. The real-coding E2E success status is explicitly **FUNCTIONAL DIAGNOSTIC ONLY**, not a security gate. Shipping assemble.mjs must continue to construct WindowsSandboxPublisher with hostAttested:false until independently approved.
+
 **P0 SECURITY DEFECT CONFIRMED BY REAL WINDOWS GUEST:** A restricted test child still has SYSTEM User SID S-1-5-18 and can retrieve the SYSTEM supervisor's command-line HMAC bearer key using WMI. Reducing privileges and marking Administrators deny-only DOES NOT change the token's user SID. **G4 = FAIL. PHASE 1 = BLOCKED.**
 
 **TRACKING ISSUE:** https://github.com/pddczpl/ChatMCP/issues/14 (mandatory prerequisite to Phase 1 security acceptance; NOT optional Phase 2 work).

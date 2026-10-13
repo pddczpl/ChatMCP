@@ -42,7 +42,7 @@ Antigravity reported Windows 11 Pro build 26300, 25 prototype Windows Sandbox ch
 | --- | --- | --- |
 | G1 — Host readiness | PASS reported by Antigravity | Windows hardware preflight, no direct independent workstation access |
 | G2 — Owned guest lifecycle | Prototype PASS reported; full stack NOT VERIFIED | Real guest fixture directly invokes wsb; worker E2E uses fake backend |
-| G3 — Restricted child / Job Object | Prototype PASS reported; final integrated gate NOT VERIFIED | Need final-SHA token/ACL and supervisor key visibility probes |
+| G3 — Restricted child / Job Object | **FAIL: test child retains SYSTEM User SID** | Need final-SHA token/ACL and supervisor key visibility probes |
 | G4 — Authenticated publication | **FAIL: key disclosure confirmed** | HMAC secret remains in SYSTEM process argv; host fixture modifies receipt/recomputes SHA256; hostAttested:false correctly locks production |
 | G5 — OS negative probes | Reported PASS for specified canary/network checks | Actual malicious restricted-child receipt forgery and key visibility still unverified |
 | G6 — Tests and distribution | Source CI pass on OLD SHA; clean install NOT VERIFIED | Installer build, payload regression, WebView2 smoke != install/upgrade/uninstall |
@@ -57,3 +57,5 @@ Antigravity's restricted child still used SYSTEM User SID S-1-5-18 after CreateR
 The script real-coding-e2e.mjs reports a genuine guest FAIL then scripted source repair then guest PASS using a test-scoped injected publisher. Because the key is exposed, that is evidence of **full-stack functional wiring**, not trustworthy production publisher authenticity. The script's prior cleanup attempted to stop every Sandbox returned by wsb list; GitHub corrected it to stop only positively owned UUIDs, with unknown instances left untouched and reported BLOCKED.
 
 The real-guest hardware suite now treats Boolean WMI visibility of the bearer key as G4 FAIL with a nonzero acceptance exit and no key output, even when its remaining functional OS probes pass. This is an intentionally failing security gate until the token identity/key-channel defect is genuinely corrected. New Windows acceptance tasks: [Round 3 handoff](agent-handoffs/ANTIGRAVITY_NEXT_TASK.md). Production hostAttested:false remains mandatory.
+
+**Updated diagnostic gate:** real-guest.mjs reports child SID S-1-5-18 as G3 FAIL, and restricted-child Boolean WMI access to supervisor authKey as G4 FAIL (without logging the key). Its CLI returns nonzero until genuine native isolation is implemented. The end-to-end fail/repair/PASS test remains functional-only while test-scoped hostAttested:true is injected; production assembly is still false.
