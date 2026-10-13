@@ -11,13 +11,13 @@ import { fileURLToPath } from 'node:url';
 import { WindowsSandboxCliDriver } from '../../lib/windows-sandbox-driver.mjs';
 import { WindowsSandboxPublisher } from '../../lib/windows-sandbox-publisher.mjs';
 import { WindowsSandboxBackend } from '../../lib/windows-sandbox-backend.mjs';
-import { ExecutionRegistry } from '../../lib/execution-contract.mjs';
+import { ExecutionRegistry, validateExecutionRequest } from '../../lib/execution-contract.mjs';
 import { ExecutionSnapshotStore } from '../../lib/execution-snapshot-store.mjs';
 import { WorkerTestBroker } from '../../lib/worker-test-broker.mjs';
 import { probeWindowsSandboxPreflight } from '../../lib/windows-sandbox-probe.mjs';
 import { SEALED_PROTOCOL, readSealedReceiptBytes, sealedReceiptPayload } from '../../lib/windows-sandbox-sealed-receipt.mjs';
 import { observeUnattestedExitDigest } from '../../lib/windows-sandbox-exitcode-channel.mjs';
-import { BLACKBOX_KIND } from '../../lib/native-blackbox-contract.mjs';
+import { BLACKBOX_KIND, MAX_BLACKBOX_BYTES } from '../../lib/native-blackbox-contract.mjs';
 
 const exec=promisify(execFile);
 const sha=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
@@ -71,6 +71,27 @@ try {
   await fs.writeFile(path.join(workspace,'adapter.mjs'),normalAdapter('-'));
   const store=new ExecutionSnapshotStore({directory:path.join(root,'snapshots')});
   let activeRecord=null;
+  let diagnosticScenario=null;
+  const queryDescendant=async(instanceId,marker,token)=>{
+    assert.ok(Number.isSafeInteger(marker.pid)&&marker.pid>0);
+    assert.ok(Number.isSafeInteger(marker.parentPid)&&marker.parentPid>0);
+    assert.match(token,/^chatmcp_desc_[a-f0-9]{32}$/);
+    // Read-only SYSTEM observation, returned through the OS CLI exit channel.
+    // A missing process is accepted only after a successful CIM query; query
+    // failures or a mismatched/reused PID are distinct non-success codes.
+    const script=`$ErrorActionPreference='Stop';try { `+
+      `$p=Get-CimInstance Win32_Process -Filter 'ProcessId=${marker.pid}' -ErrorAction Stop; `+
+      `if($null -eq $p){exit 24}; `+
+      `if($p.ParentProcessId -eq ${marker.parentPid} -and `+
+      `$p.ExecutablePath -ieq 'C:\\ChatMCP\\Input\\toolchain\\node.exe' -and `+
+      `$p.CommandLine.Contains('${token}')){exit 23}; exit 25 } catch {exit 26}`;
+    const command='C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe '+
+      '-NoProfile -NonInteractive -EncodedCommand '+Buffer.from(script,'utf16le').toString('base64');
+    const result=JSON.parse((await exec(cli,['exec','--id',instanceId,'-r','System','-c',command,'--raw'],
+      {encoding:'utf8',windowsHide:true,timeout:5000,signal:controller.signal})).stdout);
+    assert.ok(Number.isInteger(result.ExitCode),'SYSTEM process observation returns a definite exit code');
+    return result.ExitCode;
+  };
   driver=new WindowsSandboxCliDriver({cliPath:cli,cliPackage:preflight.details.cliPackage,runtimeDirectory:runtime,nodeToolchainDirectory:toolchain,
     stateDirectory:path.join(root,'driver'),publicationProtocol:SEALED_PROTOCOL,
     runCli:async(args,options={})=>{
@@ -85,6 +106,7 @@ try {
   const originalExecute=driver.execute.bind(driver);
   driver.execute=async args=>{
     const owned=driver.owned.get(args.instanceId);
+    const scenario=diagnosticScenario;
     activeRecord={instanceId:args.instanceId,generation:args.generation,runId:args.request.runId,words:[]};
     report.runs.push(activeRecord);
     // The production guest starts headless. Deliberately establish its trusted
@@ -109,13 +131,47 @@ try {
     }
     const envelopeBytes=await fs.readFile(path.join(owned.input,'envelope.json'));
     activeRecord.envelopeBytesBase64=envelopeBytes.toString('base64');
+    const requestBytes=await fs.readFile(path.join(owned.input,'request.json'));
+    assert.equal(sha(requestBytes),JSON.parse(envelopeBytes).requestSha256,'exact staged timeout request is sealed');
+    activeRecord.stagedRequest=JSON.parse(requestBytes);
+    if(scenario) {
+      activeRecord.diagnosticScenario={...scenario};
+      assert.equal(activeRecord.stagedRequest.timeoutSeconds,6,'harness-only trusted timeout bound reaches native request');
+    }
+    let execution;
     try{
-      const raw=await originalExecute(args);
+      execution=originalExecute(args);
+      execution.catch(()=>{}); // observed below even if a concurrent probe fails
+      let descendant=null;
+      if(scenario?.descendantToken) {
+        const markerPath=path.join(owned.output,'descendant-ready.json');
+        const deadline=Date.now()+5000;
+        while(Date.now()<deadline) {
+          try {
+            const stat=await fs.lstat(markerPath);
+            assert.ok(stat.isFile()&&!stat.isSymbolicLink()&&stat.size<=2048,'bounded regular descendant fixture marker');
+            descendant=JSON.parse(await fs.readFile(markerPath,'utf8'));
+            break;
+          } catch(error) {if(error.code!=='ENOENT')throw error;}
+          await new Promise(resolve=>setTimeout(resolve,50));
+        }
+        assert.ok(descendant,'descendant actually reached its fixture readiness point');
+        assert.equal(descendant.token,scenario.descendantToken);
+        activeRecord.descendant={...descendant,
+          liveQueryExit:await queryDescendant(args.instanceId,descendant,scenario.descendantToken)};
+        assert.equal(activeRecord.descendant.liveQueryExit,23,'SYSTEM observes the actual live descendant and parent before timeout');
+      }
+      const raw=await execution;
       const receiptBytes=readSealedReceiptBytes(owned.output);
       activeRecord.receiptBytesBase64=receiptBytes.toString('base64');
       const nativeReceipt=JSON.parse(receiptBytes);
       activeRecord.nativeSecurity=nativeReceipt.securityEvidence;
       activeRecord.childDiagnostics=nativeReceipt.stderr;
+      if(descendant) {
+        assert.equal(descendant.parentPid,nativeReceipt.childPid,'observed descendant belongs to the native-created child');
+        activeRecord.descendant.afterCleanupQueryExit=await queryDescendant(args.instanceId,descendant,scenario.descendantToken);
+        assert.equal(activeRecord.descendant.afterCleanupQueryExit,24,'SYSTEM confirms descendant absent before guest teardown');
+      }
       const observed=observeUnattestedExitDigest({payload:sealedReceiptPayload(envelopeBytes,receiptBytes),
         rawResponses:activeRecord.words.map(word=>word.response)});
       assert.equal(observed.digestMatches,true,'independent exact-byte digest replay');
@@ -128,7 +184,12 @@ try {
       assert.equal(activeRecord.sealAudit.sealRecordBytes,72);
       assert.equal(activeRecord.sealAudit.sealOwnerSid,'S-1-5-18');
       return raw;
-    }catch(error){activeRecord.error=String(error.message);throw error;}
+    }catch(error){
+      // Never race stop/cleanup against a still-running native execution after
+      // an observation failure. A probe failure makes this acceptance fail.
+      await execution?.catch(()=>{});
+      activeRecord.error=String(error.message);throw error;
+    }
   };
   const originalStop=driver.stop.bind(driver);
   driver.stop=async args=>{
@@ -140,6 +201,9 @@ try {
   const publisher=new WindowsSandboxPublisher({attestedCheckKinds:[BLACKBOX_KIND]});
   const backend=new WindowsSandboxBackend({stateDirectory:path.join(root,'backend'),driver,publisher,
     snapshotLookup:id=>store.lookup(id)});
+  const actualBackendExecute=backend.execute.bind(backend);
+  backend.execute=(request,options)=>actualBackendExecute(diagnosticScenario?
+    validateExecutionRequest({...request,limits:{...request.limits,timeoutSeconds:6}}):request,options);
   const registry=new ExecutionRegistry();registry.register(backend);
   const worker={id:'native-blackbox-worker',workspace,files:[manifestPath,'adapter.mjs'],
     checks:async()=>({suggested:[]}),parentPolicy:'autonomous',capabilities:{checksRun:true},revoked:false};
@@ -151,10 +215,13 @@ try {
   const descriptor=descriptors[0];report.manifestSha256=sha(manifestBytes);
   ok('real broker discovers and pins declarative public cases');
   const grant=await broker.issueGrant({workerId:worker.id,checkId:descriptor.id,maxAttempts:3});
-  const run=async(label,code,{grantId=grant.id,passed=false}={})=>{
+  const run=async(label,code,{grantId=grant.id,passed=false,check=descriptor,scenario=null}={})=>{
     await fs.writeFile(path.join(workspace,'adapter.mjs'),code);
     const previousRunCount=report.runs.length;
-    const attempt=await broker.requestCheck({workerId:worker.id,checkId:descriptor.id,grantId,signal:controller.signal});
+    let attempt;
+    diagnosticScenario=scenario;
+    try {attempt=await broker.requestCheck({workerId:worker.id,checkId:check.id,grantId,signal:controller.signal});}
+    finally {diagnosticScenario=null;}
     assert.equal(report.runs.length,previousRunCount+1,label+': a real guest executed');
     report.runs.at(-1).label=label;report.runs.at(-1).attempt=attempt;
     assert.equal(report.runs.at(-1).runId,attempt.id);
@@ -165,7 +232,8 @@ try {
       assert.equal(attempt.status,'completed');assert.equal(attempt.exitCode,0);
     }else assert.notEqual(attempt.status,'completed',label+': child exit 0 must not produce completion');
     assert.equal(report.runs.at(-1).cleanup?.stopped,true);
-    ok(label);return attempt;
+    if(!scenario)ok(label);
+    return attempt;
   };
   await run('native grader rejects wrong values from initial implementation',normalAdapter('-'));
   const repaired=await run('implementation-only repair passes all three native comparisons',probeAdapter,{passed:true});
@@ -230,6 +298,57 @@ try {
   broker.revokeGrant(revoked.id);
   await assert.rejects(()=>broker.requestCheck({workerId:worker.id,checkId:descriptor.id,grantId:revoked.id}),{code:'stale_grant'});
   ok('revoked check grant cannot launch a guest');
+
+  const requireNativeTimeout=()=>{
+    const entry=report.runs.at(-1);
+    const native=JSON.parse(Buffer.from(entry.receiptBytesBase64,'base64'));
+    assert.equal(entry.digestMatches,true);
+    assert.equal(entry.attempt.publisherAuthenticated,true);
+    assert.equal(entry.attempt.testOutcomeVerified,false);
+    assert.equal(native.exitCode,null);
+    assert.ok(native.reasons.includes('Command execution exceeded timeout'),'actual native wait timed out, not infrastructure failure');
+    assert.ok(Number.isSafeInteger(native.childPid)&&native.childPid>0);
+    assert.equal(native.isGuestExecution,true);
+    assert.equal(native.restrictedChild,true);
+    assert.equal(native.jobObjectAttached,true);
+    assert.equal(native.cleanupConfirmed,true,'sealed native QueryInformationJobObject confirmed zero active processes');
+    assert.equal(native.grader.valid,false);
+    assert.equal(native.grader.passed,0);
+    assert.equal(native.grader.failed,native.grader.cases);
+    assert.ok(native.durationMs>=5500&&native.durationMs<=25000,'six-second native timeout and cleanup remain bounded');
+    assert.equal(entry.cleanup.stopped,true);
+    entry.timeoutEvidence={requestedSeconds:6,nativeDurationMs:native.durationMs,
+      nativeTimeoutObserved:true,jobAttached:true,jobEmptyConfirmed:true};
+    ok(entry.label);
+  };
+  const nonReaderManifest={version:1,kind:BLACKBOX_KIND,adapter:'adapter.mjs',cases:[
+    {id:'large_public_input',input:{padding:'a'.repeat(60*1024)},expected:null},
+  ]};
+  const nonReaderBytes=JSON.stringify(nonReaderManifest);
+  const stdinBytes=Buffer.byteLength(JSON.stringify({version:1,cases:nonReaderManifest.cases.map(({id,input})=>({id,input}))}));
+  assert.ok(Buffer.byteLength(nonReaderBytes)<=MAX_BLACKBOX_BYTES);
+  assert.ok(stdinBytes>60*1024&&stdinBytes<=MAX_BLACKBOX_BYTES);
+  await fs.writeFile(path.join(workspace,manifestPath),nonReaderBytes);
+  const [nonReaderCheck]=await broker.discoverChecks({workerId:worker.id});
+  const nonReaderGrant=await broker.issueGrant({workerId:worker.id,checkId:nonReaderCheck.id,maxAttempts:1});
+  await run('large bounded stdin with a non-reading child still times out and confirms native job cleanup',
+    'setInterval(()=>{},1000);',{grantId:nonReaderGrant.id,check:nonReaderCheck,
+      scenario:{kind:'non-reading-stdin',inputBytes:stdinBytes,manifestBytes:Buffer.byteLength(nonReaderBytes)}});
+  requireNativeTimeout();
+
+  await fs.writeFile(path.join(workspace,manifestPath),manifestBytes);
+  const [descendantCheck]=await broker.discoverChecks({workerId:worker.id});
+  const descendantGrant=await broker.issueGrant({workerId:worker.id,checkId:descendantCheck.id,maxAttempts:1});
+  const descendantToken='chatmcp_desc_'+crypto.randomBytes(16).toString('hex');
+  const descendantSource=`require('node:fs').writeFileSync('C:/ChatMCP/Output/descendant-ready.json',`+
+    `JSON.stringify({pid:process.pid,parentPid:process.ppid,token:${JSON.stringify(descendantToken)}}));setInterval(()=>{},1000);`;
+  const descendantAdapter="import {spawn} from 'node:child_process';\n"+inputPrelude+
+    `const descendant=spawn(process.execPath,['-e',${JSON.stringify(descendantSource)},'--',${JSON.stringify(descendantToken)}],{stdio:'ignore'});\n`+
+    "descendant.on('error',error=>{process.stderr.write(String(error));process.exit(7);});setInterval(()=>{},1000);\n";
+  await run('native timeout kills a SYSTEM-observed live descendant before publication and guest teardown',
+    descendantAdapter,{grantId:descendantGrant.id,check:descendantCheck,
+      scenario:{kind:'descendant-timeout',descendantToken}});
+  requireNativeTimeout();
   report.verdict='PASS';
 }catch(error){report.verdict='FAIL';report.error=String(error.stack||error);process.exitCode=1;console.error(report.error);}
 finally{

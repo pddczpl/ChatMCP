@@ -22,6 +22,7 @@ using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 
 [assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+[assembly: System.Runtime.Versioning.SupportedOSPlatform("windows")]
 
 namespace ChatMCP.Sandbox.GuestSupervisor;
 
