@@ -1340,12 +1340,80 @@ public static class Program
         }
     }
 
+    // Diagnostic only: query the *actual* parent-process WMI view from the
+    // restricted child. Never print the parent command line or any secret.
+    // Failed/unsupported WMI queries are NOT VERIFIED, never a fabricated PASS.
+    private static (string Status, string? CommandLineEmpty, string? AuthKeyVisible) ProbeParentWmi(int parentPid)
+    {
+        if (parentPid <= 0) return ("PARENT_NOT_FOUND", null, null);
+        var script = "$ErrorActionPreference='Stop';try{" +
+            "$p=Get-CimInstance Win32_Process -Filter 'ProcessId = " + parentPid + "' -ErrorAction Stop;" +
+            "if($null -eq $p){Write-Output 'PARENT_WMI_STATUS=PARENT_NOT_FOUND';exit 2};" +
+            "$c=[string]$p.CommandLine;" +
+            "if([string]::IsNullOrEmpty($c)){" +
+              "Write-Output 'PARENT_WMI_STATUS=EMPTY';" +
+              "Write-Output 'PARENT_CMDLINE_EMPTY=True';" +
+              "Write-Output 'PARENT_AUTH_KEY_VISIBLE=False'" +
+            "}else{" +
+              "$seen=[bool]($c -match '(?i)--auth-key\\s+[0-9a-f]{64}');" +
+              "Write-Output 'PARENT_WMI_STATUS=VISIBLE_COMMANDLINE';" +
+              "Write-Output 'PARENT_CMDLINE_EMPTY=False';" +
+              "Write-Output ('PARENT_AUTH_KEY_VISIBLE='+$seen)" +
+            "}}catch{Write-Output 'PARENT_WMI_STATUS=QUERY_ERROR';exit 2}";
+
+        try
+        {
+            var start = new ProcessStartInfo("powershell.exe")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = false
+            };
+            start.ArgumentList.Add("-NoProfile");
+            start.ArgumentList.Add("-NonInteractive");
+            start.ArgumentList.Add("-EncodedCommand");
+            start.ArgumentList.Add(Convert.ToBase64String(Encoding.Unicode.GetBytes(script)));
+            using var child = Process.Start(start);
+            if (child == null) return ("PROBE_START_FAILED", null, null);
+            if (!child.WaitForExit(15000))
+            {
+                try { child.Kill(entireProcessTree: true); } catch { }
+                return ("PROBE_TIMEOUT", null, null);
+            }
+            string output = child.StandardOutput.ReadToEnd();
+            var statuses = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            string? status = statuses.FirstOrDefault(v => v.StartsWith("PARENT_WMI_STATUS="))?
+                .Substring("PARENT_WMI_STATUS=".Length);
+            string? empty = statuses.FirstOrDefault(v => v.StartsWith("PARENT_CMDLINE_EMPTY="))?
+                .Substring("PARENT_CMDLINE_EMPTY=".Length);
+            string? visible = statuses.FirstOrDefault(v => v.StartsWith("PARENT_AUTH_KEY_VISIBLE="))?
+                .Substring("PARENT_AUTH_KEY_VISIBLE=".Length);
+            if (child.ExitCode != 0 ||
+                (status != "EMPTY" && status != "VISIBLE_COMMANDLINE") ||
+                (empty != "True" && empty != "False") ||
+                (visible != "True" && visible != "False"))
+            {
+                return (status ?? "PROBE_ERROR", null, null);
+            }
+            return (status, empty, visible);
+        }
+        catch
+        {
+            return ("PROBE_UNAVAILABLE", null, null);
+        }
+    }
+
     private static int RunChildProbe(string? outputDir)
     {
         int parentPid = GetParentProcessId();
         Console.WriteLine($"PARENT_PID={parentPid}");
-        Console.WriteLine("PARENT_CMDLINE_EMPTY=True");
-        Console.WriteLine("PARENT_AUTH_KEY_VISIBLE=False");
+        var wmi = ProbeParentWmi(parentPid);
+        Console.WriteLine($"PARENT_WMI_STATUS={wmi.Status}");
+        if (wmi.CommandLineEmpty != null)
+            Console.WriteLine($"PARENT_CMDLINE_EMPTY={wmi.CommandLineEmpty}");
+        if (wmi.AuthKeyVisible != null)
+            Console.WriteLine($"PARENT_AUTH_KEY_VISIBLE={wmi.AuthKeyVisible}");
 
         int errQuery = 0;
         int errRead = 0;
