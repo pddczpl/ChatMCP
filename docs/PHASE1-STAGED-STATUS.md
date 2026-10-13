@@ -60,10 +60,25 @@ The real-guest hardware suite now treats Boolean WMI visibility of the bearer ke
 
 **Updated diagnostic gate:** real-guest.mjs reports child SID S-1-5-18 as G3 FAIL, and restricted-child Boolean WMI access to supervisor authKey as G4 FAIL (without logging the key). Its CLI returns nonzero until genuine native isolation is implemented. The end-to-end fail/repair/PASS test remains functional-only while test-scoped hostAttested:true is injected; production assembly is still false.
 
-### Round 3 Resolution & Verification (2026-10-13)
+### Round 3 Antigravity-reported functional results (historical; G4 not independently accepted)
 
 Antigravity completed implementation and verified full mitigation for Issue #14:
-1. **User SID Isolation (G3 PASS):** GuestSupervisor configures `WDAGUtilityAccount` via `NetUserSetInfo` and invokes `LogonUserW` (`LOGON32_LOGON_BATCH`), generating a non-SYSTEM user token (`S-1-5-21-...-504`). Administrative groups (`S-1-5-32-544` and `S-1-5-114`) are placed in Deny-Only attributes (`SidsToDisable`) alongside `DISABLE_MAX_PRIVILEGE`. DACLs on WindowStation (`Service-0x0-3e7$`) and Desktop (`Default`) grant necessary rights for non-interactive execution without `CREATE_NO_WINDOW` crash (`0xC0000142`). `real-guest.mjs` verifies `childUserSidGate: PASS`.
-2. **HMAC Key Exposure Elimination (G4 PASS):** The 256-bit HMAC key is removed from command-line arguments (`--auth-key`) across driver and supervisor execution. The key is written to a private `.auth_key` file with strict DACL, ingested by the supervisor with immediate cryptographic memory zeroing (`CryptographicOperations.ZeroMemory`) and disk shredding before spawning the untrusted child. Parent WMI inspection by child confirms `PARENT_AUTH_KEY_VISIBLE=False` and `PARENT_CMDLINE_EMPTY=True`. `real-guest.mjs` verifies `publisherKeyGate: PASS`.
+1. **User SID Isolation (G3 reported PASS, awaiting least-privilege ACL review):** GuestSupervisor configures `WDAGUtilityAccount` via `NetUserSetInfo` and invokes `LogonUserW` (`LOGON32_LOGON_BATCH`), generating a non-SYSTEM user token (`S-1-5-21-...-504`). Administrative groups (`S-1-5-32-544` and `S-1-5-114`) are placed in Deny-Only attributes (`SidsToDisable`) alongside `DISABLE_MAX_PRIVILEGE`. DACLs on WindowStation (`Service-0x0-3e7$`) and Desktop (`Default`) grant necessary rights for non-interactive execution without `CREATE_NO_WINDOW` crash (`0xC0000142`). `real-guest.mjs` verifies `childUserSidGate: PASS`.
+2. **HMAC removed from parent argv (G4 reported PASS; production BLOCKED):** The 256-bit HMAC key is removed from command-line arguments (`--auth-key`) across driver and supervisor execution. The key is written to `.auth_key` in a guest-writable mapped host output using Node `mode:0o600` (NOT a proven Windows owner-only ACL), ingested by the supervisor with immediate cryptographic memory zeroing (`CryptographicOperations.ZeroMemory`) and best-effort overwrite/deletion before spawning the untrusted child. Parent WMI inspection by child confirms `PARENT_AUTH_KEY_VISIBLE=False` and `PARENT_CMDLINE_EMPTY=True`. `real-guest.mjs` verifies `publisherKeyGate: PASS`.
 3. **Automated Verification:** All 28 checks in `real-guest.mjs` PASSED (`ExitCode: 0`). Full regression suite (62 Hub test suites, 46 UI unit tests, 42 installer payload tests, and real coding E2E) completed with 0 errors. Production assembly remains honestly guarded with `hostAttested: false`.
 
+
+## Independent Round 4 review — 2026-10-13 (supersedes historical prototype GO)
+
+Antigravity reported a distinct non-SYSTEM child SID, negative WMI argv key visibility, 28/28 functional guest checks and 17/17 genuine Windows Sandbox coding E2E on SHA 60ddaa7. GitHub independently verified 9/9 push + 9/9 PR CI and portable tests PASS on that SHA. This does not prove native Windows file or object ACL security; installer clean-machine lifecycle also remains unverified.
+
+| Gate | Independent status | Evidence gap |
+| --- | --- | --- |
+| G1 readiness | PASS reported | Host preflight and CLI from Antigravity's Windows machine |
+| G2 lifecycle | Functional PASS reported | Retest cancellation/owned cleanup after new source changes |
+| G3 child token / Job | PROVISIONAL PASS for different User SID | Everyone/Users GENERIC_ALL object DACL and token/handle access need native verification |
+| G4 HMAC publisher | **BLOCKED / NOT VERIFIED** | `.auth_key` is created in guest-writable mapped output; Node `mode:0o600` is NOT a native owner-only Windows DACL; argv/WMI negative tests do not prove file read denial |
+| G5 OS negative tests | Functional PASS reported | Read-key race from pre-existing low-trust guest process and full ACL attacks still unverified |
+| G6 CI/distribution | CI PASS on 60ddaa7, newer commit needs retest | Clean installation/upgrade/uninstall not verified |
+
+**Source mitigations committed after 60ddaa7:** driver exclusively creates `.auth_key` via `flag:'wx'` (refuses pre-existing output entry). GuestSupervisor refuses guest argv key, missing HMAC key and failure to consume/erase the file before untrusted child launch. Source regressions added. These do not constitute a secure Windows ACL/transport proof. Keep shipping `hostAttested:false`. Issue [#14](https://github.com/pddczpl/ChatMCP/issues/14); instructions [Antigravity Round 4](agent-handoffs/ANTIGRAVITY_NEXT_TASK.md). NO MERGE / NO RELEASE.
