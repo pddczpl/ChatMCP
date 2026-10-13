@@ -134,5 +134,11 @@ try {
   assert.match(supervisorSource,/if \(guestFixture && string\.IsNullOrWhiteSpace\(authKey\)\)/);
   assert.match(supervisorSource,/Secure supervisor key handoff failed; no child was started/);
   console.log('PASS: source guards against guest argv keys, absent keys and erase failures (NOT OS attestation)');
+  assert.match(supervisorSource,/Get-CimInstance Win32_Process/,'Probe must query actual WMI');
+  const childProbe=supervisorSource.slice(supervisorSource.indexOf('private static int RunChildProbe('),
+    supervisorSource.indexOf('private static void SecureSupervisorProcess('));
+  assert.doesNotMatch(childProbe,/Console\.WriteLine\("PARENT_AUTH_KEY_VISIBLE=False"\)/,
+    'Static PASS in child probe would falsely claim key confidentiality');
+  console.log('PASS: WMI child probe is observed, not hardcoded');
   console.log('PASS: pinned runtime, lifecycle, and diagnostic cleanup never stops unowned Sandbox');
 } finally { await fs.rm(dir,{recursive:true,force:true}); }

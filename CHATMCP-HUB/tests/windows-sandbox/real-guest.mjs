@@ -386,6 +386,9 @@ export async function runRealGuestTests() {
       console.log('      ' + line);
     }
     const audit=receiptInspect.stdout;
+    const wmiStatus=audit.match(/PARENT_WMI_STATUS=(EMPTY|VISIBLE_COMMANDLINE|QUERY_ERROR|PARENT_NOT_FOUND|PROBE_[A-Z_]+)/)?.[1];
+    assert.ok(wmiStatus==='EMPTY'||wmiStatus==='VISIBLE_COMMANDLINE',
+      'Security probe must obtain actual WMI evidence; unsupported or denied query is NOT VERIFIED ('+String(wmiStatus||'NO_RESULT')+')');
     const keyVisible=audit.includes('PARENT_AUTH_KEY_VISIBLE=True');
     const keyHidden=audit.includes('PARENT_AUTH_KEY_VISIBLE=False');
     assert.ok(keyVisible||keyHidden,'Guest WMI probe did not return a definitive boolean key observation.');
@@ -500,11 +503,13 @@ export async function runRealGuestTests() {
     // Therefore, production publisher attestation remains honestly BLOCKED until an isolated transport is implemented.
     if (synthReadAllowed) {
       console.warn('    [G4 Transport Observation] While .synthetic_key_probe exists in shared folder, guest standard user could open it.');
-      console.warn('    [G4 Boundary Status] Cross-VM mapped folder lacks hypervisor-enforced guest user isolation; G4 publisher attestation remains BLOCKED.');
-      publisherKeyGate = 'BLOCKED';
     } else {
-      publisherKeyGate = (keyHidden && childUserSidGate === 'PASS') ? 'PASS' : 'BLOCKED';
+      console.warn('    [G4 Transport Observation] One synthetic file read denied. This does NOT prove cross-VM key-file confidentiality.');
     }
+    // A negative WMI argv probe and a single synthetic read are not
+    // sufficient to authenticate a key staged in a writable mapped folder.
+    // Only an independently reviewed transport attestation may clear G4.
+    publisherKeyGate = keyVisible ? 'FAIL' : 'BLOCKED';
     ok(`[C-ACL] Native Windows ACL audited; child access recorded; G4 production publisher attestation = ${publisherKeyGate}`);
 
     // [C-NEG] Negative Key Channel Fail-Closed Cases
