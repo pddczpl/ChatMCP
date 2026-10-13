@@ -54,8 +54,17 @@ try {
 
   const newRun=randomUUID();
   const linkPath=path.join(root,'journal',newRun);
-  await fs.symlink(runDir,linkPath,'dir');
-  await assert.rejects(journal.append({runId:newRun,job:record('running')}),
+  let linkReady=false;
+  try{
+    await fs.symlink(runDir,linkPath,'dir');
+    linkReady=true;
+  }catch(error){
+    // Windows CI may require Developer Mode / SeCreateSymbolicLinkPrivilege.
+    // Do not skip the other mandatory security and recovery regressions.
+    if(!['EPERM','EACCES','ENOSYS'].includes(error.code))throw error;
+  }
+  if(linkReady)await assert.rejects(
+    journal.append({runId:newRun,job:record('running')}),
     {code:'recovery_unsafe_directory'});
   const newSafeRun=randomUUID();
   const special=new CodingRecoveryJournal({directory:path.join(root,'journal'),maxEntries:1});

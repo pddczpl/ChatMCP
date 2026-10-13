@@ -88,6 +88,9 @@ export class CodingRecoveryJournal {
         throw invalid('recovery_corrupt','Recovery entry JSON was truncated or corrupted.');
       }
       if(!value||typeof value!=='object'||Array.isArray(value)||
+        Object.keys(value).sort().join(',')!==
+          'at,baseSha,digest,prevDigest,runId,seq,status,v,workers' ||
+        value.runId!==path.basename(dir)||
         value.v!==1||value.seq!==i||typeof value.at!=='string'||
         !STATUS.test(value.status||'')||!SHA.test(value.baseSha||'')||
         !HASH.test(value.prevDigest||'')||!HASH.test(value.digest||'')||
