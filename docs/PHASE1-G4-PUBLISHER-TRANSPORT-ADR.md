@@ -1,60 +1,72 @@
-# ADR — Phase 1 G4 trusted Windows Sandbox publisher transport
+# ADR — Phase 1 G4 authenticated publisher without guest-readable HMAC
 
-- **Status:** PROPOSED / BLOCKED pending native Windows trust proof
+- **Status:** OPTION A REJECTED BY HARDWARE; OPTION C SOURCE-ONLY FEASIBILITY; PRODUCTION BLOCKED
 - **Date:** 2026-10-13
+- **Owner:** ChatGPT (GitHub architecture/review), Antigravity (native Windows experiment)
 - **Issue:** https://github.com/pddczpl/ChatMCP/issues/14
 - **Integration PR:** https://github.com/pddczpl/ChatMCP/pull/13
-- **Shipping invariant:** WindowsSandboxPublisher({hostAttested:false}) stays locked
+- **Invariant:** Shipping WindowsSandboxPublisher({hostAttested:false}) stays locked until separate independent G4 review
 
-## 1. Verified facts versus missing proof
+## 1. Evidence and explicit conclusion
 
-1. GitHub confirms PR #13 SHA 68099a5 passed 9/9 push and 9/9 PR CI. Windows hardware report independently supplied by Antigravity reports real diagnostic broker→guest FAIL→repair→PASS, distinct non-SYSTEM child SID, and genuine WMI process checks.
-2. That same Windows report shows SYNTHETIC_KEY_READ_SUCCESS=True for a synthetic guest-mapped host output file opened by the WDAG child. It explicitly marks HMAC publisher G4 BLOCKED. Neither Windows host icacls nor Node mode:0o600 alone proves confidentiality between guest principals through this VM redirector.
-3. Production driver currently reads a host-exported receipt and expects an HMAC key temporarily written under the guest-writable output mapping. HMAC authenticity fails if an earlier untrusted guest process can read the key before its scheduled child starts.
-4. The installed wsb exec --raw JSON is known to convey ExitCode to the host. Whether this CLI version also forwards a trusted supervisor process Stdout and how that channel is bound to a specific executable are NOT yet proven.
+Antigravity's Round 6 report tested PR #13 SHA c7a271ea353beaead1c259877da4f537592efc19 on Windows 11 Pro build 26300, Windows Sandbox CLI wsb.exe 0.8.107.0, .NET 10.0.103 and Node 24.19.0. It reports:
 
-## 2. Required security invariant
+- Real owned guest probe: wsb exec --raw response fields **["ExitCode"] only**. No Stdout field or forwarded stdout echo. ExitCode 0 propagated correctly. Status CLI_PROCESS_STDOUT_NOT_PROVEN, productionAuthenticated:false.
+- Actual guest WDAG child could read an arbitrary synthetic file staged in the writable host-mapped output directory: SYNTHETIC_KEY_READ_SUCCESS=True. Thus G4 is BLOCKED, even if supervisor argv no longer contains --auth-key, its child token is non-SYSTEM and the supervisor removes the mapped .auth_key before launching its own test child.
+- Genuine broker→guest FAIL→scripted implementation repair→PASS was reported as 17/17 functional checks; Hub 62/62, UI 46/46, installer-payload 42/42 and GitHub-hosted PR/push CI 9/9 on that SHA were reported and GitHub independently confirmed 9/9 CI.
+- The separate clean Windows install→first launch→upgrade→uninstall gate remains NOT VERIFIED. The real-guest security suite intentionally exited nonzero because G4 remains blocked.
 
-A low-trust child, any earlier guest process or any descendant must not acquire a private signing key, create an accepted supervisor result, or gain privileged token/process access. The host must positively correlate exact owned Sandbox instance UUID, launch generation, run ID, nonce, pinned supervisor and toolchain hashes, immutable snapshot/check/test baseline hash, bounded stdout/stderr, execution exit code and cancellation status. Missing or ambiguous provenance is BLOCKED/NEEDS_ATTENTION, never PASS.
+Microsoft's [Windows Sandbox CLI documentation](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/windows-sandbox-cli) explicitly states that wsb exec returns the process exit code and **does not support process I/O/output retrieval**. This agrees with the real hardware observation.
 
-No model/user-supplied attestation flag, host shell fallback, automatic elevation, stop of an unowned Sandbox, or bypass through user Full Access.
+**Decision: do not build a publisher based on a nonexistent Stdout field.** The fixed-marker source probe stays as a regression/diagnostic but is not a supported publisher path. No production authentication override, no host shell fallback.
 
-## 3. Feasibility option A: OS-owned wsb CLI process stdout
+## 2. Non-negotiable threat model
 
-Investigate whether the trusted host wsb.exe exec --raw response can carry the output of the exact supervisor process the host launched, without any signing key entering the guest.
+Actors: positively owned host Hub/WSB CLI, privileged pinned GuestSupervisor launched in a disposable guest, untrusted Node test child, any pre-existing low-trust guest process, untrusted mapped-folder files, and malicious descendants.
 
-- The supervisor would emit a bounded, typed JSON result over its OWN stdout, never over project child stdout or a guest-writable mapped output file. Raw child output must be escaped/embedded as untrusted text.
-- The host may create/sign a durable verification record using HOST-ONLY key material only AFTER independent native proof that the result came from the pinned supervisor executable and exact owned guest execution. A host signature alone cannot turn attacker-supplied stdout into authenticated evidence.
-- Reject ambiguous output, duplicate/unknown fields, exceeding byte limits, spoofed nonzero/zero exit codes, stale challenge, cross-run/generation/snapshot/check mismatches, and result replay.
-- Verify the child cannot inherit or write the privileged supervisor stdout handle, forge the structured result, hijack the launched process, change the readonly supervisor binary or fake the native owned instance lifecycle.
+The host must accept a result only if it can independently establish the authoritative privileged process produced it, without a bearer key readable from a guest mapping, environment, argv, WMI or inherited handle. Bind all of: owned instance UUID + generation, trusted supervisor/toolchain binary SHA-256, immutable code/test/check snapshot hashes, run ID, fresh host nonce, bounded output, exact execution and cleanup status, zero-test/failed-test rejection and no replay. If ownership, process identity, native channel or cleanup becomes ambiguous, BLOCKED/NEEDS_ATTENTION rather than PASS.
 
-**A successful arbitrary echo returned by wsb exec is NOT a publisher security proof.** It establishes only a possible CLI stdout transport shape. This distinction must remain explicit.
+## 3. Option A — WSB CLI Stdout (REJECTED for the tested version)
 
-An intentionally non-attesting feasibility probe now exists:
-- CHATMCP-HUB/lib/windows-sandbox-cli-channel-probe.mjs
-- CHATMCP-HUB/tests/verify-windows-driver.mjs (offline mock regression)
-- CHATMCP-HUB/tests/windows-sandbox/real-guest.mjs (diagnostic call inside a positively owned guest)
+The original plan was to have supervisor emit a structured result over its own stdout. It is **not possible through the observed wsb.exe 0.8.107.0 JSON API**: only ExitCode is available. Do not spend cycles trying to parse a nonexistent Stdout property or print secret data into files to compensate. Retain the non-attesting test helper solely to detect future CLI behavior changes.
 
-It sends a PUBLIC fresh marker in a fixed guest echo command, exposes only bounded status booleans/field names, and always returns productionAuthenticated:false. No API credentials are used. This code cannot enable the production publisher.
+## 4. Option C — 256-bit digest over positive process ExitCodes (EXPERIMENTAL, NOT ATTESTED)
 
-## 4. Alternative option B: verified guest-local supervisor/broker channel
+Because OS-owned wsb exec can communicate a process ExitCode, an alternative *may* use a privileged guest-local, SYSTEM-protected sealed digest plus multiple sequential CLI exit-code queries, with NO host HMAC key staged in guest-writable mapped files.
 
-If CLI process stdout is absent or has unprovable origin, investigate a genuinely secure guest-local pipe/ACL/handle protocol that can deliver an authenticated result to the HOST across the Windows Sandbox VM boundary. Do not assume ordinary host named pipes connect across this boundary. Prove supported native Windows IPC availability, the exact low-privilege SID denial, handle noninheritance, object DACLs, bounded messages and crash cleanup.
+Proposed protocol, contingent on real Windows security proof:
 
-## 5. Rejected option: mapped-host HMAC key as sole publisher proof
+1. Host creates fresh nonce and pinned read-only request/snapshot. Start a **new, positively owned disposable Sandbox**; launch the reviewed GuestSupervisor executable through the exact owned WSB CLI, using a known read-only mapped path. Never run arbitrary project scripts as SYSTEM.
+2. The privileged supervisor executes the one approved Node test under its separate non-SYSTEM child SID, validates exit status and positive test assertions, and writes a bounded **untrusted** receipt.json into the host export folder.
+3. Before finishing, the supervisor computes SHA-256 of the exact receipt bytes plus a canonical envelope binding run ID, nonce, instance generation, pinned binary/toolchain hashes, check hash and immutable snapshot/test-baseline hash. It stores the 32-byte digest in **guest-local private protected state**, NOT in writable host mapping. This state MUST have OS-enforced SYSTEM-only DACL, no reparse traversal or inherited writable handles, and it must be unreachable/writable by any low-trust guest process or descendants. The host never treats guest-readable contents as authenticated.
+4. Host issues **nine serial wsb exec -r System** calls to the same pinned trusted binary, selecting digest word indices 0–8. Each call reads that protected guest-local digest and exits with a **positive nonzero framed 31-bit code**: high two bits 01, lower 30 bits payload. Nine words yield 270 bits, with exactly 256 useful digest bits and 14 canonical zero padding bits. This avoids ambiguous negative ExitCodes, normal zero/status collisions, and unframed/truncated response acceptance.
+5. Host compares the reconstructed full SHA-256 digest to the exact receipt bytes and envelope, rejects missing/extra/reordered words, invalid framing, nonzero padding, inconsistent exit status, replay or stale nonce, and verifies every owned CLI command/instance/launch generation. If any call fails, CANCEL, QUARANTINE and report no PASS.
+6. Only after real native proof that each exit code came from the pinned privileged supervisor reading **protected guest-local digest state**, and the child cannot replace the state, influence the supervisor's exit code or tamper with the launched executable, can an independent security review consider this a trusted publication path. It must still prove correct supervisor test-result parsing and isolation, not just digest matching.
 
-No security GO for HMAC keys staged in an export folder writable/readable from untrusted guest contexts. Host NTFS ACLs may not maintain separate identities across a Hyper-V mapped-folder redirector. Overwrite/delete-before-start and no argv logging are useful defense in depth only, not a complete solution against a pre-existing malicious process.
+This is a *candidate*, NOT proof of G4. A malicious actor can provide eight or nine arbitrary numbers if the host blindly trusts unverified guest data. Protecting the state, process identity and host CLI orchestration is absolutely essential. Beware process-creation failure returning apparent ExitCode 0 and hidden shell behavior; require positive framed words plus exact count.
 
-## 6. Mandatory evidence and acceptance
+New **OFFLINE, NON-ATTESTING** codec (not wired to production):
+- CHATMCP-HUB/lib/windows-sandbox-exitcode-channel.mjs
+- CHATMCP-HUB/tests/verify-windows-driver.mjs
 
-1. Collect actual supported Windows build, wsb CLI version, exact final source SHA, pinned GuestSupervisor exe SHA256, process identity, owned instance ID/generation and bounded CLI raw response schema (redacted; no secret).
-2. Test trusted supervisor stdout versus hostile child stdout injection, forged JSON/exit status, replay and cancelled/unknown instance. Reject all malicious or ambiguous cases; show native error codes.
-3. Run real WorkerTestBroker→ExecutionSnapshotStore→WindowsSandboxBackend→pinned GuestSupervisor→publisher, using a scripted model and disposable immutable-baseline Node tests: genuine FAIL→implementation-only repair→PASS, then prove OS-authenticated result provenance independently.
-4. Check Windows ACL/Job Object/token, key/read/handle access from a pre-existing untrusted guest process, cleanup of owned UUID only, no host execution fallback and missing-Sandbox behavior.
-5. Preserve issuer permission gates; user-selected Full Access is not guest publisher attestation.
-6. Perform separate clean-machine install→launch→upgrade→uninstall tests on an owner-approved disposable Windows environment or mark release gate NOT VERIFIED.
-7. Run every affected Windows native/portable suite and GitHub PR+push CI on the SAME final source and binary SHA; obtain independent review before any production unlock.
+The codec demonstrates nine positive 30-bit SHA-256 chunks, loss/tamper/framing detection; every result includes sourceProven:false and productionAuthenticated:false. There is no actual guest digest state, no native digest-return command yet, and no proof of independent process exit-code authenticity. **Do not claim a G4 fix from portable tests**.
 
-**Decision:** G4 remains BLOCKED. Neither a valid HMAC over guest-writable files nor an arbitrary echo observed via wsb exec can be accepted as an authenticated supervisor publisher. PR #12 and PR #13 stay Draft; no main merge, release or hostAttested production enablement.
+## 5. Option B — Guest-local authenticated IPC (ALTERNATIVE, ALSO UNPROVEN)
 
-Product direction is unchanged: standalone Windows desktop without external IDE dependency; user-provided Base URL, model and API key; provider-managed usage/billing with no ChatMCP token or spend quota; explicit Full Access; Windows Sandbox for isolated automated worker checks.
+Investigate an ACL-protected internal guest pipe, Hyper-V socket, or secure broker channel that the host can actually reach, without enabling general Internet access. Do not assume ordinary host Windows named pipes cross the Windows Sandbox VM boundary. If exploring an existing tool/SDK offering guest output forwarding, evaluate its actual supported CLI availability, security boundary, license and packaging implications before proposing dependencies. ChatMCP stays a standalone desktop app with no IDE integration.
+
+## 6. Rejected publisher authority
+
+A host-mapped .auth_key with Node mode:0o600, host icacls or best-effort deletion does not establish confidentiality across the guest mapped-folder redirector. HMAC of receipt.json cannot authenticate a supervisor if pre-existing guest code could read the bearer key. A successful arbitrary stdout/echo or a full digest match from attacker-controlled exit codes also does not establish source provenance.
+
+## 7. Required acceptance before any production integration
+
+- Verify actual wsb ExitCode semantics for several high positive values in 0x40000000–0x7fffffff, correct CLI JSON parsing, errors, timeout, unusual exit status, ownership and final-SHA helper/OS versions. Measure latency/overhead of nine serial invocations.
+- Prove exact signed/pinned GuestSupervisor binary identity when invoked via OS-owned CLI; child cannot forge, race, replace protected guest-local digest state or inherit privileged stdout/handle rights. Capture actual Windows SID, DACL, integrity and error codes without any real user secrets.
+- Test false PASS attacks: forged receipt, edited source/assertions, wrong request/check/snapshot, replayed digest/nonce, stale generation, corrupted guest sealed state, child invoking the digest-word command, malformed/nonzero-padded word, interruption between calls, unknown guest ownership.
+- Run full Broker→SnapshotStore→Backend→privileged supervisor→trusted publisher test FAIL→implementation-only repair→PASS on the same final SHA. Independently review the transport before setting hostAttested or changing production result semantics.
+- Run clean-machine install→launch→upgrade→uninstall in a user-approved disposable Windows environment, or mark G6 release-readiness NOT VERIFIED. Hosted CI installer build alone does not satisfy this gate.
+
+## 8. Product and release invariant
+
+Keep Issue #14 open and PRs #12/#13 Draft. No merge, release or shipping hostAttested:true until final native proof. Preserve Windows Sandbox isolation, no unisolated host fallback, explicit user Full Access confirmation, no automatic OS feature/reboot actions, user-provided model Base URL/API key, provider-managed usage/billing with no ChatMCP token/spending budget, standalone Windows desktop without external IDE dependency.
