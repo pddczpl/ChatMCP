@@ -42,23 +42,55 @@ export class CodingWorktreeOrchestrator {
     this.bundleRoot=bundleRoot;this.createWorker=createWorker;
     this.active=null;this.controller=null;this.runners=new Map();this.jobs=new Map();this.integrating=false;
     this.writes=Promise.resolve();
+    this.recoveryFault=null;
     this.checkBrokers=new Map();
     this.recoveryJournal=new CodingRecoveryJournal({directory:path.join(this.directory,'recovery')});
   }
   async load(){
-    const saved=await readJson(path.join(this.directory,'jobs.json')).catch(()=>null);
-    if(Array.isArray(saved?.jobs))for(const j of saved.jobs.slice(-20)){
-      if(j?.id&&/^[a-f0-9-]{36}$/i.test(j.id)){
-        if(j.status==='running'||j.status==='preparing')j.status='interrupted';
-        this.jobs.set(j.id,j);
+    // Corrupt/truncated jobs.json MUST NOT silently become an empty history.
+    // The desktop may still open, but starting new coding work stays blocked
+    // until the owner explicitly reconciles the on-disk recovery state.
+    const file=path.join(this.directory,'jobs.json');
+    let saved;
+    try {
+      saved=await readJson(file);
+    }catch(error){
+      if(error?.code==='ENOENT')return;
+      this.recoveryFault='Unreadable saved coding jobs; inspect the journal before new work.';
+      return;
+    }
+    if(saved==null)return;
+    if(saved.version!==1||!Array.isArray(saved.jobs)||
+       saved.jobs.length>20||saved.jobs.some(j=>
+         !j||typeof j!=='object'||!(/^[a-f0-9-]{36}$/i.test(j.id||''))||
+         typeof j.status!=='string'||typeof j.baseSha!=='string'||
+         !/^[0-9a-f]{40}$/i.test(j.baseSha)||
+         !Array.isArray(j.workers)||j.workers.length>4||
+         j.workers.some(w=>!w||typeof w!=='object'||
+           typeof w.status!=='string'||typeof w.id!=='string'))) {
+      this.recoveryFault='Invalid saved coding job schema; manual recovery required.';
+      return;
+    }
+    const inFlight=new Set(['queued','running','preparing','testing','awaiting_test_grant','committing']);
+    for(const original of saved.jobs){
+      const j=structuredClone(original);
+      if(inFlight.has(j.status))j.status='interrupted';
+      for(const worker of j.workers){
+        if(inFlight.has(worker.status)) {
+          worker.status='interrupted';
+          worker.error='Worker interrupted by host restart. Review source and obtain fresh test evidence.';
+        }
       }
+      this.jobs.set(j.id,j);
     }
   }
-  state(){return {activeRunId:this.active,integrating:this.integrating,jobs:[...this.jobs.values()].slice(-20).map(j=>({
+  state(){return {activeRunId:this.active,integrating:this.integrating,
+    recoveryFault:this.recoveryFault,jobs:[...this.jobs.values()].slice(-20).map(j=>({
     id:j.id,status:j.status,baseSha:j.baseSha,baseBranch:j.baseBranch,createdAt:j.createdAt,
     finishedAt:j.finishedAt,workers:j.workers.map(w=>({...w})),integration:j.integration||null,error:j.error||null,
   }))};}
   #save(){
+    if(this.recoveryFault)throw fail('recovery_unresolved',this.recoveryFault,409);
     // Every worker replaces the same file. Capture its state now and serialize
     // replacements so an older write cannot win or overlap a Windows rename.
     const snapshot=structuredClone({version:1,jobs:[...this.jobs.values()].slice(-20)});
@@ -68,6 +100,7 @@ export class CodingWorktreeOrchestrator {
     // that the separate durable sequence never contained.
     const activeJob=this.active?snapshot.jobs.find(j=>j.id===this.active):null;
     const write=this.writes.then(async()=>{
+      if(this.recoveryFault)throw fail('recovery_unresolved',this.recoveryFault,409);
       if(activeJob)await this.recoveryJournal.append({
         runId:activeJob.id,
         job:{status:activeJob.status,baseSha:activeJob.baseSha,
@@ -78,6 +111,11 @@ export class CodingWorktreeOrchestrator {
       });
       await writeJson(path.join(this.directory,'jobs.json'),snapshot);
     });
+    // A single failed snapshot write must fail its run, but cannot poison
+    // the persistence queue for a *new* explicitly confirmed run. The run()
+    // controller records the failure and waits for active workers to stop.
+    // Truly corrupt persisted history is handled separately by load(), which
+    // sets recoveryFault and blocks later execution until manual review.
     this.writes=write.catch(()=>{});
     return write;
   }
@@ -102,6 +140,7 @@ export class CodingWorktreeOrchestrator {
     return getError(result,'git '+args.slice(-3).join(' '));
   }
   async #verifyRepo({clean=true}={}){
+    if(this.recoveryFault)throw fail('recovery_unresolved',this.recoveryFault,409);
     if(this.manager.backend!=='local')throw fail('unsupported_backend','Coding worktrees require local backend.',403);
     if(!this.manager.workspace||!this.manager.studio)throw fail('workspace_missing','Select a local Git workspace.',409);
     if(this.manager.taskId||this.manager.busy||this.active)throw fail('hub_busy','Wait for the active coding task.',409);

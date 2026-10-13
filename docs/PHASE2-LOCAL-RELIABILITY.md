@@ -41,3 +41,12 @@ These features remain local to CodingWorktreeOrchestrator and intentionally do N
 - User-visible recovery inspector and reason codes wired through the Hub API/UI.
 
 **Current truthful verdict:** Phase 2 code is not complete/released solely by the presence of this draft module; a full integration and acceptance run is required. Do not merge this PR or bypass Phase 1 dependencies.
+
+## Independent review — restart quarantine and persistence regressions (2026-10-13)
+
+- Startup validates saved jobs.json shape/version; unreadable or corrupt jobs.json is not treated as empty history. The desktop can still open while recoveryFault prevents a NEW coding run until owner reconciliation.
+- On restart, run-level preparing/running and worker-level queued/running/testing/awaiting_test_grant/committing states become interrupted. No model, OS test, shell, Git merge or publish is automatically replayed.
+- A transient jobs.json rename failure fails its current run and stops queued workers, but does not poison the persistence queue for a new separately confirmed run. The pre-existing Phase4 concurrent persistence/failure contract remains mandatory.
+- Phase2 source regressions now cover corrupt JSON, malformed worker metadata, interrupted worker normalization and blocking new coding work with unreadable saved history.
+
+**Not yet complete:** Explicit owner-approved reconciliation/resumption with fresh hashes/test grants; comprehensive crash matrix; bounded code-context acquisition and reproducible offline reliability benchmarks remain. The SHA-256 local journal detects corruption, never OS trusted-test attestation. Phase1 G4 stays a prerequisite.
