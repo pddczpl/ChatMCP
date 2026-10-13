@@ -21,6 +21,7 @@ Historical PHASE3-DESIGN.md and PHASE3-REPORT.md belong to the older architectur
 - CHATMCP-HUB/lib/worker-capabilities.mjs: added attenuated architect/debugger roles (no shell, secrets, integration or publication).
 - CHATMCP-HUB/lib/worker-scheduler.mjs: unverified/failed worker callback results do not become success; descendants are blocked.
 - CHATMCP-HUB/tests/verify-phase3-coordination.mjs: cycles, unknown workers, blocked descendants, safe role rights, concurrency, status and path-conflict checks.
+- CHATMCP-HUB/tests/verify-phase3-worktrees.mjs: actual disposable Git worktrees, A→B committed source inheritance, scripted workers, diff review tokens, Phase2 manual recovery journal and pre-integration same-file overlap rejection. This is a local Git regression, NOT Windows Sandbox publisher attestation.
 
 These additions are additive on the Phase 2 and Phase 1 branches. They do not make the sandbox trust boundary safe.
 
