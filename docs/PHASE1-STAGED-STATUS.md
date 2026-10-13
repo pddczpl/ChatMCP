@@ -124,3 +124,12 @@ Native SecureSupervisorProcess token security now fails closed if OpenProcessTok
 **Current G4: BLOCKED / NOT VERIFIED.** The per-run key still traverses a guest-writable mapped output directory and has not been proven safe from a pre-existing lower-trust guest process during staging. Consider a supported host-owned WSB CLI stdout/response channel (after proving the exact real wsb exec --raw semantics and unforgeable supervisor ownership) or a different authenticated broker channel; no arbitrary host shell fallback. Shipping WindowsSandboxPublisher({hostAttested:false}) must remain unchanged. No main merge/release.
 
 The detailed Round 5 executable local task is at [ANTIGRAVITY_NEXT_TASK.md](agent-handoffs/ANTIGRAVITY_NEXT_TASK.md). Preserve BYO Base URL/API key/model, no ChatMCP token/spend budget, standalone desktop, and user-confirmed Full Access. Clean-machine install/upgrade/uninstall still requires separate owner-approved evidence.
+
+
+## Independent Round 6 decision — mapped HMAC key has a demonstrated read path
+
+Antigravity's Round 5 report at Phase 1 SHA 68099a5 records SYNTHETIC_KEY_READ_SUCCESS=True for a synthetic file in the guest-accessible host mapped Output directory. The real G3 native child SID/process DACL and actual WMI observations are reported passing, and 9/9 push + 9/9 PR CI are independently confirmed on that SHA. This does NOT overcome G4: a pre-existing lower-trust guest process can attempt to access the HMAC key during the staging window, and a signed guest-writable receipt cannot establish publisher origin if the key is compromised. Production hostAttested:false must remain in force.
+
+A proposed, NON-ATTESTING channel feasibility probe was added to the source. It runs one fixed harmless echo through wsb exec --raw in an already-owned guest and checks whether the CLI returns a bounded Stdout field. Its productionAuthenticated field is ALWAYS false; an arbitrary echoed marker is not a security proof. A true trusted supervisor process-origin response, including UUID/generation and process handle/pipe/exit binding, must still be designed and demonstrated on real Windows.
+
+See the [Phase 1 G4 publisher transport ADR](PHASE1-G4-PUBLISHER-TRANSPORT-ADR.md) for alternatives and explicit acceptance rules. The next Windows handoff is the [Round 6 Antigravity task](agent-handoffs/ANTIGRAVITY_NEXT_TASK.md). Clean-machine install→upgrade→uninstall remains NOT VERIFIED. No merge, release or production security unlock.
