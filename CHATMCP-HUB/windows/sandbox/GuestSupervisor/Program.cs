@@ -1360,7 +1360,7 @@ public static class Program
             "    Write-Output 'PARENT_CMDLINE_EMPTY=True'",
             "    Write-Output 'PARENT_AUTH_KEY_VISIBLE=False'",
             "  } else {",
-            "    $seen=[bool]($c -match '(?i)--auth-key\s+[0-9a-f]{64}')",
+            "    $seen=[bool]($c -match '(?i)--auth-key\\s+[0-9a-f]{64}')",
             "    Write-Output 'PARENT_WMI_STATUS=VISIBLE_COMMANDLINE'",
             "    Write-Output 'PARENT_CMDLINE_EMPTY=False'",
             "    Write-Output ('PARENT_AUTH_KEY_VISIBLE='+$seen)",
