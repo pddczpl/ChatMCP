@@ -1346,20 +1346,30 @@ public static class Program
     private static (string Status, string? CommandLineEmpty, string? AuthKeyVisible) ProbeParentWmi(int parentPid)
     {
         if (parentPid <= 0) return ("PARENT_NOT_FOUND", null, null);
-        var script = "$ErrorActionPreference='Stop';try{" +
-            "$p=Get-CimInstance Win32_Process -Filter 'ProcessId = " + parentPid + "' -ErrorAction Stop;" +
-            "if($null -eq $p){Write-Output 'PARENT_WMI_STATUS=PARENT_NOT_FOUND';exit 2};" +
-            "$c=[string]$p.CommandLine;" +
-            "if([string]::IsNullOrEmpty($c)){" +
-              "Write-Output 'PARENT_WMI_STATUS=EMPTY';" +
-              "Write-Output 'PARENT_CMDLINE_EMPTY=True';" +
-              "Write-Output 'PARENT_AUTH_KEY_VISIBLE=False'" +
-            "}else{" +
-              "$seen=[bool]($c -match '(?i)--auth-key\\s+[0-9a-f]{64}');" +
-              "Write-Output 'PARENT_WMI_STATUS=VISIBLE_COMMANDLINE';" +
-              "Write-Output 'PARENT_CMDLINE_EMPTY=False';" +
-              "Write-Output ('PARENT_AUTH_KEY_VISIBLE='+$seen)" +
-            "}}catch{Write-Output 'PARENT_WMI_STATUS=QUERY_ERROR';exit 2}";
+        // Explicit line boundaries: a malformed/failed CIM probe must not be
+        // interpreted as "key hidden". Never echo parent argv or secret bytes.
+        var script = string.Join("\n", new[]
+        {
+            "$ErrorActionPreference='Stop'",
+            "try {",
+            "  $p=Get-CimInstance Win32_Process -Filter 'ProcessId = " + parentPid + "' -ErrorAction Stop",
+            "  if($null -eq $p) { Write-Output 'PARENT_WMI_STATUS=PARENT_NOT_FOUND'; exit 2 }",
+            "  $c=[string]$p.CommandLine",
+            "  if([string]::IsNullOrEmpty($c)) {",
+            "    Write-Output 'PARENT_WMI_STATUS=EMPTY'",
+            "    Write-Output 'PARENT_CMDLINE_EMPTY=True'",
+            "    Write-Output 'PARENT_AUTH_KEY_VISIBLE=False'",
+            "  } else {",
+            "    $seen=[bool]($c -match '(?i)--auth-key\s+[0-9a-f]{64}')",
+            "    Write-Output 'PARENT_WMI_STATUS=VISIBLE_COMMANDLINE'",
+            "    Write-Output 'PARENT_CMDLINE_EMPTY=False'",
+            "    Write-Output ('PARENT_AUTH_KEY_VISIBLE='+$seen)",
+            "  }",
+            "} catch {",
+            "  Write-Output 'PARENT_WMI_STATUS=QUERY_ERROR'",
+            "  exit 2",
+            "}"
+        });
 
         try
         {
