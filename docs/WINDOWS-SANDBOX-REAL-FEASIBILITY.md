@@ -1,5 +1,11 @@
 # ChatMCP — Windows Sandbox Real Feasibility & Guest Isolation Evidence (Phase 1, PR 2)
 
+> **Important 2026-10-13 correction:** PR #13 real Windows tests at cc22baa confirmed that the restricted child still had SYSTEM User SID S-1-5-18 and could read the supervisor HMAC key in process argv through WMI. This fails G4 production confidentiality. Earlier "prototype GO" entries below are historical functional checks only and cannot authorize Phase 1 merge/release. See [Issue #14](https://github.com/pddczpl/ChatMCP/issues/14) and [Phase 1 status](PHASE1-STAGED-STATUS.md).
+
+
+> **Independent PR #13 reviewer note (2026-10-13):** This file is a historical PR #12 **prototype** feasibility report, not Phase 1 production approval. Its real-guest section D attempts a guest write and then alters the receipt and recomputed SHA-256 on the HOST. That checks HMAC detection of host-side tampering, not whether a restricted child can read the SYSTEM supervisor's command-line HMAC key. In PR #13, hostAttested:false keeps production blocked. See [Phase 1 security status](PHASE1-STAGED-STATUS.md) and [next Windows task](agent-handoffs/ANTIGRAVITY_NEXT_TASK.md). NO MERGE / NO RELEASE.
+
+
 **Document Version:** 2.0
 **Phase:** Phase 1 — PR 2 (Windows Sandbox Transport Feasibility & Real Guest Validation)
 **Target Specification:** `docs/PHASE1-IMPLEMENTATION-PLAN.md`

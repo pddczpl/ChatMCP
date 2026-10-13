@@ -211,20 +211,6 @@ export class HubManager {
     } finally { this.pickerOpen = false; }
   }
 
-  async openVsCode() {
-    if (!this.workspace) throw new Error('Chọn workspace trước khi mở VS Code.');
-    const codeCmd = await resolveProgram('code.cmd');
-    const candidates = [
-      path.join(process.env.LOCALAPPDATA ?? '', 'Programs', 'Microsoft VS Code', 'Code.exe'),
-      path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Microsoft VS Code', 'Code.exe'),
-      ...(codeCmd ? [path.join(path.dirname(codeCmd), '..', 'Code.exe')] : []),
-    ];
-    const code = await resolveProgram('Code.exe', candidates);
-    if (!code) throw new Error('Không tìm thấy Code.exe. Mở VS Code rồi chọn File > Open Folder với workspace này.');
-    await this.openProgram(code, [this.workspace]);
-    return { ok: true };
-  }
-
   instructions() {
     throw Object.assign(new Error('Legacy MCP/Cloud Harness integration removed. Use the local agent.'), {code:'legacy_backend_removed',statusCode:410});
   }

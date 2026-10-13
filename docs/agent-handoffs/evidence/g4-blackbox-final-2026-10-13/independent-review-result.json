@@ -1,0 +1,145 @@
+{
+  "review": "PASS",
+  "sourceCommit": "acc2f840dfd7c1b279d2c58c2bc5d1294ffcfc43",
+  "sourceDirty": false,
+  "supervisorSha256": "e4c5ee3c2cd8b79e6d1cc088af52ce0a04cc0e4b0f10a79c37bc4e55bd495fb1",
+  "verifiedRuns": 17,
+  "results": [
+    {
+      "label": "native grader rejects wrong values from initial implementation",
+      "status": "failed",
+      "valid": false,
+      "cases": 3,
+      "passed": 1,
+      "childSid": "S-1-5-21-2047949552-857980807-821054962-1000"
+    },
+    {
+      "label": "implementation-only repair passes all three native comparisons",
+      "status": "completed",
+      "valid": true,
+      "cases": 3,
+      "passed": 3,
+      "childSid": "S-1-5-21-2047949552-857980807-821054962-1000"
+    },
+    {
+      "label": "forged child grader and pass-count assertions cannot authorize success",
+      "status": "failed",
+      "valid": false,
+      "cases": 3,
+      "passed": 0,
+      "childSid": "S-1-5-21-2047949552-857980807-821054962-1000"
+    },
+    {
+      "label": "empty result array cannot authorize success",
+      "status": "failed",
+      "valid": false,
+      "cases": 3,
+      "passed": 0,
+      "childSid": "S-1-5-21-2047949552-857980807-821054962-1000"
+    },
+    {
+      "label": "early successful process exit cannot authorize success",
+      "status": "failed",
+      "valid": false,
+      "cases": 3,
+      "passed": 0,
+      "childSid": "S-1-5-21-2047949552-857980807-821054962-1000"
+    },
+    {
+      "label": "Node reporter success marker cannot authorize black-box success",
+      "status": "failed",
+      "valid": false,
+      "cases": 3,
+      "passed": 0,
+      "childSid": "S-1-5-21-2047949552-857980807-821054962-1000"
+    },
+    {
+      "label": "wrong JSON value types fail native comparison",
+      "status": "failed",
+      "valid": false,
+      "cases": 3,
+      "passed": 0,
+      "childSid": "S-1-5-21-2047949552-857980807-821054962-1000"
+    },
+    {
+      "label": "reordered case identities fail native validation",
+      "status": "failed",
+      "valid": false,
+      "cases": 3,
+      "passed": 0,
+      "childSid": "S-1-5-21-2047949552-857980807-821054962-1000"
+    },
+    {
+      "label": "duplicate result keys fail native validation",
+      "status": "failed",
+      "valid": false,
+      "cases": 3,
+      "passed": 0,
+      "childSid": "S-1-5-21-2047949552-857980807-821054962-1000"
+    },
+    {
+      "label": "oversized child output cannot authorize success",
+      "status": "failed",
+      "valid": false,
+      "cases": 3,
+      "passed": 0,
+      "childSid": "S-1-5-21-2047949552-857980807-821054962-1000"
+    },
+    {
+      "label": "correct values followed by nonzero exit cannot authorize success",
+      "status": "failed",
+      "valid": false,
+      "cases": 3,
+      "passed": 0,
+      "childSid": "S-1-5-21-2047949552-857980807-821054962-1000"
+    },
+    {
+      "label": "malformed UTF-8 cannot authorize success",
+      "status": "failed",
+      "valid": false,
+      "cases": 3,
+      "passed": 0,
+      "childSid": "S-1-5-21-2047949552-857980807-821054962-1000"
+    },
+    {
+      "label": "nonfinite JSON number cannot authorize success",
+      "status": "failed",
+      "valid": false,
+      "cases": 3,
+      "passed": 0,
+      "childSid": "S-1-5-21-2047949552-857980807-821054962-1000"
+    },
+    {
+      "label": "missing case cannot authorize success",
+      "status": "failed",
+      "valid": false,
+      "cases": 3,
+      "passed": 0,
+      "childSid": "S-1-5-21-2047949552-857980807-821054962-1000"
+    },
+    {
+      "label": "trailing second JSON document cannot authorize success",
+      "status": "failed",
+      "valid": false,
+      "cases": 3,
+      "passed": 0,
+      "childSid": "S-1-5-21-2047949552-857980807-821054962-1000"
+    },
+    {
+      "label": "large bounded stdin with a non-reading child still times out and confirms native job cleanup",
+      "status": "failed",
+      "valid": false,
+      "cases": 1,
+      "passed": 0,
+      "childSid": "S-1-5-21-2047949552-857980807-821054962-1000"
+    },
+    {
+      "label": "native timeout kills a SYSTEM-observed live descendant before publication and guest teardown",
+      "status": "failed",
+      "valid": false,
+      "cases": 3,
+      "passed": 0,
+      "childSid": "S-1-5-21-2047949552-857980807-821054962-1000"
+    }
+  ]
+}

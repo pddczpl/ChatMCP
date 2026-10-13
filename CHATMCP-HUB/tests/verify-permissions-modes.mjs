@@ -190,7 +190,12 @@ async function outcome(gate, name, args = {}, { approve = true } = {}) {
   ok('sandbox-only: file tools work, every shell command and external MCP call is refused without asking');
 
   gate.configure({ mode: 'review', executionPolicy: 'host-review' });
-  gate.configure({ executionPolicy: 'full-access', confirmation: 'FULL ACCESS' });
+  assert.throws(()=>gate.configure({ mode:'full-access' }),{code:'full_access_confirmation_required'});
+  assert.equal(gate.state().fullAccess,false,'Full Access is not enabled after missing approval.');
+  const elevated=gate.configure({mode:'full-access',confirmation:'FULL ACCESS'});
+  assert.equal(elevated.mode,'autonomous');
+  assert.equal(elevated.executionPolicy,'full-access');
+  assert.equal(elevated.fullAccess,true);
   assert.equal((await outcome(gate, 'local.run_command', { command: 'curl https://example.com' })).kind, 'allow', 'Full Access removes per-call prompts');
   assert.equal((await outcome(gate, 'local.write_file', { path: 'src/n2.py', content: 'x' })).kind, 'allow');
   gate.configure({ mode: 'readonly' });

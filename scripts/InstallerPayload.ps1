@@ -67,6 +67,10 @@ function Get-InstallerPayloadFiles {
             $relative -match '^CHATMCP-HUB/(lib|workers|extension|windows)/' -or
             ($relative -match '^CHATMCP-HUB/web/' -and $relative -notmatch '^CHATMCP-HUB/web/dist/') -or
             $relative -match '^CHATMCP-HUB/(hub\.mjs|package\.json|README\.md|THIRD-PARTY-NOTICES\.txt|Start-ChatMcpHub\.ps1|Stop-ChatMcpHub\.ps1|START-CHATMCP-HUB\.cmd|STOP-CHATMCP-HUB\.cmd)$'
+        # Native helper is published as a pinned self-contained runtime. Never ship its
+        # tracked development source, generated obj/bin or raw fixture helpers.
+        if ($relative -match '^CHATMCP-HUB/windows/sandbox/GuestSupervisor/' -or
+            $relative -match '(^|/)(bin|obj|publish)/') { continue }
         if (-not $include -or $relative -match '(^|/)(tests|test-results|node_modules|\.git)/' -or
             $relative -match '^CHATMCP-HUB/windows/(Test-|Run-StudioSmoke|Run-StudioSoak)') { continue }
         if ($mode -notin @('100644', '100755') -or $stage -ne '0') { throw "Installer source must be a regular, resolved Git file: $relative" }

@@ -10,7 +10,7 @@
 | PowerShell | Windows PowerShell 5.1 (có sẵn trên Windows 11) | launcher, script, kiểm thử script |
 | Python 3.11+ | cần cho bộ E2E FastAPI bắt buộc trong CI; tùy chọn khi chạy Hub | (a) chỉ mục ký hiệu Python của Hub (`py -3.11` trên Windows); (b) bộ E2E FastAPI; (c) các bộ giao diện Python cũ |
 | Playwright Chromium | cài bằng `npx playwright install chromium` trong `CHATMCP-HUB/ui` | E2E React/Vite hiện tại, phiên bản Playwright ghim trong lockfile |
-| .NET SDK 10 + WebView2 Runtime | Windows installer và native smoke | biên dịch WinForms, kiểm tra React trong WebView2 thật |
+| .NET SDK 10 + Visual Studio C++ build tools + WebView2 Runtime | Windows installer và native smoke | biên dịch WinForms, Native AOT supervisor, kiểm tra React trong WebView2 thật |
 | Docker Desktop | tùy chọn | chỉ cho sandbox test cục bộ, không phải cloud hosting |
 
 Hub **không có bước build** và không có dependency bắt buộc để `npm install`. `node-pty` (ConPTY) là tùy chọn: `CHATMCP-HUB\windows\Install-OptionalConPTY.ps1`; khi thiếu hoặc hỏng, terminal tương tác tự dùng pipe.
@@ -25,7 +25,7 @@ isolation, network denial, supervisor identity hay receipt authenticity.
 CI Windows installer phải build GuestSupervisor và chạy
 `CHATMCP_REQUIRE_HOST_SUPERVISOR=1 node CHATMCP-HUB/tests/windows-sandbox/smoke.mjs`.
 Trên Linux/Windows thiếu .NET, bộ source test nêu rõ **BLOCKED** đối với fixture chưa chạy;
-bộ kiểm thử guest thực thụ vẫn chưa được triển khai. Chưa có production sandbox backend.
+bộ kiểm thử guest thật do máy Windows hỗ trợ thực hiện tách khỏi CI thông thường. Backend sản phẩm và các mô-đun snapshot/check grants/retry/subagents đã có mã nhưng cố ý báo unavailable cho đến khi trusted publication được nghiệm thu.
 
 `receipt.json` và `receipt.sha256` chỉ kiểm tra dữ liệu nhất quán; guest có thể tạo
 lại cả hai file và đọc nonce, nên đây KHÔNG phải bằng chứng về danh tính supervisor.
@@ -44,7 +44,7 @@ node tests/run-all.mjs --no-skip all             # một bộ bị SKIP bị tí
 npm run test:ui                                  # bộ giao diện Python/Playwright (tùy chọn)
 ```
 
-Hiện có **51 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
+Hiện có **66 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
 
 Runner in một dòng cho mỗi bộ (`PASS`/`FAIL`/`TIMEOUT`/`SKIP`, thời gian, mã thoát thật) và thoát khác 0 nếu có bộ nào fail hoặc quá hạn (mặc định 180 giây/bộ, đổi bằng `--timeout`). Bộ kiểm thử in một dòng `CHATMCP_TEST_SKIP: <lý do>` rồi thoát 0 để được báo là **SKIP — không bao giờ được tính là PASS**. `--no-skip all` (hoặc `--no-skip tên1,tên2`) biến SKIP thành FAIL. Workflow hiện tại cài Python 3.11 và các gói ghim trong `tests/requirements-e2e.txt`, rồi chạy **`--no-skip all`** trên cả Windows và Linux, Node 22 và 24. Một bộ bắt buộc bị bỏ qua vì thiếu môi trường vì thế làm CI thất bại. Một phần không thể kiểm chứng trong bản này được in `BLOCKED: <gì> - <vì sao>`.
 
@@ -251,3 +251,27 @@ CHATMCP-LOCAL-SETUP/, START-*.{cmd,ps1}, install.sh, manifest.json, bridge.js �
 - Workflow CI (`.github/workflows/ci.yml`) gồm `hub-tests` (Linux + Windows × Node 22 + 24, pinned Python E2E dependencies, `--no-skip all`), `frontend-build`, `react-e2e` (Linux + Windows), `windows-installer` (kèm native WebView2 smoke và kiểm tra SHA-256) và `hygiene`. Mọi action được ghim theo SHA commit; `verify-docs` kiểm tra điều đó. `docs/ci-proposal.yml` là đề xuất lịch sử, không phải cấu hình CI đang chạy. Chỉ báo CI xanh khi đã đọc kết quả GitHub Actions trên đúng commit; kết quả local không thay thế trạng thái CI hoặc kiểm thử cài đặt trên máy Windows sạch.
 - `CHATMCP-HUB/SHA256SUMS.txt` là của bản phát hành cũ, đã lỗi thời; không dùng để xác minh bản này.
 - Các script `windows/Run-StudioSmoke.ps1`, `windows/Test-Gateway-ViaHub.ps1`, `windows/Watch-StudioHub.ps1`, `windows/Run-StudioSoak.ps1`, `windows/Test-Gateway-Live.ps1` là công cụ thủ công, không nằm trong `npm test`. `Run-StudioSmoke`, `Watch-StudioHub` và `Run-StudioSoak` so phiên bản của Hub đang chạy (lấy từ `/api/health`) với `version` trong `package.json` cạnh chúng (tham số `-ExpectedVersion` để ghi đè); `Test-Gateway-ViaHub` dùng đúng bản dựng giao diện mà Hub báo. Không script nào ghi cứng số phiên bản, nên không phải sửa mỗi lần phát hành. Mã thoát phản ánh kết quả thật: `Run-StudioSmoke` thoát 1 nếu có kiểm tra fail (kể cả sai phiên bản hay không có Hub), `Run-StudioSoak` thoát 1 nếu có mẫu nào xấu (kể cả khi Hub không trả lời mẫu nào), `Test-Gateway-ViaHub` thoát 1 nếu kết nối thử lỗi, `Watch-StudioHub` thoát 2 khi cổng đang bị một dịch vụ hay phiên bản khác chiếm (và không khởi động lại gì). Cả bốn đã được chạy thật dưới Windows PowerShell 5.1 với một Hub tạm và mô hình giả (xem báo cáo Phase 1). `Test-Gateway-Live.ps1` chỉ nói chuyện với một gateway Cloud Run có tên máy chủ ghi cứng trong script và không dùng cho việc khác — xem mục quyết định của chủ sở hữu trong báo cáo.
+
+
+## Phase 1 staged coding verification (chưa phát hành)
+
+Các mô-đun `execution-snapshots.mjs`, `windows-sandbox-backend.mjs`, `worker-test-broker.mjs`, `verification-receipt.mjs`, `coding-verification-loop.mjs`, `worker-capabilities.mjs`, `worker-budget.mjs`, `worker-scheduler.mjs` triển khai nền tảng lập trình với quota và test broker. Chúng **không có quyền host-shell dự phòng**, không được xác thực guest output chỉ từ SHA-256/nonce. Đường thực thi tự động vẫn BLOCKED cho tới khi chuyên gia Windows kiểm tra identity, Job Object, snapshot race, ownership và trusted publication trên mã tích hợp cuối. Suite Node mô phỏng logic không chứng minh guest OS isolation. Xem `docs/PHASE1-STAGED-STATUS.md` cho từng gate.
+
+Windows Sandbox CLI driver `lib/windows-sandbox-driver.mjs` hoạt động qua run-owned disposable guest staging và synthetic CLI tests; dữ liệu receipt trả về vẫn UNTRUSTED, không có production publisher đã chứng nhận. Bộ suite `verify-windows-driver.mjs` chỉ kiểm tra giao thức và vòng đời với CLI mô phỏng, KHÔNG chứng minh cách ly Windows thật.
+
+Offline benchmark manifest `CHATMCP-HUB/tests/benchmarks/manifest.json` and runner `run-offline.mjs` cover scripted fixable failure, unchanged failure, zero-exit/no assertions, blocked isolated backend, cancellation, escalation and token budget. Output is JSON evidence for logic tests ONLY, not the dedicated Windows Sandbox hardware gate.
+
+The HMAC-backed reader in `lib/windows-sandbox-publisher.mjs` validates a per-run signed receipt, but production publisher availability remains false without independent Windows token/key non-disclosure and owned-instance evidence. Portable `verify-sandbox-publisher.mjs` runs synthetic fixtures and must not be counted as an OS security test.
+
+`verify-phase1-coding-e2e.mjs` exercises an actual local AgentRunner and managed Git worktree against **scripted** isolated receipts, including approval, failing check, model repair and retest. No OS Sandbox or paid model is exercised by that fixture.
+
+The run-owned `ExecutionSnapshotStore` shares immutable staging between the broker and the Windows backend. Portable tests verify stale UUID refusal and cleanup. OS-level filesystem ACLs remain a Windows acceptance requirement.
+
+
+## Model-provider usage policy (Phase 1)
+
+The user selects their compatible model API Base URL, API key, and model. ChatMCP does not implement a token allowance, usage reservation, dollar cap, or parallel-worker spending ledger. The provider is responsible for billing, credits and rate limits. Recorded token counts may be shown as diagnostics but never block further model requests solely because a ChatMCP spending threshold was reached. Optional explicit user-set step/time limits are supported, with unlimited defaults for normal coding model turns. Process concurrency, Windows Sandbox instance ownership, test retries, cancellation and execution timeouts remain safety controls, **not token/price quotas**.
+
+ChatMCP is a standalone local desktop app; no IDE/VS Code integration is needed. PermissionGate supports explicit Full Access confirmation; it does not elevate the OS account or cancel Windows Sandbox isolation requirements for untrusted automated tests.
+
+`dynamic-delegates.mjs` executes user-triggered dynamically planned read-only subagents through the same configured Gateway Provider and requires the literal `AUTHORIZE READONLY DELEGATION` confirmation. It has no internal token/spend budget; workers have no execution tools, and cancellation/restart are explicit.

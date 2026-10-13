@@ -1,0 +1,43 @@
+name: Phase 1 portable component tests (not the Windows OS security gate)
+
+on:
+  push:
+    branches: ['feat/phase1-complete-autonomous-coding']
+  pull_request:
+    paths:
+      - 'CHATMCP-HUB/lib/*.mjs'
+      - 'CHATMCP-HUB/tests/verify-*.mjs'
+      - '.github/workflows/phase1-component-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase1-component-tests
+  cancel-in-progress: true
+
+jobs:
+  portable-components:
+    name: Source-only contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: CHATMCP-HUB
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - name: Syntax check
+        run: |
+          for f in lib/*.mjs tests/verify-{execution-snapshots,execution-lifecycle,worker-tests,worker-scheduler,coding-loop,windows-driver,sandbox-publisher,phase1-benchmarks,phase1-coding-e2e,execution-snapshot-store,dynamic-delegates}.mjs; do
+            node --check "$f"
+          done
+      - name: Offline regression checks
+        run: |
+          set -euo pipefail
+          for suite in execution-snapshots execution-lifecycle worker-tests worker-scheduler coding-loop windows-driver sandbox-publisher phase1-benchmarks phase1-coding-e2e execution-snapshot-store dynamic-delegates; do
+            node "tests/verify-$suite.mjs"
+          done

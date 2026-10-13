@@ -117,13 +117,39 @@ Copy-InstallerDesktopPayload -PublishDirectory $shellDist -Destination $payloadD
 # recurse over source folders: ignored files may contain private user state.
 Copy-InstallerSourcePayload -RepositoryRoot $repoRoot -Destination $payloadDir
 
+# Trusted Sandbox Supervisor: publish from checked source into a fresh private
+# staging directory. Never recursively package GuestSupervisor bin/obj/source.
+# This binary does not make OS isolation available until the production
+# broker authenticates published guest results and the dedicated gate passes.
+$supervisorProject = Join-Path $repoRoot 'CHATMCP-HUB\windows\sandbox\GuestSupervisor\GuestSupervisor.csproj'
+$supervisorPublish = Join-Path $stagingDir 'supervisor-publish'
+& $dotnetCmd.Path publish $supervisorProject -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:PublishSingleFile=false -o $supervisorPublish | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "GuestSupervisor publish failed with exit code $LASTEXITCODE" }
+$trustedSupervisor = Join-Path $supervisorPublish 'GuestSupervisor.exe'
+if (-not (Test-Path -LiteralPath $trustedSupervisor -PathType Leaf)) { throw 'Published GuestSupervisor.exe is missing.' }
+$supervisorSize = (Get-Item -LiteralPath $trustedSupervisor).Length
+if ($supervisorSize -le 0) { throw 'Published GuestSupervisor.exe is empty.' }
+# Exercise the exact AOT image being packaged. This inert native parser suite
+# never starts a guest and does not attest Sandbox isolation.
+& $trustedSupervisor --blackbox-grader-self-test
+if ($LASTEXITCODE -ne 0) { throw "Published GuestSupervisor native grader self-test failed with exit code $LASTEXITCODE" }
+$trustedDestination = Join-Path $payloadDir 'CHATMCP-HUB\runtimes\windows-sandbox'
+New-Item -ItemType Directory -Path $trustedDestination -Force | Out-Null
+Copy-Item -LiteralPath $trustedSupervisor -Destination (Join-Path $trustedDestination 'GuestSupervisor.exe') -Force
+$supervisorSha = (Get-FileHash -LiteralPath $trustedSupervisor -Algorithm SHA256).Hash.ToLowerInvariant()
+[IO.File]::WriteAllText((Join-Path $trustedDestination 'GuestSupervisor.exe.sha256'), $supervisorSha + "  GuestSupervisor.exe" + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+Write-Host "  [OK] Published trusted guest helper with SHA-256 manifest (not sandbox attestation)." -ForegroundColor Green
+
 # Bundle portable Node.js runtime so setup runs on any machine without Node.js installed
 $stagingNode = Join-Path $payloadDir 'runtimes\node'
 New-Item -ItemType Directory -Path $stagingNode -Force | Out-Null
 $sysNode = $nodeCmd.Path
 if ($sysNode -and (Test-Path -LiteralPath $sysNode -PathType Leaf)) {
-    Copy-Item -LiteralPath $sysNode -Destination (Join-Path $stagingNode 'node.exe') -Force
-    Write-Host "  [OK] Bundled portable Node.js runtime." -ForegroundColor Green
+    $nodeDestination = Join-Path $stagingNode 'node.exe'
+    Copy-Item -LiteralPath $sysNode -Destination $nodeDestination -Force
+    $nodeSha = (Get-FileHash -LiteralPath $nodeDestination -Algorithm SHA256).Hash.ToLowerInvariant()
+    [IO.File]::WriteAllText((Join-Path $stagingNode 'node.exe.sha256'), $nodeSha + '  node.exe' + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    Write-Host "  [OK] Bundled portable Node.js runtime with SHA-256 manifest." -ForegroundColor Green
 }
 
 # Compress staging directory to installer/payload.zip

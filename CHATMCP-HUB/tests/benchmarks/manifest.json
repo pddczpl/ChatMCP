@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "provider": "scripted-no-network",
+  "defaultLimits": {
+    "repairCycles": 2,
+    "testAttempts": 3,
+    "elapsedMinutes": 20
+  },
+  "cases": [
+    {
+      "id": "fixable-repair",
+      "kind": "coding-loop",
+      "description": "Test fails then changed code passes",
+      "expect": "ready_for_review"
+    },
+    {
+      "id": "nonfixable-error",
+      "kind": "coding-loop",
+      "description": "Check fails and repair cannot alter content",
+      "expect": "needs_attention"
+    },
+    {
+      "id": "zero-exit-no-tests",
+      "kind": "coding-loop",
+      "description": "Command exits zero with unverified test assertions",
+      "expect": "needs_attention"
+    },
+    {
+      "id": "blocked-isolation",
+      "kind": "coding-loop",
+      "description": "Missing verified OS backend prevents execution",
+      "expect": "needs_attention"
+    },
+    {
+      "id": "explicit-cancel",
+      "kind": "coding-loop",
+      "description": "Abort does not produce a verified success",
+      "expect": "cancelled"
+    },
+    {
+      "id": "authority-escalation",
+      "kind": "capabilities",
+      "description": "Read-only parent cannot grant edit/shell rights",
+      "expect": "blocked"
+    },
+    {
+      "id": "no-local-token-cap",
+      "kind": "workers",
+      "description": "No ChatMCP-imposed API token/spend allowance; only process concurrency safety limits",
+      "expect": "unlimited"
+    }
+  ]
+}

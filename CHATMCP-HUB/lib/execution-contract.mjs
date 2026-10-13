@@ -7,6 +7,7 @@
 import process from 'node:process';
 import { ShellRunner } from './shell-runner.mjs';
 import { PermissionGate } from './permissions.mjs';
+import { BLACKBOX_KIND, BLACKBOX_COMMAND, validateBlackboxRequest, validateNativeGraderEvidence } from './native-blackbox-contract.mjs';
 
 export const EXECUTION_STATUSES = Object.freeze([
   'completed',
@@ -203,6 +204,11 @@ export function validateExecutionRequest(input) {
   }
 
   const env = input.env && typeof input.env === 'object' && !Array.isArray(input.env) ? input.env : {};
+  const checkKind = input.checkKind ?? null;
+  if (checkKind !== null && checkKind !== BLACKBOX_KIND) throw fault('invalid_request', 'Unsupported authenticated check kind.');
+  if ((checkKind === BLACKBOX_KIND) !== (input.command === BLACKBOX_COMMAND) ||
+      (input.grader != null && checkKind !== BLACKBOX_KIND)) throw fault('invalid_request', 'Black-box command and check kind must agree.');
+  const grader = checkKind === BLACKBOX_KIND ? validateBlackboxRequest(input.grader) : null;
 
   return Object.freeze({
     runId: input.runId.trim(),
@@ -227,6 +233,8 @@ export function validateExecutionRequest(input) {
     env: Object.freeze({ ...env }),
     snapshotHash: typeof input.snapshotHash === 'string' ? input.snapshotHash : null,
     checkHash: typeof input.checkHash === 'string' ? input.checkHash : null,
+    checkKind,
+    grader,
   });
 }
 
@@ -290,6 +298,7 @@ export function validateExecutionReceipt(receipt) {
     truncated: receipt.truncated,
     evidencePath: typeof receipt.evidencePath === 'string' ? receipt.evidencePath : null,
     reasons: Object.freeze([...reasons]),
+    ...(receipt.grader == null ? {} : { grader: validateNativeGraderEvidence(receipt.grader) }),
   });
 }
 

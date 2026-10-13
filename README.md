@@ -12,13 +12,15 @@
 
 The unreleased Phase 0 fixes reconnect the current React UI to persisted task history, the live permission gate, plans, Git and terminal data. See the [desktop contract audit](docs/PHASE0-DESKTOP-CONTRACT-AUDIT.md), [execution report](docs/PHASE0-EXECUTION-REPORT.md) and [next Phase 1 implementation plan](docs/PHASE1-IMPLEMENTATION-PLAN.md) for verified behavior, remaining gates and ordered work. A model's final answer does not certify that tests passed.
 
+**Current Phase 1 development:** [G4/G6 acceptance and exact artifact evidence](docs/agent-handoffs/G4-G6-EXECUTION-2026-10-13.md). Supported Windows machines can run approved [native black-box checks](docs/PHASE1-BLACKBOX-CHECKS.md) with a separate native grader and authenticated sealed results. Ordinary Node tests remain unverified and cannot use this scoped production path. See the [publisher transport decision](docs/PHASE1-G4-PUBLISHER-TRANSPORT-ADR.md), [clean Windows lifecycle harness](docs/PHASE1-G6-CLEAN-WINDOWS.md), and [staged history](docs/PHASE1-STAGED-STATUS.md). This branch remains unreleased and PR #13 remains Draft.
+
 | Capability | Status | Important limitations |
 | --- | --- | --- |
 | Windows Desktop Studio | Available | WinForms + WebView2, bundled local Node runtime; Git for Windows is separate |
 | Coding agent with local tools | Available | LocalTools (36 công cụ): workspace-scoped files/search, terminal, Git, plans, checkpoints, approvals |
 | AI providers | Available | OpenAI, Anthropic, Gemini and compatible providers; Ollama/LM Studio via loopback; model must support tool calls |
-| Research Multi-Agent DAG | Available | Up to 8 read-only roles; at most 3 concurrent; coordinator summary; no tools for research subagents |
-| Parallel Coding Workers | Beta | Up to 4 tasks on separate Git worktrees; at most 3 concurrent; no worker shell/network/push |
+| Research Multi-Agent DAG | Available | Static DAG plus explicit dynamic read-only planning; no model usage quota in ChatMCP; no host execution tools for research subagents |
+| Parallel Coding Workers | Beta | Up to 4 tasks on separate Git worktrees; 2 concurrent model workers by default for local process stability; no worker shell/network/push |
 | Review and Draft PR | Beta | Exact Git diff review token required; integration uses a new branch; explicit confirmation required for publishing |
 | GitHub Agent Skills Hub | Beta | Nested SKILL.md discovery, pinned revisions, SHA-checked bounded text/binary assets, source and license evidence; third-party scripts not auto-run |
 | Hosted Cloud Harness / public server | **Removed** | No Render, VPS, public/multi-tenant auth, Cloud Harness proxy or Linux execution broker in the runtime |
@@ -46,7 +48,9 @@ You can also launch the local browser dashboard without the native window:
 .\CHATMCP-HUB\START-CHATMCP-HUB.cmd -ProjectPath 'C:\Projects\MyRepository'
 ~~~
 
-It is available only at **http://127.0.0.1:3007** by default. Select a workspace and your AI model/provider. Start with Review permissions. The model API key is optional if you use a local tool-capable Ollama or LM Studio model.
+It is available only at **http://127.0.0.1:3007** by default. Select a workspace and your AI model/provider. Start with Review permissions. The model API key is optional if you use a local tool-capable Ollama or LM Studio model. Configure your own compatible **Base URL, API key and model**; ChatMCP does not impose an API-token, model-call or monetary spending quota. Your provider may still enforce rate limits, credits and billing.
+
+The native desktop UI includes its own workspace browser, editor, terminal, Git review and tool panels. **VS Code and other IDEs are not required or integrated as external control surfaces.** Settings offers Read Only, Review, Autonomous and an explicit **Full Access** option; choosing Full Access requires typing `FULL ACCESS`, runs permitted host tools under the current Windows account and does not grant OS administrator privileges. Worker test isolation remains an independent safety requirement.
 
 You do **not** need Docker, Render, Cloud Harness or a server account. Do not set CHATMCP_PUBLIC, use --repo-root, or select the removed mcp backend.
 
@@ -84,7 +88,7 @@ AI providers and selected integrations can receive source/context as part of req
 node .\CHATMCP-HUB\tests\run-all.mjs
 npm ci --prefix .\CHATMCP-HUB\ui
 npm run build --prefix .\CHATMCP-HUB\ui
-# Maintainers only: .NET SDK 10+ on Windows
+# Maintainers only: .NET SDK 10+ and Visual Studio C++ build tools on Windows
 .\scripts\Build-Installer.ps1
 ~~~
 

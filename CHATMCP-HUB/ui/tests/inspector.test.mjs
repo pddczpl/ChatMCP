@@ -93,6 +93,26 @@ try {
     assert.match(html, /No plan yet/);
     assert.doesNotMatch(html, /Older work|100%/);
   });
+
+  await test('verification UI separates command exit zero from test assertion evidence', async () => {
+    const html = await render('PlanTab', [
+      ...base,
+      [['plan', 'task-1'], { title: '', items: [] }],
+      [['verification-evidence', 'task-1'], { runs: [{
+        id: 'e1', command: 'npm test', status: 'completed', exitCode: 0, testOutcomeVerified: false, snapshotHash: 'a'.repeat(64),
+      }] }],
+    ]);
+    assert.match(html, /Command succeeded.*tests unverified/i);
+    assert.doesNotMatch(html, /Verified check evidence/);
+  });
+  await test('no isolated worker test grants appear without a running managed worker', async () => {
+    const html = await render('PlanTab', [
+      ...base,
+      [['plan','task-1'],{title:'Review safe changes',items:[]}],
+      [['coding-runs'],{activeRunId:null,jobs:[]}],
+    ]);
+    assert.doesNotMatch(html,/Owner-approved isolated checks/);
+  });
   await test('activity displays actual selected task events', async () => {
     const html = await render('ActivityTab', [...base, [['task', 'task-1'], { id: 'task-1', events: [
       { type: 'tool_error', toolName: 'run_command', status: 'error', message: 'Test exited 1', at: '2026-10-12T10:00:00Z' },

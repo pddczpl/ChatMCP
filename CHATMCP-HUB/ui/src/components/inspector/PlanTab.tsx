@@ -3,6 +3,8 @@ import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
 import { CheckCircle2, Circle, Loader2, ListTodo, AlertCircle } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n';
+import { VerificationReceipts } from './VerificationReceipts';
+import { IsolatedChecksPanel } from './IsolatedChecksPanel';
 
 export function PlanTab() {
   const { t, lang } = useTranslation();
@@ -66,6 +68,8 @@ export function PlanTab() {
           </div>
         </>
       )}
+      {selectedTaskId && <VerificationReceipts taskId={selectedTaskId} />}
+      <IsolatedChecksPanel />
     </section>
   );
 }

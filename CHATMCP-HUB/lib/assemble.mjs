@@ -17,6 +17,13 @@ import { ShellRunner } from './shell-runner.mjs';
 import { PluginManager } from './plugins.mjs';
 import { createDefaultExecutionRegistry } from './execution-contract.mjs';
 import { SandboxEngine } from './sandbox-engine.mjs';
+import { WindowsSandboxBackend } from './windows-sandbox-backend.mjs';
+import { WindowsSandboxPublisher } from './windows-sandbox-publisher.mjs';
+import { LazyWindowsSandboxDriver } from './windows-sandbox-driver.mjs';
+import { probeWindowsSandboxPreflight } from './windows-sandbox-probe.mjs';
+import { ExecutionSnapshotStore } from './execution-snapshot-store.mjs';
+import { BLACKBOX_KIND } from './native-blackbox-contract.mjs';
+import { SEALED_PROTOCOL } from './windows-sandbox-sealed-receipt.mjs';
 
 /**
  * @param {object} options
@@ -71,6 +78,28 @@ export function assembleStudio(manager, { bundleRoot, exec = null }) {
     shellRunner: effectiveShell,
     permissionGate: manager.permissions,
   });
+  manager.executionSnapshots ??= new ExecutionSnapshotStore({
+    directory:path.join(manager.hubDirectory,'execution-snapshots'),
+  });
+  // Independent native acceptance approves only the declarative public-case
+  // grader over SYSTEM-sealed publication. Legacy Node tests stay unverified;
+  // host readiness, immutable grants and confirmed guest cleanup remain required.
+  const sandboxState=path.join(manager.hubDirectory,'sandbox-execution');
+  const driver=process.platform==='win32'
+    ? new LazyWindowsSandboxDriver({
+        preflight:probeWindowsSandboxPreflight,
+        runtimeDirectory:path.join(bundleRoot,'runtimes','windows-sandbox'),
+        // Installer layout: runtime is a sibling of CHATMCP-HUB, not inside it.
+        nodeToolchainDirectory:path.resolve(bundleRoot,'..','runtimes','node'),
+        stateDirectory:path.join(sandboxState,'driver'),
+        publicationProtocol:SEALED_PROTOCOL,
+      })
+    : null;
+  manager.executionRegistry.register(new WindowsSandboxBackend({
+    stateDirectory:sandboxState,driver,
+    publisher:new WindowsSandboxPublisher({hostAttested:false,attestedCheckKinds:[BLACKBOX_KIND]}),
+    snapshotLookup:(id)=>manager.executionSnapshots.lookup(id),
+  }));
   manager.permissions.attachExecutionRegistry(manager.executionRegistry);
   manager.sandboxEngine = new SandboxEngine({
     workspaceRoot: manager.studio?.root || manager.hubDirectory,

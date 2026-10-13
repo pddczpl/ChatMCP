@@ -20,6 +20,10 @@ manager.permissions=new PermissionGate({manager,workspace:manager.studio,directo
 manager.terminal=new StudioTerminal({workspace:manager.studio});
 manager.intelligence=new CodeIntelligence({workspace:manager.studio,directory:path.join(temp,'index')});
 manager.preview=previewStatus;
+// Detached workers have their own permission gates; status changes must not
+// race an active worker or leave it with inherited stale authority.
+manager.codingOrchestrator={active:null,integrating:false};
+manager.dynamicDelegates={activeRunId:null,state:()=>({activeRunId:null,last:null})};
 const agent={state:()=>({activeTaskId:null,active:null,tasks:[]})};
 const http=createHubServer(manager,{port,agent,bundleRoot:path.resolve('.')});
 await new Promise(r=>http.listen(port,'127.0.0.1',r));
@@ -37,6 +41,16 @@ try{
   a=await post('/api/studio/permissions/config',{executionPolicy:'full-access',confirmation:'FULL ACCESS'}, {'X-ChatMCP-CSRF':'wrong'});check(a.status===403,'HTTP Full Access still requires CSRF');
   a=await post('/api/studio/permissions/config',{executionPolicy:'full-access',confirmation:'FULL ACCESS'});check(a.status===200&&a.value.fullAccess===true,'HTTP full access explicit opt in');
   a=await get('/api/state');check(a.value.studio.permissions.fullAccess===true,'HTTP full access visible in hub state');
+  manager.codingOrchestrator.active='worktree-run';
+  a=await post('/api/studio/permissions/config',{mode:'review',executionPolicy:'host-review'});
+  check(a.status===409&&a.value.code==='workers_active','A live coding worker blocks permission changes');
+  a=await get('/api/state');
+  check(a.value.studio.permissions.fullAccess===true,'Blocked permission update preserves existing Full Access');
+  manager.codingOrchestrator.active=null;
+  manager.dynamicDelegates.activeRunId='dynamic-run';
+  a=await post('/api/studio/permissions/config',{mode:'readonly'});
+  check(a.status===409&&a.value.code==='workers_active','Dynamic subagent work prevents permission change');
+  manager.dynamicDelegates.activeRunId=null;
   a=await post('/api/studio/permissions/config',{executionPolicy:'sandbox-only'});check(a.status===200&&a.value.executionPolicy==='sandbox-only','HTTP strict execution mode');
   a=await get('/api/state');check(a.value.studio.permissions.executionPolicy==='sandbox-only','HTTP reflects strict mode');
   a=await get('/api/studio/preview?port=65534');check(a.status===200&&a.value.url==='http://127.0.0.1:65534/','local preview only');

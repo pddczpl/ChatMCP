@@ -1,0 +1,16 @@
+{
+  "sourceCommit": "acc2f840dfd7c1b279d2c58c2bc5d1294ffcfc43",
+  "sourceDirty": false,
+  "supervisorSha256": "e4c5ee3c2cd8b79e6d1cc088af52ce0a04cc0e4b0f10a79c37bc4e55bd495fb1",
+  "installerSha256": "037cea6f5794da6cd19f67e284cc84f05e4c88f006a96de60b0f26c5b1931fe7",
+  "payloadSha256": "132a16c6fc3d9e18e75e47795a97ba270f72fb08365febd9697695709eba324f",
+  "supervisorEntry": "CHATMCP-HUB\\runtimes\\windows-sandbox\\GuestSupervisor.exe",
+  "capturedAt": "2026-10-13T16:04:10.0123604Z",
+  "nodeSha256": "3602f2bb1a10f2cbab4c36886218a33c1ab3db87290e73b033c46c77147d0237",
+  "g6RunId": "f3e5de81-3628-4358-a458-9e3d7f1d004e",
+  "g6BaselineInstallerSha256": "155d2f1b8777deb47e963fb362618bc2d864b5b9378de00982bb158ac4f1575a",
+  "g6CandidateInstallerSha256": "037cea6f5794da6cd19f67e284cc84f05e4c88f006a96de60b0f26c5b1931fe7",
+  "g6CandidateVersion": "2.6.0+acc2f840dfd7c1b279d2c58c2bc5d1294ffcfc43",
+  "g6LifecycleReportSha256": "2af20c5eab71412b42e3c3c1366cbea1aa6442f6374a2cf4ca61f1576427907f",
+  "g6HostRunSha256": "3717b29c6551923407a82d070b91e9ea514d2aef889b0c784fe456276bfb4111"
+}
