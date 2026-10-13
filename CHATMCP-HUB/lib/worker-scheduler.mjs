@@ -39,7 +39,7 @@ export class WorkerScheduler {
     }
     const parent=this.nodes.get(parentId); // NEVER accept a model-supplied parent object
     if (!parent || parent.depth>=this.maxDepth ||
-        ['failed','cancelled','blocked'].includes(parent.status)||
+        ['failed','cancelled','blocked','needs_attention','interrupted'].includes(parent.status)||
         parent.capabilities?.spawn!==true) {
       throw fault('worker_parent_denied','Parent missing, stopped, too deep, or lacking delegation rights.',403);
     }
@@ -85,7 +85,19 @@ export class WorkerScheduler {
               capabilities:node.capabilities,signal:this.controller.signal,
             });
             if(this.controller.signal.aborted){node.status='cancelled';return;}
-            node.result=result;node.status='completed';
+            // A model/worker claiming "finished" is not automatically a
+            // completed job. Explicit failed/blocked outcomes must prevent
+            // dependent workers from running; unknown outcomes are UNVERIFIED.
+            // No late success after owner cancellation can be published.
+            const state=result?.status??result?.state;
+            if(state!=='completed'){
+              node.status=state==='failed'?'failed':'blocked';
+              node.error='Worker returned '+String(state||'unknown')+
+                '; completion was not independently established.';
+              return;
+            }
+            node.result={status:'completed'};
+            node.status='completed';
           }catch(e){
             node.error=String(e?.message||e).slice(0,300);
             node.status=this.controller.signal.aborted?'cancelled':'failed';

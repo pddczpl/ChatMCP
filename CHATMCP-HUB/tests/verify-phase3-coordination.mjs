@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import {deriveChildCapabilities} from '../lib/worker-capabilities.mjs';
+import {WorkerScheduler} from '../lib/worker-scheduler.mjs';
+import path from 'node:path';
 import {
   validateCodingTaskGraph,chooseReadyCodingBatch,detectCodingFileConflicts,
 } from '../lib/coding-task-dag.mjs';
@@ -49,4 +52,42 @@ assert.throws(()=>detectCodingFileConflicts([
 assert.throws(()=>chooseReadyCodingBatch([
   {id:'b',status:'queued',dependsOn:['forged']},
 ]),{code:'invalid_coding_batch'});
+// Extended research/architect/debug roles may only DECREASE inherited rights.
+const scope=path.resolve('/tmp/chatmcp-phase3');
+const owner={id:'root',workspaceScope:scope,
+  capabilities:{read:true,edit:true,checksList:true,checksRun:true,spawn:true}};
+const architect=deriveChildCapabilities({
+  parent:owner,role:'architect',requested:['read','spawn','edit'],
+  workspaceScope:scope,
+});
+assert.equal(architect.spawn,true);
+assert.equal(architect.edit,false);
+assert.equal(architect.shell,false);
+const debuggerCaps=deriveChildCapabilities({
+  parent:owner,role:'debugger',requested:['edit','checksRun'],
+  workspaceScope:path.join(scope,'bug'),
+});
+assert.equal(debuggerCaps.edit,true);
+assert.equal(debuggerCaps.integrate,false);
+let invoked=0;
+const orchestrator=new WorkerScheduler({
+  root:owner,authorized:true,maxConcurrent:2,maxWorkers:4,
+  executeWorker:async({goal})=>{
+    invoked++;
+    return goal==='unverified' ? {status:'failed'} : {status:'completed'};
+  },
+});
+const bad=orchestrator.spawnWorker({
+  parentId:'root',role:'tester',goal:'unverified',
+  requestedCapabilities:['read'],workspaceScope:scope,
+});
+orchestrator.spawnWorker({
+  parentId:'root',role:'reviewer',goal:'dependent',
+  dependencies:[bad.id],requestedCapabilities:['read'],workspaceScope:scope,
+});
+const phase3Run=await orchestrator.run();
+assert.equal(invoked,1,'A dependent agent must never run after upstream failure.');
+assert.equal(phase3Run.workers.filter(x=>x.status==='failed').length,1);
+assert.equal(phase3Run.workers.filter(x=>x.status==='blocked').length,1);
+
 console.log('PASS: Phase3 owner-declared DAG, cycle rejection, blocked descendants and pre-integration path conflict checks');
