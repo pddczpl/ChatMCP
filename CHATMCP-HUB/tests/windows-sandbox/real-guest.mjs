@@ -261,6 +261,7 @@ export async function runRealGuestTests() {
     });
     console.log('[G4] Owned wsb exec --raw stdout channel: '+channel.status+
       '; stdoutField='+channel.hasStdout+'; exit0='+channel.exitCodeObserved+
+      '; fields='+JSON.stringify(channel.reportedFields)+
       '; publisherAuthenticated=FALSE');
     if(channel.status==='CLI_PROCESS_STDOUT_OBSERVED') {
       console.warn('[G4] Fixed public guest echo observed via CLI; authenticity of a pinned SUPERVISOR process is NOT established.');

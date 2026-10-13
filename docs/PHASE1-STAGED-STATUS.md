@@ -133,3 +133,22 @@ Antigravity's Round 5 report at Phase 1 SHA 68099a5 records SYNTHETIC_KEY_READ_S
 A proposed, NON-ATTESTING channel feasibility probe was added to the source. It runs one fixed harmless echo through wsb exec --raw in an already-owned guest and checks whether the CLI returns a bounded Stdout field. Its productionAuthenticated field is ALWAYS false; an arbitrary echoed marker is not a security proof. A true trusted supervisor process-origin response, including UUID/generation and process handle/pipe/exit binding, must still be designed and demonstrated on real Windows.
 
 See the [Phase 1 G4 publisher transport ADR](PHASE1-G4-PUBLISHER-TRANSPORT-ADR.md) for alternatives and explicit acceptance rules. The next Windows handoff is the [Round 6 Antigravity task](agent-handoffs/ANTIGRAVITY_NEXT_TASK.md). Clean-machine install→upgrade→uninstall remains NOT VERIFIED. No merge, release or production security unlock.
+
+## Round 6 Native Windows Hardware Security Findings (2026-10-13, HEAD 8fe6da8)
+
+1. **WSB CLI Direct Stdout Channel Feasibility Probe:**
+   - Executed `probeOwnedSandboxCliStdout` inside an owned Windows Sandbox instance (`27698847-560e-4fa3-bb98-ce035571a345`).
+   - The installed CLI (`wsb.exe` 0.8.107.0 on Windows 11 Build 26300) returned ONLY the `ExitCode` property: `fields=["ExitCode"]`.
+   - The `Stdout` property was ABSENT from the raw JSON output (`stdoutField=false`, `echoObserved=false`, `exitCodeObserved=true`, probe status: `CLI_PROCESS_STDOUT_NOT_PROVEN`, `publisherAuthenticated=false`).
+   - Consequently, direct process stdout transfer across the hypervisor boundary is not supported by the current Windows Sandbox CLI.
+
+2. **Security Gate Matrix:**
+   - **G1 (Host Readiness):** PASS (Windows 11 Build 26300 x64, Hyper-V active, wsb 0.8.107.0).
+   - **G2 (Owned Guest Lifecycle & Isolation):** PASS (Clean single-instance launch/stop, host canary isolation, guest network blocked).
+   - **G3 (Restricted Child Token & WMI Secrecy):** PASS (Child User SID `S-1-5-21-2047949552-857980807-821054962-504` [`WDAGUtilityAccount`]; genuine WMI parent query executed: `PARENT_WMI_STATUS=EMPTY`, `PARENT_CMDLINE_EMPTY=True`, `PARENT_AUTH_KEY_VISIBLE=False`; Win32 denials: `OPEN_QUERY_ERR=5`, `OPEN_VMREAD_ERR=5`, `OPEN_ALL_ACCESS_ERR=5`, `OPEN_WINSTA_WRITE_DAC_ERR=5`, `OPEN_DESK_WRITE_DAC_ERR=5`).
+   - **G4 (Publisher Attestation):** **BLOCKED** (Mapped folder key disclosure path demonstrated; CLI direct stdout unavailable; shipping `assemble.mjs` retains `hostAttested: false`).
+   - **G5 (Real Coding Worker E2E):** PASS (17/17 checks in `real-coding-e2e.mjs` pass, full fail -> repair -> pass loop).
+   - **G6 (Tests & Distribution):** PASS on Hub (62/62), UI (46/46), Installer Payload (42/42), and GitHub CI (9/9 push + 9/9 PR); Clean-machine installer on clean non-dev OS is NOT VERIFIED.
+
+3. **Mandatory Verdict:** **PHASE 1 G4 BLOCKED — NO MERGE / NO RELEASE**. Keep PR #12 and PR #13 Draft.
+
