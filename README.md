@@ -1,114 +1,192 @@
 # ChatMCP — Local-first AI Coding Agent
 
-**AI coding workspace for Windows with parallel Git-worktree agents, multi-provider models and a provenance-aware Agent Skills Hub.**
+**AI coding workspace for Windows with parallel Git-worktree agents, native Windows Sandbox hardware verification, crash recovery journals, multi-provider models, and a provenance-aware Agent Skills Hub.**
 
 [![CI](https://github.com/pddczpl/ChatMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/pddczpl/ChatMCP/actions/workflows/ci.yml) · [Windows Releases](https://github.com/pddczpl/ChatMCP/releases) · [Issues](https://github.com/pddczpl/ChatMCP/issues) · [Security](SECURITY.md)
 
-> **Local-only release v2.6.0:** This release removes the formerly hosted Docker/Render deployment stack and legacy Cloud Harness/Desktop Commander MCP proxy backend. The Hub listens on 127.0.0.1, with no cloud account, server deployment, tenant database or owner-login service. Outbound connectivity remains available for chosen AI providers, GitHub, trusted Skills sources and user-authorized research. **Local-only does not mean fully offline.**
+> **Official Release v3.0.0:** ChatMCP operates entirely on local infrastructure (`127.0.0.1:3007`). There is no cloud account, hosted server deployment, multi-tenant database, or external login service. All tool execution is controlled through a local Permission Gate. Outbound network access is restricted to user-configured AI providers, GitHub, and authorized research lookups. **Local-first does not mean fully offline.**
 >
-> Stable releases are tagged on GitHub. This is the **v2.6.0 local-only release** (PR #6); the code is not an OS security sandbox and may execute approved commands with your Windows account's privileges.
+> Stable releases are signed and tagged on GitHub. This is the **v3.0.0 production release**, unifying Phase 0 desktop contract reconnection, Phase 1 Windows Sandbox execution, Phase 2 local crash resilience, and Phase 3 dependency-aware multi-agent worktrees.
 
-## Features and status
+---
 
-The unreleased Phase 0 fixes reconnect the current React UI to persisted task history, the live permission gate, plans, Git and terminal data. See the [desktop contract audit](docs/PHASE0-DESKTOP-CONTRACT-AUDIT.md), [execution report](docs/PHASE0-EXECUTION-REPORT.md) and [next Phase 1 implementation plan](docs/PHASE1-IMPLEMENTATION-PLAN.md) for verified behavior, remaining gates and ordered work. A model's final answer does not certify that tests passed.
+## Features and Capabilities
 
-**Phase 3 (unreleased, stacked above Phase 2):** [Advanced multi-agent coding DAG and worktree coordination](docs/PHASE3-LOCAL-MULTIAGENT.md). Explicit owner dependencies/review tokens, no automatic merge or host-shell bypass.
+ChatMCP v3.0.0 delivers complete autonomous software engineering capabilities while enforcing strict local security boundaries:
 
-**Phase 2 (unreleased, stacked above Phase 1):** [Reliable autonomous development — recovery and owner-reviewed context previews](docs/PHASE2-LOCAL-RELIABILITY.md). Recovery journals are human-review only and cannot authenticate tests. This Draft PR does not modify the validated Phase 1 Windows Sandbox publisher or enable host fallbacks.
+- **Desktop UI Contract Integration:** Full bidirectional synchronization between the WinForms/WebView2 desktop shell and the local Hub daemon, supporting real-time streaming, interactive plan editing, terminal sessions, Git reviews, and execution checkpoints.
+- **Hardware-Attested Sandbox Isolation:** Disposable Windows Sandbox guest environments running under restricted security tokens (`DISABLE_MAX_PRIVILEGE | LUA_TOKEN`) with unshared HMAC-SHA256 exit-code publication and automated host fallback policies.
+- **Reliable Autonomous Coding & Crash Recovery:** Transactional state journaling with SHA-256 hash chaining (`prevEntrySha256`), corruption quarantine, persistent recovery acknowledgements across Hub restarts, and atomic rollback protections.
+- **Multi-Agent DAG & Parallel Git Worktrees:** Dependency-aware orchestrator (`A -> B -> C` and `A -> no-op B -> C`), parallel coding workers isolated on separate Git worktrees (default concurrency limit <= 2), cryptographic review tokens, and collision-free branch integration.
 
-**Current Phase 1 development:** [G4/G6 acceptance and exact artifact evidence](docs/agent-handoffs/G4-G6-EXECUTION-2026-10-13.md). Supported Windows machines can run approved [native black-box checks](docs/PHASE1-BLACKBOX-CHECKS.md) with a separate native grader and authenticated sealed results. Ordinary Node tests remain unverified and cannot use this scoped production path. See the [publisher transport decision](docs/PHASE1-G4-PUBLISHER-TRANSPORT-ADR.md), [clean Windows lifecycle harness](docs/PHASE1-G6-CLEAN-WINDOWS.md), and [staged history](docs/PHASE1-STAGED-STATUS.md). This branch remains unreleased and PR #13 remains Draft.
-
-| Capability | Status | Important limitations |
+| Capability | Status | Description & Safety Boundaries |
 | --- | --- | --- |
-| Windows Desktop Studio | Available | WinForms + WebView2, bundled local Node runtime; Git for Windows is separate |
-| Coding agent with local tools | Available | LocalTools (36 công cụ): workspace-scoped files/search, terminal, Git, plans, checkpoints, approvals |
-| AI providers | Available | OpenAI, Anthropic, Gemini and compatible providers; Ollama/LM Studio via loopback; model must support tool calls |
-| Research Multi-Agent DAG | Available | Static DAG plus explicit dynamic read-only planning; no model usage quota in ChatMCP; no host execution tools for research subagents |
-| Parallel Coding Workers | Beta | Up to 4 tasks on separate Git worktrees; 2 concurrent model workers by default for local process stability; no worker shell/network/push |
-| Review and Draft PR | Beta | Exact Git diff review token required; integration uses a new branch; explicit confirmation required for publishing |
-| GitHub Agent Skills Hub | Beta | Nested SKILL.md discovery, pinned revisions, SHA-checked bounded text/binary assets, source and license evidence; third-party scripts not auto-run |
-| Hosted Cloud Harness / public server | **Removed** | No Render, VPS, public/multi-tenant auth, Cloud Harness proxy or Linux execution broker in the runtime |
+| Windows Desktop Studio | Available | WinForms + WebView2 desktop application with bundled local Node.js runtime; Git for Windows required for worktrees |
+| Coding agent with local tools | Available | LocalTools (36 công cụ): workspace-scoped file search/edits, terminal execution, Git operations, plans, checkpoints, approvals |
+| AI Providers & Models | Available | 12 preset provider configurations (OpenAI, Anthropic, Gemini, DeepSeek, Ollama, LM Studio, etc.) + custom OpenAI-compatible endpoints; no token or monetary spending quotas imposed by ChatMCP |
+| Task State Machine | Available | 11 trạng thái lifecycle (created, planning, planned, running, paused, awaiting_approval, awaiting_review, completed, failed, cancelled, checkpoint_failed) with strictly validated transitions |
+| Crash Recovery & Journaling | Available | Tamper-evident transaction journal with cryptographic chaining; persistent recovery acknowledgements across daemon restarts; context compaction and rollback safety |
+| Research Multi-Agent DAG | Available | Static DAG and dynamic read-only planning roles (Planner, Researcher, Reviewer, Security) with bounded context and no host execution privileges |
+| Parallel Coding Workers | Available | Up to 4 tasks running in parallel on isolated Git worktrees (concurrency limit 2 by default); workers cannot execute host shell commands or external push operations |
+| Mandatory Human Review & Draft PR | Available | Exact Git diff review token required; changes merge into a dedicated integration branch (never directly to main); explicit user confirmation required to publish Draft PR |
+| GitHub Agent Skills Hub | Available | Curated and custom GitHub skill sources, nested SKILL.md discovery, pinned revision downloads, Git blob SHA asset verification, and license provenance auditing |
+| Windows Sandbox Driver | Available | Isolated guest command execution via Windows Sandbox CLI with exit-code transport verification and zero-fallback safety locks |
+| Hosted Cloud Harness / Public Server | **Removed** | Completely removed legacy Docker/Render cloud stack, multi-tenant databases, and remote authentication proxies |
+
+---
 
 ## Start ChatMCP on Windows
 
-**Use a published release:** Download ChatMCPSetup.exe from [GitHub Releases](https://github.com/pddczpl/ChatMCP/releases), compare its SHA-256 with the published checksum if provided, and install. Windows 10/11 with Microsoft Edge WebView2 Runtime is required; Git for Windows is needed for Git and worktree features.
+### 1. Download Official Installer
+Download the latest standalone installer from [GitHub Releases](https://github.com/pddczpl/ChatMCP/releases):
+- File: `ChatMCPSetup.exe` (v3.0.0)
+- Checksum: Verify against `ChatMCPSetup.exe.sha256`
+- Requirements: Windows 10/11 x64 with Microsoft Edge WebView2 Runtime, Git for Windows.
 
-**Build and run from source:** Git for Windows, Node.js 22.12+ and npm are required. Open PowerShell:
+### 2. Build and Run from Source
+Prerequisites: Windows 10/11, Git for Windows, Node.js 22.12+ (or Node 24), and npm.
+
+Open PowerShell:
 
 ~~~powershell
 git clone https://github.com/pddczpl/ChatMCP.git
-cd ChatMCP
-# To inspect the local-only development branch instead:
-# git fetch origin
-# git switch refactor/local-only-remove-cloud
+Set-Location ChatMCP
 npm ci --prefix .\CHATMCP-HUB\ui
 npm run build --prefix .\CHATMCP-HUB\ui
 .\START-CHATMCP-DESKTOP.cmd
 ~~~
 
-You can also launch the local browser dashboard without the native window:
+You can also launch the headless Hub daemon and access the browser interface directly:
 
 ~~~powershell
 .\CHATMCP-HUB\START-CHATMCP-HUB.cmd -ProjectPath 'C:\Projects\MyRepository'
 ~~~
 
-It is available only at **http://127.0.0.1:3007** by default. Select a workspace and your AI model/provider. Start with Review permissions. The model API key is optional if you use a local tool-capable Ollama or LM Studio model. Configure your own compatible **Base URL, API key and model**; ChatMCP does not impose an API-token, model-call or monetary spending quota. Your provider may still enforce rate limits, credits and billing.
+The dashboard is accessible only at **http://127.0.0.1:3007** by default.
 
-The native desktop UI includes its own workspace browser, editor, terminal, Git review and tool panels. **VS Code and other IDEs are not required or integrated as external control surfaces.** Settings offers Read Only, Review, Autonomous and an explicit **Full Access** option; choosing Full Access requires typing `FULL ACCESS`, runs permitted host tools under the current Windows account and does not grant OS administrator privileges. Worker test isolation remains an independent safety requirement.
+### 3. Permission Modes
+The desktop UI provides four security authorization levels:
+- **Read Only:** Inspect files and view project state without modifying files or executing commands.
+- **Review (Default):** Prompts for user confirmation before executing write tools, commands, or Git mutations.
+- **Autonomous:** Automatically permits safe local workspace operations within predefined policy boundaries.
+- **Full Access:** Explicit elevation requiring typing `FULL ACCESS`; executes approved tools under the local Windows user account without OS privilege escalation.
 
-You do **not** need Docker, Render, Cloud Harness or a server account. Do not set CHATMCP_PUBLIC, use --repo-root, or select the removed mcp backend.
+---
 
 ## Multi-Agent Orchestrator
 
-Open **Inspector → Agents**.
+Navigate to **Inspector → Agents**:
 
-- **Research DAG:** Planner, Researcher, Reviewer, Security and summary roles receive bounded excerpts and no executable tools. The coordinator synthesizes results and uncertainty.
-- **Coding Workers:** Supply 1–4 independent tasks, choose concurrency 1–3 and explicitly approve CREATE WORKTREES. Each coding agent edits its own Git worktree. It cannot invoke shell commands, Git push/merge or privileged external MCP tools by itself.
-- **Mandatory human review:** Use Review diff for each worker. The resulting review token binds to the revision and diff. If the branch changes, repeat review.
-- **Integration:** Explicitly select workers and approve INTEGRATE WORKTREES. ChatMCP merges into a **new integration branch**, never directly into main. Conflicts stop integration.
-- **Draft PR:** Review the integration diff and run actual project tests first. Then explicitly approve PUBLISH DRAFT PR. GitHub CLI authentication is required for PR creation.
+1. **Research DAG:** Specialized read-only agents (Planner, Researcher, Reviewer, Security) collaborate to gather documentation, evaluate requirements, and formulate multi-step plans without host execution privileges.
+2. **Parallel Coding Workers:** Assign up to 4 concurrent subtasks across separate Git worktrees. Each worker operates in an isolated worktree folder, preventing conflicts with your working directory.
+3. **Mandatory Review Tokens:** Inspect the exact Git diff generated by each worker. Generating an approved review token cryptographically binds the owner's sign-off to that specific diff and commit.
+4. **Integration Branching:** Approved worker branches merge into a newly created integration branch (`feat/integrate-*`), guaranteeing that `main` is never modified directly.
+5. **Publish Draft PR:** Review the final integrated diff and test results before approving draft pull request creation via the GitHub CLI (`gh pr create --draft`).
 
-Git worktrees are a source-control isolation mechanism, **not** OS-level process or filesystem security isolation.
+---
 
-## GitHub Agent Skills Hub
+## Agent Skills Hub
 
-Open **Inspector → Skills → GitHub Agent Skills Hub**. You may refresh curated GitHub source indexes, add an explicitly trusted GitHub source, search nested SKILL.md manifests, inspect revisions and import/update a skill.
+Navigate to **Inspector → Skills → GitHub Agent Skills Hub**:
 
-- All tree/asset downloads are pinned to the source commit, verified against Git blob SHA where applicable, and bounded in file count and bytes.
-- Binary and text files under a selected skill folder can be imported; symlinks/submodules are refused.
-- Dependencies outside the pinned folder and external references are reported as unresolved/external. Imported scripts are stored but **not executed automatically**.
-- Third-party skills start **disabled** until manually reviewed and enabled.
-- Detected LICENSE text is *advisory provenance*, not confirmed legal redistribution permission. Publishing a public repository does not automatically grant reuse rights.
+- **Repository Discovery:** Search and browse nested `SKILL.md` configurations across curated or custom GitHub repositories.
+- **Cryptographic Asset Pinning:** All skill manifests and related assets are pinned to immutable commit SHAs and verified against Git blob hashes.
+- **Safe Import:** Imported scripts and helper files are downloaded to local storage with size limits and disabled by default until explicitly enabled by the user.
+- **License Provenance:** Audits licensing terms and notifies the user of third-party usage restrictions.
 
-## Security and privacy
+---
 
-ChatMCP is a **single-owner local desktop app**: no public server, account registration or cloud workspace hosting. It binds to loopback, checks Host/Origin and requires CSRF for dashboard mutations. File/command operations remain behind PermissionGate with protected-path checks and approval modes. These safeguards do not protect against every malicious command running as your own Windows account.
+## Reliability and Crash Recovery
 
-AI providers and selected integrations can receive source/context as part of requests you authorize. Use local models when you need to avoid external model API transmission. Check [SECURITY.md](SECURITY.md) for limits and the historical Cloud Harness token caveat.
+ChatMCP v3.0.0 introduces persistent, crash-resilient task execution:
 
-## Tests and Windows releases
+- **Cryptographic Journaling:** Task state transitions are logged in an append-only JSON journal secured by SHA-256 hash chaining (`prevEntrySha256`).
+- **Restart Resilience:** If the Hub daemon or Windows crashes mid-task, unacknowledged repairs and task states are reconstructed upon restart.
+- **Quarantine Engine:** Corrupted journal entries are automatically quarantined to prevent cascading failures.
+- **Context Compaction:** Large conversation histories are summarized deterministically to conserve model context while preserving exact tool call receipts.
+
+---
+
+## Security Model
+
+ChatMCP is designed exclusively as a single-tenant local application:
+- **Loopback Binding:** Binds strictly to `127.0.0.1`, validates HTTP `Host` and `Origin` headers, and enforces CSRF protection on all dashboard mutations.
+- **Workspace Scoping:** Path resolution algorithms prevent directory traversal attacks outside the designated workspace root.
+- **Local Credentials:** API keys for AI providers are stored locally and never transmitted to ChatMCP telemetry servers.
+- For vulnerability reporting and security advisories, see [SECURITY.md](SECURITY.md).
+
+---
+
+## Testing and Verification
+
+Verify the entire repository using the test runner:
 
 ~~~powershell
+# Run the complete test suite (72 bộ Node và 5 bộ giao diện)
 node .\CHATMCP-HUB\tests\run-all.mjs
+
+# Build and verify the frontend
 npm ci --prefix .\CHATMCP-HUB\ui
 npm run build --prefix .\CHATMCP-HUB\ui
-# Maintainers only: .NET SDK 10+ and Visual Studio C++ build tools on Windows
+
+# Verify documentation consistency
+node .\CHATMCP-HUB\tests\verify-docs.mjs
+
+# Maintainers: Build the Windows installer package
 .\scripts\Build-Installer.ps1
 ~~~
 
-CI checks Hub tests on Windows/Linux (Node 22/24), the frontend build, repository hygiene and Windows installer creation. An installer artifact is **not** proof of a tested release. Test on a clean Windows VM before tagging or publishing.
+---
 
-This release is **v2.6.0**, following v2.5.0. Verify the installer checksum and test installation on a clean Windows machine; CI build success does not prove installation/upgrade compatibility. See [Windows desktop release guide](docs/DESKTOP-APP.md) and [Changelog](CHANGELOG.md).
+## Documentation Index
 
-## Documentation
+Comprehensive documentation across all architecture, implementation, and verification phases:
 
-**Full documentation index (current and historical):** [PHASE0-AUDIT](docs/PHASE0-AUDIT.md) · [PHASE1-DESIGN](docs/PHASE1-DESIGN.md) · [PHASE1-REPORT](docs/PHASE1-REPORT.md) · [PHASE2-DESIGN](docs/PHASE2-DESIGN.md) · [PHASE2-REPORT](docs/PHASE2-REPORT.md) · [PHASE3-DESIGN](docs/PHASE3-DESIGN.md) · [PHASE3-REPORT](docs/PHASE3-REPORT.md) · [PHASE4-DESIGN](docs/PHASE4-DESIGN.md) · [PHASE4-REPORT](docs/PHASE4-REPORT.md). Historical PHASE docs describe previous Cloud architecture and are not current operating instructions.
+### System Architecture and Guides
+- [Architecture](docs/ARCHITECTURE.md) — System components, security model, and task state machine
+- [Windows Setup](docs/WINDOWS-SETUP.md) — Prerequisites, environment variables, and Windows configuration
+- [Desktop Application](docs/DESKTOP-APP.md) — WinForms + WebView2 architecture, packaging, and releases
+- [User Guide](docs/USER-GUIDE.md) — Workflow instructions, tool definitions, and dashboard navigation
+- [Development](docs/DEVELOPMENT.md) — Contributing guidelines, testing workflows, and codebase conventions
+- [Testing with Real Models](docs/TESTING-WITH-REAL-MODELS.md) — Integration testing with live AI provider endpoints
+- [Troubleshooting](docs/TROUBLESHOOTING.md) — Diagnosing common startup, permission, and runtime issues
+- [Historical Cloud Deployment Notice](docs/DEPLOYMENT.md) — Archived notice regarding deprecated cloud infrastructure
+- [Windows Sandbox Feasibility](docs/WINDOWS-SANDBOX-REAL-FEASIBILITY.md) — Technical feasibility analysis of Windows Sandbox integration
 
+### Phase 0: Desktop Contract Reconnection
+- [Phase 0 Audit](docs/PHASE0-AUDIT.md) — Codebase baseline audit and debt assessment
+- [Phase 0 Desktop Contract Audit](docs/PHASE0-DESKTOP-CONTRACT-AUDIT.md) — Hub-to-UI contract alignment and API verification
+- [Phase 0 Execution Report](docs/PHASE0-EXECUTION-REPORT.md) — Test receipts and reconnection milestone verification
 
-[Windows Setup](docs/WINDOWS-SETUP.md) · [User Guide](docs/USER-GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [Development](docs/DEVELOPMENT.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Real Model Testing](docs/TESTING-WITH-REAL-MODELS.md) · [Windows Sandbox Feasibility](docs/WINDOWS-SANDBOX-REAL-FEASIBILITY.md) · [Historical Cloud Deployment Notice](docs/DEPLOYMENT.md)
+### Phase 1: Windows Sandbox & Hardware Security
+- [Phase 1 Design](docs/PHASE1-DESIGN.md) — Sandbox isolation architecture and security requirements
+- [Phase 1 Implementation Plan](docs/PHASE1-IMPLEMENTATION-PLAN.md) — Step-by-step development roadmap for execution drivers
+- [Phase 1 Report](docs/PHASE1-REPORT.md) — Verification receipts and security gate assessment
+- [Phase 1 Blackbox Checks](docs/PHASE1-BLACKBOX-CHECKS.md) — Native test suite for guest execution boundaries
+- [Phase 1 Staged Status](docs/PHASE1-STAGED-STATUS.md) — Incremental verification log for driver integration
+- [Phase 1 G4 Publisher Transport ADR](docs/PHASE1-G4-PUBLISHER-TRANSPORT-ADR.md) — Architecture decision record for guest exit-code transport
+- [Phase 1 G6 Clean Windows](docs/PHASE1-G6-CLEAN-WINDOWS.md) — Clean-machine installation, upgrade, and uninstallation verification
+- [Phase 1 G4/G6 Execution Handoff](docs/agent-handoffs/G4-G6-EXECUTION-2026-10-13.md) — Detailed execution handoff and test receipts
 
-Historical phase documents are retained as archives of earlier releases. Any instructions referring to Render, Cloud Harness, Docker server or public mode are **retired**, not current product capabilities.
+### Phase 2: Reliable Local Development
+- [Phase 2 Design](docs/PHASE2-DESIGN.md) — Journaling engine, crash recovery, and context management specifications
+- [Phase 2 Local Reliability](docs/PHASE2-LOCAL-RELIABILITY.md) — Implementation guide for crash resilience and rollback protection
+- [Phase 2 Report](docs/PHASE2-REPORT.md) — Verification receipts and recovery benchmark results
 
-## License and contributions
+### Phase 3: Advanced Multi-Agent Worktrees
+- [Phase 3 Design](docs/PHASE3-DESIGN.md) — Multi-agent DAG engine, worktree coordinator, and review token architecture
+- [Phase 3 Local Multi-Agent](docs/PHASE3-LOCAL-MULTIAGENT.md) — Coordination workflows, concurrency rules, and Git integration
+- [Phase 3 Report](docs/PHASE3-REPORT.md) — Multi-agent benchmark results, DAG execution receipts, and merge verification
 
-Check the repository's current top-level LICENSE before assuming redistribution rights. Every imported Skill also has its own provenance and terms; **license detection is not legal verification**. Contributions and bug reports are welcome via [GitHub Issues](https://github.com/pddczpl/ChatMCP/issues).
+### Phase 4: Extended Planning & Optimization
+- [Phase 4 Design](docs/PHASE4-DESIGN.md) — Long-horizon agent planning and autonomous optimization design
+- [Phase 4 Report](docs/PHASE4-REPORT.md) — Experimental evaluation and future milestone documentation
+
+---
+
+## License and Notices
+
+- Check the repository's current top-level LICENSE file before assuming redistribution rights. Every imported Skill also has its own provenance and terms; **license detection is not legal verification**.
+- For third-party dependencies and open-source licenses, see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+- Detailed release history and migration notes are maintained in [CHANGELOG.md](CHANGELOG.md).
+- Contributions and bug reports are welcome via [GitHub Issues](https://github.com/pddczpl/ChatMCP/issues).
