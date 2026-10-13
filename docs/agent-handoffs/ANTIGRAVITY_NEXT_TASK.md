@@ -1,3 +1,59 @@
+# ANTIGRAVITY_NEXT_TASK — Round 3, Confirmed HMAC Key Leak (2026-10-13)
+
+**P0 SECURITY DEFECT CONFIRMED BY REAL WINDOWS GUEST:** A restricted test child still has SYSTEM User SID S-1-5-18 and can retrieve the SYSTEM supervisor's command-line HMAC bearer key using WMI. Reducing privileges and marking Administrators deny-only DOES NOT change the token's user SID. **G4 = FAIL. PHASE 1 = BLOCKED.**
+
+**TRACKING ISSUE:** https://github.com/pddczpl/ChatMCP/issues/14 (mandatory prerequisite to Phase 1 security acceptance; NOT optional Phase 2 work).
+
+**DECISIONS ALREADY MADE — DO NOT ASK AGAIN**
+1. Keep PR #13 and PR #12 Draft/Open. No main merge, tag, release, or production worker enablement. Continue implementation of this fix under Phase 1 on feat/phase1-complete-autonomous-coding.
+2. A named pipe is NOT automatically a secure host↔guest pipe; Windows Sandbox is a separate VM. Verify actual wsb transport and Windows security descriptors before proposing it as the solution.
+3. The preferred identity invariant is that arbitrary code runs under a **different non-SYSTEM, standard-user SID/security principal** from the trusted supervisor; a merely restricted SYSTEM token is insufficient. Any alternative must demonstrate equally strong child isolation and WMI secrecy. Implement via verified native Windows primitives, do not emulate account separation with a Boolean receipt flag.
+4. The HMAC signing key must not be recoverable from process argv, environment, mapped input, inherited handles, WMI/CIM, or untrusted guest scripts. Investigate a one-time ACL-protected internal guest channel/bootstrap or an OS-authenticated host broker, but **never assume a Windows host pipe crosses Sandbox VM boundary**. If infeasible, document the exact blocker and leave hostAttested:false.
+5. Preserve the user's BYO Base URL/API key/model, unlimited provider-managed API usage, standalone desktop without IDE integration, and explicit Full Access confirmation. Full Access must not bypass test isolation or grant Windows elevation.
+
+## What changed in GitHub after your report cc22baa
+
+- New test-only owner cleanup helper: CHATMCP-HUB/tests/windows-sandbox/owned-guest-cleanup.mjs.
+- The real-coding-e2e.mjs script had an UNSAFE loop stopping EVERY Sandbox listed by wsb list, including potentially another user's Sandbox created during the test. It is now replaced with owned UUID+generation-only cleanup, and uncertain ownership must result in BLOCKED rather than stopping an unknown guest. A portable unit test asserts that foreign instance UUIDs are never stopped.
+- A 300-second watchdog used to process.exit(2) without cleanup. The diagnostic now aborts owned operations cooperatively and reaches owner-only cleanup.
+- real-guest.mjs WMI audit now returns only a Boolean PARENT_AUTH_KEY_VISIBLE=True/False, never the key; a visible bearer key results in **G4 FAIL and nonzero security acceptance exit**, even if other functionality checks pass. Do not silence that failure or mark it 28/28 security PASS.
+- Check the remote PR #13 HEAD fresh; never assume the SHA from this description is the final tested SHA.
+
+## Required implementation and evidence
+
+### G3 / G4 — Fix the actual trust boundary, not just the symptom
+
+- Inspect the current GuestSupervisor Program.cs token creation, privilege/group data and CreateProcessAsUserW path. Produce a real separate standard-user child token SID different from S-1-5-18. Verify child User SID, Administrators deny-only, restricted SIDs, integrity, privileges, WMI access to parent supervisor and relevant PROCESS_QUERY/VM_READ access. Deny process handles and parent command-line reads.
+- Remove HMAC key from SYSTEM supervisor argv / inheritable environment. Investigate and implement a proven secure key-transfer mechanism with guest-only ACL/pipe/bootstrap synchronization. Run real attack attempts from the separate low-privileged child. The key is never printed, persisted to repo, included in stdout, or stored in a guest-untrusted mapped file.
+- The real malicious guest child must attempt to forge receipt.json and SHA-256 and HMAC signature from inside the guest; host must read the unchanged resulting artifacts and reject unauthorized signed PASS. Cover WMI/argv, handle inheritance, permissions, stale/replayed request, children/grandchildren, timestamp/snapshot/check mismatch, cancellation.
+- DO NOT set production hostAttested:true just to make the fixture pass. Keep the sandbox-only worker backend unavailable until the user approves a separate independent security review of the final implementation and raw OS evidence.
+
+### G2 / E2E — Preserve actual achievements, avoid unsafe testing
+
+- The new real-coding-e2e.mjs is a helpful **test-scoped** full-stack harness: actual guest failure then scripted code repair and actual guest PASS, not a live model benchmark. It injects hostAttested:true to test wiring, so its signed receipts are NOT proof of the current production key boundary.
+- Rerun on the final SHA after security changes and provide guest UUID, child non-SYSTEM token SID, immutable baseline hash, signed but security-attested receipt identity, TAP counts, and genuine malicious child forgery denial. Test that a revoked grant or parent downgrade causes zero launches.
+- Never stop an unowned Sandbox. An unknown instance appearing during cleanup is a BLOCKED/manual reconciliation result, not authorization to call wsb stop on its UUID. Verify test-only cleanup helper on real Windows. Preserve forensic output when ownership is uncertain.
+- Ensure the watchdog cancellation does not leave orphan Sandbox processes or kill an unrelated guest.
+
+### G6 — Installer / desktop
+
+- A successful setup build, payload regression and WebView2 smoke are NOT clean-machine installation evidence. Test install, launch, upgrade and uninstall in a user-approved disposable Windows environment, or say NOT VERIFIED. Preserve unrelated config and files.
+- Verify isolated guest runtime files and SHA manifests in their actual installed directories. Missing Windows Sandbox must not make the desktop unusable or force reboot/feature installation.
+- Do not call paid model APIs.
+
+## How to execute and report
+
+1. Read this entire file, AGENTS/workspace rules and the linked Issue #14. Work on the real F:\Personal_Project\Vin\ChatMCP Windows workspace. Fetch origin, inspect git status, branch and PR #13 HEAD; preserve unrelated edits, no destructive reset or force push.
+2. Make narrowly scoped code/Win32 changes, add regression + real OS security probes, run full relevant Node, Windows Sandbox guest, React/WebView2 and installer tests serially where guest ownership matters. Check 9/9 PR and 9/9 push CI jobs on the same final SHA. Commit/push only PR #13 branch.
+3. Return exact tested SHA, command exit codes, Windows build and verified child distinct user SID, WMI key secrecy results, actual 28-check functional result vs G4 FAIL/PASS, E2E failure→repair→PASS receipts, guest UUID/cleanup evidence, installer results and G1–G6 acceptance matrix.
+4. If different non-SYSTEM SID or secure key channel is blocked by actual Windows APIs, state concrete error and propose a feasible prerequisite. Do NOT report Phase 1 GO.
+
+**VERDICT UNTIL PROVEN AND INDEPENDENTLY REVIEWED: P0 G4 FAIL — PHASE 1 BLOCKED — NO MERGE / NO RELEASE.**
+
+---
+
+## Historical Round 2 and initial task instructions (read for context)
+
 # ANTIGRAVITY_NEXT_TASK — Round 2, Security Remediation (2026-10-13)
 
 **Verdict: PHASE 1 BLOCKED — NO MERGE / NO RELEASE.**
