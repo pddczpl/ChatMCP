@@ -49,6 +49,28 @@ assert.deepEqual(detectCodingFileConflicts([
 assert.throws(()=>detectCodingFileConflicts([
   {id:'a',changedFiles:['../config']},
 ]),{code:'invalid_worker_file'});
+// Fail-closed Windows file aliases and control characters. A malicious
+// worker may touch filenames that normal Git line-oriented output obscures.
+for(const suspicious of [
+  '../config','src/../secret','src//double.js','src/./file.js',
+  'src/aux.txt','src/NUL','src/COM1.js','src/evil:stream',
+  'src/end.','src/end ','src/line\nbreak.js','C:/host.txt',
+  '/absolute.js','\\\\server\\share\\file.js',
+]){
+  assert.throws(()=>detectCodingFileConflicts([
+    {id:'a',changedFiles:[suspicious]},
+  ]),{code:'invalid_worker_file'},'Unsafe changed path must fail: '+JSON.stringify(suspicious));
+}
+assert.deepEqual(detectCodingFileConflicts([
+  {id:'a',changedFiles:['src/cafe\u0301.ts']},
+  {id:'b',changedFiles:['src/café.ts']},
+]),[{file:'src/café.ts',workerIds:['a','b']}],
+'Equivalent normalized Unicode paths must be treated as collisions');
+assert.deepEqual(detectCodingFileConflicts([
+  {id:'a',changedFiles:['src/Foo.ts']},
+  {id:'b',changedFiles:['src/foo.ts']},
+]),[{file:'src/foo.ts',workerIds:['a','b']}]);
+
 assert.throws(()=>chooseReadyCodingBatch([
   {id:'b',status:'queued',dependsOn:['forged']},
 ]),{code:'invalid_coding_batch'});
