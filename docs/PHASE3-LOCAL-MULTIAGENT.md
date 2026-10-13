@@ -52,3 +52,9 @@ These additions are additive on the Phase 2 and Phase 1 branches. They do not ma
 - Regression tests cover Unicode/case aliases, Windows device/ADS names, path ambiguity and a real Git-worktree scripted worker producing 251 files. The latter must fail with zero agent commits and must leave the user's checkout unchanged.
 
 **Remaining Phase 3 acceptance:** A stronger real-world dependency/cancellation/interleaving matrix, explicit manual conflict-resolution workflow, independent model-worker quality benchmarks, and corresponding native Windows testing remain unfinished. G4 and clean-machine install remain release prerequisites, not bypasses.
+
+## Phase 3 additional source evidence — cancellation and local benchmarks
+
+New real disposable Git worktree regressions exercise a three-stage A→B→C chain, pinned inherited commits, a failed upstream blocking all downstream workers, cancellation during an active scripted worker, at-most-two concurrent independent workers and a manual Phase2 bounded source preview from a committed worker. The original checkout remains unchanged, no model provider is used, and no Windows Publisher G4 is unlocked.
+
+An offline nine-case deterministic Phase3 benchmark now records dependency scheduling, parallel readiness, blocked descendants, Windows file-alias overlap, reviewer capability attenuation and concurrency. The JSON report identifies modelRequests=0, hostCommandExecutions=0 and windowsGuestAttested=false: coordination performance and correctness are distinct from real-model quality or native guest trust. These tests are run by the normal verify-* Hub suite.

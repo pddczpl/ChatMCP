@@ -32,19 +32,40 @@ try{
   parent.permissions.mode='autonomous';
   await parent.startLocal();
   const actions=[];
+  let independentActive=0,peakIndependent=0;
+  let signalCancelWorkerStarted;
+  const cancelWorkerStarted=new Promise(resolve=>{signalCancelWorkerStarted=resolve;});
   const orchestrator=new CodingWorktreeOrchestrator({
     manager:parent,provider:{ready:()=>true},
     directory:path.join(root,'coding-runs'),
     bundleRoot:path.resolve('.'),
-    createWorker:async({worktree,node})=>{
+    createWorker:async({worktree,node,signal})=>{
       actions.push(node.id);
-      if(node.id==='base'){
+      if(node.id==='middle'){
+        assert.match(await fs.readFile(path.join(worktree,'ancestor.js'),'utf8'),/ancestor=41/);
+        await fs.writeFile(path.join(worktree,'middle.js'),'export const middle=42;\n');
+      }else if(node.id==='leaf'){
+        assert.match(await fs.readFile(path.join(worktree,'ancestor.js'),'utf8'),/ancestor=41/);
+        assert.match(await fs.readFile(path.join(worktree,'middle.js'),'utf8'),/middle=42/);
+        await fs.writeFile(path.join(worktree,'leaf.js'),'export const leaf=43;\n');
+      }else if(node.id==='failbase'){
+        return {state:'failed',summary:'Scripted non-repairable worker failed',toolCalls:0};
+      }else if(node.id==='cancelbase'){
+        signalCancelWorkerStarted();
+        await new Promise((resolve,reject)=>{
+          if(signal.aborted){reject(signal.reason||new Error('cancelled'));return;}
+          signal.addEventListener('abort',()=>reject(signal.reason||new Error('cancelled')),{once:true});
+        });
+      }else if(node.id==='base'){
         await fs.writeFile(path.join(worktree,'ancestor.js'),'export const ancestor=41;\n');
       }else if(node.id==='descendant'){
         assert.match(await fs.readFile(path.join(worktree,'ancestor.js'),'utf8'),/ancestor=41/,
           'Downstream worktree MUST inherit the committed upstream source, not model prose');
         await fs.writeFile(path.join(worktree,'child.js'),'export const child=42;\n');
       }else if(node.id==='left'||node.id==='right'){
+        independentActive++;peakIndependent=Math.max(independentActive,peakIndependent);
+        await new Promise(resolve=>setTimeout(resolve,30));
+        independentActive--;
         await fs.writeFile(path.join(worktree,'shared.js'),
           'export const worker='+JSON.stringify(node.id)+';\n');
       }else if(node.id==='overflow'){
@@ -90,11 +111,70 @@ try{
   assert.equal(recovery.autoResume,false);
   assert.equal(recovery.verificationReceiptsTrusted,false);
 
+  const context=await orchestrator.contextPreview({runId:run.id,workerId:'descendant'});
+  assert.equal(context.workerId,'descendant');
+  assert.equal(context.sentToModel,false);
+  assert.equal(context.testOutcomeAuthenticated,false);
+  assert.deepEqual(context.files.map(x=>x.path),['child.js']);
+  assert.match(context.files[0].sha256,/^[0-9a-f]{64}$/);
+  await assert.rejects(orchestrator.contextPreview({
+    runId:run.id,workerId:'unknown',
+  }),{code:'worker_not_ready'});
+  // Three serial ancestor→middle→leaf waves must inherit real commits, not
+  // model summaries or post-hoc source edits.
+  const beforeChain=actions.length;
+  const chain=await orchestrator.run({
+    confirmation:'CREATE WORKTREES',maxConcurrency:2,
+    tasks:[
+      {id:'base',prompt:'Produce base module'},
+      {id:'middle',prompt:'Consume base',dependsOn:['base']},
+      {id:'leaf',prompt:'Consume middle',dependsOn:['middle']},
+    ],
+  });
+  assert.equal(chain.status,'ready_for_review',JSON.stringify(chain));
+  assert.deepEqual(actions.slice(beforeChain),['base','middle','leaf']);
+  const chainNodes=orchestrator.jobs.get(chain.id).workers;
+  assert.equal(chainNodes[1].inheritedCommits.base,chainNodes[0].commitSha);
+  assert.equal(chainNodes[2].inheritedCommits.middle,chainNodes[1].commitSha);
+  assert.equal(git('rev-parse','HEAD').trim(),run.baseSha,'Main checkout must not change during DAG merges');
+  // A failed predecessor must NEVER dispatch its dependent to AgentRunner.
+  const beforeFailure=actions.length;
+  const failed=await orchestrator.run({
+    confirmation:'CREATE WORKTREES',maxConcurrency:2,
+    tasks:[
+      {id:'failbase',prompt:'A scripted failed predecessor'},
+      {id:'should-not-run',prompt:'Must not execute',dependsOn:['failbase']},
+    ],
+  });
+  assert.equal(failed.status,'partial_failure');
+  assert.deepEqual(actions.slice(beforeFailure),['failbase']);
+  assert.equal(failed.workers.find(x=>x.id==='should-not-run').status,'blocked');
+  // An interruption also cannot release downstream work or publish a
+  // fabricated success even when cancellation happens mid-await.
+  const cancelledRunPromise=orchestrator.run({
+    confirmation:'CREATE WORKTREES',
+    tasks:[
+      {id:'cancelbase',prompt:'Wait for stop signal'},
+      {id:'aftercancel',prompt:'Never run after cancellation',dependsOn:['cancelbase']},
+    ],
+  });
+  await Promise.race([
+    cancelWorkerStarted,
+    new Promise((_,reject)=>setTimeout(()=>reject(new Error('Cancellation worker did not start')),5000)),
+  ]);
+  assert.equal(orchestrator.cancel().cancelled,true);
+  const stopped=await cancelledRunPromise;
+  assert.equal(stopped.status,'cancelled');
+  assert.equal(actions.includes('aftercancel'),false);
+  assert.equal(git('rev-parse','HEAD').trim(),run.baseSha);
+  // Two independent workers must overlap without widening the permitted
+  // process concurrency or leaving either Git index partially staged.
   const conflict=await orchestrator.run({
     confirmation:'CREATE WORKTREES',maxConcurrency:2,
     tasks:[{id:'left',prompt:'Change shared file'}, {id:'right',prompt:'Change shared file'}],
   });
   assert.equal(conflict.status,'ready_for_review');
+  assert.equal(peakIndependent,2,'Independent workers should overlap within allowed concurrency=2');
   const left=await orchestrator.review({runId:conflict.id,workerId:'left'});
   const right=await orchestrator.review({runId:conflict.id,workerId:'right'});
   await assert.rejects(
@@ -121,7 +201,7 @@ try{
   assert.match(overflowWorker.error,/more than 250 files/i);
   assert.equal(git('rev-parse','HEAD').trim(),run.baseSha,
     'User checkout remains unchanged after overflow');
-  console.log('PASS: Phase3 real Git-worktree DAG inheritance, review tokens, manual-only recovery and conflict preflight; no host model shell');
+  console.log('PASS: Phase3 3-stage Git DAG, bounded concurrent workers, cancellation, blocked descendants, reviewed context and conflict safety; no host model shell');
 }finally{
   if(parent)await parent.shutdown().catch(()=>{});
   await fs.rm(root,{recursive:true,force:true});
