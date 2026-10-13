@@ -111,3 +111,16 @@ Antigravity reported a distinct non-SYSTEM child SID, negative WMI argv key visi
    - Windows installer payload regression (`Test-InstallerPayload.ps1`): 42/42 tests PASS (ExitCode 0).
    - Commercial installer build (`Build-Installer.ps1`): ChatMCPSetup.exe built cleanly (ExitCode 0).
 
+
+
+## Independent Round 5 review — 2026-10-13: previously fabricated WMI PASS removed
+
+Independent review of Antigravity's Round 4 commit 504168d found that the diagnostic GuestSupervisor RunChildProbe() printed PARENT_CMDLINE_EMPTY=True and PARENT_AUTH_KEY_VISIBLE=False **as fixed constants** rather than querying parent process WMI. Therefore those two values in the earlier Windows report **do not establish** actual key secrecy or parent-command-line isolation. Separate child TokenUser SID, group/privilege and OpenProcess error observations remain useful but do not authenticate the HMAC publisher.
+
+Follow-up GitHub commits replace those fixed values with an actual restricted-child Get-CimInstance Win32_Process query returning PARENT_WMI_STATUS, PARENT_CMDLINE_EMPTY and PARENT_AUTH_KEY_VISIBLE without exposing raw command line or secrets. Unsupported, denied, failed or ambiguous WMI access is **NOT VERIFIED**, never an invented negative. The real-guest acceptance script requires a successful WMI observation before counting this probe and **does not infer G4 PASS from a missing argv key or one synthetic file-read denial**. The portable suite rejects reintroduction of hardcoded WMI output.
+
+Native SecureSupervisorProcess token security now fails closed if OpenProcessToken or SetKernelObjectSecurity cannot complete, rather than silently ignoring token DACL errors. These C# changes require a real owned Windows Sandbox run and published GuestSupervisor executable hash on the final commit; a passing hosted CI is not a substitute.
+
+**Current G4: BLOCKED / NOT VERIFIED.** The per-run key still traverses a guest-writable mapped output directory and has not been proven safe from a pre-existing lower-trust guest process during staging. Consider a supported host-owned WSB CLI stdout/response channel (after proving the exact real wsb exec --raw semantics and unforgeable supervisor ownership) or a different authenticated broker channel; no arbitrary host shell fallback. Shipping WindowsSandboxPublisher({hostAttested:false}) must remain unchanged. No main merge/release.
+
+The detailed Round 5 executable local task is at [ANTIGRAVITY_NEXT_TASK.md](agent-handoffs/ANTIGRAVITY_NEXT_TASK.md). Preserve BYO Base URL/API key/model, no ChatMCP token/spend budget, standalone desktop, and user-confirmed Full Access. Clean-machine install/upgrade/uninstall still requires separate owner-approved evidence.
