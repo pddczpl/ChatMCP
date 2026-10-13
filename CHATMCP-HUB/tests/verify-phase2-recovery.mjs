@@ -138,6 +138,24 @@ try {
     runId:restoredRun,expectedDigest:'0'.repeat(64),
     confirmation:'REVIEW INTERRUPTED RUN',
   }),{code:'stale_recovery'});
+  // If the owner's acknowledgement cannot be durably persisted, do not
+  // clear the in-memory interrupted-state barrier or start further tools.
+  const originalRename=fs.rename;
+  fs.rename=async (source,destination)=>{
+    if(destination===path.join(resumableDir,'jobs.json'))
+      throw Object.assign(new Error('Injected acknowledgement write error'),{code:'EIO'});
+    return originalRename(source,destination);
+  };
+  try{
+    await assert.rejects(restoredOrchestrator.acknowledgeRecovery({
+      runId:restoredRun,expectedDigest:proof.integrityDigest,
+      confirmation:'REVIEW INTERRUPTED RUN',
+    }),{code:'EIO'});
+    assert.equal(restoredOrchestrator.state().jobs[0].status,'interrupted');
+    await assert.rejects(restoredOrchestrator.run({
+      confirmation:'CREATE WORKTREES',tasks:[{id:'coder',prompt:'must remain blocked'}],
+    }),{code:'recovery_review_required'});
+  }finally{fs.rename=originalRename;}
   const acknowledged=await restoredOrchestrator.acknowledgeRecovery({
     runId:restoredRun,expectedDigest:proof.integrityDigest,
     confirmation:'REVIEW INTERRUPTED RUN',
