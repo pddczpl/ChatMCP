@@ -443,6 +443,7 @@ public static class Program
         string? outputPath = null;
         string? authKey = null;
         string? authKeyFile = null;
+        bool authKeyProvidedOnCommandLine = false;
         string? faultInject = null;
         bool hostFixture = false;
         bool guestFixture = false;
@@ -468,6 +469,7 @@ public static class Program
             else if (args[i] == "--auth-key" && i + 1 < args.Length)
             {
                 authKey = args[++i];
+                authKeyProvidedOnCommandLine = true;
             }
             else if (args[i] == "--auth-key-file" && i + 1 < args.Length)
             {
@@ -477,6 +479,12 @@ public static class Program
             {
                 faultInject = args[++i];
             }
+        }
+
+        if (guestFixture && authKeyProvidedOnCommandLine)
+        {
+            Console.Error.WriteLine("BLOCKED: --auth-key in guest process command line is forbidden.");
+            return 3;
         }
 
         if (string.IsNullOrWhiteSpace(authKey))
@@ -489,19 +497,36 @@ public static class Program
                 try
                 {
                     string readKey = (await File.ReadAllTextAsync(candidate)).Trim();
-                    if (Regex.IsMatch(readKey, "^[0-9a-fA-F]{64}$"))
-                    {
-                        authKey = readKey;
-                    }
-                    // Secure shred: overwrite bytes with zeroes and delete immediately
+                    if (!Regex.IsMatch(readKey, "^[0-9a-fA-F]{64}$"))
+                        throw new InvalidDataException("Invalid supervisor key payload.");
+
+                    // A best-effort overwrite is NOT guaranteed secure physical
+                    // erasure on NTFS / mapped folders. The critical invariant
+                    // is that no untrusted child starts until deletion succeeds.
                     byte[] zeroes = new byte[readKey.Length + 32];
                     await File.WriteAllBytesAsync(candidate, zeroes);
                     File.Delete(candidate);
+                    if (File.Exists(candidate))
+                        throw new IOException("Supervisor key file was not removed.");
+
+                    authKey = readKey;
                 }
-                catch { /* best effort delete */ }
+                catch
+                {
+                    // Never launch a child if loading or deleting the bearer-key
+                    // file fails. An unsigned receipt cannot certify publisher
+                    // authenticity, and an undeleted key could be read by guest.
+                    Console.Error.WriteLine("BLOCKED: Secure supervisor key handoff failed; no child was started.");
+                    return 3;
+                }
             }
         }
 
+        if (guestFixture && string.IsNullOrWhiteSpace(authKey))
+        {
+            Console.Error.WriteLine("BLOCKED: Guest execution requires a consumed and removed HMAC key file.");
+            return 3;
+        }
         if (!string.IsNullOrWhiteSpace(authKey) && !Regex.IsMatch(authKey, "^[0-9a-fA-F]{64}$"))
         {
             Console.Error.WriteLine("BLOCKED: --auth-key must be a 64-character hex string (32 bytes).");

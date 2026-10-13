@@ -698,6 +698,8 @@ export async function runRealGuestTests() {
     console.log('\n--- [F] Deterministic Native Fault Injections in Guest ---');
     const guestFaultModes = ['identity_fail', 'open_token_fail', 'create_restricted_token_fail', 'assign_job_fail'];
     for (const mode of guestFaultModes) {
+      const faultKey=crypto.randomBytes(32).toString('hex');
+      fs.writeFileSync(path.join(outputDir,'.auth_key'),faultKey,{flag:'wx',mode:0o600});
       const faultExecRaw = execFileSync(
         wsbCli,
         [
@@ -714,8 +716,10 @@ export async function runRealGuestTests() {
       const faultReceipt = JSON.parse(fs.readFileSync(path.join(outputDir, 'receipt.json'), 'utf8'));
       assert.equal(faultReceipt.status, 'failed');
       assert.ok(faultReceipt.reasons.length > 0);
+      assert.equal(fs.existsSync(path.join(outputDir,'.auth_key')),false,
+        'Even a fault-injected guest execution must remove its key before any child launch');
     }
-    ok('[F] In-guest deterministic fault injections verified (identity_fail, open_token_fail, create_restricted_token_fail, assign_job_fail)');
+    ok('[F] In-guest deterministic fault injections verified with mandatory one-time HMAC key removal');
 
   } finally {
     // [G] Lifecycle Termination & Journal Cleanup
