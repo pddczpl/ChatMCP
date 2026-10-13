@@ -7,6 +7,7 @@ import { WindowsSandboxCliDriver, LazyWindowsSandboxDriver } from '../lib/window
 import { createExecutionSnapshot } from '../lib/execution-snapshots.mjs';
 import { reconcileOwnedGuestTestCleanup } from './windows-sandbox/owned-guest-cleanup.mjs';
 import { probeOwnedSandboxCliStdout } from '../lib/windows-sandbox-cli-channel-probe.mjs';
+import { candidateDigestExitCodes, observeUnattestedExitDigest } from '../lib/windows-sandbox-exitcode-channel.mjs';
 
 const dir=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-cli-driver-'));
 const workspace=path.join(dir,'workspace');
@@ -171,5 +172,36 @@ try {
     runCli:async()=>{throw Error('must never query unowned guest');},
   }),{code:'cli_probe_owner_required'});
   console.log('PASS: owned WSB CLI stdout feasibility cannot authenticate publisher');
+  // Experimental digest multiplexing over eight 32-bit OS exit codes. This
+  // proves ONLY an offline codec, never GuestSupervisor/OS authenticity.
+  const sample=JSON.stringify({
+    schema:1,runId:'fixture-run',generation,instanceId:ownerId,
+    snapshotHash:'a'.repeat(64),checkHash:'b'.repeat(64),
+    status:'completed',exitCode:0,tap:{tests:2,pass:2,fail:0},
+  });
+  const words=candidateDigestExitCodes(sample);
+  assert.equal(words.length,8);
+  assert.ok(words.every(x=>Number.isInteger(x)&&x>=-2147483648&&x<=2147483647));
+  const asSigned=words.map(ExitCode=>JSON.stringify({ExitCode}));
+  const digestCandidate=observeUnattestedExitDigest({payload:sample,rawResponses:asSigned});
+  assert.equal(digestCandidate.digestMatches,true);
+  assert.equal(digestCandidate.productionAuthenticated,false);
+  assert.equal(digestCandidate.sourceProven,false);
+  assert.equal(digestCandidate.status,'DIGEST_MATCHED_BUT_UNAUTHENTICATED');
+  assert.equal(
+    observeUnattestedExitDigest({payload:sample.replace('"tests":2','"tests":0'),
+      rawResponses:asSigned}).digestMatches,false,
+    'Forged receipt content must break the full-digest comparison');
+  const uintWords=words.map(v=>({ExitCode:v>>>0}));
+  assert.equal(observeUnattestedExitDigest({payload:sample,rawResponses:uintWords}).digestMatches,true);
+  await assert.rejects(async()=>observeUnattestedExitDigest({payload:sample,rawResponses:asSigned.slice(0,7)}),
+    {code:'untrusted_exitcode_channel'});
+  await assert.rejects(async()=>observeUnattestedExitDigest({payload:sample,rawResponses:
+    asSigned.map((value,i)=>i===0?JSON.stringify({ExitCode:'0'}):value)}),
+    {code:'untrusted_exitcode_channel'});
+  await assert.rejects(async()=>observeUnattestedExitDigest({payload:sample,rawResponses:
+    asSigned.map((value,i)=>i===0?JSON.stringify({ExitCode:4294967296}):value)}),
+    {code:'untrusted_exitcode_channel'});
+  console.log('PASS: full SHA256 exit-code multiplexing remains explicitly NON-ATTESTING');
   console.log('PASS: pinned runtime, lifecycle, and diagnostic cleanup never stops unowned Sandbox');
 } finally { await fs.rm(dir,{recursive:true,force:true}); }
