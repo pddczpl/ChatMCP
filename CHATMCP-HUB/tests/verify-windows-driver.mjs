@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { WindowsSandboxCliDriver, LazyWindowsSandboxDriver } from '../lib/windows-sandbox-driver.mjs';
 import { createExecutionSnapshot } from '../lib/execution-snapshots.mjs';
 import { reconcileOwnedGuestTestCleanup } from './windows-sandbox/owned-guest-cleanup.mjs';
+import { probeOwnedSandboxCliStdout } from '../lib/windows-sandbox-cli-channel-probe.mjs';
 
 const dir=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-cli-driver-'));
 const workspace=path.join(dir,'workspace');
@@ -145,5 +146,30 @@ try {
   assert.doesNotMatch(childProbe,/Console\.WriteLine\("PARENT_AUTH_KEY_VISIBLE=False"\)/,
     'Static PASS in child probe would falsely claim key confidentiality');
   console.log('PASS: WMI child probe is observed, not hardcoded');
+  // A public echo can verify CLI response *shape*, never prove authenticated
+  // supervisor output or authorize production execution.
+  const owned={instanceId:ownerId,generation};
+  let probed=0;
+  const yes=await probeOwnedSandboxCliStdout({owned,runCli:async args=>{
+    probed++;
+    const marker=args[args.indexOf('-c')+1].split('echo ')[1];
+    return JSON.stringify({ExitCode:0,Stdout:marker+'\r\n',Stderr:''});
+  }});
+  assert.equal(probed,1);
+  assert.equal(yes.status,'CLI_PROCESS_STDOUT_OBSERVED');
+  assert.equal(yes.productionAuthenticated,false);
+  assert.equal(yes.echoObserved,true);
+  const noStdout=await probeOwnedSandboxCliStdout({owned,runCli:async()=>JSON.stringify({ExitCode:0})});
+  assert.equal(noStdout.status,'CLI_PROCESS_STDOUT_NOT_PROVEN');
+  assert.equal(noStdout.productionAuthenticated,false);
+  const missingExit=await probeOwnedSandboxCliStdout({owned,runCli:async()=>JSON.stringify({Stdout:'some text'})});
+  assert.equal(missingExit.status,'CLI_PROCESS_STDOUT_NOT_PROVEN');
+  const malformed=await probeOwnedSandboxCliStdout({owned,runCli:async()=>'{not-json'});
+  assert.equal(malformed.status,'CLI_RESPONSE_UNUSABLE');
+  await assert.rejects(probeOwnedSandboxCliStdout({
+    owned:{instanceId:otherId,generation:'not-a-uuid'},
+    runCli:async()=>{throw Error('must never query unowned guest');},
+  }),{code:'cli_probe_owner_required'});
+  console.log('PASS: owned WSB CLI stdout feasibility cannot authenticate publisher');
   console.log('PASS: pinned runtime, lifecycle, and diagnostic cleanup never stops unowned Sandbox');
 } finally { await fs.rm(dir,{recursive:true,force:true}); }
