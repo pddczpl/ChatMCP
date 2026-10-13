@@ -135,6 +135,11 @@ try {
   assert.match(supervisorSource,/Secure supervisor key handoff failed; no child was started/);
   console.log('PASS: source guards against guest argv keys, absent keys and erase failures (NOT OS attestation)');
   assert.match(supervisorSource,/Get-CimInstance Win32_Process/,'Probe must query actual WMI');
+  assert.match(supervisorSource,/Path\.GetRelativePath\(fullOut, fullAuth\)/,
+    'Guest auth-key-file containment must be path-segment based, not StartsWith prefix');
+  assert.doesNotMatch(supervisorSource,/fullAuth\.StartsWith\(fullOut/,
+    'StartsWith containment would allow sibling-prefix escapes');
+
   const childProbe=supervisorSource.slice(supervisorSource.indexOf('private static int RunChildProbe('),
     supervisorSource.indexOf('private static void SecureSupervisorProcess('));
   assert.doesNotMatch(childProbe,/Console\.WriteLine\("PARENT_AUTH_KEY_VISIBLE=False"\)/,
