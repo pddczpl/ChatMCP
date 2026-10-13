@@ -127,5 +127,12 @@ try {
   });
   assert.equal(checked.verified,true);
   assert.equal(checked.unownedStopped,0);
+  // Static guard only: actual Windows guest key/ACL tests are a separate release gate.
+  const supervisorSource=await fs.readFile(
+    new URL('../windows/sandbox/GuestSupervisor/Program.cs',import.meta.url),'utf8');
+  assert.match(supervisorSource,/if \(guestFixture && authKeyProvidedOnCommandLine\)/);
+  assert.match(supervisorSource,/if \(guestFixture && string\.IsNullOrWhiteSpace\(authKey\)\)/);
+  assert.match(supervisorSource,/Secure supervisor key handoff failed; no child was started/);
+  console.log('PASS: source guards against guest argv keys, absent keys and erase failures (NOT OS attestation)');
   console.log('PASS: pinned runtime, lifecycle, and diagnostic cleanup never stops unowned Sandbox');
 } finally { await fs.rm(dir,{recursive:true,force:true}); }
