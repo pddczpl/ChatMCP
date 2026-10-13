@@ -150,9 +150,17 @@ export class CodingWorktreeOrchestrator {
       throw fail('stale_recovery','Checkpoint missing or changed; inspect recovery again.',409);
     // Do not trust previous model/test success, mutate the user's checkout,
     // resume a process, or release any original worktree Git lock here.
+    const previousStatus=job.status,previousError=job.error;
     job.status='needs_attention';
     job.error='Run interrupted; owner acknowledged review requirement. Reinspect Git worktrees and obtain fresh verification before any new integration.';
-    await this.#save();
+    try{
+      await this.#save();
+    }catch(error){
+      // A failed atomic jobs.json save must not remove the in-memory
+      // interrupted-run safety barrier in this still-running Hub.
+      job.status=previousStatus;job.error=previousError;
+      throw error;
+    }
     return Object.freeze({
       runId,status:'needs_attention',acknowledged:true,
       autoResume:false,verificationReceiptsTrusted:false,
