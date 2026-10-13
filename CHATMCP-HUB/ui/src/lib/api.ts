@@ -169,6 +169,7 @@ export const api = {
   }),
   cancelDynamicDelegates: () => request<any>('/api/studio/dynamic-delegates/cancel',{method:'POST',body:'{}'}),
   getCodingRuns: () => request<any>('/api/studio/coding'),
+  getCodingContext: (runId:string,workerId:string) => request<any>(`/api/studio/coding/context?runId=${encodeURIComponent(runId)}&workerId=${encodeURIComponent(workerId)}`),
   getCodingRecovery: (runId:string) => request<any>(`/api/studio/coding/recovery?runId=${encodeURIComponent(runId)}`),
   acknowledgeCodingRecovery: (runId:string,expectedDigest:string) => request<any>('/api/studio/coding/recovery/acknowledge',{method:'POST',body:JSON.stringify({runId,expectedDigest,confirmation:'REVIEW INTERRUPTED RUN'})}),
   runCodingAgents: (tasks:{id:string;prompt:string;verify?:boolean;dependsOn?:string[]}[],maxConcurrency=2) => request<any>('/api/studio/coding/run',{method:'POST',body:JSON.stringify({tasks,maxConcurrency,confirmation:'CREATE WORKTREES'})}),

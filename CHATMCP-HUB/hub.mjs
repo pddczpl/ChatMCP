@@ -222,6 +222,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/studio/delegates': value=delegates?.state()??null;break;
           case '/api/studio/dynamic-delegates': value=dynamic?.state()??{activeRunId:null,last:null};break;
           case '/api/studio/coding': value=coding?.state()??{activeRunId:null,jobs:[]};break;
+          case '/api/studio/coding/context': value=await coding.contextPreview({runId:pick('runId'),workerId:pick('workerId'),maxFiles:Math.max(1,Math.min(8,Number(pick('maxFiles'))||6))});break;
           case '/api/studio/coding/recovery': value=await coding.recoveryStatus({runId:pick('runId')});break;
           case '/api/studio/coding/review':value=await coding.review({runId:pick('runId'),workerId:pick('workerId')||null});break;
           case '/api/studio/coding/checks': value=await coding.discoverWorkerChecks({workerId:pick('workerId')});break;

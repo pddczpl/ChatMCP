@@ -13,6 +13,7 @@ import { readJson, writeJson } from './runtime.mjs';
 import { WorkerTestBroker } from './worker-test-broker.mjs';
 import { createExecutionSnapshot } from './execution-snapshots.mjs';
 import { runVerifiedCoding } from './coding-verification-loop.mjs';
+import { previewManagedCodingContext } from './coding-context-preview.mjs';
 import { CodingRecoveryJournal } from './coding-recovery-journal.mjs';
 import { validateCodingTaskGraph, chooseReadyCodingBatch, detectCodingFileConflicts } from './coding-task-dag.mjs';
 import { attachWorkerTestTools } from './worker-tools.mjs';
@@ -74,6 +75,33 @@ export class CodingWorktreeOrchestrator {
     const inFlight=new Set(['queued','running','preparing','testing','awaiting_test_grant','committing']);
     for(const original of saved.jobs){
       const j=structuredClone(original);
+      // Journal entries are fsynced BEFORE jobs.json. A crash between
+      // the two writes can leave an older jobs.json falsely reporting a
+      // completed run. Compare only runs WITH an existing journal; legacy
+      // archived runs without one stay on the normal migration path.
+      let checkpoint;
+      try { checkpoint=await this.recoveryJournal.inspect(j.id); }
+      catch(error) {
+        this.recoveryFault='Recovery journal unreadable, locked or tampered; manual reconciliation required.';
+        return;
+      }
+      if(checkpoint?.found) {
+        const expectedWorkerRecords=(j.workers||[]).map(w=>({
+          id:w.id,status:w.status,commitSha:w.commitSha||null,
+        }));
+        const mismatch=checkpoint.status!==j.status ||
+          checkpoint.baseSha!==j.baseSha.toLowerCase() ||
+          JSON.stringify(checkpoint.workers)!==JSON.stringify(expectedWorkerRecords);
+        if(mismatch) {
+          j.status='interrupted';
+          j.error='Checkpoint and jobs.json disagree after possible crash. Re-review managed Git worktrees and obtain fresh tests.';
+          for(const worker of j.workers) {
+            worker.status='interrupted';
+            worker.error='Checkpoint mismatch; prior worker/test result is not verified.';
+          }
+          j.verificationOutcome=null;
+        }
+      }
       if(inFlight.has(j.status))j.status='interrupted';
       for(const worker of j.workers){
         if(inFlight.has(worker.status)) {
@@ -165,6 +193,35 @@ export class CodingWorktreeOrchestrator {
       runId,status:'needs_attention',acknowledged:true,
       autoResume:false,verificationReceiptsTrusted:false,
     });
+  }
+
+  // Manual owner UI only: read small ordinary changed files from a verified
+  // managed committed worker revision. Never send snippets to a model.
+  async contextPreview({runId,workerId,maxFiles=6}={}){
+    if(this.active||this.integrating)
+      throw fail('coding_busy','Wait until the managed coding run has stopped.',409);
+    const job=this.jobs.get(runId);
+    if(!job||job.workspace!==this.manager.workspace)
+      throw fail('run_not_found','Run is not owned by the current workspace.',404);
+    const worker=job.workers.find(w=>w.id===workerId&&
+      w.status==='ready_for_review'&&/^[a-f0-9]{40}$/i.test(w.commitSha||''));
+    if(!worker)throw fail('worker_not_ready','Only committed workers can provide a manual source preview.',409);
+    const expected=path.resolve(this.directory,'runs',runId,'trees',worker.id);
+    if(typeof worker.worktree!=='string'||path.resolve(worker.worktree)!==expected)
+      throw fail('context_unsafe_root','Untrusted or stale worker worktree record.',409);
+    if(typeof worker.branch!=='string'||
+       !worker.branch.startsWith('chatmcp/coder/'+runId.slice(0,12)+'/'))
+      throw fail('invalid_branch','Preview requires a managed worker branch.',409);
+    const sha=await this.#git(['rev-parse','--verify','refs/heads/'+worker.branch]);
+    const head=await this.#git(['-C',expected,'rev-parse','HEAD']);
+    if(sha!==worker.commitSha||head!==worker.commitSha)
+      throw fail('stale_revision','Worker revision changed; re-review before reading context.',409);
+    const dirty=await this.#git(['-C',expected,'status','--porcelain','--untracked-files=all']);
+    if(dirty)throw fail('stale_revision','Worker worktree changed after its committed revision.',409);
+    const data=await previewManagedCodingContext({
+      worktree:expected,changedFiles:worker.changedFiles,maxFiles,
+    });
+    return Object.freeze({runId,workerId,revision:sha,...data});
   }
 
   async #git(args,{writes=false,timeoutMs=45000,maxBytes=2_000_000}={}){
