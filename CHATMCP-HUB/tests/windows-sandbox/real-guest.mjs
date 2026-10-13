@@ -140,6 +140,7 @@ function updateJournal(status, extra = {}) {
 }
 
 export async function runRealGuestTests() {
+  let publisherKeyGate='NOT_VERIFIED';
   console.log('=== CHATMCP PHASE 1: REAL WINDOWS SANDBOX GUEST VALIDATION ===\n');
 
   // [A] Host Preflight & Ownership Initialization
@@ -326,6 +327,7 @@ export async function runRealGuestTests() {
           '$ppid = (Get-CimInstance Win32_Process -Filter "ProcessId = $PID").ParentProcessId;',
           '$cmd = (Get-CimInstance Win32_Process -Filter "ProcessId = $ppid").CommandLine;',
           '$cmdEmpty = [string]::IsNullOrEmpty($cmd);',
+          '$keyOnArgv = [bool]($cmd -match "(?i)--auth-key\\s+[0-9a-f]{64}");',
           'Add-Type -TypeDefinition \'using System; using System.Runtime.InteropServices; public static class K32 { [DllImport("kernel32.dll", SetLastError = true)] public static extern IntPtr OpenProcess(uint a, bool b, uint p); [DllImport("kernel32.dll", SetLastError = true)] public static extern bool CloseHandle(IntPtr h); }\';',
           '$hQuery = [K32]::OpenProcess(0x0400, $false, $ppid);',
           '$errQuery = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error();',
@@ -335,6 +337,7 @@ export async function runRealGuestTests() {
           'if ($hRead -ne [IntPtr]::Zero) { [K32]::CloseHandle($hRead); }',
           'Write-Output "PARENT_PID=$ppid";',
           'Write-Output "PARENT_CMDLINE_EMPTY=$cmdEmpty";',
+          'Write-Output "PARENT_AUTH_KEY_VISIBLE=$keyOnArgv";',
           'Write-Output "OPEN_QUERY_ERR=$errQuery";',
           'Write-Output "OPEN_VMREAD_ERR=$errRead";',
         ].join(' ')
@@ -366,12 +369,20 @@ export async function runRealGuestTests() {
     for (const line of receiptInspect.stdout.trim().split(/\r?\n/)) {
       console.log('      ' + line);
     }
-    const cmdLineExposed = !receiptInspect.stdout.includes('PARENT_CMDLINE_EMPTY=True');
-    if (cmdLineExposed) {
-      console.log('    [SECURITY VULNERABILITY CONFIRMED] Restricted child (SYSTEM SID) can read parent supervisor CommandLine via WMI!');
+    const audit=receiptInspect.stdout;
+    // The guest returns ONLY a Boolean; the HMAC key is never logged,
+    // hashed or copied out as a "proof of concept".
+    const keyVisible=audit.includes('PARENT_AUTH_KEY_VISIBLE=True');
+    const keyHidden=audit.includes('PARENT_AUTH_KEY_VISIBLE=False');
+    assert.ok(keyVisible||keyHidden,'Guest WMI probe did not return a definitive boolean key observation.');
+    publisherKeyGate=keyVisible?'FAIL':'BLOCKED';
+    if(keyVisible){
+      console.error('    [G4 SECURITY FAIL] Restricted test child read SYSTEM supervisor HMAC bearer-key command-line value through WMI.');
+    }else{
+      console.warn('    [G4 BLOCKED] No key found in this WMI probe, but separate-account/secret protection is NOT yet proven.');
     }
-    assert.ok(receiptInspect.stdout.includes('OPEN_QUERY_ERR=5') || receiptInspect.stdout.includes('OPEN_VMREAD_ERR=5') || receiptInspect.stdout.includes('OPEN_QUERY_ERR=0') || receiptInspect.stdout.includes('PARENT_PID='), 'Captured child Win32 audit data');
-    ok(`[C] Child process boundary audited: WMI CommandLine exposed=${cmdLineExposed}; key-secrecy gate is BLOCKED`);
+    assert.ok(audit.includes('PARENT_PID='),'No reliable supervisor parent-process reference');
+    ok(`[C] WMI parent key exposure audited; G4=${publisherKeyGate} (diagnostic result, NOT security PASS)`);
 
     // Timeout containment under Job Object
     const reqTimeout = await prepareExecutionRequest({
@@ -724,11 +735,18 @@ export async function runRealGuestTests() {
     } catch {}
   }
 
+  if(publisherKeyGate!=='PASS'){
+    console.error('PHASE 1 SECURITY GATE G4 '+publisherKeyGate+
+      ': supervisor key confidentiality is not independently established. NO MERGE / NO RELEASE.');
+    console.log('Functional Windows guest checks completed: '+checks+
+      '; this is NOT a passing production security suite.');
+    return {success:false,checks,securityGate:'G4',verdict:publisherKeyGate};
+  }
   console.log(`\nPASS: All ${checks} real Windows Sandbox validation checks SUCCEEDED.`);
-  console.log('REAL WINDOWS SANDBOX GUEST ISOLATION & PUBLISHER AUTHENTICATION: VERIFIED.\n');
-  return { success: true, checks };
+  return {success:true,checks,securityGate:'G4',verdict:'PASS'};
 }
 
-if (process.argv[1] && process.argv[1].endsWith('real-guest.mjs')) {
-  await runRealGuestTests();
+if(process.argv[1]&&process.argv[1].endsWith('real-guest.mjs')){
+  const result=await runRealGuestTests();
+  if(!result.success)process.exitCode=1;
 }
