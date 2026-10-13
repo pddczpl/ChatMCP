@@ -73,6 +73,33 @@ export class CodingWorktreeOrchestrator {
     const inFlight=new Set(['queued','running','preparing','testing','awaiting_test_grant','committing']);
     for(const original of saved.jobs){
       const j=structuredClone(original);
+      // Journal entries are fsynced BEFORE jobs.json. A crash between
+      // the two writes can leave an older jobs.json falsely reporting a
+      // completed run. Compare only runs WITH an existing journal; legacy
+      // archived runs without one stay on the normal migration path.
+      let checkpoint;
+      try { checkpoint=await this.recoveryJournal.inspect(j.id); }
+      catch(error) {
+        this.recoveryFault='Recovery journal unreadable, locked or tampered; manual reconciliation required.';
+        return;
+      }
+      if(checkpoint?.found) {
+        const expectedWorkerRecords=(j.workers||[]).map(w=>({
+          id:w.id,status:w.status,commitSha:w.commitSha||null,
+        }));
+        const mismatch=checkpoint.status!==j.status ||
+          checkpoint.baseSha!==j.baseSha.toLowerCase() ||
+          JSON.stringify(checkpoint.workers)!==JSON.stringify(expectedWorkerRecords);
+        if(mismatch) {
+          j.status='interrupted';
+          j.error='Checkpoint and jobs.json disagree after possible crash. Re-review managed Git worktrees and obtain fresh tests.';
+          for(const worker of j.workers) {
+            worker.status='interrupted';
+            worker.error='Checkpoint mismatch; prior worker/test result is not verified.';
+          }
+          j.verificationOutcome=null;
+        }
+      }
       if(inFlight.has(j.status))j.status='interrupted';
       for(const worker of j.workers){
         if(inFlight.has(worker.status)) {

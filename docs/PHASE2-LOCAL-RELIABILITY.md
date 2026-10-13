@@ -59,3 +59,7 @@ These features remain local to CodingWorktreeOrchestrator and intentionally do N
 - verify-phase2-recovery.mjs covers explicit confirmation, stale digest, no auto-resume, duplicate acknowledgement denial and persisted needs_attention state.
 
 **Recovery acknowledgement is not safe automatic resumption:** Owner-directed continuation must be treated as a NEW managed coding task with fresh source/test evidence, not a replay of an uncertain previous action.
+
+## Crash consistency: jobs.json versus recovery journal
+
+On startup, CodingWorktreeOrchestrator now cross-checks the latest durable recovery journal metadata with jobs.json for any run with an existing journal. If a crash left those files out of sync, all worker statuses for that run are marked interrupted and prior verification outcomes are invalidated; a new coding run requires an explicit owner review. Corrupt or locked journals fail closed with a visible recoveryFault. Legacy archived jobs with no journal are still handled through the existing migration path. A deterministic regression covers a stale ready_for_review job against a durable running/testing checkpoint. This recovery decision never replays any model, Git or sandbox action and is not a security signature.

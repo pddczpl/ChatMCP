@@ -171,6 +171,55 @@ try {
   assert.equal(JSON.parse(await fs.readFile(path.join(resumableDir,'jobs.json'),'utf8'))
     .jobs[0].status,'needs_attention');
 
+  // Crash after writing the journal but before replacing jobs.json:
+  // the older jobs file can claim "ready_for_review" while its durable
+  // checkpoint reports the opposite. Always invalidate the false PASS.
+  const mismatchDir=path.join(root,'mismatched-checkpoint-state');
+  await fs.mkdir(mismatchDir);
+  const mismatchId=randomUUID();
+  const mismatchedJob={
+    id:mismatchId,workspace:root,baseSha,baseBranch:'main',
+    status:'ready_for_review',
+    workers:[{id:'coder',status:'ready_for_review',commitSha:'b'.repeat(40)}],
+  };
+  await fs.writeFile(path.join(mismatchDir,'jobs.json'),
+    JSON.stringify({version:1,jobs:[mismatchedJob]}));
+  const latestJournal=new CodingRecoveryJournal({
+    directory:path.join(mismatchDir,'recovery'),
+  });
+  await latestJournal.append({runId:mismatchId,job:{
+    status:'running',baseSha,
+    workers:[{id:'coder',status:'testing',commitSha:null}],
+  }});
+  const mismatchController=makeOrchestrator(mismatchDir);
+  await mismatchController.load();
+  const mismatchedState=mismatchController.state();
+  assert.equal(mismatchedState.recoveryFault,null);
+  assert.equal(mismatchedState.jobs[0].status,'interrupted');
+  assert.equal(mismatchedState.jobs[0].workers[0].status,'interrupted');
+  assert.equal(mismatchedState.jobs[0].workers[0].commitSha,'b'.repeat(40));
+  assert.match(mismatchedState.jobs[0].error,/Checkpoint and jobs.json disagree/);
+  await assert.rejects(mismatchController.run({
+    confirmation:'CREATE WORKTREES',
+    tasks:[{id:'coder',prompt:'Cannot trust stale success from jobs.json'}],
+  }),{code:'recovery_review_required'});
+  const disagreementProof=await mismatchController.recoveryStatus({runId:mismatchId});
+  assert.equal(disagreementProof.status,'running');
+  assert.equal(disagreementProof.jobStatus,'interrupted');
+  assert.equal(disagreementProof.autoResume,false);
+  // Corrupt or locked checkpoint for a saved run cannot be silently
+  // ignored, even if its jobs.json appears clean.
+  await fs.writeFile(path.join(mismatchDir,'recovery',mismatchId,'write.lock'),
+    'incomplete prior writer',{flag:'wx'});
+  const unsafe=makeOrchestrator(mismatchDir);
+  await unsafe.load();
+  assert.match(unsafe.state().recoveryFault,/Recovery journal unreadable/);
+  await assert.rejects(unsafe.run({
+    confirmation:'CREATE WORKTREES',
+    tasks:[{id:'coder',prompt:'Cannot run with unknown journal state'}],
+  }),{code:'recovery_unresolved'});
+  console.log('PASS: crash between journal/jobs.json invalidates stale verified worker state');
+
   const invalidWorkerDir=path.join(root,'invalid-worker-state');
   await fs.mkdir(invalidWorkerDir);
   await fs.writeFile(path.join(invalidWorkerDir,'jobs.json'),
