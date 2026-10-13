@@ -1,0 +1,43 @@
+{
+  "supported": true,
+  "available": false,
+  "osIsolated": false,
+  "platform": "win32",
+  "details": {
+    "osCaption": "Microsoft Windows 11 Enterprise",
+    "osVersion": "10.0.26100",
+    "osBuild": 26100,
+    "osArch": "x64",
+    "editionSupported": true,
+    "virtualizationEnabled": true,
+    "hypervisorPresent": true,
+    "featureState": "Disabled",
+    "cliPath": null,
+    "cliPackage": null,
+    "runtimeVerified": false,
+    "featureInstalled": false,
+    "executablePath": null,
+    "alreadyRunning": false,
+    "totalMemoryMb": 4095,
+    "freeDiskMb": 77814
+  },
+  "blockers": [
+    "Windows Sandbox optional-feature state is not confirmed Enabled.",
+    "Windows Sandbox feature is not enabled ('WindowsSandbox.exe' not found in system directory).",
+    "The installed Microsoft Windows Sandbox Store CLI package is unavailable or unverified.",
+    "Host RAM (4095 MB) is below the minimum required for Windows Sandbox (8192 MB)."
+  ],
+  "remediations": [
+    "Check Get-WindowsOptionalFeature after any pending restart.",
+    "Enable the Windows Sandbox optional feature by running as Administrator: Enable-WindowsOptionalFeature -Online -FeatureName \"Containers-DisposableClientVM\" -NoRestart, then restart the machine.",
+    "Check that MicrosoftWindows.WindowsSandbox is installed with Store signature, status Ok, and its protected WindowsApps executable.",
+    "Provide at least 8 GB of RAM for the initial small offline fixture (not the Microsoft base minimum)."
+  ],
+  "reasons": [
+    "Windows Sandbox optional-feature state is not confirmed Enabled.",
+    "Windows Sandbox feature is not enabled ('WindowsSandbox.exe' not found in system directory).",
+    "The installed Microsoft Windows Sandbox Store CLI package is unavailable or unverified.",
+    "Host RAM (4095 MB) is below the minimum required for Windows Sandbox (8192 MB)."
+  ],
+  "observedAt": "2026-10-13T16:14:28.472Z"
+}

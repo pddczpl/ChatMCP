@@ -1,6 +1,6 @@
 # G4 independent black-box grader review — 2026-10-13
 
-**Decision: scoped integration approved for `node-json-blackbox` after independent review of 17 real guest executions. Final activated-build G4 evidence and the rebuilt installer G6 lifecycle remain pending.**
+**Decision: G4 PASS for `node-json-blackbox` on activated source `acc2f840dfd7c1b279d2c58c2bc5d1294ffcfc43` and the exact installer payload identified below. Legacy arbitrary Node tests remain blocked. G6 is assessed separately.**
 
 This review covers the newly authorized native black-box mode only. Legacy arbitrary Node test execution remains blocked by the unauthenticated child test-event authority described in [the prior independent review](G4-INDEPENDENT-REVIEW-2026-10-13.md). The reviewer does not implement the native grader, host publisher, or broker integration.
 
@@ -109,4 +109,26 @@ Retained evidence: [raw preactivation matrix](evidence/g4-blackbox-preactivation
 
 An earlier preactivation attempt honestly stopped after two guest executions because the harness restored manifest bytes without refreshing its cached check descriptor. The harness was corrected, committed, and the entire 17-run matrix repeated. That aborted run is not the accepted matrix.
 
-Final acceptance remains pending: freeze the activated source, build the installer, identify the actual Native AOT helper inside its payload, repeat the complete matrix against those exact bytes, and repeat G6 on that same installer. The previous 55/55 G6 lifecycle result applies to its earlier installer and cannot certify the new payload. This review assumes the trusted host, Windows kernel/base image, Store package manager and OS administrative processes described above; it does not claim isolation from an adversarial host or guest administrator.
+At the integration approval stage, final acceptance required freezing the activated source, building the installer, identifying its actual Native AOT helper, repeating the complete matrix against those exact bytes, and repeating G6 on that installer. The following final evidence supersedes that intermediate pending status. The earlier 55/55 G6 lifecycle result alone could not certify a replacement payload. This review assumes the trusted host, Windows kernel/base image, Store package manager and OS administrative processes described above; it does not claim isolation from an adversarial host or guest administrator.
+
+## Final activated-payload acceptance
+
+The final matrix ran from clean activated commit `acc2f840dfd7c1b279d2c58c2bc5d1294ffcfc43`, 2026-10-13 16:07:35–16:12:15 UTC (23:07:35–23:12:15 Asia/Bangkok), and passed **24 checks across 17 real owned guests** with confirmed cleanup. This completes the G4 repeat required by the preceding integration approval. The reviewer independently revalidated all 153 exit words, exact envelope/receipt digests, fresh context, native grader authority, SYSTEM and child token metadata, AOT modules, protected seals, direct access denials, rejected hostile outputs, and descendant cleanup using the retained verifier.
+
+The tested binary was extracted from the actual installer payload. Independent hashing confirmed all of these identities:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `dist/ChatMCPSetup.exe`, 200,706,208 bytes, product version `2.6.0+acc2f840dfd7c1b279d2c58c2bc5d1294ffcfc43` | `037cea6f5794da6cd19f67e284cc84f05e4c88f006a96de60b0f26c5b1931fe7` |
+| Embedded payload build input `installer/payload.zip` | `132a16c6fc3d9e18e75e47795a97ba270f72fb08365febd9697695709eba324f` |
+| ZIP entry `CHATMCP-HUB\runtimes\windows-sandbox\GuestSupervisor.exe`, 4,870,144 bytes; exact standard-path helper used by the matrix | `e4c5ee3c2cd8b79e6d1cc088af52ce0a04cc0e4b0f10a79c37bc4e55bd495fb1` |
+| ZIP entry `runtimes\node\node.exe`, 92,825,416 bytes; identical to the local Node used by the matrix | `3602f2bb1a10f2cbab4c36886218a33c1ab3db87290e73b033c46c77147d0237` |
+| Final raw matrix report | `fbf4e226caf29532118aad5d1e729d9bd7ef0673c67fc998dc9af29dc5ba506c` |
+
+Both runtime hash manifests match the actual ZIP entry bytes. Every final sealed envelope binds the helper and Node identities above. The reviewer also independently ran the final packaged AOT image's 35 host diagnostic fixtures: 35 passed, zero failed, exit 0. No external managed runtime was required for that image.
+
+Retained final evidence: [raw 17-guest matrix](evidence/g4-blackbox-final-2026-10-13/native-blackbox-final-payload.json), [independent verifier](evidence/g4-blackbox-final-2026-10-13/independent-review.mjs), and [independent result](evidence/g4-blackbox-final-2026-10-13/independent-review-result.json). The final blocked-stdin and descendant timeouts completed in 6,488 ms and 6,514 ms respectively. The SYSTEM observer again confirmed the marked descendant alive before timeout and absent after native job cleanup, before guest teardown.
+
+An earlier additional run inadvertently used the preactivation helper after ZIP extraction assumed `/` separators while .NET had written `\` entry names. It was allowed to finish and clean up, retained as additional preactivation evidence, and excluded from this final decision. The correctly extracted helper was independently hashed before the complete matrix was repeated under the unambiguous final-payload report name above. No source or native logic change was needed.
+
+**Final scope:** the activated assembly uses only `system-sealed-exit-v1` with `attestedCheckKinds:['node-json-blackbox']` and `hostAttested:false`. Its regression checks legacy-command rejection. G4 PASS certifies authenticated native comparison of the pinned public cases under the documented trusted Windows/host boundary. It does not certify arbitrary Node test-event authority, comprehensive test coverage, resistance to an adversarial administrator, or other platforms/package versions. The same installer's clean lifecycle is recorded separately in [the G6 report](G6-CLEAN-INSTALL-2026-10-13.md).

@@ -1,15 +1,39 @@
 # ADR — Phase 1 G4 authenticated publisher without guest-readable HMAC
 
-- **Status:** OPTION A REJECTED BY HARDWARE; OPTION C NATIVE TRANSPORT OBSERVED; FULL G4 PRODUCTION BLOCKED
+- **Status:** OPTION C ACCEPTED FOR `node-json-blackbox` ONLY; LEGACY NODE/HMAC NOT ATTESTED
 - **Date:** 2026-10-13
 - **Owner:** ChatGPT (GitHub architecture/review), Antigravity (native Windows experiment)
 - **Issue:** https://github.com/pddczpl/ChatMCP/issues/14
 - **Integration PR:** https://github.com/pddczpl/ChatMCP/pull/13
-- **Invariant:** Shipping WindowsSandboxPublisher({hostAttested:false}) stays locked until separate independent G4 review
+- **Invariant:** Shipping `hostAttested:false` remains; only independently reviewed check kinds may opt into sealed native grading.
+
+## Accepted decision — separate native grader
+
+The user authorized a declarative input/output check mode. Independent review
+approved its scoped activation after a full native matrix, then approved the
+exact packaged Native AOT helper at clean implementation commit `acc2f840`.
+The final matrix passed 24 checks across 17 fresh guests, with 153 digest words
+independently reconstructed from retained bytes. Actual seal/process/desktop
+denials, fresh nonadministrator identity, native grading, timeout and descendant
+cleanup evidence are included in the [current acceptance record](agent-handoffs/G4-G6-EXECUTION-2026-10-13.md)
+and [independent review](agent-handoffs/G4-BLACKBOX-REVIEW-2026-10-13.md).
+
+The SYSTEM grader compares inert values against host-approved public cases;
+project JavaScript owns no assertion authority. Native AOT avoids the prior
+managed-runtime extraction cache. The host pins the protected Microsoft Store
+CLI, supervisor, Node, request and manifest, validates nine framed exits against
+the exact sealed receipt/envelope, and confirms owned guest termination.
+No HMAC key is staged in a guest mapping. Production explicitly selects this
+protocol and `attestedCheckKinds:[BLACKBOX_KIND]`; `hostAttested` stays false.
+
+The historical alternatives and failures below remain relevant to legacy Node
+tests. Their blanket production lock is superseded only for this reviewed mode.
+Finite public cases can be overfit; a PASS establishes their expected returned
+values, not coverage or general correctness. No merge/release is authorized.
 
 ## 1. Evidence and explicit conclusion
 
-### Current working-tree implementation, 2026-10-13
+### Historical pre-acceptance working-tree implementation, 2026-10-13
 
 The follow-up on baseline `497c082bdde937dad935dcec60244909dc341b6e` implements Option C as an explicitly selected diagnostic protocol `system-sealed-exit-v1`. It stages no HMAC key; executes the pinned Node runner and reporter directly from the read-only mapped snapshot; stores a domain-separated receipt/envelope digest in a guest-local SYSTEM-only seal; collects nine serial exit-code words; rejects replay, altered context, missing words, digest mismatch and incomplete child cleanup. The default production assembly still uses `hostAttested:false`.
 

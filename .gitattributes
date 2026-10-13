@@ -19,6 +19,9 @@
 *.zip   binary
 *.dpapi binary
 
+# Retained acceptance evidence carries exact byte hashes. Preserve those bytes.
+docs/agent-handoffs/evidence/** -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+
 # Vendored third-party browser code: keep out of language statistics
 **/web/vendor/** linguist-vendored
 *.min.js -diff linguist-vendored

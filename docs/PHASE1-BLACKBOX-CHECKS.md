@@ -6,7 +6,8 @@ with the approved expectations. Project code cannot supply the pass count or
 replace the comparison. Ordinary `node --test` remains a diagnostic mode with
 no authenticated test-outcome claim.
 
-This mode is being validated for G4. Its activation and hardware acceptance are
+This mode passed scoped G4 acceptance and is enabled on supported Windows hosts.
+Its activation and exact-artifact hardware acceptance are
 recorded separately in the [independent review](agent-handoffs/G4-BLACKBOX-REVIEW-2026-10-13.md).
 The example below does not itself grant execution permission.
 
