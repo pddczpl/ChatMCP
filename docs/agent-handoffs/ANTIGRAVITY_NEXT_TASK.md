@@ -1,3 +1,38 @@
+# ANTIGRAVITY_NEXT_TASK — Round 4: Validate Windows ACL and HMAC-Key Handoff
+
+**Date:** 2026-10-13. **Decision:** G3 non-SYSTEM child SID improved; **G4 production publisher attestation remains BLOCKED/NOT VERIFIED.** Keep PR #12/#13 Draft; no merge or release.
+
+## Latest report and verified facts
+
+- Your Round 3 commit `60ddaa7d64d30b75c0a9ddbc3a6b97adf7961915` is on PR #13. GitHub independently verified PR CI 9/9, push CI 9/9 and portable tests PASS on that SHA.
+- You reported Windows 11 Pro build 26300, WDAGUtilityAccount child SID different from SYSTEM, parent WMI argv without HMAC key, real guest 28/28, genuine broker→guest fail/repair/PASS 17/17, 62/62 Hub, 46/46 UI, 42/42 installer payload tests. These functional results are valuable; do not run paid model APIs to repeat them.
+- Independent source review found that `.auth_key` is still placed in a host output folder writable from Windows Sandbox with Node `mode:0o600`, which does not establish owner-only Windows ACLs. A negative WMI command-line check alone does not prove file/key confidentiality.
+- The native descriptor `D:(A;;GA;;;WD)(A;;GA;;;BU)(A;;GA;;;SY)` grants `GENERIC_ALL` to Everyone and BUILTIN\Users for pipes, process/thread/token and WindowStation/Desktop access. This is not a proven least-privilege security boundary.
+- GuestSupervisor resets the built-in WDAGUtilityAccount password via NetUserSetInfo for each run. Confirm this occurs solely inside the disposable guest and cannot change the host/system-managed account state.
+- GitHub post-report commits changed the driver to exclusively create `.auth_key` (`flag:'wx'`) rather than overwrite a planted file; GuestSupervisor now rejects guest `--auth-key` argv, refuses missing keys, and fails closed before launching any child on failed secret consumption/erasure. Portable static/regression tests were added. None of these changes independently certifies the Windows ACL.
+- **Issue #14:** https://github.com/pddczpl/ChatMCP/issues/14 . Review the latest independent comment there before implementation.
+
+## Mandatory implementation and Windows-real tests
+
+1. **Confirm actual native file ACL while secret exists.** On an owned, disposable Windows Sandbox instance use a synthetic per-run secret, never a real model API key. Inspect effective NTFS access-control entries and parent directory using GetNamedSecurityInfo, GetFileSecurity or icacls. Attempt file open/read as the actual non-SYSTEM restricted child AND as a pre-existing lower-trust guest process while host `.auth_key` is staged, including races before supervisor deletion. Report Boolean access and Win32 error only; never log, print, hash or upload the bearer secret.
+2. **Fix G4 file/transport isolation, not just the WMI symptom.** Design and implement a demonstrable Windows-enforced one-use supervisor-only channel or ACL-protected guest-local handoff. Do not assume host pipes work across the host↔Sandbox VM boundary. If guest-writable host mapping cannot protect a secret from untrusted principals, redesign the protocol to isolate the publisher/broker; keep production hostAttested:false until this is proven.
+3. **Narrow Windows object permissions.** Replace broad GENERIC_ALL grants for Everyone/BUILTIN\Users with exact required principal SID and least privilege on WindowStation/Desktop, process/thread/token and stdio handles. Check every return value of ConvertStringSecurityDescriptor..., SetUserObjectSecurity, SetKernelObjectSecurity, SetTokenInformation and SID conversion; fail closed and preserve/restore original DACL when required. Prove denied OpenProcess(PROCESS_VM_READ/QUERY), token handle duplication, impersonation and unauthorized desktop modifications.
+4. **Account lifecycle.** Prove NetUserSetInfo changes only a disposable guest; either use dedicated ephemeral non-admin account with documented cleanup or justify WDAGUtilityAccount lifecycle. Avoid persistent account or password modification on the host and avoid log/receipt disclosure.
+5. **Negative key cases:** missing `.auth_key`; malformed/truncated HMAC key; pre-existing file/symlink/hardlink/junction; guest secret passed through argv; failure to read, overwrite or delete `.auth_key`. For every case, no untrusted child must run and the output must not report an authenticated PASS. Test the latest exclusive-create and native fail-closed changes on real Windows (not only portable source tests).
+6. **True guest-origin spoof:** restricted malicious child attempts to alter receipt.json, checksum and signature, with a host verifier reading the untouched resulting files after child exit. Include replay/stale run, generation, check and snapshot hash attacks. Key material must remain unrecoverable even to a child from an earlier run.
+7. **Re-run full-stack diagnostics on the final SHA:** WorkerTestBroker → ExecutionSnapshotStore → WindowsSandboxBackend → owned CLI driver → supervisor → HMAC publisher; Node test FAIL → scripted implementation-only repair → PASS, unchanged assertions, parsed TAP, callback cancellation and cleanup. Keep the test-scoped hostAttested:true distinct from shipping hostAttested:false. Never stop unowned Sandbox UUIDs.
+8. **Release gate:** clean-machine install → first launch → upgrade preserving user settings → uninstall preserving unrelated files on a user-approved disposable VM, or clearly report NOT VERIFIED. Installer build/payload and WebView2 smoke alone do not establish this gate.
+
+## Scope, Git safety and reporting
+
+Work in `F:\Personal_Project\Vin\ChatMCP` on `feat/phase1-complete-autonomous-coding`. Begin with git status, branch, git fetch, PR #13 HEAD, AGENTS.md and diff of latest GitHub commits. Preserve unrelated edits; do not reset/clean/force-push. Review old Round 3 notes below only as historical context. Directly IMPLEMENT, BUILD, TEST, DIAGNOSE and FIX, not merely analyze.
+Preserve product decisions: standalone Windows desktop without external IDE, user-owned compatible Base URL/model/API key, no ChatMCP model-token/request/spending budget, explicit Full Access with typed confirmation, Windows Sandbox as OS isolation for automated tests, and **no host shell fallback or paid model benchmark**.
+Do NOT change production `WindowsSandboxPublisher({hostAttested:false})` to true unless an independently reviewed, non-forgeable Windows trust boundary is proven and explicitly approved. Do not merge PR #12 or #13, change main, tag or release.
+At completion push only scoped changes to PR #13; inspect both hosted CI workflows on the exact final SHA, re-run real guest negatives after any source/security change, and return a Vietnamese G1–G6 PASS/FAIL/BLOCKED/NOT VERIFIED matrix with actual child SID, native ACL, key-read denials, attack results, signed TAP evidence, cancellation/ownership, installer and hashes. If unable to prove the Windows file/key boundary, report G4 BLOCKED instead of inventing PASS.
+
+---
+
+## Earlier Round 3 task (historical context; Round 4 above takes precedence)
 # ANTIGRAVITY_NEXT_TASK — Round 3, Confirmed HMAC Key Leak (2026-10-13)
 
 
