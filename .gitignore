@@ -65,6 +65,7 @@ dist/
 build/
 bin/
 obj/
+publish/
 coverage/
 .nyc_output/
 *.tsbuildinfo
