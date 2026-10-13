@@ -5,6 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { WindowsSandboxCliDriver, LazyWindowsSandboxDriver } from '../lib/windows-sandbox-driver.mjs';
 import { createExecutionSnapshot } from '../lib/execution-snapshots.mjs';
+import { reconcileOwnedGuestTestCleanup } from './windows-sandbox/owned-guest-cleanup.mjs';
 
 const dir=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-cli-driver-'));
 const workspace=path.join(dir,'workspace');
@@ -85,5 +86,34 @@ try {
   assert.equal(again.publisherAuthenticated,false);
   assert.equal((await lazy.stop({instanceId:ownerId,
     generation:'22222222-3333-4444-5555-666666666666'})).stopped,true);
-  console.log('PASS: private staging, HMAC input, lazy verified CLI discovery, strict owned lifecycle and no production attestation bypass');
+  // Test cleanup must never stop an unrelated user's Sandbox discovered
+  // during diagnostic execution.
+  const otherId='77777777-8888-4999-aaaa-bbbbbbbbbbbb';
+  const stopCalls=[];
+  const ownerMap=new Map([[ownerId,{generation}]]);
+  const fakeOwner={delegate:{owned:ownerMap},async stop({instanceId}){
+    stopCalls.push(instanceId);ownerMap.delete(instanceId);
+    return {stopped:true,instanceId};
+  }};
+  await assert.rejects(
+    reconcileOwnedGuestTestCleanup({driver:fakeOwner,listRunning:async()=>[{Id:otherId}]}),
+    {code:'sandbox_cleanup_blocked'}
+  );
+  assert.deepEqual(stopCalls,[ownerId],
+    'Only the positively owned instance may be stopped');
+  assert.equal(stopCalls.includes(otherId),false,'Never stop unowned UUID');
+  const healthyOwner={
+    delegate:{owned:new Map([[ownerId,{generation}]])},
+    async stop({instanceId,generation:gotGeneration}){
+      assert.equal(instanceId,ownerId);assert.equal(gotGeneration,generation);
+      this.delegate.owned.delete(instanceId);
+      return {stopped:true,instanceId};
+    }
+  };
+  const checked=await reconcileOwnedGuestTestCleanup({
+    driver:healthyOwner,listRunning:async()=>[],
+  });
+  assert.equal(checked.verified,true);
+  assert.equal(checked.unownedStopped,0);
+  console.log('PASS: pinned runtime, lifecycle, and diagnostic cleanup never stops unowned Sandbox');
 } finally { await fs.rm(dir,{recursive:true,force:true}); }
