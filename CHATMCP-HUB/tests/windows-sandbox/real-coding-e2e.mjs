@@ -127,7 +127,9 @@ test('adds numbers correctly', () => {
     });
     managedDriver=driver;
 
-    // Test-scoped diagnostic harness uses hostAttested: true to test the full pipeline
+    // DIAGNOSTIC ONLY: hostAttested true here is a trusted test-harness injection
+    // to exercise full-stack plumbing. Child User SID / HMAC key secrecy are
+    // currently KNOWN UNSAFE; this is NOT production publisher attestation.
     const publisher = new WindowsSandboxPublisher({ hostAttested: true });
     const backend = new WindowsSandboxBackend({
       stateDirectory: backendStateDir,
@@ -199,7 +201,7 @@ test('adds numbers correctly', () => {
       attempt1.stdoutPreview.includes('AssertionError'),
       'Output must contain genuine Node test assertion failure'
     );
-    ok(`[3] First real guest execution failed authentically (ExitCode: 1)`);
+    ok(`[3] First real guest execution failed with signed diagnostic receipt (ExitCode: 1; G4 not attested)`);
     ok('[3] Publisher-authenticated receipt verified for failing run');
 
     // 6. Agent Code Repair: Update implementation only
@@ -231,8 +233,8 @@ test('adds numbers correctly', () => {
       attempt2.stdoutPreview.includes('pass 1'),
       'Output must contain genuine Node test passing assertion'
     );
-    ok(`[4] Second real guest execution passed authentically (ExitCode: 0)`);
-    ok('[4] Repaired assertions verified and publisher signature confirmed');
+    ok(`[4] Second real guest execution passed with signed diagnostic receipt (ExitCode: 0; G4 not attested)`);
+    ok('[4] Repaired Node TAP assertions parsed; HMAC signature checks only fixture integrity, not production origin');
 
     // 8. Adversarial & Fail-Closed Scenarios
     console.log('\n--- [5] Security Boundary & Adversarial Invariant Probes ---');
@@ -307,8 +309,8 @@ test('adds numbers correctly', () => {
   }
 
   console.log(`\nPASS: All ${checks} real coding worker E2E diagnostic checks SUCCEEDED.`);
-  console.log('REAL WINDOWS SANDBOX CODING WORKER STACK: FULLY INTEGRATED & VERIFIED.\n');
-  return { success: true, checks };
+  console.log('FUNCTIONAL DIAGNOSTIC PASS ONLY: production G3/G4 identity and HMAC secrecy gates FAIL. NO MERGE / RELEASE.\n');
+  return { success:true, checks, productionAuthenticated:false, securityGate:'G4_FAIL' };
 }
 
 if (process.argv[1] && process.argv[1].endsWith('real-coding-e2e.mjs')) {
