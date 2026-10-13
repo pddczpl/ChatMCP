@@ -182,31 +182,31 @@ try {
   const words=candidateDigestExitCodes(sample);
   assert.equal(words.length,9);
   assert.ok(words.every(x=>Number.isSafeInteger(x)&&x>=0x40000000&&x<=0x7fffffff));
-  const raw=words.map(ExitCode=>JSON.stringify({ExitCode}));
-  const observed=observeUnattestedExitDigest({payload:sample,rawResponses:raw});
+  const digestResponses=words.map(ExitCode=>JSON.stringify({ExitCode}));
+  const observed=observeUnattestedExitDigest({payload:sample,rawResponses:digestResponses});
   assert.equal(observed.digestMatches,true);
   assert.equal(observed.status,'DIGEST_MATCHED_BUT_UNAUTHENTICATED');
   assert.equal(observed.sourceProven,false);
   assert.equal(observed.productionAuthenticated,false);
   assert.equal(observed.framedWordBits,30);
   assert.equal(observeUnattestedExitDigest({
-    payload:sample.replace('"tests":2','"tests":0'),rawResponses:raw,
+    payload:sample.replace('"tests":2','"tests":0'),rawResponses:digestResponses,
   }).digestMatches,false,'Tampered receipt must not match protected digest words');
   // Corrupt any of the nine words to produce a mismatch or framing failure.
-  const replayed=raw.slice();
+  const replayed=digestResponses.slice();
   replayed[1]=JSON.stringify({ExitCode:words[1]^1});
   assert.equal(observeUnattestedExitDigest({payload:sample,rawResponses:replayed}).digestMatches,false);
-  const badLast=raw.slice();
+  const badLast=digestResponses.slice();
   badLast[8]=JSON.stringify({ExitCode:words[8]|1});
   await assert.rejects(async()=>observeUnattestedExitDigest({
     payload:sample,rawResponses:badLast,
   }),{code:'untrusted_exitcode_channel'});
   for(const invalid of [
-    raw.slice(0,8),
-    raw.map((v,i)=>i===0?JSON.stringify({ExitCode:0}):v),
-    raw.map((v,i)=>i===0?JSON.stringify({ExitCode:-1}):v),
-    raw.map((v,i)=>i===0?JSON.stringify({ExitCode:'1073741824'}):v),
-    raw.map((v,i)=>i===0?JSON.stringify({ExitCode:2147483648}):v),
+    digestResponses.slice(0,8),
+    digestResponses.map((v,i)=>i===0?JSON.stringify({ExitCode:0}):v),
+    digestResponses.map((v,i)=>i===0?JSON.stringify({ExitCode:-1}):v),
+    digestResponses.map((v,i)=>i===0?JSON.stringify({ExitCode:'1073741824'}):v),
+    digestResponses.map((v,i)=>i===0?JSON.stringify({ExitCode:2147483648}):v),
   ]) await assert.rejects(async()=>observeUnattestedExitDigest({
     payload:sample,rawResponses:invalid,
   }),{code:'untrusted_exitcode_channel'});
