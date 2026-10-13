@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { WindowsSandboxCliDriver, LazyWindowsSandboxDriver } from '../lib/windows-sandbox-driver.mjs';
+import { WindowsSandboxCliDriver, LazyWindowsSandboxDriver, parseSandboxInventory } from '../lib/windows-sandbox-driver.mjs';
 import { createExecutionSnapshot } from '../lib/execution-snapshots.mjs';
 import { reconcileOwnedGuestTestCleanup } from './windows-sandbox/owned-guest-cleanup.mjs';
 import { probeOwnedSandboxCliStdout } from '../lib/windows-sandbox-cli-channel-probe.mjs';
@@ -37,7 +37,7 @@ try {
       if (args[0]==='list') return JSON.stringify({WindowsSandboxEnvironments:calls.some(x=>x[0]==='start')&&!calls.some(x=>x[0]==='stop')?[{Id:ownerId}]:[]});
       if (args[0]==='start') return JSON.stringify({Id:ownerId});
       if (args[0]==='stop') return JSON.stringify({Stopped:true});
-      if (args[0]==='exec') return JSON.stringify({ExitCode:args[args.indexOf('-c')+1]?.startsWith('robocopy.exe')?1:13});
+      if (args[0]==='exec') return JSON.stringify({ExitCode:args[args.indexOf('-c')+1]?.includes('\\robocopy.exe ')?1:13});
       throw Error('Unexpected CLI verb');
     }
   });
@@ -71,11 +71,60 @@ try {
   assert.equal(calls.at(-1)[calls.at(-1).indexOf('-c')+1].includes('--auth-key'), false, 'Key must never appear on GuestSupervisor command line');
   const stagedRequest=JSON.parse(await fs.readFile(path.join(state,'run-'+generation,'input','request.json'),'utf8'));
   assert.ok(stagedRequest.command.endsWith('\\toolchain\\node.exe'),'guest runs the pinned offline Node binary, never cmd.exe');
-  assert.deepEqual(stagedRequest.args,['--test']);
+  assert.deepEqual(stagedRequest.args,['--test','--test-reporter=file:///C:/ChatMCP/Input/node-test-reporter.mjs']);
   await assert.rejects(driver.stop({instanceId:ownerId,generation:'33333333-2222-3333-4444-555555555555'}), {code:'sandbox_not_owned'});
   const stopped=await driver.stop({instanceId:ownerId,generation});
   assert.deepEqual(stopped,{stopped:true,instanceId:ownerId});
   assert.equal(driver.owned.size,0);
+  // Malformed inventories cannot establish ownership or confirm cleanup. A
+  // failed stop keeps its owned state and forensic staging for reconciliation.
+  assert.deepEqual(parseSandboxInventory({WindowsSandboxEnvironments:[{Id:ownerId.toUpperCase()}]}),[ownerId]);
+  const malformedInventories=[null,[],{},
+    {WindowsSandboxEnvironments:null},{WindowsSandboxEnvironments:[{}]},
+    {WindowsSandboxEnvironments:[{Id:'garbage'}]},{WindowsSandboxEnvironments:[null]},
+    {WindowsSandboxEnvironments:[{Id:ownerId},{Id:ownerId.toUpperCase()}]},
+  ];
+  const retainedRoot=path.join(dir,'retained-after-unconfirmed-stop');
+  await fs.mkdir(retainedRoot);
+  let inventory={WindowsSandboxEnvironments:[]};
+  const inventoryCalls=[];
+  const guarded=new WindowsSandboxCliDriver({
+    cliPath:path.join(dir,'wsb.exe'),runtimeDirectory:runtime,nodeToolchainDirectory:nodeDir,
+    stateDirectory:path.join(dir,'inventory-state'),runCli:async args=>{
+      inventoryCalls.push(args[0]);
+      return JSON.stringify(args[0]==='list'?inventory:{Stopped:true});
+    },
+  });
+  for(const invalid of malformedInventories) {
+    assert.throws(()=>parseSandboxInventory(invalid),{code:'invalid_cli_inventory'});
+    inventory=invalid;
+    await assert.rejects(guarded.start({request,snapshot,generation}),{code:'invalid_cli_inventory'});
+    assert.equal(inventoryCalls.includes('start'),false,'Malformed inventory cannot authorize launch');
+    guarded.owned.set(ownerId,{generation,runId:request.runId,root:retainedRoot});
+    await assert.rejects(guarded.execute({request,instanceId:ownerId,generation}),{code:'invalid_cli_inventory'});
+    assert.equal(inventoryCalls.includes('exec'),false,'Malformed inventory cannot authorize execution');
+    await assert.rejects(guarded.stop({instanceId:ownerId,generation}),{code:'invalid_cli_inventory'});
+    assert.equal(guarded.owned.has(ownerId),true,'Unconfirmed stop must retain ownership');
+    assert.equal((await fs.stat(retainedRoot)).isDirectory(),true,'Unconfirmed stop must retain staging');
+    guarded.owned.clear();
+  }
+  guarded.owned.set(ownerId,{generation,runId:request.runId,root:retainedRoot});
+  inventory={WindowsSandboxEnvironments:[{Id:ownerId.toUpperCase()}]};
+  await assert.rejects(guarded.stop({instanceId:ownerId,generation}),{code:'sandbox_stop_unconfirmed'});
+  inventory={WindowsSandboxEnvironments:[]};
+  assert.equal((await guarded.stop({instanceId:ownerId,generation})).stopped,true);
+  let postLaunchLists=0;
+  const postLaunch=new WindowsSandboxCliDriver({
+    cliPath:path.join(dir,'wsb.exe'),runtimeDirectory:runtime,nodeToolchainDirectory:nodeDir,
+    stateDirectory:path.join(dir,'postlaunch-state'),runCli:async args=>{
+      if(args[0]==='list')return JSON.stringify({WindowsSandboxEnvironments:postLaunchLists++===0?[]:[{}]});
+      if(args[0]==='start')return JSON.stringify({Id:ownerId.toUpperCase()});
+      throw Error('No execution is allowed after a malformed post-launch inventory');
+    },
+  });
+  await assert.rejects(postLaunch.start({request,snapshot,generation}),{code:'invalid_cli_inventory'});
+  assert.equal(postLaunch.owned.size,0,'A malformed post-launch list must not establish active ownership');
+  console.log('PASS: strict unique UUID inventories reject malformed start, execution and cleanup confirmation');
   const lazyCalls=[];
   const lazy=new LazyWindowsSandboxDriver({
     runtimeDirectory:runtime,nodeToolchainDirectory:nodeDir,
@@ -133,7 +182,7 @@ try {
   const supervisorSource=await fs.readFile(
     new URL('../windows/sandbox/GuestSupervisor/Program.cs',import.meta.url),'utf8');
   assert.match(supervisorSource,/if \(guestFixture && authKeyProvidedOnCommandLine\)/);
-  assert.match(supervisorSource,/if \(guestFixture && string\.IsNullOrWhiteSpace\(authKey\)\)/);
+  assert.match(supervisorSource,/if \(guestFixture && sealEnvelopePath == null && string\.IsNullOrWhiteSpace\(authKey\)\)/);
   assert.match(supervisorSource,/Secure supervisor key handoff failed; no child was started/);
   console.log('PASS: source guards against guest argv keys, absent keys and erase failures (NOT OS attestation)');
   assert.match(supervisorSource,/Get-CimInstance Win32_Process/,'Probe must query actual WMI');

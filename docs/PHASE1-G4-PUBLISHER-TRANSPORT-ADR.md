@@ -1,13 +1,47 @@
 # ADR — Phase 1 G4 authenticated publisher without guest-readable HMAC
 
-- **Status:** OPTION A REJECTED BY HARDWARE; OPTION C SOURCE-ONLY FEASIBILITY; PRODUCTION BLOCKED
+- **Status:** OPTION C ACCEPTED FOR `node-json-blackbox` ONLY; LEGACY NODE/HMAC NOT ATTESTED
 - **Date:** 2026-10-13
 - **Owner:** ChatGPT (GitHub architecture/review), Antigravity (native Windows experiment)
 - **Issue:** https://github.com/pddczpl/ChatMCP/issues/14
 - **Integration PR:** https://github.com/pddczpl/ChatMCP/pull/13
-- **Invariant:** Shipping WindowsSandboxPublisher({hostAttested:false}) stays locked until separate independent G4 review
+- **Invariant:** Shipping `hostAttested:false` remains; only independently reviewed check kinds may opt into sealed native grading.
+
+## Accepted decision — separate native grader
+
+The user authorized a declarative input/output check mode. Independent review
+approved its scoped activation after a full native matrix, then approved the
+exact packaged Native AOT helper at clean implementation commit `acc2f840`.
+The final matrix passed 24 checks across 17 fresh guests, with 153 digest words
+independently reconstructed from retained bytes. Actual seal/process/desktop
+denials, fresh nonadministrator identity, native grading, timeout and descendant
+cleanup evidence are included in the [current acceptance record](agent-handoffs/G4-G6-EXECUTION-2026-10-13.md)
+and [independent review](agent-handoffs/G4-BLACKBOX-REVIEW-2026-10-13.md).
+
+The SYSTEM grader compares inert values against host-approved public cases;
+project JavaScript owns no assertion authority. Native AOT avoids the prior
+managed-runtime extraction cache. The host pins the protected Microsoft Store
+CLI, supervisor, Node, request and manifest, validates nine framed exits against
+the exact sealed receipt/envelope, and confirms owned guest termination.
+No HMAC key is staged in a guest mapping. Production explicitly selects this
+protocol and `attestedCheckKinds:[BLACKBOX_KIND]`; `hostAttested` stays false.
+
+The historical alternatives and failures below remain relevant to legacy Node
+tests. Their blanket production lock is superseded only for this reviewed mode.
+Finite public cases can be overfit; a PASS establishes their expected returned
+values, not coverage or general correctness. No merge/release is authorized.
 
 ## 1. Evidence and explicit conclusion
+
+### Historical pre-acceptance working-tree implementation, 2026-10-13
+
+The follow-up on baseline `497c082bdde937dad935dcec60244909dc341b6e` implements Option C as an explicitly selected diagnostic protocol `system-sealed-exit-v1`. It stages no HMAC key; executes the pinned Node runner and reporter directly from the read-only mapped snapshot; stores a domain-separated receipt/envelope digest in a guest-local SYSTEM-only seal; collects nine serial exit-code words; rejects replay, altered context, missing words, digest mismatch and incomplete child cleanup. The default production assembly still uses `hostAttested:false`.
+
+Real Windows 11 build 26300 testing with GuestSupervisor SHA-256 `b822407d785164a313493e5cf9afc4e04996b64f2ac9d42f6b143f86ba8a3528` observed a matching native seal, restricted-child directory read/write/delete/WRITE_DAC/WRITE_OWNER denials (Win32 error 5), child digest-command rejection (exit 3), and confirmed owned cleanup. The broker FAIL-to-implementation-repair-to-PASS diagnostic passed 17/17 checks using this transport. Local raw evidence is retained under `test-results/native-seal.json` and `test-results/native-sealed-coding-e2e.log`; these are working-tree evidence, not final-commit or CI certification.
+
+A separate correctness regression reproduced Node's automatic passing file wrapper for empty tests and `process.exit(0)`. The new pinned reporter rejects these cases and counts registered tests instead. It does **not** authenticate Node's child reporter IPC against adversarial code, or establish comprehensive assertions. The [independent review](agent-handoffs/G4-INDEPENDENT-REVIEW-2026-10-13.md) identifies this remaining boundary, unproven pre-existing guest principal authority, and exact CLI/runtime execution provenance. **Transport PASS does not make the full G4 gate PASS.**
+
+The remaining sections describe the prior investigation and original acceptance conditions; historical source-only statements below are superseded only by the specific native observations above.
 
 Antigravity's Round 6 report tested PR #13 SHA c7a271ea353beaead1c259877da4f537592efc19 on Windows 11 Pro build 26300, Windows Sandbox CLI wsb.exe 0.8.107.0, .NET 10.0.103 and Node 24.19.0. It reports:
 

@@ -1,5 +1,12 @@
 # ANTIGRAVITY_NEXT_TASK — Round 7: WSB ExitCode Trust-Channel Feasibility
 
+> Historical Round 7 handoff. The subsequent user-authorized native black-box
+> mode and current G4/G6 results are recorded in
+> [the identified-build acceptance report](G4-G6-EXECUTION-2026-10-13.md).
+> Preserve the scoped approval: legacy Node/HMAC remains unverified and shipping
+> `hostAttested:false` stays in force. The old blanket lock below does not undo
+> the independently approved `node-json-blackbox` integration.
+
 **Date:** 2026-10-13  
 **Executor:** Antigravity on authorized Windows 11 workstation  
 **Project root:** F:\Personal_Project\Vin\ChatMCP  

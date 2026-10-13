@@ -12,9 +12,9 @@
 
 The unreleased Phase 0 fixes reconnect the current React UI to persisted task history, the live permission gate, plans, Git and terminal data. See the [desktop contract audit](docs/PHASE0-DESKTOP-CONTRACT-AUDIT.md), [execution report](docs/PHASE0-EXECUTION-REPORT.md) and [next Phase 1 implementation plan](docs/PHASE1-IMPLEMENTATION-PLAN.md) for verified behavior, remaining gates and ordered work. A model's final answer does not certify that tests passed.
 
-**Phase 2 (unreleased, stacked on Phase 1):** [Reliable autonomous development — recovery and evidence roadmap](docs/PHASE2-LOCAL-RELIABILITY.md). This branch is draft work and cannot be released until Phase 1 G4 and installer acceptance pass.
+**Phase 2 (unreleased, stacked above Phase 1):** [Reliable autonomous development — recovery and owner-reviewed context previews](docs/PHASE2-LOCAL-RELIABILITY.md). Recovery journals are human-review only and cannot authenticate tests. This Draft PR does not modify the validated Phase 1 Windows Sandbox publisher or enable host fallbacks.
 
-**Current Phase 1 development:** [staged implementation and outstanding safety gates](docs/PHASE1-STAGED-STATUS.md). The [G4 trusted publisher transport ADR](docs/PHASE1-G4-PUBLISHER-TRANSPORT-ADR.md) explains why writable mapped-folder HMAC remains blocked and the experimental, non-attesting CLI output probe. For the exact current Windows hardware handoff, see [Antigravity Phase 1 acceptance task](docs/agent-handoffs/ANTIGRAVITY_NEXT_TASK.md). This work is unreleased: backend sandbox execution remains blocked pending authenticated supervisor publication and supported Windows hardware acceptance.
+**Current Phase 1 development:** [G4/G6 acceptance and exact artifact evidence](docs/agent-handoffs/G4-G6-EXECUTION-2026-10-13.md). Supported Windows machines can run approved [native black-box checks](docs/PHASE1-BLACKBOX-CHECKS.md) with a separate native grader and authenticated sealed results. Ordinary Node tests remain unverified and cannot use this scoped production path. See the [publisher transport decision](docs/PHASE1-G4-PUBLISHER-TRANSPORT-ADR.md), [clean Windows lifecycle harness](docs/PHASE1-G6-CLEAN-WINDOWS.md), and [staged history](docs/PHASE1-STAGED-STATUS.md). This branch remains unreleased and PR #13 remains Draft.
 
 | Capability | Status | Important limitations |
 | --- | --- | --- |
@@ -90,7 +90,7 @@ AI providers and selected integrations can receive source/context as part of req
 node .\CHATMCP-HUB\tests\run-all.mjs
 npm ci --prefix .\CHATMCP-HUB\ui
 npm run build --prefix .\CHATMCP-HUB\ui
-# Maintainers only: .NET SDK 10+ on Windows
+# Maintainers only: .NET SDK 10+ and Visual Studio C++ build tools on Windows
 .\scripts\Build-Installer.ps1
 ~~~
 
