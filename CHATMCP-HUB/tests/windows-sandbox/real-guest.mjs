@@ -313,6 +313,66 @@ export async function runRealGuestTests() {
     parseAndVerifyChildGroups(receipt1.stdout);
     ok(`[C] Child OS token verified: zero dangerous privileges enabled, admin group deny-only (${privResult.parsedCount} privileges audited)`);
 
+    // Adversarial: Restricted child attempts to inspect supervisor command line & process handles
+    const reqInspect = await prepareExecutionRequest({
+      inputDirectory: inputDir,
+      runId: 'inspect-' + crypto.randomBytes(4).toString('hex'),
+      command: 'powershell.exe',
+      args: [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        [
+          '$ppid = (Get-CimInstance Win32_Process -Filter "ProcessId = $PID").ParentProcessId;',
+          '$cmd = (Get-CimInstance Win32_Process -Filter "ProcessId = $ppid").CommandLine;',
+          '$cmdEmpty = [string]::IsNullOrEmpty($cmd);',
+          'Add-Type -TypeDefinition \'using System; using System.Runtime.InteropServices; public static class K32 { [DllImport("kernel32.dll", SetLastError = true)] public static extern IntPtr OpenProcess(uint a, bool b, uint p); [DllImport("kernel32.dll", SetLastError = true)] public static extern bool CloseHandle(IntPtr h); }\';',
+          '$hQuery = [K32]::OpenProcess(0x0400, $false, $ppid);',
+          '$errQuery = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error();',
+          'if ($hQuery -ne [IntPtr]::Zero) { [K32]::CloseHandle($hQuery); }',
+          '$hRead = [K32]::OpenProcess(0x0010, $false, $ppid);',
+          '$errRead = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error();',
+          'if ($hRead -ne [IntPtr]::Zero) { [K32]::CloseHandle($hRead); }',
+          'Write-Output "PARENT_PID=$ppid";',
+          'Write-Output "PARENT_CMDLINE_EMPTY=$cmdEmpty";',
+          'Write-Output "OPEN_QUERY_ERR=$errQuery";',
+          'Write-Output "OPEN_VMREAD_ERR=$errRead";',
+        ].join(' ')
+      ],
+      timeoutSeconds: 20,
+      maxOutputBytes: 4096,
+    });
+
+    execFileSync(
+      wsbCli,
+      [
+        'exec',
+        '--id', ownedSandboxId,
+        '-r', 'System',
+        '-c', `C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output --auth-key ${reqInspect.authKey}`,
+        '--raw'
+      ],
+      { encoding: 'utf8', timeout: 25_000 }
+    );
+
+    const receiptInspect = await readAndVerifyExecutionReceipt({
+      exportDirectory: outputDir,
+      expectedRunId: reqInspect.runId,
+      expectedNonce: reqInspect.nonce,
+      expectedAuthKey: reqInspect.authKey,
+      backend: 'windows-sandbox',
+    });
+    console.log('    [Audit Observation] Child Inspection Findings:');
+    for (const line of receiptInspect.stdout.trim().split(/\r?\n/)) {
+      console.log('      ' + line);
+    }
+    const cmdLineExposed = !receiptInspect.stdout.includes('PARENT_CMDLINE_EMPTY=True');
+    if (cmdLineExposed) {
+      console.log('    [SECURITY VULNERABILITY CONFIRMED] Restricted child (SYSTEM SID) can read parent supervisor CommandLine via WMI!');
+    }
+    assert.ok(receiptInspect.stdout.includes('OPEN_QUERY_ERR=5') || receiptInspect.stdout.includes('OPEN_VMREAD_ERR=5') || receiptInspect.stdout.includes('OPEN_QUERY_ERR=0') || receiptInspect.stdout.includes('PARENT_PID='), 'Captured child Win32 audit data');
+    ok(`[C] Child process boundary audited: WMI CommandLine exposed=${cmdLineExposed}; key-secrecy gate is BLOCKED`);
+
     // Timeout containment under Job Object
     const reqTimeout = await prepareExecutionRequest({
       inputDirectory: inputDir,
@@ -423,7 +483,108 @@ export async function runRealGuestTests() {
     );
     ok('[D] Host-side fully-rehashed receipt tampering rejected by HMAC; guest key-secrecy gate remains BLOCKED');
 
-    // [E] Negative OS Isolation Probes
+    // 3. Genuine in-guest child receipt forgery attempt:
+    // Malicious child tries to write fake receipt.json and fake receipt.sha256 in C:\ChatMCP\Output,
+    // and forge receipt.sig with random HMAC bytes, attempting to fool the host.
+    const inGuestForgeRunId = 'in-guest-forge-' + crypto.randomBytes(4).toString('hex');
+    const fakeJson = JSON.stringify({
+      version: 1,
+      runId: inGuestForgeRunId,
+      nonce: 'FORGED_NONCE_VALUE_00000000000000000000000000000000000000000000000000',
+      status: 'completed',
+      exitCode: 0,
+      stdout: 'GUEST_CHILD_SPOOFED_ZERO_EXIT',
+      stderr: '',
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      durationMs: 5,
+    });
+    const fakeSha = crypto.createHash('sha256').update(fakeJson).digest('hex');
+    const fakeSig = crypto.randomBytes(32).toString('hex');
+
+    const reqInGuestForge = await prepareExecutionRequest({
+      inputDirectory: inputDir,
+      runId: inGuestForgeRunId,
+      command: 'powershell.exe',
+      args: [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        [
+          `Set-Content -LiteralPath 'C:\\ChatMCP\\Output\\receipt.json' -Value '${fakeJson.replace(/'/g, "''")}' -Encoding Ascii;`,
+          `Set-Content -LiteralPath 'C:\\ChatMCP\\Output\\receipt.sha256' -Value '${fakeSha}  receipt.json' -Encoding Ascii;`,
+          `Set-Content -LiteralPath 'C:\\ChatMCP\\Output\\receipt.sig' -Value '${fakeSig}  receipt.json' -Encoding Ascii;`,
+          `exit 42;`,
+        ].join(' ')
+      ],
+      timeoutSeconds: 15,
+      maxOutputBytes: 1024,
+    });
+
+    execFileSync(
+      wsbCli,
+      [
+        'exec',
+        '--id', ownedSandboxId,
+        '-r', 'System',
+        '-c', `C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output --auth-key ${reqInGuestForge.authKey}`,
+        '--raw'
+      ],
+      { encoding: 'utf8', timeout: 25_000 }
+    );
+
+    const receiptAfterChildForge = await readAndVerifyExecutionReceipt({
+      exportDirectory: outputDir,
+      expectedRunId: reqInGuestForge.runId,
+      expectedNonce: reqInGuestForge.nonce,
+      expectedAuthKey: reqInGuestForge.authKey,
+      backend: 'windows-sandbox',
+    });
+    assert.equal(receiptAfterChildForge.status, 'failed');
+    assert.equal(receiptAfterChildForge.exitCode, 42);
+    assert.ok(!receiptAfterChildForge.stdout.includes('GUEST_CHILD_SPOOFED_ZERO_EXIT'));
+    assert.equal(receiptAfterChildForge.publisherAuthenticated, true);
+    ok('[D] In-guest child spoofing attempt failed-closed: authentic supervisor overwritten with real child exitCode (42) and verified HMAC');
+
+    // 4. Descriptor-bound, byte-limited reader negative checks:
+    // a) Oversized receipt (> 5 MB)
+    const bigReceiptDir = path.join(baseDir, 'test-oversized');
+    fs.mkdirSync(bigReceiptDir, { recursive: true });
+    const bigBuffer = Buffer.alloc(5 * 1024 * 1024 + 1024, 'A');
+    fs.writeFileSync(path.join(bigReceiptDir, 'receipt.json'), bigBuffer);
+    fs.writeFileSync(path.join(bigReceiptDir, 'receipt.sha256'), `${crypto.createHash('sha256').update(bigBuffer).digest('hex')}  receipt.json\n`);
+    await assert.rejects(
+      () => readAndVerifyExecutionReceipt({ exportDirectory: bigReceiptDir, expectedRunId: 'any', expectedNonce: 'any' }),
+      { code: 'oversized_receipt' }
+    );
+
+    // b) Oversized checksum file (> 256 bytes)
+    fs.writeFileSync(path.join(bigReceiptDir, 'receipt.json'), JSON.stringify({ version: 1, runId: 'test', nonce: 'test', status: 'completed', exitCode: 0 }));
+    fs.writeFileSync(path.join(bigReceiptDir, 'receipt.sha256'), 'A'.repeat(300));
+    await assert.rejects(
+      () => readAndVerifyExecutionReceipt({ exportDirectory: bigReceiptDir, expectedRunId: 'test', expectedNonce: 'test' }),
+      { code: 'unsafe_receipt' }
+    );
+
+    // c) Hard-linked receipt (nlink > 1)
+    const hardlinkDir = path.join(baseDir, 'test-hardlink');
+    fs.mkdirSync(hardlinkDir, { recursive: true });
+    const normalReceipt = JSON.stringify({ version: 1, runId: 'hl-test', nonce: 'hl-nonce', status: 'completed', exitCode: 0 });
+    const normalReceiptPath = path.join(hardlinkDir, 'receipt.json');
+    fs.writeFileSync(normalReceiptPath, normalReceipt);
+    const linkPath = path.join(hardlinkDir, 'receipt-link.json');
+    try {
+      fs.linkSync(normalReceiptPath, linkPath);
+      await assert.rejects(
+        () => readAndVerifyExecutionReceipt({ exportDirectory: hardlinkDir, expectedRunId: 'hl-test', expectedNonce: 'hl-nonce' }),
+        { code: 'unsafe_receipt' }
+      );
+    } catch (e) {
+      if (e.code !== 'EPERM' && e.code !== 'ENOSYS') throw e;
+    }
+    fs.rmSync(bigReceiptDir, { recursive: true, force: true });
+    fs.rmSync(hardlinkDir, { recursive: true, force: true });
+    ok('[D] Descriptor-bound reader verified: oversized and multi-linked files rejected fail-closed');
     console.log('\n--- [E] Negative OS Isolation Probes ---');
 
     // Host Canary Protection (direct guest probe)

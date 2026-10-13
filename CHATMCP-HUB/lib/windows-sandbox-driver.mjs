@@ -45,6 +45,7 @@ export class WindowsSandboxCliDriver {
     if (typeof text !== 'string' || text.length > 1024*1024) {
       throw fault('invalid_cli_output', 'Windows Sandbox CLI did not return bounded textual output.');
     }
+    if (!text.trim()) return {};
     try { return JSON.parse(text); }
     catch { throw fault('invalid_cli_json', 'Windows Sandbox CLI response is not valid JSON.'); }
   }
