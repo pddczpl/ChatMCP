@@ -67,14 +67,26 @@ export function chooseReadyCodingBatch(workers,limit=2) {
   });
 }
 
+// Be conservative: Git can store file names that alias or change identity
+// when checked out on Windows. Conflict safety must use *complete* raw Git
+// -z filenames, not shell-formatted text or newline-split output.
 function safeGitPath(value){
-  if(typeof value!=='string'||!value||value.includes('\0')||value.includes('\n'))
-    throw reject('invalid_worker_file','Invalid worker change path.');
-  const normalized=path.posix.normalize(value.replaceAll('\\','/'));
+  if(typeof value!=='string'||!value||value.length>1024||
+     /[\u0000-\u001f\u007f]/u.test(value))
+    throw reject('invalid_worker_file','Worker changed-file path contains a control character or is oversized.');
+  const winPath=value.replaceAll('\\','/');
+  if(winPath.startsWith('/')||/^[a-zA-Z]:/.test(winPath))
+    throw reject('invalid_worker_file','Worker file path must be repo-relative.');
+  const parts=winPath.split('/');
+  const reserved=/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$/i;
+  if(parts.some(part=>!part||part==='.'||part==='..'||part.includes(':')||
+     /[. ]$/u.test(part)||reserved.test(part)))
+    throw reject('invalid_worker_file','Ambiguous Windows path, stream or device name is prohibited.');
+  const normalized=path.posix.normalize(winPath);
   if(normalized==='.'||normalized==='..'||normalized.startsWith('../')||
-     normalized.startsWith('/')||/^[a-zA-Z]:/.test(normalized))
-    throw reject('invalid_worker_file','Worker change path escaped the managed repository.');
-  return normalized.toLowerCase(); // Fail closed on Windows case-equivalent paths.
+     normalized.startsWith('/'))
+    throw reject('invalid_worker_file','Worker changed-file path escaped repository.');
+  return normalized.normalize('NFC').toLowerCase();
 }
 
 /**
