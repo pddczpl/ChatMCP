@@ -424,14 +424,18 @@ export class CodingWorktreeOrchestrator {
       const predecessor=nodes.find(x=>x.id===dependencyId);
       if(!predecessor||!['ready_for_review','no_changes'].includes(predecessor.status))
         throw fail('worker_dependency_failed','Dependency is not a completed trusted worker.',409);
-      if(!predecessor.commitSha)continue;
-      if(!/^[0-9a-f]{40}$/i.test(predecessor.commitSha)||
+      // A no_changes worker may still have inherited committed ancestors.
+      // Propagate its pinned inherited HEAD, not just the worker's own commit.
+      // Otherwise A -> no-op B -> C silently drops A's source from C.
+      const inheritedRevision=predecessor.commitSha||predecessor.inheritedHeadSha;
+      if(!inheritedRevision)continue;
+      if(!/^[0-9a-f]{40}$/i.test(inheritedRevision)||
          typeof predecessor.branch!=='string'||
          !predecessor.branch.startsWith('chatmcp/coder/'))
         throw fail('worker_dependency_untrusted','Dependency branch or commit is not a managed Git revision.',403);
       const actual=await this.#git(['rev-parse','--verify','refs/heads/'+predecessor.branch]);
-      if(actual!==predecessor.commitSha)
-        throw fail('worker_dependency_stale','Dependency changed after it was committed.',409);
+      if(actual!==inheritedRevision)
+        throw fail('worker_dependency_stale','Dependency branch changed after its trusted completion.',409);
       const result=await this.manager.studio.gitRunner.text([
         '-C',node.worktree,
         '-c','user.name=ChatMCP Dependency Integrator',
@@ -446,7 +450,7 @@ export class CodingWorktreeOrchestrator {
           'Managed dependency merge failed. Manual review required; no model-driven conflict resolution.',409);
       }
       node.inheritedCommits??={};
-      node.inheritedCommits[dependencyId]=predecessor.commitSha;
+      node.inheritedCommits[dependencyId]=inheritedRevision;
     }
   }
   async run({tasks,confirmation,maxConcurrency=2}={}){
@@ -544,7 +548,14 @@ export class CodingWorktreeOrchestrator {
               {writes:true,timeoutMs:60000});
             node.commitSha=await this.#git(['-C',node.worktree,'rev-parse','HEAD']);
             node.status='ready_for_review';
-          }else node.status='no_changes';
+          }else{
+            // Record *inherited* commits for a successfully completed no-op
+            // worker without mislabelling them as its own code edit.
+            // Downstream Git must inherit the whole trusted dependency chain.
+            const head=await this.#git(['-C',node.worktree,'rev-parse','HEAD']);
+            node.inheritedHeadSha=head===job.baseSha?null:head;
+            node.status='no_changes';
+          }
         }catch(error){
           if(!['needs_attention','blocked'].includes(node.status))
             node.status=signal.aborted?'cancelled':'failed';

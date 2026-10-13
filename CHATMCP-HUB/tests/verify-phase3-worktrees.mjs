@@ -48,6 +48,10 @@ try{
         assert.match(await fs.readFile(path.join(worktree,'ancestor.js'),'utf8'),/ancestor=41/);
         assert.match(await fs.readFile(path.join(worktree,'middle.js'),'utf8'),/middle=42/);
         await fs.writeFile(path.join(worktree,'leaf.js'),'export const leaf=43;\n');
+      }else if(node.id==='noop'){
+        // Deliberate no-op: after the trusted dependency merge its worktree
+        // still contains inherited code, which MUST propagate downstream.
+        assert.match(await fs.readFile(path.join(worktree,'ancestor.js'),'utf8'),/ancestor=41/);
       }else if(node.id==='failbase'){
         return {state:'failed',summary:'Scripted non-repairable worker failed',toolCalls:0};
       }else if(node.id==='cancelbase'){
@@ -137,6 +141,28 @@ try{
   assert.equal(chainNodes[1].inheritedCommits.base,chainNodes[0].commitSha);
   assert.equal(chainNodes[2].inheritedCommits.middle,chainNodes[1].commitSha);
   assert.equal(git('rev-parse','HEAD').trim(),run.baseSha,'Main checkout must not change during DAG merges');
+  // Regression: A -> no-op B -> C MUST retain A's committed source.
+  // A no-op worker has no OWN commit, but its branch HEAD advances when
+  // trusted dependency merges are applied.
+  const chainStart=actions.length;
+  const noOpChain=await orchestrator.run({
+    confirmation:'CREATE WORKTREES',maxConcurrency:2,
+    tasks:[
+      {id:'base',prompt:'Commit reusable base source'},
+      {id:'noop',prompt:'Review base without edits',dependsOn:['base']},
+      {id:'descendant',prompt:'Consume base through no-op',dependsOn:['noop']},
+    ],
+  });
+  assert.equal(noOpChain.status,'ready_for_review',JSON.stringify(noOpChain));
+  assert.deepEqual(actions.slice(chainStart),['base','noop','descendant']);
+  const chainWorkers=orchestrator.jobs.get(noOpChain.id).workers;
+  assert.equal(chainWorkers[1].status,'no_changes');
+  assert.equal(chainWorkers[1].commitSha,null,'No-op must not manufacture its own edit commit');
+  assert.match(chainWorkers[1].inheritedHeadSha,/^[0-9a-f]{40}$/);
+  assert.equal(chainWorkers[2].inheritedCommits.noop,chainWorkers[1].inheritedHeadSha);
+  assert.equal(chainWorkers[2].status,'ready_for_review');
+  assert.equal(git('rev-parse','HEAD').trim(),run.baseSha,'User checkout stays untouched');
+
   // A failed predecessor must NEVER dispatch its dependent to AgentRunner.
   const beforeFailure=actions.length;
   const failed=await orchestrator.run({
