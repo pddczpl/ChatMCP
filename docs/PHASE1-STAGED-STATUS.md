@@ -32,3 +32,19 @@ The owner chooses Base URL, model and API key. ChatMCP has no artificial token/r
 ### Native Windows acceptance task
 
 The complete branch-specific [Antigravity acceptance task](agent-handoffs/ANTIGRAVITY_NEXT_TASK.md) covers actual integrated Windows guest verification, credential-safe BYO model settings, Full Access opt-in, clean-machine installer validation and test evidence. Source/mock or GitHub-hosted CI green alone is not OS isolation proof.
+
+
+## Independent review after Antigravity report (2026-10-13)
+
+Antigravity reported Windows 11 Pro build 26300, 25 prototype Windows Sandbox checkpoints, 62 Hub suites, 46 UI unit tests, 7 Playwright E2E tests, 42 installer payload checks, and successful build and WebView2 smoke at PR #13 SHA 310e9fe5. GitHub-hosted CI independently confirmed 9/9 push and 9/9 PR jobs on that old SHA. **The 25 checkpoints are not 25 unique negative security tests; the report alone is not independently captured low-level OS evidence.**
+
+| Gate | Independent review status | Why |
+| --- | --- | --- |
+| G1 — Host readiness | PASS reported by Antigravity | Windows hardware preflight, no direct independent workstation access |
+| G2 — Owned guest lifecycle | Prototype PASS reported; full stack NOT VERIFIED | Real guest fixture directly invokes wsb; worker E2E uses fake backend |
+| G3 — Restricted child / Job Object | Prototype PASS reported; final integrated gate NOT VERIFIED | Need final-SHA token/ACL and supervisor key visibility probes |
+| G4 — Authenticated publication | **BLOCKED for production** | HMAC secret remains in SYSTEM process argv; host fixture modifies receipt/recomputes SHA256; hostAttested:false correctly locks production |
+| G5 — OS negative probes | Reported PASS for specified canary/network checks | Actual malicious restricted-child receipt forgery and key visibility still unverified |
+| G6 — Tests and distribution | Source CI pass on OLD SHA; clean install NOT VERIFIED | Installer build, payload regression, WebView2 smoke != install/upgrade/uninstall |
+
+PR #13 adds descriptor-bounded receipt reads and correct labels distinguishing HOST tampering from GUEST key isolation; final-SHA GitHub CI and real Windows OS tests are still required. **Do not merge or release.** Next actions: [ANTIGRAVITY_NEXT_TASK.md](agent-handoffs/ANTIGRAVITY_NEXT_TASK.md).

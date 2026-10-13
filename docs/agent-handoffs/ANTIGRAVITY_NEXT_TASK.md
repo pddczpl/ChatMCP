@@ -1,3 +1,51 @@
+# ANTIGRAVITY_NEXT_TASK — Round 2, Security Remediation (2026-10-13)
+
+**Verdict: PHASE 1 BLOCKED — NO MERGE / NO RELEASE.**
+
+**The previous Antigravity report was received.** It reported Windows 11 Pro build 26300, Windows Sandbox CLI 0.8.107.0, GuestSupervisor hash 606aa8c1ee523ad36d0691fe9b18be600e7b46b937e7ed6c1b4f2d6f0be35003, 25 prototype guest checkpoints, 62 Hub suites, 46 UI unit tests, 7 Playwright tests, 42 installer-payload checks, and a successful installer build/WebView2 smoke. We do NOT need another copy of the same report. **Fix the precise remaining blockers and collect stronger evidence.**
+
+The previous report tested SHA **310e9fe5afbe1b8b834197c6486d3db745b6fe5f**. ChatGPT then changed the output verifier and test labels at commit **f61346ed83caed07a743068fe316a606b6fdfad5**, plus the subsequent documentation commit. **Fetch the actual PR #13 HEAD before work and retest the new final source and published exe hashes.** Work on branch **feat/phase1-complete-autonomous-coding** only. Preserve unrelated local changes and do not force-push, merge, tag or release.
+
+## P0 / G4 — Fix unverified publisher key transfer
+
+1. Currently CHATMCP-HUB/lib/windows-sandbox-driver.mjs places a 256-bit HMAC key on the command line of the SYSTEM GuestSupervisor via wsb exec -c. The restricted child is not intended to read that key, but no conclusive negative OS test covers its visibility through command-line/process enumeration. Production in CHATMCP-HUB/lib/assemble.mjs correctly has hostAttested:false; **DO NOT switch it to true for green tests**.
+2. Design and **prove** a safer one-use transfer from the host to the trusted supervisor that does not expose the key in supervisor argv, readable guest-mapped input, environment, logs or child-inherited handles. A named pipe / guest-local protected channel is a candidate **only if verified to work across Windows Sandbox's host/guest VM boundary and with the exact wsb CLI**. Do not invent an assumed cross-VM named pipe. If impossible, document BLOCKED with a minimal transport prerequisite instead of changing the isolation policy.
+3. From the actual restricted child, attempt to query the supervisor's command line/process metadata with relevant Win32 APIs, including OpenProcess / QueryFullProcessImageName / Process command-line queries as supported. Record access granted/denied and the actual SID, integrity, groups and privileges. **Never print, hash or upload the key or any real API secret.**
+4. Test a **real guest-origin** receipt forgery. The restricted child, not the host, attempts to replace receipt.json, receipt.sha256 and receipt.sig and recompute SHA-256 for fake completed/exitCode:0. After the guest exits, the host verifier must read the files **without changing them itself**. Record child's actual exit/error, resulting host HMAC result, replay/stale mismatch, and key-visibility outcome.
+5. Previous real-guest.mjs section D was mislabelled: it tried a guest write but then manually overwrote receipt.json and receipt.sha256 on the HOST. That is a useful host-tamper regression, not an authentic OS proof of inaccessible HMAC key. The GitHub reviewer corrected this label. Preserve the original check; add a separate genuine in-guest adversarial test.
+6. The PR #13 receipt reader now uses descriptor-bound, byte-limited reads. On actual Windows, test concurrent export rewriting, oversized files, symlink/reparse/junction substitution and hard-link cases. Node's POSIX O_NOFOLLOW is not a native Windows no-reparse guarantee. Fail closed on unproven security.
+
+## P0 / G2–G3 — Prove the full coding stack in a real guest
+
+The previous report's D3 statement says full integration was verified. Yet production hostAttested:false means real worker execution through the registered backend remains UNAVAILABLE; verify-phase1-coding-e2e.mjs explicitly uses FakeIsolatedBackend. Meanwhile real-guest.mjs calls wsb/GuestSupervisor directly. Those are **two separate partial tests**, not genuine production-path E2E.
+
+Implement a **test-scoped, owner-invoked diagnostic harness** that exercises WorkerTestBroker -> ExecutionSnapshotStore -> ExecutionRegistry -> WindowsSandboxBackend -> LazyWindowsSandboxDriver -> real wsb guest -> trusted authenticated publisher, with a disposable Node project and scripted model. It must not expose a model/API flag for switching on hostAttested, or enable untrusted production execution. Only if the key-transfer boundary is genuinely proven should the product-level security gate later be enabled through a separately reviewed controlled mechanism.
+
+Required real E2E: initially failing Node test -> agent repairs implementation **without changing original assertions** -> new immutable code snapshot -> authenticated test PASS with parsed nonzero TAP assertions -> manual review remains separate. Verify no host command fallback. Include Stop/cancel, lost instance ID, stale active.lock, guest exec failure, parent policy downgrade/grant revocation between probe and dispatch, crash/restart and owned-instance cleanup. Never stop a guest without a proven owned UUID.
+
+## P1 / G6 — Separate build/smoke from real installation
+
+A successful Build-Installer.ps1, Test-InstallerPayload.ps1 and WebView2 smoke is **NOT** evidence of clean-machine install, upgrade and uninstall. Use an explicitly disposable Windows VM / test environment and capture actual installer install -> first launch -> upgrade with preserved user settings -> uninstall preserving unrelated data, or mark this gate NOT VERIFIED. Verify installed layouts:
+- CHATMCP-HUB/runtimes/windows-sandbox/GuestSupervisor.exe plus SHA-256 manifest.
+- runtimes/node/node.exe plus SHA-256 manifest (sibling to CHATMCP-HUB).
+
+Confirm the desktop starts without Windows Sandbox and reports blocked execution honestly (no forced Windows feature installation/reboot). Full Access must still require explicit FULL ACCESS confirmation; it is not admin elevation. ChatMCP remains a standalone WinForms/WebView2 desktop app, no external IDE. Model Base URL, API key, model and provider-side usage/billing remain under the user. **No ChatMCP model-token/spend budget** and **no paid API requests** during testing.
+
+## Evidence, branch and completion rules
+
+- Begin with git status / branch / fetch / PR #13 HEAD / AGENTS rules. Do not overwrite dirty worktrees; do not reset, clean, force-push or merge.
+- Group tests by: host preflight; synthetic/mock; functional guest; genuine negative security; integrated guest E2E; clean-machine installer; cleanup. **25 checkpoints are not 25 negative security probes.**
+- Report actual OS build, CLI, .NET/Node, signed helper and installer hashes, all real exit codes, child SID/groups/privileges/Job evidence, unauthenticated spoof attempts, network and ACL evidence, and exact final SHA. Redact secrets and temporary usernames/paths.
+- Rerun all impacted Node/React/installer/real guest checks after source changes. Check all GitHub CI jobs on that same SHA, retain Draft PR #13.
+- Return a clear G1–G6 matrix: PASS / FAIL / BLOCKED / NOT VERIFIED with evidence. Mark G4 BLOCKED unless transport secrecy and host-verifier origin are independently demonstrated.
+- **Do not merge PR #12 or #13, update main, tag or release.**
+
+### Historical original handoff
+
+The original detailed execution instructions follow for reference. This Round 2 section takes precedence if any instructions differ.
+
+---
+
 # ANTIGRAVITY_NEXT_TASK — ChatMCP Phase 1 PR #13
 
 **Issued:** 2026-10-13  

@@ -1,5 +1,8 @@
 # ChatMCP — Windows Sandbox Real Feasibility & Guest Isolation Evidence (Phase 1, PR 2)
 
+> **Independent PR #13 reviewer note (2026-10-13):** This file is a historical PR #12 **prototype** feasibility report, not Phase 1 production approval. Its real-guest section D attempts a guest write and then alters the receipt and recomputed SHA-256 on the HOST. That checks HMAC detection of host-side tampering, not whether a restricted child can read the SYSTEM supervisor's command-line HMAC key. In PR #13, hostAttested:false keeps production blocked. See [Phase 1 security status](PHASE1-STAGED-STATUS.md) and [next Windows task](agent-handoffs/ANTIGRAVITY_NEXT_TASK.md). NO MERGE / NO RELEASE.
+
+
 **Document Version:** 2.0
 **Phase:** Phase 1 — PR 2 (Windows Sandbox Transport Feasibility & Real Guest Validation)
 **Target Specification:** `docs/PHASE1-IMPLEMENTATION-PLAN.md`
