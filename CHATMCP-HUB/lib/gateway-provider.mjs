@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { readJson, writeJson } from './runtime.mjs';
-import { geminiTextEnvelope, normalizeGeminiTextReply, unsupportedGeminiFields } from './gemini-compat.mjs';
+import { geminiTextActionContract, geminiTextEnvelope, normalizeGeminiTextReply, unsupportedGeminiFields } from './gemini-compat.mjs';
 import { createProtector } from './secret-box.mjs';
 import { customPresetId, detectEnvKeys, isLoopbackUrl, originOf, presetById } from './provider-presets.mjs';
 import { anthropicEndpoint, anthropicHeaders, normalizeAnthropic } from './anthropic-api.mjs';
@@ -560,10 +560,11 @@ export class GatewayProvider {
               const cause = error.finishReason === 'MAX_TOKENS' ? 'MAX_TOKENS'
                 : error.finishReason === 'MALFORMED_FUNCTION_CALL' ? 'MALFORMED_FUNCTION_CALL' : 'invalid JSON';
               repairHint = cause === 'MALFORMED_FUNCTION_CALL'
-                ? `PLAIN TEXT RECOVERY ${textRepairCount}/${MAX_TEXT_REPAIRS}: The previous candidate had finishReason=MALFORMED_FUNCTION_CALL (INVALID NATIVE FUNCTION CALL). It was NOT executed. This request has ZERO native Gemini tools. Do not invoke functions, tool APIs, Python, or default_api. Instead WRITE LITERAL CHARACTERS of ONE short JSON text object, with chatmcp_action="tool" and a listed router name if more work is needed, or chatmcp_action="final" only if verified complete. Fully escape all strings. No Markdown or explanation outside the JSON.`
+                ? `PLAIN TEXT RECOVERY ${textRepairCount}/${MAX_TEXT_REPAIRS}: The previous candidate had finishReason=MALFORMED_FUNCTION_CALL (INVALID NATIVE FUNCTION CALL). It was NOT executed. This request has ZERO native Gemini tools. Do not invoke functions, tool APIs, Python, or default_api. Instead WRITE LITERAL CHARACTERS of ONE short JSON text object. Fully escape all strings. No Markdown or explanation outside the JSON.`
                 : error.formatIssue === 'action_shape' || error.formatIssue === 'tool_arguments_missing' || error.formatIssue === 'final_text_missing'
-                  ? `SCHEMA RECOVERY ${textRepairCount}/${MAX_TEXT_REPAIRS}: Your previous response was valid JSON but did NOT match the ChatMCP action contract (${error.formatIssue}; keys: ${(error.observedKeys || []).join(', ') || 'unknown'}). That response was NOT executed. Output exactly ONE JSON object. For an additional MCP step: {"chatmcp_action":"tool","name":"mcp_catalog","arguments":{"filter":null,"offset":0,"limit":30}}. For a VERIFIED final answer: {"chatmcp_action":"final","text":"Short factual final answer"}. IMPORTANT: The most recent MCP tool result in the transcript has ALREADY BEEN EXECUTED; use it and do not rerun that tool merely to correct JSON formatting. No markdown, type/status/result substitutes, native functions or commentary.`
-                  : `FORMAT RECOVERY ${textRepairCount}/${MAX_TEXT_REPAIRS}: Your previous answer ended with ${cause} and was NOT executed. Regenerate a fresh, COMPLETE, VERY SHORT JSON action from the beginning. Use exactly one chatmcp_action=tool or final JSON object, no reasoning, Markdown or explanations. Prefer a tool request when work is unfinished. If final, keep text under 600 characters. Close every JSON string and brace.`;
+                  ? `SCHEMA RECOVERY ${textRepairCount}/${MAX_TEXT_REPAIRS}: Your previous response was valid JSON but did NOT match the ChatMCP action contract (${error.formatIssue}; keys: ${(error.observedKeys || []).join(', ') || 'unknown'}). That response was NOT executed. Output exactly ONE JSON object. IMPORTANT: The most recent MCP tool result in the transcript has ALREADY BEEN EXECUTED; use it and do not rerun that tool merely to correct JSON formatting. No markdown, type/status/result substitutes, native functions or commentary outside the JSON.`
+                  : `FORMAT RECOVERY ${textRepairCount}/${MAX_TEXT_REPAIRS}: Your previous answer ended with ${cause} and was NOT executed. Regenerate a fresh, COMPLETE, VERY SHORT JSON action from the beginning, no reasoning, Markdown or explanations outside the JSON. If final, keep text under 600 characters. Close every JSON string and brace.`;
+              repairHint += `\n${geminiTextActionContract(tools)}`;
               await onStatus(`Gemini text-only: ${error.formatIssue === 'action_shape' ? 'JSON thiếu chatmcp_action' : cause}; thử sửa định dạng (${textRepairCount}/${MAX_TEXT_REPAIRS}). Không gọi lại MCP; mỗi request thử lại có thể phát sinh phí.`, 'model_repair');
               continue;
             }

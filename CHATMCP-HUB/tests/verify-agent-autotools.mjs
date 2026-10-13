@@ -31,4 +31,40 @@ try{
   assert.ok(runner.get(started.id).events.some(x=>x.type==='project_detected'));
   await runner.shutdown();
   console.log('PASS Agent preflight auto-discovers project check tools without manual selection or executing shell commands');
+
+  // Router lookup must prefer an exact registered name over a local alias,
+  // and must never invent aliases for remote-only tools with matching basenames.
+  const invoked=[];
+  const collisionManager={...manager,locked:false,studio:undefined,
+    async createAgentSession(){return {catalog:{tools:[
+      {name:'local.read_file',server:'local',originalName:'read_file',inputSchema:{type:'object'}},
+      {name:'read_file',server:'fixture',originalName:'canonical_reader',inputSchema:{type:'object'}},
+      {name:'remote.remote_only',server:'remote',originalName:'remote_only',inputSchema:{type:'object'}},
+    ],prompts:[],resources:[],resourceTemplates:[],servers:{}},async close(){},
+    async callTool(name,args){invoked.push(name);assert.deepEqual(args,{});return {content:[{type:'text',text:name}]};}};},
+  };
+  let turn=0;
+  const collisionProvider={ready:()=>true,snapshot:()=>({provider:'fixture',model:'fixture'}),async respond({input}){
+    const last=input.filter(item=>item.type==='function_call_output').at(-1);
+    const result=last?JSON.parse(last.output):null;
+    const call=(name,args)=>({status:'completed',output:[{type:'function_call',call_id:`alias-${turn}`,name,arguments:JSON.stringify(args),status:'completed'}]});
+    turn++;
+    if(turn===1)return call('mcp_describe',{name:'read_file'});
+    if(turn===2){assert.equal(result.tool.server,'fixture','exact definition wins over local.read_file alias');return call('mcp_call',{name:'read_file',arguments_json:'{}'});}
+    if(turn===3){assert.equal(result.content[0].text,'read_file','exact canonical tool executes');return call('mcp_call',{name:'remote_only',arguments_json:'{}'});}
+    assert.deepEqual([result.error?.code,result.executed],['unknown_tool',false],'remote basename is not an approved local alias');
+    if(turn===4)return call('mcp_describe',{name:'remote_only'});
+    return {status:'completed',output:[{type:'message',role:'assistant',phase:'final',content:[{type:'output_text',text:'Exact names preserved.'}]}]};
+  }};
+  const collisionRunner=new AgentRunner({manager:collisionManager,provider:collisionProvider,taskDirectory:path.join(root,'collision-tasks')});
+  try {
+    await collisionRunner.load();
+    const {id}=await collisionRunner.start({prompt:'Check registered tool identities.'});
+    for(let i=0;i<100&&collisionRunner.get(id)?.status==='running';i++)await new Promise(r=>setTimeout(r,20));
+    const task=collisionRunner.get(id);
+    assert.equal(task.status,'completed',task.error);
+    assert.deepEqual(invoked,['read_file'],'neither a colliding local alias nor remote basename can execute');
+    assert.equal(task.toolCalls,1);
+  } finally {await collisionRunner.shutdown();}
+  console.log('PASS exact catalog names win local alias collisions; remote-only basenames remain unavailable to MCP routers');
 } finally {await fs.rm(root,{recursive:true,force:true});}

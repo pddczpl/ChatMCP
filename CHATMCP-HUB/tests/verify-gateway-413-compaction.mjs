@@ -49,6 +49,9 @@ try{
   const toolDocs=Array.from({length:7},(_,i)=>fakeDoc(`DOCUMENT ${i}: ${i===6?'RUBRIC FINAL': 'GUIDE'}`,65000));
   let successfulModels=0, toolCalls=0, http413Count=0;
   const outboundSizes=[];
+  // Match the provider's documented smallest request budget, not an
+  // incidental serialized size of a particular instruction wording.
+  const gatewayCap=32*1024;
   const mockResponse = (status,body) => ({status,ok:status>=200 && status<300,
     async text(){return JSON.stringify(body);}});
   const answer=action=>({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(action)}]}}],usageMetadata:{promptTokenCount:100,candidatesTokenCount:40}});
@@ -75,10 +78,10 @@ try{
     const wire=Buffer.byteLength(opts.body,'utf8'); outboundSizes.push(wire);
     if(wire>128*1024) throw Error('BUG: oversized request was transmitted');
     // Force 413 after multiple tool results, to verify the *model-only* retry.
-    if(successfulModels===7 && wire>31000){
+    if(successfulModels===7 && wire>gatewayCap){
       http413Count++;
       // First rejection is a plain-text proxy error, the second is JSON.
-      return http413Count===1 ? {status:413,ok:false,async text(){return 'Request body exceeds 128 KiB';}}
+      return http413Count===1 ? {status:413,ok:false,async text(){return 'Request body exceeds 32 KiB';}}
         : mockResponse(413,{error:{message:'Request body exceeds gateway cap'}});
     }
     const prompt=body.contents[0].parts[0].text;
@@ -100,8 +103,11 @@ try{
   assert.equal(toolCalls,7,'seven actual MCP reads (no tool replay during 413 fallback)');
   assert.equal(task.toolCalls,7);
   assert.equal(successfulModels,8);
-  assert.ok(http413Count>=1,'gateway must reject at least one oversized model request');
-  assert.ok(outboundSizes.at(-1)<31000,'after 413 the next model-only request must shrink');
+  assert.equal(http413Count,2,'both plain-text and JSON HTTP 413 responses must trigger compaction');
+  const recoverySizes=outboundSizes.slice(-3);
+  assert.ok(recoverySizes[0]>recoverySizes[1] && recoverySizes[1]>recoverySizes[2],
+    `each model-only 413 retry must shrink the request: ${recoverySizes}`);
+  assert.ok(outboundSizes.at(-1)<=gatewayCap,'the final model-only retry must fit the 32 KiB gateway cap');
   assert.ok(!JSON.stringify(task).includes(apiKey));
   assert.ok(task.events.some(e=>/HTTP 413/.test(e.message)),'timeline reports compaction');
   // Full evidence persists locally, regardless of the compacted model input.

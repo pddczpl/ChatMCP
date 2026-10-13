@@ -106,6 +106,16 @@ export function directToolsFor(catalog) {
   return { functions, byName };
 }
 
+// Models sometimes wrap an advertised direct local name in mcp_call. Resolve
+// only that explicit alias map; never guess a server or match remote basenames.
+// An exact catalog name always wins if it happens to collide with an alias.
+function catalogToolName(context, name) {
+  if (typeof name !== 'string') return null;
+  if (context.index.has(name)) return name;
+  const qualified = context.direct?.byName.get(name);
+  return qualified && context.index.has(qualified) ? qualified : null;
+}
+
 export function createLocalAgentInstructions(catalog, workspace, environment = null) {
   const direct = catalog.tools.filter((tool) => tool.server === DIRECT_SERVER).map((tool) => tool.originalName);
   const others = catalog.tools.filter((tool) => tool.server !== DIRECT_SERVER).map((tool) => tool.name).sort();
@@ -164,6 +174,7 @@ Use real tool results as evidence. Never claim a file changed, a test passed or 
 TOOLS
 You call these directly (categorized by role):
 ${categorizedLines.join('\n')}
+For direct calls use the listed short name (for example read_file). For mcp_describe or mcp_call, prefer the exact qualified name returned by mcp_catalog (for example local.read_file); do not invent server prefixes.
 ${others.length ? `\nMore tools are reachable through mcp_catalog, mcp_describe and mcp_call (exact names below):\n${others.map((name) => `- ${name}`).join('\n')}\n` : ''}`;
 }
 
@@ -836,13 +847,15 @@ export class AgentRunner {
         return { ...result, tools: result.items, items: undefined };
       }
       if (call.name === 'mcp_describe') {
-        if (typeof args.name !== 'string' || !context.index.has(args.name)) throw fault('unknown_tool', 'Tên công cụ không có trong danh mục thực tế. Dùng mcp_catalog để lấy tên chính xác.');
-        return { tool: context.index.get(args.name) };
+        const name = catalogToolName(context, args.name);
+        if (!name) throw fault('unknown_tool', 'Tên công cụ không có trong danh mục thực tế. Dùng mcp_catalog để lấy tên chính xác.');
+        return { tool: context.index.get(name) };
       }
       if (call.name === 'mcp_call') {
-        if (typeof args.name !== 'string' || !context.index.has(args.name)) throw fault('unknown_tool', 'Tên công cụ không có trong danh mục thực tế. Chưa gọi MCP; dùng mcp_catalog.');
+        const name = catalogToolName(context, args.name);
+        if (!name) throw fault('unknown_tool', 'Tên công cụ không có trong danh mục thực tế. Chưa gọi MCP; dùng mcp_catalog.');
         const input = parseObject(args.arguments_json);
-        return await this.#upstream(context, call, args.name, input, (options) => context.session.callTool(args.name, input, options));
+        return await this.#upstream(context, call, name, input, (options) => context.session.callTool(name, input, options));
       }
       return await this.#capabilities(context, call, args);
     } catch (error) {

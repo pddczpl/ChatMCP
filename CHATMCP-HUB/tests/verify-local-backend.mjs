@@ -235,6 +235,66 @@ try {
     equal(manager.taskId, null, 'the workspace lock was released');
   });
 
+  // ---------------------------------------------------------------- local aliases through the MCP router
+  await section('MCP routers resolve advertised local names without bypassing schema or permissions', async () => {
+    const dir = await project('router-aliases');
+    await manager.selectWorkspace(dir);
+    manager.permissions.configure({ mode: 'readonly' });
+    const routed = (name, args = {}) => tool('mcp_call', { name, arguments_json: JSON.stringify(args) });
+    const model = scripted([
+      () => [tool('mcp_describe', { name: 'read_file' })],
+      ({ last }) => {
+        equal(last.tool?.name, 'local.read_file', 'describe resolves only the advertised local alias to its real definition');
+        check(last.tool.inputSchema.required.includes('path'), 'the actual required argument schema is returned');
+        return [routed('read_file', { path: 'calc.js' })];
+      },
+      ({ last }) => {
+        check(last.isError === false && textOf(last).includes('a - b'), 'the existing read_file works when wrapped in mcp_call');
+        return [routed('find_files', { pattern: 'calc.js' })];
+      },
+      ({ last }) => {
+        check(last.isError === false && textOf(last).includes('calc.js'), 'find_files alias resolves to the real local tool');
+        return [routed('read_file', { path: 42 })];
+      },
+      ({ last }) => {
+        equal(last.structuredContent?.error?.code, 'invalid_arguments', 'alias arguments still pass the real tool schema');
+        equal(last.structuredContent?.executed, false, 'invalid arguments never execute');
+        return [routed('run_command', { command: 'npm test' })];
+      },
+      ({ last }) => {
+        check(last.isError && /Chế độ Chỉ đọc/.test(textOf(last)), 'run_command alias still goes through the readonly permission gate');
+        return [routed('write_file', { path: 'must-not-exist.txt', content: 'x' })];
+      },
+      ({ last }) => {
+        check(last.isError && /Chế độ Chỉ đọc/.test(textOf(last)), 'write_file alias still goes through the readonly permission gate');
+        return [routed('invented.read_file', { path: 'calc.js' })];
+      },
+      ({ last }) => {
+        equal([last.error?.code, last.executed], ['unknown_tool', false], 'an invented server prefix is never inferred from a matching basename');
+        return [routed('missing_tool', {})];
+      },
+      ({ last }) => {
+        equal([last.error?.code, last.executed], ['unknown_tool', false], 'an unknown short name is never installed or executed');
+        return [routed('local.read_file', { path: 'calc.js' })];
+      },
+      ({ last }) => {
+        check(last.isError === false && textOf(last).includes('a - b'), 'the canonical qualified name continues to work');
+        return [say('Đã đọc file; không chạy lệnh hoặc ghi file trong chế độ Chỉ đọc.')];
+      },
+    ]);
+    const agent = agentFor(manager, model, 'router-aliases');
+    const task = await finish(agent, (await agent.start({ prompt: 'Inspect local tools through the MCP router.' })).id);
+    equal(task.status, 'completed', `router alias task completed (${task.error ?? ''})`);
+    await assert.rejects(() => fs.access(path.join(dir, 'must-not-exist.txt'))); checks += 1;
+    equal(manager.permissions.state().pending.length, 0, 'readonly alias calls do not open an approval request');
+    const transcript = (await fs.readFile(path.join(agent.taskDirectory, task.id, 'transcript.jsonl'), 'utf8'))
+      .split('\n').filter(Boolean).map((line) => JSON.parse(line));
+    const fullResults = transcript.filter((entry) => entry.type === 'tool_result_full');
+    check(fullResults.some((entry) => entry.toolName === 'local.read_file'), 'the journal records the resolved canonical tool identity');
+    check(!fullResults.some((entry) => ['read_file', 'find_files', 'run_command', 'write_file'].includes(entry.toolName)), 'bare aliases never replace canonical journal identities');
+    await agent.shutdown();
+  });
+
   // ---------------------------------------------------------------- review mode
   await section('review mode asks, shows the change, and a denial reaches the model', async () => {
     const dir = await project('review');

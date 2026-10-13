@@ -1,5 +1,13 @@
 # Lịch sử thay đổi
 
+## [3.0.1] — 2026-10-14 — Gemini JSON and local tool routing fixes
+
+- Gemini text-only requests use one consistent JSON action contract for progress, built-in tools, MCP routers, historical actions and bounded repair requests.
+- Preserve tool-error, permission and unknown-outcome safeguards when adapting legacy agent instructions to text-only gateways.
+- Resolve registered local short names such as `read_file`, `run_command` and `find_files` inside `mcp_call` and `mcp_describe`, while preserving exact catalog matches, schema validation and permission checks. Unknown names remain rejected without execution.
+- Add regression coverage for Gemini direct-tool recovery and local router aliases; align the HTTP 413 fixture with the documented 32 KiB minimum request budget.
+- Synchronize Hub, UI, Desktop and Installer versions to 3.0.1. Installer assets include SHA-256 checksums and are not Authenticode-signed.
+
 ## [3.0.0] — 2026-10-14 — Autonomous Coding, Native Sandbox Verification & Multi-Agent Worktrees
 
 - **Phase 1 (Windows Sandbox Isolation & Native Black-box Verification):** Giao diện và kiến trúc thực thi kiểm thử độc lập black-box trong Windows Sandbox với `system-sealed-exit-v1`, zero-fallback privilege drop, Job Object containment, chống giả mạo HMAC-SHA256 và quy trình vòng đời cài đặt máy sạch (G6 Clean Windows).
