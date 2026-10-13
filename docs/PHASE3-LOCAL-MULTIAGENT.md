@@ -44,3 +44,11 @@ These additions are additive on the Phase 2 and Phase 1 branches. They do not ma
 - Add benchmark reports for multi-worker speed, correctness, review acceptance and safe cancellation.
 
 **Verdict:** This is a Phase 3 implementation branch, NOT a verified/released Phase 3. User must approve final release only after native OS and offline E2E evidence.
+
+## Independent review — Git path inventory and conflict robustness (2026-10-13)
+
+- Managed worktrees now request NUL-delimited raw Git diff filenames rather than newline-separated paths. Reject work that changes more than 250 files BEFORE any agent commit; silently clipping the list can hide conflicting paths.
+- Before creating an agent commit, validate every changed path: reject NUL/controls, absolute paths, traversal, repeated separators, Windows alternate data streams, reserved device names and trailing dot/space aliases; normalize Unicode NFC and case for conflict comparison.
+- Regression tests cover Unicode/case aliases, Windows device/ADS names, path ambiguity and a real Git-worktree scripted worker producing 251 files. The latter must fail with zero agent commits and must leave the user's checkout unchanged.
+
+**Remaining Phase 3 acceptance:** A stronger real-world dependency/cancellation/interleaving matrix, explicit manual conflict-resolution workflow, independent model-worker quality benchmarks, and corresponding native Windows testing remain unfinished. G4 and clean-machine install remain release prerequisites, not bypasses.
