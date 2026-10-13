@@ -107,7 +107,29 @@ export function detectCodingFileConflicts(workers) {
       files.get(pathname).push(worker.id);
     }
   }
-  return Object.freeze([...files].filter(([,ids])=>ids.length>1)
-    .map(([file,workerIds])=>Object.freeze({file,workerIds:Object.freeze(workerIds)}))
+  // Reject file-versus-directory collisions across independently edited
+  // branches, too. For example, one worker may create "src/cache" as a file
+  // while another creates "src/cache/index.js". Exact-file-only checks miss
+  // this case and would postpone a known structural conflict until Git merge.
+  // All names were normalized/case-folded above to match Windows checkout.
+  const conflicting=new Map();
+  const add=(file,ownerIds)=>{
+    const current=conflicting.get(file)??new Set();
+    for(const id of ownerIds)current.add(id);
+    if(current.size>1)conflicting.set(file,current);
+  };
+  for(const [file,ids] of files) {
+    if(ids.length>1)add(file,ids);
+    const parts=file.split('/');
+    for(let n=1;n<parts.length;n++){
+      const ancestor=parts.slice(0,n).join('/');
+      const ancestorOwners=files.get(ancestor);
+      if(ancestorOwners)add(ancestor,[...ancestorOwners,...ids]);
+    }
+  }
+  return Object.freeze([...conflicting]
+    .map(([file,ids])=>Object.freeze({
+      file,workerIds:Object.freeze([...ids]),
+    }))
     .sort((a,b)=>a.file.localeCompare(b.file)));
 }

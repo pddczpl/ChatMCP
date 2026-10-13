@@ -46,6 +46,22 @@ assert.deepEqual(detectCodingFileConflicts([
   {id:'a',changedFiles:['src/first.js']},
   {id:'b',changedFiles:['src/second.js']},
 ]),[]);
+
+assert.deepEqual(detectCodingFileConflicts([
+  {id:'a',changedFiles:['src/feature']},
+  {id:'b',changedFiles:['src/feature/index.js']},
+]),[{file:'src/feature',workerIds:['a','b']}],
+'File in one branch versus descendant directory in another is a structural merge conflict');
+assert.deepEqual(detectCodingFileConflicts([
+  {id:'a',changedFiles:['SRC/FEATURE']},
+  {id:'b',changedFiles:['src/feature/sub/deep.js']},
+]),[{file:'src/feature',workerIds:['a','b']}],
+'Windows case-insensitive ancestor collision must not reach Git integration');
+assert.deepEqual(detectCodingFileConflicts([
+  {id:'a',changedFiles:['src/feature/a.js']},
+  {id:'b',changedFiles:['src/feature/b.js']},
+]),[],'Distinct sibling files must still integrate independently');
+
 assert.throws(()=>detectCodingFileConflicts([
   {id:'a',changedFiles:['../config']},
 ]),{code:'invalid_worker_file'});
