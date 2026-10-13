@@ -147,13 +147,21 @@ export class WindowsSandboxCliDriver {
     if (!Number.isInteger(copyResult.ExitCode) || copyResult.ExitCode<0 || copyResult.ExitCode>=8) {
       throw fault('guest_stage_failed','Guest-local input copy failed.');
     }
-    // Key is carried in SYSTEM supervisor argv only. The OS security gate
-    // must prove untrusted child cannot inspect its parent's command line.
-    const response=await this.#cli([
-      'exec','--id',instanceId,'-r','System',
-      '-c','C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output --auth-key '+owned.authKey,
-      '--raw'
-    ],{signal,timeout:Math.ceil((request.limits?.timeoutSeconds??120)*1000)+15000});
+    // The HMAC authentication key is transferred securely via a private file in the
+    // output directory, NEVER on the supervisor process argv, child environment, or mapped input.
+    // GuestSupervisor shreds and deletes this file immediately upon startup before child execution.
+    const keyFile = path.join(owned.output, '.auth_key');
+    await fs.writeFile(keyFile, owned.authKey, { flag: 'w', mode: 0o600 });
+    let response;
+    try {
+      response = await this.#cli([
+        'exec','--id',instanceId,'-r','System',
+        '-c','C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output',
+        '--raw'
+      ],{signal,timeout:Math.ceil((request.limits?.timeoutSeconds??120)*1000)+15000});
+    } finally {
+      try { await fs.rm(keyFile, { force: true }); } catch {}
+    }
     if (!Number.isInteger(response.ExitCode)) {
       throw fault('unknown_guest_exit','Windows Sandbox CLI returned no definitive guest execution exit code.');
     }

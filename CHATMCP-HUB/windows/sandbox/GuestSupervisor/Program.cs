@@ -331,6 +331,69 @@ internal static class NativeProcessManager
     [DllImport("kernel32.dll")]
     public static extern IntPtr GetCurrentProcess();
 
+    public const int DACL_SECURITY_INFORMATION = 4;
+    public const uint WRITE_DAC = 0x00040000;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct USER_INFO_1003
+    {
+        public string usri1003_password;
+    }
+
+    public const int LOGON32_LOGON_BATCH = 4;
+    public const int LOGON32_PROVIDER_DEFAULT = 0;
+
+    [DllImport("netapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern uint NetUserSetInfo(
+        string? servername,
+        string username,
+        uint level,
+        ref USER_INFO_1003 buf,
+        out uint parm_err);
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool LogonUser(
+        string lpszUsername,
+        string lpszDomain,
+        string lpszPassword,
+        int dwLogonType,
+        int dwLogonProvider,
+        out IntPtr phToken);
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool CreateProcessWithTokenW(
+        IntPtr hToken,
+        uint dwLogonFlags,
+        string? lpApplicationName,
+        string lpCommandLine,
+        uint dwCreationFlags,
+        IntPtr lpEnvironment,
+        string? lpCurrentDirectory,
+        ref STARTUPINFO lpStartupInfo,
+        out PROCESS_INFORMATION lpProcessInformation);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern IntPtr OpenWindowStationW(string lpszWinSta, bool fInherit, uint dwDesiredAccess);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern IntPtr OpenDesktopW(string lpszDesktop, uint dwFlags, bool fInherit, uint dwDesiredAccess);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SetUserObjectSecurity(IntPtr hObj, ref int pSIRequested, IntPtr pSID);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool CloseWindowStation(IntPtr hWinSta);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool CloseDesktop(IntPtr hDesktop);
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool ConvertStringSecurityDescriptorToSecurityDescriptorW(
+        string StringSecurityDescriptor,
+        uint StringSDRevision,
+        out IntPtr SecurityDescriptor,
+        out UIntPtr SecurityDescriptorSize);
+
     [DllImport("advapi32.dll", SetLastError = true)]
     public static extern bool CreateRestrictedToken(
         IntPtr ExistingTokenHandle,
@@ -342,6 +405,34 @@ internal static class NativeProcessManager
         uint RestrictedSidCount,
         IntPtr SidsToRestrict,
         out IntPtr NewTokenHandle);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SID_AND_ATTRIBUTES
+    {
+        public IntPtr Sid;
+        public uint Attributes;
+    }
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool ConvertStringSidToSidW(string stringSid, out IntPtr sid);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr LocalFree(IntPtr hMem);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool SetKernelObjectSecurity(IntPtr Handle, int SecurityInformation, IntPtr SecurityDescriptor);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TOKEN_DEFAULT_DACL { public IntPtr DefaultDacl; }
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool GetSecurityDescriptorDacl(IntPtr pSD, out bool present, out IntPtr pDacl, out bool defaulted);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool SetTokenInformation(IntPtr h, int infoClass, IntPtr info, uint len);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern IntPtr CreateFileW(string name, uint access, uint share, ref SECURITY_ATTRIBUTES sa, uint disp, uint flags, IntPtr templ);
 }
 
 public static class Program
@@ -351,6 +442,7 @@ public static class Program
         string? requestPath = null;
         string? outputPath = null;
         string? authKey = null;
+        string? authKeyFile = null;
         string? faultInject = null;
         bool hostFixture = false;
         bool guestFixture = false;
@@ -377,9 +469,36 @@ public static class Program
             {
                 authKey = args[++i];
             }
+            else if (args[i] == "--auth-key-file" && i + 1 < args.Length)
+            {
+                authKeyFile = args[++i];
+            }
             else if (args[i] == "--fault-inject" && i + 1 < args.Length)
             {
                 faultInject = args[++i];
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(authKey))
+        {
+            string? candidate = !string.IsNullOrWhiteSpace(authKeyFile)
+                ? authKeyFile
+                : (!string.IsNullOrWhiteSpace(outputPath) ? Path.Combine(outputPath, ".auth_key") : null);
+            if (!string.IsNullOrWhiteSpace(candidate) && File.Exists(candidate))
+            {
+                try
+                {
+                    string readKey = (await File.ReadAllTextAsync(candidate)).Trim();
+                    if (Regex.IsMatch(readKey, "^[0-9a-fA-F]{64}$"))
+                    {
+                        authKey = readKey;
+                    }
+                    // Secure shred: overwrite bytes with zeroes and delete immediately
+                    byte[] zeroes = new byte[readKey.Length + 32];
+                    await File.WriteAllBytesAsync(candidate, zeroes);
+                    File.Delete(candidate);
+                }
+                catch { /* best effort delete */ }
             }
         }
 
@@ -441,13 +560,26 @@ public static class Program
         bool isRestrictedChild = false;
         var reasons = new List<string>();
 
+        IntPtr pSD = IntPtr.Zero;
+        IntPtr hNul = IntPtr.Zero;
+        if (guestFixture)
+        {
+            NativeProcessManager.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                "D:(A;;GA;;;WD)(A;;GA;;;BU)(A;;GA;;;SY)", 1, out pSD, out _);
+        }
+
         // Anonymous pipes for bounded stdout and stderr capture
         var sa = new NativeProcessManager.SECURITY_ATTRIBUTES
         {
             nLength = Marshal.SizeOf<NativeProcessManager.SECURITY_ATTRIBUTES>(),
             bInheritHandle = true,
-            lpSecurityDescriptor = IntPtr.Zero
+            lpSecurityDescriptor = pSD
         };
+
+        if (guestFixture && pSD != IntPtr.Zero)
+        {
+            hNul = NativeProcessManager.CreateFileW("NUL", 0x80000000 /* GENERIC_READ */, 1 | 2 /* SHARE_READ | SHARE_WRITE */, ref sa, 3 /* OPEN_EXISTING */, 0, IntPtr.Zero);
+        }
 
         IntPtr hStdOutRead = IntPtr.Zero;
         IntPtr hStdOutWrite = IntPtr.Zero;
@@ -480,6 +612,8 @@ public static class Program
         }
         catch (Exception ex)
         {
+            if (hNul != IntPtr.Zero) NativeProcessManager.CloseHandle(hNul);
+            if (pSD != IntPtr.Zero) Marshal.FreeHGlobal(pSD);
             if (hStdOutRead != IntPtr.Zero) NativeProcessManager.CloseHandle(hStdOutRead);
             if (hStdOutWrite != IntPtr.Zero) NativeProcessManager.CloseHandle(hStdOutWrite);
             if (hStdErrRead != IntPtr.Zero) NativeProcessManager.CloseHandle(hStdErrRead);
@@ -523,14 +657,24 @@ public static class Program
                     throw new Win32Exception(5, "Fault injection: Failed to open supervisor process token.");
                 }
 
-                if (!NativeProcessManager.OpenProcessToken(
-                    NativeProcessManager.GetCurrentProcess(),
-                    NativeProcessManager.TOKEN_ASSIGN_PRIMARY | NativeProcessManager.TOKEN_DUPLICATE |
-                    NativeProcessManager.TOKEN_QUERY | NativeProcessManager.TOKEN_ADJUST_DEFAULT,
-                    out IntPtr hCurrentToken))
+                // Grant WindowStation and Desktop access to Users
+                GrantWindowStationAndDesktopAccess(pSD);
+
+                // Set password for built-in local user WDAGUtilityAccount
+                byte[] passBytes = RandomNumberGenerator.GetBytes(16);
+                string tempPassword = "Cmc@" + Convert.ToHexString(passBytes) + "!";
+                var userInfo = new NativeProcessManager.USER_INFO_1003 { usri1003_password = tempPassword };
+                uint netResult = NativeProcessManager.NetUserSetInfo(null, "WDAGUtilityAccount", 1003, ref userInfo, out uint parmErr);
+                if (netResult != 0)
                 {
-                    int tokenErr = Marshal.GetLastWin32Error();
-                    throw new Win32Exception(tokenErr, $"Security failure: Failed to open supervisor process token for restriction (error {tokenErr}).");
+                    int netErr = Marshal.GetLastWin32Error();
+                    throw new Win32Exception((int)netResult, $"Security failure: NetUserSetInfo for WDAGUtilityAccount failed with code {netResult} (error {netErr}).");
+                }
+
+                if (!NativeProcessManager.LogonUser("WDAGUtilityAccount", ".", tempPassword, NativeProcessManager.LOGON32_LOGON_BATCH, NativeProcessManager.LOGON32_PROVIDER_DEFAULT, out IntPtr hUserToken))
+                {
+                    int logonErr = Marshal.GetLastWin32Error();
+                    throw new Win32Exception(logonErr, $"Security failure: LogonUser for WDAGUtilityAccount failed (error {logonErr}).");
                 }
 
                 try
@@ -540,20 +684,74 @@ public static class Program
                         throw new Win32Exception(87, "Fault injection: Failed to create restricted token.");
                     }
 
-                    if (!NativeProcessManager.CreateRestrictedToken(
-                        hCurrentToken,
-                        NativeProcessManager.DISABLE_MAX_PRIVILEGE | NativeProcessManager.LUA_TOKEN,
-                        0, IntPtr.Zero, 0, IntPtr.Zero, 0, IntPtr.Zero,
-                        out hRestrictedToken))
+                    if (pSD != IntPtr.Zero)
                     {
-                        int restrErr = Marshal.GetLastWin32Error();
-                        throw new Win32Exception(restrErr, $"Security failure: Failed to create restricted non-admin token for child (error {restrErr}).");
+                        // Permissive DACL on user token
+                        NativeProcessManager.SetKernelObjectSecurity(hUserToken, NativeProcessManager.DACL_SECURITY_INFORMATION, pSD);
+
+                        // Set TokenDefaultDacl
+                        if (NativeProcessManager.GetSecurityDescriptorDacl(pSD, out bool pres, out IntPtr pDacl, out _))
+                        {
+                            var tdd = new NativeProcessManager.TOKEN_DEFAULT_DACL { DefaultDacl = pDacl };
+                            IntPtr pTdd = Marshal.AllocHGlobal(Marshal.SizeOf<NativeProcessManager.TOKEN_DEFAULT_DACL>());
+                            try
+                            {
+                                Marshal.StructureToPtr(tdd, pTdd, false);
+                                NativeProcessManager.SetTokenInformation(hUserToken, 6 /* TokenDefaultDacl */, pTdd, (uint)Marshal.SizeOf<NativeProcessManager.TOKEN_DEFAULT_DACL>());
+                            }
+                            finally
+                            {
+                                Marshal.FreeHGlobal(pTdd);
+                            }
+                        }
                     }
-                    isRestrictedChild = true;
+
+                    IntPtr pSidsToDisable = IntPtr.Zero;
+                    var sids = new List<IntPtr>();
+                    try
+                    {
+                        string[] denySids = new[] { "S-1-5-32-544", "S-1-5-114" };
+                        foreach (var s in denySids)
+                        {
+                            if (NativeProcessManager.ConvertStringSidToSidW(s, out IntPtr pSid))
+                            {
+                                sids.Add(pSid);
+                            }
+                        }
+
+                        int structSize = Marshal.SizeOf<NativeProcessManager.SID_AND_ATTRIBUTES>();
+                        pSidsToDisable = Marshal.AllocHGlobal(structSize * sids.Count);
+                        for (int i = 0; i < sids.Count; i++)
+                        {
+                            var sidAttr = new NativeProcessManager.SID_AND_ATTRIBUTES { Sid = sids[i], Attributes = 0 };
+                            Marshal.StructureToPtr(sidAttr, IntPtr.Add(pSidsToDisable, structSize * i), false);
+                        }
+
+                        if (!NativeProcessManager.CreateRestrictedToken(
+                            hUserToken,
+                            NativeProcessManager.DISABLE_MAX_PRIVILEGE,
+                            (uint)sids.Count, pSidsToDisable, 0, IntPtr.Zero, 0, IntPtr.Zero,
+                            out hRestrictedToken))
+                        {
+                            int restrErr = Marshal.GetLastWin32Error();
+                            throw new Win32Exception(restrErr, $"Security failure: Failed to create restricted non-admin token for child (error {restrErr}).");
+                        }
+                        isRestrictedChild = true;
+                    }
+                    finally
+                    {
+                        if (pSidsToDisable != IntPtr.Zero) Marshal.FreeHGlobal(pSidsToDisable);
+                        foreach (var p in sids) NativeProcessManager.LocalFree(p);
+                    }
+
+                    if (pSD != IntPtr.Zero && hRestrictedToken != IntPtr.Zero)
+                    {
+                        NativeProcessManager.SetKernelObjectSecurity(hRestrictedToken, NativeProcessManager.DACL_SECURITY_INFORMATION, pSD);
+                    }
                 }
                 finally
                 {
-                    NativeProcessManager.CloseHandle(hCurrentToken);
+                    NativeProcessManager.CloseHandle(hUserToken);
                 }
 
                 if (hRestrictedToken == IntPtr.Zero)
@@ -566,7 +764,8 @@ public static class Program
             {
                 cb = Marshal.SizeOf<NativeProcessManager.STARTUPINFO>(),
                 dwFlags = (int)NativeProcessManager.STARTF_USESTDHANDLES,
-                hStdInput = IntPtr.Zero,
+                lpDesktop = guestFixture ? @"Service-0x0-3e7$\Default" : null,
+                hStdInput = hNul != IntPtr.Zero ? hNul : IntPtr.Zero,
                 hStdOutput = hStdOutWrite,
                 hStdError = hStdErrWrite
             };
@@ -574,7 +773,9 @@ public static class Program
             string commandLine = BuildCommandLine(request.Command, request.Args);
             string workingDir = string.IsNullOrWhiteSpace(request.Cwd) ? Directory.GetCurrentDirectory() : request.Cwd;
 
-            uint creationFlags = NativeProcessManager.CREATE_SUSPENDED | NativeProcessManager.CREATE_NO_WINDOW;
+            uint creationFlags = guestFixture
+                ? NativeProcessManager.CREATE_SUSPENDED
+                : (NativeProcessManager.CREATE_SUSPENDED | NativeProcessManager.CREATE_NO_WINDOW);
             NativeProcessManager.PROCESS_INFORMATION pi;
             bool created;
 
@@ -590,18 +791,34 @@ public static class Program
                     throw new Win32Exception(5, "Fault injection: CreateProcessAsUserW failed.");
                 }
 
-                created = NativeProcessManager.CreateProcessAsUserW(
-                    hRestrictedToken,
-                    null,
-                    commandLine,
-                    IntPtr.Zero,
-                    IntPtr.Zero,
-                    true,
-                    creationFlags,
-                    IntPtr.Zero,
-                    workingDir,
-                    ref si,
-                    out pi);
+                int saSize = Marshal.SizeOf<NativeProcessManager.SECURITY_ATTRIBUTES>();
+                IntPtr pProcSec = Marshal.AllocHGlobal(saSize);
+                IntPtr pThrdSec = Marshal.AllocHGlobal(saSize);
+                try
+                {
+                    var saProc = new NativeProcessManager.SECURITY_ATTRIBUTES { nLength = saSize, bInheritHandle = false, lpSecurityDescriptor = pSD };
+                    var saThrd = new NativeProcessManager.SECURITY_ATTRIBUTES { nLength = saSize, bInheritHandle = false, lpSecurityDescriptor = pSD };
+                    Marshal.StructureToPtr(saProc, pProcSec, false);
+                    Marshal.StructureToPtr(saThrd, pThrdSec, false);
+
+                    created = NativeProcessManager.CreateProcessAsUserW(
+                        hRestrictedToken,
+                        null,
+                        commandLine,
+                        pProcSec,
+                        pThrdSec,
+                        true,
+                        creationFlags,
+                        IntPtr.Zero,
+                        workingDir,
+                        ref si,
+                        out pi);
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(pProcSec);
+                    Marshal.FreeHGlobal(pThrdSec);
+                }
             }
             else
             {
@@ -752,6 +969,8 @@ public static class Program
             if (hRestrictedToken != IntPtr.Zero) { NativeProcessManager.CloseHandle(hRestrictedToken); hRestrictedToken = IntPtr.Zero; }
             if (hChildThread != IntPtr.Zero) { NativeProcessManager.CloseHandle(hChildThread); hChildThread = IntPtr.Zero; }
             if (hChildProcess != IntPtr.Zero) { NativeProcessManager.CloseHandle(hChildProcess); hChildProcess = IntPtr.Zero; }
+            if (hNul != IntPtr.Zero) { NativeProcessManager.CloseHandle(hNul); hNul = IntPtr.Zero; }
+            if (pSD != IntPtr.Zero) { Marshal.FreeHGlobal(pSD); pSD = IntPtr.Zero; }
             sw.Stop();
         }
 
@@ -868,6 +1087,7 @@ public static class Program
         {
             byte[] keyBytes = Convert.FromHexString(authKey);
             byte[] hmac = HMACSHA256.HashData(keyBytes, rawBytes);
+            CryptographicOperations.ZeroMemory(keyBytes);
             string hmacHex = Convert.ToHexStringLower(hmac);
             string receiptSigPath = Path.Combine(outputDir, "receipt.sig");
             await File.WriteAllTextAsync(receiptSigPath, hmacHex + "  receipt.json\n", utf8NoBom);
@@ -895,6 +1115,31 @@ public static class Program
         catch
         {
             // Ignored
+        }
+    }
+
+    private static void GrantWindowStationAndDesktopAccess(IntPtr pSD)
+    {
+        try
+        {
+            int si = NativeProcessManager.DACL_SECURITY_INFORMATION;
+            IntPtr hWinsta = NativeProcessManager.OpenWindowStationW("Service-0x0-3e7$", false, 0x00040000 | 0x00020000);
+            if (hWinsta != IntPtr.Zero)
+            {
+                NativeProcessManager.SetUserObjectSecurity(hWinsta, ref si, pSD);
+                NativeProcessManager.CloseWindowStation(hWinsta);
+            }
+
+            IntPtr hDesk = NativeProcessManager.OpenDesktopW("Default", 0, false, 0x00040000 | 0x00020000);
+            if (hDesk != IntPtr.Zero)
+            {
+                NativeProcessManager.SetUserObjectSecurity(hDesk, ref si, pSD);
+                NativeProcessManager.CloseDesktop(hDesk);
+            }
+        }
+        catch
+        {
+            // Best effort
         }
     }
 }

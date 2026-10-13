@@ -53,8 +53,7 @@ try {
   assert.match(raw.expectedNonce,/^[0-9a-f]{64}$/);
   const reqText=await fs.readFile(path.join(state,'run-'+generation,'input','request.json'),'utf8');
   assert.equal(reqText.includes(raw.expectedAuthKey),false,'Key must never appear in guest input');
-  assert.equal(calls.filter(x=>x[0]==='exec').length,2);
-  assert.ok(calls.at(-1)[calls.at(-1).indexOf('-c')+1].includes('--auth-key '+raw.expectedAuthKey));
+  assert.equal(calls.at(-1)[calls.at(-1).indexOf('-c')+1].includes('--auth-key'), false, 'Key must never appear on GuestSupervisor command line');
   const stagedRequest=JSON.parse(await fs.readFile(path.join(state,'run-'+generation,'input','request.json'),'utf8'));
   assert.ok(stagedRequest.command.endsWith('\\toolchain\\node.exe'),'guest runs the pinned offline Node binary, never cmd.exe');
   assert.deepEqual(stagedRequest.args,['--test']);
