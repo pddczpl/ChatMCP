@@ -32,9 +32,12 @@ try {
   await assert.rejects(journal.append({runId:'../secret',job:record('running')}),
     {code:'recovery_bad_run'});
   await assert.rejects(journal.append({
-    runId,job:{...record('running'),apiKey:'must-never-be-written',
+    runId,job:{...record('running'),
       workers:[{id:'alpha',status:'running',commitSha:null,token:'private'}]},
   }),{code:'recovery_bad_worker'});
+  await assert.rejects(journal.append({
+    runId,job:{...record('running'),apiKey:'must-never-be-written'},
+  }),{code:'recovery_bad_snapshot'});
 
   const runDir=path.join(root,'journal',runId);
   await fs.writeFile(path.join(runDir,'write.lock'),'stale',{flag:'wx'});
