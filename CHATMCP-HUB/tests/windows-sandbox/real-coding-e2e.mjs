@@ -26,6 +26,7 @@ import { WindowsSandboxBackend } from '../../lib/windows-sandbox-backend.mjs';
 import { LazyWindowsSandboxDriver } from '../../lib/windows-sandbox-driver.mjs';
 import { WindowsSandboxPublisher } from '../../lib/windows-sandbox-publisher.mjs';
 import { WorkerTestBroker } from '../../lib/worker-test-broker.mjs';
+import { reconcileOwnedGuestTestCleanup } from './owned-guest-cleanup.mjs';
 
 let checks = 0;
 const ok = (label) => {
@@ -33,10 +34,11 @@ const ok = (label) => {
   console.log(`  ok - ${label}`);
 };
 
-const watchdog = setTimeout(() => {
-  console.error('FAIL: real-coding-e2e test suite exceeded watchdog timeout (300s)');
-  process.exit(2);
-}, 300_000);
+const watchdogController=new AbortController();
+const watchdog=setTimeout(()=>{
+  console.error('BLOCKED: real-coding-e2e exceeded 300s; cancelling owned execution.');
+  watchdogController.abort(new Error('Diagnostic guest execution watchdog reached.'));
+},300_000);
 watchdog.unref();
 
 export async function runRealCodingE2ETests() {
@@ -110,7 +112,8 @@ test('adds numbers correctly', () => {
 `);
   ok('[1] Disposable test project initialized with intentional implementation bug');
 
-  let activeInstanceId = null;
+  let managedDriver=null;
+  let guestCleanupVerified=false;
 
   try {
     // 4. Assemble the execution stack
@@ -122,6 +125,7 @@ test('adds numbers correctly', () => {
       nodeToolchainDirectory: nodeToolchainDir,
       stateDirectory: path.join(backendStateDir, 'driver'),
     });
+    managedDriver=driver;
 
     // Test-scoped diagnostic harness uses hostAttested: true to test the full pipeline
     const publisher = new WindowsSandboxPublisher({ hostAttested: true });
@@ -177,6 +181,7 @@ test('adds numbers correctly', () => {
       workerId: workerRecord.id,
       checkId: checksDiscovered[0].id,
       grantId: grant.id,
+      signal:watchdogController.signal,
     });
 
     console.log('Attempt 1 status:', attempt1.status, 'exitCode:', attempt1.exitCode);
@@ -207,6 +212,7 @@ test('adds numbers correctly', () => {
       workerId: workerRecord.id,
       checkId: checksDiscovered[0].id,
       grantId: grant.id,
+      signal:watchdogController.signal,
     });
 
     console.log('Attempt 2 status:', attempt2.status, 'exitCode:', attempt2.exitCode);
@@ -278,24 +284,26 @@ test('adds numbers correctly', () => {
     ok('[5] Stale active.lock quarantined without live owner; dispatch blocked');
 
   } finally {
-    console.log('\n--- [6] Lifecycle Termination & Host Cleanup ---');
-    // Ensure all Sandbox instances are stopped
-    const listAfter = JSON.parse(execFileSync(wsbCli, ['list', '--raw'], { encoding: 'utf8' }));
-    const runningEnvs = listAfter.WindowsSandboxEnvironments || [];
-    for (const env of runningEnvs) {
-      try {
-        console.log(`Stopping remaining sandbox ${env.Id}...`);
-        execFileSync(wsbCli, ['stop', '--id', env.Id, '--raw'], { encoding: 'utf8', timeout: 30_000 });
-      } catch {}
+    clearTimeout(watchdog);
+    console.log('\n--- [6] Owner-Bound Guest Termination & Host Cleanup ---');
+    // A new, unrelated Sandbox can appear while this diagnostic runs.
+    // NEVER call wsb stop for every UUID returned by "wsb list".
+    const cleanup=await reconcileOwnedGuestTestCleanup({
+      driver:managedDriver,
+      listRunning:()=>{
+        const listing=JSON.parse(execFileSync(wsbCli,['list','--raw'],{
+          encoding:'utf8',timeout:15000,
+        }));
+        return listing.WindowsSandboxEnvironments;
+      },
+    });
+    assert.equal(cleanup.unownedStopped,0);
+    guestCleanupVerified=cleanup.verified;
+    ok('[6] Only positively owned guest UUIDs reconciled; no foreign sandbox stopped');
+    if(guestCleanupVerified){
+      await fs.rm(testDir,{recursive:true,force:true});
+      ok('[6] Disposable host fixtures removed only after verified cleanup');
     }
-    const listFinal = JSON.parse(execFileSync(wsbCli, ['list', '--raw'], { encoding: 'utf8' }));
-    assert.equal((listFinal.WindowsSandboxEnvironments || []).length, 0, 'No sandbox instances may remain active');
-    ok('[6] All Windows Sandbox instances cleanly stopped and confirmed removed');
-
-    try {
-      await fs.rm(testDir, { recursive: true, force: true });
-      ok('[6] Temporary test fixtures cleanly removed from host');
-    } catch {}
   }
 
   console.log(`\nPASS: All ${checks} real coding worker E2E diagnostic checks SUCCEEDED.`);
