@@ -106,6 +106,17 @@ try {
     ],
   }]};
   await fs.writeFile(path.join(resumableDir,'jobs.json'),JSON.stringify(restored));
+  // Keep a real checkpoint in the journal, not merely an untrusted UI
+  // digest. A recovery acknowledgement must match the latest chain head.
+  const realJournal=new CodingRecoveryJournal({
+    directory:path.join(resumableDir,'recovery'),
+  });
+  await realJournal.append({runId:restoredRun,job:{
+    status:'running',baseSha,workers:[
+      {id:'coder',status:'testing',commitSha:null},
+      {id:'reviewer',status:'awaiting_test_grant',commitSha:null},
+    ],
+  }});
   const restoredOrchestrator=makeOrchestrator(resumableDir);
   await restoredOrchestrator.load();
   const restoredState=restoredOrchestrator.state();
@@ -113,6 +124,34 @@ try {
   assert.deepEqual(restoredState.jobs[0].workers.map(w=>w.status),['interrupted','interrupted']);
   assert.equal(restoredState.jobs[0].workers[0].commitSha,null);
   assert.equal(restoredState.recoveryFault,null);
+  await assert.rejects(restoredOrchestrator.run({
+    confirmation:'CREATE WORKTREES',tasks:[{id:'coder',prompt:'must inspect interrupted job'}],
+  }),{code:'recovery_review_required'});
+  const proof=await restoredOrchestrator.recoveryStatus({runId:restoredRun});
+  assert.match(proof.integrityDigest,/^[a-f0-9]{64}$/);
+  assert.equal(proof.autoResume,false);
+  await assert.rejects(restoredOrchestrator.acknowledgeRecovery({
+    runId:restoredRun,expectedDigest:proof.integrityDigest,
+    confirmation:'wrong confirmation',
+  }),{code:'confirmation_required'});
+  await assert.rejects(restoredOrchestrator.acknowledgeRecovery({
+    runId:restoredRun,expectedDigest:'0'.repeat(64),
+    confirmation:'REVIEW INTERRUPTED RUN',
+  }),{code:'stale_recovery'});
+  const acknowledged=await restoredOrchestrator.acknowledgeRecovery({
+    runId:restoredRun,expectedDigest:proof.integrityDigest,
+    confirmation:'REVIEW INTERRUPTED RUN',
+  });
+  assert.equal(acknowledged.status,'needs_attention');
+  assert.equal(acknowledged.autoResume,false);
+  assert.equal(acknowledged.verificationReceiptsTrusted,false);
+  assert.equal(restoredOrchestrator.state().jobs[0].status,'needs_attention');
+  await assert.rejects(restoredOrchestrator.acknowledgeRecovery({
+    runId:restoredRun,expectedDigest:proof.integrityDigest,
+    confirmation:'REVIEW INTERRUPTED RUN',
+  }),{code:'recovery_not_interrupted'});
+  assert.equal(JSON.parse(await fs.readFile(path.join(resumableDir,'jobs.json'),'utf8'))
+    .jobs[0].status,'needs_attention');
 
   const invalidWorkerDir=path.join(root,'invalid-worker-state');
   await fs.mkdir(invalidWorkerDir);

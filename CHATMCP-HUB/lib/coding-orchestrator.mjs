@@ -133,6 +133,33 @@ export class CodingWorktreeOrchestrator {
       verificationReceiptsTrusted:false,
     });
   }
+  // OWNER-ONLY acknowledgement: do NOT replay an uncertain worker action.
+  // Bind the review to the most recent journal digest so a stale UI click
+  // cannot silently dismiss a newer recovery record.
+  async acknowledgeRecovery({runId,expectedDigest,confirmation}={}){
+    if(this.active||this.integrating)throw fail('coding_busy','Wait until active workers finish.',409);
+    if(confirmation!=='REVIEW INTERRUPTED RUN')
+      throw fail('confirmation_required','Type REVIEW INTERRUPTED RUN to acknowledge the interrupted worktree.',403);
+    const job=this.jobs.get(runId);
+    if(!job||job.workspace!==this.manager.workspace)
+      throw fail('run_not_found','Coding job is not in the selected workspace.',404);
+    if(job.status!=='interrupted')
+      throw fail('recovery_not_interrupted','Only an interrupted run can be acknowledged.',409);
+    const snapshot=await this.recoveryJournal.inspect(runId);
+    if(!snapshot.found||snapshot.integrityDigest!==expectedDigest||
+       !/^[a-f0-9]{64}$/i.test(expectedDigest||''))
+      throw fail('stale_recovery','Checkpoint missing or changed; inspect recovery again.',409);
+    // Do not trust previous model/test success, mutate the user's checkout,
+    // resume a process, or release any original worktree Git lock here.
+    job.status='needs_attention';
+    job.error='Run interrupted; owner acknowledged review requirement. Reinspect Git worktrees and obtain fresh verification before any new integration.';
+    await this.#save();
+    return Object.freeze({
+      runId,status:'needs_attention',acknowledged:true,
+      autoResume:false,verificationReceiptsTrusted:false,
+    });
+  }
+
   async #git(args,{writes=false,timeoutMs=45000,maxBytes=2_000_000}={}){
     const git=this.manager.studio?.gitRunner;
     if(!git)throw fail('git_unavailable','Git Runner is not configured.',409);
@@ -141,6 +168,10 @@ export class CodingWorktreeOrchestrator {
   }
   async #verifyRepo({clean=true}={}){
     if(this.recoveryFault)throw fail('recovery_unresolved',this.recoveryFault,409);
+    if([...this.jobs.values()].some(j=>
+      j.workspace===this.manager.workspace && j.status==='interrupted'))
+      throw fail('recovery_review_required',
+        'An interrupted coding worktree requires owner checkpoint review before another run.',409);
     if(this.manager.backend!=='local')throw fail('unsupported_backend','Coding worktrees require local backend.',403);
     if(!this.manager.workspace||!this.manager.studio)throw fail('workspace_missing','Select a local Git workspace.',409);
     if(this.manager.taskId||this.manager.busy||this.active)throw fail('hub_busy','Wait for the active coding task.',409);
