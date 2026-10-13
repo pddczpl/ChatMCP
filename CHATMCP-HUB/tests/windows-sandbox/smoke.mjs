@@ -332,7 +332,7 @@ export async function runSmokeTests() {
       const authReceiptContent = fs.readFileSync(authReceiptPath, 'utf8');
       const tamperedContent = authReceiptContent.replace('AUTH_PUBLISHER_OK', 'FORGED_OUTPUT');
       fs.writeFileSync(authReceiptPath, tamperedContent, 'utf8');
-      // Recompute sha256 to simulate malicious child recomputing checksum
+      // Recompute SHA-256 in the HOST fixture (not proof of guest key secrecy).
       const forgedSha = crypto.createHash('sha256').update(Buffer.from(tamperedContent, 'utf8')).digest('hex');
       fs.writeFileSync(path.join(authOutputDir, 'receipt.sha256'), `${forgedSha}  receipt.json\n`, 'utf8');
 
@@ -345,7 +345,7 @@ export async function runSmokeTests() {
         }),
         { code: 'invalid_publisher_signature' }
       );
-      ok('Malicious child receipt tampering with recomputed SHA-256 strictly rejected by publisher signature');
+      ok('Host-fixture tampered receipt with matching SHA-256 rejected by HMAC (not a guest-auth-key secrecy test)');
 
       // Deterministic Fault Injections
       const faultModes = ['assign_job_fail', 'resume_thread_fail', 'wait_failed', 'still_active'];

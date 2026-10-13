@@ -361,8 +361,11 @@ export async function runRealGuestTests() {
     );
     ok('[D] Unauthenticated receipt rejected with unverified_guest_origin when fixture bypass is absent');
 
-    // 2. In-guest malicious child receipt forgery test:
-    // Malicious child rewrites receipt.json and recomputes SHA-256 inside guest, attempting to fake success.
+    // 2. An untrusted guest attempts to write a receipt, followed by an
+    // independent HOST-SIDE fully-rehashed tamper. The second half only proves
+    // the host HMAC reader rejects altered bytes; it does NOT demonstrate
+    // the guest child cannot inspect the supervisor's argv/HMAC key.
+    // A genuine guest-auth-key secrecy test is still a production blocker.
     const forgedRunId = 'forged-' + crypto.randomBytes(4).toString('hex');
     const forgeReq = await prepareExecutionRequest({
       inputDirectory: inputDir,
@@ -389,7 +392,7 @@ export async function runRealGuestTests() {
       { encoding: 'utf8', timeout: 25_000 }
     );
 
-    // Tamper receipt file and recalculate SHA-256 to simulate child attempting to forge valid checksum
+    // Host-side tampering simulation: intentionally rewrite both files after guest finishes.
     const receiptJsonPath = path.join(outputDir, 'receipt.json');
     const childForgedJson = JSON.stringify({
       version: 1,
@@ -418,7 +421,7 @@ export async function runRealGuestTests() {
       }),
       { code: 'invalid_publisher_signature' }
     );
-    ok('[D] In-guest malicious child receipt forgery with matching SHA-256 strictly rejected by publisher signature');
+    ok('[D] Host-side fully-rehashed receipt tampering rejected by HMAC; guest key-secrecy gate remains BLOCKED');
 
     // [E] Negative OS Isolation Probes
     console.log('\n--- [E] Negative OS Isolation Probes ---');

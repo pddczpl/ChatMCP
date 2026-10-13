@@ -16,6 +16,59 @@ import { fault, validateExecutionReceipt } from './execution-contract.mjs';
 const MAX_RECEIPT_FILE_BYTES = 5 * 1024 * 1024; // 5 MB ceiling for receipt JSON
 
 /**
+ * Guest-writable output must never be read via an unbounded path-based
+ * readFile() after an lstat() check. Keep the descriptor open, check file
+ * identity and size, cap bytes even if a guest concurrently expands it.
+ *
+ * O_NOFOLLOW is available on POSIX; Windows reparse point validation is
+ * necessarily best-effort until a native no-reparse handle is audited.
+ */
+function readBoundedReceiptFile(filePath, maxBytes, oversizeCode = 'unsafe_receipt') {
+  const before = fs.lstatSync(filePath);
+  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) {
+    throw fault('unsafe_receipt', 'Guest output is linked or is not a regular single-link file.');
+  }
+  if (before.size > maxBytes) {
+    throw fault(oversizeCode, 'Guest output exceeds the declared receipt byte ceiling.');
+  }
+  const flags = fs.constants.O_RDONLY |
+    (process.platform === 'win32' ? 0 : (fs.constants.O_NOFOLLOW || 0));
+  const fd = fs.openSync(filePath, flags);
+  try {
+    const opened = fs.fstatSync(fd);
+    if (!opened.isFile() || opened.nlink !== 1 ||
+        opened.dev !== before.dev || opened.ino !== before.ino ||
+        opened.size !== before.size || opened.mtimeMs !== before.mtimeMs) {
+      throw fault('receipt_race', 'Guest output file was replaced before opening.');
+    }
+    const chunks = [];
+    let total = 0;
+    while (total <= maxBytes) {
+      const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, maxBytes + 1 - total));
+      const got = fs.readSync(fd, chunk, 0, chunk.length, null);
+      if (!got) break;
+      total += got;
+      if (total > maxBytes) {
+        throw fault(oversizeCode, 'Guest output grew beyond its bounded byte ceiling.');
+      }
+      chunks.push(chunk.subarray(0, got));
+    }
+    const after = fs.fstatSync(fd);
+    const linkedNow = fs.lstatSync(filePath);
+    if (after.size !== total || after.size !== before.size ||
+        after.mtimeMs !== before.mtimeMs ||
+        !linkedNow.isFile() || linkedNow.isSymbolicLink() ||
+        linkedNow.dev !== opened.dev || linkedNow.ino !== opened.ino) {
+      throw fault('receipt_race', 'Guest output was replaced or changed while being read.');
+    }
+    return Buffer.concat(chunks, total);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+
+/**
  * Prepares an immutable execution request in the private input staging directory.
  *
  * @param {object} options
@@ -100,18 +153,10 @@ export async function readAndVerifyExecutionReceipt({
     throw fault('missing_receipt', 'Execution receipt (receipt.json) was not found in export directory.');
   }
 
-  // 1. rawObservation: inspect reparse point / symlink on the receipt file
-  const stat = fs.lstatSync(receiptPath);
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    throw fault('unsafe_receipt', 'receipt.json must be a regular file, not a directory or reparse point.');
-  }
-
-  // 1. rawObservation: enforce hard file size limit (5 MB)
-  if (stat.size > MAX_RECEIPT_FILE_BYTES) {
-    throw fault('oversized_receipt', `receipt.json size (${stat.size} bytes) exceeds limit (${MAX_RECEIPT_FILE_BYTES} bytes).`);
-  }
-
-  const rawBuffer = fs.readFileSync(receiptPath);
+  // 1. rawObservation: descriptor-bound, bounded read of mutable guest output
+  const rawBuffer = readBoundedReceiptFile(
+    receiptPath, MAX_RECEIPT_FILE_BYTES, 'oversized_receipt'
+  );
   const rawContent = rawBuffer.toString('utf8');
   const content = rawContent.replace(/^\uFEFF/, '');
   let rawReceipt;
@@ -141,11 +186,7 @@ export async function readAndVerifyExecutionReceipt({
   if (!fs.existsSync(shaPath)) {
     throw fault('missing_receipt_checksum', 'receipt.sha256 is required for consistency checking.');
   }
-  const shaStat = fs.lstatSync(shaPath);
-  if (!shaStat.isFile() || shaStat.isSymbolicLink() || shaStat.size > 256) {
-    throw fault('unsafe_receipt', 'receipt.sha256 must be a small regular file.');
-  }
-  const shaContent = fs.readFileSync(shaPath, 'utf8').trim();
+  const shaContent = readBoundedReceiptFile(shaPath, 256).toString('utf8').trim();
   const parsed = /^([0-9a-fA-F]{64})\s+receipt\.json$/.exec(shaContent);
   if (!parsed) throw fault('invalid_receipt_checksum', 'receipt.sha256 has an invalid format.');
   const actualHash = crypto.createHash('sha256').update(rawBuffer).digest('hex');
@@ -163,11 +204,7 @@ export async function readAndVerifyExecutionReceipt({
     if (!fs.existsSync(sigPath)) {
       throw fault('missing_publisher_signature', 'receipt.sig is required for authenticated execution receipts.');
     }
-    const sigStat = fs.lstatSync(sigPath);
-    if (!sigStat.isFile() || sigStat.isSymbolicLink() || sigStat.size > 256) {
-      throw fault('unsafe_receipt', 'receipt.sig must be a small regular file.');
-    }
-    const sigContent = fs.readFileSync(sigPath, 'utf8').trim();
+    const sigContent = readBoundedReceiptFile(sigPath, 256).toString('utf8').trim();
     const sigParsed = /^([0-9a-fA-F]{64})\s+receipt\.json$/.exec(sigContent);
     if (!sigParsed) {
       throw fault('invalid_publisher_signature', 'receipt.sig has an invalid format.');
