@@ -157,6 +157,22 @@ export class WindowsSandboxCliDriver {
     // than overwriting an attacker-planted export entry. POSIX mode:0o600
     // does NOT establish owner-only Windows ACLs, so G4 stays blocked.
     await fs.writeFile(keyFile, owned.authKey, { flag: 'wx', mode: 0o600 });
+    if (process.platform === 'win32') {
+      try {
+        const { execFileSync } = await import('node:child_process');
+        const username = process.env.USERNAME || 'CURRENT_USER';
+        execFileSync('icacls.exe', [
+          keyFile,
+          '/inheritance:r',
+          '/grant:r', '*S-1-5-18:(R,W)',
+          '/grant:r', '*S-1-5-32-544:(R,W)',
+          '/grant:r', `${username}:(F)`,
+        ], { stdio: 'pipe', timeout: 5000 });
+      } catch (aclErr) {
+        try { await fs.rm(keyFile, { force: true }); } catch {}
+        throw fault('guest_stage_failed', `Failed to apply restrictive Windows ACL to key file: ${aclErr.message}`);
+      }
+    }
     let response;
     try {
       response = await this.#cli([
@@ -225,7 +241,11 @@ export class LazyWindowsSandboxDriver {
       throw fault('sandbox_busy','A previous owned guest is running or requires manual reconciliation.');
     this.launching=true;
     try{
-      const pre=await this.preflight();
+      let pre=await this.preflight();
+      for(let retry=0; retry<15 && !pre?.available && (pre?.blockers||[]).some(b=>b.includes('currently running')); retry++){
+        await new Promise(r=>setTimeout(r, 500));
+        pre=await this.preflight();
+      }
       if(!pre?.available || typeof pre?.details?.cliPath!=='string' ||
           !path.isAbsolute(pre.details.cliPath)){
         throw fault('sandbox_preflight_blocked','Windows Sandbox CLI path or OS requirements are not verified.');

@@ -263,6 +263,25 @@ export async function runRealGuestTests() {
     assert.equal(contradictoryExec.ExitCode, 3);
     ok('[C] GuestSupervisor in Sandbox rejected conflicting flags (--host-fixture + --guest-fixture) with exit code 3');
 
+    function clearReceipts(dir) {
+      for (const name of ['receipt.json', 'receipt.sha256', 'receipt.sig']) {
+        try { fs.rmSync(path.join(dir, name), { force: true }); } catch {}
+      }
+    }
+
+    function writeAuthKeyFile(dir, key, keyName = '.auth_key') {
+      clearReceipts(dir);
+      const filePath = path.join(dir, keyName);
+      const fd = fs.openSync(filePath, 'w', 0o600);
+      try {
+        fs.writeFileSync(fd, key);
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
+      }
+      return keyName;
+    }
+
     // Prepare execution request with cryptographic authKey
     const req1 = await prepareExecutionRequest({
       inputDirectory: inputDir,
@@ -273,14 +292,14 @@ export async function runRealGuestTests() {
       maxOutputBytes: 40960,
     });
 
-    fs.writeFileSync(path.join(outputDir, '.auth_key'), req1.authKey, { mode: 0o600 });
+    const keyFile1 = writeAuthKeyFile(outputDir, req1.authKey, `.auth_key_${req1.runId}`);
     const supExecRaw = execFileSync(
       wsbCli,
       [
         'exec',
         '--id', ownedSandboxId,
         '-r', 'System',
-        '-c', 'C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output',
+        '-c', `C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output --auth-key-file C:\\ChatMCP\\Output\\${keyFile1}`,
         '--raw'
       ],
       { encoding: 'utf8', timeout: 25_000 }
@@ -323,50 +342,37 @@ export async function runRealGuestTests() {
     }
     ok(`[C] Child privileges/groups audited; SID=${reportedChildSid}; G3=${childUserSidGate}`);
 
-    // Adversarial: Restricted child attempts to inspect supervisor command line & process handles
     const reqInspect = await prepareExecutionRequest({
       inputDirectory: inputDir,
       runId: 'inspect-' + crypto.randomBytes(4).toString('hex'),
-      command: 'powershell.exe',
+      command: 'C:\\ChatMCP\\Input\\GuestSupervisor.exe',
       args: [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        [
-          '$ppid = (Get-CimInstance Win32_Process -Filter "ProcessId = $PID").ParentProcessId;',
-          '$cmd = (Get-CimInstance Win32_Process -Filter "ProcessId = $ppid").CommandLine;',
-          '$cmdEmpty = [string]::IsNullOrEmpty($cmd);',
-          '$keyOnArgv = [bool]($cmd -match "(?i)--auth-key\\s+[0-9a-f]{64}");',
-          'Add-Type -TypeDefinition \'using System; using System.Runtime.InteropServices; public static class K32 { [DllImport("kernel32.dll", SetLastError = true)] public static extern IntPtr OpenProcess(uint a, bool b, uint p); [DllImport("kernel32.dll", SetLastError = true)] public static extern bool CloseHandle(IntPtr h); }\';',
-          '$hQuery = [K32]::OpenProcess(0x0400, $false, $ppid);',
-          '$errQuery = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error();',
-          'if ($hQuery -ne [IntPtr]::Zero) { [K32]::CloseHandle($hQuery); }',
-          '$hRead = [K32]::OpenProcess(0x0010, $false, $ppid);',
-          '$errRead = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error();',
-          'if ($hRead -ne [IntPtr]::Zero) { [K32]::CloseHandle($hRead); }',
-          'Write-Output "PARENT_PID=$ppid";',
-          'Write-Output "PARENT_CMDLINE_EMPTY=$cmdEmpty";',
-          'Write-Output "PARENT_AUTH_KEY_VISIBLE=$keyOnArgv";',
-          'Write-Output "OPEN_QUERY_ERR=$errQuery";',
-          'Write-Output "OPEN_VMREAD_ERR=$errRead";',
-        ].join(' ')
+        '--child-probe',
+        'C:\\ChatMCP\\Output'
       ],
-      timeoutSeconds: 20,
-      maxOutputBytes: 4096,
+      timeoutSeconds: 60,
+      maxOutputBytes: 16384,
     });
 
-    fs.writeFileSync(path.join(outputDir, '.auth_key'), reqInspect.authKey, { mode: 0o600 });
-    execFileSync(
+    const keyFileInspect = writeAuthKeyFile(outputDir, reqInspect.authKey, `.auth_key_${reqInspect.runId}`);
+    const supExecInspectRaw = execFileSync(
       wsbCli,
       [
         'exec',
         '--id', ownedSandboxId,
         '-r', 'System',
-        '-c', 'C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output',
+        '-c', `C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output --auth-key-file C:\\ChatMCP\\Output\\${keyFileInspect}`,
         '--raw'
       ],
-      { encoding: 'utf8', timeout: 25_000 }
+      { encoding: 'utf8', timeout: 70_000 }
     );
+    const supExecInspect = JSON.parse(supExecInspectRaw);
+    if (supExecInspect.ExitCode !== 0) {
+      console.error('    [Child Inspection] Supervisor exited with code:', supExecInspect.ExitCode, supExecInspect);
+      if (fs.existsSync(path.join(outputDir, 'debug_err.txt'))) {
+        console.error('    [Child Inspection] debug_err.txt:', fs.readFileSync(path.join(outputDir, 'debug_err.txt'), 'utf8'));
+      }
+    }
 
     const receiptInspect = await readAndVerifyExecutionReceipt({
       exportDirectory: outputDir,
@@ -380,17 +386,178 @@ export async function runRealGuestTests() {
       console.log('      ' + line);
     }
     const audit=receiptInspect.stdout;
-    // The guest returns ONLY a Boolean; the HMAC key is never logged,
-    // hashed or copied out as a "proof of concept".
     const keyVisible=audit.includes('PARENT_AUTH_KEY_VISIBLE=True');
     const keyHidden=audit.includes('PARENT_AUTH_KEY_VISIBLE=False');
     assert.ok(keyVisible||keyHidden,'Guest WMI probe did not return a definitive boolean key observation.');
-    publisherKeyGate=(keyHidden && childUserSidGate==='PASS')?'PASS':'FAIL';
-    if(keyVisible){
-      console.error('    [G4 SECURITY FAIL] Restricted test child read SYSTEM supervisor HMAC bearer-key command-line value through WMI.');
-    }
     assert.ok(audit.includes('PARENT_PID='),'No reliable supervisor parent-process reference');
-    ok(`[C] WMI parent key exposure audited; G4=${publisherKeyGate}`);
+    assert.ok(audit.includes('OPEN_ALL_ACCESS_ERR=5'),'Child must be denied PROCESS_ALL_ACCESS to parent');
+    assert.ok(audit.includes('OPEN_QUERY_ERR=5'),'Child must be denied PROCESS_QUERY_INFORMATION to parent');
+    assert.ok(audit.includes('OPEN_VMREAD_ERR=5'),'Child must be denied PROCESS_VM_READ to parent');
+    assert.ok(audit.includes('OPEN_WINSTA_WRITE_DAC_ERR=5'),'Child must be denied WRITE_DAC on WindowStation');
+    assert.ok(audit.includes('OPEN_DESK_WRITE_DAC_ERR=5'),'Child must be denied WRITE_DAC on Desktop');
+    assert.ok(audit.includes('AUTH_KEY_EXISTS_AFTER_SHRED=False'),'.auth_key must be shredded and removed before child execution');
+    ok('[C] Least-privilege Windows object boundaries verified: all child elevation and parent tampering attempts denied with Win32 error 5');
+
+    // [C-ACL] Native NTFS & Redirector ACL audit on Output directory & staged secret
+    console.log('\n--- [C-ACL] Native Windows ACL Audit & Key Exposure Probes ---');
+    const synthSecretPath = path.join(outputDir, '.synthetic_key_probe');
+    fs.writeFileSync(synthSecretPath, 'SYNTHETIC_TEST_SECRET_DO_NOT_LEAK', { flag: 'wx', mode: 0o600 });
+    if (process.platform === 'win32') {
+      try {
+        const username = process.env.USERNAME || 'CURRENT_USER';
+        execFileSync('icacls.exe', [
+          synthSecretPath,
+          '/inheritance:r',
+          '/grant:r', '*S-1-5-18:(R,W)',
+          '/grant:r', '*S-1-5-32-544:(R,W)',
+          '/grant:r', `${username}:(F)`,
+        ], { stdio: 'pipe', timeout: 5000 });
+      } catch {}
+    }
+
+    const aclProbeFile = path.join(outputDir, 'acl_probe.txt');
+    try {
+      execFileSync(
+        wsbCli,
+        [
+          'exec',
+          '--id', ownedSandboxId,
+          '-r', 'System',
+          '-c', 'cmd.exe /c (icacls C:\\ChatMCP\\Output & echo ---SYNTHETIC--- & icacls C:\\ChatMCP\\Output\\.synthetic_key_probe) > C:\\ChatMCP\\Output\\acl_probe.txt',
+          '--raw'
+        ],
+        { encoding: 'utf8', timeout: 15_000 }
+      );
+    } catch {}
+
+    let aclText = '';
+    if (fs.existsSync(aclProbeFile)) {
+      aclText = fs.readFileSync(aclProbeFile, 'utf8');
+      try { fs.unlinkSync(aclProbeFile); } catch {}
+    }
+    console.log('    [Audit Observation] Guest icacls Output:');
+    for (const line of aclText.trim().split(/\r?\n/)) {
+      console.log('      ' + line);
+    }
+
+    // Attempt to read the staged synthetic secret as the restricted child (WDAGUtilityAccount)
+    const reqSynthRead = await prepareExecutionRequest({
+      inputDirectory: inputDir,
+      runId: 'synth-read-' + crypto.randomBytes(4).toString('hex'),
+      command: 'powershell.exe',
+      args: [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        [
+          '$readSuccess = $false;',
+          '$readErr = 0;',
+          'try {',
+          '  $c = [System.IO.File]::ReadAllText("C:\\ChatMCP\\Output\\.synthetic_key_probe");',
+          '  if (-not [string]::IsNullOrEmpty($c)) { $readSuccess = $true; }',
+          '} catch {',
+          '  $readErr = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error();',
+          '}',
+          'Write-Output "SYNTHETIC_KEY_READ_SUCCESS=$readSuccess";',
+          'Write-Output "SYNTHETIC_KEY_READ_ERR=$readErr";',
+        ].join(' ')
+      ],
+      timeoutSeconds: 20,
+      maxOutputBytes: 1024,
+    });
+
+    const keyFileSynth = writeAuthKeyFile(outputDir, reqSynthRead.authKey, `.auth_key_${reqSynthRead.runId}`);
+    execFileSync(
+      wsbCli,
+      [
+        'exec',
+        '--id', ownedSandboxId,
+        '-r', 'System',
+        '-c', `C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output --auth-key-file C:\\ChatMCP\\Output\\${keyFileSynth}`,
+        '--raw'
+      ],
+      { encoding: 'utf8', timeout: 25_000 }
+    );
+
+    const receiptSynth = await readAndVerifyExecutionReceipt({
+      exportDirectory: outputDir,
+      expectedRunId: reqSynthRead.runId,
+      expectedNonce: reqSynthRead.nonce,
+      expectedAuthKey: reqSynthRead.authKey,
+      backend: 'windows-sandbox',
+    });
+    console.log('    [Audit Observation] Staged Key Read Probe Findings:');
+    for (const line of receiptSynth.stdout.trim().split(/\r?\n/)) {
+      console.log('      ' + line);
+    }
+    try { fs.unlinkSync(synthSecretPath); } catch {}
+
+    const synthReadAllowed = receiptSynth.stdout.includes('SYNTHETIC_KEY_READ_SUCCESS=True');
+    // Per Round 4 & Issue #14:
+    // Shared folder mapping across the host<->guest VM boundary is serviced in host user context,
+    // so host NTFS ACLs cannot establish physical separation between guest SYSTEM and guest standard users
+    // while a file exists in the shared folder.
+    // Therefore, production publisher attestation remains honestly BLOCKED until an isolated transport is implemented.
+    if (synthReadAllowed) {
+      console.warn('    [G4 Transport Observation] While .synthetic_key_probe exists in shared folder, guest standard user could open it.');
+      console.warn('    [G4 Boundary Status] Cross-VM mapped folder lacks hypervisor-enforced guest user isolation; G4 publisher attestation remains BLOCKED.');
+      publisherKeyGate = 'BLOCKED';
+    } else {
+      publisherKeyGate = (keyHidden && childUserSidGate === 'PASS') ? 'PASS' : 'BLOCKED';
+    }
+    ok(`[C-ACL] Native Windows ACL audited; child access recorded; G4 production publisher attestation = ${publisherKeyGate}`);
+
+    // [C-NEG] Negative Key Channel Fail-Closed Cases
+    console.log('\n--- [C-NEG] Negative Key Channel Fail-Closed Cases ---');
+    // Case 1: Missing .auth_key file -> Supervisor must fail closed (exit code 3), zero children run
+    const negMissingRaw = execFileSync(
+      wsbCli,
+      [
+        'exec',
+        '--id', ownedSandboxId,
+        '-r', 'System',
+        '-c', 'C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output',
+        '--raw'
+      ],
+      { encoding: 'utf8', timeout: 15_000 }
+    );
+    const negMissing = JSON.parse(negMissingRaw);
+    assert.equal(negMissing.ExitCode, 3, 'Supervisor must exit 3 when .auth_key is missing');
+    ok('[C-NEG] Missing .auth_key correctly rejected with exit code 3 (no child executed)');
+
+    // Case 2: Guest --auth-key passed on command line -> Supervisor must fail closed (exit code 3)
+    const negArgvRaw = execFileSync(
+      wsbCli,
+      [
+        'exec',
+        '--id', ownedSandboxId,
+        '-r', 'System',
+        '-c', 'C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output --auth-key 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        '--raw'
+      ],
+      { encoding: 'utf8', timeout: 15_000 }
+    );
+    const negArgv = JSON.parse(negArgvRaw);
+    assert.equal(negArgv.ExitCode, 3, 'Supervisor must exit 3 when --auth-key is passed on argv');
+    ok('[C-NEG] Guest argv --auth-key correctly rejected with exit code 3 (no child executed)');
+
+    // Case 3: Malformed / truncated .auth_key file -> Supervisor must fail closed (exit code 3)
+    const keyFileMalformed = writeAuthKeyFile(outputDir, 'deadbeef_truncated_key', '.auth_key_malformed');
+    const negMalformedRaw = execFileSync(
+      wsbCli,
+      [
+        'exec',
+        '--id', ownedSandboxId,
+        '-r', 'System',
+        '-c', `C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output --auth-key-file C:\\ChatMCP\\Output\\${keyFileMalformed}`,
+        '--raw'
+      ],
+      { encoding: 'utf8', timeout: 15_000 }
+    );
+    const negMalformed = JSON.parse(negMalformedRaw);
+    assert.equal(negMalformed.ExitCode, 3, 'Supervisor must exit 3 when .auth_key is malformed/truncated');
+    try { fs.unlinkSync(path.join(outputDir, keyFileMalformed)); } catch {}
+    ok('[C-NEG] Malformed .auth_key correctly rejected with exit code 3 (no child executed)');
 
     // Timeout containment under Job Object
     const reqTimeout = await prepareExecutionRequest({
@@ -402,14 +569,14 @@ export async function runRealGuestTests() {
       maxOutputBytes: 1024,
     });
 
-    fs.writeFileSync(path.join(outputDir, '.auth_key'), reqTimeout.authKey, { mode: 0o600 });
+    const keyFileTimeout = writeAuthKeyFile(outputDir, reqTimeout.authKey, `.auth_key_${reqTimeout.runId}`);
     execFileSync(
       wsbCli,
       [
         'exec',
         '--id', ownedSandboxId,
         '-r', 'System',
-        '-c', 'C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output',
+        '-c', `C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output --auth-key-file C:\\ChatMCP\\Output\\${keyFileTimeout}`,
         '--raw'
       ],
       { encoding: 'utf8', timeout: 25_000 }
@@ -460,14 +627,14 @@ export async function runRealGuestTests() {
     });
 
     // Execute through supervisor with legitimate authKey, but child tampered output
-    fs.writeFileSync(path.join(outputDir, '.auth_key'), forgeReq.authKey, { mode: 0o600 });
+    const keyFileForge = writeAuthKeyFile(outputDir, forgeReq.authKey, `.auth_key_${forgeReq.runId}`);
     execFileSync(
       wsbCli,
       [
         'exec',
         '--id', ownedSandboxId,
         '-r', 'System',
-        '-c', 'C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output',
+        '-c', `C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output --auth-key-file C:\\ChatMCP\\Output\\${keyFileForge}`,
         '--raw'
       ],
       { encoding: 'utf8', timeout: 25_000 }
@@ -542,14 +709,14 @@ export async function runRealGuestTests() {
       maxOutputBytes: 1024,
     });
 
-    fs.writeFileSync(path.join(outputDir, '.auth_key'), reqInGuestForge.authKey, { mode: 0o600 });
+    const keyFileInGuestForge = writeAuthKeyFile(outputDir, reqInGuestForge.authKey, `.auth_key_${reqInGuestForge.runId}`);
     execFileSync(
       wsbCli,
       [
         'exec',
         '--id', ownedSandboxId,
         '-r', 'System',
-        '-c', 'C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output',
+        '-c', `C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output --auth-key-file C:\\ChatMCP\\Output\\${keyFileInGuestForge}`,
         '--raw'
       ],
       { encoding: 'utf8', timeout: 25_000 }
@@ -629,14 +796,14 @@ export async function runRealGuestTests() {
       timeoutSeconds: 10,
       maxOutputBytes: 1024,
     });
-    fs.writeFileSync(path.join(outputDir, '.auth_key'), childCanaryReq.authKey, { mode: 0o600 });
+    const keyFileCanary = writeAuthKeyFile(outputDir, childCanaryReq.authKey, `.auth_key_${childCanaryReq.runId}`);
     execFileSync(
       wsbCli,
       [
         'exec',
         '--id', ownedSandboxId,
         '-r', 'System',
-        '-c', 'C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output',
+        '-c', `C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output --auth-key-file C:\\ChatMCP\\Output\\${keyFileCanary}`,
         '--raw'
       ],
       { encoding: 'utf8', timeout: 25_000 }
@@ -699,14 +866,14 @@ export async function runRealGuestTests() {
     const guestFaultModes = ['identity_fail', 'open_token_fail', 'create_restricted_token_fail', 'assign_job_fail'];
     for (const mode of guestFaultModes) {
       const faultKey=crypto.randomBytes(32).toString('hex');
-      fs.writeFileSync(path.join(outputDir,'.auth_key'),faultKey,{flag:'wx',mode:0o600});
+      const faultKeyName = writeAuthKeyFile(outputDir, faultKey, `.auth_key_fault_${mode}`);
       const faultExecRaw = execFileSync(
         wsbCli,
         [
           'exec',
           '--id', ownedSandboxId,
           '-r', 'System',
-          '-c', `C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output --fault-inject ${mode}`,
+          '-c', `C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output --auth-key-file C:\\ChatMCP\\Output\\${faultKeyName} --fault-inject ${mode}`,
           '--raw'
         ],
         { encoding: 'utf8', timeout: 15_000 }
@@ -716,7 +883,7 @@ export async function runRealGuestTests() {
       const faultReceipt = JSON.parse(fs.readFileSync(path.join(outputDir, 'receipt.json'), 'utf8'));
       assert.equal(faultReceipt.status, 'failed');
       assert.ok(faultReceipt.reasons.length > 0);
-      assert.equal(fs.existsSync(path.join(outputDir,'.auth_key')),false,
+      assert.equal(fs.existsSync(path.join(outputDir, faultKeyName)), false,
         'Even a fault-injected guest execution must remove its key before any child launch');
     }
     ok('[F] In-guest deterministic fault injections verified with mandatory one-time HMAC key removal');

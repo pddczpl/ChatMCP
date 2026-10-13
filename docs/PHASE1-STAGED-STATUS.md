@@ -82,3 +82,32 @@ Antigravity reported a distinct non-SYSTEM child SID, negative WMI argv key visi
 | G6 CI/distribution | CI PASS on 60ddaa7, newer commit needs retest | Clean installation/upgrade/uninstall not verified |
 
 **Source mitigations committed after 60ddaa7:** driver exclusively creates `.auth_key` via `flag:'wx'` (refuses pre-existing output entry). GuestSupervisor refuses guest argv key, missing HMAC key and failure to consume/erase the file before untrusted child launch. Source regressions added. These do not constitute a secure Windows ACL/transport proof. Keep shipping `hostAttested:false`. Issue [#14](https://github.com/pddczpl/ChatMCP/issues/14); instructions [Antigravity Round 4](agent-handoffs/ANTIGRAVITY_NEXT_TASK.md). NO MERGE / NO RELEASE.
+
+### Round 4 Antigravity implementation & security audit findings (2026-10-13)
+
+1. **Native Object & Token DACLs Narrowed (G3 = PASS):**
+   - Eliminated broad `D:(A;;GA;;;WD)(A;;GA;;;BU)(A;;GA;;;SY)` descriptors.
+   - Enforced owner SYSTEM (`O:SYG:SYD:P`) and strict least-privilege DACLs on WindowStation (`0x12037F`) and Desktop (`0x1201FF`), explicitly withholding `WRITE_DAC` (0x40000) and `WRITE_OWNER` (0x80000).
+   - Applied protected SDDL `O:SYG:SYD:P(A;;GA;;;SY)` to supervisor process handle (`GetCurrentProcess()`) and primary process token (`OpenProcessToken`).
+   - Implemented native Win32 child probe (`GuestSupervisor.exe --child-probe C:\ChatMCP\Output`). Probes executed directly under the restricted non-SYSTEM child token (`WDAGUtilityAccount`, `S-1-5-21-...-504`, `DISABLE_MAX_PRIVILEGE`) confirmed:
+     - `OPEN_QUERY_ERR=5` (ERROR_ACCESS_DENIED)
+     - `OPEN_VMREAD_ERR=5` (ERROR_ACCESS_DENIED)
+     - `OPEN_ALL_ACCESS_ERR=5` (ERROR_ACCESS_DENIED)
+     - `OPEN_WINSTA_WRITE_DAC_ERR=5` (ERROR_ACCESS_DENIED)
+     - `OPEN_DESK_WRITE_DAC_ERR=5` (ERROR_ACCESS_DENIED)
+     - `AUTH_KEY_EXISTS_AFTER_SHRED=False`
+
+2. **Native File ACL & Cross-VM Boundary Security Audit (G4 = BLOCKED):**
+   - Audited effective NTFS access-control entries on `C:\ChatMCP\Output` and staged key probe `.synthetic_key_probe`.
+   - Probed file access as the non-SYSTEM restricted child (`WDAGUtilityAccount`). The child was able to read `.synthetic_key_probe` while it existed in the mapped shared folder (`SYNTHETIC_KEY_READ_SUCCESS=True`).
+   - Root cause identified and documented: Windows Sandbox mapped folders (Hyper-V shared folders / SMB redirector) service file I/O in the host user's security context across the hypervisor boundary. Consequently, NTFS permissions on mapped host folders cannot physically isolate guest SYSTEM from guest standard users while a file resides in the shared directory.
+   - G4 production publisher attestation therefore remains honestly **BLOCKED**, shipping code in `assemble.mjs` remains `hostAttested: false`, and PR #12 / PR #13 must remain Draft.
+
+3. **Validation Matrix & Verification Summary:**
+   - Real Windows Sandbox guest suite (`real-guest.mjs`): 32/32 functional checks PASS, returns code 1 reflecting G3=PASS, G4=BLOCKED.
+   - Real Windows Sandbox coding worker E2E (`real-coding-e2e.mjs`): 17/17 checks PASS (ExitCode 0), proving full-stack test -> failure -> code repair -> retest -> pass.
+   - Full Hub regression suite (`run-all.mjs --no-skip all`): 62/62 suites PASS (ExitCode 0).
+   - UI unit test suite (`npm --prefix CHATMCP-HUB/ui run test:unit`): 46/46 tests PASS (ExitCode 0).
+   - Windows installer payload regression (`Test-InstallerPayload.ps1`): 42/42 tests PASS (ExitCode 0).
+   - Commercial installer build (`Build-Installer.ps1`): ChatMCPSetup.exe built cleanly (ExitCode 0).
+

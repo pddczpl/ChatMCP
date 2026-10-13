@@ -209,6 +209,13 @@ test('adds numbers correctly', () => {
     await fs.writeFile(path.join(projectDir, 'calc.mjs'), 'export function add(a, b) {\n  return a + b;\n}\n');
     ok('[4] Scripted repair applied to implementation (calc.mjs fixed; calc.test.mjs unchanged)');
 
+    // Ensure host Sandbox process cleanup from attempt 1 has fully settled
+    for (let wait = 0; wait < 20; wait++) {
+      const pf = await probeWindowsSandboxPreflight();
+      if (pf.available) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+
     // 7. Second Execution: Retest with repaired code -> must PASS
     const attempt2 = await broker.requestCheck({
       workerId: workerRecord.id,
