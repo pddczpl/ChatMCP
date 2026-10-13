@@ -1479,16 +1479,25 @@ public static class Program
                 throw new Win32Exception(err, $"Failed to secure supervisor process: error {err}");
             }
 
-            if (NativeProcessManager.OpenProcessToken(hProcess, 0x00040000 /* WRITE_DAC */ | 0x00080000 /* WRITE_OWNER */, out IntPtr hToken))
+            if (!NativeProcessManager.OpenProcessToken(hProcess,
+                0x00040000 /* WRITE_DAC */ | 0x00080000 /* WRITE_OWNER */, out IntPtr hToken))
             {
-                try
+                int err = Marshal.GetLastWin32Error();
+                throw new Win32Exception(err,
+                    $"Security failure: Unable to open supervisor token for DACL hardening (error {err}).");
+            }
+            try
+            {
+                if (!NativeProcessManager.SetKernelObjectSecurity(hToken, si, pSD))
                 {
-                    NativeProcessManager.SetKernelObjectSecurity(hToken, si, pSD);
+                    int err = Marshal.GetLastWin32Error();
+                    throw new Win32Exception(err,
+                        $"Security failure: Supervisor token DACL hardening failed (error {err}).");
                 }
-                finally
-                {
-                    NativeProcessManager.CloseHandle(hToken);
-                }
+            }
+            finally
+            {
+                NativeProcessManager.CloseHandle(hToken);
             }
         }
         finally
