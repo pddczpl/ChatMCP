@@ -24,6 +24,7 @@ export function OrchestratorTab(){
   const [codingTasks,setCodingTasks]=useState<CodingTask[]>([{id:'task-a',prompt:'Implement the first independent coding task.',verify:false}]);
   const [codingBusy,setCodingBusy]=useState(false);
   const [codingRun,setCodingRun]=useState<any>(null);
+  const [codingRecovery,setCodingRecovery]=useState<any>(null);
   const {data:codingState,refetch:refetchCoding}=useQuery({queryKey:['codingWorkers'],queryFn:api.getCodingRuns,refetchInterval:3000});
   const activeCoding=codingState?.jobs?.find((x:any)=>x.id===codingRun?.id)||codingRun||codingState?.jobs?.at(-1);
   const [selectedWorkers,setSelectedWorkers]=useState<string[]>([]);
@@ -88,7 +89,7 @@ export function OrchestratorTab(){
         <Button size="sm" variant="outline" disabled={codingTasks.length>=4||codingBusy} onClick={()=>setCodingTasks(a=>[...a,{id:'task-'+(a.length+1),prompt:'Describe the next coding task.',verify:false}])}>Add coding worker</Button>
         <Button size="sm" variant="primary" disabled={codingBusy||Boolean(codingState?.activeRunId)} onClick={async()=>{
           if(!confirm('Create Git branches/worktrees, granting limited file-write access to the selected AI model? No shell and no automatic merge.'))return;
-          setCodingBusy(true);try{const j=await api.runCodingAgents(codingTasks,Math.min(concurrency,2));setCodingRun(j);setReviewedTokens({});setCodingReview(null);setSelectedWorkers((j.workers||[]).filter((w:any)=>w.status==='ready_for_review').map((w:any)=>w.id));await refetchCoding();showToast('Coding workers: '+j.status,'success');}
+          setCodingBusy(true);try{const j=await api.runCodingAgents(codingTasks,Math.min(concurrency,2));setCodingRun(j);setReviewedTokens({});setCodingReview(null);setCodingRecovery(null);setSelectedWorkers((j.workers||[]).filter((w:any)=>w.status==='ready_for_review').map((w:any)=>w.id));await refetchCoding();showToast('Coding workers: '+j.status,'success');}
           catch(e:any){showToast(e.message||'Coding workers failed','error');}finally{setCodingBusy(false);}
         }}>{codingBusy?'Running...':'Run coding workers'}</Button>
         {(codingBusy||codingState?.activeRunId)&&<Button size="sm" variant="danger" onClick={async()=>{try{await api.cancelCodingAgents();showToast('Stop requested','info');}catch(e:any){showToast(e.message||'Stop failed','error');}}}>Stop</Button>}
@@ -96,6 +97,26 @@ export function OrchestratorTab(){
       <IsolatedChecksPanel />
       {activeCoding&&<div className="space-y-2 border-t border-[var(--line)] pt-2">
         <div className="font-semibold">Run {activeCoding.id?.slice(0,8)} — {activeCoding.status}</div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button size="sm" variant="outline" onClick={async()=>{
+            try{
+              const report=await api.getCodingRecovery(activeCoding.id);
+              setCodingRecovery(report);
+              showToast('Recovery checkpoint inspected (no automatic replay).','info');
+            }catch(e:any){
+              setCodingRecovery(null);
+              showToast(e.message||'Recovery journal unavailable; manual review required.','error');
+            }
+          }}>Inspect recovery</Button>
+          <span className="text-[10px] text-[var(--muted)]">Crash recovery is read-only. No uncertain tool/test/merge is replayed.</span>
+        </div>
+        {codingRecovery?.runId===activeCoding.id&&
+          <div role="status" data-testid="coding-recovery-status" className="p-2 border border-[var(--line-subtle)] rounded text-[11px]">
+            Journal: {codingRecovery.found?'found':'unavailable'} · Last: {codingRecovery.status||'unknown'} ·
+            Entries: {codingRecovery.entries??0} · Human review required ·
+            Automatic replay: disabled · Prior test receipts: not re-attested.
+          </div>
+        }
         {(activeCoding.workers||[]).map((w:any)=><div key={w.id} className="p-2 border border-[var(--line-subtle)] rounded">
           <label className="flex gap-2 items-center">
             <input type="checkbox" disabled={w.status!=='ready_for_review'} checked={selectedWorkers.includes(w.id)} onChange={e=>setSelectedWorkers(a=>e.target.checked?[...a,w.id]:a.filter(id=>id!==w.id))}/>
