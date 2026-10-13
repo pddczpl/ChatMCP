@@ -72,3 +72,47 @@ export function observeUnattestedExitDigest({payload,rawResponses}={}) {
     sourceProven:false,productionAuthenticated:false,
   });
 }
+
+
+/**
+ * Native feasibility only: can this specific installed WSB CLI faithfully
+ * forward the two *positive* framed boundaries as process ExitCode values?
+ * Operates only in a previously owned guest; no secrets or model input.
+ */
+export async function probeOwnedFramedExitCodes({owned,runCli}={}) {
+  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if(!uuid.test(owned?.instanceId||'')||!uuid.test(owned?.generation||'')||
+      typeof runCli!=='function')
+    throw BAD('Trusted owned guest UUID/generation and bounded CLI callback required.');
+  const candidates=[BASE,0x7fffffff];
+  const matched=[];
+  for(const code of candidates) {
+    const args=['exec','--id',owned.instanceId,'-r','System',
+      '-c','cmd.exe /d /s /c exit /b '+code,'--raw'];
+    let data;
+    try{
+      const raw=await runCli(args);
+      if(typeof raw!=='string'||raw.length>16384)throw BAD('Bad raw response size.');
+      data=JSON.parse(raw);
+    }catch{
+      return Object.freeze({
+        status:'CLI_FRAMED_EXIT_RANGE_NOT_PROVEN',
+        observedMatches:matched.length,expectedProbes:candidates.length,
+        sourceProven:false,productionAuthenticated:false,
+      });
+    }
+    if(!data||typeof data!=='object'||Array.isArray(data)||data.ExitCode!==code){
+      return Object.freeze({
+        status:'CLI_FRAMED_EXIT_RANGE_NOT_PROVEN',
+        observedMatches:matched.length,expectedProbes:candidates.length,
+        sourceProven:false,productionAuthenticated:false,
+      });
+    }
+    matched.push(true);
+  }
+  return Object.freeze({
+    status:'CLI_FRAMED_EXIT_RANGE_OBSERVED',
+    observedMatches:matched.length,expectedProbes:candidates.length,
+    sourceProven:false,productionAuthenticated:false,
+  });
+}
