@@ -18,6 +18,7 @@ import {
 import {
   createSandboxConfiguration,
 } from '../../lib/windows-sandbox-config.mjs';
+import { probeOwnedSandboxCliStdout } from '../../lib/windows-sandbox-cli-channel-probe.mjs';
 import {
   prepareExecutionRequest,
   readAndVerifyExecutionReceipt,
@@ -174,6 +175,7 @@ export async function runRealGuestTests() {
   ok('[A] Clean concurrency verified: no active sandbox instances present');
 
   const runId = 'real-guest-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex');
+  const ownershipGeneration=crypto.randomUUID();
   const baseDir = path.join(os.tmpdir(), `chatmcp-sandbox-${runId}`);
   journalPath = path.join(baseDir, 'ownership-journal.json');
   const inputDir = path.join(baseDir, 'input');
@@ -184,7 +186,7 @@ export async function runRealGuestTests() {
   fs.mkdirSync(outputDir, { recursive: true });
   fs.mkdirSync(canaryDir, { recursive: true });
 
-  updateJournal('initializing', { baseDir });
+  updateJournal('initializing', { baseDir, generation:ownershipGeneration });
 
   // Create host canary outside mapped folders
   const canarySecret = `CHATMCP_CANARY_SECRET_${crypto.randomBytes(16).toString('hex')}`;
@@ -225,7 +227,7 @@ export async function runRealGuestTests() {
     assert.ok(ownedSandboxId, 'Sandbox start must return valid Id');
     assert.match(ownedSandboxId, /^[0-9a-fA-F-]{36}$/, 'Sandbox ID must be UUID');
 
-    updateJournal('running', { sandboxId: ownedSandboxId });
+    updateJournal('running', { sandboxId: ownedSandboxId, generation:ownershipGeneration });
 
     const listDuring = JSON.parse(execFileSync(wsbCli, ['list', '--raw'], { encoding: 'utf8' }));
     const runningIds = (listDuring.WindowsSandboxEnvironments || []).map((e) => e.Id);
@@ -249,6 +251,23 @@ export async function runRealGuestTests() {
     const smoke2 = JSON.parse(smoke2Raw);
     assert.equal(smoke2.ExitCode, 13);
     ok('[B] Guest non-zero exit code propagated faithfully (exit code 13)');
+    // G4 experimental CLI response feasibility; no secret is sent.
+    // The owned UUID/generation is from this exact diagnostic's start journal.
+    const channel=await probeOwnedSandboxCliStdout({
+      owned:{instanceId:ownedSandboxId,generation:ownershipGeneration},
+      runCli:async args=>execFileSync(wsbCli,args,{
+        encoding:'utf8',timeout:15000,maxBuffer:128*1024,
+      }),
+    });
+    console.log('[G4] Owned wsb exec --raw stdout channel: '+channel.status+
+      '; stdoutField='+channel.hasStdout+'; exit0='+channel.exitCodeObserved+
+      '; publisherAuthenticated=FALSE');
+    if(channel.status==='CLI_PROCESS_STDOUT_OBSERVED') {
+      console.warn('[G4] Fixed public guest echo observed via CLI; authenticity of a pinned SUPERVISOR process is NOT established.');
+    } else {
+      console.warn('[G4] CLI direct stdout channel unavailable or unproven; do not enable authenticated publication.');
+    }
+
 
     // [C] Restricted Token & Native Containment
     console.log('\n--- [C] Restricted Token & Native Containment ---');
