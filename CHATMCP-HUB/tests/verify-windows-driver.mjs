@@ -7,7 +7,7 @@ import { WindowsSandboxCliDriver, LazyWindowsSandboxDriver } from '../lib/window
 import { createExecutionSnapshot } from '../lib/execution-snapshots.mjs';
 import { reconcileOwnedGuestTestCleanup } from './windows-sandbox/owned-guest-cleanup.mjs';
 import { probeOwnedSandboxCliStdout } from '../lib/windows-sandbox-cli-channel-probe.mjs';
-import { candidateDigestExitCodes, observeUnattestedExitDigest } from '../lib/windows-sandbox-exitcode-channel.mjs';
+import { candidateDigestExitCodes, observeUnattestedExitDigest, probeOwnedFramedExitCodes } from '../lib/windows-sandbox-exitcode-channel.mjs';
 
 const dir=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-cli-driver-'));
 const workspace=path.join(dir,'workspace');
@@ -211,5 +211,30 @@ try {
     payload:sample,rawResponses:invalid,
   }),{code:'untrusted_exitcode_channel'});
   console.log('PASS: 9 positive framed exit-code digest words reject truncation/tamper; NEVER attest publisher');
+  // Real Windows must independently prove its wsb CLI supports positive
+  // high ExitCode values. Mocked boundary probes cannot attest GuestSupervisor.
+  const boundaryArgs=[];
+  const mockedBoundary=await probeOwnedFramedExitCodes({
+    owned:{instanceId:ownerId,generation},runCli:async args=>{
+      boundaryArgs.push(args);
+      return JSON.stringify({ExitCode:Number(args[args.indexOf('-c')+1].split('exit /b ')[1])});
+    },
+  });
+  assert.equal(mockedBoundary.status,'CLI_FRAMED_EXIT_RANGE_OBSERVED');
+  assert.equal(mockedBoundary.productionAuthenticated,false);
+  assert.equal(mockedBoundary.sourceProven,false);
+  assert.equal(boundaryArgs.length,2);
+  assert.ok(boundaryArgs.every(args=>args[args.indexOf('--id')+1]===ownerId));
+  const failedBoundary=await probeOwnedFramedExitCodes({
+    owned:{instanceId:ownerId,generation},
+    runCli:async()=>JSON.stringify({ExitCode:0}),
+  });
+  assert.equal(failedBoundary.status,'CLI_FRAMED_EXIT_RANGE_NOT_PROVEN');
+  assert.equal(failedBoundary.productionAuthenticated,false);
+  await assert.rejects(probeOwnedFramedExitCodes({
+    owned:{instanceId:otherId,generation:'not-a-uuid'},runCli:async()=>{throw Error('unowned');},
+  }),{code:'untrusted_exitcode_channel'});
+  console.log('PASS: framed WSB ExitCode boundary feasibility remains independent of publisher trust');
+
   console.log('PASS: pinned runtime, lifecycle, and diagnostic cleanup never stops unowned Sandbox');
 } finally { await fs.rm(dir,{recursive:true,force:true}); }
