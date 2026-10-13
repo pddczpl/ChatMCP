@@ -12,12 +12,13 @@ export function FullAccessDialog() {
   if (!fullAccessModalOpen) return null;
 
   const handleConfirm = async () => {
-    if (confirmText !== 'FULL ACCESS') return;
+    if (confirmText.trim() !== 'FULL ACCESS') return;
     setLoading(true);
     try {
       await api.setPermissions({
         mode: 'autonomous',
         executionPolicy: 'full-access',
+        confirmation: 'FULL ACCESS',
       });
       showToast('Đã kích hoạt chế độ FULL ACCESS', 'warning');
       setFullAccessModalOpen(false);
@@ -95,7 +96,7 @@ export function FullAccessDialog() {
           </Button>
           <Button
             variant="danger"
-            disabled={confirmText !== 'FULL ACCESS' || loading}
+            disabled={confirmText.trim() !== 'FULL ACCESS' || loading}
             onClick={handleConfirm}
             className="gap-1.5"
           >
