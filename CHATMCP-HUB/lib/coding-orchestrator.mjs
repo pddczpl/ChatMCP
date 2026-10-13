@@ -13,8 +13,9 @@ import { readJson, writeJson } from './runtime.mjs';
 import { WorkerTestBroker } from './worker-test-broker.mjs';
 import { createExecutionSnapshot } from './execution-snapshots.mjs';
 import { runVerifiedCoding } from './coding-verification-loop.mjs';
-import { CodingRecoveryJournal } from './coding-recovery-journal.mjs';
 import { previewManagedCodingContext } from './coding-context-preview.mjs';
+import { CodingRecoveryJournal } from './coding-recovery-journal.mjs';
+import { validateCodingTaskGraph, chooseReadyCodingBatch, detectCodingFileConflicts } from './coding-task-dag.mjs';
 import { attachWorkerTestTools } from './worker-tools.mjs';
 
 const fail = (code, msg, statusCode=400)=>Object.assign(new Error(msg),{code,statusCode});
@@ -183,11 +184,10 @@ export class CodingWorktreeOrchestrator {
     const previousStatus=job.status,previousError=job.error;
     job.status='needs_attention';
     job.error='Run interrupted; owner acknowledged review requirement. Reinspect Git worktrees and obtain fresh verification before any new integration.';
-    try{
+    try {
       await this.#save({checkpointRunId:runId});
-    }catch(error){
-      // A failed atomic jobs.json save must not remove the in-memory
-      // interrupted-run safety barrier in this still-running Hub.
+    } catch(error) {
+      // Do not remove in-memory interruption barrier when persistence fails.
       job.status=previousStatus;job.error=previousError;
       throw error;
     }
@@ -418,6 +418,43 @@ export class CodingWorktreeOrchestrator {
     if (this.manager.permissions?.mode!=='autonomous') throw fail('worker_permission_denied','Parent is not in Autonomous mode.',403);
     return broker.issueGrant({workerId,checkId,maxAttempts});
   }
+  async #inheritCodingDependencies({node,nodes}){
+    // Model cannot invoke this path. The OWNER declared dependencies and the
+    // trusted GitRunner may merge only already-committed predecessor work
+    // into this disposable managed child worktree, never the user checkout.
+    for(const dependencyId of node.dependsOn||[]){
+      const predecessor=nodes.find(x=>x.id===dependencyId);
+      if(!predecessor||!['ready_for_review','no_changes'].includes(predecessor.status))
+        throw fail('worker_dependency_failed','Dependency is not a completed trusted worker.',409);
+      // A no_changes worker may still have inherited committed ancestors.
+      // Propagate its pinned inherited HEAD, not just the worker's own commit.
+      // Otherwise A -> no-op B -> C silently drops A's source from C.
+      const inheritedRevision=predecessor.commitSha||predecessor.inheritedHeadSha;
+      if(!inheritedRevision)continue;
+      if(!/^[0-9a-f]{40}$/i.test(inheritedRevision)||
+         typeof predecessor.branch!=='string'||
+         !predecessor.branch.startsWith('chatmcp/coder/'))
+        throw fail('worker_dependency_untrusted','Dependency branch or commit is not a managed Git revision.',403);
+      const actual=await this.#git(['rev-parse','--verify','refs/heads/'+predecessor.branch]);
+      if(actual!==inheritedRevision)
+        throw fail('worker_dependency_stale','Dependency branch changed after its trusted completion.',409);
+      const result=await this.manager.studio.gitRunner.text([
+        '-C',node.worktree,
+        '-c','user.name=ChatMCP Dependency Integrator',
+        '-c','user.email=chatmcp-agent@users.noreply.github.com',
+        'merge','--no-ff','--no-edit',predecessor.branch,
+      ],{writes:true,timeoutMs:60000,maxBytes:250000});
+      if(result.code!==0||result.truncated||result.timedOut){
+        await this.manager.studio.gitRunner.text(
+          ['-C',node.worktree,'merge','--abort'],{writes:true,timeoutMs:30000}
+        ).catch(()=>{});
+        throw fail('worker_dependency_conflict',
+          'Managed dependency merge failed. Manual review required; no model-driven conflict resolution.',409);
+      }
+      node.inheritedCommits??={};
+      node.inheritedCommits[dependencyId]=inheritedRevision;
+    }
+  }
   async run({tasks,confirmation,maxConcurrency=2}={}){
     if(this.active||this.integrating)throw fail('coding_busy','Another coding job is active.',409);
     if(confirmation!=='CREATE WORKTREES')throw fail('confirmation_required','Type CREATE WORKTREES to permit isolated coding workers.',403);
@@ -437,9 +474,13 @@ export class CodingWorktreeOrchestrator {
       if(x.maxMinutes!==undefined && x.maxMinutes!==null &&
          (!Number.isFinite(x.maxMinutes)||x.maxMinutes<=0)) throw fail('invalid_tasks','Explicit maxMinutes must be positive.');
       ids.add(x.id);return {id:x.id,prompt:x.prompt,maxSteps:x.maxSteps,maxMinutes:x.maxMinutes,
-        verifyRequired:x.verify===true,status:'queued',branch:null,worktree:null,summary:null,
+        verifyRequired:x.verify===true,dependsOn:x.dependsOn??[],
+        status:'queued',branch:null,worktree:null,summary:null,
         changedFiles:[],commitSha:null};
     });
+    // Owner-declared DAG is validated before creating branches or touching Git.
+    // Unknown workers, cycles and self-dependencies are rejected.
+    validateCodingTaskGraph(nodes);
     const {root,baseSha,baseBranch}=await this.#verifyRepo();
     const id=randomUUID();
     const job={id,workspace:root,baseSha,baseBranch,createdAt:new Date().toISOString(),status:'preparing',workers:nodes,integration:null};
@@ -461,51 +502,98 @@ export class CodingWorktreeOrchestrator {
       job.status='running';await this.#save();
       // Bounded parallel model calls. Isolated worktrees never share the same
       // working index, and workers cannot merge/push or spawn processes.
-      let cursor=0;
       let persistenceFailure=null;
       const saveProgress=async()=>{
         try{await this.#save();}
         catch(error){persistenceFailure??=error;throw error;}
       };
-      const workerLoop=async()=>{
-        while(!persistenceFailure&&cursor<nodes.length){
-          signal.throwIfAborted();
-          const node=nodes[cursor++];
-          node.status='running';
-          try{
-            await saveProgress();
-            if(persistenceFailure)throw persistenceFailure;
-            signal.throwIfAborted();
-            const out=await this.#worker({worktree:node.worktree,job,node,signal});
-            node.agentTaskId=out.taskId;
-            node.summary=out.summary;
-            node.steps=out.steps;node.toolCalls=out.toolCalls;
-            if(out.state!=='completed') {
-              node.status=out.state==='needs_attention'?'needs_attention':'failed';
-              throw fail('worker_incomplete','Coding worker did not complete: '+out.state);
-            }
-            // Stage and commit changes through the trusted GitRunner. The
-            // model never sees the Git write APIs or credential helpers.
-            await this.#git(['-C',node.worktree,'add','--all'],{writes:true,timeoutMs:60000});
-            const filenames=await this.#git(['-C',node.worktree,'diff','--cached','--name-only','--diff-filter=ACMRD'],{maxBytes:250000});
-            node.changedFiles=filenames?filenames.split('\n').slice(0,250):[];
-            if(node.changedFiles.length){
-              await this.#git(['-C',node.worktree,'-c','user.name=ChatMCP Coding Agent','-c','user.email=chatmcp-agent@users.noreply.github.com','commit','-m','feat(agent): '+bounded(node.id+' '+node.prompt,65)],{writes:true,timeoutMs:60000});
-              node.commitSha=await this.#git(['-C',node.worktree,'rev-parse','HEAD']);
-              node.status='ready_for_review';
-            }else node.status='no_changes';
-          }catch(error){
-            if(node.status!=='needs_attention')node.status=signal.aborted?'cancelled':'failed';
-            node.error=bounded(error.message,500);
-          }
+      const processNode=async(node)=>{
+        signal.throwIfAborted();
+        node.status='running';
+        try{
           await saveProgress();
+          if(persistenceFailure)throw persistenceFailure;
+          await this.#inheritCodingDependencies({node,nodes});
+          signal.throwIfAborted();
+          const out=await this.#worker({worktree:node.worktree,job,node,signal});
+          node.agentTaskId=out.taskId;
+          node.summary=out.summary;
+          node.steps=out.steps;node.toolCalls=out.toolCalls;
+          if(out.state!=='completed'){
+            node.status=out.state==='needs_attention'?'needs_attention':'failed';
+            throw fail('worker_incomplete','Coding worker did not complete: '+out.state);
+          }
+          // Only the trusted GitRunner stages and commits changes; the model
+          // has no Git write/merge/push tool.
+          await this.#git(['-C',node.worktree,'add','--all'],{writes:true,timeoutMs:60000});
+          // Git -z is essential: a repository can contain paths with tabs,
+          // newlines and Unicode. Newline splitting can hide conflicting edits.
+          // Fail closed BEFORE committing rather than silently truncating the
+          // list to 250 entries and omitting files from conflict detection.
+          const filenames=await this.#git([
+            '-C',node.worktree,'-c','core.quotePath=false',
+            'diff','--cached','--name-only','-z','--diff-filter=ACMRD',
+          ],{maxBytes:250000});
+          const changed=filenames?filenames.split('\0').filter(Boolean):[];
+          if(changed.length>250)throw fail('worker_file_overflow',
+            'Worker changed more than 250 files; manual review required before committing.',409);
+          // Validate every NUL-delimited raw Git filename *before* creating
+          // a trusted agent commit. Windows aliases, ADS and control chars
+          // must not be left for a later integration preflight to discover.
+          detectCodingFileConflicts([{id:node.id,changedFiles:changed}]);
+          node.changedFiles=changed;
+          if(node.changedFiles.length){
+            await this.#git(['-C',node.worktree,
+              '-c','user.name=ChatMCP Coding Agent',
+              '-c','user.email=chatmcp-agent@users.noreply.github.com',
+              'commit','-m','feat(agent): '+bounded(node.id+' '+node.prompt,65)],
+              {writes:true,timeoutMs:60000});
+            node.commitSha=await this.#git(['-C',node.worktree,'rev-parse','HEAD']);
+            node.status='ready_for_review';
+          }else{
+            // Record *inherited* commits for a successfully completed no-op
+            // worker without mislabelling them as its own code edit.
+            // Downstream Git must inherit the whole trusted dependency chain.
+            const head=await this.#git(['-C',node.worktree,'rev-parse','HEAD']);
+            node.inheritedHeadSha=head===job.baseSha?null:head;
+            node.status='no_changes';
+          }
+        }catch(error){
+          if(!['needs_attention','blocked'].includes(node.status))
+            node.status=signal.aborted?'cancelled':'failed';
+          node.error=bounded(error.message,500);
         }
+        await saveProgress();
       };
-      const settled=await Promise.allSettled(Array.from({length:Math.min(maxConcurrency,nodes.length)},()=>workerLoop()));
-      if(persistenceFailure)throw persistenceFailure;
-      const rejected=settled.find(outcome=>outcome.status==='rejected');
-      if(rejected)throw rejected.reason;
-      job.status=signal.aborted?'cancelled':nodes.some(x=>x.status==='failed')?'partial_failure':'ready_for_review';
+      // Topological waves: a dependent worker waits for predecessor commits.
+      // Failed/stale predecessor code cannot silently enter a downstream
+      // worktree. Independent workers still run with bounded concurrency.
+      while(nodes.some(node=>node.status==='queued')){
+        signal.throwIfAborted();
+        const batch=chooseReadyCodingBatch(nodes,maxConcurrency);
+        for(const id of batch.blocked){
+          const node=nodes.find(n=>n.id===id);
+          node.status='blocked';node.error='Dependency failed or needs manual review.';
+        }
+        if(batch.blocked.length)await saveProgress();
+        if(!batch.ready.length){
+          if(nodes.some(n=>n.status==='queued')){
+            for(const node of nodes.filter(n=>n.status==='queued')){
+              node.status='blocked';node.error='Dependency graph has no ready worker.';
+            }
+            await saveProgress();
+          }
+          break;
+        }
+        const settled=await Promise.allSettled(batch.ready.map(
+          id=>processNode(nodes.find(n=>n.id===id))));
+        if(persistenceFailure)throw persistenceFailure;
+        const rejected=settled.find(outcome=>outcome.status==='rejected');
+        if(rejected)throw rejected.reason;
+      }
+      job.status=signal.aborted?'cancelled':
+        nodes.some(x=>['failed','blocked','needs_attention','cancelled'].includes(x.status))?
+          'partial_failure':'ready_for_review';
     }catch(error){job.status=signal.aborted?'cancelled':'failed';job.error=bounded(error.message,500);}
     finally{job.finishedAt=new Date().toISOString();try{await this.#save();}finally{this.active=null;this.controller=null;}}
     return this.state().jobs.find(x=>x.id===id);
@@ -556,6 +644,50 @@ export class CodingWorktreeOrchestrator {
     const workers=workerIds.map(id=>job.workers.find(w=>w.id===id&&w.status==='ready_for_review'&&w.commitSha));
     if(workers.some(w=>!w))throw fail('worker_not_ready','Only completed workers with committed changes can be integrated.',409);
     for(const worker of workers)await this.#requireReview(job,worker.id,worker.branch,worker.commitSha,reviewTokens?.[worker.id]);
+    const overlaps=detectCodingFileConflicts(workers);
+    // The ordinary path conflict detector remains strict. The ONLY safe
+    // exception is an owner-declared ancestor→descendant pair where Git
+    // independently proves the reviewed predecessor SHA is in the exact
+    // reviewed descendant history. Siblings or spoofed dependencies must
+    // still be blocked BEFORE creating the integration worktree.
+    const workerRecords=new Map(job.workers.map(x=>[x.id,x]));
+    const declaredAncestor=(ancestorId,descendantId,seen=new Set())=>{
+      if(seen.has(descendantId))return false;
+      seen.add(descendantId);
+      const descendant=workerRecords.get(descendantId);
+      if(!descendant||!Array.isArray(descendant.dependsOn))return false;
+      return descendant.dependsOn.includes(ancestorId)||
+        descendant.dependsOn.some(id=>declaredAncestor(ancestorId,id,seen));
+    };
+    const verifiedLineage=async(a,b)=>{
+      const [older,newer]=declaredAncestor(a.id,b.id)?[a,b]:
+        declaredAncestor(b.id,a.id)?[b,a]:[null,null];
+      if(!older||!newer||!older.commitSha||!newer.commitSha)return false;
+      try{
+        const result=await this.manager.studio.gitRunner.text(
+          ['merge-base','--is-ancestor',older.commitSha,newer.commitSha],
+          {writes:false,timeoutMs:30000,maxBytes:4096}
+        );
+        return result.code===0&&!result.timedOut&&!result.truncated;
+      }catch{return false;}
+    };
+    const unsafe=[];
+    for(const overlap of overlaps){
+      let conflict=false;
+      for(let i=0;i<overlap.workerIds.length&&!conflict;i++){
+        for(let j=i+1;j<overlap.workerIds.length;j++){
+          const a=workers.find(w=>w.id===overlap.workerIds[i]);
+          const b=workers.find(w=>w.id===overlap.workerIds[j]);
+          if(!a||!b||!(await verifiedLineage(a,b))){conflict=true;break;}
+        }
+      }
+      if(conflict)unsafe.push(overlap);
+    }
+    if(unsafe.length){
+      throw fail('worker_file_conflict',
+        'Independent or unproven workers edited the same path; review or select one branch: '+
+        unsafe.slice(0,5).map(x=>x.file).join(', '),409);
+    }
     if(job.integration)throw fail('integration_exists','An integration worktree already exists. Review or resolve it before trying again.',409);
     this.integrating=true;
     try{

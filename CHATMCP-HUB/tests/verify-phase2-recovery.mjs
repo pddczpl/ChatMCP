@@ -178,8 +178,7 @@ try {
       confirmation:'CREATE WORKTREES',tasks:[{id:'coder',prompt:'must remain blocked'}],
     }),{code:'recovery_review_required'});
   }finally{fs.rename=originalRename;}
-  // The journal is written BEFORE jobs.json. A failed atomic rename may
-  // advance the checkpoint; require a fresh digest after the failed save.
+  // A failed jobs.json rename may advance the journal; fresh digest required.
   const afterFailedAck=await realJournal.inspect(restoredRun);
   assert.equal(afterFailedAck.status,'needs_attention');
   assert.notEqual(afterFailedAck.integrityDigest,proof.integrityDigest);
@@ -201,7 +200,6 @@ try {
   }),{code:'recovery_not_interrupted'});
   assert.equal(JSON.parse(await fs.readFile(path.join(resumableDir,'jobs.json'),'utf8'))
     .jobs[0].status,'needs_attention');
-  // Restarting twice must retain the owner acknowledgement and quarantine.
   const restartedAcknowledged=makeOrchestrator(resumableDir);
   await restartedAcknowledged.load();
   assert.equal(restartedAcknowledged.state().recoveryFault,null);

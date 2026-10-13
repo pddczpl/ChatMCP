@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fault } from './execution-contract.mjs';
 const ROLE_RIGHTS = Object.freeze({
   researcher: ['read'], reviewer: ['read'], planner: ['read'],
+  architect: ['read','spawn'], debugger: ['read','edit','checksList','checksRun'],
   coder: ['read','edit','checksList','checksRun','spawn'],
   tester: ['read','checksList','checksRun'],
   security: ['read'],

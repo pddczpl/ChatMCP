@@ -7,7 +7,7 @@ import { IsolatedChecksPanel } from './IsolatedChecksPanel';
 import { DynamicSubagents } from './DynamicSubagents';
 
 type Node = {id:string;role:string;question:string;dependsOn:string[]};
-type CodingTask = {id:string;prompt:string;verify:boolean};
+type CodingTask = {id:string;prompt:string;verify:boolean;dependsOn:string[]};
 const roles = ['planner','researcher','tester','reviewer','security','summarizer'];
 const initial:Node[] = [
   {id:'plan',role:'planner',question:'Identify the implementation plan and important modules.',dependsOn:[]},
@@ -21,11 +21,11 @@ export function OrchestratorTab(){
   const [busy,setBusy]=useState(false);
   const [result,setResult]=useState<any>(null);
   const [concurrency,setConcurrency]=useState(2);
-  const [codingTasks,setCodingTasks]=useState<CodingTask[]>([{id:'task-a',prompt:'Implement the first independent coding task.',verify:false}]);
+  const [codingTasks,setCodingTasks]=useState<CodingTask[]>([{id:'task-a',prompt:'Implement the first independent coding task.',verify:false,dependsOn:[]}]);
   const [codingBusy,setCodingBusy]=useState(false);
   const [codingRun,setCodingRun]=useState<any>(null);
-  const [codingRecovery,setCodingRecovery]=useState<any>(null);
   const [codingContext,setCodingContext]=useState<any>(null);
+  const [codingRecovery,setCodingRecovery]=useState<any>(null);
   const {data:codingState,refetch:refetchCoding}=useQuery({queryKey:['codingWorkers'],queryFn:api.getCodingRuns,refetchInterval:3000});
   const activeCoding=codingState?.jobs?.find((x:any)=>x.id===codingRun?.id)||codingRun||codingState?.jobs?.at(-1);
   const [selectedWorkers,setSelectedWorkers]=useState<string[]>([]);
@@ -80,6 +80,12 @@ export function OrchestratorTab(){
           <Button size="sm" variant="danger" disabled={codingBusy||codingTasks.length<=1} onClick={()=>setCodingTasks(a=>a.filter((_,j)=>j!==i))}>Xóa</Button>
         </div>
         <textarea aria-label="Coding task" rows={2} className="w-full p-1 rounded border border-[var(--line)] bg-[var(--panel)]" value={x.prompt} onChange={e=>setCodingTasks(a=>a.map((v,j)=>j===i?{...v,prompt:e.target.value}:v))}/>
+        <input aria-label="Coding dependencies" className="w-full p-1 rounded border border-[var(--line)] bg-[var(--panel)]"
+          placeholder="Dependencies by coder ID, e.g. task-a,task-b" value={x.dependsOn.join(',')}
+          disabled={codingBusy}
+          onChange={e=>setCodingTasks(a=>a.map((v,j)=>j===i?
+            {...v,dependsOn:e.target.value.split(',').map(id=>id.trim()).filter(Boolean)}:v))}/>
+        <p className="text-[10px] text-[var(--muted)]">Owner-defined dependency order; downstream worktrees inherit only finished predecessor commits via trusted GitRunner.</p>
         <label className="flex items-center gap-2 text-[11px] text-[var(--muted)]">
           <input type="checkbox" checked={x.verify} disabled={codingBusy}
             onChange={e=>setCodingTasks(a=>a.map((v,j)=>j===i?{...v,verify:e.target.checked}:v))}/>
@@ -87,7 +93,7 @@ export function OrchestratorTab(){
         </label>
       </div>)}
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" disabled={codingTasks.length>=4||codingBusy} onClick={()=>setCodingTasks(a=>[...a,{id:'task-'+(a.length+1),prompt:'Describe the next coding task.',verify:false}])}>Add coding worker</Button>
+        <Button size="sm" variant="outline" disabled={codingTasks.length>=4||codingBusy} onClick={()=>setCodingTasks(a=>[...a,{id:'task-'+(a.length+1),prompt:'Describe the next coding task.',verify:false,dependsOn:[]}])}>Add coding worker</Button>
         <Button size="sm" variant="primary" disabled={codingBusy||Boolean(codingState?.activeRunId)} onClick={async()=>{
           if(!confirm('Create Git branches/worktrees, granting limited file-write access to the selected AI model? No shell and no automatic merge.'))return;
           setCodingBusy(true);try{const j=await api.runCodingAgents(codingTasks,Math.min(concurrency,2));setCodingRun(j);setReviewedTokens({});setCodingReview(null);setCodingRecovery(null);setSelectedWorkers((j.workers||[]).filter((w:any)=>w.status==='ready_for_review').map((w:any)=>w.id));await refetchCoding();showToast('Coding workers: '+j.status,'success');}
@@ -139,7 +145,10 @@ export function OrchestratorTab(){
             <input type="checkbox" disabled={w.status!=='ready_for_review'} checked={selectedWorkers.includes(w.id)} onChange={e=>setSelectedWorkers(a=>e.target.checked?[...a,w.id]:a.filter(id=>id!==w.id))}/>
             <strong>{w.id} · {w.status}</strong>
           </label>
-          <p className="text-[10px] text-[var(--muted)] break-all">{w.branch}</p><p>Changed: {(w.changedFiles||[]).join(', ')||'none'}</p>
+          <p className="text-[10px] text-[var(--muted)] break-all">{w.branch}</p>
+          {w.dependsOn?.length>0&&<p className="text-[11px] text-[var(--muted)]">Depends on: {w.dependsOn.join(', ')}</p>}
+          {w.inheritedCommits&&<p className="text-[10px] text-[var(--muted)]">Pinned upstream commits: {Object.entries(w.inheritedCommits).map(([id,sha])=>id+':'+String(sha).slice(0,8)).join(', ')}</p>}
+          <p>Changed: {(w.changedFiles||[]).join(', ')||'none'}</p>
           {w.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy} onClick={()=>showCodingDiff(activeCoding.id,w.id)}>Review diff</Button>}
           {w.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy} onClick={async()=>{
             try{setCodingContext(await api.getCodingContext(activeCoding.id,w.id));showToast('Bounded file preview loaded; never auto-sent to AI.','info');}
