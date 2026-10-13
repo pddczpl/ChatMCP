@@ -266,6 +266,12 @@ try {
   await fs.writeFile(path.join(workspace,manifestPath),manifestBytes.replace('"expected":5','"expected":-1'));
   await assert.rejects(()=>broker.requestCheck({workerId:worker.id,checkId:descriptor.id,grantId:grant.id}),/check|stale|test/i);
   await fs.writeFile(path.join(workspace,manifestPath),manifestBytes);
+  // requestCheck refreshes discovery before rejecting the changed baseline.
+  // Restore the broker's current descriptor as well as the original bytes.
+  const restoredChecks=await broker.discoverChecks({workerId:worker.id});
+  assert.equal(restoredChecks.length,1);
+  assert.equal(restoredChecks[0].id,descriptor.id,'restored cases discover the original check identity');
+  assert.equal(restoredChecks[0].checkHash,descriptor.checkHash,'restored cases retain the approved baseline hash');
   ok('altering approved expected values invalidates the grant before dispatch');
 
   const negativeCases=[
