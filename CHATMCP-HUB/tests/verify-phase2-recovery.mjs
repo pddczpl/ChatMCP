@@ -178,8 +178,17 @@ try {
       confirmation:'CREATE WORKTREES',tasks:[{id:'coder',prompt:'must remain blocked'}],
     }),{code:'recovery_review_required'});
   }finally{fs.rename=originalRename;}
-  const acknowledged=await restoredOrchestrator.acknowledgeRecovery({
+  // The journal is written BEFORE jobs.json. A failed atomic rename may
+  // advance the checkpoint; require a fresh digest after the failed save.
+  const afterFailedAck=await realJournal.inspect(restoredRun);
+  assert.equal(afterFailedAck.status,'needs_attention');
+  assert.notEqual(afterFailedAck.integrityDigest,proof.integrityDigest);
+  await assert.rejects(restoredOrchestrator.acknowledgeRecovery({
     runId:restoredRun,expectedDigest:proof.integrityDigest,
+    confirmation:'REVIEW INTERRUPTED RUN',
+  }),{code:'stale_recovery'});
+  const acknowledged=await restoredOrchestrator.acknowledgeRecovery({
+    runId:restoredRun,expectedDigest:afterFailedAck.integrityDigest,
     confirmation:'REVIEW INTERRUPTED RUN',
   });
   assert.equal(acknowledged.status,'needs_attention');
@@ -192,6 +201,17 @@ try {
   }),{code:'recovery_not_interrupted'});
   assert.equal(JSON.parse(await fs.readFile(path.join(resumableDir,'jobs.json'),'utf8'))
     .jobs[0].status,'needs_attention');
+  // Restarting twice must retain the owner acknowledgement and quarantine.
+  const restartedAcknowledged=makeOrchestrator(resumableDir);
+  await restartedAcknowledged.load();
+  assert.equal(restartedAcknowledged.state().recoveryFault,null);
+  assert.equal(restartedAcknowledged.state().jobs[0].status,'needs_attention');
+  assert.deepEqual(restartedAcknowledged.state().jobs[0].workers.map(w=>w.status),
+    ['interrupted','interrupted']);
+  const reconciled=await restartedAcknowledged.recoveryStatus({runId:restoredRun});
+  assert.equal(reconciled.status,'needs_attention');
+  assert.equal(reconciled.jobStatus,'needs_attention');
+  assert.equal(reconciled.autoResume,false);
 
   // Crash after writing the journal but before replacing jobs.json:
   // the older jobs file can claim "ready_for_review" while its durable
