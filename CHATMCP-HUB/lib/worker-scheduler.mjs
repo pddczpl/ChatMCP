@@ -96,7 +96,7 @@ export class WorkerScheduler {
                 '; completion was not independently established.';
               return;
             }
-            node.result={status:'completed'};
+            node.result=result;
             node.status='completed';
           }catch(e){
             node.error=String(e?.message||e).slice(0,300);

@@ -109,7 +109,7 @@ export class DynamicDelegates {
             input:[{role:'user',content:[{type:'input_text',text:JSON.stringify({question,evidence}).slice(0,18000)}]}],
           });
           signal.throwIfAborted();
-          return {summary:textFrom(response).slice(0,10000),references:evidence.map(e=>({path:e.path,line:e.line}))};
+          return {status:'completed',summary:textFrom(response).slice(0,10000),references:evidence.map(e=>({path:e.path,line:e.line}))};
         },
         persist:async()=>{},
       });
