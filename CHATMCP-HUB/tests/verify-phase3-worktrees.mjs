@@ -69,6 +69,17 @@ try{
         assert.match(await fs.readFile(path.join(worktree,'ancestor.js'),'utf8'),/ancestor=41/,
           'Downstream worktree MUST inherit the committed upstream source, not model prose');
         await fs.writeFile(path.join(worktree,'child.js'),'export const child=42;\n');
+      }else if(node.id==='flat'||node.id==='nested'){
+        // Structural Git conflict: same path is a file in one branch and
+        // a directory in another. Branches are separate disposable worktrees.
+        await fs.mkdir(path.join(worktree,'src'),{recursive:true});
+        if(node.id==='flat'){
+          await fs.writeFile(path.join(worktree,'src','feature'),'export const flat=1;\n');
+        }else{
+          await fs.mkdir(path.join(worktree,'src','feature'));
+          await fs.writeFile(path.join(worktree,'src','feature','index.js'),
+            'export const nested=1;\n');
+        }
       }else if(node.id==='left'||node.id==='right'){
         independentActive++;peakIndependent=Math.max(independentActive,peakIndependent);
         await new Promise(resolve=>setTimeout(resolve,30));
@@ -240,6 +251,27 @@ try{
   assert.equal(orchestrator.jobs.get(conflict.id).integration,null,
     'Conflict must be detected BEFORE integration worktree creation');
   assert.equal(git('rev-parse','HEAD').trim(),run.baseSha);
+  // File/directory structural conflict across independent Git branches
+  // must be detected BEFORE creating an integration worktree.
+  const fileDirCollision=await orchestrator.run({
+    confirmation:'CREATE WORKTREES',maxConcurrency:2,
+    tasks:[
+      {id:'flat',prompt:'Create src/feature as a file'},
+      {id:'nested',prompt:'Create src/feature/index.js'},
+    ],
+  });
+  assert.equal(fileDirCollision.status,'ready_for_review',JSON.stringify(fileDirCollision));
+  const flatReview=await orchestrator.review({runId:fileDirCollision.id,workerId:'flat'});
+  const nestedReview=await orchestrator.review({runId:fileDirCollision.id,workerId:'nested'});
+  await assert.rejects(orchestrator.integrate({
+    runId:fileDirCollision.id,workerIds:['flat','nested'],
+    confirmation:'INTEGRATE WORKTREES',
+    reviewTokens:{flat:flatReview.reviewToken,nested:nestedReview.reviewToken},
+  }),{code:'worker_file_conflict'});
+  assert.equal(orchestrator.jobs.get(fileDirCollision.id).integration,null);
+  assert.equal(git('rev-parse','HEAD').trim(),run.baseSha,
+    'File/directory conflicts must leave the user checkout intact');
+
   const overflow=await orchestrator.run({
     confirmation:'CREATE WORKTREES',tasks:[
       {id:'overflow',prompt:'Create more files than safely reportable'},
