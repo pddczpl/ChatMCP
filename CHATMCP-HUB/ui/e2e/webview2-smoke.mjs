@@ -54,16 +54,26 @@ if (process.platform !== 'win32') {
       hub = await startHub({ scratch, project });
       const html = await (await fetch(hub.origin)).text();
       assert.match(html, /assets\/index-[^" ]+\.js/, 'Hub must serve the current Vite build');
-      const result = await run(path.join(scratch, 'bin', 'Smoke.exe'), [hub.origin, path.join(scratch, 'webview-profile')], { timeoutMs: 120_000 });
-      if (result.code === 77) unavailable(result.output.trim());
-      else {
-        assert.equal(result.code, 0, result.output);
+      const viewports = [
+        { name: 'desktop', width: 1600, height: 1000 },
+        { name: 'compact', width: 900, height: 700 },
+      ];
+      for (const viewport of viewports) {
+        const result = await run(path.join(scratch, 'bin', 'Smoke.exe'), [
+          hub.origin, path.join(scratch, `webview-profile-${viewport.name}`), String(viewport.width), String(viewport.height),
+        ], { timeoutMs: 120_000 });
+        if (result.code === 77) { unavailable(result.output.trim()); break; }
+        assert.equal(result.code, 0, `${viewport.name} viewport:\n${result.output}`);
         const report = JSON.parse(result.output.trim().split(/\r?\n/).at(-1));
         assert.equal(report.result, 'PASS');
         assert.equal(report.errors.length, 0);
+        if (viewport.name === 'compact') assert.equal(report.viewport.compact, true, 'Compact smoke must exercise the compact layout');
+        // Headless CI desktops can constrain a requested wide native window.
+        // Report the real viewport instead of assuming WinForms honored its size.
+        assert.ok(report.viewport.width > 0 && report.viewport.height > 0, 'WebView2 must report a real viewport');
         assert.equal((await hub.state()).agent.tasks.length, 0, 'Smoke navigation must not create an AI task');
         console.log(JSON.stringify(report, null, 2));
-        console.log('PASS: Windows WebView2 smoke, temporary Hub/profile, no AI requests or tasks.');
+        console.log(`PASS: Windows WebView2 ${viewport.name} smoke, temporary Hub/profile, no AI requests or tasks.`);
       }
     }
   } catch (error) {

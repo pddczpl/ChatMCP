@@ -13,14 +13,22 @@ internal static class Program
     {
         Console.OutputEncoding = System.Text.Encoding.UTF8;
         Console.InputEncoding = System.Text.Encoding.UTF8;
-        if (args.Length != 2 || !Uri.TryCreate(args[0], UriKind.Absolute, out var url)
+        var width = 1600;
+        var height = 1000;
+        if ((args.Length != 2 && args.Length != 4) || !Uri.TryCreate(args[0], UriKind.Absolute, out var url)
             || url.Scheme != "http" || url.Host != "127.0.0.1" || url.Port == 3007)
         {
             Console.Error.WriteLine("FAIL: Supply an isolated loopback Hub URL and temporary WebView2 profile.");
             return 1;
         }
+        if (args.Length == 4 && (!int.TryParse(args[2], out width) || !int.TryParse(args[3], out height)
+            || width < 640 || width > 1920 || height < 480 || height > 1200))
+        {
+            Console.Error.WriteLine("FAIL: Optional window width and height must be within 640–1920 and 480–1200.");
+            return 1;
+        }
         ApplicationConfiguration.Initialize();
-        using var form = new SmokeWindow(url, args[1]);
+        using var form = new SmokeWindow(url, args[1], new Size(width, height));
         Application.Run(form);
         return Result;
     }
@@ -34,17 +42,19 @@ internal sealed class SmokeWindow : Form
     private readonly List<string> errors = [];
     private readonly HashSet<string> requests = [];
     private readonly List<string> passed = [];
+    private readonly Size requestedSize;
 
-    public SmokeWindow(Uri origin, string profile)
+    public SmokeWindow(Uri origin, string profile, Size requestedSize)
     {
         this.origin = origin;
         this.profile = profile;
+        this.requestedSize = requestedSize;
         // WebView2 needs a native window/message pump. Keep the harness invisible,
         // off screen and out of the taskbar; it never opens the user's desktop app.
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
         Location = new Point(-20000, -20000);
-        Size = new Size(1600, 1000);
+        ClientSize = requestedSize;
         Opacity = 0;
         Controls.Add(browser);
         Shown += async (_, _) => await RunSmoke();
@@ -63,8 +73,22 @@ internal sealed class SmokeWindow : Form
             if (errors.Count > 0) throw new InvalidOperationException(string.Join("; ", errors));
             await Task.Delay(150);
         }
-        var body = await browser.CoreWebView2.ExecuteScriptAsync("document.body?.innerText?.slice(0, 2500)");
+        var body = await browser.CoreWebView2.ExecuteScriptAsync("JSON.stringify({width:innerWidth,height:innerHeight,body:document.body?.innerText?.slice(0,2500)})");
         throw new TimeoutException($"Waiting for {label}: {body}");
+    }
+
+    private async Task SelectInspectorTab(string title)
+    {
+        // Compact layouts intentionally start with Inspector closed. Use its
+        // real header control, then address tabs within the visible panel.
+        await WaitFor("document.querySelector('header button[title=\"Mở Inspector (Ctrl+J)\"]') || document.querySelector('#panel-inspector nav')", "Inspector control available");
+        await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('header button[title=\"Mở Inspector (Ctrl+J)\"]')?.click()");
+        await WaitFor("document.querySelector('#panel-inspector nav')?.getClientRects().length > 0", "Inspector opened through UI");
+        var selector = JsonSerializer.Serialize($"#panel-inspector nav button[title=\"{title}\"]");
+        await WaitFor($"document.querySelector({selector})?.getClientRects().length > 0", $"{title} tab visible");
+        var clicked = await browser.CoreWebView2.ExecuteScriptAsync($"(() => {{ const button=document.querySelector({selector}); if (!button || button.disabled) return false; button.click(); return true; }})()");
+        if (clicked != "true") throw new InvalidOperationException($"Could not click {title} tab.");
+        await WaitFor($"document.querySelector({selector})?.getAttribute('aria-pressed') === 'true'", $"{title} tab selected");
     }
 
     private async Task RunSmoke()
@@ -107,7 +131,7 @@ internal sealed class SmokeWindow : Form
             await WaitFor("document.querySelector('[role=dialog][aria-label=\"Thiết lập ChatMCP\"]')", "fresh onboarding rendered");
             await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('[aria-label=\"Đóng thiết lập\"]').click()");
             await WaitFor("!document.querySelector('[role=dialog][aria-label=\"Thiết lập ChatMCP\"]')", "onboarding dismiss works");
-            await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('button[title=\"Skills\"]').click()");
+            await SelectInspectorTab("Skills");
             await WaitFor("Array.from(document.querySelectorAll('aside')).some(panel => panel.innerText.includes('Kỹ năng cho trợ lý'))", "Skills inspector rendered");
             await WaitFor("performance.getEntriesByType('resource').some(entry => entry.name.includes('/api/plugins/marketplace')) && performance.getEntriesByType('resource').some(entry => entry.name.includes('/api/plugins/registry'))", "Skills API requests completed");
             await browser.CoreWebView2.ExecuteScriptAsync("Array.from(document.querySelectorAll('summary')).find(el => el.textContent === 'Nguồn kỹ năng & tùy chỉnh').click()");
@@ -115,14 +139,22 @@ internal sealed class SmokeWindow : Form
             await WaitFor("document.querySelector('dialog[open]')?.innerText.includes('Thêm kỹ năng')", "native Skills dialog rendered without CSP violations");
             await browser.CoreWebView2.ExecuteScriptAsync("Array.from(document.querySelectorAll('dialog[open] button')).find(el => el.textContent === 'Hủy').click()");
             await WaitFor("!document.querySelector('dialog[open]')", "native Skills dialog dismissal works");
-            await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('button[title=\"Kế hoạch\"]').click()");
+            // Exercise close/reopen via the same user-facing control as well;
+            // selecting a tab must not rely on the panel already being open.
+            await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('header button[title=\"Thu gọn Inspector (Ctrl+J)\"]').click()");
+            await WaitFor("!document.querySelector('#panel-inspector')", "Inspector close works");
+            await SelectInspectorTab("Kế hoạch");
             await WaitFor("document.querySelector('[aria-label=\"Task plan\"]')?.innerText.includes('Chưa có kế hoạch')", "empty plan reports no plan");
             var fabricated = await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('[aria-label=\"Task plan\"]')?.innerText.includes('100%')");
             if (fabricated == "true") throw new InvalidOperationException("Empty plan claimed 100% completion.");
             if (errors.Count > 0) throw new InvalidOperationException(string.Join("; ", errors));
             foreach (var route in new[] { "/api/state", "/api/plugins/marketplace", "/api/plugins/registry" })
                 if (!requests.Contains(route)) throw new InvalidOperationException($"Missing real API request: {route}");
-            Console.WriteLine(JsonSerializer.Serialize(new { result = "PASS", runtime = environment.BrowserVersionString, checks = passed, apiRequests = requests, errors }));
+            var viewportJson = await browser.CoreWebView2.ExecuteScriptAsync("({width:innerWidth,height:innerHeight,compact:matchMedia('(max-width:1099px)').matches})");
+            using var viewport = JsonDocument.Parse(viewportJson);
+            Console.WriteLine(JsonSerializer.Serialize(new { result = "PASS", runtime = environment.BrowserVersionString,
+                requestedViewport = new { width = requestedSize.Width, height = requestedSize.Height }, viewport = viewport.RootElement,
+                checks = passed, apiRequests = requests, errors }));
             Program.Result = 0;
         }
         catch (WebView2RuntimeNotFoundException error)
