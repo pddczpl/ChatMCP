@@ -19,6 +19,7 @@ import {
   createSandboxConfiguration,
 } from '../../lib/windows-sandbox-config.mjs';
 import { probeOwnedSandboxCliStdout } from '../../lib/windows-sandbox-cli-channel-probe.mjs';
+import { probeOwnedFramedExitCodes } from '../../lib/windows-sandbox-exitcode-channel.mjs';
 import {
   prepareExecutionRequest,
   readAndVerifyExecutionReceipt,
@@ -269,6 +270,32 @@ export async function runRealGuestTests() {
       console.warn('[G4] CLI direct stdout channel unavailable or unproven; do not enable authenticated publication.');
     }
 
+
+    // Optional independent native feasibility observation: Windows Sandbox
+    // may or may not round-trip high positive process ExitCodes. No secret,
+    // model, project script or extra Sandbox is involved.
+    //
+    // To run from PowerShell:
+    //   $env:CHATMCP_PROBE_FRAMED_EXITS='1'
+    //   node CHATMCP-HUB/tests/windows-sandbox/real-guest.mjs
+    //   Remove-Item Env:CHATMCP_PROBE_FRAMED_EXITS
+    //
+    // This NEVER clears G4, including when both high values round-trip.
+    if(process.env.CHATMCP_PROBE_FRAMED_EXITS==='1'){
+      const ranged=await probeOwnedFramedExitCodes({
+        owned:{instanceId:ownedSandboxId,generation:ownershipGeneration},
+        runCli:async args=>execFileSync(wsbCli,args,{
+          encoding:'utf8',timeout:15000,maxBuffer:128*1024,
+        }),
+      });
+      console.log('[G4] Native framed ExitCode range: '+ranged.status+
+        '; matching='+ranged.observedMatches+'/'+ranged.expectedProbes+
+        '; publisherAuthenticated=FALSE');
+      if(ranged.status!=='CLI_FRAMED_EXIT_RANGE_OBSERVED')
+        console.warn('[G4] This CLI cannot presently carry framed exit-code digest words; candidate is blocked.');
+      else
+        console.warn('[G4] Exit-code framing is feasible; pinned supervisor origin/private guest seal is STILL unverified.');
+    }
 
     // [C] Restricted Token & Native Containment
     console.log('\n--- [C] Restricted Token & Native Containment ---');
