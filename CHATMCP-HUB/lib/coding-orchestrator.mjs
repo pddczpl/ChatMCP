@@ -397,6 +397,10 @@ export class CodingWorktreeOrchestrator {
           const changed=filenames?filenames.split('\0').filter(Boolean):[];
           if(changed.length>250)throw fail('worker_file_overflow',
             'Worker changed more than 250 files; manual review required before committing.',409);
+          // Validate every NUL-delimited raw Git filename *before* creating
+          // a trusted agent commit. Windows aliases, ADS and control chars
+          // must not be left for a later integration preflight to discover.
+          detectCodingFileConflicts([{id:node.id,changedFiles:changed}]);
           node.changedFiles=changed;
           if(node.changedFiles.length){
             await this.#git(['-C',node.worktree,
