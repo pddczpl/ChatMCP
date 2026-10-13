@@ -643,10 +643,48 @@ export class CodingWorktreeOrchestrator {
     if(workers.some(w=>!w))throw fail('worker_not_ready','Only completed workers with committed changes can be integrated.',409);
     for(const worker of workers)await this.#requireReview(job,worker.id,worker.branch,worker.commitSha,reviewTokens?.[worker.id]);
     const overlaps=detectCodingFileConflicts(workers);
-    if(overlaps.length){
+    // The ordinary path conflict detector remains strict. The ONLY safe
+    // exception is an owner-declared ancestor→descendant pair where Git
+    // independently proves the reviewed predecessor SHA is in the exact
+    // reviewed descendant history. Siblings or spoofed dependencies must
+    // still be blocked BEFORE creating the integration worktree.
+    const workerRecords=new Map(job.workers.map(x=>[x.id,x]));
+    const declaredAncestor=(ancestorId,descendantId,seen=new Set())=>{
+      if(seen.has(descendantId))return false;
+      seen.add(descendantId);
+      const descendant=workerRecords.get(descendantId);
+      if(!descendant||!Array.isArray(descendant.dependsOn))return false;
+      return descendant.dependsOn.includes(ancestorId)||
+        descendant.dependsOn.some(id=>declaredAncestor(ancestorId,id,seen));
+    };
+    const verifiedLineage=async(a,b)=>{
+      const [older,newer]=declaredAncestor(a.id,b.id)?[a,b]:
+        declaredAncestor(b.id,a.id)?[b,a]:[null,null];
+      if(!older||!newer||!older.commitSha||!newer.commitSha)return false;
+      try{
+        const result=await this.manager.studio.gitRunner.text(
+          ['merge-base','--is-ancestor',older.commitSha,newer.commitSha],
+          {writes:false,timeoutMs:30000,maxBytes:4096}
+        );
+        return result.code===0&&!result.timedOut&&!result.truncated;
+      }catch{return false;}
+    };
+    const unsafe=[];
+    for(const overlap of overlaps){
+      let conflict=false;
+      for(let i=0;i<overlap.workerIds.length&&!conflict;i++){
+        for(let j=i+1;j<overlap.workerIds.length;j++){
+          const a=workers.find(w=>w.id===overlap.workerIds[i]);
+          const b=workers.find(w=>w.id===overlap.workerIds[j]);
+          if(!a||!b||!(await verifiedLineage(a,b))){conflict=true;break;}
+        }
+      }
+      if(conflict)unsafe.push(overlap);
+    }
+    if(unsafe.length){
       throw fail('worker_file_conflict',
-        'Multiple workers edited the same path; review or select one branch before integration: '+
-        overlaps.slice(0,5).map(x=>x.file).join(', '),409);
+        'Independent or unproven workers edited the same path; review or select one branch: '+
+        unsafe.slice(0,5).map(x=>x.file).join(', '),409);
     }
     if(job.integration)throw fail('integration_exists','An integration worktree already exists. Review or resolve it before trying again.',409);
     this.integrating=true;

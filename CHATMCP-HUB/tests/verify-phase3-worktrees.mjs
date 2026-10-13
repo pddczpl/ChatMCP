@@ -52,6 +52,9 @@ try{
         // Deliberate no-op: after the trusted dependency merge its worktree
         // still contains inherited code, which MUST propagate downstream.
         assert.match(await fs.readFile(path.join(worktree,'ancestor.js'),'utf8'),/ancestor=41/);
+      }else if(node.id==='samefile'){
+        assert.match(await fs.readFile(path.join(worktree,'ancestor.js'),'utf8'),/ancestor=41/);
+        await fs.writeFile(path.join(worktree,'ancestor.js'),'export const ancestor=99;\n');
       }else if(node.id==='failbase'){
         return {state:'failed',summary:'Scripted non-repairable worker failed',toolCalls:0};
       }else if(node.id==='cancelbase'){
@@ -162,6 +165,29 @@ try{
   assert.equal(chainWorkers[2].inheritedCommits.noop,chainWorkers[1].inheritedHeadSha);
   assert.equal(chainWorkers[2].status,'ready_for_review');
   assert.equal(git('rev-parse','HEAD').trim(),run.baseSha,'User checkout stays untouched');
+
+  // Same-file edits are permitted ONLY when the owner-declared DAG and
+  // actual Git ancestry prove B inherited reviewed A. Independent siblings
+  // editing this path remain rejected by the separate conflict test below.
+  const sequence=await orchestrator.run({
+    confirmation:'CREATE WORKTREES',maxConcurrency:2,
+    tasks:[
+      {id:'base',prompt:'Create shared implementation'},
+      {id:'samefile',prompt:'Edit inherited implementation',dependsOn:['base']},
+    ],
+  });
+  assert.equal(sequence.status,'ready_for_review',JSON.stringify(sequence));
+  const baseReviewed=await orchestrator.review({runId:sequence.id,workerId:'base'});
+  const descendantReviewed=await orchestrator.review({runId:sequence.id,workerId:'samefile'});
+  const integrated=await orchestrator.integrate({
+    runId:sequence.id,workerIds:['base','samefile'],confirmation:'INTEGRATE WORKTREES',
+    reviewTokens:{base:baseReviewed.reviewToken,samefile:descendantReviewed.reviewToken},
+  });
+  assert.equal(integrated.status,'ready_for_review');
+  const finalText=await fs.readFile(path.join(integrated.worktree,'ancestor.js'),'utf8');
+  assert.match(finalText,/ancestor=99/);
+  assert.equal(git('rev-parse','HEAD').trim(),run.baseSha,
+    'Ancestor-aware integration must not touch user main checkout');
 
   // A failed predecessor must NEVER dispatch its dependent to AgentRunner.
   const beforeFailure=actions.length;
