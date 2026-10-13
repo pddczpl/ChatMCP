@@ -121,7 +121,7 @@ Follow-up GitHub commits replace those fixed values with an actual restricted-ch
 
 Native SecureSupervisorProcess token security now fails closed if OpenProcessToken or SetKernelObjectSecurity cannot complete, rather than silently ignoring token DACL errors. These C# changes require a real owned Windows Sandbox run and published GuestSupervisor executable hash on the final commit; a passing hosted CI is not a substitute.
 
-**Current G4: BLOCKED / NOT VERIFIED.** The per-run key still traverses a guest-writable mapped output directory and has not been proven safe from a pre-existing lower-trust guest process during staging. Consider a supported host-owned WSB CLI stdout/response channel (after proving the exact real wsb exec --raw semantics and unforgeable supervisor ownership) or a different authenticated broker channel; no arbitrary host shell fallback. Shipping WindowsSandboxPublisher({hostAttested:false}) must remain unchanged. No main merge/release.
+**Current G4: BLOCKED / NOT VERIFIED.** The per-run key still traverses a guest-writable mapped output directory and has not been proven safe from a pre-existing lower-trust guest process during staging. Microsoft's wsb CLI has no process I/O, and Round 6 native measurements show raw JSON ExitCode only. A new nine-word positive ExitCode digest experiment is SOURCE-ONLY and does NOT prove privileged supervisor provenance; a sealed guest-local state/security-channel proof or separately supported guest-local IPC is still required; no arbitrary host shell fallback. Shipping WindowsSandboxPublisher({hostAttested:false}) must remain unchanged. No main merge/release.
 
 The detailed Round 5 executable local task is at [ANTIGRAVITY_NEXT_TASK.md](agent-handoffs/ANTIGRAVITY_NEXT_TASK.md). Preserve BYO Base URL/API key/model, no ChatMCP token/spend budget, standalone desktop, and user-confirmed Full Access. Clean-machine install/upgrade/uninstall still requires separate owner-approved evidence.
 
@@ -132,7 +132,7 @@ Antigravity's Round 5 report at Phase 1 SHA 68099a5 records SYNTHETIC_KEY_READ_S
 
 A proposed, NON-ATTESTING channel feasibility probe was added to the source. It runs one fixed harmless echo through wsb exec --raw in an already-owned guest and checks whether the CLI returns a bounded Stdout field. Its productionAuthenticated field is ALWAYS false; an arbitrary echoed marker is not a security proof. A true trusted supervisor process-origin response, including UUID/generation and process handle/pipe/exit binding, must still be designed and demonstrated on real Windows.
 
-See the [Phase 1 G4 publisher transport ADR](PHASE1-G4-PUBLISHER-TRANSPORT-ADR.md) for alternatives and explicit acceptance rules. The next Windows handoff is the [Round 6 Antigravity task](agent-handoffs/ANTIGRAVITY_NEXT_TASK.md). Clean-machine install→upgrade→uninstall remains NOT VERIFIED. No merge, release or production security unlock.
+See the [Phase 1 G4 publisher transport ADR](PHASE1-G4-PUBLISHER-TRANSPORT-ADR.md) for alternatives and explicit acceptance rules. The next Windows handoff is the [Round 7 Antigravity task](agent-handoffs/ANTIGRAVITY_NEXT_TASK.md). Clean-machine install→upgrade→uninstall remains NOT VERIFIED. No merge, release or production security unlock.
 
 ## Round 6 Native Windows Hardware Security Findings (2026-10-13, HEAD 8fe6da8)
 
@@ -152,3 +152,16 @@ See the [Phase 1 G4 publisher transport ADR](PHASE1-G4-PUBLISHER-TRANSPORT-ADR.m
 
 3. **Mandatory Verdict:** **PHASE 1 G4 BLOCKED — NO MERGE / NO RELEASE**. Keep PR #12 and PR #13 Draft.
 
+
+
+## Round 7 — Windows Sandbox CLI ExitCode publisher feasibility (2026-10-13)
+
+The Round 6 Antigravity report tested SHA c7a271ea353beaead1c259877da4f537592efc19 and observed wsb.exe 0.8.107.0 returns only JSON ExitCode, no Stdout, during a positively owned guest command. Microsoft independently documents no process I/O in wsb exec. **Option A, direct supervisor JSON/stdout publication, is rejected for the tested CLI.** Independently verified GitHub PR CI and push CI 9/9 succeeded on the Round 6 SHA; the report's functional guest G1/G2/G3/G5 results do not change G4 BLOCKED and do not prove a clean installer lifecycle.
+
+GitHub implemented a **SOURCE-ONLY, NON-ATTESTING** alternative feasibility codec in CHATMCP-HUB/lib/windows-sandbox-exitcode-channel.mjs and regression tests. Nine strictly positive 31-bit OS process ExitCode frames each carry 30 digest bits, together representing one SHA-256 digest of a candidate receipt with 14 canonical zero padding bits. The helper returns productionAuthenticated:false and sourceProven:false even when a hash matches. It does NOT implement native guest digest storage, proven supervisor provenance, or a shipping publisher.
+
+The optional real Windows range probe runs only in an already-owned guest via CHATMCP_PROBE_FRAMED_EXITS=1. It must separately prove that both 0x40000000 and 0x7fffffff are faithfully returned in wsb exec --raw; performance and diagnostic output must be recorded. If unsupported, reject this idea without weakening the security gate. If supported, an independent native test must prove the digest is sealed inside guest-local SYSTEM-only state inaccessible to untrusted project code, bound to an owned instance/generation/nonce/snapshot/check and emitted solely by the pinned supervisor. A set of attacker-controlled ExitCode words is NOT attestation.
+
+Detailed security conditions and alternatives: [G4 Publisher Transport ADR](PHASE1-G4-PUBLISHER-TRANSPORT-ADR.md). Windows executor instructions: [ANTIGRAVITY_NEXT_TASK — Round 7](agent-handoffs/ANTIGRAVITY_NEXT_TASK.md).
+
+**Latest independent release verdict remains G4 BLOCKED; G6 clean-machine installer lifecycle NOT VERIFIED. PR #12/#13 Draft. NO MAIN MERGE, NO RELEASE, NO shipping hostAttested:true.**
