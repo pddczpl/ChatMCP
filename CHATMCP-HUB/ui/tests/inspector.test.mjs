@@ -160,7 +160,7 @@ try {
   }
   await test('Skills tab renders the connected registry UI', async () => {
     const html = await render('InspectorPanel', base, [], { activeTab: 'skills' });
-    assert.match(html, /GitHub Agent Skills Hub/);
+    assert.match(html, /Assistant skills/);
   });
   await test('Header does not claim a disconnected Hub is connected', async () => {
     const html = await render('Header', [], [[['hubState'], 'Connection refused']]);

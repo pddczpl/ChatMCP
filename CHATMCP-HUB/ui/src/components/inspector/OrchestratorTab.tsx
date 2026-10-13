@@ -5,14 +5,15 @@ import { useAppStore } from '@/store/useAppStore';
 import { Button } from '@/components/ui/Button';
 import { IsolatedChecksPanel } from './IsolatedChecksPanel';
 import { DynamicSubagents } from './DynamicSubagents';
+import { agentRoleLabel, agentStatusLabel } from './agentLabels';
 
 type Node = {id:string;role:string;question:string;dependsOn:string[]};
 type CodingTask = {id:string;prompt:string;verify:boolean;dependsOn:string[]};
 const roles = ['planner','researcher','tester','reviewer','security','summarizer'];
 const initial:Node[] = [
-  {id:'plan',role:'planner',question:'Identify the implementation plan and important modules.',dependsOn:[]},
-  {id:'research',role:'researcher',question:'Find existing code patterns and constraints.',dependsOn:[]},
-  {id:'review',role:'reviewer',question:'Review potential issues using findings from plan and research.',dependsOn:['plan','research']},
+  {id:'plan',role:'planner',question:'Đề xuất kế hoạch triển khai và xác định các phần quan trọng của dự án.',dependsOn:[]},
+  {id:'research',role:'researcher',question:'Tìm các cách làm sẵn có trong mã nguồn và những giới hạn cần lưu ý.',dependsOn:[]},
+  {id:'review',role:'reviewer',question:'Rà soát các vấn đề dựa trên kết quả tìm hiểu và kế hoạch.',dependsOn:['plan','research']},
 ];
 
 export function OrchestratorTab(){
@@ -21,7 +22,7 @@ export function OrchestratorTab(){
   const [busy,setBusy]=useState(false);
   const [result,setResult]=useState<any>(null);
   const [concurrency,setConcurrency]=useState(2);
-  const [codingTasks,setCodingTasks]=useState<CodingTask[]>([{id:'task-a',prompt:'Implement the first independent coding task.',verify:false,dependsOn:[]}]);
+  const [codingTasks,setCodingTasks]=useState<CodingTask[]>([{id:'task-a',prompt:'',verify:false,dependsOn:[]}]);
   const [codingBusy,setCodingBusy]=useState(false);
   const [codingRun,setCodingRun]=useState<any>(null);
   const [codingContext,setCodingContext]=useState<any>(null);
@@ -36,172 +37,191 @@ export function OrchestratorTab(){
       const review=await api.getCodingDiff(runId,workerId);
       setCodingReview(review);
       setReviewedTokens(current=>({...current,[workerId||'integration']:review.reviewToken}));
-      showToast('Diff retrieved for review. Inspect it before continuing.','info');
-    }catch(e:any){showToast(e.message||'Cannot review branch diff','error');}
+      showToast('Đã tải thay đổi. Hãy đọc trước khi duyệt.','info');
+    }catch(e:any){showToast(e.message||'Không tải được thay đổi','error');}
   };
   const {data:latest,refetch}=useQuery({queryKey:['delegates'],queryFn:api.getOrchestrator,refetchInterval:4000});
   const edit=(i:number,patch:Partial<Node>)=>setNodes(old=>old.map((v,j)=>j===i?{...v,...patch}:v));
-  return <div className="h-full overflow-y-auto p-3 text-xs space-y-3 text-[var(--text)]">
-    <div><h3 className="font-semibold text-sm">Multi-Agent Orchestrator</h3>
-      <p className="text-[var(--muted)] mt-1">Standalone desktop AI agents with your configured Base URL/model/API key. Provider usage and costs remain under your account; ChatMCP has no model token/spend quota. Read-only DAG workers cannot execute host commands.</p>
-    </div>
+  return <div aria-label="Trợ lý AI" className="h-full min-w-0 overflow-y-auto p-4 text-sm leading-relaxed space-y-5 text-[var(--text)]">
+    <DynamicSubagents />
+    <details data-testid="manual-agents" className="border-t border-[var(--line)] pt-4">
+      <summary className="cursor-pointer font-semibold rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">Tự chia việc cho từng trợ lý</summary>
+      <div className="space-y-3 mt-3">
+        <p className="text-[var(--muted)]">Dành cho khi bạn muốn chọn vai trò và giao việc cụ thể. Các trợ lý chỉ đọc và phân tích dự án.</p>
     <div className="flex items-center justify-between">
-      <span>Song song tối đa</span>
-      <select value={concurrency} onChange={e=>setConcurrency(Number(e.target.value))} className="bg-[var(--surface)] border border-[var(--line)] p-1 rounded">
-        {[1,2,3].map(n=><option key={n} value={n}>{n}</option>)}
+      <label htmlFor="agent-concurrency">Số trợ lý làm cùng lúc</label>
+      <select id="agent-concurrency" value={concurrency} onChange={e=>setConcurrency(Number(e.target.value))} className="bg-[var(--surface)] border border-[var(--line)] p-2 rounded">
+        {[1,2,3].map(n=><option key={n} value={n}>{n} trợ lý</option>)}
       </select>
     </div>
     {nodes.map((node,i)=><div key={i} className="p-2 rounded border border-[var(--line)] bg-[var(--surface)] space-y-2">
-      <div className="flex gap-2">
-        <input aria-label="Agent ID" value={node.id} onChange={e=>edit(i,{id:e.target.value})} className="w-24 p-1 rounded border border-[var(--line)] bg-[var(--panel)]" />
-        <select aria-label="Role" value={node.role} onChange={e=>edit(i,{role:e.target.value})} className="flex-1 p-1 border border-[var(--line)] bg-[var(--panel)] rounded">{roles.map(r=><option key={r}>{r}</option>)}</select>
+      <div className="flex gap-2 items-center">
+        <select aria-label={`Vai trò trợ lý ${i+1}`} value={node.role} disabled={busy} onChange={e=>edit(i,{role:e.target.value})} className="flex-1 min-w-0 p-2 border border-[var(--line)] bg-[var(--panel)] rounded">{roles.map(r=><option key={r} value={r}>{agentRoleLabel(r)}</option>)}</select>
         <Button size="sm" variant="danger" disabled={nodes.length===1||busy} onClick={()=>setNodes(old=>old.filter((_,j)=>j!==i))}>Xóa</Button>
       </div>
-      <textarea aria-label="Agent question" value={node.question} onChange={e=>edit(i,{question:e.target.value})} rows={2} className="w-full bg-[var(--panel)] border border-[var(--line)] rounded p-1" />
-      <input aria-label="Dependencies" value={node.dependsOn.join(',')} placeholder="dependsOn: plan,research" onChange={e=>edit(i,{dependsOn:e.target.value.split(',').map(x=>x.trim()).filter(Boolean)})} className="w-full bg-[var(--panel)] border border-[var(--line)] rounded p-1" />
+      <label className="block space-y-1"><span className="text-xs text-[var(--muted)]">Việc cần làm</span><textarea aria-label={`Việc cần làm của trợ lý ${i+1}`} value={node.question} disabled={busy} onChange={e=>edit(i,{question:e.target.value})} rows={3} className="w-full bg-[var(--panel)] border border-[var(--line)] rounded p-2" /></label>
+      <details className="text-xs text-[var(--muted)]">
+        <summary className="cursor-pointer">Thứ tự thực hiện và mã trợ lý</summary>
+        <div className="space-y-2 mt-2">
+          <label className="block space-y-1"><span>Mã trợ lý</span><input value={node.id} disabled={busy} onChange={e=>edit(i,{id:e.target.value})} className="w-full p-2 rounded border border-[var(--line)] bg-[var(--panel)] text-[var(--text)]" /></label>
+          <label className="block space-y-1"><span>Chờ các trợ lý này hoàn tất</span><input value={node.dependsOn.join(',')} disabled={busy} placeholder="Ví dụ: plan, research. Để trống để chạy ngay." onChange={e=>edit(i,{dependsOn:e.target.value.split(',').map(x=>x.trim()).filter(Boolean)})} className="w-full bg-[var(--panel)] text-[var(--text)] border border-[var(--line)] rounded p-2" /></label>
+        </div>
+      </details>
     </div>)}
     <div className="flex flex-wrap gap-2">
-      <Button size="sm" variant="outline" disabled={nodes.length>=8||busy} onClick={()=>setNodes(old=>[...old,{id:'worker'+(old.length+1),role:'researcher',question:'Inspect a focused concern in the workspace.',dependsOn:[]}])}>Thêm agent</Button>
-      {busy&&<Button size="sm" variant="danger" onClick={async()=>{try{await api.cancelOrchestrator();showToast('Đã yêu cầu hủy orchestration','info');}catch(e:any){showToast(e.message||'Cancel failed','error');}}}>Dừng agents</Button>}
-      <Button size="sm" variant="primary" disabled={busy} onClick={async()=>{
-        setBusy(true);try{const answer=await api.orchestrateAgents(nodes,concurrency);setResult(answer);showToast('Orchestration: '+answer.status,answer.status==='completed'?'success':'warning');await refetch();}
-        catch(e:any){showToast(e.message||'Orchestration failed','error');}
+      <Button size="sm" variant="outline" disabled={nodes.length>=8||busy} onClick={()=>setNodes(old=>[...old,{id:'worker'+(old.length+1),role:'researcher',question:'',dependsOn:[]}])}>Thêm trợ lý</Button>
+      {busy&&<Button size="sm" variant="danger" onClick={async()=>{try{await api.cancelOrchestrator();showToast('Đã yêu cầu dừng nhóm trợ lý','info');}catch(e:any){showToast(e.message||'Chưa thể dừng nhóm trợ lý','error');}}}>Dừng nhóm</Button>}
+      <Button size="sm" variant="primary" disabled={busy||nodes.some(node=>!node.question.trim()||!node.id.trim())} onClick={async()=>{
+        setBusy(true);try{const answer=await api.orchestrateAgents(nodes,concurrency);setResult(answer);showToast(agentStatusLabel(answer.status),answer.status==='completed'?'success':'warning');await refetch();}
+        catch(e:any){showToast(e.message||'Không thể chạy nhóm trợ lý','error');}
         finally{setBusy(false);}
-      }}>{busy?'Đang điều phối...':'Chạy agents'}</Button>
+      }}>{busy?'Đang phân tích…':'Bắt đầu với nhóm này'}</Button>
     </div>
-
-    <DynamicSubagents />
-    <section className="border border-[var(--line)] rounded-lg p-3 bg-[var(--surface)] space-y-2">
-      <h3 className="font-semibold">Coding Agents — isolated Git worktrees</h3>
-      <p className="text-[var(--muted)]">Parallel coding workers edit only their own branches. No shell, network, Git push or automatic merge. Worktrees isolate Git state, not OS processes.</p>
-      {codingTasks.map((x,i)=><div key={i} className="p-2 rounded border border-[var(--line-subtle)] space-y-1">
-        <div className="flex gap-2">
-          <input aria-label="Coder ID" className="w-32 p-1 bg-[var(--panel)] rounded border border-[var(--line)]" value={x.id} onChange={e=>setCodingTasks(a=>a.map((v,j)=>j===i?{...v,id:e.target.value}:v))}/>
+    {(result||latest?.last)&&<div className="space-y-2 select-text">
+      <h4 className="font-semibold">Kết quả của nhóm</h4>
+      {(result||latest?.last)?.workers?.map((w:any)=><div key={w.id} className="border border-[var(--line)] rounded p-3"><div className="font-medium">{agentRoleLabel(w.role||'researcher')} · {agentStatusLabel(w.status)}</div><p className="whitespace-pre-wrap break-words mt-2">{w.summary||w.error||'Chờ kết quả…'}</p></div>)}
+      {(result||latest?.last)?.conclusion&&<div className="border border-[var(--line)] rounded p-3"><div className="font-semibold">Tổng hợp kết quả</div><p className="whitespace-pre-wrap mt-2">{(result||latest?.last)?.conclusion}</p></div>}
+      {(result||latest?.last)?.error&&<p role="alert" className="text-[var(--danger)]">{(result||latest?.last)?.error}</p>}
+    </div>}
+      </div>
+    </details>
+    <details data-testid="coding-agents" className="border-t border-[var(--line)] pt-4">
+      <summary className="cursor-pointer font-semibold rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">Nhờ AI sửa mã nguồn{activeCoding&&<span className="block text-xs font-normal text-[var(--muted)] mt-1">Lần gần nhất: {agentStatusLabel(activeCoding.status)}</span>}</summary>
+      <div className="space-y-3 mt-3">
+      <p className="text-[var(--muted)]">Mỗi công việc được sửa trên một bản làm việc riêng. Bạn xem thay đổi trước khi gộp hoặc đưa lên GitHub.</p>
+      {codingTasks.map((x,i)=><div key={i} className="p-3 rounded border border-[var(--line)] space-y-3">
+        <div className="flex gap-2 items-center justify-between">
+          <label htmlFor={`coding-task-${i}`} className="font-medium">Công việc {i+1}</label>
           <Button size="sm" variant="danger" disabled={codingBusy||codingTasks.length<=1} onClick={()=>setCodingTasks(a=>a.filter((_,j)=>j!==i))}>Xóa</Button>
         </div>
-        <textarea aria-label="Coding task" rows={2} className="w-full p-1 rounded border border-[var(--line)] bg-[var(--panel)]" value={x.prompt} onChange={e=>setCodingTasks(a=>a.map((v,j)=>j===i?{...v,prompt:e.target.value}:v))}/>
-        <input aria-label="Coding dependencies" className="w-full p-1 rounded border border-[var(--line)] bg-[var(--panel)]"
-          placeholder="Dependencies by coder ID, e.g. task-a,task-b" value={x.dependsOn.join(',')}
+        <textarea id={`coding-task-${i}`} rows={3} disabled={codingBusy} placeholder="Mô tả phần cần sửa và kết quả bạn mong muốn…" className="w-full p-2 rounded border border-[var(--line)] bg-[var(--panel)]" value={x.prompt} onChange={e=>setCodingTasks(a=>a.map((v,j)=>j===i?{...v,prompt:e.target.value}:v))}/>
+        <details className="text-xs text-[var(--muted)] space-y-2">
+        <summary className="cursor-pointer">Thứ tự công việc và kiểm thử</summary>
+        <label className="block space-y-1"><span>Mã công việc</span><input disabled={codingBusy} className="w-full p-2 bg-[var(--panel)] text-[var(--text)] rounded border border-[var(--line)]" value={x.id} onChange={e=>setCodingTasks(a=>a.map((v,j)=>j===i?{...v,id:e.target.value}:v))}/></label>
+        <label className="block space-y-1"><span>Chờ các công việc này hoàn tất</span><input className="w-full p-2 rounded border border-[var(--line)] bg-[var(--panel)] text-[var(--text)]"
+          placeholder="Ví dụ: task-a, task-b. Để trống để chạy ngay." value={x.dependsOn.join(',')}
           disabled={codingBusy}
           onChange={e=>setCodingTasks(a=>a.map((v,j)=>j===i?
-            {...v,dependsOn:e.target.value.split(',').map(id=>id.trim()).filter(Boolean)}:v))}/>
-        <p className="text-[10px] text-[var(--muted)]">Owner-defined dependency order; downstream worktrees inherit only finished predecessor commits via trusted GitRunner.</p>
-        <label className="flex items-center gap-2 text-[11px] text-[var(--muted)]">
+            {...v,dependsOn:e.target.value.split(',').map(id=>id.trim()).filter(Boolean)}:v))}/></label>
+        <p>Công việc sau sẽ nhận các thay đổi đã hoàn tất của công việc trước.</p>
+        <label className="flex items-start gap-2">
           <input type="checkbox" checked={x.verify} disabled={codingBusy}
             onChange={e=>setCodingTasks(a=>a.map((v,j)=>j===i?{...v,verify:e.target.checked}:v))}/>
-          Require signed isolated test evidence before ready-for-review. Unsupported systems will report needs_attention; the agent never runs a host shell.
+          Yêu cầu bằng chứng kiểm thử trong môi trường cách ly trước khi duyệt. Nếu máy không hỗ trợ, công việc sẽ được đánh dấu cần bạn kiểm tra.
         </label>
+        </details>
       </div>)}
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" disabled={codingTasks.length>=4||codingBusy} onClick={()=>setCodingTasks(a=>[...a,{id:'task-'+(a.length+1),prompt:'Describe the next coding task.',verify:false,dependsOn:[]}])}>Add coding worker</Button>
-        <Button size="sm" variant="primary" disabled={codingBusy||Boolean(codingState?.activeRunId)} onClick={async()=>{
-          if(!confirm('Create Git branches/worktrees, granting limited file-write access to the selected AI model? No shell and no automatic merge.'))return;
-          setCodingBusy(true);try{const j=await api.runCodingAgents(codingTasks,Math.min(concurrency,2));setCodingRun(j);setReviewedTokens({});setCodingReview(null);setCodingRecovery(null);setSelectedWorkers((j.workers||[]).filter((w:any)=>w.status==='ready_for_review').map((w:any)=>w.id));await refetchCoding();showToast('Coding workers: '+j.status,'success');}
-          catch(e:any){showToast(e.message||'Coding workers failed','error');}finally{setCodingBusy(false);}
-        }}>{codingBusy?'Running...':'Run coding workers'}</Button>
-        {(codingBusy||codingState?.activeRunId)&&<Button size="sm" variant="danger" onClick={async()=>{try{await api.cancelCodingAgents();showToast('Stop requested','info');}catch(e:any){showToast(e.message||'Stop failed','error');}}}>Stop</Button>}
+        <Button size="sm" variant="outline" disabled={codingTasks.length>=4||codingBusy} onClick={()=>setCodingTasks(a=>[...a,{id:'task-'+(a.length+1),prompt:'',verify:false,dependsOn:[]}])}>Thêm công việc</Button>
+        <Button size="sm" variant="primary" disabled={codingBusy||Boolean(codingState?.activeRunId)||codingTasks.some(task=>!task.prompt.trim()||!task.id.trim())} onClick={async()=>{
+          if(!confirm('Cho phép AI sửa tệp trong các nhánh Git và bản làm việc riêng? Trợ lý không chạy lệnh trên máy, không tự gộp thay đổi hay đưa mã lên GitHub. Phí sử dụng AI do nhà cung cấp tính.'))return;
+          setCodingBusy(true);try{const j=await api.runCodingAgents(codingTasks,Math.min(concurrency,2));setCodingRun(j);setReviewedTokens({});setCodingReview(null);setCodingRecovery(null);setSelectedWorkers((j.workers||[]).filter((w:any)=>w.status==='ready_for_review').map((w:any)=>w.id));await refetchCoding();showToast(agentStatusLabel(j.status),j.status==='ready_for_review'?'success':'info');}
+          catch(e:any){showToast(e.message||'Không thể bắt đầu sửa mã','error');}finally{setCodingBusy(false);}
+        }}>{codingBusy?'Đang sửa mã…':'Bắt đầu sửa mã'}</Button>
+        {(codingBusy||codingState?.activeRunId)&&<Button size="sm" variant="danger" onClick={async()=>{try{await api.cancelCodingAgents();showToast('Đã yêu cầu dừng sửa mã','info');}catch(e:any){showToast(e.message||'Chưa thể dừng sửa mã','error');}}}>Dừng sửa mã</Button>}
       </div>
       <IsolatedChecksPanel />
-      {codingState?.recoveryFault&&<p role="alert" className="text-red-400 border border-red-400 rounded p-2">
-        Coding recovery locked: {codingState.recoveryFault}. Inspect the local recovery journal; no interrupted tools will be replayed.
+      {codingState?.recoveryFault&&<p role="alert" className="text-[var(--danger)] border border-[var(--danger)] rounded p-2">
+        Cần kiểm tra nhật ký khôi phục: {codingState.recoveryFault}. Các thao tác bị gián đoạn sẽ không tự chạy lại.
       </p>}
       {activeCoding&&<div className="space-y-2 border-t border-[var(--line)] pt-2">
-        <div className="font-semibold">Run {activeCoding.id?.slice(0,8)} — {activeCoding.status}</div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="font-semibold">Kết quả sửa mã · {agentStatusLabel(activeCoding.status)}</div>
+        <details className="text-xs text-[var(--muted)]">
+        <summary className="cursor-pointer">Kiểm tra lần chạy và khôi phục</summary>
+        <p className="mt-2">Mã lần chạy: {activeCoding.id?.slice(0,8)}</p>
+        <div className="flex items-center gap-2 flex-wrap mt-2">
           <Button size="sm" variant="outline" onClick={async()=>{
             try{
               const report=await api.getCodingRecovery(activeCoding.id);
               setCodingRecovery(report);
-              showToast('Recovery checkpoint inspected (no automatic replay).','info');
+              showToast('Đã xem nhật ký khôi phục. Không chạy lại thao tác nào.','info');
             }catch(e:any){
               setCodingRecovery(null);
-              showToast(e.message||'Recovery journal unavailable; manual review required.','error');
+              showToast(e.message||'Không có nhật ký khôi phục. Cần kiểm tra thủ công.','error');
             }
-          }}>Inspect recovery</Button>
+          }}>Xem nhật ký khôi phục</Button>
           {activeCoding.status==='interrupted'&&codingRecovery?.runId===activeCoding.id&&
             codingRecovery.found&&codingRecovery.integrityDigest&&
             <Button size="sm" variant="outline" disabled={codingBusy} onClick={async()=>{
-              if(prompt('Review the interrupted worktree and checkpoint first. Type REVIEW INTERRUPTED RUN to mark it needs_attention (NO automatic resume)')!=='REVIEW INTERRUPTED RUN')return;
+              if(prompt('Kiểm tra bản làm việc và điểm lưu bị gián đoạn trước. Nhập REVIEW INTERRUPTED RUN để đánh dấu cần kiểm tra lại. Thao tác này không tự tiếp tục công việc.')!=='REVIEW INTERRUPTED RUN')return;
               setCodingBusy(true);
               try{
                 await api.acknowledgeCodingRecovery(activeCoding.id,codingRecovery.integrityDigest);
                 setCodingRecovery(null);
                 await refetchCoding();
-                showToast('Interrupted run acknowledged; fresh manual review and verification remain required.','warning');
-              }catch(e:any){showToast(e.message||'Recovery checkpoint changed; re-inspect before acknowledgement.','error');}
+                showToast('Đã ghi nhận gián đoạn. Bạn vẫn cần kiểm tra và xác minh lại.','warning');
+              }catch(e:any){showToast(e.message||'Điểm lưu đã thay đổi. Hãy xem lại trước khi xác nhận.','error');}
               finally{setCodingBusy(false);}
-            }}>Acknowledge interrupted run</Button>}
-          <span className="text-[10px] text-[var(--muted)]">Crash recovery is read-only. No uncertain tool/test/merge is replayed.</span>
+            }}>Ghi nhận lần chạy bị gián đoạn</Button>}
+          <span>Chỉ xem thông tin khôi phục. Không tự chạy lại thao tác, kiểm thử hay gộp mã.</span>
         </div>
         {codingRecovery?.runId===activeCoding.id&&
-          <div role="status" data-testid="coding-recovery-status" className="p-2 border border-[var(--line-subtle)] rounded text-[11px]">
-            Journal: {codingRecovery.found?'found':'unavailable'} · Last: {codingRecovery.status||'unknown'} ·
-            Entries: {codingRecovery.entries??0} · Human review required ·
-            Automatic replay: disabled · Prior test receipts: not re-attested.
+          <div role="status" data-testid="coding-recovery-status" className="p-2 border border-[var(--line-subtle)] rounded mt-2">
+            Nhật ký: {codingRecovery.found?'đã tìm thấy':'không có'} · Trạng thái: {agentStatusLabel(codingRecovery.status)} ·
+            Số bản ghi: {codingRecovery.entries??0}. Cần bạn kiểm tra lại. Không tự chạy lại; kết quả kiểm thử cũ chưa được xác minh lại.
           </div>
         }
-        {(activeCoding.workers||[]).map((w:any)=><div key={w.id} className="p-2 border border-[var(--line-subtle)] rounded">
+        </details>
+        {(activeCoding.workers||[]).map((w:any)=><div key={w.id} className="p-3 space-y-2 border border-[var(--line)] rounded select-text">
           <label className="flex gap-2 items-center">
             <input type="checkbox" disabled={w.status!=='ready_for_review'} checked={selectedWorkers.includes(w.id)} onChange={e=>setSelectedWorkers(a=>e.target.checked?[...a,w.id]:a.filter(id=>id!==w.id))}/>
-            <strong>{w.id} · {w.status}</strong>
+            <strong>{w.id} · {agentStatusLabel(w.status)}</strong>
           </label>
-          <p className="text-[10px] text-[var(--muted)] break-all">{w.branch}</p>
-          {w.dependsOn?.length>0&&<p className="text-[11px] text-[var(--muted)]">Depends on: {w.dependsOn.join(', ')}</p>}
-          {w.inheritedCommits&&<p className="text-[10px] text-[var(--muted)]">Pinned upstream commits: {Object.entries(w.inheritedCommits).map(([id,sha])=>id+':'+String(sha).slice(0,8)).join(', ')}</p>}
-          <p>Changed: {(w.changedFiles||[]).join(', ')||'none'}</p>
-          {w.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy} onClick={()=>showCodingDiff(activeCoding.id,w.id)}>Review diff</Button>}
+          <p className="text-xs text-[var(--muted)] break-all">Nhánh: {w.branch}</p>
+          {w.dependsOn?.length>0&&<p className="text-xs text-[var(--muted)]">Chờ công việc: {w.dependsOn.join(', ')}</p>}
+          {w.inheritedCommits&&<details className="text-xs text-[var(--muted)]"><summary className="cursor-pointer">Các thay đổi nhận từ công việc trước</summary>{Object.entries(w.inheritedCommits).map(([id,sha])=>id+':'+String(sha).slice(0,8)).join(', ')}</details>}
+          <p className="break-words">Tệp đã sửa: {(w.changedFiles||[]).join(', ')||'chưa có'}</p>
+          <div className="flex flex-wrap gap-2">
+          {w.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy} onClick={()=>showCodingDiff(activeCoding.id,w.id)}>Xem thay đổi</Button>}
           {w.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy} onClick={async()=>{
-            try{setCodingContext(await api.getCodingContext(activeCoding.id,w.id));showToast('Bounded file preview loaded; never auto-sent to AI.','info');}
-            catch(e:any){setCodingContext(null);showToast(e.message||'Unable to preview worker files','error');}
-          }}>Preview changed files</Button>}
+            try{setCodingContext(await api.getCodingContext(activeCoding.id,w.id));showToast('Đã tải bản xem trước trên máy, không tự gửi tới AI.','info');}
+            catch(e:any){setCodingContext(null);showToast(e.message||'Không xem được tệp đã sửa','error');}
+          }}>Xem nội dung tệp</Button>}
           {w.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy||!reviewedTokens[w.id]} onClick={async()=>{
-            if(prompt('Type PUBLISH DRAFT PR to push ONLY worker '+w.id+' and create a draft GitHub PR')!=='PUBLISH DRAFT PR')return;
-            setCodingBusy(true);try{const result=await api.publishCodingAgents(activeCoding.id,reviewedTokens[w.id],w.id);showToast('Worker Draft PR: '+result.prUrl,'success');await refetchCoding();}
-            catch(e:any){showToast(e.message||'Worker publishing failed','error');}finally{setCodingBusy(false);}
-          }}>Draft PR for {w.id}</Button>}
+            if(prompt('Nhập PUBLISH DRAFT PR để đưa riêng công việc '+w.id+' lên GitHub và tạo yêu cầu duyệt bản nháp (Draft PR).')!=='PUBLISH DRAFT PR')return;
+            setCodingBusy(true);try{const result=await api.publishCodingAgents(activeCoding.id,reviewedTokens[w.id],w.id);showToast('Đã tạo yêu cầu duyệt: '+result.prUrl,'success');await refetchCoding();}
+            catch(e:any){showToast(e.message||'Không đưa được công việc lên GitHub','error');}finally{setCodingBusy(false);}
+          }}>Tạo bản nháp trên GitHub</Button>}
+          </div>
           {w.prUrl&&<p className="text-[var(--muted)] break-all">PR: {w.prUrl}</p>}
-          {w.verifyRequired && <p className="text-[11px] text-sky-400">Verified coding requested: {w.verificationOutcome?.state||'awaiting signed checks'}. A model's completion is not test evidence.</p>}
-          {w.verificationAttempts?.length>0 && <p className="text-[11px] text-[var(--muted)]">Recorded attempts: {w.verificationAttempts.length} · parsed passes: {w.verificationAttempts.filter((a:any)=>a.testOutcomeVerified===true).length}</p>}
-          {w.summary&&<p className="text-[var(--muted)] whitespace-pre-wrap">{w.summary}</p>}{w.error&&<p role="alert" className="text-red-400">{w.error}</p>}
+          {w.verifyRequired && <p className="text-xs text-[var(--muted)]">Kiểm thử: {w.verificationOutcome?.state?agentStatusLabel(w.verificationOutcome.state):'chờ bằng chứng xác minh'}. AI báo hoàn tất chưa có nghĩa là kiểm thử đã đạt.</p>}
+          {w.verificationAttempts?.length>0 && <p className="text-xs text-[var(--muted)]">Số lần kiểm thử: {w.verificationAttempts.length} · Kết quả đạt đã xác minh: {w.verificationAttempts.filter((a:any)=>a.testOutcomeVerified===true).length}</p>}
+          {w.summary&&<p className="whitespace-pre-wrap break-words">{w.summary}</p>}{w.error&&<p role="alert" className="text-[var(--danger)] break-words">{w.error}</p>}
         </div>)}
-        {activeCoding.integration&&<p>Integration: {activeCoding.integration.status} · {activeCoding.integration.branch}</p>}
+        {activeCoding.integration&&<p className="break-words">Bản gộp: {agentStatusLabel(activeCoding.integration.status)} · {activeCoding.integration.branch}</p>}
+        <p className="text-xs text-[var(--muted)]">Xem thay đổi của từng công việc rồi chọn những mục muốn gộp.</p>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" disabled={!selectedWorkers.length||codingBusy||selectedWorkers.some(id=>!reviewedTokens[id])} onClick={async()=>{
-            if(prompt('Type INTEGRATE WORKTREES to merge these workers into a NEW integration branch')!=='INTEGRATE WORKTREES')return;
-            setCodingBusy(true);try{const v=await api.integrateCodingAgents(activeCoding.id,selectedWorkers,reviewedTokens);showToast('Integration: '+v.status,v.status==='ready_for_review'?'success':'warning');await refetchCoding();}
-            catch(e:any){showToast(e.message||'Integration failed','error');}finally{setCodingBusy(false);}
-          }}>Review + integrate</Button>
-          {activeCoding.integration?.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy} onClick={()=>showCodingDiff(activeCoding.id)}>Review integration diff</Button>}
+            if(prompt('Nhập INTEGRATE WORKTREES để gộp các công việc đã chọn vào một nhánh Git MỚI. Nhánh chính không bị thay đổi.')!=='INTEGRATE WORKTREES')return;
+            setCodingBusy(true);try{const v=await api.integrateCodingAgents(activeCoding.id,selectedWorkers,reviewedTokens);showToast('Bản gộp: '+agentStatusLabel(v.status),v.status==='ready_for_review'?'success':'warning');await refetchCoding();}
+            catch(e:any){showToast(e.message||'Không gộp được các thay đổi','error');}finally{setCodingBusy(false);}
+          }}>Gộp các công việc đã chọn</Button>
+          {activeCoding.integration?.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy} onClick={()=>showCodingDiff(activeCoding.id)}>Xem thay đổi của bản gộp</Button>}
           <Button size="sm" variant="outline" disabled={activeCoding.integration?.status!=='ready_for_review'||codingBusy||!reviewedTokens.integration} onClick={async()=>{
-            if(prompt('Type PUBLISH DRAFT PR to explicitly push the integration branch and create a draft GitHub PR')!=='PUBLISH DRAFT PR')return;
-            setCodingBusy(true);try{const v=await api.publishCodingAgents(activeCoding.id,reviewedTokens.integration);showToast('Draft PR: '+v.prUrl,'success');await refetchCoding();}
-            catch(e:any){showToast(e.message||'Publish failed','error');}finally{setCodingBusy(false);}
-          }}>Push + Draft PR</Button>
+            if(prompt('Nhập PUBLISH DRAFT PR để đưa nhánh đã gộp lên GitHub và tạo yêu cầu duyệt bản nháp (Draft PR).')!=='PUBLISH DRAFT PR')return;
+            setCodingBusy(true);try{const v=await api.publishCodingAgents(activeCoding.id,reviewedTokens.integration);showToast('Đã tạo yêu cầu duyệt: '+v.prUrl,'success');await refetchCoding();}
+            catch(e:any){showToast(e.message||'Không đưa được bản gộp lên GitHub','error');}finally{setCodingBusy(false);}
+          }}>Đưa bản gộp lên GitHub</Button>
         </div>
       </div>}
-      {codingContext&&<div data-testid="coding-context-preview" className="border border-[var(--line)] p-2 space-y-2">
-        <div className="font-semibold">Read-only changed-file preview · {codingContext.workerId}
-          <Button size="sm" variant="outline" onClick={()=>setCodingContext(null)}>Close preview</Button>
+      {codingContext&&<div data-testid="coding-context-preview" className="border border-[var(--line)] p-3 space-y-2 select-text">
+        <div className="font-semibold flex flex-wrap items-center justify-between gap-2">Nội dung tệp · {codingContext.workerId}
+          <Button size="sm" variant="outline" onClick={()=>setCodingContext(null)}>Đóng bản xem trước</Button>
         </div>
-        <p className="text-[var(--muted)]">Bounded local source display only; never auto-sent to AI and never proof that tests passed.</p>
+        <p className="text-xs text-[var(--muted)]">Chỉ hiển thị một phần mã nguồn trên máy, không tự gửi tới AI. Đây không phải bằng chứng kiểm thử đã đạt.</p>
         {(codingContext.files||[]).map((file:any)=><div key={file.path}>
-          <strong>{file.path}</strong><p className="text-[var(--muted)]">SHA-256: {file.sha256}</p>
-          <pre className="text-[10px] overflow-auto max-h-52">{(file.lines||[]).map((line:any)=>line.line+': '+line.text).join('\n')}</pre>
+          <strong className="break-words">{file.path}</strong><details className="text-xs text-[var(--muted)] break-all"><summary className="cursor-pointer">Mã xác minh tệp</summary>SHA-256: {file.sha256}</details>
+          <pre className="text-xs overflow-auto max-h-52 bg-[var(--surface)] text-[var(--text)] p-2 rounded mt-2">{(file.lines||[]).map((line:any)=>line.line+': '+line.text).join('\n')}</pre>
         </div>)}
-        {!!codingContext.skipped?.length&&<p>Skipped: {codingContext.skipped.map((f:any)=>f.path+' ('+f.reason+')').join(', ')}</p>}
+        {!!codingContext.skipped?.length&&<p className="break-words">Tệp không hiển thị: {codingContext.skipped.map((f:any)=>f.path+' ('+f.reason+')').join(', ')}</p>}
       </div>}
       {codingReview&&<div className="border border-[var(--line)] bg-[var(--surface)] p-2 rounded">
-        <div className="font-semibold flex justify-between"><span>Git diff preview · {codingReview.branch}</span>
-          <Button size="sm" variant="quiet" onClick={()=>setCodingReview(null)}>Close</Button></div>
-        <p className="text-[var(--muted)]">Revision: {codingReview.revision} · Read the complete diff before authorizing integration or PR.</p>
-        <pre className="mt-2 text-[10px] overflow-x-auto whitespace-pre-wrap break-all max-h-80 overflow-y-auto select-text">{codingReview.diff||'No changes'}</pre>
+        <div className="font-semibold flex flex-wrap justify-between gap-2"><span className="break-all">Thay đổi · {codingReview.branch}</span>
+          <Button size="sm" variant="quiet" onClick={()=>setCodingReview(null)}>Đóng</Button></div>
+        <p className="text-xs text-[var(--muted)] break-all">Phiên bản: {codingReview.revision}. Hãy đọc toàn bộ thay đổi trước khi gộp hoặc đưa lên GitHub.</p>
+        <pre className="mt-2 p-2 rounded bg-[var(--surface)] text-[var(--text)] text-xs overflow-x-auto whitespace-pre-wrap break-all max-h-80 overflow-y-auto select-text">{codingReview.diff||'Không có thay đổi'}</pre>
       </div>}
-    </section>
-    <div className="space-y-2">
-      <h4 className="font-semibold">Kết quả gần nhất</h4>
-      {(result||latest?.last)?.workers?.map((w:any)=><div key={w.id} className="border border-[var(--line)] rounded p-2"><div className="font-semibold">{w.id} · {w.role||'researcher'} · {w.status}</div><p className="text-[var(--muted)] whitespace-pre-wrap mt-1">{w.summary||w.error||'Chờ chạy...'}</p></div>)}
-      {(result||latest?.last)?.conclusion&&<div className="border border-[var(--line)] rounded p-2"><div className="font-semibold">Coordinator synthesis</div><p className="text-[var(--muted)] whitespace-pre-wrap">{(result||latest?.last)?.conclusion}</p></div>}
-      {(result||latest?.last)?.error&&<p role="alert" className="text-red-400">{(result||latest?.last)?.error}</p>}
-    </div>
+      </div>
+    </details>
   </div>;
 }

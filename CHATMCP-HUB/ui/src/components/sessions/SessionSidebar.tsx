@@ -83,7 +83,7 @@ export function SessionSidebar() {
 
   const renderStatusIcon = (status: string) => {
     if (isTaskActive({ status })) {
-      return <Loader2 className="w-3.5 h-3.5 text-sky-400 animate-spin" />;
+      return <Loader2 className="w-3.5 h-3.5 text-[var(--primary)] animate-spin" />;
     }
     if (status === 'completed' || status === 'success') {
       return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />;
@@ -118,16 +118,16 @@ export function SessionSidebar() {
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-1">
-            <span className={`text-xs truncate font-medium ${isSelected ? 'text-sky-300' : ''}`}>
+            <span className={`text-xs truncate font-medium ${isSelected ? 'text-[var(--primary)]' : ''}`}>
               {title}
             </span>
             {timeStr && (
-              <span className="text-[10px] text-[var(--faint)] flex-shrink-0">
+              <span className="text-xs text-[var(--faint)] flex-shrink-0">
                 {timeStr}
               </span>
             )}
           </div>
-          <p className="text-[11px] text-[var(--faint)] line-clamp-1 mt-0.5">
+          <p className="text-xs text-[var(--faint)] line-clamp-1 mt-0.5">
             {taskStateLabel(t.status)}
           </p>
         </div>
@@ -147,15 +147,15 @@ export function SessionSidebar() {
     <aside className="w-full h-full flex flex-col bg-[var(--panel)] border-r border-[var(--line)] select-none">
       {/* Top Header & New Button */}
       <div className="p-3 border-b border-[var(--line)] flex flex-col gap-2.5">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
+        <div className="flex flex-col items-start gap-2">
+          <span className="text-xs font-semibold  text-[var(--muted)]">
             {t('sessions_title')}
           </span>
           <Button
             size="sm"
             variant="primary"
             onClick={handleCreateNewTask}
-            className="h-7 text-xs px-2.5 gap-1.5"
+            className="w-full text-xs px-2.5 gap-1.5"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>{t('new_conversation_btn')}</span>
@@ -178,12 +178,12 @@ export function SessionSidebar() {
       {/* Workspace Quick Card */}
       {workspace && (
         <div className="p-2.5 mx-2.5 my-2 rounded-lg bg-[var(--surface)] border border-[var(--line)] flex items-center gap-2.5 text-xs text-[var(--muted)]">
-          <FolderGit2 className="w-4 h-4 text-sky-400 flex-shrink-0" />
+          <FolderGit2 className="w-4 h-4 text-[var(--primary)] flex-shrink-0" />
           <div className="flex-1 min-w-0">
-            <div className="font-mono text-[11px] truncate text-[var(--text)] font-medium">
+            <div className="text-xs truncate text-[var(--text)] font-medium">
               {workspace.path?.split(/[\\/]/).filter(Boolean).pop() || 'Workspace'}
             </div>
-            <div className="text-[10px] text-[var(--faint)] flex items-center gap-2">
+            <div className="text-xs text-[var(--faint)] flex items-center gap-2">
               <span>{workspace.git?.branch || 'Chưa rõ nhánh'}</span>
               {workspace.git?.dirty && <span className="text-amber-400 font-semibold">• {t('git_dirty')}</span>}
             </div>
@@ -210,7 +210,7 @@ export function SessionSidebar() {
           <>
             {groupedTasks.today.length > 0 && (
               <div>
-                <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--faint)]">
+                <div className="px-2 py-1 text-xs font-semibold  text-[var(--faint)]">
                   Hôm nay
                 </div>
                 <div className="space-y-1 mt-1">
@@ -221,7 +221,7 @@ export function SessionSidebar() {
 
             {groupedTasks.week.length > 0 && (
               <div>
-                <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--faint)]">
+                <div className="px-2 py-1 text-xs font-semibold  text-[var(--faint)]">
                   7 ngày qua
                 </div>
                 <div className="space-y-1 mt-1">
@@ -232,7 +232,7 @@ export function SessionSidebar() {
 
             {groupedTasks.older.length > 0 && (
               <div>
-                <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--faint)]">
+                <div className="px-2 py-1 text-xs font-semibold  text-[var(--faint)]">
                   Cũ hơn
                 </div>
                 <div className="space-y-1 mt-1">

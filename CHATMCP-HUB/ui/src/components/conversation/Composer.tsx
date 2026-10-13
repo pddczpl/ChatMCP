@@ -104,7 +104,7 @@ export function Composer({
           placeholder={activePlaceholder}
           disabled={disabled || submitting}
           rows={1}
-          className="w-full bg-transparent px-3.5 pt-3 pb-2 text-[13px] text-[var(--text)] placeholder-[var(--faint)] resize-none focus:outline-none max-h-56 min-h-[44px] leading-relaxed font-sans"
+          className="w-full bg-transparent px-3.5 pt-3 pb-2 text-[15px] text-[var(--text)] placeholder-[var(--faint)] resize-none focus:outline-none max-h-56 min-h-[44px] leading-relaxed font-sans"
         />
 
         {/* Bottom Toolbar */}
@@ -117,7 +117,7 @@ export function Composer({
               className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium bg-[var(--surface-hover)] hover:bg-[var(--line)] text-[var(--text)] border border-[var(--line)] transition-colors"
               title={t('agent_exec_mode')}
             >
-              <ModeIcon className={`w-3.5 h-3.5 ${currentMode === 'full-access' ? 'text-rose-400' : 'text-sky-400'}`} />
+              <ModeIcon className={`w-3.5 h-3.5 ${currentMode === 'full-access' ? 'text-rose-400' : 'text-[var(--primary)]'}`} />
               <span>{currentModeObj.label}</span>
               <ChevronDown className="w-3 h-3 text-[var(--faint)]" />
             </button>
@@ -125,7 +125,7 @@ export function Composer({
             {/* Mode Dropdown */}
             {modeMenuOpen && (
               <div className="absolute left-0 bottom-full mb-1 w-64 rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-xl z-50 p-1.5 space-y-1 modal-3d-enter">
-                <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--faint)]">
+                <div className="px-2 py-1 text-xs font-semibold  text-[var(--faint)]">
                   {t('agent_exec_mode')}
                 </div>
                 {modes.map((m) => {
@@ -137,14 +137,14 @@ export function Composer({
                       onClick={() => handleSelectMode(m.id)}
                       className={`w-full flex items-start gap-2.5 p-2 rounded-lg text-left transition-colors ${
                         isCurrent
-                          ? 'bg-sky-500/15 text-sky-300 font-medium'
+                          ? 'bg-sky-500/15 text-[var(--primary)] font-medium'
                           : 'hover:bg-[var(--surface-hover)] text-[var(--muted)] hover:text-[var(--text)]'
                       }`}
                     >
-                      <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${m.id === 'full-access' ? 'text-rose-400' : 'text-sky-400'}`} />
+                      <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${m.id === 'full-access' ? 'text-rose-400' : 'text-[var(--primary)]'}`} />
                       <div className="min-w-0">
                         <div className="text-xs font-semibold">{m.label}</div>
-                        <div className="text-[11px] text-[var(--faint)] leading-snug">{m.desc}</div>
+                        <div className="text-xs text-[var(--faint)] leading-snug">{m.desc}</div>
                       </div>
                     </button>
                   );
@@ -155,7 +155,7 @@ export function Composer({
 
           {/* Right: Hint & Send/Stop Button */}
           <div className="flex items-center gap-2">
-            <span className="hidden sm:inline text-[11px] text-[var(--faint)]">
+            <span className="hidden sm:inline text-xs text-[var(--faint)]">
               {t('enter_to_send')}
             </span>
 

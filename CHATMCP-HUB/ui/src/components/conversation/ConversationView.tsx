@@ -7,6 +7,7 @@ import { MessageItem } from './MessageItem';
 import { ToolReceipt } from './ToolReceipt';
 import { StateBanner } from './StateBanner';
 import { Composer } from './Composer';
+import { CopyButton } from '@/components/ui/CopyButton';
 import { ApprovalStack, PendingApproval } from '@/components/approval/ApprovalStack';
 import { Card } from '@/components/ui/Card';
 import { useTranslation } from '@/lib/i18n';
@@ -26,6 +27,8 @@ export function ConversationView() {
   const queryClient = useQueryClient();
   const { selectedTaskId, setSelectedTaskId, showToast, streamingToken, streamingTaskId } = useAppStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const followOutput = useRef(true);
+  const [showLatest, setShowLatest] = useState(false);
   const requestPending = useRef(false);
   const [sending, setSending] = useState(false);
   const [approving, setApproving] = useState(false);
@@ -54,9 +57,14 @@ export function ConversationView() {
     void queryClient.invalidateQueries({ queryKey: ['task', selectedTaskId] });
   };
 
-  // Auto-scroll on new message
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    followOutput.current = true;
+    setShowLatest(false);
+  }, [selectedTaskId]);
+
+  // Reading/copying earlier output must not be interrupted by streaming or polling.
+  useEffect(() => {
+    if (followOutput.current) messagesEndRef.current?.scrollIntoView({ behavior: 'instant', block: 'end' });
   }, [task?.messages, task?.toolCalls, visibleToken]);
 
   // Send message handler
@@ -181,11 +189,15 @@ export function ConversationView() {
       {task && <PhaseRibbon task={task} onCancel={handleStopTask} />}
 
       {/* Main Conversation Stream */}
-      <div className="flex-1 overflow-y-auto min-h-0 flex flex-col">
+      <div className="flex-1 overflow-y-auto min-h-0 flex flex-col" data-testid="conversation-scroll" onScroll={event => {
+        const el = event.currentTarget;
+        followOutput.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        setShowLatest(!followOutput.current);
+      }}>
         {isLoading && selectedTaskId ? <p className="p-4 text-xs text-[var(--muted)]">Đang tải hội thoại…</p> : taskError ? <p role="alert" className="p-4 text-xs text-rose-400">{taskError.message}</p> : !selectedTaskId ? (
           /* Empty / Welcome State with smooth cards */
           <div className="flex-1 flex flex-col items-center justify-center p-6 max-w-3xl mx-auto w-full select-none">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-500 to-teal-400 flex items-center justify-center text-slate-950 shadow-lg shadow-sky-500/20 mb-4 floating-step">
+            <div className="w-12 h-12 rounded-2xl bg-[var(--primary-bg)] text-[var(--primary)] flex items-center justify-center mb-4">
               <Bot className="w-6 h-6 stroke-[2.2]" />
             </div>
 
@@ -203,7 +215,6 @@ export function ConversationView() {
                 return (
                   <Card
                     key={idx}
-                    tilt3d
                     onClick={() => { if (!sending && !otherTaskWorking) void handleSendMessage(item.prompt); }}
                     className="p-3.5 cursor-pointer bg-[var(--panel)] hover:bg-[var(--surface-hover)] border-[var(--line)] hover:border-sky-500/50 group transition-all duration-150"
                   >
@@ -235,12 +246,16 @@ export function ConversationView() {
 
             {/* Streaming Token Chunk */}
             {visibleToken && (
-              <div className="py-3.5 px-4 flex gap-3 text-xs border-b border-[var(--line-subtle)] bg-[var(--surface)]/20 animate-pulse">
+              <div className="py-4 px-4 flex gap-3 text-sm border-b border-[var(--line-subtle)]" data-testid="streaming-message">
                 <div className="w-6 h-6 rounded-full bg-teal-500/20 text-teal-400 border border-teal-500/30 flex items-center justify-center flex-shrink-0">
                   <Bot className="w-3.5 h-3.5" />
                 </div>
-                <div className="flex-1 min-w-0 font-sans text-[13px] text-[var(--text)] whitespace-pre-wrap">
-                  {visibleToken}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2 mb-1 text-xs text-[var(--muted)]">
+                    <span>Đang trả lời…</span>
+                    <CopyButton text={visibleToken} label="Sao chép nội dung đang trả lời" />
+                  </div>
+                  <div className="conversation-copy text-[var(--text)] whitespace-pre-wrap">{visibleToken}</div>
                 </div>
               </div>
             )}
@@ -255,11 +270,16 @@ export function ConversationView() {
             />}
             {approvalHistory.length > 0 && <details className="mx-4 my-3 text-xs"><summary>Lịch sử phê duyệt ({approvalHistory.length})</summary><ApprovalStack approvals={approvalHistory} onApprove={handleApprove} onDeny={handleDeny} /></details>}
 
-            <div ref={messagesEndRef} />
           </div>
         )}
         <ApprovalStack approvals={pendingApprovals} onApprove={handleApprove} onDeny={handleDeny} busy={approving} />
+        <div ref={messagesEndRef} />
       </div>
+      {showLatest && <div className="flex justify-center py-1 bg-[var(--panel)]"><button type="button" className="px-3 py-1 rounded-full text-xs text-[var(--primary)] border border-[var(--line)]" onClick={() => {
+        followOutput.current = true;
+        setShowLatest(false);
+        messagesEndRef.current?.scrollIntoView({ behavior: 'instant', block: 'end' });
+      }}>Về nội dung mới nhất ↓</button></div>}
       {otherTaskWorking && <p className="px-4 py-2 text-xs text-amber-300">Một hội thoại khác đang chạy. Dừng hoặc đợi hội thoại đó trước khi gửi.</p>}
 
       {/* Bottom Composer */}

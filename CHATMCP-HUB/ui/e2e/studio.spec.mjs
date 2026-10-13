@@ -68,7 +68,7 @@ test('onboarding, blank conversation, real approvals/edit/test/diff/plan and Ski
   await expect(page.getByRole('region', { name: 'Terminal sessions' })).toContainText('add() ok');
   await expect(page.getByRole('region', { name: 'Terminal sessions' })).toContainText('Exit: 0');
   await page.getByRole('button', { name: 'Skills', exact: true }).click();
-  await expect(page.getByText('Chợ kỹ năng (Skills Marketplace)', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Kỹ năng cho trợ lý', exact: true })).toBeVisible();
   await expect.poll(() => [...browserErrors.requests].some((route) => route === '/api/plugins/marketplace')).toBe(true);
   await expect.poll(() => [...browserErrors.requests].some((route) => route === '/api/plugins/registry')).toBe(true);
   const callsAfterCompletion = app.mock.state.requests.length;

@@ -39,7 +39,7 @@ namespace ChatMCP.Installer
 
         private void InitializeComponent()
         {
-            Text = "ChatMCP Studio Setup - Version 3.0.1";
+            Text = "ChatMCP Studio Setup - Version 3.0.2";
             Size = new Size(620, 460);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;

@@ -141,7 +141,7 @@ export class GitHubSkillRegistry {
       id,name:parsed.name,description:parsed.description,version:parsed.version,
       systemPrompt:parsed.systemPrompt,license:parsed.license,author:parsed.author,tools:parsed.tools,
       sourceUrl:raw(entry.repo,entry.revision,entry.manifestPath),commitSha:entry.revision,
-      originalSkillText:text,resourceFiles,
+      originalSkillText:text,resourceFiles,update,
     });
     return {...installed,revision:entry.revision,readOnlyImport:true,skippedResources:skipped};
   }

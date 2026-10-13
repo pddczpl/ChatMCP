@@ -2,6 +2,13 @@
 @import "@fontsource-variable/inter";
 @import "@fontsource/jetbrains-mono";
 
+@theme {
+  --font-sans: "Inter Variable", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.5;
+}
+
 :root, [data-theme="dark"] {
   --bg: #0e1217;
   --panel: #131820;
@@ -11,9 +18,10 @@
   --line-subtle: #1e2734;
   --text: #f0f4f8;
   --muted: #96a5b8;
-  --faint: #67788d;
+  --faint: #93a2b5;
   --primary: #38bdf8;
   --primary-hover: #7dd3fc;
+  --primary-foreground: #082838;
   --primary-bg: #082838;
   --accent: #2dd4bf;
   --success: #34d399;
@@ -37,13 +45,14 @@
   --text: #0f172a;
   --muted: #475569;
   --faint: #64748b;
-  --primary: #0284c7;
-  --primary-hover: #0369a1;
+  --primary: #0369a1;
+  --primary-hover: #075985;
+  --primary-foreground: #ffffff;
   --primary-bg: #e0f2fe;
   --accent: #0d9488;
-  --success: #059669;
+  --success: #047857;
   --success-bg: #d1fae5;
-  --warning: #d97706;
+  --warning: #92400e;
   --warning-bg: #fef3c7;
   --danger: #dc2626;
   --danger-bg: #fee2e2;
@@ -56,17 +65,51 @@
   box-sizing: border-box;
 }
 
+html {
+  font-size: 16px;
+}
+
 html, body, #root {
   height: 100%;
   margin: 0;
   padding: 0;
-  font-family: "Segoe UI Variable", -apple-system, BlinkMacSystemFont, "Inter Variable", "Inter", system-ui, sans-serif;
+  font-family: var(--font-sans);
   background-color: var(--bg);
   color: var(--text);
-  font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
   overflow: hidden;
 }
+
+body {
+  font-size: 14px;
+}
+
+button, input, textarea, select {
+  font-family: inherit;
+}
+
+button:not(:disabled), summary {
+  cursor: pointer;
+}
+
+:where(button, input, textarea, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
+::selection {
+  background: var(--primary-bg);
+  color: var(--text);
+}
+
+.conversation-copy {
+  font-size: 15px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.conversation-copy > :first-child { margin-top: 0; }
 
 /* 3D Motion and Interactive Depth System */
 .perspective-container {

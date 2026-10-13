@@ -18,10 +18,11 @@ export function App() {
 
   // Initialize theme on mount
   useEffect(() => {
-    const resolved = theme === 'system'
-      ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
-      : theme;
-    document.documentElement.setAttribute('data-theme', resolved);
+    const preference = window.matchMedia('(prefers-color-scheme: light)');
+    const apply = () => document.documentElement.setAttribute('data-theme', theme === 'system' ? (preference.matches ? 'light' : 'dark') : theme);
+    apply();
+    preference.addEventListener('change', apply);
+    return () => preference.removeEventListener('change', apply);
   }, [theme]);
 
   // Check onboarding on mount

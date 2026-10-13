@@ -108,8 +108,13 @@ internal sealed class SmokeWindow : Form
             await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('[aria-label=\"Đóng thiết lập\"]').click()");
             await WaitFor("!document.querySelector('[role=dialog][aria-label=\"Thiết lập ChatMCP\"]')", "onboarding dismiss works");
             await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('button[title=\"Skills\"]').click()");
-            await WaitFor("Array.from(document.querySelectorAll('aside')).some(panel => panel.innerText.includes('GitHub Agent Skills Hub'))", "Skills inspector rendered");
+            await WaitFor("Array.from(document.querySelectorAll('aside')).some(panel => panel.innerText.includes('Kỹ năng cho trợ lý'))", "Skills inspector rendered");
             await WaitFor("performance.getEntriesByType('resource').some(entry => entry.name.includes('/api/plugins/marketplace')) && performance.getEntriesByType('resource').some(entry => entry.name.includes('/api/plugins/registry'))", "Skills API requests completed");
+            await browser.CoreWebView2.ExecuteScriptAsync("Array.from(document.querySelectorAll('summary')).find(el => el.textContent === 'Nguồn kỹ năng & tùy chỉnh').click()");
+            await browser.CoreWebView2.ExecuteScriptAsync("Array.from(document.querySelectorAll('button')).find(el => el.textContent.includes('Thêm kỹ năng từ URL hoặc tự viết')).click()");
+            await WaitFor("document.querySelector('dialog[open]')?.innerText.includes('Thêm kỹ năng')", "native Skills dialog rendered without CSP violations");
+            await browser.CoreWebView2.ExecuteScriptAsync("Array.from(document.querySelectorAll('dialog[open] button')).find(el => el.textContent === 'Hủy').click()");
+            await WaitFor("!document.querySelector('dialog[open]')", "native Skills dialog dismissal works");
             await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('button[title=\"Kế hoạch\"]').click()");
             await WaitFor("document.querySelector('[aria-label=\"Task plan\"]')?.innerText.includes('Chưa có kế hoạch')", "empty plan reports no plan");
             var fabricated = await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('[aria-label=\"Task plan\"]')?.innerText.includes('100%')");

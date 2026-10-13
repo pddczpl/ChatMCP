@@ -39,7 +39,7 @@ export interface SandboxStatus {
   backends?: BackendCapabilityReport[];
 }
 
-const UI_BUILD = '3.0.1-react-agent';
+const UI_BUILD = '3.0.2-react-agent';
 let currentCsrfToken = '';
 
 export function setCsrfToken(token: string) {
@@ -189,6 +189,7 @@ export const api = {
   removeRegistrySource: (sourceId:string) => request<any>('/api/plugins/registry/source/remove',{method:'POST',body:JSON.stringify({sourceId,confirmation:'REMOVE GITHUB SOURCE'})}),
 
   // Skills & Plugins
+  getInstalledPlugins: () => request<{ plugins: any[] }>('/api/plugins/installed'),
   getSkills: () => request<{ skills: any[] }>('/api/studio/skills'),
   getMarketplace: (category = '', query = '') =>
     request<{ catalog: MarketplacePlugin[] }>(`/api/plugins/marketplace?category=${encodeURIComponent(category)}&query=${encodeURIComponent(query)}`),

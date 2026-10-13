@@ -1,8 +1,8 @@
-import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Bot, User, Check, Copy, Terminal } from 'lucide-react';
+import { Bot, User, Terminal } from 'lucide-react';
 import { Message } from '@/types';
+import { CopyButton } from '@/components/ui/CopyButton';
 
 interface MessageItemProps {
   message: Message;
@@ -14,10 +14,11 @@ export function MessageItem({ message }: MessageItemProps) {
 
   return (
     <div
-      className={`py-3.5 px-4 flex gap-3 text-xs leading-relaxed transition-colors ${
+      data-testid="conversation-message"
+      className={`py-4 px-4 flex gap-3 text-sm leading-relaxed ${
         isUser
           ? 'bg-[var(--surface)]/40 border-b border-[var(--line-subtle)]'
-          : 'border-b border-[var(--line-subtle)] hover:bg-[var(--surface)]/20'
+          : 'border-b border-[var(--line-subtle)]'
       }`}
     >
       {/* Avatar Icon */}
@@ -40,24 +41,27 @@ export function MessageItem({ message }: MessageItemProps) {
       {/* Content */}
       <div className="flex-1 min-w-0 space-y-1">
         {/* Role & Timestamp */}
-        <div className="flex items-center justify-between text-[11px] text-[var(--faint)]">
+        <div className="flex items-center justify-between gap-2 text-xs text-[var(--muted)] mb-1">
           <span className="font-semibold text-[var(--text)]">
-            {isUser ? 'Bạn' : isSystem ? 'Hệ thống' : 'ChatMCP Agent'}
+            {isUser ? 'Bạn' : isSystem ? 'Hệ thống' : 'ChatMCP'}
           </span>
+          <div className="flex items-center gap-2">
           {message.timestamp && (
-            <span>
+            <span className="tabular-nums">
               {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </span>
           )}
+          <CopyButton text={message.content} label="Sao chép tin nhắn" />
+          </div>
         </div>
 
         {/* Message Body */}
         {isUser ? (
-          <div className="whitespace-pre-wrap text-[var(--text)] font-sans text-[13px]">
+          <div className="conversation-copy whitespace-pre-wrap text-[var(--text)]">
             {message.content}
           </div>
         ) : (
-          <div className="text-[var(--text)] prose-invert max-w-none text-[13px] leading-relaxed">
+          <div className="conversation-copy text-[var(--text)] max-w-none">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
@@ -66,7 +70,7 @@ export function MessageItem({ message }: MessageItemProps) {
                     {...props}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sky-400 hover:underline font-medium"
+                    className="text-[var(--primary)] underline underline-offset-2 font-medium"
                   />
                 ),
                 code: ({ node, className, children, ...props }) => {
@@ -76,7 +80,7 @@ export function MessageItem({ message }: MessageItemProps) {
                   if (isInline) {
                     return (
                       <code
-                        className="px-1.5 py-0.5 rounded bg-[var(--surface)] text-sky-300 font-mono text-[12px] border border-[var(--line)]"
+                        className="px-1.5 py-0.5 rounded bg-[var(--surface)] text-[var(--text)] font-mono text-xs border border-[var(--line)]"
                         {...props}
                       >
                         {children}
@@ -90,13 +94,14 @@ export function MessageItem({ message }: MessageItemProps) {
                     </CodeBlock>
                   );
                 },
-                p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                pre: ({ children }) => <>{children}</>,
+                p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
                 ul: ({ children }) => <ul className="list-disc pl-5 mb-2 space-y-1">{children}</ul>,
                 ol: ({ children }) => <ol className="list-decimal pl-5 mb-2 space-y-1">{children}</ol>,
                 li: ({ children }) => <li className="pl-0.5">{children}</li>,
-                h1: ({ children }) => <h1 className="text-base font-bold text-sky-400 mt-3 mb-1.5">{children}</h1>,
-                h2: ({ children }) => <h2 className="text-sm font-bold text-sky-400 mt-2.5 mb-1">{children}</h2>,
-                h3: ({ children }) => <h3 className="text-xs font-bold text-[var(--text)] mt-2 mb-1">{children}</h3>,
+                h1: ({ children }) => <h1 className="text-xl font-semibold text-[var(--text)] mt-5 mb-2">{children}</h1>,
+                h2: ({ children }) => <h2 className="text-lg font-semibold text-[var(--text)] mt-4 mb-2">{children}</h2>,
+                h3: ({ children }) => <h3 className="text-base font-semibold text-[var(--text)] mt-3 mb-1">{children}</h3>,
                 blockquote: ({ children }) => (
                   <blockquote className="border-l-2 border-sky-500/50 pl-3 italic text-[var(--muted)] my-2">
                     {children}
@@ -129,41 +134,17 @@ export function MessageItem({ message }: MessageItemProps) {
 }
 
 function CodeBlock({ language, children }: { language: string; children: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(children);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   return (
-    <div className="my-2.5 rounded-lg border border-[var(--line)] bg-[#0b0f14] overflow-hidden text-xs font-mono shadow-sm">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[var(--surface)]/70 border-b border-[var(--line)] text-[11px] text-[var(--muted)]">
-        <span className="font-semibold uppercase tracking-wider text-[10px] text-sky-400">
+    <div className="my-3 rounded-lg border border-[var(--line)] bg-[var(--bg)] overflow-hidden text-xs" data-testid="message-code">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-[var(--surface)] border-b border-[var(--line)] text-xs text-[var(--muted)]">
+        <span className="font-medium">
           {language}
         </span>
-        <button
-          onClick={handleCopy}
-          className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-[var(--surface-hover)] text-[var(--muted)] hover:text-[var(--text)] transition-colors"
-          title="Sao chép mã"
-        >
-          {copied ? (
-            <>
-              <Check className="w-3 h-3 text-emerald-400" />
-              <span className="text-emerald-400 text-[10px]">Đã chép</span>
-            </>
-          ) : (
-            <>
-              <Copy className="w-3 h-3" />
-              <span className="text-[10px]">Sao chép</span>
-            </>
-          )}
-        </button>
+        <CopyButton text={children} label="Sao chép mã" />
       </div>
-      <div className="p-3 overflow-x-auto leading-relaxed text-[var(--text)]">
+      <pre className="p-3 overflow-x-auto leading-7 text-[var(--text)]" tabIndex={0}>
         <code>{children}</code>
-      </div>
+      </pre>
     </div>
   );
 }

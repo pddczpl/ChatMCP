@@ -8,6 +8,7 @@ import {
   Moon, 
   PanelRightClose, 
   PanelRightOpen, 
+  PanelLeft,
   ShieldCheck, 
   ShieldAlert, 
   Bot, 
@@ -23,6 +24,8 @@ export function Header() {
   const { t, lang } = useTranslation();
   const { 
     theme, 
+    sidebarOpen,
+    toggleSidebar,
     setTheme, 
     inspectorOpen, 
     toggleInspector, 
@@ -50,33 +53,34 @@ export function Header() {
 
   const getModeInfo = () => {
     if (isFullAccess) {
-      return { label: 'FULL ACCESS ⚠️', color: 'text-rose-400 border-rose-500/60 bg-rose-950/40 animate-pulse', icon: ShieldAlert };
+      return { label: 'FULL ACCESS ⚠️', color: 'text-[var(--danger)] border-[var(--danger)] bg-[var(--danger-bg)]', icon: ShieldAlert };
     }
-    if (mode === 'readonly') return { label: 'Chỉ đọc', color: 'text-slate-400 border-slate-700 bg-slate-900', icon: Eye };
-    if (mode === 'autonomous') return { label: 'Tự động', color: 'text-purple-400 border-purple-700/60 bg-purple-950/30', icon: Bot };
-    return { label: 'Review', color: 'text-sky-400 border-sky-700/60 bg-sky-950/30', icon: ShieldCheck };
+    if (mode === 'readonly') return { label: 'Chỉ đọc', color: 'text-[var(--muted)] border-[var(--line)] bg-[var(--surface)]', icon: Eye };
+    if (mode === 'autonomous') return { label: 'Tự động', color: 'text-[var(--primary)] border-[var(--line)] bg-[var(--primary-bg)]', icon: Bot };
+    return { label: 'Review', color: 'text-[var(--primary)] border-[var(--line)] bg-[var(--primary-bg)]', icon: ShieldCheck };
   };
 
   const modeInfo = getModeInfo();
   const ModeIcon = modeInfo.icon;
 
   return (
-    <header className="h-12 border-b border-[var(--line)] bg-[var(--panel)] px-3 flex items-center justify-between select-none z-20 flex-shrink-0">
+    <header className="h-14 border-b border-[var(--line)] bg-[var(--panel)] px-3 flex items-center justify-between gap-3 select-none z-20 flex-shrink-0">
       {/* Brand & Workspace */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 min-w-0">
+        <Button variant="quiet" size="icon" onClick={toggleSidebar} aria-label={sidebarOpen ? 'Thu gọn hội thoại' : 'Mở danh sách hội thoại'} title="Danh sách hội thoại (Ctrl+B)"><PanelLeft className="w-4 h-4" /></Button>
         <div className="flex items-center gap-2 font-bold text-sm tracking-tight">
           <div className="w-6 h-6 rounded bg-gradient-to-br from-sky-400 to-teal-400 flex items-center justify-center text-slate-950 font-black text-xs shadow-sm shadow-sky-500/20">
             C
           </div>
-          <span>ChatMCP <span className="font-normal text-[var(--muted)]">Studio</span></span>
+          <span className="hidden sm:inline">ChatMCP <span className="font-normal text-[var(--muted)]">Studio</span></span>
         </div>
 
         <button
           onClick={handleBrowseWorkspace}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--line)] text-[var(--text)] transition-colors"
+          className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--line)] text-[var(--text)] transition-colors"
           title={`Thư mục: ${workspacePath} (Nhấp để đổi)`}
         >
-          <Folder className="w-3.5 h-3.5 text-sky-400" />
+          <Folder className="w-3.5 h-3.5 text-[var(--primary)]" />
           <span className="max-w-[150px] truncate">{shortWs}</span>
         </button>
       </div>
@@ -84,11 +88,12 @@ export function Header() {
       {/* Center Search / Command Palette */}
       <button
         onClick={() => setCommandPaletteOpen(true)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--line)] text-[var(--muted)] hover:text-[var(--text)] transition-colors w-64 shadow-inner"
+        aria-label="Tìm kiếm hoặc lệnh"
+        className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-md text-xs bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--line)] text-[var(--muted)] hover:text-[var(--text)] transition-colors max-w-64 min-w-32 flex-1"
       >
         <Search className="w-3.5 h-3.5 text-[var(--faint)]" />
         <span className="flex-1 text-left">Tìm kiếm hoặc lệnh...</span>
-        <kbd className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-[var(--panel)] border border-[var(--line)] text-[var(--faint)]">
+        <kbd className="font-mono text-xs px-1.5 py-0.5 rounded bg-[var(--panel)] border border-[var(--line)] text-[var(--faint)]">
           Ctrl K
         </kbd>
       </button>
@@ -96,7 +101,7 @@ export function Header() {
       {/* Right Controls */}
       <div className="flex items-center gap-2">
         {/* Hub Connection Badge */}
-        <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-[var(--muted)]">
+        <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-[var(--muted)]">
           <span className={`w-2 h-2 rounded-full ${error ? 'bg-rose-400' : hub ? 'bg-emerald-400' : 'bg-amber-400'}`} />
           <span className="hidden sm:inline" title={error?.message}>{error ? (lang === 'en' ? 'Hub disconnected' : 'Mất kết nối Hub') : hub ? t('hub_connected') : (lang === 'en' ? 'Connecting to Hub' : 'Đang kết nối Hub')}</span>
         </div>

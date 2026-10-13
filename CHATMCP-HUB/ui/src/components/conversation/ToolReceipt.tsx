@@ -9,11 +9,11 @@ import {
   AlertCircle, 
   Loader2, 
   ChevronRight, 
-  ChevronDown, 
-  Copy, 
-  Check 
+  ChevronDown
 } from 'lucide-react';
 import { ToolCall } from '@/types';
+import { CopyButton } from '@/components/ui/CopyButton';
+import { formatToolOutput } from '@/lib/tool-output';
 
 interface ToolReceiptProps {
   tool: ToolCall;
@@ -21,7 +21,6 @@ interface ToolReceiptProps {
 
 export function ToolReceipt({ tool }: ToolReceiptProps) {
   const [expanded, setExpanded] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   const getToolIcon = (name: string) => {
     if (name.includes('write') || name.includes('create') || name.includes('replace')) {
@@ -46,16 +45,10 @@ export function ToolReceipt({ tool }: ToolReceiptProps) {
 
   const summary = tool.args?.path || tool.args?.command || tool.args?.cmd || tool.args?.query || tool.summary || tool.args?.TargetFile || '';
 
-  const handleCopyOutput = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const content = typeof tool.result === 'string' ? tool.result : JSON.stringify(tool.result ?? tool.args ?? tool.summary, null, 2);
-    navigator.clipboard.writeText(content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const output = formatToolOutput(tool.result ?? tool.args ?? tool.summary);
 
   return (
-    <div className="mx-4 my-2 border border-[var(--line)] rounded-lg bg-[var(--surface)] overflow-hidden text-xs select-none shadow-sm transition-all" data-testid="tool-receipt" data-status={tool.status || 'unknown'}>
+    <div className="mx-4 my-2 border border-[var(--line)] rounded-lg bg-[var(--panel)] overflow-hidden text-xs" data-testid="tool-receipt" data-status={tool.status || 'unknown'}>
       {/* Header Bar */}
       <div
         onClick={() => setExpanded(!expanded)}
@@ -75,12 +68,12 @@ export function ToolReceipt({ tool }: ToolReceiptProps) {
             <Icon className="w-3 h-3" />
           </div>
 
-          <span className="font-mono font-semibold text-xs text-[var(--text)]">
+          <span className="font-medium text-xs text-[var(--text)] truncate shrink-0 max-w-[50%]">
             {tool.name}
           </span>
 
           {summary && (
-            <span className="font-mono text-[11px] text-[var(--faint)] truncate max-w-[280px] sm:max-w-md">
+            <span className="text-xs text-[var(--muted)] truncate">
               {summary}
             </span>
           )}
@@ -88,59 +81,42 @@ export function ToolReceipt({ tool }: ToolReceiptProps) {
 
         <div className="flex items-center gap-2 flex-shrink-0">
           {tool.durationMs !== undefined && (
-            <span className="text-[10px] font-mono text-[var(--faint)]">
+            <span className="text-xs tabular-nums text-[var(--muted)] hidden sm:inline">
               {tool.durationMs < 1000 ? `${tool.durationMs}ms` : `${(tool.durationMs / 1000).toFixed(1)}s`}
             </span>
           )}
 
           {isRunning ? (
-            <div className="flex items-center gap-1 text-sky-400 text-[11px]">
+            <div className="flex items-center gap-1 text-[var(--primary)] text-xs">
               <Loader2 className="w-3 h-3 animate-spin" />
               <span>Đang chạy</span>
             </div>
           ) : isError ? (
-            <div className="flex items-center gap-1 text-rose-400 text-[11px]">
+            <div className="flex items-center gap-1 text-[var(--danger)] text-xs">
               <AlertCircle className="w-3 h-3" />
               <span>Lỗi</span>
             </div>
           ) : isSuccess ? (
-            <div className="flex items-center gap-1 text-emerald-400 text-[11px]">
+            <div className="flex items-center gap-1 text-[var(--success)] text-xs">
               <CheckCircle2 className="w-3 h-3" />
               <span>Xong</span>
             </div>
-          ) : <span className="text-amber-300 text-[11px]">Chưa rõ kết quả</span>}
+          ) : <span className="text-[var(--warning)] text-xs">Chưa rõ kết quả</span>}
         </div>
       </div>
 
       {/* Expanded Output / Payload */}
       {expanded && (
-        <div className="border-t border-[var(--line)] bg-[#0c1016] p-3 text-[11px] font-mono">
-          <div className="flex items-center justify-between mb-2 pb-1 border-b border-[var(--line-subtle)]">
-            <span className="text-[var(--faint)] font-sans text-[10px] uppercase tracking-wider">
+        <div className="border-t border-[var(--line)] bg-[var(--bg)] p-3 select-text" data-testid="tool-output">
+          <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-[var(--line-subtle)]">
+            <span className="text-[var(--muted)] text-xs font-medium">
               {tool.result !== undefined ? 'Kết quả phản hồi' : 'Chi tiết công cụ đã ghi nhận'}
             </span>
-            <button
-              onClick={handleCopyOutput}
-              className="flex items-center gap-1 text-[var(--faint)] hover:text-[var(--text)] transition-colors"
-            >
-              {copied ? (
-                <>
-                  <Check className="w-3 h-3 text-emerald-400" />
-                  <span className="text-emerald-400 text-[10px]">Đã chép</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3 h-3" />
-                  <span className="text-[10px]">Sao chép</span>
-                </>
-              )}
-            </button>
+            <CopyButton text={output} label="Sao chép kết quả" />
           </div>
 
-          <pre className="max-h-60 overflow-y-auto whitespace-pre-wrap text-[var(--text)] text-[11px] leading-relaxed">
-            {typeof tool.result === 'string'
-              ? tool.result
-              : JSON.stringify(tool.result ?? tool.args ?? tool.summary, null, 2)}
+          <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words text-[var(--text)] text-xs leading-7" tabIndex={0}>
+            {output || (isRunning ? 'Đang chờ kết quả…' : 'Không có nội dung phản hồi.')}
           </pre>
         </div>
       )}

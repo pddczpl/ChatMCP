@@ -1,5 +1,13 @@
 # Lịch sử thay đổi
 
+## [3.0.2] — 2026-10-14 — Clearer Skills, Agents and readable output
+
+- Improve UI typography, spacing and text contrast so navigation, chat messages and inspector panels are easier to read.
+- Show installed GitHub Skills with their current state and actions to enable, disable, update or uninstall them; keep installation feedback in sync with the local library.
+- Simplify the Agents workspace with plain-language guidance, clear task choices and advanced controls available when needed.
+- Keep expanded tool output readable in light and dark themes and provide visible copy actions for responses and streaming text.
+- Synchronize Hub, UI, Desktop and Installer versions to 3.0.2.
+
 ## [3.0.1] — 2026-10-14 — Gemini JSON and local tool routing fixes
 
 - Gemini text-only requests use one consistent JSON action contract for progress, built-in tools, MCP routers, historical actions and bounded repair requests.

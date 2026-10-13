@@ -19,7 +19,7 @@ import { CodingWorktreeOrchestrator } from './lib/coding-orchestrator.mjs';
 import { GitHubSkillRegistry } from './lib/skill-registry.mjs';
 
 const APP_ID = 'chatmcp-local-hub';
-export const UI_BUILD = '3.0.1-react-agent';
+export const UI_BUILD = '3.0.2-react-agent';
 // Prevent a new installer from silently reopening a stale daemon at :3007.
 export function assertCompatibleRunningHub(health, port=3007) {
   if (health?.app !== APP_ID) throw new Error(`Cổng ${port} đang do ứng dụng khác sử dụng. Không tự dừng tiến trình đó.`);
@@ -111,7 +111,8 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   const pluginManager = manager.pluginManager ?? new PluginManager({ stateDir: hubStateDir });
   manager.pluginManager = pluginManager;
   pluginManager.load().catch(() => {});
-  const skillRegistry = new GitHubSkillRegistry({ pluginManager, stateDir: hubStateDir });
+  // Keep discovery beside the installed skill library, including isolated Hub profiles.
+  const skillRegistry = new GitHubSkillRegistry({ pluginManager, stateDir: pluginManager.stateDir ?? hubStateDir });
   skillRegistry.load().catch(() => {});
   const sandboxEngine = manager.sandboxEngine || new SandboxEngine({
     mode: 'host',

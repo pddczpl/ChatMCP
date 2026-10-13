@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { useAppStore } from '@/store/useAppStore';
 import { Header } from '@/components/layout/Header';
@@ -13,6 +13,19 @@ import { useTaskStream } from '@/lib/useTaskStream';
 
 export function AppShell() {
   useTaskStream();
+  const [compact, setCompact] = useState(() => window.innerWidth < 1100);
+  useEffect(() => {
+    if (compact) {
+      useAppStore.getState().setSidebarOpen(false);
+      useAppStore.getState().setInspectorOpen(false);
+    }
+  }, [compact]);
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 1099px)');
+    const sync = () => setCompact(query.matches);
+    query.addEventListener('change', sync);
+    return () => query.removeEventListener('change', sync);
+  }, []);
   const { 
     sidebarOpen, 
     toggleSidebar, 
@@ -50,9 +63,9 @@ export function AppShell() {
 
       {/* Main Resizable Workspace Area */}
       <div className="flex-1 min-h-0 relative">
-        <PanelGroup direction="horizontal" autoSaveId="chatmcp-layout-panels">
+        <PanelGroup direction="horizontal" autoSaveId="chatmcp-readable-layout">
           {/* Left Session Sidebar */}
-          {sidebarOpen && (
+          {sidebarOpen && !compact && (
             <>
               <Panel defaultSize={18} minSize={14} maxSize={30} id="panel-sidebar">
                 <SessionSidebar />
@@ -62,20 +75,22 @@ export function AppShell() {
           )}
 
           {/* Center Main Conversation Area */}
-          <Panel defaultSize={sidebarOpen && inspectorOpen ? 52 : sidebarOpen || inspectorOpen ? 70 : 100} minSize={35} id="panel-conversation">
+          <Panel defaultSize={sidebarOpen && inspectorOpen ? 48 : sidebarOpen || inspectorOpen ? 66 : 100} minSize={35} id="panel-conversation">
             <ConversationView />
           </Panel>
 
           {/* Right Inspector Panel */}
-          {inspectorOpen && (
+          {inspectorOpen && !compact && (
             <>
               <PanelResizeHandle className="w-[3px] hover:w-[4px] bg-[var(--line-subtle)] hover:bg-sky-500/60 transition-colors cursor-col-resize active:bg-sky-500" />
-              <Panel defaultSize={30} minSize={20} maxSize={50} id="panel-inspector">
+              <Panel defaultSize={34} minSize={26} maxSize={50} id="panel-inspector">
                 <InspectorPanel />
               </Panel>
             </>
           )}
         </PanelGroup>
+        {compact && sidebarOpen && <div className="absolute inset-y-0 left-0 w-72 max-w-full z-30 shadow-xl"><SessionSidebar /></div>}
+        {compact && inspectorOpen && <div id="panel-inspector" className="absolute inset-y-0 right-0 w-[440px] max-w-full z-40 shadow-xl"><InspectorPanel /></div>}
       </div>
 
       {/* Overlays & Dialogs */}

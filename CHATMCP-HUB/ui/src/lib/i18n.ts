@@ -16,7 +16,7 @@ export const translations = {
     start_conversation: 'Bắt đầu ngay',
 
     // Sessions Sidebar
-    sessions_title: 'PHIÊN LÀM VIỆC',
+    sessions_title: 'Hội thoại',
     search_sessions: 'Tìm kiếm phiên...',
     no_sessions: 'Chưa có phiên làm việc nào',
     current_workspace: 'Workspace hiện tại',
@@ -37,7 +37,7 @@ export const translations = {
     starter_4_desc: 'Cải thiện hiệu năng, giảm duplicate code và làm sạch logic.',
 
     // Composer
-    composer_placeholder: 'Giao việc cho agent bằng tiếng Việt hoặc tiếng Anh... (Nhấn Enter để gửi)',
+    composer_placeholder: 'Bạn muốn làm gì với dự án này?',
     send: 'Gửi',
     stop: 'Dừng',
     enter_to_send: 'Enter để gửi · Shift+Enter xuống dòng',
@@ -188,7 +188,7 @@ export const translations = {
     start_conversation: 'Start now',
 
     // Sessions Sidebar
-    sessions_title: 'SESSIONS',
+    sessions_title: 'Conversations',
     search_sessions: 'Search sessions...',
     no_sessions: 'No sessions yet',
     current_workspace: 'Current Workspace',
@@ -209,7 +209,7 @@ export const translations = {
     starter_4_desc: 'Enhance performance, eliminate duplicate code, and clean architecture.',
 
     // Composer
-    composer_placeholder: 'Assign tasks to agent in English or Vietnamese... (Press Enter to send)',
+    composer_placeholder: 'What would you like to do with this project?',
     send: 'Send',
     stop: 'Stop',
     enter_to_send: 'Enter to send · Shift+Enter for newline',
