@@ -50,3 +50,12 @@ These features remain local to CodingWorktreeOrchestrator and intentionally do N
 - Phase2 source regressions now cover corrupt JSON, malformed worker metadata, interrupted worker normalization and blocking new coding work with unreadable saved history.
 
 **Not yet complete:** Explicit owner-approved reconciliation/resumption with fresh hashes/test grants; comprehensive crash matrix; bounded code-context acquisition and reproducible offline reliability benchmarks remain. The SHA-256 local journal detects corruption, never OS trusted-test attestation. Phase1 G4 stays a prerequisite.
+
+## Owner-confirmed recovery acknowledgement (second reliability slice)
+
+- The Hub now exposes a protected POST /api/studio/coding/recovery/acknowledge endpoint that requires the exact confirmation REVIEW INTERRUPTED RUN, the interrupted run ID in the current workspace, and the latest journal integrityDigest returned by GET /api/studio/coding/recovery.
+- A restarted interrupted coding run blocks any NEW coding run until the owner inspects that checkpoint. A stale digest, missing journal, wrong workspace, or active worker is refused. Acknowledgement marks the old run needs_attention; it NEVER replays code, model calls, sandbox checks, Git merges or publication.
+- The Orchestrator inspector shows recovery faults and offers a manual acknowledgement button only after inspecting a real journal. It displays the truthful needs_attention status and still requires fresh revision-specific diff review plus new test grants before any later integration.
+- verify-phase2-recovery.mjs covers explicit confirmation, stale digest, no auto-resume, duplicate acknowledgement denial and persisted needs_attention state.
+
+**Recovery acknowledgement is not safe automatic resumption:** Owner-directed continuation must be treated as a NEW managed coding task with fresh source/test evidence, not a replay of an uncertain previous action.
