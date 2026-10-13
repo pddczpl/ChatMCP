@@ -386,8 +386,18 @@ export class CodingWorktreeOrchestrator {
           // Only the trusted GitRunner stages and commits changes; the model
           // has no Git write/merge/push tool.
           await this.#git(['-C',node.worktree,'add','--all'],{writes:true,timeoutMs:60000});
-          const filenames=await this.#git(['-C',node.worktree,'diff','--cached','--name-only','--diff-filter=ACMRD'],{maxBytes:250000});
-          node.changedFiles=filenames?filenames.split('\n').slice(0,250):[];
+          // Git -z is essential: a repository can contain paths with tabs,
+          // newlines and Unicode. Newline splitting can hide conflicting edits.
+          // Fail closed BEFORE committing rather than silently truncating the
+          // list to 250 entries and omitting files from conflict detection.
+          const filenames=await this.#git([
+            '-C',node.worktree,'-c','core.quotePath=false',
+            'diff','--cached','--name-only','-z','--diff-filter=ACMRD',
+          ],{maxBytes:250000});
+          const changed=filenames?filenames.split('\0').filter(Boolean):[];
+          if(changed.length>250)throw fail('worker_file_overflow',
+            'Worker changed more than 250 files; manual review required before committing.',409);
+          node.changedFiles=changed;
           if(node.changedFiles.length){
             await this.#git(['-C',node.worktree,
               '-c','user.name=ChatMCP Coding Agent',
