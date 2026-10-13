@@ -62,7 +62,11 @@ export class CodingWorktreeOrchestrator {
     if(saved.version!==1||!Array.isArray(saved.jobs)||
        saved.jobs.length>20||saved.jobs.some(j=>
          !j||typeof j!=='object'||!(/^[a-f0-9-]{36}$/i.test(j.id||''))||
-         !Array.isArray(j.workers)||j.workers.length>4)) {
+         typeof j.status!=='string'||typeof j.baseSha!=='string'||
+         !/^[0-9a-f]{40}$/i.test(j.baseSha)||
+         !Array.isArray(j.workers)||j.workers.length>4||
+         j.workers.some(w=>!w||typeof w!=='object'||
+           typeof w.status!=='string'||typeof w.id!=='string'))) {
       this.recoveryFault='Invalid saved coding job schema; manual recovery required.';
       return;
     }
@@ -95,6 +99,7 @@ export class CodingWorktreeOrchestrator {
     // that the separate durable sequence never contained.
     const activeJob=this.active?snapshot.jobs.find(j=>j.id===this.active):null;
     const write=this.writes.then(async()=>{
+      if(this.recoveryFault)throw fail('recovery_unresolved',this.recoveryFault,409);
       if(activeJob)await this.recoveryJournal.append({
         runId:activeJob.id,
         job:{status:activeJob.status,baseSha:activeJob.baseSha,
