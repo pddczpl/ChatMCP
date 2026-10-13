@@ -1,3 +1,82 @@
+# ANTIGRAVITY_NEXT_TASK — Round 6: Trusted Publisher Channel Feasibility and Native G4 Fix
+
+**Date:** 2026-10-13
+**Owner:** Antigravity on the authorized Windows local workspace
+**Repository:** https://github.com/pddczpl/ChatMCP
+**Work branch:** feat/phase1-complete-autonomous-coding
+**PR:** https://github.com/pddczpl/ChatMCP/pull/13
+**P0 Issue:** https://github.com/pddczpl/ChatMCP/issues/14
+**Mandatory security decision:** G4 BLOCKED — NO MERGE / NO RELEASE / NO SHIPPING hostAttested:true
+
+## 0. What Round 5 actually established
+
+Your submitted Round 5 Windows report used SHA 68099a5647660a35140651110b1352ec3ceb4ac6. GitHub independently confirmed full Push CI 9/9, PR CI 9/9 and portable component test PASS on that SHA. You reported actual WMI status EMPTY and parent process access denials 5, a real WDAG child SID distinct from SYSTEM, network/host-canary controls, and real Node test FAIL→scripted repair→PASS (17 diagnostic checks).
+
+**The decisive native observation is SYNTHETIC_KEY_READ_SUCCESS=True** from the WDAG child for a synthetic file in the writable host-mapped Output directory. This is consistent with the mapped-folder guest principal boundary being unsuitable to hold a signing key. Your report correctly marked G4 BLOCKED. Do not repeat unchanged happy-path tests unless a security-sensitive source change requires them.
+
+The current host HMAC key handoff via a guest-readable mapped file cannot authorize production, even if the supervisor deletes it before launching its OWN child: a hostile process may already be running in the guest.
+
+## 1. New GitHub architecture and code to inspect
+
+Read the new architecture decision BEFORE editing:
+https://github.com/pddczpl/ChatMCP/blob/feat/phase1-complete-autonomous-coding/docs/PHASE1-G4-PUBLISHER-TRANSPORT-ADR.md
+
+ChatGPT added a SOURCE-ONLY non-attesting feasibility helper:
+- CHATMCP-HUB/lib/windows-sandbox-cli-channel-probe.mjs
+- CHATMCP-HUB/tests/verify-windows-driver.mjs (portable regression)
+- CHATMCP-HUB/tests/windows-sandbox/real-guest.mjs (probe inside an already-owned Sandbox)
+
+This probe sends one fresh PUBLIC echo marker using a fixed guest command in the exact owned guest, then checks the wsb exec --raw JSON keys and whether a Stdout property includes the marker. It always returns productionAuthenticated:false. **An arbitrary echo being forwarded by the CLI does NOT prove authenticated GuestSupervisor origin.** Neither the helper nor its tests enable the production backend.
+
+The real guest code now records an owned-generation value for this diagnostic. It neither starts an unrelated Sandbox nor changes the host shell fallback policy.
+
+## 2. Start with the latest HEAD, not cached Round 5
+
+~~~powershell
+Set-Location 'F:\Personal_Project\Vin\ChatMCP'
+git status --short
+git branch -vv
+git remote -v
+git fetch origin
+gh pr view 13 --json state,isDraft,headRefName,baseRefName,headRefOid
+gh pr checks 13
+git show origin/feat/phase1-complete-autonomous-coding:docs/agent-handoffs/ANTIGRAVITY_NEXT_TASK.md
+git rev-parse HEAD
+git diff --check
+~~~
+
+Read AGENTS.md if present and preserve unrelated work. Never reset/clean/force-push or change main. Use a separate safe worktree if needed. Sync to the latest PR #13 HEAD, which may be newer than the above report.
+
+## 3. Mandatory G4 feasibility experiment on real Windows
+
+1. Inspect current windows-sandbox-cli-channel-probe.mjs and the exact installed wsb.exe version/help. Build/publish the current GuestSupervisor binary, record source commit + full SHA256. Verify no Sandbox instance other than your positively owned one is touched.
+2. Run portable verify-windows-driver.mjs, then an actual serialized real-guest.mjs hardware diagnostic. **A nonzero security-suite exit caused by G4 BLOCKED is expected and must not be relabelled functional PASS.** Record raw exit code, stdout channel observation and the owner's sandbox ID/generation.
+3. Return the EXACT observed wsb exec --raw JSON FIELD NAMES and the non-secret Boolean results: CLI_PROCESS_STDOUT_OBSERVED vs CLI_PROCESS_STDOUT_NOT_PROVEN, Stdout field present, bounded marker observed, ExitCode propagated. Do not print a parent command line, signing key or API token.
+4. If and ONLY if direct process stdout is genuinely forwarded by this installed CLI, design a SUPERVISOR-owned bounded structured response without sending any signing key to guest-writable mapped storage. The HOST must authenticate the exact pinned supervisor process and instance; an arbitrary child could forge its own echo and must never be accepted. Prove child cannot inherit/write supervisor stdout handles, spoof CLI execution responses or alter the read-only pinned binary.
+5. Explicitly attempt hostile earlier guest-process injection of a fake completed/exitCode 0 record, wrong run/nonce/generation/check/snapshot, truncated/oversized response, contradictory CLI exit, timeout, cancellation and instance ownership races. Keep all results BLOCKED if source authenticity remains uncertain. No model-controlled hostAttested toggle or host shell fallback.
+6. If stdout is NOT available or its provenance cannot be proven, document the precise CLI/native error and evaluate a truly supported guest-local protected channel/broker design. **Never assume host named pipes automatically cross into Windows Sandbox VM.** Do not implement speculative IPC merely to turn a security gate green.
+
+## 4. G3 and G6 follow-up evidence
+
+- Rerun native child SID/privilege/integrity/Job Object and WindowStation/Desktop/process/token DACL/Win32 error checks AFTER any C#/driver security changes. Distinguish real WMI query result from unavailable/error; no fixed PARENT_AUTH_KEY_VISIBLE=False string as observation.
+- Do not rotate host accounts or auto-install Windows features. Verify guest WDAGUtilityAccount password reset cannot persist on the host.
+- Preserve original test baseline and rerun actual WorkerTestBroker→SnapshotStore→Backend→owned guest→publisher FAIL→repair→PASS using SCRIPTED model, separately reporting functional E2E vs G4 security status.
+- Clean install→first launch→upgrade→uninstall with settings retention should be tested in an owner-approved disposable Windows environment, or clearly marked NOT VERIFIED. Installer build/payload/WebView2 smoke alone is not a clean-machine release gate.
+- Run all relevant Hub/React/WebView2/installer and real Windows tests; compare full 9/9 push + 9/9 PR CI on your final SHA. If a source change occurs after security testing, repeat affected Windows checks on the final binary/SHA.
+- Never terminate unowned Sandbox UUIDs, force-push, merge PR #12/#13, publish a release or enable shipping hostAttested:true without independent G4 review.
+
+## 5. Product and report invariants
+
+The ChatMCP app is a standalone Windows desktop coding agent, not an external IDE/VS Code integration. The user configures Base URL, model and API key and manages billing/quotas at the provider. **No ChatMCP-imposed token, request or spend limit.** Full Access remains user-selectable with explicit confirmation but is not Windows admin elevation and does not bypass required isolated worker execution.
+
+No paid model API call, no leaked keys, no guest/host privilege escalation, no arbitrary user file deletion. Use synthetic data and script/model fixtures.
+
+**Final Vietnamese report must include:** branch initial/final SHA, changed files/commits, OS/WSB/.NET versions, GuestSupervisor exe hash, exact owned ID/generation, CLI JSON field names/Boolean marker results, child token/process access denials and genuine malicious child output forgery attempts, true G4 status, fresh signed/attested receipts if proven, genuine FAIL→repair→PASS, clean-machine installer status and G1–G6 PASS/FAIL/BLOCKED/NOT VERIFIED with each real exit code. If the native publisher cannot be authenticated, the correct verdict is PHASE 1 BLOCKED — NO MERGE / NO RELEASE.
+
+---
+
+## Older Round 5 and earlier tasks (historical; Round 6 takes precedence)
+
 # ANTIGRAVITY_NEXT_TASK — Round 5: Genuine WMI Evidence, Native Token Errors and Trusted Publisher Transport
 
 Date: 2026-10-13
