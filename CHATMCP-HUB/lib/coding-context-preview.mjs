@@ -31,9 +31,13 @@ export async function previewManagedCodingContext({worktree,changedFiles,maxFile
      !Number.isSafeInteger(maxFiles)||maxFiles<1||maxFiles>8)
     throw BAD('context_bad_input','Trusted absolute worktree, bounded change list and limit required.');
   const root=path.resolve(worktree);
-  const realRoot=await fs.realpath(root);
-  if(path.resolve(realRoot)!==root)
-    throw BAD('context_unsafe_root','Managed worktree root is an alias or reparse point.');
+  // Windows realpath may canonicalize drive-letter case, path spelling or
+  // a 8.3 alias even for a legitimate ordinary directory (GitHub runners
+  // exercise this). Such a string difference is NOT a junction/symlink.
+  // lstat the *actual root object* instead of comparing path spellings.
+  const rootStat=await fs.lstat(root);
+  if(!rootStat.isDirectory()||rootStat.isSymbolicLink())
+    throw BAD('context_unsafe_root','Managed worktree root is not a regular directory.');
   const result=[],skipped=[],seen=new Set();
   for(const file of changedFiles){
     const rel=safeRelative(file);
