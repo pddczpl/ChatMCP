@@ -116,7 +116,7 @@ export class CodingWorktreeOrchestrator {
     id:j.id,status:j.status,baseSha:j.baseSha,baseBranch:j.baseBranch,createdAt:j.createdAt,
     finishedAt:j.finishedAt,workers:j.workers.map(w=>({...w})),integration:j.integration||null,error:j.error||null,
   }))};}
-  #save(){
+  #save({checkpointRunId=this.active}={}){
     if(this.recoveryFault)throw fail('recovery_unresolved',this.recoveryFault,409);
     // Every worker replaces the same file. Capture its state now and serialize
     // replacements so an older write cannot win or overlap a Windows rename.
@@ -125,7 +125,9 @@ export class CodingWorktreeOrchestrator {
     // never code, credentials, prompts, provider text or receipts. Record
     // BEFORE replacing jobs.json so a crash cannot silently claim a checkpoint
     // that the separate durable sequence never contained.
-    const activeJob=this.active?snapshot.jobs.find(j=>j.id===this.active):null;
+    // Owner acknowledgement happens AFTER the active run stops; checkpoint
+    // that run as well so a later restart cannot mistake it for a crash.
+    const activeJob=checkpointRunId?snapshot.jobs.find(j=>j.id===checkpointRunId):null;
     const write=this.writes.then(async()=>{
       if(this.recoveryFault)throw fail('recovery_unresolved',this.recoveryFault,409);
       if(activeJob)await this.recoveryJournal.append({
@@ -182,7 +184,7 @@ export class CodingWorktreeOrchestrator {
     job.status='needs_attention';
     job.error='Run interrupted; owner acknowledged review requirement. Reinspect Git worktrees and obtain fresh verification before any new integration.';
     try{
-      await this.#save();
+      await this.#save({checkpointRunId:runId});
     }catch(error){
       // A failed atomic jobs.json save must not remove the in-memory
       // interrupted-run safety barrier in this still-running Hub.
