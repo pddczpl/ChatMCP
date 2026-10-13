@@ -45,7 +45,7 @@ with sync_playwright() as p:
     mutations=page.evaluate('window.__requests.filter(x=>x.method==="POST")')
     assert [x['path'] for x in mutations].count('/api/agent/mode')==2
     assert [x['path'] for x in mutations].count('/api/tasks/delete')==1
-    assert all(x['headers']['X-ChatMCP-UI-Build']=='2.6.0-react-agent' for x in mutations)
+    assert all(x['headers']['X-ChatMCP-UI-Build']=='3.0.0-react-agent' for x in mutations)
     page.get_by_role('button',name='Files').click()
     page.wait_for_timeout(260)
     page.get_by_role('button',name='README.md').click()

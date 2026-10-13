@@ -1,6 +1,11 @@
 # Lịch sử thay đổi
 
-## [Unreleased] — React / Local Hub contract corrections
+## [3.0.0] — 2026-10-14 — Autonomous Coding, Native Sandbox Verification & Multi-Agent Worktrees
+
+- **Phase 1 (Windows Sandbox Isolation & Native Black-box Verification):** Giao diện và kiến trúc thực thi kiểm thử độc lập black-box trong Windows Sandbox với `system-sealed-exit-v1`, zero-fallback privilege drop, Job Object containment, chống giả mạo HMAC-SHA256 và quy trình vòng đời cài đặt máy sạch (G6 Clean Windows).
+- **Phase 2 (Reliable Coding Recovery Checkpoints):** Nhật ký khôi phục sự cố (crash recovery journal) với chuỗi băm mật mã SHA-256 tamper-evident, cơ chế cô lập trạng thái lỗi (corruption quarantine), xác nhận phục hồi bền vững (recovery acknowledgement) qua các lần restart Hub và xem trước context an toàn.
+- **Phase 3 (Dependency-Aware Multi-Agent Coordination):** Điều phối đồ thị phụ thuộc tác vụ (DAG A → B → C và no-op handling), công nhân độc lập trên Git worktree thật với giới hạn đồng thời, hủy bỏ tác vụ an toàn, chặn tác vụ hạ nguồn khi phụ thuộc thất bại và phòng chống xung đột cấu trúc file-vs-directory.
+- Đồng bộ hợp đồng giao diện React/Vite/Tailwind, loại bỏ các trạng thái giả định, xác thực mã băm SHA-256 của bundle cài đặt tự chứa.
 
 - Map real AgentRunner summaries and full conversation records through a typed React adapter; use canonical task states for Stop/Resume and retain drafts after failed sends.
 - Show actual PermissionGate pending requests and decision history, including structured command/content previews and expiry; no automatic approval.
