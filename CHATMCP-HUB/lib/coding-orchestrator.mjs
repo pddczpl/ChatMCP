@@ -13,6 +13,7 @@ import { readJson, writeJson } from './runtime.mjs';
 import { WorkerTestBroker } from './worker-test-broker.mjs';
 import { createExecutionSnapshot } from './execution-snapshots.mjs';
 import { runVerifiedCoding } from './coding-verification-loop.mjs';
+import { CodingRecoveryJournal } from './coding-recovery-journal.mjs';
 import { attachWorkerTestTools } from './worker-tools.mjs';
 
 const fail = (code, msg, statusCode=400)=>Object.assign(new Error(msg),{code,statusCode});
@@ -41,6 +42,7 @@ export class CodingWorktreeOrchestrator {
     this.active=null;this.controller=null;this.runners=new Map();this.jobs=new Map();this.integrating=false;
     this.writes=Promise.resolve();
     this.checkBrokers=new Map();
+    this.recoveryJournal=new CodingRecoveryJournal({directory:path.join(this.directory,'recovery')});
   }
   async load(){
     const saved=await readJson(path.join(this.directory,'jobs.json')).catch(()=>null);
@@ -59,9 +61,38 @@ export class CodingWorktreeOrchestrator {
     // Every worker replaces the same file. Capture its state now and serialize
     // replacements so an older write cannot win or overlap a Windows rename.
     const snapshot=structuredClone({version:1,jobs:[...this.jobs.values()].slice(-20)});
-    const write=this.writes.then(()=>writeJson(path.join(this.directory,'jobs.json'),snapshot));
+    // The human-review-only journal stores status/hash/worker identifiers,
+    // never code, credentials, prompts, provider text or receipts. Record
+    // BEFORE replacing jobs.json so a crash cannot silently claim a checkpoint
+    // that the separate durable sequence never contained.
+    const activeJob=this.active?snapshot.jobs.find(j=>j.id===this.active):null;
+    const write=this.writes.then(async()=>{
+      if(activeJob)await this.recoveryJournal.append({
+        runId:activeJob.id,
+        job:{status:activeJob.status,baseSha:activeJob.baseSha,
+          workers:activeJob.workers.map(w=>({
+            id:w.id,status:w.status,commitSha:w.commitSha||null,
+          })),
+        },
+      });
+      await writeJson(path.join(this.directory,'jobs.json'),snapshot);
+    });
     this.writes=write.catch(()=>{});
     return write;
+  }
+  // Read-only restart assessment. Never replay previously running tools or
+  // resume a worker automatically from journal metadata.
+  async recoveryStatus({runId}={}){
+    const job=this.jobs.get(runId);
+    if(!job||job.workspace!==this.manager.workspace)
+      throw fail('run_not_found','Coding run not available in the current workspace.',404);
+    const ledger=await this.recoveryJournal.inspect(runId);
+    return Object.freeze({
+      ...ledger,jobStatus:job.status,
+      automaticToolReplay:false,requiresExplicitReview:true,
+      // Exact prior OS test receipts must be rediscovered/reauthorized.
+      verificationReceiptsTrusted:false,
+    });
   }
   async #git(args,{writes=false,timeoutMs=45000,maxBytes=2_000_000}={}){
     const git=this.manager.studio?.gitRunner;
