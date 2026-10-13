@@ -1,82 +1,74 @@
 // SECURITY NOTE — EXPERIMENTAL, NON-ATTESTING TRANSPORT CODEC.
 //
-// wsb exec --raw returns only an ExitCode (confirmed on Windows 11 and in
-// Microsoft documentation); it cannot carry a normal JSON receipt in stdout.
-// Eight 32-bit process exits could, in principle, transport a SHA-256 digest
-// of a privileged supervisor-created receipt from guest to host WITHOUT
-// sending a host HMAC bearer key into guest-writable mapped storage.
+// Windows Sandbox "wsb exec --raw" returns only ExitCode, not process IO.
+// Nine *positive*, 31-bit exit codes can hypothetically carry all 256 bits
+// of a SHA-256 digest from a trusted guest process to its owning host.
+// Each code uses 01 as top-two bits, then 30 digest bits. The last chunk has
+// 14 ZERO padding bits. This avoids signed int32 conversions and ordinary
+// ExitCode=0 being confused with a successful digest word.
 //
-// WARNING: digest equality alone DOES NOT prove that trusted GuestSupervisor
-// emitted those exit codes or that the child cannot replace a guest-local
-// digest state. This module performs NO native guest invocation, has NO
-// capability to enable the production backend, and is NOT release evidence.
+// Digest equality does NOT prove the codes originated with a pinned, OS-owned
+// trusted GuestSupervisor, or that a guest-local seal cannot be overwritten.
+// No native execution, no production authority, no signing key or host shell
+// is exposed by this feasibility codec. DO NOT UNLOCK G4 FROM THIS MODULE.
 import { createHash } from 'node:crypto';
 
-const HEX64=/^[0-9a-f]{64}$/i;
 const BAD=(message)=>{
-  const err=new Error(message);
-  err.code='untrusted_exitcode_channel';
-  return err;
+  const error=new Error(message);
+  error.code='untrusted_exitcode_channel';
+  return error;
 };
+const BASE=0x40000000; // high bits 01: positive, nonzero, < 2^31
+const MASK=(1n<<30n)-1n;
+const PAD=(1n<<14n)-1n;
+const COUNT=9;
 
-function getBytes(value) {
+function bytesOf(value) {
   if(typeof value!=='string' && !Buffer.isBuffer(value))
-    throw BAD('Digest payload must be an explicit bounded string or Buffer.');
+    throw BAD('Digest payload must be a string or Buffer from a trusted caller.');
   const bytes=Buffer.isBuffer(value)?value:Buffer.from(value,'utf8');
-  if(!bytes.length||bytes.length>1024*1024)
+  if(bytes.length<1||bytes.length>1024*1024)
     throw BAD('Digest payload must contain 1–1048576 bytes.');
   return bytes;
 }
 
-/**
- * Derive eight *signed* int32 exit-code candidates for an arbitrary payload.
- * Signed int32 values are not yet proved to round-trip through every wsb
- * version. This is an OFFLINE codec, not a process launch/attestation function.
- */
+/** Offline candidate only; does NOT transmit anything to a real guest. */
 export function candidateDigestExitCodes(payload) {
-  const digest=createHash('sha256').update(getBytes(payload)).digest();
-  return Object.freeze(Array.from({length:8},(_,i)=>digest.readInt32BE(i*4)));
+  const digest=createHash('sha256').update(bytesOf(payload)).digest('hex');
+  const padded=BigInt('0x'+digest)<<14n; // 256 useful bits, 14 canonical zeros
+  return Object.freeze(Array.from({length:COUNT},(_,i)=>{
+    const shift=BigInt((COUNT-i-1)*30);
+    return BASE+Number((padded>>shift)&MASK);
+  }));
 }
 
-const signedWord=(value)=>{
-  if(!Number.isInteger(value)||value<-2147483648||value>4294967295)
-    throw BAD('Unexpected Windows process ExitCode (not int32/uint32).');
-  return value>>>0;
-};
-
-/**
- * Parse eight raw WSB CLI responses and compare their 256-bit payload digest.
- *
- * Does NOT accept user-supplied "attestation" flags. Still not trusted: caller
- * must separately establish native OS provenance, protected guest-local state,
- * pinned binary, fresh launch generation, nonce and one-shot ownership.
- */
+/** Observe nine WSB ExitCode-only responses. ALWAYS unauthenticated. */
 export function observeUnattestedExitDigest({payload,rawResponses}={}) {
-  const bytes=getBytes(payload);
-  if(!Array.isArray(rawResponses)||rawResponses.length!==8)
-    throw BAD('A full 256-bit digest requires exactly eight owned OS exits.');
-  const found=Buffer.alloc(32);
-  for(const [i,raw] of rawResponses.entries()){
-    // Only the documented ExitCode is read. Never copy "Stdout" or "signature"
-    // from an untrusted plugin/guest response.
-    let parsed=raw;
-    if(typeof parsed==='string'){
-      if(parsed.length>16384)throw BAD('Raw WSB response exceeds bounded JSON size.');
-      try{parsed=JSON.parse(parsed);}catch{throw BAD('Invalid WSB JSON result.');}
+  const bytes=bytesOf(payload);
+  if(!Array.isArray(rawResponses)||rawResponses.length!==COUNT)
+    throw BAD('A complete 256-bit digest needs nine positive 30-bit exit-code words.');
+  let bits=0n;
+  for(const raw of rawResponses){
+    let response=raw;
+    if(typeof response==='string'){
+      if(response.length>16384)throw BAD('WSB raw response too large.');
+      try{response=JSON.parse(response);}catch{throw BAD('Malformed WSB JSON.');}
     }
-    if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||
-        !Object.hasOwn(parsed,'ExitCode'))
-      throw BAD('WSB response missing typed ExitCode.');
-    found.writeUInt32BE(signedWord(parsed.ExitCode),i*4);
+    if(!response||typeof response!=='object'||Array.isArray(response)||
+        !Object.hasOwn(response,'ExitCode'))
+      throw BAD('WSB response missing ExitCode.');
+    const code=response.ExitCode;
+    if(!Number.isSafeInteger(code)||code<BASE||code>0x7fffffff)
+      throw BAD('WSB returned no valid positive framed digest word.');
+    bits=(bits<<30n)|BigInt(code-BASE);
   }
+  if((bits&PAD)!==0n)throw BAD('Nonzero final digest padding bits.');
+  const observed=(bits>>14n).toString(16).padStart(64,'0');
   const expected=createHash('sha256').update(bytes).digest('hex');
-  const observed=found.toString('hex');
-  const digestMatches=observed===expected;
-  // Deliberately NO publisherAuthenticated:true, not even on a full match.
   return Object.freeze({
-    status:digestMatches?'DIGEST_MATCHED_BUT_UNAUTHENTICATED':'DIGEST_MISMATCH',
-    wordCount:8,expectedWordBits:32,
-    digestMatches,sourceProven:false,productionAuthenticated:false,
-    // No full payload, digest or synthetic secret copied into tool output.
+    status:observed===expected?'DIGEST_MATCHED_BUT_UNAUTHENTICATED':'DIGEST_MISMATCH',
+    wordCount:COUNT,digestMatches:observed===expected,
+    framedWordBits:30,
+    sourceProven:false,productionAuthenticated:false,
   });
 }
