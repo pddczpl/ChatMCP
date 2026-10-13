@@ -25,6 +25,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import {
   probeWindowsSandboxPreflight,
   probeWindowsSandboxCapability,
@@ -122,11 +123,14 @@ export async function runSmokeTests() {
     ok('Execution request prepared with 256-bit cryptographic nonce');
 
     console.log('# 4. Host-only synthetic supervisor fixture (NOT Windows Sandbox guest)');
-    const candidateDlls = [
-      path.resolve('CHATMCP-HUB/windows/sandbox/GuestSupervisor/bin/Release/net10.0/GuestSupervisor.dll'),
-      path.resolve('CHATMCP-HUB/windows/sandbox/GuestSupervisor/bin/Debug/net10.0/GuestSupervisor.dll'),
-    ];
-    const supervisorDll = candidateDlls.find((p) => fs.existsSync(p)) || candidateDlls[1];
+    // CI builds Debug immediately before this fixture. NativeAOT project settings
+    // produce a RID-specific managed build, even without an explicit -r flag.
+    // Require that exact artifact; a stale Release/non-RID DLL must not hide a
+    // missing current Debug build.
+    const supervisorDll = fileURLToPath(new URL(
+      '../../windows/sandbox/GuestSupervisor/bin/Debug/net10.0/win-x64/GuestSupervisor.dll',
+      import.meta.url,
+    ));
     let hasDotnet = false;
     try {
       execFileSync('dotnet', ['--version'], { stdio: 'ignore' });
@@ -137,7 +141,7 @@ export async function runSmokeTests() {
 
     const hostNativeReady = hasDotnet && fs.existsSync(supervisorDll) && process.platform === 'win32';
     if (process.env.CHATMCP_REQUIRE_HOST_SUPERVISOR === '1' && !hostNativeReady) {
-      throw new Error('Required Windows host fixture unavailable: build GuestSupervisor with .NET 10 first.');
+      throw new Error(`Required Windows host fixture unavailable at ${supervisorDll}; build GuestSupervisor with .NET 10 --configuration Debug first.`);
     }
     if (hostNativeReady) {
       // P0-A: Reject contradictory flags

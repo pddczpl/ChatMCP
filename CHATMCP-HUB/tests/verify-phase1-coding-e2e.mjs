@@ -58,6 +58,12 @@ try {
   const parent=new HubManager({bundleRoot:path.resolve('.'),dataDirectory:state,backend:'local',log:()=>{}});
   await parent.load(work);
   assembleStudio(parent,{bundleRoot:path.resolve('.')});
+  const productionSandbox=parent.executionRegistry.get('windows-sandbox');
+  assert.equal(productionSandbox.publisher.diagnosticHostAttested,false);
+  assert.equal(productionSandbox.publisher.supportsRequest({checkKind:BLACKBOX_KIND,command:BLACKBOX_COMMAND}),true);
+  assert.equal(productionSandbox.publisher.supportsRequest({command:'node --test'}),false);
+  assert.equal(productionSandbox.publisher.supportsRequest({checkKind:BLACKBOX_KIND,command:'node --test'}),false);
+  if(process.platform==='win32')assert.equal(productionSandbox.driver.publicationProtocol,'system-sealed-exit-v1');
   parent.permissions.mode='autonomous';
   await parent.startLocal();
   const backend=new FakeIsolatedBackend();

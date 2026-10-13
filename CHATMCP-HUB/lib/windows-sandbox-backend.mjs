@@ -1,5 +1,5 @@
-// Phase 1 PR3 Windows sandbox backend. Production remains unavailable until
-// authenticated supervisor publication/OS gates are proven by dedicated hardware.
+// Windows sandbox backend. Execution requires the publisher's reviewed check
+// scope plus live supported-host readiness and positively owned guest cleanup.
 // Dependency injection exists for deterministic tests, never for model input.
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -36,7 +36,7 @@ export class WindowsSandboxBackend extends ExecutionBackend {
       networkPolicy: 'denied', writeScope: 'guest-ephemeral', concurrency: 1,
       enforcedLimits: [],
       unsupportedLimits: ['timeoutSeconds', 'maxOutputBytes', 'maxMemoryMb', 'maxCpuCores', 'customEnv'],
-      reasons: ['Production guest publisher authentication not yet certified; requires Windows hardware gate.'],
+      reasons: ['Live supported-Windows preflight is required before isolated execution can be available.'],
       observedAt: new Date().toISOString(),
     });
   }

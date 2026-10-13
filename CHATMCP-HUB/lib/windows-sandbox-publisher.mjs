@@ -1,8 +1,6 @@
-// Host-only authenticated publication reader. A valid HMAC proves that the
-// publisher held the per-run key; it does not prove that project tests are
-// sufficient, that guest process isolation succeeded, or that the key was
-// inaccessible to all lower-privileged code. The latter requires a real OS
-// security gate before any production work can be allowed.
+// Host-only publication reader. Production approves specific native-graded
+// checks over the SYSTEM-sealed channel. Legacy HMAC is retained for diagnostic
+// fixtures and supplies no authenticated Node test-outcome authority.
 import { fault, validateExecutionReceipt } from './execution-contract.mjs';
 import { readAndVerifyExecutionReceipt } from './windows-sandbox-transport.mjs';
 import { SEALED_PROTOCOL, verifySealedCollection } from './windows-sandbox-sealed-receipt.mjs';
@@ -12,8 +10,8 @@ const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const KEY = /^[a-f0-9]{64}$/i;
 export class WindowsSandboxPublisher {
   constructor({ hostAttested = false, attestedCheckKinds = [] } = {}) {
-    // Host-specific OS evidence and operator approval are prerequisites.
-    // The Local Hub constructs its publisher with false until that gate exists.
+    // Reviewed OS evidence is a prerequisite for each allowed check kind.
+    // Shipping assembly keeps the unrestricted diagnostic flag false.
     // Never accept this setting from model data or an HTTP JSON request.
     if(!Array.isArray(attestedCheckKinds) || attestedCheckKinds.some(kind=>kind!==BLACKBOX_KIND))
       throw fault('invalid_attested_check_kind','Only the reviewed native black-box check can receive scoped attestation.');
