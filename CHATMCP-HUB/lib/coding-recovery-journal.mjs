@@ -26,13 +26,17 @@ function validateRun(id) {
   return id.toLowerCase();
 }
 function sanitizeJob(data) {
-  if(!data||typeof data!=='object'||!STATUS.test(data.status||'')||
+  if(!data||typeof data!=='object'||Array.isArray(data)||
+     Object.keys(data).some(key=>!['status','baseSha','workers'].includes(key))||
+     !STATUS.test(data.status||'')||
      typeof data.baseSha!=='string'||!SHA.test(data.baseSha)||
      !Array.isArray(data.workers)||data.workers.length>32)
     throw invalid('recovery_bad_snapshot','Only bounded trusted job status metadata can be recorded.');
   const seen=new Set();
   const workers=data.workers.map(w=>{
-    if(!w||!WORKER.test(w.id||'')||!STATUS.test(w.status||'')||
+    if(!w||typeof w!=='object'||Array.isArray(w)||
+      Object.keys(w).some(key=>!['id','status','commitSha'].includes(key))||
+      !WORKER.test(w.id||'')||!STATUS.test(w.status||'')||
       (w.commitSha!=null&&(!SHA.test(w.commitSha)))||seen.has(w.id))
       throw invalid('recovery_bad_worker','Invalid or repeated worker checkpoint.');
     seen.add(w.id);
@@ -96,7 +100,7 @@ export class CodingRecoveryJournal {
         !HASH.test(value.prevDigest||'')||!HASH.test(value.digest||'')||
         value.prevDigest!==predecessor||!Array.isArray(value.workers))
         throw invalid('recovery_corrupt','Recovery event schema or chain mismatch.');
-      const normalized=sanitizeJob(value);
+      const normalized=sanitizeJob({status:value.status,baseSha:value.baseSha,workers:value.workers});
       if(JSON.stringify(normalized.workers)!==JSON.stringify(value.workers))
         throw invalid('recovery_corrupt','Recovery event contained unexpected worker fields.');
       const {digest:received,...body}=value;
