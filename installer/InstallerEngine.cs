@@ -154,7 +154,7 @@ namespace ChatMCP.Installer
                             throw new InvalidOperationException($"Installation would overwrite an unrelated file: {entry.FullName}");
                     }
                     var uninstallTarget = SafePath(targetDir, "Uninstall.exe");
-                    if (File.Exists(uninstallTarget) && !legacyUpgrade && previousFiles?.ContainsKey("Uninstall.exe") != true)
+                    if (File.Exists(uninstallTarget) && !legacyUpgrade && previousFiles?.ContainsKey("Uninstall.exe") != true && !IsChatMcpBinary(uninstallTarget))
                         throw new InvalidOperationException("Installation would overwrite an unrelated Uninstall.exe.");
 
                     foreach (var entry in archive.Entries)
@@ -394,6 +394,27 @@ namespace ChatMCP.Installer
                     }
                     catch (InvalidOperationException) { /* Process already exited. */ }
                 }
+            }
+        }
+
+        private static bool IsChatMcpBinary(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return false;
+                var info = FileVersionInfo.GetVersionInfo(path);
+                var product = info.ProductName ?? "";
+                var desc = info.FileDescription ?? "";
+                var internalName = info.InternalName ?? "";
+                var original = info.OriginalFilename ?? "";
+                return product.Contains("ChatMCP", StringComparison.OrdinalIgnoreCase) ||
+                       desc.Contains("ChatMCP", StringComparison.OrdinalIgnoreCase) ||
+                       internalName.Contains("ChatMCP", StringComparison.OrdinalIgnoreCase) ||
+                       original.Contains("ChatMCP", StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
             }
         }
     }
