@@ -1,6 +1,11 @@
 # Phase 1 — staged implementation status (2026-10-13)
 
-This branch is a **work-in-progress implementation**, not Phase 1 security/release acceptance.
+This branch remains **unreleased**. Current G4/G6 acceptance is recorded in the
+[identified-build report](agent-handoffs/G4-G6-EXECUTION-2026-10-13.md). The sections
+below retain the earlier staged implementation and failed/provisional reviews;
+their blanket G4 lock statements are superseded only for the independently
+approved `node-json-blackbox` mode. Legacy Node/HMAC execution remains outside
+that approval. This is not a merge or release authorization.
 
 ## Code areas added
 

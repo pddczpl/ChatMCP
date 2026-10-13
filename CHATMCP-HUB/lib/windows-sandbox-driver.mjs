@@ -10,6 +10,9 @@ import { fault } from './execution-contract.mjs';
 import { verifyExecutionSnapshot, validateSnapshotPath } from './execution-snapshots.mjs';
 import { createSandboxConfiguration } from './windows-sandbox-config.mjs';
 import { prepareExecutionRequest } from './windows-sandbox-transport.mjs';
+import { SEALED_PROTOCOL, readSealedReceiptBytes, registerSealedCollection } from './windows-sandbox-sealed-receipt.mjs';
+import { BLACKBOX_KIND, BLACKBOX_COMMAND, ZERO_SHA256, validateBlackboxManifest, validateBlackboxRequest } from './native-blackbox-contract.mjs';
+import { validateSandboxCliPackage, verifyPinnedSandboxCli } from './windows-sandbox-cli-identity.mjs';
 
 const executeFile = promisify(execFile);
 const HASH = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -17,8 +20,26 @@ const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const GUEST_WORK = 'C:\\ChatMCP\\Work';
 const GUEST_INPUT = 'C:\\ChatMCP\\Input';
 
+// Absence is evidence only when the complete inventory is well formed. In
+// particular, [{}] must never be interpreted as confirmation of termination.
+export function parseSandboxInventory(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+      !Array.isArray(value.WindowsSandboxEnvironments))
+    throw fault('invalid_cli_inventory','Windows Sandbox inventory is not a verified instance list.');
+  const ids=[];
+  for (const row of value.WindowsSandboxEnvironments) {
+    if (!row || typeof row !== 'object' || Array.isArray(row) ||
+        typeof row.Id !== 'string' || !UUID.test(row.Id))
+      throw fault('invalid_cli_inventory','Windows Sandbox inventory contains an invalid instance UUID.');
+    const id=row.Id.toLowerCase();
+    if (ids.includes(id)) throw fault('invalid_cli_inventory','Windows Sandbox inventory repeats an instance UUID.');
+    ids.push(id);
+  }
+  return Object.freeze(ids);
+}
+
 export class WindowsSandboxCliDriver {
-  constructor({ cliPath, runtimeDirectory, nodeToolchainDirectory, stateDirectory, runCli = null } = {}) {
+  constructor({ cliPath, cliPackage = null, runtimeDirectory, nodeToolchainDirectory, stateDirectory, runCli = null, publicationProtocol = 'diagnostic-hmac' } = {}) {
     if (!cliPath || !path.isAbsolute(cliPath) ||
         !runtimeDirectory || !path.isAbsolute(runtimeDirectory) ||
         !nodeToolchainDirectory || !path.isAbsolute(nodeToolchainDirectory) ||
@@ -26,9 +47,16 @@ export class WindowsSandboxCliDriver {
       throw fault('invalid_windows_driver', 'CLI, runtime and state paths must be absolute and broker-controlled.');
     }
     this.cliPath = cliPath;
+    // Injected transports are explicit test seams. Every real launch requires
+    // the exact package identity and hash selected by trusted host preflight.
+    if(!runCli&&!cliPackage)throw fault('untrusted_sandbox_cli','A verified Store CLI package is required for real Windows Sandbox execution.');
+    this.cliPackage=cliPackage?Object.freeze({...validateSandboxCliPackage(cliPackage),sha256:cliPackage.sha256}):null;
+    if(this.cliPackage)verifyPinnedSandboxCli(this.cliPackage,this.cliPath);
     this.runtimeDirectory = runtimeDirectory;
     this.nodeToolchainDirectory = nodeToolchainDirectory;
     this.stateDirectory = stateDirectory;
+    if (!['diagnostic-hmac', SEALED_PROTOCOL].includes(publicationProtocol)) throw fault('invalid_windows_driver', 'Unknown publication protocol.');
+    this.publicationProtocol = publicationProtocol;
     this.runCli = runCli || (async(args,{signal,timeout=30000}={})=>{
       const out=await executeFile(this.cliPath,args,{
         encoding:'utf8',windowsHide:true,timeout,maxBuffer:1024*1024,signal,
@@ -38,6 +66,7 @@ export class WindowsSandboxCliDriver {
     this.owned = new Map();
   }
   async #cli(args, options) {
+    if(this.cliPackage)verifyPinnedSandboxCli(this.cliPackage,this.cliPath);
     // ExecFile exceptions can contain full sensitive -c command-line arguments.
     let text;
     try { text=await this.runCli(args,options); }
@@ -80,6 +109,11 @@ export class WindowsSandboxCliDriver {
     const toolchainDir=path.join(input,'toolchain');
     await fs.mkdir(toolchainDir,{mode:0o700});
     await fs.writeFile(path.join(toolchainDir,'node.exe'),nodeBytes,{flag:'wx',mode:0o400});
+    const blackbox=request.checkKind===BLACKBOX_KIND;
+    if (blackbox && (request.command!==BLACKBOX_COMMAND || this.publicationProtocol!==SEALED_PROTOCOL))
+      throw fault('unsupported_toolchain','Native black-box checks require the sealed publication protocol.');
+    const reporterBytes=blackbox?null:await fs.readFile(new URL('./windows-sandbox-node-reporter.mjs',import.meta.url));
+    if(reporterBytes)await fs.writeFile(path.join(input,'node-test-reporter.mjs'),reporterBytes,{flag:'wx',mode:0o400});
     const project=path.join(input,'project');
     await fs.mkdir(project,{mode:0o700});
     for (const file of snapshot.manifest.files) {
@@ -95,43 +129,80 @@ export class WindowsSandboxCliDriver {
       await fs.writeFile(target,content,{flag:'wx',mode:0o400});
     }
     // Never interpolate arbitrary model/project shell strings into SYSTEM launch.
-    // Phase 1 supports one pinned, network-free Node test runner only.
-    if (request.command !== 'node --test') {
-      throw fault('unsupported_toolchain','Only pinned offline node --test is supported.');
+    if (!blackbox && request.command !== 'node --test') {
+      throw fault('unsupported_toolchain','Only fixed offline Node checks are supported.');
+    }
+    let grader=null,graderSha256=ZERO_SHA256;
+    let args=['--test','--test-reporter=file:///C:/ChatMCP/Input/node-test-reporter.mjs'];
+    if(blackbox) {
+      const binding=validateBlackboxRequest(request.grader);
+      const pinned=snapshot.manifest.files.find(file=>file.path===binding.manifestPath);
+      if(!pinned || pinned.sha256!==binding.manifestSha256)
+        throw fault('stale_check','Black-box case specification differs from the approved snapshot.');
+      const bytes=await fs.readFile(path.join(project,...binding.manifestPath.split('/')));
+      if(HASH(bytes)!==binding.manifestSha256)throw fault('stale_check','Black-box specification changed while staging.');
+      const spec=validateBlackboxManifest(bytes);
+      if(JSON.stringify(spec.cases.map(item=>item.id))!==JSON.stringify(binding.caseIds) ||
+          !snapshot.manifest.files.some(file=>file.path===spec.adapter))
+        throw fault('stale_check','Approved cases or adapter are absent from the immutable snapshot.');
+      await fs.writeFile(path.join(input,'blackbox-check.json'),bytes,{flag:'wx',mode:0o400});
+      graderSha256=binding.manifestSha256;
+      grader={version:1,kind:BLACKBOX_KIND,manifestPath:GUEST_INPUT+'\\blackbox-check.json',manifestSha256:graderSha256};
+      args=[GUEST_INPUT+'\\project\\'+spec.adapter.replaceAll('/','\\')];
     }
     const requestMeta=await prepareExecutionRequest({
       inputDirectory:input,runId:request.runId,
       command:GUEST_INPUT+'\\toolchain\\node.exe',
-      args:['--test'],cwd:GUEST_WORK,
+      args,grader,
+      cwd:this.publicationProtocol===SEALED_PROTOCOL?GUEST_INPUT+'\\project':GUEST_WORK,
       timeoutSeconds:request.limits?.timeoutSeconds ?? 120,
-      maxOutputBytes:request.limits?.maxOutputBytes ?? 100*1024,
+      maxOutputBytes:blackbox?Math.min(request.limits?.maxOutputBytes ?? 64*1024,64*1024):request.limits?.maxOutputBytes ?? 100*1024,
     });
-    // Authentication key is host-only and is NEVER staged into mapped files.
+    const snapshotBytes = Buffer.from(JSON.stringify({baseSha:snapshot.manifest.baseSha,files:snapshot.manifest.files}));
+    await fs.writeFile(path.join(input,'snapshot.json'),snapshotBytes,{flag:'wx',mode:0o400});
     const xml=createSandboxConfiguration({
       inputDirectory:input,exportDirectory:output,
       workspaceRoot:snapshot.directory,memoryMb:4096,protectedClient:true,
     });
-    return {root,input,output,xml,nonce:requestMeta.nonce,authKey:requestMeta.authKey};
+    return {root,input,output,xml,nonce:requestMeta.nonce,authKey:requestMeta.authKey,
+      supervisorSha256:HASH(executable),toolchainSha256:HASH(nodeBytes),snapshotSha256:snapshot.contentHash,
+      requestSha256:HASH(await fs.readFile(requestMeta.requestPath)),reporterSha256:reporterBytes?HASH(reporterBytes):ZERO_SHA256,graderSha256};
   }
   async start({request,snapshot,generation,signal}) {
     if (this.owned.size) throw fault('sandbox_busy','This driver already owns an active Sandbox.');
+    if (this.publicationProtocol === SEALED_PROTOCOL &&
+        (!/^[0-9a-f]{64}$/.test(request.checkHash || '') || request.snapshotHash !== snapshot.contentHash)) {
+      throw fault('invalid_seal_context','Sealed publication requires exact snapshot and check hashes.');
+    }
     await fs.mkdir(this.stateDirectory,{recursive:true,mode:0o700});
-    const before=await this.#cli(['list','--raw'],{signal,timeout:15000});
-    if (!Array.isArray(before.WindowsSandboxEnvironments) || before.WindowsSandboxEnvironments.length) {
+    const before=parseSandboxInventory(await this.#cli(['list','--raw'],{signal,timeout:15000}));
+    if (before.length) {
       throw fault('sandbox_busy','An existing or unverified Windows Sandbox is running.');
     }
     const stage=await this.#stage({request,snapshot,generation,signal});
     // Once the CLI launch begins, malformed output is an ownership emergency.
     // Do not stop an unknown instance or delete forensic staging.
     const created=await this.#cli(['start','-c',stage.xml,'--raw'],{signal,timeout:30000});
-    const id=created.Id;
-    if (!UUID.test(id || '')) throw fault('unconfirmed_launch','CLI launched without a confirmed owned instance UUID.');
-    const running=await this.#cli(['list','--raw'],{signal,timeout:15000});
-    if (!Array.isArray(running.WindowsSandboxEnvironments) ||
-        !running.WindowsSandboxEnvironments.some(x=>x.Id===id)) {
+    if (typeof created?.Id !== 'string' || !UUID.test(created.Id))
+      throw fault('unconfirmed_launch','CLI launched without a confirmed owned instance UUID.');
+    const id=created.Id.toLowerCase();
+    const running=parseSandboxInventory(await this.#cli(['list','--raw'],{signal,timeout:15000}));
+    if (running.length!==1 || running[0]!==id) {
       throw fault('unconfirmed_launch','New Sandbox ID did not appear in the owned instance list.');
     }
     this.owned.set(id,{...stage,generation,runId:request.runId});
+    if (this.publicationProtocol === SEALED_PROTOCOL) {
+      const envelope = {version:1,instanceId:id,generation,runId:request.runId,nonce:stage.nonce,
+        supervisorSha256:stage.supervisorSha256,toolchainSha256:stage.toolchainSha256,
+        checkSha256:request.checkHash,snapshotSha256:stage.snapshotSha256,
+        testBaselineSha256:stage.snapshotSha256,requestSha256:stage.requestSha256,reporterSha256:stage.reporterSha256,
+        graderSha256:stage.graderSha256};
+      const envelopeBytes=Buffer.from(JSON.stringify(envelope));
+      // The guest mapping is read-only; finalize only from the trusted host,
+      // after positive ownership and before any project process is created.
+      await fs.writeFile(path.join(stage.input,'envelope.json'),envelopeBytes,{flag:'wx',mode:0o400});
+      this.owned.get(id).envelopeBytes=envelopeBytes;
+    }
     return {instanceId:id};
   }
   async execute({request,instanceId,generation,signal}) {
@@ -139,13 +210,46 @@ export class WindowsSandboxCliDriver {
     if (!owned || owned.generation!==generation || owned.runId!==request.runId) {
       throw fault('sandbox_not_owned','Refusing to execute in an unowned or stale Windows Sandbox.');
     }
+    if (this.publicationProtocol === SEALED_PROTOCOL && owned.executionStarted) {
+      throw fault('replayed_generation','A sealed generation can execute only once.');
+    }
+    const running=parseSandboxInventory(await this.#cli(['list','--raw'],{signal,timeout:15000}));
+    if (running.length!==1 || running[0]!==instanceId)
+      throw fault('sandbox_not_owned','Owned Sandbox is not the only verified active instance.');
     // Staging is a fixed copy-only bootstrap and never runs project hooks.
+    if (this.publicationProtocol !== SEALED_PROTOCOL) {
     const copyResult=await this.#cli([
       'exec','--id',instanceId,'-r','System',
-      '-c','robocopy.exe C:\\ChatMCP\\Input\\project C:\\ChatMCP\\Work /E /R:0 /W:0 /NFL /NDL /NJH /NJS /NC /NS','--raw'
+      '-c','C:\\Windows\\System32\\robocopy.exe C:\\ChatMCP\\Input\\project C:\\ChatMCP\\Work /E /R:0 /W:0 /NFL /NDL /NJH /NJS /NC /NS','--raw'
     ],{signal,timeout:30000});
     if (!Number.isInteger(copyResult.ExitCode) || copyResult.ExitCode<0 || copyResult.ExitCode>=8) {
       throw fault('guest_stage_failed','Guest-local input copy failed.');
+    }
+    }
+    if (this.publicationProtocol === SEALED_PROTOCOL) {
+      if (owned.executionStarted) throw fault('replayed_generation','A sealed generation can execute only once.');
+      owned.executionStarted=true;
+      const response=await this.#cli([
+        'exec','--id',instanceId,'-r','System','-c',
+        'C:\\ChatMCP\\Input\\GuestSupervisor.exe --guest-fixture --seal-envelope C:\\ChatMCP\\Input\\envelope.json --request C:\\ChatMCP\\Input\\request.json --output C:\\ChatMCP\\Output','--raw',
+      ],{signal,timeout:Math.ceil((request.limits?.timeoutSeconds??120)*1000)+30000});
+      if (!Number.isInteger(response.ExitCode)) throw fault('unknown_guest_exit','Missing native supervisor exit code.');
+      const responses=[];
+      for(let index=0;index<9;index++) {
+        signal?.throwIfAborted();
+        responses.push(await this.#cli([
+          'exec','--id',instanceId,'-r','System','-c',
+          'C:\\ChatMCP\\Input\\GuestSupervisor.exe --digest-word C:\\ChatMCP\\Input\\envelope.json '+index,'--raw',
+        ],{signal,timeout:15000}));
+      }
+      const listed=parseSandboxInventory(await this.#cli(['list','--raw'],{signal,timeout:15000}));
+      if (listed.length!==1 || listed[0]!==instanceId) {
+        throw fault('sandbox_not_owned','Owned instance vanished during native publication.');
+      }
+      return registerSealedCollection({
+        context:{runId:request.runId,instanceId,generation,expectedNonce:owned.nonce,cliExitCode:response.ExitCode},
+        envelopeBytes:owned.envelopeBytes,receiptBytes:readSealedReceiptBytes(owned.output),responses,
+      });
     }
     // The HMAC authentication key is staged in an isolated run export folder.
     // This is a temporary diagnostic transport, NOT an attested ACL guarantee.
@@ -201,9 +305,8 @@ export class WindowsSandboxCliDriver {
       throw fault('sandbox_not_owned','Never stop a Sandbox which this driver cannot prove it owns.');
     }
     await this.#cli(['stop','--id',instanceId,'--raw'],{timeout:30000});
-    const after=await this.#cli(['list','--raw'],{timeout:15000});
-    if (!Array.isArray(after.WindowsSandboxEnvironments) ||
-        after.WindowsSandboxEnvironments.some(x=>x.Id===instanceId)) {
+    const after=parseSandboxInventory(await this.#cli(['list','--raw'],{timeout:15000}));
+    if (after.includes(instanceId)) {
       throw fault('sandbox_stop_unconfirmed','Owned Sandbox termination could not be confirmed.');
     }
     this.owned.delete(instanceId);
@@ -222,7 +325,7 @@ export class WindowsSandboxCliDriver {
  * No automatic host fallback and no arbitrary user/model CLI path overrides.
  */
 export class LazyWindowsSandboxDriver {
-  constructor({preflight,runtimeDirectory,nodeToolchainDirectory,stateDirectory,runCli=null}={}){
+  constructor({preflight,runtimeDirectory,nodeToolchainDirectory,stateDirectory,runCli=null,publicationProtocol='diagnostic-hmac'}={}){
     if(typeof preflight!=='function'||!runtimeDirectory||!nodeToolchainDirectory||
         !stateDirectory||!path.isAbsolute(stateDirectory)) {
       throw fault('invalid_windows_driver','Host preflight and private driver directories are required.');
@@ -232,6 +335,7 @@ export class LazyWindowsSandboxDriver {
     this.nodeToolchainDirectory=nodeToolchainDirectory;
     this.stateDirectory=stateDirectory;
     this.runCli=runCli;
+    this.publicationProtocol=publicationProtocol;
     this.delegate=null;
     this.launching=false;
     this.quarantined=false;
@@ -253,10 +357,12 @@ export class LazyWindowsSandboxDriver {
       // Pin this instance to the preflight-selected CLI until it is stopped.
       const delegate=new WindowsSandboxCliDriver({
         cliPath:pre.details.cliPath,
+        cliPackage:pre.details.cliPackage,
         runtimeDirectory:this.runtimeDirectory,
         nodeToolchainDirectory:this.nodeToolchainDirectory,
         stateDirectory:this.stateDirectory,
         runCli:this.runCli,
+        publicationProtocol:this.publicationProtocol,
       });
       this.delegate=delegate; // persist intent before invoking wsb start
       return await delegate.start(args);

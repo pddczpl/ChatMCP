@@ -1,0 +1,55 @@
+PASS: clean guest has no node.exe on PATH
+PASS: clean guest has no dotnet.exe on PATH
+PASS: clean guest has no git.exe on PATH
+PASS: clean guest has no npm.cmd on PATH
+PASS: clean guest has no previous C:\Users\WDAGUtilityAccount\AppData\Local\Programs\ChatMCP
+PASS: clean guest has no previous C:\Users\WDAGUtilityAccount\AppData\Local\ChatMCP
+PASS: clean guest has no registered ChatMCP installation
+PASS: Microsoft WebView2 prerequisite installed offline in guest only
+PASS: upgrade uses a different real installer artifact
+PASS: baseline actual setup wizard completes with exit 0
+PASS: installed layout includes ChatMCP.exe
+PASS: installed layout includes WebView2Loader.dll
+PASS: installed layout includes runtimes\node\node.exe
+PASS: installed layout includes runtimes\node\node.exe.sha256
+PASS: installed layout includes CHATMCP-HUB\hub.mjs
+PASS: installed layout includes CHATMCP-HUB\web\dist\index.html
+PASS: installed layout includes CHATMCP-HUB\runtimes\windows-sandbox\GuestSupervisor.exe
+PASS: installed layout includes CHATMCP-HUB\runtimes\windows-sandbox\GuestSupervisor.exe.sha256
+PASS: installed layout includes Uninstall.exe
+PASS: desktop and Start Menu shortcuts exist
+PASS: Windows Installed Apps registration points to installed path
+PASS: installed runtime SHA-256 matches runtimes\node\node.exe
+PASS: installed runtime SHA-256 matches CHATMCP-HUB\runtimes\windows-sandbox\GuestSupervisor.exe
+PASS: baseline actual desktop WebView2, React and Hub first launch
+PASS: baseline Hub uses only bundled Node
+PASS: baseline desktop closes gracefully
+PASS: baseline owned Hub exits with desktop
+PASS: upgrade actual setup wizard completes with exit 0
+PASS: in-place upgrade replaces baseline installer with candidate
+PASS: upgrade preserves real BYO profile settings byte for byte
+PASS: upgrade preserves C:\Users\WDAGUtilityAccount\AppData\Local\Programs\ChatMCP\unrelated-user-document.txt
+PASS: upgrade preserves C:\Users\WDAGUtilityAccount\AppData\Local\Programs\ChatMCP\CHATMCP-HUB\user-settings.txt
+PASS: upgrade preserves C:\Users\WDAGUtilityAccount\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\ChatMCP\unrelated-user-document.txt
+PASS: upgrade preserves C:\Users\WDAGUtilityAccount\Documents\unrelated-g6-document.txt
+PASS: upgrade actual desktop WebView2, React and Hub first launch
+PASS: upgrade Hub uses only bundled Node
+PASS: upgrade desktop closes gracefully
+PASS: upgrade owned Hub exits with desktop
+PASS: manifest-aware maintenance fixture actual setup wizard completes with exit 0
+PASS: maintenance removes unchanged obsolete owned file
+PASS: maintenance preserves modified obsolete owned file
+PASS: maintenance replaces Uninstall.exe hardlink without writing unrelated target
+PASS: actual uninstall wizard completes with exit 0
+PASS: uninstall removes every manifest-owned payload file including its own executable
+PASS: uninstall removes the genuine legacy baseline file inventory too
+PASS: uninstall removes Windows Installed Apps entry
+PASS: uninstall removes owned shortcuts
+PASS: uninstall preserves C:\Users\WDAGUtilityAccount\AppData\Local\Programs\ChatMCP\unrelated-user-document.txt
+PASS: uninstall preserves C:\Users\WDAGUtilityAccount\AppData\Local\Programs\ChatMCP\CHATMCP-HUB\user-settings.txt
+PASS: uninstall preserves C:\Users\WDAGUtilityAccount\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\ChatMCP\unrelated-user-document.txt
+PASS: uninstall preserves C:\Users\WDAGUtilityAccount\Documents\unrelated-g6-document.txt
+PASS: uninstall preserves real user model settings
+PASS: uninstall preserves WebView2 user preferences
+PASS: uninstall preserves modified obsolete file from maintenance fixture
+PASS: uninstall preserves unrelated hardlink target from maintenance fixture

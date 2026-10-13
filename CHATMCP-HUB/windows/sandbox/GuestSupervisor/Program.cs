@@ -21,6 +21,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 
+[assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+[assembly: System.Runtime.Versioning.SupportedOSPlatform("windows")]
+
 namespace ChatMCP.Sandbox.GuestSupervisor;
 
 public class ExecutionRequest
@@ -48,6 +51,10 @@ public class ExecutionRequest
 
     [JsonPropertyName("maxOutputBytes")]
     public int MaxOutputBytes { get; set; } = 100 * 1024;
+
+    [JsonPropertyName("grader")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public BlackBoxExecutionSpec? Grader { get; set; }
 }
 
 public class ExecutionReceipt
@@ -102,6 +109,17 @@ public class ExecutionReceipt
 
     [JsonPropertyName("jobObjectAttached")]
     public bool JobObjectAttached { get; set; }
+
+    [JsonPropertyName("cleanupConfirmed")]
+    public bool CleanupConfirmed { get; set; }
+
+    [JsonPropertyName("grader")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public NativeBlackBoxEvidence? Grader { get; set; }
+
+    [JsonPropertyName("securityEvidence")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public NativeSecurityEvidence? SecurityEvidence { get; set; }
 }
 
 internal static class NativeJobObject
@@ -161,6 +179,13 @@ internal static class NativeJobObject
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool CloseHandle(IntPtr hObject);
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool TerminateJobObject(IntPtr hJob, uint exitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool QueryInformationJobObject(IntPtr hJob, int infoClass,
+        IntPtr info, uint length, out uint returned);
+
     public sealed class SafeJobHandle : IDisposable
     {
         private IntPtr _handle;
@@ -182,7 +207,7 @@ internal static class NativeJobObject
                 }
             };
 
-            int length = Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION));
+            int length = Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>();
             IntPtr extendedInfoPtr = Marshal.AllocHGlobal(length);
             try
             {
@@ -205,6 +230,26 @@ internal static class NativeJobObject
         {
             if (!OperatingSystem.IsWindows() || _handle == IntPtr.Zero) return false;
             return AssignProcessToJobObject(_handle, processHandle);
+        }
+
+        public bool TerminateAndConfirmEmpty()
+        {
+            if (_handle == IntPtr.Zero || !TerminateJobObject(_handle, 1)) return false;
+            // JOBOBJECT_BASIC_ACCOUNTING_INFORMATION: ActiveProcesses at byte 40.
+            IntPtr info = Marshal.AllocHGlobal(48);
+            try
+            {
+                var deadline = Stopwatch.StartNew();
+                do
+                {
+                    if (!QueryInformationJobObject(_handle, 1, info, 48, out uint size) || size < 44)
+                        return false;
+                    if (Marshal.ReadInt32(info, 40) == 0) return true;
+                    Thread.Sleep(10);
+                } while (deadline.ElapsedMilliseconds < 5000);
+                return false;
+            }
+            finally { Marshal.FreeHGlobal(info); }
         }
 
         public void Dispose()
@@ -368,6 +413,24 @@ internal static class NativeProcessManager
         public string usri1003_password;
     }
 
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct USER_INFO_1
+    {
+        public string Name;
+        public string Password;
+        public uint PasswordAge;
+        public uint Privilege;
+        public string? HomeDirectory;
+        public string? Comment;
+        public uint Flags;
+        public string? ScriptPath;
+    }
+
+    [DllImport("netapi32.dll", CharSet = CharSet.Unicode)]
+    public static extern uint NetUserAdd(string? servername, uint level, ref USER_INFO_1 info, out uint parameterError);
+    [DllImport("netapi32.dll", CharSet = CharSet.Unicode)]
+    public static extern uint NetUserDel(string? servername, string username);
+
     public const int LOGON32_LOGON_BATCH = 4;
     public const int LOGON32_PROVIDER_DEFAULT = 0;
 
@@ -484,6 +547,14 @@ public static class Program
 {
     public static async Task<int> Main(string[] args)
     {
+        if (args.Length == 1 && args[0] == "--blackbox-grader-self-test")
+            return NativeBlackBoxGrader.RunDiagnosticSelfTest();
+        if (args.Length > 0 && args[0] == "--audit-sealed-state")
+            return SealedReceiptChannel.AuditCommand(args);
+        if (args.Length > 0 && args[0] == "--digest-word")
+            return SealedReceiptChannel.ReadWordCommand(args);
+        if (args.Length > 0 && args[0] == "--seal-child-probe")
+            return SealedReceiptChannel.ChildProbe(args);
         if (args.Length > 0 && args[0] == "--child-probe")
         {
             string? outDir = args.Length > 1 ? args[1] : null;
@@ -498,6 +569,7 @@ public static class Program
         string? faultInject = null;
         bool hostFixture = false;
         bool guestFixture = false;
+        string? sealEnvelopePath = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -530,6 +602,10 @@ public static class Program
             {
                 faultInject = args[++i];
             }
+            else if (args[i] == "--seal-envelope" && i + 1 < args.Length)
+            {
+                sealEnvelopePath = args[++i];
+            }
         }
 
         void LogError(string msg)
@@ -541,6 +617,11 @@ public static class Program
             }
         }
 
+        if (sealEnvelopePath != null && (!guestFixture || hostFixture || authKey != null || authKeyFile != null))
+        {
+            LogError("BLOCKED: Sealed publication requires SYSTEM guest mode and forbids mapped bearer keys.");
+            return 3;
+        }
         if (guestFixture && authKeyProvidedOnCommandLine)
         {
             LogError("BLOCKED: --auth-key in guest process command line is forbidden.");
@@ -548,7 +629,7 @@ public static class Program
         }
 
         string? candidate = null;
-        if (string.IsNullOrWhiteSpace(authKey))
+        if (sealEnvelopePath == null && string.IsNullOrWhiteSpace(authKey))
         {
             if (!string.IsNullOrWhiteSpace(authKeyFile))
             {
@@ -636,7 +717,7 @@ public static class Program
             }
         }
 
-        if (guestFixture && string.IsNullOrWhiteSpace(authKey))
+        if (guestFixture && sealEnvelopePath == null && string.IsNullOrWhiteSpace(authKey))
         {
             LogError($"BLOCKED: Guest execution requires a consumed and removed HMAC key file. (candidate='{candidate}', exists={File.Exists(candidate ?? "")})");
             return 3;
@@ -672,12 +753,13 @@ public static class Program
         try
         {
             string json = await File.ReadAllTextAsync(requestPath);
-            request = JsonSerializer.Deserialize<ExecutionRequest>(json) ?? throw new InvalidOperationException("Failed to parse request JSON.");
+            request = JsonSerializer.Deserialize(json, SupervisorJsonContext.Default.ExecutionRequest) ?? throw new InvalidOperationException("Failed to parse request JSON.");
             if (request.Version != 1 || !Regex.IsMatch(request.RunId ?? "", "^[A-Za-z0-9_-]{1,128}$") ||
                 !Regex.IsMatch(request.Nonce ?? "", "^[0-9a-fA-F]{64}$") ||
                 string.IsNullOrWhiteSpace(request.Command) ||
                 !double.IsFinite(request.TimeoutSeconds) || request.TimeoutSeconds < 1 || request.TimeoutSeconds > 900 ||
-                request.MaxOutputBytes < 1 || request.MaxOutputBytes > 1024 * 1024)
+                request.MaxOutputBytes < 1 || request.MaxOutputBytes > 1024 * 1024 ||
+                (request.Grader != null && sealEnvelopePath == null))
             {
                 throw new InvalidOperationException("Invalid or unsupported execution request.");
             }
@@ -688,6 +770,20 @@ public static class Program
             return 1;
         }
 
+        SealedReceiptChannel? seal = null;
+        try
+        {
+            if (sealEnvelopePath != null)
+                seal = SealedReceiptChannel.Create(sealEnvelopePath, requestPath, outputPath, request);
+        }
+        catch (Exception ex)
+        {
+            LogError("BLOCKED: Sealed receipt preparation failed: " + ex.Message);
+            await WriteErrorReceiptAsync(outputPath, "failed", "Sealed receipt preparation failed: " + ex.Message,
+                startedAt, sw.ElapsedMilliseconds);
+            return 3;
+        }
+        using var sealLifetime = seal;
         using var jobObject = new NativeJobObject.SafeJobHandle();
 
         string status = "error";
@@ -697,12 +793,16 @@ public static class Program
         bool truncated = false;
         int? childPid = null;
         bool isRestrictedChild = false;
+        bool jobAssigned = false;
+        bool cleanupConfirmed = false;
         var reasons = new List<string>();
 
         IntPtr pPipeSD = IntPtr.Zero;
         IntPtr pProcSD = IntPtr.Zero;
         IntPtr pThrdSD = IntPtr.Zero;
         IntPtr hNul = IntPtr.Zero;
+        IntPtr hStdInRead = IntPtr.Zero;
+        IntPtr hStdInWrite = IntPtr.Zero;
         IntPtr hUserToken = IntPtr.Zero;
         IntPtr hRestrictedToken = IntPtr.Zero;
         IntPtr hStdOutRead = IntPtr.Zero;
@@ -712,6 +812,10 @@ public static class Program
         IntPtr hChildProcess = IntPtr.Zero;
         IntPtr hChildThread = IntPtr.Zero;
         string childSidString = string.Empty;
+        string childIntegritySid = string.Empty;
+        NativeChildTokenEvidence? childTokenEvidence = null;
+        string? ephemeralAccount = null;
+        NativeSecurityEvidence? securityEvidence = null;
 
         try
         {
@@ -745,22 +849,40 @@ public static class Program
                     throw new Win32Exception(5, "Fault injection: Failed to open supervisor process token.");
                 }
 
-                // Set password for built-in local user WDAGUtilityAccount
                 byte[] passBytes = RandomNumberGenerator.GetBytes(16);
                 string tempPassword = "Cmc@" + Convert.ToHexString(passBytes) + "!";
                 CryptographicOperations.ZeroMemory(passBytes);
-                var userInfo = new NativeProcessManager.USER_INFO_1003 { usri1003_password = tempPassword };
-                uint netResult = NativeProcessManager.NetUserSetInfo(null, "WDAGUtilityAccount", 1003, ref userInfo, out uint parmErr);
-                if (netResult != 0)
+                string account = "WDAGUtilityAccount";
+                int logonType = NativeProcessManager.LOGON32_LOGON_BATCH;
+                if (seal?.Grader != null)
                 {
-                    int netErr = Marshal.GetLastWin32Error();
-                    throw new Win32Exception((int)netResult, $"Security failure: NetUserSetInfo for WDAGUtilityAccount failed with code {netResult} (error {netErr}).");
+                    // Never share the initial desktop user's SID/profile or token
+                    // objects. The fresh account has USER privilege and is not
+                    // added to Administrators or given any guest authority.
+                    account = "CmcG4_" + Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(6));
+                    var info = new NativeProcessManager.USER_INFO_1
+                    {
+                        Name = account, Password = tempPassword, Privilege = 1,
+                        Flags = 0x200 /* NORMAL_ACCOUNT */ | 1 /* SCRIPT */ | 0x10000 /* DONT_EXPIRE_PASSWD */,
+                        Comment = "Ephemeral ChatMCP restricted black-box account",
+                    };
+                    uint addResult = NativeProcessManager.NetUserAdd(null, 1, ref info, out _);
+                    if (addResult != 0) throw new Win32Exception((int)addResult, "Cannot create fresh restricted black-box account.");
+                    ephemeralAccount = account;
+                    logonType = 2; // Standard interactive logon; no batch privilege grant.
+                }
+                else
+                {
+                    var userInfo = new NativeProcessManager.USER_INFO_1003 { usri1003_password = tempPassword };
+                    uint netResult = NativeProcessManager.NetUserSetInfo(null, account, 1003, ref userInfo, out _);
+                    if (netResult != 0)
+                        throw new Win32Exception((int)netResult, "Cannot prepare legacy diagnostic account.");
                 }
 
-                if (!NativeProcessManager.LogonUser("WDAGUtilityAccount", ".", tempPassword, NativeProcessManager.LOGON32_LOGON_BATCH, NativeProcessManager.LOGON32_PROVIDER_DEFAULT, out hUserToken))
+                if (!NativeProcessManager.LogonUser(account, ".", tempPassword, logonType, NativeProcessManager.LOGON32_PROVIDER_DEFAULT, out hUserToken))
                 {
                     int logonErr = Marshal.GetLastWin32Error();
-                    throw new Win32Exception(logonErr, $"Security failure: LogonUser for WDAGUtilityAccount failed (error {logonErr}).");
+                    throw new Win32Exception(logonErr, $"Security failure: Restricted account logon failed (error {logonErr}).");
                 }
 
                 // Retrieve child User SID directly from user token
@@ -810,7 +932,13 @@ public static class Program
                 lpSecurityDescriptor = pPipeSD
             };
 
-            if (guestFixture && pPipeSD != IntPtr.Zero)
+            if (seal?.Grader != null)
+            {
+                if (!NativeProcessManager.CreatePipe(out hStdInRead, out hStdInWrite, ref sa, 0) ||
+                    !NativeProcessManager.SetHandleInformation(hStdInWrite, NativeProcessManager.HANDLE_FLAG_INHERIT, 0))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Failed to create private black-box input pipe.");
+            }
+            else if (guestFixture && pPipeSD != IntPtr.Zero)
             {
                 hNul = NativeProcessManager.CreateFileW("NUL", 0x80000000 /* GENERIC_READ */, 1 | 2 /* SHARE_READ | SHARE_WRITE */, ref sa, 3 /* OPEN_EXISTING */, 0, IntPtr.Zero);
             }
@@ -886,10 +1014,9 @@ public static class Program
                     string[] denySids = new[] { "S-1-5-32-544", "S-1-5-114" };
                     foreach (var s in denySids)
                     {
-                        if (NativeProcessManager.ConvertStringSidToSidW(s, out IntPtr pSid))
-                        {
-                            sids.Add(pSid);
-                        }
+                        if (!NativeProcessManager.ConvertStringSidToSidW(s, out IntPtr pSid))
+                            throw new Win32Exception(Marshal.GetLastWin32Error(), "Failed to construct denied administrator SID.");
+                        sids.Add(pSid);
                     }
 
                     int structSize = Marshal.SizeOf<NativeProcessManager.SID_AND_ATTRIBUTES>();
@@ -918,7 +1045,7 @@ public static class Program
                 }
 
                 // Apply least-privilege DACL to restricted token: child can query, but not duplicate, impersonate, or write DAC
-                string tokenSddl = $"D:P(A;;GA;;;SY)(A;;0x20008;;;{childSidString})";
+                string tokenSddl = $"O:SYG:SYD:P(A;;GA;;;SY)(A;;0x20008;;;{childSidString})";
                 if (!NativeProcessManager.ConvertStringSecurityDescriptorToSecurityDescriptorW(tokenSddl, 1, out IntPtr pTokenSD, out _))
                 {
                     int err = Marshal.GetLastWin32Error();
@@ -926,7 +1053,8 @@ public static class Program
                 }
                 try
                 {
-                    if (!NativeProcessManager.SetKernelObjectSecurity(hRestrictedToken, NativeProcessManager.DACL_SECURITY_INFORMATION, pTokenSD))
+                    if (!NativeProcessManager.SetKernelObjectSecurity(hRestrictedToken,
+                        NativeProcessManager.DACL_SECURITY_INFORMATION | 1 /* OWNER */ | 2 /* GROUP */, pTokenSD))
                     {
                         int err = Marshal.GetLastWin32Error();
                         throw new Win32Exception(err, $"Security failure: SetKernelObjectSecurity on restricted token failed (error {err}).");
@@ -941,6 +1069,12 @@ public static class Program
                 {
                     throw new InvalidOperationException("Security failure: Restricted token handle is null; refusing privileged child spawn.");
                 }
+                if (seal != null)
+                {
+                    SealedReceiptChannel.ValidateAndConstrainChildToken(hRestrictedToken, childSidString);
+                    childIntegritySid = SealedReceiptChannel.TokenIntegritySid(hRestrictedToken);
+                    childTokenEvidence = SealedReceiptChannel.CaptureChildToken(hRestrictedToken);
+                }
             }
 
             var si = new NativeProcessManager.STARTUPINFO
@@ -948,7 +1082,7 @@ public static class Program
                 cb = Marshal.SizeOf<NativeProcessManager.STARTUPINFO>(),
                 dwFlags = (int)NativeProcessManager.STARTF_USESTDHANDLES,
                 lpDesktop = guestFixture ? @"Service-0x0-3e7$\Default" : null,
-                hStdInput = hNul != IntPtr.Zero ? hNul : IntPtr.Zero,
+                hStdInput = hStdInRead != IntPtr.Zero ? hStdInRead : hNul,
                 hStdOutput = hStdOutWrite,
                 hStdError = hStdErrWrite
             };
@@ -1000,7 +1134,13 @@ public static class Program
                     Marshal.StructureToPtr(saProc, pProcSec, false);
                     Marshal.StructureToPtr(saThrd, pThrdSec, false);
 
-                    created = NativeProcessManager.CreateProcessAsUserW(
+                    if (seal != null)
+                    {
+                        created = SealedReceiptChannel.CreateRestrictedProcess(
+                            hRestrictedToken, request.Command, commandLine, pProcSec, pThrdSec,
+                            creationFlags, workingDir, ref si, out pi);
+                    }
+                    else created = NativeProcessManager.CreateProcessAsUserW(
                         hRestrictedToken,
                         null,
                         commandLine,
@@ -1039,6 +1179,7 @@ public static class Program
             hStdOutWrite = IntPtr.Zero;
             NativeProcessManager.CloseHandle(hStdErrWrite);
             hStdErrWrite = IntPtr.Zero;
+            if (hStdInRead != IntPtr.Zero) { NativeProcessManager.CloseHandle(hStdInRead); hStdInRead = IntPtr.Zero; }
 
             if (!created)
             {
@@ -1060,6 +1201,7 @@ public static class Program
                 NativeProcessManager.TerminateProcess(hChildProcess, 1);
                 throw new Win32Exception(assignErr, "AssignProcessToJobObject failed on suspended process; child terminated.");
             }
+            jobAssigned = true;
 
             // Resume suspended primary thread and check result
             uint resumeResult = (faultInject == "resume_thread_fail") ? uint.MaxValue : NativeProcessManager.ResumeThread(hChildThread);
@@ -1082,8 +1224,21 @@ public static class Program
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(1, request.TimeoutSeconds)));
 
-            var stdoutTask = ReadBoundedStreamAsync(outStream, request.MaxOutputBytes, cts.Token);
+            var stdoutTask = ReadBoundedStreamAsync(outStream, request.MaxOutputBytes, cts.Token, strictUtf8: seal?.Grader != null);
             var stderrTask = ReadBoundedStreamAsync(errStream, request.MaxOutputBytes, cts.Token);
+            Task inputTask = Task.CompletedTask;
+            if (seal?.Grader != null)
+            {
+                var inputHandle = new SafeFileHandle(hStdInWrite, ownsHandle: true);
+                hStdInWrite = IntPtr.Zero;
+                // Anonymous pipes are synchronous handles. Run the bounded write
+                // off-thread so a child refusing stdin cannot delay the job timeout.
+                inputTask = Task.Run(() =>
+                {
+                    using var inputStream = new FileStream(inputHandle, FileAccess.Write);
+                    inputStream.Write(seal.Grader.InputBytes);
+                });
+            }
 
             (uint waitResult, int waitErr) = await Task.Run(() =>
             {
@@ -1146,6 +1301,10 @@ public static class Program
                 reasons.Add($"Unexpected wait result: {waitResult}");
             }
 
+            // Kill descendants before waiting for pipe EOF and before publication.
+            cleanupConfirmed = jobObject.TerminateAndConfirmEmpty();
+            if (!cleanupConfirmed) throw new InvalidOperationException("Job cleanup could not confirm zero active processes.");
+            await inputTask;
             var (outStr, outTrunc) = await stdoutTask;
             var (errStr, errTrunc) = await stderrTask;
             stdout = outStr;
@@ -1161,12 +1320,30 @@ public static class Program
         }
         finally
         {
+            if (!cleanupConfirmed) cleanupConfirmed = jobObject.TerminateAndConfirmEmpty();
+            if (!cleanupConfirmed)
+            {
+                status = "failed";
+                exitCode = null;
+                reasons.Add("Native job cleanup was not confirmed.");
+            }
             if (hStdOutWrite != IntPtr.Zero) { NativeProcessManager.CloseHandle(hStdOutWrite); hStdOutWrite = IntPtr.Zero; }
             if (hStdErrWrite != IntPtr.Zero) { NativeProcessManager.CloseHandle(hStdErrWrite); hStdErrWrite = IntPtr.Zero; }
             if (hStdOutRead != IntPtr.Zero) { NativeProcessManager.CloseHandle(hStdOutRead); hStdOutRead = IntPtr.Zero; }
             if (hStdErrRead != IntPtr.Zero) { NativeProcessManager.CloseHandle(hStdErrRead); hStdErrRead = IntPtr.Zero; }
+            if (hStdInRead != IntPtr.Zero) { NativeProcessManager.CloseHandle(hStdInRead); hStdInRead = IntPtr.Zero; }
+            if (hStdInWrite != IntPtr.Zero) { NativeProcessManager.CloseHandle(hStdInWrite); hStdInWrite = IntPtr.Zero; }
             if (hRestrictedToken != IntPtr.Zero) { NativeProcessManager.CloseHandle(hRestrictedToken); hRestrictedToken = IntPtr.Zero; }
             if (hUserToken != IntPtr.Zero) { NativeProcessManager.CloseHandle(hUserToken); hUserToken = IntPtr.Zero; }
+            if (ephemeralAccount != null)
+            {
+                uint deleteResult = NativeProcessManager.NetUserDel(null, ephemeralAccount);
+                if (deleteResult != 0)
+                {
+                    status = "failed";
+                    reasons.Add("Ephemeral account removal failed: " + deleteResult);
+                }
+            }
             if (hChildThread != IntPtr.Zero) { NativeProcessManager.CloseHandle(hChildThread); hChildThread = IntPtr.Zero; }
             if (hChildProcess != IntPtr.Zero) { NativeProcessManager.CloseHandle(hChildProcess); hChildProcess = IntPtr.Zero; }
             if (hNul != IntPtr.Zero) { NativeProcessManager.CloseHandle(hNul); hNul = IntPtr.Zero; }
@@ -1177,6 +1354,16 @@ public static class Program
         }
 
         DateTime completedAt = DateTime.UtcNow;
+
+        if (seal != null)
+        {
+            try { securityEvidence = seal.CaptureSecurityEvidence(childSidString, childIntegritySid, ephemeralAccount != null, childTokenEvidence); }
+            catch (Exception ex) { status = "failed"; reasons.Add("Native security evidence unavailable: " + ex.Message); }
+        }
+
+        NativeBlackBoxEvidence? grading = seal?.Grader?.Grade(stdout,
+            status == "completed" && exitCode == 0 && !truncated && cleanupConfirmed && jobAssigned && isRestrictedChild, reasons);
+        if (grading != null && !grading.Valid) status = "failed";
 
         var receipt = new ExecutionReceipt
         {
@@ -1196,11 +1383,27 @@ public static class Program
             Reasons = reasons.ToArray(),
             IsGuestExecution = guestFixture,
             RestrictedChild = isRestrictedChild,
-            JobObjectAttached = true,
+            JobObjectAttached = jobAssigned,
+            CleanupConfirmed = cleanupConfirmed,
+            Grader = grading,
+            SecurityEvidence = securityEvidence,
         };
 
-        await WriteReceiptFilesAsync(outputPath, receipt, authKey);
-        return status == "completed" ? 0 : (exitCode ?? 1);
+        try
+        {
+            byte[] receiptBytes = await WriteReceiptFilesAsync(outputPath, receipt, authKey, sealedExport: seal != null);
+            if (seal != null)
+            {
+                if (!cleanupConfirmed) return 3;
+                seal.Seal(receiptBytes);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogError("BLOCKED: Receipt publication failed: " + ex.Message);
+            return 3;
+        }
+        return status == "completed" ? 0 : (exitCode is > 0 ? exitCode.Value : 1);
     }
 
     private static string BuildCommandLine(string command, string[]? args)
@@ -1224,7 +1427,7 @@ public static class Program
         return "\"" + arg.Replace("\"", "\\\"") + "\"";
     }
 
-    private static async Task<(string Text, bool Truncated)> ReadBoundedStreamAsync(Stream stream, int maxBytes, CancellationToken ct)
+    private static async Task<(string Text, bool Truncated)> ReadBoundedStreamAsync(Stream stream, int maxBytes, CancellationToken ct, bool strictUtf8 = false)
     {
         byte[] buffer = new byte[4096];
         using var ms = new MemoryStream();
@@ -1259,31 +1462,35 @@ public static class Program
         catch (OperationCanceledException)
         {
             // Drain aborted on cancellation/timeout
+            truncated = true;
         }
         catch
         {
             // Stream closed or pipe broken on exit
+            truncated = true;
         }
 
-        string text = Encoding.UTF8.GetString(ms.ToArray());
+        string text = (strictUtf8 ? new UTF8Encoding(false, true) : Encoding.UTF8).GetString(ms.ToArray());
         return (text, truncated);
     }
 
-    private static async Task WriteReceiptFilesAsync(string outputDir, ExecutionReceipt receipt, string? authKey = null)
+    private static async Task<byte[]> WriteReceiptFilesAsync(string outputDir, ExecutionReceipt receipt,
+        string? authKey = null, bool sealedExport = false)
     {
         Directory.CreateDirectory(outputDir);
         string receiptJsonPath = Path.Combine(outputDir, "receipt.json");
-        string json = JsonSerializer.Serialize(receipt, new JsonSerializerOptions { WriteIndented = true });
+        string json = JsonSerializer.Serialize(receipt, SupervisorJsonContext.Default.ExecutionReceipt);
         var utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
-        await File.WriteAllTextAsync(receiptJsonPath, json, utf8NoBom);
-
         byte[] rawBytes = utf8NoBom.GetBytes(json);
+        if (sealedExport) SealedReceiptChannel.WriteNewExport(receiptJsonPath, rawBytes);
+        else await File.WriteAllTextAsync(receiptJsonPath, json, utf8NoBom);
 
         using var sha256 = SHA256.Create();
         byte[] hash = sha256.ComputeHash(rawBytes);
         string hashHex = Convert.ToHexStringLower(hash);
         string receiptShaPath = Path.Combine(outputDir, "receipt.sha256");
-        await File.WriteAllTextAsync(receiptShaPath, hashHex + "  receipt.json\n", utf8NoBom);
+        if (sealedExport) SealedReceiptChannel.WriteNewExport(receiptShaPath, utf8NoBom.GetBytes(hashHex + "  receipt.json\n"));
+        else await File.WriteAllTextAsync(receiptShaPath, hashHex + "  receipt.json\n", utf8NoBom);
 
         if (!string.IsNullOrWhiteSpace(authKey))
         {
@@ -1294,6 +1501,7 @@ public static class Program
             string receiptSigPath = Path.Combine(outputDir, "receipt.sig");
             await File.WriteAllTextAsync(receiptSigPath, hmacHex + "  receipt.json\n", utf8NoBom);
         }
+        return rawBytes;
     }
 
     private static async Task WriteErrorReceiptAsync(string outputDir, string status, string error, DateTime startedAt, long durationMs, string? authKey = null)

@@ -7,9 +7,48 @@ import { constants } from 'node:fs';
 import { fault, validateExecutionRequest, validateExecutionReceipt } from './execution-contract.mjs';
 import { createExecutionSnapshot, validateSnapshotPath } from './execution-snapshots.mjs';
 import { hashCheck, recordVerificationAttempt } from './verification-receipt.mjs';
+import { BLACKBOX_KIND, BLACKBOX_COMMAND, MAX_BLACKBOX_BYTES, isBlackboxManifestPath, validateBlackboxManifest } from './native-blackbox-contract.mjs';
 const hash = s => createHash('sha256').update(s).digest('hex');
 const trustedWorker = w => w && typeof w.id === 'string' && typeof w.workspace === 'string' && Array.isArray(w.files);
 const now = () => Date.now();
+async function readBlackboxDefinition(workspace, relative) {
+  validateSnapshotPath(relative);
+  const rootStat=await fs.lstat(workspace);
+  if(!rootStat.isDirectory()||rootStat.isSymbolicLink())throw fault('unsafe_check_source','Check workspace must be a regular directory.');
+  const root=await fs.realpath(workspace);
+  let full=root;
+  for(const part of relative.split('/').slice(0,-1)) {
+    full=path.join(full,part);
+    const stat=await fs.lstat(full);
+    if(!stat.isDirectory()||stat.isSymbolicLink())throw fault('unsafe_check_source','Check ancestor must not be linked.');
+  }
+  full=path.join(root,...relative.split('/'));
+  const before=await fs.lstat(full);
+  if(!before.isFile()||before.isSymbolicLink()||before.nlink!==1||before.size>MAX_BLACKBOX_BYTES)
+    throw fault('unsafe_check_source','Black-box check must be a bounded regular file.');
+  const handle=await fs.open(full,constants.O_RDONLY|(process.platform==='win32'?0:(constants.O_NOFOLLOW||0)));
+  try {
+    const opened=await handle.stat();
+    if(!opened.isFile()||opened.nlink!==1||opened.dev!==before.dev||opened.ino!==before.ino||
+      opened.size!==before.size||opened.mtimeMs!==before.mtimeMs)throw fault('stale_check','Check changed while opening.');
+    const buffer=Buffer.alloc(MAX_BLACKBOX_BYTES+1);
+    let total=0;
+    while(total<buffer.length) {
+      const read=await handle.read(buffer,total,buffer.length-total,total);
+      if(!read.bytesRead)break;
+      total+=read.bytesRead;
+    }
+    const bytes=buffer.subarray(0,total);
+    const after=await handle.stat();
+    if(bytes.length!==before.size||after.size!==before.size||after.mtimeMs!==before.mtimeMs)
+      throw fault('stale_check','Check changed while being read.');
+    return bytes;
+  } finally {await handle.close();}
+}
+// Include all pinned Node 24 automatic JS/TS discovery forms, plus historical
+// tests/spec paths. Legacy execution is diagnostic even with this wider binding.
+export const isNodeTestSource = name => /(?:^|\/)(?:test|tests)\//i.test(name) ||
+  /(?:^|\/)(?:test|test-[^/]*|[^/]*[._-]test|[^/]+\.spec)\.(?:[cm]?[jt]s)$/i.test(name);
 export class WorkerTestBroker {
   constructor({ resolveWorker, registry, authorizeGrant, snapshotFactory = createExecutionSnapshot,
     releaseSnapshot = null, clock = now } = {}) {
@@ -39,6 +78,24 @@ export class WorkerTestBroker {
   }
   async discoverChecks({ workerId } = {}) {
     const worker = await this.#worker(workerId);
+    const blackboxDescriptors=[];
+    const manifests=worker.files.filter(isBlackboxManifestPath).sort();
+    if(manifests.length>30)throw fault('invalid_blackbox_check','At most 30 declarative checks can be discovered.');
+    for(const from of manifests) {
+      const bytes=await readBlackboxDefinition(worker.workspace,from);
+      const spec=validateBlackboxManifest(bytes);
+      validateSnapshotPath(spec.adapter);
+      if(!worker.files.includes(spec.adapter))throw fault('unsafe_check_source','Black-box adapter must belong to the registered worker file set.');
+      const manifestSha256=hash(bytes);
+      const sourceHash=hash(JSON.stringify({kind:BLACKBOX_KIND,from,manifestSha256}));
+      const info={workerId,sourceHash,command:BLACKBOX_COMMAND,cwd:'.',toolchain:'offline-node-pinned',policy:'windows-sandbox',checkKind:BLACKBOX_KIND};
+      const checkHash=hashCheck(info);
+      blackboxDescriptors.push(Object.freeze({id:checkHash.slice(0,28),checkHash,...info,from,
+        grader:Object.freeze({version:1,kind:BLACKBOX_KIND,manifestPath:from,manifestSha256,
+          caseIds:Object.freeze(spec.cases.map(item=>item.id))}),
+        testFiles:Object.freeze([Object.freeze({path:from,sha256:manifestSha256,size:bytes.length})]),
+      }));
+    }
     const suggestions = await worker.checks(); // trusted workspace discovery reads untrusted repository metadata
     const commands = suggestions?.suggested || [];
     // Each discovered command is deliberately fixed to a well-known project
@@ -89,10 +146,12 @@ export class WorkerTestBroker {
     // Node --test can discover multiple project tests. Bind every registered
     // test file to the grant so a model cannot weaken/delete assertions between
     // failed and successful attempts without new approval.
-    const testFiles=worker.files.filter(name =>
-      /(?:^|\/)(?:test|tests)\/|(?:\.test|\.spec)\.(?:[cm]?js)$/.test(name)
-    ).map(validateSnapshotPath).sort();
+    const testFiles=worker.files.filter(isNodeTestSource).map(validateSnapshotPath).sort();
     if (!testFiles.length || testFiles.length > 200) {
+      if(blackboxDescriptors.length) {
+        this.descriptors.set(workerId,blackboxDescriptors);
+        return blackboxDescriptors.map(entry=>({...entry}));
+      }
       throw fault('missing_test_sources','At least one bounded Node test file is required.');
     }
     const testFileHashes=[];
@@ -131,8 +190,9 @@ export class WorkerTestBroker {
         testFiles:testFileHashes.map(x=>({...x})),
       });
     });
-    this.descriptors.set(workerId, descriptors);
-    return descriptors.map(x => ({ ...x }));
+    const discovered=[...blackboxDescriptors,...descriptors];
+    this.descriptors.set(workerId, discovered);
+    return discovered.map(x => ({ ...x }));
   }
   async issueGrant({ workerId, checkId, maxAttempts = 3, expiresInMs = 20 * 60 * 1000 } = {}) {
     const worker = await this.#worker(workerId);
@@ -180,6 +240,8 @@ export class WorkerTestBroker {
     try {
     // Verify that the exact test sources named by the grant made it into the
     // immutable staged snapshot, rather than a new test suite after approval.
+    if(descriptor.checkKind===BLACKBOX_KIND && !Array.isArray(snapshot.manifest?.files))
+      throw fault('invalid_snapshot','Native grading requires the exact immutable manifest.');
     if (Array.isArray(snapshot.manifest?.files)) {
       for (const pinned of descriptor.testFiles) {
         const copied=snapshot.manifest.files.find(x=>x.path===pinned.path);
@@ -194,8 +256,9 @@ export class WorkerTestBroker {
       runId, snapshotId: snapshot.snapshotId, checkId: descriptor.id,
       backend: 'windows-sandbox', isolationRequired: true,
       command: descriptor.command, cwd: '.', shell: 'auto', snapshotHash: snapshot.contentHash,
+      checkKind:descriptor.checkKind,grader:descriptor.grader,
       checkHash: descriptor.checkHash, requiredLimits: ['timeoutSeconds','maxOutputBytes'],
-      limits: { timeoutSeconds: 120, maxOutputBytes: 100 * 1024 },
+      limits: { timeoutSeconds: 120, maxOutputBytes: descriptor.checkKind===BLACKBOX_KIND?MAX_BLACKBOX_BYTES:100 * 1024 },
     });
     const backend = this.registry.get('windows-sandbox');
     if (!backend) throw fault('backend_unavailable', 'Windows Sandbox backend not registered.', 503);

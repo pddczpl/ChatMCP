@@ -27,6 +27,9 @@ import { LazyWindowsSandboxDriver } from '../../lib/windows-sandbox-driver.mjs';
 import { WindowsSandboxPublisher } from '../../lib/windows-sandbox-publisher.mjs';
 import { WorkerTestBroker } from '../../lib/worker-test-broker.mjs';
 import { reconcileOwnedGuestTestCleanup } from './owned-guest-cleanup.mjs';
+import { SEALED_PROTOCOL } from '../../lib/windows-sandbox-sealed-receipt.mjs';
+
+const sealedProbe=process.env.CHATMCP_PROBE_SEALED==='1';
 
 let checks = 0;
 const ok = (label) => {
@@ -124,12 +127,13 @@ test('adds numbers correctly', () => {
       runtimeDirectory: runtimeDir,
       nodeToolchainDirectory: nodeToolchainDir,
       stateDirectory: path.join(backendStateDir, 'driver'),
+      publicationProtocol:sealedProbe?SEALED_PROTOCOL:'diagnostic-hmac',
     });
     managedDriver=driver;
 
-    // DIAGNOSTIC ONLY: hostAttested true here is a trusted test-harness injection
-    // to exercise full-stack plumbing. Child User SID / HMAC key secrecy are
-    // currently KNOWN UNSAFE; this is NOT production publisher attestation.
+    // DIAGNOSTIC ONLY: hostAttested true is a trusted test-harness injection.
+    // The sealed candidate needs independent full-threat-model review; legacy
+    // HMAC still traverses a guest-readable mapping. Neither unlocks production.
     const publisher = new WindowsSandboxPublisher({ hostAttested: true });
     const backend = new WindowsSandboxBackend({
       stateDirectory: backendStateDir,
@@ -197,8 +201,9 @@ test('adds numbers correctly', () => {
     assert.equal(attempt1.exitCode, 1);
     assert.equal(attempt1.publisherAuthenticated, true);
     assert.ok(
-      attempt1.stdoutPreview.includes('not ok 1 - adds numbers correctly') ||
-      attempt1.stdoutPreview.includes('AssertionError'),
+      attempt1.stdoutPreview.includes('"type":"test:fail"') &&
+      attempt1.stdoutPreview.includes('adds numbers correctly') &&
+      attempt1.stdoutPreview.includes('-1 !== 5'),
       'Output must contain genuine Node test assertion failure'
     );
     ok(`[3] First real guest execution failed with signed diagnostic receipt (ExitCode: 1; G4 not attested)`);
@@ -235,13 +240,10 @@ test('adds numbers correctly', () => {
     assert.equal(attempt2.exitCode, 0);
     assert.equal(attempt2.commandSucceeded, true);
     assert.equal(attempt2.publisherAuthenticated, true);
-    assert.ok(
-      attempt2.stdoutPreview.includes('adds numbers correctly') &&
-      attempt2.stdoutPreview.includes('pass 1'),
-      'Output must contain genuine Node test passing assertion'
-    );
+    assert.equal(attempt2.testOutcomeVerified,false);
+    assert.deepEqual(attempt2.registeredTests,{tests:1,pass:1,fail:0});
     ok(`[4] Second real guest execution passed with signed diagnostic receipt (ExitCode: 0; G4 not attested)`);
-    ok('[4] Repaired Node TAP assertions parsed; HMAC signature checks only fixture integrity, not production origin');
+    ok('[4] Pinned reporter observed one registered test; full adversarial test-result authenticity remains unproven');
 
     // 8. Adversarial & Fail-Closed Scenarios
     console.log('\n--- [5] Security Boundary & Adversarial Invariant Probes ---');
@@ -316,8 +318,8 @@ test('adds numbers correctly', () => {
   }
 
   console.log(`\nPASS: All ${checks} real coding worker E2E diagnostic checks SUCCEEDED.`);
-  console.log('FUNCTIONAL DIAGNOSTIC PASS ONLY: production G3/G4 identity and HMAC secrecy gates FAIL. NO MERGE / RELEASE.\n');
-  return { success:true, checks, productionAuthenticated:false, securityGate:'G4_FAIL' };
+  console.log('FUNCTIONAL DIAGNOSTIC PASS ONLY: '+(sealedProbe?'native sealed ExitCode transport exercised; independent G4 security acceptance remains required.':'legacy mapped HMAC key remains unsafe.')+' NO MERGE / RELEASE.\n');
+  return { success:true, checks, productionAuthenticated:false, securityGate:'G4_BLOCKED',publicationProtocol:sealedProbe?SEALED_PROTOCOL:'diagnostic-hmac' };
 }
 
 if (process.argv[1] && process.argv[1].endsWith('real-coding-e2e.mjs')) {
