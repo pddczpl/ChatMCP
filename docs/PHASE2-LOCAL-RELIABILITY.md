@@ -67,3 +67,7 @@ On startup, CodingWorktreeOrchestrator now cross-checks the latest durable recov
 ## Owner-only bounded source context preview
 
 Phase 2 adds a read-only preview of changed files from an exact committed managed worker revision. It checks the managed branch HEAD, clean Git worktree and expected managed path before reading; rejects path traversals, alternate streams, symlink parents/hardlinks, private credential paths, oversized or invalid/binary files. Each preview returns limited line-numbered snippets and file SHA-256. The Hub exposes GET /api/studio/coding/context only through its existing owner authentication and workspace selection; the inspector offers a manual “Preview changed files” button. No context is transferred automatically to a model; this is not a substitute for verified test evidence or a full security boundary against an attacker controlling the host OS.
+
+## Offline reliability benchmark (scripted, no model spending)
+
+New tests/benchmarks/phase2-reliability.mjs and verify-phase2-benchmarks.mjs exercise nine deterministic cases: missing checkpoint, valid hash chain, automatic replay refusal, stale writer lock, tampered record, path traversal, journal capacity, sensitive-file exclusion and read-only context preview. The report explicitly records zero model requests, zero shell executions and zero network requests; none of these outcomes constitutes Windows Sandbox publisher attestation or real-model coding quality.
