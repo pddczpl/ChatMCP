@@ -1,3 +1,103 @@
+# ANTIGRAVITY_NEXT_TASK — Round 7: WSB ExitCode Trust-Channel Feasibility
+
+**Date:** 2026-10-13  
+**Executor:** Antigravity on authorized Windows 11 workstation  
+**Project root:** F:\Personal_Project\Vin\ChatMCP  
+**Branch:** feat/phase1-complete-autonomous-coding  
+**PR:** https://github.com/pddczpl/ChatMCP/pull/13  
+**P0 issue:** https://github.com/pddczpl/ChatMCP/issues/14
+
+**Decision:** PHASE 1 G4 BLOCKED — NO MERGE / NO RELEASE. Shipping WindowsSandboxPublisher({hostAttested:false}) remains locked.
+
+## A. Read the NEW facts before coding
+
+Your Round 6 report tested SHA c7a271ea353beaead1c259877da4f537592efc19 and reported 9/9 PR CI, 9/9 push CI, 62 Hub suites, 46 UI checks, 42 installer payload checks and real Windows Sandbox functional FAIL→repair→PASS. Those reported counts and GitHub CI were reviewed; no need to rerun *unchanged* component work gratuitously.
+
+The decisive real hardware observation was:
+- wsb.exe CLI version 0.8.107.0
+- wsb exec --raw JSON has ONLY ["ExitCode"]; Stdout field absent
+- fixed public echo marker NOT forwarded
+- SYNTHETIC_KEY_READ_SUCCESS=True when WDAG child read a synthetic file in the writable host-mapped guest Output directory
+- **G4 publisher BLOCKED**, clean-machine install/upgrade/uninstall NOT VERIFIED.
+
+Microsoft independently documents that wsb exec returns the process exit code but **does not support process I/O**:
+https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/windows-sandbox-cli
+
+Therefore **do not attempt to implement trusted publication via wsb Stdout** in the tested environment. Any code that interprets missing Stdout as authenticated PASS is unsafe.
+
+Read the revised architecture FIRST:
+docs/PHASE1-G4-PUBLISHER-TRANSPORT-ADR.md
+
+ChatGPT added a NEW non-attesting **nine-word positive ExitCode digest codec**:
+- CHATMCP-HUB/lib/windows-sandbox-exitcode-channel.mjs
+- CHATMCP-HUB/tests/verify-windows-driver.mjs
+- optional REAL Windows probe in CHATMCP-HUB/tests/windows-sandbox/real-guest.mjs
+
+It encodes SHA-256 into NINE nonzero POSITIVE 31-bit process exit codes (top two bits 01, 30 data bits each, 14 zero padding bits). **It never marks publisherAuthenticated=true.** Matching 256-bit digest words from MOCK or arbitrary guest data does NOT establish identity of the pinned GuestSupervisor or integrity of guest-local state.
+
+## B. Fetch and protect local work
+
+From PowerShell:
+
+~~~powershell
+Set-Location 'F:\Personal_Project\Vin\ChatMCP'
+git status --short
+git branch -vv
+git remote -v
+git fetch origin
+gh pr view 13 --json state,isDraft,headRefName,baseRefName,headRefOid
+gh pr checks 13
+git show origin/feat/phase1-complete-autonomous-coding:docs/agent-handoffs/ANTIGRAVITY_NEXT_TASK.md
+git rev-parse HEAD
+git diff --check
+~~~
+
+Confirm this file begins with **Round 7** and review AGENTS.md. Preserve unrelated changes. When clean, synchronize using fast-forward; otherwise use a new clean worktree, never destructive reset/clean or force push. Record initial/final SHA. Do not start/stop other users' Sandbox instances.
+
+## C. Priority 1 — Native high ExitCode feasibility (hardware)
+
+1. Read the new codec and its source-only regression. Run:
+   node CHATMCP-HUB/tests/verify-windows-driver.mjs
+2. Probe two framed positive process exits on the exact **owned** Sandbox using the optional real-guest diagnostic. In PowerShell only for this test:
+   $env:CHATMCP_PROBE_FRAMED_EXITS='1'
+   node CHATMCP-HUB/tests/windows-sandbox/real-guest.mjs
+   Remove-Item Env:CHATMCP_PROBE_FRAMED_EXITS
+3. The real-guest script will still correctly exit NONZERO while G4 is BLOCKED. This is **not** a regression failure to suppress. Record the separate diagnostic string:
+   CLI_FRAMED_EXIT_RANGE_OBSERVED or CLI_FRAMED_EXIT_RANGE_NOT_PROVEN.
+4. Record whether both **1073741824 (0x40000000)** and **2147483647 (0x7fffffff)** survive the exact wsb exec --raw JSON round-trip, with bounded redacted schema, command outcome and time spent. These are PUBLIC status codes, not secrets.
+5. If either high positive process ExitCode is corrupted/unsupported/ambiguous, mark option C infeasible on this CLI version and report native error. Do NOT continue implementing that protocol merely because mock tests pass.
+
+## D. Priority 2 — Prove or reject trusted ExitCode publisher provenance
+
+ONLY if section C proves framed ExitCode transport:
+
+1. Design a SUPERVISOR-SEALED guest-local digest state with an OS-enforced SYSTEM-only DACL. It must be under guest-local private storage, NEVER the host-mapped Output folder or a world-writable temp path. The output receipt file can be untrusted, but the full SHA-256 digest of exactly its bytes plus a canonical run envelope must be protected from EVERY low-trust child and any pre-existing guest process.
+2. Bind run ID, fresh host nonce, owned Sandbox UUID/generation, snapshot/check/test baseline hash, pinned GuestSupervisor and toolchain exe hashes, Node TAP assertion counts, status/exit code and cancellation. The host separately checks all these fields. Do not sign arbitrary client-supplied JSON without authenticating its source.
+3. Introduce a strictly fixed native command such as GuestSupervisor.exe --digest-word <0..8> tied to a previously sealed run, returning ONLY the corresponding positive framed ExitCode through wsb exec -r System. Authenticate the exact launched binary/OS process and verify the protected digest state cannot be created/replaced/read by WDAGUtilityAccount or descendants. Reject wrong state/request/generation; never accept missing words, zero exit, malformed framing, nonzero final padding, replay or interruption as PASS.
+4. Attempt malicious child receipt overwrite, forge completed exit0, alter original test assertions, replace guest-local digest, invoke the digest-word command as WDAG user, forged process launch, and concurrent/unknown guest ownership. If any attack can cause the host to accept an altered receipt, this option is UNSAFE and must not enable production.
+5. Prefer a small diagnostic native proof-of-concept and raw Win32 deny/exit evidence before wiring into the actual WorkerTestBroker. The real hardware report must distinguish SOURCE/MOCK, FUNCTIONAL and SECURITY proofs. Any native helper changes must run on a freshly published exe SHA from final source SHA.
+
+If source provenance or protected state cannot be proved, leave the product publisher locked and provide an honest architectural blocker. Alternative guest-local broker/IPC only if an actual supported host↔VM channel is verified. **Do not assume ordinary host named pipes cross a Windows Sandbox VM.**
+
+## E. Functional regression and release readiness
+
+- Preserve the existing full-stack diagnostic: WorkerTestBroker → ExecutionSnapshotStore → WindowsSandboxBackend → trusted owned guest. Show FAIL → implementation-only repair → PASS with unmodified baseline tests and real TAP counts; diagnostic test-scoped hostAttested true does NOT certify production G4.
+- Preserve a genuine non-SYSTEM child SID, restricted tokens, WMI evidence from actual query (never hardcoded PASS), Job Object containment, process/windowstation/desktop DACL denials, network/canary denial, no host command fallback, cancellation and owner-only guest cleanup.
+- Run full Hub regressions, React unit/E2E/build, Win-x64 .NET GuestSupervisor publish and installer tests on final SHA. Check 9/9 push and 9/9 PR CI. The user has NOT authorized paid model requests, OS feature installs/reboots, system account changes on host, or stopping unrelated VM.
+- Distinguish **G6 CI/build PASS** from **clean-machine install→launch→upgrade→uninstall NOT VERIFIED** unless separately run in a user-approved disposable Windows test environment.
+
+## F. Product and report invariants
+
+Standalone local Windows desktop app; no external IDE/VS Code integration. User chooses model Base URL/API key; provider controls costs/rate limits and **ChatMCP imposes no token/request/spend budget**. Full Access is explicit user confirmation and never elevates Windows privileges or overrides automated test OS isolation.
+
+Do not merge PR #12/#13, change main, tag/release, force-push, disclose signing/API keys, enable shipping hostAttested:true, or claim Phase 1 GO from 9/9 CI alone.
+
+Final report in Vietnamese: exact initial/final SHA, changed files/commits, guest/host OS versions, .NET/Node/CLI versions, exe SHA-256, the actual two high ExitCode observations and CLI schema, process-origin/sealed guest-local state negative tests (if attempted), real fail→repair→PASS, cancellation/ownership, G1–G6 PASS/FAIL/BLOCKED/NOT VERIFIED and actual nonzero security gate exit codes. If the guest cannot establish an authentic publisher, report **G4 BLOCKED / NO RELEASE**.
+
+---
+
+## Earlier Round 6 and previous tasks (historical only; Round 7 takes precedence)
+
 # ANTIGRAVITY_NEXT_TASK — Round 6: Trusted Publisher Channel Feasibility and Native G4 Fix
 
 **Date:** 2026-10-13
