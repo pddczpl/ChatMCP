@@ -25,6 +25,29 @@ function validateRun(id) {
     throw invalid('recovery_bad_run','A trusted canonical UUID is required.');
   return id.toLowerCase();
 }
+
+// Fail closed on symlink/junction ancestors of the trusted journal root,
+// not only at the final per-run directory. This prevents an unexpected
+// pre-existing reparse path from redirecting recovery metadata elsewhere.
+// As with all host path checks, this is not an OS race/isolation boundary
+// against an attacker with concurrent host-account filesystem access.
+async function checkJournalAncestors(destination) {
+  const root=path.parse(destination).root;
+  let cursor=root;
+  for(const part of path.relative(root,destination).split(path.sep).filter(Boolean)){
+    cursor=path.join(cursor,part);
+    let entry;
+    try{entry=await fs.lstat(cursor);}
+    catch(error){
+      if(error?.code==='ENOENT')continue;
+      throw error;
+    }
+    if(entry.isSymbolicLink()||!entry.isDirectory())
+      throw invalid('recovery_unsafe_directory',
+        'Recovery journal directory ancestor is a reparse link or not a directory.');
+  }
+}
+
 function sanitizeJob(data) {
   if(!data||typeof data!=='object'||Array.isArray(data)||
      Object.keys(data).some(key=>!['status','baseSha','workers'].includes(key))||
@@ -57,7 +80,9 @@ export class CodingRecoveryJournal {
 
   async #runDir(runId,{create=false}={}){
     const dir=path.join(this.directory,validateRun(runId));
+    await checkJournalAncestors(dir);
     if(create)await fs.mkdir(dir,{recursive:true,mode:0o700});
+    await checkJournalAncestors(dir);
     const stat=await fs.lstat(dir).catch(error=>{
       if(error.code==='ENOENT')return null;
       throw error;

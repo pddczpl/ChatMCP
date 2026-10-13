@@ -70,6 +70,28 @@ try {
   if(linkReady)await assert.rejects(
     journal.append({runId:newRun,job:record('running')}),
     {code:'recovery_unsafe_directory'});
+  // A *parent* reparse link can be more dangerous than a leaf symlink:
+  // mkdir(..., recursive:true) would otherwise follow it outside the
+  // configured recovery root before the leaf's lstat check takes place.
+  const linkedParent=path.join(root,'journal-parent-link');
+  let parentLinkCreated=false;
+  try{
+    await fs.symlink(path.join(root,'journal'),linkedParent,'dir');
+    parentLinkCreated=true;
+  }catch(error){
+    if(!['EPERM','EACCES','ENOSYS'].includes(error.code))throw error;
+  }
+  if(parentLinkCreated){
+    const outsideJournal=new CodingRecoveryJournal({
+      directory:path.join(linkedParent,'nested-recovery'),
+    });
+    await assert.rejects(outsideJournal.append({
+      runId:randomUUID(),job:record('running'),
+    }),{code:'recovery_unsafe_directory'});
+    assert.equal((await fs.readdir(path.join(root,'journal'))).includes('nested-recovery'),false,
+      'Reject reparse ancestor BEFORE recursive mkdir redirects a write');
+  }
+
   const newSafeRun=randomUUID();
   const special=new CodingRecoveryJournal({directory:path.join(root,'journal'),maxEntries:1});
   await special.append({runId:newSafeRun,job:record('preparing')});
