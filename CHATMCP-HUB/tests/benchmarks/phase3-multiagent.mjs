@@ -17,6 +17,9 @@ workers.find(x=>x.id==='base').status='ready_for_review';
 record('dag-parallel-ready','analyzer,worker',chooseReadyCodingBatch(workers,2).ready.join(','));
 workers.find(x=>x.id==='analyzer').status='failed';
 record('dag-failed-predecessor','finish',chooseReadyCodingBatch(workers,2).blocked.join(','));
+workers.find(x=>x.id==='analyzer').status='ready_for_review';
+workers.find(x=>x.id==='worker').status='ready_for_review';
+record('dag-final-ready','finish',chooseReadyCodingBatch(workers,2).ready.join(','));
 record('overlapping-windows-path','shared.js',
   detectCodingFileConflicts([
     {id:'analyzer',changedFiles:['Shared.js']},
