@@ -14,6 +14,7 @@ import { WorkerTestBroker } from './worker-test-broker.mjs';
 import { createExecutionSnapshot } from './execution-snapshots.mjs';
 import { runVerifiedCoding } from './coding-verification-loop.mjs';
 import { CodingRecoveryJournal } from './coding-recovery-journal.mjs';
+import { previewManagedCodingContext } from './coding-context-preview.mjs';
 import { attachWorkerTestTools } from './worker-tools.mjs';
 
 const fail = (code, msg, statusCode=400)=>Object.assign(new Error(msg),{code,statusCode});
@@ -192,6 +193,35 @@ export class CodingWorktreeOrchestrator {
       runId,status:'needs_attention',acknowledged:true,
       autoResume:false,verificationReceiptsTrusted:false,
     });
+  }
+
+  // Manual owner UI only: read small ordinary changed files from a verified
+  // managed committed worker revision. Never send snippets to a model.
+  async contextPreview({runId,workerId,maxFiles=6}={}){
+    if(this.active||this.integrating)
+      throw fail('coding_busy','Wait until the managed coding run has stopped.',409);
+    const job=this.jobs.get(runId);
+    if(!job||job.workspace!==this.manager.workspace)
+      throw fail('run_not_found','Run is not owned by the current workspace.',404);
+    const worker=job.workers.find(w=>w.id===workerId&&
+      w.status==='ready_for_review'&&/^[a-f0-9]{40}$/i.test(w.commitSha||''));
+    if(!worker)throw fail('worker_not_ready','Only committed workers can provide a manual source preview.',409);
+    const expected=path.resolve(this.directory,'runs',runId,'trees',worker.id);
+    if(typeof worker.worktree!=='string'||path.resolve(worker.worktree)!==expected)
+      throw fail('context_unsafe_root','Untrusted or stale worker worktree record.',409);
+    if(typeof worker.branch!=='string'||
+       !worker.branch.startsWith('chatmcp/coder/'+runId.slice(0,12)+'/'))
+      throw fail('invalid_branch','Preview requires a managed worker branch.',409);
+    const sha=await this.#git(['rev-parse','--verify','refs/heads/'+worker.branch]);
+    const head=await this.#git(['-C',expected,'rev-parse','HEAD']);
+    if(sha!==worker.commitSha||head!==worker.commitSha)
+      throw fail('stale_revision','Worker revision changed; re-review before reading context.',409);
+    const dirty=await this.#git(['-C',expected,'status','--porcelain','--untracked-files=all']);
+    if(dirty)throw fail('stale_revision','Worker worktree changed after its committed revision.',409);
+    const data=await previewManagedCodingContext({
+      worktree:expected,changedFiles:worker.changedFiles,maxFiles,
+    });
+    return Object.freeze({runId,workerId,revision:sha,...data});
   }
 
   async #git(args,{writes=false,timeoutMs=45000,maxBytes=2_000_000}={}){

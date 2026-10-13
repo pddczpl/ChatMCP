@@ -25,6 +25,7 @@ export function OrchestratorTab(){
   const [codingBusy,setCodingBusy]=useState(false);
   const [codingRun,setCodingRun]=useState<any>(null);
   const [codingRecovery,setCodingRecovery]=useState<any>(null);
+  const [codingContext,setCodingContext]=useState<any>(null);
   const {data:codingState,refetch:refetchCoding}=useQuery({queryKey:['codingWorkers'],queryFn:api.getCodingRuns,refetchInterval:3000});
   const activeCoding=codingState?.jobs?.find((x:any)=>x.id===codingRun?.id)||codingRun||codingState?.jobs?.at(-1);
   const [selectedWorkers,setSelectedWorkers]=useState<string[]>([]);
@@ -140,6 +141,10 @@ export function OrchestratorTab(){
           </label>
           <p className="text-[10px] text-[var(--muted)] break-all">{w.branch}</p><p>Changed: {(w.changedFiles||[]).join(', ')||'none'}</p>
           {w.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy} onClick={()=>showCodingDiff(activeCoding.id,w.id)}>Review diff</Button>}
+          {w.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy} onClick={async()=>{
+            try{setCodingContext(await api.getCodingContext(activeCoding.id,w.id));showToast('Bounded file preview loaded; never auto-sent to AI.','info');}
+            catch(e:any){setCodingContext(null);showToast(e.message||'Unable to preview worker files','error');}
+          }}>Preview changed files</Button>}
           {w.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy||!reviewedTokens[w.id]} onClick={async()=>{
             if(prompt('Type PUBLISH DRAFT PR to push ONLY worker '+w.id+' and create a draft GitHub PR')!=='PUBLISH DRAFT PR')return;
             setCodingBusy(true);try{const result=await api.publishCodingAgents(activeCoding.id,reviewedTokens[w.id],w.id);showToast('Worker Draft PR: '+result.prUrl,'success');await refetchCoding();}
@@ -164,6 +169,17 @@ export function OrchestratorTab(){
             catch(e:any){showToast(e.message||'Publish failed','error');}finally{setCodingBusy(false);}
           }}>Push + Draft PR</Button>
         </div>
+      </div>}
+      {codingContext&&<div data-testid="coding-context-preview" className="border border-[var(--line)] p-2 space-y-2">
+        <div className="font-semibold">Read-only changed-file preview · {codingContext.workerId}
+          <Button size="sm" variant="outline" onClick={()=>setCodingContext(null)}>Close preview</Button>
+        </div>
+        <p className="text-[var(--muted)]">Bounded local source display only; never auto-sent to AI and never proof that tests passed.</p>
+        {(codingContext.files||[]).map((file:any)=><div key={file.path}>
+          <strong>{file.path}</strong><p className="text-[var(--muted)]">SHA-256: {file.sha256}</p>
+          <pre className="text-[10px] overflow-auto max-h-52">{(file.lines||[]).map((line:any)=>line.line+': '+line.text).join('\n')}</pre>
+        </div>)}
+        {!!codingContext.skipped?.length&&<p>Skipped: {codingContext.skipped.map((f:any)=>f.path+' ('+f.reason+')').join(', ')}</p>}
       </div>}
       {codingReview&&<div className="border border-[var(--line)] bg-[var(--surface)] p-2 rounded">
         <div className="font-semibold flex justify-between"><span>Git diff preview · {codingReview.branch}</span>
