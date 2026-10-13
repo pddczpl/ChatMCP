@@ -46,6 +46,19 @@ try {
   assert.ok(startArgs[2].includes('<Networking>Disable</Networking>'));
   assert.ok(startArgs[2].includes('<ReadOnly>true</ReadOnly>'));
   await assert.rejects(driver.execute({request,instanceId:'00000000-0000-0000-0000-000000000000',generation}),/owned/i);
+  // Guest-export folders are writable. A planted .auth_key must never be
+  // overwritten or followed (including a symlink when the OS permits it).
+  const collisionPath=path.join(state,'run-'+generation,'output','.auth_key');
+  await fs.writeFile(collisionPath,'PREEXISTING_ATTACKER_CONTENT',{flag:'wx'});
+  const beforeExecCalls=calls.filter(x=>x[0]==='exec').length;
+  await assert.rejects(
+    driver.execute({request,instanceId:ownerId,generation}),
+    error=>error?.code==='EEXIST'||/exist|already/i.test(String(error?.message||error))
+  );
+  assert.equal(await fs.readFile(collisionPath,'utf8'),'PREEXISTING_ATTACKER_CONTENT');
+  assert.equal(calls.filter(x=>x[0]==='exec').length,beforeExecCalls+1,
+    'Fixed project staging may finish but privileged supervisor must not start after key collision');
+  await fs.unlink(collisionPath);
   const raw=await driver.execute({request,instanceId:ownerId,generation});
   assert.equal(raw.cliExitCode,13);
   assert.equal(raw.publisherAuthenticated,false);

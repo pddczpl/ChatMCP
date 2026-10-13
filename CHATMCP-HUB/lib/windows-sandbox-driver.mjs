@@ -147,11 +147,16 @@ export class WindowsSandboxCliDriver {
     if (!Number.isInteger(copyResult.ExitCode) || copyResult.ExitCode<0 || copyResult.ExitCode>=8) {
       throw fault('guest_stage_failed','Guest-local input copy failed.');
     }
-    // The HMAC authentication key is transferred securely via a private file in the
+    // The HMAC authentication key is staged in an isolated run export folder.
+    // This is a temporary diagnostic transport, NOT an attested ACL guarantee.
+    // The HMAC authentication key is transferred via a private file in the
     // output directory, NEVER on the supervisor process argv, child environment, or mapped input.
     // GuestSupervisor shreds and deletes this file immediately upon startup before child execution.
     const keyFile = path.join(owned.output, '.auth_key');
-    await fs.writeFile(keyFile, owned.authKey, { flag: 'w', mode: 0o600 });
+    // Exclusive create: refuse pre-existing/symlinked/junctioned files rather
+    // than overwriting an attacker-planted export entry. POSIX mode:0o600
+    // does NOT establish owner-only Windows ACLs, so G4 stays blocked.
+    await fs.writeFile(keyFile, owned.authKey, { flag: 'wx', mode: 0o600 });
     let response;
     try {
       response = await this.#cli([
