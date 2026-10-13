@@ -110,11 +110,12 @@ export class CodingWorktreeOrchestrator {
       });
       await writeJson(path.join(this.directory,'jobs.json'),snapshot);
     });
-    this.writes=write.catch(error=>{
-      // Preserve the original error for the current caller while preventing
-      // later saves from silently skipping a failed durability checkpoint.
-      this.recoveryFault='Coding journal or jobs snapshot failed to persist; manual recovery required.';
-    });
+    // A single failed snapshot write must fail its run, but cannot poison
+    // the persistence queue for a *new* explicitly confirmed run. The run()
+    // controller records the failure and waits for active workers to stop.
+    // Truly corrupt persisted history is handled separately by load(), which
+    // sets recoveryFault and blocks later execution until manual review.
+    this.writes=write.catch(()=>{});
     return write;
   }
   // Read-only restart assessment. Never replay previously running tools or
