@@ -556,9 +556,16 @@ public static class Program
                 {
                     string fullAuth = Path.GetFullPath(authKeyFile);
                     string fullOut = Path.GetFullPath(outputPath);
-                    if (!fullAuth.StartsWith(fullOut, StringComparison.OrdinalIgnoreCase))
+                    // Path prefix is NOT containment (OutputOther can start
+                    // with Output). Normalize and require a real relative child
+                    // path within the approved guest export directory.
+                    string relative = Path.GetRelativePath(fullOut, fullAuth);
+                    if (relative == "." || relative == ".." ||
+                        Path.IsPathRooted(relative) ||
+                        relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) ||
+                        relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal))
                     {
-                        LogError("BLOCKED: --auth-key-file must reside within output directory.");
+                        LogError("BLOCKED: --auth-key-file must be a child of the approved output directory.");
                         return 3;
                     }
                     candidate = fullAuth;
