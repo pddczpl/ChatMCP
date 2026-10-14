@@ -268,16 +268,18 @@ async function runTests() {
       },
     };
     const mockStudioIntelligence = {
-      async definitions() {
+      async lspRequest(request) {
+        assert.equal(request.method, 'definition');
+        assert.equal(request.file, 'lib/local-tools.mjs');
+        assert.equal(request.language, 'typescript');
+        assert.equal(request.line, 1);
+        assert.ok(Number.isInteger(request.column) && request.column > 0);
+        const { pathToFileURL } = await import('node:url');
         return {
-          mode: 'lsp',
-          locations: [
-            {
-              path: 'lib/tool-schema.mjs',
-              line: 3,
-              column: 17,
-            },
-          ],
+          result: [{
+            uri: pathToFileURL(path.join(workspace.path, 'lib/tool-schema.mjs')).href,
+            range: { start: { line: 2, character: 16 }, end: { line: 2, character: 33 } },
+          }],
         };
       },
     };

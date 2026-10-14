@@ -70,6 +70,10 @@ function toPosix(p) {
   return String(p || '').replace(/\\/g, '/').replace(/^\/+/, '');
 }
 
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function hashContent(text) {
   return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
 }
@@ -1052,22 +1056,24 @@ export class CodeIntelligenceEngine {
       if (!this._treeSitterInitPromise) {
         this._treeSitterInitPromise = import('web-tree-sitter')
           .then(async (mod) => {
-            const Parser = mod.default || mod.Parser || mod;
-            if (typeof Parser.init === 'function') await Parser.init();
-            return Parser;
+            const Parser = mod.Parser || mod.default;
+            const Language = mod.Language || Parser?.Language;
+            if (!Parser || !Language) throw new Error('Unsupported Tree-sitter API');
+            await Parser.init();
+            return { Parser, Language };
           })
           .catch(() => null);
       }
-      const Parser = await this._treeSitterInitPromise;
-      if (!Parser) {
+      const runtime = await this._treeSitterInitPromise;
+      if (!runtime) {
         this._treeSitterParsers.set(language, null);
         return null;
       }
       const wasmDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'grammars');
       const wasmPath = path.join(wasmDir, `tree-sitter-${language}.wasm`);
       await fs.access(wasmPath);
-      const Lang = await Parser.Language.load(wasmPath);
-      const parser = new Parser();
+      const Lang = await runtime.Language.load(wasmPath);
+      const parser = new runtime.Parser();
       parser.setLanguage(Lang);
       this._treeSitterParsers.set(language, parser);
       return parser;
@@ -1079,7 +1085,8 @@ export class CodeIntelligenceEngine {
 
   async _parseWithTreeSitter(source, relPath, language, rawLines, heuristicFallback) {
     try {
-      const parser = await this._getTreeSitterParser(language);
+      const grammar = path.extname(relPath).toLowerCase() === '.tsx' ? 'tsx' : language;
+      const parser = await this._getTreeSitterParser(grammar);
       if (!parser) return null;
       const tree = await parser.parse(source, null, { language, relPath });
       if (!tree || !tree.rootNode) return null;
@@ -1200,8 +1207,8 @@ export class CodeIntelligenceEngine {
       const workerScript = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'workers', 'python_index.py');
       const pythonExe = process.platform === 'win32' ? 'py' : 'python3';
       const payload = await new Promise((resolve, reject) => {
-        const proc = spawn(pythonExe, [workerScript, this.rootPath], {
-          cwd: this.rootPath,
+        const proc = spawn(pythonExe, ['-I', '-X', 'utf8', workerScript], {
+          cwd: this.workspace.path,
           stdio: ['pipe', 'pipe', 'pipe'],
           windowsHide: true,
         });
@@ -1221,11 +1228,13 @@ export class CodeIntelligenceEngine {
             reject(e);
           }
         });
-        proc.stdin.end(JSON.stringify({ files: [fullPath] }));
+        proc.stdin.on('error', (err) => { clearTimeout(timer); reject(err); });
+        proc.stdin.end(JSON.stringify({ files: [{ path: relPath, source: rawLines.join('\n') }] }));
       });
       this._pythonAstAvailable = true;
-      if (!payload || !Array.isArray(payload.symbols)) return null;
-      const astSymbols = payload.symbols.map((s) => {
+      const indexed = payload?.files?.find((file) => file.path === relPath);
+      if (!indexed || indexed.parseError || !Array.isArray(indexed.symbols)) return null;
+      const astSymbols = indexed.symbols.map((s) => {
         const line = Number(s.line) || 1;
         const endLine = Number(s.endLine) || line;
         const name = String(s.name || '');
@@ -1267,36 +1276,39 @@ export class CodeIntelligenceEngine {
   async _queryLsp(method, relPath, position = null, symbol = '') {
     if (!this.enableLsp || !this.studioIntelligence) return null;
     try {
-      if (method === 'textDocument/definition' && typeof this.studioIntelligence.definitions === 'function') {
-        const res = await this.studioIntelligence.definitions({
-          symbol,
-          path: relPath || undefined,
-          line: position?.line,
-          column: position?.character,
-        });
-        if (res && res.mode === 'lsp' && Array.isArray(res.locations) && res.locations.length > 0) {
-          return res.locations;
+      if (!relPath || typeof this.studioIntelligence.lspRequest !== 'function') return null;
+      const operation = method.replace(/^textDocument\//, '');
+      if (!['definition', 'references'].includes(operation)) return null;
+      const record = await this.getParsedFile(relPath);
+      if (!record) return null;
+      if (!position) {
+        const token = new RegExp(`(?<![\\w$])${escapeRegExp(symbol)}(?![\\w$])`);
+        for (let line = 0; line < record.maskedLines.length; line++) {
+          const match = token.exec(record.maskedLines[line]);
+          if (match) { position = { line, character: match.index }; break; }
         }
       }
-      if (method === 'textDocument/references' && typeof this.studioIntelligence.references === 'function') {
-        const res = await this.studioIntelligence.references({
-          symbol,
-          path: relPath || undefined,
-          line: position?.line,
-          column: position?.character,
-        });
-        if (res && res.mode === 'lsp' && Array.isArray(res.locations) && res.locations.length > 0) {
-          return res.locations;
-        }
+      if (!position) return null;
+      const language = path.extname(relPath).toLowerCase() === '.py' ? 'python' : 'typescript';
+      const response = await this.studioIntelligence.lspRequest({
+        language, method: operation, file: relPath,
+        line: position.line + 1, column: position.character + 1,
+      });
+      const raw = response?.result == null ? [] : Array.isArray(response.result) ? response.result : [response.result];
+      const locations = [];
+      for (const location of raw) {
+        const uri = location.uri || location.targetUri;
+        const range = location.range || location.targetSelectionRange;
+        if (!uri || !range || !Number.isInteger(range.start?.line)) continue;
+        const url = new URL(uri);
+        if (url.protocol !== 'file:') continue;
+        const relative = toPosix(path.relative(this.workspace.path, fileURLToPath(url)));
+        if (!relative || relative === '..' || relative.startsWith('../') || path.isAbsolute(relative)) continue;
+        // getParsedFile enforces canonical workspace boundaries before exposing locations.
+        if (!await this.getParsedFile(relative)) continue;
+        locations.push({ file: relative, line: range.start.line + 1, endLine: (range.end?.line ?? range.start.line) + 1 });
       }
-      if (typeof this.studioIntelligence.lspQuery === 'function' && position) {
-        return await this.studioIntelligence.lspQuery({
-          method,
-          path: relPath,
-          line: position.line,
-          character: position.character ?? 1,
-        });
-      }
+      return locations;
     } catch {
       // Graceful degradation to Tier 2 (Tree-sitter / Python AST) and Tier 3 (Heuristic)
     }

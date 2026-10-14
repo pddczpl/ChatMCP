@@ -1,0 +1,13 @@
+{
+  "name": "chatmcp-bundled-intelligence",
+  "version": "3.2.0",
+  "private": true,
+  "description": "Build-time dependency closure for offline intelligence; never install on end-user machines",
+  "dependencies": {
+    "pyright": "1.1.407",
+    "tree-sitter-wasms": "0.1.13",
+    "typescript": "5.9.3",
+    "typescript-language-server": "4.3.4",
+    "web-tree-sitter": "0.25.10"
+  }
+}
