@@ -1,5 +1,14 @@
 # Lịch sử thay đổi
 
+## [3.0.3] — 2026-10-14 — Progress-aware agent loop safeguards
+
+- Detect repeated identical tool calls and results without changing the model provider or gateway networking behavior.
+- Warn after four consecutive repeated results; stop safely with `progress_stalled` after ten and retain the task checkpoint for explicit continuation.
+- Persist bounded host-owned progress evidence (inspected targets, edit attempts, verification attempts and result fingerprints) in task history, reports and across Hub restarts; do not treat an edit attempt as a verified change or test pass.
+- Exclude normal process-output polling from stagnation detection and add `verify-agent-progress.mjs` regression coverage.
+- Retain permissions, uncertain-operation safeguards, Git review and Windows Sandbox policies. This release does not yet automatically decompose large tasks or prove long-task completion with a paid AI provider.
+- Synchronize Hub, UI, Desktop and Installer to 3.0.3; release the Windows installer with a verified SHA-256 checksum (unsigned Authenticode).
+
 ## [3.0.2] — 2026-10-14 — Clearer Skills, Agents and readable output
 
 - Improve UI typography, spacing and text contrast so navigation, chat messages and inspector panels are easier to read.
