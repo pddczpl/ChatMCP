@@ -16,7 +16,7 @@ param(
     # Use when a trusted remote service/HSM has already signed the binary.
     [switch]$VerifyOnly,
 
-    # Optional pin to fail if an unexpected publisher certificate was used.
+    # Exact certificate common name (CN), not a substring of the subject.
     [string]$ExpectedPublisher = '',
 
     # RFC3161 timestamp endpoint; supply one authorized by your CA.
@@ -45,6 +45,22 @@ function Find-SignTool {
     throw 'SignTool.exe was not found. Install the Microsoft Windows SDK before signing.'
 }
 
+function Assert-PublisherName {
+    param(
+        [System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate,
+        [string]$ExpectedName
+    )
+    if ($ExpectedName) {
+        $actual = $Certificate.GetNameInfo(
+            [System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName,
+            $false
+        )
+        if (-not [string]::Equals($actual, $ExpectedName, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Code Signing certificate common name does not exactly match -ExpectedPublisher.'
+        }
+    }
+}
+
 function Normalize-Thumbprint {
     param([string]$Value)
     $normal = ($Value -replace '\s', '').ToUpperInvariant()
@@ -67,6 +83,9 @@ if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
 }
 
 $thumbprint = Normalize-Thumbprint $CertificateThumbprint
+if (($VerifyOnly -or $WriteChecksum) -and -not $thumbprint -and [string]::IsNullOrWhiteSpace($ExpectedPublisher)) {
+    throw 'Release verification requires an exact -ExpectedPublisher common name or -CertificateThumbprint.'
+}
 $before = Get-AuthenticodeSignature -LiteralPath $target
 if (-not $VerifyOnly) {
     if (-not $thumbprint) {
@@ -88,9 +107,7 @@ if (-not $VerifyOnly) {
     if (@($cert.EnhancedKeyUsageList | Where-Object { $_.ObjectId -eq '1.3.6.1.5.5.7.3.3' }).Count -lt 1) {
         throw 'Certificate lacks the Code Signing extended key usage (1.3.6.1.5.5.7.3.3).'
     }
-    if ($ExpectedPublisher -and $cert.Subject -notlike ('*' + $ExpectedPublisher + '*')) {
-        throw 'The certificate subject does not match the explicitly expected publisher.'
-    }
+    Assert-PublisherName -Certificate $cert -ExpectedName $ExpectedPublisher
 
     $signtool = Find-SignTool
     & $signtool sign /sha1 $thumbprint /s My /fd SHA256 /tr $TimestampUrl /td SHA256 /d 'ChatMCP Studio' $target
@@ -108,9 +125,7 @@ if (-not $signature.TimeStamperCertificate) {
 if ($thumbprint -and $signature.SignerCertificate.Thumbprint.ToUpperInvariant() -ne $thumbprint) {
     throw 'Unexpected publisher certificate thumbprint.'
 }
-if ($ExpectedPublisher -and $signature.SignerCertificate.Subject -notlike ('*' + $ExpectedPublisher + '*')) {
-    throw 'The signed publisher subject does not match the expected identity.'
-}
+Assert-PublisherName -Certificate $signature.SignerCertificate -ExpectedName $ExpectedPublisher
 $signtool = Find-SignTool
 & $signtool verify /pa /tw /v $target
 if ($LASTEXITCODE -ne 0) {
