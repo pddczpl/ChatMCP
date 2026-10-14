@@ -33,6 +33,11 @@ try{
   await parent.startLocal();
   const actions=[];
   let independentActive=0,peakIndependent=0;
+  // Synchronize workers at the callback boundary instead of assuming that
+  // both can start within an arbitrary 30ms wall-clock window on Windows CI.
+  // A serialized implementation cannot satisfy this barrier and still fails.
+  let releaseIndependentBarrier;
+  const independentBarrier=new Promise(resolve=>{releaseIndependentBarrier=resolve;});
   let signalCancelWorkerStarted;
   const cancelWorkerStarted=new Promise(resolve=>{signalCancelWorkerStarted=resolve;});
   const orchestrator=new CodingWorktreeOrchestrator({
@@ -82,8 +87,22 @@ try{
         }
       }else if(node.id==='left'||node.id==='right'){
         independentActive++;peakIndependent=Math.max(independentActive,peakIndependent);
-        await new Promise(resolve=>setTimeout(resolve,30));
-        independentActive--;
+        if(independentActive===2)releaseIndependentBarrier();
+        // One worker waits for its independent sibling. If the scheduler
+        // accidentally serializes callbacks, this times out instead of
+        // falsely passing after a lucky 30ms scheduling overlap.
+        let timer;
+        try{
+          await Promise.race([
+            independentBarrier,
+            new Promise((_,reject)=>{
+              timer=setTimeout(()=>reject(new Error('Independent workers did not overlap within 15 seconds')),15000);
+            }),
+          ]);
+        }finally{
+          clearTimeout(timer);
+          independentActive--;
+        }
         await fs.writeFile(path.join(worktree,'shared.js'),
           'export const worker='+JSON.stringify(node.id)+';\n');
       }else if(node.id==='overflow'){
