@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import http from 'node:http';
+import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { WorkspaceLock } from '../lib/workspace-lock.mjs';
@@ -105,7 +106,38 @@ console.log('--- Section 2: AiProfiles ---');
   );
   ok('rejects saving API key without Windows DPAPI keyStore (no Base64 fallback)');
 
-  const aiProfiles = new AiProfiles({ stateDir: profilesDir });
+  // The production implementation requires Windows DPAPI for persisted keys.
+  // CI also runs on Linux: use an EXPLICIT TEST-ONLY authenticated encryption
+  // adapter instead of reverting to the insecure old Base64 fallback.
+  // This fixture never gets wired into the app or its runtime paths.
+  const testKey = randomBytes(32);
+  const keyStore = {
+    kind: 'test-only-aes-256-gcm',
+    async encrypt(plaintext) {
+      const iv = randomBytes(12);
+      const cipher = createCipheriv('aes-256-gcm', testKey, iv);
+      const body = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+      return 'test-only-aesgcm:' + Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64url');
+    },
+    async decrypt(blob) {
+      assert.match(blob, /^test-only-aesgcm:/, 'test cipher envelope must be authenticated');
+      const bytes = Buffer.from(blob.slice('test-only-aesgcm:'.length), 'base64url');
+      assert.ok(bytes.length >= 29, 'ciphertext must include IV, authentication tag and body');
+      const decipher = createDecipheriv('aes-256-gcm', testKey, bytes.subarray(0, 12));
+      decipher.setAuthTag(bytes.subarray(12, 28));
+      return Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString('utf8');
+    },
+  };
+  if (process.platform !== 'win32') {
+    const failClosed = new AiProfiles({ stateDir: path.join(state, 'nonwindows-dpapi-required') });
+    await assert.rejects(
+      () => failClosed.upsert({ id: 'must-fail', provider: 'openai-chat', model: 'gpt-4o', apiKey: 'test-key-only' }),
+      (err) => err?.code === 'dpapi_required',
+      'production profiles must refuse saving keys without DPAPI'
+    );
+  }
+
+  const aiProfiles = new AiProfiles({ stateDir: profilesDir, keyStore });
   await aiProfiles.load();
   assert.deepEqual(aiProfiles.list(), []);
   assert.equal(aiProfiles.defaultProfileId, null);
@@ -138,6 +170,11 @@ console.log('--- Section 2: AiProfiles ---');
   assert.equal(sonnet.hasKey, true);
   assert.equal(sonnet.isDefault, true);
   assert.equal(aiProfiles.defaultProfileId, 'sonnet-coding');
+  const persisted = await fs.readFile(aiProfiles.filePath, 'utf8');
+  assert.equal(persisted.includes('sk-ant-test-key-12345'), false, 'plaintext key must never be stored');
+  assert.equal(persisted.includes(Buffer.from('sk-ant-test-key-12345').toString('base64')), false,
+    'bare Base64 of the key is not an acceptable persisted credential');
+  assert.match(persisted, /test-only-aesgcm:/, 'the test fixture must store encrypted bytes');
 
   // Add second profile: OpenAI Reviewer
   const gpt = await aiProfiles.upsert({
@@ -181,11 +218,13 @@ console.log('--- Section 2: AiProfiles ---');
   ok('delete profile safely cascades default');
 
   // Persistence: reload from disk
-  const reloaded = new AiProfiles({ stateDir: profilesDir });
+  const reloaded = new AiProfiles({ stateDir: profilesDir, keyStore });
   await reloaded.load();
   assert.equal(reloaded.list().length, 1);
   assert.equal(reloaded.defaultProfileId, 'sonnet-coding');
-  ok('profiles persist and reload from ai-profiles.json');
+  assert.equal((await reloaded.resolveConfig('sonnet-coding')).apiKey, 'sk-ant-test-key-12345',
+    'reloaded profile must decrypt only through its injected test keyStore');
+  ok('profiles persist and reload from ai-profiles.json with a test-only authenticated keyStore');
 }
 
 // ----------------------------------------------------------------------------------------------------
