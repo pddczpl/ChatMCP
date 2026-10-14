@@ -297,9 +297,39 @@ async function runTests() {
     assert.equal(lspDef.structured.definitions[0].tier, 'lsp', 'Should prioritize Tier 1 LSP definition when available');
     const fallbackRecord = await engine.getParsedFile('lib/tool-schema.mjs');
     assert.equal(fallbackRecord.tier, 'heuristic-fallback', 'Should gracefully fall back to Tier 3 heuristic engine when WASM is absent');
+    assert.equal(lspDef.structured.provenance.tier, 'lsp');
+    assert.equal(lspDef.structured.provenance.fallbackUsed, false);
     console.log('  [PASS] 9. Multi-Tier Architecture (LSP Tier 1 -> Tree-sitter Tier 2 -> Heuristic Tier 3 fallback)');
 
-    console.log('\nALL 9 CODE INTELLIGENCE TEST SUITES PASSED!');
+    // Test 10: Python AST contract (Phase 5) & Router health/provenance (Phase 6)
+    await fs.writeFile(
+      path.join(workspace.path, 'lib', 'sample_unicode.py'),
+      `# -*- coding: utf-8 -*-
+import os
+from math import sqrt
+
+MAX_VAL = 42
+
+class DataProcessor:
+    def compute_value(self, x):
+        """Doc với ký tự tiếng Việt"""
+        return sqrt(x)
+`,
+      'utf8'
+    );
+    const pyEngine = new CodeIntelligenceEngine({ workspace });
+    const pyRec = await pyEngine.getParsedFile('lib/sample_unicode.py');
+    assert.ok(pyRec, 'Should parse Python file');
+    assert.ok(['python-ast', 'tree-sitter', 'heuristic-fallback'].includes(pyRec.tier));
+    const pySyms = await pyEngine.querySymbols({ path: 'lib/sample_unicode.py' });
+    assert.ok(pySyms.structured.provenance, 'querySymbols must include provenance metadata');
+    assert.equal(pySyms.structured.provenance.language, 'python');
+    const pyNames = pySyms.structured.symbols.map((s) => s.qualifiedName);
+    assert(pyNames.includes('DataProcessor'), 'Should extract Python class DataProcessor');
+    assert(pyNames.includes('DataProcessor.compute_value'), 'Should extract Python method DataProcessor.compute_value');
+    console.log('  [PASS] 10. Python AST contract & provenance metadata');
+
+    console.log('\nALL 10 CODE INTELLIGENCE TEST SUITES PASSED!');
   } finally {
     await cleanup();
   }

@@ -1197,15 +1197,49 @@ export class CodeIntelligenceEngine {
     }
   }
 
+  _resolvePythonExecutable() {
+    if (this._resolvedPythonExe) return this._resolvedPythonExe;
+    const hubDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    const repoRoot = path.resolve(hubDir, '..');
+    const candidates = [
+      process.env.CHATMCP_PYTHON_EXE,
+      path.join(repoRoot, 'runtime', 'python', 'python.exe'),
+      path.join(repoRoot, 'build', 'intelligence-runtime', 'python', 'python.exe'),
+      path.join(hubDir, 'runtime', 'python', 'python.exe'),
+      process.platform === 'win32' ? 'python' : 'python3',
+      process.platform === 'win32' ? 'py' : 'python',
+    ].filter(Boolean);
+    for (const candidate of candidates) {
+      if (path.isAbsolute(candidate)) {
+        try {
+          if (fsSync.existsSync(candidate)) {
+            this._resolvedPythonExe = candidate;
+            return candidate;
+          }
+        } catch {}
+      } else {
+        this._resolvedPythonExe = candidate;
+        return candidate;
+      }
+    }
+    return process.platform === 'win32' ? 'py' : 'python3';
+  }
+
   /**
    * Tier 2b: Python Native AST via workers/python_index.py.
    * Falls back to null if Python executable is unavailable or script fails.
    */
   async _parseWithPythonAst(fullPath, relPath, rawLines, heuristicFallback) {
-    if (this._pythonAstAvailable === false) return null;
+    const now = Date.now();
+    if (this._pythonAstAvailable === false && (now - (this._pythonAstFailedAt || 0)) < 30000) {
+      return null;
+    }
     try {
       const workerScript = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'workers', 'python_index.py');
-      const pythonExe = process.platform === 'win32' ? 'py' : 'python3';
+      const pythonExe = this._resolvePythonExecutable();
+      const sourceText = rawLines.join('\n');
+      if (sourceText.length > 2_000_000) return null;
+      const normalizedRel = toPosix(relPath);
       const payload = await new Promise((resolve, reject) => {
         const proc = spawn(pythonExe, ['-I', '-X', 'utf8', workerScript], {
           cwd: this.workspace.path,
@@ -1213,44 +1247,73 @@ export class CodeIntelligenceEngine {
           windowsHide: true,
         });
         let stdout = '';
-        const timer = setTimeout(() => {
-          try { proc.kill(); } catch {}
-          reject(new Error('Python AST timeout'));
-        }, 4000);
-        proc.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
-        proc.on('error', (err) => { clearTimeout(timer); reject(err); });
-        proc.on('close', (code) => {
+        let stderr = '';
+        let settled = false;
+        const finish = (err, val) => {
+          if (settled) return;
+          settled = true;
           clearTimeout(timer);
-          if (code !== 0) return reject(new Error(`Exit ${code}`));
+          if (err) reject(err);
+          else resolve(val);
+        };
+        const timer = setTimeout(() => {
+          try { proc.kill('SIGKILL'); } catch {}
+          finish(new Error('Python AST worker timeout'));
+        }, 4000);
+        proc.stdout.on('data', (chunk) => {
+          if (stdout.length < 10_000_000) stdout += chunk.toString('utf8');
+        });
+        proc.stderr.on('data', (chunk) => {
+          if (stderr.length < 16_384) stderr += chunk.toString('utf8');
+        });
+        proc.on('error', (err) => finish(err));
+        proc.on('close', (code) => {
+          if (code !== 0) {
+            return finish(new Error(`Python AST worker exited with code ${code}: ${stderr.trim().slice(0, 200)}`));
+          }
           try {
-            resolve(JSON.parse(stdout || '{}'));
+            finish(null, JSON.parse(stdout || '{}'));
           } catch (e) {
-            reject(e);
+            finish(e);
           }
         });
-        proc.stdin.on('error', (err) => { clearTimeout(timer); reject(err); });
-        proc.stdin.end(JSON.stringify({ files: [{ path: relPath, source: rawLines.join('\n') }] }));
+        proc.stdin.on('error', (err) => finish(err));
+        proc.stdin.end(JSON.stringify({
+          schemaVersion: 1,
+          files: [{ path: normalizedRel, source: sourceText }],
+        }));
       });
       this._pythonAstAvailable = true;
-      const indexed = payload?.files?.find((file) => file.path === relPath);
-      if (!indexed || indexed.parseError || !Array.isArray(indexed.symbols)) return null;
-      const astSymbols = indexed.symbols.map((s) => {
+      this._pythonAstFailedAt = 0;
+      const indexed = payload?.files?.find((file) => toPosix(file.path || '') === normalizedRel) || payload?.files?.[0];
+      const rawSymbols = Array.isArray(indexed?.symbols)
+        ? indexed.symbols
+        : (Array.isArray(payload?.symbols) ? payload.symbols : null);
+      if (!indexed || indexed.parseError || !Array.isArray(rawSymbols)) {
+        if (indexed?.parseError) {
+          this._lastPythonParseError = { file: normalizedRel, error: indexed.parseError };
+        }
+        return null;
+      }
+      const astSymbols = rawSymbols.map((s) => {
         const line = Number(s.line) || 1;
         const endLine = Number(s.endLine) || line;
         const name = String(s.name || '');
-        const kind = s.kind === 'class' ? 'class' : 'function';
+        const qualifiedName = String(s.qualifiedName || (s.container ? `${s.container}.${name}` : name));
+        const kind = s.kind === 'class' ? 'class' : (s.kind === 'method' ? 'method' : 'function');
         return {
           name,
-          qualifiedName: name,
+          qualifiedName,
           kind,
           line,
           endLine,
-          exported: !name.startsWith('_'),
+          exported: typeof s.exported === 'boolean' ? s.exported : !name.startsWith('_'),
           signature: s.signature || (rawLines[line - 1] || '').trim(),
-          doc: extractPrecedingDoc(rawLines, line - 1),
+          doc: s.doc || extractPrecedingDoc(rawLines, line - 1),
+          tier: 'python-ast',
+          engine: 'cpython-ast',
         };
       });
-      // Keep class methods from heuristic if Python AST only emitted top-level symbols
       const seen = new Set(astSymbols.map((s) => `${s.name}:${s.line}`));
       for (const hSym of heuristicFallback.symbols) {
         if (!seen.has(`${hSym.name}:${hSym.line}`)) {
@@ -1262,25 +1325,81 @@ export class CodeIntelligenceEngine {
         ...heuristicFallback,
         symbols: astSymbols,
         tier: 'python-ast',
+        engine: 'cpython-ast',
       };
-    } catch {
+    } catch (err) {
       this._pythonAstAvailable = false;
+      this._pythonAstFailedAt = Date.now();
+      this._lastPythonWorkerError = String(err?.message || err).slice(0, 240);
       return null;
     }
   }
 
+  _getLanguageForPath(relPath = '') {
+    const ext = path.extname(String(relPath || '')).toLowerCase();
+    if (ext === '.py') return 'python';
+    if (['.ts', '.tsx', '.mts', '.cts'].includes(ext)) return 'typescript';
+    if (['.js', '.jsx', '.mjs', '.cjs'].includes(ext)) return 'javascript';
+    return 'unknown';
+  }
+
+  _getEngineForTier(tier, language = 'unknown') {
+    if (tier === 'lsp') {
+      return language === 'python' ? 'pyright-langserver' : 'typescript-language-server';
+    }
+    if (tier === 'tree-sitter') return 'web-tree-sitter';
+    if (tier === 'python-ast') return 'python-ast-worker';
+    return 'heuristic-analyzer';
+  }
+
+  _getLspHealthState(language) {
+    if (!this._lspHealthByLanguage) this._lspHealthByLanguage = new Map();
+    let state = this._lspHealthByLanguage.get(language);
+    if (!state) {
+      state = {
+        failures: 0,
+        cooldownUntil: 0,
+        lastErrorReason: null,
+        lastSuccessAt: 0,
+      };
+      this._lspHealthByLanguage.set(language, state);
+    }
+    return state;
+  }
+
   /**
-   * Tier 1: LSP (Language Server Protocol) query helper.
+   * Tier 1: LSP (Language Server Protocol) query helper with bounded timeout, retries, and health tracking.
    * Uses attached studioIntelligence LSP clients when running, or returns null to fall back to Tier 2/3.
    */
-  async _queryLsp(method, relPath, position = null, symbol = '') {
-    if (!this.enableLsp || !this.studioIntelligence) return null;
+  async _queryLsp(method, relPath, position = null, symbol = '', { timeoutMs = 4500, maxRetries = 1 } = {}) {
+    if (!this.enableLsp || !this.studioIntelligence) {
+      this._lastLspFallbackReason = 'lsp_disabled_or_unattached';
+      return null;
+    }
+    if (!relPath || typeof this.studioIntelligence.lspRequest !== 'function') {
+      this._lastLspFallbackReason = 'lsp_context_missing';
+      return null;
+    }
+    const operation = method.replace(/^textDocument\//, '');
+    if (!['definition', 'references'].includes(operation)) {
+      this._lastLspFallbackReason = 'unsupported_lsp_operation';
+      return null;
+    }
+    const ext = path.extname(relPath).toLowerCase();
+    const language = ext === '.py' ? 'python' : 'typescript';
+    const health = this._getLspHealthState(language);
+    const now = Date.now();
+    if (health.cooldownUntil > now) {
+      this._lastLspFallbackReason = health.lastErrorReason || 'lsp_circuit_open';
+      return null;
+    }
+
     try {
-      if (!relPath || typeof this.studioIntelligence.lspRequest !== 'function') return null;
-      const operation = method.replace(/^textDocument\//, '');
-      if (!['definition', 'references'].includes(operation)) return null;
       const record = await this.getParsedFile(relPath);
-      if (!record) return null;
+      if (!record) {
+        this._lastLspFallbackReason = 'context_file_not_found';
+        return null;
+      }
       if (!position) {
         const token = new RegExp(`(?<![\\w$])${escapeRegExp(symbol)}(?![\\w$])`);
         for (let line = 0; line < record.maskedLines.length; line++) {
@@ -1288,17 +1407,56 @@ export class CodeIntelligenceEngine {
           if (match) { position = { line, character: match.index }; break; }
         }
       }
-      if (!position) return null;
-      const language = path.extname(relPath).toLowerCase() === '.py' ? 'python' : 'typescript';
-      const response = await this.studioIntelligence.lspRequest({
-        language, method: operation, file: relPath,
-        line: position.line + 1, column: position.character + 1,
-      });
+      if (!position) {
+        this._lastLspFallbackReason = 'symbol_position_not_found_in_context';
+        return null;
+      }
+
+      let response = null;
+      let lastErr = null;
+      const attempts = Math.max(1, Math.min(2, Number(maxRetries) + 1));
+      for (let attempt = 0; attempt < attempts; attempt++) {
+        try {
+          response = await Promise.race([
+            this.studioIntelligence.lspRequest({
+              language,
+              method: operation,
+              file: relPath,
+              line: position.line + 1,
+              column: position.character + 1,
+            }),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('lsp_request_timeout')), timeoutMs)
+            ),
+          ]);
+          lastErr = null;
+          break;
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      if (lastErr) throw lastErr;
+      if (response && response.ok === false) {
+        this._lastLspFallbackReason = String(response.reason || response.error || 'lsp_unavailable').slice(0, 120);
+        health.failures += 1;
+        health.lastErrorReason = this._lastLspFallbackReason;
+        if (health.failures >= 3) {
+          health.cooldownUntil = Date.now() + 15000;
+        }
+        return null;
+      }
+
+      health.failures = 0;
+      health.cooldownUntil = 0;
+      health.lastErrorReason = null;
+      health.lastSuccessAt = Date.now();
+
       const raw = response?.result == null ? [] : Array.isArray(response.result) ? response.result : [response.result];
       const locations = [];
       for (const location of raw) {
+        if (!location) continue;
         const uri = location.uri || location.targetUri;
-        const range = location.range || location.targetSelectionRange;
+        const range = location.range || location.targetSelectionRange || location.targetRange;
         if (!uri || !range || !Number.isInteger(range.start?.line)) continue;
         const url = new URL(uri);
         if (url.protocol !== 'file:') continue;
@@ -1306,11 +1464,30 @@ export class CodeIntelligenceEngine {
         if (!relative || relative === '..' || relative.startsWith('../') || path.isAbsolute(relative)) continue;
         // getParsedFile enforces canonical workspace boundaries before exposing locations.
         if (!await this.getParsedFile(relative)) continue;
-        locations.push({ file: relative, line: range.start.line + 1, endLine: (range.end?.line ?? range.start.line) + 1 });
+        locations.push({
+          file: relative,
+          line: range.start.line + 1,
+          column: (range.start?.character ?? 0) + 1,
+          endLine: (range.end?.line ?? range.start.line) + 1,
+          language,
+          engine: this._getEngineForTier('lsp', language),
+        });
+      }
+      if (locations.length === 0) {
+        this._lastLspFallbackReason = 'lsp_empty_result';
+      } else {
+        this._lastLspFallbackReason = null;
       }
       return locations;
-    } catch {
-      // Graceful degradation to Tier 2 (Tree-sitter / Python AST) and Tier 3 (Heuristic)
+    } catch (err) {
+      const rawMsg = String(err?.message || 'lsp_query_failed');
+      const sanitized = rawMsg.replace(/[A-Za-z]:\\[^\s"']+/g, '<path>').slice(0, 120);
+      this._lastLspFallbackReason = sanitized;
+      health.failures += 1;
+      health.lastErrorReason = sanitized;
+      if (health.failures >= 3) {
+        health.cooldownUntil = Date.now() + 15000;
+      }
     }
     return null;
   }
@@ -1486,15 +1663,19 @@ export class CodeIntelligenceEngine {
         ) {
           continue;
         }
+        const symTier = sym.tier || rec.tier || 'heuristic-fallback';
+        const symLang = this._getLanguageForPath(rec.relPath);
         matched.push({
           file: rec.relPath,
-          tier: sym.tier || rec.tier || 'heuristic-fallback',
+          tier: symTier,
+          engine: this._getEngineForTier(symTier, symLang),
+          language: symLang,
+          fallbackUsed: symTier === 'heuristic-fallback',
           ...sym,
         });
       }
     }
 
-    // Rank exact matches first, then exported, then file order
     if (queryLower) {
       matched.sort((a, b) => {
         const aExact = a.name.toLowerCase() === queryLower ? 1 : 0;
@@ -1506,6 +1687,10 @@ export class CodeIntelligenceEngine {
     }
 
     const sliced = matched.slice(0, maxItems);
+    const primary = sliced[0];
+    const topTier = primary ? primary.tier : 'tree-sitter';
+    const topLang = primary ? primary.language : this._getLanguageForPath(subPath);
+    const fallbackUsed = sliced.some((s) => s.tier === 'heuristic-fallback');
     const lines = [
       `Tìm thấy ${matched.length} ký hiệu (symbols)${matched.length > sliced.length ? `, hiển thị ${sliced.length} kết quả đầu` : ''}:`,
     ];
@@ -1521,6 +1706,16 @@ export class CodeIntelligenceEngine {
       text: lines.join('\n'),
       structured: {
         totalMatches: matched.length,
+        tier: topTier,
+        engine: this._getEngineForTier(topTier, topLang),
+        language: topLang,
+        fallbackUsed,
+        provenance: {
+          tier: topTier,
+          engine: this._getEngineForTier(topTier, topLang),
+          language: topLang,
+          fallbackUsed,
+        },
         symbols: sliced,
       },
     };
@@ -1615,11 +1810,17 @@ export class CodeIntelligenceEngine {
           .map((l, idx) => `${snippetStart + idx}: ${l}`)
           .join('\n');
 
+        const defTier = sym.tier || rec.tier || 'heuristic-fallback';
+        const defLang = this._getLanguageForPath(rec.relPath);
         candidates.push({
           score,
           file: rec.relPath,
           sha256: rec.sha256,
           ...sym,
+          tier: defTier,
+          engine: this._getEngineForTier(defTier, defLang),
+          language: defLang,
+          fallbackUsed: Boolean(!Array.isArray(lspLocations) || lspLocations.length === 0),
           snippet,
         });
       }
@@ -1630,12 +1831,26 @@ export class CodeIntelligenceEngine {
     if (candidates.length === 0) {
       return {
         text: `Không tìm thấy định nghĩa cho ký hiệu "${target}".`,
-        structured: { symbol: target, definitions: [] },
+        structured: {
+          symbol: target,
+          tier: 'heuristic-fallback',
+          engine: 'heuristic-analyzer',
+          language: this._getLanguageForPath(normalizedContext || subPath),
+          fallbackUsed: true,
+          fallbackReason: this._lastLspFallbackReason || 'definition_not_found',
+          definitions: [],
+        },
       };
     }
 
+    const slicedDefs = candidates.slice(0, 10);
+    const best = slicedDefs[0];
+    const bestTier = best.tier || 'tree-sitter';
+    const bestLang = best.language || this._getLanguageForPath(best.file);
+    const bestEngine = best.engine || this._getEngineForTier(bestTier, bestLang);
+    const usedFallback = bestTier !== 'lsp';
     const lines = [`Tìm thấy ${candidates.length} định nghĩa cho "${target}":`];
-    for (const def of candidates.slice(0, 10)) {
+    for (const def of slicedDefs) {
       lines.push(`\n### ${def.file}:${def.line}-${def.endLine} (${def.kind} ${def.qualifiedName})`);
       if (def.doc) lines.push(`Doc: ${def.doc}`);
       lines.push(def.snippet);
@@ -1646,7 +1861,19 @@ export class CodeIntelligenceEngine {
       structured: {
         symbol: target,
         preferredImportTarget: preferredFile,
-        definitions: candidates.slice(0, 10),
+        tier: bestTier,
+        engine: bestEngine,
+        language: bestLang,
+        fallbackUsed: usedFallback,
+        fallbackReason: usedFallback ? (this._lastLspFallbackReason || 'lsp_not_used') : null,
+        provenance: {
+          tier: bestTier,
+          engine: bestEngine,
+          language: bestLang,
+          fallbackUsed: usedFallback,
+          fallbackReason: usedFallback ? (this._lastLspFallbackReason || 'lsp_not_used') : null,
+        },
+        definitions: slicedDefs,
       },
     };
   }
@@ -1666,57 +1893,107 @@ export class CodeIntelligenceEngine {
     const fileEntries = await this.listSourceFiles(subPath);
     const maxRefs = Math.max(1, Math.min(500, Number(limit) || 150));
     const references = [];
+    const seenRefKeys = new Set();
 
-    for (const entry of fileEntries) {
-      const rec = await this.getParsedFile(entry.relPath);
-      if (!rec) continue;
-
-      const declLines = new Set(
-        rec.parsed.symbols.filter((s) => s.name === shortTarget).map((s) => s.line)
-      );
-      const importLines = new Set(rec.parsed.imports.map((imp) => imp.line));
-
-      for (let i = 0; i < rec.maskedLines.length; i++) {
-        const maskedLine = rec.maskedLines[i];
-        wordRegex.lastIndex = 0;
-        const match = wordRegex.exec(maskedLine);
-        if (!match) continue;
-
-        const lineNum = i + 1;
-        const isDecl = declLines.has(lineNum);
-        if (isDecl && !includeDeclarations) continue;
-
-        let refKind = 'reference';
-        if (isDecl) {
-          refKind = 'definition';
-        } else if (importLines.has(lineNum) || /^\s*(import|export|from)\b/.test(maskedLine)) {
-          refKind = 'import';
-        } else {
-          const after = maskedLine.slice(match.index + shortTarget.length).trimStart();
-          const before = maskedLine.slice(0, match.index).trimEnd();
-          if (after.startsWith('(') || /\bnew$/.test(before)) {
-            refKind = 'call';
-          }
-        }
-
-        // Determine innermost enclosing function/method/class scope
+    // Tier 1: Query LSP semantic references when available
+    const lspRefs = await this._queryLsp('textDocument/references', subPath !== '.' ? toPosix(subPath) : '', null, shortTarget);
+    const hasLspRefs = Array.isArray(lspRefs) && lspRefs.length > 0;
+    if (hasLspRefs) {
+      for (const loc of lspRefs) {
+        const locFile = toPosix(loc.file || loc.path || '');
+        if (!locFile) continue;
+        const rec = await this.getParsedFile(locFile);
+        const lineNum = Number(loc.line) || 1;
+        const colNum = Number(loc.column) || 1;
+        const refKey = `${locFile}:${lineNum}:${colNum}`;
+        if (seenRefKeys.has(refKey)) continue;
+        seenRefKeys.add(refKey);
+        const refLang = this._getLanguageForPath(locFile);
         let enclosingSymObj = null;
-        for (const sym of rec.parsed.symbols) {
-          if (lineNum >= sym.line && lineNum <= sym.endLine) {
-            if (!enclosingSymObj || sym.line >= enclosingSymObj.line) {
-              enclosingSymObj = sym;
+        if (rec) {
+          for (const sym of rec.parsed.symbols) {
+            if (lineNum >= sym.line && lineNum <= sym.endLine) {
+              if (!enclosingSymObj || sym.line >= enclosingSymObj.line) {
+                enclosingSymObj = sym;
+              }
             }
           }
         }
-
         references.push({
-          file: rec.relPath,
+          file: locFile,
           line: lineNum,
-          column: match.index + 1,
-          kind: refKind,
+          column: colNum,
+          kind: loc.kind || 'reference',
+          tier: 'lsp',
+          engine: this._getEngineForTier('lsp', refLang),
+          language: refLang,
+          fallbackUsed: false,
           enclosingSymbol: enclosingSymObj ? enclosingSymObj.qualifiedName : null,
-          code: rec.rawLines[i].trim().slice(0, 160),
+          code: rec && rec.rawLines[lineNum - 1] ? rec.rawLines[lineNum - 1].trim().slice(0, 160) : (loc.code || shortTarget),
         });
+      }
+    }
+
+    if (!hasLspRefs) {
+      for (const entry of fileEntries) {
+        const rec = await this.getParsedFile(entry.relPath);
+        if (!rec) continue;
+
+        const declLines = new Set(
+          rec.parsed.symbols.filter((s) => s.name === shortTarget).map((s) => s.line)
+        );
+        const importLines = new Set(rec.parsed.imports.map((imp) => imp.line));
+
+        for (let i = 0; i < rec.maskedLines.length; i++) {
+          const maskedLine = rec.maskedLines[i];
+          wordRegex.lastIndex = 0;
+          const match = wordRegex.exec(maskedLine);
+          if (!match) continue;
+
+          const lineNum = i + 1;
+          const isDecl = declLines.has(lineNum);
+          if (isDecl && !includeDeclarations) continue;
+
+          let refKind = 'reference';
+          if (isDecl) {
+            refKind = 'definition';
+          } else if (importLines.has(lineNum) || /^\s*(import|export|from)\b/.test(maskedLine)) {
+            refKind = 'import';
+          } else {
+            const after = maskedLine.slice(match.index + shortTarget.length).trimStart();
+            const before = maskedLine.slice(0, match.index).trimEnd();
+            if (after.startsWith('(') || /\bnew$/.test(before)) {
+              refKind = 'call';
+            }
+          }
+
+          // Determine innermost enclosing function/method/class scope
+          let enclosingSymObj = null;
+          for (const sym of rec.parsed.symbols) {
+            if (lineNum >= sym.line && lineNum <= sym.endLine) {
+              if (!enclosingSymObj || sym.line >= enclosingSymObj.line) {
+                enclosingSymObj = sym;
+              }
+            }
+          }
+
+          const refTier = (isDecl || importLines.has(lineNum)) && rec.tier && rec.tier !== 'heuristic-fallback'
+            ? rec.tier
+            : 'heuristic-fallback';
+          const refLang = this._getLanguageForPath(rec.relPath);
+          references.push({
+            file: rec.relPath,
+            line: lineNum,
+            column: match.index + 1,
+            kind: refKind,
+            tier: refTier,
+            engine: this._getEngineForTier(refTier, refLang),
+            language: refLang,
+            fallbackUsed: true,
+            enclosingSymbol: enclosingSymObj ? enclosingSymObj.qualifiedName : null,
+            code: rec.rawLines[i].trim().slice(0, 160),
+          });
+        }
       }
     }
 
@@ -1727,6 +2004,12 @@ export class CodeIntelligenceEngine {
       call: references.filter((r) => r.kind === 'call').length,
       reference: references.filter((r) => r.kind === 'reference').length,
     };
+
+    const topTier = hasLspRefs ? 'lsp' : (sliced[0]?.tier || 'heuristic-fallback');
+    const topLang = sliced[0]?.language || this._getLanguageForPath(subPath);
+    const topEngine = this._getEngineForTier(topTier, topLang);
+    const fallbackUsed = !hasLspRefs;
+    const fallbackReason = fallbackUsed ? (this._lastLspFallbackReason || 'lsp_not_used') : null;
 
     const lines = [
       `Tìm thấy ${references.length} tham chiếu cho "${shortTarget}" (definitions: ${byKind.definition}, imports: ${byKind.import}, calls: ${byKind.call}, other: ${byKind.reference}):`,
@@ -1742,6 +2025,18 @@ export class CodeIntelligenceEngine {
         symbol: shortTarget,
         totalReferences: references.length,
         countsByKind: byKind,
+        tier: topTier,
+        engine: topEngine,
+        language: topLang,
+        fallbackUsed,
+        fallbackReason,
+        provenance: {
+          tier: topTier,
+          engine: topEngine,
+          language: topLang,
+          fallbackUsed,
+          fallbackReason,
+        },
         references: sliced,
       },
     };
