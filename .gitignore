@@ -87,3 +87,6 @@ playwright-report/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Bundled Python runtime binaries
+/CHATMCP-HUB/runtimes/python/
