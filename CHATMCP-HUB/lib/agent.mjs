@@ -131,6 +131,7 @@ export function createLocalAgentInstructions(catalog, workspace, environment = n
   // Categorize direct tools for clear guidance and token efficiency
   const directSet = new Set(direct);
   const categories = [
+    { name: 'Code Intelligence (AST & Symbols)', tools: ['repo_map', 'code_symbols', 'find_definition', 'find_references', 'dependency_graph', 'code_diagnostics'] },
     { name: 'File Operations', tools: ['read_file', 'edit_file', 'write_file', 'list_directory', 'find_files', 'search_files', 'file_info', 'files_write_batch'] },
     { name: 'Terminal & Tasks', tools: ['run_command', 'tasks_run', 'tasks_status', 'tasks_cancel', 'tasks_list'] },
     { name: 'Git & Worktrees', tools: ['git_status', 'git_diff', 'git_add', 'git_commit', 'git_branch', 'git_checkout', 'git_merge', 'worktrees_create', 'worktrees_list', 'worktrees_remove'] },

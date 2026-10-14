@@ -17,6 +17,7 @@ import { describeProblem, pathProblems } from './command-paths.mjs';
 import { gitRisksFor, gitSubcommand, inspectGitSafety } from './git-trust.mjs';
 import { ShellRunner, killTree, BoundedCapture, scrubEnv } from './shell-runner.mjs';
 import { validateArguments } from './tool-schema.mjs';
+import { registerCodeIntelligenceTools } from './code-intelligence.mjs';
 
 export const LOCAL_SERVER = 'local';
 export const LIMITS = Object.freeze({
@@ -286,6 +287,7 @@ export class LocalTools {
   #register() {
     const define = (name, spec) => this.tools.set(name, { name, annotations: { readOnlyHint: true }, pathArgs: [], reason: '', ...spec });
     const WRITE = { readOnlyHint: false, destructiveHint: false };
+    registerCodeIntelligenceTools(define, this.workspace);
 
     define('read_file', {
       description: 'Read a UTF-8 text file in the workspace. Returns numbered lines plus the file SHA-256 (pass it back as expected_sha256 when editing). Use offset/limit for large files. Secrets (.env, private keys) and .git are refused.',
