@@ -5,6 +5,7 @@ import { ACTIVE_STATES, NOT_STARTED_PHASES, applyTransition, deriveState, descri
 import { writeFileAtomic } from './fs-safe.mjs';
 import { callIdentity, createTaskProgress, observeTaskTool, progressCheckpoint } from './agent-progress.mjs';
 import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence } from './agent-autonomy.mjs';
+import { injectRepoMapIntoInstructions, compactConversationHistory } from './context-compaction.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
 // from disk or the environment, evaluates model text, or executes a local shell.
