@@ -1,0 +1,95 @@
+name: Publish ChatMCP v3.0.4
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: publish-chatmcp-v3.0.4
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish v3.0.4 after exact main CI
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && startsWith(github.event.workflow_run.head_commit.message, 'release: ChatMCP v3.0.4 (goal-aware autonomy)') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: v3.0.4
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+      CI_RUN_ID: ${{ github.event.workflow_run.id }}
+    steps:
+      - name: Checkout the exact CI-tested commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      - name: Validate main commit, approved merge title, and versions
+        id: guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ "$(git rev-parse HEAD)" = "$RELEASE_SHA" ] || exit 1
+          [ "$(git ls-remote origin refs/heads/main | cut -f1)" = "$RELEASE_SHA" ] || { echo 'main moved after CI; refusing stale release'; exit 1; }
+          [ "$(git show -s --format=%s HEAD)" = 'release: ChatMCP v3.0.4 (goal-aware autonomy)' ] || { echo 'Not the authorized v3.0.4 merge'; exit 1; }
+          [ "$(node -p "require('./CHATMCP-HUB/package.json').version")" = '3.0.4' ]
+          [ "$(node -p "require('./CHATMCP-HUB/ui/package.json').version")" = '3.0.4' ]
+          [ "$(node -p "require('./CHATMCP-HUB/ui/package-lock.json').version")" = '3.0.4' ]
+          grep -q '<Version>3.0.4</Version>' desktop-shell/ChatMCP.csproj
+          grep -q '<Version>3.0.4</Version>' installer/ChatMCP.Installer.csproj
+          grep -q "export const VERSION = '3.0.4'" CHATMCP-HUB/lib/manager.mjs
+          grep -q "UI_BUILD = '3.0.4-react-agent'" CHATMCP-HUB/hub.mjs
+          grep -q "const BUILD = '3.0.4-react-agent'" CHATMCP-HUB/web/react-app.js
+          grep -q "const UI_BUILD = '3.0.4-react-agent'" CHATMCP-HUB/ui/src/lib/api.ts
+          [ "$(node -p "require('./CHATMCP-HUB/ui/package-lock.json').packages[''].version")" = '3.0.4' ]
+          test -s RELEASE-NOTES-v3.0.4.md
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json id >/dev/null 2>&1; then
+            echo 'Existing release found; will not overwrite its artifacts'
+            echo 'already_released=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'already_released=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Fetch exact Windows installer artifact and verify SHA-256
+        if: steps.guard.outputs.already_released == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh run download "$CI_RUN_ID" --repo "$GITHUB_REPOSITORY" --name ChatMCPSetup-win-x64 --dir dist
+          test -s dist/ChatMCPSetup.exe
+          test -s dist/ChatMCPSetup.exe.sha256
+          expected="$(awk 'NR==1{print tolower($1)}' dist/ChatMCPSetup.exe.sha256)"
+          actual="$(sha256sum dist/ChatMCPSetup.exe | awk '{print $1}')"
+          [ "$expected" = "$actual" ] || { echo 'SHA-256 mismatch — refusing release'; exit 1; }
+          echo "Verified ChatMCPSetup.exe: $actual"
+      - name: Create or validate annotated version tag
+        if: steps.guard.outputs.already_released == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
+            [ "$(git rev-list -n 1 "$TAG")" = "$RELEASE_SHA" ] || { echo 'Tag exists on another commit — refusing release'; exit 1; }
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a "$TAG" -m 'ChatMCP v3.0.4 — goal-aware planning and adaptive recovery' "$RELEASE_SHA"
+            git push origin "refs/tags/$TAG"
+          fi
+      - name: Create public GitHub Release and upload Windows assets
+        if: steps.guard.outputs.already_released == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" dist/ChatMCPSetup.exe dist/ChatMCPSetup.exe.sha256 \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --latest \
+            --title 'ChatMCP v3.0.4 — Goal-Aware Agent Autonomy' \
+            --notes-file RELEASE-NOTES-v3.0.4.md

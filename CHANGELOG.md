@@ -1,5 +1,15 @@
 # Lịch sử thay đổi
 
+## [3.0.4] — 2026-10-14 — Goal-aware agent planning and adaptive recovery
+
+- Propose and persist a structured multi-stage plan for clearly multipart user tasks without changing the initial user message or escalating permissions.
+- Recognize repeated unchanged read/search evidence across equivalent tools and queries, while exempting legitimate process polling and distinct source ranges.
+- Validate local file changes independently using fresh SHA-256 reads; record successful approved verification commands from actual exit code 0 without trusting model narration.
+- Issue at most two strategic recovery prompts at repetition thresholds before safely stopping with a resumable checkpoint and specific `progress_stalled` reason.
+- Persist goal-plan and host evidence summaries into durable task history and reports, adding deterministic `verify-agent-autonomy.mjs` regression coverage (76 Node suites total).
+- Preserve gateway configuration and permission, Git review, Windows Sandbox, and uncertain-operation safeguards.
+- Synchronize Hub, UI, Desktop, and Installer versions to 3.0.4. The unsigned Windows installer is released with a CI-verified SHA-256 checksum; full live-model coding quality has not yet been independently established.
+
 ## [3.0.3] — 2026-10-14 — Progress-aware agent loop safeguards
 
 - Detect repeated identical tool calls and results without changing the model provider or gateway networking behavior.
