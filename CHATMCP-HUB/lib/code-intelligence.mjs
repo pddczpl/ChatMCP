@@ -6,6 +6,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { isProtectedPath } from './protected-paths.mjs';
 
 const DEFAULT_IGNORED_DIRS = new Set([
   '.git',
@@ -828,17 +829,73 @@ export class CodeIntelligenceEngine {
   }
 
   get rootPath() {
-    return this.workspace.path || this.workspace.root || this.workspace.resolve('.');
+    // Use the canonical real root once the trusted workspace has resolved it.
+    // Windows runner workspaces may be reparse points whose displayed path
+    // differs from fs.realpath() (drive letters, junctions and long paths).
+    if (this._resolvedRoot) return this._resolvedRoot;
+    const root = this.workspace.root || this.workspace.path;
+    if (typeof root !== 'string' || !root) throw new TypeError('Workspace root is unavailable');
+    return path.resolve(root);
   }
 
-  resolveRelative(targetPath = '.') {
-    const full = this.workspace.resolve(targetPath);
-    const rel = toPosix(path.relative(this.rootPath, full));
-    return { full, rel: rel || '.' };
+  async resolveRelative(targetPath = '.') {
+    // StudioWorkspace.resolve is async and returns {root,absolute,relative};
+    // test doubles may return a path string. Never compare a canonical target
+    // against a non-canonical Windows/Junction root: that gives false escapes.
+    const declaredRoot = this.workspace.root || this.workspace.path;
+    if (typeof declaredRoot !== 'string' || !declaredRoot) throw new TypeError('Workspace root is unavailable');
+    const resolved = await this.workspace.resolve(targetPath);
+    const inputPath = typeof resolved === 'string' ? resolved : resolved?.absolute;
+    if (typeof inputPath !== 'string') throw new TypeError('Invalid workspace resolution result');
+    // First check the path spelling returned by the selected workspace.
+    // A legacy string resolver preserves a Windows junction/short-path alias;
+    // comparing it against fs.realpath(root) would falsely report an escape.
+    const lexicalRoot = path.resolve(
+      typeof resolved === 'object' && typeof resolved?.root === 'string' ? resolved.root : declaredRoot
+    );
+    const requested = path.resolve(inputPath);
+    const inside = (root, target) => {
+      const rel = path.relative(root, target);
+      return rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
+    };
+    if (!inside(lexicalRoot, requested)) {
+      throw new Error('outside_workspace: code intelligence cannot scan outside the selected workspace');
+    }
+    const canonicalRoot = await fs.realpath(lexicalRoot);
+    // Normalize the target too, not only the root. If a target is missing,
+    // canonicalize its nearest existing ancestor to detect a symlink escape
+    // even for paths that have not yet been created.
+    let full;
+    try {
+      full = await fs.realpath(requested);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      let ancestor = path.dirname(requested);
+      while (true) {
+        try {
+          const actualAncestor = await fs.realpath(ancestor);
+          full = path.resolve(actualAncestor, path.relative(ancestor, requested));
+          break;
+        } catch (missing) {
+          if (missing?.code !== 'ENOENT') throw missing;
+          const parent = path.dirname(ancestor);
+          if (parent === ancestor) throw missing;
+          ancestor = parent;
+        }
+      }
+    }
+    if (!inside(canonicalRoot, full)) {
+      throw new Error('outside_workspace: code intelligence cannot scan outside the selected workspace');
+    }
+    this._resolvedRoot = canonicalRoot;
+    const relative = path.relative(canonicalRoot, full);
+    const rel = toPosix(relative || '.');
+    if (isProtectedPath(rel)) throw new Error('protected_path: code intelligence cannot inspect credential files or Git metadata');
+    return { full, rel };
   }
 
   async listSourceFiles(subPath = '.') {
-    const { full: startDir } = this.resolveRelative(subPath);
+    const { full: startDir } = await this.resolveRelative(subPath);
     const files = [];
 
     const walk = async (dir) => {
@@ -859,6 +916,7 @@ export class CodeIntelligenceEngine {
           const ext = path.extname(entry.name).toLowerCase();
           if (!CODE_EXTENSIONS.has(ext)) continue;
           const relPath = toPosix(path.relative(this.rootPath, fullPath));
+          if (isProtectedPath(relPath)) continue;
           files.push({ fullPath, relPath, ext });
         }
       }
@@ -883,7 +941,7 @@ export class CodeIntelligenceEngine {
   }
 
   async getParsedFile(relOrInputPath) {
-    const { full, rel } = this.resolveRelative(relOrInputPath);
+    const { full, rel } = await this.resolveRelative(relOrInputPath);
     let stat;
     try {
       stat = await fs.stat(full);
@@ -1407,7 +1465,7 @@ export class CodeIntelligenceEngine {
     }
 
     // Check if targetPath points to a specific file for Impact / Blast-Radius analysis
-    const { rel: focusRel } = this.resolveRelative(targetPath);
+    const { rel: focusRel } = await this.resolveRelative(targetPath);
     if (records.has(focusRel)) {
       const directDeps = Array.from(forwardGraph.get(focusRel) || []);
       const directDependents = Array.from(reverseGraph.get(focusRel) || []);
@@ -1650,6 +1708,7 @@ export function registerCodeIntelligenceTools(define, workspace, { engine: exist
     schema: {
       type: 'object',
       additionalProperties: false,
+      required: [],
       properties: {
         path: { type: 'string', description: 'Subdirectory to map (default: workspace root ".")' },
         max_tokens: { type: 'integer', description: 'Maximum token budget for the output map (default: 2000)' },
@@ -1682,6 +1741,7 @@ export function registerCodeIntelligenceTools(define, workspace, { engine: exist
     schema: {
       type: 'object',
       additionalProperties: false,
+      required: [],
       properties: {
         path: { type: 'string', description: 'File or directory path relative to workspace (default: ".")' },
         query: { type: 'string', description: 'Filter symbols by name or qualifiedName substring' },
@@ -1777,6 +1837,7 @@ export function registerCodeIntelligenceTools(define, workspace, { engine: exist
     schema: {
       type: 'object',
       additionalProperties: false,
+      required: [],
       properties: {
         path: {
           type: 'string',
@@ -1800,6 +1861,7 @@ export function registerCodeIntelligenceTools(define, workspace, { engine: exist
     schema: {
       type: 'object',
       additionalProperties: false,
+      required: [],
       properties: {
         path: { type: 'string', description: 'File or directory path to check (default: ".")' },
       },

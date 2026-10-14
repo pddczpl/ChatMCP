@@ -1,5 +1,14 @@
 # Lịch sử thay đổi
 
+## [3.1.0] — 2026-10-14 — Code Intelligence & Smart Context (unreleased)
+
+- Add the zero-dependency Code Intelligence Engine with six local read-only tools: `repo_map`, `code_symbols`, `find_definition`, `find_references`, `dependency_graph`, and `code_diagnostics`. The current LocalTools catalog has 42 tools.
+- Support the actual asynchronous StudioWorkspace resolver and guard workspace boundaries and protected paths in code intelligence reads.
+- Attach a bounded Repo Map as explicitly untrusted user-level task data and compact only a copy of older tool history while retaining call IDs and the canonical transcript.
+- Preserve different results from identical read-only tool arguments (files and Git diffs may have changed) and preserve multimodal outputs and the latest tool receipts.
+- Add Code Intelligence and Smart Context Compaction regression suites to the Hub's `verify-*.mjs` CI discovery (78 Node suites).
+- Align Hub, UI, Desktop, Installer, build IDs, docs, and test contracts at development version 3.1.0. No official installer/tag has been published for 3.1.0.
+
 ## [3.0.4] — 2026-10-14 — Goal-aware agent planning and adaptive recovery
 
 - Propose and persist a structured multi-stage plan for clearly multipart user tasks without changing the initial user message or escalating permissions.

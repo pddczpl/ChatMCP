@@ -79,6 +79,7 @@ async function cleanup() { await fs.rm(root, { recursive: true, force: true, max
     'symbols_search', 'symbols_references', 'tasks_run', 'tasks_list', 'tasks_status', 'tasks_cancel',
     'files_write_batch', 'files_apply_patch', 'git_checkout', 'git_merge', 'worktrees_list', 'worktrees_create', 'worktrees_remove',
     'knowledge_create', 'knowledge_search', 'knowledge_list', 'github_read', 'github_action',
+    'repo_map', 'code_symbols', 'find_definition', 'find_references', 'dependency_graph', 'code_diagnostics',
   ];
   assert.deepEqual(definitions.map((tool) => tool.originalName).sort(), [...expected].sort());
   for (const tool of definitions) {
@@ -94,7 +95,7 @@ async function cleanup() { await fs.rm(root, { recursive: true, force: true, max
   assert.equal(tools.has('read_file'), true);
   assert.equal(tools.has('local.symbols_search'), true);
   assert.equal(tools.has('local.nope'), false);
-  ok('definitions: 36 tools with real schemas, local.* names and descriptions');
+  ok('definitions: 42 tools with real schemas, local.* names and descriptions');
 }
 
 // ------------------------------------------------------------------ read_file

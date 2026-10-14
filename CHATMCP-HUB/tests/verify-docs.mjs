@@ -237,7 +237,9 @@ function anchorsOf(markdown) {
   const problems = [];
   let claims = 0;
   for (const [name, text] of Object.entries(docs)) {
-    for (const match of text.matchAll(/(?:LocalTools \(|local-tools\.mjs`[,\s—-]+)(\d+) công cụ/g)) {
+    // The changelog preserves historical tool counts from prior releases.
+    const currentText = name === 'CHANGELOG.md' ? text.split(/^## \[3\.0\.4\]/m)[0] : text;
+    for (const match of currentText.matchAll(/(?:LocalTools \(|local-tools\.mjs`[,\s—-]+)(\d+) công cụ/g)) {
       claims += 1;
       if (Number(match[1]) !== tools) problems.push(`${name}: says ${match[1]} local tools, LocalTools defines ${tools}`);
     }
