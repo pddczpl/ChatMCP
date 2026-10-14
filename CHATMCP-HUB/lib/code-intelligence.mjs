@@ -829,23 +829,33 @@ export class CodeIntelligenceEngine {
   }
 
   get rootPath() {
-    // StudioWorkspace has a real root getter; test doubles may expose path.
+    // Use the canonical real root once the trusted workspace has resolved it.
+    // Windows runner workspaces may be reparse points whose displayed path
+    // differs from fs.realpath() (drive letters, junctions and long paths).
+    if (this._resolvedRoot) return this._resolvedRoot;
     const root = this.workspace.root || this.workspace.path;
     if (typeof root !== 'string' || !root) throw new TypeError('Workspace root is unavailable');
     return path.resolve(root);
   }
 
   async resolveRelative(targetPath = '.') {
-    // StudioWorkspace.resolve is async and returns { root, absolute, relative }.
-    // The engine also supports the legacy synchronous path-string adapter.
+    // StudioWorkspace.resolve is async and returns {root,absolute,relative};
+    // test doubles may return a path string. Never compare a canonical target
+    // against a non-canonical Windows/Junction root: that gives false escapes.
+    const declaredRoot = this.workspace.root || this.workspace.path;
+    if (typeof declaredRoot !== 'string' || !declaredRoot) throw new TypeError('Workspace root is unavailable');
     const resolved = await this.workspace.resolve(targetPath);
     const inputPath = typeof resolved === 'string' ? resolved : resolved?.absolute;
     if (typeof inputPath !== 'string') throw new TypeError('Invalid workspace resolution result');
-    const full = path.resolve(inputPath), root = this.rootPath;
-    const relative = path.relative(root, full);
+    const canonicalRoot = typeof resolved === 'object' && typeof resolved.root === 'string'
+      ? path.resolve(resolved.root)
+      : await fs.realpath(declaredRoot).catch(() => path.resolve(declaredRoot));
+    const full = path.resolve(inputPath);
+    const relative = path.relative(canonicalRoot, full);
     if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
       throw new Error('outside_workspace: code intelligence cannot scan outside the selected workspace');
     }
+    this._resolvedRoot = canonicalRoot;
     const rel = toPosix(relative || '.');
     if (isProtectedPath(rel)) throw new Error('protected_path: code intelligence cannot inspect credential files or Git metadata');
     return { full, rel };
