@@ -670,7 +670,6 @@ export class AgentRunner {
       }
       if (context.skillContext) context.history.push({ role:'user', content:[{type:'input_text',text:context.skillContext}] });
       if (context.resumeEvidence) context.history.push({ role:'user', content:[{type:'input_text',text:context.resumeEvidence}] });
-    else context.history.push({ role:'user', content:[{type:'input_text',text:progressCheckpoint(task.progress)}] });
       context.history.push({ role: 'user', content: [{ type: 'input_text', text: cleanPrompt }] });
       this.#advance(task, 'planning', 'preflight_done');
       await this.#event(task, existing ? 'continuation' : 'started', `Đã kết nối ${task.catalogCounts.tools} công cụ${this.manager.backend === 'local' ? '' : ' MCP'}; ${existing ? 'tiếp tục cùng phiên từ lịch sử đã lưu' : 'bắt đầu phiên mới'}.`, { status: 'running' }, { prompt: cleanPrompt, workspace: task.workspace, catalog: context.catalog });
