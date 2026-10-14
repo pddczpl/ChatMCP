@@ -148,6 +148,7 @@ Comprehensive documentation across all architecture, implementation, and verific
 ### System Architecture and Guides
 - [Architecture](docs/ARCHITECTURE.md) — System components, security model, and task state machine
 - [Windows Setup](docs/WINDOWS-SETUP.md) — Prerequisites, environment variables, and Windows configuration
+- [Windows Code Signing](docs/WINDOWS-CODE-SIGNING.md) — Authenticode certificate prerequisites, signing and timestamp verification, release safety
 - [Desktop Application](docs/DESKTOP-APP.md) — WinForms + WebView2 architecture, packaging, and releases
 - [User Guide](docs/USER-GUIDE.md) — Workflow instructions, tool definitions, and dashboard navigation
 - [Development](docs/DEVELOPMENT.md) — Contributing guidelines, testing workflows, and codebase conventions

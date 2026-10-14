@@ -44,6 +44,9 @@ Installer builds enumerate tracked runtime files and fresh Vite output instead o
 - Chạy regression tests, desktop frontend build, Windows installer build và kiểm thử cài/gỡ trên máy ảo Windows sạch.
 - Không mở cổng Hub ra Internet. Không bypass Origin/CSRF để dùng ở mạng LAN.
 - Không xem CI xanh như penetration test hay chứng nhận legal license.
-- Release installer nên ký Authenticode nếu có certificate, và xuất checksum SHA-256 sau khi ký.
+- Authenticode release signing requires a **real, publicly trusted Code Signing certificate** and the publisher's private-key authorization. The repository and v3.1.2 public release do not contain a signing identity; the existing installer remains unsigned.
+- Use `scripts/Sign-Authenticode.ps1` with a CA-issued hardware-/HSM-backed certificate from the Windows certificate store (or `-VerifyOnly` after a separately authorized remote signing service). The script fails closed on absent/invalid signatures and requires a trusted chain plus a timestamp; write the SHA-256 checksum **only after signature verification**.
+- Do not commit/export/upload PFX private keys, passwords, access tokens or signing credentials to GitHub Issues, PRs, source control, or logs. Trusting a self-signed certificate on a test machine does not establish a publicly trusted publisher signature. See [Windows Code Signing](docs/WINDOWS-CODE-SIGNING.md).
+- Do not overwrite the already published unsigned `v3.1.2` release with different bytes. Issue a **new release** with a signed EXE and its new checksum after a verified signing identity is configured.
 
 [README](README.md) · [Windows Setup](docs/WINDOWS-SETUP.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)

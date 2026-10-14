@@ -135,6 +135,9 @@ jobs:
       - name: Required installer payload and cleanup regression tests
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Test-InstallerPayload.ps1
+      - name: Authenticode fail-closed signing regression (no release credential)
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Test-Authenticode.ps1
       - name: Build fresh UI and Windows installer
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Installer.ps1

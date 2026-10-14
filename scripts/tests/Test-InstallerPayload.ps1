@@ -34,7 +34,7 @@ function Assert-Rejected {
     Assert-Payload $rejected $Message
 }
 try {
-    foreach ($script in @((Join-Path $scriptDir '..\InstallerPayload.ps1'), (Join-Path $scriptDir '..\Build-Installer.ps1'), $MyInvocation.MyCommand.Path)) {
+    foreach ($script in @((Join-Path $scriptDir '..\InstallerPayload.ps1'), (Join-Path $scriptDir '..\Build-Installer.ps1'), (Join-Path $scriptDir '..\Sign-Authenticode.ps1'), (Join-Path $scriptDir 'Test-Authenticode.ps1'), $MyInvocation.MyCommand.Path)) {
         $parseErrors = $null; $tokens = $null
         $null = [Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$parseErrors)
         Assert-Payload ($parseErrors.Count -eq 0) ('PowerShell 5.1 syntax: ' + [IO.Path]::GetFileName($script))
