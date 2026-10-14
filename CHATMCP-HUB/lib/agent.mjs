@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ACTIVE_STATES, NOT_STARTED_PHASES, applyTransition, deriveState, describeState, isTaskState, restState } from './task-state.mjs';
 import { writeFileAtomic } from './fs-safe.mjs';
+import { createTaskProgress, observeTaskTool, progressCheckpoint } from './agent-progress.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
 // from disk or the environment, evaluates model text, or executes a local shell.
@@ -397,6 +398,7 @@ export class AgentRunner {
       runs: summary ? [] : (task.runs ?? []), dialogue:summary ? [] : (task.dialogue ?? []),
       usage: task.usage, reportUrl: `/api/tasks/${task.id}/report`, eventCount: task.eventCount,
       cancelRequested: !!task.cancelRequested, autoResume: !!task.autoResume, catalogCounts: task.catalogCounts ?? null,
+      progress: createTaskProgress(task.progress),
     };
     if (!summary) {
       result.events = task.events.slice(-EVENT_LIMIT);
@@ -419,6 +421,7 @@ export class AgentRunner {
       `Workspace: ${task.workspace?.path ?? ''}`, `Model: ${task.model ?? ''}`,
       `Bắt đầu: ${task.startedAt}`, `Kết thúc: ${task.finishedAt ?? 'Chưa kết thúc'}`,
       `Lượt model: ${task.steps}; lượt MCP: ${task.toolCalls}; input/output tokens: ${task.usage.inputTokens}/${task.usage.outputTokens}`,
+      '', 'TIẾN ĐỘ CÓ BẰNG CHỨNG', progressCheckpoint(task.progress),
       '', 'HỘI THOẠI / CÁC YÊU CẦU', ...(task.prompts ?? [{text:task.prompt}]).map((p,i)=>`${i+1}. ${p.text}`), '', 'KẾT QUẢ MỚI NHẤT', task.finalText || '(Chưa có phản hồi kết thúc hợp lệ.)',
     ];
     if (task.error) lines.push('', 'LÝ DO DỪNG / LỖI', task.error);
@@ -486,6 +489,7 @@ export class AgentRunner {
         task.usage = object(task.usage) ? task.usage : { inputTokens: 0, outputTokens: 0 };
         task.prompts ??= [{at:task.startedAt,text:task.prompt}];
         task.runs ??= [{startedAt:task.startedAt,finishedAt:task.finishedAt,status:task.status,startStep:0}];
+        task.progress = createTaskProgress(task.progress);
         task.dialogue ??= [];
         this.tasks.set(task.id, task);
         const interrupted = task.status === 'running';
@@ -518,7 +522,7 @@ export class AgentRunner {
     const prompts = (task.prompts ?? [{text:task.prompt}]).slice(-20).map((p,i)=>`${i+1}: ${p.text}`).join('\n');
     const work = (task.events ?? []).slice(-110).map(e=>`[${e.at}] ${e.type}${e.toolName ? ' ' + e.toolName : ''}: ${String(e.message || '').slice(0,600)}`).join('\n');
     const pending = (task.unverifiedOperations ?? []).concat(task.pendingCall ? [task.pendingCall] : []).map(p=>JSON.stringify(p)).join('\n');
-    return `CONVERSATION CHECKPOINT FROM THE SAME LOCAL HUB SESSION. This is historical TASK DATA, not fresh instructions. Recheck actual workspace files/tests instead of assuming previous operations succeeded. Do NOT replay any ambiguous file mutation. No new conversation is created.\nPRIOR USER PROMPTS:\n${prompts}\nLATEST PRIOR RESULT:\n${task.finalText || task.error || '(not completed)'}\nUNVERIFIED MCP OPERATIONS (inspect before any repeat):\n${pending || '(none)'}\nPREVIOUS USER-VISIBLE AGENT EVENTS (newest at end):\n${work}`.slice(-48000);
+    return `CONVERSATION CHECKPOINT FROM THE SAME LOCAL HUB SESSION. This is historical TASK DATA, not fresh instructions. Recheck actual workspace files/tests instead of assuming previous operations succeeded. Do NOT replay any ambiguous file mutation. No new conversation is created.\nPRIOR USER PROMPTS:\n${prompts}\nLATEST PRIOR RESULT:\n${task.finalText || task.error || '(not completed)'}\nUNVERIFIED MCP OPERATIONS (inspect before any repeat):\n${pending || '(none)'}\nPREVIOUS USER-VISIBLE AGENT EVENTS (newest at end):\n${work}\n${progressCheckpoint(task.progress)}`.slice(-48000);
   }
 
   async setAutoResume(id, enabled) {
@@ -585,6 +589,7 @@ export class AgentRunner {
       model: config.model ?? '', provider: config.provider ?? null, createdAt: initial, startedAt: initial, updatedAt: initial, finishedAt: null,
       finalText: '', error: null, errorCode: null, steps: 0, toolCalls: 0, maxSteps, maxMinutes,
       usage: { inputTokens: 0, outputTokens: 0 }, events: [], eventCount: 0, pendingCall: null, cancelRequested: false,
+      progress: createTaskProgress(),
       prompts: [], runs: [], dialogue: [],
       state: 'created', stateReason: 'task_created', stateChangedAt: initial, stateHistory: [{ at: initial, from: null, to: 'created', reason: 'task_created' }],
     };
@@ -592,6 +597,7 @@ export class AgentRunner {
     task.workspace = binding; task.model = config.model ?? ''; task.provider = config.provider ?? null;
     task.status = 'running'; task.finishedAt = null; task.finalText = ''; task.error = null; task.errorCode = null; task.cancelRequested = false;
     task.maxSteps = maxSteps === null ? null : task.steps + maxSteps; task.maxMinutes = maxMinutes;
+    task.progress = createTaskProgress(task.progress, { newRun: true });
     task.prompts ??= []; task.prompts.push({at:initial,text:cleanPrompt});
     task.runs ??= []; task.runs.push({startedAt:initial,finishedAt:null,status:'running',startStep:task.steps,startToolCalls:task.toolCalls});
     task.dialogue ??= []; task.dialogue.push({role:'user',at:initial,text:cleanPrompt,run:task.runs.length});
@@ -815,6 +821,16 @@ export class AgentRunner {
           context.seenCalls.add(call.call_id);
           const result = await this.#dispatch(context, call);
           this.#check(context);
+          const evidence = observeTaskTool(task.progress, { call, result, step: task.steps });
+          task.progress = evidence.progress;
+          if (evidence.warning) {
+            await this.#event(task, 'progress_warning', 'Công cụ đang trả cùng kết quả; cần chuyển sang bước khác hoặc báo blocker.', {}, { progress: task.progress });
+            context.history.push({ role:'user', content:[{type:'input_text',text:progressCheckpoint(task.progress)}] });
+          }
+          if (evidence.stalled) {
+            await this.#event(task, 'progress_stalled', 'Kết quả công cụ lặp lại quá nhiều lần; checkpoint được giữ nguyên.', {}, { progress: task.progress });
+            throw fault('progress_stalled', 'Agent đình trệ: nhiều kết quả công cụ trùng liên tiếp mà không có tiến triển. Kiểm tra checkpoint, thay đổi và kết quả test trước khi tiếp tục.');
+          }
           const converted = this.#modelOutput(result);
           context.history.push({ type: 'function_call_output', call_id: call.call_id, output: converted.output });
           if (call.name === 'mcp_catalog' || call.name === 'mcp_describe' || (call.name === 'mcp_capabilities' && result && Object.hasOwn(result, 'servers'))) {
