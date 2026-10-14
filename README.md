@@ -4,15 +4,15 @@
 
 [![CI](https://github.com/pddczpl/ChatMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/pddczpl/ChatMCP/actions/workflows/ci.yml) · [Windows Releases](https://github.com/pddczpl/ChatMCP/releases) · [Issues](https://github.com/pddczpl/ChatMCP/issues) · [Security](SECURITY.md)
 
-> **Official Release v3.0.3:** ChatMCP operates entirely on local infrastructure (`127.0.0.1:3007`). There is no cloud account, hosted server deployment, multi-tenant database, or external login service. All tool execution is controlled through a local Permission Gate. Outbound network access is restricted to user-configured AI providers, GitHub, and authorized research lookups. **Local-first does not mean fully offline.**
+> **Official Release v3.0.4:** ChatMCP operates entirely on local infrastructure (`127.0.0.1:3007`). There is no cloud account, hosted server deployment, multi-tenant database, or external login service. All tool execution is controlled through a local Permission Gate. Outbound network access is restricted to user-configured AI providers, GitHub, and authorized research lookups. **Local-first does not mean fully offline.**
 >
-> Releases are tagged on GitHub and include an installer SHA-256 checksum. The installer is not Authenticode-signed. **v3.0.3** preserves agent progress checkpoints, detects repeated unchanged tool-result loops and stops stalled runs safely; see the [release notes](RELEASE-NOTES-v3.0.3.md).
+> Releases are tagged on GitHub and include an installer SHA-256 checksum. The installer is not Authenticode-signed. **v3.0.4** adds goal-aware plans for large tasks, evidence-verified progress and bounded recovery from semantic inspection loops; see the [release notes](RELEASE-NOTES-v3.0.4.md).
 
 ---
 
 ## Features and Capabilities
 
-ChatMCP v3.0.3 delivers complete autonomous software engineering capabilities while enforcing strict local security boundaries:
+ChatMCP v3.0.4 delivers complete autonomous software engineering capabilities while enforcing strict local security boundaries:
 
 - **Desktop UI Contract Integration:** Full bidirectional synchronization between the WinForms/WebView2 desktop shell and the local Hub daemon, supporting real-time streaming, interactive plan editing, terminal sessions, Git reviews, and execution checkpoints.
 - **Hardware-Attested Sandbox Isolation:** Disposable Windows Sandbox guest environments running under restricted security tokens (`DISABLE_MAX_PRIVILEGE | LUA_TOKEN`) with unshared HMAC-SHA256 exit-code publication and automated host fallback policies.
@@ -40,7 +40,7 @@ ChatMCP v3.0.3 delivers complete autonomous software engineering capabilities wh
 
 ### 1. Download Official Installer
 Download the latest standalone installer from [GitHub Releases](https://github.com/pddczpl/ChatMCP/releases):
-- File: `ChatMCPSetup.exe` (v3.0.3)
+- File: `ChatMCPSetup.exe` (v3.0.4)
 - Checksum: Verify against `ChatMCPSetup.exe.sha256`
 - Requirements: Windows 10/11 x64 with Microsoft Edge WebView2 Runtime, Git for Windows.
 
