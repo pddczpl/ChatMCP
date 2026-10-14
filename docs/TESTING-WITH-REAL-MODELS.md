@@ -130,3 +130,20 @@ Chỉ sau khi phép 1–4 đạt với một mô hình thật, mới có cơ s�
 ## Chưa có: chạy tự động với mô hình thật
 
 Dự án **chưa có** bộ test tự động chạy với nhà cung cấp thật (cần key và tốn tiền, nên không phù hợp để chạy trong CI mặc định). Nếu bạn muốn, có thể thêm một bộ `verify-real-model.mjs` đọc key và nhà cung cấp từ biến môi trường và tự bỏ qua (`CHATMCP_TEST_SKIP:`) khi thiếu — đây là việc tiếp theo hợp lý sau khi bạn cho phép dùng key, không phải thứ đã có.
+
+## Long-task autonomy acceptance (v3.0.3 runtime follow-up)
+
+The ordinary API coding agent now proposes a **bounded host plan** for clearly multi-part prompts (the plan is not authorization to run tools). Inspect the Studio Plan and task report for objectives, verified evidence counts and `progress_warning`, `progress_recovery` and `progress_stalled` events. Two strategy pivots are allowed at four and seven repeated evidence results; ten repeated results cause a controlled stop and preserve the checkpoint. Cross-tool semantic matching uses source scope, read ranges and identical returned evidence, **not** an untrusted model claim that two goals mean the same thing. Unrelated new file reads can be legitimate progress.
+
+### Reproducible acceptance set
+
+Run these examples on a disposable Git repository using the real provider chosen in ChatMCP. Do not run them on a production workspace. Save the checked commit SHA, model/protocol name, task ID, tool-result receipts, Git status/diff, and independent test exit codes (redact credentials and private file contents).
+
+1. **Simple task:** ask the agent to list five files. Expect an ordinary response, without auto-decomposition or unnecessary recovery.
+2. **Multi-part coding task:** ask it to inspect a broken example function, fix it, run the project's real tests and review the Git diff. Expect a proposed plan, independently hashed changed file, a verified exit-code-zero test receipt and a limited, accurate final report. If the model cannot do one step, it must report that blocker rather than invent a PASS.
+3. **Long inspection cycle:** ask a scripted/fault-injected model to alternate repeated read/search operations with the same returned evidence. Expect at most two recovery prompts, a `progress_stalled` outcome at the 10-repeat boundary, saved progress across restart and **no duplicate mutating MCP calls**.
+4. **Large legitimate inspection:** read distinct relevant files and different source ranges. Expect no semantic-stall false positive merely because the task spans many files.
+
+The offline CI fixture `node tests/verify-agent-autonomy.mjs` tests the local host/tool and agent lifecycle with a scripted provider; it does **not** evaluate code quality of an actual language model. After changing a configured real provider, repeat the long-task trial and compare verified milestone evidence rather than counting how many model turns were used. A genuine live-provider benchmark requires explicit provider credentials/usage approval, so it is deliberately not part of ordinary CI.
+
+If any task enters `uncertain` because a mutation was in flight, investigate the file and Git state before resuming; do not auto-replay it. Do not equate a model's `completed` message with a tested/verified implementation.

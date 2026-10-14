@@ -17,6 +17,7 @@ ChatMCP v3.0.3 delivers complete autonomous software engineering capabilities wh
 - **Desktop UI Contract Integration:** Full bidirectional synchronization between the WinForms/WebView2 desktop shell and the local Hub daemon, supporting real-time streaming, interactive plan editing, terminal sessions, Git reviews, and execution checkpoints.
 - **Hardware-Attested Sandbox Isolation:** Disposable Windows Sandbox guest environments running under restricted security tokens (`DISABLE_MAX_PRIVILEGE | LUA_TOKEN`) with unshared HMAC-SHA256 exit-code publication and automated host fallback policies.
 - **Reliable Autonomous Coding & Crash Recovery:** Transactional state journaling with SHA-256 hash chaining (`prevEntrySha256`), corruption quarantine, persistent recovery acknowledgements across Hub restarts, and atomic rollback protections.
+- **Progress-aware long-task execution:** bounded semantic inspection-cycle detection, a proposed multi-step plan, independently hashed local file-change evidence, test receipts and two recovery prompts before a controlled stop. Progress receipts do not guarantee task correctness.
 - **Multi-Agent DAG & Parallel Git Worktrees:** Dependency-aware orchestrator (`A -> B -> C` and `A -> no-op B -> C`), parallel coding workers isolated on separate Git worktrees (default concurrency limit <= 2), cryptographic review tokens, and collision-free branch integration.
 
 | Capability | Status | Description & Safety Boundaries |
@@ -122,7 +123,7 @@ ChatMCP is designed exclusively as a single-tenant local application:
 Verify the entire repository using the test runner:
 
 ~~~powershell
-# Run the complete test suite (75 bộ Node và 5 bộ giao diện)
+# Run the complete test suite (76 bộ Node và 5 bộ giao diện)
 node .\CHATMCP-HUB\tests\run-all.mjs
 
 # Build and verify the frontend
