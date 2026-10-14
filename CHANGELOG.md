@@ -1,5 +1,14 @@
 # Lịch sử thay đổi
 
+## [3.1.2] — 2026-10-15 — Hybrid Code Intelligence and secure AI Profiles CI repair
+
+- Integrate capability-aware, three-tier Code Intelligence: optional LSP for cross-file symbol definitions/references, optional Tree-sitter WASM and Python native AST for syntax, and the existing zero-dependency structural heuristic parser as a fallback.
+- Wire StudioIntelligence into LocalTools while retaining the six public Code Intelligence tool names. Language servers, WASM grammars and the Python runtime are optional dependencies and may require separate installation.
+- Keep Windows API profile keys protected by DPAPI; never reinstate the insecure Base64 fallback, and keep production storage fail-closed outside Windows when DPAPI is required.
+- Fix Ubuntu Node 22/24 `verify-phase3-features.mjs`: inject an explicitly test-only AES-256-GCM keyStore; verify no plain or bare-Base64 key is persisted, verify decrypt after reload and verify production rejects saving keys without DPAPI.
+- Confirm the complete 78-suite Node test matrix (Windows/Ubuntu, Node 22/24), both browser E2E jobs, frontend build, Windows installer smoke and same-CI-run SHA-256 checks before release.
+- Bump Hub, React UI, Desktop and Installer to 3.1.2; preserve all older release tags and API gateway implementation.
+
 ## [3.1.1] — 2026-10-15 — Code Intelligence and Smart Context CI repair
 
 - Ship six Code Intelligence tools (repo map, symbols, go-to-definition, references, dependency graph and diagnostics), with the production async workspace resolver, canonical Windows/Junction path handling and protected-path containment.
