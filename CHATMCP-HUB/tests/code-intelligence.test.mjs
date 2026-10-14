@@ -232,7 +232,72 @@ async function runTests() {
     assert(callResult.content[0].text.includes('Repository Code Map'));
     console.log('  [PASS] 8. LocalTools #register() integration & MCP output schema');
 
-    console.log('\nALL 8 CODE INTELLIGENCE TEST SUITES PASSED!');
+    // Test 9: Multi-Tier Architecture (Tier 1 LSP -> Tier 2 Tree-sitter/Python AST -> Tier 3 Heuristic Fallback)
+    const mockTreeSitterAdapter = {
+      parse(source) {
+        return {
+          rootNode: {
+            type: 'program',
+            startPosition: { row: 0, column: 0 },
+            endPosition: { row: 5, column: 0 },
+            namedChildren: [
+              {
+                type: 'function_declaration',
+                startPosition: { row: 2, column: 0 },
+                endPosition: { row: 11, column: 1 },
+                namedChildren: [
+                  {
+                    type: 'identifier',
+                    startIndex: source.indexOf('validateArguments'),
+                    endIndex: source.indexOf('validateArguments') + 'validateArguments'.length,
+                    text: 'validateArguments',
+                    namedChildren: [],
+                  },
+                ],
+                childForFieldName(field) {
+                  if (field === 'name') return this.namedChildren[0];
+                  return null;
+                },
+              },
+            ],
+            childForFieldName() {
+              return null;
+            },
+          },
+        };
+      },
+    };
+    const mockStudioIntelligence = {
+      async definitions() {
+        return {
+          mode: 'lsp',
+          locations: [
+            {
+              path: 'lib/tool-schema.mjs',
+              line: 3,
+              column: 17,
+            },
+          ],
+        };
+      },
+    };
+    const tieredEngine = new CodeIntelligenceEngine({
+      workspace,
+      treeSitterAdapter: mockTreeSitterAdapter,
+      studioIntelligence: mockStudioIntelligence,
+    });
+    const tsRecord = await tieredEngine.getParsedFile('lib/tool-schema.mjs');
+    assert.equal(tsRecord.tier, 'tree-sitter', 'Should use Tier 2 Tree-sitter when adapter/WASM is available');
+    const lspDef = await tieredEngine.findDefinition({
+      symbol: 'validateArguments',
+      contextPath: 'lib/local-tools.mjs',
+    });
+    assert.equal(lspDef.structured.definitions[0].tier, 'lsp', 'Should prioritize Tier 1 LSP definition when available');
+    const fallbackRecord = await engine.getParsedFile('lib/tool-schema.mjs');
+    assert.equal(fallbackRecord.tier, 'heuristic-fallback', 'Should gracefully fall back to Tier 3 heuristic engine when WASM is absent');
+    console.log('  [PASS] 9. Multi-Tier Architecture (LSP Tier 1 -> Tree-sitter Tier 2 -> Heuristic Tier 3 fallback)');
+
+    console.log('\nALL 9 CODE INTELLIGENCE TEST SUITES PASSED!');
   } finally {
     await cleanup();
   }

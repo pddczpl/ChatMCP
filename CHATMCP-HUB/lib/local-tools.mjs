@@ -85,7 +85,7 @@ export class LocalTools {
    * @param {boolean} [options.sharedWorkspace] the agent's commands run under another account that shares a group with the Hub, so files
    *                                            the Hub writes keep group-write permission (the agent must be able to change them too)
    */
-  constructor({ workspace, shell, git, stateDirectory = null, secrets = () => [], disabledTools = [], sharedWorkspace = false } = {}) {
+  constructor({ workspace, shell, git, stateDirectory = null, secrets = () => [], disabledTools = [], sharedWorkspace = false, studioIntelligence = null, lspClient = null, treeSitterParser = null } = {}) {
     if (!workspace || typeof workspace.resolve !== 'function') throw new TypeError('LocalTools cần workspace có resolve().');
     this.workspace = workspace;
     this.stateDirectory = stateDirectory;
@@ -94,6 +94,9 @@ export class LocalTools {
     this.tools = new Map();
     this.backgroundTasks = new Map();
     this.sharedWorkspace = sharedWorkspace;
+    this.studioIntelligence = studioIntelligence;
+    this.lspClient = lspClient;
+    this.treeSitterParser = treeSitterParser;
     this.#register();
     for (const name of disabledTools) this.tools.delete(String(name).replace(/^local\./, ''));
     this.shellDisabled = !this.tools.has('run_command');
@@ -287,7 +290,11 @@ export class LocalTools {
   #register() {
     const define = (name, spec) => this.tools.set(name, { name, annotations: { readOnlyHint: true }, pathArgs: [], reason: '', ...spec });
     const WRITE = { readOnlyHint: false, destructiveHint: false };
-    registerCodeIntelligenceTools(define, this.workspace);
+    registerCodeIntelligenceTools(define, this.workspace, {
+      studioIntelligence: this.studioIntelligence ?? null,
+      lspClient: this.lspClient ?? null,
+      treeSitterParser: this.treeSitterParser ?? null,
+    });
 
     define('read_file', {
       description: 'Read a UTF-8 text file in the workspace. Returns numbered lines plus the file SHA-256 (pass it back as expected_sha256 when editing). Use offset/limit for large files. Secrets (.env, private keys) and .git are refused.',

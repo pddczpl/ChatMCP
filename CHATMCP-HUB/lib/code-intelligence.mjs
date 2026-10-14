@@ -1,12 +1,16 @@
 // CHATMCP-HUB/lib/code-intelligence.mjs
-// Zero-dependency Code Intelligence Engine for ChatMCP Studio Local.
-// Provides AST-like structural symbol extraction, PageRank-style Repository Map generation,
-// Go-to-Definition, Scope-Aware Find References, Dependency/Impact Graph, and Static Diagnostics.
+// Multi-Tier Code Intelligence Engine for ChatMCP Studio Local:
+// Tier 1: LSP (Language Server Protocol via JSON-RPC stdio) for semantic cross-file resolution
+// Tier 2: Tree-sitter (web-tree-sitter WASM) & Python Native AST worker for exact syntax trees
+// Tier 3: Zero-dependency Structural Heuristic Engine as universal deterministic fallback
 
+import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isProtectedPath } from './protected-paths.mjs';
+import { LspProcess } from './studio-intelligence.mjs';
 
 const DEFAULT_IGNORED_DIRS = new Set([
   '.git',
@@ -818,14 +822,30 @@ function parseGenericStructure(rawLines, maskedLines, symbols, imports, exported
  * Core Code Intelligence Engine with SHA-256 content-addressed caching.
  */
 export class CodeIntelligenceEngine {
-  constructor({ workspace, ignoredDirs = DEFAULT_IGNORED_DIRS, maxFileSizeBytes = 512 * 1024 } = {}) {
+  constructor({
+    workspace,
+    ignoredDirs = DEFAULT_IGNORED_DIRS,
+    maxFileSizeBytes = 512 * 1024,
+    studioIntelligence = null,
+    treeSitterAdapter = null,
+    enablePythonAst = true,
+    enableLsp = true,
+  } = {}) {
     if (!workspace || typeof workspace.resolve !== 'function') {
       throw new TypeError('CodeIntelligenceEngine yêu cầu đối tượng workspace có hàm resolve()');
     }
     this.workspace = workspace;
     this.ignoredDirs = new Set(ignoredDirs);
     this.maxFileSizeBytes = maxFileSizeBytes;
-    this.parseCache = new Map(); // relPath -> { sha256, mtimeMs, size, parsed, rawLines, maskedLines }
+    this.parseCache = new Map(); // relPath -> { sha256, mtimeMs, size, parsed, rawLines, maskedLines, tier }
+    this.studioIntelligence = studioIntelligence;
+    this.treeSitterAdapter = treeSitterAdapter;
+    this.enablePythonAst = enablePythonAst;
+    this.enableLsp = enableLsp;
+    this._treeSitterInitPromise = null;
+    this._treeSitterParsers = new Map();
+    this._pythonAstAvailable = null;
+    this._lspClients = new Map();
   }
 
   get rootPath() {
@@ -974,7 +994,28 @@ export class CodeIntelligenceEngine {
     const ext = path.extname(rel).toLowerCase();
     const language = CODE_EXTENSIONS.get(ext) || 'javascript';
     const masked = maskCommentsAndStrings(normalized, language);
-    const parsed = parseSourceStructure(normalized, rel);
+    const rawLines = normalized.split('\n');
+
+    // Tier 3 (Fallback): Zero-dependency Heuristic/Structural Parser
+    const heuristicParsed = parseSourceStructure(normalized, rel);
+    let parsed = heuristicParsed;
+    let tier = 'heuristic-fallback';
+
+    // Tier 2a: Tree-sitter AST (WASM or injected adapter)
+    const tsParsed = await this._parseWithTreeSitter(normalized, rel, language, rawLines, heuristicParsed);
+    if (tsParsed) {
+      parsed = tsParsed;
+      tier = 'tree-sitter';
+    } else if (language === 'python' && this.enablePythonAst) {
+      // Tier 2b: Python Native AST via python_index.py worker
+      const pyParsed = await this._parseWithPythonAst(full, rel, rawLines, heuristicParsed);
+      if (pyParsed) {
+        parsed = pyParsed;
+        tier = 'python-ast';
+      }
+    }
+
+    parsed.tier = tier;
 
     const record = {
       relPath: rel,
@@ -983,11 +1024,283 @@ export class CodeIntelligenceEngine {
       mtimeMs: stat.mtimeMs,
       size: stat.size,
       parsed,
-      rawLines: normalized.split('\n'),
+      tier,
+      rawLines,
       maskedLines: masked.split('\n'),
     };
     this.parseCache.set(rel, record);
     return record;
+  }
+
+  /**
+   * Tier 2a: Tree-sitter AST integration (supports injected treeSitterAdapter or optional web-tree-sitter WASM).
+   * Falls back cleanly to null when WASM runtime or grammar is unavailable.
+   */
+  async _getTreeSitterParser(language) {
+    if (this.treeSitterAdapter) {
+      if (typeof this.treeSitterAdapter.getParser === 'function') {
+        return await this.treeSitterAdapter.getParser(language);
+      }
+      if (typeof this.treeSitterAdapter.parse === 'function') {
+        return this.treeSitterAdapter;
+      }
+    }
+    if (this._treeSitterParsers.has(language)) {
+      return this._treeSitterParsers.get(language);
+    }
+    try {
+      if (!this._treeSitterInitPromise) {
+        this._treeSitterInitPromise = import('web-tree-sitter')
+          .then(async (mod) => {
+            const Parser = mod.default || mod.Parser || mod;
+            if (typeof Parser.init === 'function') await Parser.init();
+            return Parser;
+          })
+          .catch(() => null);
+      }
+      const Parser = await this._treeSitterInitPromise;
+      if (!Parser) {
+        this._treeSitterParsers.set(language, null);
+        return null;
+      }
+      const wasmDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'grammars');
+      const wasmPath = path.join(wasmDir, `tree-sitter-${language}.wasm`);
+      await fs.access(wasmPath);
+      const Lang = await Parser.Language.load(wasmPath);
+      const parser = new Parser();
+      parser.setLanguage(Lang);
+      this._treeSitterParsers.set(language, parser);
+      return parser;
+    } catch {
+      this._treeSitterParsers.set(language, null);
+      return null;
+    }
+  }
+
+  async _parseWithTreeSitter(source, relPath, language, rawLines, heuristicFallback) {
+    try {
+      const parser = await this._getTreeSitterParser(language);
+      if (!parser) return null;
+      const tree = await parser.parse(source, null, { language, relPath });
+      if (!tree || !tree.rootNode) return null;
+
+      const symbols = [];
+      const visit = (node, enclosingClass = null) => {
+        if (!node) return;
+        const type = node.type || '';
+        const startLine = (node.startPosition?.row ?? 0) + 1;
+        const endLine = (node.endPosition?.row ?? startLine - 1) + 1;
+        const nameNode =
+          (typeof node.childForFieldName === 'function' && node.childForFieldName('name')) ||
+          node.nameNode ||
+          (Array.isArray(node.children) ? node.children.find((c) => c.type === 'identifier' || c.type === 'type_identifier' || c.type === 'property_identifier') : null);
+        const name = nameNode?.text || node.name || null;
+        const parentType = node.parent?.type || '';
+        const isExported = parentType.includes('export') || Boolean(node.exported) || (rawLines[startLine - 1] || '').trim().startsWith('export ');
+
+        let nextClass = enclosingClass;
+        if (name) {
+          if (type === 'class_declaration' || type === 'class_definition' || type === 'class') {
+            symbols.push({
+              name,
+              qualifiedName: name,
+              kind: 'class',
+              line: startLine,
+              endLine,
+              exported: isExported,
+              signature: (rawLines[startLine - 1] || '').trim().replace(/\s*\{?\s*$/, ''),
+              doc: extractPrecedingDoc(rawLines, startLine - 1),
+            });
+            nextClass = name;
+          } else if (type === 'interface_declaration') {
+            symbols.push({
+              name,
+              qualifiedName: name,
+              kind: 'interface',
+              line: startLine,
+              endLine,
+              exported: isExported,
+              signature: (rawLines[startLine - 1] || '').trim().replace(/\s*\{?\s*$/, ''),
+              doc: extractPrecedingDoc(rawLines, startLine - 1),
+            });
+          } else if (type === 'type_alias_declaration') {
+            symbols.push({
+              name,
+              qualifiedName: name,
+              kind: 'type',
+              line: startLine,
+              endLine,
+              exported: isExported,
+              signature: (rawLines[startLine - 1] || '').trim(),
+              doc: extractPrecedingDoc(rawLines, startLine - 1),
+            });
+          } else if (type === 'function_declaration' || type === 'function_definition' || type === 'generator_function_declaration') {
+            const kind = enclosingClass ? 'method' : 'function';
+            const qualifiedName = enclosingClass ? `${enclosingClass}.${name}` : name;
+            symbols.push({
+              name,
+              qualifiedName,
+              kind,
+              line: startLine,
+              endLine,
+              exported: isExported || !enclosingClass,
+              signature: (rawLines[startLine - 1] || '').trim().replace(/\s*\{?\s*$/, ''),
+              doc: extractPrecedingDoc(rawLines, startLine - 1),
+            });
+          } else if (type === 'method_definition') {
+            const qualifiedName = enclosingClass ? `${enclosingClass}.${name}` : name;
+            symbols.push({
+              name,
+              qualifiedName,
+              kind: 'method',
+              line: startLine,
+              endLine,
+              exported: false,
+              signature: (rawLines[startLine - 1] || '').trim().replace(/\s*\{?\s*$/, ''),
+              doc: extractPrecedingDoc(rawLines, startLine - 1),
+            });
+          }
+        }
+        const children = node.namedChildren || node.children || [];
+        for (const child of children) {
+          visit(child, nextClass);
+        }
+      };
+      visit(tree.rootNode, null);
+      if (symbols.length === 0 && heuristicFallback.symbols.length > 0) {
+        return null;
+      }
+      // Merge any exported constants/symbols detected by heuristic that AST node visitor didn't cover
+      const seen = new Set(symbols.map((s) => `${s.qualifiedName}:${s.line}`));
+      for (const hSym of heuristicFallback.symbols) {
+        const key = `${hSym.qualifiedName}:${hSym.line}`;
+        if (!seen.has(key)) {
+          symbols.push(hSym);
+          seen.add(key);
+        }
+      }
+      symbols.sort((a, b) => a.line - b.line);
+      return {
+        ...heuristicFallback,
+        symbols,
+        tier: 'tree-sitter',
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Tier 2b: Python Native AST via workers/python_index.py.
+   * Falls back to null if Python executable is unavailable or script fails.
+   */
+  async _parseWithPythonAst(fullPath, relPath, rawLines, heuristicFallback) {
+    if (this._pythonAstAvailable === false) return null;
+    try {
+      const workerScript = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'workers', 'python_index.py');
+      const pythonExe = process.platform === 'win32' ? 'py' : 'python3';
+      const payload = await new Promise((resolve, reject) => {
+        const proc = spawn(pythonExe, [workerScript, this.rootPath], {
+          cwd: this.rootPath,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          windowsHide: true,
+        });
+        let stdout = '';
+        const timer = setTimeout(() => {
+          try { proc.kill(); } catch {}
+          reject(new Error('Python AST timeout'));
+        }, 4000);
+        proc.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
+        proc.on('error', (err) => { clearTimeout(timer); reject(err); });
+        proc.on('close', (code) => {
+          clearTimeout(timer);
+          if (code !== 0) return reject(new Error(`Exit ${code}`));
+          try {
+            resolve(JSON.parse(stdout || '{}'));
+          } catch (e) {
+            reject(e);
+          }
+        });
+        proc.stdin.end(JSON.stringify({ files: [fullPath] }));
+      });
+      this._pythonAstAvailable = true;
+      if (!payload || !Array.isArray(payload.symbols)) return null;
+      const astSymbols = payload.symbols.map((s) => {
+        const line = Number(s.line) || 1;
+        const endLine = Number(s.endLine) || line;
+        const name = String(s.name || '');
+        const kind = s.kind === 'class' ? 'class' : 'function';
+        return {
+          name,
+          qualifiedName: name,
+          kind,
+          line,
+          endLine,
+          exported: !name.startsWith('_'),
+          signature: s.signature || (rawLines[line - 1] || '').trim(),
+          doc: extractPrecedingDoc(rawLines, line - 1),
+        };
+      });
+      // Keep class methods from heuristic if Python AST only emitted top-level symbols
+      const seen = new Set(astSymbols.map((s) => `${s.name}:${s.line}`));
+      for (const hSym of heuristicFallback.symbols) {
+        if (!seen.has(`${hSym.name}:${hSym.line}`)) {
+          astSymbols.push(hSym);
+        }
+      }
+      astSymbols.sort((a, b) => a.line - b.line);
+      return {
+        ...heuristicFallback,
+        symbols: astSymbols,
+        tier: 'python-ast',
+      };
+    } catch {
+      this._pythonAstAvailable = false;
+      return null;
+    }
+  }
+
+  /**
+   * Tier 1: LSP (Language Server Protocol) query helper.
+   * Uses attached studioIntelligence LSP clients when running, or returns null to fall back to Tier 2/3.
+   */
+  async _queryLsp(method, relPath, position = null, symbol = '') {
+    if (!this.enableLsp || !this.studioIntelligence) return null;
+    try {
+      if (method === 'textDocument/definition' && typeof this.studioIntelligence.definitions === 'function') {
+        const res = await this.studioIntelligence.definitions({
+          symbol,
+          path: relPath || undefined,
+          line: position?.line,
+          column: position?.character,
+        });
+        if (res && res.mode === 'lsp' && Array.isArray(res.locations) && res.locations.length > 0) {
+          return res.locations;
+        }
+      }
+      if (method === 'textDocument/references' && typeof this.studioIntelligence.references === 'function') {
+        const res = await this.studioIntelligence.references({
+          symbol,
+          path: relPath || undefined,
+          line: position?.line,
+          column: position?.character,
+        });
+        if (res && res.mode === 'lsp' && Array.isArray(res.locations) && res.locations.length > 0) {
+          return res.locations;
+        }
+      }
+      if (typeof this.studioIntelligence.lspQuery === 'function' && position) {
+        return await this.studioIntelligence.lspQuery({
+          method,
+          path: relPath,
+          line: position.line,
+          character: position.character ?? 1,
+        });
+      }
+    } catch {
+      // Graceful degradation to Tier 2 (Tree-sitter / Python AST) and Tier 3 (Heuristic)
+    }
+    return null;
   }
 
   /**
@@ -1163,6 +1476,7 @@ export class CodeIntelligenceEngine {
         }
         matched.push({
           file: rec.relPath,
+          tier: sym.tier || rec.tier || 'heuristic-fallback',
           ...sym,
         });
       }
@@ -1232,6 +1546,41 @@ export class CodeIntelligenceEngine {
     }
 
     const candidates = [];
+
+    // Tier 1: Query LSP if studioIntelligence is attached
+    const lspLocations = await this._queryLsp('textDocument/definition', normalizedContext, null, shortTarget);
+    if (Array.isArray(lspLocations)) {
+      for (const loc of lspLocations) {
+        const locFile = toPosix(loc.file || loc.path || '');
+        const rec = locFile ? await this.getParsedFile(locFile) : null;
+        const lineNum = Number(loc.line) || 1;
+        const endLineNum = Number(loc.endLine) || lineNum;
+        let snippet = '';
+        if (rec && rec.rawLines) {
+          const snippetStart = Math.max(1, lineNum - 2);
+          const snippetEnd = Math.min(rec.rawLines.length, Math.min(endLineNum, lineNum + 10));
+          snippet = rec.rawLines
+            .slice(snippetStart - 1, snippetEnd)
+            .map((l, idx) => `${snippetStart + idx}: ${l}`)
+            .join('\n');
+        }
+        candidates.push({
+          score: 120,
+          file: locFile,
+          sha256: rec?.sha256 || '',
+          name: shortTarget,
+          qualifiedName: target,
+          kind: loc.kind || 'definition',
+          line: lineNum,
+          endLine: endLineNum,
+          signature: loc.signature || shortTarget,
+          exported: true,
+          tier: 'lsp',
+          snippet,
+        });
+      }
+    }
+
     for (const entry of fileEntries) {
       const rec = await this.getParsedFile(entry.relPath);
       if (!rec) continue;
@@ -1699,8 +2048,8 @@ function formatSuccess(text, structuredContent) {
 /**
  * Registers the 6 Code Intelligence tools directly into LocalTools.#register() via `define`.
  */
-export function registerCodeIntelligenceTools(define, workspace, { engine: existingEngine } = {}) {
-  const engine = existingEngine ?? new CodeIntelligenceEngine({ workspace });
+export function registerCodeIntelligenceTools(define, workspace, { engine: existingEngine, studioIntelligence = null, lspClient = null, treeSitterParser = null } = {}) {
+  const engine = existingEngine ?? new CodeIntelligenceEngine({ workspace, studioIntelligence, lspClient, treeSitterParser });
 
   define('repo_map', {
     description:

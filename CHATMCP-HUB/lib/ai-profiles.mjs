@@ -4,26 +4,58 @@
 // OpenAI GPT-4o for review, local Ollama for privacy) with isolated credential storage
 // and seamless profile switching per task.
 
+import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { readJson, writeJson } from './runtime.mjs';
+import { createProtector } from './secret-box.mjs';
 
 const PROFILES_FILENAME = 'ai-profiles.json';
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,40}$/i;
 const ALLOWED_PROVIDERS = ['anthropic', 'openai-chat', 'gemini', 'ollama', 'custom'];
+const DEFAULT_BUNDLE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const error = (code, message, statusCode = 400) => Object.assign(new Error(message), { code, statusCode });
 
+export function defaultProfilesDirectory(env = process.env, home = os.homedir()) {
+  if (env.CHATMCP_STATE_DIR) return path.resolve(env.CHATMCP_STATE_DIR);
+  return path.join(env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'ChatMCP', 'hub');
+}
+
+export function createDpapiKeyStore({ bundleRoot = DEFAULT_BUNDLE_ROOT, directory = defaultProfilesDirectory(), platform = process.platform, env = process.env } = {}) {
+  const protector = createProtector({ platform, bundleRoot, directory, env });
+  return {
+    kind: protector.kind,
+    encrypt: async (text) => {
+      if (protector.kind !== 'windows-dpapi') {
+        throw error('dpapi_required', 'Bắt buộc mã hóa API key bằng Windows DPAPI.', 500);
+      }
+      return await protector.protect(text);
+    },
+    decrypt: async (blob) => {
+      if (protector.kind !== 'windows-dpapi') {
+        throw error('dpapi_required', 'Bắt buộc giải mã API key bằng Windows DPAPI.', 500);
+      }
+      return await protector.unprotect(blob);
+    },
+    describe: () => protector.describe(),
+  };
+}
+
 export class AiProfiles {
   /**
-   * @param {object} options
-   * @param {string} options.stateDir Directory where ai-profiles.json is saved
-   * @param {object} [options.keyStore] Key storage adapter (DPAPI or AES)
+   * @param {object} [options]
+   * @param {string} [options.stateDir] Directory where ai-profiles.json is saved (defaults to %LOCALAPPDATA%\ChatMCP\hub)
+   * @param {object} [options.keyStore] Key storage adapter (DPAPI required for API keys)
+   * @param {string} [options.bundleRoot] Hub bundle root for locating Windows DPAPI scripts
    */
-  constructor({ stateDir, keyStore = null }) {
-    if (!stateDir) throw error('missing_state_dir', 'Cần thư mục lưu trạng thái.', 500);
-    this.filePath = path.join(stateDir, PROFILES_FILENAME);
-    this.keyStore = keyStore;
+  constructor({ stateDir = defaultProfilesDirectory(), keyStore = null, bundleRoot = DEFAULT_BUNDLE_ROOT } = {}) {
+    const resolvedStateDir = stateDir ? path.resolve(stateDir) : defaultProfilesDirectory();
+    if (!resolvedStateDir) throw error('missing_state_dir', 'Cần thư mục lưu trạng thái.', 500);
+    this.stateDir = resolvedStateDir;
+    this.filePath = path.join(resolvedStateDir, PROFILES_FILENAME);
+    this.keyStore = keyStore || createDpapiKeyStore({ bundleRoot, directory: resolvedStateDir });
     this.profiles = new Map();
     this.defaultProfileId = null;
     this.loaded = false;
@@ -125,11 +157,12 @@ export class AiProfiles {
 
     if (input.apiKey && typeof input.apiKey === 'string') {
       const key = input.apiKey.trim();
-      if (this.keyStore && typeof this.keyStore.encrypt === 'function') {
-        profile.encryptedKey = await this.keyStore.encrypt(key);
-      } else {
-        // Fallback: store reference or in-memory
-        profile.encryptedKey = Buffer.from(key, 'utf8').toString('base64');
+      if (key) {
+        const encryptFn = this.keyStore?.encrypt || this.keyStore?.protect;
+        if (typeof encryptFn !== 'function') {
+          throw error('dpapi_required', 'Bắt buộc có bộ mã hóa Windows DPAPI để lưu API key; không cho phép lưu dạng văn bản hoặc Base64.', 500);
+        }
+        profile.encryptedKey = await encryptFn.call(this.keyStore, key);
       }
     }
 
@@ -182,11 +215,11 @@ export class AiProfiles {
     if (p.envKeyName && process.env[p.envKeyName]) {
       apiKey = process.env[p.envKeyName];
     } else if (p.encryptedKey) {
-      if (this.keyStore && typeof this.keyStore.decrypt === 'function') {
-        apiKey = await this.keyStore.decrypt(p.encryptedKey);
-      } else {
-        apiKey = Buffer.from(p.encryptedKey, 'base64').toString('utf8');
+      const decryptFn = this.keyStore?.decrypt || this.keyStore?.unprotect;
+      if (typeof decryptFn !== 'function') {
+        throw error('dpapi_required', 'Bắt buộc có bộ giải mã Windows DPAPI để đọc API key; không hỗ trợ Base64.', 500);
       }
+      apiKey = await decryptFn.call(this.keyStore, p.encryptedKey);
     }
 
     return {

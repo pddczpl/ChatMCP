@@ -7,7 +7,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { WorkspaceLock } from '../lib/workspace-lock.mjs';
-import { AiProfiles } from '../lib/ai-profiles.mjs';
+import { AiProfiles, defaultProfilesDirectory } from '../lib/ai-profiles.mjs';
 import { SandboxEngine, SANDBOX_MODES } from '../lib/sandbox-engine.mjs';
 import { createHubServer, POST_ROUTES } from '../hub.mjs';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
@@ -87,8 +87,24 @@ console.log('--- Section 1: WorkspaceLock ---');
 // ----------------------------------------------------------------------------------------------------
 console.log('--- Section 2: AiProfiles ---');
 {
+  const fakeLocalAppData = path.join(state, 'LocalAppData');
+  assert.equal(
+    defaultProfilesDirectory({ LOCALAPPDATA: fakeLocalAppData }),
+    path.join(fakeLocalAppData, 'ChatMCP', 'hub')
+  );
+  const defaultLocProfiles = new AiProfiles({ stateDir: defaultProfilesDirectory({ LOCALAPPDATA: fakeLocalAppData }) });
+  assert.equal(defaultLocProfiles.filePath, path.join(fakeLocalAppData, 'ChatMCP', 'hub', 'ai-profiles.json'));
+  ok('defaultProfilesDirectory resolves to %LOCALAPPDATA%\\ChatMCP\\hub\\ai-profiles.json');
+
   const profilesDir = path.join(state, 'profiles-test');
   await fs.mkdir(profilesDir, { recursive: true });
+  const noDpapiProfiles = new AiProfiles({ stateDir: profilesDir, keyStore: {} });
+  await assert.rejects(
+    () => noDpapiProfiles.upsert({ id: 'no-dpapi', provider: 'openai-chat', model: 'gpt-4o', apiKey: 'secret-123' }),
+    /Windows DPAPI/
+  );
+  ok('rejects saving API key without Windows DPAPI keyStore (no Base64 fallback)');
+
   const aiProfiles = new AiProfiles({ stateDir: profilesDir });
   await aiProfiles.load();
   assert.deepEqual(aiProfiles.list(), []);

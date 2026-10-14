@@ -57,7 +57,7 @@ export function assembleStudio(manager, { bundleRoot, exec = null }) {
   manager.permissions = new PermissionGate({ manager, workspace: manager.studio, directory: studioDirectory });
   manager.verification.permissions = manager.permissions;
   manager.studioTools = new StudioTools({ workspace: manager.studio, gate: manager.permissions, intelligence: manager.intelligence });
-  const localOptions = { workspace: manager.studio, stateDirectory: localDirectory, secrets };
+  const localOptions = { workspace: manager.studio, stateDirectory: localDirectory, secrets, studioIntelligence: manager.intelligence };
   if (exec) {
     localOptions.shell = new ShellRunner({
       workspace: manager.studio, stateDirectory: localDirectory, secrets,

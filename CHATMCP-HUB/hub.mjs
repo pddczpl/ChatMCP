@@ -105,8 +105,8 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   const verification = manager.verification;
   const intelligence = manager.intelligence;
   const preview = manager.preview;
-  const hubStateDir = manager.stateDirectory ?? manager.stateDir ?? BUNDLE_ROOT;
-  const aiProfiles = new AiProfiles({ stateDir: hubStateDir, keyStore: provider?.keyStore ?? null });
+  const hubStateDir = manager.hubDirectory ?? manager.stateDirectory ?? manager.stateDir ?? defaultDataDirectory();
+  const aiProfiles = new AiProfiles({ stateDir: hubStateDir, keyStore: provider?.keyStore ?? provider?.protector ?? (provider?.protect && provider?.unprotect ? { encrypt: (t) => provider.protect(t), decrypt: (b) => provider.unprotect(b) } : null) });
   aiProfiles.load().catch(() => {});
   const pluginManager = manager.pluginManager ?? new PluginManager({ stateDir: hubStateDir });
   manager.pluginManager = pluginManager;
