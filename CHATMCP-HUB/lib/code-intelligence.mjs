@@ -1665,6 +1665,7 @@ export function registerCodeIntelligenceTools(define, workspace, { engine: exist
     schema: {
       type: 'object',
       additionalProperties: false,
+      required: [],
       properties: {
         path: { type: 'string', description: 'Subdirectory to map (default: workspace root ".")' },
         max_tokens: { type: 'integer', description: 'Maximum token budget for the output map (default: 2000)' },
@@ -1697,6 +1698,7 @@ export function registerCodeIntelligenceTools(define, workspace, { engine: exist
     schema: {
       type: 'object',
       additionalProperties: false,
+      required: [],
       properties: {
         path: { type: 'string', description: 'File or directory path relative to workspace (default: ".")' },
         query: { type: 'string', description: 'Filter symbols by name or qualifiedName substring' },
@@ -1792,6 +1794,7 @@ export function registerCodeIntelligenceTools(define, workspace, { engine: exist
     schema: {
       type: 'object',
       additionalProperties: false,
+      required: [],
       properties: {
         path: {
           type: 'string',
@@ -1815,6 +1818,7 @@ export function registerCodeIntelligenceTools(define, workspace, { engine: exist
     schema: {
       type: 'object',
       additionalProperties: false,
+      required: [],
       properties: {
         path: { type: 'string', description: 'File or directory path to check (default: ".")' },
       },
