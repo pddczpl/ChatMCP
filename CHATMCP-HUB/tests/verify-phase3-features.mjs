@@ -18,6 +18,30 @@ let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
 setTimeout(() => { console.error('FAIL: Phase 3 suite timeout'); process.exit(2); }, 60_000).unref();
 
+function createTestKeyStore() {
+  // TEST FIXTURE ONLY: deliberately not the production credential protector.
+  // On Linux CI, production DPAPI remains fail-closed, while this test-only
+  // authenticated adapter exercises the storage and HTTP integration paths.
+  const testKey = randomBytes(32);
+  return {
+    kind: 'test-only-aes-256-gcm',
+    async encrypt(plaintext) {
+      const iv = randomBytes(12);
+      const cipher = createCipheriv('aes-256-gcm', testKey, iv);
+      const body = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+      return 'test-only-aesgcm:' + Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64url');
+    },
+    async decrypt(blob) {
+      assert.match(blob, /^test-only-aesgcm:/, 'test cipher envelope must be authenticated');
+      const bytes = Buffer.from(blob.slice('test-only-aesgcm:'.length), 'base64url');
+      assert.ok(bytes.length >= 29, 'ciphertext must include IV, authentication tag and body');
+      const decipher = createDecipheriv('aes-256-gcm', testKey, bytes.subarray(0, 12));
+      decipher.setAuthTag(bytes.subarray(12, 28));
+      return Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString('utf8');
+    },
+  };
+}
+
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-phase3-'));
 const work = path.join(root, 'work');
 const state = path.join(root, 'state');
@@ -110,24 +134,7 @@ console.log('--- Section 2: AiProfiles ---');
   // CI also runs on Linux: use an EXPLICIT TEST-ONLY authenticated encryption
   // adapter instead of reverting to the insecure old Base64 fallback.
   // This fixture never gets wired into the app or its runtime paths.
-  const testKey = randomBytes(32);
-  const keyStore = {
-    kind: 'test-only-aes-256-gcm',
-    async encrypt(plaintext) {
-      const iv = randomBytes(12);
-      const cipher = createCipheriv('aes-256-gcm', testKey, iv);
-      const body = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
-      return 'test-only-aesgcm:' + Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64url');
-    },
-    async decrypt(blob) {
-      assert.match(blob, /^test-only-aesgcm:/, 'test cipher envelope must be authenticated');
-      const bytes = Buffer.from(blob.slice('test-only-aesgcm:'.length), 'base64url');
-      assert.ok(bytes.length >= 29, 'ciphertext must include IV, authentication tag and body');
-      const decipher = createDecipheriv('aes-256-gcm', testKey, bytes.subarray(0, 12));
-      decipher.setAuthTag(bytes.subarray(12, 28));
-      return Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString('utf8');
-    },
-  };
+  const keyStore = createTestKeyStore();
   if (process.platform !== 'win32') {
     const failClosed = new AiProfiles({ stateDir: path.join(state, 'nonwindows-dpapi-required') });
     await assert.rejects(
@@ -299,6 +306,14 @@ console.log('--- Section 4: Hub HTTP Integration ---');
   const hubServer = createHubServer(dummyManager, {
     port: hubPort,
     token: csrfToken,
+    // createHubServer normally receives a GatewayProvider with a keyStore.
+    // Provide one in this HTTP fixture so Linux CI can test the route without
+    // weakening the production Windows-only DPAPI requirement.
+    provider: {
+      keyStore: createTestKeyStore(),
+      state: () => ({ provider: 'test-only', configured: false }),
+      envKeys: () => [],
+    },
     execMode: 'no-shell',
   });
 
@@ -352,7 +367,12 @@ console.log('--- Section 4: Hub HTTP Integration ---');
   assert.equal(upsertRes.status, 200);
   assert.equal(upsertRes.body.profile.id, 'deepseek-coder');
   assert.equal(upsertRes.body.profile.hasKey, true);
-  ok('POST /api/ai/profiles/upsert creates profile via Hub');
+  const httpProfileData = await fs.readFile(path.join(state, 'ai-profiles.json'), 'utf8');
+  assert.equal(httpProfileData.includes('sk-dsk-12345'), false,
+    'HTTP profile upsert must never save the plaintext key');
+  assert.match(httpProfileData, /test-only-aesgcm:/,
+    'HTTP profile upsert must use authenticated test-only encryption');
+  ok('POST /api/ai/profiles/upsert creates encrypted profile via Hub');
 
   // 3. GET /api/sandbox/status
   const sandboxStatus = await hubRequest('GET', '/api/sandbox/status');
