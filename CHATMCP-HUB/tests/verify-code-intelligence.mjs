@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { LocalTools } from '../lib/local-tools.mjs';
+import { CodeIntelligenceEngine } from '../lib/code-intelligence.mjs';
 
 const dir=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-intel-integration-'));
 try {
@@ -42,5 +43,22 @@ try {
   assert.equal(outside.isError,true,'path traversal must be rejected');
   const secret=await local.call('code_symbols',{path:'secrets.json'});
   assert.equal(secret.isError,true,'protected files must not be exposed');
+  // Windows junction/8.3 aliases can differ from fs.realpath(root).
+  // The legacy string-resolver contract must still work, while symlink
+  // traversal out of the real workspace must remain forbidden.
+  const alias=path.join(dir,'project-alias');
+  await fs.symlink(project,alias,process.platform==='win32'?'junction':'dir');
+  const engine=new CodeIntelligenceEngine({workspace:{
+    path:alias,resolve:(relative='.')=>path.resolve(alias,relative),
+  }});
+  const mappedAlias=await engine.generateRepoMap({path:'.',maxTokens:850});
+  assert.ok(mappedAlias.structured.totalFiles>=2,'canonical alias source files are visible');
+  const external=path.join(dir,'external');
+  await fs.mkdir(external);
+  const escape=path.join(project,'escape');
+  await fs.symlink(external,escape,process.platform==='win32'?'junction':'dir');
+  await assert.rejects(engine.querySymbols({path:'escape',query:'anything'}),/outside_workspace/,
+    'canonical symlink target outside workspace must be rejected');
+  console.log('PASS realpath alias/junction compatibility without symlink escapes');
   console.log('PASS real async StudioWorkspace/LocalTools Code Intelligence and protected-path integration');
 } finally {await fs.rm(dir,{recursive:true,force:true});}

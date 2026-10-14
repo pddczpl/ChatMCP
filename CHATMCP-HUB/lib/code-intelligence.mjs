@@ -847,15 +847,48 @@ export class CodeIntelligenceEngine {
     const resolved = await this.workspace.resolve(targetPath);
     const inputPath = typeof resolved === 'string' ? resolved : resolved?.absolute;
     if (typeof inputPath !== 'string') throw new TypeError('Invalid workspace resolution result');
-    const canonicalRoot = typeof resolved === 'object' && typeof resolved.root === 'string'
-      ? path.resolve(resolved.root)
-      : await fs.realpath(declaredRoot).catch(() => path.resolve(declaredRoot));
-    const full = path.resolve(inputPath);
-    const relative = path.relative(canonicalRoot, full);
-    if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
+    // First check the path spelling returned by the selected workspace.
+    // A legacy string resolver preserves a Windows junction/short-path alias;
+    // comparing it against fs.realpath(root) would falsely report an escape.
+    const lexicalRoot = path.resolve(
+      typeof resolved === 'object' && typeof resolved?.root === 'string' ? resolved.root : declaredRoot
+    );
+    const requested = path.resolve(inputPath);
+    const inside = (root, target) => {
+      const rel = path.relative(root, target);
+      return rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
+    };
+    if (!inside(lexicalRoot, requested)) {
+      throw new Error('outside_workspace: code intelligence cannot scan outside the selected workspace');
+    }
+    const canonicalRoot = await fs.realpath(lexicalRoot);
+    // Normalize the target too, not only the root. If a target is missing,
+    // canonicalize its nearest existing ancestor to detect a symlink escape
+    // even for paths that have not yet been created.
+    let full;
+    try {
+      full = await fs.realpath(requested);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      let ancestor = path.dirname(requested);
+      while (true) {
+        try {
+          const actualAncestor = await fs.realpath(ancestor);
+          full = path.resolve(actualAncestor, path.relative(ancestor, requested));
+          break;
+        } catch (missing) {
+          if (missing?.code !== 'ENOENT') throw missing;
+          const parent = path.dirname(ancestor);
+          if (parent === ancestor) throw missing;
+          ancestor = parent;
+        }
+      }
+    }
+    if (!inside(canonicalRoot, full)) {
       throw new Error('outside_workspace: code intelligence cannot scan outside the selected workspace');
     }
     this._resolvedRoot = canonicalRoot;
+    const relative = path.relative(canonicalRoot, full);
     const rel = toPosix(relative || '.');
     if (isProtectedPath(rel)) throw new Error('protected_path: code intelligence cannot inspect credential files or Git metadata');
     return { full, rel };
