@@ -10,6 +10,8 @@
 
 ---
 
+**Development HEAD v3.1.0:** Code Intelligence and Smart Context Compaction are undergoing CI verification; the latest published installer remains v3.0.4.
+
 ## Features and Capabilities
 
 ChatMCP v3.0.4 delivers complete autonomous software engineering capabilities while enforcing strict local security boundaries:
@@ -23,7 +25,7 @@ ChatMCP v3.0.4 delivers complete autonomous software engineering capabilities wh
 | Capability | Status | Description & Safety Boundaries |
 | --- | --- | --- |
 | Windows Desktop Studio | Available | WinForms + WebView2 desktop application with bundled local Node.js runtime; Git for Windows required for worktrees |
-| Coding agent with local tools | Available | LocalTools (36 công cụ): workspace-scoped file search/edits, terminal execution, Git operations, plans, checkpoints, approvals |
+| Coding agent with local tools | Available | LocalTools (42 công cụ): workspace-scoped file search/edits, terminal execution, Git operations, plans, checkpoints, approvals |
 | AI Providers & Models | Available | 12 preset provider configurations (OpenAI, Anthropic, Gemini, DeepSeek, Ollama, LM Studio, etc.) + custom OpenAI-compatible endpoints; no token or monetary spending quotas imposed by ChatMCP |
 | Task State Machine | Available | 11 trạng thái lifecycle (created, planning, planned, running, paused, awaiting_approval, awaiting_review, completed, failed, cancelled, checkpoint_failed) with strictly validated transitions |
 | Crash Recovery & Journaling | Available | Tamper-evident transaction journal with cryptographic chaining; persistent recovery acknowledgements across daemon restarts; context compaction and rollback safety |
@@ -123,7 +125,7 @@ ChatMCP is designed exclusively as a single-tenant local application:
 Verify the entire repository using the test runner:
 
 ~~~powershell
-# Run the complete test suite (76 bộ Node và 5 bộ giao diện)
+# Run the complete test suite (78 bộ Node và 5 bộ giao diện)
 node .\CHATMCP-HUB\tests\run-all.mjs
 
 # Build and verify the frontend

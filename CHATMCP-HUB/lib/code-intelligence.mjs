@@ -6,6 +6,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { isProtectedPath } from './protected-paths.mjs';
 
 const DEFAULT_IGNORED_DIRS = new Set([
   '.git',
@@ -828,17 +829,30 @@ export class CodeIntelligenceEngine {
   }
 
   get rootPath() {
-    return this.workspace.path || this.workspace.root || this.workspace.resolve('.');
+    // StudioWorkspace has a real root getter; test doubles may expose path.
+    const root = this.workspace.root || this.workspace.path;
+    if (typeof root !== 'string' || !root) throw new TypeError('Workspace root is unavailable');
+    return path.resolve(root);
   }
 
-  resolveRelative(targetPath = '.') {
-    const full = this.workspace.resolve(targetPath);
-    const rel = toPosix(path.relative(this.rootPath, full));
-    return { full, rel: rel || '.' };
+  async resolveRelative(targetPath = '.') {
+    // StudioWorkspace.resolve is async and returns { root, absolute, relative }.
+    // The engine also supports the legacy synchronous path-string adapter.
+    const resolved = await this.workspace.resolve(targetPath);
+    const inputPath = typeof resolved === 'string' ? resolved : resolved?.absolute;
+    if (typeof inputPath !== 'string') throw new TypeError('Invalid workspace resolution result');
+    const full = path.resolve(inputPath), root = this.rootPath;
+    const relative = path.relative(root, full);
+    if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
+      throw new Error('outside_workspace: code intelligence cannot scan outside the selected workspace');
+    }
+    const rel = toPosix(relative || '.');
+    if (isProtectedPath(rel)) throw new Error('protected_path: code intelligence cannot inspect credential files or Git metadata');
+    return { full, rel };
   }
 
   async listSourceFiles(subPath = '.') {
-    const { full: startDir } = this.resolveRelative(subPath);
+    const { full: startDir } = await this.resolveRelative(subPath);
     const files = [];
 
     const walk = async (dir) => {
@@ -859,6 +873,7 @@ export class CodeIntelligenceEngine {
           const ext = path.extname(entry.name).toLowerCase();
           if (!CODE_EXTENSIONS.has(ext)) continue;
           const relPath = toPosix(path.relative(this.rootPath, fullPath));
+          if (isProtectedPath(relPath)) continue;
           files.push({ fullPath, relPath, ext });
         }
       }
@@ -883,7 +898,7 @@ export class CodeIntelligenceEngine {
   }
 
   async getParsedFile(relOrInputPath) {
-    const { full, rel } = this.resolveRelative(relOrInputPath);
+    const { full, rel } = await this.resolveRelative(relOrInputPath);
     let stat;
     try {
       stat = await fs.stat(full);
@@ -1407,7 +1422,7 @@ export class CodeIntelligenceEngine {
     }
 
     // Check if targetPath points to a specific file for Impact / Blast-Radius analysis
-    const { rel: focusRel } = this.resolveRelative(targetPath);
+    const { rel: focusRel } = await this.resolveRelative(targetPath);
     if (records.has(focusRel)) {
       const directDeps = Array.from(forwardGraph.get(focusRel) || []);
       const directDependents = Array.from(reverseGraph.get(focusRel) || []);

@@ -250,10 +250,16 @@ export function compactConversationHistory(
       const meta = callMetaById.get(item.call_id);
       if (!meta) continue;
       const lastIdx = lastIndexByArgsKey.get(meta.argsKey);
-      if (lastIdx !== undefined && lastIdx > idx) {
-        const prevLen = String(item.output || '').length;
+      if (lastIdx !== undefined && lastIdx > idx &&
+          typeof item.output === 'string' &&
+          typeof cloned[lastIdx].output === 'string' &&
+          item.output === cloned[lastIdx].output) {
+        // Arguments alone are NOT evidence that the response is unchanged:
+        // Git status/diff or a file read can change between identical calls.
+        // Never deduplicate multimodal tool outputs.
+        const prevLen = item.output.length;
         if (prevLen > 240) {
-          item.output = `[Smart Compaction: duplicate output of ${meta.name} omitted (${prevLen} chars) — a newer result for the exact same call appears later in history.]`;
+          item.output = `[Smart Compaction: duplicate output of ${meta.name} omitted (${prevLen} chars) — an identical newer result for the exact same call appears later in history.]`;
           deduplicatedCount++;
           compactedCount++;
         }
@@ -264,7 +270,9 @@ export function compactConversationHistory(
   // 2. Summarize older large tool outputs outside the protected recent window
   for (const idx of olderOutputIndices) {
     const item = cloned[idx];
-    const rawOut = typeof item.output === 'string' ? item.output : JSON.stringify(item.output ?? '');
+    // Image/file arrays are kept in their original structured representation.
+    if (typeof item.output !== 'string') continue;
+    const rawOut = item.output;
     if (rawOut.startsWith('[Smart Compaction:')) continue;
 
     if (rawOut.length > maxOldOutputChars) {
@@ -286,7 +294,8 @@ export function compactConversationHistory(
     // Tighten older outputs further (down to 900 chars) and also compact oversized recent outputs (> 8000 chars)
     for (const idx of olderOutputIndices) {
       const item = cloned[idx];
-      const rawOut = typeof item.output === 'string' ? item.output : JSON.stringify(item.output ?? '');
+      if (typeof item.output !== 'string') continue;
+      const rawOut = item.output;
       if (rawOut.length > 900) {
         const meta = callMetaById.get(item.call_id);
         const res = compactSingleToolOutput(rawOut, {
@@ -302,25 +311,9 @@ export function compactConversationHistory(
       }
     }
 
-    const recentIndices = outputIndices.slice(protectedStart);
-    for (const idx of recentIndices) {
-      const item = cloned[idx];
-      const rawOut = typeof item.output === 'string' ? item.output : JSON.stringify(item.output ?? '');
-      if (rawOut.length > 8000) {
-        const meta = callMetaById.get(item.call_id);
-        const res = compactSingleToolOutput(rawOut, {
-          toolName: meta?.name || 'tool',
-          maxChars: 6000,
-          headLines: 45,
-          tailLines: 30,
-        });
-        if (res.compacted) {
-          item.output = res.text;
-          compactedCount++;
-        }
-      }
-    }
-
+    // Never erase the latest evidence needed for immediate follow-up actions.
+    // The provider adapter may reject an over-budget request rather than silently
+    // replacing the latest result or a multimodal receipt with truncated prose.
     afterTokens = estimateTokens(cloned);
   }
 
