@@ -1,13 +1,21 @@
 # Lịch sử thay đổi
 
-## [3.1.0] — 2026-10-14 — Code Intelligence & Smart Context (unreleased)
+## [3.1.1] — 2026-10-15 — Code Intelligence and Smart Context CI repair
+
+- Ship six Code Intelligence tools (repo map, symbols, go-to-definition, references, dependency graph and diagnostics), with the production async workspace resolver, canonical Windows/Junction path handling and protected-path containment.
+- Integrate bounded, query-aware Repo Map as untrusted task context and compact a **model request copy** of older tool results while preserving call IDs, real result differences, recent evidence, multimodal data and the complete canonical transcript.
+- Align version identifiers for Hub, Desktop, Installer and UI at 3.1.1; retain the previous v3.1.0 tag unchanged because it points to a commit with failed CI and its release had no Windows installer.
+- Update 42-tool schemas/contracts and 78 Node regression suites. Require Windows/Ubuntu Node 22/24 tests, browser E2E and a SHA-256 verified self-contained Windows installer before publication.
+- Gateway code and the existing user permission/security boundaries remain unchanged. CI uses scripted providers; long-task quality with live paid models is not established.
+
+## [3.1.0] — 2026-10-14 — Code Intelligence & Smart Context (tagged, installer not released)
 
 - Add the zero-dependency Code Intelligence Engine with six local read-only tools: `repo_map`, `code_symbols`, `find_definition`, `find_references`, `dependency_graph`, and `code_diagnostics`. The current LocalTools catalog has 42 tools.
 - Support the actual asynchronous StudioWorkspace resolver and guard workspace boundaries and protected paths in code intelligence reads.
 - Attach a bounded Repo Map as explicitly untrusted user-level task data and compact only a copy of older tool history while retaining call IDs and the canonical transcript.
 - Preserve different results from identical read-only tool arguments (files and Git diffs may have changed) and preserve multimodal outputs and the latest tool receipts.
 - Add Code Intelligence and Smart Context Compaction regression suites to the Hub's `verify-*.mjs` CI discovery (78 Node suites).
-- Align Hub, UI, Desktop, Installer, build IDs, docs, and test contracts at development version 3.1.0. No official installer/tag has been published for 3.1.0.
+- The v3.1.0 tag was published with no Windows installer while CI on its commit was failing; this is a historical release entry. The tested, packaged correction is v3.1.1.
 
 ## [3.0.4] — 2026-10-14 — Goal-aware agent planning and adaptive recovery
 
