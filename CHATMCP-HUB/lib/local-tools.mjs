@@ -18,6 +18,12 @@ import { gitRisksFor, gitSubcommand, inspectGitSafety } from './git-trust.mjs';
 import { ShellRunner, killTree, BoundedCapture, scrubEnv } from './shell-runner.mjs';
 import { validateArguments } from './tool-schema.mjs';
 import { registerCodeIntelligenceTools } from './code-intelligence.mjs';
+import { getTokenStats, restoreTokenOutput, setTokenProfile } from './token-optimization.mjs';
+import { registerAgentCapabilityTools } from './agent-capabilities.mjs';
+import { registerBrowserTools } from './browser-tools.mjs';
+import { registerWorkflowExtensions } from './workflow-extensions.mjs';
+import { registerSemanticTools } from './lsp-refactor-tools.mjs';
+import { registerDebugTools } from './node-debug-tools.mjs';
 
 export const LOCAL_SERVER = 'local';
 export const LIMITS = Object.freeze({
@@ -101,7 +107,10 @@ export class LocalTools {
     for (const name of disabledTools) this.tools.delete(String(name).replace(/^local\./, ''));
     this.shellDisabled = !this.tools.has('run_command');
     if (this.shellDisabled) {
-      for (const name of ['tasks_run', 'tasks_status', 'tasks_cancel', 'tasks_list', 'github_action', 'github_read']) {
+      for (const name of ['tasks_run', 'tasks_status', 'tasks_cancel', 'tasks_list', 'github_action', 'github_read',
+        'test_run', 'build_run', 'github_code_search', 'github_workflow_runs', 'github_workflow_status', 'github_job_logs',
+        'github_pr_review','github_rerun_failed','github_pr_merge','github_release_create',
+        'debug_start','debug_breakpoint','debug_continue','debug_step','debug_stack','debug_variables','debug_evaluate','debug_stop']) {
         this.tools.delete(name);
       }
     }
@@ -162,6 +171,7 @@ export class LocalTools {
     };
     try {
       if (op === 'write_file' || op === 'edit_file' || op === 'files_apply_patch') await addFile(input.path);
+      else if (['rename_symbol','format_document','organize_imports'].includes(op) && input.apply === true) await addFile(input.file);
       else if (op === 'files_write_batch') {
         for (const f of input.files ?? []) await addFile(f.path);
       }
@@ -507,6 +517,28 @@ export class LocalTools {
       schema: obj({}), category: 'read', reason: 'Xem danh sách tri thức dự án', summary: () => 'knowledge_list',
       run: () => this.#knowledgeList(),
     });
+    define('token_stats', {
+      description: 'Show measured model-facing tool-output character savings for this task (token conversion is approximate).',
+      schema: obj({}), category: 'read', reason: 'Read local token pipeline statistics', summary: () => 'token stats',
+      run: (_, { taskId }) => ok(JSON.stringify(getTokenStats(taskId)), getTokenStats(taskId)),
+    });
+    define('token_restore', {
+      description: 'Recover an exact slice of a compressed tool output using its receipt ID. Receipts are isolated per task and never uploaded.',
+      schema: obj({ id: str('Receipt handle returned by token optimization.'), offset: int('Character offset, 0 based.', {minimum:0}), limit: int('Maximum characters to recover (1-16000).',{minimum:1,maximum:16000}) }, ['id']),
+      category: 'read', reason: 'Restore original local tool output', summary: () => 'restore tool output',
+      run: (a, {taskId}) => { const restored = restoreTokenOutput(taskId,a.id,a.offset ?? 0,a.limit ?? 12000); return ok(restored.text,restored); },
+    });
+    define('token_profile', {
+      description: 'Select off, safe, balanced or aggressive token optimization for this task; no hooks or external proxies.',
+      schema: obj({ mode: str('Token compression profile.',{enum:['off','safe','balanced','aggressive']}) }, ['mode']),
+      annotations: WRITE, category: 'checkpoint', reason: 'Adjust token budget for this task', summary: (a) => 'token profile '+a.mode,
+      run: (a,{taskId}) => ok('Token profile set to '+a.mode, setTokenProfile(taskId,a.mode)),
+    });
+    this.extendedCapabilities = registerAgentCapabilityTools(define, {workspace:this.workspace,shell:this.shell,stateDirectory:this.stateDirectory});
+    this.browserCapabilities = registerBrowserTools(define, {});
+    this.workflowExtensions = registerWorkflowExtensions(define, {workspace:this.workspace,shell:this.shell,git:this.git});
+    this.semanticTools = registerSemanticTools(define, {workspace:this.workspace,intelligence:this.studioIntelligence});
+    this.debugTools = registerDebugTools(define, {workspace:this.workspace});
     define('github_read', {
       description: 'Read GitHub issues, PRs, or releases using GitHub CLI gh.',
       schema: obj({ action: str('Action to perform.', { enum: ['issue_list', 'issue_view', 'pr_list', 'pr_view', 'release_list'] }), number: int('Issue or PR number for view action.') }, ['action']),
@@ -1203,6 +1235,9 @@ export class LocalTools {
       }
     }
     this.backgroundTasks.clear();
+    await this.extendedCapabilities?.close();
+    await this.browserCapabilities?.close();
+    await this.debugTools?.close();
   }
 
   // ------------------------------------------------------------------ batch & patch

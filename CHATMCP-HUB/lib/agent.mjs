@@ -6,6 +6,7 @@ import { writeFileAtomic } from './fs-safe.mjs';
 import { callIdentity, createTaskProgress, observeTaskTool, progressCheckpoint } from './agent-progress.mjs';
 import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence } from './agent-autonomy.mjs';
 import { estimateTokens as estimateContextTokens, injectRepoMapIntoInstructions, compactConversationHistory } from './context-compaction.mjs';
+import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './token-optimization.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
 // from disk or the environment, evaluates model text, or executes a local shell.
@@ -96,19 +97,57 @@ ${names.map((name) => `- ${name}`).join('\n')}
 // Everything else stays reachable through the router. A tool that cannot be offered directly is not lost.
 const DIRECT_SERVER = 'local';
 const FUNCTION_NAME = /^[A-Za-z0-9_-]{1,64}$/;
-export function directToolsFor(catalog) {
-  const functions = [];
-  const byName = new Map();
-  for (const tool of catalog.tools) {
-    if (tool.server !== DIRECT_SERVER) continue;
-    const name = tool.originalName;
-    if (typeof name !== 'string' || !FUNCTION_NAME.test(name) || ROUTER_NAMES.has(name) || byName.has(name) || !object(tool.inputSchema)) continue;
-    byName.set(name, tool.name);
-    functions.push({ type: 'function', name, description: String(tool.description ?? '').slice(0, 1500), parameters: structuredClone(tool.inputSchema), strict: false });
-  }
-  return { functions, byName };
+
+const PREFERRED_DIRECT_TOOLS = new Set([
+  // Broad baseline: keep editing, Git safety, project tests and code navigation directly callable.
+  'checks_list','checks_run',
+  'read_file','list_directory','find_files','search_files','git_status','git_diff','git_log',
+  'get_plan','update_plan','write_file','edit_file','make_directory','move_path','git_add',
+  'git_commit','git_branch','delete_path','run_command','tasks_run','tasks_status',
+  'tasks_cancel','files_write_batch','files_apply_patch','git_checkout','git_merge',
+  'worktrees_list','worktrees_create','knowledge_search','repo_map','code_symbols',
+  'find_definition','find_references','dependency_graph','code_diagnostics',
+  // The most time-saving new capabilities; the rest remain in the exact internal router catalog.
+  'web_search','web_fetch','browser_launch','browser_navigate','browser_click',
+  'browser_fill','browser_screenshot','test_run','github_workflow_runs','token_restore',
+]);
+// 95 local tools + the four internal routers = 99 functions today.
+// The old <50 smoke-test threshold was never an API restriction.
+// Keep a conservative upper boundary of 128 advertised functions (4 routers +
+// at most 124 direct) while permitting the operator to lower schema cost for
+// providers with smaller tool limits via CHATMCP_DIRECT_TOOL_LIMIT.
+export const DEFAULT_DIRECT_TOOL_LIMIT = 95;
+export const MAX_DIRECT_TOOL_LIMIT = 124;
+export function resolveDirectToolLimit(raw = process.env.CHATMCP_DIRECT_TOOL_LIMIT) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return DEFAULT_DIRECT_TOOL_LIMIT;
+  const normalized = String(raw).trim();
+  if (!/^(?:0|[1-9][0-9]{0,2})$/.test(normalized)) return DEFAULT_DIRECT_TOOL_LIMIT;
+  return Math.min(MAX_DIRECT_TOOL_LIMIT, Number(normalized));
 }
 
+export function directToolsFor(catalog, { limit = resolveDirectToolLimit() } = {}) {
+  const functions = [];
+  const byName = new Map();
+  const maximum = Number.isInteger(limit) && limit >= 0 ? Math.min(limit, MAX_DIRECT_TOOL_LIMIT) : DEFAULT_DIRECT_TOOL_LIMIT;
+  // Rank legacy coding and verification tools first for constrained providers.
+  // Wide providers also receive every other available LocalTool in catalog order.
+  const eligible = catalog.tools.filter(tool =>
+    tool.server === DIRECT_SERVER && typeof tool.originalName === 'string' &&
+    FUNCTION_NAME.test(tool.originalName) && !ROUTER_NAMES.has(tool.originalName) && object(tool.inputSchema));
+  const ranked = [
+    ...eligible.filter(tool => PREFERRED_DIRECT_TOOLS.has(tool.originalName)),
+    ...eligible.filter(tool => !PREFERRED_DIRECT_TOOLS.has(tool.originalName)),
+  ];
+  for (const tool of ranked) {
+    if (functions.length >= maximum) break;
+    const name = tool.originalName;
+    if (byName.has(name)) continue;
+    byName.set(name, tool.name);
+    functions.push({type:'function',name,description:String(tool.description ?? '').slice(0,1500),
+      parameters:structuredClone(tool.inputSchema),strict:false});
+  }
+  return {functions,byName};
+}
 // Models sometimes wrap an advertised direct local name in mcp_call. Resolve
 // only that explicit alias map; never guess a server or match remote basenames.
 // An exact catalog name always wins if it happens to collide with an alias.
@@ -120,8 +159,9 @@ function catalogToolName(context, name) {
 }
 
 export function createLocalAgentInstructions(catalog, workspace, environment = null) {
-  const direct = catalog.tools.filter((tool) => tool.server === DIRECT_SERVER).map((tool) => tool.originalName);
-  const others = catalog.tools.filter((tool) => tool.server !== DIRECT_SERVER).map((tool) => tool.name).sort();
+  const directlyOffered = directToolsFor(catalog).byName;
+  const direct = [...directlyOffered.keys()];
+  const others = catalog.tools.filter((tool) => !(tool.server === DIRECT_SERVER && directlyOffered.has(tool.originalName))).map((tool) => tool.name).sort();
   const shells = environment?.shells ? Object.keys(environment.shells).filter((name) => environment.shells[name]).join(', ') : '';
   const facts = [
     `Workspace root: ${JSON.stringify(workspace.path)}. Tool paths are relative to it; absolute paths inside it also work.`,
@@ -137,7 +177,10 @@ export function createLocalAgentInstructions(catalog, workspace, environment = n
     { name: 'Terminal & Tasks', tools: ['run_command', 'tasks_run', 'tasks_status', 'tasks_cancel', 'tasks_list'] },
     { name: 'Git & Worktrees', tools: ['git_status', 'git_diff', 'git_add', 'git_commit', 'git_branch', 'git_checkout', 'git_merge', 'worktrees_create', 'worktrees_list', 'worktrees_remove'] },
     { name: 'Plan & Knowledge', tools: ['update_plan', 'knowledge_create', 'knowledge_list', 'knowledge_search'] },
-    { name: 'GitHub Integration', tools: ['github_read', 'github_action'] },
+    { name: 'GitHub Integration', tools: ['github_read', 'github_action', 'github_workflow_runs'] },
+    { name: 'Research', tools: ['web_search', 'web_fetch'] },
+    { name: 'Browser E2E', tools: ['browser_launch','browser_navigate','browser_click','browser_fill','browser_screenshot'] },
+    { name: 'Test & Tokens', tools: ['test_run','token_restore'] },
   ];
   const categorizedLines = [];
   const handled = new Set();
@@ -178,7 +221,7 @@ Use real tool results as evidence. Never claim a file changed, a test passed or 
 TOOLS
 You call these directly (categorized by role):
 ${categorizedLines.join('\n')}
-For direct calls use the listed short name (for example read_file). For mcp_describe or mcp_call, prefer the exact qualified name returned by mcp_catalog (for example local.read_file); do not invent server prefixes.
+For directly offered calls use the listed short name (for example read_file). Other internal tools remain available through mcp_catalog, mcp_describe and mcp_call; call them by their full names (e.g. local.test_discover). Do not assume a tool is missing merely because it is not one of the directly offered tools. The reduced direct-tool set avoids wasting model context on unused schemas.
 ${others.length ? `\nMore tools are reachable through mcp_catalog, mcp_describe and mcp_call (exact names below):\n${others.map((name) => `- ${name}`).join('\n')}\n` : ''}`;
 }
 
@@ -692,6 +735,7 @@ export class AgentRunner {
         }
       }
       if (task.goalPlan) context.instructions += '\n'+planInstructions(task.goalPlan);
+      context.instructions += '\n' + TOKEN_AGENT_INSTRUCTIONS;
       // Repo source is untrusted. Attach its bounded map as DATA beside the
       // user's prompt, NEVER as privileged system instructions. Preserve the
       // first input_text part to keep API adapters and model contracts stable.
@@ -740,6 +784,7 @@ export class AgentRunner {
     const { task } = context;
     clearTimeout(context.timer);
     context.unsubscribe?.(); context.unsubscribe = null;
+    purgeTokenTask(task.id);
     if (error) {
       const reason = context.controller.signal.aborted ? context.controller.signal.reason : error;
       const code = reason?.code ?? 'task_failed';
@@ -886,7 +931,7 @@ export class AgentRunner {
           if(verified)task.goalPlan=updateGoalPlan(task.goalPlan,verified);
           // Tool call/output must be contiguous and persisted before a recovery
           // hint is added: adapters require a correctly paired call/result history.
-          const converted=this.#modelOutput(result);
+          const converted=this.#modelOutput(result,{ taskId: task.id, toolName: actualName });
           context.history.push({type:'function_call_output',call_id:call.call_id,output:converted.output});
           if(verified)await this.#event(task,'goal_evidence',
             'Bằng chứng được host kiểm tra: '+verified.kind+
@@ -1030,7 +1075,8 @@ export class AgentRunner {
     return JSON.stringify(mediaSafe(result), null, 2) ?? '(Công cụ không trả nội dung.)';
   }
 
-  #modelOutput(result) {
+  #modelOutput(result, options = {}) {
+    const optimized = optimizeToolResult(result, options);
     const images = [];
     const warnings = [];
     const walk = (item) => {
@@ -1052,7 +1098,7 @@ export class AgentRunner {
       for (const [key, value] of Object.entries(item)) out[key] = walk(value);
       return out;
     };
-    const text = JSON.stringify(walk(this.#clean(result))) ?? 'null';
+    const text = JSON.stringify(walk(this.#clean(optimized))) ?? 'null';
     // Official Responses API supports text/image/file arrays as function output:
     // https://developers.openai.com/api/docs/guides/function-calling
     return { output: images.length ? [{ type: 'input_text', text }, ...images] : text, warnings };

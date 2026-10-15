@@ -32,7 +32,33 @@ function compactAgentInstructions(instructions) {
     .replace(/The complete live inventory has (\d+) tools; ALL names are listed below\./,
       'The live inventory has $1 tools, discoverable using JSON text actions for mcp_catalog.')
     .replace(/\nCOMPLETE TOOL NAME LIST\n(?:- [^\n]*\n)+/,
-      '\nCOMPLETE TOOL NAME LIST\nDiscover exact MCP names using a plain JSON text action for mcp_catalog; use mcp_describe before mcp_call.\n');
+      '\nCOMPLETE TOOL NAME LIST\nDiscover exact MCP names using a plain JSON text action for mcp_catalog; use mcp_describe before mcp_call.\n')
+    .replace(/\nTOOLS\n(?:You call these directly|These built-in names are available through JSON text actions) \(categorized by role\):[\s\S]*$/,
+      '\nTOOLS IN TEXT-ONLY MODE\nUse only the exact tool action names in the bounded schema allowlist below. Use mcp_catalog, mcp_describe, mcp_call to reach all other LocalTools. PermissionGate still applies.');
+}
+
+/** Bound function schema bytes in contents-only Gemini gateways. Full LocalTools
+ * remain in the internal catalog and can still be reached using mcp_call.
+ * Always include the four router functions if present, then fit direct tools.
+ */
+export function selectGeminiTextTools(tools, maxRequestBytes = 96 * 1024) {
+  if (!Array.isArray(tools) || !tools.length) return [];
+  const maxSchemaBytes = Math.max(2500, Math.min(24000, Math.floor(maxRequestBytes * 0.32)));
+  const routers = new Set(['mcp_catalog', 'mcp_describe', 'mcp_call', 'mcp_capabilities']);
+  const selected = tools.filter(tool => routers.has(tool.name));
+  const candidates = tools.filter(tool => !routers.has(tool.name));
+  let size = Buffer.byteLength(JSON.stringify(selected.map(x => ({
+    name:x.name,description:x.description,parameters:x.parameters
+  }))), 'utf8');
+  for (const tool of candidates) {
+    const bytes = Buffer.byteLength(JSON.stringify({
+      name:tool.name,description:tool.description,parameters:tool.parameters
+    }), 'utf8') + 1;
+    if (size + bytes > maxSchemaBytes) continue;
+    selected.push(tool);
+    size += bytes;
+  }
+  return selected;
 }
 
 /** Shared by the initial prompt and every repair, using this turn's allowlist. */
@@ -57,8 +83,9 @@ function promptText(item) {
  * message so even gateways that only inspect contents[0] see the entire context.
  * Treat the transcript as data, not new privileged instructions. */
 export function geminiTextEnvelope(history, instructions, tools, {maxRequestBytes = 96 * 1024, repairHint = ''} = {}) {
-  const schemas = tools.map(t=>({name:t.name,description:t.description,parameters:t.parameters}));
-  const actionContract = geminiTextActionContract(tools);
+  const selectedTools = selectGeminiTextTools(tools, maxRequestBytes);
+  const schemas = selectedTools.map(t=>({name:t.name,description:t.description,parameters:t.parameters}));
+  const actionContract = geminiTextActionContract(selectedTools);
   const policy = `${compactAgentInstructions(instructions)}
 
 GATEWAY COMPATIBILITY MODE: PLAIN TEXT ONLY.

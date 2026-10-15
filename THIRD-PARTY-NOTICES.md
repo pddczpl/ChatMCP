@@ -28,6 +28,11 @@ redistribution rights. Imported third-party skills have independent terms.
   runtime; its upstream licensing and bundled dependencies must be retained.
 - [node-pty](https://github.com/microsoft/node-pty) is optional for Windows
   ConPTY, with its own package licenses and transitive dependencies.
+- [Playwright](https://github.com/microsoft/playwright) and `playwright-core` JavaScript
+  runtimes are copied from the locked frontend npm installation into the Windows
+  installer payload for local browser automation. Preserve their upstream
+  Apache-2.0 license and package notices. The actual Microsoft Edge / Chromium
+  browser executable is not included in this staging step.
 - Git for Windows, Microsoft Edge WebView2 Runtime, local Ollama/LM Studio,
   and configured model-provider clients are separate installations/services
   where noted; ChatMCP does not automatically acquire all of them.
@@ -50,8 +55,8 @@ or repackaging it. Imported scripts are not automatically executed.
 
 ## Development-only dependencies
 
-Python, pytest, FastAPI, Playwright, TypeScript/Vite and GitHub Actions
-dependencies may be installed separately for tests or release builds.
+Python, pytest, FastAPI, @playwright/test (test runner), TypeScript/Vite and
+GitHub Actions dependencies may be installed separately for tests or builds.
 Check their upstream license files; development tools are not all shipped
 inside the desktop installer.
 

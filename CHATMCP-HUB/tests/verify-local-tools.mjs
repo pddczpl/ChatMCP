@@ -80,6 +80,15 @@ async function cleanup() { await fs.rm(root, { recursive: true, force: true, max
     'files_write_batch', 'files_apply_patch', 'git_checkout', 'git_merge', 'worktrees_list', 'worktrees_create', 'worktrees_remove',
     'knowledge_create', 'knowledge_search', 'knowledge_list', 'github_read', 'github_action',
     'repo_map', 'code_symbols', 'find_definition', 'find_references', 'dependency_graph', 'code_diagnostics',
+    'token_stats', 'token_restore', 'token_profile',
+    'web_fetch','web_extract','web_search','docs_search','dependency_lookup','github_code_search',
+    'test_discover','test_run','test_results','test_coverage','github_workflow_runs','github_workflow_status',
+    'github_job_logs','github_pr_review','github_rerun_failed','github_pr_merge','github_release_create',
+    'browser_launch','browser_navigate','browser_click','browser_fill','browser_screenshot','browser_console',
+    'browser_network','browser_close','screenshot_capture','screenshot_compare','responsive_check','visual_diff','accessibility_audit',
+    'git_conflict_inspect','build_detect','build_run','test_impact_analysis','binary_inspect','skills_discover',
+    'rename_symbol','format_document','organize_imports','code_actions','find_implementations','type_hierarchy',
+    'debug_start','debug_breakpoint','debug_continue','debug_step','debug_stack','debug_variables','debug_evaluate','debug_stop',
   ];
   assert.deepEqual(definitions.map((tool) => tool.originalName).sort(), [...expected].sort());
   for (const tool of definitions) {
@@ -95,7 +104,7 @@ async function cleanup() { await fs.rm(root, { recursive: true, force: true, max
   assert.equal(tools.has('read_file'), true);
   assert.equal(tools.has('local.symbols_search'), true);
   assert.equal(tools.has('local.nope'), false);
-  ok('definitions: 42 tools with real schemas, local.* names and descriptions');
+  ok('definitions: internal tool schemas, local.* names and descriptions');
 }
 
 // ------------------------------------------------------------------ read_file

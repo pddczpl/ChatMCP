@@ -5,7 +5,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { AgentRunner, ROUTER_TOOLS } from '../lib/agent.mjs';
 import { GatewayProvider } from '../lib/gateway-provider.mjs';
-import { geminiTextEnvelope } from '../lib/gemini-compat.mjs';
+import { geminiTextEnvelope, selectGeminiTextTools } from '../lib/gemini-compat.mjs';
 
 const results=[];
 const fakeDoc=(tag,n=48000)=> `${tag}\n` + ('RUBRIC | Training backbone, test-once-per-seed, keep log.\n'.repeat(Math.ceil(n/55)));
@@ -40,6 +40,45 @@ const hugeVietnamese=[{role:'user',content:[{text:'Tiếng Việt 🌿\\\n'.repe
 const vi=geminiTextEnvelope(hugeVietnamese,'Không sửa dữ liệu bừa bãi.',ROUTER_TOOLS,{maxRequestBytes:32*1024});
 assert.ok(Buffer.byteLength(JSON.stringify(vi))<=32*1024);
 assert.match(vi.contents[0].parts[0].text,/CONTEXT COMPACTION/);
+// A full 95-local-tools inventory must degrade cleanly to a smaller text-only
+// schema allowlist when a previously supported Cloud Run gateway rejects 413.
+// Missing direct names stay discoverable via the four internal router functions.
+const oversizedTools=[
+  ...ROUTER_TOOLS,
+  ...Array.from({length:95},(_,i)=>({
+    type:'function',name:'extended_tool_'+i,description:'Tool description '.repeat(16),
+    parameters:{type:'object',properties:{
+      payload:{type:'string',description:'A bounded payload for tool '+i+' '.repeat(45)},
+      path:{type:'string',description:'workspace path for tool '+i+' '.repeat(12)},
+    },required:['payload'],additionalProperties:false}
+  })),
+];
+const textModeSelected=selectGeminiTextTools(oversizedTools,32*1024);
+assert.ok(textModeSelected.length>ROUTER_TOOLS.length && textModeSelected.length<oversizedTools.length);
+assert.deepEqual(ROUTER_TOOLS.map(x=>x.name),
+  textModeSelected.slice(0,ROUTER_TOOLS.length).map(x=>x.name));
+for(const maxRequestBytes of [96,64,32].map(k=>k*1024)){
+  const localInstructions='Safety restrictions always apply.\nTOOLS\nYou call these directly (categorized by role):\n'+
+    '- Other Built-in Tools: '+oversizedTools.map(x=>x.name).join(', ');
+  const body=geminiTextEnvelope([{role:'user',content:'Inspect and test the code.'}],localInstructions,
+    oversizedTools,{maxRequestBytes});
+  assert.ok(Buffer.byteLength(JSON.stringify(body),'utf8')<=maxRequestBytes,'large direct inventory must fit '+maxRequestBytes);
+  const policy=body.contents[0].parts[0].text;
+  assert.match(policy,/mcp_catalog/);
+  assert.match(policy,/mcp_call/);
+  assert.doesNotMatch(policy,/- Other Built-in Tools: /,'redundant full direct inventory must be omitted');
+  // The legacy prompt compactor also rewrites the heading before stripping
+  // inventory text. Verify both forms remain omitted from the gateway payload.
+  const reworded=localInstructions.replace('You call these directly (categorized by role):',
+    'These built-in names are available through JSON text actions (categorized by role):');
+  const again=geminiTextEnvelope([{role:'user',content:'Inspect and test the code.'}],
+    reworded,oversizedTools,{maxRequestBytes});
+  assert.doesNotMatch(again.contents[0].parts[0].text,
+    /- Other Built-in Tools: /,'already-reworded direct listing must also be omitted');
+  assert.ok(Buffer.byteLength(JSON.stringify(again),'utf8')<=maxRequestBytes);
+}
+results.push('text-only gateway advertises a bounded subset of 99 tools; omitted tools stay router-accessible');
+
 results.push('provider-side UTF-8 byte compaction 96/64/32 KiB, local history intact, reply hint within budget');
 
 const tmp=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-413-227-'));

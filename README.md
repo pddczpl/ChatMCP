@@ -25,7 +25,7 @@ ChatMCP v3.2.0 targets complete autonomous software engineering capabilities whi
 | Capability | Status | Description & Safety Boundaries |
 | --- | --- | --- |
 | Windows Desktop Studio | Available | WinForms + WebView2 desktop application with bundled local Node.js runtime; Git for Windows required for worktrees |
-| Coding agent with local tools | Available | LocalTools (42 công cụ): workspace-scoped file search/edits, terminal execution, Git operations, plans, checkpoints, approvals |
+| Coding agent with local tools | Available | LocalTools (95 công cụ), cho phép trực tiếp 95 tool + 4 internal router (99 definitions) mặc định; cấu hình CHATMCP_DIRECT_TOOL_LIMIT để giảm tải schema cho model yếu |
 | AI Providers & Models | Available | 12 preset provider configurations (OpenAI, Anthropic, Gemini, DeepSeek, Ollama, LM Studio, etc.) + custom OpenAI-compatible endpoints; no token or monetary spending quotas imposed by ChatMCP |
 | Task State Machine | Available | 11 trạng thái lifecycle (created, planning, planned, running, paused, awaiting_approval, awaiting_review, completed, failed, cancelled, checkpoint_failed) with strictly validated transitions |
 | Crash Recovery & Journaling | Available | Tamper-evident transaction journal with cryptographic chaining; persistent recovery acknowledgements across daemon restarts; context compaction and rollback safety |
@@ -125,7 +125,7 @@ ChatMCP is designed exclusively as a single-tenant local application:
 Verify the entire repository using the test runner:
 
 ~~~powershell
-# Run the complete test suite (78 bộ Node và 5 bộ giao diện)
+# Run the complete test suite (85 bộ Node và 5 bộ giao diện)
 node .\CHATMCP-HUB\tests\run-all.mjs
 
 # Build and verify the frontend
@@ -153,6 +153,7 @@ Comprehensive documentation across all architecture, implementation, and verific
 - [User Guide](docs/USER-GUIDE.md) — Workflow instructions, tool definitions, and dashboard navigation
 - [Development](docs/DEVELOPMENT.md) — Contributing guidelines, testing workflows, and codebase conventions
 - [Testing with Real Models](docs/TESTING-WITH-REAL-MODELS.md) — Integration testing with live AI provider endpoints
+- [Agent Tools & Token Optimization](docs/AGENT-TOOL-CAPABILITIES.md) — Updated internal tool inventory, security contracts, deployment dependencies, and acceptance gaps
 - [Troubleshooting](docs/TROUBLESHOOTING.md) — Diagnosing common startup, permission, and runtime issues
 - [Historical Cloud Deployment Notice](docs/DEPLOYMENT.md) — Archived notice regarding deprecated cloud infrastructure
 - [Windows Sandbox Feasibility](docs/WINDOWS-SANDBOX-REAL-FEASIBILITY.md) — Technical feasibility analysis of Windows Sandbox integration

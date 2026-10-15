@@ -32,6 +32,10 @@ lại cả hai file và đọc nonce, nên đây KHÔNG phải bằng chứng v�
 Thư mục export có thể ghi vẫn là bề mặt tấn công host, chưa có quota OS/ACL pinning.
 Windows Feature đang chờ khởi động lại không chặn các bài test này.
 
+## Giới hạn công cụ trực tiếp
+
+Từ nhánh nâng cấp LocalTools, `directToolsFor` quảng bá tối đa **95 LocalTools + 4 router** (99 schemas) ở cấu hình mặc định; không còn bài kiểm thử áp đặt dưới 50. Có thể đặt biến môi trường `CHATMCP_DIRECT_TOOL_LIMIT=48` (compact) hoặc `=95` (full); giá trị hợp lệ 0-124, vượt 124 được chặn để giữ tổng advertised functions không quá 128. `0` chỉ giữ các router nội bộ. Các tool không quảng bá trực tiếp vẫn ở catalog và gọi được qua `mcp_call`. Hãy chọn giới hạn thấp hơn nếu provider có tool-limit hoặc prompt-context nhỏ; thay đổi yêu cầu khởi động lại Hub. Đây là giới hạn gửi schemas **không** phải giới hạn quyền PermissionGate hoặc tổng số tool đã đăng ký.
+
 ## Chạy kiểm thử
 
 ```powershell
@@ -44,7 +48,7 @@ node tests/run-all.mjs --no-skip all             # một bộ bị SKIP bị tí
 npm run test:ui                                  # bộ giao diện Python/Playwright (tùy chọn)
 ```
 
-Hiện có **78 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
+Hiện có **85 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
 
 Runner in một dòng cho mỗi bộ (`PASS`/`FAIL`/`TIMEOUT`/`SKIP`, thời gian, mã thoát thật) và thoát khác 0 nếu có bộ nào fail hoặc quá hạn (mặc định 180 giây/bộ, đổi bằng `--timeout`). Bộ kiểm thử in một dòng `CHATMCP_TEST_SKIP: <lý do>` rồi thoát 0 để được báo là **SKIP — không bao giờ được tính là PASS**. `--no-skip all` (hoặc `--no-skip tên1,tên2`) biến SKIP thành FAIL. Workflow hiện tại cài Python 3.11 và các gói ghim trong `tests/requirements-e2e.txt`, rồi chạy **`--no-skip all`** trên cả Windows và Linux, Node 22 và 24. Một bộ bắt buộc bị bỏ qua vì thiếu môi trường vì thế làm CI thất bại. Một phần không thể kiểm chứng trong bản này được in `BLOCKED: <gì> - <vì sao>`.
 
