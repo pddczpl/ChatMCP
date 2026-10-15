@@ -466,7 +466,7 @@ try {
     check(snapshot?.services?.local?.state === 'ready', `the Hub became ready on its own\n${output}`);
     equal([snapshot.backend, snapshot.agent.mode, snapshot.workspace.path], ['local', 'api', dir], 'local backend, API mode, project opened');
     equal(snapshot.dataDirectory, state, 'data goes where --state-dir says');
-    check(snapshot.toolCounts.local === 42, 'tools registered');
+    check(snapshot.toolCounts.local === 95, 'tools registered');
     const text = await fetch(`${base}/api/instructions`).then((response) => response.status);
     equal(text, 410, 'removed legacy MCP instructions explicitly return Gone');
     const response = await fetch(`${base}/api/hub/shutdown`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base, 'X-ChatMCP-Request': 'local-dashboard', 'X-ChatMCP-CSRF': snapshot.csrfToken }, body: '{}' });

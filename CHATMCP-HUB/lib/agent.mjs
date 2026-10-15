@@ -100,6 +100,7 @@ const FUNCTION_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 
 const PREFERRED_DIRECT_TOOLS = new Set([
   // Broad baseline: keep editing, Git safety, project tests and code navigation directly callable.
+  'checks_list','checks_run',
   'read_file','list_directory','find_files','search_files','git_status','git_diff','git_log',
   'get_plan','update_plan','write_file','edit_file','make_directory','move_path','git_add',
   'git_commit','git_branch','delete_path','run_command','tasks_run','tasks_status',
@@ -110,7 +111,7 @@ const PREFERRED_DIRECT_TOOLS = new Set([
   'web_search','web_fetch','browser_launch','browser_navigate','browser_click',
   'browser_fill','browser_screenshot','test_run','github_workflow_runs','token_restore',
 ]);
-const MAX_DIRECT_TOOLS = 44;
+const MAX_DIRECT_TOOLS = 46;
 export function directToolsFor(catalog) {
   const functions = [];
   const byName = new Map();
