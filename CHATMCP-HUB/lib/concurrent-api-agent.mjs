@@ -127,7 +127,7 @@ export class ConcurrentApiAgent {
     await manager.permissions.load();
     manager.permissions.mode = record.permissionMode || 'review';
     manager.permissions.executionPolicy = record.executionPolicy || 'host-review';
-    manager.spawnBackgroundAgent = (request) => this.spawnAgent(record.id, request);
+    manager.spawnBackgroundAgent = (_callerId, request) => this.spawnAgent(record.id, request);
     await manager.startLocal(record.worktree);
     const runner = new AgentRunner({ manager, provider: this.provider,
       taskDirectory: path.join(stateDir, 'tasks'), log: this.log, toolSelectionMode: 'auto' });
@@ -173,8 +173,11 @@ export class ConcurrentApiAgent {
   #status(id) { return this.get(id)?.status; }
   async #runRecord(record) {
     try {
+      if (record.status !== 'preparing') return;
       if (!record.worktree) await this.#worktree(record);
+      if (record.status !== 'preparing') return;
       const child = await this.#initChild(record);
+      if (record.status !== 'preparing') return;
       const result = await child.runner.start({ prompt: record.prompt, initialId: record.id, attachments: record.attachments || [] });
       record.status = result.status;
       record.updatedAt = now();
@@ -182,6 +185,7 @@ export class ConcurrentApiAgent {
       await this.#save();
       this.#event({ type: 'state', taskId: record.id, state: result.state });
     } catch (error) {
+      if (record.status === 'cancelled') return;
       record.status = 'failed'; record.error = String(error.message || error).slice(0, 800);
       record.updatedAt = now();
       delete record.attachments;
