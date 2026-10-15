@@ -21,7 +21,9 @@ export class DualAgent {
     const web = this.browser.state(), api = this.api.state();
     const active = web.active || api.active || null;
     const tasks = [...web.tasks.map(x=>({ ...x, transport:'chatgpt-web' })), ...api.tasks.map(x=>({ ...x, transport:'api' }))].sort((a,b)=> String(b.updatedAt ?? b.startedAt).localeCompare(String(a.updatedAt ?? a.startedAt)));
-    return { mode: this.mode, activeTaskId: active?.id || null, active: active ? { ...active, transport: web.active?.id === active.id ? 'chatgpt-web' : 'api' } : null, tasks };
+    return { mode: this.mode, activeTaskId: active?.id || null,
+      activeTaskIds: [...(web.activeTaskId ? [web.activeTaskId] : []), ...(api.activeTaskIds || (api.activeTaskId ? [api.activeTaskId] : []))],
+      active: active ? { ...active, transport: web.active?.id === active.id ? 'chatgpt-web' : 'api' } : null, tasks };
   }
   get(id) {
     const browser = this.browser.get(id);
@@ -38,11 +40,15 @@ export class DualAgent {
     return this.state();
   }
   async start(payload) {
-    if (this.state().activeTaskId) throw Object.assign(new Error('Đã có agent đang chạy. Chờ hoặc dừng tác vụ đó.'), { statusCode:409 });
-    return this.mode === 'api' ? await this.api.start(payload) : await this.browser.start(payload);
+    if (this.mode === 'api') {
+      if (this.browser.state().activeTaskId) throw Object.assign(new Error('Chờ browser agent dừng trước khi bắt đầu coding.'), { statusCode:409 });
+      return this.api.start(payload);
+    }
+    if (this.state().activeTaskId) throw Object.assign(new Error('Browser agent đang sử dụng workspace.'), { statusCode:409 });
+    return this.browser.start(payload);
   }
   async continue(payload) {
-    if (this.state().activeTaskId) throw Object.assign(new Error('Đang có phiên agent chạy. Hãy chờ hoặc dừng trước.'),{statusCode:409});
+    if (this.mode === 'chatgpt-web' && this.state().activeTaskId) throw Object.assign(new Error('Browser agent đang chạy.'),{statusCode:409});
     const existing = this.get(payload?.id);
     if (!existing) throw Object.assign(new Error('Không tìm thấy hội thoại cũ. Không tự tạo phiên mới.'),{statusCode:404});
     if (existing.transport !== this.mode) throw Object.assign(new Error('Hội thoại này thuộc chế độ '+existing.transport+'. Hãy chọn đúng chế độ để tiếp tục.'),{statusCode:409});
