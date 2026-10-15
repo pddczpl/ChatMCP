@@ -20,6 +20,8 @@ const MAX_CONTEXT_BYTES = 48 * 1024 * 1024;
 const MAX_ARGUMENT_BYTES = 4 * 1024 * 1024;
 const MAX_OUTPUT_TOKENS = 16384;
 const TOOL_TIMEOUT = 120000;
+// Initializing a task is bounded even when the user has opted out of model request/time limits.
+const PREFLIGHT_TIMEOUT_MS = 90_000;
 const IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 const object = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const now = () => new Date().toISOString();
@@ -291,7 +293,7 @@ async function atomicWrite(file, data) {
 }
 
 export class AgentRunner {
-  constructor({ manager, provider, taskDirectory, log = () => {}, onBeforeModelRequest = null, toolSelectionMode = null }) {
+  constructor({ manager, provider, taskDirectory, log = () => {}, onBeforeModelRequest = null, toolSelectionMode = null, preflightTimeoutMs = PREFLIGHT_TIMEOUT_MS }) {
     if (!manager || !provider || typeof taskDirectory !== 'string' || !taskDirectory) throw new TypeError('AgentRunner cần manager, provider và taskDirectory.');
     this.manager = manager;
     this.provider = provider;
@@ -301,6 +303,8 @@ export class AgentRunner {
     this.onBeforeModelRequest=onBeforeModelRequest;
     if(toolSelectionMode!==null&&!['auto','full'].includes(toolSelectionMode))throw new TypeError('Invalid task tool selection mode.');
     this.toolSelectionMode=toolSelectionMode;
+    if (!Number.isInteger(preflightTimeoutMs) || preflightTimeoutMs < 10 || preflightTimeoutMs > 600_000) throw new TypeError('Invalid preflight timeout');
+    this.preflightTimeoutMs=preflightTimeoutMs;
     this.tasks = new Map();
     this.activeTaskId = null;
     this.context = null;
@@ -674,6 +678,15 @@ export class AgentRunner {
     this.tasks.set(id, task); this.activeTaskId = id; this.context = context;
     // The Hub now holds the workspace lock for this run. A follow-up to a stopped conversation also starts here.
     this.#advance(task, 'queued', existing ? 'continue_requested' : 'start_requested', { force: !!existing });
+    // A stalled workspace/tool preflight must never pin the task in queued forever.
+    // This is NOT a quota on model HTTP calls, token usage or agent execution.
+    context.preflightStage = 'provider readiness';
+    context.preflightTimer = setTimeout(() => {
+      if (this.context !== context || task.state !== 'queued' || context.controller.signal.aborted) return;
+      context.controller.abort(fault('preflight_timeout',
+        `Hub không thể chuẩn bị tác vụ sau ${this.preflightTimeoutMs / 1000} giây (${context.preflightStage}). ` +
+        'Kiểm tra workspace, công cụ và nhật ký Hub; dùng Tiếp tục sau khi khắc phục. Không có tool call nào được tự chạy lại.'));
+    }, this.preflightTimeoutMs);
     context.unsubscribe = this.manager.permissions?.subscribe?.((event) => this.#onGateEvent(context, event)) ?? null;
     if (maxMinutes !== null) {
       // Node timers overflow above ~24 days; #check enforces long explicit budgets.
@@ -686,6 +699,7 @@ export class AgentRunner {
       if (!await abortable(Promise.resolve(this.provider.ready()), context.controller.signal)) throw fault('provider_not_ready', 'Model chưa sẵn sàng. Hoàn tất cấu hình hoặc đăng nhập ở phần Model rồi gửi lại.', 409);
       await this.#event(task, 'preflight', this.manager.backend === 'local' ? 'Đang chuẩn bị công cụ cục bộ cho dự án.' : 'Đang nối phiên MCP riêng và đọc toàn bộ danh mục công cụ.', { status: 'running' });
       this.#check(context);
+      context.preflightStage = 'local tool session';
       const sessionPromise = Promise.resolve().then(() => this.manager.createAgentSession({ signal: context.controller.signal }));
       // If cancellation wins a preflight race, close a session which arrives late.
       sessionPromise.then((session) => { if (context.controller.signal.aborted && context.session !== session) void boundedClose(() => session.close()); }, () => {});
@@ -729,6 +743,7 @@ export class AgentRunner {
       // a command in Settings. Discovery itself is strictly read-only. The
       // agent must still inspect project instructions and obtain permission
       // before executing shell commands or mutating files.
+      context.preflightStage = 'project check discovery';
       if (typeof this.manager.studio?.checks === 'function') {
         try {
           const checks = await abortable(Promise.resolve(this.manager.studio.checks()), context.controller.signal);
@@ -760,6 +775,7 @@ export class AgentRunner {
       // user's prompt, NEVER as privileged system instructions. Preserve the
       // first input_text part to keep API adapters and model contracts stable.
       let repoMapPart = null;
+      context.preflightStage = 'repository map';
       if (this.manager.backend === 'local' && typeof this.manager.studio?.resolve === 'function') {
         try {
           const map = await abortable(injectRepoMapIntoInstructions('', this.manager.studio, {
@@ -782,6 +798,8 @@ export class AgentRunner {
       context.history.push({ role:'user', content:[{type:'input_text',text:cleanPrompt},
         ...(repoMapPart ? [repoMapPart] : [])] });
       this.#advance(task, 'planning', 'preflight_done');
+      clearTimeout(context.preflightTimer);
+      context.preflightTimer = null;
       await this.#event(task, existing ? 'continuation' : 'started', `Đã kết nối ${task.catalogCounts.tools} công cụ${this.manager.backend === 'local' ? '' : ' MCP'}; ${existing ? 'tiếp tục cùng phiên từ lịch sử đã lưu' : 'bắt đầu phiên mới'}.`, { status: 'running' }, { prompt: cleanPrompt, workspace: task.workspace, catalog: context.catalog });
       const response = this.#public(task);
       // Returning the handle does not wait for a model call or tool execution.
@@ -803,6 +821,8 @@ export class AgentRunner {
   async #finish(context, error = null) {
     const { task } = context;
     clearTimeout(context.timer);
+    clearTimeout(context.preflightTimer);
+    context.preflightTimer = null;
     context.unsubscribe?.(); context.unsubscribe = null;
     purgeTokenTask(task.id);
     if (error) {

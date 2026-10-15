@@ -82,6 +82,28 @@ try{
   assert.equal(await fs.stat(path.join(browserDir,'tasks',task.id)).then(()=>true,()=>false),false);
   console.log('PASS Web conversation: same ID/URL, four distinct user follow-ups, persisted after restart, manual stop/continue, explicit local deletion');
 
+  // A lost Companion must not strand Retry / Continue at queued indefinitely.
+  // Only an UNSENT packet may time out; it must remain safe to retry in the same chat.
+  const stalledBrowser = new BrowserRunner({manager,directory:path.join(root,'unclaimed-browser'),queueTimeoutMs:1200});
+  stalledBrowser.client=b.client;
+  const browserFirst=await stalledBrowser.start({prompt:'Thử lại cùng cuộc chat sau lỗi.'});
+  await acceptFinal(stalledBrowser,browserFirst,'Đã kiểm tra lượt đầu.');
+  await stalledBrowser.continue({id:browserFirst.id,prompt:'Tiếp tục, nhưng Companion đang tắt.'});
+  assert.equal(stalledBrowser.get(browserFirst.id).status,'queued');
+  for(let i=0;i<110 && stalledBrowser.get(browserFirst.id).status==='queued';i++)await wait(20);
+  assert.equal(stalledBrowser.get(browserFirst.id).status,'failed','unsent continuation must not wait forever');
+  await stalledBrowser.context?.finishing;
+  assert.equal(stalledBrowser.get(browserFirst.id).errorCode,'browser_queue_timeout');
+  assert.equal(held,null,'timeout must release the workspace lock');
+  const afterTimeout=await stalledBrowser.continue({id:browserFirst.id,prompt:'Tiếp tục sau khi Companion hoạt động lại.'});
+  assert.equal(afterTimeout.id,browserFirst.id,'retry preserves the durable conversation ID');
+  await acceptFinal(stalledBrowser,browserFirst,'Đã tiếp tục thành công.');
+  assert.equal(stalledBrowser.get(browserFirst.id).prompts.length,3);
+  assert.equal(stalledBrowser.get(browserFirst.id).runs.length,3);
+  await stalledBrowser.context?.finishing;
+  await stalledBrowser.delete(browserFirst.id);
+  console.log('PASS Web queue watchdog: unclaimed retry becomes actionable failure and can continue in same chat');
+
   // A crash after SENDING must not erase evidence, claim that no send occurred,
   // or force a fresh ChatGPT conversation on follow-up.
   const risky=new BrowserRunner({manager,directory:path.join(root,'crashed')});risky.client=b.client;
@@ -141,4 +163,29 @@ try{
   assert.match(await reloaded.report(firstRun.id),/Kiểm tra kết quả một lần nữa/);
   await reloaded.delete(firstRun.id);
   console.log('PASS API conversation: durable same ID, user/agent dialogue and checkpoint context reused after restart, no MCP replay');
+
+  // Stalled local tool/session initialization previously held queued indefinitely
+  // when no optional task time limit was configured. It must fail and unlock,
+  // without claiming any model/tool request was sent.
+  const realSessionFactory=manager.createAgentSession;
+  manager.createAgentSession=()=>new Promise(()=>{});
+  const stalledApi=new AgentRunner({manager,provider,taskDirectory:path.join(root,'queued-api'),preflightTimeoutMs:120});
+  await stalledApi.load();
+  await assert.rejects(
+    stalledApi.start({prompt:'Khởi tạo phiên công cụ bị treo.'}),
+    error=>error.code==='preflight_timeout',
+    'queued preflight must terminate with a distinct error code');
+  const failedId=stalledApi.state().tasks[0].id;
+  assert.equal(stalledApi.get(failedId).state,'failed');
+  assert.equal(stalledApi.get(failedId).errorCode,'preflight_timeout');
+  assert.equal(stalledApi.get(failedId).usage.httpRequests,0,'preflight timeout must not spend model requests');
+  assert.equal(held,null,'preflight failure must release the workspace lock');
+  manager.createAgentSession=realSessionFactory;
+  const retry=await stalledApi.continue({id:failedId,prompt:'Tiếp tục sau khi công cụ khôi phục.'});
+  assert.equal(retry.id,failedId);
+  for(let i=0;i<150 && stalledApi.get(failedId).status==='running';i++)await wait(10);
+  assert.equal(stalledApi.get(failedId).status,'completed','continuation after stalled preflight must succeed');
+  assert.equal(stalledApi.get(failedId).runs.length,2);
+  await stalledApi.delete(failedId);
+  console.log('PASS API preflight watchdog: queued timeout releases lock, retains history and retries in same task');
 }finally{await fs.rm(root,{recursive:true,force:true});}
