@@ -3,7 +3,7 @@ import path from 'node:path';
 import { test, expect, onboard } from './fixtures.mjs';
 import { PluginManager } from '../../lib/plugins.mjs';
 
-test('Skills show real install state, correct toggle actions, removal and persisted registry imports', async ({ page, app }, testInfo) => {
+test('Skills show real install state, correct toggle actions, removal and persisted registry imports', async ({ page, app, browserErrors }, testInfo) => {
   // Seed one downloaded registry skill using the real manager, without making
   // this UI regression depend on GitHub or an external model. All UI actions
   // below use the real Hub routes and persistent plugin state, not route mocks.
@@ -46,6 +46,8 @@ test('Skills show real install state, correct toggle actions, removal and persis
   await expect(imported.getByRole('button', { name: 'Cài đặt', exact: true })).toHaveCount(0);
   await imported.getByRole('button', { name: 'Bật', exact: true }).click();
   await expect(imported).toContainText('Đã cài · Đang bật');
+  // Wait for all observed JSON response checks before navigation discards bodies.
+  await browserErrors.flush(page);
   await page.reload();
   await page.getByRole('button', { name: 'Skills', exact: true }).click();
   await expect(imported).toContainText('Đã cài · Đang bật');

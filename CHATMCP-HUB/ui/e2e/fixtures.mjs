@@ -112,9 +112,16 @@ export const test = base.extend({
       }
       await page.close();
     };
+    // Drain API response bodies before deliberate navigation. Chromium may discard
+    // Network.getResponseBody after page.reload(), even for successful JSON.
+    // Keep all HTTP/status/content-type/API error assertions intact.
+    const flush = async (page) => {
+      const observed = observedPages.get(page);
+      if (observed) await Promise.all([...observed.checks]);
+    };
     context.on('page', inspectPage);
     context.pages().forEach(inspectPage);
-    await use({ errors, requests, closePage });
+    await use({ errors, requests, closePage, flush });
     await Promise.all(checks);
     await testInfo.attach('browser-errors.json', { body: JSON.stringify(errors, null, 2), contentType: 'application/json' });
     await testInfo.attach('browser-warnings.json', { body: JSON.stringify(warnings, null, 2), contentType: 'application/json' });
