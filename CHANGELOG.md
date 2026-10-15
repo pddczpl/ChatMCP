@@ -1,5 +1,13 @@
 # Lịch sử thay đổi
 
+## [3.2.0] — 2026-10-15 — Bundled Windows Code Intelligence (release pending)
+
+- Package pinned TypeScript / Pyright language servers and Tree-sitter WASM grammars for JavaScript, TypeScript, TSX and Python.
+- Include official SHA-256-pinned CPython 3.11.9 embeddable runtime and zero-dependency heuristic fallback.
+- Use bundled Node and embedded CPython for installed Code Intelligence, auto-initialize LSP, expose explicit engine health tests and run real-engine build checks.
+- Preserve workspace permission gates and reject missing or tampered staged runtime files.
+- Installer is unsigned; clean Windows VM/offline acceptance is excluded from this release gate and has not been verified.
+
 ## [3.1.2] — 2026-10-15 — Hybrid Code Intelligence and secure AI Profiles CI repair
 
 - Integrate capability-aware, three-tier Code Intelligence: optional LSP for cross-file symbol definitions/references, optional Tree-sitter WASM and Python native AST for syntax, and the existing zero-dependency structural heuristic parser as a fallback.
