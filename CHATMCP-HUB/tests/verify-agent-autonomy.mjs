@@ -114,7 +114,8 @@ const responses=[
 ];
 const provider={
   ready:()=>true,snapshot:()=>({provider:'fixture',model:'scripted'}),
-  async respond({input,instructions}){
+  async respond({input,instructions,beforeModelRequest}){
+    beforeModelRequest?.();
     modelTurns++;
     if(modelTurns===1){
       assert.match(instructions,/HOST-PROPOSED TASK DECOMPOSITION/);
@@ -138,6 +139,7 @@ try{
   assert.equal(finished.goalPlan.evidence.verify,1);
   assert.equal(finished.progress.verifiedFiles.length,1);
   assert.equal(finished.progress.verifiedChecks.length,1);
+  assert.equal(finished.usage.httpRequests,4,'count all actual model transport sends, not just tool calls');
   assert.equal(finished.verificationOutcome.ready,false,'missing Git diff evidence is not silently certified');
   assert.match(finished.finalText,/NOT independently verified full completion/);
   assert.equal(await fs.readFile(code,'utf8'),fixed);
