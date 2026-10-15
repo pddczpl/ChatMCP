@@ -6,6 +6,7 @@ import { writeFileAtomic } from './fs-safe.mjs';
 import { callIdentity, createTaskProgress, observeTaskTool, progressCheckpoint } from './agent-progress.mjs';
 import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence } from './agent-autonomy.mjs';
 import { estimateTokens as estimateContextTokens, injectRepoMapIntoInstructions, compactConversationHistory } from './context-compaction.mjs';
+import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './token-optimization.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
 // from disk or the environment, evaluates model text, or executes a local shell.
@@ -692,6 +693,7 @@ export class AgentRunner {
         }
       }
       if (task.goalPlan) context.instructions += '\n'+planInstructions(task.goalPlan);
+      context.instructions += '\n' + TOKEN_AGENT_INSTRUCTIONS;
       // Repo source is untrusted. Attach its bounded map as DATA beside the
       // user's prompt, NEVER as privileged system instructions. Preserve the
       // first input_text part to keep API adapters and model contracts stable.
@@ -740,6 +742,7 @@ export class AgentRunner {
     const { task } = context;
     clearTimeout(context.timer);
     context.unsubscribe?.(); context.unsubscribe = null;
+    purgeTokenTask(task.id);
     if (error) {
       const reason = context.controller.signal.aborted ? context.controller.signal.reason : error;
       const code = reason?.code ?? 'task_failed';
@@ -886,7 +889,7 @@ export class AgentRunner {
           if(verified)task.goalPlan=updateGoalPlan(task.goalPlan,verified);
           // Tool call/output must be contiguous and persisted before a recovery
           // hint is added: adapters require a correctly paired call/result history.
-          const converted=this.#modelOutput(result);
+          const converted=this.#modelOutput(result,{ taskId: task.id, toolName: actualName });
           context.history.push({type:'function_call_output',call_id:call.call_id,output:converted.output});
           if(verified)await this.#event(task,'goal_evidence',
             'Bằng chứng được host kiểm tra: '+verified.kind+
@@ -1030,7 +1033,8 @@ export class AgentRunner {
     return JSON.stringify(mediaSafe(result), null, 2) ?? '(Công cụ không trả nội dung.)';
   }
 
-  #modelOutput(result) {
+  #modelOutput(result, options = {}) {
+    const optimized = optimizeToolResult(result, options);
     const images = [];
     const warnings = [];
     const walk = (item) => {
@@ -1052,7 +1056,7 @@ export class AgentRunner {
       for (const [key, value] of Object.entries(item)) out[key] = walk(value);
       return out;
     };
-    const text = JSON.stringify(walk(this.#clean(result))) ?? 'null';
+    const text = JSON.stringify(walk(this.#clean(optimized))) ?? 'null';
     // Official Responses API supports text/image/file arrays as function output:
     // https://developers.openai.com/api/docs/guides/function-calling
     return { output: images.length ? [{ type: 'input_text', text }, ...images] : text, warnings };

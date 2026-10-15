@@ -18,6 +18,7 @@ import { gitRisksFor, gitSubcommand, inspectGitSafety } from './git-trust.mjs';
 import { ShellRunner, killTree, BoundedCapture, scrubEnv } from './shell-runner.mjs';
 import { validateArguments } from './tool-schema.mjs';
 import { registerCodeIntelligenceTools } from './code-intelligence.mjs';
+import { getTokenStats, restoreTokenOutput, setTokenProfile } from './token-optimization.mjs';
 
 export const LOCAL_SERVER = 'local';
 export const LIMITS = Object.freeze({
@@ -506,6 +507,23 @@ export class LocalTools {
       description: 'List all saved local project knowledge notes.',
       schema: obj({}), category: 'read', reason: 'Xem danh sách tri thức dự án', summary: () => 'knowledge_list',
       run: () => this.#knowledgeList(),
+    });
+    define('token_stats', {
+      description: 'Show measured model-facing tool-output character savings for this task (token conversion is approximate).',
+      schema: obj({}), category: 'read', reason: 'Read local token pipeline statistics', summary: () => 'token stats',
+      run: (_, { taskId }) => ok(JSON.stringify(getTokenStats(taskId)), getTokenStats(taskId)),
+    });
+    define('token_restore', {
+      description: 'Recover an exact slice of a compressed tool output using its receipt ID. Receipts are isolated per task and never uploaded.',
+      schema: obj({ id: str('Receipt handle returned by token optimization.'), offset: int('Character offset, 0 based.', {minimum:0}), limit: int('Maximum characters to recover (1-16000).',{minimum:1,maximum:16000}) }, ['id']),
+      category: 'read', reason: 'Restore original local tool output', summary: () => 'restore tool output',
+      run: (a, {taskId}) => { const restored = restoreTokenOutput(taskId,a.id,a.offset ?? 0,a.limit ?? 12000); return ok(restored.text,restored); },
+    });
+    define('token_profile', {
+      description: 'Select off, safe, balanced or aggressive token optimization for this task; no hooks or external proxies.',
+      schema: obj({ mode: str('Token compression profile.',{enum:['off','safe','balanced','aggressive']}) }, ['mode']),
+      annotations: WRITE, category: 'checkpoint', reason: 'Adjust token budget for this task', summary: (a) => 'token profile '+a.mode,
+      run: (a,{taskId}) => ok('Token profile set to '+a.mode, setTokenProfile(taskId,a.mode)),
     });
     define('github_read', {
       description: 'Read GitHub issues, PRs, or releases using GitHub CLI gh.',

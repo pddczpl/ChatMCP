@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+import { optimizeToolResult, restoreTokenOutput, setTokenProfile, getTokenStats, purgeTokenTask } from '../lib/token-optimization.mjs';
+
+const id = 'task-token-test';
+setTokenProfile(id, 'balanced');
+const rows = Array.from({ length: 420 }, (_, i) => 'test item ' + i + ' pass').join('\n');
+const original = 'START\n' + rows + '\nError: middle failure\n' + rows + '\nSUMMARY 1 failed 419 passed';
+const source = { isError: false, content: [{type:'text', text: original}], structuredContent: { exitCode: 0, large: 'n'.repeat(10000) } };
+const result = optimizeToolResult(source, { taskId: id, toolName: 'local.run_command' });
+assert.equal(source.content[0].text, original, 'original tool receipt must never change');
+assert.notEqual(result, source);
+assert.match(result.content[0].text, /Error: middle failure/);
+assert.match(result.content[0].text, /SUMMARY 1 failed/);
+const receipt = result.content[0].text.match(/tok_[\w-]+/)[0];
+const restored = restoreTokenOutput(id, receipt, 0, 16000);
+assert.equal(restored.text, original);
+assert.equal(restored.exact, true);
+assert.throws(() => restoreTokenOutput('another-task', receipt), /not found/);
+assert.equal(result.structuredContent.exitCode, 0);
+assert.equal(result.structuredContent.optimizedForModel, true);
+assert.ok(getTokenStats(id).savedChars > 0);
+assert.equal(optimizeToolResult({isError:true,content:[{type:'text',text:original}]},{taskId:id,toolName:'local.run_command'}).content[0].text,original);
+assert.equal(optimizeToolResult({isError:false,content:[{type:'text',text:original}]},{taskId:id,toolName:'local.read_file'}).content[0].text,original);
+setTokenProfile(id, 'off');
+assert.equal(optimizeToolResult(source,{taskId:id,toolName:'local.run_command'}), source);
+purgeTokenTask(id);
+assert.throws(()=>restoreTokenOutput(id,receipt),/not found/);
+console.log('PASS token optimization: layered filtering, exact receipts, task isolation, error safety and opt-out');
