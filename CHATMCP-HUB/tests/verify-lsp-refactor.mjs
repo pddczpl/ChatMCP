@@ -45,7 +45,22 @@ try {
   assert.equal(multiPreview.structuredContent.changesApplied,0);
   assert.equal(await fs.readFile(path.join(root,'other.ts'),'utf8'),'export const fixed=2;\n');
   const blocked=await tools.call('rename_symbol',{file:'test.ts',language:'typescript',new_name:'renamed',apply:true,expected_sha256:sha});
-  assert.equal(blocked.isError,true,'multi-file mutation remains disabled until guarded transactional apply exists');
+  assert.equal(blocked.isError,true,'multi-file changes without an exact reviewed manifest are refused');
+  const approved=multiPreview.structuredContent.files.map(f=>({file:f.file,beforeSha256:f.beforeSha256}));
+  // Stale review must fail without changing either file.
+  await fs.writeFile(path.join(root,'other.ts'),'export const wrong=2;\n');
+  const stale=await tools.call('rename_symbol',{file:'test.ts',language:'typescript',new_name:'renamed',
+    apply:true,expected_files:approved});
+  assert.equal(stale.isError,true);
+  assert.equal(await fs.readFile(path.join(root,'test.ts'),'utf8'),'const fixed=1;\n');
+  await fs.writeFile(path.join(root,'other.ts'),'export const fixed=2;\n');
+  const transaction=await tools.call('rename_symbol',{file:'test.ts',language:'typescript',new_name:'renamed',
+    apply:true,expected_files:approved});
+  assert.equal(transaction.isError,false,JSON.stringify(transaction));
+  assert.equal(transaction.structuredContent.transaction,true);
+  assert.ok(transaction.structuredContent.checkpointId);
+  assert.equal(await fs.readFile(path.join(root,'test.ts'),'utf8'),'const renamed=1;\n');
+  assert.equal(await fs.readFile(path.join(root,'other.ts'),'utf8'),'export const renamed=2;\n');
   const lookup=await tools.call('find_implementations',{file:'test.ts',language:'typescript',line:1,column:1});
   assert.equal(lookup.isError,false);
   await tools.close();
