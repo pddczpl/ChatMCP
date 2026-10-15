@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { asChatMessages, openAiUserContent } from '../lib/openai-chat-api.mjs';
 import { asAnthropicMessages, anthropicUserBlocks } from '../lib/anthropic-api.mjs';
 import { geminiTextEnvelope } from '../lib/gemini-compat.mjs';
+import { asGeminiContents } from '../lib/gateway-provider.mjs';
 
 const png='data:image/png;base64,AA==';
 const history=[{role:'user',content:[
@@ -22,5 +23,8 @@ assert.deepEqual(anthropic[0].content[1],{
 assert.equal(anthropicUserBlocks([{type:'input_text',text:'x'}])[0].text,'x');
 assert.throws(()=>asAnthropicMessages([{role:'user',content:[{type:'input_image',image_url:'data:image/gif;base64,AA=='}]}]),/GIF/);
 assert.throws(()=>asChatMessages([{role:'user',content:[{type:'input_image',image_url:'https://evil.invalid/image'}]}],'instructions'),/validated data URI/);
+const nativeGemini=asGeminiContents(history);
+assert.equal(nativeGemini[0].parts[0].text,'Describe this screenshot precisely.');
+assert.deepEqual(nativeGemini[0].parts[1],{inlineData:{mimeType:'image/png',data:'AA=='}});
 assert.throws(()=>geminiTextEnvelope(history,'Be truthful',[]),/không hỗ trợ phân tích ảnh/);
-console.log('PASS OpenAI/Anthropic provider image forwarding and explicit Gemini vision refusal');
+console.log('PASS OpenAI/Anthropic/native Gemini provider image forwarding and explicit Gemini vision refusal');
