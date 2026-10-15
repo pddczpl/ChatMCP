@@ -1,6 +1,6 @@
 # ChatMCP Agent Tools & Token Optimization
 
-> Development-branch implementation guide (not a statement that all capabilities have shipped in a signed, clean-Windows release). This document tracks features added after v3.2.0 on the feature branch. **87 LocalTools + 17 declared StudioTools**; the agent catalog may suppress redundant Studio entries. The current number is verified by tests.
+> Development-branch implementation guide (not a statement that all capabilities have shipped in a signed, clean-Windows release). This document tracks features added after v3.2.0 on the feature branch. **95 LocalTools + 17 declared StudioTools**; the agent catalog may suppress redundant Studio entries. The current number is verified by tests.
 
 ## Scope
 
@@ -16,6 +16,7 @@ This upgrade keeps the in-process LocalTools, StudioTools, Skills Hub and Permis
 | Browser | browser_launch, browser_navigate, browser_click, browser_fill, browser_screenshot, browser_console, browser_network, browser_close | Headless Playwright optional; localhost-only by default with explicit CHATMCP_BROWSER_ALLOWED_HOSTS. Requests to other origins are blocked. Requires local browser binary. |
 | Visual | screenshot_capture, screenshot_compare, visual_diff, responsive_check, accessibility_audit | Captures real PNG with browser, pixel-level RGBA diff; no AI aesthetic judgment or full WCAG/axe certification (only lightweight accessibility smoke checks). |
 | LSP | rename_symbol, format_document, organize_imports, code_actions, find_implementations, type_hierarchy | Reuses existing Pyright/TypeScript LSP. Preview by default. Single-file edit uses SHA optimistic concurrency and workspace checkpoint. Multi-file rename is preview-only, not silently applied. |
+| Native debugger | debug_start, debug_breakpoint, debug_continue, debug_step, debug_stack, debug_variables, debug_evaluate, debug_stop | Node.js inspector (loopback CDP), process is task-owned and gated; Python debugpy/DAP and native .NET/C++ debuggers are not implemented. |
 | Build and file inspection | build_detect, build_run, git_conflict_inspect, binary_inspect | Detects actual manifest before running fixed build commands. Binary inspection refuses protected paths. |
 | Skills | skills_discover | Enumerates local instructions only; does not execute imported scripts. |
 | Token pipeline | token_profile, token_stats, token_restore | Task-isolated, reversible optimization of model-visible tool results; original receipts are persisted by AgentRunner. |
@@ -41,7 +42,7 @@ Profiles: off, safe (default), balanced, aggressive. Optional process environmen
 | Git & GitHub Automation | New CI inspection, PR operations, conflict inspection |
 | Web Research & Documentation | New HTTPS and dependency discovery; external search reliability varies |
 | Browser Automation | Added optional Playwright runtime, not bundled with installer |
-| Debugger & Profiling | **Not implemented as DAP**; debugger adapter/runtime integration still outstanding |
+| Debugger & Profiling | Built-in Node inspector for JS is implemented; Python DAP and native .NET/C++ debugger integration remain outstanding |
 | Test Automation & Coverage | Runner discovery/execution/result tools; structured coverage summaries supported |
 | Screenshot & Visual Testing | PNG pixel diff and responsive captures; accessibility/aesthetic audit pending |
 | Document & Binary Tools | Binary type/hash metadata; PDF/Office extraction/editing not implemented |
@@ -62,4 +63,4 @@ Profiles: off, safe (default), balanced, aggressive. Optional process environmen
 
 ## Required next acceptance
 
-Run verify-agent-capabilities, verify-browser-tools, verify-lsp-refactor, verify-workflow-extensions, verify-token-optimization and the complete Node test runner. Confirm every CI job on the **exact head SHA** and inspect actual installer artifacts. Validate a clean Windows sandbox and Authenticode certificate separately (not included in this branch). Do not claim full Codex/Claude Code/Antigravity parity based solely on tool registration.
+Run verify-agent-capabilities, verify-browser-tools, verify-lsp-refactor, verify-workflow-extensions, verify-token-optimization, verify-node-debugger and the complete Node test runner. Confirm every CI job on the **exact head SHA** and inspect actual installer artifacts. Validate a clean Windows sandbox and Authenticode certificate separately (not included in this branch). Do not claim full Codex/Claude Code/Antigravity parity based solely on tool registration.
