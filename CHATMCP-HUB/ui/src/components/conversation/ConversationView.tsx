@@ -4,7 +4,7 @@ import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
 import { PhaseRibbon } from '@/components/layout/PhaseRibbon';
 import { MessageItem } from './MessageItem';
-import { ToolReceipt } from './ToolReceipt';
+import { ToolActivityGroup } from './ToolActivityGroup';
 import { StateBanner } from './StateBanner';
 import { Composer } from './Composer';
 import { CopyButton } from '@/components/ui/CopyButton';
@@ -181,6 +181,14 @@ export function ConversationView() {
   ];
 
   const timeline = task ? taskTimeline(task) : [];
+  const timelineGroups: Array<{kind:'message';value:any}|{kind:'tools';items:any[]}> = [];
+  for (const item of timeline) {
+    if (item.kind === 'tool') {
+      const last = timelineGroups.at(-1);
+      if (last?.kind === 'tools') last.items.push(item.value);
+      else timelineGroups.push({kind:'tools',items:[item.value]});
+    } else timelineGroups.push({kind:'message',value:item.value});
+  }
   const continueTask = () => handleSendMessage('Tiếp tục tác vụ trong cùng cuộc hội thoại. Kiểm tra trạng thái hiện tại trước khi thao tác; không tự chạy lại thao tác có kết quả chưa rõ.');
 
   return (
@@ -257,9 +265,9 @@ export function ConversationView() {
         ) : (
           /* Message List */
           <div className="flex-1 py-2">
-            {timeline.map((item, index) => item.kind === 'message'
-              ? <MessageItem key={`message:${item.value.id || index}`} message={item.value} />
-              : <ToolReceipt key={`receipt:${item.value.id || index}`} tool={item.value} />)}
+            {timelineGroups.map((item,index)=> item.kind==='message'
+              ? <MessageItem key={`message:${item.value.id||index}`} message={item.value}/>
+              : <ToolActivityGroup key={`tools:${index}`} items={item.items}/>)}
             {task && timeline.length === 0 && <p className="p-4 text-xs text-[var(--muted)]">Chưa có nội dung hội thoại được lưu.</p>}
 
             {/* Streaming Token Chunk */}
