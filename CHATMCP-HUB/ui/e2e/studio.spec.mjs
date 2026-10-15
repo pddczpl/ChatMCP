@@ -255,8 +255,9 @@ test.describe('failed verification', () => {
     await waitForState(app.hub, task.id, ['completed', 'failed']);
     await expect(page.locator('#panel-conversation').getByText(/Đã sửa calc.js nhưng node test.js vẫn thất bại/)).toBeVisible();
     expect(app.runProjectTest().status).not.toBe(0);
-    await expect(page.getByText('Lỗi', { exact: true }).first()).toBeVisible();
+    // Tool receipts are now hidden under an expandable activity summary.
     await expandToolActivity(page);
+    await expect(page.getByText('Lỗi', { exact: true }).first()).toBeVisible();
   await page.getByRole('button', { name: /^local\.run_command:/ }).click();
     await expect(page.locator('pre').filter({ hasText: /exit code [1-9]/ })).toBeVisible();
     await expect(page.getByText('Đã hoàn tất thành công', { exact: true })).toHaveCount(0);

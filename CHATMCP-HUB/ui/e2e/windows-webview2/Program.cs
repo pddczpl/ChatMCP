@@ -81,8 +81,13 @@ internal sealed class SmokeWindow : Form
     {
         // Compact layouts intentionally start with Inspector closed. Use its
         // real header control, then address tabs within the visible panel.
-        await WaitFor("document.querySelector('header button[title=\"Mở Inspector (Ctrl+J)\"]') || document.querySelector('#panel-inspector nav')", "Inspector control available");
+        await WaitFor("document.querySelector('header button[title=\"Mở Inspector (Ctrl+J)\"]') || document.querySelector('#panel-inspector')", "Inspector control available");
+        // The new layout opens on Background tasks. Toggle the side panel if
+        // needed, then explicitly select its Inspector view before looking for
+        // the nested tool tabs.
         await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('header button[title=\"Mở Inspector (Ctrl+J)\"]')?.click()");
+        await WaitFor("Array.from(document.querySelectorAll('#panel-inspector button')).some(b => b.textContent?.trim() === 'Inspector' && b.getClientRects().length > 0)", "Inspector view control visible");
+        await browser.CoreWebView2.ExecuteScriptAsync("Array.from(document.querySelectorAll('#panel-inspector button')).find(b => b.textContent?.trim() === 'Inspector')?.click()");
         await WaitFor("document.querySelector('#panel-inspector nav')?.getClientRects().length > 0", "Inspector opened through UI");
         var selector = JsonSerializer.Serialize($"#panel-inspector nav button[title=\"{title}\"]");
         await WaitFor($"document.querySelector({selector})?.getClientRects().length > 0", $"{title} tab visible");

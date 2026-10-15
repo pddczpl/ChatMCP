@@ -301,7 +301,7 @@ export class ConcurrentApiAgent {
     // Worktree/branch are intentionally preserved; never destroy user changes on chat deletion.
     return { ok: true, deletedId: id, preservedWorktree: record.worktree };
   }
-  async setAutoResume({ id, enabled }) {
+  async setAutoResume(id, enabled) {
     if (this.primary.get(id)) return this.primary.setAutoResume(id, enabled);
     const child = this.children.get(id);
     if (child?.runner.get(id)) return child.runner.setAutoResume(id, enabled);
