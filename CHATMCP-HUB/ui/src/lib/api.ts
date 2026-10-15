@@ -104,7 +104,7 @@ export const api = {
   }),
   getCapabilities: () => request<any>('/api/capabilities'),
   getSandboxStatus: () => request<SandboxStatus>('/api/sandbox/status'),
-  getIntelligenceStatus: () => request<{ engineHealth?: {checkedAt: string | null; engines: {id: string; status: string; source?: string; version?: string | null; detail?: string}[]} }>('/api/studio/intelligence/status'),
+
   probeIntelligenceEngines: () => request<any>('/api/studio/intelligence/engines/probe', {method:'POST',body:'{}'}),
   
   // Tasks
@@ -212,7 +212,7 @@ export const api = {
   setAgentMode: (mode: string) => request<any>('/api/agent/mode', { method: 'POST', body: JSON.stringify({ mode }) }),
 
   // Intelligence
-  getIntelligenceStatus: () => request<any>('/api/studio/intelligence/status'),
+  getIntelligenceStatus: () => request<{ engineHealth?: {checkedAt: string | null; engines: {id: string; status: string; source?: string; version?: string | null; detail?: string}[]} }>('/api/studio/intelligence/status'),
   buildIntelligenceIndex: (force = false) => request<any>('/api/studio/intelligence/index', { method: 'POST', body: JSON.stringify({ force }) }),
   searchSymbols: (query: string) => request<{ matches: any[] }>(`/api/studio/intelligence/symbols?query=${encodeURIComponent(query)}&limit=120`),
   findReferences: (symbol: string) => request<{ matches: any[] }>(`/api/studio/intelligence/references?symbol=${encodeURIComponent(symbol)}`),

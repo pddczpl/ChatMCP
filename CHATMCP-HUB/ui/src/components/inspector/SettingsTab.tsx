@@ -294,7 +294,7 @@ export function SettingsTab() {
             ['python-ast', 'Python Native AST'],
             ['heuristic', 'Heuristic Fallback'],
           ].map(([id, name]) => {
-            const engine = intelligence?.engineHealth?.engines?.find(item => item.id === id);
+            const engine = intelligence?.engineHealth?.engines?.find((item: {id: string; status: string; source?: string; version?: string | null; detail?: string}) => item.id === id);
             const status = engine?.status || 'not_checked';
             return (
               <div key={id} className="flex items-start justify-between gap-2 rounded bg-[var(--panel)] px-2.5 py-2 border border-[var(--line-subtle)]">
