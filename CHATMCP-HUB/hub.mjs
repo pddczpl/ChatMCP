@@ -384,7 +384,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
             let response;
             try {
               response = typeof provider.diagnoseConnection === 'function'
-                ? await provider.diagnoseConnection({ signal: testSignal })
+                ? await provider.diagnoseConnection({ signal: testSignal, strictProtocol: payload.strictProtocol === true })
                 : await provider.respond({ input: [{role:'user', content:[{type:'input_text',text:'Reply with only OK.'}]}], instructions:'Simple API connectivity check. Reply with OK.', tools: [], signal: testSignal });
             } catch (error) {
               if (testSignal.aborted) throw Object.assign(new Error('Kiểm tra gateway quá 38 giây. Kiểm tra kết nối, URL và giao thức rồi thử lại.'), { statusCode:504 });
