@@ -8,13 +8,14 @@ import {
   Bot, 
   Eye, 
   ChevronDown, 
-  Sparkles 
+  Sparkles, X
 } from 'lucide-react';
+import type { ChatAttachment } from '@/types';
 import { useAppStore } from '@/store/useAppStore';
 import { useTranslation } from '@/lib/i18n';
 
 interface ComposerProps {
-  onSendMessage: (text: string) => boolean | void | Promise<boolean | void>;
+  onSendMessage: (text: string, attachments: ChatAttachment[]) => boolean | void | Promise<boolean | void>;
   onStop?: () => void;
   isWorking?: boolean;
   disabled?: boolean;
@@ -36,9 +37,11 @@ export function Composer({
   const [text, setText] = useState('');
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const submitPending = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { setFullAccessModalOpen } = useAppStore();
+  const { setFullAccessModalOpen, showToast } = useAppStore();
 
   const activePlaceholder = placeholder || t('composer_placeholder');
 
@@ -50,6 +53,32 @@ export function Composer({
     }
   }, [text]);
 
+  const handleFiles = async (files: File[]) => {
+    if (submitting || !files.length) return;
+    if (attachments.length + files.length > 5) {
+      showToast('Tối đa 5 file mỗi tin nhắn.','warning');
+      return;
+    }
+    try {
+      const collected: ChatAttachment[] = [];
+      for (const file of files) {
+        const isImage = /^image\/(?:png|jpeg|webp|gif)$/.test(file.type);
+        if (file.size > (isImage ? 2*1024*1024 : 200000)) throw new Error('File ' + file.name + ' quá lớn.');
+        if (/^\.env(?:\.|$)|\.(?:pem|key|p12|pfx)$/i.test(file.name)) throw new Error('Không đính kèm file chứa khóa riêng.');
+        const data = await new Promise<string>((resolve,reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = () => reject(new Error('Không thể đọc ' + file.name));
+          reader.readAsDataURL(file);
+        });
+        collected.push({name:file.name,mimeType:file.type,dataBase64:data.split(',')[1]||'',size:file.size});
+      }
+      setAttachments(current => [...current,...collected].slice(0,5));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Không thể đính kèm file.','error');
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
@@ -58,13 +87,17 @@ export function Composer({
   };
 
   const handleSubmit = async () => {
-    if (!text.trim() || disabled || isWorking || submitPending.current) return;
+    if ((!text.trim() && !attachments.length) || disabled || submitPending.current) return;
     const submittedText = text;
+    const submittedAttachments = [...attachments];
     submitPending.current = true;
     setSubmitting(true);
     try {
-      const accepted = await onSendMessage(submittedText.trim());
-      if (accepted !== false) setText(current => current === submittedText ? '' : current);
+      const accepted = await onSendMessage(submittedText.trim(), submittedAttachments);
+      if (accepted !== false) {
+        setText(current => current === submittedText ? '' : current);
+        setAttachments([]);
+      }
     } finally {
       submitPending.current = false;
       setSubmitting(false);
@@ -93,20 +126,35 @@ export function Composer({
   };
 
   return (
-    <div className="p-3 border-t border-[var(--line)] bg-[var(--panel)] flex-shrink-0 select-none">
+    <div className="p-3 border-t border-[var(--line)] bg-[var(--panel)] flex-shrink-0 select-none"
+      onDragOver={e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
+      onDrop={e => { if (e.dataTransfer.files.length) { e.preventDefault(); void handleFiles(Array.from(e.dataTransfer.files)); } }}>
       <div className="relative border border-[var(--line)] focus-within:border-sky-500 rounded-xl bg-[var(--surface)] shadow-md transition-all">
+        <input ref={fileInputRef} className="hidden" type="file" multiple
+          accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.json,.js,.jsx,.ts,.tsx,.mjs,.cjs,.py,.cs,.go,.rs,.java,.html,.css,.sql,.xml,.yaml,.yml,.toml,.sh,.ps1"
+          onChange={e=>{void handleFiles(Array.from(e.target.files||[]));e.target.value='';}} />
         {/* Text Area */}
         <textarea
           ref={textareaRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={activePlaceholder}
+          onPaste={e => {
+            const files=Array.from(e.clipboardData.items).filter(item=>item.kind==='file'&&item.type.startsWith('image/')).map(item=>item.getAsFile()).filter((file):file is File=>!!file);
+            if(files.length){e.preventDefault();void handleFiles(files);}
+          }}
+          placeholder={isWorking ? 'Agent đang chạy — gửi chỉ dẫn mới bất kỳ lúc nào...' : activePlaceholder}
           disabled={disabled || submitting}
           rows={1}
           className="w-full bg-transparent px-3.5 pt-3 pb-2 text-[15px] text-[var(--text)] placeholder-[var(--faint)] resize-none focus:outline-none max-h-56 min-h-[44px] leading-relaxed font-sans"
         />
 
+        {attachments.length>0 && <div className="flex flex-wrap gap-1.5 px-3 pb-2" aria-label="Tệp đính kèm">
+          {attachments.map((file,index) => <span key={index} className="flex items-center gap-1 rounded border border-[var(--line)] bg-[var(--panel)] px-2 py-1 text-xs text-[var(--text)]">
+            <Paperclip className="w-3 h-3"/><span className="max-w-40 truncate">{file.name}</span>
+            <button aria-label={'Bỏ '+file.name} type="button" onClick={()=>setAttachments(items=>items.filter((_,i)=>i!==index))}><X className="w-3 h-3"/></button>
+          </span>)}
+        </div>}
         {/* Bottom Toolbar */}
         <div className="px-3 pb-2.5 pt-1 flex items-center justify-between gap-2 border-t border-[var(--line-subtle)]">
           {/* Left: Mode Picker & Quick Tools */}
@@ -122,6 +170,11 @@ export function Composer({
               <ChevronDown className="w-3 h-3 text-[var(--faint)]" />
             </button>
 
+            <button type="button" aria-label="Đính kèm file hoặc ảnh" title="Chọn file / kéo thả / Ctrl+V để dán ảnh"
+              onClick={()=>fileInputRef.current?.click()}
+              className="p-1.5 rounded-md hover:bg-[var(--surface-hover)] text-[var(--muted)]">
+              <Paperclip className="w-4 h-4"/>
+            </button>
             {/* Mode Dropdown */}
             {modeMenuOpen && (
               <div className="absolute left-0 bottom-full mb-1 w-64 rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-xl z-50 p-1.5 space-y-1 modal-3d-enter">
@@ -159,7 +212,7 @@ export function Composer({
               {t('enter_to_send')}
             </span>
 
-            {isWorking ? (
+            {isWorking && (
               <button
                 type="button"
                 onClick={onStop}
@@ -169,13 +222,14 @@ export function Composer({
                 <Square className="w-3.5 h-3.5 fill-current" />
                 <span>{t('stop')}</span>
               </button>
-            ) : (
+            )}
+            {(
               <button
                 type="button"
                 onClick={handleSubmit}
-                disabled={!text.trim() || disabled || submitting}
+                disabled={(!text.trim() && attachments.length===0) || disabled || submitting}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-md transition-all ${
-                  text.trim() && !disabled
+                  (text.trim() || attachments.length>0) && !disabled
                     ? 'bg-sky-500 hover:bg-sky-400 text-slate-950 shadow-sky-500/20 active:scale-95'
                     : 'bg-[var(--surface-hover)] text-[var(--faint)] cursor-not-allowed opacity-50'
                 }`}
