@@ -111,21 +111,43 @@ const PREFERRED_DIRECT_TOOLS = new Set([
   'web_search','web_fetch','browser_launch','browser_navigate','browser_click',
   'browser_fill','browser_screenshot','test_run','github_workflow_runs','token_restore',
 ]);
-const MAX_DIRECT_TOOLS = 46;
-export function directToolsFor(catalog) {
-  const functions = [];
-  const byName = new Map();
-  for (const tool of catalog.tools) {
-    if (tool.server !== DIRECT_SERVER) continue;
-    const name = tool.originalName;
-    if (!PREFERRED_DIRECT_TOOLS.has(name) || functions.length >= MAX_DIRECT_TOOLS) continue;
-    if (typeof name !== 'string' || !FUNCTION_NAME.test(name) || ROUTER_NAMES.has(name) || byName.has(name) || !object(tool.inputSchema)) continue;
-    byName.set(name, tool.name);
-    functions.push({ type: 'function', name, description: String(tool.description ?? '').slice(0, 1500), parameters: structuredClone(tool.inputSchema), strict: false });
-  }
-  return { functions, byName };
+// 95 local tools + the four internal routers = 99 functions today.
+// The old <50 smoke-test threshold was never an API restriction.
+// Keep a conservative upper boundary of 128 advertised functions (4 routers +
+// at most 124 direct) while permitting the operator to lower schema cost for
+// providers with smaller tool limits via CHATMCP_DIRECT_TOOL_LIMIT.
+export const DEFAULT_DIRECT_TOOL_LIMIT = 95;
+export const MAX_DIRECT_TOOL_LIMIT = 124;
+export function resolveDirectToolLimit(raw = process.env.CHATMCP_DIRECT_TOOL_LIMIT) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return DEFAULT_DIRECT_TOOL_LIMIT;
+  const normalized = String(raw).trim();
+  if (!/^(?:0|[1-9][0-9]{0,2})$/.test(normalized)) return DEFAULT_DIRECT_TOOL_LIMIT;
+  return Math.min(MAX_DIRECT_TOOL_LIMIT, Number(normalized));
 }
 
+export function directToolsFor(catalog, { limit = resolveDirectToolLimit() } = {}) {
+  const functions = [];
+  const byName = new Map();
+  const maximum = Number.isInteger(limit) && limit >= 0 ? Math.min(limit, MAX_DIRECT_TOOL_LIMIT) : DEFAULT_DIRECT_TOOL_LIMIT;
+  // Rank legacy coding and verification tools first for constrained providers.
+  // Wide providers also receive every other available LocalTool in catalog order.
+  const eligible = catalog.tools.filter(tool =>
+    tool.server === DIRECT_SERVER && typeof tool.originalName === 'string' &&
+    FUNCTION_NAME.test(tool.originalName) && !ROUTER_NAMES.has(tool.originalName) && object(tool.inputSchema));
+  const ranked = [
+    ...eligible.filter(tool => PREFERRED_DIRECT_TOOLS.has(tool.originalName)),
+    ...eligible.filter(tool => !PREFERRED_DIRECT_TOOLS.has(tool.originalName)),
+  ];
+  for (const tool of ranked) {
+    if (functions.length >= maximum) break;
+    const name = tool.originalName;
+    if (byName.has(name)) continue;
+    byName.set(name, tool.name);
+    functions.push({type:'function',name,description:String(tool.description ?? '').slice(0,1500),
+      parameters:structuredClone(tool.inputSchema),strict:false});
+  }
+  return {functions,byName};
+}
 // Models sometimes wrap an advertised direct local name in mcp_call. Resolve
 // only that explicit alias map; never guess a server or match remote basenames.
 // An exact catalog name always wins if it happens to collide with an alias.
