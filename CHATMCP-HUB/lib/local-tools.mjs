@@ -23,6 +23,7 @@ import { registerAgentCapabilityTools } from './agent-capabilities.mjs';
 import { registerBrowserTools } from './browser-tools.mjs';
 import { registerWorkflowExtensions } from './workflow-extensions.mjs';
 import { registerSemanticTools } from './lsp-refactor-tools.mjs';
+import { registerDebugTools } from './node-debug-tools.mjs';
 
 export const LOCAL_SERVER = 'local';
 export const LIMITS = Object.freeze({
@@ -108,7 +109,8 @@ export class LocalTools {
     if (this.shellDisabled) {
       for (const name of ['tasks_run', 'tasks_status', 'tasks_cancel', 'tasks_list', 'github_action', 'github_read',
         'test_run', 'build_run', 'github_code_search', 'github_workflow_runs', 'github_workflow_status', 'github_job_logs',
-        'github_pr_review','github_rerun_failed','github_pr_merge','github_release_create']) {
+        'github_pr_review','github_rerun_failed','github_pr_merge','github_release_create',
+        'debug_start','debug_breakpoint','debug_continue','debug_step','debug_stack','debug_variables','debug_evaluate','debug_stop']) {
         this.tools.delete(name);
       }
     }
@@ -536,6 +538,7 @@ export class LocalTools {
     this.browserCapabilities = registerBrowserTools(define, {});
     this.workflowExtensions = registerWorkflowExtensions(define, {workspace:this.workspace,shell:this.shell,git:this.git});
     this.semanticTools = registerSemanticTools(define, {workspace:this.workspace,intelligence:this.studioIntelligence});
+    this.debugTools = registerDebugTools(define, {workspace:this.workspace});
     define('github_read', {
       description: 'Read GitHub issues, PRs, or releases using GitHub CLI gh.',
       schema: obj({ action: str('Action to perform.', { enum: ['issue_list', 'issue_view', 'pr_list', 'pr_view', 'release_list'] }), number: int('Issue or PR number for view action.') }, ['action']),
@@ -1234,6 +1237,7 @@ export class LocalTools {
     this.backgroundTasks.clear();
     await this.extendedCapabilities?.close();
     await this.browserCapabilities?.close();
+    await this.debugTools?.close();
   }
 
   // ------------------------------------------------------------------ batch & patch

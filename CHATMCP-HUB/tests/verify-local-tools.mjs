@@ -88,6 +88,7 @@ async function cleanup() { await fs.rm(root, { recursive: true, force: true, max
     'browser_network','browser_close','screenshot_capture','screenshot_compare','responsive_check','visual_diff','accessibility_audit',
     'git_conflict_inspect','build_detect','build_run','test_impact_analysis','binary_inspect','skills_discover',
     'rename_symbol','format_document','organize_imports','code_actions','find_implementations','type_hierarchy',
+    'debug_start','debug_breakpoint','debug_continue','debug_step','debug_stack','debug_variables','debug_evaluate','debug_stop',
   ];
   assert.deepEqual(definitions.map((tool) => tool.originalName).sort(), [...expected].sort());
   for (const tool of definitions) {

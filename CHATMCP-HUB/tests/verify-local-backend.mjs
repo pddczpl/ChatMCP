@@ -168,7 +168,7 @@ try {
     equal(state.services.local.state, 'ready', 'local service ready');
     equal(state.backend, 'local', 'state reports the backend');
     equal(state.dataDirectory, dataDirectory, 'state reports the data folder');
-    check(state.catalogReady === true && state.toolCounts.local === 87, `87 local tools (${state.toolCounts.local})`);
+    check(state.catalogReady === true && state.toolCounts.local === 95, `95 local tools (${state.toolCounts.local})`);
     check(state.toolCounts.studio > 0 && state.toolCounts.studio < 17, 'only the Studio tools that add something are listed');
     check(!manager.catalog.tools.some((entry) => ['studio.read', 'studio.tree', 'studio.plan_set'].includes(entry.name)), 'Studio tools that duplicate local.* are not offered');
     check(manager.catalog.tools.every((entry) => entry.name === `${entry.server}.${entry.originalName}`), 'catalog names are qualified');
