@@ -25,7 +25,6 @@ export async function verifyRuntime(root) {
     'grammars/tree-sitter-tsx.wasm',
     'grammars/tree-sitter-python.wasm',
   ];
-  const seen = new Set();
   for (const entry of manifest.files) {
     if (typeof entry.path !== 'string' || !/^[a-zA-Z0-9_@./+\-]+$/.test(entry.path) || entry.path.split('/').some(p => !p || p === '.' || p === '..') || !/^[a-f0-9]{64}$/.test(entry.sha256) || !Number.isSafeInteger(entry.size) || entry.size < 0) throw new Error('Invalid manifest entry');
     const key = entry.path.toLowerCase();

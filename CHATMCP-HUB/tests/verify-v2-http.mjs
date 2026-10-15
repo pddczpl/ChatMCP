@@ -65,7 +65,21 @@ try{
   a=await post('/api/studio/terminal/start',{interactive:true,command:'echo FIRST_LINE',timeoutMinutes:1});
   check(a.status===200&&a.value.interactive&&a.value.id,'HTTP start interactive shell');const id=a.value.id;
   a=await post('/api/studio/terminal/input',{id,text:'echo SECOND_LINE\n'});check(a.status===200&&a.value.ok,'HTTP send stdin');
-  await new Promise(r=>setTimeout(r,400));a=await get('/api/studio/terminal');check(a.value[0].logs.some(x=>x.message.includes('SECOND_LINE')),'HTTP terminal output');
+  // Windows PowerShell startup is variable (especially Node 22 CI runners).
+  // Poll the exact terminal session rather than assert after a fixed 400 ms.
+  // This still requires actual stdout containing the submitted second command.
+  const deadline = Date.now() + 10000;
+  let observed = false;
+  let lastTerminal = null;
+  while (Date.now() < deadline) {
+    a = await get('/api/studio/terminal');
+    lastTerminal = a.value.find(session => session.id === id);
+    observed = Boolean(lastTerminal?.logs?.some(entry => entry.type === 'stdout' && entry.message.includes('SECOND_LINE')));
+    if (observed) break;
+    if (lastTerminal && ['failed', 'completed', 'stopped'].includes(lastTerminal.status)) break;
+    await new Promise(resolve => setTimeout(resolve, 150));
+  }
+  check(observed, 'HTTP terminal output' + (observed ? '' : `: status=${lastTerminal?.status || 'missing'} logs=${JSON.stringify(lastTerminal?.logs?.slice(-6) || [])}`));
   a=await post('/api/studio/terminal/stop',{id});check(a.status===200,'HTTP terminal stop');
   a=await get('/api/capabilities');check(a.value.postRoutes.includes('/api/studio/terminal/input')&&a.value.postRoutes.includes('/api/studio/intelligence/index'),'routes advertised');
   console.log(`PASS ${n} v2.2 HTTP integration assertions: code index, strict permissions, preview, sandbox status, interactive terminal, CSRF`);
