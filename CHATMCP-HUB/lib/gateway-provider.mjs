@@ -297,7 +297,15 @@ export class GatewayProvider {
       if (drifted) nextPreset = customPresetId(nextProtocol);
     }
 
-    // Which key goes to which host. A key is never carried over to a different origin or provider.
+    // Never move a credential across origins or between unrelated providers.
+    // Switching only the API dialect of the SAME custom gateway is different:
+    // the credential is already authorized for that exact HTTPS origin. Keep
+    // the DPAPI-protected key and let users correct Gemini/OpenAI routing without
+    // having to re-enter a secret. Named-provider switches still clear the key.
+    const sameOrigin = originOf(base) === originOf(this.apiBaseUrl);
+    const sameCustomGateway = switching && sameOrigin
+      && String(this.preset).startsWith('custom-')
+      && String(nextPreset).startsWith('custom-');
     let key, fromEnv = false;
     if (apiKey !== undefined && apiKey !== null && apiKey !== '') key = apiKey;
     else if (useEnvKey === true) {
@@ -305,7 +313,7 @@ export class GatewayProvider {
       const found = firstEnv(this.env, names);
       if (!found) throw bad('missing_env_key', names.length ? `Không thấy biến môi trường ${names.join(' hoặc ')} (hoặc nó đang trống). Đặt biến rồi khởi động lại Hub, hoặc nhập key trực tiếp.` : 'Kết nối này không có biến môi trường mặc định; nhập key trực tiếp.', 409);
       key = found.value; fromEnv = true;
-    } else if (switching || originOf(base) !== originOf(this.apiBaseUrl)) key = '';
+    } else if (!sameOrigin || (switching && !sameCustomGateway)) key = '';
     else key = this.apiKey;
     checkKey(key);
     const keyRequired = !isLoopbackUrl(base);
