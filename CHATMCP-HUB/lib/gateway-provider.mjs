@@ -381,7 +381,7 @@ export class GatewayProvider {
   // Called only by the user's explicit "Test API / Auto" action. Probe a bounded set of standard dialects against the
   // SAME configured origin. Do not send MCP inventories or project content; these are minimal test calls. If a dialect
   // works, persist the corrected public format without losing a protected key. No mutation occurs when all probes fail.
-  async diagnoseConnection({ signal } = {}) {
+  async diagnoseConnection({ signal, strictProtocol = false } = {}) {
     if (!this.ready()) throw bad('gateway_not_ready','Hãy nhập URL, model và API key trước khi kiểm tra.',409);
     const apiKey = this.apiKey; // the probe keeps the credential it started with
     const choices = [];
@@ -398,11 +398,15 @@ export class GatewayProvider {
     } else {
       const currentAuth = this.authMode === 'auto' ? (this.protocol === 'gemini' ? 'google-key':'bearer') : this.authMode;
       push(this.protocol, currentAuth, this.apiBaseUrl, this.customPath);
-      const stem = this.apiBaseUrl.replace(/\/v1(?:beta)?$/,'');
-      push('gemini','google-key',stem);
-      push('gemini','bearer',stem);
-      push('openai-chat','bearer',stem);
-      push('openai-chat','google-key',stem);
+      // Explicit "Save & Test" must not silently flip OpenAI to Gemini.
+      // Auto-detection remains available to callers that explicitly request it.
+      if (!strictProtocol) {
+        const stem = this.apiBaseUrl.replace(/\/v1(?:beta)?$/,'');
+        push('gemini','google-key',stem);
+        push('gemini','bearer',stem);
+        push('openai-chat','bearer',stem);
+        push('openai-chat','google-key',stem);
+      }
     }
     const attempts=[];
     for (const item of choices.slice(0,5)) {
