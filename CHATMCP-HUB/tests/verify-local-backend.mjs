@@ -213,7 +213,8 @@ try {
 
     const first = model.seen[0];
     for (const name of ['read_file', 'edit_file', 'write_file', 'run_command', 'git_status', 'update_plan', 'mcp_call', 'mcp_catalog']) check(first.tools.includes(name), `the model is offered ${name}`);
-    check(first.tools.length >= 22 && first.tools.length < 50, `a manageable number of tools (${first.tools.length})`);
+    check(first.tools.length === state.toolCounts.local + 4 && first.tools.length <= 128,
+      `all ${state.toolCounts.local} local tools + four internal routers are advertised directly (${first.tools.length}); cap is configurable`);
     const edit = first.toolDefinitions.find((entry) => entry.name === 'edit_file');
     check(edit.parameters.required.includes('old_string') && edit.parameters.properties.path.type === 'string', 'real parameter schemas are offered');
     check(first.instructions.includes(JSON.stringify(dir)), 'instructions name the workspace');
