@@ -7,6 +7,14 @@ import { waitFor, waitForState } from '../../tests/e2e/hub-process.mjs';
 import { BUGGY_CALC, FIXED_CALC } from '../../tests/e2e/fixtures.mjs';
 import { call, say, shaOf, exitedZero } from '../../tests/e2e/scenarios.mjs';
 
+async function expandToolActivity(page) {
+  const groups=page.getByTestId('tool-activity-group');
+  for(const group of await groups.all()) {
+    const header=group.getByRole('button').first();
+    if(await header.getAttribute('aria-expanded')==='false') await header.click();
+  }
+}
+
 test('onboarding, blank conversation, real approvals/edit/test/diff/plan and Skills', async ({ page, app, browserErrors }) => {
   app.mock.define('planned-repair', ({ turn, last, results }) => {
     if (turn === 0) return call('read_file', { path: 'calc.js' });
@@ -26,6 +34,7 @@ test('onboarding, blank conversation, real approvals/edit/test/diff/plan and Ski
   });
   app.mock.setScenario('planned-repair');
   await onboard(page, app);
+  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
   const callsBefore = app.mock.state.requests.length;
   await page.getByRole('button', { name: 'Hội thoại mới', exact: true }).click();
   await expect(page.locator('textarea')).toHaveValue('');
@@ -39,11 +48,14 @@ test('onboarding, blank conversation, real approvals/edit/test/diff/plan and Ski
   const task = await taskByPrompt(app, prompt);
   await expect.poll(() => browserErrors.requests.has('/api/tasks/events')).toBe(true);
   await expect(page.getByRole('button', { name: 'Dừng', exact: true }).last()).toBeVisible();
+  await expect(page.getByTestId('tool-activity-group')).toHaveCount(1);
+  await expandToolActivity(page);
   await expect(page.getByRole('button', { name: /^local\.read_file:/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Phê duyệt', exact: true }).and(page.locator(':enabled'))).toBeVisible();
   await expect(page.getByText('Correct addition', { exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Task plan' })).toContainText(/1\s*\/\s*3/);
   expect(await fs.readFile(path.join(app.project, 'calc.js'), 'utf8')).toBe(BUGGY_CALC);
+  await expandToolActivity(page);
   await expect(page.getByRole('button', { name: /^local\.edit_file:/ })).toBeVisible();
   await expect(page.getByText(/Phân loại rủi ro:/)).toBeVisible();
   await expect(page.getByText('+ return a + b;', { exact: false })).toBeVisible();
@@ -83,6 +95,7 @@ test('onboarding, blank conversation, real approvals/edit/test/diff/plan and Ski
 
 test('Deny leaves the real file unchanged and displays the refusal', async ({ page, app }) => {
   await onboard(page, app);
+  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
   const prompt = 'Repair addition, but wait for my permission.';
   await send(page, prompt);
   const task = await taskByPrompt(app, prompt);
@@ -98,6 +111,7 @@ test('Deny leaves the real file unchanged and displays the refusal', async ({ pa
 
 test('Settings persists read-only and review without an invalid execution policy', async ({ page, app }) => {
   await onboard(page, app);
+  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
   await page.getByRole('button', { name: 'Cài đặt', exact: true }).last().click();
   await expect.soft(page.getByText(/LEVEL:\s*ADMIN/i)).toHaveCount(0);
   await expect.soft(page.getByText(/RBAC/)).toHaveCount(0);
@@ -110,6 +124,7 @@ test('Settings persists read-only and review without an invalid execution policy
 
 test('AI config clears a typed fixture key after save and destination changes', async ({ page, app }) => {
   await onboard(page, app);
+  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
   await page.getByRole('button', { name: 'AI Model', exact: true }).click();
   const key = page.getByLabel('API key', { exact: true });
   // Deliberately fake, sent only to this fixture's own loopback server.
@@ -133,6 +148,7 @@ test('AI config clears a typed fixture key after save and destination changes', 
 
 test('saving a custom endpoint twice retains its canonical provider and saved fixture key', async ({ page, app }) => {
   await onboard(page, app);
+  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
   const callsBefore = app.mock.state.requests.length;
   await page.getByRole('button', { name: 'AI Model', exact: true }).click();
   await page.getByRole('button', { name: 'Ollama (Local)', exact: true }).click();
@@ -165,6 +181,7 @@ test('saving a custom endpoint twice retains its canonical provider and saved fi
 
 test('switching custom Gemini to custom OpenAI on the same gateway persists protocol without re-entering key', async ({ page, app }) => {
   await onboard(page, app);
+  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
   await page.getByRole('button', { name:'AI Model',exact:true }).click();
   await page.getByRole('button', { name:'Custom (Gemini)',exact:true }).click();
   await page.getByLabel('API base URL', {exact:true}).fill(app.mock.url);
@@ -193,6 +210,7 @@ test('switching custom Gemini to custom OpenAI on the same gateway persists prot
 
 test('Stop, Resume and Hub restart preserve the same read-only conversation', async ({ page, context, app, browserErrors }) => {
   await onboard(page, app);
+  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
   app.mock.define('slow-read', async ({ turn }) => {
     if (turn === 0) return call('read_file', { path: 'calc.js' });
     await new Promise((resolve) => setTimeout(resolve, 20_000));
@@ -227,6 +245,7 @@ test.describe('failed verification', () => {
   test.use({ failingProject: true });
   test('a finished model response does not claim passing tests when the real test exits nonzero', async ({ page, app }) => {
     await onboard(page, app);
+  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
     const prompt = 'Repair addition and run the project test.';
     await send(page, prompt);
     const task = await taskByPrompt(app, prompt);
@@ -237,7 +256,8 @@ test.describe('failed verification', () => {
     await expect(page.locator('#panel-conversation').getByText(/Đã sửa calc.js nhưng node test.js vẫn thất bại/)).toBeVisible();
     expect(app.runProjectTest().status).not.toBe(0);
     await expect(page.getByText('Lỗi', { exact: true }).first()).toBeVisible();
-    await page.getByRole('button', { name: /^local\.run_command:/ }).click();
+    await expandToolActivity(page);
+  await page.getByRole('button', { name: /^local\.run_command:/ }).click();
     await expect(page.locator('pre').filter({ hasText: /exit code [1-9]/ })).toBeVisible();
     await expect(page.getByText('Đã hoàn tất thành công', { exact: true })).toHaveCount(0);
     const workflow = (await app.hub.get(`/api/studio/workflow?taskId=${task.id}`)).json;
