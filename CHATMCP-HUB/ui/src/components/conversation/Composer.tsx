@@ -22,6 +22,9 @@ interface ComposerProps {
   placeholder?: string;
   currentMode?: string;
   onModeChange?: (mode: string) => void;
+  dependencyOptions?: {id: string; label: string; state: string}[];
+  selectedDependsOn?: string[];
+  onDependsOnChange?: (ids: string[]) => void;
 }
 
 export function Composer({
@@ -32,10 +35,14 @@ export function Composer({
   placeholder,
   currentMode = 'review',
   onModeChange,
+  dependencyOptions = [],
+  selectedDependsOn = [],
+  onDependsOnChange,
 }: ComposerProps) {
   const { t } = useTranslation();
   const [text, setText] = useState('');
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const [dependencyMenuOpen, setDependencyMenuOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -175,6 +182,26 @@ export function Composer({
               className="p-1.5 rounded-md hover:bg-[var(--surface-hover)] text-[var(--muted)]">
               <Paperclip className="w-4 h-4"/>
             </button>
+            {dependencyOptions.length > 0 && (
+              <div className="relative">
+                <button type="button" title="Chờ các task được chọn hoàn tất"
+                  aria-expanded={dependencyMenuOpen}
+                  className="rounded-md px-2 py-1.5 text-xs text-[var(--muted)] hover:bg-[var(--surface-hover)]"
+                  onClick={() => setDependencyMenuOpen(x=>!x)}>
+                  Chờ task {selectedDependsOn.length ? '('+selectedDependsOn.length+')' : ''}
+                  <ChevronDown className="w-3 h-3 inline ml-1"/>
+                </button>
+                {dependencyMenuOpen && <div className="absolute bottom-full left-0 z-50 mb-2 w-72 max-h-64 overflow-y-auto border border-[var(--line)] rounded-lg bg-[var(--panel)] p-2 shadow-xl">
+                  <p className="text-xs font-semibold mb-2">Chỉ bắt đầu khi các task đã chọn hoàn tất</p>
+                  {dependencyOptions.map(option=><label key={option.id} className="flex items-center gap-2 p-1.5 hover:bg-[var(--surface-hover)] rounded text-xs">
+                    <input type="checkbox" checked={selectedDependsOn.includes(option.id)}
+                      onChange={e=>onDependsOnChange?.(e.target.checked?[...selectedDependsOn,option.id]:selectedDependsOn.filter(id=>id!==option.id))}/>
+                    <span className="truncate flex-1" title={option.label}>{option.label}</span>
+                    <span className="text-[var(--faint)]">{option.state}</span>
+                  </label>)}
+                </div>}
+              </div>
+            )}
             {/* Mode Dropdown */}
             {modeMenuOpen && (
               <div className="absolute left-0 bottom-full mb-1 w-64 rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-xl z-50 p-1.5 space-y-1 modal-3d-enter">
