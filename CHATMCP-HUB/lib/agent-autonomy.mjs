@@ -135,6 +135,20 @@ export async function verifyHostEvidence({manager, name, result, step = 0} = {})
   return null;
 }
 
+// A completed model message is not the same as independently verified work.
+// This produces a persistent, truthful outcome instead of treating model prose
+// or an arbitrary tool exit code as universal proof.
+export function assessCompletionEvidence(plan,progress) {
+  if(!plan||!Array.isArray(plan.phases))return {ready:true,missing:[],reason:'No complex task graph required'};
+  const p=object(progress)?progress:{};
+  const missing=[];
+  const required=new Set(plan.phases.map(x=>x.id));
+  if(required.has('edit')&&!(p.verifiedFiles?.length>0))missing.push('No independently SHA-verified file edit');
+  if(required.has('verify')&&!(p.verifiedChecks?.length>0))missing.push('No verified successful project check');
+  if(required.has('review')&&!(p.gitReviews?.length>0))missing.push('No independently recorded Git diff review');
+  return {ready:missing.length===0,missing,reason:missing.length===0?'All planned evidence categories have receipts':'Some required evidence is missing; task completion is not certified'};
+}
+
 export function evidenceReport(progress,plan) {
   const p=object(progress)?progress:{};
   const evidence={verifiedFiles:p.verifiedFiles?.length??0,verifiedChecks:p.verifiedChecks?.length??0,gitReviews:p.gitReviews?.length??0};

@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { ACTIVE_STATES, NOT_STARTED_PHASES, applyTransition, deriveState, describeState, isTaskState, restState } from './task-state.mjs';
 import { writeFileAtomic } from './fs-safe.mjs';
 import { callIdentity, createTaskProgress, observeTaskTool, progressCheckpoint } from './agent-progress.mjs';
-import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence } from './agent-autonomy.mjs';
+import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence, assessCompletionEvidence } from './agent-autonomy.mjs';
 import { estimateTokens as estimateContextTokens, injectRepoMapIntoInstructions, compactConversationHistory } from './context-compaction.mjs';
 import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './token-optimization.mjs';
 import { RequestBudget } from './request-budget.mjs';
@@ -449,6 +449,7 @@ export class AgentRunner {
       progress: createTaskProgress(task.progress),
       goalPlan: task.goalPlan ?? null,
       verifiedSummary: evidenceReport(task.progress,task.goalPlan),
+      verificationOutcome:task.verificationOutcome??null,
     };
     if (!summary) {
       result.events = task.events.slice(-EVENT_LIMIT);
@@ -933,7 +934,14 @@ export class AgentRunner {
         if (refusal) throw fault('model_refusal', `Model không thể thực hiện yêu cầu: ${refusal}`);
         if (!calls.length) {
           if (!finalTexts.some((text) => text.trim())) throw fault('empty_final', 'Model kết thúc nhưng không đưa ra kết quả văn bản cuối cùng. Thông báo tiến độ không được coi là kết quả hoàn tất.', 502);
-          task.finalText = this.#redact(finalTexts.join('\n\n')); task.status = 'completed';
+          task.finalText = this.#redact(finalTexts.join('\n\n'));
+          task.verificationOutcome=assessCompletionEvidence(task.goalPlan,task.progress);
+          if(!task.verificationOutcome.ready) {
+            const warning='ChatMCP has NOT independently verified full completion: '+task.verificationOutcome.missing.join('; ')+'.';
+            task.finalText += '\n\n[Verification notice] '+warning;
+            await this.#event(task,'verification_unverified',warning,{status:'running'},{missing:task.verificationOutcome.missing});
+          }
+          task.status = 'completed';
           this.#advance(task, 'completed', 'final_answer');
           break;
         }
