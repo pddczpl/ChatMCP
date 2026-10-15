@@ -304,6 +304,7 @@ export class GatewayProvider {
     // having to re-enter a secret. Named-provider switches still clear the key.
     const sameOrigin = originOf(base) === originOf(this.apiBaseUrl);
     const sameCustomGateway = switching && sameOrigin && this.keySource === 'saved'
+      && entry?.id?.startsWith('custom-')
       && String(this.preset).startsWith('custom-')
       && String(nextPreset).startsWith('custom-');
     let key, fromEnv = false;
