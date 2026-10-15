@@ -1,6 +1,7 @@
 // Semantic refactoring on the existing bundled LSP. No second parser or external MCP client.
 // Preview is default. Single-file mutations require PermissionGate approval, SHA, and a host checkpoint.
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { isProtectedPath } from './protected-paths.mjs';
