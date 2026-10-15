@@ -11,6 +11,7 @@ const requirePackaged = createRequire(new URL('../runtimes/browser/package.json'
 const O = (properties, required = []) => ({type:'object',properties,required,additionalProperties:false});
 const S = (description, more={}) => ({type:'string',description,...more});
 const I = (description,more={})=>({type:'integer',description,...more});
+const B = description => ({type:'boolean',description});
 const failure = (code,message) => Object.assign(new Error(message),{code});
 const ok = (data) => ({isError:false,content:[{type:'text',text:JSON.stringify(data)}],structuredContent:data});
 function allowedHosts() {

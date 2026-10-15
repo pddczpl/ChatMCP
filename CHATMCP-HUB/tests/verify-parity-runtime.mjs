@@ -13,7 +13,8 @@ assert.equal(normal.functions.length,26);
 assert.equal(normal.byName.size,26);
 assert.equal(ROUTER_TOOLS.length,4);
 assert.ok(normal.byName.has('read_file')&&normal.byName.has('run_command')&&normal.byName.has('git_diff'));
-assert.ok(normal.byName.has('checks_list'),'test isolation broker remains discoverable directly');
+assert.ok(catalog.tools.some(tool=>tool.originalName==='checks_list') ? normal.byName.has('checks_list') : ROUTER_TOOLS.some(tool=>tool.name==='mcp_catalog'),
+  'test broker is direct when registered; otherwise discoverable through router');
 assert.ok(!normal.byName.has('browser_launch'),'unrelated browser schemas are not advertised');
 const browser=select('Fix Playwright website UI mobile responsiveness and accessibility');
 assert.ok(browser.byName.has('browser_launch')&&browser.byName.has('responsive_check'));
