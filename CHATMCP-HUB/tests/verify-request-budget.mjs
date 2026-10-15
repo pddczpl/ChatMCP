@@ -5,6 +5,8 @@ import {respondStandard} from '../lib/standard-adapter.mjs';
 assert.deepEqual(requestLimits({CHATMCP_MAX_HTTP_REQUESTS:'3',CHATMCP_MAX_INPUT_TOKENS:'10',CHATMCP_MAX_OUTPUT_TOKENS:'8'}),
   {maxRequests:3,maxInputTokens:10,maxOutputTokens:8});
 assert.equal(requestLimits({CHATMCP_MAX_HTTP_REQUESTS:'bogus'}).maxRequests,80);
+assert.equal(requestLimits({CHATMCP_MAX_INPUT_TOKENS:'2500000'}).maxInputTokens,2500000);
+assert.equal(requestLimits({CHATMCP_MAX_OUTPUT_TOKENS:'100000000'}).maxOutputTokens,10000000);
 const gate=new RequestBudget({limits:requestLimits({CHATMCP_MAX_HTTP_REQUESTS:'2'})});
 assert.equal(gate.beforeRequest().httpRequests,1);
 assert.equal(gate.beforeRequest().httpRequests,2);

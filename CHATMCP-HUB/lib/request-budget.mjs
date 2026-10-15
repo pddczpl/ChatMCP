@@ -3,7 +3,7 @@
 // cannot hide quota consumption. A rejection occurs BEFORE network I/O.
 const parse = (value, fallback, max) => {
   if (value === undefined || value === null || String(value).trim() === '') return fallback;
-  if (!/^(?:0|[1-9][0-9]{0,5})$/.test(String(value).trim())) return fallback;
+  if (!/^(?:0|[1-9][0-9]{0,8})$/.test(String(value).trim())) return fallback;
   return Math.min(max, Number(value));
 };
 export function requestLimits(env = process.env) {
