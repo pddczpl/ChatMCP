@@ -19,7 +19,7 @@ import { CodingWorktreeOrchestrator } from './lib/coding-orchestrator.mjs';
 import { GitHubSkillRegistry } from './lib/skill-registry.mjs';
 
 const APP_ID = 'chatmcp-local-hub';
-export const UI_BUILD = '3.4.0-react-agent';
+export const UI_BUILD = '3.4.1-react-agent';
 // Prevent a new installer from silently reopening a stale daemon at :3007.
 export function assertCompatibleRunningHub(health, port=3007) {
   if (health?.app !== APP_ID) throw new Error(`Cổng ${port} đang do ứng dụng khác sử dụng. Không tự dừng tiến trình đó.`);

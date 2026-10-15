@@ -1,5 +1,15 @@
 # Lịch sử thay đổi
 
+## [3.4.1] — 2026-10-15 — Retry/Continue and Bounded Repo Map Preflight
+
+- Fix API agent `queued` hangs with a cancellable 90-second preflight watchdog; preserve task ID, transcript and safe retry without model quotas (PR #28).
+- Fix ChatGPT Web continuation packets that remain unclaimed by Companion with a 120-second unsent-only watchdog; no automatic replay of uncertain actions (PR #28).
+- Bound automatic Repo Map preflight to 240 entries, 320 directories, 100 quickly parsed files and a 12-second budget; avoid optional Tree-sitter/Python startup in the preflight path.
+- Report `repo_map_started` and `repo_map_skipped`; fall through to the AI model when optional indexing is unavailable.
+- Add large-source-tree regression and cancellation checks; CI is scripted-provider, not live-model acceptance.
+- Installer remains unsigned; SHA-256 verifies download integrity but not publisher identity.
+
+
 ## [3.4.0] — 2026-10-15 — Reliable Agent Runtime and Workflow Upgrades
 
 - Remove all ChatMCP-imposed HTTP model request, input/output token and shared-worker quota ceilings. Keep task-level telemetry of real sends, including retries, plus provider-reported input/output, cache-hit/cache-creation and reasoning token details. API billing remains controlled by the user's provider.
