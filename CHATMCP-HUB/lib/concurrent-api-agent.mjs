@@ -223,6 +223,11 @@ export class ConcurrentApiAgent {
     if (parentTaskId && (!UUID.test(parentTaskId) || !this.get(parentTaskId)))
       throw fail('invalid_parent', 'Parent task was not found.', 400);
     if (!this.manager.workspace) throw fail('workspace_missing', 'Select a project before starting an agent.');
+    // A runner may have persisted its completed state a moment before its
+    // finally block releases the workspace lock. Wait for cleanup, not a new
+    // worktree, when a previous sequential task is already finished.
+    if (this.primary.activeTaskId && this.primary.get(this.primary.activeTaskId)?.status !== 'running'
+        && this.primary.context?.done) await this.primary.context.done.promise;
     // Preserve established sequential editing workflows: when the main
     // checkout is idle, a fresh chat may use it. Only overlapping sessions,
     // explicit branch selections or dependent background agents use isolated
