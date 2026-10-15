@@ -7,6 +7,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const requireUi = createRequire(new URL('../ui/package.json', import.meta.url));
+const requirePackaged = createRequire(new URL('../runtimes/browser/package.json', import.meta.url));
 const O = (properties, required = []) => ({type:'object',properties,required,additionalProperties:false});
 const S = (description, more={}) => ({type:'string',description,...more});
 const I = (description,more={})=>({type:'integer',description,...more});
@@ -87,7 +88,8 @@ export class BrowserTools {
   constructor({driver=null}={}) {this.driver=driver;this.sessions=new Map();}
   async #loadDriver() {
     if(this.driver)return this.driver;
-    try{return requireUi('playwright');}catch{throw failure('playwright_unavailable','Playwright is not installed in this runtime; install the locked Playwright dependency and Chromium before using browser tools.');}
+    try{return requirePackaged('playwright');}
+    catch {try{return requireUi('playwright');}catch{throw failure('playwright_unavailable','Playwright JS runtime missing. The installer packages it and uses installed Edge on Windows; developers should npm ci in CHATMCP-HUB/ui and install Chromium.');}}
   }
   #get(taskId) {
     const record=this.sessions.get(taskId);
@@ -98,7 +100,11 @@ export class BrowserTools {
     if(!taskId)throw failure('missing_task','Browser session requires a task ID.');
     if(this.sessions.has(taskId))return ok({status:'already_running',viewport:{width,height}});
     const driver=await this.#loadDriver();
-    const browser=await driver.chromium.launch({headless:true});
+    let browser;
+    if(process.platform==='win32') {
+      try {browser=await driver.chromium.launch({headless:true,channel:'msedge'});}
+      catch {browser=await driver.chromium.launch({headless:true});}
+    } else browser=await driver.chromium.launch({headless:true});
     let context;
     try {
       context=await browser.newContext({viewport:{width,height},acceptDownloads:false,serviceWorkers:'block',ignoreHTTPSErrors:false});
@@ -164,6 +170,36 @@ export class BrowserTools {
       return ok({viewportScreenshots:outputs, note:'Screenshots captured; layout quality still requires human or vision-model evaluation.'});
     } finally {if(original)await s.page.setViewportSize(original);}
   }
+  async accessibility({},{taskId,signal}={}) {
+    const s=this.#get(taskId);
+    signal?.throwIfAborted();
+    const report=await s.page.evaluate(() => {
+      // Smoke checks only: not a full axe or WCAG certification.
+      const issues=[];
+      const add=(rule,node,index,detail)=>{if(issues.length<100)issues.push({rule,tag:node?.tagName?.toLowerCase()||'document',index,detail});};
+      if(!document.documentElement.getAttribute('lang'))add('html-lang',document.documentElement,0,'Missing html[lang]');
+      if(!document.title?.trim())add('document-title',document.documentElement,0,'Missing title');
+      if(!document.querySelector('h1'))add('heading-one',document.documentElement,0,'Missing h1');
+      [...document.querySelectorAll('img')].forEach((node,i)=>{if(!node.hasAttribute('alt'))add('image-alt',node,i,'Missing alt attribute');});
+      [...document.querySelectorAll('input:not([type=hidden]),select,textarea')].forEach((node,i)=>{
+        const named=Boolean(node.labels?.length||node.getAttribute('aria-label')?.trim()||
+          node.getAttribute('aria-labelledby')?.trim()||node.getAttribute('title')?.trim());
+        if(!named)add('form-label',node,i,'Control lacks an associated accessible label');
+      });
+      [...document.querySelectorAll('button')].forEach((node,i)=>{
+        const named=Boolean(node.getAttribute('aria-label')?.trim()||node.getAttribute('aria-labelledby')?.trim()||
+          node.getAttribute('title')?.trim()||node.textContent?.trim());
+        if(!named)add('button-name',node,i,'Button lacks an accessible name');
+      });
+      const ids=new Set();
+      [...document.querySelectorAll('[id]')].forEach((node,i)=>{
+        if(ids.has(node.id))add('duplicate-id',node,i,'Duplicate id');
+        ids.add(node.id);
+      });
+      return {issues,count:issues.length,limited:issues.length>=100,engine:'built-in-heuristics',wcagCertified:false};
+    });
+    return ok(report);
+  }
   async closeOne(taskId) {
     const s=this.#get(taskId);
     this.sessions.delete(taskId);
@@ -198,6 +234,11 @@ export class BrowserTools {
     executor('screenshot_compare','Compare two in-task PNG captures using per-pixel RGBA differences and optional channel tolerance.',
       O({before:S('First screenshot ID.'),after:S('Second screenshot ID.'),tolerance:I('Maximum allowed difference per channel.',{minimum:0,maximum:255})},['before','after']),
       (a,ctx)=>this.compare(a,ctx),{readOnly:true});
+    executor('visual_diff','Compare captured PNG images pixel by pixel, with safe task-scoped screenshot IDs.',
+      O({before:S('First screenshot ID.'),after:S('Second screenshot ID.'),tolerance:I('Channel tolerance 0-255.',{minimum:0,maximum:255})},['before','after']),
+      (a,ctx)=>this.compare(a,ctx),{readOnly:true});
+    executor('accessibility_audit','Run basic deterministic accessibility checks (alt, headings, labels, duplicate IDs); not a complete WCAG audit.',
+      O({}), (a,ctx)=>this.accessibility(a,ctx),{readOnly:true});
     executor('responsive_check','Capture PNG screenshots at multiple viewport widths, restoring the initial viewport.',
       O({widths:{type:'array',description:'Viewport widths, up to 3.',items:I('Width in pixels.',{minimum:320,maximum:3840}),minItems:1,maxItems:3},
         height:I('Viewport height in pixels.',{minimum:240,maximum:2160})}),(a,ctx)=>this.responsive(a,ctx));

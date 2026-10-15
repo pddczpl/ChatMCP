@@ -23,13 +23,14 @@ const fake={chromium:{launch:async()=>({newContext:async()=>({
   route:async()=>{},newPage:async()=>({
     on(){},goto:async()=>({status:()=>200}),url:()=>'http://localhost:3007/',
     title:async()=> 'fixture', locator:()=>({first:()=>({click:async()=>{},fill:async()=>{}})}),
-    screenshot:async()=>red,viewportSize:()=>({width:1280,height:800}),setViewportSize:async()=>{},waitForTimeout:async()=>{}
+    screenshot:async()=>red,evaluate:async()=>({issues:[{rule:'image-alt'}],count:1,engine:'built-in-heuristics',wcagCertified:false}),viewportSize:()=>({width:1280,height:800}),setViewportSize:async()=>{},waitForTimeout:async()=>{}
   }),close:async()=>{}
 }),close:async()=>{}})}};
 const driver=new BrowserTools({driver:fake});driver.definitions((name,spec)=>defs.push({name,...spec}));
-assert.ok(defs.length>=11);
+assert.ok(defs.length>=13);
 assert.equal(defs.find(x=>x.name==='browser_fill').category,'execute');
 assert.equal(defs.find(x=>x.name==='screenshot_compare').category,'read');
+assert.equal(defs.find(x=>x.name==='accessibility_audit').category,'read');
 const session={taskId:'task-1'};
 assert.equal((await driver.launch({},session)).structuredContent.status,'launched');
 assert.equal((await driver.navigate({url:'http://localhost:3007/'},session)).structuredContent.status,200);
@@ -37,6 +38,9 @@ const image=await driver.screenshot({},session);const shot=image.structuredConte
 assert.equal(image.content[1].type,'image');
 const comparison=driver.compare({before:shot,after:shot},session);
 assert.equal(comparison.structuredContent.equal,true);
+const audit=await driver.accessibility({},session);
+assert.equal(audit.structuredContent.wcagCertified,false);
+assert.equal(audit.structuredContent.count,1);
 assert.throws(()=>driver.compare({before:shot,after:shot},{taskId:'task-2'}),/session/);
 assert.equal((await driver.closeOne('task-1')).structuredContent.closed,true);
 console.log('PASS browser tools: URL allowlist, fake Playwright lifecycle, image output and PNG pixel comparisons');
