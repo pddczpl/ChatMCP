@@ -1555,15 +1555,35 @@ export class CodeIntelligenceEngine {
   /**
    * 1. Generates a Graph-Ranked Repository Map within a token budget.
    */
-  async generateRepoMap({ path: subPath = '.', maxTokens = 2000, focusFiles = [], query = '' } = {}) {
-    const fileEntries = await this.listSourceFiles(subPath);
+  async generateRepoMap({
+    path: subPath = '.', maxTokens = 2000, focusFiles = [], query = '',
+    quick = false, maxSourceFiles = Infinity, maxSourceDirectories = Infinity,
+    maxParseFiles = Infinity, maxDurationMs = Infinity, signal = null,
+  } = {}) {
+    const deadline = Number.isFinite(maxDurationMs) ? Date.now() + maxDurationMs : Infinity;
+    const check = () => {
+      signal?.throwIfAborted();
+      if (Date.now() > deadline) throw Object.assign(new Error('Automatic Repo Map time budget exceeded.'), { code: 'repo_map_budget_exceeded' });
+    };
+    check();
+    const fileEntries = await this.listSourceFiles(subPath, {
+      maxFiles: maxSourceFiles, maxDirectories: maxSourceDirectories, signal, deadline,
+    });
     const knownSet = new Set(fileEntries.map((f) => f.relPath));
     const records = new Map();
-
+    let processed = 0;
     for (const entry of fileEntries) {
-      const rec = await this.getParsedFile(entry.relPath);
+      check();
+      if (processed >= maxParseFiles) break;
+      processed++;
+      if (quick && processed % 8 === 0) {
+        await new Promise(resolve => setImmediate(resolve));
+        check();
+      }
+      const rec = await this.getParsedFile(entry.relPath, { quick, signal });
       if (rec) records.set(entry.relPath, rec);
     }
+    const partial = Boolean(fileEntries.scanTruncated) || processed < fileEntries.length;
 
     // Build dependency centrality scores (in-degree + out-degree + focus/query boosts)
     const inDegree = new Map();
@@ -1618,7 +1638,7 @@ export class CodeIntelligenceEngine {
     // Render compact Repo Map respecting maxTokens
     const budget = Math.max(250, Number(maxTokens) || 2000);
     const lines = [
-      `# Repository Code Map (${rankedFiles.length} source files analyzed, budget: ~${budget} tokens)`,
+      `# Repository Code Map (${rankedFiles.length} source files analyzed${partial ? ', partial bounded scan' : ''}, budget: ~${budget} tokens)`,
     ];
     let usedTokens = estimateTokens(lines[0]);
     let includedFiles = 0;
@@ -1660,6 +1680,8 @@ export class CodeIntelligenceEngine {
       text: lines.join('\n'),
       structured: {
         totalFiles: rankedFiles.length,
+        partial,
+        scannedFiles: fileEntries.length,
         includedFiles,
         includedSymbols,
         estimatedTokens: usedTokens,
