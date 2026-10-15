@@ -210,6 +210,29 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/studio/file': value=await studio.read({file:pick('file'),maxBytes:Math.min(250000,Number(pick('maxBytes'))||120000)});break;
           case '/api/studio/search': value=await studio.search({query:pick('query'),mode:pick('mode')||'text',limit:Number(pick('limit'))||60});break;
           case '/api/studio/git/status': value=await studio.gitStatus();break;
+          case '/api/studio/git/refs': {
+            const git=studio.gitRunner;
+            const [branchesRun,worktreesRun,branchRun]=await Promise.all([
+              git.text(['for-each-ref','--format=%(refname)\t%(refname:short)','refs/heads'],{timeoutMs:15000}),
+              git.text(['worktree','list','--porcelain'],{timeoutMs:15000}),
+              git.text(['symbolic-ref','--quiet','--short','HEAD'],{timeoutMs:15000}),
+            ]);
+            if(branchesRun.code!==0||worktreesRun.code!==0||branchesRun.truncated||worktreesRun.truncated)
+              throw Object.assign(new Error('Không đọc được danh sách Git refs và worktrees.'),{statusCode:409});
+            const branches=branchesRun.stdout.split(/\r?\n/).filter(Boolean).slice(0,120)
+              .map(line=>{const [ref,name]=line.split('\t');return {ref,name};})
+              .filter(b=>/^refs\/heads\/[A-Za-z0-9._/-]+$/.test(b.ref)&&b.name);
+            const worktrees=worktreesRun.stdout.trim().split(/\r?\n\r?\n/)
+              .filter(Boolean).slice(0,100).map(block=>{
+                const rows=block.split(/\r?\n/);
+                const field=(prefix)=>rows.find(x=>x.startsWith(prefix))?.slice(prefix.length)||null;
+                const gitBranch=field('branch ');
+                return {path:field('worktree '),head:field('HEAD '),
+                  branch:gitBranch?.startsWith('refs/heads/')?gitBranch.slice(11):null};
+              }).filter(x=>x.path);
+            value={branches,worktrees,currentBranch:branchRun.code===0?branchRun.stdout.trim():null};
+            break;
+          }
           case '/api/studio/git/diff': value=await studio.gitDiff({file:pick('file'),staged:pick('staged')==='true'});break;
           case '/api/studio/git/check': value=await studio.gitDiffCheck();break;
           case '/api/studio/checkpoints': value=await studio.checkpoints();break;
