@@ -223,9 +223,12 @@ export class ConcurrentApiAgent {
     if (parentTaskId && (!UUID.test(parentTaskId) || !this.get(parentTaskId)))
       throw fail('invalid_parent', 'Parent task was not found.', 400);
     if (!this.manager.workspace) throw fail('workspace_missing', 'Select a project before starting an agent.');
-    // Preserve the existing first-run contract; new conversations use separate worktrees.
-    if (!parentTaskId && !dependsOn.length && !baseRef && this.primary.state().tasks.length === 0
-        && this.records.size === 0 && !this.primary.activeTaskId)
+    // Preserve established sequential editing workflows: when the main
+    // checkout is idle, a fresh chat may use it. Only overlapping sessions,
+    // explicit branch selections or dependent background agents use isolated
+    // worktrees. This avoids unexpectedly editing a throwaway branch after a
+    // prior chat completed, while never allowing two writers in one checkout.
+    if (!parentTaskId && !dependsOn.length && !baseRef && !this.primary.activeTaskId)
       return this.primary.start({ prompt, attachments });
     const id = randomUUID();
     const record = { id, prompt: prompt.trim(), attachments,
