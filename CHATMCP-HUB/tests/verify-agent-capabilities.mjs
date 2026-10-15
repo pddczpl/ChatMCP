@@ -26,6 +26,7 @@ try {
   assert.equal(denied2.isError,true);
   await assert.rejects(assertPublicUrl('https://169.254.169.254/'),/Private IP/);
   await assert.rejects(assertPublicUrl('https://example.com/',async()=>[{address:'10.0.0.3'}]),/Private or unresolved/);
+  await assert.rejects(assertPublicUrl('https://example.com/',async()=>[{address:'ff02::1'}]),/Private or unresolved/);
   assert.equal(htmlToText('<h1>Hello</h1><script>steal()</script><p>A &amp; B</p>'),'Hello\nA & B');
   assert.equal((await tools.call('test_run',{framework:'invalid'})).isError,true);
   await tools.close();

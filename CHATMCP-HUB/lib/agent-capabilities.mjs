@@ -16,7 +16,7 @@ const ok = (payload, text = null) => ({ isError: false, content: [{type:'text',t
 const fail = (code, message) => Object.assign(new Error(message), { code });
 const isPrivateIP = (address) => {
   const ip = address.toLowerCase().replace(/^\[|\]$/g,'').split('%')[0];
-  if (ip === '::1' || ip === '::' || ip.startsWith('fc') || ip.startsWith('fd') || /^fe[89ab]/.test(ip)) return true;
+  if (ip === '::1' || ip === '::' || ip.startsWith('fc') || ip.startsWith('fd') || ip.startsWith('ff') || /^fe[89ab]/.test(ip)) return true;
   if (ip.startsWith('::ffff:')) return isPrivateIP(ip.slice(7));
   if (net.isIP(ip) === 4) {
     const octets = ip.split('.').map(Number);

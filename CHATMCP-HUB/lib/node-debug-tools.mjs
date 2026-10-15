@@ -13,8 +13,9 @@ const S=(description,extra={})=>({type:'string',description,...extra});
 const I=(description,extra={})=>({type:'integer',description,...extra});
 const fail=(code,message)=>Object.assign(new Error(message),{code});
 const ok=(content)=>({isError:false,content:[{type:'text',text:JSON.stringify(content)}],structuredContent:content});
-const SECRET=/\b(?:api.?key|secret|password|passwd|token|credential|private.?key|authorization|cookie|session)\b/i;
+const SECRET=/(?:^|[^a-z0-9])(?:api_?key|secret|password|passwd|token|credential|private_?key|authorization|cookie|session)(?=$|[^a-z0-9])/i;
 const preview=(value,n=500)=>String(value??'').slice(0,n);
+export const redactDebugValue=(name,value)=>SECRET.test(String(name))?'[REDACTED]':preview(value,300);
 const TIMEOUT=12000;
 
 export class NodeDebugTools {
@@ -172,7 +173,7 @@ export class NodeDebugTools {
     const data=await this.#rpc(s,'Runtime.getProperties',{objectId:target,ownProperties:true,accessorPropertiesOnly:false});
     const values=(data.result||[]).slice(0,60).map(x=>({
       name:preview(x.name,100),type:x.value?.type||null,
-      value:SECRET.test(x.name)?'[REDACTED]':preview(x.value?.value??x.value?.description??'',300),
+      value:redactDebugValue(x.name,x.value?.value??x.value?.description??''),
       writable:!!x.writable,
     }));
     return ok({frame,scope,values,truncated:(data.result?.length||0)>60});
@@ -182,6 +183,8 @@ export class NodeDebugTools {
     const callFrameId=s.paused?.callFrames?.[frame]?.callFrameId;
     if(!callFrameId)throw fail('debug_not_paused','Evaluate requires a paused stack frame.');
     if(!expression||expression.length>1200)throw fail('bad_expression','Expression must be 1-1200 characters.');
+    if(/\bprocess\s*\.\s*env\b|\bglobalThis\s*\.\s*process\b/i.test(expression))
+      throw fail('protected_debug_expression','Reading environment credentials through the debugger is prohibited.');
     // Runtime requests side-effect-free evaluation; PermissionGate still treats this as dangerous.
     const result=await this.#rpc(s,'Debugger.evaluateOnCallFrame',{
       callFrameId,expression,returnByValue:true,throwOnSideEffect:true,timeout:1500,

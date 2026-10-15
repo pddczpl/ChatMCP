@@ -4,7 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { LocalTools } from '../lib/local-tools.mjs';
-import { NodeDebugTools } from '../lib/node-debug-tools.mjs';
+import { NodeDebugTools, redactDebugValue } from '../lib/node-debug-tools.mjs';
+assert.equal(redactDebugValue('DATABASE_PASSWORD','private'),'[REDACTED]');
+assert.equal(redactDebugValue('MY_API_KEY','private'),'[REDACTED]');
+assert.equal(redactDebugValue('value','42'),'42');
 
 const root=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-node-debug-'));
 const taskId='debug-real-node-1';
