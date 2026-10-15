@@ -21,6 +21,10 @@ This upgrade keeps the in-process LocalTools, StudioTools, Skills Hub and Permis
 | Skills | skills_discover | Enumerates local instructions only; does not execute imported scripts. |
 | Token pipeline | token_profile, token_stats, token_restore | Task-isolated, reversible optimization of model-visible tool results; original receipts are persisted by AgentRunner. |
 
+## Direct tool count (adjustable; no <50 gate)
+
+The legacy `verify-local-backend` assertion requiring fewer than 50 function definitions was a local schema-size design choice, **not an API restriction**. The default now advertises **all 95 LocalTools plus four internal router functions = 99**. Environment variable `CHATMCP_DIRECT_TOOL_LIMIT` selects 0..124 direct tools (95 available today); set `48` for providers with smaller context or tool limits, `95` for full exposure. Invalid values revert to 95, and requested values above 124 are capped at 124 to keep the total within 128 functions. Restart the Hub after changing the environment variable. Tool names remain subject to schema validation; remaining tools continue to be listed by `mcp_catalog`, inspected by `mcp_describe` and executed via internal `mcp_call` through PermissionGate. More schemas consume more prompt tokens and may exceed an individual provider's limits; RTK/Headroom output compression does not erase the tokens used by function schemas.
+
 ## RTK + Headroom + Caveman: complementary strategies
 
 This branch implements its **own internal approximation**, rather than installing or redistributing official RTK, Headroom or Caveman binaries/SDKs. Refer to the original projects' licenses before any future vendoring; their licenses and dependency availability must be evaluated independently.
@@ -63,4 +67,4 @@ Profiles: off, safe (default), balanced, aggressive. Optional process environmen
 
 ## Required next acceptance
 
-Run verify-agent-capabilities, verify-browser-tools, verify-lsp-refactor, verify-workflow-extensions, verify-token-optimization, verify-node-debugger and the complete Node test runner. Confirm every CI job on the **exact head SHA** and inspect actual installer artifacts. Validate a clean Windows sandbox and Authenticode certificate separately (not included in this branch). Do not claim full Codex/Claude Code/Antigravity parity based solely on tool registration.
+Run verify-direct-tool-capacity, verify-agent-capabilities, verify-browser-tools, verify-lsp-refactor, verify-workflow-extensions, verify-token-optimization, verify-node-debugger and the complete Node test runner. Confirm every CI job on the **exact head SHA** and inspect actual installer artifacts. Validate a clean Windows sandbox and Authenticode certificate separately (not included in this branch). Do not claim full Codex/Claude Code/Antigravity parity based solely on tool registration.
