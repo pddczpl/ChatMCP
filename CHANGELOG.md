@@ -1,6 +1,16 @@
 # Lịch sử thay đổi
 
-## [3.2.0] — 2026-10-15 — Bundled Windows Code Intelligence (release pending)
+## [3.3.0] — 2026-10-15 — Local Agent Capabilities & Token Optimization
+
+- Expand ChatMCP local coding toolkit to 95 LocalTools with four internal function routers, configurable direct-tool limit (default 95) and improved Gemini text-only schema budgeting. No external MCP client or Hooks were introduced.
+- Add Playwright-driven browser inspection, screenshots, responsive/accessibility checks, local Node inspector debugging, bundled-LSP refactoring previews, build/test discovery and execution, GitHub CI/review/release helpers, safe network/document lookup and workspace tool extensions.
+- Add reversible internal RTK-inspired CLI output reduction, Headroom-style context compaction and Caveman-inspired concise agent messaging; profiles off/safe/balanced/aggressive and local restoration receipts. These are internal techniques, not bundled third-party RTK, Headroom or Caveman applications.
+- Keep PermissionGate, workspace restrictions, tool evidence and model transcripts; provide configurable `CHATMCP_DIRECT_TOOL_LIMIT` to reduce model schema cost when needed.
+- User requested merge and release without checking CI as a publication gate. Installer generation and SHA-256 integrity verification remain required for publication.
+- Windows installer remains unsigned; full clean-Windows Sandbox/VM installation, live paid-model quality and browser runtime across all machines are not certified.
+
+
+## [3.2.0] — 2026-10-15 — Bundled Windows Code Intelligence
 
 - Package pinned TypeScript / Pyright language servers and Tree-sitter WASM grammars for JavaScript, TypeScript, TSX and Python.
 - Include official SHA-256-pinned CPython 3.11.9 embeddable runtime and zero-dependency heuristic fallback.
