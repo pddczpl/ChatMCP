@@ -204,7 +204,7 @@ if ($playwrightPackage.version -ne $playwrightCorePackage.version) {
 }
 $runtimeMarker = '{"name":"chatmcp-browser-runtime","private":true,"type":"commonjs"}'
 [IO.File]::WriteAllText((Join-Path $browserStage 'package.json'), $runtimeMarker, [Text.UTF8Encoding]::new($false))
-& $nodeDestination -e 'const{createRequire}=require("node:module");const{resolve}=require("node:path");const r=createRequire(resolve(process.argv[1],"package.json"));if(!r("playwright").chromium)process.exit(3)' $browserStage
+& $nodeDestination (Join-Path $repoRoot 'scripts\Verify-BrowserRuntime.mjs') $browserStage
 if ($LASTEXITCODE -ne 0) { throw 'Bundled Playwright module load validation failed.' }
 Write-Host "  [OK] Playwright JS $($playwrightPackage.version) staged; Windows Edge/Chromium browser executable remains required." -ForegroundColor Green
 
