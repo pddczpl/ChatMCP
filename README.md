@@ -146,6 +146,7 @@ node .\CHATMCP-HUB\tests\verify-docs.mjs
 Comprehensive documentation across all architecture, implementation, and verification phases:
 
 ### System Architecture and Guides
+- [Bundled Code Intelligence Runtime](docs/CODE-INTELLIGENCE-RUNTIME.md) — Offline LSP, WASM, embedded Python staging, verification and limitations
 - [Architecture](docs/ARCHITECTURE.md) — System components, security model, and task state machine
 - [Windows Setup](docs/WINDOWS-SETUP.md) — Prerequisites, environment variables, and Windows configuration
 - [Desktop Application](docs/DESKTOP-APP.md) — WinForms + WebView2 architecture, packaging, and releases
