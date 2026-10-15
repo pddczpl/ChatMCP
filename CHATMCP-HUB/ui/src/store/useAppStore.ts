@@ -23,6 +23,10 @@ interface AppStore {
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   activeTab: InspectorTab;
+  rightPanelView: 'tasks' | 'inspector';
+  setRightPanelView: (view: 'tasks' | 'inspector') => void;
+  selectedBaseRef: string;
+  setSelectedBaseRef: (ref: string) => void;
   setActiveTab: (tab: InspectorTab) => void;
   commandPaletteOpen: boolean;
   setCommandPaletteOpen: (open: boolean) => void;
@@ -74,7 +78,11 @@ export const useAppStore = create<AppStore>((set) => ({
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   activeTab: 'activity',
-  setActiveTab: (tab) => set({ activeTab: tab }),
+  rightPanelView: 'tasks',
+  setRightPanelView: (rightPanelView) => set({rightPanelView}),
+  selectedBaseRef: '',
+  setSelectedBaseRef: (selectedBaseRef) => set({selectedBaseRef}),
+  setActiveTab: (tab) => set({ activeTab: tab, rightPanelView: 'inspector' }),
   commandPaletteOpen: false,
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
   fullAccessModalOpen: false,
