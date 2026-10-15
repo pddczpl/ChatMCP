@@ -33,7 +33,17 @@ try{
   let a=await get('/api/health');check(a.value.version===VERSION&&a.value.uiBuild===UI_BUILD,'version handshake');
   a=await get('/api/state');csrf=a.value.csrfToken;check(csrf?.length===64,'csrf exists');
   a=await get('/api/studio/intelligence/status');check(a.status===200&&!a.value.indexedAt,'index initially empty');
-  a=await post('/api/studio/intelligence/index');check(a.status===200&&a.value.symbolCount===1,'HTTP AST index built');
+  a=await post('/api/studio/intelligence/index');
+  // On loaded Windows CI hosts, the isolated Python AST worker can fall back
+  // when its initial 12-second startup window expires. Retry the actual AST
+  // build once (force is essential: a failed first pass is cached as fallback).
+  // Do not weaken this check to accept a heuristic-only symbol index.
+  if (a.status !== 200 || a.value.symbolCount !== 1 || a.value.parser !== 'python-ast') {
+    await new Promise(resolve => setTimeout(resolve, 250));
+    a=await post('/api/studio/intelligence/index',{force:true});
+  }
+  check(a.status===200 && a.value.symbolCount===1 && a.value.parser==='python-ast',
+    'HTTP AST index built: HTTP '+a.status+', parser='+a.value.parser+', symbols='+a.value.symbolCount);
   a=await get('/api/studio/intelligence/symbols?query=hello');check(a.status===200&&a.value.matches[0].name==='hello','HTTP symbol search');
   a=await get('/api/studio/intelligence/references?symbol=hello');check(a.status===200&&a.value.matches.some(x=>x.line===4),'HTTP AST references');
   a=await post('/api/studio/intelligence/index',{force:true},{'X-ChatMCP-CSRF':'wrong'});check(a.status===403,'CSRF rejects index mutation');
