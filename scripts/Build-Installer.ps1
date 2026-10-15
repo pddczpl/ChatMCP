@@ -173,6 +173,11 @@ Copy-Item -LiteralPath (Join-Path $intelligenceStage 'runtime-manifest.json') -D
 & $nodeCmd.Path (Join-Path $intelligenceScripts 'verify.mjs') $hubPayload
 if ($LASTEXITCODE -ne 0) { throw 'Offline intelligence installed payload verification failed.' }
 Write-Host '  [OK] Bundled Code Intelligence verified inside installer payload.' -ForegroundColor Green
+# Execute actual bundled Node, TypeScript/Pyright LSP, and embedded Python
+# against fresh local workspaces before the installer is created.
+& $nodeDestination (Join-Path $intelligenceScripts 'test-runtime.mjs') $hubPayload $nodeDestination
+if ($LASTEXITCODE -ne 0) { throw 'Bundled runtime integration test failed.' }
+Write-Host '  [OK] Bundled LSP and CPython worker integration tests passed.' -ForegroundColor Green
 
 # Compress staging directory to installer/payload.zip
 $payloadZip = Join-Path $installerDir 'payload.zip'
