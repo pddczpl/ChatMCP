@@ -18,6 +18,10 @@ assert.equal(decomposeCodingTask('Liệt kê 5 file đầu tiên.'),null,'simple
 const plan=decomposeCodingTask(objective);
 assert.ok(plan && plan.objectives.length>=2 && plan.phases.some(p=>p.id==='edit') && plan.phases.some(p=>p.id==='verify'));
 assert.match(planInstructions(plan),/Work one bounded objective/);
+assert.ok(plan.objectives.every(o=>Array.isArray(o.acceptanceCriteria)&&o.acceptanceCriteria.length>=1));
+assert.deepEqual(plan.objectives[0].dependsOn,[]);
+if(plan.objectives.length>1)assert.deepEqual(plan.objectives[1].dependsOn,['objective-1']);
+assert.equal(updateGoalPlan(plan,{kind:'edit'}).objectives[0].status,'working','host receipt must not satisfy objective automatically');
 assert.equal(plan.phases[0].status,'working');
 const updatedPlan=updateGoalPlan(plan,{kind:'edit'});
 assert.equal(updatedPlan.evidence.edit,1);
