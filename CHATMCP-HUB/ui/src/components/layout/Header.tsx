@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useTranslation } from '@/lib/i18n';
+import { GitWorkspacePicker } from './GitWorkspacePicker';
 
 export function Header() {
   const { data: hub, error } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 2500 });
@@ -83,6 +84,7 @@ export function Header() {
           <Folder className="w-3.5 h-3.5 text-[var(--primary)]" />
           <span className="max-w-[150px] truncate">{shortWs}</span>
         </button>
+        <GitWorkspacePicker workspace={workspacePath === 'Chưa chọn workspace' ? '' : workspacePath} />
       </div>
 
       {/* Center Search / Command Palette */}
