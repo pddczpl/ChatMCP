@@ -97,12 +97,27 @@ ${names.map((name) => `- ${name}`).join('\n')}
 // Everything else stays reachable through the router. A tool that cannot be offered directly is not lost.
 const DIRECT_SERVER = 'local';
 const FUNCTION_NAME = /^[A-Za-z0-9_-]{1,64}$/;
+
+const PREFERRED_DIRECT_TOOLS = new Set([
+  // Broad baseline: keep editing, Git safety, project tests and code navigation directly callable.
+  'read_file','list_directory','find_files','search_files','git_status','git_diff','git_log',
+  'get_plan','update_plan','write_file','edit_file','make_directory','move_path','git_add',
+  'git_commit','git_branch','delete_path','run_command','tasks_run','tasks_status',
+  'tasks_cancel','files_write_batch','files_apply_patch','git_checkout','git_merge',
+  'worktrees_list','worktrees_create','knowledge_search','repo_map','code_symbols',
+  'find_definition','find_references','dependency_graph','code_diagnostics',
+  // The most time-saving new capabilities; the rest remain in the exact internal router catalog.
+  'web_search','web_fetch','browser_launch','browser_navigate','browser_click',
+  'browser_fill','browser_screenshot','test_run','github_workflow_runs','token_restore',
+]);
+const MAX_DIRECT_TOOLS = 44;
 export function directToolsFor(catalog) {
   const functions = [];
   const byName = new Map();
   for (const tool of catalog.tools) {
     if (tool.server !== DIRECT_SERVER) continue;
     const name = tool.originalName;
+    if (!PREFERRED_DIRECT_TOOLS.has(name) || functions.length >= MAX_DIRECT_TOOLS) continue;
     if (typeof name !== 'string' || !FUNCTION_NAME.test(name) || ROUTER_NAMES.has(name) || byName.has(name) || !object(tool.inputSchema)) continue;
     byName.set(name, tool.name);
     functions.push({ type: 'function', name, description: String(tool.description ?? '').slice(0, 1500), parameters: structuredClone(tool.inputSchema), strict: false });
@@ -121,8 +136,9 @@ function catalogToolName(context, name) {
 }
 
 export function createLocalAgentInstructions(catalog, workspace, environment = null) {
-  const direct = catalog.tools.filter((tool) => tool.server === DIRECT_SERVER).map((tool) => tool.originalName);
-  const others = catalog.tools.filter((tool) => tool.server !== DIRECT_SERVER).map((tool) => tool.name).sort();
+  const directlyOffered = directToolsFor(catalog).byName;
+  const direct = [...directlyOffered.keys()];
+  const others = catalog.tools.filter((tool) => !(tool.server === DIRECT_SERVER && directlyOffered.has(tool.originalName))).map((tool) => tool.name).sort();
   const shells = environment?.shells ? Object.keys(environment.shells).filter((name) => environment.shells[name]).join(', ') : '';
   const facts = [
     `Workspace root: ${JSON.stringify(workspace.path)}. Tool paths are relative to it; absolute paths inside it also work.`,
@@ -138,7 +154,10 @@ export function createLocalAgentInstructions(catalog, workspace, environment = n
     { name: 'Terminal & Tasks', tools: ['run_command', 'tasks_run', 'tasks_status', 'tasks_cancel', 'tasks_list'] },
     { name: 'Git & Worktrees', tools: ['git_status', 'git_diff', 'git_add', 'git_commit', 'git_branch', 'git_checkout', 'git_merge', 'worktrees_create', 'worktrees_list', 'worktrees_remove'] },
     { name: 'Plan & Knowledge', tools: ['update_plan', 'knowledge_create', 'knowledge_list', 'knowledge_search'] },
-    { name: 'GitHub Integration', tools: ['github_read', 'github_action'] },
+    { name: 'GitHub Integration', tools: ['github_read', 'github_action', 'github_workflow_runs'] },
+    { name: 'Research', tools: ['web_search', 'web_fetch'] },
+    { name: 'Browser E2E', tools: ['browser_launch','browser_navigate','browser_click','browser_fill','browser_screenshot'] },
+    { name: 'Test & Tokens', tools: ['test_run','token_restore'] },
   ];
   const categorizedLines = [];
   const handled = new Set();
@@ -179,7 +198,7 @@ Use real tool results as evidence. Never claim a file changed, a test passed or 
 TOOLS
 You call these directly (categorized by role):
 ${categorizedLines.join('\n')}
-For direct calls use the listed short name (for example read_file). For mcp_describe or mcp_call, prefer the exact qualified name returned by mcp_catalog (for example local.read_file); do not invent server prefixes.
+For directly offered calls use the listed short name (for example read_file). Other internal tools remain available through mcp_catalog, mcp_describe and mcp_call; call them by their full names (e.g. local.test_discover). Do not assume a tool is missing merely because it is not one of the directly offered tools. The reduced direct-tool set avoids wasting model context on unused schemas.
 ${others.length ? `\nMore tools are reachable through mcp_catalog, mcp_describe and mcp_call (exact names below):\n${others.map((name) => `- ${name}`).join('\n')}\n` : ''}`;
 }
 
