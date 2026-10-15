@@ -19,6 +19,7 @@ export async function verifyRuntime(root) {
     'runtimes/lsp/node_modules/pyright/langserver.index.js',
     'runtimes/lsp/node_modules/typescript-language-server/lib/cli.mjs',
     'runtimes/lsp/node_modules/typescript/lib/typescript.js',
+    'runtimes/lsp/node_modules/typescript/lib/tsserver.js',
     'runtimes/lsp/node_modules/web-tree-sitter/tree-sitter.js',
     'grammars/tree-sitter-javascript.wasm',
     'grammars/tree-sitter-typescript.wasm',

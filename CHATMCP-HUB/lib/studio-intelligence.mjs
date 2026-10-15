@@ -192,8 +192,15 @@ export class CodeIntelligence {
       const exe=hasBundled?(await isFile(node)?node:process.execPath)
         :(language==='python'?'pyright-langserver':'typescript-language-server');
       const args=hasBundled?[entry,'--stdio']:['--stdio'];
+      const bundledTsserver=path.join(packaged,'typescript','lib','tsserver.js');
+      if (language==='typescript' && hasBundled && !await isFile(bundledTsserver)) {
+        throw fail('Bundled TypeScript tsserver.js is missing.',503);
+      }
       const client=new LspProcess({
         root:await this.root(),exe,args,
+        initializationOptions:language==='typescript' && hasBundled
+          ? {disableAutomaticTypingAcquisition:true,tsserver:{path:bundledTsserver}}
+          : undefined,
         onDiagnostics:(uri,diagnostics)=>this.diagnostics.set(uri,diagnostics),
       });
       this.lsp.set(language,client);
@@ -226,13 +233,15 @@ export class CodeIntelligence {
   close(){for(const client of this.lsp.values())client.close();this.lsp.clear();}
 }
 export class LspProcess {
-  constructor({root,exe,args=[],onDiagnostics=()=>{},spawnProcess=spawn}={}){this.root=root;this.exe=exe;this.args=args;this.spawnProcess=spawnProcess;this.onDiagnostics=onDiagnostics;this.pending=new Map();this.counter=0;this.buffer=Buffer.alloc(0);this.ready=false;this.state='stopped';this.openFiles=new Map();}
+  constructor({root,exe,args=[],initializationOptions=null,onDiagnostics=()=>{},spawnProcess=spawn}={}){this.root=root;this.exe=exe;this.args=args;this.initializationOptions=initializationOptions;this.spawnProcess=spawnProcess;this.onDiagnostics=onDiagnostics;this.stderrTail='';this.serverMessages=[];this.pending=new Map();this.counter=0;this.buffer=Buffer.alloc(0);this.ready=false;this.state='stopped';this.openFiles=new Map();}
   async start(){this.state='starting';
     this.child=this.spawnProcess(this.exe,this.args,{cwd:this.root,windowsHide:true,shell:false,stdio:['pipe','pipe','pipe']});
-    this.child.stdout.on('data',chunk=>this.consume(chunk));this.child.stderr.on('data',()=>{});this.child.stdin.on('error',()=>{});
+    this.child.stdout.on('data',chunk=>this.consume(chunk));
+    this.child.stderr.on('data',chunk=>{this.stderrTail=(this.stderrTail+String(chunk)).slice(-1200);});
+    this.child.stdin.on('error',()=>{});
     const died=e=>{this.state='stopped';this.ready=false;for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(fail(`LSP process stopped: ${e?.message||''}`,503));}this.pending.clear();};
     this.child.once('error',died);this.child.once('close',()=>died());
-    await this.request('initialize',{processId:process.pid,rootUri:pathToFileURL(this.root).href,rootPath:this.root,workspaceFolders:[{uri:pathToFileURL(this.root).href,name:path.basename(this.root)}],capabilities:{textDocument:{definition:{},references:{},hover:{},documentSymbol:{}}}},8000);
+    await this.request('initialize',{processId:process.pid,rootUri:pathToFileURL(this.root).href,rootPath:this.root,workspaceFolders:[{uri:pathToFileURL(this.root).href,name:path.basename(this.root)}],initializationOptions:this.initializationOptions||undefined,capabilities:{textDocument:{definition:{},references:{},hover:{},documentSymbol:{}}}},8000);
     this.notify('initialized',{});this.ready=true;this.state='ready';
   }
   send(data){if(!this.child?.stdin?.writable)throw fail('LSP stdin chưa sẵn sàng.',503);
@@ -259,6 +268,10 @@ export class LspProcess {
         else if(value.method==='workspace/workspaceFolders')result=[{uri:pathToFileURL(this.root).href,name:path.basename(this.root)}];
         else if(value.method==='workspace/applyEdit')result={applied:false,failureReason:'Host edits require explicit Studio review'};
         this.send({jsonrpc:'2.0',id:value.id,result});continue;
+      }
+      if(value.method==='window/logMessage'||value.method==='window/showMessage'){
+        this.serverMessages.push(String(value.params?.message||'').slice(0,400));
+        if(this.serverMessages.length>20)this.serverMessages.shift();
       }
       if(value.method==='textDocument/publishDiagnostics')this.onDiagnostics(value.params?.uri,value.params?.diagnostics||[]);
       if(value.id!==undefined){const waiting=this.pending.get(value.id);if(waiting){clearTimeout(waiting.timer);this.pending.delete(value.id);value.error?waiting.reject(fail(`LSP: ${value.error.message}`)):waiting.resolve(value.result);}}

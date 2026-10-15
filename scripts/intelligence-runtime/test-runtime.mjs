@@ -21,26 +21,40 @@ async function checkLsp(language, entry, files, queryName) {
   const workspace = path.join(temp, language);
   await fs.mkdir(workspace, { recursive: true });
   for (const [name, content] of Object.entries(files)) await fs.writeFile(path.join(workspace, name), content);
-  const client = new LspProcess({root:workspace,exe:nodeExe,args:[path.join(packageRoot, entry),'--stdio']});
+  const initializationOptions = language === 'typescript' ? {
+    disableAutomaticTypingAcquisition: true,
+    tsserver: {path: path.join(packageRoot, 'typescript', 'lib', 'tsserver.js')},
+  } : null;
+  const client = new LspProcess({
+    root:workspace,exe:nodeExe,args:[path.join(packageRoot,entry),'--stdio'],initializationOptions,
+  });
   try {
     await client.start();
     const mainName = language === 'python' ? 'main.py' : 'main.ts';
     const mainText = files[mainName];
     const uri = pathToFileURL(path.join(workspace,mainName)).href;
+    // Provide the imported source as a real open document, then the importer;
+    // this works even while the TypeScript project scanner warms up.
+    const utilName=language==='python'?'util.py':'util.ts';
+    const utilUri=pathToFileURL(path.join(workspace,utilName)).href;
+    client.open(utilUri,files[utilName],language);
     client.open(uri,mainText,language);
     const row = mainText.split('\n')[1];
     const character = row.indexOf(queryName) + 1;
     assert(character > 0, 'Fixture symbol must be present.');
     const args = {textDocument:{uri},position:{line:1,character}};
     let definitions = null;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      await delay(350);
+    for (let attempt = 0; attempt < 16; attempt++) {
+      await delay(450);
       definitions = await client.request('textDocument/definition',args,20000);
       if (definitions && (Array.isArray(definitions) ? definitions.length : true)) break;
     }
     const locations=Array.isArray(definitions)?definitions:[definitions].filter(Boolean);
     assert(locations.some(loc=>String(loc?.uri||loc?.targetUri||'').endsWith(language==='python'?'/util.py':'/util.ts')),
-      language + ' bundled LSP must resolve cross-file definition');
+      language + ' bundled LSP must resolve cross-file definition; actual='
+      + JSON.stringify(locations).slice(0,1100) + '; messages='
+      + JSON.stringify(client.serverMessages).slice(0,1000)
+      + '; stderr=' + client.stderrTail.slice(0,700));
     const references=await client.request('textDocument/references',
       {...args,context:{includeDeclaration:true}},20000);
     assert(Array.isArray(references) && references.length>0,language+' bundled LSP must find references');
