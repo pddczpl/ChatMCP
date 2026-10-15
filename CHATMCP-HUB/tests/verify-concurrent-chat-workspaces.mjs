@@ -40,10 +40,18 @@ try {
   await manager.startLocal(repo);
   const provider={
     ready:()=>true,snapshot:()=>({provider:'fake',model:'mock'}),
-    async respond({input}){
+    async respond({input,tools=[]}){
       const firstUser=input.find(x=>x?.role==='user'&&Array.isArray(x.content));
       const contents=(firstUser?.content||[]).map(x=>x?.text||'').join(' ');
       const name=contents.includes('Task A')?'A':contents.includes('Task B')?'B':'C';
+      if(contents.includes('Delegate D') &&
+        !input.some(item=>item?.type==='function_call_output')) {
+        assert.ok(tools.some(tool=>tool.name==='spawn_agent'),
+          'main agent must advertise spawn_agent as a callable tool');
+        return {status:'completed',output:[{type:'function_call',status:'completed',
+          name:'spawn_agent',call_id:'auto-spawn-fixture',
+          arguments:JSON.stringify({goal:'Task D: inspect README as an independent child'})}]};
+      }
       if((name==='A'||name==='B')&&!arrived.has(name))await hold(name);
       return {status:'completed',output:[{type:'message',role:'assistant',phase:'final',
         content:[{type:'output_text',text:'Task '+name+' completed.'}]}]};
@@ -94,6 +102,17 @@ try {
   manager.permissions.decide(approval.id,true);
   await until(()=>pool.get(accepted.id)?.status==='completed','review-approved child completes');
   assert.ok(pool.get(accepted.id).worktree,'approved task owns a separate worktree');
+
+  // Model-driven delegation from an ordinary chat: no separate assistant form.
+  manager.permissions.mode='autonomous';
+  const parent=await pool.start({prompt:'Delegate D: create an independent background agent.'});
+  await until(()=>pool.state().tasks.some(t=>t.parentTaskId===parent.id),'model spawned child task');
+  const delegated=pool.state().tasks.find(t=>t.parentTaskId===parent.id);
+  assert.ok(delegated,'spawn tool must create a visible parent-linked task');
+  await until(()=>pool.get(parent.id)?.status==='completed','delegating parent completes');
+  await until(()=>pool.get(delegated.id)?.status==='completed','delegated child completes');
+  assert.notEqual(pool.get(delegated.id)?.workspace?.path,repo,
+    'delegated child must not modify the main checkout');
   await pool.shutdown();
 
   assert.equal(buildUserAttachmentParts([{name:'hello.md',mimeType:'text/markdown',dataBase64:Buffer.from('A text file').toString('base64')}]).parts[0].type,'input_text');
