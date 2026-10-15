@@ -163,6 +163,34 @@ test('saving a custom endpoint twice retains its canonical provider and saved fi
   expect((await app.hub.state()).agent.tasks).toHaveLength(0);
 });
 
+test('switching custom Gemini to custom OpenAI on the same gateway persists protocol without re-entering key', async ({ page, app }) => {
+  await onboard(page, app);
+  await page.getByRole('button', { name:'AI Model',exact:true }).click();
+  await page.getByRole('button', { name:'Custom (Gemini)',exact:true }).click();
+  await page.getByLabel('API base URL', {exact:true}).fill(app.mock.url);
+  await page.getByLabel('Model', {exact:true}).fill('cx/gpt-6-astra');
+  await page.getByLabel('API key', {exact:true}).fill('E2E-DUMMY-GATEWAY-SECRET');
+  await page.getByRole('button', {name:'Lưu cấu hình',exact:true}).click();
+  await expect.poll(async()=>{
+    const ai=(await app.hub.state()).ai;
+    return {preset:ai.preset,protocol:ai.protocol,keySource:ai.keySource};
+  }).toEqual({preset:'custom-gemini',protocol:'gemini',keySource:'saved'});
+  const original=(await app.hub.state()).ai;
+  await page.getByRole('button', {name:'Custom (OpenAI)',exact:true}).click();
+  await expect(page.getByLabel('API base URL',{exact:true})).toHaveValue(original.apiBaseUrl);
+  await expect(page.getByLabel('Model',{exact:true})).toHaveValue('cx/gpt-6-astra');
+  await expect(page.getByRole('status').filter({hasText:'Chưa áp dụng cấu hình mới'})).toContainText('custom-gemini / gemini');
+  await page.getByRole('button', {name:'Lưu cấu hình',exact:true}).click();
+  await expect.poll(async()=>{
+    const ai=(await app.hub.state()).ai;
+    return {preset:ai.preset,protocol:ai.protocol,keySource:ai.keySource,base:ai.apiBaseUrl,model:ai.model};
+  }).toEqual({
+    preset:'custom-openai',protocol:'openai-chat',keySource:'saved',
+    base:original.apiBaseUrl,model:'cx/gpt-6-astra',
+  });
+  await expect(page.getByRole('status').filter({hasText:'Chưa áp dụng cấu hình mới'})).toHaveCount(0);
+});
+
 test('Stop, Resume and Hub restart preserve the same read-only conversation', async ({ page, context, app, browserErrors }) => {
   await onboard(page, app);
   app.mock.define('slow-read', async ({ turn }) => {
