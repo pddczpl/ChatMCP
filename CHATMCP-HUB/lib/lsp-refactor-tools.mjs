@@ -2,7 +2,7 @@
 // Preview is default. Single-file mutations require PermissionGate approval, SHA, and a host checkpoint.
 import fs from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import { isProtectedPath } from './protected-paths.mjs';
 import { writeFileAtomic } from './fs-safe.mjs';
 const O=(properties,required=[])=>({type:'object',properties,required,additionalProperties:false});
@@ -45,6 +45,43 @@ function normalizeEdits(response,uri) {
     return {files:changes.map(x=>x.textDocument?.uri||x.uri||'<resource-operation>'),edits:changes.length===1&&changes[0].textDocument?.uri===uri?changes[0].edits:[]};
   }
   throw fail('unsupported_workspace_edit','Unsupported LSP WorkspaceEdit shape.');
+}
+// Multi-file LSP rename previews are proof-bearing and read-only. Reject all
+// resource operations and outside-workspace URIs: permission and checkpoint
+// enforcement for a later atomic multi-file apply are intentionally separate.
+export async function previewLspWorkspaceEdits(workspace, response) {
+  let entries;
+  if(response?.changes && typeof response.changes==='object' && !Array.isArray(response.changes))
+    entries=Object.entries(response.changes).map(([uri,edits])=>({uri,edits}));
+  else if(Array.isArray(response?.documentChanges))
+    entries=response.documentChanges.map(change=>{
+      if(!change?.textDocument?.uri||!Array.isArray(change.edits))
+        throw fail('unsupported_workspace_edit','Resource operations are not previewed as file edits.');
+      return {uri:change.textDocument.uri,edits:change.edits};
+    });
+  else throw fail('unsupported_workspace_edit','Expected changes or documentChanges in LSP rename result.');
+  if(entries.length>12)throw fail('too_many_lsp_files','WorkspaceEdit exceeds 12 files; narrow the operation.');
+  const seen=new Set(),results=[];
+  for(const {uri,edits} of entries) {
+    if(typeof uri!=='string'||!uri.startsWith('file://')||seen.has(uri))
+      throw fail('unsafe_lsp_uri','Duplicate or non-file URI in WorkspaceEdit.');
+    seen.add(uri);
+    let absolute;
+    try{absolute=fileURLToPath(uri);}catch{throw fail('unsafe_lsp_uri','Invalid LSP file URI.');}
+    const target=await workspace.resolve(absolute);
+    if(!target.relative||isProtectedPath(target.relative))
+      throw fail('protected_path','LSP WorkspaceEdit targets a protected or outside-workspace file.');
+    const stat=await fs.lstat(target.absolute);
+    if(!stat.isFile()||stat.isSymbolicLink()||stat.nlink!==1||stat.size>300000)
+      throw fail('bad_source','WorkspaceEdit source must be a regular unlinked file under 300KB.');
+    const original=await fs.readFile(target.absolute,'utf8');
+    const preview=applyLspTextEdits(original,edits);
+    results.push({file:target.relative,edits:edits.length,
+      beforeSha256:createHash('sha256').update(original).digest('hex'),
+      afterSha256:createHash('sha256').update(preview).digest('hex'),
+      changed:original!==preview,preview:preview.slice(0,1400)});
+  }
+  return {previewOnly:true,multiFile:results.length>1,files:results,fileCount:results.length,changesApplied:0};
 }
 function boundedResult(value) {
   const serialized=JSON.stringify(value);
@@ -106,6 +143,7 @@ export class SemanticTools {
     const normalized=normalizeEdits(workspaceEdit,uri);
     const extra=normalized.files.some(f=>f!==uri);
     if(apply&&extra)throw fail('cross_file_preview_only','LSP proposed a multi-file edit; preview it and apply with a reviewable patch. Automatic multi-file edits are refused.');
+    if(extra&&!apply)return ok({operation:op,uri,...await previewLspWorkspaceEdits(this.workspace,workspaceEdit)});
     const preview=normalized.edits.length?applyLspTextEdits(ctx.source,normalized.edits):ctx.source;
     if(!apply)return ok({operation:op,uri,previewOnly:true,files:normalized.files,edits:normalized.edits.length,
       beforeSha256:ctx.sha256,afterSha256:createHash('sha256').update(preview).digest('hex'),
