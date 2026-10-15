@@ -1054,7 +1054,10 @@ export class CodeIntelligenceEngine {
     }
     try {
       if (!this._treeSitterInitPromise) {
-        this._treeSitterInitPromise = import('web-tree-sitter')
+        const hubRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+        const bundledModule = path.join(hubRoot, 'runtimes', 'lsp', 'node_modules', 'web-tree-sitter', 'web-tree-sitter.js');
+        const moduleSpecifier = fsSync.existsSync(bundledModule) ? pathToFileURL(bundledModule).href : 'web-tree-sitter';
+        this._treeSitterInitPromise = import(moduleSpecifier)
           .then(async (mod) => {
             const Parser = mod.Parser || mod.default;
             const Language = mod.Language || Parser?.Language;
@@ -1201,6 +1204,13 @@ export class CodeIntelligenceEngine {
     if (this._resolvedPythonExe) return this._resolvedPythonExe;
     const hubDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
     const repoRoot = path.resolve(hubDir, '..');
+    const bundledPython = path.join(hubDir, 'runtimes', 'python', 'python.exe');
+    if (process.platform === 'win32' && fsSync.existsSync(bundledPython)) {
+      this._resolvedPythonExe = bundledPython;
+      return bundledPython;
+    }
+    // An installed product must never fall back to an unrelated PATH interpreter.
+    if (fsSync.existsSync(path.join(hubDir, 'runtime-manifest.json'))) return null;
     const candidates = [
       process.env.CHATMCP_PYTHON_EXE,
       path.join(repoRoot, 'runtime', 'python', 'python.exe'),
@@ -1237,6 +1247,7 @@ export class CodeIntelligenceEngine {
     try {
       const workerScript = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'workers', 'python_index.py');
       const pythonExe = this._resolvePythonExecutable();
+      if (!pythonExe) return null;
       const sourceText = rawLines.join('\n');
       if (sourceText.length > 2_000_000) return null;
       const normalizedRel = toPosix(relPath);

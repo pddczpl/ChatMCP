@@ -56,6 +56,8 @@ export function assembleStudio(manager, { bundleRoot, exec = null }) {
   manager.verification = new StudioVerification({ workspace: manager.studio, terminal: manager.terminal, directory: path.join(studioDirectory, 'verifications'), secrets });
   manager.permissions = new PermissionGate({ manager, workspace: manager.studio, directory: studioDirectory });
   manager.verification.permissions = manager.permissions;
+  // Host LSP processes are disallowed while sandbox-only execution is selected.
+  manager.intelligence.canSpawnLanguageServer = () => manager.permissions.executionPolicy !== 'sandbox-only';
   manager.studioTools = new StudioTools({ workspace: manager.studio, gate: manager.permissions, intelligence: manager.intelligence });
   const localOptions = { workspace: manager.studio, stateDirectory: localDirectory, secrets, studioIntelligence: manager.intelligence };
   if (exec) {

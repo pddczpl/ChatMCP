@@ -14,6 +14,7 @@ const EXT=new Set(['.py','.js','.jsx','.ts','.tsx','.mjs','.cjs']);
 const PRIVATE=/^(?:\.env(?:\..*)?|id_rsa|id_ed25519|.*\.(?:pem|p12|pfx|key)|credentials\.json|secrets?\.json)$/i;
 const fail=(message,statusCode=400)=>Object.assign(new Error(message),{statusCode});
 const digest=s=>createHash('sha256').update(s).digest('hex');
+const isFile = async p => await fs.stat(p).then(s=>s.isFile()).catch(()=>false);
 function fallbackSymbols(filename,source){
   const lines=source.split(/\r?\n/),symbols=[],references=[];
   for(let i=0;i<lines.length;i++){
@@ -35,7 +36,7 @@ async function spawnJson(exe,args,input,{cwd,timeout=12000,env=scrubEnv(process.
 }
 export class CodeIntelligence {
   constructor({workspace,directory,bundleRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..')}={}){
-    this.workspace=workspace;this.directory=directory;this.bundleRoot=bundleRoot;this.cache=null;this.pending=null;this.lsp=new Map();this.diagnostics=new Map();
+    this.workspace=workspace;this.directory=directory;this.bundleRoot=bundleRoot;this.cache=null;this.pending=null;this.lsp=new Map();this.lspStarting=new Map();this.diagnostics=new Map();this.lastEngineHealth=null;
   }
   async root(){return await fs.realpath(this.workspace.requireRoot());}
   async files(max=1800){
@@ -68,13 +69,19 @@ export class CodeIntelligence {
     }
     // Python sources analyzed in a separate process using AST, never imported.
     // A missing Python executable results in explicit degraded heuristics.
-    const pythonExe=process.platform==='win32'?'py':'python3';let parser='python-ast';
+    const embedded = path.join(this.bundleRoot, 'runtimes', 'python', 'python.exe');
+    const installed = await isFile(path.join(this.bundleRoot, 'runtime-manifest.json'));
+    const bundled = process.platform === 'win32' && await isFile(embedded);
+    const pythonExe = bundled ? embedded : (installed ? null : (process.platform === 'win32' ? 'py' : 'python3'));
+    let parser='python-ast';
     for(let i=0;i<python.length;i+=40){const batch=python.slice(i,i+40);
       try{
         // -I (isolated): no PYTHONPATH, no user site, and neither the script's folder nor the working directory (the project, which is
         // not trusted) is put on the import path, so a file named like a standard module cannot be picked up by the indexer.
-        const argv=process.platform==='win32'?['-3.11','-I',path.join(this.bundleRoot,'workers','python_index.py')]:['-I',path.join(this.bundleRoot,'workers','python_index.py')];
-        const result=await spawnJson(pythonExe,argv,{files:batch.map(x=>({path:x.path,source:x.source}))},{cwd:root});
+        if (!pythonExe) throw fail('Bundled CPython missing from installed Code Intelligence Runtime.',503);
+        const worker = path.join(this.bundleRoot, 'workers', 'python_index.py');
+        const argv=bundled?['-I','-X','utf8',worker]:process.platform==='win32'?['-3.11','-I',worker]:['-I',worker];
+        const result=await spawnJson(pythonExe,argv,{schemaVersion:1,files:batch.map(x=>({path:x.path,source:x.source}))},{cwd:root});
         for(const f of result.files){const src=batch.find(x=>x.path===f.path);entries.push({...f,size:src.size,mtimeMs:src.mtimeMs,sha256:digest(src.source),precision:'ast'});}
       }catch(error){parser='fallback';for(const src of batch)entries.push({...fallbackSymbols(src.path,src.source),size:src.size,mtimeMs:src.mtimeMs,sha256:digest(src.source)});}
     }
@@ -83,7 +90,7 @@ export class CodeIntelligence {
     return {root,indexedAt:cache.indexedAt,fileCount:entries.length,symbolCount:entries.reduce((n,x)=>n+x.symbols.length,0),reused:retained,partial:cache.truncated,parser};
   }
   async status(){const root=await this.root();const saved=await this.#load(root);
-    return {indexedAt:saved?.indexedAt??null,fileCount:saved?.entries?.length||0,symbolCount:saved?.entries?.reduce((n,x)=>n+x.symbols.length,0)||0,parser:saved?.parser??'not-indexed',lsp:[...this.lsp].map(([language,client])=>({language,state:client.ready?'ready':client.state,executable:client.exe})),capabilities:{index:true,pythonAst:true,preciseNavigation:'requires external LSP',supportedServers:['pyright-langserver','typescript-language-server']}};
+    return {indexedAt:saved?.indexedAt??null,fileCount:saved?.entries?.length||0,symbolCount:saved?.entries?.reduce((n,x)=>n+x.symbols.length,0)||0,parser:saved?.parser??'not-indexed',lsp:[...this.lsp].map(([language,client])=>({language,state:client.ready?'ready':client.state,executable:client.exe})),capabilities:{index:true,pythonAst:true,preciseNavigation:'bundled LSP available after successful initialization',supportedServers:['pyright-langserver','typescript-language-server']},engineHealth:this.lastEngineHealth};
   }
   async symbols({query='',limit=100}={}){const root=await this.root();if(!await this.#load(root))await this.index();const q=String(query).toLowerCase().trim();
     return {matches:this.cache.entries.flatMap(f=>(f.symbols||[]).filter(s=>!q||s.name.toLowerCase().includes(q)).map(s=>({path:f.path,...s,precision:f.precision||'heuristic'}))).slice(0,Math.min(300,Number(limit)||100)),indexedAt:this.cache.indexedAt};
@@ -94,13 +101,43 @@ export class CodeIntelligence {
   }
   async definitions({symbol}={}){return await this.symbols({query:String(symbol||''),limit:300}).then(x=>({...x,matches:x.matches.filter(y=>y.name===symbol)}));}
   async lspStart({language='python'}={}){
-    if(!['python','typescript'].includes(language))throw fail('LSP language không hỗ trợ.');
-    const old=this.lsp.get(language);if(old?.ready)return {ready:true,language,detail:'Đã kết nối'};
-    old?.close();const program=language==='python'?['pyright-langserver',['--stdio']]:['typescript-language-server',['--stdio']];
-    const client=new LspProcess({root:await this.root(),exe:program[0],args:program[1],onDiagnostics:(uri,diagnostics)=>this.diagnostics.set(uri,diagnostics)});
-    this.lsp.set(language,client);
-    try{await client.start();return {ready:true,language,executable:client.exe};}
-    catch(error){client.close();this.lsp.delete(language);throw fail(`Không mở được ${program[0]}. Cài language server trên Windows hoặc dùng AST index: ${error.message}`,503);}
+    if (!['python','typescript'].includes(language)) throw fail('LSP language unsupported.');
+    if (this.canSpawnLanguageServer && !this.canSpawnLanguageServer()) {
+      throw fail('Host language servers are prohibited by sandbox-only execution policy.',403);
+    }
+    const existing=this.lsp.get(language);
+    if (existing?.ready) return {ready:true,language,detail:'Already initialized',executable:existing.exe};
+    if (this.lspStarting.has(language)) return await this.lspStarting.get(language);
+    const running=(async()=>{
+      existing?.close();
+      const packaged=path.join(this.bundleRoot,'runtimes','lsp','node_modules');
+      const entry=language==='python'
+        ?path.join(packaged,'pyright','langserver.index.js')
+        :path.join(packaged,'typescript-language-server','lib','cli.mjs');
+      const installed=await isFile(path.join(this.bundleRoot,'runtime-manifest.json'));
+      const hasBundled=await isFile(entry);
+      if (installed && !hasBundled) throw fail('Installed bundled LSP executable is missing.',503);
+      const node=path.resolve(this.bundleRoot,'..','runtimes','node','node.exe');
+      if (installed && !await isFile(node)) throw fail('Installed bundled Node executable is missing.',503);
+      const exe=hasBundled?(await isFile(node)?node:process.execPath)
+        :(language==='python'?'pyright-langserver':'typescript-language-server');
+      const args=hasBundled?[entry,'--stdio']:['--stdio'];
+      const client=new LspProcess({
+        root:await this.root(),exe,args,
+        onDiagnostics:(uri,diagnostics)=>this.diagnostics.set(uri,diagnostics),
+      });
+      this.lsp.set(language,client);
+      try{
+        await client.start();
+        return {ready:true,language,executable:exe,source:hasBundled?'bundled':'developer-path'};
+      }catch(error){
+        client.close();
+        this.lsp.delete(language);
+        throw fail('Language server initialization failed: '+error.message,503);
+      }
+    })();
+    this.lspStarting.set(language,running);
+    try{return await running;}finally{this.lspStarting.delete(language);}
   }
   async lspRequest({language='python',method='definition',file,line=1,column=1}={}){
     if(!['python','typescript'].includes(language)||!['definition','references','hover','documentSymbol','diagnostics'].includes(method))throw fail('LSP method không hợp lệ.');
@@ -108,7 +145,9 @@ export class CodeIntelligence {
     const source=await this.workspace.read({file:resolved.relative,maxBytes:250000});
     const uri=pathToFileURL(resolved.absolute).href;
     if(method==='diagnostics')return {uri,diagnostics:this.diagnostics.get(uri)||[]};
-    const client=this.lsp.get(language);if(!client?.ready)throw fail(`Language server ${language} chưa chạy; hãy bấm Khởi động LSP.`,409);
+    if (!this.lsp.get(language)?.ready) await this.lspStart({language});
+    const client=this.lsp.get(language);
+    if (!client?.ready) throw fail('Bundled LSP not ready.',503);
     client.open(uri,source.content,language==='python'?'python':/\.[cm]?jsx?$/.test(resolved.relative)?'javascript':'typescript');
     const pos={line:Math.max(0,Number(line)-1),character:Math.max(0,Number(column)-1)};
     const values={definition:['textDocument/definition',{textDocument:{uri},position:pos}],references:['textDocument/references',{textDocument:{uri},position:pos,context:{includeDeclaration:true}}],hover:['textDocument/hover',{textDocument:{uri},position:pos}],documentSymbol:['textDocument/documentSymbol',{textDocument:{uri}}]};
@@ -117,7 +156,7 @@ export class CodeIntelligence {
   close(){for(const client of this.lsp.values())client.close();this.lsp.clear();}
 }
 export class LspProcess {
-  constructor({root,exe,args=[],onDiagnostics=()=>{},spawnProcess=spawn}={}){this.root=root;this.exe=exe;this.args=args;this.spawnProcess=spawnProcess;this.onDiagnostics=onDiagnostics;this.pending=new Map();this.counter=0;this.buffer=Buffer.alloc(0);this.ready=false;this.state='stopped';this.openFiles=new Set();}
+  constructor({root,exe,args=[],onDiagnostics=()=>{},spawnProcess=spawn}={}){this.root=root;this.exe=exe;this.args=args;this.spawnProcess=spawnProcess;this.onDiagnostics=onDiagnostics;this.pending=new Map();this.counter=0;this.buffer=Buffer.alloc(0);this.ready=false;this.state='stopped';this.openFiles=new Map();}
   async start(){this.state='starting';
     this.child=this.spawnProcess(this.exe,this.args,{cwd:this.root,windowsHide:true,shell:false,stdio:['pipe','pipe','pipe']});
     this.child.stdout.on('data',chunk=>this.consume(chunk));this.child.stderr.on('data',()=>{});this.child.stdin.on('error',()=>{});
@@ -155,8 +194,13 @@ export class LspProcess {
       if(value.id!==undefined){const waiting=this.pending.get(value.id);if(waiting){clearTimeout(waiting.timer);this.pending.delete(value.id);value.error?waiting.reject(fail(`LSP: ${value.error.message}`)):waiting.resolve(value.result);}}
     }
   }
-  open(uri,text,languageId){if(this.openFiles.has(uri)){this.notify('textDocument/didChange',{textDocument:{uri,version:Date.now()},contentChanges:[{text}]});return;}
-    this.openFiles.add(uri);this.notify('textDocument/didOpen',{textDocument:{uri,languageId,version:1,text}});
+  open(uri,text,languageId){const previous=this.openFiles.get(uri);
+    if(previous){if(previous.text!==text){const version=previous.version+1;this.openFiles.set(uri,{version,text});this.notify('textDocument/didChange',{textDocument:{uri,version},contentChanges:[{text}]});}return;}
+    this.openFiles.set(uri,{version:1,text});this.notify('textDocument/didOpen',{textDocument:{uri,languageId,version:1,text}});
   }
-  close(){this.ready=false;this.state='stopped';try{this.child?.kill();}catch{}for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(fail('LSP stopped',503));}this.pending.clear();}
+  closeDocument(uri){if(!this.openFiles.has(uri))return;this.openFiles.delete(uri);this.notify('textDocument/didClose',{textDocument:{uri}});}
+  close(){this.ready=false;this.state='stopped';
+    for(const uri of this.openFiles.keys()){try{this.notify('textDocument/didClose',{textDocument:{uri}});}catch{}}
+    this.openFiles.clear();try{this.child?.kill();}catch{}
+    for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(fail('LSP stopped',503));}this.pending.clear();}
 }
