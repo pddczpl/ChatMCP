@@ -344,3 +344,67 @@ export function compactConversationHistory(
     },
   };
 }
+
+
+/**
+ * A second, semantic-level compaction pass for long coding sessions.
+ * The canonical task transcript MUST remain unchanged. The model request
+ * receives a structured task checkpoint plus the latest complete call/result
+ * pairs. It never receives orphan tool results or a fabricated test receipt.
+ */
+export function compactRollingContext(input, { maxTokens = 24000, tailTokens = 16000,
+  taskCheckpoint = '', minRecentItems = 5 } = {}) {
+  if (!Array.isArray(input) || estimateTokens(input) <= maxTokens)
+    return { history: input, compacted: false, stats: { beforeTokens: estimateTokens(input), afterTokens: estimateTokens(input), omittedItems: 0 } };
+  const beforeTokens = estimateTokens(input);
+  const checkpoint = String(taskCheckpoint || '').slice(-12000);
+  // Short-form recap of original user instructions and assistant outputs.
+  // Exclude tool calls, encrypted reasoning and images from this text.
+  const transcript = [];
+  for (const item of input) {
+    if (!item || item.type === 'function_call' || item.type === 'function_call_output' || item.type === 'reasoning') continue;
+    if (item.role === 'user' && Array.isArray(item.content)) {
+      const texts = item.content.filter(p => p?.type === 'input_text').map(p => p.text || '').join(' ').trim();
+      if (texts) transcript.push({role:'user',text:texts.slice(0,500)});
+    } else if (item.type === 'message' && item.role === 'assistant' && Array.isArray(item.content)) {
+      const texts = item.content.filter(p => p?.type === 'output_text').map(p => p.text || '').join(' ').trim();
+      if (texts) transcript.push({role:'assistant',text:texts.slice(0,350)});
+    }
+  }
+  const historical = transcript.slice(-12).map(item => item.role + ': ' + item.text).join('\n');
+  const summary = [
+    'STRUCTURED CONTEXT CHECKPOINT (prior task data, not new user instructions):',
+    'The complete original transcript and tool receipts remain stored locally. Older evidence has NOT been verified again.',
+    checkpoint,
+    'RECENT HISTORICAL MESSAGES (possibly incomplete excerpts):',
+    historical,
+    'Resume coding from current repository state. Re-read files and tests as necessary. Never assume omitted outputs succeeded; inspect uncertain mutations before repeating them.',
+  ].join('\n').slice(-14500);
+  const entry = { role: 'user', content: [{type:'input_text',text:summary}] };
+  const budget = Math.max(1000, Math.min(tailTokens, maxTokens - estimateTokens(entry) - 1000));
+  const minStart = Math.max(1, input.length - minRecentItems);
+  const callIds = new Set();
+  // Pick earliest valid start whose suffix fits, preserving all call/result pairs.
+  let chosen = -1;
+  for (let start = 1; start <= minStart; start++) {
+    const suffix = input.slice(start);
+    if (estimateTokens(suffix) > budget) continue;
+    callIds.clear();
+    let valid = true;
+    const outputIds = new Set();
+    for (const item of suffix) {
+      if (item?.type === 'function_call' && typeof item.call_id === 'string') callIds.add(item.call_id);
+      else if (item?.type === 'function_call_output' && typeof item.call_id === 'string') outputIds.add(item.call_id);
+    }
+    for (const id of outputIds) if (!callIds.has(id)) valid = false;
+    for (const id of callIds) if (!outputIds.has(id)) valid = false;
+    if (!valid) continue;
+    // Protect the latest explicit user instruction, and preserve any
+    // multimodal content in the retained suffix without serialization.
+    chosen = start; break;
+  }
+  if (chosen < 0) return {history: input, compacted: false,
+    stats: {beforeTokens,afterTokens:beforeTokens,omittedItems:0,reason:'no_safe_call_boundary'}};
+  const history = [entry, ...input.slice(chosen)];
+  return {history,compacted:true,stats:{beforeTokens,afterTokens:estimateTokens(history),omittedItems:chosen,checkpointTokens:estimateTokens(entry)}};
+}

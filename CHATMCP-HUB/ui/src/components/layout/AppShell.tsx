@@ -4,7 +4,7 @@ import { useAppStore } from '@/store/useAppStore';
 import { Header } from '@/components/layout/Header';
 import { SessionSidebar } from '@/components/sessions/SessionSidebar';
 import { ConversationView } from '@/components/conversation/ConversationView';
-import { InspectorPanel } from '@/components/inspector/InspectorPanel';
+import { RightWorkspacePanel } from '@/components/layout/RightWorkspacePanel';
 import { CommandPalette } from '@/components/palette/CommandPalette';
 import { FullAccessDialog } from '@/components/approval/FullAccessDialog';
 import { OnboardingModal } from '@/components/onboarding/OnboardingModal';
@@ -84,13 +84,13 @@ export function AppShell() {
             <>
               <PanelResizeHandle className="w-[3px] hover:w-[4px] bg-[var(--line-subtle)] hover:bg-sky-500/60 transition-colors cursor-col-resize active:bg-sky-500" />
               <Panel defaultSize={34} minSize={26} maxSize={50} id="panel-inspector">
-                <InspectorPanel />
+                <RightWorkspacePanel />
               </Panel>
             </>
           )}
         </PanelGroup>
         {compact && sidebarOpen && <div className="absolute inset-y-0 left-0 w-72 max-w-full z-30 shadow-xl"><SessionSidebar /></div>}
-        {compact && inspectorOpen && <div id="panel-inspector" className="absolute inset-y-0 right-0 w-[440px] max-w-full z-40 shadow-xl"><InspectorPanel /></div>}
+        {compact && inspectorOpen && <div id="panel-inspector" className="absolute inset-y-0 right-0 w-[440px] max-w-full z-40 shadow-xl"><RightWorkspacePanel /></div>}
       </div>
 
       {/* Overlays & Dialogs */}

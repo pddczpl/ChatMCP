@@ -4,7 +4,7 @@ import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
 import { PhaseRibbon } from '@/components/layout/PhaseRibbon';
 import { MessageItem } from './MessageItem';
-import { ToolReceipt } from './ToolReceipt';
+import { ToolActivityGroup } from './ToolActivityGroup';
 import { StateBanner } from './StateBanner';
 import { Composer } from './Composer';
 import { CopyButton } from '@/components/ui/CopyButton';
@@ -22,15 +22,17 @@ import {
   FolderSearch 
 } from 'lucide-react';
 import { isTaskActive, normalizeApproval, taskTimeline } from '@/lib/task-view';
+import type { ChatAttachment } from '@/types';
 
 export function ConversationView() {
   const queryClient = useQueryClient();
-  const { selectedTaskId, setSelectedTaskId, showToast, streamingToken, streamingTaskId } = useAppStore();
+  const { selectedTaskId, setSelectedTaskId, showToast, streamingToken, streamingTaskId, selectedBaseRef } = useAppStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const followOutput = useRef(true);
   const [showLatest, setShowLatest] = useState(false);
   const requestPending = useRef(false);
   const [sending, setSending] = useState(false);
+  const [dependsOn, setDependsOn] = useState<string[]>([]);
   const [approving, setApproving] = useState(false);
 
   // Fetch full Hub state
@@ -48,7 +50,6 @@ export function ConversationView() {
     refetchInterval: selectedTaskId ? 2000 : false,
   });
   const isWorking = isTaskActive(task);
-  const otherTaskWorking = !!hub?.agent?.activeTaskId && hub.agent.activeTaskId !== selectedTaskId;
   const permissions = hub?.studio?.permissions;
   const mode = permissions?.executionPolicy === 'full-access' ? 'full-access' : permissions?.mode || 'review';
   const visibleToken = isWorking && streamingTaskId === selectedTaskId ? streamingToken : '';
@@ -58,6 +59,7 @@ export function ConversationView() {
   };
 
   useEffect(() => {
+    if (!selectedTaskId) setDependsOn([]);
     followOutput.current = true;
     setShowLatest(false);
   }, [selectedTaskId]);
@@ -68,19 +70,19 @@ export function ConversationView() {
   }, [task?.messages, task?.toolCalls, visibleToken]);
 
   // Send message handler
-  const handleSendMessage = async (text: string) => {
-    if (!text.trim() || requestPending.current || isWorking || otherTaskWorking) return false;
+  const handleSendMessage = async (text: string, attachments: ChatAttachment[] = []) => {
+    if ((!text.trim() && !attachments.length) || requestPending.current) return false;
     requestPending.current = true;
     setSending(true);
     try {
       if (!selectedTaskId) {
-        const res = await api.startTask(text);
+        const res = await api.startTask(text || 'Hãy phân tích tệp/ảnh đính kèm.', attachments, selectedBaseRef || null, dependsOn);
         if (res?.task?.id) {
           queryClient.setQueryData(['task', res.task.id], res.task);
           setSelectedTaskId(res.task.id);
         }
       } else {
-        const res = await api.continueTask(selectedTaskId, text);
+        const res = await api.continueTask(selectedTaskId, text || 'Hãy phân tích tệp/ảnh đính kèm.', attachments);
         queryClient.setQueryData(['task', selectedTaskId], res.task);
       }
       refreshTask();
@@ -181,6 +183,14 @@ export function ConversationView() {
   ];
 
   const timeline = task ? taskTimeline(task) : [];
+  const timelineGroups: Array<{kind:'message';value:any}|{kind:'tools';items:any[]}> = [];
+  for (const item of timeline) {
+    if (item.kind === 'tool') {
+      const last = timelineGroups.at(-1);
+      if (last?.kind === 'tools') last.items.push(item.value);
+      else timelineGroups.push({kind:'tools',items:[item.value]});
+    } else timelineGroups.push({kind:'message',value:item.value});
+  }
   const continueTask = () => handleSendMessage('Tiếp tục tác vụ trong cùng cuộc hội thoại. Kiểm tra trạng thái hiện tại trước khi thao tác; không tự chạy lại thao tác có kết quả chưa rõ.');
 
   return (
@@ -233,7 +243,7 @@ export function ConversationView() {
                 return (
                   <Card
                     key={idx}
-                    onClick={() => { if (!sending && !otherTaskWorking) void handleSendMessage(item.prompt); }}
+                    onClick={() => { if (!sending) void handleSendMessage(item.prompt); }}
                     className="p-3.5 cursor-pointer bg-[var(--panel)] hover:bg-[var(--surface-hover)] border-[var(--line)] hover:border-sky-500/50 group transition-all duration-150"
                   >
                     <div className="flex items-start gap-3">
@@ -257,9 +267,9 @@ export function ConversationView() {
         ) : (
           /* Message List */
           <div className="flex-1 py-2">
-            {timeline.map((item, index) => item.kind === 'message'
-              ? <MessageItem key={`message:${item.value.id || index}`} message={item.value} />
-              : <ToolReceipt key={`receipt:${item.value.id || index}`} tool={item.value} />)}
+            {timelineGroups.map((item,index)=> item.kind==='message'
+              ? <MessageItem key={`message:${item.value.id||index}`} message={item.value}/>
+              : <ToolActivityGroup key={`tools:${index}`} items={item.items}/>)}
             {task && timeline.length === 0 && <p className="p-4 text-xs text-[var(--muted)]">Chưa có nội dung hội thoại được lưu.</p>}
 
             {/* Streaming Token Chunk */}
@@ -284,7 +294,7 @@ export function ConversationView() {
               message={task.error}
               onRetry={() => { void continueTask(); }}
               onResume={() => { void continueTask(); }}
-              disabled={sending || otherTaskWorking}
+              disabled={sending}
             />}
             {approvalHistory.length > 0 && <details className="mx-4 my-3 text-xs"><summary>Lịch sử phê duyệt ({approvalHistory.length})</summary><ApprovalStack approvals={approvalHistory} onApprove={handleApprove} onDeny={handleDeny} /></details>}
 
@@ -298,7 +308,6 @@ export function ConversationView() {
         setShowLatest(false);
         messagesEndRef.current?.scrollIntoView({ behavior: 'instant', block: 'end' });
       }}>Về nội dung mới nhất ↓</button></div>}
-      {otherTaskWorking && <p className="px-4 py-2 text-xs text-amber-300">Một hội thoại khác đang chạy. Dừng hoặc đợi hội thoại đó trước khi gửi.</p>}
 
       {/* Bottom Composer */}
       <Composer
@@ -306,9 +315,13 @@ export function ConversationView() {
         onSendMessage={handleSendMessage}
         onStop={handleStopTask}
         isWorking={isWorking}
-        disabled={sending || otherTaskWorking || (!!selectedTaskId && (isLoading || !!taskError))}
+        disabled={sending || (!!selectedTaskId && (isLoading || !!taskError))}
         currentMode={mode}
         onModeChange={handleModeChange}
+        dependencyOptions={!selectedTaskId ? (hub?.tasks || []).filter(x=>x.id&&x.status!=='failed'&&x.status!=='cancelled').slice(0,15)
+          .map(x=>({id:x.id,label:x.task || x.prompt || x.id,state:x.state || x.status})) : []}
+        selectedDependsOn={dependsOn}
+        onDependsOnChange={setDependsOn}
       />
     </div>
   );

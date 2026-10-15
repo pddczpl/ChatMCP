@@ -123,7 +123,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   });
   manager.sandboxEngine = sandboxEngine;
   manager.executionRegistry = sandboxEngine.registry;
-  const state = (csrf = token) => ({ ...manager.state(), ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions:permissions?.state?.()??gate?.state()??null, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null,dynamicDelegates:dynamic?.state()??null} : null, csrfToken: csrf });
+  const state = (csrf = token) => ({ ...manager.state(), ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions: { ...(permissions?.state?.()??gate?.state()??{}), pending: [...(permissions?.state?.().pending??[]), ...(taskEngine?.api?.pendingApprovals?.()??[])] }, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null,dynamicDelegates:dynamic?.state()??null} : null, csrfToken: csrf });
   const requireNoTask = () => { if (taskEngine?.state().activeTaskId || dynamic?.activeRunId || coding?.active || delegates?.running) { const e = new Error('Dừng các tác vụ AI đang chạy trước khi đổi Base URL, API key hoặc model.'); e.statusCode = 409; throw e; } };
   const changeAi = async (operation) => {
     requireNoTask();
@@ -210,6 +210,29 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/studio/file': value=await studio.read({file:pick('file'),maxBytes:Math.min(250000,Number(pick('maxBytes'))||120000)});break;
           case '/api/studio/search': value=await studio.search({query:pick('query'),mode:pick('mode')||'text',limit:Number(pick('limit'))||60});break;
           case '/api/studio/git/status': value=await studio.gitStatus();break;
+          case '/api/studio/git/refs': {
+            const git=studio.gitRunner;
+            const [branchesRun,worktreesRun,branchRun]=await Promise.all([
+              git.text(['for-each-ref','--format=%(refname)%09%(refname:short)','refs/heads'],{timeoutMs:15000}),
+              git.text(['worktree','list','--porcelain'],{timeoutMs:15000}),
+              git.text(['symbolic-ref','--quiet','--short','HEAD'],{timeoutMs:15000}),
+            ]);
+            if(branchesRun.code!==0||worktreesRun.code!==0||branchesRun.truncated||worktreesRun.truncated)
+              throw Object.assign(new Error('Không đọc được danh sách Git refs và worktrees.'),{statusCode:409});
+            const branches=branchesRun.stdout.split(/\r?\n/).filter(Boolean).slice(0,120)
+              .map(line=>{const [ref,name]=line.split('\t');return {ref,name};})
+              .filter(b=>/^refs\/heads\/[A-Za-z0-9._/-]+$/.test(b.ref)&&b.name);
+            const worktrees=worktreesRun.stdout.trim().split(/\r?\n\r?\n/)
+              .filter(Boolean).slice(0,100).map(block=>{
+                const rows=block.split(/\r?\n/);
+                const field=(prefix)=>rows.find(x=>x.startsWith(prefix))?.slice(prefix.length)||null;
+                const gitBranch=field('branch ');
+                return {path:field('worktree '),head:field('HEAD '),
+                  branch:gitBranch?.startsWith('refs/heads/')?gitBranch.slice(11):null};
+              }).filter(x=>x.path);
+            value={branches,worktrees,currentBranch:branchRun.code===0?branchRun.stdout.trim():null};
+            break;
+          }
           case '/api/studio/git/diff': value=await studio.gitDiff({file:pick('file'),staged:pick('staged')==='true'});break;
           case '/api/studio/git/check': value=await studio.gitDiffCheck();break;
           case '/api/studio/checkpoints': value=await studio.checkpoints();break;
@@ -320,7 +343,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
         const requestOk=origins.has(origin)&&req.headers['x-chatmcp-request']==='local-dashboard'
           &&equalToken(req.headers['x-chatmcp-csrf'],token);
         if(!requestOk)return json(403,{error:'Phiên trang localhost không hợp lệ. Tải lại trang.',code:'csrf'});
-        const payload = await bodyJson(req);
+        const payload = await bodyJson(req, ['/api/tasks/start','/api/tasks/continue'].includes(url.pathname) ? 8 * 1024 * 1024 : 65536);
         if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return json(400, { error: 'Nội dung yêu cầu phải là JSON object.' });
         const unknownAction = () => json(404, { error: `Không tìm thấy thao tác POST ${url.pathname} trên Hub ${VERSION}. Có thể dashboard và tiến trình Hub không cùng phiên bản; hãy STOP/START Hub và Ctrl+F5.`, code:'unknown_action', path:url.pathname, method:'POST', serverVersion:VERSION, uiBuild:UI_BUILD });
         const requireIdle = (message) => { if (taskEngine?.state()?.activeTaskId) throw Object.assign(new Error(message), { statusCode: 409 }); };
@@ -337,7 +360,11 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
                 code:'workers_active',statusCode:409,
               });
             result=gate.configure(payload);break;
-          case '/api/studio/permissions/decide': result=gate.decide(payload.id,payload.approved);break;
+          case '/api/studio/permissions/decide': result=(gate?.state().pending||[]).some(p=>p.id===payload.id)
+              ? gate.decide(payload.id,payload.approved)
+              : taskEngine?.api?.decidePermission?.(payload.id,payload.approved);
+              if(!result)throw Object.assign(new Error('Không tìm thấy yêu cầu phê duyệt.'),{statusCode:404});
+              break;
           case '/api/studio/checkpoint': result=await studio.checkpoint(payload);break;
           case '/api/studio/file/save': if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không ghi file trên Windows host. Đổi sang host-review để lưu bản chỉnh sửa sau khi review.'),{statusCode:403});if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Đợi agent dừng trước khi lưu file từ editor.'),{statusCode:409});result=await studio.save(payload);break;
           case '/api/studio/restore': if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không khôi phục file trực tiếp trên Windows host.'),{statusCode:403});result=await studio.restore(payload);break;
@@ -531,6 +558,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   await manager.load(options.project);
   const { BrowserRunner } = await import('./lib/browser-runner.mjs');
   const { AgentRunner } = await import('./lib/agent.mjs');
+  const { ConcurrentApiAgent } = await import('./lib/concurrent-api-agent.mjs');
   const { GatewayProvider } = await import('./lib/gateway-provider.mjs');
   const { DualAgent } = await import('./lib/dual-agent.mjs');
   const { assembleStudio } = await import('./lib/assemble.mjs');
@@ -546,7 +574,10 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   await manager.dynamicDelegates.load();
   manager.codingOrchestrator=new CodingWorktreeOrchestrator({manager,provider,directory:path.join(manager.hubDirectory,'coding-orchestrator'),bundleRoot:BUNDLE_ROOT});
   await manager.codingOrchestrator.load();
-  const apiAgent = new AgentRunner({ manager, provider, taskDirectory: path.join(manager.hubDirectory, 'api-tasks'), log: (line) => manager.log(line) });
+  const primaryAgent = new AgentRunner({ manager, provider, taskDirectory: path.join(manager.hubDirectory, 'api-tasks'), log: (line) => manager.log(line) });
+  const apiAgent = new ConcurrentApiAgent({ primary: primaryAgent, manager, provider, bundleRoot: BUNDLE_ROOT,
+    directory: path.join(manager.hubDirectory, 'api-conversations'), log: line => manager.log(line) });
+  manager.spawnBackgroundAgent = (parentTaskId,request) => apiAgent.spawnAgent(parentTaskId,request);
   const agent = new DualAgent({ browser, api: apiAgent, directory: manager.hubDirectory, defaultMode:'api' });
   const resumer = new RecoveryScheduler({ agent, manager, provider, browser, log:(line)=>manager.log(line) });
   await manager.permissions.load();

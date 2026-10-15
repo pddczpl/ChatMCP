@@ -1,4 +1,4 @@
-import type { HubState, HubHealth, Task, TaskDetail, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset } from '@/types';
+import type { HubState, HubHealth, Task, TaskDetail, ChatAttachment, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset } from '@/types';
 import { normalizeTask } from './task-view.ts';
 
 export interface BackendCapabilityReport {
@@ -109,8 +109,10 @@ export const api = {
   
   // Tasks
   getTask: (id: string): Promise<Task> => request<TaskDetail>(`/api/tasks/${encodeURIComponent(id)}`).then(normalizeTask),
-  startTask: (prompt: string) => request<{ task: TaskDetail }>('/api/tasks/start', { method: 'POST', body: JSON.stringify({ prompt }) }).then((r) => ({ task: normalizeTask(r.task) })),
-  continueTask: (id: string, prompt: string) => request<{ task: TaskDetail }>('/api/tasks/continue', { method: 'POST', body: JSON.stringify({ id, prompt }) }).then((r) => ({ task: normalizeTask(r.task) })),
+  startTask: (prompt: string, attachments: ChatAttachment[] = [], baseRef: string | null = null, dependsOn: string[] = []) =>
+    request<{ task: TaskDetail }>('/api/tasks/start', { method: 'POST', body: JSON.stringify({ prompt, attachments, baseRef, dependsOn }) }).then((r) => ({ task: normalizeTask(r.task) })),
+  continueTask: (id: string, prompt: string, attachments: ChatAttachment[] = []) =>
+    request<{ task: TaskDetail }>('/api/tasks/continue', { method: 'POST', body: JSON.stringify({ id, prompt, attachments }) }).then((r) => ({ task: normalizeTask(r.task) })),
   cancelTask: (id: string) => request<{ task: TaskDetail }>('/api/tasks/cancel', { method: 'POST', body: JSON.stringify({ id }) }).then((r) => ({ task: normalizeTask(r.task) })),
   deleteTask: (id: string) => request<{ ok: boolean; removed: string }>('/api/tasks/delete', { method: 'POST', body: JSON.stringify({ id }) }),
   setAutoResume: (id: string, enabled: boolean) => request<{ task: TaskDetail }>('/api/tasks/auto-resume', { method: 'POST', body: JSON.stringify({ id, enabled }) }),
@@ -137,6 +139,7 @@ export const api = {
     
   // Git & Review
   getGitStatus: () => request<GitStatus>('/api/studio/git/status'),
+  getGitRefs: () => request<{branches:{ref:string;name:string}[];worktrees:{path:string;branch:string|null;head:string|null}[];currentBranch:string|null}>('/api/studio/git/refs'),
   getGitDiff: (staged = false) => request<{ diff: string; staged?: boolean; truncated?: boolean }>(`/api/studio/git/diff?staged=${staged}`),
   createCheckpoint: (label: string) => request<Checkpoint>('/api/studio/checkpoint', { method: 'POST', body: JSON.stringify({ label }) }),
   getCheckpoints: () => request<Checkpoint[]>('/api/studio/checkpoints'),

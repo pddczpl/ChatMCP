@@ -3,7 +3,7 @@ import type { Task, TaskStatus, TaskDetail, TaskSummary, Message, ToolCall, Appr
 const activeStates = new Set(['queued', 'planning', 'running', 'waiting_approval', 'verifying']);
 const restingStates = new Set(['paused', 'completed', 'failed', 'cancelled', 'uncertain']);
 const stateLabels: Record<string, string> = {
-  created: 'Mới tạo', queued: 'Đang chuẩn bị', planning: 'Đọc và lập kế hoạch',
+  created: 'Mới tạo', queued: 'Đang chờ', blocked: 'Chờ xử lý phụ thuộc', planning: 'Đọc và lập kế hoạch',
   running: 'Đang thực hiện', waiting_approval: 'Chờ bạn duyệt', verifying: 'Đang kiểm tra',
   paused: 'Tạm dừng', completed: 'Đã nhận phản hồi kết thúc', failed: 'Thất bại',
   cancelled: 'Đã dừng', uncertain: 'Chưa rõ kết quả',
