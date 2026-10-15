@@ -15,6 +15,19 @@
 
 Hub **không có bước build** và không có dependency bắt buộc để `npm install`. `node-pty` (ConPTY) là tùy chọn: `CHATMCP-HUB\windows\Install-OptionalConPTY.ps1`; khi thiếu hoặc hỏng, terminal tương tác tự dùng pipe.
 
+## Agent HTTP request and token budgets (Phase 1 parity hardening)
+
+Each ordinary coding task counts every actual model HTTP attempt, including retry,
+Gemini schema dialect fallback and JSON repair. Default HTTP request cap is 80 per task.
+`CHATMCP_MAX_HTTP_REQUESTS=0` disables the cap; a positive integer up to 10000
+sets it explicitly. Optional `CHATMCP_MAX_INPUT_TOKENS` and
+`CHATMCP_MAX_OUTPUT_TOKENS` default to 0 (disabled); upper accepted value
+is 10000000. These token limits operate on provider-reported usage from completed
+model steps and cannot pre-reserve unknown output tokens or account for billing
+of timed-out attempts. The HTTP cap fires BEFORE sending a further model request.
+`task.usage.httpRequests` is persisted and carried into resumed tasks. This is
+separate from provider billing limits and from the sandbox security gate.
+
 ## Trạng thái Windows Sandbox (Phase 1 experimental)
 
 **Chưa có bằng chứng cách ly Windows Sandbox guest thật.** Việc build .NET GuestSupervisor
@@ -48,7 +61,7 @@ node tests/run-all.mjs --no-skip all             # một bộ bị SKIP bị tí
 npm run test:ui                                  # bộ giao diện Python/Playwright (tùy chọn)
 ```
 
-Hiện có **85 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
+Hiện có **86 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
 
 Runner in một dòng cho mỗi bộ (`PASS`/`FAIL`/`TIMEOUT`/`SKIP`, thời gian, mã thoát thật) và thoát khác 0 nếu có bộ nào fail hoặc quá hạn (mặc định 180 giây/bộ, đổi bằng `--timeout`). Bộ kiểm thử in một dòng `CHATMCP_TEST_SKIP: <lý do>` rồi thoát 0 để được báo là **SKIP — không bao giờ được tính là PASS**. `--no-skip all` (hoặc `--no-skip tên1,tên2`) biến SKIP thành FAIL. Workflow hiện tại cài Python 3.11 và các gói ghim trong `tests/requirements-e2e.txt`, rồi chạy **`--no-skip all`** trên cả Windows và Linux, Node 22 và 24. Một bộ bắt buộc bị bỏ qua vì thiếu môi trường vì thế làm CI thất bại. Một phần không thể kiểm chứng trong bản này được in `BLOCKED: <gì> - <vì sao>`.
 

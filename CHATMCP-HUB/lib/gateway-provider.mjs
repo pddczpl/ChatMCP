@@ -445,10 +445,10 @@ export class GatewayProvider {
   }
 
   /** One model step. `maxOutputTokens` is honoured by the Anthropic path (where it is required); the others use the provider's own cap. */
-  async respond({ input, instructions, tools = [], signal, onStatus = async () => {}, maxOutputTokens } = {}) {
+  async respond({ input, instructions, tools = [], signal, onStatus = async () => {}, maxOutputTokens, beforeModelRequest = () => {} } = {}) {
     if (!this.ready()) throw bad('gateway_not_ready', 'Hãy cấu hình API Base URL, model và API key.', 409);
     if (!Array.isArray(input)) throw bad('invalid_input', 'Ngữ cảnh Agent không hợp lệ.');
-    if (this.protocol !== 'gemini') return await this.#respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens });
+    if (this.protocol !== 'gemini') return await this.#respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens, beforeModelRequest });
     // Gemini keeps its own compatibility loop: gateways in front of it differ a lot (see gemini-compat.mjs).
     const protocol = 'gemini';
     const sourceContextBytes = Buffer.byteLength(JSON.stringify(input),'utf8') + Buffer.byteLength(instructions,'utf8');
@@ -505,6 +505,7 @@ export class GatewayProvider {
         }
         if (activeDialect === 'text-protocol' && wireBytes > textRequestBudget)
           throw bad('gateway_context_budget','Gemini request vượt ngân sách byte cục bộ; không gửi.',413);
+        beforeModelRequest();
         response = await this.fetch(endpoint, { method: 'POST', headers: this.#headers('gemini', this.authMode, this.apiKey),
           body: JSON.stringify(requestBody), signal: combined, redirect: 'error' });
         let stream;
@@ -604,7 +605,7 @@ export class GatewayProvider {
   }
 
   /** OpenAI-style Chat Completions and Anthropic Messages. See standard-adapter.mjs for what it guarantees. */
-  async #respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens }) {
+  async #respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens, beforeModelRequest }) {
     const { protocol, model, authMode, apiKey, contextWindowTokens } = this;
     const ctx = {
       protocol, model, fetch: this.fetch, sleep: this.sleep, limits: this.limits,
@@ -617,7 +618,7 @@ export class GatewayProvider {
       outputLimit: this.outputLimit,
       onOutputLimit: (limit) => { if (this.model === model) this.outputLimit = limit; },
     };
-    const result = await respondStandard(ctx, { input, instructions, tools, signal, onStatus, maxOutputTokens });
+    const result = await respondStandard(ctx, { input, instructions, tools, signal, onStatus, maxOutputTokens, beforeModelRequest });
     this.lastError = '';
     return result;
   }

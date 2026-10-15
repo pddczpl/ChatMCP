@@ -7,6 +7,7 @@ import { callIdentity, createTaskProgress, observeTaskTool, progressCheckpoint }
 import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence } from './agent-autonomy.mjs';
 import { estimateTokens as estimateContextTokens, injectRepoMapIntoInstructions, compactConversationHistory } from './context-compaction.mjs';
 import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './token-optimization.mjs';
+import { RequestBudget } from './request-budget.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
 // from disk or the environment, evaluates model text, or executes a local shell.
@@ -638,7 +639,7 @@ export class AgentRunner {
       id, prompt: cleanPrompt, status: 'running', workspace: binding,
       model: config.model ?? '', provider: config.provider ?? null, createdAt: initial, startedAt: initial, updatedAt: initial, finishedAt: null,
       finalText: '', error: null, errorCode: null, steps: 0, toolCalls: 0, maxSteps, maxMinutes,
-      usage: { inputTokens: 0, outputTokens: 0 }, events: [], eventCount: 0, pendingCall: null, cancelRequested: false,
+      usage: { inputTokens: 0, outputTokens: 0, httpRequests: 0 }, events: [], eventCount: 0, pendingCall: null, cancelRequested: false,
       progress: createTaskProgress(),
       goalPlan: decomposeCodingTask(cleanPrompt),
       prompts: [], runs: [], dialogue: [],
@@ -660,7 +661,8 @@ export class AgentRunner {
       task.unverifiedOperations.push(structuredClone(existing.pendingCall));
       task.pendingCall = null;
     }
-    const context = { task, controller: new AbortController(), deadline: maxMinutes === null ? Infinity : Date.now() + maxMinutes * 60000, done: deferred(), session: null, closePromise: null, seenCalls: new Set(), history: [], inFlight: null, resumeEvidence:priorContext };
+    const budget = new RequestBudget({used:task.usage});
+    const context = { task, requestBudget: budget, controller: new AbortController(), deadline: maxMinutes === null ? Infinity : Date.now() + maxMinutes * 60000, done: deferred(), session: null, closePromise: null, seenCalls: new Set(), history: [], inFlight: null, resumeEvidence:priorContext };
     this.tasks.set(id, task); this.activeTaskId = id; this.context = context;
     // The Hub now holds the workspace lock for this run. A follow-up to a stopped conversation also starts here.
     this.#advance(task, 'queued', existing ? 'continue_requested' : 'start_requested', { force: !!existing });
@@ -872,6 +874,10 @@ export class AgentRunner {
             {}, {stats:compacted.stats});
         }
         const response = await abortable(this.provider.respond({
+          beforeModelRequest: () => {
+            const snapshot=context.requestBudget.beforeRequest();
+            task.usage.httpRequests=snapshot.httpRequests;
+          },
           input: modelInput, instructions: context.instructions, tools: structuredClone(context.tools),
           signal: context.controller.signal, maxOutputTokens: MAX_OUTPUT_TOKENS,
           store: false, parallel_tool_calls: false, include: ['reasoning.encrypted_content'],
@@ -883,6 +889,7 @@ export class AgentRunner {
         if (!object(response) || !Array.isArray(response.output)) throw fault('invalid_response', 'Model trả về response không đúng định dạng. Không gọi thêm công cụ.', 502);
         task.usage.inputTokens += Number.isFinite(response.usage?.input_tokens) ? response.usage.input_tokens : 0;
         task.usage.outputTokens += Number.isFinite(response.usage?.output_tokens) ? response.usage.output_tokens : 0;
+        context.requestBudget.recordUsage(response.usage?.input_tokens||0,response.usage?.output_tokens||0);
         await this.#persist(task, { at: now(), type: 'model_response', step: task.steps, response });
         if (response.status !== 'completed') {
           const reason = response.incomplete_details?.reason ?? response.error?.message ?? response.status ?? 'unknown';

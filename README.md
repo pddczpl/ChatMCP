@@ -12,6 +12,11 @@
 
 **v3.2.0 development:** This build extends the full cross-platform CI matrix for hybrid intelligence and secure AI Profiles. CI provider fixtures do not disable production DPAPI safeguards.
 
+HTTP model-request budget: `CHATMCP_MAX_HTTP_REQUESTS=80` by default (set 0 for unlimited).
+Optional provider-reported input/output token caps are `CHATMCP_MAX_INPUT_TOKENS` and
+`CHATMCP_MAX_OUTPUT_TOKENS` (default 0 = no cap); this is a safety limit on model
+calls, not a guarantee of upstream billing. Current task usage records actual HTTP attempts.
+
 ## Features and Capabilities
 
 ChatMCP v3.2.0 targets complete autonomous software engineering capabilities while enforcing strict local security boundaries:
