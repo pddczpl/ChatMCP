@@ -168,7 +168,7 @@ try {
     equal(state.services.local.state, 'ready', 'local service ready');
     equal(state.backend, 'local', 'state reports the backend');
     equal(state.dataDirectory, dataDirectory, 'state reports the data folder');
-    check(state.catalogReady === true && state.toolCounts.local === 95, `95 local tools (${state.toolCounts.local})`);
+    check(state.catalogReady === true && state.toolCounts.local === 99, `99 local tools (${state.toolCounts.local})`);
     check(state.toolCounts.studio > 0 && state.toolCounts.studio < 17, 'only the Studio tools that add something are listed');
     check(!manager.catalog.tools.some((entry) => ['studio.read', 'studio.tree', 'studio.plan_set'].includes(entry.name)), 'Studio tools that duplicate local.* are not offered');
     check(manager.catalog.tools.every((entry) => entry.name === `${entry.server}.${entry.originalName}`), 'catalog names are qualified');
@@ -467,7 +467,7 @@ try {
     check(snapshot?.services?.local?.state === 'ready', `the Hub became ready on its own\n${output}`);
     equal([snapshot.backend, snapshot.agent.mode, snapshot.workspace.path], ['local', 'api', dir], 'local backend, API mode, project opened');
     equal(snapshot.dataDirectory, state, 'data goes where --state-dir says');
-    check(snapshot.toolCounts.local === 95, 'tools registered');
+    check(snapshot.toolCounts.local === 99, 'tools registered');
     const text = await fetch(`${base}/api/instructions`).then((response) => response.status);
     equal(text, 410, 'removed legacy MCP instructions explicitly return Gone');
     const response = await fetch(`${base}/api/hub/shutdown`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base, 'X-ChatMCP-Request': 'local-dashboard', 'X-ChatMCP-CSRF': snapshot.csrfToken }, body: '{}' });

@@ -15,7 +15,7 @@ const full = directToolsFor(catalog);
 assert.equal(tools.length,99,'expected versioned internal inventory');
 assert.equal(DEFAULT_DIRECT_TOOL_LIMIT,99);
 assert.equal(MAX_DIRECT_TOOL_LIMIT,124);
-assert.equal(full.functions.length,99,'95 LocalTools are directly advertised by default');
+assert.equal(full.functions.length,99,'99 LocalTools are directly advertised by default');
 assert.equal(full.functions.length + ROUTER_TOOLS.length,103);
 assert.ok(full.functions.length + ROUTER_TOOLS.length <= 128);
 assert.equal(full.byName.size,99);
