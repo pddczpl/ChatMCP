@@ -1,9 +1,14 @@
 export type PermissionMode = 'readonly' | 'review' | 'autonomous';
 export type ExecutionPolicy = 'host-review' | 'sandbox-only' | 'full-access';
-export type TaskStatus = 'created' | 'queued' | 'planning' | 'running' | 'waiting_approval' | 'verifying' | 'paused' | 'completed' | 'failed' | 'cancelled' | 'uncertain' | 'unknown';
+export type TaskStatus = 'blocked' | 'created' | 'queued' | 'planning' | 'running' | 'waiting_approval' | 'verifying' | 'paused' | 'completed' | 'failed' | 'cancelled' | 'uncertain' | 'unknown';
 
 export interface TaskSummary {
   id: string;
+  branch?: string | null;
+  worktree?: string | null;
+  dependsOn?: string[];
+  parentTaskId?: string | null;
+  queuedMessagesCount?: number;
   prompt?: string;
   status?: string;
   state?: string;
@@ -103,6 +108,13 @@ export interface ProviderPreset {
   protocol?: string;
   apiBaseUrl?: string;
   authMode?: string;
+}
+
+export interface ChatAttachment {
+  name: string;
+  mimeType: string;
+  dataBase64: string;
+  size: number;
 }
 
 export interface Message {
