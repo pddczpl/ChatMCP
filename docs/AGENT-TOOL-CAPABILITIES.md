@@ -1,6 +1,6 @@
 # ChatMCP Agent Tools & Token Optimization
 
-> Development-branch implementation guide (not a statement that all capabilities have shipped in a signed, clean-Windows release). This document tracks features added after v3.2.0 on the feature branch. **85 LocalTools + 17 declared StudioTools**; the agent catalog may suppress redundant Studio entries. The current number is verified by tests.
+> Development-branch implementation guide (not a statement that all capabilities have shipped in a signed, clean-Windows release). This document tracks features added after v3.2.0 on the feature branch. **87 LocalTools + 17 declared StudioTools**; the agent catalog may suppress redundant Studio entries. The current number is verified by tests.
 
 ## Scope
 
@@ -14,7 +14,7 @@ This upgrade keeps the in-process LocalTools, StudioTools, Skills Hub and Permis
 | GitHub automation | github_workflow_runs, github_workflow_status, github_job_logs, github_pr_review, github_rerun_failed, github_pr_merge, github_release_create | Uses authenticated local gh CLI; mutation requires explicit high-risk approval and respects remote branch protection. |
 | Tests | test_discover, test_run, test_results, test_coverage, test_impact_analysis | Fixed known runners only. Impact is filename heuristic, not complete test selection. No claim that coverage instrumentation is installed automatically. |
 | Browser | browser_launch, browser_navigate, browser_click, browser_fill, browser_screenshot, browser_console, browser_network, browser_close | Headless Playwright optional; localhost-only by default with explicit CHATMCP_BROWSER_ALLOWED_HOSTS. Requests to other origins are blocked. Requires local browser binary. |
-| Visual | screenshot_capture, screenshot_compare, responsive_check | Captures real PNG with browser, pixel-level RGBA diff; no built-in AI aesthetic judgment or automated accessibility audit yet. |
+| Visual | screenshot_capture, screenshot_compare, visual_diff, responsive_check, accessibility_audit | Captures real PNG with browser, pixel-level RGBA diff; no AI aesthetic judgment or full WCAG/axe certification (only lightweight accessibility smoke checks). |
 | LSP | rename_symbol, format_document, organize_imports, code_actions, find_implementations, type_hierarchy | Reuses existing Pyright/TypeScript LSP. Preview by default. Single-file edit uses SHA optimistic concurrency and workspace checkpoint. Multi-file rename is preview-only, not silently applied. |
 | Build and file inspection | build_detect, build_run, git_conflict_inspect, binary_inspect | Detects actual manifest before running fixed build commands. Binary inspection refuses protected paths. |
 | Skills | skills_discover | Enumerates local instructions only; does not execute imported scripts. |
@@ -53,7 +53,7 @@ Profiles: off, safe (default), balanced, aggressive. Optional process environmen
 ## Deployment and verification
 
 - The installer source allowlist includes tracked CHATMCP-HUB/lib/*.mjs files; adding modules requires successful fresh installer-build CI to verify the actual payload.
-- Browser Playwright is resolved from the UI development dependencies when present; **neither Chromium nor those dev dependencies is guaranteed in downloaded installer payload**. Running browser_launch without them returns playwright_unavailable. Do not advertise browser automation as self-contained until locked runtime/browser assets are staged and clean-Windows verified.
+- The Windows installer stages pinned Playwright + playwright-core JavaScript packages into runtimes/browser/node_modules. On Windows, browser launch prefers installed Microsoft Edge; a real Edge/Chromium executable remains an external prerequisite. Development uses the UI node_modules fallback. Installer library staging alone does not prove real browser launch or clean Windows acceptance.
 - The GitHub CLI gh must be installed and authenticated to use repository automation at runtime. User accounts/API credentials must not be copied into the installer.
 - Python and TypeScript LSP features require their bundled servers and Node runtime to initialize successfully, not only existence of source code.
 - GitHub Actions on Ubuntu/Windows Node 22/24 and Windows installer build are acceptance gates. A green CI is not proof of a clean Windows install or Authenticode signing.

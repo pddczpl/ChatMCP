@@ -68,7 +68,7 @@ PermissionGate trong lib/permissions.mjs là chính sách cục bộ và vẫn h
 
 ## 7. Công cụ cục bộ
 
-`local-tools.mjs` — 85 công cụ; StudioTools bổ sung kiểm tra, checkpoint, code intelligence và Git review. Các tool không thuộc danh sách cho phép không được thực thi.
+`local-tools.mjs` — 87 công cụ; StudioTools bổ sung kiểm tra, checkpoint, code intelligence và Git review. Các tool không thuộc danh sách cho phép không được thực thi.
 
 ## 8. Chạy lệnh và các lớp bảo vệ quanh nó
 

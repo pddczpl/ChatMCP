@@ -25,7 +25,7 @@ ChatMCP v3.2.0 targets complete autonomous software engineering capabilities whi
 | Capability | Status | Description & Safety Boundaries |
 | --- | --- | --- |
 | Windows Desktop Studio | Available | WinForms + WebView2 desktop application with bundled local Node.js runtime; Git for Windows required for worktrees |
-| Coding agent with local tools | Available | LocalTools (85 công cụ): workspace-scoped file search/edits, terminal execution, Git operations, plans, checkpoints, approvals |
+| Coding agent with local tools | Available | LocalTools (87 công cụ): workspace-scoped file search/edits, terminal execution, Git operations, plans, checkpoints, approvals |
 | AI Providers & Models | Available | 12 preset provider configurations (OpenAI, Anthropic, Gemini, DeepSeek, Ollama, LM Studio, etc.) + custom OpenAI-compatible endpoints; no token or monetary spending quotas imposed by ChatMCP |
 | Task State Machine | Available | 11 trạng thái lifecycle (created, planning, planned, running, paused, awaiting_approval, awaiting_review, completed, failed, cancelled, checkpoint_failed) with strictly validated transitions |
 | Crash Recovery & Journaling | Available | Tamper-evident transaction journal with cryptographic chaining; persistent recovery acknowledgements across daemon restarts; context compaction and rollback safety |
