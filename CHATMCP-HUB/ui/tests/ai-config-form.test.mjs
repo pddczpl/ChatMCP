@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { GatewayProvider } from '../../lib/gateway-provider.mjs';
-import { reconcileSavedAiConfig } from '../src/lib/ai-config-form.ts';
+import { reconcileSavedAiConfig, selectAiProviderDraft, aiDraftHasChanges, aiProtocolForPreset } from '../src/lib/ai-config-form.ts';
 
 test('saving a custom endpoint twice reuses its saved key with the Hub canonical preset', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-ai-form-'));
@@ -55,4 +55,22 @@ test('canonical config from save or connection test preserves a newer model and 
   const afterSave = reconcileSavedAiConfig(submitted, submitted, saved);
   const tested = { ...saved, preset: 'custom-anthropic' };
   assert.equal(reconcileSavedAiConfig(afterSave, afterSave, tested).provider, 'custom-anthropic');
+});
+
+test('switching custom Gemini to OpenAI keeps the original gateway and model without requiring the same key again', () => {
+  const current = {provider:'custom-gemini',apiBaseUrl:'https://gateway.example/v1',model:'cx/gpt-6-astra',apiKey:''};
+  const next = selectAiProviderDraft(current, {id:'custom-openai',defaultUrl:'',defaultModel:''});
+  assert.deepEqual(next,{...current,provider:'custom-openai'});
+  assert.equal(aiProtocolForPreset(next.provider),'openai-chat');
+  assert.equal(aiDraftHasChanges(next,{preset:'custom-gemini',protocol:'gemini',apiBaseUrl:current.apiBaseUrl,model:current.model}),true);
+  const confirmed = {preset:'custom-openai',protocol:'openai-chat',apiBaseUrl:next.apiBaseUrl,model:next.model};
+  assert.equal(aiDraftHasChanges(next,confirmed),false);
+  // Named-provider changes are different security destinations and clear typed credentials.
+  const named = selectAiProviderDraft({...current,apiKey:'UNSAVED-DUMMY'}, {id:'openai',defaultUrl:'https://api.openai.com/v1',defaultModel:'gpt-mini'});
+  assert.equal(named.apiKey,'');
+  assert.equal(named.apiBaseUrl,'https://api.openai.com/v1');
+  assert.equal(named.model,'gpt-mini');
+  assert.equal(aiProtocolForPreset('custom-gemini'),'gemini');
+  assert.equal(aiProtocolForPreset('custom-anthropic'),'anthropic');
+  assert.equal(aiProtocolForPreset('unknown'),null);
 });
