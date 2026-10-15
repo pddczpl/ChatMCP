@@ -5,6 +5,21 @@ import { contentText, outputText, parseArguments, safeToolId } from './model-his
 export const ANTHROPIC_VERSION = '2023-06-01';
 const isObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
 const fail = (code, message, statusCode = 502) => Object.assign(new Error(message), { code, statusCode });
+export function anthropicUserBlocks(content) {
+  if (!Array.isArray(content) || !content.some(part => part?.type === 'input_image'))
+    return [{type:'text',text:contentText(content)}].filter(block=>block.text.trim());
+  return content.map(part => {
+    if(part?.type === 'input_text') return {type:'text',text:String(part.text||'')};
+    if(part?.type === 'input_image') {
+      const url=String(part.image_url||'');
+      const m=/^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/.exec(url);
+      if(!m)throw fail('unsupported_image','Invalid base64 image for Anthropic Messages.',415);
+      if(m[1]==='image/gif')throw fail('unsupported_image','Anthropic Messages does not support GIF images. Convert to PNG/JPEG/WebP.',415);
+      return {type:'image',source:{type:'base64',media_type:m[1],data:m[2]}};
+    }
+    throw fail('unsupported_media','Unsupported user attachment.',415);
+  });
+}
 
 export function anthropicEndpoint(base, path = 'messages') {
   const trimmed = base.replace(/\/+$/, '');
@@ -32,8 +47,7 @@ export function asAnthropicMessages(history) {
   };
   for (const item of history) {
     if (item?.role === 'user') {
-      const text = contentText(item.content);
-      if (text.trim()) push('user', { type: 'text', text });
+      for(const block of anthropicUserBlocks(item.content))push('user',block);
     } else if (item?.type === 'message' && item.role === 'assistant') {
       const text = contentText(item.content);
       if (text.trim()) push('assistant', { type: 'text', text });
