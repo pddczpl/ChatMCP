@@ -303,7 +303,7 @@ export class GatewayProvider {
     // the DPAPI-protected key and let users correct Gemini/OpenAI routing without
     // having to re-enter a secret. Named-provider switches still clear the key.
     const sameOrigin = originOf(base) === originOf(this.apiBaseUrl);
-    const sameCustomGateway = switching && sameOrigin
+    const sameCustomGateway = switching && sameOrigin && this.keySource === 'saved'
       && String(this.preset).startsWith('custom-')
       && String(nextPreset).startsWith('custom-');
     let key, fromEnv = false;
