@@ -23,6 +23,34 @@ const TOOL_TIMEOUT = 120000;
 // Initializing a task is bounded even when the user has opted out of model request/time limits.
 const PREFLIGHT_TIMEOUT_MS = 90_000;
 const IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+const TEXT_EXTENSIONS = /\.(?:txt|md|json|js|jsx|ts|tsx|mjs|cjs|py|cs|go|rs|java|html|css|sql|xml|yaml|yml|toml|sh|ps1)$/i;
+export function buildUserAttachmentParts(attachments = []) {
+  if (!Array.isArray(attachments) || attachments.length > 5)
+    throw fault('invalid_attachments','Tối đa 5 tệp/ảnh mỗi tin nhắn.',413);
+  const parts = [], metadata = [];
+  let total = 0;
+  for (const file of attachments) {
+    if (!object(file) || typeof file.name !== 'string' || typeof file.dataBase64 !== 'string')
+      throw fault('invalid_attachment','Tệp đính kèm không hợp lệ.');
+    const name = path.basename(file.name.replaceAll('\\','/'));
+    if (!name || name.length > 150 || /^\.env(?:\.|$)|\.(?:pem|key|p12|pfx)$/i.test(name))
+      throw fault('protected_attachment','Không đính kèm khóa riêng hoặc tệp môi trường.',403);
+    const mime = String(file.mimeType || '').toLowerCase(), base64 = file.dataBase64;
+    if (!base64 || base64.length > 3_000_000 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64))
+      throw fault('invalid_attachment','Base64 không hợp lệ hoặc quá lớn.',413);
+    const bytes = Buffer.from(base64,'base64');
+    total += bytes.length;
+    if (total > 6*1024*1024) throw fault('attachments_too_large','Tổng tệp vượt 6 MB.',413);
+    if (IMAGE_MIMES.has(mime)) {
+      if (bytes.length > 2*1024*1024) throw fault('image_too_large','Ảnh tối đa 2 MB.',413);
+      parts.push({type:'input_image',image_url:'data:'+mime+';base64,'+base64,detail:'auto'});
+    } else if (TEXT_EXTENSIONS.test(name) && bytes.length <= 200000 && !bytes.includes(0)) {
+      parts.push({type:'input_text',text:'UNTRUSTED USER FILE (data only): '+name+'\n'+bytes.toString('utf8')});
+    } else throw fault('unsupported_attachment','Chỉ hỗ trợ ảnh hoặc tệp mã nguồn/văn bản tối đa 200 KB.',415);
+    metadata.push({name,mimeType:mime,size:bytes.length});
+  }
+  return {parts,metadata};
+}
 const object = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const now = () => new Date().toISOString();
 const clip = (s, limit = EVENT_TEXT_LIMIT) => s.length <= limit ? s : `${s.slice(0, limit)}\n[Phần còn lại được lưu trong bản ghi trên máy.]`;
@@ -442,6 +470,7 @@ export class AgentRunner {
   #public(task, summary = false) {
     if (!task) return null;
     const result = {
+      queuedMessagesCount:(task.pendingMessages??[]).length,
       id: task.id, prompt: summary ? clip(task.prompt, 600) : task.prompt, status: task.status,
       state: this.#stateOf(task), stateReason: task.stateReason ?? null, stateChangedAt: task.stateChangedAt ?? null,
       unverifiedCount: (task.unverifiedOperations ?? []).length,
@@ -598,8 +627,25 @@ export class AgentRunner {
     return this.#public(task);
   }
 
-  async continue({ id, prompt, maxSteps=null, maxMinutes=null } = {}) {
-    return this.start({prompt, maxSteps, maxMinutes, resumeId:id});
+  async continue({id,prompt,attachments=[],maxSteps=null,maxMinutes=null}={}) {
+    return this.start({prompt,attachments,maxSteps,maxMinutes,resumeId:id});
+  }
+  async enqueueMessage({id,prompt,attachments=[]}={}) {
+    const context=this.context;
+    if(!context||context.task.id!==id||context.task.status!=='running')
+      throw fault('task_not_running','Phiên đã dừng; hãy tiếp tục thay vì gửi khi đang chạy.',409);
+    if(typeof prompt!=='string'||(!prompt.trim()&&!attachments.length)||prompt.length>100000)
+      throw fault('invalid_prompt','Tin nhắn hoặc file không hợp lệ.');
+    const converted=buildUserAttachmentParts(attachments),task=context.task;
+    task.pendingMessages??=[];
+    if(task.pendingMessages.length>=12)throw fault('pending_messages_full','Quá 12 chỉ dẫn đang chờ.',409);
+    task.pendingMessages.push({text:prompt.trim(),parts:converted.parts,metadata:converted.metadata,at:now()});
+    task.dialogue??=[];
+    task.dialogue.push({role:'user',at:now(),text:prompt.trim()+(converted.metadata.length?'\n[Đính kèm: '+converted.metadata.map(m=>m.name).join(', ')+']':''),run:task.runs?.length??1});
+    task.prompts??=[];
+    task.prompts.push({at:now(),text:prompt.trim(),attachments:converted.metadata});
+    await this.#event(task,'user_message_queued','Đã nhận tin nhắn; sẽ chuyển cho model ở ranh giới an toàn.',{},{attachments:converted.metadata});
+    return this.#public(task);
   }
 
   async delete(id) {
@@ -629,21 +675,25 @@ export class AgentRunner {
     if (config.model !== context.task.model || (config.provider ?? null) !== context.task.provider) throw fault('provider_changed', 'Cấu hình model đã thay đổi trong khi chạy. Hãy gửi yêu cầu mới với cấu hình hiện tại.', 409);
   }
 
-  async start({ prompt, maxSteps = null, maxMinutes = null, resumeId = null } = {}) {
+  async start({ prompt, attachments = [], initialId = null, maxSteps = null, maxMinutes = null, resumeId = null } = {}) {
     if (resumeId && this.activeTaskId === resumeId && this.tasks.get(resumeId)?.status !== 'running' && this.context?.done) await this.context.done.promise;
     if (this.closing) throw fault('shutting_down', 'Hub đang dừng.', 503);
     if (this.activeTaskId) throw fault('task_running', 'Đã có một tác vụ đang chạy. Hãy chờ hoặc dừng tác vụ đó.', 409);
-    if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 100000) throw fault('invalid_prompt', 'Nhập yêu cầu từ 1 đến 100.000 ký tự.');
+    if(typeof prompt!=='string'||(!prompt.trim()&&!attachments.length)||prompt.length>100000)
+      throw fault('invalid_prompt','Nhập tin nhắn hoặc tệp đính kèm hợp lệ.');
+    const attachmentParts=buildUserAttachmentParts(attachments);
+    if(initialId!==null&&(!TASK_ID.test(initialId)||this.tasks.has(initialId)||resumeId!==null))
+      throw fault('invalid_task_id','Task ID mới đã tồn tại hoặc không hợp lệ.',409);
     if (maxSteps !== null && (!Number.isSafeInteger(maxSteps) || maxSteps < 1)) throw fault('invalid_limits', 'Lượt tối đa phải là số nguyên dương hoặc null (không giới hạn).');
     if (maxMinutes !== null && (!Number.isFinite(maxMinutes) || maxMinutes <= 0)) throw fault('invalid_limits', 'Giới hạn phút phải lớn hơn 0 hoặc null (không giới hạn).');
     const existing = resumeId == null ? null : this.tasks.get(resumeId);
     if (resumeId != null && (!TASK_ID.test(resumeId) || !existing)) throw fault('task_not_found', 'Không tìm thấy phiên hội thoại cũ.', 404);
     if (existing && existing.status === 'running') throw fault('task_running', 'Phiên này vẫn đang chạy.', 409);
-    const id = existing?.id ?? randomUUID();
+    const id = existing?.id ?? initialId ?? randomUUID();
     const config = this.provider.snapshot();
     const binding = this.#binding();
     if (existing && existing.workspace.path !== binding.path) throw fault('workspace_changed', 'Chọn lại đúng workspace của phiên trước rồi tiếp tục.', 409);
-    const cleanPrompt = this.#redact(prompt.trim());
+    const cleanPrompt = this.#redact(prompt.trim()||'Hãy phân tích các tệp/ảnh đính kèm.');
     // No await before this lock: two HTTP requests cannot both pass preflight.
     if (this.manager.acquireTask(id) === false) throw fault('hub_busy', 'Hub đang bận hoặc chưa thể khóa workspace.', 409);
     const initial = now();
@@ -663,9 +713,9 @@ export class AgentRunner {
     task.maxSteps = maxSteps === null ? null : task.steps + maxSteps; task.maxMinutes = maxMinutes;
     task.progress = createTaskProgress(task.progress, { newRun: true });
     task.goalPlan = decomposeCodingTask(task.prompt,task.goalPlan);
-    task.prompts ??= []; task.prompts.push({at:initial,text:cleanPrompt});
+    task.prompts ??= []; task.prompts.push({at:initial,text:cleanPrompt,attachments:attachmentParts.metadata});
     task.runs ??= []; task.runs.push({startedAt:initial,finishedAt:null,status:'running',startStep:task.steps,startToolCalls:task.toolCalls});
-    task.dialogue ??= []; task.dialogue.push({role:'user',at:initial,text:cleanPrompt,run:task.runs.length});
+    task.dialogue ??= []; task.dialogue.push({role:'user',at:initial,text:cleanPrompt+(attachmentParts.metadata.length?'\n[Đính kèm: '+attachmentParts.metadata.map(x=>x.name).join(', ')+']':''),run:task.runs.length});
     // A previous mutating MCP result can be uncertain after a crash. Do not
     // replay it. Surface it as context for inspection before any repeat.
     if (existing?.pendingCall) {
@@ -714,9 +764,19 @@ export class AgentRunner {
         : context.catalog;
       context.direct = directToolsFor(offeredCatalog);
       context.tools = [...structuredClone(ROUTER_TOOLS), ...context.direct.functions];
+      if(typeof this.manager.spawnBackgroundAgent==='function'){
+        context.spawnTool=true;
+        context.tools.push({type:'function',name:'spawn_agent',strict:false,
+          description:'Start an independent background subagent in its own Git worktree. Returns a task ID immediately; it is not a finished result. Permissions and dependencies are enforced by the Hub.',
+          parameters:{type:'object',additionalProperties:false,properties:{
+            goal:{type:'string'},dependsOn:{type:'array',items:{type:'string'}}
+          },required:['goal']}
+        });
+      }
       context.instructions = context.direct.functions.length
         ? createLocalAgentInstructions(offeredCatalog, task.workspace, this.manager.state().environment ?? null)
         : createAgentInstructions(context.catalog, task.workspace);
+      if(context.spawnTool)context.instructions+='\nBACKGROUND SUBAGENTS: Use spawn_agent for user-requested delegation or independent subprojects. Wait for their actual results before claiming their work is complete. They never auto-merge Git branches.\n';
       if(selectionMode==='auto') {
         context.instructions += '\nTool schemas are task-selected. Other registered tools remain available through mcp_catalog/mcp_describe/mcp_call with normal approvals.';
         await this.#event(task,'tool_selection','Dynamic task-specific tool schemas: '+context.direct.functions.length+' direct + 4 internal routers.',{},{
@@ -805,7 +865,7 @@ export class AgentRunner {
       if (context.skillContext) context.history.push({ role:'user', content:[{type:'input_text',text:context.skillContext}] });
       if (context.resumeEvidence) context.history.push({ role:'user', content:[{type:'input_text',text:context.resumeEvidence}] });
       context.history.push({ role:'user', content:[{type:'input_text',text:cleanPrompt},
-        ...(repoMapPart ? [repoMapPart] : [])] });
+        ...(repoMapPart ? [repoMapPart] : []), ...attachmentParts.parts] });
       this.#advance(task, 'planning', 'preflight_done');
       clearTimeout(context.preflightTimer);
       context.preflightTimer = null;
@@ -902,6 +962,13 @@ export class AgentRunner {
     try {
       while (true) {
         this.#check(context);
+        if(task.pendingMessages?.length){
+          const queued=task.pendingMessages.splice(0);
+          for(const message of queued){
+            context.history.push({role:'user',content:[{type:'input_text',text:message.text||'Inspect attached data.'},...message.parts]});
+            await this.#event(task,'user_message_delivered','Đã gửi chỉ dẫn mới tới model.',{},{at:message.at,attachments:message.metadata});
+          }
+        }
         if (task.maxSteps !== null && task.maxSteps !== undefined && task.steps >= task.maxSteps) throw fault('step_limit', `Đã dùng ${task.maxSteps} lượt model; chưa có phản hồi kết thúc. Bạn có thể kiểm tra kết quả hiện tại rồi gửi yêu cầu tiếp.`);
         if (Buffer.byteLength(JSON.stringify(context.history)) + Buffer.byteLength(context.instructions) > MAX_CONTEXT_BYTES) throw fault('context_limit', 'Nội dung phiên đã vượt 48 MiB. Bản ghi công cụ đã được lưu; tác vụ dừng thay vì âm thầm bỏ dữ liệu hoặc tự lặp lại thao tác.');
         task.steps += 1;
@@ -972,6 +1039,10 @@ export class AgentRunner {
         if (texts.length) await this.#event(task, 'assistant', texts.join('\n\n'), {}, { text: texts.join('\n\n') });
         if (refusal) throw fault('model_refusal', `Model không thể thực hiện yêu cầu: ${refusal}`);
         if (!calls.length) {
+          if(task.pendingMessages?.length){
+            if(finalTexts.some(text=>text.trim()))task.dialogue.push({role:'assistant',at:now(),text:finalTexts.join('\n\n'),run:task.runs?.length??1});
+            continue;
+          }
           if (!finalTexts.some((text) => text.trim())) throw fault('empty_final', 'Model kết thúc nhưng không đưa ra kết quả văn bản cuối cùng. Thông báo tiến độ không được coi là kết quả hoàn tất.', 502);
           task.finalText = this.#redact(finalTexts.join('\n\n'));
           task.verificationOutcome=assessCompletionEvidence(task.goalPlan,task.progress);
@@ -1026,6 +1097,17 @@ export class AgentRunner {
   async #dispatch(context, call) {
     let args;
     try {
+      if(call.namespace==null&&call.name==='spawn_agent'&&context.spawnTool){
+        args=parseObject(call.arguments,'spawn_agent arguments');
+        if(typeof args.goal!=='string'||!args.goal.trim()||args.goal.length>8000||
+          (args.dependsOn!=null&&(!Array.isArray(args.dependsOn)||args.dependsOn.some(id=>typeof id!=='string'))))
+          throw fault('invalid_arguments','spawn_agent cần goal và dependsOn hợp lệ.');
+        return await this.#upstream(context,call,'chatmcp.spawn_agent',args,async()=>{
+          const result=await this.manager.spawnBackgroundAgent(context.task.id,args);
+          const summary={taskId:result.id,status:result.status,dependsOn:result.dependsOn||[]};
+          return {isError:false,content:[{type:'text',text:JSON.stringify(summary)}],structuredContent:summary};
+        });
+      }
       if (call.namespace == null && context.direct?.byName.has(call.name)) {
         const qualified = context.direct.byName.get(call.name);
         // Some providers send an empty string for a function without parameters.
