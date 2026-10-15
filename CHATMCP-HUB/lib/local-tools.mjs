@@ -171,7 +171,12 @@ export class LocalTools {
     };
     try {
       if (op === 'write_file' || op === 'edit_file' || op === 'files_apply_patch') await addFile(input.path);
-      else if (['rename_symbol','format_document','organize_imports'].includes(op) && input.apply === true) await addFile(input.file);
+      else if (['rename_symbol','format_document','organize_imports'].includes(op) && input.apply === true){
+        await addFile(input.file);
+        if(Array.isArray(input.expected_files)){
+          for(const entry of input.expected_files.slice(0,12))await addFile(entry?.file);
+        }
+      }
       else if (op === 'files_write_batch') {
         for (const f of input.files ?? []) await addFile(f.path);
       }
@@ -535,7 +540,7 @@ export class LocalTools {
       run: (a,{taskId}) => ok('Token profile set to '+a.mode, setTokenProfile(taskId,a.mode)),
     });
     this.extendedCapabilities = registerAgentCapabilityTools(define, {workspace:this.workspace,shell:this.shell,stateDirectory:this.stateDirectory});
-    this.browserCapabilities = registerBrowserTools(define, {});
+    this.browserCapabilities = registerBrowserTools(define, {artifactDirectory:path.join(this.stateDirectory??path.join(os.tmpdir(),`chatmcp-${process.pid}`),'browser-traces')});
     this.workflowExtensions = registerWorkflowExtensions(define, {workspace:this.workspace,shell:this.shell,git:this.git});
     this.semanticTools = registerSemanticTools(define, {workspace:this.workspace,intelligence:this.studioIntelligence});
     this.debugTools = registerDebugTools(define, {workspace:this.workspace});

@@ -15,6 +15,35 @@
 
 Hub **không có bước build** và không có dependency bắt buộc để `npm install`. `node-pty` (ConPTY) là tùy chọn: `CHATMCP-HUB\windows\Install-OptionalConPTY.ps1`; khi thiếu hoặc hỏng, terminal tương tác tự dùng pipe.
 
+## Dynamic task tool schemas
+
+Set `CHATMCP_TOOL_SELECTION=auto` to select at most 48 task-relevant LocalTools
+for each task, plus the four internal routers. Default is `full` for backward
+compatibility with existing providers and scripts. Tools not directly advertised
+remain registered in the original catalog and reachable via internal
+`mcp_catalog`, `mcp_describe`, `mcp_call` behind PermissionGate.
+Selection does not remove tool permissions and must be benchmarked before
+claiming lower total request consumption.
+Parallel coding workers use the bounded 48-schema `auto` selection by default; the ordinary single-agent flow keeps its existing full-tool default unless configured.
+When launching a parallel coding DAG, ChatMCP also enforces one aggregate
+HTTP model-request allowance shared by its workers:
+`CHATMCP_MAX_WORKER_HTTP_REQUESTS=120` (0 to disable). It counts retries and
+Gemini repair/fallback attempts, and never bypasses an individual worker's
+task-scoped request cap. The aggregate is reset for each newly authorized
+coding DAG; no separate Windows Sandbox rules are modified.
+
+## Request and token telemetry (no ChatMCP quota)
+
+ChatMCP **does not impose HTTP request, token or spending caps**.
+Provider billing and quota are controlled by the user/provider. No
+`CHATMCP_MAX_HTTP_REQUESTS`, `CHATMCP_MAX_INPUT_TOKENS`,
+`CHATMCP_MAX_OUTPUT_TOKENS` or `CHATMCP_MAX_WORKER_HTTP_REQUESTS`
+limits are enforced. The AgentRunner counts real model HTTP sends including
+retry/fallback/repair requests. `task.usage.httpRequests` persists
+through task resume. Worker orchestration sums HTTP sends for reporting,
+not to block tasks. Provider-reported tokens may exclude timed-out or
+unbilled requests and should not be treated as exact charges.
+
 ## Trạng thái Windows Sandbox (Phase 1 experimental)
 
 **Chưa có bằng chứng cách ly Windows Sandbox guest thật.** Việc build .NET GuestSupervisor
@@ -34,7 +63,7 @@ Windows Feature đang chờ khởi động lại không chặn các bài test n�
 
 ## Giới hạn công cụ trực tiếp
 
-Từ nhánh nâng cấp LocalTools, `directToolsFor` quảng bá tối đa **95 LocalTools + 4 router** (99 schemas) ở cấu hình mặc định; không còn bài kiểm thử áp đặt dưới 50. Có thể đặt biến môi trường `CHATMCP_DIRECT_TOOL_LIMIT=48` (compact) hoặc `=95` (full); giá trị hợp lệ 0-124, vượt 124 được chặn để giữ tổng advertised functions không quá 128. `0` chỉ giữ các router nội bộ. Các tool không quảng bá trực tiếp vẫn ở catalog và gọi được qua `mcp_call`. Hãy chọn giới hạn thấp hơn nếu provider có tool-limit hoặc prompt-context nhỏ; thay đổi yêu cầu khởi động lại Hub. Đây là giới hạn gửi schemas **không** phải giới hạn quyền PermissionGate hoặc tổng số tool đã đăng ký.
+Từ nhánh nâng cấp LocalTools, `directToolsFor` quảng bá tối đa **99 LocalTools + 4 router** (103 schemas) ở cấu hình mặc định; không còn bài kiểm thử áp đặt dưới 50. Có thể đặt biến môi trường `CHATMCP_DIRECT_TOOL_LIMIT=48` (compact) hoặc `=95` (full); giá trị hợp lệ 0-124, vượt 124 được chặn để giữ tổng advertised functions không quá 128. `0` chỉ giữ các router nội bộ. Các tool không quảng bá trực tiếp vẫn ở catalog và gọi được qua `mcp_call`. Hãy chọn giới hạn thấp hơn nếu provider có tool-limit hoặc prompt-context nhỏ; thay đổi yêu cầu khởi động lại Hub. Đây là giới hạn gửi schemas **không** phải giới hạn quyền PermissionGate hoặc tổng số tool đã đăng ký.
 
 ## Chạy kiểm thử
 
@@ -48,7 +77,7 @@ node tests/run-all.mjs --no-skip all             # một bộ bị SKIP bị tí
 npm run test:ui                                  # bộ giao diện Python/Playwright (tùy chọn)
 ```
 
-Hiện có **85 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
+Hiện có **87 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
 
 Runner in một dòng cho mỗi bộ (`PASS`/`FAIL`/`TIMEOUT`/`SKIP`, thời gian, mã thoát thật) và thoát khác 0 nếu có bộ nào fail hoặc quá hạn (mặc định 180 giây/bộ, đổi bằng `--timeout`). Bộ kiểm thử in một dòng `CHATMCP_TEST_SKIP: <lý do>` rồi thoát 0 để được báo là **SKIP — không bao giờ được tính là PASS**. `--no-skip all` (hoặc `--no-skip tên1,tên2`) biến SKIP thành FAIL. Workflow hiện tại cài Python 3.11 và các gói ghim trong `tests/requirements-e2e.txt`, rồi chạy **`--no-skip all`** trên cả Windows và Linux, Node 22 và 24. Một bộ bắt buộc bị bỏ qua vì thiếu môi trường vì thế làm CI thất bại. Một phần không thể kiểm chứng trong bản này được in `BLOCKED: <gì> - <vì sao>`.
 
@@ -280,3 +309,35 @@ The user selects their compatible model API Base URL, API key, and model. ChatMC
 ChatMCP is a standalone local desktop app; no IDE/VS Code integration is needed. PermissionGate supports explicit Full Access confirmation; it does not elevate the OS account or cancel Windows Sandbox isolation requirements for untrusted automated tests.
 
 `dynamic-delegates.mjs` executes user-triggered dynamically planned read-only subagents through the same configured Gateway Provider and requires the literal `AUTHORIZE READONLY DELEGATION` confirmation. It has no internal token/spend budget; workers have no execution tools, and cancellation/restart are explicit.
+
+## Cached and reasoning-token usage diagnostics
+
+Agent tasks now preserve provider-reported cache hits, cache writes and
+reasoning tokens separately from total input/output. Anthropic prompt caching
+is requested only for its native preset; compatible gateways remain conservative.
+OpenAI-compatible Chat Completions and Gemini include cache and reasoning
+telemetry when returned by the provider. Missing or zero usage fields are
+**unknown or zero as reported**, not verified billing savings. Reports and
+conversation UI disclose this telemetry without imposing quotas.
+
+## Reproducible parity metrics (grades are user-provided)
+
+Run `node tests/benchmarks/summarize-parity.mjs results.json` from
+`CHATMCP-HUB`. The input must be a JSON object:
+```json
+{
+  "schema": 1,
+  "cases": [{
+    "id": "bug-001",
+    "baseline": {"grade":"pass","httpRequests":5,"inputTokens":1000,"outputTokens":500,"durationMs":60000},
+    "candidate": {"grade":"pass","httpRequests":3,"inputTokens":900,"outputTokens":450,"durationMs":60000}
+  }]
+}
+```
+Use the same tasks, model class, hardware, test budget and repeats for
+both runners. Grades must be supplied by an external test/evaluation
+process. The aggregator validates numeric fields, reports the success
+ratio and request/token usage per successful task, but does **not**
+cryptographically verify grades, run hidden tests, invoke a model,
+or certify parity with Codex/Claude. At least 100 tasks are recommended;
+reported sample-count adequacy is not proof of statistical validity.

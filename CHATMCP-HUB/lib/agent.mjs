@@ -4,9 +4,11 @@ import { randomUUID } from 'node:crypto';
 import { ACTIVE_STATES, NOT_STARTED_PHASES, applyTransition, deriveState, describeState, isTaskState, restState } from './task-state.mjs';
 import { writeFileAtomic } from './fs-safe.mjs';
 import { callIdentity, createTaskProgress, observeTaskTool, progressCheckpoint } from './agent-progress.mjs';
-import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence } from './agent-autonomy.mjs';
+import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence, assessCompletionEvidence } from './agent-autonomy.mjs';
 import { estimateTokens as estimateContextTokens, injectRepoMapIntoInstructions, compactConversationHistory } from './context-compaction.mjs';
 import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './token-optimization.mjs';
+import { RequestMeter } from './request-budget.mjs';
+import { taskToolSelectionMode, selectTaskCatalog } from './tool-selector.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
 // from disk or the environment, evaluates model text, or executes a local shell.
@@ -111,12 +113,12 @@ const PREFERRED_DIRECT_TOOLS = new Set([
   'web_search','web_fetch','browser_launch','browser_navigate','browser_click',
   'browser_fill','browser_screenshot','test_run','github_workflow_runs','token_restore',
 ]);
-// 95 local tools + the four internal routers = 99 functions today.
+// 99 local tools + four internal routers = 103 function definitions today.
 // The old <50 smoke-test threshold was never an API restriction.
 // Keep a conservative upper boundary of 128 advertised functions (4 routers +
 // at most 124 direct) while permitting the operator to lower schema cost for
 // providers with smaller tool limits via CHATMCP_DIRECT_TOOL_LIMIT.
-export const DEFAULT_DIRECT_TOOL_LIMIT = 95;
+export const DEFAULT_DIRECT_TOOL_LIMIT = 99;
 export const MAX_DIRECT_TOOL_LIMIT = 124;
 export function resolveDirectToolLimit(raw = process.env.CHATMCP_DIRECT_TOOL_LIMIT) {
   if (raw === undefined || raw === null || String(raw).trim() === '') return DEFAULT_DIRECT_TOOL_LIMIT;
@@ -289,12 +291,16 @@ async function atomicWrite(file, data) {
 }
 
 export class AgentRunner {
-  constructor({ manager, provider, taskDirectory, log = () => {} }) {
+  constructor({ manager, provider, taskDirectory, log = () => {}, onBeforeModelRequest = null, toolSelectionMode = null }) {
     if (!manager || !provider || typeof taskDirectory !== 'string' || !taskDirectory) throw new TypeError('AgentRunner cần manager, provider và taskDirectory.');
     this.manager = manager;
     this.provider = provider;
     this.taskDirectory = path.resolve(taskDirectory);
     this.log = log;
+    if(onBeforeModelRequest!==null&&typeof onBeforeModelRequest!=='function')throw new TypeError('Invalid model-request telemetry callback.');
+    this.onBeforeModelRequest=onBeforeModelRequest;
+    if(toolSelectionMode!==null&&!['auto','full'].includes(toolSelectionMode))throw new TypeError('Invalid task tool selection mode.');
+    this.toolSelectionMode=toolSelectionMode;
     this.tasks = new Map();
     this.activeTaskId = null;
     this.context = null;
@@ -447,6 +453,7 @@ export class AgentRunner {
       progress: createTaskProgress(task.progress),
       goalPlan: task.goalPlan ?? null,
       verifiedSummary: evidenceReport(task.progress,task.goalPlan),
+      verificationOutcome:task.verificationOutcome??null,
     };
     if (!summary) {
       result.events = task.events.slice(-EVENT_LIMIT);
@@ -468,7 +475,7 @@ export class AgentRunner {
       'CHATMCP HUB — BẢN GHI TÁC VỤ', `ID: ${task.id}`, `Trạng thái: ${task.status}${isTaskState(task.state) ? ` · ${describeState(task.state).label} (${task.state})` : ''}`,
       `Workspace: ${task.workspace?.path ?? ''}`, `Model: ${task.model ?? ''}`,
       `Bắt đầu: ${task.startedAt}`, `Kết thúc: ${task.finishedAt ?? 'Chưa kết thúc'}`,
-      `Lượt model: ${task.steps}; lượt MCP: ${task.toolCalls}; input/output tokens: ${task.usage.inputTokens}/${task.usage.outputTokens}`,
+      `Lượt model: ${task.steps}; HTTP requests: ${task.usage.httpRequests??0}; lượt MCP: ${task.toolCalls}; input/output tokens: ${task.usage.inputTokens}/${task.usage.outputTokens}; cache read/write: ${task.usage.cachedInputTokens??0}/${task.usage.cacheWriteTokens??0}; reported reasoning: ${task.usage.reasoningTokens??0}`,
       '', 'TIẾN ĐỘ CÓ BẰNG CHỨNG', progressCheckpoint(task.progress),
       '', 'KẾ HOẠCH & BẰNG CHỨNG', JSON.stringify(evidenceReport(task.progress,task.goalPlan),null,2),
       '', 'HỘI THOẠI / CÁC YÊU CẦU', ...(task.prompts ?? [{text:task.prompt}]).map((p,i)=>`${i+1}. ${p.text}`), '', 'KẾT QUẢ MỚI NHẤT', task.finalText || '(Chưa có phản hồi kết thúc hợp lệ.)',
@@ -535,7 +542,9 @@ export class AgentRunner {
         const task = this.#clean(data, { transcript: true });
         task.events = Array.isArray(task.events) ? task.events.filter((event) => object(event) && typeof event.message === 'string').slice(-EVENT_LIMIT) : [];
         task.eventCount = Number.isSafeInteger(task.eventCount) ? task.eventCount : task.events.length;
-        task.usage = object(task.usage) ? task.usage : { inputTokens: 0, outputTokens: 0 };
+        task.usage = object(task.usage) ? task.usage : { inputTokens: 0, outputTokens: 0, httpRequests: 0 };
+        for(const k of ['inputTokens','outputTokens','httpRequests','cachedInputTokens','cacheWriteTokens','reasoningTokens'])
+          if(!Number.isFinite(task.usage[k])||task.usage[k]<0)task.usage[k]=0;
         task.prompts ??= [{at:task.startedAt,text:task.prompt}];
         task.runs ??= [{startedAt:task.startedAt,finishedAt:task.finishedAt,status:task.status,startStep:0}];
         task.progress = createTaskProgress(task.progress);
@@ -638,7 +647,7 @@ export class AgentRunner {
       id, prompt: cleanPrompt, status: 'running', workspace: binding,
       model: config.model ?? '', provider: config.provider ?? null, createdAt: initial, startedAt: initial, updatedAt: initial, finishedAt: null,
       finalText: '', error: null, errorCode: null, steps: 0, toolCalls: 0, maxSteps, maxMinutes,
-      usage: { inputTokens: 0, outputTokens: 0 }, events: [], eventCount: 0, pendingCall: null, cancelRequested: false,
+      usage: { inputTokens: 0, outputTokens: 0, httpRequests: 0, cachedInputTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0 }, events: [], eventCount: 0, pendingCall: null, cancelRequested: false,
       progress: createTaskProgress(),
       goalPlan: decomposeCodingTask(cleanPrompt),
       prompts: [], runs: [], dialogue: [],
@@ -660,7 +669,8 @@ export class AgentRunner {
       task.unverifiedOperations.push(structuredClone(existing.pendingCall));
       task.pendingCall = null;
     }
-    const context = { task, controller: new AbortController(), deadline: maxMinutes === null ? Infinity : Date.now() + maxMinutes * 60000, done: deferred(), session: null, closePromise: null, seenCalls: new Set(), history: [], inFlight: null, resumeEvidence:priorContext };
+    const budget = new RequestMeter({used:task.usage});
+    const context = { task, requestBudget: budget, controller: new AbortController(), deadline: maxMinutes === null ? Infinity : Date.now() + maxMinutes * 60000, done: deferred(), session: null, closePromise: null, seenCalls: new Set(), history: [], inFlight: null, resumeEvidence:priorContext };
     this.tasks.set(id, task); this.activeTaskId = id; this.context = context;
     // The Hub now holds the workspace lock for this run. A follow-up to a stopped conversation also starts here.
     this.#advance(task, 'queued', existing ? 'continue_requested' : 'start_requested', { force: !!existing });
@@ -684,11 +694,21 @@ export class AgentRunner {
       context.catalog = normalized.catalog; context.index = normalized.index;
       task.catalogCounts = { tools: context.catalog.tools.length, prompts: context.catalog.prompts.length, resources: context.catalog.resources.length, resourceTemplates: context.catalog.resourceTemplates.length };
       this.#check(context);
-      context.direct = directToolsFor(context.catalog);
+      const selectionMode=this.toolSelectionMode??taskToolSelectionMode();
+      const offeredCatalog=selectionMode==='auto'
+        ? selectTaskCatalog(context.catalog,task.prompt,{cap:48})
+        : context.catalog;
+      context.direct = directToolsFor(offeredCatalog);
       context.tools = [...structuredClone(ROUTER_TOOLS), ...context.direct.functions];
       context.instructions = context.direct.functions.length
-        ? createLocalAgentInstructions(context.catalog, task.workspace, this.manager.state().environment ?? null)
+        ? createLocalAgentInstructions(offeredCatalog, task.workspace, this.manager.state().environment ?? null)
         : createAgentInstructions(context.catalog, task.workspace);
+      if(selectionMode==='auto') {
+        context.instructions += '\nTool schemas are task-selected. Other registered tools remain available through mcp_catalog/mcp_describe/mcp_call with normal approvals.';
+        await this.#event(task,'tool_selection','Dynamic task-specific tool schemas: '+context.direct.functions.length+' direct + 4 internal routers.',{},{
+          mode:selectionMode,offered:context.direct.functions.map(tool=>tool.name),
+          catalogCount:context.catalog.tools.length});
+      }
 
       // Select task-relevant skills dynamically within token budget
       const selectedSkills = typeof this.manager.pluginManager?.selectSkillsForTask === 'function'
@@ -872,6 +892,11 @@ export class AgentRunner {
             {}, {stats:compacted.stats});
         }
         const response = await abortable(this.provider.respond({
+          beforeModelRequest: () => {
+            this.onBeforeModelRequest?.({taskId:task.id,model:task.model,provider:task.provider});
+            const snapshot=context.requestBudget.beforeRequest();
+            task.usage.httpRequests=snapshot.httpRequests;
+          },
           input: modelInput, instructions: context.instructions, tools: structuredClone(context.tools),
           signal: context.controller.signal, maxOutputTokens: MAX_OUTPUT_TOKENS,
           store: false, parallel_tool_calls: false, include: ['reasoning.encrypted_content'],
@@ -883,6 +908,10 @@ export class AgentRunner {
         if (!object(response) || !Array.isArray(response.output)) throw fault('invalid_response', 'Model trả về response không đúng định dạng. Không gọi thêm công cụ.', 502);
         task.usage.inputTokens += Number.isFinite(response.usage?.input_tokens) ? response.usage.input_tokens : 0;
         task.usage.outputTokens += Number.isFinite(response.usage?.output_tokens) ? response.usage.output_tokens : 0;
+        task.usage.cachedInputTokens=(task.usage.cachedInputTokens??0)+(Math.max(0,Number(response.usage?.cache_read_tokens)||0));
+        task.usage.cacheWriteTokens=(task.usage.cacheWriteTokens??0)+(Math.max(0,Number(response.usage?.cache_creation_tokens)||0));
+        task.usage.reasoningTokens=(task.usage.reasoningTokens??0)+(Math.max(0,Number(response.usage?.reasoning_tokens)||0));
+        context.requestBudget.recordUsage(response.usage?.input_tokens||0,response.usage?.output_tokens||0);
         await this.#persist(task, { at: now(), type: 'model_response', step: task.steps, response });
         if (response.status !== 'completed') {
           const reason = response.incomplete_details?.reason ?? response.error?.message ?? response.status ?? 'unknown';
@@ -915,7 +944,14 @@ export class AgentRunner {
         if (refusal) throw fault('model_refusal', `Model không thể thực hiện yêu cầu: ${refusal}`);
         if (!calls.length) {
           if (!finalTexts.some((text) => text.trim())) throw fault('empty_final', 'Model kết thúc nhưng không đưa ra kết quả văn bản cuối cùng. Thông báo tiến độ không được coi là kết quả hoàn tất.', 502);
-          task.finalText = this.#redact(finalTexts.join('\n\n')); task.status = 'completed';
+          task.finalText = this.#redact(finalTexts.join('\n\n'));
+          task.verificationOutcome=assessCompletionEvidence(task.goalPlan,task.progress);
+          if(!task.verificationOutcome.ready) {
+            const warning='ChatMCP has NOT independently verified full completion: '+task.verificationOutcome.missing.join('; ')+'.';
+            task.finalText += '\n\n[Verification notice] '+warning;
+            await this.#event(task,'verification_unverified',warning,{status:'running'},{missing:task.verificationOutcome.missing});
+          }
+          task.status = 'completed';
           this.#advance(task, 'completed', 'final_answer');
           break;
         }

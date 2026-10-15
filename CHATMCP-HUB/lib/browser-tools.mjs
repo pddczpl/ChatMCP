@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { randomUUID, createHash } from 'node:crypto';
 import { inflateSync } from 'node:zlib';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 const requireUi = createRequire(new URL('../ui/package.json', import.meta.url));
@@ -85,7 +86,10 @@ export function comparePngBuffers(left,right,{tolerance=0}={}) {
   return {sameDimensions:true,width:a.width,height:a.height,changedPixels:changed,totalPixels:a.width*a.height,ratio:changed/(a.width*a.height),maxChannelDelta,equal:changed===0,tolerance};
 }
 export class BrowserTools {
-  constructor({driver=null}={}) {this.driver=driver;this.sessions=new Map();}
+  constructor({driver=null,artifactDirectory=null}={}) {
+    this.driver=driver;this.sessions=new Map();
+    this.artifactDirectory=artifactDirectory||path.join(os.tmpdir(),'chatmcp-browser-traces');
+  }
   async #loadDriver() {
     if(this.driver)return this.driver;
     try{return requirePackaged('playwright');}
@@ -114,7 +118,7 @@ export class BrowserTools {
         catch {await route.abort('blockedbyclient');}
       });
       const page=await context.newPage();
-      const record={browser,context,page,errors:[],requests:[],captures:new Map()};
+      const record={browser,context,page,errors:[],requests:[],captures:new Map(),traceStarted:false};
       page.on('console',event=>{if(['error','warning'].includes(event.type()))record.errors.push({type:event.type(),message:event.text().slice(0,1400)});record.errors=record.errors.slice(-100);});
       page.on('pageerror',error=>{record.errors.push({type:'pageerror',message:String(error.message).slice(0,1400)});record.errors=record.errors.slice(-100);});
       page.on('requestfailed',request=>{record.requests.push({url:request.url().slice(0,600),error:request.failure()?.errorText||'unknown'});record.requests=record.requests.slice(-100);});
@@ -129,16 +133,22 @@ export class BrowserTools {
     const final=validateBrowserUrl(s.page.url());
     return ok({url:final.toString(),status:response?.status()??null,title:(await s.page.title()).slice(0,250)});
   }
-  async click({selector},{taskId,signal}={}) {
+  async click({selector,role,name},{taskId,signal}={}) {
     const s=this.#get(taskId); signal?.throwIfAborted();
-    await s.page.locator(selector).first().click({timeout:10000});
-    return ok({clicked:selector,url:s.page.url()});
+    if(!selector && !role)throw failure('missing_locator','Provide a selector or an accessible role.');
+    if(role && !name)throw failure('missing_accessible_name','Role-based actions require an exact accessible name.');
+    const target=role?s.page.getByRole(role,{name,exact:true}):s.page.locator(selector);
+    await target.first().click({timeout:10000});
+    return ok({clicked:role?{role,name}:selector,url:s.page.url()});
   }
-  async fill({selector,text},{taskId,signal}={}) {
+  async fill({selector,role,name,text},{taskId,signal}={}) {
     const s=this.#get(taskId);signal?.throwIfAborted();
-    await s.page.locator(selector).first().fill(text,{timeout:10000});
+    if(!selector && !role)throw failure('missing_locator','Provide a selector or an accessible role.');
+    if(role && !name)throw failure('missing_accessible_name','Role-based actions require an exact accessible name.');
+    const target=role?s.page.getByRole(role,{name,exact:true}):s.page.locator(selector);
+    await target.first().fill(text,{timeout:10000});
     // Never echo form values back to the model; they might be secrets.
-    return ok({filled:selector,length:text.length});
+    return ok({filled:role?{role,name}:selector,length:text.length});
   }
   async screenshot({full_page:fullPage=false},{taskId,signal}={}) {
     const s=this.#get(taskId);signal?.throwIfAborted();
@@ -200,9 +210,68 @@ export class BrowserTools {
     });
     return ok(report);
   }
+
+  async domSnapshot({limit=16000}={},{taskId,signal}={}) {
+    const s=this.#get(taskId);signal?.throwIfAborted();
+    if(!Number.isInteger(limit)||limit<100||limit>25000)throw failure('bad_snapshot_limit','Snapshot limit must be 100-25000.');
+    // Playwright's ARIA snapshot omits input values, so model context does not
+    // accidentally include passwords entered through browser_fill.
+    if(typeof s.page.locator('body')?.ariaSnapshot!=='function')
+      throw failure('aria_snapshot_unavailable','Installed Playwright does not support ARIA snapshots.');
+    const text=String(await s.page.locator('body').ariaSnapshot({timeout:10000}));
+    return ok({url:validateBrowserUrl(s.page.url()).toString(),ariaSnapshot:text.slice(0,limit),
+      truncated:text.length>limit,characters:text.length});
+  }
+  async assertElement({selector,role,name,visible=true,count}={},{taskId,signal}={}) {
+    const s=this.#get(taskId);signal?.throwIfAborted();
+    if(!selector&&!role)throw failure('missing_locator','Assertion requires an ARIA role or selector.');
+    if(role&&!name)throw failure('missing_accessible_name','ARIA assertions require an exact name.');
+    if(count!==undefined&&(!Number.isInteger(count)||count<0||count>10000))
+      throw failure('bad_assert_count','Expected count must be 0-10000.');
+    const loc=role?s.page.getByRole(role,{name,exact:true}):s.page.locator(selector);
+    const actualCount=await loc.count();
+    const actualVisible=actualCount>0?await loc.first().isVisible():false;
+    const passed=(count===undefined||actualCount===count)&&actualVisible===visible;
+    if(!passed)throw failure('browser_assert_failed',
+      'Browser assertion failed: count='+actualCount+', visible='+actualVisible+'.');
+    return ok({passed:true,actualCount,actualVisible,role:role||null,name:name||null,selector:selector||null});
+  }
+  async traceStart({},{taskId,signal}={}) {
+    const s=this.#get(taskId);signal?.throwIfAborted();
+    if(s.traceStarted)throw failure('trace_already_running','A trace is already recording for this task.');
+    if(typeof s.context.tracing?.start!=='function')
+      throw failure('trace_unavailable','Installed browser runtime lacks trace recording.');
+    await s.context.tracing.start({screenshots:true,snapshots:true,sources:false});
+    s.traceStarted=true;
+    return ok({recording:true,taskId,includes:['screenshots','DOM snapshots','network metadata']});
+  }
+  async traceStop({},{taskId,signal}={}) {
+    const s=this.#get(taskId);signal?.throwIfAborted();
+    if(!s.traceStarted)throw failure('trace_not_running','Start browser tracing before stopping it.');
+    if(!/^[a-zA-Z0-9-]{1,80}$/.test(String(taskId)))
+      throw failure('bad_task_id','Unsafe trace task ID.');
+    const dir=path.join(this.artifactDirectory,String(taskId));
+    await fs.mkdir(dir,{recursive:true,mode:0o700});
+    const target=path.join(dir,'trace-'+randomUUID()+'.zip');
+    try{
+      await s.context.tracing.stop({path:target});
+      s.traceStarted=false;
+      const stat=await fs.stat(target);
+      if(!stat.isFile()||stat.size>64*1024*1024||stat.size<1)
+        throw failure('trace_size','Playwright trace ZIP is empty or exceeds 64MiB.');
+      const bytes=await fs.readFile(target);
+      return ok({saved:true,path:target,bytes:bytes.length,
+        sha256:createHash('sha256').update(bytes).digest('hex'),
+        containsSensitivePageData:true,localArtifact:true});
+    }catch(error){
+      s.traceStarted=false;await fs.unlink(target).catch(()=>{});
+      throw error;
+    }
+  }
   async closeOne(taskId) {
     const s=this.#get(taskId);
     this.sessions.delete(taskId);
+    if(s.traceStarted)await s.context.tracing?.stop?.().catch(()=>{});
     await s.context.close().catch(()=>{});await s.browser.close().catch(()=>{});
     return ok({closed:true});
   }
@@ -217,10 +286,13 @@ export class BrowserTools {
       (a,ctx)=>this.launch(a,ctx));
     executor('browser_navigate','Navigate Chromium only to localhost or explicitly allowed hosts; subrequests are restricted.',
       O({url:S('Full http(s) navigation URL, host must be allowed.')},['url']),(a,ctx)=>this.navigate(a,ctx));
-    executor('browser_click','Click a Playwright selector on the current browser page.',
-      O({selector:S('CSS, text, or role selector.',{maxLength:500})},['selector']),(a,ctx)=>this.click(a,ctx));
-    executor('browser_fill','Fill an input using Playwright. Values are not echoed; approval required.',
-      O({selector:S('Form selector.',{maxLength:500}),text:S('Text to enter.',{maxLength:16000})},['selector','text']),(a,ctx)=>this.fill(a,ctx));
+    executor('browser_click','Click a Playwright selector or exact accessible role/name; prefer semantic locators for robust UI tests.',
+      O({selector:S('Optional CSS or text selector.',{maxLength:500}),role:S('Optional accessible ARIA role.',{maxLength:80}),name:S('Exact accessible name when role is given.',{maxLength:300})}),
+      (a,ctx)=>this.click(a,ctx));
+    executor('browser_fill','Fill input by selector or exact ARIA role/name; entered value is never echoed.',
+      O({selector:S('Optional CSS or text selector.',{maxLength:500}),role:S('Optional accessible ARIA role.',{maxLength:80}),
+        name:S('Exact accessible name when role is given.',{maxLength:300}),text:S('Text to enter.',{maxLength:16000})},['text']),
+      (a,ctx)=>this.fill(a,ctx));
     executor('browser_screenshot','Capture a real PNG screenshot and forward it to a vision-capable model.',
       O({full_page:{type:'boolean',description:'Capture full page instead of viewport.'}}),(a,ctx)=>this.screenshot(a,ctx));
     executor('browser_console','Read recent browser console errors and page exceptions (within this task only).',
@@ -237,6 +309,18 @@ export class BrowserTools {
     executor('visual_diff','Compare captured PNG images pixel by pixel, with safe task-scoped screenshot IDs.',
       O({before:S('First screenshot ID.'),after:S('Second screenshot ID.'),tolerance:I('Channel tolerance 0-255.',{minimum:0,maximum:255})},['before','after']),
       (a,ctx)=>this.compare(a,ctx),{readOnly:true});
+
+    executor('browser_dom_snapshot','Read a bounded ARIA semantic tree, never reading form input values.',
+      O({limit:I('Maximum ARIA snapshot characters.',{minimum:100,maximum:25000})}),
+      (a,ctx)=>this.domSnapshot(a,ctx),{readOnly:true});
+    executor('browser_assert','Assert visible/hidden UI state and exact element count using accessible locators.',
+      O({selector:S('Optional CSS selector.'),role:S('Accessible role.'),name:S('Exact accessible name.'),
+        visible:{type:'boolean',description:'Whether an exact matching element must be visible.'},count:I('Expected number of matching elements.',{minimum:0,maximum:10000})}),
+      (a,ctx)=>this.assertElement(a,ctx),{readOnly:true});
+    executor('browser_trace_start','Start user-approved task-scoped Playwright tracing (may contain sensitive UI data).',
+      O({}), (a,ctx)=>this.traceStart(a,ctx));
+    executor('browser_trace_stop','Save a local Playwright trace ZIP for developer diagnostics (may contain sensitive UI data).',
+      O({}), (a,ctx)=>this.traceStop(a,ctx));
     executor('accessibility_audit','Run basic deterministic accessibility checks (alt, headings, labels, duplicate IDs); not a complete WCAG audit.',
       O({}), (a,ctx)=>this.accessibility(a,ctx),{readOnly:true});
     executor('responsive_check','Capture PNG screenshots at multiple viewport widths, restoring the initial viewport.',

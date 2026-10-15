@@ -1,11 +1,45 @@
 import assert from 'node:assert/strict';
 import {deriveChildCapabilities} from '../lib/worker-capabilities.mjs';
 import {WorkerScheduler} from '../lib/worker-scheduler.mjs';
+import {CodingWorktreeOrchestrator} from '../lib/coding-orchestrator.mjs';
 import path from 'node:path';
 import {
-  validateCodingTaskGraph,chooseReadyCodingBatch,detectCodingFileConflicts,
+  validateCodingTaskGraph,chooseReadyCodingBatch,detectCodingFileConflicts,proposeCodingTaskGraph,
 } from '../lib/coding-task-dag.mjs';
 
+const proposed=proposeCodingTaskGraph('1. Implement a login module and validation\n2. Write focused login tests [after: 1]');
+assert.equal(proposed.previewOnly,true);
+assert.equal(proposed.taskCount,2);
+assert.deepEqual(proposed.tasks[1].dependsOn,['task-1']);
+assert.deepEqual(proposeCodingTaskGraph('Fix this bug').tasks.map(x=>x.id),['task-1']);
+assert.throws(()=>proposeCodingTaskGraph([
+  '1. First meaningful subtask','2. Second meaningful subtask','3. Third meaningful subtask',
+  '4. Fourth meaningful subtask','5. Fifth meaningful subtask',
+].join('\n')),{code:'too_many_coding_tasks'});
+assert.throws(()=>proposeCodingTaskGraph('1. Fix the backend tests\n2. Fix the frontend tests [after: 2]'),
+  {code:'invalid_coding_graph'});
+
+// No worktree writes, host tools, or owner permissions are exercised by AI planning.
+const aiPlanner=Object.create(CodingWorktreeOrchestrator.prototype);
+let planningCalls=0;
+aiPlanner.provider={ready:()=>true,respond:async({tools})=>{
+  planningCalls++;
+  assert.deepEqual(tools,[]);
+  return {status:'completed',output:[{type:'message',role:'assistant',content:[
+    {type:'output_text',text:JSON.stringify({tasks:[
+      {id:'api',prompt:'Implement API validation',dependsOn:[]},
+      {id:'tests',prompt:'Write API regression tests',dependsOn:['api']},
+    ]})},
+  ]}]};
+}};
+const modelPlan=await aiPlanner.planWithModel({prompt:'Build the API and its tests'});
+assert.equal(modelPlan.previewOnly,true);
+assert.equal(modelPlan.origin,'model-proposed-untrusted');
+assert.equal(modelPlan.taskCount,2);
+assert.equal(planningCalls,1);
+aiPlanner.provider.respond=async()=>({status:'completed',output:[{type:'message',
+  role:'assistant',content:[{type:'output_text',text:'{"tasks":[{"id":"invalid","prompt":"x","dependsOn":["missing"]}]}'}]}]});
+await assert.rejects(aiPlanner.planWithModel({prompt:'Build the API'}),{code:'unknown_coding_dependency'});
 const plans=[
   {id:'a',dependsOn:[]},{id:'b',dependsOn:['a']},
   {id:'c',dependsOn:['a']},{id:'d',dependsOn:['b','c']},

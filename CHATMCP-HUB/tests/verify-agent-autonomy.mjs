@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { AgentRunner } from '../lib/agent.mjs';
 import { createTaskProgress, observeTaskTool } from '../lib/agent-progress.mjs';
-import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence } from '../lib/agent-autonomy.mjs';
+import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence, assessCompletionEvidence } from '../lib/agent-autonomy.mjs';
 
 const sha=(s)=>createHash('sha256').update(s).digest('hex');
 const call=(name,args={})=>({name:'mcp_call',arguments:JSON.stringify({name,arguments_json:JSON.stringify(args)})});
@@ -18,7 +18,14 @@ assert.equal(decomposeCodingTask('Liệt kê 5 file đầu tiên.'),null,'simple
 const plan=decomposeCodingTask(objective);
 assert.ok(plan && plan.objectives.length>=2 && plan.phases.some(p=>p.id==='edit') && plan.phases.some(p=>p.id==='verify'));
 assert.match(planInstructions(plan),/Work one bounded objective/);
+assert.ok(plan.objectives.every(o=>Array.isArray(o.acceptanceCriteria)&&o.acceptanceCriteria.length>=1));
+assert.deepEqual(plan.objectives[0].dependsOn,[]);
+if(plan.objectives.length>1)assert.deepEqual(plan.objectives[1].dependsOn,['objective-1']);
+assert.equal(updateGoalPlan(plan,{kind:'edit'}).objectives[0].status,'working','host receipt must not satisfy objective automatically');
 assert.equal(plan.phases[0].status,'working');
+assert.equal(assessCompletionEvidence(plan,{verifiedFiles:[],verifiedChecks:[],gitReviews:[]}).ready,false);
+assert.equal(assessCompletionEvidence(null,{}).ready,true);
+assert.equal(assessCompletionEvidence(plan,{verifiedFiles:[{}],verifiedChecks:[{}],gitReviews:[{}]}).ready,true);
 const updatedPlan=updateGoalPlan(plan,{kind:'edit'});
 assert.equal(updatedPlan.evidence.edit,1);
 assert.equal(plan.evidence.edit,0,'plan transition must not mutate previous snapshots');
@@ -107,7 +114,8 @@ const responses=[
 ];
 const provider={
   ready:()=>true,snapshot:()=>({provider:'fixture',model:'scripted'}),
-  async respond({input,instructions}){
+  async respond({input,instructions,beforeModelRequest}){
+    beforeModelRequest?.();
     modelTurns++;
     if(modelTurns===1){
       assert.match(instructions,/HOST-PROPOSED TASK DECOMPOSITION/);
@@ -131,6 +139,9 @@ try{
   assert.equal(finished.goalPlan.evidence.verify,1);
   assert.equal(finished.progress.verifiedFiles.length,1);
   assert.equal(finished.progress.verifiedChecks.length,1);
+  assert.equal(finished.usage.httpRequests,4,'count all actual model transport sends, not just tool calls');
+  assert.equal(finished.verificationOutcome.ready,false,'missing Git diff evidence is not silently certified');
+  assert.match(finished.finalText,/NOT independently verified full completion/);
   assert.equal(await fs.readFile(code,'utf8'),fixed);
   assert.ok(finished.events.some(e=>e.type==='goal_decomposed'));
   assert.ok(finished.events.some(e=>e.type==='goal_evidence'));

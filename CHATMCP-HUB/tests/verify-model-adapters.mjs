@@ -123,7 +123,7 @@ try {
   const tooled = normalizeAnthropic({ type: 'message', role: 'assistant', stop_reason: 'tool_use', content: [{ type: 'text', text: 'Let me look.' }, { type: 'tool_use', id: 'toolu_1', name: 'read_file', input: { path: 'a.txt' } }], usage: { input_tokens: 100, output_tokens: 20, cache_creation_input_tokens: 50, cache_read_input_tokens: 10 } });
   same(tooled.output.map((item) => item.type), ['message', 'function_call']);
   same([tooled.output[0].phase, tooled.output[1].call_id, JSON.parse(tooled.output[1].arguments)], ['commentary', 'toolu_1', { path: 'a.txt' }]);
-  same(tooled.usage, { input_tokens: 160, output_tokens: 20, cache_read_tokens: 10 }, 'cached input is counted');
+  same(tooled.usage, { input_tokens: 160, output_tokens: 20, cache_read_tokens: 10, cache_creation_tokens: 50 }, 'cached input is counted');
   same(normalizeAnthropic(anthropicOk('Done.')).output[0].phase, 'final');
   const cut = normalizeAnthropic({ stop_reason: 'max_tokens', content: [{ type: 'text', text: 'part' }, { type: 'tool_use', id: 't', name: 'write_file', input: {} }], usage: {} });
   same([cut.status, cut.incomplete_details.reason], ['incomplete', 'max_output_tokens']);
@@ -145,7 +145,9 @@ try {
   const ids = lenient.output.map((item) => item.call_id);
   check(new Set(ids).size === 3 && !ids.includes('dup') && ids.every((id) => /^call_[0-9a-f]{24}$/.test(id)), 'missing and repeated ids are replaced by unique ones');
   same(lenient.output.map((item) => item.arguments), ['{"x":1}', '{}', '{"y":2}'], 'object and empty arguments become JSON text');
-  same(lenient.usage, { input_tokens: 5, output_tokens: 6, cache_read_tokens: 0 });
+  same(lenient.usage, { input_tokens: 5, output_tokens: 6, cache_read_tokens: 0, reasoning_tokens: 0 });
+  const cachedReasoning=normalizeChatCompletion({choices:[{finish_reason:'stop',message:{content:'ok'}}],usage:{prompt_tokens:200,completion_tokens:40,prompt_tokens_details:{cached_tokens:130},completion_tokens_details:{reasoning_tokens:20}}});
+  same(cachedReasoning.usage,{input_tokens:200,output_tokens:40,cache_read_tokens:130,reasoning_tokens:20});
   same(normalizeChatCompletion({ choices: [{ finish_reason: 'tool_calls', message: { tool_calls: [{ id: 'c9', type: 'function', function: { name: 'a', arguments: '{}' } }] } }] }).output[0].call_id, 'c9', 'a good id is kept');
   const truncated = normalizeChatCompletion({ choices: [{ finish_reason: 'length', message: { content: 'part', tool_calls: [{ id: 'x', type: 'function', function: { name: 'w', arguments: '{"a' } }] } }] });
   same([truncated.status, truncated.incomplete_details.reason, truncated.output.length], ['incomplete', 'max_output_tokens', 1]);

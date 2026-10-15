@@ -187,6 +187,24 @@ export function ConversationView() {
     <div className="h-full flex flex-col bg-[var(--bg)] min-w-0 overflow-hidden relative">
       {/* Top Phase Ribbon */}
       {task && <PhaseRibbon task={task} onCancel={handleStopTask} />}
+      {task?.usage && (
+        <div className="px-4 py-1.5 text-[11px] text-[var(--muted)] border-b border-[var(--line-subtle)] flex flex-wrap items-center gap-x-4 gap-y-1"
+          data-testid="agent-request-budget" role="status">
+          <span>Model HTTP requests: {task.usage.httpRequests ?? 0}</span>
+          <span>Input: {(task.usage.inputTokens ?? 0).toLocaleString()} tokens</span>
+          <span>Output: {(task.usage.outputTokens ?? 0).toLocaleString()} tokens</span>
+          {(task.usage.cachedInputTokens ?? 0)>0&&
+            <span>Cache hit: {(task.usage.cachedInputTokens ?? 0).toLocaleString()} tokens</span>}
+          {(task.usage.cacheWriteTokens ?? 0)>0&&
+            <span>Cache write: {(task.usage.cacheWriteTokens ?? 0).toLocaleString()} tokens</span>}
+          {(task.usage.reasoningTokens ?? 0)>0&&
+            <span>Reasoning: {(task.usage.reasoningTokens ?? 0).toLocaleString()} tokens</span>}
+          {task.verificationOutcome?.ready === false &&
+            <span className="text-amber-400" title={task.verificationOutcome.missing.join('; ')}>
+              Chưa xác minh đầy đủ ({task.verificationOutcome.missing.length})
+            </span>}
+        </div>
+      )}
 
       {/* Main Conversation Stream */}
       <div className="flex-1 overflow-y-auto min-h-0 flex flex-col" data-testid="conversation-scroll" onScroll={event => {

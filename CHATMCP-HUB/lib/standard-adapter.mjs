@@ -78,7 +78,7 @@ function embeddedErrorStatus(body) {
  * @param {(limit: number) => void} [ctx.onOutputLimit]
  * @param {object} [ctx.limits] overrides of LIMITS (tests)
  */
-export async function respondStandard(ctx, { input, instructions, tools = [], signal, onStatus = async () => {}, maxOutputTokens } = {}) {
+export async function respondStandard(ctx, { input, instructions, tools = [], signal, onStatus = async () => {}, maxOutputTokens, beforeModelRequest = () => {} } = {}) {
   const limits = { ...LIMITS, ...ctx.limits };
   const history = pairToolCalls(input);
   const usedCallIds = new Set(history.filter((item) => item?.type === 'function_call').map((item) => item.call_id));
@@ -112,6 +112,7 @@ export async function respondStandard(ctx, { input, instructions, tools = [], si
     let response, raw;
     try {
       const timeout = AbortSignal.timeout(limits.requestTimeoutMs);
+      beforeModelRequest();
       response = await ctx.fetch(ctx.endpoint, { method: 'POST', headers: ctx.headers, body: JSON.stringify(body), signal: signal ? AbortSignal.any([signal, timeout]) : timeout, redirect: 'error' });
       raw = await readBodyText(response);
     } catch (error) {
