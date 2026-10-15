@@ -213,7 +213,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/studio/git/refs': {
             const git=studio.gitRunner;
             const [branchesRun,worktreesRun,branchRun]=await Promise.all([
-              git.text(['for-each-ref','--format=%(refname)\t%(refname:short)','refs/heads'],{timeoutMs:15000}),
+              git.text(['for-each-ref','--format=%(refname)%09%(refname:short)','refs/heads'],{timeoutMs:15000}),
               git.text(['worktree','list','--porcelain'],{timeoutMs:15000}),
               git.text(['symbolic-ref','--quiet','--short','HEAD'],{timeoutMs:15000}),
             ]);
