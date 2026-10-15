@@ -5,12 +5,14 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { HubManager } from '../lib/manager.mjs';
 import { assembleStudio } from '../lib/assemble.mjs';
 import { AgentRunner, buildUserAttachmentParts } from '../lib/agent.mjs';
 import { ConcurrentApiAgent } from '../lib/concurrent-api-agent.mjs';
 import { compactRollingContext, estimateTokens } from '../lib/context-compaction.mjs';
 
+const bundleRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const temp=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-concurrent-'));
 const repo=path.join(temp,'project');
 const wait=(ms)=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -30,9 +32,9 @@ try {
   await fs.writeFile(path.join(repo,'README.md'),'# Concurrent agent fixture\n');
   execFileSync('git',['add','.'],{cwd:repo});
   execFileSync('git',['commit','-m','fixture'],{cwd:repo,stdio:'ignore'});
-  const manager=new HubManager({bundleRoot:path.resolve('..'),dataDirectory:path.join(temp,'hub'),log:()=>{}});
+  const manager=new HubManager({bundleRoot:bundleRoot,dataDirectory:path.join(temp,'hub'),log:()=>{}});
   await manager.load(repo);
-  assembleStudio(manager,{bundleRoot:path.resolve('..')});
+  assembleStudio(manager,{bundleRoot:bundleRoot});
   await manager.permissions.load();
   manager.permissions.mode='autonomous';
   await manager.startLocal(repo);
@@ -42,14 +44,14 @@ try {
       const firstUser=input.find(x=>x?.role==='user'&&Array.isArray(x.content));
       const contents=(firstUser?.content||[]).map(x=>x?.text||'').join(' ');
       const name=contents.includes('Task A')?'A':contents.includes('Task B')?'B':'C';
-      if(name==='A'||name==='B')await hold(name);
+      if((name==='A'||name==='B')&&!arrived.has(name))await hold(name);
       return {status:'completed',output:[{type:'message',role:'assistant',phase:'final',
         content:[{type:'output_text',text:'Task '+name+' completed.'}]}]};
     },
   };
   const primary=new AgentRunner({manager,provider,taskDirectory:path.join(temp,'hub','api-tasks'),log:()=>{}});
   await primary.load();
-  pool=new ConcurrentApiAgent({primary,manager,provider,bundleRoot:path.resolve('..'),
+  pool=new ConcurrentApiAgent({primary,manager,provider,bundleRoot:bundleRoot,
     directory:path.join(temp,'hub','api-conversations'),log:()=>{}});
   manager.spawnBackgroundAgent=(parentId,request)=>pool.spawnAgent(parentId,request);
   const first=await pool.start({prompt:'Task A: inspect README'});
