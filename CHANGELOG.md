@@ -1,5 +1,15 @@
 # Lịch sử thay đổi
 
+## [3.4.2] — 2026-10-15 — Custom Gateway Protocol Selection & Settings Reliability
+
+- Fix custom OpenAI-compatible gateway selection from a previous custom Gemini connection. React preserves the same base URL/model and exposes custom Gemini/Anthropic choices, rather than overwriting the intended host with a generic default.
+- Preserve the existing Windows DPAPI-protected API key only when switching between custom protocols on the same HTTPS origin; unrelated named-provider switches and any origin change still require fresh authentication.
+- Save the explicitly selected wire protocol and verify the applied Hub state, with visible unsaved-settings and inline save errors rather than a transient toast only.
+- Make React's Save & Test diagnostic strict about the selected protocol so it cannot silently auto-switch OpenAI to Gemini. Optional explicit auto-discovery via other callers remains available.
+- Add gateway protocol/key-isolation unit tests, config-form unit tests, and React-to-Hub E2E coverage without using any real credentials.
+- Windows installer remains unsigned. Scripted CI does not certify every live gateway/model combination.
+
+
 ## [3.4.1] — 2026-10-15 — Retry/Continue and Bounded Repo Map Preflight
 
 - Fix API agent `queued` hangs with a cancellable 90-second preflight watchdog; preserve task ID, transcript and safe retry without model quotas (PR #28).

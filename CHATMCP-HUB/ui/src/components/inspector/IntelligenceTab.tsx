@@ -14,7 +14,7 @@ import {
   Save 
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { reconcileSavedAiConfig, type AiConfigForm } from '@/lib/ai-config-form';
+import { aiDraftHasChanges, aiProtocolForPreset, reconcileSavedAiConfig, selectAiProviderDraft, type AiConfigForm } from '@/lib/ai-config-form';
 
 export function IntelligenceTab() {
   const { showToast } = useAppStore();
@@ -32,7 +32,9 @@ export function IntelligenceTab() {
     { id: 'groq', name: 'Groq', defaultModel: 'llama-3.3-70b-versatile', defaultUrl: 'https://api.groq.com/openai/v1' },
     { id: 'ollama', name: 'Ollama (Local)', defaultModel: 'qwen2.5-coder:7b', defaultUrl: 'http://localhost:11434/v1' },
     { id: 'lmstudio', name: 'LM Studio (Local)', defaultModel: 'local-model', defaultUrl: 'http://localhost:1234/v1' },
-    { id: 'custom-openai', name: 'Custom (OpenAI)', defaultModel: 'custom-model', defaultUrl: 'https://api.openai.com/v1' },
+    { id: 'custom-openai', name: 'Custom (OpenAI)', defaultModel: '', defaultUrl: '' },
+    { id: 'custom-gemini', name: 'Custom (Gemini)', defaultModel: '', defaultUrl: '' },
+    { id: 'custom-anthropic', name: 'Custom (Anthropic)', defaultModel: '', defaultUrl: '' },
   ];
 
   const [form, setForm] = useState<AiConfigForm>({
@@ -43,6 +45,15 @@ export function IntelligenceTab() {
   });
   const { provider, model, apiBaseUrl, apiKey } = form;
   const [testing, setTesting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const draftChanged = aiDraftHasChanges(form, ai as any);
+  const expectedProtocol = aiProtocolForPreset(form.provider);
+  const oldOrigin = (() => { try { return new URL(ai.apiBaseUrl || '').origin; } catch { return ''; } })();
+  const newOrigin = (() => { try { return new URL(form.apiBaseUrl).origin; } catch { return ''; } })();
+  const retainsExistingKey = oldOrigin !== '' && oldOrigin === newOrigin
+    && String(ai.preset || '').startsWith('custom-') && form.provider.startsWith('custom-')
+    && ai.keySource === 'saved';
   const [testResult, setTestResult] = useState<{ ok: boolean; latencyMs?: number; error?: string } | null>(null);
   const [formInitialized, setFormInitialized] = useState(false);
 
@@ -58,10 +69,10 @@ export function IntelligenceTab() {
 
   const handleProviderChange = (pId: string) => {
     const p = providers.find((x) => x.id === pId);
-    setForm(current => ({ ...current, provider: pId, apiKey: '',
-      ...(p ? { model: p.defaultModel, apiBaseUrl: p.defaultUrl } : {}),
-    }));
+    if (!p) return;
+    setForm(current => selectAiProviderDraft(current, p));
     setTestResult(null);
+    setSaveError('');
   };
 
   const handleEndpointChange = (nextUrl: string) => {
@@ -72,18 +83,24 @@ export function IntelligenceTab() {
       return { ...current, apiBaseUrl: nextUrl, apiKey: sameOrigin ? current.apiKey : '' };
     });
     setTestResult(null);
+    setSaveError('');
   };
 
   const saveForm = async () => {
     const submitted = form;
     const result = await api.updateAiConfig({
       preset: submitted.provider,
+      ...(aiProtocolForPreset(submitted.provider) ? { protocol: aiProtocolForPreset(submitted.provider) } : {}),
+      ...(submitted.provider === 'custom-openai' ? { authMode: 'bearer' } : {}),
       apiBaseUrl: submitted.apiBaseUrl.trim(),
       model: submitted.model.trim(),
       apiKey: submitted.apiKey.trim() || undefined,
       remember: true,
     });
-    const saved = result.ai || {};
+    const saved = result.ai;
+    if (!saved || (aiProtocolForPreset(submitted.provider) && saved.protocol !== aiProtocolForPreset(submitted.provider))) {
+      throw new Error('Hub chưa lưu đúng giao thức đã chọn. Cấu hình AI hiện tại chưa được xác nhận.');
+    }
     setForm(current => reconcileSavedAiConfig(current, submitted, saved));
     return reconcileSavedAiConfig(submitted, submitted, saved);
   };
@@ -91,6 +108,7 @@ export function IntelligenceTab() {
   const handleTestConnection = async () => {
     setTesting(true);
     setTestResult(null);
+    setSaveError('');
     const start = Date.now();
     let savedForm: AiConfigForm | undefined;
     try {
@@ -98,6 +116,9 @@ export function IntelligenceTab() {
       const res = await api.testConnection();
       const latency = Date.now() - start;
       if (res?.ok !== false) {
+        if (expectedProtocol && res.protocol !== expectedProtocol) {
+          throw new Error('Giao thức kiểm tra không khớp lựa chọn của bạn. Kiểm tra lại cấu hình đã lưu.');
+        }
         setTestResult({ ok: true, latencyMs: latency });
         showToast(t('ai_test_success'), 'success');
       } else {
@@ -106,6 +127,7 @@ export function IntelligenceTab() {
       }
     } catch (err: any) {
       setTestResult({ ok: false, error: err.message || t('ai_test_fail') });
+      setSaveError(err.message || t('ai_test_fail'));
       showToast(err.message || t('ai_test_fail'), 'error');
     } finally {
       setTesting(false);
@@ -118,12 +140,17 @@ export function IntelligenceTab() {
   };
 
   const handleSave = async () => {
+    setSaving(true);
+    setSaveError('');
     try {
       await saveForm();
       showToast(t('ai_save_success'), 'success');
-      refetch();
+      await refetch();
     } catch (err: any) {
+      setSaveError(err.message || 'Lỗi lưu cấu hình');
       showToast(err.message || 'Lỗi lưu cấu hình', 'error');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -140,7 +167,7 @@ export function IntelligenceTab() {
               {ai.model || t('ai_status_unconfigured')}
             </div>
             <div className="text-[10px] text-[var(--faint)]">
-              {ai.apiBaseUrl ? `${ai.provider || provider} · ${ai.apiBaseUrl}` : `Provider: ${ai.provider || provider}`}
+              {ai.apiBaseUrl ? `${ai.preset || ai.provider} · ${ai.protocol || 'unknown'} · ${ai.apiBaseUrl}` : `Provider: ${ai.preset || ai.provider}`}
             </div>
           </div>
         </div>
@@ -149,6 +176,15 @@ export function IntelligenceTab() {
           {ai.configured ? t('ai_status_ready') : t('ai_status_unconfigured')}
         </span>
       </div>
+
+      {draftChanged && (
+        <div role="status" className="rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-200 p-2.5">
+          Chưa áp dụng cấu hình mới. Hub vẫn đang sử dụng <strong>{ai.preset || 'chưa xác định'} / {ai.protocol || 'chưa xác định'}</strong>.
+          Bấm Lưu cấu hình để áp dụng {form.provider}{expectedProtocol ? ` / ${expectedProtocol}` : ''}.
+          {retainsExistingKey && !form.apiKey.trim() ? ' API key đã lưu sẽ được giữ lại vì không đổi host.' : ''}
+        </div>
+      )}
+      {saveError && <div role="alert" className="rounded-md border border-rose-500/40 bg-rose-500/10 text-rose-300 p-2.5">{saveError}</div>}
 
       {/* Provider Selector */}
       <div className="space-y-1.5">
@@ -254,7 +290,7 @@ export function IntelligenceTab() {
           variant="secondary"
           aria-label="Lưu & kiểm tra"
           onClick={handleTestConnection}
-          disabled={testing}
+          disabled={testing || saving || !!hub?.agent?.activeTaskId}
           className="flex-1 gap-1.5 h-8 text-xs"
         >
           {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5 text-amber-400" />}
@@ -264,6 +300,7 @@ export function IntelligenceTab() {
         <Button
           variant="primary"
           onClick={handleSave}
+          disabled={testing || saving || !!hub?.agent?.activeTaskId}
           className="flex-1 gap-1.5 h-8 text-xs"
         >
           <Save className="w-3.5 h-3.5" />

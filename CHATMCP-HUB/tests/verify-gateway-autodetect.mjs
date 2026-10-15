@@ -65,5 +65,66 @@ try{
     assert.equal(e.code,'gateway_probe_failed');assert.ok(!e.message.includes(key));return true;
   });checks++;
   assert.equal(failProvider.state().protocol,'gemini','failed probes do not silently change config');checks++;
+  // A 9Router-style gateway can be configured with a custom Gemini dialect
+  // and then corrected to OpenAI Chat Completions on the SAME HTTPS origin.
+  // The user's existing DPAPI key must stay saved without touching another host.
+  const strictCalls=[];
+  const sameGateway=new GatewayProvider({
+    directory:path.join(dir,'same-gateway'),bundleRoot:dir,manager,protect,unprotect,env:{},
+    fetchImpl:async(url,opts)=>{
+      strictCalls.push({url,auth:opts.headers.Authorization,body:JSON.parse(opts.body)});
+      if(url==='https://router.example/v1/chat/completions' && opts.headers.Authorization===`Bearer ${key}`)
+        return fixture(200,successOpenai);
+      return fixture(200,successGemini);
+    },
+  });
+  await sameGateway.load();
+  await sameGateway.configure({
+    preset:'custom-gemini',protocol:'gemini',apiBaseUrl:'https://router.example',
+    model:'cx/gpt-6-astra',authMode:'bearer',apiKey:key,remember:true,
+  });
+  const upgraded=await sameGateway.configure({
+    preset:'custom-openai',protocol:'openai-chat',
+    apiBaseUrl:'https://router.example/v1',model:'cx/gpt-6-astra',
+    authMode:'bearer',remember:true,
+  });
+  assert.equal(upgraded.preset,'custom-openai');checks++;
+  assert.equal(upgraded.protocol,'openai-chat');checks++;
+  assert.equal(upgraded.keySource,'saved');checks++;
+  assert.equal(upgraded.configured,true);checks++;
+  const strictChecked=await sameGateway.diagnoseConnection({strictProtocol:true});
+  assert.equal(strictChecked.protocol,'openai-chat');checks++;
+  assert.ok(strictCalls.every(x=>x.url.endsWith('/v1/chat/completions')));checks++;
+  assert.ok(strictCalls.every(x=>x.auth===`Bearer ${key}`));checks++;
+  assert.equal(sameGateway.state().protocol,'openai-chat');checks++;
+  await assert.rejects(
+    sameGateway.configure({preset:'custom-openai',apiBaseUrl:'https://other.example/v1',remember:true}),
+    {code:'missing_key'},
+  );checks++;
+  assert.equal(sameGateway.state().apiBaseUrl,'https://router.example/v1');checks++;
+  await assert.rejects(
+    sameGateway.configure({preset:'openai',apiBaseUrl:'https://router.example/v1',remember:true}),
+    {code:'missing_key'},
+  );checks++;
+
+  // Even if Gemini could answer at this same domain, testing an explicit
+  // OpenAI selection must not silently switch the saved config to Gemini.
+  const strictRejectCalls=[];
+  const rejectingDialect=new GatewayProvider({
+    directory:path.join(dir,'strict-reject'),bundleRoot:dir,manager,protect,unprotect,env:{},
+    fetchImpl:async(url,opts)=>{
+      strictRejectCalls.push(url);
+      return url.includes(':generateContent')?fixture(200,successGemini)
+        :fixture(404,{error:{message:'OpenAI route missing'}});
+    },
+  });
+  await rejectingDialect.load();
+  await rejectingDialect.configure({
+    preset:'custom-openai',apiBaseUrl:'https://router.example/v1',
+    model:'cx/gpt-6-astra',authMode:'bearer',apiKey:key,remember:true,
+  });
+  await assert.rejects(rejectingDialect.diagnoseConnection({strictProtocol:true}),{code:'gateway_probe_failed'});checks++;
+  assert.equal(rejectingDialect.state().protocol,'openai-chat');checks++;
+  assert.ok(strictRejectCalls.every(url=>url.endsWith('/v1/chat/completions')));checks++;
   console.log(`PASS ${checks} gateway API diagnostics/auto-probe assertions, same-origin, secret redaction, DPAPI preservation`);
 }finally{await fs.rm(dir,{recursive:true,force:true});}

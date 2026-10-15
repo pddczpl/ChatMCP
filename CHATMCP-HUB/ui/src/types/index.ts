@@ -172,6 +172,8 @@ export interface HubState {
   ai?: {
     configured?: boolean;
     provider?: string;
+    preset?: string;
+    keySource?: 'saved' | 'environment' | 'session' | 'none';
     model?: string;
     apiBaseUrl?: string;
     protocol?: string;

@@ -297,7 +297,16 @@ export class GatewayProvider {
       if (drifted) nextPreset = customPresetId(nextProtocol);
     }
 
-    // Which key goes to which host. A key is never carried over to a different origin or provider.
+    // Never move a credential across origins or between unrelated providers.
+    // Switching only the API dialect of the SAME custom gateway is different:
+    // the credential is already authorized for that exact HTTPS origin. Keep
+    // the DPAPI-protected key and let users correct Gemini/OpenAI routing without
+    // having to re-enter a secret. Named-provider switches still clear the key.
+    const sameOrigin = originOf(base) === originOf(this.apiBaseUrl);
+    const sameCustomGateway = switching && sameOrigin && this.keySource === 'saved'
+      && entry?.id?.startsWith('custom-')
+      && String(this.preset).startsWith('custom-')
+      && String(nextPreset).startsWith('custom-');
     let key, fromEnv = false;
     if (apiKey !== undefined && apiKey !== null && apiKey !== '') key = apiKey;
     else if (useEnvKey === true) {
@@ -305,7 +314,7 @@ export class GatewayProvider {
       const found = firstEnv(this.env, names);
       if (!found) throw bad('missing_env_key', names.length ? `Không thấy biến môi trường ${names.join(' hoặc ')} (hoặc nó đang trống). Đặt biến rồi khởi động lại Hub, hoặc nhập key trực tiếp.` : 'Kết nối này không có biến môi trường mặc định; nhập key trực tiếp.', 409);
       key = found.value; fromEnv = true;
-    } else if (switching || originOf(base) !== originOf(this.apiBaseUrl)) key = '';
+    } else if (!sameOrigin || (switching && !sameCustomGateway)) key = '';
     else key = this.apiKey;
     checkKey(key);
     const keyRequired = !isLoopbackUrl(base);
@@ -373,7 +382,7 @@ export class GatewayProvider {
   // Called only by the user's explicit "Test API / Auto" action. Probe a bounded set of standard dialects against the
   // SAME configured origin. Do not send MCP inventories or project content; these are minimal test calls. If a dialect
   // works, persist the corrected public format without losing a protected key. No mutation occurs when all probes fail.
-  async diagnoseConnection({ signal } = {}) {
+  async diagnoseConnection({ signal, strictProtocol = false } = {}) {
     if (!this.ready()) throw bad('gateway_not_ready','Hãy nhập URL, model và API key trước khi kiểm tra.',409);
     const apiKey = this.apiKey; // the probe keeps the credential it started with
     const choices = [];
@@ -390,11 +399,15 @@ export class GatewayProvider {
     } else {
       const currentAuth = this.authMode === 'auto' ? (this.protocol === 'gemini' ? 'google-key':'bearer') : this.authMode;
       push(this.protocol, currentAuth, this.apiBaseUrl, this.customPath);
-      const stem = this.apiBaseUrl.replace(/\/v1(?:beta)?$/,'');
-      push('gemini','google-key',stem);
-      push('gemini','bearer',stem);
-      push('openai-chat','bearer',stem);
-      push('openai-chat','google-key',stem);
+      // Explicit "Save & Test" must not silently flip OpenAI to Gemini.
+      // Auto-detection remains available to callers that explicitly request it.
+      if (!strictProtocol) {
+        const stem = this.apiBaseUrl.replace(/\/v1(?:beta)?$/,'');
+        push('gemini','google-key',stem);
+        push('gemini','bearer',stem);
+        push('openai-chat','bearer',stem);
+        push('openai-chat','google-key',stem);
+      }
     }
     const attempts=[];
     for (const item of choices.slice(0,5)) {

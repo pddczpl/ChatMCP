@@ -19,7 +19,7 @@ import { CodingWorktreeOrchestrator } from './lib/coding-orchestrator.mjs';
 import { GitHubSkillRegistry } from './lib/skill-registry.mjs';
 
 const APP_ID = 'chatmcp-local-hub';
-export const UI_BUILD = '3.4.1-react-agent';
+export const UI_BUILD = '3.4.2-react-agent';
 // Prevent a new installer from silently reopening a stale daemon at :3007.
 export function assertCompatibleRunningHub(health, port=3007) {
   if (health?.app !== APP_ID) throw new Error(`Cổng ${port} đang do ứng dụng khác sử dụng. Không tự dừng tiến trình đó.`);
@@ -384,7 +384,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
             let response;
             try {
               response = typeof provider.diagnoseConnection === 'function'
-                ? await provider.diagnoseConnection({ signal: testSignal })
+                ? await provider.diagnoseConnection({ signal: testSignal, strictProtocol: payload.strictProtocol === true })
                 : await provider.respond({ input: [{role:'user', content:[{type:'input_text',text:'Reply with only OK.'}]}], instructions:'Simple API connectivity check. Reply with OK.', tools: [], signal: testSignal });
             } catch (error) {
               if (testSignal.aborted) throw Object.assign(new Error('Kiểm tra gateway quá 38 giây. Kiểm tra kết nối, URL và giao thức rồi thử lại.'), { statusCode:504 });

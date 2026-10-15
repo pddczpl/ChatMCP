@@ -112,8 +112,8 @@
       "patches": [
         {
           "file": "lib/gateway-provider.mjs",
-          "old": "} else if (switching || originOf(base) !== originOf(this.apiBaseUrl)) key = '';",
-          "new": "} else if (switching) key = '';"
+          "old": "} else if (!sameOrigin || (switching && !sameCustomGateway)) key = '';",
+          "new": "} else if (switching && !sameCustomGateway) key = '';"
         }
       ]
     },
