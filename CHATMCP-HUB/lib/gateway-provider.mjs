@@ -126,7 +126,7 @@ export function asGeminiContents(history) {
           const m=/^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/.exec(url);
           if(!m)throw bad('unsupported_image','Image must be a validated base64 data URI.',415);
           add('user',{inlineData:{mimeType:m[1],data:m[2]}});
-        } else if (part?.type === 'input_text' && typeof part.text === 'string')
+        } else if ((!part?.type || part.type === 'input_text') && typeof part?.text === 'string')
           add('user',{text:part.text});
         else throw bad('unsupported_media','Unknown user attachment type.',415);
       }
