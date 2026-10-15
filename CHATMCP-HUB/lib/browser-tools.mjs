@@ -129,16 +129,22 @@ export class BrowserTools {
     const final=validateBrowserUrl(s.page.url());
     return ok({url:final.toString(),status:response?.status()??null,title:(await s.page.title()).slice(0,250)});
   }
-  async click({selector},{taskId,signal}={}) {
+  async click({selector,role,name},{taskId,signal}={}) {
     const s=this.#get(taskId); signal?.throwIfAborted();
-    await s.page.locator(selector).first().click({timeout:10000});
-    return ok({clicked:selector,url:s.page.url()});
+    if(!selector && !role)throw failure('missing_locator','Provide a selector or an accessible role.');
+    if(role && !name)throw failure('missing_accessible_name','Role-based actions require an exact accessible name.');
+    const target=role?s.page.getByRole(role,{name,exact:true}):s.page.locator(selector);
+    await target.first().click({timeout:10000});
+    return ok({clicked:role?{role,name}:{selector},url:s.page.url()});
   }
-  async fill({selector,text},{taskId,signal}={}) {
+  async fill({selector,role,name,text},{taskId,signal}={}) {
     const s=this.#get(taskId);signal?.throwIfAborted();
-    await s.page.locator(selector).first().fill(text,{timeout:10000});
+    if(!selector && !role)throw failure('missing_locator','Provide a selector or an accessible role.');
+    if(role && !name)throw failure('missing_accessible_name','Role-based actions require an exact accessible name.');
+    const target=role?s.page.getByRole(role,{name,exact:true}):s.page.locator(selector);
+    await target.first().fill(text,{timeout:10000});
     // Never echo form values back to the model; they might be secrets.
-    return ok({filled:selector,length:text.length});
+    return ok({filled:role?{role,name}:{selector},length:text.length});
   }
   async screenshot({full_page:fullPage=false},{taskId,signal}={}) {
     const s=this.#get(taskId);signal?.throwIfAborted();
@@ -217,10 +223,13 @@ export class BrowserTools {
       (a,ctx)=>this.launch(a,ctx));
     executor('browser_navigate','Navigate Chromium only to localhost or explicitly allowed hosts; subrequests are restricted.',
       O({url:S('Full http(s) navigation URL, host must be allowed.')},['url']),(a,ctx)=>this.navigate(a,ctx));
-    executor('browser_click','Click a Playwright selector on the current browser page.',
-      O({selector:S('CSS, text, or role selector.',{maxLength:500})},['selector']),(a,ctx)=>this.click(a,ctx));
-    executor('browser_fill','Fill an input using Playwright. Values are not echoed; approval required.',
-      O({selector:S('Form selector.',{maxLength:500}),text:S('Text to enter.',{maxLength:16000})},['selector','text']),(a,ctx)=>this.fill(a,ctx));
+    executor('browser_click','Click a Playwright selector or exact accessible role/name; prefer semantic locators for robust UI tests.',
+      O({selector:S('Optional CSS or text selector.',{maxLength:500}),role:S('Optional accessible ARIA role.',{maxLength:80}),name:S('Exact accessible name when role is given.',{maxLength:300})}),
+      (a,ctx)=>this.click(a,ctx));
+    executor('browser_fill','Fill input by selector or exact ARIA role/name; entered value is never echoed.',
+      O({selector:S('Optional CSS or text selector.',{maxLength:500}),role:S('Optional accessible ARIA role.',{maxLength:80}),
+        name:S('Exact accessible name when role is given.',{maxLength:300}),text:S('Text to enter.',{maxLength:16000})},['text']),
+      (a,ctx)=>this.fill(a,ctx));
     executor('browser_screenshot','Capture a real PNG screenshot and forward it to a vision-capable model.',
       O({full_page:{type:'boolean',description:'Capture full page instead of viewport.'}}),(a,ctx)=>this.screenshot(a,ctx));
     executor('browser_console','Read recent browser console errors and page exceptions (within this task only).',

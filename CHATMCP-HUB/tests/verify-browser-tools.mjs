@@ -23,6 +23,7 @@ const fake={chromium:{launch:async()=>({newContext:async()=>({
   route:async()=>{},newPage:async()=>({
     on(){},goto:async()=>({status:()=>200}),url:()=>'http://localhost:3007/',
     title:async()=> 'fixture', locator:()=>({first:()=>({click:async()=>{},fill:async()=>{}})}),
+    getByRole:(role,options)=>{if(role!=='button'||options?.name!=='Submit'||options.exact!==true)throw Error('bad ARIA locator');return {first:()=>({click:async()=>{},fill:async()=>{}})};},
     screenshot:async()=>red,evaluate:async()=>({issues:[{rule:'image-alt'}],count:1,engine:'built-in-heuristics',wcagCertified:false}),viewportSize:()=>({width:1280,height:800}),setViewportSize:async()=>{},waitForTimeout:async()=>{}
   }),close:async()=>{}
 }),close:async()=>{}})}};
@@ -34,6 +35,10 @@ assert.equal(defs.find(x=>x.name==='accessibility_audit').category,'read');
 const session={taskId:'task-1'};
 assert.equal((await driver.launch({},session)).structuredContent.status,'launched');
 assert.equal((await driver.navigate({url:'http://localhost:3007/'},session)).structuredContent.status,200);
+assert.deepEqual((await driver.click({role:'button',name:'Submit'},session)).structuredContent.clicked,{role:'button',name:'Submit'});
+assert.deepEqual((await driver.fill({role:'button',name:'Submit',text:'safe-value'},session)).structuredContent.filled,{role:'button',name:'Submit'});
+await assert.rejects(driver.click({role:'button'},session),/accessible name/);
+assert.equal((await driver.click({selector:'#submit'},session)).structuredContent.clicked.selector,'#submit');
 const image=await driver.screenshot({},session);const shot=image.structuredContent.id;
 assert.equal(image.content[1].type,'image');
 const comparison=driver.compare({before:shot,after:shot},session);
