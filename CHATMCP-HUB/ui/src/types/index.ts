@@ -9,6 +9,8 @@ export interface TaskSummary {
   state?: string;
   steps?: number;
   toolCalls?: number;
+  usage?: { inputTokens?: number; outputTokens?: number; httpRequests?: number };
+  verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
   promptCount?: number;
   updatedAt?: string;
   startedAt?: string;
@@ -139,6 +141,8 @@ export interface Task {
   toolCalls?: ToolCall[];
   plan?: { title: string; status: string; details?: string }[];
   pendingApprovals?: any[];
+  usage?: { inputTokens?: number; outputTokens?: number; httpRequests?: number };
+  verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
   lastMessage?: string;
   error?: string;
 }
