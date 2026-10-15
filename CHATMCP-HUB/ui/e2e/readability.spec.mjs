@@ -34,6 +34,7 @@ test('output and code stay readable in both themes and copy exact text', async (
   await expect(message).toBeVisible();
   await message.getByRole('button', { name: 'Sao chép tin nhắn', exact: true }).click();
   await expect.poll(() => clipboardText(page)).toBe(answer);
+  await page.getByTestId('tool-activity-group').first().getByRole('button').first().click();
   const receipt = page.getByTestId('tool-receipt').first();
   await receipt.getByRole('button', { name: /^local\.read_file:/ }).click();
   const output = receipt.getByTestId('tool-output');
@@ -61,6 +62,7 @@ test('output and code stay readable in both themes and copy exact text', async (
   await page.setViewportSize({ width: 760, height: 850 });
   await expect(page.getByTitle('Mở Inspector (Ctrl+J)')).toBeVisible();
   await page.getByTitle('Mở Inspector (Ctrl+J)').click();
+  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Skills', exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('compact.png'), animations: 'disabled' });
