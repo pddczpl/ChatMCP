@@ -21,6 +21,7 @@ import { registerCodeIntelligenceTools } from './code-intelligence.mjs';
 import { getTokenStats, restoreTokenOutput, setTokenProfile } from './token-optimization.mjs';
 import { registerAgentCapabilityTools } from './agent-capabilities.mjs';
 import { registerBrowserTools } from './browser-tools.mjs';
+import { registerWorkflowExtensions } from './workflow-extensions.mjs';
 
 export const LOCAL_SERVER = 'local';
 export const LIMITS = Object.freeze({
@@ -529,6 +530,7 @@ export class LocalTools {
     });
     this.extendedCapabilities = registerAgentCapabilityTools(define, {workspace:this.workspace,shell:this.shell,stateDirectory:this.stateDirectory});
     this.browserCapabilities = registerBrowserTools(define, {});
+    this.workflowExtensions = registerWorkflowExtensions(define, {workspace:this.workspace,shell:this.shell,git:this.git});
     define('github_read', {
       description: 'Read GitHub issues, PRs, or releases using GitHub CLI gh.',
       schema: obj({ action: str('Action to perform.', { enum: ['issue_list', 'issue_view', 'pr_list', 'pr_view', 'release_list'] }), number: int('Issue or PR number for view action.') }, ['action']),
