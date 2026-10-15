@@ -22,10 +22,11 @@ import {
   FolderSearch 
 } from 'lucide-react';
 import { isTaskActive, normalizeApproval, taskTimeline } from '@/lib/task-view';
+import type { ChatAttachment } from '@/types';
 
 export function ConversationView() {
   const queryClient = useQueryClient();
-  const { selectedTaskId, setSelectedTaskId, showToast, streamingToken, streamingTaskId } = useAppStore();
+  const { selectedTaskId, setSelectedTaskId, showToast, streamingToken, streamingTaskId, selectedBaseRef } = useAppStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const followOutput = useRef(true);
   const [showLatest, setShowLatest] = useState(false);
@@ -48,7 +49,6 @@ export function ConversationView() {
     refetchInterval: selectedTaskId ? 2000 : false,
   });
   const isWorking = isTaskActive(task);
-  const otherTaskWorking = !!hub?.agent?.activeTaskId && hub.agent.activeTaskId !== selectedTaskId;
   const permissions = hub?.studio?.permissions;
   const mode = permissions?.executionPolicy === 'full-access' ? 'full-access' : permissions?.mode || 'review';
   const visibleToken = isWorking && streamingTaskId === selectedTaskId ? streamingToken : '';
@@ -68,19 +68,19 @@ export function ConversationView() {
   }, [task?.messages, task?.toolCalls, visibleToken]);
 
   // Send message handler
-  const handleSendMessage = async (text: string) => {
-    if (!text.trim() || requestPending.current || isWorking || otherTaskWorking) return false;
+  const handleSendMessage = async (text: string, attachments: ChatAttachment[] = []) => {
+    if ((!text.trim() && !attachments.length) || requestPending.current) return false;
     requestPending.current = true;
     setSending(true);
     try {
       if (!selectedTaskId) {
-        const res = await api.startTask(text);
+        const res = await api.startTask(text || 'Hãy phân tích tệp/ảnh đính kèm.', attachments, selectedBaseRef || null);
         if (res?.task?.id) {
           queryClient.setQueryData(['task', res.task.id], res.task);
           setSelectedTaskId(res.task.id);
         }
       } else {
-        const res = await api.continueTask(selectedTaskId, text);
+        const res = await api.continueTask(selectedTaskId, text || 'Hãy phân tích tệp/ảnh đính kèm.', attachments);
         queryClient.setQueryData(['task', selectedTaskId], res.task);
       }
       refreshTask();
@@ -233,7 +233,7 @@ export function ConversationView() {
                 return (
                   <Card
                     key={idx}
-                    onClick={() => { if (!sending && !otherTaskWorking) void handleSendMessage(item.prompt); }}
+                    onClick={() => { if (!sending) void handleSendMessage(item.prompt); }}
                     className="p-3.5 cursor-pointer bg-[var(--panel)] hover:bg-[var(--surface-hover)] border-[var(--line)] hover:border-sky-500/50 group transition-all duration-150"
                   >
                     <div className="flex items-start gap-3">
@@ -284,7 +284,7 @@ export function ConversationView() {
               message={task.error}
               onRetry={() => { void continueTask(); }}
               onResume={() => { void continueTask(); }}
-              disabled={sending || otherTaskWorking}
+              disabled={sending}
             />}
             {approvalHistory.length > 0 && <details className="mx-4 my-3 text-xs"><summary>Lịch sử phê duyệt ({approvalHistory.length})</summary><ApprovalStack approvals={approvalHistory} onApprove={handleApprove} onDeny={handleDeny} /></details>}
 
@@ -298,7 +298,6 @@ export function ConversationView() {
         setShowLatest(false);
         messagesEndRef.current?.scrollIntoView({ behavior: 'instant', block: 'end' });
       }}>Về nội dung mới nhất ↓</button></div>}
-      {otherTaskWorking && <p className="px-4 py-2 text-xs text-amber-300">Một hội thoại khác đang chạy. Dừng hoặc đợi hội thoại đó trước khi gửi.</p>}
 
       {/* Bottom Composer */}
       <Composer
@@ -306,7 +305,7 @@ export function ConversationView() {
         onSendMessage={handleSendMessage}
         onStop={handleStopTask}
         isWorking={isWorking}
-        disabled={sending || otherTaskWorking || (!!selectedTaskId && (isLoading || !!taskError))}
+        disabled={sending || (!!selectedTaskId && (isLoading || !!taskError))}
         currentMode={mode}
         onModeChange={handleModeChange}
       />
