@@ -85,13 +85,15 @@ Wait for each real result from Hub before continuing. Each following Hub message
 }
 
 export class BrowserRunner {
-  constructor({ manager, directory, log = () => {}, now = () => Date.now() }) {
+  constructor({ manager, directory, log = () => {}, now = () => Date.now(), queueTimeoutMs = 120_000 }) {
     this.manager = manager;
     this.directory = directory;
     this.taskDirectory = path.join(directory, 'tasks');
     this.pairFile = path.join(directory, 'browser-client.json');
     this.log = log;
     this.now = now;
+    if (!Number.isInteger(queueTimeoutMs) || queueTimeoutMs < 10 || queueTimeoutMs > 600_000) throw new TypeError('Invalid browser queue timeout');
+    this.queueTimeoutMs = queueTimeoutMs;
     this.tasks = new Map();
     this.context = null;
     this.pairing = null;
@@ -257,6 +259,24 @@ export class BrowserRunner {
     const live = this.manager.state();
     if (live.workspace.path !== context.task.workspace.path || live.generation !== context.task.workspace.generation || live.instanceId !== context.task.workspace.instanceId) throw fault('workspace_changed', 'Workspace đã thay đổi; không chạy lời gọi của phiên cũ.', 409);
   }
+  // A Companion that is offline, unauthenticated or unable to reopen the old tab
+  // may never claim the pending message. Stop only while it is provably UNSENT;
+  // after claim/sent the normal reconciliation protocol owns the outcome.
+  watchQueuedMessage(context) {
+    clearTimeout(context.queueTimer);
+    context.queueTimer = null;
+    const task = context.task, message = task.message;
+    if (this.context !== context || task.status !== 'queued' || message?.status !== 'pending') return;
+    const messageId = message.id;
+    context.queueTimer = setTimeout(() => {
+      if (this.context !== context || task.status !== 'queued' ||
+          task.message?.id !== messageId || task.message.status !== 'pending') return;
+      void this.finish(context, 'failed', fault('browser_queue_timeout',
+        'Companion không nhận gói hội thoại trong thời gian cho phép. Kiểm tra kết nối tiện ích, tab ChatGPT và ghép nối rồi nhấn Tiếp tục. Tin nhắn chưa được claim; Hub không tự gửi lại.', 504))
+        .catch(error => this.log(this.clean(error?.message ?? String(error))));
+    }, this.queueTimeoutMs);
+    context.queueTimer.unref?.();
+  }
   makeMessage(task, text) {
     text = this.clean(text);
     if (Buffer.byteLength(text, 'utf8') > 1024 * 1024) throw fault('chat_message_too_large', 'Kết quả công cụ quá lớn cho một tin nhắn trình duyệt. Dữ liệu vẫn có trong nhật ký; dùng thao tác phân trang hoặc trích xuất phù hợp.', 413);
@@ -301,6 +321,7 @@ export class BrowserRunner {
       task.message = this.makeMessage(task, introduction);
       task.status = 'queued';
       await this.event(task, 'queued', 'Yêu cầu đang chờ tiện ích gửi tới cuộc chat ChatGPT thông thường.');
+      this.watchQueuedMessage(context);
       return this.publicTask(task);
     } catch (error) {
       await this.finish(context, context.controller.signal.aborted ? 'cancelled' : 'failed', error);
@@ -366,6 +387,7 @@ Respond with EXACTLY ONE fenced JSON object: "chatmcp_hub":"v1", "task":"${id}",
       task.message = this.makeMessage(task,instruction);
       task.status = 'queued';
       await this.event(task,'queued',`Đang chờ Companion gửi gói tiếp tục #${task.message.turn} vào đúng chat cũ.`);
+      this.watchQueuedMessage(context);
       return this.publicTask(task);
     } catch(error) {
       await this.finish(context,'failed',error);
@@ -408,6 +430,7 @@ Respond with EXACTLY ONE fenced JSON object: "chatmcp_hub":"v1", "task":"${id}",
     if (message.status !== 'pending' || context.deliveryBusy) throw fault('already_claimed', 'Lượt này đã được nhận bởi một phiên khác; không tự gửi lại.', 409);
     context.deliveryBusy = true;
     message.status = 'claimed'; message.clientId = input.clientId; message.claimedAt = this.date();
+    clearTimeout(context.queueTimer); context.queueTimer = null;
     context.task.status = 'running';
     try {
       await this.event(context.task, 'browser_claimed', `Companion đã nhận gói hội thoại #${message.turn} (không phải số bước công việc).`, { protocolTurn: message.turn, messageId: message.id });
@@ -514,6 +537,7 @@ Next reply: exactly one JSON block with chatmcp_hub=v1, task=${task.id}, turn=${
     task.message = this.makeMessage(task, instructions);
     task.status = 'queued';
     await this.event(task, 'queued', `Đã có kết quả thật; chờ gửi lượt ${next} vào ChatGPT.`);
+    this.watchQueuedMessage(context);
   }
   async dispatch(context, call) {
     const catalog = context.catalog;
@@ -592,6 +616,7 @@ Next reply: exactly one JSON block with chatmcp_hub=v1, task=${task.id}, turn=${
     return { ok: true };
   }
   async finish(context, status, error = null) {
+    clearTimeout(context.queueTimer); context.queueTimer = null;
     if (context.finishing) return await context.finishing;
     context.finishing = (async () => {
       const task = context.task;
