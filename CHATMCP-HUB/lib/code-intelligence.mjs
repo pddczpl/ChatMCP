@@ -982,7 +982,8 @@ export class CodeIntelligenceEngine {
     return files;
   }
 
-  async getParsedFile(relOrInputPath) {
+  async getParsedFile(relOrInputPath, { quick = false, signal = null } = {}) {
+    signal?.throwIfAborted();
     const { full, rel } = await this.resolveRelative(relOrInputPath);
     let stat;
     try {
@@ -990,7 +991,7 @@ export class CodeIntelligenceEngine {
     } catch {
       return null;
     }
-    if (!stat.isFile() || stat.size > this.maxFileSizeBytes) return null;
+    if (!stat.isFile() || stat.size > this.maxFileSizeBytes || (quick && stat.size > 96 * 1024)) return null;
 
     const cached = this.parseCache.get(rel);
     if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
@@ -1012,6 +1013,7 @@ export class CodeIntelligenceEngine {
       return cached;
     }
 
+    signal?.throwIfAborted();
     const normalized = content.replace(/\r\n/g, '\n');
     const ext = path.extname(rel).toLowerCase();
     const language = CODE_EXTENSIONS.get(ext) || 'javascript';
@@ -1024,11 +1026,12 @@ export class CodeIntelligenceEngine {
     let tier = 'heuristic-fallback';
 
     // Tier 2a: Tree-sitter AST (WASM or injected adapter)
-    const tsParsed = await this._parseWithTreeSitter(normalized, rel, language, rawLines, heuristicParsed);
+    // Quick preflight must not initialize optional WASM or spawn Python parsers.
+    const tsParsed = quick ? null : await this._parseWithTreeSitter(normalized, rel, language, rawLines, heuristicParsed);
     if (tsParsed) {
       parsed = tsParsed;
       tier = 'tree-sitter';
-    } else if (language === 'python' && this.enablePythonAst) {
+    } else if (!quick && language === 'python' && this.enablePythonAst) {
       // Tier 2b: Python Native AST via python_index.py worker
       const pyParsed = await this._parseWithPythonAst(full, rel, rawLines, heuristicParsed);
       if (pyParsed) {
@@ -1050,7 +1053,9 @@ export class CodeIntelligenceEngine {
       rawLines,
       maskedLines: masked.split('\n'),
     };
-    this.parseCache.set(rel, record);
+    signal?.throwIfAborted();
+    // Do not replace higher-precision cached AST data with quick heuristic results.
+    if (!quick) this.parseCache.set(rel, record);
     return record;
   }
 
