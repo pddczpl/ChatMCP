@@ -23,6 +23,6 @@ assert.ok(selected.tools.length>10 && selected.tools.length<catalog.tools.length
 const direct=directToolsFor(selected);
 assert.equal(direct.functions.length,selected.tools.length);
 assert.equal(ROUTER_TOOLS.length,4);
-assert.equal(catalog.tools.length,95,'full catalog unchanged');
+assert.equal(catalog.tools.length,99,'full catalog unchanged');
 assert.throws(()=>selectTaskToolNames('x',{cap:0}),TypeError);
 console.log('PASS task-tool-selector: dynamic intent routing, full catalog untouched, exact router fallback');

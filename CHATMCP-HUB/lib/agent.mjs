@@ -113,12 +113,12 @@ const PREFERRED_DIRECT_TOOLS = new Set([
   'web_search','web_fetch','browser_launch','browser_navigate','browser_click',
   'browser_fill','browser_screenshot','test_run','github_workflow_runs','token_restore',
 ]);
-// 95 local tools + the four internal routers = 99 functions today.
+// 99 local tools + four internal routers = 103 function definitions today.
 // The old <50 smoke-test threshold was never an API restriction.
 // Keep a conservative upper boundary of 128 advertised functions (4 routers +
 // at most 124 direct) while permitting the operator to lower schema cost for
 // providers with smaller tool limits via CHATMCP_DIRECT_TOOL_LIMIT.
-export const DEFAULT_DIRECT_TOOL_LIMIT = 95;
+export const DEFAULT_DIRECT_TOOL_LIMIT = 99;
 export const MAX_DIRECT_TOOL_LIMIT = 124;
 export function resolveDirectToolLimit(raw = process.env.CHATMCP_DIRECT_TOOL_LIMIT) {
   if (raw === undefined || raw === null || String(raw).trim() === '') return DEFAULT_DIRECT_TOOL_LIMIT;

@@ -63,7 +63,7 @@ Windows Feature đang chờ khởi động lại không chặn các bài test n�
 
 ## Giới hạn công cụ trực tiếp
 
-Từ nhánh nâng cấp LocalTools, `directToolsFor` quảng bá tối đa **95 LocalTools + 4 router** (99 schemas) ở cấu hình mặc định; không còn bài kiểm thử áp đặt dưới 50. Có thể đặt biến môi trường `CHATMCP_DIRECT_TOOL_LIMIT=48` (compact) hoặc `=95` (full); giá trị hợp lệ 0-124, vượt 124 được chặn để giữ tổng advertised functions không quá 128. `0` chỉ giữ các router nội bộ. Các tool không quảng bá trực tiếp vẫn ở catalog và gọi được qua `mcp_call`. Hãy chọn giới hạn thấp hơn nếu provider có tool-limit hoặc prompt-context nhỏ; thay đổi yêu cầu khởi động lại Hub. Đây là giới hạn gửi schemas **không** phải giới hạn quyền PermissionGate hoặc tổng số tool đã đăng ký.
+Từ nhánh nâng cấp LocalTools, `directToolsFor` quảng bá tối đa **99 LocalTools + 4 router** (103 schemas) ở cấu hình mặc định; không còn bài kiểm thử áp đặt dưới 50. Có thể đặt biến môi trường `CHATMCP_DIRECT_TOOL_LIMIT=48` (compact) hoặc `=95` (full); giá trị hợp lệ 0-124, vượt 124 được chặn để giữ tổng advertised functions không quá 128. `0` chỉ giữ các router nội bộ. Các tool không quảng bá trực tiếp vẫn ở catalog và gọi được qua `mcp_call`. Hãy chọn giới hạn thấp hơn nếu provider có tool-limit hoặc prompt-context nhỏ; thay đổi yêu cầu khởi động lại Hub. Đây là giới hạn gửi schemas **không** phải giới hạn quyền PermissionGate hoặc tổng số tool đã đăng ký.
 
 ## Chạy kiểm thử
 

@@ -1,6 +1,6 @@
 # ChatMCP Agent Tools & Token Optimization
 
-> Development-branch implementation guide (not a statement that all capabilities have shipped in a signed, clean-Windows release). This document tracks features added after v3.2.0 on the feature branch. **95 LocalTools + 17 declared StudioTools**; the agent catalog may suppress redundant Studio entries. The current number is verified by tests.
+> Development-branch implementation guide (not a statement that all capabilities have shipped in a signed, clean-Windows release). This document tracks features added after v3.2.0 on the feature branch. **99 LocalTools + 17 declared StudioTools**; the agent catalog may suppress redundant Studio entries. The current number is verified by tests.
 
 ## Scope
 
@@ -23,7 +23,7 @@ This upgrade keeps the in-process LocalTools, StudioTools, Skills Hub and Permis
 
 ## Direct tool count (adjustable; no <50 gate)
 
-The legacy `verify-local-backend` assertion requiring fewer than 50 function definitions was a local schema-size design choice, **not an API restriction**. The default now advertises **all 95 LocalTools plus four internal router functions = 99**. Environment variable `CHATMCP_DIRECT_TOOL_LIMIT` selects 0..124 direct tools (95 available today); set `48` for providers with smaller context or tool limits, `95` for full exposure. Invalid values revert to 95, and requested values above 124 are capped at 124 to keep the total within 128 functions. Restart the Hub after changing the environment variable. Tool names remain subject to schema validation; remaining tools continue to be listed by `mcp_catalog`, inspected by `mcp_describe` and executed via internal `mcp_call` through PermissionGate. More schemas consume more prompt tokens and may exceed an individual provider's limits; RTK/Headroom output compression does not erase the tokens used by function schemas.
+The legacy `verify-local-backend` assertion requiring fewer than 50 function definitions was a local schema-size design choice, **not an API restriction**. The default now advertises **all 99 LocalTools plus four internal router functions = 99**. Environment variable `CHATMCP_DIRECT_TOOL_LIMIT` selects 0..124 direct tools (95 available today); set `48` for providers with smaller context or tool limits, `95` for full exposure. Invalid values revert to 95, and requested values above 124 are capped at 124 to keep the total within 128 functions. Restart the Hub after changing the environment variable. Tool names remain subject to schema validation; remaining tools continue to be listed by `mcp_catalog`, inspected by `mcp_describe` and executed via internal `mcp_call` through PermissionGate. More schemas consume more prompt tokens and may exceed an individual provider's limits; RTK/Headroom output compression does not erase the tokens used by function schemas.
 
 ## RTK + Headroom + Caveman: complementary strategies
 

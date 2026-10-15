@@ -540,7 +540,7 @@ export class LocalTools {
       run: (a,{taskId}) => ok('Token profile set to '+a.mode, setTokenProfile(taskId,a.mode)),
     });
     this.extendedCapabilities = registerAgentCapabilityTools(define, {workspace:this.workspace,shell:this.shell,stateDirectory:this.stateDirectory});
-    this.browserCapabilities = registerBrowserTools(define, {});
+    this.browserCapabilities = registerBrowserTools(define, {artifactDirectory:path.join(this.stateDirectory??path.join(os.tmpdir(),`chatmcp-${process.pid}`),'browser-traces')});
     this.workflowExtensions = registerWorkflowExtensions(define, {workspace:this.workspace,shell:this.shell,git:this.git});
     this.semanticTools = registerSemanticTools(define, {workspace:this.workspace,intelligence:this.studioIntelligence});
     this.debugTools = registerDebugTools(define, {workspace:this.workspace});

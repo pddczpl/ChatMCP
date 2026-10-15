@@ -12,13 +12,13 @@ const local = new LocalTools({workspace:{async resolve(){throw new Error('not ca
 const tools = local.definitions();
 const catalog = { tools };
 const full = directToolsFor(catalog);
-assert.equal(tools.length,95,'expected versioned internal inventory');
-assert.equal(DEFAULT_DIRECT_TOOL_LIMIT,95);
+assert.equal(tools.length,99,'expected versioned internal inventory');
+assert.equal(DEFAULT_DIRECT_TOOL_LIMIT,99);
 assert.equal(MAX_DIRECT_TOOL_LIMIT,124);
-assert.equal(full.functions.length,95,'95 LocalTools are directly advertised by default');
-assert.equal(full.functions.length + ROUTER_TOOLS.length,99);
+assert.equal(full.functions.length,99,'95 LocalTools are directly advertised by default');
+assert.equal(full.functions.length + ROUTER_TOOLS.length,103);
 assert.ok(full.functions.length + ROUTER_TOOLS.length <= 128);
-assert.equal(full.byName.size,95);
+assert.equal(full.byName.size,99);
 assert.deepEqual(new Set(full.functions.map(tool=>tool.name)),new Set(tools.map(tool=>tool.originalName)));
 for (const tool of full.functions) {
   assert.equal(tool.type,'function');
@@ -33,13 +33,13 @@ for (const name of ['read_file','write_file','edit_file','git_status','run_comma
   }
 }
 assert.equal(directToolsFor(catalog,{limit:0}).functions.length,0);
-assert.equal(directToolsFor(catalog,{limit:500}).functions.length,95,'bounded by inventory');
+assert.equal(directToolsFor(catalog,{limit:500}).functions.length,99,'bounded by inventory');
 assert.equal(resolveDirectToolLimit('50'),50);
 assert.equal(resolveDirectToolLimit('110'),110);
-assert.equal(resolveDirectToolLimit('1000'),95,'invalid configuration falls back safely');
+assert.equal(resolveDirectToolLimit('1000'),99,'invalid configuration falls back safely');
 assert.equal(resolveDirectToolLimit('124'),124);
 assert.equal(resolveDirectToolLimit('125'),124,'hard provider-safety boundary');
-assert.equal(resolveDirectToolLimit('not-a-number'),95);
+assert.equal(resolveDirectToolLimit('not-a-number'),99);
 const instructions=createLocalAgentInstructions(catalog,{path:'/tmp/project'},null);
 assert.match(instructions,/web_search/);
 assert.match(instructions,/browser_launch/);
@@ -49,4 +49,4 @@ const limitedInstructions = createLocalAgentInstructions({
 },{path:'/tmp/project'},null);
 assert.equal(typeof limitedInstructions,'string');
 assert.ok(limitedInstructions.length>200);
-console.log('PASS direct-tool-capacity: 95 direct + 4 router, adjustable 0..124, prioritized compact fallback and full discoverability');
+console.log('PASS direct-tool-capacity: 99 direct + 4 router, adjustable 0..124, prioritized compact fallback and full discoverability');

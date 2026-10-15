@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { deflateSync } from 'node:zlib';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { BrowserTools, comparePngBuffers, validateBrowserUrl } from '../lib/browser-tools.mjs';
 
 const png=(width,height,rgba)=>{
@@ -20,15 +23,19 @@ assert.equal(comparePngBuffers(red,png(2,1,[255,0,0,255,255,0,0,255])).sameDimen
 assert.throws(()=>comparePngBuffers(Buffer.from('invalid'),red),/PNG/);
 const defs=[];
 const fake={chromium:{launch:async()=>({newContext:async()=>({
-  route:async()=>{},newPage:async()=>({
+  route:async()=>{},tracing:{
+    start:async()=>{},
+    stop:async(opts)=>{if(opts?.path)await fs.writeFile(opts.path,Buffer.from('fake-trace-zip'));}
+  },newPage:async()=>({
     on(){},goto:async()=>({status:()=>200}),url:()=>'http://localhost:3007/',
-    title:async()=> 'fixture', locator:()=>({first:()=>({click:async()=>{},fill:async()=>{}})}),
-    getByRole:(role,options)=>{if(role!=='button'||options?.name!=='Submit'||options.exact!==true)throw Error('bad ARIA locator');return {first:()=>({click:async()=>{},fill:async()=>{}})};},
+    title:async()=> 'fixture', locator:()=>({first:()=>({click:async()=>{},fill:async()=>{},isVisible:async()=>true}),count:async()=>1,ariaSnapshot:async()=>'- button "Submit"'}),
+    getByRole:(role,options)=>{if(role!=='button'||options?.name!=='Submit'||options.exact!==true)throw Error('bad ARIA locator');return {first:()=>({click:async()=>{},fill:async()=>{},isVisible:async()=>true}),count:async()=>1};},
     screenshot:async()=>red,evaluate:async()=>({issues:[{rule:'image-alt'}],count:1,engine:'built-in-heuristics',wcagCertified:false}),viewportSize:()=>({width:1280,height:800}),setViewportSize:async()=>{},waitForTimeout:async()=>{}
   }),close:async()=>{}
 }),close:async()=>{}})}};
-const driver=new BrowserTools({driver:fake});driver.definitions((name,spec)=>defs.push({name,...spec}));
-assert.ok(defs.length>=13);
+const artifactDirectory=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-browser-trace-test-'));
+const driver=new BrowserTools({driver:fake,artifactDirectory});driver.definitions((name,spec)=>defs.push({name,...spec}));
+assert.ok(defs.length>=17);
 assert.equal(defs.find(x=>x.name==='browser_fill').category,'execute');
 assert.equal(defs.find(x=>x.name==='screenshot_compare').category,'read');
 assert.equal(defs.find(x=>x.name==='accessibility_audit').category,'read');
@@ -47,5 +54,13 @@ const audit=await driver.accessibility({},session);
 assert.equal(audit.structuredContent.wcagCertified,false);
 assert.equal(audit.structuredContent.count,1);
 assert.throws(()=>driver.compare({before:shot,after:shot},{taskId:'task-2'}),/session/);
+assert.equal((await driver.domSnapshot({},session)).structuredContent.ariaSnapshot,'- button "Submit"');
+assert.equal((await driver.assertElement({role:'button',name:'Submit',count:1},session)).structuredContent.passed,true);
+const startedTrace=await driver.traceStart({},session);
+assert.equal(startedTrace.structuredContent.recording,true);
+const savedTrace=await driver.traceStop({},session);
+assert.equal(savedTrace.structuredContent.saved,true);
+assert.equal(savedTrace.structuredContent.sha256.length,64);
+await fs.rm(artifactDirectory,{recursive:true,force:true});
 assert.equal((await driver.closeOne('task-1')).structuredContent.closed,true);
 console.log('PASS browser tools: URL allowlist, fake Playwright lifecycle, image output and PNG pixel comparisons');
