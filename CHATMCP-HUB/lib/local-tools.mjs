@@ -20,6 +20,7 @@ import { validateArguments } from './tool-schema.mjs';
 import { registerCodeIntelligenceTools } from './code-intelligence.mjs';
 import { getTokenStats, restoreTokenOutput, setTokenProfile } from './token-optimization.mjs';
 import { registerAgentCapabilityTools } from './agent-capabilities.mjs';
+import { registerBrowserTools } from './browser-tools.mjs';
 
 export const LOCAL_SERVER = 'local';
 export const LIMITS = Object.freeze({
@@ -527,6 +528,7 @@ export class LocalTools {
       run: (a,{taskId}) => ok('Token profile set to '+a.mode, setTokenProfile(taskId,a.mode)),
     });
     this.extendedCapabilities = registerAgentCapabilityTools(define, {workspace:this.workspace,shell:this.shell,stateDirectory:this.stateDirectory});
+    this.browserCapabilities = registerBrowserTools(define, {});
     define('github_read', {
       description: 'Read GitHub issues, PRs, or releases using GitHub CLI gh.',
       schema: obj({ action: str('Action to perform.', { enum: ['issue_list', 'issue_view', 'pr_list', 'pr_view', 'release_list'] }), number: int('Issue or PR number for view action.') }, ['action']),
@@ -1224,6 +1226,7 @@ export class LocalTools {
     }
     this.backgroundTasks.clear();
     await this.extendedCapabilities?.close();
+    await this.browserCapabilities?.close();
   }
 
   // ------------------------------------------------------------------ batch & patch
