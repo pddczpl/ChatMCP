@@ -61,6 +61,9 @@ export const test = base.extend({
     const observedPages = new Map();
     const inspectPage = (page) => {
       const pageChecks = [];
+      let navigationVersion = 0;
+      const onNavigation = frame => { if (frame === page.mainFrame()) navigationVersion++; };
+      page.on('framenavigated', onNavigation);
       page.on('pageerror', (error) => errors.push(`Runtime: ${error.message}`));
       page.on('console', (message) => {
         if (message.type() === 'error') errors.push(`Console: ${message.text()}`);
@@ -72,6 +75,7 @@ export const test = base.extend({
         if (!reason.includes('ERR_ABORTED')) errors.push(`Network: ${request.url()}: ${reason}`);
       });
       const onResponse = (response) => {
+        const responseNavigation = navigationVersion;
         const route = new URL(response.url()).pathname;
         if (!route.startsWith('/api/')) return;
         requests.add(route);
@@ -90,7 +94,14 @@ export const test = base.extend({
           let value;
           try { value = await response.json(); }
           catch (error) {
-            errors.push(`Invalid API JSON: ${response.url()}: ${error.message}`);
+            const message = String(error?.message || error);
+            // During deliberate page.reload/close on Windows Chromium the CDP
+            // response-body handle can disappear AFTER status and MIME were read.
+            // Do not misreport that navigation race as malformed JSON. Genuine
+            // malformed JSON on a stable page remains a hard E2E failure.
+            const disposedByNavigation = (page.isClosed() || navigationVersion !== responseNavigation)
+              && /Network\.getResponseBody|response body is not available|Target page.*closed/i.test(message);
+            if (!disposedByNavigation) errors.push(`Invalid API JSON: ${response.url()}: ${message}`);
             return;
           }
           // A task's persisted cancellation/failure is domain data, not an API failure envelope.
@@ -99,7 +110,7 @@ export const test = base.extend({
         checks.push(check);
         pageChecks.push(check);
       };
-      observedPages.set(page, { onResponse, checks: pageChecks });
+      observedPages.set(page, { onResponse, onNavigation, checks: pageChecks });
       page.on('response', onResponse);
     };
     const closePage = async (page) => {
@@ -108,6 +119,7 @@ export const test = base.extend({
         // Seal capture at the deliberate close boundary, then finish reading
         // every response already observed before destroying its browser page.
         page.off('response', observed.onResponse);
+        page.off('framenavigated', observed.onNavigation);
         await Promise.all(observed.checks);
       }
       await page.close();

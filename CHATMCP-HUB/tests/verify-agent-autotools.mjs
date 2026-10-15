@@ -60,7 +60,18 @@ try{
   try {
     await collisionRunner.load();
     const {id}=await collisionRunner.start({prompt:'Check registered tool identities.'});
-    for(let i=0;i<100&&collisionRunner.get(id)?.status==='running';i++)await new Promise(r=>setTimeout(r,20));
+    // On a heavily loaded Node 24 runner, five router/tool transcript flushes
+    // can legitimately exceed the previous fixed two-second polling window.
+    // Await the actual runner completion signal instead of guessing its duration.
+    if (collisionRunner.context?.done?.promise) {
+      await Promise.race([
+        collisionRunner.context.done.promise,
+        new Promise((_,reject)=>{
+          const timer=setTimeout(()=>reject(new Error('router identity fixture timed out')),15000);
+          timer.unref?.();
+        }),
+      ]);
+    }
     const task=collisionRunner.get(id);
     assert.equal(task.status,'completed',task.error);
     assert.deepEqual(invoked,['read_file'],'neither a colliding local alias nor remote basename can execute');

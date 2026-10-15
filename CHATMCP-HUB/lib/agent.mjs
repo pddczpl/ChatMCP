@@ -778,8 +778,10 @@ export class AgentRunner {
       context.preflightStage = 'repository map';
       if (this.manager.backend === 'local' && typeof this.manager.studio?.resolve === 'function') {
         try {
+          await this.#event(task, 'repo_map_started',
+            'Đang lập bản đồ mã nguồn giới hạn để chuẩn bị ngữ cảnh cho agent.', { status:'running' });
           const map = await abortable(injectRepoMapIntoInstructions('', this.manager.studio, {
-            prompt: cleanPrompt, maxTokens: 900,
+            prompt: cleanPrompt, maxTokens: 900, signal: context.controller.signal,
           }), context.controller.signal);
           if (map.injected) {
             repoMapPart = {type:'input_text',text:
@@ -787,12 +789,19 @@ export class AgentRunner {
             await this.#event(task,'repo_map_injected',
               'Đã đọc bản đồ mã nguồn (chỉ là dữ liệu, không phải hướng dẫn ưu tiên).',{},
               {stats:map.stats});
+          } else {
+            await this.#event(task, 'repo_map_skipped',
+              'Không tạo được Repo Map trong giới hạn an toàn (' + (map.reason || 'empty') +
+              '). Agent vẫn có thể dùng công cụ tìm mã nguồn trực tiếp.', {}, {reason:map.reason || 'empty'});
           }
         } catch (error) {
-          if (context.controller.signal.aborted) throw error;
+          if (context.controller.signal.aborted) throw context.controller.signal.reason ?? error;
           this.log(this.#redact('Repo Map unavailable: '+error.message));
+          await this.#event(task,'repo_map_skipped',
+            'Repo Map không sẵn sàng; tiếp tục chạy agent bằng các công cụ đọc mã nguồn.', {}, {reason:'index_error'});
         }
       }
+      this.#check(context);
       if (context.skillContext) context.history.push({ role:'user', content:[{type:'input_text',text:context.skillContext}] });
       if (context.resumeEvidence) context.history.push({ role:'user', content:[{type:'input_text',text:context.resumeEvidence}] });
       context.history.push({ role:'user', content:[{type:'input_text',text:cleanPrompt},

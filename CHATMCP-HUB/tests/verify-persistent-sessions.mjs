@@ -161,6 +161,7 @@ try{
   assert.equal(reloaded.get(firstRun.id).runs.length,3);
   assert.equal(reloaded.get(firstRun.id).dialogue.filter(m=>m.role==='assistant').length,3);
   assert.match(await reloaded.report(firstRun.id),/Kiểm tra kết quả một lần nữa/);
+  await reloaded.context?.done?.promise;
   await reloaded.delete(firstRun.id);
   console.log('PASS API conversation: durable same ID, user/agent dialogue and checkpoint context reused after restart, no MCP replay');
 
@@ -181,11 +182,18 @@ try{
   assert.equal(stalledApi.get(failedId).usage.httpRequests,0,'preflight timeout must not spend model requests');
   assert.equal(held,null,'preflight failure must release the workspace lock');
   manager.createAgentSession=realSessionFactory;
+  // The deliberately tiny 120ms watchdog is only for the STALLED preflight fixture.
+  // A healthy Windows preflight may legitimately take longer under CI load.
+  stalledApi.preflightTimeoutMs=15000;
   const retry=await stalledApi.continue({id:failedId,prompt:'Tiếp tục sau khi công cụ khôi phục.'});
   assert.equal(retry.id,failedId);
   for(let i=0;i<150 && stalledApi.get(failedId).status==='running';i++)await wait(10);
   assert.equal(stalledApi.get(failedId).status,'completed','continuation after stalled preflight must succeed');
   assert.equal(stalledApi.get(failedId).runs.length,2);
+  // Completed is assigned before transcript/atomic writes have fully settled.
+  // Wait for final persist/release before deleting on Windows.
+  await stalledApi.context?.done?.promise;
+  await stalledApi.shutdown();
   await stalledApi.delete(failedId);
   console.log('PASS API preflight watchdog: queued timeout releases lock, retains history and retries in same task');
-}finally{await fs.rm(root,{recursive:true,force:true});}
+}finally{await fs.rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:120});}

@@ -62,7 +62,7 @@ export function extractPromptHints(promptText = '') {
 export async function injectRepoMapIntoInstructions(
   baseInstructions,
   workspace,
-  { prompt = '', maxTokens = 1200, engine = null } = {}
+  { prompt = '', maxTokens = 1200, engine = null, signal = null } = {}
 ) {
   const instructions = String(baseInstructions || '');
   if (!workspace || typeof workspace.resolve !== 'function') {
@@ -80,10 +80,14 @@ export async function injectRepoMapIntoInstructions(
       maxTokens,
       focusFiles: hints.focusFiles,
       query: hints.query,
+      // Preflight cannot scan and AST-parse a whole monorepo before the first model request.
+      // Keep full precise code intelligence available via explicit agent tools.
+      quick: true, maxSourceFiles: 240, maxSourceDirectories: 320,
+      maxParseFiles: 100, maxDurationMs: 12000, signal,
     });
 
     if (!repoMap?.structured?.totalFiles) {
-      return { instructions, injected: false, stats: null };
+      return { instructions, injected: false, stats: null, reason: 'no_source_files' };
     }
 
     const section = [
@@ -102,12 +106,16 @@ export async function injectRepoMapIntoInstructions(
         includedFiles: repoMap.structured.includedFiles,
         includedSymbols: repoMap.structured.includedSymbols,
         estimatedTokens: repoMap.structured.estimatedTokens,
+        partial: repoMap.structured.partial,
+        scannedFiles: repoMap.structured.scannedFiles,
         queryHint: hints.query,
         focusFiles: hints.focusFiles,
       },
     };
-  } catch {
-    return { instructions, injected: false, stats: null };
+  } catch (error) {
+    if (signal?.aborted) throw signal.reason ?? error;
+    return { instructions, injected: false, stats: null,
+      reason: error?.code === 'repo_map_budget_exceeded' ? 'scan_budget_exceeded' : 'index_unavailable' };
   }
 }
 
