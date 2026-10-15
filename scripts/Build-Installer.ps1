@@ -152,6 +152,28 @@ if ($sysNode -and (Test-Path -LiteralPath $sysNode -PathType Leaf)) {
     Write-Host "  [OK] Bundled portable Node.js runtime with SHA-256 manifest." -ForegroundColor Green
 }
 
+# Assemble the complete offline Code Intelligence runtime from locked npm
+# packages and a hash-pinned CPython embeddable distribution.
+$intelligenceScripts = Join-Path $repoRoot 'scripts\intelligence-runtime'
+$intelligenceStage = Join-Path $stagingDir 'intelligence-runtime'
+Push-Location $intelligenceScripts
+try {
+    & $npmCmd.Path ci --ignore-scripts --no-audit --no-fund
+    if ($LASTEXITCODE -ne 0) { throw 'Locked Code Intelligence npm installation failed.' }
+    & $nodeCmd.Path (Join-Path $intelligenceScripts 'stage.mjs') $intelligenceStage
+    if ($LASTEXITCODE -ne 0) { throw 'Offline intelligence staging failed.' }
+    & $nodeCmd.Path (Join-Path $intelligenceScripts 'verify.mjs') $intelligenceStage
+    if ($LASTEXITCODE -ne 0) { throw 'Offline intelligence staged manifest verification failed.' }
+} finally { Pop-Location }
+$hubPayload = Join-Path $payloadDir 'CHATMCP-HUB'
+Copy-Item -LiteralPath (Join-Path $intelligenceStage 'grammars') -Destination (Join-Path $hubPayload 'grammars') -Recurse -ErrorAction Stop
+Copy-Item -LiteralPath (Join-Path $intelligenceStage 'runtimes') -Destination (Join-Path $hubPayload 'runtimes') -Recurse -ErrorAction Stop
+Copy-Item -LiteralPath (Join-Path $intelligenceStage 'licenses') -Destination (Join-Path $hubPayload 'runtime-licenses') -Recurse -ErrorAction Stop
+Copy-Item -LiteralPath (Join-Path $intelligenceStage 'runtime-manifest.json') -Destination (Join-Path $hubPayload 'runtime-manifest.json') -ErrorAction Stop
+& $nodeCmd.Path (Join-Path $intelligenceScripts 'verify.mjs') $hubPayload
+if ($LASTEXITCODE -ne 0) { throw 'Offline intelligence installed payload verification failed.' }
+Write-Host '  [OK] Bundled Code Intelligence verified inside installer payload.' -ForegroundColor Green
+
 # Compress staging directory to installer/payload.zip
 $payloadZip = Join-Path $installerDir 'payload.zip'
 if (Test-Path -LiteralPath $payloadZip) {
