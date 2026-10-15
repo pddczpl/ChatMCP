@@ -1,5 +1,17 @@
 # Lịch sử thay đổi
 
+## [3.4.0] — 2026-10-15 — Reliable Agent Runtime and Workflow Upgrades
+
+- Remove all ChatMCP-imposed HTTP model request, input/output token and shared-worker quota ceilings. Keep task-level telemetry of real sends, including retries, plus provider-reported input/output, cache-hit/cache-creation and reasoning token details. API billing remains controlled by the user's provider.
+- Expand from 95 to 99 registered LocalTools, with four in-process routers and optional task-aware direct tool selection. Existing PermissionGate and Skills Hub remain unchanged; no Hooks or external MCP client.
+- Add evidence-aware task objectives/dependencies and explicit warnings when verified file edits, passing project checks or Git-diff review receipts are absent.
+- Add browser ARIA snapshots, assertions, role/name locators and task-scoped local Playwright trace ZIPs, which may contain sensitive page data.
+- Add guarded multi-file LSP rename operations with review manifests, SHA-256 revision checks, full targeted checkpoint coverage, source mode preservation and best-effort conflict-aware rollback.
+- Add deterministic and opt-in model-assisted worktree DAG planning with owner review before any worker run.
+- Add a benchmark summary CLI for externally graded matched coding tasks; reports are diagnostic and do not establish parity with Codex or Claude Code.
+- Windows Sandbox is unchanged; its guest security acceptance is not certified by this release. Windows installer remains unsigned, with SHA-256 integrity assets.
+
+
 ## [3.3.0] — 2026-10-15 — Local Agent Capabilities & Token Optimization
 
 - Expand ChatMCP local coding toolkit to 95 LocalTools with four internal function routers, configurable direct-tool limit (default 95) and improved Gemini text-only schema budgeting. No external MCP client or Hooks were introduced.

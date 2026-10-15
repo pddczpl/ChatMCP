@@ -4,19 +4,19 @@
 
 [![CI](https://github.com/pddczpl/ChatMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/pddczpl/ChatMCP/actions/workflows/ci.yml) · [Windows Releases](https://github.com/pddczpl/ChatMCP/releases) · [Issues](https://github.com/pddczpl/ChatMCP/issues) · [Security](SECURITY.md)
 
-> **Latest published version v3.3.0; this branch is unreleased development:** ChatMCP operates entirely on local infrastructure (`127.0.0.1:3007`). There is no cloud account, hosted server deployment, multi-tenant database, or external login service. All tool execution is controlled through a local Permission Gate. Outbound network access is restricted to user-configured AI providers, GitHub, and authorized research lookups. **Local-first does not mean fully offline.**
+> **Current release v3.4.0:** ChatMCP operates entirely on local infrastructure (`127.0.0.1:3007`). There is no cloud account, hosted server deployment, multi-tenant database, or external login service. All tool execution is controlled through a local Permission Gate. Outbound network access is restricted to user-configured AI providers, GitHub, and authorized research lookups. **Local-first does not mean fully offline.**
 >
-> Releases are tagged on GitHub and include an installer SHA-256 checksum. The installer is not Authenticode-signed. **v3.2.0** introduced bundled language servers, Tree-sitter WASM and embedded Python; **v3.3.0** expanded local coding tools and token-aware model output handling. Windows DPAPI protections remain in force. [Latest published release notes](RELEASE-NOTES-v3.3.0.md).
+> Releases are tagged on GitHub and include an installer SHA-256 checksum. The installer is not Authenticode-signed. **v3.2.0** introduced bundled language servers, Tree-sitter WASM and embedded Python; **v3.3.0** expanded local coding tools and token-aware model output handling; **v3.4.0** adds enhanced planning, browser/LSP workflows and model usage telemetry. Windows DPAPI protections remain in force. [Latest published release notes](RELEASE-NOTES-v3.4.0.md).
 
 ---
 
-**Unreleased agent-runtime improvements on this branch:** additional browser/LSP workflows, worktree task planning and model usage telemetry. CI uses scripted model fixtures and cannot establish live-model coding quality.
+**v3.4.0 agent-runtime improvements:** additional browser/LSP workflows, worktree task planning and model usage telemetry. CI uses scripted model fixtures and cannot establish live-model coding quality.
 
 ChatMCP does not impose request, token, or spending limits. The user manages provider quota and optional per-task step/time controls. The dashboard counts actual model HTTP attempts (including retries) and reported input/output tokens as telemetry, not as billing guarantees. Coding workers also expose aggregate HTTP counts without a shared cap. Set `CHATMCP_TOOL_SELECTION=auto` to advertise a task-relevant subset of LocalTools while retaining internal router discovery.
 
 ## Features and Capabilities
 
-ChatMCP v3.3.0 and the current unreleased branch target autonomous software engineering while preserving local security boundaries:
+ChatMCP v3.4.0 targets autonomous software engineering while preserving local security boundaries:
 
 - **Desktop UI Contract Integration:** Full bidirectional synchronization between the WinForms/WebView2 desktop shell and the local Hub daemon, supporting real-time streaming, interactive plan editing, terminal sessions, Git reviews, and execution checkpoints.
 - **Experimental Windows Sandbox execution:** sandbox drivers, restricted guest configuration and sealed receipt protocols are implemented, but guest isolation and hardware-level security have **not been independently accepted**. Clean Windows Sandbox/VM validation remains the owner's responsibility; no unsupported host fallback is implied.
@@ -44,7 +44,7 @@ ChatMCP v3.3.0 and the current unreleased branch target autonomous software engi
 
 ### 1. Download Official Installer
 Download the latest standalone installer from [GitHub Releases](https://github.com/pddczpl/ChatMCP/releases):
-- File: `ChatMCPSetup.exe` (latest published release v3.3.0; parity-branch changes are not in that installer)
+- File: `ChatMCPSetup.exe` (latest published release v3.4.0)
 - Checksum: Verify against `ChatMCPSetup.exe.sha256`
 - Requirements: Windows 10/11 x64 with Microsoft Edge WebView2 Runtime, Git for Windows.
 
