@@ -13,6 +13,7 @@ const root=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-semantic-'));
 try {
   await fs.writeFile(path.join(root,'test.ts'),'const broken=1;\n');
   await fs.writeFile(path.join(root,'other.ts'),'export const fixed=2;\n');
+  if(process.platform!=='win32')await fs.chmod(path.join(root,'other.ts'),0o744);
   let multiRename=false;
   const uri=pathToFileURL(path.join(root,'test.ts')).href;
   const client={
@@ -61,6 +62,7 @@ try {
   assert.ok(transaction.structuredContent.checkpointId);
   assert.equal(await fs.readFile(path.join(root,'test.ts'),'utf8'),'const renamed=1;\n');
   assert.equal(await fs.readFile(path.join(root,'other.ts'),'utf8'),'export const renamed=2;\n');
+  if(process.platform!=='win32')assert.equal((await fs.stat(path.join(root,'other.ts'))).mode&0o777,0o744,'Preserve source file mode when applying LSP edits');
   const lookup=await tools.call('find_implementations',{file:'test.ts',language:'typescript',line:1,column:1});
   assert.equal(lookup.isError,false);
   await tools.close();

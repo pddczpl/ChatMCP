@@ -122,7 +122,7 @@ export async function applyLspWorkspaceEditsTransaction(workspace,response,expec
     if(approved.get(target.relative.toLowerCase())!==beforeSha256)
       throw fail('concurrent_change','Workspace changed since the preview; review changes again.');
     const next=applyLspTextEdits(original,item.edits);
-    prepared.push({target,original,next,beforeSha256,
+    prepared.push({target,original,next,beforeSha256,mode:stat.mode&0o777,
       afterSha256:createHash('sha256').update(next).digest('hex')});
   }
   // Studio checkpoints are always flagged partial because they are scoped to
@@ -146,7 +146,7 @@ export async function applyLspWorkspaceEditsTransaction(workspace,response,expec
       if(createHash('sha256').update(fresh).digest('hex')!==p.beforeSha256)
         throw fail('concurrent_change','Source changed during multi-file apply.');
       if(p.next!==p.original){
-        await writeFileAtomic(p.target.absolute,Buffer.from(p.next,'utf8'));
+        await writeFileAtomic(p.target.absolute,Buffer.from(p.next,'utf8'),{mode:p.mode,expectedSha:p.beforeSha256});
         written.push(p);
         const saved=await fs.readFile(p.target.absolute,'utf8');
         if(createHash('sha256').update(saved).digest('hex')!==p.afterSha256)
@@ -159,7 +159,7 @@ export async function applyLspWorkspaceEditsTransaction(workspace,response,expec
       try{
         const current=await fs.readFile(p.target.absolute,'utf8');
         if(createHash('sha256').update(current).digest('hex')!==p.afterSha256){rollbackFailed=true;continue;}
-        await writeFileAtomic(p.target.absolute,Buffer.from(p.original,'utf8'));
+        await writeFileAtomic(p.target.absolute,Buffer.from(p.original,'utf8'),{mode:p.mode,expectedSha:p.afterSha256});
         const reverted=await fs.readFile(p.target.absolute,'utf8');
         if(createHash('sha256').update(reverted).digest('hex')!==p.beforeSha256)rollbackFailed=true;
       }catch{rollbackFailed=true;}
@@ -246,7 +246,11 @@ export class SemanticTools {
     if(preview===ctx.source)return ok({operation:op,changed:false,sha256:ctx.sha256});
     const current=await fs.readFile(ctx.target.absolute,'utf8');
     if(current!==ctx.source)throw fail('concurrent_change','Source changed during LSP operation.');
-    await writeFileAtomic(ctx.target.absolute,Buffer.from(preview,'utf8'));
+    const stat=await fs.lstat(ctx.target.absolute);
+    if(!stat.isFile()||stat.isSymbolicLink()||stat.nlink!==1)
+      throw fail('unsafe_lsp_target','Cannot edit special, symlinked or hard-linked files.');
+    await writeFileAtomic(ctx.target.absolute,Buffer.from(preview,'utf8'),
+      {mode:stat.mode&0o777,expectedSha:ctx.sha256});
     const verify=await fs.readFile(ctx.target.absolute,'utf8');
     if(verify!==preview)throw fail('write_verification_failed','Could not verify file write.');
     return ok({operation:op,file:ctx.target.relative,changed:true,
