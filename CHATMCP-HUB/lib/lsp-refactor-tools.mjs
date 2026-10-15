@@ -49,6 +49,25 @@ function normalizeEdits(response,uri) {
 // Multi-file LSP rename previews are proof-bearing and read-only. Reject all
 // resource operations and outside-workspace URIs: permission and checkpoint
 // enforcement for a later atomic multi-file apply are intentionally separate.
+async function resolveLspFileUri(workspace, uri) {
+  if(typeof uri!=='string'||!uri.startsWith('file://'))
+    throw fail('unsafe_lsp_uri','Workspace edits require local file URIs.');
+  let native;
+  try{native=fileURLToPath(uri);}catch{throw fail('unsafe_lsp_uri','Invalid LSP file URI.');}
+  // Compare canonical real paths, not the display spelling of Windows paths.
+  // A Windows runner's TEMP may contain junctions or an alias to the actual
+  // directory. Checking uncanonicalized absolute strings rejects safe files.
+  let root,real;
+  try{
+    root=await fs.realpath(workspace.requireRoot());
+    real=await fs.realpath(native);
+  }catch{throw fail('unsafe_lsp_uri','LSP source file does not resolve to a regular workspace file.');}
+  const relative=path.relative(root,real);
+  if(!relative||relative==='..'||relative.startsWith('..'+path.sep)||path.isAbsolute(relative))
+    throw fail('outside_workspace','LSP URI points outside the selected workspace.');
+  return workspace.resolve(relative);
+}
+
 export async function previewLspWorkspaceEdits(workspace, response) {
   let entries;
   if(response?.changes && typeof response.changes==='object' && !Array.isArray(response.changes))
@@ -66,9 +85,7 @@ export async function previewLspWorkspaceEdits(workspace, response) {
     if(typeof uri!=='string'||!uri.startsWith('file://')||seen.has(uri))
       throw fail('unsafe_lsp_uri','Duplicate or non-file URI in WorkspaceEdit.');
     seen.add(uri);
-    let absolute;
-    try{absolute=fileURLToPath(uri);}catch{throw fail('unsafe_lsp_uri','Invalid LSP file URI.');}
-    const target=await workspace.resolve(absolute);
+    const target=await resolveLspFileUri(workspace,uri);
     if(!target.relative||isProtectedPath(target.relative))
       throw fail('protected_path','LSP WorkspaceEdit targets a protected or outside-workspace file.');
     const stat=await fs.lstat(target.absolute);
@@ -112,8 +129,7 @@ export async function applyLspWorkspaceEditsTransaction(workspace,response,expec
     throw fail('unsupported_workspace_edit','Malformed multi-file LSP edit.');
   const prepared=[];
   for(const item of raw){
-    const absolute=fileURLToPath(item.uri);
-    const target=await workspace.resolve(absolute);
+    const target=await resolveLspFileUri(workspace,item.uri);
     const stat=await fs.lstat(target.absolute);
     if(!target.relative||isProtectedPath(target.relative)||!stat.isFile()||stat.isSymbolicLink()||stat.nlink!==1)
       throw fail('protected_path','Multi-file edit contains an unsafe source file.');
