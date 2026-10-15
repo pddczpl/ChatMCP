@@ -106,7 +106,9 @@ export class LocalTools {
     for (const name of disabledTools) this.tools.delete(String(name).replace(/^local\./, ''));
     this.shellDisabled = !this.tools.has('run_command');
     if (this.shellDisabled) {
-      for (const name of ['tasks_run', 'tasks_status', 'tasks_cancel', 'tasks_list', 'github_action', 'github_read']) {
+      for (const name of ['tasks_run', 'tasks_status', 'tasks_cancel', 'tasks_list', 'github_action', 'github_read',
+        'test_run', 'build_run', 'github_code_search', 'github_workflow_runs', 'github_workflow_status', 'github_job_logs',
+        'github_pr_review','github_rerun_failed','github_pr_merge','github_release_create']) {
         this.tools.delete(name);
       }
     }

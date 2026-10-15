@@ -3,6 +3,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import dns from 'node:dns/promises';
+import https from 'node:https';
 import net from 'node:net';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -44,47 +45,64 @@ export async function assertPublicUrl(value, lookup = (host) => dns.lookup(host,
   url.hash='';
   return url;
 }
-async function publicFetch(input, { signal, maxBytes = 450_000, fetcher = fetch, lookup } = {}) {
+async function publicFetch(input, { signal, maxBytes = 450_000, lookup = (host) => dns.lookup(host,{all:true}) } = {}) {
   let target = input;
   for (let redirect = 0; redirect < 4; redirect++) {
-    const url = await assertPublicUrl(target, lookup);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15000);
-    const abort = () => controller.abort();
-    signal?.addEventListener('abort', abort, { once:true });
-    try {
-      const response = await fetcher(url.toString(), {
-        redirect:'manual', signal:controller.signal,
-        headers: { 'user-agent':'ChatMCP/3.2 (+public-documentation-tool)', 'accept':'text/html, text/plain, application/json, application/xml' },
-      });
-      if ([301,302,303,307,308].includes(response.status)) {
-        const location = response.headers.get('location');
-        if (!location) throw fail('bad_redirect','Redirect missing Location.');
-        await response.body?.cancel();
-        target = new URL(location,url).toString();
-        continue;
-      }
-      if (!response.ok) throw fail('http_error','HTTP '+response.status);
-      const type = response.headers.get('content-type') || '';
-      if (!/text\/|json|xml/.test(type)) throw fail('unsupported_media','Web fetch supports text, HTML and JSON only.');
-      const declared = Number(response.headers.get('content-length') || 0);
-      if (declared > maxBytes) throw fail('too_large','Remote document exceeds '+maxBytes+' bytes.');
-      const reader = response.body?.getReader();
-      if (!reader) throw fail('empty_body','Empty response body.');
-      let bytes = 0;
+    // DNS must be checked AND pinned for the actual TLS connection. A separate
+    // fetch() lookup after validation allows DNS-rebinding to an internal address.
+    let verified = [];
+    const url = await assertPublicUrl(target, async host => {
+      verified = await lookup(host);
+      return verified;
+    });
+    const host = url.hostname.replace(/^\[|\]$/g,'');
+    const addresses = verified.length ? verified : [{address:host,family:net.isIP(host)}];
+    const address = addresses[0];
+    const response = await new Promise((resolve,reject) => {
+      let settled=false,bytes=0;
       const chunks=[];
-      for (;;) {
-        const item = await reader.read();
-        if (item.done) break;
-        bytes += item.value.byteLength;
-        if (bytes > maxBytes) { await reader.cancel(); throw fail('too_large','Remote document exceeded byte limit.'); }
-        chunks.push(item.value);
-      }
-      return { url:url.toString(), type, text:Buffer.concat(chunks).toString('utf8'), bytes };
-    } finally {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', abort);
+      const done=(error,value)=>{
+        if(settled)return;settled=true;
+        signal?.removeEventListener('abort',abort);
+        if(error)reject(error);else resolve(value);
+      };
+      const request=https.request(url,{
+        method:'GET',timeout:15000,
+        lookup:(_hostname,_options,callback)=>callback(null,address.address,address.family),
+        headers:{'user-agent':'ChatMCP/3.2 (+public-documentation-tool)',
+          'accept':'text/html, text/plain, application/json, application/xml',
+          'accept-encoding':'identity'},
+      },res=>{
+        const status=res.statusCode||0,location=res.headers.location;
+        if([301,302,303,307,308].includes(status)) {
+          res.resume();done(null,{redirect:location});
+          return;
+        }
+        if(status<200||status>299){res.destroy();done(fail('http_error','HTTP '+status));return;}
+        const type=String(res.headers['content-type']||'');
+        if(!/text\/|json|xml/.test(type)){res.destroy();done(fail('unsupported_media','Expected HTML, JSON, XML or plain text.'));return;}
+        const declared=Number(res.headers['content-length']||0);
+        if(declared>maxBytes){res.destroy();done(fail('too_large','Content-Length exceeds byte limit.'));return;}
+        res.on('data',chunk=>{
+          bytes+=chunk.byteLength;
+          if(bytes>maxBytes){res.destroy();done(fail('too_large','Remote document exceeded byte limit.'));return;}
+          chunks.push(chunk);
+        });
+        res.once('end',()=>done(null,{text:Buffer.concat(chunks).toString('utf8'),type,bytes}));
+        res.once('error',error=>done(error));
+      });
+      const abort=()=>request.destroy(fail('cancelled','HTTPS request cancelled.'));
+      if(signal?.aborted){abort();return;}
+      signal?.addEventListener('abort',abort,{once:true});
+      request.once('timeout',()=>request.destroy(fail('timeout','HTTPS fetch timed out.')));
+      request.once('error',error=>done(error));
+      request.end();
+    });
+    if(response.redirect) {
+      target = new URL(response.redirect,url).toString();
+      continue;
     }
+    return {url:url.toString(), ...response};
   }
   throw fail('too_many_redirects','More than three web redirects.');
 }
