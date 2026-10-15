@@ -104,6 +104,8 @@ export const api = {
   }),
   getCapabilities: () => request<any>('/api/capabilities'),
   getSandboxStatus: () => request<SandboxStatus>('/api/sandbox/status'),
+  getIntelligenceStatus: () => request<{ engineHealth?: {checkedAt: string | null; engines: {id: string; status: string; source?: string; version?: string | null; detail?: string}[]} }>('/api/studio/intelligence/status'),
+  probeIntelligenceEngines: () => request<any>('/api/studio/intelligence/engines/probe', {method:'POST',body:'{}'}),
   
   // Tasks
   getTask: (id: string): Promise<Task> => request<TaskDetail>(`/api/tasks/${encodeURIComponent(id)}`).then(normalizeTask),

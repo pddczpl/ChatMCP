@@ -28,6 +28,23 @@ export function SettingsTab() {
     queryFn: api.getSandboxStatus,
     refetchInterval: 5000,
   });
+  const { data: intelligence, refetch: refreshIntelligence } = useQuery({
+    queryKey: ['intelligenceEngineHealth'],
+    queryFn: api.getIntelligenceStatus,
+    enabled: Boolean(hub?.workspace?.path),
+    refetchInterval: 12000,
+  });
+  const [probingIntelligence, setProbingIntelligence] = useState(false);
+  const probeIntelligence = async () => {
+    setProbingIntelligence(true);
+    try {
+      await api.probeIntelligenceEngines();
+      await refreshIntelligence();
+      showToast('Đã kiểm tra các Code Intelligence engines', 'success');
+    } catch (error: any) {
+      showToast(error.message || 'Không thể kiểm tra Code Intelligence', 'error');
+    } finally { setProbingIntelligence(false); }
+  };
   const permissions: any = hub?.studio?.permissions || {};
   const currentMode = permissions.mode || 'review';
   const isFullAccess = permissions.executionPolicy === 'full-access';
@@ -256,6 +273,47 @@ export function SettingsTab() {
           )}
         </div>
       </div>
+
+      {/* Real Code Intelligence checks: never advertise Ready on file presence. */}
+      <section data-testid="code-intelligence-engines" className="p-3 rounded-lg bg-[var(--surface)] border border-[var(--line)] space-y-2.5">
+        <div className="flex justify-between items-center gap-2">
+          <div>
+            <div className="font-semibold text-[var(--text)]">Code Intelligence Engines</div>
+            <p className="text-[10px] text-[var(--faint)]">Trạng thái từ kết quả kiểm tra engine thực, không chỉ kiểm tra tệp</p>
+          </div>
+          <Button variant="secondary" onClick={probeIntelligence} disabled={probingIntelligence} className="h-7 text-[11px] gap-1">
+            <RefreshCw className={'w-3 h-3 ' + (probingIntelligence ? 'animate-spin' : '')} />
+            Kiểm tra lại
+          </Button>
+        </div>
+        <div className="space-y-1.5">
+          {[
+            ['typescript-lsp', 'TypeScript LSP'],
+            ['python-lsp', 'Python LSP (Pyright)'],
+            ['tree-sitter', 'Tree-sitter WASM'],
+            ['python-ast', 'Python Native AST'],
+            ['heuristic', 'Heuristic Fallback'],
+          ].map(([id, name]) => {
+            const engine = intelligence?.engineHealth?.engines?.find(item => item.id === id);
+            const status = engine?.status || 'not_checked';
+            return (
+              <div key={id} className="flex items-start justify-between gap-2 rounded bg-[var(--panel)] px-2.5 py-2 border border-[var(--line-subtle)]">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-medium text-[var(--text)]">{name}</div>
+                  <div className="text-[10px] text-[var(--faint)]">
+                    {engine?.version ? 'v' + engine.version + ' · ' : ''}
+                    {engine?.source || 'Chưa kiểm tra'}
+                    {engine?.detail ? ' · ' + engine.detail : ''}
+                  </div>
+                </div>
+                <span className={'text-[10px] font-semibold shrink-0 ' + (status === 'ready' ? 'text-emerald-400' : status === 'not_checked' ? 'text-[var(--muted)]' : 'text-amber-400')}>
+                  {status === 'ready' ? 'Ready' : status === 'not_checked' ? 'Chưa kiểm tra' : 'Unavailable'}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
       {/* Permission Execution Modes */}
       <div className="space-y-2">

@@ -90,7 +90,77 @@ export class CodeIntelligence {
     return {root,indexedAt:cache.indexedAt,fileCount:entries.length,symbolCount:entries.reduce((n,x)=>n+x.symbols.length,0),reused:retained,partial:cache.truncated,parser};
   }
   async status(){const root=await this.root();const saved=await this.#load(root);
-    return {indexedAt:saved?.indexedAt??null,fileCount:saved?.entries?.length||0,symbolCount:saved?.entries?.reduce((n,x)=>n+x.symbols.length,0)||0,parser:saved?.parser??'not-indexed',lsp:[...this.lsp].map(([language,client])=>({language,state:client.ready?'ready':client.state,executable:client.exe})),capabilities:{index:true,pythonAst:true,preciseNavigation:'bundled LSP available after successful initialization',supportedServers:['pyright-langserver','typescript-language-server']},engineHealth:this.lastEngineHealth};
+    return {indexedAt:saved?.indexedAt??null,fileCount:saved?.entries?.length||0,symbolCount:saved?.entries?.reduce((n,x)=>n+x.symbols.length,0)||0,parser:saved?.parser??'not-indexed',lsp:[...this.lsp].map(([language,client])=>({language,state:client.ready?'ready':client.state,executable:client.exe})),capabilities:{index:true,pythonAst:true,preciseNavigation:'bundled LSP available after successful initialization',supportedServers:['pyright-langserver','typescript-language-server']},engineHealth:this.lastEngineHealth ?? {checkedAt:null,engines:['typescript-lsp','python-lsp','tree-sitter','python-ast','heuristic'].map(id=>({id,status:'not_checked'}))}};
+  }
+  // Only an explicit, permission-checked POST requests a health probe. The
+  // read-only status endpoint never starts host processes in the background.
+  async engineHealth({probe=false}={}){
+    if(!probe)return this.lastEngineHealth ?? {checkedAt:null,engines:[]};
+    const root=await this.root();
+    const runtime=path.join(this.bundleRoot,'runtimes');
+    const packageRoot=path.join(runtime,'lsp','node_modules');
+    const list=[];
+    const versions={};
+    for(const name of ['pyright','typescript-language-server','web-tree-sitter']){
+      const filename=path.join(packageRoot,name,'package.json');
+      versions[name]=await fs.readFile(filename,'utf8').then(s=>JSON.parse(s).version).catch(()=>null);
+    }
+    for(const [id,language,pkg] of [
+      ['typescript-lsp','typescript','typescript-language-server'],
+      ['python-lsp','python','pyright'],
+    ]){
+      try{
+        const result=await this.lspStart({language});
+        const client=this.lsp.get(language);
+        if(!client?.ready)throw new Error('Initialize did not complete.');
+        list.push({id,status:'ready',source:result.source||'bundled',version:versions[pkg],checked:true});
+      }catch(error){
+        list.push({id,status:'unavailable',source:'bundled',version:versions[pkg],
+          detail:String(error.message).slice(0,140),checked:true});
+      }
+    }
+    try{
+      const modulePath=path.join(packageRoot,'web-tree-sitter','web-tree-sitter.js');
+      const {Parser,Language}=await import(pathToFileURL(modulePath).href);
+      await Parser.init();
+      const probes=[
+        ['javascript','function f() { return 1; }'],
+        ['typescript','function f(): number { return 1; }'],
+        ['tsx','const App = () => <div />;'],
+        ['python','def f():\n    return 1\n'],
+      ];
+      for(const [language,source] of probes){
+        const parser=new Parser();
+        const grammar=await Language.load(path.join(this.bundleRoot,'grammars','tree-sitter-'+language+'.wasm'));
+        try{
+          parser.setLanguage(grammar);
+          const tree=parser.parse(source);
+          try{if(tree.rootNode.hasError)throw new Error('Grammar syntax probe failed: '+language);}
+          finally{tree.delete();}
+        }finally{parser.delete();}
+      }
+      list.push({id:'tree-sitter',status:'ready',version:versions['web-tree-sitter'],source:'bundled',detail:'4 WASM grammars parsed',checked:true});
+    }catch(error){
+      list.push({id:'tree-sitter',status:'unavailable',source:'bundled',
+        detail:String(error.message).slice(0,140),checked:true});
+    }
+    try{
+      const python=path.join(runtime,'python','python.exe');
+      if(!await isFile(python))throw new Error('Embedded CPython missing.');
+      const worker=path.join(this.bundleRoot,'workers','python_index.py');
+      const result=await spawnJson(python,['-I','-X','utf8',worker],{
+        schemaVersion:1,files:[{path:'health.py',source:'class Probe:\n    def work(self):\n        return 1\n'}],
+      },{cwd:root,timeout:7000});
+      if(!result.files?.[0]?.symbols?.some(x=>x.qualifiedName==='Probe.work'))throw new Error('AST worker smoke failed.');
+      list.push({id:'python-ast',status:'ready',version:'3.11.9',source:'bundled',checked:true});
+    }catch(error){
+      list.push({id:'python-ast',status:'unavailable',source:'bundled',
+        detail:String(error.message).slice(0,140),checked:true});
+    }
+    const fallback=fallbackSymbols('probe.js','export function probe() { return 1; }');
+    list.push({id:'heuristic',status:fallback.symbols.length===1?'ready':'failed',source:'built-in',checked:true});
+    this.lastEngineHealth={checkedAt:new Date().toISOString(),engines:list};
+    return this.lastEngineHealth;
   }
   async symbols({query='',limit=100}={}){const root=await this.root();if(!await this.#load(root))await this.index();const q=String(query).toLowerCase().trim();
     return {matches:this.cache.entries.flatMap(f=>(f.symbols||[]).filter(s=>!q||s.name.toLowerCase().includes(q)).map(s=>({path:f.path,...s,precision:f.precision||'heuristic'}))).slice(0,Math.min(300,Number(limit)||100)),indexedAt:this.cache.indexedAt};
