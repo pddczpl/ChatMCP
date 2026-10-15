@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { AgentRunner } from '../lib/agent.mjs';
 import { createTaskProgress, observeTaskTool } from '../lib/agent-progress.mjs';
 import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence } from '../lib/agent-autonomy.mjs';
+import { createTaskGraph, advanceTaskGraph, taskGraphAssessment } from '../lib/task-graph.mjs';
 
 const sha=(s)=>createHash('sha256').update(s).digest('hex');
 const call=(name,args={})=>({name:'mcp_call',arguments:JSON.stringify({name,arguments_json:JSON.stringify(args)})});
@@ -19,6 +20,16 @@ const plan=decomposeCodingTask(objective);
 assert.ok(plan && plan.objectives.length>=2 && plan.phases.some(p=>p.id==='edit') && plan.phases.some(p=>p.id==='verify'));
 assert.match(planInstructions(plan),/Work one bounded objective/);
 assert.equal(plan.phases[0].status,'working');
+let graph=createTaskGraph(plan);
+assert.ok(graph?.nodes.length>=3,'bounded task graph created with no extra model call');
+for(const [i,kind] of ['inspect','edit','verify','review'].entries())
+  graph=advanceTaskGraph(graph,{kind,id:'proof-'+kind,step:i+1});
+assert.equal(taskGraphAssessment(graph).verified,true);
+assert.equal(graph.revision,1);
+graph=advanceTaskGraph(graph,{kind:'edit',id:'new-edit',step:10});
+assert.equal(taskGraphAssessment(graph).verified,false,'a later edit invalidates old test and review proof');
+assert.ok(taskGraphAssessment(graph).missing.includes('verify'));
+assert.ok(taskGraphAssessment(graph).missing.includes('review'));
 const updatedPlan=updateGoalPlan(plan,{kind:'edit'});
 assert.equal(updatedPlan.evidence.edit,1);
 assert.equal(plan.evidence.edit,0,'plan transition must not mutate previous snapshots');
@@ -129,6 +140,9 @@ try{
   assert.ok(savedPlan?.items?.length>=3,'decomposition must be persisted in Studio Plan');
   assert.equal(finished.goalPlan.evidence.edit,1);
   assert.equal(finished.goalPlan.evidence.verify,1);
+  assert.equal(finished.executionGraph.nodes.find(n=>n.id==='verify').status,'verified');
+  assert.equal(finished.completionProof.verified,false,'test proof does not imply diff review proof');
+  assert.match(finished.finalText,/Host verification incomplete/);
   assert.equal(finished.progress.verifiedFiles.length,1);
   assert.equal(finished.progress.verifiedChecks.length,1);
   assert.equal(await fs.readFile(code,'utf8'),fixed);

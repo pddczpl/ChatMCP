@@ -15,7 +15,7 @@ This upgrade keeps the in-process LocalTools, StudioTools, Skills Hub and Permis
 | Tests | test_discover, test_run, test_results, test_coverage, test_impact_analysis | Fixed known runners only. Impact is filename heuristic, not complete test selection. No claim that coverage instrumentation is installed automatically. |
 | Browser | browser_launch, browser_navigate, browser_click, browser_fill, browser_screenshot, browser_console, browser_network, browser_close | Headless Playwright optional; localhost-only by default with explicit CHATMCP_BROWSER_ALLOWED_HOSTS. Requests to other origins are blocked. Requires local browser binary. |
 | Visual | screenshot_capture, screenshot_compare, visual_diff, responsive_check, accessibility_audit | Captures real PNG with browser, pixel-level RGBA diff; no AI aesthetic judgment or full WCAG/axe certification (only lightweight accessibility smoke checks). |
-| LSP | rename_symbol, format_document, organize_imports, code_actions, find_implementations, type_hierarchy | Reuses existing Pyright/TypeScript LSP. Preview by default. Single-file edit uses SHA optimistic concurrency and workspace checkpoint. Multi-file rename is preview-only, not silently applied. |
+| LSP | rename_symbol, format_document, organize_imports, code_actions, find_implementations, type_hierarchy | Reuses existing Pyright/TypeScript LSP. Preview by default. Single-file edit uses SHA optimistic concurrency and workspace checkpoint. Multi-file rename requires an exact review token, primary SHA and explicit reviewed file list; workspace transactions rollback on failure. |
 | Native debugger | debug_start, debug_breakpoint, debug_continue, debug_step, debug_stack, debug_variables, debug_evaluate, debug_stop | Node.js inspector (loopback CDP), process is task-owned and gated; Python debugpy/DAP and native .NET/C++ debuggers are not implemented. |
 | Build and file inspection | build_detect, build_run, git_conflict_inspect, binary_inspect | Detects actual manifest before running fixed build commands. Binary inspection refuses protected paths. |
 | Skills | skills_discover | Enumerates local instructions only; does not execute imported scripts. |
@@ -34,7 +34,7 @@ This branch implements its **own internal approximation**, rather than installin
 3. **Caveman-inspired**: instruct the agent to produce short status/final responses while keeping tests, safety warnings, code and paths exact.
 4. **Raw restore**: large tool outputs can carry task-private token receipt handles; token_restore retrieves exact character ranges. Receipts are in-memory and expire at task completion.
 
-Profiles: off, safe (default), balanced, aggressive. Optional process environment: CHATMCP_TOKEN_PROFILE. Savings figures are character-based token **estimates**, never certified billing reduction. The pipeline does not impose new model quotas, disable tools, alter approval text or drop failed tool results.
+Profiles: off, safe (default), balanced, aggressive. Optional process environment: CHATMCP_TOKEN_PROFILE. Savings figures are character-based token **estimates**, never certified billing reduction. The optimization pipeline itself does not alter approvals or drop failed tool results; the separate task request-budget module now imposes configurable HTTP request/retry limits.
 
 ## 14-group capability assessment
 
@@ -76,3 +76,11 @@ Run verify-direct-tool-capacity, verify-agent-capabilities, verify-browser-tools
 - `CHATMCP_MAX_TASK_COST_USD` is optional and only enabled with explicit provider-specific prices per million tokens. No model/provider rate is invented. Cache token accounting is supported when provided by the API.
 - The deterministic, zero-extra-request tool selector offers up to `CHATMCP_TASK_TOOL_LIMIT=36` task-related LocalTools plus four routers. For legacy full advertisement set `CHATMCP_DYNAMIC_TOOL_SELECTION=off`. `CHATMCP_DIRECT_TOOL_LIMIT` remains the global upper bound; other tools are reachable using the internal router.
 - This work does not modify Windows Sandbox acceptance gates and does not add Hooks or an External MCP Client.
+
+## Parity follow-up: agent graph, browser/LSP and coding worker budget
+
+- Durable host-based `task-graph.mjs` records inspect/edit/verify/review evidence. Any new edit invalidates old verification/review receipts, and incomplete tasks are clearly reported instead of being silently certified by model prose.
+- `lsp-transaction.mjs` prepares canonical in-workspace multi-file WorkspaceEdit previews. Rename apply requires an exact review token, primary SHA-256 and an explicit list of affected source paths; the transaction verifies writes and attempts safe rollback on failure. Resource operations, aliases into protected paths and non-source targets are rejected. It is not a full crash-proof database transaction.
+- Browser tool improvements: accessible role/label locators, bounded DOM semantic snapshot without form values, HTTP 4xx/5xx records without query strings or bodies, and responsive overflow measurements. Still not full WCAG certification.
+- Coding workers share a configurable HTTP request/retry budget (`CHATMCP_MAX_CODING_RUN_REQUESTS=120`, `CHATMCP_MAX_CODING_RUN_RETRIES=20` by default) in addition to each worker's own task budget. This is per-run, not a global provider-account quota.
+- The Agents tab offers a review-only coding task proposal: deterministic split from user-provided bullets with zero model calls, or explicit opt-in model planning (bounded to 3 HTTP attempts). Neither preview starts a worktree or executes a tool; owner confirmation remains required.

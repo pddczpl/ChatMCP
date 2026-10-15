@@ -3,6 +3,7 @@ import { LocalTools } from '../lib/local-tools.mjs';
 import { ROUTER_TOOLS, selectTaskTools, createLocalAgentInstructions } from '../lib/agent.mjs';
 import { requestBudgetConfig, RequestBudget } from '../lib/request-budget.mjs';
 import { respondStandard } from '../lib/standard-adapter.mjs';
+import { proposeCodingTasks, proposeModelCodingTasks, validateProposedCodingTasks } from '../lib/coding-task-planner.mjs';
 
 const local=new LocalTools({workspace:{async resolve(){throw new Error('unused');}},shell:{},git:{}});
 const catalog={tools:local.definitions()};
@@ -114,4 +115,34 @@ await assert.rejects(respondStandard({...ctx,fetch:async()=>{
 }),{code:'request_budget_exhausted'});
 assert.equal(secondFetches,1,'budget rejects retry before any second HTTP POST');
 
-console.log('PASS parity runtime: dynamic tool selection + cached token/cost accounting + real HTTP retries + durable request budget');
+// Coding plan preview never mutates a worktree. Model assistance is opt-in
+// and validated against the same DAG/ID constraints as real workers.
+const proposal=proposeCodingTasks('Build a new app:\n- Implement backend validation and API endpoints\n- Implement a frontend form with client checks');
+assert.equal(proposal.modelRequests,0);
+assert.equal(proposal.tasks.length,2);
+assert.deepEqual(proposal.tasks[1].dependsOn,['task-1']);
+assert.throws(()=>validateProposedCodingTasks([
+  {id:'a',prompt:'read',dependsOn:['b']},{id:'b',prompt:'write',dependsOn:['a']}
+]),/Cyclic|dependency/i);
+const proposalModel={
+  ready:()=>true,
+  async respond({tools,onHttpAttempt,input}){
+    assert.equal(tools.length,0,'planner never asks the model to call tools');
+    assert.equal(input.length,1);
+    onHttpAttempt({retry:false,requestBytes:300});
+    return {status:'completed',usage:{input_tokens:30,output_tokens:20},
+      output:[{type:'message',content:[{type:'output_text',text:JSON.stringify({tasks:[
+        {id:'api',prompt:'Implement backend validation',dependsOn:[],verify:false},
+        {id:'frontend',prompt:'Implement form',dependsOn:['api'],verify:false}
+      ]})}]}]};
+  },
+};
+const aiPlan=await proposeModelCodingTasks({goal:'Build validated frontend/backend workflow',provider:proposalModel});
+assert.equal(aiPlan.source,'model-proposal');
+assert.equal(aiPlan.modelRequests,1);
+assert.deepEqual(aiPlan.tasks[1].dependsOn,['api']);
+await assert.rejects(proposeModelCodingTasks({goal:'Build a dashboard',provider:{
+  ready:()=>true,async respond(){return{status:'completed',output:[{type:'message',content:[{type:'output_text',text:'not-json'}]}]};}
+}}),{code:'invalid_model_plan'});
+
+console.log('PASS parity runtime: task tool selection, HTTP/request/cost budget, verified retry count and review-only coding plan');

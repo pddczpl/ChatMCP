@@ -24,6 +24,10 @@ export function OrchestratorTab(){
   const [concurrency,setConcurrency]=useState(2);
   const [codingTasks,setCodingTasks]=useState<CodingTask[]>([{id:'task-a',prompt:'',verify:false,dependsOn:[]}]);
   const [codingBusy,setCodingBusy]=useState(false);
+  const [codingGoal,setCodingGoal]=useState('');
+  const [planBusy,setPlanBusy]=useState(false);
+  const [useModelPlanner,setUseModelPlanner]=useState(false);
+  const [codingProposal,setCodingProposal]=useState<{source:string;modelRequests:number}|null>(null);
   const [codingRun,setCodingRun]=useState<any>(null);
   const [codingContext,setCodingContext]=useState<any>(null);
   const [codingRecovery,setCodingRecovery]=useState<any>(null);
@@ -89,6 +93,32 @@ export function OrchestratorTab(){
       <summary className="cursor-pointer font-semibold rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">Nhờ AI sửa mã nguồn{activeCoding&&<span className="block text-xs font-normal text-[var(--muted)] mt-1">Lần gần nhất: {agentStatusLabel(activeCoding.status)}</span>}</summary>
       <div className="space-y-3 mt-3">
       <p className="text-[var(--muted)]">Mỗi công việc được sửa trên một bản làm việc riêng. Bạn xem thay đổi trước khi gộp hoặc đưa lên GitHub.</p>
+      <section className="space-y-2 rounded border border-[var(--line)] p-3" aria-label="Lập kế hoạch coding workers">
+        <label className="block font-medium" htmlFor="coding-goal">Mục tiêu tổng thể</label>
+        <textarea id="coding-goal" rows={3} value={codingGoal} disabled={planBusy||codingBusy}
+          onChange={e=>setCodingGoal(e.target.value)}
+          placeholder="Nêu mục tiêu; có thể viết các hạng mục dưới dạng gạch đầu dòng."
+          className="w-full rounded border border-[var(--line)] bg-[var(--panel)] p-2" />
+        <label className="flex items-start gap-2 text-xs text-[var(--muted)]">
+          <input type="checkbox" checked={useModelPlanner} disabled={planBusy||codingBusy}
+            onChange={e=>setUseModelPlanner(e.target.checked)} />
+          Dùng model AI để đề xuất các công việc (tốn request/token). Tắt để chia theo gạch đầu dòng, không gọi model.
+        </label>
+        <Button size="sm" variant="outline" disabled={planBusy||codingBusy||codingGoal.trim().length<8}
+          onClick={async()=>{
+            setPlanBusy(true);try{
+              const preview=await api.previewCodingPlan(codingGoal,useModelPlanner);
+              setCodingTasks(preview.tasks);
+              setCodingProposal({source:preview.source,modelRequests:preview.modelRequests});
+              showToast('Đã tạo bản nháp. Kiểm tra từng công việc và thứ tự trước khi chạy.','info');
+            }catch(e:any){showToast(e.message||'Không thể lập kế hoạch','error');}
+            finally{setPlanBusy(false);}
+          }}>{planBusy?'Đang lập kế hoạch…':'Đề xuất công việc (chưa chạy)'}</Button>
+        {codingProposal&&<p className="text-xs text-[var(--muted)]" role="status">
+          Bản nháp: {codingProposal.source==='model-proposal'?'AI model':'Từ gạch đầu dòng'} ·
+          {codingProposal.modelRequests} HTTP request ghi nhận. Chưa sửa file hoặc tạo worktree.
+        </p>}
+      </section>
       {codingTasks.map((x,i)=><div key={i} className="p-3 rounded border border-[var(--line)] space-y-3">
         <div className="flex gap-2 items-center justify-between">
           <label htmlFor={`coding-task-${i}`} className="font-medium">Công việc {i+1}</label>
@@ -126,6 +156,11 @@ export function OrchestratorTab(){
       </p>}
       {activeCoding&&<div className="space-y-2 border-t border-[var(--line)] pt-2">
         <div className="font-semibold">Kết quả sửa mã · {agentStatusLabel(activeCoding.status)}</div>
+        {activeCoding.modelUsage&&<p className="text-xs text-[var(--muted)]">
+          Coding run HTTP requests: {activeCoding.modelUsage.apiRequests||0} · retries: {activeCoding.modelUsage.retryRequests||0} ·
+          input/output tokens: {activeCoding.modelUsage.inputTokens||0}/{activeCoding.modelUsage.outputTokens||0}
+          {activeCoding.budgetLimits?.maxRequests?' · giới hạn requests: '+activeCoding.budgetLimits.maxRequests:''}
+        </p>}
         <details className="text-xs text-[var(--muted)]">
         <summary className="cursor-pointer">Kiểm tra lần chạy và khôi phục</summary>
         <p className="mt-2">Mã lần chạy: {activeCoding.id?.slice(0,8)}</p>

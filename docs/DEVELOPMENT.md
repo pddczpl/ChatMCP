@@ -280,3 +280,12 @@ The user selects an API endpoint, key, and model. The parity-runtime upgrade add
 ChatMCP is a standalone local desktop app; no IDE/VS Code integration is needed. PermissionGate supports explicit Full Access confirmation; it does not elevate the OS account or cancel Windows Sandbox isolation requirements for untrusted automated tests.
 
 `dynamic-delegates.mjs` executes user-triggered dynamically planned read-only subagents through the same configured Gateway Provider and requires the literal `AUTHORIZE READONLY DELEGATION` confirmation. It has no internal token/spend budget; workers have no execution tools, and cancellation/restart are explicit.
+
+## Parity runtime: implementation and cost controls
+
+- `lib/task-graph.mjs`: host-owned graph with evidence receipt validity by source revision; an edit invalidates earlier test and diff-review receipts. An incomplete graph is surfaced with explicit missing phases, not a fabricated success.
+- `lib/lsp-transaction.mjs`: at most 32 in-workspace source files and 500 edits per reviewable LSP rename. Apply requires SHA/token and exact `reviewed_files`, no resource operations or protected paths; errors trigger best-effort rollback. PermissionGate still evaluates workspace edits. Crash-proof multi-file atomicity is not claimed.
+- `lib/browser-tools.mjs`: role-based interactions, optional semantic DOM snapshot via `browser_console(include_dom=true)`, query-redacted HTTP failures, and responsive horizontal overflow. The DOM remains untrusted data.
+- `lib/coding-task-planner.mjs`: optional model-backed coding DAG proposal is an explicit opt-in and only previews; user must inspect and authorize `CREATE WORKTREES` before any changes.
+- Coding run request budget defaults to 120 real outbound HTTP attempts, 20 retries across worker tasks (environment: `CHATMCP_MAX_CODING_RUN_REQUESTS`/`CHATMCP_MAX_CODING_RUN_RETRIES`; 0 disables). Each child AgentRunner also has its own task limit. Requests do not automatically become cheaper merely because workers are parallel.
+- The Windows Sandbox guest hardware acceptance gate remains out of scope for this development change and is neither disabled nor certified by these tests.

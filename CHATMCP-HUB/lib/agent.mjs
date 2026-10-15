@@ -8,6 +8,7 @@ import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstruct
 import { estimateTokens as estimateContextTokens, injectRepoMapIntoInstructions, compactConversationHistory } from './context-compaction.mjs';
 import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './token-optimization.mjs';
 import { RequestBudget } from './request-budget.mjs';
+import { createTaskGraph, advanceTaskGraph, taskGraphAssessment, taskGraphInstructions } from './task-graph.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
 // from disk or the environment, evaluates model text, or executes a local shell.
@@ -332,10 +333,11 @@ async function atomicWrite(file, data) {
 }
 
 export class AgentRunner {
-  constructor({ manager, provider, taskDirectory, log = () => {} }) {
+  constructor({ manager, provider, taskDirectory, log = () => {}, sharedBudget = null }) {
     if (!manager || !provider || typeof taskDirectory !== 'string' || !taskDirectory) throw new TypeError('AgentRunner cần manager, provider và taskDirectory.');
     this.manager = manager;
     this.provider = provider;
+    this.sharedBudget = sharedBudget;
     this.taskDirectory = path.resolve(taskDirectory);
     this.log = log;
     this.tasks = new Map();
@@ -490,6 +492,8 @@ export class AgentRunner {
       progress: createTaskProgress(task.progress),
       budget: task.budgetState ?? null,
       goalPlan: task.goalPlan ?? null,
+      executionGraph: task.executionGraph ?? null,
+      completionProof: task.completionProof ?? null,
       verifiedSummary: evidenceReport(task.progress,task.goalPlan),
     };
     if (!summary) {
@@ -517,6 +521,7 @@ export class AgentRunner {
       'TASK REQUEST BUDGET: ' + JSON.stringify(task.budgetState ?? null),
       '', 'TIẾN ĐỘ CÓ BẰNG CHỨNG', progressCheckpoint(task.progress),
       '', 'KẾ HOẠCH & BẰNG CHỨNG', JSON.stringify(evidenceReport(task.progress,task.goalPlan),null,2),
+      '', 'TASK GRAPH / VERIFIED COMPLETION',JSON.stringify(taskGraphAssessment(task.executionGraph)),
       '', 'HỘI THOẠI / CÁC YÊU CẦU', ...(task.prompts ?? [{text:task.prompt}]).map((p,i)=>`${i+1}. ${p.text}`), '', 'KẾT QUẢ MỚI NHẤT', task.finalText || '(Chưa có phản hồi kết thúc hợp lệ.)',
     ];
     if (task.error) lines.push('', 'LÝ DO DỪNG / LỖI', task.error);
@@ -586,6 +591,7 @@ export class AgentRunner {
         task.runs ??= [{startedAt:task.startedAt,finishedAt:task.finishedAt,status:task.status,startStep:0}];
         task.progress = createTaskProgress(task.progress);
         task.goalPlan = decomposeCodingTask(task.prompt,task.goalPlan);
+        task.executionGraph=createTaskGraph(task.goalPlan,task.executionGraph);
         task.dialogue ??= [];
         this.tasks.set(task.id, task);
         const interrupted = task.status === 'running';
@@ -696,6 +702,7 @@ export class AgentRunner {
     task.maxSteps = maxSteps === null ? null : task.steps + maxSteps; task.maxMinutes = maxMinutes;
     task.progress = createTaskProgress(task.progress, { newRun: true });
     task.goalPlan = decomposeCodingTask(task.prompt,task.goalPlan);
+        task.executionGraph=createTaskGraph(task.goalPlan,task.executionGraph);
     task.prompts ??= []; task.prompts.push({at:initial,text:cleanPrompt});
     task.runs ??= []; task.runs.push({startedAt:initial,finishedAt:null,status:'running',startStep:task.steps,startToolCalls:task.toolCalls});
     task.dialogue ??= []; task.dialogue.push({role:'user',at:initial,text:cleanPrompt,run:task.runs.length});
@@ -784,6 +791,7 @@ export class AgentRunner {
         }
       }
       if (task.goalPlan) context.instructions += '\n'+planInstructions(task.goalPlan);
+      if(task.executionGraph)context.instructions+='\n'+taskGraphInstructions(task.executionGraph);
       context.instructions += '\n' + TOKEN_AGENT_INSTRUCTIONS;
       // Repo source is untrusted. Attach its bounded map as DATA beside the
       // user's prompt, NEVER as privileged system instructions. Preserve the
@@ -927,7 +935,14 @@ export class AgentRunner {
           signal: context.controller.signal, maxOutputTokens: MAX_OUTPUT_TOKENS,
           store: false, parallel_tool_calls: false, include: ['reasoning.encrypted_content'],
           onHttpAttempt: ({retry=false,requestBytes=0}={}) => {
-            budget.reserve({retry,requestBytes}); task.budgetState=budget.snapshot();
+            const attempt={retry,requestBytes};
+            // Both budgets must allow the request BEFORE either increments;
+            // worker concurrency is event-loop serialized at this point.
+            this.sharedBudget?.canReserve(attempt);
+            budget.canReserve(attempt);
+            this.sharedBudget?.reserve(attempt);
+            budget.reserve(attempt);
+            task.budgetState=budget.snapshot();
           },
           onStatus: async (message, kind) => { await this.#event(task, kind === 'model_repair' ? 'model_repair' : kind === 'context_compaction' ? 'context_compaction' : 'network_wait', String(message).slice(0,1000), { status:'running' }); },
           onToken: (token) => { this.#emit({ type: 'token', taskId: task.id, token }); },
@@ -936,6 +951,7 @@ export class AgentRunner {
         this.#check(context);
         if (!object(response) || !Array.isArray(response.output)) throw fault('invalid_response', 'Model trả về response không đúng định dạng. Không gọi thêm công cụ.', 502);
         task.budgetState=budget.recordUsage(response.usage);
+        this.sharedBudget?.recordUsage(response.usage);
         await this.#persist(task, { at: now(), type: 'model_response', step: task.steps, response });
         if (response.status !== 'completed') {
           const reason = response.incomplete_details?.reason ?? response.error?.message ?? response.status ?? 'unknown';
@@ -968,7 +984,12 @@ export class AgentRunner {
         if (refusal) throw fault('model_refusal', `Model không thể thực hiện yêu cầu: ${refusal}`);
         if (!calls.length) {
           if (!finalTexts.some((text) => text.trim())) throw fault('empty_final', 'Model kết thúc nhưng không đưa ra kết quả văn bản cuối cùng. Thông báo tiến độ không được coi là kết quả hoàn tất.', 502);
-          task.finalText = this.#redact(finalTexts.join('\n\n')); task.status = 'completed';
+          task.completionProof=taskGraphAssessment(task.executionGraph);
+          const reported=this.#redact(finalTexts.join('\n\n'));
+          task.finalText=task.completionProof.applicable&&!task.completionProof.verified
+            ?reported+'\n\n[Host verification incomplete: '+task.completionProof.missing.join(', ')+'. This final response is not independent test evidence.]'
+            :reported;
+          task.status = 'completed';
           this.#advance(task, 'completed', 'final_answer');
           break;
         }
@@ -981,7 +1002,8 @@ export class AgentRunner {
           const verified=await verifyHostEvidence({manager:this.manager,name:actualName,result,step:task.steps});
           const evidence=observeTaskTool(task.progress,{call,result,step:task.steps,verified});
           task.progress=evidence.progress;
-          if(verified)task.goalPlan=updateGoalPlan(task.goalPlan,verified);
+          if(verified){task.goalPlan=updateGoalPlan(task.goalPlan,verified);
+            task.executionGraph=advanceTaskGraph(task.executionGraph,verified);}
           // Tool call/output must be contiguous and persisted before a recovery
           // hint is added: adapters require a correctly paired call/result history.
           const converted=this.#modelOutput(result,{ taskId: task.id, toolName: actualName });

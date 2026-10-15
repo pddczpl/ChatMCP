@@ -171,6 +171,9 @@ export const api = {
   }),
   cancelDynamicDelegates: () => request<any>('/api/studio/dynamic-delegates/cancel',{method:'POST',body:'{}'}),
   getCodingRuns: () => request<any>('/api/studio/coding'),
+  previewCodingPlan: (goal:string,useModel=false)=>request<{goal:string;source:string;modelRequests:number;tasks:{id:string;prompt:string;verify:boolean;dependsOn:string[]}[]}>('/api/studio/coding/plan',{
+    method:'POST',body:JSON.stringify({goal,useModel}),
+  }),
   getCodingContext: (runId:string,workerId:string) => request<any>(`/api/studio/coding/context?runId=${encodeURIComponent(runId)}&workerId=${encodeURIComponent(workerId)}`),
   getCodingRecovery: (runId:string) => request<any>(`/api/studio/coding/recovery?runId=${encodeURIComponent(runId)}`),
   acknowledgeCodingRecovery: (runId:string,expectedDigest:string) => request<any>('/api/studio/coding/recovery/acknowledge',{method:'POST',body:JSON.stringify({runId,expectedDigest,confirmation:'REVIEW INTERRUPTED RUN'})}),

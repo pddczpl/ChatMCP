@@ -19,11 +19,19 @@ assert.equal(comparePngBuffers(red,blue,{tolerance:255}).equal,true);
 assert.equal(comparePngBuffers(red,png(2,1,[255,0,0,255,255,0,0,255])).sameDimensions,false);
 assert.throws(()=>comparePngBuffers(Buffer.from('invalid'),red),/PNG/);
 const defs=[];
+const handlers={},accessible=[];
+const fakeLocator={click:async()=>{},fill:async()=>{}};
 const fake={chromium:{launch:async()=>({newContext:async()=>({
   route:async()=>{},newPage:async()=>({
-    on(){},goto:async()=>({status:()=>200}),url:()=>'http://localhost:3007/',
-    title:async()=> 'fixture', locator:()=>({first:()=>({click:async()=>{},fill:async()=>{}})}),
-    screenshot:async()=>red,evaluate:async()=>({issues:[{rule:'image-alt'}],count:1,engine:'built-in-heuristics',wcagCertified:false}),viewportSize:()=>({width:1280,height:800}),setViewportSize:async()=>{},waitForTimeout:async()=>{}
+    on(type,fn){handlers[type]=fn;},goto:async()=>({status:()=>200}),url:()=>'http://localhost:3007/',
+    title:async()=> 'fixture', locator:()=>({first:()=>fakeLocator}),
+    getByRole(role,options){accessible.push({role,...options});return fakeLocator;},
+    getByLabel(label,options){accessible.push({label,...options});return fakeLocator;},
+    screenshot:async()=>red,evaluate:async(fn)=>fn.toString().includes('untrustedDOM:true')
+      ?{nodes:[{role:'button',name:'Submit'}],untrustedDOM:true,formValuesIncluded:false}
+      :fn.toString().includes('scrollWidth')?{overflowPx:7}:
+        {issues:[{rule:'image-alt'}],count:1,engine:'built-in-heuristics',wcagCertified:false},
+    viewportSize:()=>({width:1280,height:800}),setViewportSize:async()=>{},waitForTimeout:async()=>{}
   }),close:async()=>{}
 }),close:async()=>{}})}};
 const driver=new BrowserTools({driver:fake});driver.definitions((name,spec)=>defs.push({name,...spec}));
@@ -38,6 +46,21 @@ const image=await driver.screenshot({},session);const shot=image.structuredConte
 assert.equal(image.content[1].type,'image');
 const comparison=driver.compare({before:shot,after:shot},session);
 assert.equal(comparison.structuredContent.equal,true);
+await driver.click({role:'button',name:'Submit'},session);
+await driver.fill({label:'Email',text:'SECRET_VALUE_DO_NOT_ECHO'},session);
+assert.deepEqual(accessible,[{role:'button',name:'Submit',exact:true},{label:'Email',exact:true}]);
+const snapshot=(await driver.domSnapshot({},session)).structuredContent;
+assert.equal(snapshot.untrustedDOM,true);
+assert.equal(snapshot.formValuesIncluded,false);
+const consoleSpec=defs.find(x=>x.name==='browser_console');
+const consoleState=await consoleSpec.run({include_dom:true},session);
+assert.equal(consoleState.structuredContent.dom.untrustedDOM,true);
+assert.ok(!JSON.stringify(consoleState).includes('SECRET_VALUE_DO_NOT_ECHO'));
+handlers.response({status:()=>503,url:()=>'http://localhost:3007/api/status?token=private'});
+const network=await defs.find(x=>x.name==='browser_network').run({},session);
+assert.equal(network.structuredContent.httpErrors[0].status,503);
+assert.equal(network.structuredContent.httpErrors[0].url,'http://localhost:3007/api/status');
+assert.equal((await driver.responsive({widths:[375]},session)).structuredContent.viewportScreenshots[0].horizontalOverflowPx,7);
 const audit=await driver.accessibility({},session);
 assert.equal(audit.structuredContent.wcagCertified,false);
 assert.equal(audit.structuredContent.count,1);

@@ -40,6 +40,15 @@ export function requestBudgetConfig(env = process.env) {
   return Object.freeze({ limits: Object.freeze(limits), prices: Object.freeze(prices) });
 }
 
+export function codingRunBudgetConfig(env = process.env) {
+  const config = requestBudgetConfig(env);
+  return { ...config,limits:{
+    ...config.limits,
+    maxRequests:integerSetting(env,'CHATMCP_MAX_CODING_RUN_REQUESTS',120),
+    maxRetries:integerSetting(env,'CHATMCP_MAX_CODING_RUN_RETRIES',20),
+  } };
+}
+
 function count(n) { return Number.isSafeInteger(n) && n >= 0 ? n : 0; }
 
 export class RequestBudget {
@@ -59,9 +68,9 @@ export class RequestBudget {
       this.usage.outputTokens * output) / 1_000_000;
   }
 
-  // Synchronous and called immediately before each HTTP POST, never after it:
-  // a refused request cannot burn an additional provider request.
-  reserve({ retry = false, requestBytes = 0 } = {}) {
+  // Preflight is read-only: multiple worker budgets can be checked before any
+  // one of them consumes a request credit. All reservations are synchronous.
+  canReserve({retry=false}={}) {
     const { limits } = this.config;
     if (limits.maxRequests && this.usage.apiRequests >= limits.maxRequests)
       throw fail('request_budget_exhausted', 'Task reached its HTTP model-request limit. Review usage and explicitly continue with a higher limit.');
@@ -74,6 +83,12 @@ export class RequestBudget {
     const cost = this.estimatedCostUSD();
     if (limits.maxCostUSD && cost !== null && cost >= limits.maxCostUSD)
       throw fail('cost_budget_exhausted', 'Task reached its estimated model spending limit; no further model requests were issued.');
+    return true;
+  }
+
+  // Called immediately before each HTTP POST, never after it.
+  reserve({ retry = false, requestBytes = 0 } = {}) {
+    this.canReserve({retry});
     this.usage.apiRequests += 1;
     if (retry) this.usage.retryRequests += 1;
     this.usage.requestBytes += Number.isSafeInteger(requestBytes) && requestBytes > 0 ? requestBytes : 0;

@@ -114,10 +114,11 @@ export class BrowserTools {
         catch {await route.abort('blockedbyclient');}
       });
       const page=await context.newPage();
-      const record={browser,context,page,errors:[],requests:[],captures:new Map()};
+      const record={browser,context,page,errors:[],requests:[],httpErrors:[],captures:new Map()};
       page.on('console',event=>{if(['error','warning'].includes(event.type()))record.errors.push({type:event.type(),message:event.text().slice(0,1400)});record.errors=record.errors.slice(-100);});
       page.on('pageerror',error=>{record.errors.push({type:'pageerror',message:String(error.message).slice(0,1400)});record.errors=record.errors.slice(-100);});
-      page.on('requestfailed',request=>{record.requests.push({url:request.url().slice(0,600),error:request.failure()?.errorText||'unknown'});record.requests=record.requests.slice(-100);});
+      page.on('requestfailed',request=>{record.requests.push({url:request.url().split('?')[0].slice(0,600),error:request.failure()?.errorText||'unknown'});record.requests=record.requests.slice(-100);});
+      page.on('response',response=>{if(response.status()>=400){record.httpErrors.push({status:response.status(),url:response.url().split('?')[0].slice(0,600)});record.httpErrors=record.httpErrors.slice(-100);}});
       this.sessions.set(taskId,record);
       return ok({status:'launched',viewport:{width,height},headless:true,restrictedNetwork:true});
     } catch(error) {await context?.close().catch(()=>{});await browser.close().catch(()=>{});throw error;}
@@ -129,16 +130,26 @@ export class BrowserTools {
     const final=validateBrowserUrl(s.page.url());
     return ok({url:final.toString(),status:response?.status()??null,title:(await s.page.title()).slice(0,250)});
   }
-  async click({selector},{taskId,signal}={}) {
-    const s=this.#get(taskId); signal?.throwIfAborted();
-    await s.page.locator(selector).first().click({timeout:10000});
-    return ok({clicked:selector,url:s.page.url()});
+  // Prefer accessible Playwright roles and labels over fragile CSS selectors.
+  // When the model provides a role/name, use Playwright strict matching rather
+  // than silently clicking the first of several ambiguous matches.
+  #locator(page,{selector,role,name,label}={}) {
+    if (role && name && typeof page.getByRole==='function')
+      return page.getByRole(role,{name,exact:true});
+    if(label && typeof page.getByLabel==='function')return page.getByLabel(label,{exact:true});
+    if(typeof selector==='string'&&selector.trim())return page.locator(selector).first();
+    throw failure('browser_locator_required','Supply role + accessible name, label, or a selector.');
   }
-  async fill({selector,text},{taskId,signal}={}) {
+  async click({selector,role,name},{taskId,signal}={}) {
+    const s=this.#get(taskId); signal?.throwIfAborted();
+    await this.#locator(s.page,{selector,role,name}).click({timeout:10000});
+    return ok({clicked:role?{role,name}:selector,url:s.page.url()});
+  }
+  async fill({selector,role,name,label,text},{taskId,signal}={}) {
     const s=this.#get(taskId);signal?.throwIfAborted();
-    await s.page.locator(selector).first().fill(text,{timeout:10000});
+    await this.#locator(s.page,{selector,role,name,label}).fill(text,{timeout:10000});
     // Never echo form values back to the model; they might be secrets.
-    return ok({filled:selector,length:text.length});
+    return ok({filled:role?{role,name}:label||selector,length:text.length});
   }
   async screenshot({full_page:fullPage=false},{taskId,signal}={}) {
     const s=this.#get(taskId);signal?.throwIfAborted();
@@ -165,7 +176,8 @@ export class BrowserTools {
         const bytes=await s.page.screenshot({type:'png',animations:'disabled'});
         const id='shot_'+randomUUID();
         s.captures.set(id,bytes);while(s.captures.size>8)s.captures.delete(s.captures.keys().next().value);
-        outputs.push({width,height,id,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')});
+        const layout=await s.page.evaluate(()=>({overflowPx:Math.max(0,document.documentElement.scrollWidth-window.innerWidth)}));
+        outputs.push({width,height,id,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),horizontalOverflowPx:Number(layout?.overflowPx)||0});
       }
       return ok({viewportScreenshots:outputs, note:'Screenshots captured; layout quality still requires human or vision-model evaluation.'});
     } finally {if(original)await s.page.setViewportSize(original);}
@@ -200,6 +212,30 @@ export class BrowserTools {
     });
     return ok(report);
   }
+  async domSnapshot({limit=100},{taskId,signal}={}) {
+    const s=this.#get(taskId);signal?.throwIfAborted();
+    if(!Number.isInteger(limit)||limit<1||limit>200)throw failure('bad_snapshot_limit','DOM snapshot limit must be 1..200.');
+    const snapshot=await s.page.evaluate((maximum)=>{
+      // This is untrusted UI data. Never extract form values, cookies, storage,
+      // password fields, scripts, arbitrary HTML, or request bodies.
+      const nodes=[];
+      const selector='h1,h2,h3,h4,button,a,input,textarea,select,[role]';
+      const elements=document.querySelectorAll(selector);
+      for(const node of elements){
+        if(nodes.length>=maximum)break;
+        if(node.closest('[aria-hidden="true"],[hidden]'))continue;
+        const tag=node.tagName.toLowerCase(),role=node.getAttribute('role')||
+          ({a:'link',button:'button',h1:'heading',h2:'heading',h3:'heading',h4:'heading',input:'textbox',textarea:'textbox',select:'combobox'}[tag]||tag);
+        if(tag==='input'&&node.type==='hidden')continue;
+        const name=String(node.getAttribute('aria-label')||node.getAttribute('title')||
+          (node.labels?.[0]?.textContent)||node.textContent||'').trim().replace(/\s+/g,' ').slice(0,180);
+        nodes.push({role,name,tag,disabled:Boolean(node.disabled)});
+      }
+      return {title:String(document.title||'').slice(0,200),path:location.pathname.slice(0,300),
+        nodes,truncated:elements.length>maximum,untrustedDOM:true,formValuesIncluded:false};
+    },limit);
+    return ok(snapshot);
+  }
   async closeOne(taskId) {
     const s=this.#get(taskId);
     this.sessions.delete(taskId);
@@ -217,16 +253,18 @@ export class BrowserTools {
       (a,ctx)=>this.launch(a,ctx));
     executor('browser_navigate','Navigate Chromium only to localhost or explicitly allowed hosts; subrequests are restricted.',
       O({url:S('Full http(s) navigation URL, host must be allowed.')},['url']),(a,ctx)=>this.navigate(a,ctx));
-    executor('browser_click','Click a Playwright selector on the current browser page.',
-      O({selector:S('CSS, text, or role selector.',{maxLength:500})},['selector']),(a,ctx)=>this.click(a,ctx));
-    executor('browser_fill','Fill an input using Playwright. Values are not echoed; approval required.',
-      O({selector:S('Form selector.',{maxLength:500}),text:S('Text to enter.',{maxLength:16000})},['selector','text']),(a,ctx)=>this.fill(a,ctx));
+    executor('browser_click','Click by exact accessible role + name, or a CSS selector; real Playwright click validates visibility.',
+      O({selector:S('Optional CSS selector.',{maxLength:500}),role:S('Accessible role, e.g. button.'),name:S('Exact accessible name.')}),
+      (a,ctx)=>this.click(a,ctx));
+    executor('browser_fill','Fill a field by accessible role + name, label, or selector. Values are not echoed.',
+      O({selector:S('Optional CSS selector.',{maxLength:500}),role:S('Accessible role.'),name:S('Accessible name.'),label:S('Exact form label.'),text:S('Text to enter.',{maxLength:16000})},['text']),(a,ctx)=>this.fill(a,ctx));
     executor('browser_screenshot','Capture a real PNG screenshot and forward it to a vision-capable model.',
       O({full_page:{type:'boolean',description:'Capture full page instead of viewport.'}}),(a,ctx)=>this.screenshot(a,ctx));
-    executor('browser_console','Read recent browser console errors and page exceptions (within this task only).',
-      O({}),(_,ctx)=>ok({errors:this.#get(ctx.taskId).errors}),{readOnly:true});
-    executor('browser_network','Read recent failed browser network requests; no arbitrary response bodies.',
-      O({}),(_,ctx)=>ok({failedRequests:this.#get(ctx.taskId).requests}),{readOnly:true});
+    executor('browser_console','Read browser errors and optionally return an untrusted, bounded semantic DOM snapshot without form values.',
+      O({include_dom:B('Include DOM role/name snapshot, limited to 100 elements.')}),
+      async(a,ctx)=>a.include_dom?ok({errors:this.#get(ctx.taskId).errors,dom:(await this.domSnapshot({},ctx)).structuredContent}):ok({errors:this.#get(ctx.taskId).errors}),{readOnly:true});
+    executor('browser_network','Read failed browser requests and HTTP 4xx/5xx responses; strip query strings and never return bodies.',
+      O({}),(_,ctx)=>ok({failedRequests:this.#get(ctx.taskId).requests,httpErrors:this.#get(ctx.taskId).httpErrors}),{readOnly:true});
     executor('browser_close','Close the isolated browser process and clear its captured images.',
       O({}),(_,ctx)=>this.closeOne(ctx.taskId));
     executor('screenshot_capture','Capture a PNG screenshot with Playwright; returns image and screenshot ID.',

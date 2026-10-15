@@ -34,6 +34,41 @@ try {
   assert.equal(await fs.readFile(path.join(root,'test.ts'),'utf8'),'const fixed=1;\n');
   const lookup=await tools.call('find_implementations',{file:'test.ts',language:'typescript',line:1,column:1});
   assert.equal(lookup.isError,false);
+
+  // A cross-file LSP rename must publish a fully bound preview and require
+  // an exact SHA/token/target list before any file is written. Stale previews
+  // fail closed and do not change the primary source.
+  const second=path.join(root,'other.ts');
+  await fs.writeFile(second,'const fixed=2;\n');
+  const otherUri=pathToFileURL(second).href;
+  client.request=async(method)=>{
+    if(method==='textDocument/rename')return {changes:{
+      [uri]:[{range:{start:{line:0,character:6},end:{line:0,character:11}},newText:'total'}],
+      [otherUri]:[{range:{start:{line:0,character:6},end:{line:0,character:11}},newText:'total'}]
+    }};
+    return [];
+  };
+  const opts={file:'test.ts',language:'typescript',line:1,column:7,new_name:'total'};
+  const proposed=await tools.call('rename_symbol',opts);
+  assert.equal(proposed.isError,false,JSON.stringify(proposed));
+  assert.equal(proposed.structuredContent.multiFile,true);
+  assert.equal(proposed.structuredContent.files.length,2);
+  const token=proposed.structuredContent.reviewToken;
+  const shaPrimary=createHash('sha256').update(await fs.readFile(path.join(root,'test.ts'))).digest('hex');
+  const reviewed={...opts,apply:true,expected_sha256:shaPrimary,review_token:token,reviewed_files:['test.ts','other.ts']};
+  assert.equal((await tools.call('rename_symbol',{...reviewed,review_token:'invalid'})).isError,true);
+  assert.equal((await tools.call('rename_symbol',{...reviewed,reviewed_files:['test.ts']})).isError,true);
+  await fs.writeFile(second,'const changed=2;\n');
+  const stale=await tools.call('rename_symbol',reviewed);
+  assert.equal(stale.isError,true,'stale cross-file preview must fail before writing');
+  assert.equal(await fs.readFile(path.join(root,'test.ts'),'utf8'),'const fixed=1;\n');
+  await fs.writeFile(second,'const fixed=2;\n');
+  const changedTwo=await tools.call('rename_symbol',reviewed);
+  assert.equal(changedTwo.isError,false,JSON.stringify(changedTwo));
+  assert.equal(changedTwo.structuredContent.transactionVerified,true);
+  assert.equal(changedTwo.structuredContent.changedFiles.length,2);
+  assert.equal(await fs.readFile(path.join(root,'test.ts'),'utf8'),'const total=1;\n');
+  assert.equal(await fs.readFile(second,'utf8'),'const total=2;\n');
   await tools.close();
-  console.log('PASS LSP semantic tools: preview, permissions, SHA guard, actual single-file write and read-only navigation');
+  console.log('PASS LSP semantic tools: preview, guarded multi-file transaction, stale revision, single-file write and navigation');
 }finally{await fs.rm(root,{recursive:true,force:true,maxRetries:3});}

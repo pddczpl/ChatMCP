@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { isProtectedPath } from './protected-paths.mjs';
 import { writeFileAtomic } from './fs-safe.mjs';
+import { prepareWorkspaceTransaction, transactionPreview, applyWorkspaceTransaction, normalizeWorkspaceEdits } from './lsp-transaction.mjs';
 const O=(properties,required=[])=>({type:'object',properties,required,additionalProperties:false});
 const S=(description,extra={})=>({type:'string',description,...extra});
 const I=(description,extra={})=>({type:'integer',description,...extra});
@@ -69,7 +70,7 @@ export class SemanticTools {
     client.open(uri,source,languageId);
     return {client,source,target,uri,sha256:createHash('sha256').update(source).digest('hex')};
   }
-  async request({op,file,language,line=1,column=1,new_name:newName,apply=false,expected_sha256:expectedSha,tab_size:tabSize=2,insert_spaces:insertSpaces=true,direction='subtypes'}){
+  async request({op,file,language,line=1,column=1,new_name:newName,apply=false,expected_sha256:expectedSha,tab_size:tabSize=2,insert_spaces:insertSpaces=true,direction='subtypes',review_token:reviewToken,reviewed_files:reviewedFiles=[]}){
     const ctx=await this.context({file,language});
     const {client,uri}=ctx;
     if(!Number.isInteger(line)||line<1||!Number.isInteger(column)||column<1)throw fail('bad_position','Line and column are 1-based positive integers.');
@@ -103,6 +104,21 @@ export class SemanticTools {
       if(apply)throw fail('not_applicable','No applicable source transformation returned by LSP.');
       return ok({operation:op,uri,previewOnly:true,result:response,sha256:ctx.sha256});
     }
+    if(op==='rename_symbol') {
+      const changes=normalizeWorkspaceEdits(workspaceEdit,uri);
+      if(changes.length>1 || changes.some(x=>x.uri!==uri)) {
+        const plan=await prepareWorkspaceTransaction({workspace:this.workspace,edit:workspaceEdit,primaryUri:uri,
+          operation:op,applyEdits:applyLspTextEdits,revisionArgs:{file,line,column,newName}});
+        const preview=transactionPreview(plan);
+        if(!apply)return ok({operation:op,...preview,expected_sha256:ctx.sha256});
+        if(!Array.isArray(reviewedFiles)||reviewedFiles.length!==plan.files.length||
+           new Set(reviewedFiles).size!==plan.files.length||
+           reviewedFiles.some(file=>!plan.files.some(item=>item.file===file)))
+          throw fail('reviewed_files_required','Explicitly name every reviewed source in reviewed_files before applying a multi-file rename.');
+        const applied=await applyWorkspaceTransaction(plan,{reviewToken,expectedPrimarySha:expectedSha});
+        return ok({operation:op,changed:true,multiFile:true,...applied});
+      }
+    }
     const normalized=normalizeEdits(workspaceEdit,uri);
     const extra=normalized.files.some(f=>f!==uri);
     if(apply&&extra)throw fail('cross_file_preview_only','LSP proposed a multi-file edit; preview it and apply with a reviewable patch. Automatic multi-file edits are refused.');
@@ -127,12 +143,14 @@ export class SemanticTools {
     const build=(name,description,params={},required=['file','language'],canApply=false)=>define(name,{
       description,schema:O({...base,...params},required),annotations:{readOnlyHint:!canApply,destructiveHint:false},
       category:canApply?(a)=>({category:a.apply?'workspace_edit':'read',reason:a.apply?'Apply reviewed one-file LSP edit':'Preview LSP edit'}):'read',
-      reason:'Semantic source analysis using bundled LSP',summary:a=>name+' '+a.file,pathArgs:['file'],
+      reason:'Semantic source analysis using bundled LSP',summary:a=>name+' '+a.file+(Array.isArray(a.reviewed_files)&&a.reviewed_files.length?' reviewed targets: '+a.reviewed_files.join(', '):''),pathArgs:['file'],
       run:a=>this.request({op:name,...a}),
     });
-    const edit={apply:B('Apply a single-file edit after human approval. Default false.'),
-      expected_sha256:S('Expected SHA-256 from source read. Required when applying.',{minLength:64,maxLength:64})};
-    build('rename_symbol','Rename an identifier with textDocument/rename; cross-file transformations are preview-only.',
+    const edit={apply:B('Apply an approved edit. Multi-file rename additionally requires review_token and reviewed_files.'),
+      expected_sha256:S('Expected SHA-256 of the primary source.',{minLength:64,maxLength:64}),
+      review_token:S('Transaction token from a prior multi-file rename preview.'),
+      reviewed_files:{type:'array',items:S('Reviewed workspace-relative file.'),maxItems:32}};
+    build('rename_symbol','Rename an identifier with textDocument/rename; multi-file changes require reviewed token, source list and atomically verified transaction.',
       {...edit,new_name:S('New valid identifier.'),},['file','language','new_name'],true);
     build('format_document','Format a source file through existing LSP; single-file writes require expected SHA.',
       {...edit,tab_size:I('Spaces per tab.',{minimum:1,maximum:16}),insert_spaces:B('Use spaces for indentation.')},['file','language'],true);
