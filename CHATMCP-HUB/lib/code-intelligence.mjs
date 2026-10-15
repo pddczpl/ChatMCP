@@ -919,11 +919,20 @@ export class CodeIntelligenceEngine {
     return { full, rel };
   }
 
-  async listSourceFiles(subPath = '.') {
+  // Bound automatic preflight scanning; explicit repo_map stays unrestricted.
+  async listSourceFiles(subPath = '.', { maxFiles = Infinity, maxDirectories = Infinity, signal = null, deadline = Infinity } = {}) {
     const { full: startDir } = await this.resolveRelative(subPath);
     const files = [];
+    let scannedDirectories = 0, scannedEntries = 0, truncated = false;
+    const check = () => {
+      signal?.throwIfAborted();
+      if (Date.now() > deadline) throw Object.assign(new Error('Automatic Repo Map time budget exceeded.'), { code: 'repo_map_budget_exceeded' });
+    };
 
     const walk = async (dir) => {
+      check();
+      if (truncated) return;
+      if (scannedDirectories++ >= maxDirectories) { truncated = true; return; }
       let entries;
       try {
         entries = await fs.readdir(dir, { withFileTypes: true });
@@ -932,6 +941,13 @@ export class CodeIntelligenceEngine {
       }
       entries.sort((a, b) => a.name.localeCompare(b.name));
       for (const entry of entries) {
+        check();
+        if (files.length >= maxFiles) { truncated = true; return; }
+        if (Number.isFinite(deadline) && ++scannedEntries % 32 === 0) {
+          await new Promise(resolve => setImmediate(resolve));
+          check();
+        }
+        if (truncated) return;
         if (entry.name.startsWith('.') && entry.name !== '.github') continue;
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
@@ -962,6 +978,7 @@ export class CodeIntelligenceEngine {
     }
 
     await walk(startDir);
+    Object.defineProperty(files, 'scanTruncated', { value: truncated, enumerable: false });
     return files;
   }
 
