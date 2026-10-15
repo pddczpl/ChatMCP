@@ -5,7 +5,7 @@ import { ACTIVE_STATES, NOT_STARTED_PHASES, applyTransition, deriveState, descri
 import { writeFileAtomic } from './fs-safe.mjs';
 import { callIdentity, createTaskProgress, observeTaskTool, progressCheckpoint } from './agent-progress.mjs';
 import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence, assessCompletionEvidence } from './agent-autonomy.mjs';
-import { estimateTokens as estimateContextTokens, injectRepoMapIntoInstructions, compactConversationHistory } from './context-compaction.mjs';
+import { estimateTokens as estimateContextTokens, injectRepoMapIntoInstructions, compactConversationHistory, compactRollingContext } from './context-compaction.mjs';
 import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './token-optimization.mjs';
 import { RequestMeter } from './request-budget.mjs';
 import { taskToolSelectionMode, selectTaskCatalog } from './tool-selector.mjs';
@@ -977,7 +977,7 @@ export class AgentRunner {
         context.inFlight = 'model';
         // Never compact the canonical in-memory history: transcript evidence
         // and original call/result receipts must survive a follow-up or error.
-        const modelInput = structuredClone(context.history);
+        let modelInput = structuredClone(context.history);
         if (estimateContextTokens(modelInput) > 20000) {
           const compacted = compactConversationHistory(modelInput, {
             maxHistoryTokens: 24000, preserveRecentOutputs: 4,
@@ -986,6 +986,25 @@ export class AgentRunner {
           if (compacted.compacted) await this.#event(task, 'context_compaction',
             'Đã rút gọn bản sao lịch sử gửi model; giữ nguyên kết quả tool gốc và call_id.',
             {}, {stats:compacted.stats});
+        }
+        if (estimateContextTokens(modelInput) > 24000) {
+          const snapshot = [
+            'Original task: '+String(task.prompt||'').slice(0,1500),
+            'Pending/previous user instructions: '+(task.prompts||[]).slice(-6).map(x=>x.text).join(' | ').slice(0,3000),
+            'Plan and verified observations: '+progressCheckpoint(task.progress).slice(-3800),
+            'Unverified operations: '+JSON.stringify(task.unverifiedOperations||[]).slice(-1000),
+          ].join('\n');
+          const reduced = compactRollingContext(modelInput, {maxTokens:24000,tailTokens:15000,taskCheckpoint:snapshot});
+          if(reduced.compacted) {
+            modelInput = reduced.history;
+            await this.#event(task,'context_compaction',
+              'Auto compact: đã tóm tắt lịch sử cũ; giữ nguyên các lời gọi tool mới và checkpoint công việc.',
+              {},{strategy:'rolling-checkpoint',stats:reduced.stats});
+          } else {
+            await this.#event(task,'context_compaction_skipped',
+              'Không có ranh giới an toàn để compact; không xóa tool receipts hoặc hình ảnh mới nhất.',
+              {},{stats:reduced.stats});
+          }
         }
         const response = await abortable(this.provider.respond({
           beforeModelRequest: () => {
