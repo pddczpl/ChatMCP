@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+import { LocalTools } from '../lib/local-tools.mjs';
+import {selectTaskToolNames,selectTaskCatalog,taskToolSelectionMode} from '../lib/tool-selector.mjs';
+import {directToolsFor,ROUTER_TOOLS} from '../lib/agent.mjs';
+
+const fake=new LocalTools({workspace:{async resolve(){throw Error('not called');}},shell:{},git:{}});
+const catalog={tools:fake.definitions()};
+assert.equal(taskToolSelectionMode({}), 'full');
+assert.equal(taskToolSelectionMode({CHATMCP_TOOL_SELECTION:'auto'}), 'auto');
+const basic=selectTaskToolNames('Please inspect README and tell me its purpose.');
+assert.ok(basic.includes('read_file'));
+assert.ok(!basic.includes('browser_launch'));
+assert.ok(!basic.includes('debug_start'));
+assert.ok(!basic.includes('git_commit'));
+const web=selectTaskToolNames('Fix the frontend browser UI and take a screenshot.');
+assert.ok(web.includes('browser_launch'));
+assert.ok(web.includes('browser_screenshot'));
+assert.ok(web.includes('edit_file'));
+const debug=selectTaskToolNames('Debug a Node exception using a breakpoint.');
+assert.ok(debug.includes('debug_start'));
+const selected=selectTaskCatalog(catalog,'Fix the frontend browser UI and take a screenshot.');
+assert.ok(selected.tools.length>10 && selected.tools.length<catalog.tools.length);
+const direct=directToolsFor(selected);
+assert.equal(direct.functions.length,selected.tools.length);
+assert.equal(ROUTER_TOOLS.length,4);
+assert.equal(catalog.tools.length,95,'full catalog unchanged');
+assert.throws(()=>selectTaskToolNames('x',{cap:0}),TypeError);
+console.log('PASS task-tool-selector: dynamic intent routing, full catalog untouched, exact router fallback');

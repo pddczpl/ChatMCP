@@ -8,6 +8,7 @@ import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstruct
 import { estimateTokens as estimateContextTokens, injectRepoMapIntoInstructions, compactConversationHistory } from './context-compaction.mjs';
 import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './token-optimization.mjs';
 import { RequestBudget } from './request-budget.mjs';
+import { taskToolSelectionMode, selectTaskCatalog } from './tool-selector.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
 // from disk or the environment, evaluates model text, or executes a local shell.
@@ -686,11 +687,21 @@ export class AgentRunner {
       context.catalog = normalized.catalog; context.index = normalized.index;
       task.catalogCounts = { tools: context.catalog.tools.length, prompts: context.catalog.prompts.length, resources: context.catalog.resources.length, resourceTemplates: context.catalog.resourceTemplates.length };
       this.#check(context);
-      context.direct = directToolsFor(context.catalog);
+      const selectionMode=taskToolSelectionMode();
+      const offeredCatalog=selectionMode==='auto'
+        ? selectTaskCatalog(context.catalog,task.prompt,{cap:48})
+        : context.catalog;
+      context.direct = directToolsFor(offeredCatalog);
       context.tools = [...structuredClone(ROUTER_TOOLS), ...context.direct.functions];
       context.instructions = context.direct.functions.length
-        ? createLocalAgentInstructions(context.catalog, task.workspace, this.manager.state().environment ?? null)
+        ? createLocalAgentInstructions(offeredCatalog, task.workspace, this.manager.state().environment ?? null)
         : createAgentInstructions(context.catalog, task.workspace);
+      if(selectionMode==='auto') {
+        context.instructions += '\nTool schemas are task-selected. Other registered tools remain available through mcp_catalog/mcp_describe/mcp_call with normal approvals.';
+        await this.#event(task,'tool_selection','Dynamic task-specific tool schemas: '+context.direct.functions.length+' direct + 4 internal routers.',{},{
+          mode:selectionMode,offered:context.direct.functions.map(tool=>tool.name),
+          catalogCount:context.catalog.tools.length});
+      }
 
       // Select task-relevant skills dynamically within token budget
       const selectedSkills = typeof this.manager.pluginManager?.selectSkillsForTask === 'function'
