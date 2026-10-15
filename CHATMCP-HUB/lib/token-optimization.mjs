@@ -59,6 +59,10 @@ function compactText(text, mode, toolName) {
   // Never rewrite actual source files, patches, snapshots, approval text or image data.
   const eligible = /(?:run_command|tasks_status|git_log|git_diff|search_files|github_|web_|docs_search|test_|browser_console|browser_network|dependency_lookup)/.test(toolName);
   if (!eligible) return text;
+  // Model consumers may parse a shell command's stdout as machine-readable JSON.
+  // Lossy CLI compaction must never rewrite a JSON payload, even when prefixed
+  // with the runner's exit-code/stdout header. Keep the original byte-for-byte.
+  if (/(?:^|\n)--- stdout ---\s*\r?\n\s*[\[{]/.test(text)) return text;
   const min = mode === 'aggressive' ? 2200 : mode === 'balanced' ? 4500 : 7500;
   if (text.length < min) return text;
   let value = text;

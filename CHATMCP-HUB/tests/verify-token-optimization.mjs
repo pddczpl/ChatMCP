@@ -21,6 +21,10 @@ assert.equal(result.structuredContent.optimizedForModel, true);
 assert.ok(getTokenStats(id).savedChars > 0);
 assert.equal(optimizeToolResult({isError:true,content:[{type:'text',text:original}]},{taskId:id,toolName:'local.run_command'}).content[0].text,original);
 assert.equal(optimizeToolResult({isError:false,content:[{type:'text',text:original}]},{taskId:id,toolName:'local.read_file'}).content[0].text,original);
+const machineReadable = 'exit code 0 · node · cwd=.\n--- stdout ---\n' + JSON.stringify({PATH:'C:/Users/example',setting:'x'.repeat(18000)});
+const payload = {isError:false,content:[{type:'text',text:machineReadable}]};
+assert.equal(optimizeToolResult(payload,{taskId:id,toolName:'local.run_command'}), payload,
+  'Structured JSON stdout must remain untouched so the model can parse it');
 setTokenProfile(id, 'off');
 assert.equal(optimizeToolResult(source,{taskId:id,toolName:'local.run_command'}), source);
 purgeTokenTask(id);
