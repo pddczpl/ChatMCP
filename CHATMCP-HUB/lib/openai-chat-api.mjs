@@ -6,6 +6,22 @@ import { contentText, outputText } from './model-history.mjs';
 
 const isObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
 const fail = (code, message, statusCode = 502) => Object.assign(new Error(message), { code, statusCode });
+/** Chat Completions input text/images: return a string for text-only models,
+ * and a genuine multimodal content array when a user attached an image.
+ */
+export function openAiUserContent(parts) {
+  if (!Array.isArray(parts) || !parts.some(x => x?.type === 'input_image')) return contentText(parts);
+  return parts.map(part => {
+    if(part?.type === 'input_image') {
+      const url = String(part.image_url || '');
+      if(!/^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/.test(url))
+        throw fail('unsupported_image','Input image must be a validated data URI.',415);
+      return {type:'image_url',image_url:{url,detail:part.detail || 'auto'}};
+    }
+    if(part?.type === 'input_text')return {type:'text',text:String(part.text||'')};
+    throw fail('unsupported_media','Input contains a type that Chat Completions cannot process.',415);
+  });
+}
 
 /**
  * Conversation -> `messages`. A run of function calls becomes ONE assistant message carrying `tool_calls`.
@@ -18,7 +34,7 @@ export function asChatMessages(history, instructions) {
   history.forEach((item, index) => { if (item?.role === 'user') lastUser = index; });
   const reasoningOf = (item, index) => (index > lastUser && typeof item.reasoningContent === 'string' && item.reasoningContent ? item.reasoningContent : '');
   history.forEach((item, index) => {
-    if (item?.role === 'user') messages.push({ role: 'user', content: contentText(item.content) });
+    if (item?.role === 'user') messages.push({ role: 'user', content: openAiUserContent(item.content) });
     else if (item?.type === 'message' && item.role === 'assistant') {
       const message = { role: 'assistant', content: contentText(item.content) };
       const reasoning = reasoningOf(item, index);
