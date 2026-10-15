@@ -1,0 +1,314 @@
+// Multi-conversation API coordinator. Each additional conversation runs with its
+// own HubManager and worktree; no two coding sessions share a writable checkout.
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { HubManager } from './manager.mjs';
+import { AgentRunner } from './agent.mjs';
+import { assembleStudio } from './assemble.mjs';
+import { readJson, writeJson } from './runtime.mjs';
+
+const END = new Set(['completed', 'failed', 'cancelled', 'paused', 'uncertain', 'limit', 'interrupted']);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const fail = (code, message, statusCode = 409) => Object.assign(new Error(message), { code, statusCode });
+const now = () => new Date().toISOString();
+
+export class ConcurrentApiAgent {
+  constructor({ primary, manager, provider, bundleRoot, directory, maxConcurrent = 4, log = () => {} }) {
+    if (!primary || !manager || !provider || !bundleRoot || !directory)
+      throw new TypeError('ConcurrentApiAgent requires the primary agent and local Hub resources.');
+    this.primary = primary;
+    this.manager = manager;
+    this.provider = provider;
+    this.bundleRoot = bundleRoot;
+    this.directory = path.resolve(directory);
+    this.maxConcurrent = maxConcurrent;
+    this.log = log;
+    this.records = new Map();
+    this.children = new Map();
+    this.listeners = new Set();
+    this.writes = Promise.resolve();
+    this.draining = false;
+    this.closed = false;
+    this.primary.subscribe((event) => this.#event(event));
+  }
+  subscribe(listener) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+  #event(event) {
+    for (const callback of this.listeners) {
+      try { callback(event); } catch { /* UI subscribers are not trusted code. */ }
+    }
+    if (event.type === 'state' || (event.type === 'event' && END.has(event.event?.type))) {
+      setTimeout(() => { void this.#drain().catch(error => this.log(error.message)); }, 0);
+    }
+  }
+  #save() {
+    const snapshot = { version: 1, records: [...this.records.values()].map(({ attachments, ...r }) => r) };
+    const next = this.writes.catch(() => {}).then(() => writeJson(path.join(this.directory, 'sessions.json'), snapshot));
+    this.writes = next;
+    next.catch(() => {});
+    return next;
+  }
+  #queued(r) {
+    const state = r.status === 'preparing' ? 'queued' : r.status === 'blocked' ? 'paused' : r.status;
+    return {
+      id: r.id, prompt: r.prompt, status: r.status === 'preparing' ? 'running' : r.status,
+      state, createdAt: r.createdAt, updatedAt: r.updatedAt, workspace: { path: r.worktree || r.sourceRoot },
+      branch: r.branch, dependsOn: r.dependsOn || [], parentTaskId: r.parentTaskId || null,
+      events: [], toolCalls: 0, steps: 0, prompts: [{ at: r.createdAt, text: r.prompt }],
+      dialogue: [{ role: 'user', at: r.createdAt, text: r.prompt }],
+      error: r.error || null, runCount: 0, transport: 'api',
+    };
+  }
+  #detail(record) {
+    const real = this.children.get(record.id)?.runner.get(record.id);
+    return real ? { ...real, branch: record.branch, worktree: record.worktree,
+      dependsOn: record.dependsOn || [], parentTaskId: record.parentTaskId || null } : this.#queued(record);
+  }
+  #activeIds() {
+    const ids = [];
+    if (this.primary.activeTaskId) ids.push(this.primary.activeTaskId);
+    for (const [id, child] of this.children) if (child.runner.activeTaskId) ids.push(id);
+    for (const record of this.records.values()) if (record.status === 'preparing' && !ids.includes(record.id)) ids.push(record.id);
+    return ids;
+  }
+  state() {
+    const primary = this.primary.state();
+    const childTasks = [...this.records.values()].map(r => this.#detail(r));
+    const tasks = [...primary.tasks, ...childTasks].sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)));
+    const activeTaskIds = this.#activeIds();
+    return { activeTaskId: activeTaskIds[0] || null, activeTaskIds,
+      active: activeTaskIds.length ? this.get(activeTaskIds[0]) : null, tasks };
+  }
+  get(id) {
+    const first = this.primary.get(id);
+    if (first) return first;
+    const record = this.records.get(id);
+    return record ? this.#detail(record) : null;
+  }
+  async report(id) {
+    if (this.primary.get(id)) return this.primary.report(id);
+    const child = this.children.get(id);
+    if (child?.runner.get(id)) return child.runner.report(id);
+    return this.records.has(id) ? 'Task has not started; waiting for a dependency, permission, or worktree.' : null;
+  }
+  async load() {
+    await this.primary.load();
+    const data = await readJson(path.join(this.directory, 'sessions.json')).catch(() => null);
+    if (!data || !Array.isArray(data.records)) return this.state();
+    for (const raw of data.records.slice(-100)) {
+      if (!UUID.test(raw?.id || '') || typeof raw.sourceRoot !== 'string') continue;
+      const record = { ...raw };
+      // Never replay uncertain writes automatically after a Hub restart.
+      if (['queued', 'preparing', 'running'].includes(record.status)) {
+        record.status = 'paused';
+        record.error = 'Hub restarted. Review the worktree and resume explicitly; no tool was replayed.';
+      }
+      this.records.set(record.id, record);
+      if (record.worktree) {
+        try { await this.#initChild(record); }
+        catch (error) { record.status = 'paused'; record.error = 'Workspace unavailable: ' + error.message; }
+      }
+    }
+    await this.#save();
+    return this.state();
+  }
+  async #initChild(record) {
+    if (this.children.has(record.id)) return this.children.get(record.id);
+    const stateDir = path.join(this.directory, record.id, 'state');
+    const manager = new HubManager({ bundleRoot: this.bundleRoot, dataDirectory: stateDir, log: this.log });
+    await manager.load(record.worktree);
+    if (manager.workspace !== await fs.realpath(record.worktree))
+      throw fail('missing_worktree', 'Managed worktree is missing.');
+    manager.pluginManager = this.manager.pluginManager;
+    assembleStudio(manager, { bundleRoot: this.bundleRoot });
+    await manager.permissions.load();
+    manager.permissions.mode = record.permissionMode || 'review';
+    manager.permissions.executionPolicy = record.executionPolicy || 'host-review';
+    manager.spawnBackgroundAgent = (request) => this.spawnAgent(record.id, request);
+    await manager.startLocal(record.worktree);
+    const runner = new AgentRunner({ manager, provider: this.provider,
+      taskDirectory: path.join(stateDir, 'tasks'), log: this.log, toolSelectionMode: 'auto' });
+    await runner.load();
+    runner.subscribe(event => this.#event(event));
+    const child = { runner, manager };
+    this.children.set(record.id, child);
+    return child;
+  }
+  async #worktree(record) {
+    const git = this.manager.studio?.gitRunner;
+    if (!git || !this.manager.workspace) throw fail('workspace_missing', 'Select a Git project before starting another chat.');
+    if (this.manager.workspace !== record.sourceRoot) throw fail('workspace_changed', 'The selected project changed while preparing this task.');
+    const check = await git.text(['rev-parse', '--verify', 'HEAD'], { timeoutMs: 15000 });
+    if (check.code !== 0 || !/^[0-9a-f]{40}$/i.test(check.stdout.trim()))
+      throw fail('git_required', 'Independent coding conversations require a Git repository with a committed HEAD.');
+    const baseRef = record.baseRef || check.stdout.trim();
+    if (record.baseRef) {
+      if (!/^refs\/heads\/[A-Za-z0-9._/-]{1,150}$/.test(record.baseRef) || record.baseRef.includes('..') || record.baseRef.includes('//') || record.baseRef.endsWith('/'))
+        throw fail('bad_branch', 'Invalid base branch.');
+      const valid = await git.text(['show-ref', '--verify', '--quiet', record.baseRef], { timeoutMs: 15000 });
+      if (valid.code !== 0) throw fail('unknown_branch', 'Selected branch no longer exists.');
+    }
+    const branch = 'chatmcp/chat/' + record.id.slice(0, 12);
+    const worktree = path.join(this.directory, record.id, 'worktree');
+    const gate = this.manager.permissions;
+    if (gate && gate.mode !== 'autonomous') {
+      const definition = this.manager.catalog.tools.find(x => x.name === 'local.worktrees_create');
+      const decision = await gate.authorize({
+        name: 'local.worktrees_create',
+        args: { branch, path: worktree }, definition, taskId: record.id,
+      });
+      if (!decision.allowed) throw fail('permission_denied', 'Worktree creation was not approved.', 403);
+    }
+    const result = await git.text(['worktree', 'add', '-b', branch, worktree, baseRef], { writes: true, timeoutMs: 60000 });
+    if (result.code !== 0 || result.truncated || result.timedOut)
+      throw fail('worktree_failed', 'Git worktree creation failed: ' + String(result.stderr || result.stdout).slice(0, 500));
+    record.branch = branch;
+    record.worktree = worktree;
+    record.updatedAt = now();
+    await this.#save();
+  }
+  #status(id) { return this.get(id)?.status; }
+  async #runRecord(record) {
+    try {
+      if (!record.worktree) await this.#worktree(record);
+      const child = await this.#initChild(record);
+      const result = await child.runner.start({ prompt: record.prompt, initialId: record.id, attachments: record.attachments || [] });
+      record.status = result.status;
+      record.updatedAt = now();
+      delete record.attachments;
+      await this.#save();
+      this.#event({ type: 'state', taskId: record.id, state: result.state });
+    } catch (error) {
+      record.status = 'failed'; record.error = String(error.message || error).slice(0, 800);
+      record.updatedAt = now();
+      delete record.attachments;
+      await this.#save().catch(() => {});
+      this.#event({ type: 'state', taskId: record.id, state: 'failed' });
+    }
+  }
+  async #drain() {
+    if (this.draining || this.closed) return;
+    this.draining = true;
+    try {
+      for (const record of this.records.values()) {
+        if (this.#activeIds().length >= this.maxConcurrent) break;
+        if (record.status !== 'queued') continue;
+        const deps = (record.dependsOn || []).map(id => this.#status(id));
+        if (deps.some(status => !status || ['failed', 'cancelled', 'uncertain', 'blocked', 'paused', 'limit'].includes(status))) {
+          record.status = 'blocked'; record.error = 'A dependency has not completed successfully.';
+          record.updatedAt = now();
+          await this.#save();
+          continue;
+        }
+        if (deps.some(status => status !== 'completed')) continue;
+        record.status = 'preparing';
+        record.updatedAt = now();
+        await this.#save();
+        void this.#runRecord(record);
+      }
+    } finally { this.draining = false; }
+  }
+  async start({ prompt, attachments = [], dependsOn = [], parentTaskId = null, baseRef = null } = {}) {
+    if (this.closed) throw fail('shutting_down', 'Hub is shutting down.', 503);
+    if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 100000) throw fail('invalid_prompt', 'A task prompt is required.', 400);
+    if (!Array.isArray(dependsOn) || dependsOn.length > 12 || dependsOn.some(id => !UUID.test(id) || !this.get(id)))
+      throw fail('invalid_dependencies', 'Dependencies must reference existing ChatMCP tasks.', 400);
+    if (parentTaskId && (!UUID.test(parentTaskId) || !this.get(parentTaskId)))
+      throw fail('invalid_parent', 'Parent task was not found.', 400);
+    if (!this.manager.workspace) throw fail('workspace_missing', 'Select a project before starting an agent.');
+    // Preserve the existing first-run contract; new conversations use separate worktrees.
+    if (!parentTaskId && !dependsOn.length && !baseRef && this.primary.state().tasks.length === 0
+        && this.records.size === 0 && !this.primary.activeTaskId)
+      return this.primary.start({ prompt, attachments });
+    const id = randomUUID();
+    const record = { id, prompt: prompt.trim(), attachments,
+      sourceRoot: this.manager.workspace, createdAt: now(), updatedAt: now(),
+      status: 'queued', dependsOn: [...new Set(dependsOn)], parentTaskId, baseRef,
+      worktree: null, branch: null, permissionMode: this.manager.permissions?.mode || 'review',
+      executionPolicy: this.manager.permissions?.executionPolicy || 'host-review', error: null };
+    this.records.set(id, record);
+    await this.#save();
+    void this.#drain().catch(error => this.log(error.message));
+    return this.#queued(record);
+  }
+  async spawnAgent(parentTaskId, { goal, dependsOn = [] } = {}) {
+    if (typeof goal !== 'string' || !goal.trim() || goal.length > 8000)
+      throw fail('invalid_goal', 'Subagent goal is required and must be under 8000 characters.', 400);
+    // The caller's tool invocation already passes the active conversation's permissions.
+    return this.start({ prompt: goal, dependsOn, parentTaskId });
+  }
+  async continue({ id, prompt, attachments = [], ...limits } = {}) {
+    if (this.primary.get(id)) {
+      if (this.primary.activeTaskId === id) return this.primary.enqueueMessage({ id, prompt, attachments });
+      return this.primary.continue({ id, prompt, attachments, ...limits });
+    }
+    const record = this.records.get(id);
+    if (!record) throw fail('task_not_found', 'Conversation does not exist.', 404);
+    const child = this.children.get(id);
+    if (child?.runner.activeTaskId === id) return child.runner.enqueueMessage({ id, prompt, attachments });
+    if (record.status === 'queued' || record.status === 'preparing')
+      throw fail('task_queued', 'This conversation is waiting for its dependencies or worktree.');
+    if (!child) {
+      if (record.status === 'blocked' || record.status === 'paused' || record.status === 'failed') {
+        record.prompt += '\n\nFOLLOW-UP: ' + String(prompt || '');
+        record.status = 'queued'; record.error = null;
+        await this.#save();
+        void this.#drain();
+        return this.#queued(record);
+      }
+      throw fail('missing_worktree', 'No worktree available for continuation.');
+    }
+    return child.runner.continue({ id, prompt, attachments, ...limits });
+  }
+  async cancel(id) {
+    if (this.primary.get(id)) return this.primary.cancel(id);
+    const record = this.records.get(id);
+    if (!record) throw fail('task_not_found', 'Task does not exist.', 404);
+    const child = this.children.get(id);
+    if (child?.runner.activeTaskId === id) return child.runner.cancel(id);
+    if (['queued', 'preparing'].includes(record.status)) {
+      record.status = 'cancelled'; record.updatedAt = now();
+      await this.#save();
+    }
+    return this.get(id);
+  }
+  async delete(id) {
+    if (this.primary.get(id)) return this.primary.delete(id);
+    const record = this.records.get(id);
+    if (!record) throw fail('task_not_found', 'Task does not exist.', 404);
+    const child = this.children.get(id);
+    if (child?.runner.activeTaskId === id || record.status === 'preparing') throw fail('task_running', 'Stop the task before deleting.');
+    if (child?.runner.get(id)) await child.runner.delete(id);
+    await child?.manager.shutdown();
+    this.children.delete(id);
+    this.records.delete(id);
+    await this.#save();
+    // Worktree/branch are intentionally preserved; never destroy user changes on chat deletion.
+    return { ok: true, deletedId: id, preservedWorktree: record.worktree };
+  }
+  async setAutoResume({ id, enabled }) {
+    if (this.primary.get(id)) return this.primary.setAutoResume(id, enabled);
+    const child = this.children.get(id);
+    if (child?.runner.get(id)) return child.runner.setAutoResume(id, enabled);
+    throw fail('task_not_found', 'Task does not exist.', 404);
+  }
+  decidePermission(id, approved) {
+    for (const child of this.children.values()) {
+      if ((child.manager.permissions?.state().pending || []).some(x => x.id === id))
+        return child.manager.permissions.decide(id, approved);
+    }
+    return null;
+  }
+  pendingApprovals() {
+    return [...this.children.values()].flatMap(x => x.manager.permissions?.state().pending || []);
+  }
+  async shutdown() {
+    this.closed = true;
+    await Promise.allSettled([this.primary.shutdown(), ...[...this.children.values()].map(x => x.runner.shutdown())]);
+    await Promise.allSettled([...this.children.values()].map(x => x.manager.shutdown()));
+    await this.writes.catch(() => {});
+  }
+}
