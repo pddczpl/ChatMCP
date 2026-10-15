@@ -475,7 +475,7 @@ export class AgentRunner {
       'CHATMCP HUB — BẢN GHI TÁC VỤ', `ID: ${task.id}`, `Trạng thái: ${task.status}${isTaskState(task.state) ? ` · ${describeState(task.state).label} (${task.state})` : ''}`,
       `Workspace: ${task.workspace?.path ?? ''}`, `Model: ${task.model ?? ''}`,
       `Bắt đầu: ${task.startedAt}`, `Kết thúc: ${task.finishedAt ?? 'Chưa kết thúc'}`,
-      `Lượt model: ${task.steps}; lượt MCP: ${task.toolCalls}; input/output tokens: ${task.usage.inputTokens}/${task.usage.outputTokens}`,
+      `Lượt model: ${task.steps}; HTTP requests: ${task.usage.httpRequests??0}; lượt MCP: ${task.toolCalls}; input/output tokens: ${task.usage.inputTokens}/${task.usage.outputTokens}; cache read/write: ${task.usage.cachedInputTokens??0}/${task.usage.cacheWriteTokens??0}; reported reasoning: ${task.usage.reasoningTokens??0}`,
       '', 'TIẾN ĐỘ CÓ BẰNG CHỨNG', progressCheckpoint(task.progress),
       '', 'KẾ HOẠCH & BẰNG CHỨNG', JSON.stringify(evidenceReport(task.progress,task.goalPlan),null,2),
       '', 'HỘI THOẠI / CÁC YÊU CẦU', ...(task.prompts ?? [{text:task.prompt}]).map((p,i)=>`${i+1}. ${p.text}`), '', 'KẾT QUẢ MỚI NHẤT', task.finalText || '(Chưa có phản hồi kết thúc hợp lệ.)',
@@ -542,7 +542,9 @@ export class AgentRunner {
         const task = this.#clean(data, { transcript: true });
         task.events = Array.isArray(task.events) ? task.events.filter((event) => object(event) && typeof event.message === 'string').slice(-EVENT_LIMIT) : [];
         task.eventCount = Number.isSafeInteger(task.eventCount) ? task.eventCount : task.events.length;
-        task.usage = object(task.usage) ? task.usage : { inputTokens: 0, outputTokens: 0 };
+        task.usage = object(task.usage) ? task.usage : { inputTokens: 0, outputTokens: 0, httpRequests: 0 };
+        for(const k of ['inputTokens','outputTokens','httpRequests','cachedInputTokens','cacheWriteTokens','reasoningTokens'])
+          if(!Number.isFinite(task.usage[k])||task.usage[k]<0)task.usage[k]=0;
         task.prompts ??= [{at:task.startedAt,text:task.prompt}];
         task.runs ??= [{startedAt:task.startedAt,finishedAt:task.finishedAt,status:task.status,startStep:0}];
         task.progress = createTaskProgress(task.progress);
@@ -645,7 +647,7 @@ export class AgentRunner {
       id, prompt: cleanPrompt, status: 'running', workspace: binding,
       model: config.model ?? '', provider: config.provider ?? null, createdAt: initial, startedAt: initial, updatedAt: initial, finishedAt: null,
       finalText: '', error: null, errorCode: null, steps: 0, toolCalls: 0, maxSteps, maxMinutes,
-      usage: { inputTokens: 0, outputTokens: 0, httpRequests: 0 }, events: [], eventCount: 0, pendingCall: null, cancelRequested: false,
+      usage: { inputTokens: 0, outputTokens: 0, httpRequests: 0, cachedInputTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0 }, events: [], eventCount: 0, pendingCall: null, cancelRequested: false,
       progress: createTaskProgress(),
       goalPlan: decomposeCodingTask(cleanPrompt),
       prompts: [], runs: [], dialogue: [],
@@ -906,6 +908,9 @@ export class AgentRunner {
         if (!object(response) || !Array.isArray(response.output)) throw fault('invalid_response', 'Model trả về response không đúng định dạng. Không gọi thêm công cụ.', 502);
         task.usage.inputTokens += Number.isFinite(response.usage?.input_tokens) ? response.usage.input_tokens : 0;
         task.usage.outputTokens += Number.isFinite(response.usage?.output_tokens) ? response.usage.output_tokens : 0;
+        task.usage.cachedInputTokens=(task.usage.cachedInputTokens??0)+(Math.max(0,Number(response.usage?.cache_read_tokens)||0));
+        task.usage.cacheWriteTokens=(task.usage.cacheWriteTokens??0)+(Math.max(0,Number(response.usage?.cache_creation_tokens)||0));
+        task.usage.reasoningTokens=(task.usage.reasoningTokens??0)+(Math.max(0,Number(response.usage?.reasoning_tokens)||0));
         context.requestBudget.recordUsage(response.usage?.input_tokens||0,response.usage?.output_tokens||0);
         await this.#persist(task, { at: now(), type: 'model_response', step: task.steps, response });
         if (response.status !== 'completed') {

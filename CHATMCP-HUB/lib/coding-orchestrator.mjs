@@ -459,6 +459,42 @@ export class CodingWorktreeOrchestrator {
     }
   }
   plan({prompt}={}) {return proposeCodingTaskGraph(prompt);}
+  // Explicit optional AI-assisted DAG proposal. A model cannot authorize
+  // worktree creation, modify files, or bypass owner review through this route.
+  // No retries are injected here: the owner controls whether this extra
+  // model request is worth the cost.
+  async planWithModel({prompt}={}) {
+    const fallback=this.plan({prompt}); // validates user input before any request
+    if(typeof this.provider?.ready!=='function'||!this.provider.ready())
+      throw fail('provider_unavailable','Configure a model before requesting an AI-assisted plan.',409);
+    const answer=await this.provider.respond({
+      input:[{role:'user',content:[{type:'input_text',text:prompt}]}],
+      instructions:'Propose only up to FOUR bounded coding tasks for the exact user goal. Output STRICT JSON ONLY (no markdown): {"tasks":[{"id":"task-1","prompt":"concrete subtask","dependsOn":[],"verify":false}]}. Each id must be a unique lowercase slug; dependsOn references only earlier task ids and creates no cycles. Do not add unrelated work, execute tools, make claims about source files, or write prose. This is a DRAFT the owner must review. If one worker is enough, return one task.',
+      tools:[],maxOutputTokens:2048,signal:AbortSignal.timeout(45000),
+    });
+    if(answer?.status!=='completed'||!Array.isArray(answer.output)||
+       answer.output.some(x=>x.type==='function_call'))
+      throw fail('invalid_model_plan','Model did not return a complete planning message.',502);
+    const message=answer.output.filter(x=>x?.type==='message'&&x.role==='assistant')
+      .flatMap(x=>Array.isArray(x.content)?x.content:[])
+      .filter(x=>x.type==='output_text'&&typeof x.text==='string')
+      .map(x=>x.text).join('\n').trim();
+    let parsed;
+    try{parsed=JSON.parse(message);}catch{throw fail('invalid_model_plan','Model plan was not a complete JSON object. No tasks started.',502);}
+    if(!Array.isArray(parsed?.tasks)||parsed.tasks.length<1||parsed.tasks.length>4)
+      throw fail('invalid_model_plan','Model must propose between 1 and 4 tasks.',502);
+    const tasks=parsed.tasks.map(x=>({
+      id:x?.id,prompt:x?.prompt,dependsOn:x?.dependsOn??[],verify:x?.verify===true,
+    }));
+    for(const task of tasks){
+      if(typeof task.prompt!=='string'||!task.prompt.trim()||task.prompt.length>3000)
+        throw fail('invalid_model_plan','Model proposed an empty or oversized coding task.',502);
+    }
+    validateCodingTaskGraph(tasks);
+    return {origin:'model-proposed-untrusted',previewOnly:true,modelRequests:1,
+      requiresConfirmation:fallback.requiresConfirmation,taskCount:tasks.length,tasks,
+      note:'Untrusted AI draft: inspect and edit before starting. No tools or Git writes were executed.'};
+  }
   async run({tasks,prompt,confirmation,maxConcurrency=2}={}){
     if(this.active||this.integrating)throw fail('coding_busy','Another coding job is active.',409);
     if(confirmation!=='CREATE WORKTREES')throw fail('confirmation_required','Type CREATE WORKTREES to permit isolated coding workers.',403);

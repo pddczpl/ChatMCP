@@ -343,7 +343,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/studio/restore': if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không khôi phục file trực tiếp trên Windows host.'),{statusCode:403});result=await studio.restore(payload);break;
           case '/api/studio/restore-checkpoint': if(taskEngine?.state()?.activeTaskId || agent?.state()?.activeTaskId || manager?.taskEngine?.state()?.activeTaskId || manager?.agent?.state()?.activeTaskId)throw Object.assign(new Error('Để tránh xung đột file, chờ agent dừng trước khi khôi phục checkpoint.'),{code:'task_in_progress',statusCode:409});if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không khôi phục checkpoint trực tiếp trên Windows host.'),{statusCode:403});result=await studio.restoreCheckpoint(payload);break;
           case '/api/studio/accept': if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không thay đổi file trực tiếp trên Windows host.'),{statusCode:403});result=await studio.accept(payload);break;
-          case '/api/studio/coding/plan': result=coding.plan(payload);break;
+          case '/api/studio/coding/plan': result=payload.modelAssist===true?await coding.planWithModel(payload):coding.plan(payload);break;
           case '/api/studio/coding/run': if(manager.taskId||delegates?.running)throw Object.assign(new Error('Wait for active agent/research tasks.'),{statusCode:409});result=await coding.run(payload);break;
           case '/api/studio/coding/cancel': result=coding.cancel();break;
           case '/api/studio/coding/recovery/acknowledge': result=await coding.acknowledgeRecovery(payload);break;

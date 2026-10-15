@@ -247,7 +247,9 @@ export function normalizeGeminiTextReply(result, tools) {
   const action=parseAction(textParts.join('')) || parseAction(textParts.join('\n'));
   if(!action) throw textError('Gemini text-only: phản hồi không phải một JSON tool/final object hoàn chỉnh. Chưa gọi MCP; sẽ yêu cầu đúng định dạng.',
     'gateway_text_protocol_invalid', true, {formatIssue:'not_json_object'});
-  const usage={input_tokens:Number(result.usageMetadata?.promptTokenCount)||0,output_tokens:Number(result.usageMetadata?.candidatesTokenCount)||0};
+  const usage={input_tokens:Number(result.usageMetadata?.promptTokenCount)||0,output_tokens:Number(result.usageMetadata?.candidatesTokenCount)||0,
+    cache_read_tokens:Number(result.usageMetadata?.cachedContentTokenCount)||0,
+    reasoning_tokens:Number(result.usageMetadata?.thoughtsTokenCount)||0};
   const progress=typeof action.progress==='string'?action.progress.trim().slice(0,400):'';
   if(action.chatmcp_action==='tool'){
     // The action MUST name a known router. Unknown names are not treated as

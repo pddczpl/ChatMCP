@@ -75,6 +75,7 @@ export function normalizeChatCompletion(result, { usedCallIds = new Set() } = {}
     input_tokens: Number(result.usage?.prompt_tokens) || 0,
     output_tokens: Number(result.usage?.completion_tokens) || 0,
     cache_read_tokens: Number(result.usage?.prompt_tokens_details?.cached_tokens) || 0,
+    reasoning_tokens: Number(result.usage?.completion_tokens_details?.reasoning_tokens) || 0,
   };
   const text = typeof message.content === 'string' ? message.content
     : Array.isArray(message.content) ? message.content.filter((part) => typeof part?.text === 'string' && (!part.type || part.type === 'text')).map((part) => part.text).join('\n') : '';

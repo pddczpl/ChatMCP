@@ -87,6 +87,7 @@ export function normalizeAnthropic(result) {
     input_tokens: (Number(result.usage?.input_tokens) || 0) + (Number(result.usage?.cache_creation_input_tokens) || 0) + (Number(result.usage?.cache_read_input_tokens) || 0),
     output_tokens: Number(result.usage?.output_tokens) || 0,
     cache_read_tokens: Number(result.usage?.cache_read_input_tokens) || 0,
+    cache_creation_tokens: Number(result.usage?.cache_creation_input_tokens) || 0,
   };
   const stop = result.stop_reason;
   const calls = result.content.filter((block) => block?.type === 'tool_use');

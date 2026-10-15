@@ -174,7 +174,7 @@ export const api = {
   getCodingContext: (runId:string,workerId:string) => request<any>(`/api/studio/coding/context?runId=${encodeURIComponent(runId)}&workerId=${encodeURIComponent(workerId)}`),
   getCodingRecovery: (runId:string) => request<any>(`/api/studio/coding/recovery?runId=${encodeURIComponent(runId)}`),
   acknowledgeCodingRecovery: (runId:string,expectedDigest:string) => request<any>('/api/studio/coding/recovery/acknowledge',{method:'POST',body:JSON.stringify({runId,expectedDigest,confirmation:'REVIEW INTERRUPTED RUN'})}),
-  planCodingAgents: (prompt:string) => request<any>('/api/studio/coding/plan',{method:'POST',body:JSON.stringify({prompt})}),
+  planCodingAgents: (prompt:string,modelAssist=false) => request<any>('/api/studio/coding/plan',{method:'POST',body:JSON.stringify({prompt,modelAssist})}),
   runCodingAgents: (tasks:{id:string;prompt:string;verify?:boolean;dependsOn?:string[]}[],maxConcurrency=2) => request<any>('/api/studio/coding/run',{method:'POST',body:JSON.stringify({tasks,maxConcurrency,confirmation:'CREATE WORKTREES'})}),
   cancelCodingAgents: () => request<any>('/api/studio/coding/cancel',{method:'POST',body:'{}'}),
   getWorkerChecks: (workerId:string) => request<{workerId:string;checks:any[]}>(`/api/studio/coding/checks?workerId=${encodeURIComponent(workerId)}`),

@@ -309,3 +309,13 @@ The user selects their compatible model API Base URL, API key, and model. ChatMC
 ChatMCP is a standalone local desktop app; no IDE/VS Code integration is needed. PermissionGate supports explicit Full Access confirmation; it does not elevate the OS account or cancel Windows Sandbox isolation requirements for untrusted automated tests.
 
 `dynamic-delegates.mjs` executes user-triggered dynamically planned read-only subagents through the same configured Gateway Provider and requires the literal `AUTHORIZE READONLY DELEGATION` confirmation. It has no internal token/spend budget; workers have no execution tools, and cancellation/restart are explicit.
+
+## Cached and reasoning-token usage diagnostics
+
+Agent tasks now preserve provider-reported cache hits, cache writes and
+reasoning tokens separately from total input/output. Anthropic prompt caching
+is requested only for its native preset; compatible gateways remain conservative.
+OpenAI-compatible Chat Completions and Gemini include cache and reasoning
+telemetry when returned by the provider. Missing or zero usage fields are
+**unknown or zero as reported**, not verified billing savings. Reports and
+conversation UI disclose this telemetry without imposing quotas.

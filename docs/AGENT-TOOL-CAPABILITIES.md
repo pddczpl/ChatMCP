@@ -68,3 +68,14 @@ Profiles: off, safe (default), balanced, aggressive. Optional process environmen
 ## Required next acceptance
 
 Run verify-direct-tool-capacity, verify-agent-capabilities, verify-browser-tools, verify-lsp-refactor, verify-workflow-extensions, verify-token-optimization, verify-node-debugger and the complete Node test runner. Confirm every CI job on the **exact head SHA** and inspect actual installer artifacts. Validate a clean Windows sandbox and Authenticode certificate separately (not included in this branch). Do not claim full Codex/Claude Code/Antigravity parity based solely on tool registration.
+
+## Current parity branch enhancements (not production certification)
+
+The user-controlled coding panel supports a deterministic worktree DAG proposal
+and a separate explicit opt-in AI-assisted proposal. Neither path executes Git
+or tools before `CREATE WORKTREES` and permission approval. Browser tools now
+include ARIA snapshots/assertions and sensitive local Playwright trace artifacts.
+Reviewed multi-file LSP refactoring verifies each baseline SHA, creates a
+targeted host checkpoint and attempts conflict-aware rollback on failure;
+concurrent external writes can still require manual recovery. These features
+need real-provider and clean-machine acceptance beyond mocked tests.

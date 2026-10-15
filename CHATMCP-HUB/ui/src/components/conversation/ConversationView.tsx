@@ -193,6 +193,12 @@ export function ConversationView() {
           <span>Model HTTP requests: {task.usage.httpRequests ?? 0}</span>
           <span>Input: {(task.usage.inputTokens ?? 0).toLocaleString()} tokens</span>
           <span>Output: {(task.usage.outputTokens ?? 0).toLocaleString()} tokens</span>
+          {(task.usage.cachedInputTokens ?? 0)>0&&
+            <span>Cache hit: {(task.usage.cachedInputTokens ?? 0).toLocaleString()} tokens</span>}
+          {(task.usage.cacheWriteTokens ?? 0)>0&&
+            <span>Cache write: {(task.usage.cacheWriteTokens ?? 0).toLocaleString()} tokens</span>}
+          {(task.usage.reasoningTokens ?? 0)>0&&
+            <span>Reasoning: {(task.usage.reasoningTokens ?? 0).toLocaleString()} tokens</span>}
           {task.verificationOutcome?.ready === false &&
             <span className="text-amber-400" title={task.verificationOutcome.missing.join('; ')}>
               Chưa xác minh đầy đủ ({task.verificationOutcome.missing.length})

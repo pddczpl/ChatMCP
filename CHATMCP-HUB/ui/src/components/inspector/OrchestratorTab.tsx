@@ -24,6 +24,7 @@ export function OrchestratorTab(){
   const [concurrency,setConcurrency]=useState(2);
   const [codingTasks,setCodingTasks]=useState<CodingTask[]>([{id:'task-a',prompt:'',verify:false,dependsOn:[]}]);
   const [codingGoal,setCodingGoal]=useState('');
+  const [codingModelAssist,setCodingModelAssist]=useState(false);
   const [codingPlan,setCodingPlan]=useState<any>(null);
   const [codingBusy,setCodingBusy]=useState(false);
   const [codingRun,setCodingRun]=useState<any>(null);
@@ -96,10 +97,15 @@ export function OrchestratorTab(){
         <textarea id="coding-goal" value={codingGoal} onChange={e=>setCodingGoal(e.target.value)}
           placeholder="Mô tả mục tiêu hoặc viết 2–4 dòng gạch đầu dòng."
           disabled={codingBusy} rows={3} className="w-full p-2 bg-[var(--panel)] border border-[var(--line)] rounded" />
+        <label className="flex gap-2 items-center text-xs text-[var(--muted)]">
+          <input type="checkbox" checked={codingModelAssist} disabled={codingBusy}
+            onChange={e=>setCodingModelAssist(e.target.checked)} />
+          Cho AI đề xuất DAG (gửi một lượt gọi API model; bản xem trước vẫn cần bạn duyệt)
+        </label>
         <Button size="sm" variant="outline" disabled={!codingGoal.trim()||codingBusy} onClick={async()=>{
           setCodingBusy(true);
           try{
-            const proposal=await api.planCodingAgents(codingGoal);
+            const proposal=await api.planCodingAgents(codingGoal,codingModelAssist);
             setCodingPlan(proposal);
             setCodingTasks(proposal.tasks);
             showToast('Đã tạo kế hoạch xem trước. Đọc và sửa từng công việc trước khi chạy.','info');

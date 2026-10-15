@@ -9,7 +9,7 @@ export interface TaskSummary {
   state?: string;
   steps?: number;
   toolCalls?: number;
-  usage?: { inputTokens?: number; outputTokens?: number; httpRequests?: number };
+  usage?: { inputTokens?: number; outputTokens?: number; httpRequests?: number; cachedInputTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number };
   verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
   promptCount?: number;
   updatedAt?: string;
@@ -141,7 +141,7 @@ export interface Task {
   toolCalls?: ToolCall[];
   plan?: { title: string; status: string; details?: string }[];
   pendingApprovals?: any[];
-  usage?: { inputTokens?: number; outputTokens?: number; httpRequests?: number };
+  usage?: { inputTokens?: number; outputTokens?: number; httpRequests?: number; cachedInputTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number };
   verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
   lastMessage?: string;
   error?: string;

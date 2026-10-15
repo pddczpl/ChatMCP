@@ -68,3 +68,14 @@ unknown-task rejection. One unstructured goal stays one task rather than
 speculatively multiplying workers. The user edits the proposed tasks in UI
 and must still confirm `CREATE WORKTREES` with Autonomous permission.
 Sandbox guest acceptance remains the owner's separate responsibility.
+
+## Optional model-assisted coding plan
+
+The preview route accepts `modelAssist: true` explicitly when the user opts
+in through the coding agents panel. It makes a model request with zero tools,
+parses one strict JSON task graph and validates slugs, dependencies and task
+count. Invalid or incomplete replies fail safely; no tool execution, Git
+worktree, permission approval or release occurs in the planning call. The
+result is clearly marked untrusted and requires owner editing/approval before
+any coding worker may begin. The deterministic no-model preview remains the
+default so simple tasks need no extra API request.
