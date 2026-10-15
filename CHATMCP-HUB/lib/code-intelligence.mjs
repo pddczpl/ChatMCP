@@ -7,6 +7,7 @@
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isProtectedPath } from './protected-paths.mjs';
@@ -1055,7 +1056,7 @@ export class CodeIntelligenceEngine {
     try {
       if (!this._treeSitterInitPromise) {
         const hubRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-        const bundledModule = path.join(hubRoot, 'runtimes', 'lsp', 'node_modules', 'web-tree-sitter', 'web-tree-sitter.js');
+        const bundledModule = path.join(hubRoot, 'runtimes', 'lsp', 'node_modules', 'web-tree-sitter', 'tree-sitter.js');
         const moduleSpecifier = fsSync.existsSync(bundledModule) ? pathToFileURL(bundledModule).href : 'web-tree-sitter';
         this._treeSitterInitPromise = import(moduleSpecifier)
           .then(async (mod) => {

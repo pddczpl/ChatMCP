@@ -120,7 +120,7 @@ export class CodeIntelligence {
       }
     }
     try{
-      const modulePath=path.join(packageRoot,'web-tree-sitter','web-tree-sitter.js');
+      const modulePath=path.join(packageRoot,'web-tree-sitter','tree-sitter.js');
       const {Parser,Language}=await import(pathToFileURL(modulePath).href);
       await Parser.init();
       const probes=[
