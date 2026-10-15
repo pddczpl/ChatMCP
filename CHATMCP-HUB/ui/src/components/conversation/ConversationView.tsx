@@ -32,6 +32,7 @@ export function ConversationView() {
   const [showLatest, setShowLatest] = useState(false);
   const requestPending = useRef(false);
   const [sending, setSending] = useState(false);
+  const [dependsOn, setDependsOn] = useState<string[]>([]);
   const [approving, setApproving] = useState(false);
 
   // Fetch full Hub state
@@ -58,6 +59,7 @@ export function ConversationView() {
   };
 
   useEffect(() => {
+    if (!selectedTaskId) setDependsOn([]);
     followOutput.current = true;
     setShowLatest(false);
   }, [selectedTaskId]);
@@ -74,7 +76,7 @@ export function ConversationView() {
     setSending(true);
     try {
       if (!selectedTaskId) {
-        const res = await api.startTask(text || 'Hãy phân tích tệp/ảnh đính kèm.', attachments, selectedBaseRef || null);
+        const res = await api.startTask(text || 'Hãy phân tích tệp/ảnh đính kèm.', attachments, selectedBaseRef || null, dependsOn);
         if (res?.task?.id) {
           queryClient.setQueryData(['task', res.task.id], res.task);
           setSelectedTaskId(res.task.id);
@@ -316,6 +318,10 @@ export function ConversationView() {
         disabled={sending || (!!selectedTaskId && (isLoading || !!taskError))}
         currentMode={mode}
         onModeChange={handleModeChange}
+        dependencyOptions={!selectedTaskId ? (hub?.tasks || []).filter(x=>x.id&&x.status!=='failed'&&x.status!=='cancelled').slice(0,15)
+          .map(x=>({id:x.id,label:x.task || x.prompt || x.id,state:x.state || x.status})) : []}
+        selectedDependsOn={dependsOn}
+        onDependsOnChange={setDependsOn}
       />
     </div>
   );
