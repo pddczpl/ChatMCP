@@ -149,7 +149,7 @@ export function normalizeGemini(result) {
     output.push({ type: 'function_call', name, call_id: randomUUID(), arguments: JSON.stringify(args), status: 'completed', ...(id ? { providerCallId: id } : {}), providerPart: structuredClone(part) });
   }
   if (!output.length) throw bad('model_empty', 'Gemini không trả văn bản hoặc lời gọi công cụ.', 502);
-  return { status: 'completed', output, usage: { input_tokens: Number(result.usageMetadata?.promptTokenCount) || 0, output_tokens: Number(result.usageMetadata?.candidatesTokenCount) || 0 } };
+  return { status: 'completed', output, usage: { input_tokens: Number(result.usageMetadata?.promptTokenCount) || 0, output_tokens: Number(result.usageMetadata?.candidatesTokenCount) || 0, cache_read_tokens: Number(result.usageMetadata?.cachedContentTokenCount) || 0 } };
 }
 const CONTEXT_MIN = 2000;
 const CONTEXT_MAX = 10_000_000;
@@ -445,10 +445,10 @@ export class GatewayProvider {
   }
 
   /** One model step. `maxOutputTokens` is honoured by the Anthropic path (where it is required); the others use the provider's own cap. */
-  async respond({ input, instructions, tools = [], signal, onStatus = async () => {}, maxOutputTokens } = {}) {
+  async respond({ input, instructions, tools = [], signal, onStatus = async () => {}, maxOutputTokens, onHttpAttempt = () => {} } = {}) {
     if (!this.ready()) throw bad('gateway_not_ready', 'Hãy cấu hình API Base URL, model và API key.', 409);
     if (!Array.isArray(input)) throw bad('invalid_input', 'Ngữ cảnh Agent không hợp lệ.');
-    if (this.protocol !== 'gemini') return await this.#respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens });
+    if (this.protocol !== 'gemini') return await this.#respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens, onHttpAttempt });
     // Gemini keeps its own compatibility loop: gateways in front of it differ a lot (see gemini-compat.mjs).
     const protocol = 'gemini';
     const sourceContextBytes = Buffer.byteLength(JSON.stringify(input),'utf8') + Buffer.byteLength(instructions,'utf8');
@@ -484,7 +484,7 @@ export class GatewayProvider {
     // A model request has not executed MCP tools yet. If its network response is
     // lost, retry only the model step after backoff, never the preceding MCP call.
     // A repeated model request can still be charged by the gateway; document it.
-    let response, data, attempts = 0;
+    let response, data, attempts = 0, wireRequestCount = 0;
     // A 200 response may still contain an unfinished Gemini candidate.
     // Regeneration only retries the MODEL request; no MCP call has been made.
     const MAX_TEXT_REPAIRS = 2;
@@ -505,6 +505,7 @@ export class GatewayProvider {
         }
         if (activeDialect === 'text-protocol' && wireBytes > textRequestBudget)
           throw bad('gateway_context_budget','Gemini request vượt ngân sách byte cục bộ; không gửi.',413);
+        onHttpAttempt({retry:wireRequestCount++>0,requestBytes:wireBytes,protocol:'gemini',dialect:activeDialect});
         response = await this.fetch(endpoint, { method: 'POST', headers: this.#headers('gemini', this.authMode, this.apiKey),
           body: JSON.stringify(requestBody), signal: combined, redirect: 'error' });
         let stream;
@@ -604,7 +605,7 @@ export class GatewayProvider {
   }
 
   /** OpenAI-style Chat Completions and Anthropic Messages. See standard-adapter.mjs for what it guarantees. */
-  async #respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens }) {
+  async #respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens, onHttpAttempt }) {
     const { protocol, model, authMode, apiKey, contextWindowTokens } = this;
     const ctx = {
       protocol, model, fetch: this.fetch, sleep: this.sleep, limits: this.limits,
@@ -617,7 +618,7 @@ export class GatewayProvider {
       outputLimit: this.outputLimit,
       onOutputLimit: (limit) => { if (this.model === model) this.outputLimit = limit; },
     };
-    const result = await respondStandard(ctx, { input, instructions, tools, signal, onStatus, maxOutputTokens });
+    const result = await respondStandard(ctx, { input, instructions, tools, signal, onStatus, maxOutputTokens, onHttpAttempt });
     this.lastError = '';
     return result;
   }

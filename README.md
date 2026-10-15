@@ -4,17 +4,17 @@
 
 [![CI](https://github.com/pddczpl/ChatMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/pddczpl/ChatMCP/actions/workflows/ci.yml) · [Windows Releases](https://github.com/pddczpl/ChatMCP/releases) · [Issues](https://github.com/pddczpl/ChatMCP/issues) · [Security](SECURITY.md)
 
-> **Development version v3.2.0 (not yet released):** ChatMCP operates entirely on local infrastructure (`127.0.0.1:3007`). There is no cloud account, hosted server deployment, multi-tenant database, or external login service. All tool execution is controlled through a local Permission Gate. Outbound network access is restricted to user-configured AI providers, GitHub, and authorized research lookups. **Local-first does not mean fully offline.**
+> **Current public release v3.3.0:** ChatMCP operates entirely on local infrastructure (`127.0.0.1:3007`). There is no cloud account, hosted server deployment, multi-tenant database, or external login service. All tool execution is controlled through a local Permission Gate. Outbound network access is restricted to user-configured AI providers, GitHub, and authorized research lookups. **Local-first does not mean fully offline.**
 >
-> Releases are tagged on GitHub and include an installer SHA-256 checksum. The installer is not Authenticode-signed. **v3.2.0** integrates bundled language servers, compatible Tree-sitter WASM and embedded Python with build-time validation (release pending) dependencies, and preserves fail-closed Windows DPAPI storage for AI Profiles. [Release notes](RELEASE-NOTES-v3.1.2.md).
+> Releases are tagged on GitHub and include an installer SHA-256 checksum. The installer is not Authenticode-signed. **v3.3.0** integrates bundled language servers, compatible Tree-sitter WASM and embedded Python with build-time validation (release pending) dependencies, and preserves fail-closed Windows DPAPI storage for AI Profiles. [Release notes](RELEASE-NOTES-v3.3.0.md).
 
 ---
 
-**v3.2.0 development:** This build extends the full cross-platform CI matrix for hybrid intelligence and secure AI Profiles. CI provider fixtures do not disable production DPAPI safeguards.
+**v3.3.0 development:** This build extends the full cross-platform CI matrix for hybrid intelligence and secure AI Profiles. CI provider fixtures do not disable production DPAPI safeguards.
 
 ## Features and Capabilities
 
-ChatMCP v3.2.0 targets complete autonomous software engineering capabilities while enforcing strict local security boundaries:
+ChatMCP v3.3.0 targets complete autonomous software engineering capabilities while enforcing strict local security boundaries:
 
 - **Desktop UI Contract Integration:** Full bidirectional synchronization between the WinForms/WebView2 desktop shell and the local Hub daemon, supporting real-time streaming, interactive plan editing, terminal sessions, Git reviews, and execution checkpoints.
 - **Hardware-Attested Sandbox Isolation:** Disposable Windows Sandbox guest environments running under restricted security tokens (`DISABLE_MAX_PRIVILEGE | LUA_TOKEN`) with unshared HMAC-SHA256 exit-code publication and automated host fallback policies.
@@ -25,8 +25,8 @@ ChatMCP v3.2.0 targets complete autonomous software engineering capabilities whi
 | Capability | Status | Description & Safety Boundaries |
 | --- | --- | --- |
 | Windows Desktop Studio | Available | WinForms + WebView2 desktop application with bundled local Node.js runtime; Git for Windows required for worktrees |
-| Coding agent with local tools | Available | LocalTools (95 công cụ), cho phép trực tiếp 95 tool + 4 internal router (99 definitions) mặc định; cấu hình CHATMCP_DIRECT_TOOL_LIMIT để giảm tải schema cho model yếu |
-| AI Providers & Models | Available | 12 preset provider configurations (OpenAI, Anthropic, Gemini, DeepSeek, Ollama, LM Studio, etc.) + custom OpenAI-compatible endpoints; no token or monetary spending quotas imposed by ChatMCP |
+| Coding agent with local tools | Available | LocalTools (95 công cụ), 4 internal routers; task-aware selection ưu tiên ~36 direct schemas (configurable 0-124), không làm mất tool trong catalog |
+| AI Providers & Models | Available | 12 preset provider configurations (OpenAI, Anthropic, Gemini, DeepSeek, Ollama, LM Studio, etc.) + custom OpenAI-compatible endpoints; request/retry/token budgets are task-scoped and configurable; USD estimates require explicit model prices |
 | Task State Machine | Available | 11 trạng thái lifecycle (created, planning, planned, running, paused, awaiting_approval, awaiting_review, completed, failed, cancelled, checkpoint_failed) with strictly validated transitions |
 | Crash Recovery & Journaling | Available | Tamper-evident transaction journal with cryptographic chaining; persistent recovery acknowledgements across daemon restarts; context compaction and rollback safety |
 | Research Multi-Agent DAG | Available | Static DAG and dynamic read-only planning roles (Planner, Researcher, Reviewer, Security) with bounded context and no host execution privileges |
@@ -125,7 +125,7 @@ ChatMCP is designed exclusively as a single-tenant local application:
 Verify the entire repository using the test runner:
 
 ~~~powershell
-# Run the complete test suite (85 bộ Node và 5 bộ giao diện)
+# Run the complete test suite (86 bộ Node và 5 bộ giao diện)
 node .\CHATMCP-HUB\tests\run-all.mjs
 
 # Build and verify the frontend

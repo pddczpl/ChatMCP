@@ -7,6 +7,7 @@ import { callIdentity, createTaskProgress, observeTaskTool, progressCheckpoint }
 import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence } from './agent-autonomy.mjs';
 import { estimateTokens as estimateContextTokens, injectRepoMapIntoInstructions, compactConversationHistory } from './context-compaction.mjs';
 import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './token-optimization.mjs';
+import { RequestBudget } from './request-budget.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
 // from disk or the environment, evaluates model text, or executes a local shell.
@@ -148,6 +149,48 @@ export function directToolsFor(catalog, { limit = resolveDirectToolLimit() } = {
   }
   return {functions,byName};
 }
+
+/** Prompt-scoped, deterministic tool selection. The four internal routers always
+ * remain available and every LocalTool stays in the catalog. Do not consume an
+ * extra model request just to decide which schemas to advertise.
+ */
+export function selectTaskTools(catalog, { prompt = '', limit = undefined, env = process.env } = {}) {
+  const ceiling = resolveDirectToolLimit(env.CHATMCP_DIRECT_TOOL_LIMIT);
+  const full = directToolsFor(catalog, { limit: ceiling });
+  if (env.CHATMCP_DYNAMIC_TOOL_SELECTION === 'off' || ceiling === 0) return full;
+  const raw = limit ?? env.CHATMCP_TASK_TOOL_LIMIT ?? '36';
+  const requested = /^(?:0|[1-9][0-9]{0,2})$/.test(String(raw)) ? Number(raw) : 36;
+  const maximum = Math.min(ceiling, Math.max(0, requested));
+  if (full.functions.length <= maximum) return full;
+
+  const text = String(prompt).toLowerCase();
+  const domain = [
+    [/browser|playwright|frontend|front.end|website|web app|ui\b|giao diện|trình duyệt|responsive|accessibility/i,
+      ['browser_launch','browser_navigate','browser_click','browser_fill','browser_screenshot','browser_console','browser_network','browser_close','responsive_check','accessibility_audit','screenshot_compare','visual_diff']],
+    [/test|pytest|unit|integration|regression|lint|build|ci\b|kiểm thử|kiểm tra|sửa lỗi/i,
+      ['checks_list','checks_run','test_discover','test_run','test_results','test_coverage','test_impact_analysis','build_detect','build_run']],
+    [/git|branch|commit|pull request|github|merge|release|worktree|nhánh|phát hành/i,
+      ['git_status','git_diff','git_log','git_add','git_commit','git_branch','git_checkout','git_merge','worktrees_list','worktrees_create','git_conflict_inspect','github_workflow_runs','github_workflow_status','github_pr_review']],
+    [/lsp|symbol|refactor|rename|type|interface|class|python|typescript|javascript|hàm|định nghĩa|code intelligence/i,
+      ['repo_map','code_symbols','find_definition','find_references','dependency_graph','code_diagnostics','rename_symbol','format_document','organize_imports','code_actions','find_implementations','type_hierarchy']],
+    [/debug|breakpoint|trace|stack|variable|gỡ lỗi/i,
+      ['debug_start','debug_breakpoint','debug_continue','debug_step','debug_stack','debug_variables','debug_stop']],
+    [/research|documentation|dependency|package|thư viện|tài liệu|nghiên cứu/i,
+      ['web_search','web_fetch','docs_search','dependency_lookup']],
+  ];
+  const base = ['read_file','list_directory','find_files','search_files','file_info','git_status','git_diff',
+    'edit_file','write_file','run_command','checks_list','checks_run','get_plan','update_plan',
+    'repo_map','code_symbols','find_definition','code_diagnostics','token_restore'];
+  const priority = new Map(base.map((name,i)=>[name,200-i]));
+  for(const [pattern,names] of domain) if(pattern.test(text)) for(const [i,name] of names.entries())
+    priority.set(name,Math.max(priority.get(name)??0,300-i));
+  // Keep original direct definition schema and ordering for ties; no names are invented.
+  const ranked = full.functions.map((tool,i)=>({tool,i,score:priority.get(tool.name)??0}))
+    .sort((a,b)=>b.score-a.score||a.i-b.i).slice(0,maximum);
+  const functions = ranked.map(x=>x.tool);
+  const byName = new Map(functions.map(tool=>[tool.name,full.byName.get(tool.name)]));
+  return {functions,byName};
+}
 // Models sometimes wrap an advertised direct local name in mcp_call. Resolve
 // only that explicit alias map; never guess a server or match remote basenames.
 // An exact catalog name always wins if it happens to collide with an alias.
@@ -158,8 +201,8 @@ function catalogToolName(context, name) {
   return qualified && context.index.has(qualified) ? qualified : null;
 }
 
-export function createLocalAgentInstructions(catalog, workspace, environment = null) {
-  const directlyOffered = directToolsFor(catalog).byName;
+export function createLocalAgentInstructions(catalog, workspace, environment = null, { offered = null, compact = false } = {}) {
+  const directlyOffered = (offered ?? directToolsFor(catalog)).byName;
   const direct = [...directlyOffered.keys()];
   const others = catalog.tools.filter((tool) => !(tool.server === DIRECT_SERVER && directlyOffered.has(tool.originalName))).map((tool) => tool.name).sort();
   const shells = environment?.shells ? Object.keys(environment.shells).filter((name) => environment.shells[name]).join(', ') : '';
@@ -222,7 +265,7 @@ TOOLS
 You call these directly (categorized by role):
 ${categorizedLines.join('\n')}
 For directly offered calls use the listed short name (for example read_file). Other internal tools remain available through mcp_catalog, mcp_describe and mcp_call; call them by their full names (e.g. local.test_discover). Do not assume a tool is missing merely because it is not one of the directly offered tools. The reduced direct-tool set avoids wasting model context on unused schemas.
-${others.length ? `\nMore tools are reachable through mcp_catalog, mcp_describe and mcp_call (exact names below):\n${others.map((name) => `- ${name}`).join('\n')}\n` : ''}`;
+${compact ? '\nOther tools remain in the internal catalog: use mcp_catalog to discover exact names and mcp_describe for schemas. Do not guess arguments.' : (others.length ? `\nMore tools are reachable through mcp_catalog, mcp_describe and mcp_call (exact names below):\n${others.map((name) => `- ${name}`).join('\n')}\n` : '')}`;
 }
 
 function normalizeCatalog(value) {
@@ -445,6 +488,7 @@ export class AgentRunner {
       usage: task.usage, reportUrl: `/api/tasks/${task.id}/report`, eventCount: task.eventCount,
       cancelRequested: !!task.cancelRequested, autoResume: !!task.autoResume, catalogCounts: task.catalogCounts ?? null,
       progress: createTaskProgress(task.progress),
+      budget: task.budgetState ?? null,
       goalPlan: task.goalPlan ?? null,
       verifiedSummary: evidenceReport(task.progress,task.goalPlan),
     };
@@ -469,6 +513,8 @@ export class AgentRunner {
       `Workspace: ${task.workspace?.path ?? ''}`, `Model: ${task.model ?? ''}`,
       `Bắt đầu: ${task.startedAt}`, `Kết thúc: ${task.finishedAt ?? 'Chưa kết thúc'}`,
       `Lượt model: ${task.steps}; lượt MCP: ${task.toolCalls}; input/output tokens: ${task.usage.inputTokens}/${task.usage.outputTokens}`,
+      `HTTP model requests: ${task.usage.apiRequests ?? 0}; retries: ${task.usage.retryRequests ?? 0}; cached input tokens: ${task.usage.cacheReadTokens ?? 0}`,
+      'TASK REQUEST BUDGET: ' + JSON.stringify(task.budgetState ?? null),
       '', 'TIẾN ĐỘ CÓ BẰNG CHỨNG', progressCheckpoint(task.progress),
       '', 'KẾ HOẠCH & BẰNG CHỨNG', JSON.stringify(evidenceReport(task.progress,task.goalPlan),null,2),
       '', 'HỘI THOẠI / CÁC YÊU CẦU', ...(task.prompts ?? [{text:task.prompt}]).map((p,i)=>`${i+1}. ${p.text}`), '', 'KẾT QUẢ MỚI NHẤT', task.finalText || '(Chưa có phản hồi kết thúc hợp lệ.)',
@@ -684,10 +730,13 @@ export class AgentRunner {
       context.catalog = normalized.catalog; context.index = normalized.index;
       task.catalogCounts = { tools: context.catalog.tools.length, prompts: context.catalog.prompts.length, resources: context.catalog.resources.length, resourceTemplates: context.catalog.resourceTemplates.length };
       this.#check(context);
-      context.direct = directToolsFor(context.catalog);
+      context.direct = selectTaskTools(context.catalog,{prompt:cleanPrompt});
       context.tools = [...structuredClone(ROUTER_TOOLS), ...context.direct.functions];
+      await this.#event(task,'tool_selection',`Quang cao ${context.direct.functions.length} LocalTools + 4 internal routers; complete local inventory remains available through mcp_catalog.`,{},
+        {advertised:context.direct.functions.length,catalog:task.catalogCounts.tools});
       context.instructions = context.direct.functions.length
-        ? createLocalAgentInstructions(context.catalog, task.workspace, this.manager.state().environment ?? null)
+        ? createLocalAgentInstructions(context.catalog, task.workspace, this.manager.state().environment ?? null,
+          {offered:context.direct,compact:process.env.CHATMCP_DYNAMIC_TOOL_SELECTION !== 'off'})
         : createAgentInstructions(context.catalog, task.workspace);
 
       // Select task-relevant skills dynamically within token budget
@@ -851,6 +900,8 @@ export class AgentRunner {
   async #run(context) {
     const { task } = context;
     try {
+      const budget = new RequestBudget({usage:task.usage});
+      task.budgetState = budget.snapshot();
       while (true) {
         this.#check(context);
         if (task.maxSteps !== null && task.maxSteps !== undefined && task.steps >= task.maxSteps) throw fault('step_limit', `Đã dùng ${task.maxSteps} lượt model; chưa có phản hồi kết thúc. Bạn có thể kiểm tra kết quả hiện tại rồi gửi yêu cầu tiếp.`);
@@ -875,14 +926,16 @@ export class AgentRunner {
           input: modelInput, instructions: context.instructions, tools: structuredClone(context.tools),
           signal: context.controller.signal, maxOutputTokens: MAX_OUTPUT_TOKENS,
           store: false, parallel_tool_calls: false, include: ['reasoning.encrypted_content'],
+          onHttpAttempt: ({retry=false,requestBytes=0}={}) => {
+            budget.reserve({retry,requestBytes}); task.budgetState=budget.snapshot();
+          },
           onStatus: async (message, kind) => { await this.#event(task, kind === 'model_repair' ? 'model_repair' : kind === 'context_compaction' ? 'context_compaction' : 'network_wait', String(message).slice(0,1000), { status:'running' }); },
           onToken: (token) => { this.#emit({ type: 'token', taskId: task.id, token }); },
         }), context.controller.signal);
         context.inFlight = null;
         this.#check(context);
         if (!object(response) || !Array.isArray(response.output)) throw fault('invalid_response', 'Model trả về response không đúng định dạng. Không gọi thêm công cụ.', 502);
-        task.usage.inputTokens += Number.isFinite(response.usage?.input_tokens) ? response.usage.input_tokens : 0;
-        task.usage.outputTokens += Number.isFinite(response.usage?.output_tokens) ? response.usage.output_tokens : 0;
+        task.budgetState=budget.recordUsage(response.usage);
         await this.#persist(task, { at: now(), type: 'model_response', step: task.steps, response });
         if (response.status !== 'completed') {
           const reason = response.incomplete_details?.reason ?? response.error?.message ?? response.status ?? 'unknown';

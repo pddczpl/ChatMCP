@@ -78,7 +78,7 @@ function embeddedErrorStatus(body) {
  * @param {(limit: number) => void} [ctx.onOutputLimit]
  * @param {object} [ctx.limits] overrides of LIMITS (tests)
  */
-export async function respondStandard(ctx, { input, instructions, tools = [], signal, onStatus = async () => {}, maxOutputTokens } = {}) {
+export async function respondStandard(ctx, { input, instructions, tools = [], signal, onStatus = async () => {}, maxOutputTokens, onHttpAttempt = () => {} } = {}) {
   const limits = { ...LIMITS, ...ctx.limits };
   const history = pairToolCalls(input);
   const usedCallIds = new Set(history.filter((item) => item?.type === 'function_call').map((item) => item.call_id));
@@ -90,6 +90,7 @@ export async function respondStandard(ctx, { input, instructions, tools = [], si
   let limitRetried = false;
   let announcedBytes = null;
   let rejectedBytes = Infinity;
+  let httpAttempts = 0;
 
   const upstreamError = (info, extra = '') => Object.assign(fail(info.code, `${info.message}${extra}`, 502), { kind: info.kind, upstreamStatus: info.status, retryAfterMs: info.retryAfterMs });
 
@@ -112,7 +113,9 @@ export async function respondStandard(ctx, { input, instructions, tools = [], si
     let response, raw;
     try {
       const timeout = AbortSignal.timeout(limits.requestTimeoutMs);
-      response = await ctx.fetch(ctx.endpoint, { method: 'POST', headers: ctx.headers, body: JSON.stringify(body), signal: signal ? AbortSignal.any([signal, timeout]) : timeout, redirect: 'error' });
+      const requestBody=JSON.stringify(body);
+      onHttpAttempt({retry:httpAttempts++>0,requestBytes:Buffer.byteLength(requestBody,'utf8'),protocol:ctx.protocol});
+      response = await ctx.fetch(ctx.endpoint, { method: 'POST', headers: ctx.headers, body: requestBody, signal: signal ? AbortSignal.any([signal, timeout]) : timeout, redirect: 'error' });
       raw = await readBodyText(response);
     } catch (error) {
       if (signal?.aborted) throw signal.reason;

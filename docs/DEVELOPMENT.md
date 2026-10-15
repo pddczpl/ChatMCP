@@ -34,7 +34,7 @@ Windows Feature đang chờ khởi động lại không chặn các bài test n�
 
 ## Giới hạn công cụ trực tiếp
 
-Từ nhánh nâng cấp LocalTools, `directToolsFor` quảng bá tối đa **95 LocalTools + 4 router** (99 schemas) ở cấu hình mặc định; không còn bài kiểm thử áp đặt dưới 50. Có thể đặt biến môi trường `CHATMCP_DIRECT_TOOL_LIMIT=48` (compact) hoặc `=95` (full); giá trị hợp lệ 0-124, vượt 124 được chặn để giữ tổng advertised functions không quá 128. `0` chỉ giữ các router nội bộ. Các tool không quảng bá trực tiếp vẫn ở catalog và gọi được qua `mcp_call`. Hãy chọn giới hạn thấp hơn nếu provider có tool-limit hoặc prompt-context nhỏ; thay đổi yêu cầu khởi động lại Hub. Đây là giới hạn gửi schemas **không** phải giới hạn quyền PermissionGate hoặc tổng số tool đã đăng ký.
+Trong chế độ tương thích cũ, `directToolsFor` quảng bá tối đa **95 LocalTools + 4 router** (99 schemas); agent runtime hiện chọn theo nhiệm vụ, mặc định 36 direct tools + 4 router, qua `selectTaskTools`. Đặt `CHATMCP_DYNAMIC_TOOL_SELECTION=off` để tắt, `CHATMCP_TASK_TOOL_LIMIT=24` để giảm schema; còn việc dùng `CHATMCP_DIRECT_TOOL_LIMIT=0` vẫn giữ router.  không còn bài kiểm thử áp đặt dưới 50. Có thể đặt biến môi trường `CHATMCP_DIRECT_TOOL_LIMIT=48` (compact) hoặc `=95` (full); giá trị hợp lệ 0-124, vượt 124 được chặn để giữ tổng advertised functions không quá 128. `0` chỉ giữ các router nội bộ. Các tool không quảng bá trực tiếp vẫn ở catalog và gọi được qua `mcp_call`. Hãy chọn giới hạn thấp hơn nếu provider có tool-limit hoặc prompt-context nhỏ; thay đổi yêu cầu khởi động lại Hub. Đây là giới hạn gửi schemas **không** phải giới hạn quyền PermissionGate hoặc tổng số tool đã đăng ký.
 
 ## Chạy kiểm thử
 
@@ -48,7 +48,7 @@ node tests/run-all.mjs --no-skip all             # một bộ bị SKIP bị tí
 npm run test:ui                                  # bộ giao diện Python/Playwright (tùy chọn)
 ```
 
-Hiện có **85 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
+Hiện có **86 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
 
 Runner in một dòng cho mỗi bộ (`PASS`/`FAIL`/`TIMEOUT`/`SKIP`, thời gian, mã thoát thật) và thoát khác 0 nếu có bộ nào fail hoặc quá hạn (mặc định 180 giây/bộ, đổi bằng `--timeout`). Bộ kiểm thử in một dòng `CHATMCP_TEST_SKIP: <lý do>` rồi thoát 0 để được báo là **SKIP — không bao giờ được tính là PASS**. `--no-skip all` (hoặc `--no-skip tên1,tên2`) biến SKIP thành FAIL. Workflow hiện tại cài Python 3.11 và các gói ghim trong `tests/requirements-e2e.txt`, rồi chạy **`--no-skip all`** trên cả Windows và Linux, Node 22 và 24. Một bộ bắt buộc bị bỏ qua vì thiếu môi trường vì thế làm CI thất bại. Một phần không thể kiểm chứng trong bản này được in `BLOCKED: <gì> - <vì sao>`.
 
@@ -275,7 +275,7 @@ The run-owned `ExecutionSnapshotStore` shares immutable staging between the brok
 
 ## Model-provider usage policy (Phase 1)
 
-The user selects their compatible model API Base URL, API key, and model. ChatMCP does not implement a token allowance, usage reservation, dollar cap, or parallel-worker spending ledger. The provider is responsible for billing, credits and rate limits. Recorded token counts may be shown as diagnostics but never block further model requests solely because a ChatMCP spending threshold was reached. Optional explicit user-set step/time limits are supported, with unlimited defaults for normal coding model turns. Process concurrency, Windows Sandbox instance ownership, test retries, cancellation and execution timeouts remain safety controls, **not token/price quotas**.
+The user selects an API endpoint, key, and model. The parity-runtime upgrade adds a per-task **HTTP request and retry budget** that accounts for actual outbound POST attempts, including retries within one logical agent turn (default 60 attempts and 8 retries; 0 disables each cap). Set `CHATMCP_MAX_MODEL_REQUESTS_PER_TASK` / `CHATMCP_MAX_MODEL_RETRIES_PER_TASK`, or enforce observed input/output token ceilings with `CHATMCP_MAX_INPUT_TOKENS_PER_TASK` / `CHATMCP_MAX_OUTPUT_TOKENS_PER_TASK`. A USD ceiling (`CHATMCP_MAX_TASK_COST_USD`) is accepted only when both explicit `CHATMCP_INPUT_USD_PER_MTOKENS` and `CHATMCP_OUTPUT_USD_PER_MTOKENS` are configured; optional cached input price is `CHATMCP_CACHED_USD_PER_MTOKENS`. Prices are not fetched or assumed; cost remains an estimate, and uncaptured provider usage during lost-response retries cannot be measured exactly. Per-worker budgets do not yet provide a global account spending lock.
 
 ChatMCP is a standalone local desktop app; no IDE/VS Code integration is needed. PermissionGate supports explicit Full Access confirmation; it does not elevate the OS account or cancel Windows Sandbox isolation requirements for untrusted automated tests.
 
