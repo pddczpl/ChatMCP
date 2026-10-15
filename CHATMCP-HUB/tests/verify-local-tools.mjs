@@ -81,6 +81,9 @@ async function cleanup() { await fs.rm(root, { recursive: true, force: true, max
     'knowledge_create', 'knowledge_search', 'knowledge_list', 'github_read', 'github_action',
     'repo_map', 'code_symbols', 'find_definition', 'find_references', 'dependency_graph', 'code_diagnostics',
     'token_stats', 'token_restore', 'token_profile',
+    'web_fetch','web_extract','web_search','docs_search','dependency_lookup','github_code_search',
+    'test_discover','test_run','test_results','test_coverage','github_workflow_runs','github_workflow_status',
+    'github_job_logs','github_pr_review','github_rerun_failed','github_pr_merge','github_release_create',
   ];
   assert.deepEqual(definitions.map((tool) => tool.originalName).sort(), [...expected].sort());
   for (const tool of definitions) {
