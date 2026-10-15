@@ -24,13 +24,17 @@ export class RequestBudget {
   snapshot() {
     return {httpRequests:this.requests,inputTokens:this.inputTokens,outputTokens:this.outputTokens,limits:this.limits};
   }
-  beforeRequest() {
+  assertCanRequest() {
     if(this.limits.maxRequests && this.requests>=this.limits.maxRequests)
       throw fault('request_budget_exceeded','HTTP model request budget exhausted. No request was sent; resume with a larger explicit budget if appropriate.');
     if(this.limits.maxInputTokens && this.inputTokens>=this.limits.maxInputTokens)
       throw fault('input_budget_exceeded','Input token budget reached; no additional model request sent.');
     if(this.limits.maxOutputTokens && this.outputTokens>=this.limits.maxOutputTokens)
       throw fault('output_budget_exceeded','Output token budget reached; no additional model request sent.');
+    return true;
+  }
+  beforeRequest() {
+    this.assertCanRequest();
     this.requests++;
     return this.snapshot();
   }

@@ -15,7 +15,7 @@
 HTTP model-request budget: `CHATMCP_MAX_HTTP_REQUESTS=80` by default (set 0 for unlimited).
 Optional provider-reported input/output token caps are `CHATMCP_MAX_INPUT_TOKENS` and
 `CHATMCP_MAX_OUTPUT_TOKENS` (default 0 = no cap); this is a safety limit on model
-calls, not a guarantee of upstream billing. Current task usage records actual HTTP attempts. Set `CHATMCP_TOOL_SELECTION=auto` to advertise a task-relevant subset (48 maximum) of LocalTools while retaining internal router discovery.
+calls, not a guarantee of upstream billing. Current task usage records actual HTTP attempts. Coding worktree runs additionally share `CHATMCP_MAX_WORKER_HTTP_REQUESTS=120` by default. Set `CHATMCP_TOOL_SELECTION=auto` to advertise a task-relevant subset (48 maximum) of LocalTools while retaining internal router discovery.
 
 ## Features and Capabilities
 

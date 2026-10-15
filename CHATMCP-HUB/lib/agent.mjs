@@ -291,12 +291,14 @@ async function atomicWrite(file, data) {
 }
 
 export class AgentRunner {
-  constructor({ manager, provider, taskDirectory, log = () => {} }) {
+  constructor({ manager, provider, taskDirectory, log = () => {}, onBeforeModelRequest = null }) {
     if (!manager || !provider || typeof taskDirectory !== 'string' || !taskDirectory) throw new TypeError('AgentRunner cần manager, provider và taskDirectory.');
     this.manager = manager;
     this.provider = provider;
     this.taskDirectory = path.resolve(taskDirectory);
     this.log = log;
+    if(onBeforeModelRequest!==null&&typeof onBeforeModelRequest!=='function')throw new TypeError('Invalid model-request budget callback.');
+    this.onBeforeModelRequest=onBeforeModelRequest;
     this.tasks = new Map();
     this.activeTaskId = null;
     this.context = null;
@@ -887,6 +889,8 @@ export class AgentRunner {
         }
         const response = await abortable(this.provider.respond({
           beforeModelRequest: () => {
+            context.requestBudget.assertCanRequest();
+            this.onBeforeModelRequest?.({taskId:task.id,model:task.model,provider:task.provider});
             const snapshot=context.requestBudget.beforeRequest();
             task.usage.httpRequests=snapshot.httpRequests;
           },

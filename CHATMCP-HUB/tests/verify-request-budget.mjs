@@ -10,6 +10,16 @@ assert.equal(gate.beforeRequest().httpRequests,1);
 assert.equal(gate.beforeRequest().httpRequests,2);
 assert.throws(()=>gate.beforeRequest(),{code:'request_budget_exceeded'});
 assert.equal(gate.requests,2);
+const aggregate=new RequestBudget({limits:{maxRequests:1,maxInputTokens:0,maxOutputTokens:0}});
+const individual=new RequestBudget({limits:{maxRequests:2,maxInputTokens:0,maxOutputTokens:0}});
+const send=()=>{
+  individual.assertCanRequest();
+  aggregate.beforeRequest();
+  individual.beforeRequest();
+};
+send();
+assert.throws(send,{code:'request_budget_exceeded'});
+assert.equal(individual.requests,1,'worker count must not advance when shared budget blocks the send');
 const restored=new RequestBudget({limits:{maxRequests:2,maxInputTokens:0,maxOutputTokens:0},used:{httpRequests:2}});
 assert.throws(()=>restored.beforeRequest(),{code:'request_budget_exceeded'});
 const tokenGate=new RequestBudget({limits:{maxRequests:0,maxInputTokens:10,maxOutputTokens:5}});

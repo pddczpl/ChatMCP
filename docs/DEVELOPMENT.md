@@ -24,6 +24,12 @@ remain registered in the original catalog and reachable via internal
 `mcp_catalog`, `mcp_describe`, `mcp_call` behind PermissionGate.
 Selection does not remove tool permissions and must be benchmarked before
 claiming lower total request consumption.
+When launching a parallel coding DAG, ChatMCP also enforces one aggregate
+HTTP model-request allowance shared by its workers:
+`CHATMCP_MAX_WORKER_HTTP_REQUESTS=120` (0 to disable). It counts retries and
+Gemini repair/fallback attempts, and never bypasses an individual worker's
+task-scoped request cap. The aggregate is reset for each newly authorized
+coding DAG; no separate Windows Sandbox rules are modified.
 
 ## Agent HTTP request and token budgets (Phase 1 parity hardening)
 
