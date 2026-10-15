@@ -92,6 +92,7 @@ try{
   assert.equal(stalledBrowser.get(browserFirst.id).status,'queued');
   for(let i=0;i<110 && stalledBrowser.get(browserFirst.id).status==='queued';i++)await wait(20);
   assert.equal(stalledBrowser.get(browserFirst.id).status,'failed','unsent continuation must not wait forever');
+  await stalledBrowser.context?.finishing;
   assert.equal(stalledBrowser.get(browserFirst.id).errorCode,'browser_queue_timeout');
   assert.equal(held,null,'timeout must release the workspace lock');
   const afterTimeout=await stalledBrowser.continue({id:browserFirst.id,prompt:'Tiếp tục sau khi Companion hoạt động lại.'});
@@ -99,6 +100,7 @@ try{
   await acceptFinal(stalledBrowser,browserFirst,'Đã tiếp tục thành công.');
   assert.equal(stalledBrowser.get(browserFirst.id).prompts.length,3);
   assert.equal(stalledBrowser.get(browserFirst.id).runs.length,3);
+  await stalledBrowser.context?.finishing;
   await stalledBrowser.delete(browserFirst.id);
   console.log('PASS Web queue watchdog: unclaimed retry becomes actionable failure and can continue in same chat');
 
