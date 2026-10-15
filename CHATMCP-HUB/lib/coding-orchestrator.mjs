@@ -11,7 +11,7 @@ import { assembleStudio } from './assemble.mjs';
 import { scrubEnv, killTree } from './shell-runner.mjs';
 import { readJson, writeJson } from './runtime.mjs';
 import { WorkerTestBroker } from './worker-test-broker.mjs';
-import { RequestBudget, requestLimits } from './request-budget.mjs';
+import { RequestMeter } from './request-budget.mjs';
 import { createExecutionSnapshot } from './execution-snapshots.mjs';
 import { runVerifiedCoding } from './coding-verification-loop.mjs';
 import { previewManagedCodingContext } from './coding-context-preview.mjs';
@@ -486,10 +486,7 @@ export class CodingWorktreeOrchestrator {
     validateCodingTaskGraph(nodes);
     const {root,baseSha,baseBranch}=await this.#verifyRepo();
     const id=randomUUID();
-    const combinedLimit=requestLimits({
-      CHATMCP_MAX_HTTP_REQUESTS:process.env.CHATMCP_MAX_WORKER_HTTP_REQUESTS??'120',
-    });
-    this.workerBudget=new RequestBudget({limits:combinedLimit});
+    this.workerBudget=new RequestMeter();
     const job={id,workspace:root,baseSha,baseBranch,createdAt:new Date().toISOString(),status:'preparing',workers:nodes,integration:null};
     this.active=id;this.controller=new AbortController();this.jobs.set(id,job);
     const signal=this.controller.signal;

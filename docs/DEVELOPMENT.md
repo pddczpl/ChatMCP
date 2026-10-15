@@ -32,18 +32,17 @@ Gemini repair/fallback attempts, and never bypasses an individual worker's
 task-scoped request cap. The aggregate is reset for each newly authorized
 coding DAG; no separate Windows Sandbox rules are modified.
 
-## Agent HTTP request and token budgets (Phase 1 parity hardening)
+## Request and token telemetry (no ChatMCP quota)
 
-Each ordinary coding task counts every actual model HTTP attempt, including retry,
-Gemini schema dialect fallback and JSON repair. Default HTTP request cap is 80 per task.
-`CHATMCP_MAX_HTTP_REQUESTS=0` disables the cap; a positive integer up to 10000
-sets it explicitly. Optional `CHATMCP_MAX_INPUT_TOKENS` and
-`CHATMCP_MAX_OUTPUT_TOKENS` default to 0 (disabled); upper accepted value
-is 10000000. These token limits operate on provider-reported usage from completed
-model steps and cannot pre-reserve unknown output tokens or account for billing
-of timed-out attempts. The HTTP cap fires BEFORE sending a further model request.
-`task.usage.httpRequests` is persisted and carried into resumed tasks. This is
-separate from provider billing limits and from the sandbox security gate.
+ChatMCP **does not impose HTTP request, token or spending caps**.
+Provider billing and quota are controlled by the user/provider. No
+`CHATMCP_MAX_HTTP_REQUESTS`, `CHATMCP_MAX_INPUT_TOKENS`,
+`CHATMCP_MAX_OUTPUT_TOKENS` or `CHATMCP_MAX_WORKER_HTTP_REQUESTS`
+limits are enforced. The AgentRunner counts real model HTTP sends including
+retry/fallback/repair requests. `task.usage.httpRequests` persists
+through task resume. Worker orchestration sums HTTP sends for reporting,
+not to block tasks. Provider-reported tokens may exclude timed-out or
+unbilled requests and should not be treated as exact charges.
 
 ## Trạng thái Windows Sandbox (Phase 1 experimental)
 

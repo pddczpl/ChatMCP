@@ -135,7 +135,7 @@ export class BrowserTools {
     if(role && !name)throw failure('missing_accessible_name','Role-based actions require an exact accessible name.');
     const target=role?s.page.getByRole(role,{name,exact:true}):s.page.locator(selector);
     await target.first().click({timeout:10000});
-    return ok({clicked:role?{role,name}:{selector},url:s.page.url()});
+    return ok({clicked:role?{role,name}:selector,url:s.page.url()});
   }
   async fill({selector,role,name,text},{taskId,signal}={}) {
     const s=this.#get(taskId);signal?.throwIfAborted();
@@ -144,7 +144,7 @@ export class BrowserTools {
     const target=role?s.page.getByRole(role,{name,exact:true}):s.page.locator(selector);
     await target.first().fill(text,{timeout:10000});
     // Never echo form values back to the model; they might be secrets.
-    return ok({filled:role?{role,name}:{selector},length:text.length});
+    return ok({filled:role?{role,name}:selector,length:text.length});
   }
   async screenshot({full_page:fullPage=false},{taskId,signal}={}) {
     const s=this.#get(taskId);signal?.throwIfAborted();

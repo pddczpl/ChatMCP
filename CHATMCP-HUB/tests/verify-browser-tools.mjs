@@ -38,7 +38,7 @@ assert.equal((await driver.navigate({url:'http://localhost:3007/'},session)).str
 assert.deepEqual((await driver.click({role:'button',name:'Submit'},session)).structuredContent.clicked,{role:'button',name:'Submit'});
 assert.deepEqual((await driver.fill({role:'button',name:'Submit',text:'safe-value'},session)).structuredContent.filled,{role:'button',name:'Submit'});
 await assert.rejects(driver.click({role:'button'},session),/accessible name/);
-assert.equal((await driver.click({selector:'#submit'},session)).structuredContent.clicked.selector,'#submit');
+assert.equal((await driver.click({selector:'#submit'},session)).structuredContent.clicked,'#submit');
 const image=await driver.screenshot({},session);const shot=image.structuredContent.id;
 assert.equal(image.content[1].type,'image');
 const comparison=driver.compare({before:shot,after:shot},session);

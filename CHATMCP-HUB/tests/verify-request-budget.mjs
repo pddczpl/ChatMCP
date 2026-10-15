@@ -1,36 +1,21 @@
 import assert from 'node:assert/strict';
-import {RequestBudget,requestLimits} from '../lib/request-budget.mjs';
+import {RequestMeter} from '../lib/request-budget.mjs';
 import {respondStandard} from '../lib/standard-adapter.mjs';
 
-assert.deepEqual(requestLimits({CHATMCP_MAX_HTTP_REQUESTS:'3',CHATMCP_MAX_INPUT_TOKENS:'10',CHATMCP_MAX_OUTPUT_TOKENS:'8'}),
-  {maxRequests:3,maxInputTokens:10,maxOutputTokens:8});
-assert.equal(requestLimits({CHATMCP_MAX_HTTP_REQUESTS:'bogus'}).maxRequests,80);
-assert.equal(requestLimits({CHATMCP_MAX_INPUT_TOKENS:'2500000'}).maxInputTokens,2500000);
-assert.equal(requestLimits({CHATMCP_MAX_OUTPUT_TOKENS:'100000000'}).maxOutputTokens,10000000);
-const gate=new RequestBudget({limits:requestLimits({CHATMCP_MAX_HTTP_REQUESTS:'2'})});
-assert.equal(gate.beforeRequest().httpRequests,1);
-assert.equal(gate.beforeRequest().httpRequests,2);
-assert.throws(()=>gate.beforeRequest(),{code:'request_budget_exceeded'});
-assert.equal(gate.requests,2);
-const aggregate=new RequestBudget({limits:{maxRequests:1,maxInputTokens:0,maxOutputTokens:0}});
-const individual=new RequestBudget({limits:{maxRequests:2,maxInputTokens:0,maxOutputTokens:0}});
-const send=()=>{
-  individual.assertCanRequest();
-  aggregate.beforeRequest();
-  individual.beforeRequest();
-};
-send();
-assert.throws(send,{code:'request_budget_exceeded'});
-assert.equal(individual.requests,1,'worker count must not advance when shared budget blocks the send');
-const restored=new RequestBudget({limits:{maxRequests:2,maxInputTokens:0,maxOutputTokens:0},used:{httpRequests:2}});
-assert.throws(()=>restored.beforeRequest(),{code:'request_budget_exceeded'});
-const tokenGate=new RequestBudget({limits:{maxRequests:0,maxInputTokens:10,maxOutputTokens:5}});
-tokenGate.recordUsage(10,1);
-assert.throws(()=>tokenGate.beforeRequest(),{code:'input_budget_exceeded'});
-assert.equal(tokenGate.requests,0);
+const task=new RequestMeter();
+for(let i=0;i<20000;i++)task.beforeRequest();
+assert.equal(task.requests,20000,'no app-imposed request cap');
+task.recordUsage(20000000,3000000);
+assert.equal(task.snapshot().inputTokens,20000000);
+assert.equal(task.snapshot().outputTokens,3000000);
+assert.equal(new RequestMeter({used:task.snapshot()}).requests,20000,'resume telemetry retained');
+const workers=new RequestMeter();
+const first=new RequestMeter(),second=new RequestMeter();
+for(let i=0;i<200;i++){workers.beforeRequest();(i%2?first:second).beforeRequest();}
+assert.equal(workers.requests,200);
+assert.equal(first.requests+second.requests,workers.requests);
 
-// Verify the callback is invoked for every genuine HTTP request including retries.
-// No mutation or tool call is replayed by the transport.
+// The callback counts each real model HTTP send (including retry), not tools.
 let calls=0,checks=0;
 const ctx={
   protocol:'openai-chat',model:'mock',endpoint:'https://example.test/api',
@@ -49,4 +34,4 @@ const result=await respondStandard(ctx,{
 assert.equal(result.status,'completed');
 assert.equal(checks,2);
 assert.equal(calls,2);
-console.log('PASS request-budget: counts actual transport sends, preserves tokens and rejects before network on exhaustion');
+console.log('PASS request-telemetry: no token/request caps, 20k sends, shared worker accounting, actual retry counting');

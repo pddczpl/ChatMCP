@@ -7,7 +7,7 @@ import { callIdentity, createTaskProgress, observeTaskTool, progressCheckpoint }
 import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence, assessCompletionEvidence } from './agent-autonomy.mjs';
 import { estimateTokens as estimateContextTokens, injectRepoMapIntoInstructions, compactConversationHistory } from './context-compaction.mjs';
 import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './token-optimization.mjs';
-import { RequestBudget } from './request-budget.mjs';
+import { RequestMeter } from './request-budget.mjs';
 import { taskToolSelectionMode, selectTaskCatalog } from './tool-selector.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
@@ -297,7 +297,7 @@ export class AgentRunner {
     this.provider = provider;
     this.taskDirectory = path.resolve(taskDirectory);
     this.log = log;
-    if(onBeforeModelRequest!==null&&typeof onBeforeModelRequest!=='function')throw new TypeError('Invalid model-request budget callback.');
+    if(onBeforeModelRequest!==null&&typeof onBeforeModelRequest!=='function')throw new TypeError('Invalid model-request telemetry callback.');
     this.onBeforeModelRequest=onBeforeModelRequest;
     if(toolSelectionMode!==null&&!['auto','full'].includes(toolSelectionMode))throw new TypeError('Invalid task tool selection mode.');
     this.toolSelectionMode=toolSelectionMode;
@@ -667,7 +667,7 @@ export class AgentRunner {
       task.unverifiedOperations.push(structuredClone(existing.pendingCall));
       task.pendingCall = null;
     }
-    const budget = new RequestBudget({used:task.usage});
+    const budget = new RequestMeter({used:task.usage});
     const context = { task, requestBudget: budget, controller: new AbortController(), deadline: maxMinutes === null ? Infinity : Date.now() + maxMinutes * 60000, done: deferred(), session: null, closePromise: null, seenCalls: new Set(), history: [], inFlight: null, resumeEvidence:priorContext };
     this.tasks.set(id, task); this.activeTaskId = id; this.context = context;
     // The Hub now holds the workspace lock for this run. A follow-up to a stopped conversation also starts here.
@@ -891,7 +891,6 @@ export class AgentRunner {
         }
         const response = await abortable(this.provider.respond({
           beforeModelRequest: () => {
-            context.requestBudget.assertCanRequest();
             this.onBeforeModelRequest?.({taskId:task.id,model:task.model,provider:task.provider});
             const snapshot=context.requestBudget.beforeRequest();
             task.usage.httpRequests=snapshot.httpRequests;

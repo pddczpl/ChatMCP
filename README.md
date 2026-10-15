@@ -12,10 +12,7 @@
 
 **v3.2.0 development:** This build extends the full cross-platform CI matrix for hybrid intelligence and secure AI Profiles. CI provider fixtures do not disable production DPAPI safeguards.
 
-HTTP model-request budget: `CHATMCP_MAX_HTTP_REQUESTS=80` by default (set 0 for unlimited).
-Optional provider-reported input/output token caps are `CHATMCP_MAX_INPUT_TOKENS` and
-`CHATMCP_MAX_OUTPUT_TOKENS` (default 0 = no cap); this is a safety limit on model
-calls, not a guarantee of upstream billing. Current task usage records actual HTTP attempts. Coding worktree runs additionally share `CHATMCP_MAX_WORKER_HTTP_REQUESTS=120` by default. Set `CHATMCP_TOOL_SELECTION=auto` to advertise a task-relevant subset (48 maximum) of LocalTools while retaining internal router discovery.
+ChatMCP does not impose request, token, or spending limits. The user manages provider quota and optional per-task step/time controls. The dashboard counts actual model HTTP attempts (including retries) and reported input/output tokens as telemetry, not as billing guarantees. Coding workers also expose aggregate HTTP counts without a shared cap. Set `CHATMCP_TOOL_SELECTION=auto` to advertise a task-relevant subset of LocalTools while retaining internal router discovery.
 
 ## Features and Capabilities
 
@@ -130,7 +127,7 @@ ChatMCP is designed exclusively as a single-tenant local application:
 Verify the entire repository using the test runner:
 
 ~~~powershell
-# Run the complete test suite (85 bộ Node và 5 bộ giao diện)
+# Run the complete test suite (87 bộ Node và 5 bộ giao diện)
 node .\CHATMCP-HUB\tests\run-all.mjs
 
 # Build and verify the frontend
