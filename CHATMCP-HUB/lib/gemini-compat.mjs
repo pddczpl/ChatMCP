@@ -33,7 +33,7 @@ function compactAgentInstructions(instructions) {
       'The live inventory has $1 tools, discoverable using JSON text actions for mcp_catalog.')
     .replace(/\nCOMPLETE TOOL NAME LIST\n(?:- [^\n]*\n)+/,
       '\nCOMPLETE TOOL NAME LIST\nDiscover exact MCP names using a plain JSON text action for mcp_catalog; use mcp_describe before mcp_call.\n')
-    .replace(/\nTOOLS\nYou call these directly \(categorized by role\):[\s\S]*$/,
+    .replace(/\nTOOLS\n(?:You call these directly|These built-in names are available through JSON text actions) \(categorized by role\):[\s\S]*$/,
       '\nTOOLS IN TEXT-ONLY MODE\nUse only the exact tool action names in the bounded schema allowlist below. Use mcp_catalog, mcp_describe, mcp_call to reach all other LocalTools. PermissionGate still applies.');
 }
 

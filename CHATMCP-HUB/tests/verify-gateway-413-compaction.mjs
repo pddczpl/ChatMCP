@@ -67,6 +67,15 @@ for(const maxRequestBytes of [96,64,32].map(k=>k*1024)){
   assert.match(policy,/mcp_catalog/);
   assert.match(policy,/mcp_call/);
   assert.doesNotMatch(policy,/- Other Built-in Tools: /,'redundant full direct inventory must be omitted');
+  // The legacy prompt compactor also rewrites the heading before stripping
+  // inventory text. Verify both forms remain omitted from the gateway payload.
+  const reworded=localInstructions.replace('You call these directly (categorized by role):',
+    'These built-in names are available through JSON text actions (categorized by role):');
+  const again=geminiTextEnvelope([{role:'user',content:'Inspect and test the code.'}],
+    reworded,oversizedTools,{maxRequestBytes});
+  assert.doesNotMatch(again.contents[0].parts[0].text,
+    /- Other Built-in Tools: /,'already-reworded direct listing must also be omitted');
+  assert.ok(Buffer.byteLength(JSON.stringify(again),'utf8')<=maxRequestBytes);
 }
 results.push('text-only gateway advertises a bounded subset of 99 tools; omitted tools stay router-accessible');
 
