@@ -319,3 +319,25 @@ OpenAI-compatible Chat Completions and Gemini include cache and reasoning
 telemetry when returned by the provider. Missing or zero usage fields are
 **unknown or zero as reported**, not verified billing savings. Reports and
 conversation UI disclose this telemetry without imposing quotas.
+
+## Reproducible parity metrics (grades are user-provided)
+
+Run `node tests/benchmarks/summarize-parity.mjs results.json` from
+`CHATMCP-HUB`. The input must be a JSON object:
+```json
+{
+  "schema": 1,
+  "cases": [{
+    "id": "bug-001",
+    "baseline": {"grade":"pass","httpRequests":5,"inputTokens":1000,"outputTokens":500,"durationMs":60000},
+    "candidate": {"grade":"pass","httpRequests":3,"inputTokens":900,"outputTokens":450,"durationMs":60000}
+  }]
+}
+```
+Use the same tasks, model class, hardware, test budget and repeats for
+both runners. Grades must be supplied by an external test/evaluation
+process. The aggregator validates numeric fields, reports the success
+ratio and request/token usage per successful task, but does **not**
+cryptographically verify grades, run hidden tests, invoke a model,
+or certify parity with Codex/Claude. At least 100 tasks are recommended;
+reported sample-count adequacy is not proof of statistical validity.
