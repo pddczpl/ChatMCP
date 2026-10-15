@@ -179,6 +179,35 @@ Write-Host '  [OK] Bundled Code Intelligence verified inside installer payload.'
 if ($LASTEXITCODE -ne 0) { throw 'Bundled runtime integration test failed.' }
 Write-Host '  [OK] Bundled LSP and CPython worker integration tests passed.' -ForegroundColor Green
 
+# Stage the npm-lock-pinned Playwright JavaScript runtime from the UI dependencies.
+# Browser executable is NOT bundled. On Windows the agent first tries installed
+# Microsoft Edge and then a separately provisioned Playwright Chromium.
+$browserStage = Join-Path $hubPayload 'runtimes\browser'
+$browserModules = Join-Path $browserStage 'node_modules'
+New-Item -ItemType Directory -Path $browserModules -Force | Out-Null
+$uiNodeModules = Join-Path $repoRoot 'CHATMCP-HUB\ui\node_modules'
+foreach ($packageName in @('playwright', 'playwright-core')) {
+    $packageSource = Join-Path $uiNodeModules $packageName
+    $manifestSource = Join-Path $packageSource 'package.json'
+    if (-not (Test-Path -LiteralPath $manifestSource -PathType Leaf)) {
+        throw "Locked browser runtime package is missing: $packageName"
+    }
+    Copy-Item -LiteralPath $packageSource -Destination (Join-Path $browserModules $packageName) -Recurse -ErrorAction Stop
+    if (-not (Test-Path -LiteralPath (Join-Path $browserModules "$packageName\package.json") -PathType Leaf)) {
+        throw "Playwright runtime package was not staged: $packageName"
+    }
+}
+$playwrightPackage = Get-Content -LiteralPath (Join-Path $browserModules 'playwright\package.json') -Raw | ConvertFrom-Json
+$playwrightCorePackage = Get-Content -LiteralPath (Join-Path $browserModules 'playwright-core\package.json') -Raw | ConvertFrom-Json
+if ($playwrightPackage.version -ne $playwrightCorePackage.version) {
+    throw 'Playwright and playwright-core versions differ in staged installer.'
+}
+$runtimeMarker = '{"name":"chatmcp-browser-runtime","private":true,"type":"commonjs"}'
+[IO.File]::WriteAllText((Join-Path $browserStage 'package.json'), $runtimeMarker, [Text.UTF8Encoding]::new($false))
+& $nodeDestination -e 'const{createRequire}=require("node:module");const{resolve}=require("node:path");const r=createRequire(resolve(process.argv[1],"package.json"));if(!r("playwright").chromium)process.exit(3)' $browserStage
+if ($LASTEXITCODE -ne 0) { throw 'Bundled Playwright module load validation failed.' }
+Write-Host "  [OK] Playwright JS $($playwrightPackage.version) staged; Windows Edge/Chromium browser executable remains required." -ForegroundColor Green
+
 # Compress staging directory to installer/payload.zip
 $payloadZip = Join-Path $installerDir 'payload.zip'
 if (Test-Path -LiteralPath $payloadZip) {
