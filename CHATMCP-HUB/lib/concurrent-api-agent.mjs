@@ -26,6 +26,7 @@ export class ConcurrentApiAgent {
     this.log = log;
     this.records = new Map();
     this.children = new Map();
+    this.preflights = new Map();
     this.listeners = new Set();
     this.writes = Promise.resolve();
     this.draining = false;
@@ -103,8 +104,11 @@ export class ConcurrentApiAgent {
       const record = { ...raw };
       // Never replay uncertain writes automatically after a Hub restart.
       if (['queued', 'preparing', 'running'].includes(record.status)) {
-        record.status = 'paused';
-        record.error = 'Hub restarted. Review the worktree and resume explicitly; no tool was replayed.';
+        record.status = record.pendingWorktree ? 'uncertain' : 'paused';
+        record.error = record.pendingWorktree
+          ? 'Hub restarted while preparing a worktree. Inspect '+record.pendingWorktree.path+' and Git refs manually; no operation is replayed.'
+          : 'Hub restarted. Review the worktree and resume explicitly; no tool was replayed.' +
+            (record.attachmentCount ? ' Reattach original files/images before resuming.' : '');
       }
       this.records.set(record.id, record);
       if (record.worktree) {
@@ -137,18 +141,19 @@ export class ConcurrentApiAgent {
     this.children.set(record.id, child);
     return child;
   }
-  async #worktree(record) {
+  async #worktree(record, signal) {
+    signal?.throwIfAborted();
     const git = this.manager.studio?.gitRunner;
     if (!git || !this.manager.workspace) throw fail('workspace_missing', 'Select a Git project before starting another chat.');
     if (this.manager.workspace !== record.sourceRoot) throw fail('workspace_changed', 'The selected project changed while preparing this task.');
-    const check = await git.text(['rev-parse', '--verify', 'HEAD'], { timeoutMs: 15000 });
+    const check = await git.text(['rev-parse', '--verify', 'HEAD'], { timeoutMs: 15000, signal });
     if (check.code !== 0 || !/^[0-9a-f]{40}$/i.test(check.stdout.trim()))
       throw fail('git_required', 'Independent coding conversations require a Git repository with a committed HEAD.');
     const baseRef = record.baseRef || check.stdout.trim();
     if (record.baseRef) {
       if (!/^refs\/heads\/[A-Za-z0-9._/-]{1,150}$/.test(record.baseRef) || record.baseRef.includes('..') || record.baseRef.includes('//') || record.baseRef.endsWith('/'))
         throw fail('bad_branch', 'Invalid base branch.');
-      const valid = await git.text(['show-ref', '--verify', '--quiet', record.baseRef], { timeoutMs: 15000 });
+      const valid = await git.text(['show-ref', '--verify', '--quiet', record.baseRef], { timeoutMs: 15000, signal });
       if (valid.code !== 0) throw fail('unknown_branch', 'Selected branch no longer exists.');
     }
     const branch = 'chatmcp/chat/' + record.id.slice(0, 12);
@@ -158,26 +163,38 @@ export class ConcurrentApiAgent {
       const definition = this.manager.catalog.tools.find(x => x.name === 'local.worktrees_create');
       const decision = await gate.authorize({
         name: 'local.worktrees_create',
-        args: { branch, path: worktree }, definition, taskId: record.id,
+        args: { branch, path: worktree }, definition, taskId: record.id, signal,
       });
       if (!decision.allowed) throw fail('permission_denied', 'Worktree creation was not approved.', 403);
     }
-    const result = await git.text(['worktree', 'add', '-b', branch, worktree, baseRef], { writes: true, timeoutMs: 60000 });
+    signal?.throwIfAborted();
+    // Persist a crash marker before Git can create an independent branch.
+    // Cancellation or a crash during Git may leave a partially created worktree;
+    // never silently retry or remove it.
+    record.pendingWorktree = { path: worktree, branch, startedAt: now() };
+    await this.#save();
+    signal?.throwIfAborted();
+    const result = await git.text(['worktree', 'add', '-b', branch, worktree, baseRef], {
+      writes: true, timeoutMs: 60000, signal,
+    });
     if (result.code !== 0 || result.truncated || result.timedOut)
       throw fail('worktree_failed', 'Git worktree creation failed: ' + String(result.stderr || result.stdout).slice(0, 500));
     record.branch = branch;
     record.worktree = worktree;
+    delete record.pendingWorktree;
     record.updatedAt = now();
     await this.#save();
   }
   #status(id) { return this.get(id)?.status; }
   async #runRecord(record) {
+    const controller = new AbortController();
+    this.preflights.set(record.id, controller);
     try {
       if (record.status !== 'preparing') return;
-      if (!record.worktree) await this.#worktree(record);
-      if (record.status !== 'preparing') return;
+      if (!record.worktree) await this.#worktree(record, controller.signal);
+      if (record.status !== 'preparing' || controller.signal.aborted) return;
       const child = await this.#initChild(record);
-      if (record.status !== 'preparing') return;
+      if (record.status !== 'preparing' || controller.signal.aborted) return;
       const result = await child.runner.start({ prompt: record.prompt, initialId: record.id, attachments: record.attachments || [] });
       record.status = result.status;
       record.updatedAt = now();
@@ -185,12 +202,16 @@ export class ConcurrentApiAgent {
       await this.#save();
       this.#event({ type: 'state', taskId: record.id, state: result.state });
     } catch (error) {
-      if (record.status === 'cancelled') return;
-      record.status = 'failed'; record.error = String(error.message || error).slice(0, 800);
+      if (record.status === 'cancelled' || record.status === 'uncertain') return;
+      record.status = record.pendingWorktree ? 'uncertain' : 'failed';
+      record.error = String(error.message || error).slice(0, 800) +
+        (record.pendingWorktree ? ' Inspect the pending worktree and Git branch before continuing.' : '');
       record.updatedAt = now();
       delete record.attachments;
       await this.#save().catch(() => {});
-      this.#event({ type: 'state', taskId: record.id, state: 'failed' });
+      this.#event({ type: 'state', taskId: record.id, state: record.status });
+    } finally {
+      if (this.preflights.get(record.id) === controller) this.preflights.delete(record.id);
     }
   }
   async #drain() {
@@ -236,7 +257,7 @@ export class ConcurrentApiAgent {
     if (!parentTaskId && !dependsOn.length && !baseRef && !this.primary.activeTaskId)
       return this.primary.start({ prompt, attachments });
     const id = randomUUID();
-    const record = { id, prompt: prompt.trim(), attachments,
+    const record = { id, prompt: prompt.trim(), attachments, attachmentCount: attachments.length,
       sourceRoot: this.manager.workspace, createdAt: now(), updatedAt: now(),
       status: 'queued', dependsOn: [...new Set(dependsOn)], parentTaskId, baseRef,
       worktree: null, branch: null, permissionMode: this.manager.permissions?.mode || 'review',
@@ -265,7 +286,11 @@ export class ConcurrentApiAgent {
       throw fail('task_queued', 'This conversation is waiting for its dependencies or worktree.');
     if (!child) {
       if (record.status === 'blocked' || record.status === 'paused' || record.status === 'failed') {
+        if (record.attachmentCount && !attachments.length)
+          throw fail('attachments_required','The interrupted task had attachments. Reattach files/images before starting a new run.',409);
         record.prompt += '\n\nFOLLOW-UP: ' + String(prompt || '');
+        record.attachments = attachments;
+        record.attachmentCount = attachments.length;
         record.status = 'queued'; record.error = null;
         await this.#save();
         void this.#drain();
@@ -282,7 +307,14 @@ export class ConcurrentApiAgent {
     const child = this.children.get(id);
     if (child?.runner.activeTaskId === id) return child.runner.cancel(id);
     if (['queued', 'preparing'].includes(record.status)) {
-      record.status = 'cancelled'; record.updatedAt = now();
+      const preflight = this.preflights.get(id);
+      if (preflight && !preflight.signal.aborted)
+        preflight.abort(fail('user_cancelled','Owner cancelled worktree preparation.',409));
+      record.status = record.pendingWorktree ? 'uncertain' : 'cancelled';
+      record.error = record.pendingWorktree
+        ? 'Git may have created a worktree during cancellation. Inspect the recorded path and Git refs.'
+        : null;
+      record.updatedAt = now();
       await this.#save();
     }
     return this.get(id);
@@ -319,6 +351,8 @@ export class ConcurrentApiAgent {
   }
   async shutdown() {
     this.closed = true;
+    for (const controller of this.preflights.values())
+      if (!controller.signal.aborted) controller.abort(fail('shutdown','Hub is shutting down.',503));
     await Promise.allSettled([this.primary.shutdown(), ...[...this.children.values()].map(x => x.runner.shutdown())]);
     await Promise.allSettled([...this.children.values()].map(x => x.manager.shutdown()));
     await this.writes.catch(() => {});

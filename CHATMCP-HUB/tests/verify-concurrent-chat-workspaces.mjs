@@ -74,6 +74,26 @@ try {
   assert.ok(worktrees.length>=2,'child conversations must have their own worktree paths');
   const unique=new Set(worktrees.map(x=>x.workspace.path));
   assert.equal(unique.size,worktrees.length,'each child gets a distinct worktree');
+
+  // Review mode: approval for a new worktree is explicitly pending and can
+  // be cancelled without the worktree appearing later.
+  manager.permissions.mode='review';
+  const cancelled=await pool.start({prompt:'Task D: cancel while awaiting worktree approval',baseRef:'refs/heads/main'});
+  await until(()=>manager.permissions.state().pending.some(p=>p.taskId===cancelled.id),'worktree permission pending');
+  assert.equal(pool.get(cancelled.id).state,'queued');
+  await pool.cancel(cancelled.id);
+  await until(()=>!manager.permissions.state().pending.some(p=>p.taskId===cancelled.id),'approval revoked on Stop');
+  assert.equal(pool.get(cancelled.id).status,'cancelled');
+  const cancelledBranch=execFileSync('git',['branch','--list','chatmcp/chat/'+cancelled.id.slice(0,12)],{cwd:repo,encoding:'utf8'});
+  assert.equal(cancelledBranch.trim(),'','cancelled preflight must not create a worktree branch');
+
+  const accepted=await pool.start({prompt:'Task D: allowed worktree after approval',baseRef:'refs/heads/main'});
+  await until(()=>manager.permissions.state().pending.some(p=>p.taskId===accepted.id),'second worktree permission pending');
+  const approval=manager.permissions.state().pending.find(p=>p.taskId===accepted.id);
+  assert.equal(approval.toolName,'local.worktrees_create');
+  manager.permissions.decide(approval.id,true);
+  await until(()=>pool.get(accepted.id)?.status==='completed','review-approved child completes');
+  assert.ok(pool.get(accepted.id).worktree,'approved task owns a separate worktree');
   await pool.shutdown();
 
   assert.equal(buildUserAttachmentParts([{name:'hello.md',mimeType:'text/markdown',dataBase64:Buffer.from('A text file').toString('base64')}]).parts[0].type,'input_text');
