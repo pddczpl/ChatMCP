@@ -22,6 +22,7 @@ import { getTokenStats, restoreTokenOutput, setTokenProfile } from './token-opti
 import { registerAgentCapabilityTools } from './agent-capabilities.mjs';
 import { registerBrowserTools } from './browser-tools.mjs';
 import { registerWorkflowExtensions } from './workflow-extensions.mjs';
+import { registerSemanticTools } from './lsp-refactor-tools.mjs';
 
 export const LOCAL_SERVER = 'local';
 export const LIMITS = Object.freeze({
@@ -166,6 +167,7 @@ export class LocalTools {
     };
     try {
       if (op === 'write_file' || op === 'edit_file' || op === 'files_apply_patch') await addFile(input.path);
+      else if (['rename_symbol','format_document','organize_imports'].includes(op) && input.apply === true) await addFile(input.file);
       else if (op === 'files_write_batch') {
         for (const f of input.files ?? []) await addFile(f.path);
       }
@@ -531,6 +533,7 @@ export class LocalTools {
     this.extendedCapabilities = registerAgentCapabilityTools(define, {workspace:this.workspace,shell:this.shell,stateDirectory:this.stateDirectory});
     this.browserCapabilities = registerBrowserTools(define, {});
     this.workflowExtensions = registerWorkflowExtensions(define, {workspace:this.workspace,shell:this.shell,git:this.git});
+    this.semanticTools = registerSemanticTools(define, {workspace:this.workspace,intelligence:this.studioIntelligence});
     define('github_read', {
       description: 'Read GitHub issues, PRs, or releases using GitHub CLI gh.',
       schema: obj({ action: str('Action to perform.', { enum: ['issue_list', 'issue_view', 'pr_list', 'pr_view', 'release_list'] }), number: int('Issue or PR number for view action.') }, ['action']),
