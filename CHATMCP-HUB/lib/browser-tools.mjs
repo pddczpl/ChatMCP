@@ -315,7 +315,7 @@ export class BrowserTools {
       (a,ctx)=>this.domSnapshot(a,ctx),{readOnly:true});
     executor('browser_assert','Assert visible/hidden UI state and exact element count using accessible locators.',
       O({selector:S('Optional CSS selector.'),role:S('Accessible role.'),name:S('Exact accessible name.'),
-        visible:{type:'boolean'},count:I('Expected number of matching elements.',{minimum:0,maximum:10000})}),
+        visible:{type:'boolean',description:'Whether an exact matching element must be visible.'},count:I('Expected number of matching elements.',{minimum:0,maximum:10000})}),
       (a,ctx)=>this.assertElement(a,ctx),{readOnly:true});
     executor('browser_trace_start','Start user-approved task-scoped Playwright tracing (may contain sensitive UI data).',
       O({}), (a,ctx)=>this.traceStart(a,ctx));
