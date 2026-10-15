@@ -3,8 +3,20 @@ import {deriveChildCapabilities} from '../lib/worker-capabilities.mjs';
 import {WorkerScheduler} from '../lib/worker-scheduler.mjs';
 import path from 'node:path';
 import {
-  validateCodingTaskGraph,chooseReadyCodingBatch,detectCodingFileConflicts,
+  validateCodingTaskGraph,chooseReadyCodingBatch,detectCodingFileConflicts,proposeCodingTaskGraph,
 } from '../lib/coding-task-dag.mjs';
+
+const proposed=proposeCodingTaskGraph('1. Implement a login module and validation\n2. Write focused login tests [after: 1]');
+assert.equal(proposed.previewOnly,true);
+assert.equal(proposed.taskCount,2);
+assert.deepEqual(proposed.tasks[1].dependsOn,['task-1']);
+assert.deepEqual(proposeCodingTaskGraph('Fix this bug').tasks.map(x=>x.id),['task-1']);
+assert.throws(()=>proposeCodingTaskGraph([
+  '1. First meaningful subtask','2. Second meaningful subtask','3. Third meaningful subtask',
+  '4. Fourth meaningful subtask','5. Fifth meaningful subtask',
+].join('\n')),{code:'too_many_coding_tasks'});
+assert.throws(()=>proposeCodingTaskGraph('1. Fix the backend tests\n2. Fix the frontend tests [after: 2]'),
+  {code:'invalid_coding_graph'});
 
 const plans=[
   {id:'a',dependsOn:[]},{id:'b',dependsOn:['a']},

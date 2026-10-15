@@ -58,3 +58,13 @@ These additions are additive on the Phase 2 and Phase 1 branches. They do not ma
 New real disposable Git worktree regressions exercise a three-stage A→B→C chain, pinned inherited commits, a failed upstream blocking all downstream workers, cancellation during an active scripted worker, at-most-two concurrent independent workers and a manual Phase2 bounded source preview from a committed worker. The original checkout remains unchanged, no model provider is used, and no Windows Publisher G4 is unlocked.
 
 An offline nine-case deterministic Phase3 benchmark now records dependency scheduling, parallel readiness, blocked descendants, Windows file-alias overlap, reviewer capability attenuation and concurrency. The JSON report identifies modelRequests=0, hostCommandExecutions=0 and windowsGuestAttested=false: coordination performance and correctness are distinct from real-model quality or native guest trust. These tests are run by the normal verify-* Hub suite.
+
+## Deterministic coding task proposal
+
+`POST /api/studio/coding/plan` accepts a user's goal and returns a read-only,
+at-most-four-task worktree DAG proposal. Numbered/bulleted items map to distinct
+tasks. Explicit `[after: 1]` dependencies are validated, including cycle and
+unknown-task rejection. One unstructured goal stays one task rather than
+speculatively multiplying workers. The user edits the proposed tasks in UI
+and must still confirm `CREATE WORKTREES` with Autonomous permission.
+Sandbox guest acceptance remains the owner's separate responsibility.

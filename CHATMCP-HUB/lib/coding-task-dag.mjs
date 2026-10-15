@@ -12,6 +12,35 @@ const SUCCESS=new Set(['ready_for_review','no_changes']);
 
 const reject=(code,message)=>Object.assign(new Error(message),{code,statusCode:400});
 
+/** Parse explicit user work items into a read-only coding task proposal.
+ * No model call, file write, permission grant or automatic Git operation.
+ * Plain goals remain single-worker tasks; explicit bullets map to 2-4 workers.
+ */
+export function proposeCodingTaskGraph(prompt) {
+  if(typeof prompt!=='string'||!prompt.trim()||prompt.length>12000)
+    throw reject('invalid_coding_prompt','Coding goal must be 1-12000 characters.');
+  const bullets=[];
+  for(const line of prompt.split(/\r?\n/)) {
+    const match=line.match(/^\s*(?:[-*]\s+|\d{1,2}[.)]\s+)(.{12,3000})\s*$/);
+    if(match)bullets.push(match[1].trim());
+  }
+  if(bullets.length>4)
+    throw reject('too_many_coding_tasks','More than four tasks requested; split into multiple runs.');
+  const items=bullets.length>=2?bullets:[prompt.trim()];
+  const tasks=items.map((input,i)=>{
+    const marker=/\[(?:after|depends on|sau)\s*:\s*([1-4](?:\s*,\s*[1-4])*)\s*\]/i.exec(input);
+    const dependsOn=marker?[...new Set(marker[1].split(',').map(x=>'task-'+Number(x.trim())))]:[];
+    const workerPrompt=marker?input.replace(marker[0],'').trim():input;
+    if(!workerPrompt||workerPrompt.length>3000)
+      throw reject('invalid_coding_prompt','Worker instruction must be 1-3000 characters.');
+    return {id:'task-'+(i+1),prompt:workerPrompt,dependsOn,verify:false};
+  });
+  validateCodingTaskGraph(tasks);
+  return {origin:'owner-prompt-deterministic',previewOnly:true,
+    requiresConfirmation:'CREATE WORKTREES',taskCount:tasks.length,tasks,
+    note:'Review/edit before running. No changes have been made.'};
+}
+
 export function validateCodingTaskGraph(tasks) {
   if(!Array.isArray(tasks)||tasks.length<1||tasks.length>4)
     throw reject('invalid_coding_graph','Coding graph requires 1–4 owner-defined tasks.');

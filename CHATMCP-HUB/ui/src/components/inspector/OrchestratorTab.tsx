@@ -23,6 +23,8 @@ export function OrchestratorTab(){
   const [result,setResult]=useState<any>(null);
   const [concurrency,setConcurrency]=useState(2);
   const [codingTasks,setCodingTasks]=useState<CodingTask[]>([{id:'task-a',prompt:'',verify:false,dependsOn:[]}]);
+  const [codingGoal,setCodingGoal]=useState('');
+  const [codingPlan,setCodingPlan]=useState<any>(null);
   const [codingBusy,setCodingBusy]=useState(false);
   const [codingRun,setCodingRun]=useState<any>(null);
   const [codingContext,setCodingContext]=useState<any>(null);
@@ -89,6 +91,25 @@ export function OrchestratorTab(){
       <summary className="cursor-pointer font-semibold rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">Nhờ AI sửa mã nguồn{activeCoding&&<span className="block text-xs font-normal text-[var(--muted)] mt-1">Lần gần nhất: {agentStatusLabel(activeCoding.status)}</span>}</summary>
       <div className="space-y-3 mt-3">
       <p className="text-[var(--muted)]">Mỗi công việc được sửa trên một bản làm việc riêng. Bạn xem thay đổi trước khi gộp hoặc đưa lên GitHub.</p>
+      <div className="space-y-2 p-3 rounded border border-[var(--line)] bg-[var(--surface)]">
+        <label className="text-xs font-semibold" htmlFor="coding-goal">Chia công việc từ một yêu cầu</label>
+        <textarea id="coding-goal" value={codingGoal} onChange={e=>setCodingGoal(e.target.value)}
+          placeholder="Mô tả mục tiêu hoặc viết 2–4 dòng gạch đầu dòng."
+          disabled={codingBusy} rows={3} className="w-full p-2 bg-[var(--panel)] border border-[var(--line)] rounded" />
+        <Button size="sm" variant="outline" disabled={!codingGoal.trim()||codingBusy} onClick={async()=>{
+          setCodingBusy(true);
+          try{
+            const proposal=await api.planCodingAgents(codingGoal);
+            setCodingPlan(proposal);
+            setCodingTasks(proposal.tasks);
+            showToast('Đã tạo kế hoạch xem trước. Đọc và sửa từng công việc trước khi chạy.','info');
+          }catch(e:any){showToast(e.message||'Không tạo được kế hoạch','error');}
+          finally{setCodingBusy(false);}
+        }}>Đề xuất chia công việc</Button>
+        {codingPlan&&<p role="status" className="text-xs text-[var(--muted)]">
+          Bản xem trước gồm {codingPlan.taskCount} công việc. Chưa chạy agent hoặc thay đổi Git.
+        </p>}
+      </div>
       {codingTasks.map((x,i)=><div key={i} className="p-3 rounded border border-[var(--line)] space-y-3">
         <div className="flex gap-2 items-center justify-between">
           <label htmlFor={`coding-task-${i}`} className="font-medium">Công việc {i+1}</label>

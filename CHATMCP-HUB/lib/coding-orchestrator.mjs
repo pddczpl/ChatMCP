@@ -16,7 +16,7 @@ import { createExecutionSnapshot } from './execution-snapshots.mjs';
 import { runVerifiedCoding } from './coding-verification-loop.mjs';
 import { previewManagedCodingContext } from './coding-context-preview.mjs';
 import { CodingRecoveryJournal } from './coding-recovery-journal.mjs';
-import { validateCodingTaskGraph, chooseReadyCodingBatch, detectCodingFileConflicts } from './coding-task-dag.mjs';
+import { validateCodingTaskGraph, chooseReadyCodingBatch, detectCodingFileConflicts, proposeCodingTaskGraph } from './coding-task-dag.mjs';
 import { attachWorkerTestTools } from './worker-tools.mjs';
 
 const fail = (code, msg, statusCode=400)=>Object.assign(new Error(msg),{code,statusCode});
@@ -458,7 +458,8 @@ export class CodingWorktreeOrchestrator {
       node.inheritedCommits[dependencyId]=inheritedRevision;
     }
   }
-  async run({tasks,confirmation,maxConcurrency=2}={}){
+  plan({prompt}={}) {return proposeCodingTaskGraph(prompt);}
+  async run({tasks,prompt,confirmation,maxConcurrency=2}={}){
     if(this.active||this.integrating)throw fail('coding_busy','Another coding job is active.',409);
     if(confirmation!=='CREATE WORKTREES')throw fail('confirmation_required','Type CREATE WORKTREES to permit isolated coding workers.',403);
     // Real AgentRunner edits require a parent policy permitting autonomous
@@ -466,6 +467,8 @@ export class CodingWorktreeOrchestrator {
     if (!this.createWorker && this.manager.permissions?.mode !== 'autonomous')
       throw fail('worker_permission_denied','Set parent permissions to Autonomous explicitly for delegated worktree edits.',403);
     if(!this.provider.ready())throw fail('provider_unavailable','Configure a working API model.',409);
+    const proposed=(!Array.isArray(tasks)&&typeof prompt==='string')?this.plan({prompt}):null;
+    if(proposed)tasks=proposed.tasks;
     if(!Array.isArray(tasks)||tasks.length<1||tasks.length>4)throw fail('invalid_tasks','Provide between 1 and 4 coding tasks.');
     if(!Number.isInteger(maxConcurrency)||maxConcurrency<1||maxConcurrency>2)throw fail('bad_concurrency','Concurrency must be 1–2 for model workers.');
     const ids=new Set();
@@ -487,7 +490,7 @@ export class CodingWorktreeOrchestrator {
     const {root,baseSha,baseBranch}=await this.#verifyRepo();
     const id=randomUUID();
     this.workerBudget=new RequestMeter();
-    const job={id,workspace:root,baseSha,baseBranch,createdAt:new Date().toISOString(),status:'preparing',workers:nodes,integration:null};
+    const job={id,workspace:root,baseSha,baseBranch,createdAt:new Date().toISOString(),status:'preparing',workers:nodes,integration:null,planOrigin:proposed?.origin??'explicit-owner-tasks'};
     this.active=id;this.controller=new AbortController();this.jobs.set(id,job);
     const signal=this.controller.signal;
     try{
