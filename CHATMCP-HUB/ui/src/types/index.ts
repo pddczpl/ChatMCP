@@ -137,6 +137,12 @@ export interface ToolCall {
 
 export interface Task {
   id: string;
+  prompt?: string;
+  branch?: string | null;
+  worktree?: string | null;
+  dependsOn?: string[];
+  parentTaskId?: string | null;
+  queuedMessagesCount?: number;
   task?: string;
   status: TaskStatus;
   state?: string;
