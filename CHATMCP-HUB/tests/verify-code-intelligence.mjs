@@ -43,6 +43,34 @@ try {
   assert.equal(outside.isError,true,'path traversal must be rejected');
   const secret=await local.call('code_symbols',{path:'secrets.json'});
   assert.equal(secret.isError,true,'protected files must not be exposed');
+  // A large monorepo previously blocked the first model request while preflight
+  // parsed every source file, despite the tiny output token budget.
+  const bulk=path.join(project,'bulk');
+  await fs.mkdir(bulk);
+  for(let i=0;i<180;i++){
+    await fs.writeFile(path.join(bulk,'module-'+String(i).padStart(3,'0')+'.mjs'),
+      'export function item'+i+'(){ return '+i+'; }\n');
+  }
+  const boundedEngine=new CodeIntelligenceEngine({workspace});
+  const bounded=await Promise.race([
+    boundedEngine.generateRepoMap({
+      path:'.',quick:true,maxTokens:500,maxSourceFiles:24,
+      maxSourceDirectories:12,maxParseFiles:12,maxDurationMs:5000,
+    }),
+    new Promise((_,reject)=>setTimeout(()=>reject(new Error('bounded Repo Map did not settle')),8000)),
+  ]);
+  assert.equal(bounded.structured.partial,true,'preflight map must declare partial scanning');
+  assert.ok(bounded.structured.scannedFiles<=24,'file discovery must respect hard bounds');
+  assert.ok(bounded.structured.totalFiles<=12,'quick parser must respect hard bounds');
+  assert.match(bounded.text,/partial bounded scan/);
+  const cancelled=new AbortController();
+  cancelled.abort(new Error('owner stopped task'));
+  await assert.rejects(
+    boundedEngine.generateRepoMap({path:'.',quick:true,signal:cancelled.signal,maxDurationMs:1000}),
+    /owner stopped task/,
+    'cancelled task must not start another repository scan');
+  console.log('PASS bounded automatic Repo Map on 180 files with cancellation and partial evidence');
+
   // Windows junction/8.3 aliases can differ from fs.realpath(root).
   // The legacy string-resolver contract must still work, while symlink
   // traversal out of the real workspace must remain forbidden.
