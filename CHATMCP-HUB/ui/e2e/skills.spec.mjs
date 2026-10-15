@@ -24,6 +24,7 @@ test('Skills show real install state, correct toggle actions, removal and persis
   await app.restart();
   await expect.poll(async () => (await app.hub.get('/api/plugins/registry')).json.skills.map((skill) => skill.id)).toContain(registrySkill.id);
   await onboard(page, app);
+  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
   await page.getByRole('button', { name: 'Skills', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Kỹ năng cho trợ lý' })).toBeVisible();
 
@@ -49,6 +50,7 @@ test('Skills show real install state, correct toggle actions, removal and persis
   // Wait for all observed JSON response checks before navigation discards bodies.
   await browserErrors.flush(page);
   await page.reload();
+  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
   await page.getByRole('button', { name: 'Skills', exact: true }).click();
   await expect(imported).toContainText('Đã cài · Đang bật');
   await expect(imported.getByRole('button', { name: 'Cài đặt', exact: true })).toHaveCount(0);
