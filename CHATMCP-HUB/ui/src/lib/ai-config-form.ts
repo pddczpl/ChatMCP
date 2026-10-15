@@ -22,3 +22,44 @@ export function reconcileSavedAiConfig(current: AiConfigForm, submitted: AiConfi
     apiKey: current.apiKey === submitted.apiKey ? '' : current.apiKey,
   };
 }
+
+export interface AiProviderChoice {
+  id: string;
+  defaultModel: string;
+  defaultUrl: string;
+}
+
+/** Selecting a different API dialect at the SAME custom gateway is not switching services.
+ * Keep the host and model so that an existing protected key can be reused by the Hub.
+ * Switching to a named provider or another origin still requires fresh credentials.
+ */
+export function selectAiProviderDraft(current: AiConfigForm, next: AiProviderChoice): AiConfigForm {
+  if (current.provider === next.id) return current;
+  const sameCustomGateway = current.provider.startsWith('custom-') && next.id.startsWith('custom-');
+  return {
+    ...current,
+    provider: next.id,
+    apiBaseUrl: sameCustomGateway ? current.apiBaseUrl : next.defaultUrl,
+    model: sameCustomGateway ? current.model : next.defaultModel,
+    apiKey: sameCustomGateway ? current.apiKey : '',
+  };
+}
+
+/** Provider names from the React selector map one-to-one to wire protocols. */
+export function aiProtocolForPreset(preset: string): 'gemini' | 'openai-chat' | 'anthropic' | null {
+  if (preset === 'gemini' || preset === 'custom-gemini') return 'gemini';
+  if (preset === 'anthropic' || preset === 'custom-anthropic') return 'anthropic';
+  if (['openai','openrouter','deepseek','groq','ollama','lmstudio','custom-openai','mistral'].includes(preset)) return 'openai-chat';
+  return null;
+}
+
+/** Compare the editable draft to confirmed Hub state, not to the visible provider card. */
+export function aiDraftHasChanges(
+  form: AiConfigForm,
+  saved: SavedAiConfig & { protocol?: string },
+): boolean {
+  return form.provider !== saved.preset
+    || form.apiBaseUrl.trim() !== (saved.apiBaseUrl || '')
+    || form.model.trim() !== (saved.model || '')
+    || !!form.apiKey.trim();
+}
