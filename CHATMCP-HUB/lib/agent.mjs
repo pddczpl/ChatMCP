@@ -291,7 +291,7 @@ async function atomicWrite(file, data) {
 }
 
 export class AgentRunner {
-  constructor({ manager, provider, taskDirectory, log = () => {}, onBeforeModelRequest = null }) {
+  constructor({ manager, provider, taskDirectory, log = () => {}, onBeforeModelRequest = null, toolSelectionMode = null }) {
     if (!manager || !provider || typeof taskDirectory !== 'string' || !taskDirectory) throw new TypeError('AgentRunner cần manager, provider và taskDirectory.');
     this.manager = manager;
     this.provider = provider;
@@ -299,6 +299,8 @@ export class AgentRunner {
     this.log = log;
     if(onBeforeModelRequest!==null&&typeof onBeforeModelRequest!=='function')throw new TypeError('Invalid model-request budget callback.');
     this.onBeforeModelRequest=onBeforeModelRequest;
+    if(toolSelectionMode!==null&&!['auto','full'].includes(toolSelectionMode))throw new TypeError('Invalid task tool selection mode.');
+    this.toolSelectionMode=toolSelectionMode;
     this.tasks = new Map();
     this.activeTaskId = null;
     this.context = null;
@@ -690,7 +692,7 @@ export class AgentRunner {
       context.catalog = normalized.catalog; context.index = normalized.index;
       task.catalogCounts = { tools: context.catalog.tools.length, prompts: context.catalog.prompts.length, resources: context.catalog.resources.length, resourceTemplates: context.catalog.resourceTemplates.length };
       this.#check(context);
-      const selectionMode=taskToolSelectionMode();
+      const selectionMode=this.toolSelectionMode??taskToolSelectionMode();
       const offeredCatalog=selectionMode==='auto'
         ? selectTaskCatalog(context.catalog,task.prompt,{cap:48})
         : context.catalog;

@@ -24,6 +24,7 @@ remain registered in the original catalog and reachable via internal
 `mcp_catalog`, `mcp_describe`, `mcp_call` behind PermissionGate.
 Selection does not remove tool permissions and must be benchmarked before
 claiming lower total request consumption.
+Parallel coding workers use the bounded 48-schema `auto` selection by default; the ordinary single-agent flow keeps its existing full-tool default unless configured.
 When launching a parallel coding DAG, ChatMCP also enforces one aggregate
 HTTP model-request allowance shared by its workers:
 `CHATMCP_MAX_WORKER_HTTP_REQUESTS=120` (0 to disable). It counts retries and
