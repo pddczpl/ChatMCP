@@ -118,7 +118,19 @@ export function asGeminiContents(history) {
     else result.push({ role, parts: [part] });
   }
   for (const x of history) {
-    if (x?.role === 'user') add('user', { text: contentText(x.content) });
+    if (x?.role === 'user') {
+      if (!Array.isArray(x.content)) add('user',{text:contentText(x.content)});
+      else for (const part of x.content) {
+        if (part?.type === 'input_image') {
+          const url=String(part.image_url||'');
+          const m=/^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/.exec(url);
+          if(!m)throw bad('unsupported_image','Image must be a validated base64 data URI.',415);
+          add('user',{inlineData:{mimeType:m[1],data:m[2]}});
+        } else if (part?.type === 'input_text' && typeof part.text === 'string')
+          add('user',{text:part.text});
+        else throw bad('unsupported_media','Unknown user attachment type.',415);
+      }
+    }
     else if (x?.type === 'message' && x.role === 'assistant') {
       for (const part of (Array.isArray(x.providerParts) && x.providerParts.length ? x.providerParts : [{ text: contentText(x.content) }])) add('model', part);
     }
