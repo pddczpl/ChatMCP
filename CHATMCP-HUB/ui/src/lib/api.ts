@@ -1,3 +1,4 @@
+import { browseNativeWorkspace } from './native-folder-picker';
 import type { HubState, HubHealth, Task, TaskDetail, ChatAttachment, WorkspaceCollection, BackgroundRun, BackgroundWorkflow, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset } from '@/types';
 import { normalizeTask } from './task-view.ts';
 
@@ -122,8 +123,15 @@ export const api = {
   
   // Workspace
   selectWorkspace: (path: string) => request<HubState>('/api/workspace/select', { method: 'POST', body: JSON.stringify({ path }) }),
-  browseWorkspace: (initialPath?: string | null) =>
-    request<{ path?: string }>('/api/workspace/browse', { method:'POST',body:JSON.stringify({initialPath:initialPath||null}) }),
+  browseWorkspace: async (initialPath?: string | null) => {
+    // Desktop-native dialog runs in the WinForms UI process. The Hub's
+    // PowerShell dialog remains a fallback ONLY for ordinary web browsers.
+    const native=await browseNativeWorkspace(initialPath);
+    if(native!==null)return native;
+    return request<{path?:string}>('/api/workspace/browse',{
+      method:'POST',body:JSON.stringify({initialPath:initialPath||null}),
+    });
+  },
   getWorkspaces: () => request<WorkspaceCollection>('/api/workspaces'),
   addWorkspace: (folder: string) => request<{workspace:{path:string;name:string};workspaces:WorkspaceCollection}>('/api/workspaces/add',{
     method:'POST',body:JSON.stringify({path:folder})}),
