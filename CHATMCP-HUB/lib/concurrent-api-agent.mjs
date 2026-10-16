@@ -2,7 +2,7 @@
 // own HubManager and worktree; no two coding sessions share a writable checkout.
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { HubManager } from './manager.mjs';
 import { AgentRunner } from './agent.mjs';
 import { assembleStudio } from './assemble.mjs';
@@ -26,6 +26,8 @@ export class ConcurrentApiAgent {
     this.log = log;
     this.records = new Map();
     this.children = new Map();
+    this.accessManagers = new Map();
+    this.readyAccessManagers = new Map();
     this.preflights = new Map();
     this.listeners = new Set();
     this.writes = Promise.resolve();
@@ -55,8 +57,8 @@ export class ConcurrentApiAgent {
   #queued(r) {
     const state = r.status === 'preparing' ? 'queued' : r.status === 'blocked' ? 'paused' : r.status;
     return {
-      id: r.id, prompt: r.prompt, status: r.status === 'preparing' ? 'running' : r.status,
-      state, createdAt: r.createdAt, updatedAt: r.updatedAt, workspace: { path: r.worktree || r.sourceRoot },
+      id: r.id, conversationId:r.parentTaskId||r.id, workspacePath:r.sourceRoot, prompt: r.prompt, status: r.status === 'preparing' ? 'running' : r.status,
+      state, createdAt: r.createdAt, updatedAt: r.updatedAt, workspace: { path: r.worktree || r.executionRoot || r.sourceRoot },
       branch: r.branch, dependsOn: r.dependsOn || [], parentTaskId: r.parentTaskId || null,
       events: [], toolCalls: 0, steps: 0, prompts: [{ at: r.createdAt, text: r.prompt }],
       dialogue: [{ role: 'user', at: r.createdAt, text: r.prompt }],
@@ -66,6 +68,7 @@ export class ConcurrentApiAgent {
   #detail(record) {
     const real = this.children.get(record.id)?.runner.get(record.id);
     return real ? { ...real, branch: record.branch, worktree: record.worktree,
+      workspacePath:record.sourceRoot, conversationId:record.parentTaskId||record.id,
       dependsOn: record.dependsOn || [], parentTaskId: record.parentTaskId || null } : this.#queued(record);
   }
   #activeIds() {
@@ -77,6 +80,7 @@ export class ConcurrentApiAgent {
   }
   state() {
     const primary = this.primary.state();
+    primary.tasks=primary.tasks.map(t=>({...t,conversationId:t.id,workspacePath:t.workspace?.path||this.manager.workspace}));
     const childTasks = [...this.records.values()].map(r => this.#detail(r));
     const tasks = [...primary.tasks, ...childTasks].sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)));
     const activeTaskIds = this.#activeIds();
@@ -85,7 +89,7 @@ export class ConcurrentApiAgent {
   }
   get(id) {
     const first = this.primary.get(id);
-    if (first) return first;
+    if (first) return {...first,conversationId:id,workspacePath:first.workspace?.path||this.manager.workspace};
     const record = this.records.get(id);
     return record ? this.#detail(record) : null;
   }
@@ -111,7 +115,7 @@ export class ConcurrentApiAgent {
             (record.attachmentCount ? ' Reattach original files/images before resuming.' : '');
       }
       this.records.set(record.id, record);
-      if (record.worktree) {
+      if (record.worktree || record.executionRoot) {
         try { await this.#initChild(record); }
         catch (error) { record.status = 'paused'; record.error = 'Workspace unavailable: ' + error.message; }
       }
