@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomBytes, randomInt, randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import { readJson, writeJson } from './runtime.mjs';
+import { HubManager } from './manager.mjs';
+import { assembleStudio } from './assemble.mjs';
 import '../extension/chat-route.js';
 
 const CHAT_ROUTE = globalThis.__chatmcpChatRoute;
@@ -167,7 +169,8 @@ export class BrowserRunner {
       promptCount:prompts.length, runCount:task.runs?.length ?? 1,
       steps:task.steps, toolCalls:task.toolCalls, autoResume:!!task.autoResume,
       startedAt:task.startedAt, updatedAt:task.updatedAt ?? task.finishedAt ?? task.startedAt,
-      workspace:{path:task.workspace?.path}, transport:'chatgpt-web' };
+      workspace:{path:task.workspace?.path},workspacePath:task.workspace?.path,
+      conversationId:task.id,transport:'chatgpt-web' };
   }
   state() {
     const tasks = [...this.tasks.values()].sort((a,b)=> String(b.updatedAt ?? b.startedAt).localeCompare(String(a.updatedAt ?? a.startedAt)));
@@ -185,6 +188,51 @@ export class BrowserRunner {
     };
   }
   get(id) { return this.publicTask(this.tasks.get(id)); }
+  backgroundTasks() {
+    const runs=[];
+    for(const task of this.tasks.values()){
+      const entries=Array.isArray(task.runs)&&task.runs.length?task.runs:[{
+        status:task.status,startedAt:task.startedAt,finishedAt:task.finishedAt,
+      }];
+      for(let i=0;i<entries.length;i++){
+        const item=entries[i],last=i===entries.length-1;
+        runs.push({
+          id:item.id||task.id+':run:'+(i+1),
+          taskId:task.id,conversationId:task.id,
+          workspacePath:task.workspace?.path||'',
+          title:item.title||task.prompts?.[i]?.text||task.prompt,
+          status:last?task.status:(item.status||'completed'),
+          startedAt:item.startedAt||task.startedAt,
+          finishedAt:last?task.finishedAt:item.finishedAt,
+          stepCount:task.steps||0,conversationUsage:null,subagents:[],
+          transport:'chatgpt-web',
+        });
+      }
+    }
+    return runs.sort((a,b)=>String(b.startedAt).localeCompare(String(a.startedAt)));
+  }
+  async executionManager(workspacePath) {
+    const desired=this.manager.workspaceRegistry
+      ? (await this.manager.workspaceRegistry.resolve(workspacePath)).path
+      : this.manager.workspace;
+    if(!desired)throw fault('workspace_missing','Select a registered workspace before starting ChatGPT Web.',409);
+    if(desired===this.manager.workspace)return {manager:this.manager,owned:false};
+    // A separate local HubManager pins a secondary project for the whole
+    // browser task without switching or replacing the primary workspace.
+    const key=hash(desired).slice(0,24);
+    const execution=new HubManager({
+      bundleRoot:this.manager.bundleRoot,
+      dataDirectory:path.join(this.directory,'workspace-runtimes',key),log:this.log,
+    });
+    await execution.load(desired);
+    assembleStudio(execution,{bundleRoot:this.manager.bundleRoot});
+    await execution.permissions.load();
+    execution.permissions.mode=this.manager.permissions?.mode||'review';
+    execution.permissions.executionPolicy=this.manager.permissions?.executionPolicy||'host-review';
+    execution.pluginManager=this.manager.pluginManager;
+    await execution.startLocal(desired);
+    return {manager:execution,owned:true};
+  }
   async report(id) {
     const task = this.tasks.get(id);
     if (!task) return null;
@@ -256,7 +304,7 @@ export class BrowserRunner {
   check(context) {
     context.controller.signal.throwIfAborted();
     if (this.context !== context || TERMINAL.has(context.task.status)) throw fault('inactive_task', 'Nhiệm vụ không còn hoạt động.', 409);
-    const live = this.manager.state();
+    const live = (context.executionManager||this.manager).state();
     if (live.workspace.path !== context.task.workspace.path || live.generation !== context.task.workspace.generation || live.instanceId !== context.task.workspace.instanceId) throw fault('workspace_changed', 'Workspace đã thay đổi; không chạy lời gọi của phiên cũ.', 409);
   }
   // A Companion that is offline, unauthenticated or unable to reopen the old tab
@@ -287,26 +335,31 @@ export class BrowserRunner {
     return { id: randomUUID(), taskId: task.id, turn, text, status: 'pending', clientId: null, sentAt: null,
       resumeUrl: task.continuation === true ? task.chatUrl : null, resumeStart };
   }
-  async start({ prompt } = {}) {
+  async start({ prompt, workspacePath = null } = {}) {
     if (this.stopped) throw fault('hub_stopped', 'Hub đang dừng.', 409);
     if (!this.client) throw fault('browser_not_paired', 'Ghép tiện ích ChatMCP Hub trước khi giao nhiệm vụ.', 409);
     if (this.context || this.pairBusy) throw fault('task_active', 'Một nhiệm vụ hoặc thao tác ghép đang chạy.', 409);
     if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 16000) throw fault('invalid_prompt', 'Nhập yêu cầu từ 1 đến 16.000 ký tự.');
     const id = randomUUID();
-    this.manager.acquireTask(id);
-    const state = this.manager.state();
+    const selected=await this.executionManager(workspacePath);
+    try{ selected.manager.acquireTask(id); }
+    catch(error){
+      if(selected.owned)await selected.manager.shutdown().catch(()=>{});
+      throw error;
+    }
+    const state = selected.manager.state();
     const task = {
       id, prompt: this.clean(prompt.trim()), status: 'preparing', provider: 'chatgpt-web', model: 'ChatGPT web (model trong tab)',
       workspace: { path: state.workspace.path, generation: state.generation, instanceId: state.instanceId },
       startedAt: this.date(), updatedAt: this.date(), finishedAt: null, finalText: '', error: null, errorCode: null,
-      steps: 0, toolCalls: 0, events: [], chatUrl: null, prompts: [{ at: this.date(), text: this.clean(prompt.trim()) }], runs: [{ startedAt: this.date(), finishedAt: null, status: 'running', startTurn: 1 }], lastIssuedTurn: 0, continuation: false,
+      steps: 0, toolCalls: 0, events: [], chatUrl: null, prompts: [{ at: this.date(), text: this.clean(prompt.trim()) }], runs: [{ id:randomUUID(),title:prompt.trim(),startedAt: this.date(), finishedAt: null, status: 'running', startTurn: 1 }], lastIssuedTurn: 0, continuation: false,
       nonce: randomBytes(24).toString('hex'), message: null, acceptedReplies: {}, pendingCall: null,
     };
-    const context = { task, controller: new AbortController(), session: null, work: null, finishing: null, deliveryBusy: false, pagedResults: new Map() };
+    const context = { task, controller: new AbortController(), session: null, work: null, finishing: null, deliveryBusy: false, pagedResults: new Map(), executionManager:selected.manager,ownedManager:selected.owned };
     this.context = context; this.clientHeartbeat = null; this.tasks.set(id, task); this.lastTaskId = id;
     try {
       await this.event(task, 'preparing', 'Đang kiểm tra phiên MCP và cố định workspace.');
-      const session = await this.manager.createAgentSession({ signal: context.controller.signal });
+      const session = await context.executionManager.createAgentSession({ signal: context.controller.signal });
       if (context.controller.signal.aborted || this.context !== context) {
         await session?.close();
         throw context.controller.signal.reason ?? fault('inactive_task', 'Nhiệm vụ đã dừng khi đang chuẩn bị MCP.', 409);
@@ -348,13 +401,21 @@ export class BrowserRunner {
     if (!TERMINAL.has(task.status)) throw fault('task_active', 'Cuộc hội thoại vẫn đang chạy.', 409);
     const existing = CHAT_ROUTE.parse(task.chatUrl);
     if (existing?.kind !== 'chat' || existing.provisional) throw fault('original_chat_missing', 'Chưa lưu được URL chat chính thức. Không tạo cuộc chat mới khi tiếp tục. Mở lại tab cũ hoặc tạo phiên mới theo lựa chọn của bạn.', 409);
-    const state = this.manager.state();
-    if (state.workspace?.path !== task.workspace?.path) throw fault('workspace_changed', 'Chọn lại đúng workspace cũ trước khi tiếp tục hội thoại. Không tự đổi thư mục.', 409);
-    if (this.manager.acquireTask(id) === false) throw fault('hub_busy', 'Hub chưa thể khóa workspace.', 409);
+    const selected=await this.executionManager(task.workspace?.path);
+    const state=selected.manager.state();
+    if(state.workspace?.path!==task.workspace?.path){
+      if(selected.owned)await selected.manager.shutdown().catch(()=>{});
+      throw fault('workspace_changed','Task workspace no longer matches the selected local project.',409);
+    }
+    try{selected.manager.acquireTask(id);}
+    catch(error){
+      if(selected.owned)await selected.manager.shutdown().catch(()=>{});
+      throw error;
+    }
     const cleanPrompt = this.clean(prompt.trim());
     const previous = structuredClone({ status:task.status, finalText:task.finalText, error:task.error, pendingCall:task.pendingCall, unverifiedDelivery:task.unverifiedDelivery });
     const oldTask = structuredClone(task);
-    const context = { task, controller:new AbortController(), session:null, work:null, finishing:null, deliveryBusy:false, pagedResults:new Map() };
+    const context = { task, controller:new AbortController(), session:null, work:null, finishing:null, deliveryBusy:false, pagedResults:new Map(),executionManager:selected.manager,ownedManager:selected.owned };
     task.workspace = { path:state.workspace.path, generation:state.generation, instanceId:state.instanceId };
     task.status = 'preparing'; task.finishedAt = null; task.error = null; task.errorCode = null;
     task.message = null; task.continuation = true; task.resumeStart = true;
@@ -363,11 +424,11 @@ export class BrowserRunner {
     task.dialogue ??= [];
     task.dialogue.push({ role:'user', at:this.date(), text:cleanPrompt, run:(task.runs?.length ?? 1)+1 });
     task.runs ??= [{ startedAt:task.startedAt, finishedAt: this.date(), status:previous.status, startTurn:1 }];
-    task.runs.push({startedAt:this.date(), finishedAt:null, status:'running', startTurn:(task.lastIssuedTurn ?? task.steps)+1});
+    task.runs.push({id:randomUUID(),title:cleanPrompt,startedAt:this.date(), finishedAt:null, status:'running', startTurn:(task.lastIssuedTurn ?? task.steps)+1});
     this.context = context; this.lastTaskId = id; this.clientHeartbeat = null;
     try {
       await this.event(task, 'continuation', 'Đang mở lại đúng cuộc ChatGPT đã lưu; lịch sử và các file trên máy được giữ nguyên.', { chatUrl: existing.url });
-      const session = await this.manager.createAgentSession({ signal:context.controller.signal });
+      const session = await context.executionManager.createAgentSession({ signal:context.controller.signal });
       context.session = session;
       this.check(context);
       if (!session?.catalog?.tools?.length) throw fault('empty_catalog', 'MCP chưa sẵn sàng để tiếp tục.', 503);
@@ -627,7 +688,13 @@ Next reply: exactly one JSON block with chatmcp_hub=v1, task=${task.id}, turn=${
       try { await this.event(task, status, task.error || (status === 'completed' ? 'Đã nhận kết quả cuối từ ChatGPT.' : 'Đã dừng nhiệm vụ.')); }
       finally {
         try { await context.session?.close(); }
-        finally { if (this.context === context) this.context = null; this.manager.releaseTask(task.id); }
+        finally {
+          if (this.context === context) this.context = null;
+          const owned=context.executionManager||this.manager;
+          owned.releaseTask(task.id);
+          if(context.ownedManager)await owned.shutdown().catch(error=>
+            this.log('Browser workspace manager shutdown failed: '+String(error?.message||error)));
+        }
       }
     })();
     return await context.finishing;
