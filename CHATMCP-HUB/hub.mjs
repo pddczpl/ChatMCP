@@ -441,14 +441,15 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/ai/clear-key': if (!provider) throw new Error('Kết nối AI chưa khởi tạo.'); await changeAi(() => provider.clearKey()); result = stateNow(); break;
           case '/api/ai/test': if (!provider) throw new Error('Kết nối AI chưa khởi tạo.'); result = await changeAi(async () => {
             if (!provider.ready()) throw Object.assign(new Error('Chưa cấu hình API key/model.'), { statusCode:409 });
-            const testSignal = AbortSignal.timeout(38000);
+            const diagnosticDeadlineMs = payload.strictProtocol === true ? 50_000 : 120_000;
+            const testSignal = AbortSignal.timeout(diagnosticDeadlineMs);
             let response;
             try {
               response = typeof provider.diagnoseConnection === 'function'
                 ? await provider.diagnoseConnection({ signal: testSignal, strictProtocol: payload.strictProtocol === true })
                 : await provider.respond({ input: [{role:'user', content:[{type:'input_text',text:'Reply with only OK.'}]}], instructions:'Simple API connectivity check. Reply with OK.', tools: [], signal: testSignal });
             } catch (error) {
-              if (testSignal.aborted) throw Object.assign(new Error('Kiểm tra gateway quá 38 giây. Kiểm tra kết nối, URL và giao thức rồi thử lại.'), { statusCode:504 });
+              if (testSignal.aborted) throw Object.assign(new Error('Kiểm tra gateway vượt thời gian cho phép. Mỗi phép thử có tối đa 20 giây; kiểm tra URL, giao thức và model.'), { statusCode:504 });
               throw error;
             }
             return { ok:true, model: provider.snapshot().model, responsePresent: response.responsePresent === true || response.output?.some(x=>x.type==='message') === true,
