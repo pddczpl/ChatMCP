@@ -35,7 +35,11 @@ export function SessionSidebar() {
   const allTasks=hub?.tasks||[];
   // Conversations are first-class sidebar entities. Model-spawned child tasks
   // remain inside their parent conversation's background execution, not here.
-  const conversations=useMemo(()=>allTasks.filter(x=>!x.parentTaskId),[allTasks]);
+  const conversations=useMemo(()=>allTasks.filter(x=>!x.parentTaskId&&!x.linkedFromTaskId),[allTasks]);
+  const latestSegment=(rootId:string)=>{
+    return allTasks.filter(x=>!x.parentTaskId&&(x.conversationId||x.id)===rootId)
+      .sort((a,b)=>String(b.createdAt||b.updatedAt||'').localeCompare(String(a.createdAt||a.updatedAt||'')))[0];
+  };
   const perWorkspace=(folder:string)=>conversations.filter(item=>{
     const source=item.workspacePath||item.workspace?.path||hub?.workspace?.path;
     const query=search.trim().toLocaleLowerCase();
@@ -99,7 +103,7 @@ export function SessionSidebar() {
       await api.activateWorkspace(folder).catch(()=>{});
       setSelectedWorkspacePath(folder);
     }
-    setSelectedTaskId(id);
+    setSelectedTaskId(latestSegment(id)?.id||id);
   };
   const removeWorkspace=async(folder:string,name:string)=>{
     if(removingWorkspace)return;
@@ -208,7 +212,7 @@ export function SessionSidebar() {
           </div>
           {!shut&&<div className="pl-5 pt-1 space-y-0.5">
             {items.map(chat=>{
-              const selected=chat.id===selectedTaskId;
+              const selected=chat.id===selectedTaskId||latestSegment(chat.id)?.id===selectedTaskId;
               const busy=isTaskActive(chat)||allTasks.some(task=>task.id!==chat.id&&task.conversationId===chat.id&&isTaskActive(task));
               return <div key={chat.id} className={'group flex items-center gap-1 rounded-md '+(selected?'bg-[var(--primary-bg)]':'hover:bg-[var(--surface-hover)]')}>
                 <button onClick={()=>void selectConversation(chat.id,folder)} title={chat.task||chat.prompt}
