@@ -1,0 +1,41 @@
+name: Browser Companion Workspace Regression
+on:
+  push:
+    branches: ['fix/native-workspace-picker-chatgpt-web-mode']
+  pull_request:
+    paths:
+      - 'CHATMCP-HUB/lib/browser-runner.mjs'
+      - 'CHATMCP-HUB/lib/dual-agent.mjs'
+      - 'CHATMCP-HUB/tests/verify-browser-web-workspaces.mjs'
+      - '.github/workflows/browser-companion-regression.yml'
+permissions:
+  contents: read
+concurrency:
+  group: browser-companion-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  browser-fixture:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: CHATMCP-HUB
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - name: Configure disposable fixture git identity
+        shell: bash
+        run: |
+          git config --global user.name 'ChatMCP Regression'
+          git config --global user.email 'ci@example.invalid'
+      - name: Exercise Browser Companion selected-workspace lifecycle
+        shell: bash
+        run: |
+          node -e "console.log('Heap capacity MiB: '+Math.round(require('node:v8').getHeapStatistics().heap_size_limit/1048576))"
+          node tests/verify-browser-web-workspaces.mjs
