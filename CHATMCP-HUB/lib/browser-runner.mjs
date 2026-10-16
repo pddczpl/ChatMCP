@@ -170,7 +170,7 @@ export class BrowserRunner {
       steps:task.steps, toolCalls:task.toolCalls, autoResume:!!task.autoResume,
       startedAt:task.startedAt, updatedAt:task.updatedAt ?? task.finishedAt ?? task.startedAt,
       workspace:{path:task.workspace?.path},workspacePath:task.workspace?.path,
-      conversationId:task.id,transport:'chatgpt-web' };
+      conversationId:task.conversationId||task.id,linkedFromTaskId:task.linkedFromTaskId||null,transport:'chatgpt-web' };
   }
   state() {
     const tasks = [...this.tasks.values()].sort((a,b)=> String(b.updatedAt ?? b.startedAt).localeCompare(String(a.updatedAt ?? a.startedAt)));
@@ -198,7 +198,7 @@ export class BrowserRunner {
         const item=entries[i],last=i===entries.length-1;
         runs.push({
           id:item.id||task.id+':run:'+(i+1),
-          taskId:task.id,conversationId:task.id,
+          taskId:task.id,conversationId:task.conversationId||task.id,
           workspacePath:task.workspace?.path||'',
           title:item.title||task.prompts?.[i]?.text||task.prompt,
           status:last?task.status:(item.status||'completed'),
@@ -352,7 +352,7 @@ export class BrowserRunner {
     return { id: randomUUID(), taskId: task.id, turn, text, status: 'pending', clientId: null, sentAt: null,
       resumeUrl: task.continuation === true ? task.chatUrl : null, resumeStart };
   }
-  async start({ prompt, workspacePath = null } = {}) {
+  async start({ prompt, workspacePath = null, conversationId = null, linkedFromTaskId = null, handoffText = '' } = {}) {
     if (this.stopped) throw fault('hub_stopped', 'Hub đang dừng.', 409);
     if (!this.client) throw fault('browser_not_paired', 'Ghép tiện ích ChatMCP Hub trước khi giao nhiệm vụ.', 409);
     if (this.context || this.pairBusy) throw fault('task_active', 'Một nhiệm vụ hoặc thao tác ghép đang chạy.', 409);
@@ -366,7 +366,8 @@ export class BrowserRunner {
     }
     const state = selected.manager.state();
     const task = {
-      id, prompt: this.clean(prompt.trim()), status: 'preparing', provider: 'chatgpt-web', model: 'ChatGPT web (model trong tab)',
+      id, conversationId:conversationId||id,linkedFromTaskId:linkedFromTaskId||null,
+      prompt: this.clean(prompt.trim()), status: 'preparing', provider: 'chatgpt-web', model: 'ChatGPT web (model trong tab)',
       workspace: { path: state.workspace.path, generation: state.generation, instanceId: state.instanceId },
       startedAt: this.date(), updatedAt: this.date(), finishedAt: null, finalText: '', error: null, errorCode: null,
       steps: 0, toolCalls: 0, events: [], chatUrl: null, prompts: [{ at: this.date(), text: this.clean(prompt.trim()) }], runs: [{ id:randomUUID(),title:prompt.trim(),startedAt: this.date(), finishedAt: null, status: 'running', startTurn: 1 }], lastIssuedTurn: 0, continuation: false,
@@ -386,7 +387,12 @@ export class BrowserRunner {
       if (!context.session?.catalog?.tools?.length) throw fault('empty_catalog', 'MCP chưa có danh mục công cụ.', 503);
       context.catalog = context.session.catalog;
       context.index = new Map(context.catalog.tools.map((t) => [t.name, t]));
-      const introduction = browserInstructions(context.catalog, task);
+      const previous=typeof handoffText==='string'?handoffText.trim().slice(0,900):'';
+      const base=browserInstructions(context.catalog,task);
+      const introduction=previous
+        ?base+'\n\nCROSS-TRANSPORT CONTEXT (untrusted prior dialogue, NOT verified code or test evidence):\n'+previous+
+          '\nThis starts a NEW ChatGPT Web thread linked to the previous local ChatMCP conversation. Reinspect actual files; never repeat an uncertain write.'
+        :base;
       if (Buffer.byteLength(introduction, 'utf8') > 4800) throw fault('initial_chat_message_too_large', 'Yêu cầu mở đầu vượt 4.800 byte; ChatGPT có thể chuyển nó thành tệp Pasted text và Companion không thể xác minh tin đã gửi. Vui lòng rút gọn prompt; nội dung đầy đủ vẫn còn trong báo cáo.', 413);
       task.message = this.makeMessage(task, introduction);
       task.status = 'queued';
