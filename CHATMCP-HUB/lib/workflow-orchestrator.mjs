@@ -47,7 +47,7 @@ export class WorkflowOrchestrator {
         if(!UUID.test(phase?.id||'')||typeof phase?.name!=='string'||!Array.isArray(phase.agents)||
            phase.agents.length>this.maxAgents)continue;
         phases.push({
-          id:phase.id,name:text(phase.name,100),dependsOn:Array.isArray(phase.dependsOn)?phase.dependsOn.filter(x=>UUID.test(x)).slice(0,4):[],
+          id:phase.id,name:text(phase.name,100),expectedAgents:Number.isInteger(phase.expectedAgents)?phase.expectedAgents:phase.agents.length,dependsOn:Array.isArray(phase.dependsOn)?phase.dependsOn.filter(x=>UUID.test(x)).slice(0,4):[],
           agents:phase.agents.filter(a=>UUID.test(a?.taskId||'')).slice(0,this.maxAgents)
             .map(a=>({id:UUID.test(a.id)?a.id:randomUUID(),goal:text(a.goal,4000),
               role:text(a.role,80),taskId:a.taskId})),
@@ -93,14 +93,15 @@ export class WorkflowOrchestrator {
       });
       const complete=agents.filter(a=>a.status==='completed').length;
       const failed=agents.filter(a=>FAILURE.has(a.status));
-      const status=failed.length?'blocked':complete===agents.length?'completed':
+      const status=failed.length?'blocked':agents.length<(p.expectedAgents||agents.length)?'preparing':
+        complete===agents.length&&agents.length>0?'completed':
         agents.some(a=>LIVE.has(a.status))?'running':'paused';
       return {...p,agents,status,completed:complete,total:agents.length};
     });
     const total=phases.reduce((n,p)=>n+p.total,0);
     const complete=phases.reduce((n,p)=>n+p.completed,0);
     const blocked=phases.some(p=>p.status==='blocked');
-    const live=phases.some(p=>p.status==='running');
+    const live=phases.some(p=>p.status==='running'||p.status==='preparing');
     const status=raw.statusOverride||(
       blocked?'blocked':complete===total&&total>0?'completed':live?'running':'paused');
     return {...raw,phases,status,completed:complete,total,
@@ -118,7 +119,7 @@ export class WorkflowOrchestrator {
       throw fault('invalid_workflow','A workflow requires 1–5 phases.');
     const total=phases.reduce((n,p)=>n+(Array.isArray(p.agents)?p.agents.length:0),0);
     if(total<1||total>this.maxAgents)
-      throw fault('workflow_capacity',\`Workflow requires 1–\${this.maxAgents} subagents.\`);
+      throw fault('workflow_capacity','Workflow requires 1–'+this.maxAgents+' subagents.');
     const seen=new Set();
     const valid=phases.map((phase,index)=>{
       const name=title(phase?.name,100,'Phase name');
@@ -143,7 +144,7 @@ export class WorkflowOrchestrator {
       workspacePath:parent?.workspacePath||parent?.workspace?.path||'',
       name:title(name,150,'Workflow name'),
       createdAt:now(),updatedAt:now(),statusOverride:null,error:null,
-      phases:valid.map(p=>({id:p.id,name:p.name,dependsOn:[],
+      phases:valid.map(p=>({id:p.id,name:p.name,expectedAgents:p.agents.length,dependsOn:[],
         agents:[]})),
     };
     this.workflows.set(workflow.id,workflow);
