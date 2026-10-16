@@ -52,6 +52,8 @@ export class DualAgent {
         throw Object.assign(new Error('ChatGPT Web đang sử dụng checkout này. Chọn workspace khác hoặc đợi browser task hoàn tất.'),{statusCode:409});
       return this.api.start({...payload,workspacePath:selected});
     }
+    if(payload?.attachments?.length)
+      throw Object.assign(new Error('Chế độ ChatGPT Web Companion hiện hỗ trợ prompt văn bản; không tự bỏ qua file/ảnh đính kèm. Hãy chuyển sang Model API để phân tích ảnh/file.'),{statusCode:415});
     if(this.browser.state().activeTaskId)
       throw Object.assign(new Error('ChatGPT Web Companion đang xử lý một task khác. Dừng hoặc chờ task này trước khi giao tác vụ web mới.'),{statusCode:409});
     const apiWorkers=this.api.state().activeTaskIds||[];
@@ -72,6 +74,8 @@ export class DualAgent {
         throw Object.assign(new Error('ChatGPT Web đang sử dụng checkout này.'),{statusCode:409});
       return this.api.continue(payload);
     }
+    if(payload?.attachments?.length)
+      throw Object.assign(new Error('ChatGPT Web Companion không truyền file/ảnh đính kèm của ChatMCP. Chọn Model API để gửi tệp.'),{statusCode:415});
     if(this.browser.state().activeTaskId && this.browser.state().activeTaskId!==payload.id)
       throw Object.assign(new Error('Đã có một ChatGPT Web task khác đang chạy.'),{statusCode:409});
     const root=existing.workspacePath||existing.workspace?.path;
