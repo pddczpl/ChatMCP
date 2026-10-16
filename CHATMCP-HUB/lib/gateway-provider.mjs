@@ -426,7 +426,7 @@ export class GatewayProvider {
       signal?.throwIfAborted();
       let response;
       try {
-        const timeout = AbortSignal.timeout(6000);
+        const timeout = AbortSignal.timeout(20_000);
         const controller = signal ? AbortSignal.any([signal,timeout]):timeout;
         response = await this.fetch(item.endpoint,{
           method:'POST', redirect:'error',signal:controller,
@@ -453,13 +453,13 @@ export class GatewayProvider {
           if(changed)await this.configure({apiBaseUrl:item.apiBaseUrl,protocol:item.protocol,customPath:item.customPath,authMode:item.authMode,remember:this.keySource==='saved'});
           this.lastError='';
           // One more tiny request: can this model call tools at all? (Gemini is not probed; its dialect is found during a task.)
-          const tools=await probeToolCalling({protocol:item.protocol,endpoint:item.endpoint,headers:this.#headers(item.protocol,item.authMode,apiKey),model:this.model,fetch:this.fetch,signal,redact:redactText});
+          const tools=await probeToolCalling({protocol:item.protocol,endpoint:item.endpoint,headers:this.#headers(item.protocol,item.authMode,apiKey),model:this.model,fetch:this.fetch,signal,redact:redactText,timeoutMs:20_000});
           this.toolCalling=tools.status; this.toolCallingNote=tools.note;
           return {ok:true,responsePresent:true,model:this.model,protocol:item.protocol,authMode:item.authMode,autoSelected:changed,toolCalling:tools.status,toolCallingNote:tools.note,attempts};
         }
       }catch(error){
         if(signal?.aborted)throw signal.reason;
-        attempts.push({protocol:item.protocol,authMode:item.authMode,status:null,success:false,detail:noSecrets(String(error?.name==='TimeoutError'?'Quá thời gian 6 giây':error?.message||'Lỗi kết nối'),text=>this.redact(text)).slice(0,200)});
+        attempts.push({protocol:item.protocol,authMode:item.authMode,status:null,success:false,detail:noSecrets(String(error?.name==='TimeoutError'?'Quá thời gian 20 giây':error?.message||'Lỗi kết nối'),text=>this.redact(text)).slice(0,200)});
       }
     }
     const details=attempts.map(x=>`${x.protocol}/${x.authMode}: ${x.status?'HTTP '+x.status:'Network'}${x.detail?' ('+x.detail.slice(0,180)+')':''}`).join('; ');
