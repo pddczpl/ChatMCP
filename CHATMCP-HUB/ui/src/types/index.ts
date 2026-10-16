@@ -123,6 +123,48 @@ export interface WorkspaceCollection {
   activePath: string | null;
   items: WorkspaceEntry[];
 }
+export interface WorkflowAgent {
+  id:string;
+  taskId:string;
+  role:string;
+  goal:string;
+  status:string;
+  branch?:string|null;
+  worktree?:string|null;
+  startedAt?:string|null;
+  finishedAt?:string|null;
+  model?:string|null;
+  resultPreview?:string|null;
+  usage?: {inputTokens:number;outputTokens:number;httpRequests:number}|null;
+}
+export interface WorkflowPhase {
+  id:string;
+  name:string;
+  dependsOn:string[];
+  status:string;
+  completed:number;
+  total:number;
+  agents:WorkflowAgent[];
+}
+export interface BackgroundWorkflow {
+  id:string;
+  name:string;
+  conversationId:string;
+  parentRunId:string|null;
+  workspacePath:string;
+  createdAt:string;
+  updatedAt:string;
+  finishedAt?:string|null;
+  status:string;
+  error?:string|null;
+  completed:number;
+  total:number;
+  activeAgents:number;
+  failedAgents:number;
+  usage?:{inputTokens:number;outputTokens:number;httpRequests:number};
+  phases:WorkflowPhase[];
+}
+
 export interface BackgroundRun {
   id: string; taskId: string; conversationId: string; workspacePath: string;
   title: string; status: string; startedAt?: string; finishedAt?: string;
