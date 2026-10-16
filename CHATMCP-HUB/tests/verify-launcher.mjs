@@ -14,6 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launch, hubDirectoryFor, quoteWindowsArgument } from '../lib/launch.mjs';
 import { defaultDataDirectory } from '../lib/manager.mjs';
+import { spawnLogged } from '../lib/runtime.mjs';
 import { parseArguments } from '../hub.mjs';
 
 const bundleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -174,6 +175,16 @@ try {
     check(!(await listening(lockedPort)), 'nothing is left listening');
   });
 
+  await section('spawnLogged: stdout/stderr stay separate for JSON helper commands', async()=>{
+    const helper=spawnLogged(process.execPath,['-e',
+      "process.stdout.write('{\"path\":null}\\n');process.stderr.write('folder-debug\\n');"],
+      {quiet:true});
+    const result=await helper.completion;
+    equal(result.code,0,'helper exited successfully');
+    equal(JSON.parse(result.stdout.trim()),{path:null},'only stdout is parsed as folder JSON');
+    check(result.stderr.includes('folder-debug'),'diagnostic stderr remains available');
+  });
+
   // ---------------------------------------------------------------- the PowerShell wrapper (Windows)
   if (process.platform !== 'win32') {
     console.log('  --  PowerShell launcher checks run on Windows only');
@@ -219,6 +230,22 @@ try {
       equal(badProject.code, 1, 'a project folder that does not exist stops');
       const invalid = runScript(fakeStart, ['-Backend', 'docker']);
       check(invalid.code !== 0, 'an unknown -Backend is rejected');
+    });
+
+    await section('PowerShell: native folder chooser validates without opening a GUI',async()=>{
+      const picker=path.join(bundleRoot,'windows','Select-Workspace.ps1');
+      const invoke=(args)=>spawnSync(powershell,['-NoLogo','-NoProfile','-STA','-File',picker,...args],{
+        cwd:root,encoding:'utf8',windowsHide:true,timeout:20000,
+      });
+      const ok=invoke(['-ValidateOnly']);
+      equal(ok.status,0,'native folder picker loads Windows Forms from an STA helper: '+ok.stderr);
+      equal(JSON.parse(ok.stdout.trim()),{path:null},'validation mode emits exactly one JSON result');
+      const failure=invoke(['-SimulateFailure']);
+      equal(failure.status,1,'injected native picker error returns failure');
+      check(failure.stderr.includes('SIMULATED_FOLDER_PICKER_FAILURE'),
+        'stderr exposes actual failure stage/cause instead of a generic powershell.exe exit 1');
+      equal(JSON.parse(failure.stdout.trim()),{path:null},
+        'picker error still emits one well-formed stdout JSON object');
     });
 
     await section('PowerShell: starts and stops a real Hub', async () => {
