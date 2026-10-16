@@ -90,14 +90,19 @@ export function portOpen(port, host = '127.0.0.1', timeout = 700) {
 
 export function spawnLogged(command, args, { cwd, log = () => {}, timeout = 0, quiet = false } = {}) {
   const child = spawn(command, args, { cwd, shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
-  const chunks = [];
+  const chunks = [], stdoutChunks = [], stderrChunks = [];
   let bytes = 0;
   let timer;
-  function capture(stream) {
+  function capture(stream, streamChunks) {
     let buffered = '';
     stream.setEncoding('utf8');
     stream.on('data', (data) => {
-      if (bytes < 2_000_000) { chunks.push(data); bytes += Buffer.byteLength(data); }
+      // Keep stdout/stderr individually so JSON protocols (the Windows folder
+      // picker) are never confused with PowerShell's diagnostic output.
+      if (bytes < 2_000_000) {
+        const text = data.slice(0, Math.max(0, 2_000_000 - bytes));
+        if (text) { chunks.push(text); streamChunks.push(text); bytes += Buffer.byteLength(text); }
+      }
       buffered += data;
       const lines = buffered.split(/\r?\n/);
       buffered = lines.pop();
@@ -105,13 +110,13 @@ export function spawnLogged(command, args, { cwd, log = () => {}, timeout = 0, q
     });
     stream.on('end', () => { if (!quiet && buffered.trim()) log(buffered); });
   }
-  capture(child.stdout);
-  capture(child.stderr);
+  capture(child.stdout, stdoutChunks);
+  capture(child.stderr, stderrChunks);
   const completion = new Promise((resolve, reject) => {
     child.once('error', (error) => { clearTimeout(timer); reject(error); });
     child.once('close', (code, signal) => {
       clearTimeout(timer);
-      resolve({ code, signal, output: chunks.join('') });
+      resolve({ code, signal, output: chunks.join(''), stdout: stdoutChunks.join(''), stderr: stderrChunks.join('') });
     });
     if (timeout > 0) timer = setTimeout(() => { void stopOwned(child); }, timeout);
   });
