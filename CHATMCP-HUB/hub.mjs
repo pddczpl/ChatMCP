@@ -267,7 +267,10 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
         return json(200,value);
       }
       if (req.method === 'GET' && url.pathname === '/api/background-tasks') {
-        const tasks=taskEngine?.api?.backgroundTasks?.()??[];
+        // Web Companion sessions are actual background executions too.
+        // Never count them as fabricated API tasks or hide their owning chat.
+        const tasks=[...(taskEngine?.api?.backgroundTasks?.()??[]),
+          ...(browser?.backgroundTasks?.()??[])];
         const registered=workspaceRegistry?.state().items.map(item=>item.path);
         const isRegistered=folder=>registered?.some(root=>
           process.platform==='win32' ? root.toLowerCase()===String(folder).toLowerCase() : root===folder);
