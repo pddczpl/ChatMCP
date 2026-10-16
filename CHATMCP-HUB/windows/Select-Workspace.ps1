@@ -27,7 +27,8 @@ try {
     [System.Windows.Forms.Application]::EnableVisualStyles()
     $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
     $dialog.Description = 'ChatMCP - Select the folder to use as your local workspace'
-    $dialog.ShowNewFolderButton = $false
+    $dialog.ShowNewFolderButton = $true
+    $dialog.AutoUpgradeEnabled = $true
     $dialog.RootFolder = [System.Environment+SpecialFolder]::MyComputer
     if (-not [string]::IsNullOrWhiteSpace($InitialPath) -and (Test-Path -LiteralPath $InitialPath -PathType Container)) {
         $initialResolved = Resolve-Path -LiteralPath $InitialPath
