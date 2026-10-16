@@ -368,7 +368,8 @@ export class ConcurrentApiAgent {
       (this.primary.activeTaskId && root === this.manager.workspace) ||
       [...this.records.values()].some(r =>
         [r.executionRoot,r.worktree,r.pendingWorktree?.path].includes(root) &&
-        ['queued','preparing','running'].includes(this.#status(r.id)))
+        (['queued','preparing','running'].includes(this.#status(r.id)) ||
+          this.children.get(r.id)?.runner.activeTaskId === r.id))
     );
     if (!parentTaskId && !dependsOn.length && !baseRef &&
         root === this.manager.workspace && !this.primary.activeTaskId && !rootOccupied)
