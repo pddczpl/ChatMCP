@@ -412,10 +412,15 @@ export class ConcurrentApiAgent {
       if ((child.manager.permissions?.state().pending || []).some(x => x.id === id))
         return child.manager.permissions.decide(id, approved);
     }
+    for (const access of this.readyAccessManagers.values()) {
+      if ((access.permissions?.state().pending || []).some(x => x.id === id))
+        return access.permissions.decide(id, approved);
+    }
     return null;
   }
   pendingApprovals() {
-    return [...this.children.values()].flatMap(x => x.manager.permissions?.state().pending || []);
+    return [...this.children.values()].flatMap(x => x.manager.permissions?.state().pending || [])
+      .concat([...this.readyAccessManagers.values()].flatMap(x => x.permissions?.state().pending || []));
   }
   async shutdown() {
     this.closed = true;
@@ -423,6 +428,7 @@ export class ConcurrentApiAgent {
       if (!controller.signal.aborted) controller.abort(fail('shutdown','Hub is shutting down.',503));
     await Promise.allSettled([this.primary.shutdown(), ...[...this.children.values()].map(x => x.runner.shutdown())]);
     await Promise.allSettled([...this.children.values()].map(x => x.manager.shutdown()));
+    await Promise.allSettled([...this.readyAccessManagers.values()].map(x => x.shutdown()));
     await this.writes.catch(() => {});
   }
 }
