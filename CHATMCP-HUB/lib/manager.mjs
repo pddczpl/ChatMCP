@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { readJson, writeJson, redact, resolveProgram, spawnLogged, stopOwned } from './runtime.mjs';
 import { buildInternalCatalog } from './catalog.mjs';
 
-export const VERSION = '3.8.0';
+export const VERSION = '3.8.2';
 const baseService = () => ({ state:'unknown', detail:'Chưa kiểm tra' });
 export const BACKENDS = Object.freeze(['local']);
 // The local backend has its own file, search, Git and shell tools. Of the older Studio tools only those that add

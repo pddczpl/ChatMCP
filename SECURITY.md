@@ -47,3 +47,8 @@ Installer builds enumerate tracked runtime files and fresh Vite output instead o
 - Release installer nên ký Authenticode nếu có certificate, và xuất checksum SHA-256 sau khi ký.
 
 [README](README.md) · [Windows Setup](docs/WINDOWS-SETUP.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
+
+
+## Companion 1.5.1 receiver restoration
+
+The `scripting` permission is restricted in code to bundled `chat-route.js` and `browser-runner.js`, top frame, ISOLATED world, of a validated owned ChatGPT tab, once per packet before claim when the receiver is missing. Host permissions are unchanged. No remote code, cookies or broad tabs permission is added. Uncertain SEND states are reconciled read-only and never authorize reinjection or another click. Diagnostics retain fixed categories, not exception/page/prompt contents.

@@ -9,6 +9,7 @@ export interface TaskSummary {
   dependsOn?: string[];
   parentTaskId?: string | null;
   parentRunId?: string | null;
+  linkedFromTaskId?: string | null;
   conversationId?: string;
   workspacePath?: string;
   queuedMessagesCount?: number;
@@ -63,6 +64,7 @@ export interface TaskDetail extends TaskSummary {
   errorCode?: string;
   error?: string;
   chatUrl?: string;
+  handoff?: {fromTaskId:string;toTransport:string;note:string};
 }
 
 export interface ApprovalRequest {
@@ -208,6 +210,7 @@ export interface Task {
   dependsOn?: string[];
   parentTaskId?: string | null;
   parentRunId?: string | null;
+  linkedFromTaskId?: string | null;
   conversationId?: string;
   workspacePath?: string;
   queuedMessagesCount?: number;
@@ -232,6 +235,9 @@ export interface Task {
   verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
   lastMessage?: string;
   error?: string;
+  transport?: string;
+  chatUrl?: string | null;
+  handoff?: {fromTaskId:string;toTransport:string;note:string};
 }
 
 export interface HubHealth {

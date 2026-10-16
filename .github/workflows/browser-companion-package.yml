@@ -1,0 +1,54 @@
+name: Browser Companion Release Package
+
+on:
+  push:
+    branches: ['fix/publish-browser-companion-archive']
+  pull_request:
+    paths:
+      - 'CHATMCP-HUB/extension/**'
+      - 'scripts/Build-BrowserCompanion.ps1'
+      - 'scripts/InstallerPayload.ps1'
+      - '.github/workflows/browser-companion-package.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: companion-zip-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  extension-zip:
+    name: Package verified Chrome/Edge Hub Companion ZIP
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Build standalone extension from canonical MV3 sources
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-BrowserCompanion.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Browser Companion package failed' }
+      - name: Validate ZIP and checksum
+        shell: powershell
+        run: |
+          $zip = '.\dist\ChatMCP-Browser-Companion.zip'
+          if (-not (Test-Path $zip)) { throw 'Missing standalone extension ZIP' }
+          if (-not (Test-Path "$zip.sha256")) { throw 'Missing extension checksum' }
+          $sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = ((Get-Content "$zip.sha256" -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+          if ($sha -ne $expected) { throw 'Extension checksum does not match' }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead($zip)
+          try {
+            if ($null -eq $archive.GetEntry('manifest.json')) { throw 'Archive root is missing manifest.json' }
+            if ($null -eq $archive.GetEntry('browser-background.js')) { throw 'Archive is not ChatMCP Hub Companion' }
+          } finally { $archive.Dispose() }
+      - name: Upload standalone browser extension test artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ChatMCP-Browser-Companion-verified
+          path: |
+            dist/ChatMCP-Browser-Companion.zip
+            dist/ChatMCP-Browser-Companion.zip.sha256
+          if-no-files-found: error

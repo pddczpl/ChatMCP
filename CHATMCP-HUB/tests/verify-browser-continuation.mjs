@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 
 const base = new URL('../',import.meta.url);
 const routeSource=fs.readFileSync(new URL('extension/chat-route.js',base),'utf8');
-const contentSource=fs.readFileSync(new URL('extension/browser-runner.js',base),'utf8').replace(/\}\)\(\);\s*$/,`  globalThis.__test={prepare,send,check, current:()=>current};\n})();`);
+const contentSource=fs.readFileSync(new URL('extension/browser-runner.js',base),'utf8').replace(/\}\)\(\);\s*$/,`  globalThis.__test={prepare,send,check,verifyOfficialChatUrl,current:()=>current};\n})();`);
 const workerSource=fs.readFileSync(new URL('extension/browser-background.js',base),'utf8').replace(/\}\)\(\);\s*$/,`  globalThis.__test={ready,tick, journal:()=>journal};\n})();`);
 const taskId='6f3dc089-8cd4-4428-a7ad-1136896a0ad3';
 const otherTask='7f3dc089-8cd4-4428-a7ad-1136896a0ad3';
@@ -64,6 +64,25 @@ function makeContent(url=ownUrl) {
     Node:{DOCUMENT_POSITION_FOLLOWING:4},globalThis:null};context.globalThis=context;
   vm.runInNewContext(routeSource,context); vm.runInNewContext(contentSource,context);
   return {view,area,api:context.__test};
+}
+{
+  const c=makeContent();
+  const identity='CHATMCP HUB — task '+taskId+', nonce: '+nonce;
+  c.view.oldUsers[0].textContent=identity;
+  c.view.oldUsers[0].innerText=identity;
+  const approved=c.api.verifyOfficialChatUrl({taskId,nonce,turn:1});
+  assert.equal(approved.ok,true,'original user bubble proves this is the right saved chat');
+  assert.equal(approved.url,ownUrl);
+  assert.equal(approved.proof,'user_task_nonce');
+  assert.equal(c.api.verifyOfficialChatUrl({taskId:otherTask,nonce,turn:1}).ok,false,
+    'foreign task must not be rebound');
+  c.view.oldUsers.push({...c.view.oldUsers[0]});
+  assert.equal(c.api.verifyOfficialChatUrl({taskId,nonce,turn:1}).reason,'ambiguous_owned_chat',
+    'ambiguous same-task tabs are not safely bound without unique evidence');
+  const temporary=makeContent('https://chatgpt.com/c/local-chatgpt%3A'+crypto.randomUUID());
+  assert.equal(temporary.api.verifyOfficialChatUrl({taskId,nonce,turn:1}).reason,'official_chat_url_not_ready',
+    'temporary ChatGPT addresses cannot be saved as canonical');
+  console.log('PASS verified ChatGPT URL recovery requires a unique task/nonce witness and a canonical /c/ URL');
 }
 {
   const c=makeContent();

@@ -1,5 +1,23 @@
 # Lịch sử thay đổi
 
+## [3.8.2] — 2026-10-17 — Web task delivery repair
+
+- Separate idle URL recovery from active queued/send reconciliation; bound tab verification waits.
+- Foreground newly created task tabs, support scoped modern editors, and restore a missing receiver once before claim.
+- Preserve privacy-safe readiness/timeout diagnostics and all no-replay/nonce/permission guards.
+- Ship Companion 1.5.1 with explicitly documented host-limited scripting permission and matching installer/ZIP hashes.
+- Add executable delivery-readiness regression coverage. Live signed-in Edge verification remains an owner acceptance step.
+
+## [3.8.1] — 2026-10-17 — ChatGPT Web Companion transport switching and URL recovery
+
+- **Switch channel on the next message of an existing conversation:** Changing Model API ↔ ChatGPT Web creates a new linked physical task on the selected transport while retaining the same logical ChatMCP conversation and original local history. A bounded, redacted handoff is provided to the newly selected model, without covertly reusing an incompatible model session.
+- **No duplicate sends on uncertain results:** Active/uncertain tasks are not silently moved mid-operation. Browser Companion does not replay an old prompt merely to recover a task's official ChatGPT conversation URL.
+- **ChatGPT URL recovery:** User-initiated read-only recovery scans eligible already-open `chatgpt.com` tabs, verifies an unambiguous task ID + nonce witness and a canonical `/c/...` URL, and binds the official conversation URL only when it can prove ownership.
+- **Companion 1.5.0:** Update the extension's manifest, runtime and installation instructions, and present an explicit recovery action in the desktop conversation UI. Manual Chrome/Edge Load unpacked and pairing are still required; no cookie, password or token extraction.
+- **Regression coverage:** PR #42 passed 9/9 full CI, Windows/Ubuntu Browser Companion workspace regression, portable contracts, and a separately verified Browser Companion ZIP packaging workflow. Tests use scripted fixtures; live browser UI and login flow should still be checked on an owner's desktop.
+- **v3.8.1 release packaging:** Ship four assets from one tagged commit: fresh Windows installer + SHA-256 and a standalone Browser Companion ZIP + SHA-256. Assert ZIP root validity and SHA-256 parity between canonical extension source, ZIP and installer payload.
+- Windows installer remains unsigned by Authenticode. Browser transport is text-only and supports one active Web task at a time; Git worktrees are not OS sandboxes.
+
 ## [3.8.0] — 2026-10-16 — Native Windows Folder Picker & ChatGPT Web Companion
 
 - Replace the packaged desktop's hidden/background PowerShell folder chooser with a native WinForms `FolderBrowserDialog` owned by the visible WebView2 desktop window. Guard the message bridge by exact localhost origin, strict request IDs and validated folder selection; the chooser does not rebind other running workspaces.
