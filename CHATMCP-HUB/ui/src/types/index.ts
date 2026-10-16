@@ -276,6 +276,7 @@ export interface HubState {
   agent?: {
     mode: string;
     activeTaskId: string | null;
+    activeTaskIds?: string[];
     active: TaskSummary | null;
     tasks: TaskSummary[];
   };
@@ -291,6 +292,9 @@ export interface HubState {
   browser?: {
     paired: boolean;
     connected: boolean;
+    pairingAvailable?: boolean;
+    lastSeenAt?: string | null;
+    extensionId?: string | null;
     companionPhase?: string;
     companionNote?: string;
   };
