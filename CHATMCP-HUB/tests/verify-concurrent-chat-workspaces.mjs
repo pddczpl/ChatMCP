@@ -77,7 +77,29 @@ try {
     async respond({input,tools=[]}){
       const firstUser=input.find(x=>x?.role==='user'&&Array.isArray(x.content));
       const contents=(firstUser?.content||[]).map(x=>x?.text||'').join(' ');
-      const name=contents.includes('Task A')?'A':contents.includes('Task B')?'B':contents.includes('Task E')?'E':'C';
+      const name=contents.includes('Task A')?'A':contents.includes('Task B')?'B':
+        contents.includes('Task E')?'E':
+        contents.includes('Workflow Review One')?'R1':
+        contents.includes('Workflow Review Two')?'R2':
+        contents.includes('Workflow Verify')?'V':'C';
+      if(contents.includes('Workflow W')&&!input.some(item=>item?.type==='function_call_output')){
+        assert.ok(tools.some(tool=>tool.name==='spawn_workflow'),
+          'ordinary chat must offer spawn_workflow tool to the model');
+        return {status:'completed',output:[{type:'function_call',status:'completed',
+          name:'spawn_workflow',call_id:'workflow-fixture',
+          arguments:JSON.stringify({
+            name:'Independent two-pass audit',
+            phases:[
+              {name:'Review',agents:[
+                {role:'Security',goal:'Workflow Review One: inspect security'},
+                {role:'Correctness',goal:'Workflow Review Two: inspect correctness'},
+              ]},
+              {name:'Verify',agents:[
+                {role:'Independent verifier',goal:'Workflow Verify: check review claims'},
+              ]},
+            ],
+          })}]};
+      }
       if(contents.includes('Delegate D') &&
         !input.some(item=>item?.type==='function_call_output')) {
         assert.ok(tools.some(tool=>tool.name==='spawn_agent'),
@@ -86,7 +108,7 @@ try {
           name:'spawn_agent',call_id:'auto-spawn-fixture',
           arguments:JSON.stringify({goal:'Task D: inspect README as an independent child'})}]};
       }
-      if(['A','B','E'].includes(name)&&!arrived.has(name))await hold(name);
+      if(['A','B','E','R1','R2'].includes(name)&&!arrived.has(name))await hold(name);
       return {status:'completed',output:[{type:'message',role:'assistant',phase:'final',
         content:[{type:'output_text',text:'Task '+name+' completed.'}]}]};
     },
@@ -96,6 +118,7 @@ try {
   pool=new ConcurrentApiAgent({primary,manager,provider,bundleRoot:bundleRoot,
     directory:path.join(temp,'hub','api-conversations'),log:()=>{}});
   manager.spawnBackgroundAgent=(parentId,request)=>pool.spawnAgent(parentId,request);
+  manager.spawnWorkflow=(parentId,request)=>pool.spawnWorkflow(parentId,request);
   const first=await pool.start({prompt:'Task A: inspect README'});
   await until(()=>arrived.has('A'),'primary running');
   // Another selected workspace gets its own writable checkout WITHOUT
@@ -193,6 +216,54 @@ try {
     'deleted chat and child must disappear from Background Tasks');
   assert.ok((await fs.stat(childWorktree)).isDirectory(),
     'removing a chat may not delete Git worktrees on disk');
+  // A single chat creates one real workflow with Review -> Verify phases.
+  // The chat turn may finish while its independent reviewers still run.
+  const reviewParent=await pool.start({prompt:'Workflow W: review from independent perspectives then verify.'});
+  await until(()=>pool.workflows.forConversation(reviewParent.id).length===1,
+    'model called the real spawn_workflow tool');
+  const workflowId=pool.workflows.forConversation(reviewParent.id)[0].id;
+  await until(()=>arrived.has('R1')&&arrived.has('R2'),
+    'both independent reviewers started without waiting for each other');
+  assert.equal(pool.workflows.get(workflowId).total,3);
+  assert.equal(pool.workflows.get(workflowId).phases[0].agents.length,2);
+  assert.equal(pool.workflows.get(workflowId).phases[1].agents.length,1);
+  assert.equal(pool.workflows.get(workflowId).phases[1].status,'waiting');
+  assert.equal(arrived.has('V'),false,'verification must wait for both reviewers');
+  const verifierId=pool.workflows.get(workflowId).phases[1].agents[0].taskId;
+  assert.equal(pool.get(verifierId).status,'queued');
+  await until(()=>pool.get(reviewParent.id)?.status==='completed',
+    'parent chat finishes while workflow remains running');
+  assert.equal(pool.workflows.get(workflowId).status,'running',
+    'workflow continues in background after parent replied');
+  // Release reviewer one; verifier must still wait for reviewer two.
+  release.get('R1')();
+  await until(()=>pool.workflows.get(workflowId).phases[0].completed===1,
+    'one reviewer completed');
+  assert.equal(pool.workflows.get(workflowId).phases[0].completed,1);
+  assert.equal(pool.workflows.get(workflowId).phases[1].status,'waiting');
+  assert.equal(pool.get(verifierId).status,'queued');
+  release.get('R2')();
+  await until(()=>pool.workflows.get(workflowId).status==='completed',
+    'verifier finished after both reviewers');
+  assert.equal(pool.workflows.get(workflowId).completed,3);
+  const durable=JSON.parse(await fs.readFile(path.join(temp,'hub','api-conversations','sessions.json'),'utf8'));
+  assert.ok(durable.workflows.some(w=>w.id===workflowId),
+    'workflow phases/child IDs must persist in sessions.json');
+  assert.equal(durable.workflows.find(w=>w.id===workflowId).phases[1].agents.length,1);
+  const displayed=pool.workflows.forConversation(reviewParent.id)[0];
+  assert.equal(displayed.parentRunId,pool.get(reviewParent.id).runs.at(-1).id,
+    'workflow belongs to exact parent run');
+  assert.ok(displayed.phases[0].agents.every(a=>a.worktree),
+    'all real reviewers have separate Git worktrees');
+  const outcomes=pool.workflows.serialize();
+  pool.workflows.load(outcomes);
+  assert.equal(pool.workflows.get(workflowId).status,'completed',
+    'reload must preserve completed workflow without re-dispatching agents');
+  const removed=await pool.delete(reviewParent.id);
+  assert.ok(removed.deletedIds.length>=4,'workflow child agents deleted with parent chat');
+  assert.equal(pool.workflows.get(workflowId),null,
+    'deleted conversation removes its workflow metadata and background card');
+
   await pool.shutdown();
 
   assert.equal(buildUserAttachmentParts([{name:'hello.md',mimeType:'text/markdown',dataBase64:Buffer.from('A text file').toString('base64')}]).parts[0].type,'input_text');
