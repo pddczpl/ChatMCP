@@ -100,13 +100,14 @@ export class WorkflowOrchestrator {
       const failed=agents.filter(a=>FAILURE.has(a.status));
       const status=failed.length?'blocked':agents.length<(p.expectedAgents||agents.length)?'preparing':
         complete===agents.length&&agents.length>0?'completed':
+        agents.length>0&&agents.every(a=>a.status==='queued')?'waiting':
         agents.some(a=>LIVE.has(a.status))?'running':'paused';
       return {...p,agents,status,completed:complete,total:agents.length};
     });
     const total=phases.reduce((n,p)=>n+p.total,0);
     const complete=phases.reduce((n,p)=>n+p.completed,0);
     const blocked=phases.some(p=>p.status==='blocked');
-    const live=phases.some(p=>p.status==='running'||p.status==='preparing');
+    const live=phases.some(p=>p.status==='running'||p.status==='preparing'||p.status==='waiting');
     const status=raw.statusOverride||(
       blocked?'blocked':complete===total&&total>0?'completed':live?'running':'paused');
     const aggregate=phases.flatMap(p=>p.agents).reduce((n,a)=>({
