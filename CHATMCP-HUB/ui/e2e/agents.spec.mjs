@@ -171,9 +171,18 @@ test('model-created workflow appears live in chat and Background Tasks with real
   // Workflows remain observable AFTER the parent chat turn completes.
   await expect(page.getByTestId('chat-workflow')).toBeVisible();
   await expect.poll(async()=>{
+    // The test runs in Review mode. Worktree writes must NOT bypass the real
+    // Permission Gate just because an automated workflow created the agents.
+    // Grant each actual pending workspace-worktree request, like a user would.
+    const hub=await app.hub.state();
+    for(const approval of hub.studio?.permissions?.pending||[]){
+      if(approval.toolName==='local.worktrees_create'){
+        await app.hub.post('/api/studio/permissions/decide',{id:approval.id,approved:true});
+      }
+    }
     const response=await app.hub.get('/api/background-tasks');
     return response.json.workflows?.[0]?.status;
-  },{timeout:30000}).toBe('completed');
+  },{timeout:90000,intervals:[250,500,1000]}).toBe('completed');
   expect(reviewerStarts).toBe(2);
   expect(verifierStarts).toBe(1);
   const final=(await app.hub.get('/api/background-tasks')).json.workflows[0];
