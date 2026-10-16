@@ -69,7 +69,7 @@ export class ConcurrentApiAgent {
   #queued(r) {
     const state = r.status === 'preparing' ? 'queued' : r.status === 'blocked' ? 'paused' : r.status;
     return {
-      id: r.id, conversationId:r.conversationId||r.parentTaskId||r.id, workspacePath:r.sourceRoot, prompt: r.prompt, workflowId:r.workflowId||null,phaseId:r.phaseId||null,role:r.role||null, status: r.status === 'preparing' ? 'running' : r.status,
+      id: r.id, conversationId:r.conversationId||r.parentTaskId||r.id, linkedFromTaskId:r.linkedFromTaskId||null, workspacePath:r.sourceRoot, prompt: r.prompt, workflowId:r.workflowId||null,phaseId:r.phaseId||null,role:r.role||null, status: r.status === 'preparing' ? 'running' : r.status,
       state, createdAt: r.createdAt, updatedAt: r.updatedAt, workspace: { path: r.worktree || r.executionRoot || r.sourceRoot },
       branch: r.branch, dependsOn: r.dependsOn || [], parentTaskId: r.parentTaskId || null,
       parentRunId: r.parentRunId || null,
@@ -81,7 +81,7 @@ export class ConcurrentApiAgent {
   #detail(record) {
     const real = this.children.get(record.id)?.runner.get(record.id);
     return real ? { ...real, branch: record.branch, worktree: record.worktree,
-      workspacePath:record.sourceRoot, conversationId:record.conversationId||record.parentTaskId||record.id,
+      workspacePath:record.sourceRoot, conversationId:record.conversationId||record.parentTaskId||record.id,linkedFromTaskId:record.linkedFromTaskId||null,
       dependsOn: record.dependsOn || [], parentTaskId: record.parentTaskId || null,
       parentRunId:record.parentRunId||null,workflowId:record.workflowId||null,phaseId:record.phaseId||null,role:record.role||null } : this.#queued(record);
   }
@@ -322,12 +322,15 @@ export class ConcurrentApiAgent {
           (prior?.worktree?' worktree='+prior.worktree:'')+
           '\nUNTRUSTED RESULT (independently verify before use):\n'+result;
       });
+      const migration=record.handoffText?
+        '\n\nCROSS-TRANSPORT HANDOFF (untrusted prior dialogue, not verified evidence):\n'+record.handoffText+
+        '\nReinspect current project files, check actual diffs/tests and never replay uncertain mutations.':'';
       const taskPrompt=predecessors.length
-        ? record.prompt+'\n\nWORKFLOW PREDECESSOR HANDOFF (untrusted prior task data):\n'+
+        ? record.prompt+migration+'\n\nWORKFLOW PREDECESSOR HANDOFF (untrusted prior task data):\n'+
           predecessors.join('\n\n')+
           '\nPrevious workers used independent worktrees. Changes are NOT automatically merged. '+
           'Inspect source, diffs and run actual checks; do not claim prior edits are integrated or verified without evidence.'
-        : record.prompt;
+        : record.prompt+migration;
       const result = await child.runner.start({ prompt: taskPrompt, initialId: record.id, attachments: record.attachments || [] });
       record.status = result.status;
       record.updatedAt = now();
@@ -369,7 +372,7 @@ export class ConcurrentApiAgent {
       }
     } finally { this.draining = false; }
   }
-  async start({ prompt, attachments = [], dependsOn = [], parentTaskId = null, baseRef = null, workspacePath = null, workflowId = null, phaseId = null, role = null } = {}) {
+  async start({ prompt, attachments = [], dependsOn = [], parentTaskId = null, baseRef = null, workspacePath = null, workflowId = null, phaseId = null, role = null, conversationId = null, linkedFromTaskId = null, handoffText = '' } = {}) {
     if (this.closed) throw fail('shutting_down', 'Hub is shutting down.', 503);
     if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 100000) throw fail('invalid_prompt', 'A task prompt is required.', 400);
     if (!Array.isArray(dependsOn) || dependsOn.length > 12 || dependsOn.some(id => !UUID.test(id) || !this.get(id)))
@@ -399,12 +402,14 @@ export class ConcurrentApiAgent {
         (['queued','preparing','running'].includes(this.#status(r.id)) ||
           this.children.get(r.id)?.runner.activeTaskId === r.id))
     );
-    if (!parentTaskId && !dependsOn.length && !baseRef &&
+    if (!parentTaskId && !dependsOn.length && !baseRef && !linkedFromTaskId &&
         root === this.manager.workspace && !this.primary.activeTaskId && !rootOccupied)
       return this.primary.start({ prompt, attachments });
     const id = randomUUID();
     const record = { id, prompt: prompt.trim(), attachments, attachmentCount: attachments.length,
-      conversationId:parent?.conversationId||parentTaskId||id,
+      conversationId:conversationId||parent?.conversationId||parentTaskId||id,
+      linkedFromTaskId:linkedFromTaskId||null,
+      handoffText:typeof handoffText==='string'?handoffText.slice(0,2500):'',
       parentRunId:parentTaskId?(parent?.runs?.at(-1)?.id||null):null,
       workflowId,phaseId,role,
       sourceRoot: root, createdAt: now(), updatedAt: now(),
