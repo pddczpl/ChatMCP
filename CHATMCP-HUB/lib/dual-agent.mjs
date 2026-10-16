@@ -54,6 +54,10 @@ export class DualAgent {
     const existing = this.get(payload?.id);
     if (!existing) throw Object.assign(new Error('Không tìm thấy hội thoại cũ. Không tự tạo phiên mới.'),{statusCode:404});
     if (existing.transport !== this.mode) throw Object.assign(new Error('Hội thoại này thuộc chế độ '+existing.transport+'. Hãy chọn đúng chế độ để tiếp tục.'),{statusCode:409});
+    if(existing.transport==='chatgpt-web' && this.api.manager?.workspaceRegistry){
+      const root=existing.workspacePath||existing.workspace?.path;
+      if(root)await this.api.manager.workspaceRegistry.resolve(root);
+    }
     return this.mode === 'api' ? this.api.continue(payload) : this.browser.continue(payload);
   }
   async setAutoResume({ id, enabled } = {}) {
