@@ -97,6 +97,10 @@ test('Background tasks supports new chats, Git choices, attachment previews and 
   const detachedPath=await fs.realpath(other);
   expect(detached.json.items.some(w=>w.path===detachedPath)).toBe(false);
   expect((await app.hub.task(third.id)).id).toBe(third.id);
+  const blocked=await app.hub.request('POST','/api/tasks/continue',{
+    id:third.id,prompt:'Should not resume after workspace detachment',
+  });
+  expect(blocked.status).toBe(403);
 
   await app.hub.post('/api/workspaces/add',{path:other});
   await expect(page.getByRole('button',{name:'second-workspace',exact:true})).toBeVisible();
