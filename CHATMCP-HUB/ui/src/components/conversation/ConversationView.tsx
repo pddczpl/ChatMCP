@@ -57,6 +57,10 @@ export function ConversationView() {
   });
   const relatedWorkflows=(background?.workflows||[]).filter(w=>w.conversationId===selectedTaskId);
   const isWorking = isTaskActive(task);
+  const isWebTransport = hub?.agent?.mode === 'chatgpt-web';
+  const webNotPaired = isWebTransport && !hub?.browser?.paired;
+  const webNoWorkspace = isWebTransport && !(selectedWorkspacePath || hub?.workspaces?.activePath || hub?.workspace?.path);
+  const webBusy = isWebTransport && Boolean(hub?.agent?.activeTaskId);
   const permissions = hub?.studio?.permissions;
   const mode = permissions?.executionPolicy === 'full-access' ? 'full-access' : permissions?.mode || 'review';
   const visibleToken = isWorking && streamingTaskId === selectedTaskId ? streamingToken : '';
@@ -338,13 +342,21 @@ export function ConversationView() {
         messagesEndRef.current?.scrollIntoView({ behavior: 'instant', block: 'end' });
       }}>Về nội dung mới nhất ↓</button></div>}
 
+      {/* Browser Companion does not fabricate a ChatGPT API or submit to an
+          unauthenticated tab. Explain the prerequisite before enabling Send. */}
+      {(webNotPaired || webNoWorkspace || webBusy) && <div role="status"
+        className="px-4 py-2 text-xs text-amber-500 border-t border-[var(--line)]">
+        {webNotPaired ? 'ChatGPT Web chưa ghép Browser Companion. Mở Inspector → AI Model để tạo mã ghép trước khi giao việc.'
+          : webNoWorkspace ? 'Hãy chọn workspace trước khi giao nhiệm vụ cho ChatGPT Web.'
+          : 'Một tác vụ Browser Companion đang chạy. Chờ hoặc dừng tác vụ đó trước khi gửi tiếp.'}
+      </div>}
       {/* Bottom Composer */}
       <Composer
         key={selectedTaskId || 'new-conversation'}
         onSendMessage={handleSendMessage}
         onStop={handleStopTask}
         isWorking={isWorking}
-        disabled={sending || (!!selectedTaskId && (isLoading || !!taskError))}
+        disabled={sending || webNotPaired || webNoWorkspace || webBusy || (!!selectedTaskId && (isLoading || !!taskError))}
         currentMode={mode}
         onModeChange={handleModeChange}
         dependencyOptions={!selectedTaskId ? (hub?.tasks || []).filter(x=>x.id&&x.status!=='failed'&&x.status!=='cancelled').slice(0,15)
