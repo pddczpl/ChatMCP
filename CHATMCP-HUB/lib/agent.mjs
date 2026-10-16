@@ -714,7 +714,7 @@ export class AgentRunner {
     task.progress = createTaskProgress(task.progress, { newRun: true });
     task.goalPlan = decomposeCodingTask(task.prompt,task.goalPlan);
     task.prompts ??= []; task.prompts.push({at:initial,text:cleanPrompt,attachments:attachmentParts.metadata});
-    task.runs ??= []; task.runs.push({id:randomUUID(),conversationId:id,startedAt:initial,finishedAt:null,status:'running',startStep:task.steps,startToolCalls:task.toolCalls});
+    task.runs ??= []; task.runs.push({id:randomUUID(),conversationId:id,title:cleanPrompt,startedAt:initial,finishedAt:null,status:'running',startStep:task.steps,startToolCalls:task.toolCalls});
     task.dialogue ??= []; task.dialogue.push({role:'user',at:initial,text:cleanPrompt+(attachmentParts.metadata.length?'\n[Đính kèm: '+attachmentParts.metadata.map(x=>x.name).join(', ')+']':''),run:task.runs.length});
     // A previous mutating MCP result can be uncertain after a crash. Do not
     // replay it. Surface it as context for inspection before any repeat.
