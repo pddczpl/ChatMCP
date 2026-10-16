@@ -196,7 +196,7 @@ export class WorkflowOrchestrator {
   async cancel(id){
     const workflow=this.workflows.get(id);
     if(!workflow)throw fault('workflow_not_found','Unknown workflow.',404);
-    if(workflow.statusOverride==='cancelled')return this.get(id);
+    if(workflow.statusOverride==='cancelled'||this.get(id)?.status==='completed')return this.get(id);
     const errors=[];
     for(const taskId of workflow.phases.flatMap(p=>p.agents.map(a=>a.taskId))){
       const task=this.getTask(taskId);
