@@ -425,7 +425,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
             result=await workspaceRegistry.remove(payload.path);
             break;
           }
-          case '/api/workspace/select': if(coding?.active||coding?.integrating||dynamic?.activeRunId)
+          case '/api/workspace/select': if(taskEngine?.state()?.activeTaskIds?.length || coding?.active||coding?.integrating||dynamic?.activeRunId)
             throw Object.assign(new Error('Stop coding/dynamic workers before switching the legacy Studio workspace.'),{statusCode:409});
             await manager.selectWorkspace(payload.path);
             if(workspaceRegistry){
