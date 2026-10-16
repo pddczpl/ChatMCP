@@ -17,8 +17,12 @@ const elapsed=(task:BackgroundRun)=>{
   const minutes=Math.floor(seconds/60);
   return minutes<60?minutes+'m '+String(seconds%60).padStart(2,'0')+'s':Math.floor(minutes/60)+'h '+minutes%60+'m';
 };
-const formatTokens=(n?:number)=>!Number.isFinite(n)?null
-  :(n!>=1e6?(n!/1e6).toFixed(1)+'M':n!>=1000?(n!/1000).toFixed(1)+'k':String(n));
+const formatTokens=(n?:number)=>{
+  if(typeof n!=='number'||!Number.isFinite(n))return null;
+  if(n>=1e6)return (n/1e6).toFixed(1)+'M';
+  if(n>=1000)return (n/1000).toFixed(1)+'k';
+  return String(n);
+};
 const compact=(v:string,length=160)=>v.length>length?v.slice(0,length)+'…':v;
 
 export function BackgroundTasks() {
