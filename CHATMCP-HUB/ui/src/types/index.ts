@@ -64,6 +64,7 @@ export interface TaskDetail extends TaskSummary {
   errorCode?: string;
   error?: string;
   chatUrl?: string;
+  handoff?: {fromTaskId:string;toTransport:string;note:string};
 }
 
 export interface ApprovalRequest {
