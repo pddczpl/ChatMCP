@@ -1,6 +1,8 @@
 import { test, expect, onboard, send, taskByPrompt } from './fixtures.mjs';
 import { waitForState } from '../../tests/e2e/hub-process.mjs';
 import { say } from '../../tests/e2e/scenarios.mjs';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
 // The legacy Inspector -> "Trợ lý" form was intentionally removed.
 // Background agents are now ordinary conversations, dispatched from chat,
@@ -63,5 +65,21 @@ test('Background tasks supports new chats, Git choices, attachment previews and 
   const panel=page.getByText('2 tác vụ',{exact:false});
   await expect(page.getByTestId('background-task')).toHaveCount(2);
   await expect(panel).toBeVisible();
+  // The second workspace is a distinct folder with its own chat list.
+  // Running a task there must never redirect the original Hub manager.
+  const other=path.join(app.scratch,'second-workspace');
+  await fs.mkdir(other,{recursive:true});
+  await fs.writeFile(path.join(other,'README.md'),'# Second workspace\n');
+  await app.hub.post('/api/workspaces/add',{path:other});
+  await expect(page.getByRole('button',{name:'second-workspace',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'second-workspace',exact:true}).click();
+  await page.getByRole('button',{name:'Hội thoại mới',exact:true}).click();
+  const thirdPrompt='Summarize another workspace independently.';
+  await send(page,thirdPrompt);
+  const third=await taskByPrompt(app,thirdPrompt);
+  await waitForState(app.hub,third.id,'completed');
+  expect(third.workspacePath).toBe(await fs.realpath(other));
+  expect((await app.hub.state()).workspace.path).toBe(app.project);
+  await expect(page.getByTestId('background-task')).toHaveCount(3);
   await page.screenshot({path:testInfo.outputPath('background-tasks-light-1280.png'),fullPage:true});
 });
