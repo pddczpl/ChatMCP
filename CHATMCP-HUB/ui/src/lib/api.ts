@@ -1,4 +1,4 @@
-import { browseNativeWorkspace } from './native-folder-picker';
+import { browseNativeWorkspace } from './native-folder-picker.ts';
 import type { HubState, HubHealth, Task, TaskDetail, ChatAttachment, WorkspaceCollection, BackgroundRun, BackgroundWorkflow, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset } from '@/types';
 import { normalizeTask } from './task-view.ts';
 
