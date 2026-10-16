@@ -153,6 +153,23 @@ try{
   assert.equal(back.linkedFromTaskId,continued.id);
   assert.equal(browser.get(back.id).chatUrl,null);
   await browser.cancel(back.id);
+  // URL missing after the first send is recoverable ONLY from an explicitly
+  // paired extension proving task/nonce on a canonical official chat URL.
+  const recovery=browser.requestUrlRecovery({id:back.id});
+  assert.equal(recovery.pending,true);
+  const checkpoint=await browser.poll({clientId,taskId:back.id});
+  assert.equal(checkpoint.recovery.taskId,back.id);
+  const childNonce=browser.tasks.get(back.id).nonce;
+  await assert.rejects(browser.recoverUrl({clientId,taskId:back.id,nonce:'f'.repeat(48),
+    url,proof:'user_task_nonce'}),{code:'url_recovery_identity'});
+  await assert.rejects(browser.recoverUrl({clientId,taskId:back.id,nonce:childNonce,
+    url:'https://chatgpt.com/c/local-chatgpt%3A'+randomUUID(),
+    proof:'user_task_nonce'}),{code:'url_recovery_provisional'});
+  const accepted=await browser.recoverUrl({clientId,taskId:back.id,nonce:childNonce,
+    url:'https://chatgpt.com/c/'+randomUUID(),proof:'user_task_nonce'});
+  assert.equal(accepted.ok,true);
+  assert.equal(browser.get(back.id).chatUrl,accepted.chatUrl);
+  assert.equal((await browser.poll({clientId,taskId:back.id})).recovery,null);
   const reloaded=new DualAgent({browser,api,directory:path.join(temp,'hub'),defaultMode:'api'});
   await reloaded.load();
   assert.equal(reloaded.get(back.id).conversationId,task.id);
