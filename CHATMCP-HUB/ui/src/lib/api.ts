@@ -240,7 +240,7 @@ export const api = {
   setAgentMode: (mode: 'api'|'chatgpt-web') => request<any>('/api/agent/mode', { method: 'POST', body: JSON.stringify({ mode }) }),
   createBrowserPairCode: () => request<{code:string;expiresAt:string}>('/api/browser/pair-code',{method:'POST'}),
   unpairBrowser: () => request<any>('/api/browser/unpair',{method:'POST'}),
-  recoverBrowserChatUrl: (id:string) => request<{ok:boolean;pending?:boolean;chatUrl?:string}>('/api/browser/recover-url/request',{method:'POST',body:JSON.stringify({id})}),
+  recoverBrowserChatUrl: (id:string) => request<{ok:boolean;pending?:boolean;alreadyBound?:boolean;chatUrl?:string}>('/api/browser/recover-url/request',{method:'POST',body:JSON.stringify({id})}),
 
   // Intelligence
   getIntelligenceStatus: () => request<{ engineHealth?: {checkedAt: string | null; engines: {id: string; status: string; source?: string; version?: string | null; detail?: string}[]} }>('/api/studio/intelligence/status'),
