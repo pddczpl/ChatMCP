@@ -488,7 +488,10 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
               authMode:response.authMode || provider.state().authMode,attempts:Array.isArray(response.attempts)?response.attempts:undefined,
               toolCalling:response.toolCalling,toolCallingNote:response.toolCallingNote };
           }); break;
-          case '/api/agent/mode': if (!agent) throw new Error('Agent chưa khởi tạo.'); await changeAi(() => agent.configure(payload)); result = stateNow(); break;
+          case '/api/agent/mode': if (!agent) throw new Error('Agent chưa khởi tạo.');
+            // Selecting the transport for NEW chats is not a model/API key
+            // reconfiguration and must not interrupt jobs already running.
+            await agent.configure(payload); result = stateNow(); break;
           case '/api/auth/chatgpt/start': return json(410, { error: 'Dùng chế độ ChatGPT Web qua Browser Companion, không dùng OAuth ChatGPT trong Hub.' });
           case '/api/auth/logout': return json(410, { error: 'Để xoá API key đã lưu, dùng /api/ai/clear-key.' });
           case '/api/tasks/start': if (!taskEngine) throw new Error('Agent chưa khởi tạo.'); if (aiBusy) { const e = new Error('Kết nối AI đang thay đổi. Chờ hoàn tất rồi chạy nhiệm vụ.'); e.statusCode = 409; throw e; } result = { task: await taskEngine.start(payload) }; break;
