@@ -198,9 +198,9 @@ export class ConcurrentApiAgent {
   }
   async #worktree(record, signal) {
     signal?.throwIfAborted();
-    const git = this.manager.studio?.gitRunner;
-    if (!git || !this.manager.workspace) throw fail('workspace_missing', 'Select a Git project before starting another chat.');
-    if (this.manager.workspace !== record.sourceRoot) throw fail('workspace_changed', 'The selected project changed while preparing this task.');
+    const owner = await this.#workspaceManager(record.sourceRoot);
+    const git = owner.studio?.gitRunner;
+    if (!git || !owner.workspace) throw fail('workspace_missing', 'A Git repository is required for parallel writes.');
     const check = await git.text(['rev-parse', '--verify', 'HEAD'], { timeoutMs: 15000, signal });
     if (check.code !== 0 || !/^[0-9a-f]{40}$/i.test(check.stdout.trim()))
       throw fail('git_required', 'Independent coding conversations require a Git repository with a committed HEAD.');
@@ -213,9 +213,9 @@ export class ConcurrentApiAgent {
     }
     const branch = 'chatmcp/chat/' + record.id.slice(0, 12);
     const worktree = path.join(this.directory, record.id, 'worktree');
-    const gate = this.manager.permissions;
+    const gate = owner.permissions;
     if (gate && gate.mode !== 'autonomous') {
-      const definition = this.manager.catalog.tools.find(x => x.name === 'local.worktrees_create');
+      const definition = owner.catalog.tools.find(x => x.name === 'local.worktrees_create');
       const decision = await gate.authorize({
         name: 'local.worktrees_create',
         args: { branch, path: worktree }, definition, taskId: record.id, signal,
@@ -246,7 +246,7 @@ export class ConcurrentApiAgent {
     this.preflights.set(record.id, controller);
     try {
       if (record.status !== 'preparing') return;
-      if (!record.worktree) await this.#worktree(record, controller.signal);
+      if (!record.worktree && !record.executionRoot) await this.#worktree(record, controller.signal);
       if (record.status !== 'preparing' || controller.signal.aborted) return;
       const child = await this.#initChild(record);
       if (record.status !== 'preparing' || controller.signal.aborted) return;
@@ -291,14 +291,19 @@ export class ConcurrentApiAgent {
       }
     } finally { this.draining = false; }
   }
-  async start({ prompt, attachments = [], dependsOn = [], parentTaskId = null, baseRef = null } = {}) {
+  async start({ prompt, attachments = [], dependsOn = [], parentTaskId = null, baseRef = null, workspacePath = null } = {}) {
     if (this.closed) throw fail('shutting_down', 'Hub is shutting down.', 503);
     if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 100000) throw fail('invalid_prompt', 'A task prompt is required.', 400);
     if (!Array.isArray(dependsOn) || dependsOn.length > 12 || dependsOn.some(id => !UUID.test(id) || !this.get(id)))
       throw fail('invalid_dependencies', 'Dependencies must reference existing ChatMCP tasks.', 400);
     if (parentTaskId && (!UUID.test(parentTaskId) || !this.get(parentTaskId)))
       throw fail('invalid_parent', 'Parent task was not found.', 400);
-    if (!this.manager.workspace) throw fail('workspace_missing', 'Select a project before starting an agent.');
+    const parent = parentTaskId ? this.get(parentTaskId) : null;
+    const desired = parent ? parent.workspacePath || parent.workspace?.path || this.manager.workspace : workspacePath;
+    const root = this.manager.workspaceRegistry
+      ? (await this.manager.workspaceRegistry.resolve(desired)).path
+      : this.manager.workspace;
+    if (!root) throw fail('workspace_missing', 'Select a project before starting an agent.');
     // A runner may have persisted its completed state a moment before its
     // finally block releases the workspace lock. Wait for cleanup, not a new
     // worktree, when a previous sequential task is already finished.
@@ -309,12 +314,19 @@ export class ConcurrentApiAgent {
     // explicit branch selections or dependent background agents use isolated
     // worktrees. This avoids unexpectedly editing a throwaway branch after a
     // prior chat completed, while never allowing two writers in one checkout.
-    if (!parentTaskId && !dependsOn.length && !baseRef && !this.primary.activeTaskId)
+    const rootOccupied = Boolean(
+      (this.primary.activeTaskId && root === this.manager.workspace) ||
+      [...this.records.values()].some(r => r.sourceRoot === root && r.executionRoot === root &&
+        ['queued','preparing','running'].includes(this.#status(r.id)))
+    );
+    if (!parentTaskId && !dependsOn.length && !baseRef &&
+        root === this.manager.workspace && !this.primary.activeTaskId && !rootOccupied)
       return this.primary.start({ prompt, attachments });
     const id = randomUUID();
     const record = { id, prompt: prompt.trim(), attachments, attachmentCount: attachments.length,
-      sourceRoot: this.manager.workspace, createdAt: now(), updatedAt: now(),
+      sourceRoot: root, createdAt: now(), updatedAt: now(),
       status: 'queued', dependsOn: [...new Set(dependsOn)], parentTaskId, baseRef,
+      executionRoot: root !== this.manager.workspace && !rootOccupied && !parentTaskId && !baseRef ? root : null,
       worktree: null, branch: null, permissionMode: this.manager.permissions?.mode || 'review',
       executionPolicy: this.manager.permissions?.executionPolicy || 'host-review', error: null };
     this.records.set(id, record);
@@ -326,7 +338,8 @@ export class ConcurrentApiAgent {
     if (typeof goal !== 'string' || !goal.trim() || goal.length > 8000)
       throw fail('invalid_goal', 'Subagent goal is required and must be under 8000 characters.', 400);
     // The caller's tool invocation already passes the active conversation's permissions.
-    return this.start({ prompt: goal, dependsOn, parentTaskId });
+    return this.start({ prompt: goal, dependsOn, parentTaskId,
+      workspacePath: this.get(parentTaskId)?.workspacePath || null });
   }
   async continue({ id, prompt, attachments = [], ...limits } = {}) {
     if (this.primary.get(id)) {
