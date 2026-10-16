@@ -143,7 +143,8 @@ export function Header() {
           title="Cấu hình mô hình AI"
         >
           <Cpu className="w-3.5 h-3.5 text-teal-400" />
-          <span className="max-w-[120px] truncate">{hub?.ai?.model || (lang === 'en' ? 'No AI configured' : 'Chưa kết nối AI')}</span>
+          <span className="max-w-[120px] truncate">{hub?.agent?.mode === 'chatgpt-web'
+            ? 'ChatGPT Web' : (hub?.ai?.model || (lang === 'en' ? 'No AI configured' : 'Chưa kết nối AI'))}</span>
         </button>
 
         {/* Theme Switcher */}
