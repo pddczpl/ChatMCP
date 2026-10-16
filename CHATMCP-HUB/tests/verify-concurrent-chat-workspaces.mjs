@@ -101,6 +101,17 @@ try {
   release.get('A')();
   await until(()=>pool.get(first.id)?.status==='completed','A complete with extra message');
   assert.ok(pool.get(first.id).events.some(x=>x.type==='user_message_delivered'));
+  // Same workspace, same conversation, two separate execution/task runs.
+  // A completed first task must not turn the follow-up into a new chat.
+  const beforeFollowup=pool.backgroundTasks().filter(x=>x.conversationId===first.id);
+  assert.equal(beforeFollowup.length,1);
+  await pool.continue({id:first.id,prompt:'Follow up in the same conversation.'});
+  await until(()=>pool.get(first.id)?.runs?.length===2&&pool.get(first.id)?.status==='completed',
+    'separate second run in the same conversation');
+  const afterFollowup=pool.backgroundTasks().filter(x=>x.conversationId===first.id);
+  assert.equal(afterFollowup.length,2,'one conversation contains multiple task runs');
+  assert.notEqual(afterFollowup[0].id,afterFollowup[1].id,'task/run IDs must remain distinct');
+
   const worktrees=pool.state().tasks.filter(x=>x.worktree && x.workspace?.path!==repo);
   assert.ok(worktrees.length>=2,'child conversations must have their own worktree paths');
   const unique=new Set(worktrees.map(x=>x.workspace.path));
