@@ -203,6 +203,20 @@ export class ConcurrentApiAgent {
     try { return await this.accessManagers.get(sourceRoot); }
     catch (error) { this.accessManagers.delete(sourceRoot); throw error; }
   }
+  async browserWorkspaceManager(workspacePath) {
+    const registry=this.manager.workspaceRegistry;
+    if(!registry)throw fail('workspace_missing','Select a registered workspace before using ChatGPT Web.',409);
+    const {path:root}=await registry.resolve(workspacePath);
+    const owner=await this.#workspaceManager(root);
+    // The Browser Companion executes local tools within an independently
+    // assembled manager whose execution registry, permission gate and command
+    // workspace all refer to THIS project, not the old primary checkout.
+    if(owner!==this.manager){
+      owner.permissions.mode=this.manager.permissions?.mode||'review';
+      owner.permissions.executionPolicy=this.manager.permissions?.executionPolicy||'host-review';
+    }
+    return owner;
+  }
   async gitRefs(workspacePath) {
     if (!this.manager.workspaceRegistry) throw fail('workspace_unavailable', 'No workspace registry.', 503);
     const root = (await this.manager.workspaceRegistry.resolve(workspacePath)).path;
