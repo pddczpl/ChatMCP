@@ -159,8 +159,8 @@ for(const fixture of [{oldPhase:'failed',oldInstance:'same-hub'}, {oldPhase:'rec
 
 
 // ChatGPT Web mode is not an API gateway: a paired Browser Companion executes
-// verified commands against the selected registered local workspace. It may
-// rebind the primary manager only while all other coding jobs are idle.
+// verified commands against the selected registered local workspace. It uses
+// an isolated workspace manager without ever changing the primary checkout.
 {
   const workDir=await fsp.mkdtemp(path.join(os.tmpdir(),'chatmcp-web-mode-'));
   try {
@@ -168,7 +168,7 @@ for(const fixture of [{oldPhase:'failed',oldInstance:'same-hub'}, {oldPhase:'rec
     const secondary=path.join(workDir,'secondary');
     const other=path.join(workDir,'unregistered');
     const allowed=new Set([primary,secondary]);
-    const switched=[],started=[],continued=[],tasks=new Map();
+    const selectedManagers=[],started=[],continued=[],tasks=new Map();
     let webActiveId=null,apiActiveId=null;
     const manager={
       workspace:primary,busy:false,taskId:null,
@@ -179,21 +179,26 @@ for(const fixture of [{oldPhase:'failed',oldInstance:'same-hub'}, {oldPhase:'rec
           return {path:p};
         },
       },
-      async selectWorkspace(p){this.workspace=p;switched.push(p);},
+      // Primary manager is deliberately never mutated for browser jobs.
+      permissions:{mode:'review',executionPolicy:'host-review'},
     };
     const browser={
       manager,
       state:()=>({activeTaskId:webActiveId,active:null,tasks:[...tasks.values()]}),
       get:id=>tasks.get(id)||null,
       async start(payload){
-        const task={id:'web-task-'+(started.length+1),workspace:{path:manager.workspace},...payload};
+        const task={id:'web-task-'+(started.length+1),workspace:{path:browser.manager.workspace},...payload};
         tasks.set(task.id,task);started.push(task);return task;
       },
-      async continue(payload){continued.push({payload,workspace:manager.workspace});return {id:payload.id,workspace:{path:manager.workspace}};},
+      async continue(payload){continued.push({payload,workspace:browser.manager.workspace});return {id:payload.id,workspace:{path:browser.manager.workspace}};},
       async shutdown(){},
     };
     const api={
       manager,
+      async browserWorkspaceManager(root){
+        selectedManagers.push(root);
+        return {workspace:root,permissions:{mode:manager.permissions.mode,executionPolicy:manager.permissions.executionPolicy}};
+      },
       state:()=>({activeTaskId:apiActiveId,activeTaskIds:apiActiveId?[apiActiveId]:[],active:null,tasks:[]}),
       get:()=>null,
       async start(payload){return {id:'api-task',...payload};},
@@ -201,25 +206,26 @@ for(const fixture of [{oldPhase:'failed',oldInstance:'same-hub'}, {oldPhase:'rec
     };
     const dual=new DualAgent({browser,api,directory:workDir,defaultMode:'chatgpt-web'});
     await assert.rejects(dual.start({prompt:'No folder',workspacePath:other}),{code:'unregistered_workspace'});
-    assert.equal(switched.length,0,'unregistered folder cannot select a local coding root');
+    assert.equal(selectedManagers.length,0,'unregistered folder cannot select a local coding root');
     await assert.rejects(dual.start({prompt:'No image relay',workspacePath:secondary,
       attachments:[{name:'screenshot.png'}]}),{code:'browser_attachments_unsupported'});
-    assert.equal(switched.length,0,'unsupported media cannot trigger workspace mutation');
+    assert.equal(selectedManagers.length,0,'unsupported media cannot trigger workspace mutation');
 
     const created=await dual.start({prompt:'Inspect selected project',workspacePath:secondary});
     assert.equal(created.workspace.path,secondary);
-    assert.equal(manager.workspace,secondary,'the selected registered workspace reaches the web command runner');
-    assert.deepEqual(switched,[secondary]);
+    assert.equal(manager.workspace,primary,'Web transport must never rebind the primary Hub workspace');
+    assert.equal(browser.manager.workspace,secondary,'selected registered project bound to Web runner');
+    assert.deepEqual(selectedManagers,[secondary]);
     // A continuation returns to the ORIGINAL conversation's checkout, not
     // whichever other workspace is highlighted in the current sidebar.
-    manager.workspace=primary;
+    browser.manager=manager;
     const resumed=await dual.continue({id:created.id,prompt:'Continue in same web conversation'});
     assert.equal(resumed.workspace.path,secondary);
     assert.equal(continued[0].workspace,secondary);
 
     apiActiveId='other-api-agent';
     await assert.rejects(dual.start({prompt:'No shared redirect',workspacePath:primary}),{statusCode:409});
-    assert.equal(manager.workspace,secondary,'active API jobs cannot be redirected by a web task');
+    assert.equal(manager.workspace,primary,'active API jobs cannot be redirected by a web task');
     apiActiveId=null;
     manager.busy=true;
     await assert.rejects(dual.start({prompt:'Busy manager',workspacePath:primary}),{code:'browser_workspace_busy'});
@@ -231,7 +237,7 @@ for(const fixture of [{oldPhase:'failed',oldInstance:'same-hub'}, {oldPhase:'rec
     assert.equal(dual.state().mode,'api');
     const delegated=await dual.start({prompt:'API-mode job',workspacePath:primary});
     assert.equal(delegated.id,'api-task');
-    assert.equal(switched.at(-1),secondary,'API-mode job does not rebind browser manager');
+    assert.equal(selectedManagers.at(-1),secondary,'API-mode job does not rebind browser manager');
     console.log('PASS ChatGPT Web mode: registered selected workspace, verified prior conversation root, no media bypass, idle-only switch, API mode unchanged');
   } finally {
     await fsp.rm(workDir,{recursive:true,force:true});
