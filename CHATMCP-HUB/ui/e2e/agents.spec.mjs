@@ -60,7 +60,8 @@ test('Background tasks supports new chats, Git choices, attachment previews and 
   await waitForState(app.hub,second.id,'completed');
   expect(second.id).not.toBe(first.id);
   expect((await app.hub.state()).agent.tasks).toHaveLength(2);
-  const panel=page.getByText('2 phiên',{exact:false});
+  const panel=page.getByText('2 tác vụ',{exact:false});
+  await expect(page.getByTestId('background-task')).toHaveCount(2);
   await expect(panel).toBeVisible();
   await page.screenshot({path:testInfo.outputPath('background-tasks-light-1280.png'),fullPage:true});
 });
