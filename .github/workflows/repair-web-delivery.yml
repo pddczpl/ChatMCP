@@ -1,4 +1,4 @@
-# User-authorized one-shot repair on main. Removed by its tested output commit.
+# User-authorized one-shot repair. Release commit removes this bootstrap.
 name: Repair ChatGPT Web delivery on main
 on:
   push:
@@ -49,6 +49,14 @@ jobs:
         run: |
           set -euo pipefail
           python scripts/maintenance/web-delivery-v3.8.2.py
+          python - <<'PY'
+          from pathlib import Path
+          for name in ('README.md', 'docs/DEVELOPMENT.md'):
+              p = Path(name)
+              text = p.read_text(encoding='utf-8')
+              assert '91 bộ Node' in text, 'Review changed suite-count documentation: ' + name
+              p.write_text(text.replace('91 bộ Node', '92 bộ Node'), encoding='utf-8', newline='\n')
+          PY
           node --check CHATMCP-HUB/extension/browser-background.js
           node --check CHATMCP-HUB/extension/browser-runner.js
           node --check CHATMCP-HUB/lib/browser-runner.mjs
@@ -64,14 +72,15 @@ jobs:
           name: web-delivery-v3.8.2-test-evidence
           path: /tmp/web-delivery-proof
           if-no-files-found: error
-      - name: Commit tested changes directly to main without force
+      - name: Commit tested runtime changes directly to main without force
         shell: bash
         run: |
           set -euo pipefail
           git fetch origin main
           test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
-          rm scripts/maintenance/web-delivery-v3.8.2.py .github/workflows/repair-web-delivery.yml
-          git add CHATMCP-HUB scripts/Build-BrowserCompanion.ps1 scripts/maintenance/web-delivery-v3.8.2.py desktop-shell installer README.md SECURITY.md CHANGELOG.md RELEASE-NOTES-v3.8.2.md .github/workflows/repair-web-delivery.yml .github/workflows/publish-v3.8.2.yml
+          # The connector publishes workflow changes separately. GITHUB_TOKEN
+          # needs only contents:write here; it does not edit workflow files.
+          git add CHATMCP-HUB scripts/Build-BrowserCompanion.ps1 desktop-shell installer README.md SECURITY.md CHANGELOG.md RELEASE-NOTES-v3.8.2.md docs/DEVELOPMENT.md
           git diff --cached --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
