@@ -87,6 +87,11 @@ export class WorkflowOrchestrator {
         return {...a,status:statusOf(task),branch:task?.branch||null,
           worktree:task?.worktree||null,startedAt:task?.startedAt||task?.createdAt||null,
           finishedAt:task?.finishedAt||null,model:task?.model||null,
+          usage:task?.usage&&typeof task.usage==='object'?{
+            inputTokens:Number(task.usage.inputTokens||0),
+            outputTokens:Number(task.usage.outputTokens||0),
+            httpRequests:Number(task.usage.httpRequests||0),
+          }:null,
           // The verified result remains in each actual child conversation.
           // We only expose a concise, untrusted preview in workflow UI.
           resultPreview:typeof task?.finalText==='string'?task.finalText.slice(0,360):null};
@@ -104,7 +109,15 @@ export class WorkflowOrchestrator {
     const live=phases.some(p=>p.status==='running'||p.status==='preparing');
     const status=raw.statusOverride||(
       blocked?'blocked':complete===total&&total>0?'completed':live?'running':'paused');
-    return {...raw,phases,status,completed:complete,total,
+    const aggregate=phases.flatMap(p=>p.agents).reduce((n,a)=>({
+      inputTokens:n.inputTokens+(a.usage?.inputTokens||0),
+      outputTokens:n.outputTokens+(a.usage?.outputTokens||0),
+      httpRequests:n.httpRequests+(a.usage?.httpRequests||0),
+    }),{inputTokens:0,outputTokens:0,httpRequests:0});
+    const ends=phases.flatMap(p=>p.agents).map(a=>a.finishedAt).filter(Boolean).sort();
+    const finishedAt=['completed','blocked','failed','cancelled'].includes(status)&&
+      phases.every(p=>p.agents.every(a=>!LIVE.has(a.status)))?ends.at(-1)||raw.updatedAt:null;
+    return {...raw,phases,status,completed:complete,total,finishedAt,usage:aggregate,
       activeAgents:phases.flatMap(p=>p.agents).filter(a=>LIVE.has(a.status)).length,
       failedAgents:phases.flatMap(p=>p.agents).filter(a=>FAILURE.has(a.status)).length};
   }
