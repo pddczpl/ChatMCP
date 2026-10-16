@@ -456,9 +456,10 @@ export class ConcurrentApiAgent {
     }
     for(const taskId of queue){
       const record=this.records.get(taskId),child=this.children.get(taskId);
+      const started=child?.runner.get(taskId);
       if(this.primary.activeTaskId===taskId || child?.runner.activeTaskId===taskId ||
         this.preflights.has(taskId) ||
-        (record&&['queued','preparing','running'].includes(record.status)))
+        (record&&!started&&['queued','preparing','running'].includes(record.status)))
         throw fail('task_running','Stop all tasks and subagents in this conversation before deleting.',409);
     }
     const preservedWorktrees=[];
