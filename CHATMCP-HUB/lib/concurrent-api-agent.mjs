@@ -5,6 +5,7 @@ import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { HubManager } from './manager.mjs';
 import { AgentRunner } from './agent.mjs';
+import { WorkflowOrchestrator } from './workflow-orchestrator.mjs';
 import { assembleStudio } from './assemble.mjs';
 import { readJson, writeJson } from './runtime.mjs';
 
@@ -33,6 +34,17 @@ export class ConcurrentApiAgent {
     this.writes = Promise.resolve();
     this.draining = false;
     this.closed = false;
+    this.workflows=new WorkflowOrchestrator({
+      startAgent:(id,args)=>this.spawnAgent(id,args),
+      getTask:id=>this.get(id),
+      cancelTask:id=>this.cancel(id),
+      maxAgents:12,
+      onChange:async({type,workflowId,conversationId})=>{
+        await this.#save();
+        this.#event({type:'workflow',event:{type,workflowId},taskId:conversationId});
+      },
+      log:this.log,
+    });
     this.primary.subscribe((event) => this.#event(event));
   }
   subscribe(listener) {
@@ -48,7 +60,7 @@ export class ConcurrentApiAgent {
     }
   }
   #save() {
-    const snapshot = { version: 1, records: [...this.records.values()].map(({ attachments, ...r }) => r) };
+    const snapshot = { version: 2, records: [...this.records.values()].map(({ attachments, ...r }) => r), workflows:this.workflows.serialize() };
     const next = this.writes.catch(() => {}).then(() => writeJson(path.join(this.directory, 'sessions.json'), snapshot));
     this.writes = next;
     next.catch(() => {});
@@ -57,7 +69,7 @@ export class ConcurrentApiAgent {
   #queued(r) {
     const state = r.status === 'preparing' ? 'queued' : r.status === 'blocked' ? 'paused' : r.status;
     return {
-      id: r.id, conversationId:r.conversationId||r.parentTaskId||r.id, workspacePath:r.sourceRoot, prompt: r.prompt, status: r.status === 'preparing' ? 'running' : r.status,
+      id: r.id, conversationId:r.conversationId||r.parentTaskId||r.id, workspacePath:r.sourceRoot, prompt: r.prompt, workflowId:r.workflowId||null,phaseId:r.phaseId||null,role:r.role||null, status: r.status === 'preparing' ? 'running' : r.status,
       state, createdAt: r.createdAt, updatedAt: r.updatedAt, workspace: { path: r.worktree || r.executionRoot || r.sourceRoot },
       branch: r.branch, dependsOn: r.dependsOn || [], parentTaskId: r.parentTaskId || null,
       parentRunId: r.parentRunId || null,
@@ -71,7 +83,7 @@ export class ConcurrentApiAgent {
     return real ? { ...real, branch: record.branch, worktree: record.worktree,
       workspacePath:record.sourceRoot, conversationId:record.conversationId||record.parentTaskId||record.id,
       dependsOn: record.dependsOn || [], parentTaskId: record.parentTaskId || null,
-      parentRunId:record.parentRunId||null } : this.#queued(record);
+      parentRunId:record.parentRunId||null,workflowId:record.workflowId||null,phaseId:record.phaseId||null,role:record.role||null } : this.#queued(record);
   }
   #activeIds() {
     const ids = [];
@@ -165,6 +177,7 @@ export class ConcurrentApiAgent {
         catch (error) { record.status = 'paused'; record.error = 'Workspace unavailable: ' + error.message; }
       }
     }
+    this.workflows.load(data.workflows);
     await this.#save();
     return this.state();
   }
@@ -237,6 +250,7 @@ export class ConcurrentApiAgent {
     manager.permissions.mode = record.permissionMode || 'review';
     manager.permissions.executionPolicy = record.executionPolicy || 'host-review';
     manager.spawnBackgroundAgent = (_callerId, request) => this.spawnAgent(record.id, request);
+    manager.spawnWorkflow = (_callerId, request) => this.spawnWorkflow(record.id, request);
     await manager.startLocal(executionRoot);
     const runner = new AgentRunner({ manager, provider: this.provider,
       taskDirectory: path.join(stateDir, 'tasks'), log: this.log, toolSelectionMode: 'auto' });
@@ -341,7 +355,7 @@ export class ConcurrentApiAgent {
       }
     } finally { this.draining = false; }
   }
-  async start({ prompt, attachments = [], dependsOn = [], parentTaskId = null, baseRef = null, workspacePath = null } = {}) {
+  async start({ prompt, attachments = [], dependsOn = [], parentTaskId = null, baseRef = null, workspacePath = null, workflowId = null, phaseId = null, role = null } = {}) {
     if (this.closed) throw fail('shutting_down', 'Hub is shutting down.', 503);
     if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 100000) throw fail('invalid_prompt', 'A task prompt is required.', 400);
     if (!Array.isArray(dependsOn) || dependsOn.length > 12 || dependsOn.some(id => !UUID.test(id) || !this.get(id)))
@@ -378,6 +392,7 @@ export class ConcurrentApiAgent {
     const record = { id, prompt: prompt.trim(), attachments, attachmentCount: attachments.length,
       conversationId:parent?.conversationId||parentTaskId||id,
       parentRunId:parentTaskId?(parent?.runs?.at(-1)?.id||null):null,
+      workflowId,phaseId,role,
       sourceRoot: root, createdAt: now(), updatedAt: now(),
       status: 'queued', dependsOn: [...new Set(dependsOn)], parentTaskId, baseRef,
       executionRoot: root !== this.manager.workspace && !rootOccupied && !parentTaskId && !baseRef ? root : null,
@@ -388,12 +403,20 @@ export class ConcurrentApiAgent {
     void this.#drain().catch(error => this.log(error.message));
     return this.#queued(record);
   }
-  async spawnAgent(parentTaskId, { goal, dependsOn = [] } = {}) {
+  async spawnAgent(parentTaskId, { goal, dependsOn = [], workflowId = null, phaseId = null, role = null } = {}) {
     if (typeof goal !== 'string' || !goal.trim() || goal.length > 8000)
       throw fail('invalid_goal', 'Subagent goal is required and must be under 8000 characters.', 400);
     // The caller's tool invocation already passes the active conversation's permissions.
     return this.start({ prompt: goal, dependsOn, parentTaskId,
+      workflowId,phaseId,role,
       workspacePath: this.get(parentTaskId)?.workspacePath || null });
+  }
+  async spawnWorkflow(parentTaskId, request = {}) {
+    if (!this.get(parentTaskId)) throw fail('parent_missing','Conversation not found.',404);
+    const root=this.get(parentTaskId)?.workspacePath||this.get(parentTaskId)?.workspace?.path;
+    if (this.manager.workspaceRegistry&&root)
+      await this.manager.workspaceRegistry.resolve(root);
+    return this.workflows.create(parentTaskId,request);
   }
   async continue({ id, prompt, attachments = [], ...limits } = {}) {
     const original=this.get(id);
@@ -484,6 +507,7 @@ export class ConcurrentApiAgent {
       this.children.delete(taskId);
       this.records.delete(taskId);
     }
+    this.workflows.removeByConversation(id);
     await this.#save();
     this.#event({type:'state',taskId:id,state:'deleted'});
     // Git worktrees, branches and source files are NEVER deleted by removing
