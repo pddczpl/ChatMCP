@@ -59,7 +59,11 @@ if (@($manifest.permissions | Where-Object { $_ -notin $allowedPermissions }).Co
 $declared = @($manifest.background.service_worker, $manifest.action.default_popup)
 foreach ($script in $manifest.content_scripts) {
     $declared += @($script.js)
-    $declared += @($script.css)
+    # MV3 content_scripts.css is optional. PowerShell StrictMode throws when
+    # reading an absent PSObject property, even with an @() wrapper.
+    if ($null -ne $script.PSObject.Properties['css']) {
+        $declared += @($script.css)
+    }
 }
 $declared += @('browser-background.js', 'popup.css', 'popup.js', 'browser-popup.js', 'chat-route.js')
 foreach ($name in ($declared | Select-Object -Unique)) {
