@@ -21,7 +21,7 @@ const NO_TOOLS = /(?:does(?:n'?t| not) support (?:tools?|function)|tools? (?:is|
  *   unreliable  the request was accepted but the model answered in text instead of calling the function
  *   unknown     the probe could not be completed (network, rate limit, unexpected answer); says nothing about the model
  */
-export async function probeToolCalling({ protocol, endpoint, headers, model, fetch: fetchImpl, signal, redact = (text) => text, timeoutMs = 8000 }) {
+export async function probeToolCalling({ protocol, endpoint, headers, model, fetch: fetchImpl, signal, redact = (text) => text, timeoutMs = 20_000 }) {
   if (protocol !== 'anthropic' && protocol !== 'openai-chat') return { status: 'unknown', note: 'Giao thức này không có bước thăm dò công cụ; tool calling được dò khi chạy tác vụ thật.' };
   signal?.throwIfAborted();
   const input = [{ role: 'user', content: [{ type: 'input_text', text: PROMPT }] }];
