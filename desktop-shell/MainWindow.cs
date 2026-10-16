@@ -5,6 +5,8 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -20,6 +22,7 @@ namespace ChatMCP.Desktop
         private const int HubPort = 3007;
         private readonly string _hubUrl = $"http://127.0.0.1:{HubPort}/";
         private readonly string _repoRoot;
+        private static readonly Regex FolderRequestId = new(@"^[a-fA-F0-9-]{16,64}$", RegexOptions.Compiled);
 
         public MainWindow(string repoRoot)
         {
@@ -117,6 +120,11 @@ namespace ChatMCP.Desktop
                 _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
                 _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
                 _webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
+                // Desktop-native selection belongs to the visible WinForms
+                // window, NOT to an invisible PowerShell child process.
+                // Requests from any page other than our exact localhost UI
+                // are ignored before parsing message data.
+                _webView.CoreWebView2.WebMessageReceived += HandleNativeFolderRequest;
 
                 // Intercept new window requests: keep everything inside ChatMCP app
                 _webView.CoreWebView2.NewWindowRequested += (s, e) =>
@@ -159,6 +167,74 @@ namespace ChatMCP.Desktop
                 _statusLabel.Text = $"Error: {ex.Message}";
                 _statusLabel.ForeColor = Color.FromArgb(239, 68, 68);
             }
+        }
+
+        private void HandleNativeFolderRequest(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+        {
+            if (!Uri.TryCreate(e.Source, UriKind.Absolute, out var origin) ||
+                origin.Scheme != Uri.UriSchemeHttp ||
+                origin.Host != "127.0.0.1" ||
+                origin.Port != HubPort ||
+                origin.AbsolutePath != "/")
+                return;
+
+            string? requestId = null;
+            string? initial = null;
+            try
+            {
+                using var doc = JsonDocument.Parse(e.WebMessageAsJson);
+                var value = doc.RootElement;
+                if (value.ValueKind != JsonValueKind.Object ||
+                    !value.TryGetProperty("type", out var type) ||
+                    type.ValueKind != JsonValueKind.String ||
+                    type.GetString() != "chatmcp.pick-folder" ||
+                    !value.TryGetProperty("id", out var id) ||
+                    id.ValueKind != JsonValueKind.String ||
+                    !FolderRequestId.IsMatch(id.GetString() ?? ""))
+                    return;
+                requestId = id.GetString();
+                if (value.TryGetProperty("initialPath", out var start) &&
+                    start.ValueKind == JsonValueKind.String)
+                {
+                    var suggested = start.GetString();
+                    if (!string.IsNullOrWhiteSpace(suggested) && suggested.Length <= 4096 &&
+                        Path.IsPathFullyQualified(suggested) && Directory.Exists(suggested))
+                        initial = Path.GetFullPath(suggested);
+                }
+            }
+            catch (JsonException) { return; }
+
+            string? folder = null;
+            string? error = null;
+            try
+            {
+                using var dialog = new FolderBrowserDialog
+                {
+                    Description = "ChatMCP - Select a workspace folder",
+                    ShowNewFolderButton = true,
+                    AutoUpgradeEnabled = true,
+                };
+                if (initial != null) dialog.SelectedPath = initial;
+                // The actual visible ChatMCP window owns the modal picker.
+                // This is reliable even if the background Hub has no console.
+                if (dialog.ShowDialog(this) == DialogResult.OK)
+                {
+                    var selected = dialog.SelectedPath;
+                    if (!Directory.Exists(selected))
+                        throw new IOException("Selected folder is unavailable.");
+                    folder = Path.GetFullPath(selected);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Do not disclose local paths or sensitive exception payloads.
+                error = "Native Windows folder picker failed (" + ex.GetType().Name + "). " +
+                        "You can still paste the absolute folder path in Settings.";
+            }
+            _webView.CoreWebView2?.PostWebMessageAsJson(JsonSerializer.Serialize(new
+            {
+                type = "chatmcp.folder-result", id = requestId, path = folder, error,
+            }));
         }
 
         private async Task<bool> CheckHubHealthAsync()
