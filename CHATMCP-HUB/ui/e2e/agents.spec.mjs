@@ -193,3 +193,29 @@ test('model-created workflow appears live in chat and Background Tasks with real
   await expect(page.getByTestId('background-workflow').getByText('Review',{exact:true})).toBeVisible();
   await expect(page.getByTestId('background-workflow').getByText('Verify',{exact:true})).toBeVisible();
 });
+
+
+test('ChatGPT Web mode is selectable, pairs via an explicit browser code and never needs an API key', async ({page,app})=>{
+  await onboard(page,app);
+  await page.setViewportSize({width:1280,height:900});
+  await page.getByRole('button',{name:'Inspector',exact:true}).click();
+  await page.getByRole('button',{name:'AI Model',exact:true}).click();
+  await expect(page.getByTestId('chat-transport-mode')).toBeVisible();
+  await expect(page.getByRole('button',{name:/ChatGPT Web/})).toBeVisible();
+  await page.getByRole('button',{name:/ChatGPT Web/}).click();
+  await expect.poll(async()=>(await app.hub.state()).agent.mode).toBe('chatgpt-web');
+  await expect(page.getByTestId('chatgpt-web-settings')).toBeVisible();
+  await expect(page.getByTestId('chatgpt-web-settings').getByText('Không cần API key',{exact:false})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Tạo mã ghép (5 phút)'})).toBeVisible();
+  await page.getByRole('button',{name:'Tạo mã ghép (5 phút)'}).click();
+  await expect(page.getByLabel('Mã ghép Browser Companion')).toHaveValue(/^\d{8}$/);
+  await expect(page.getByText('Ghép và bật',{exact:false})).toBeVisible();
+  // A user has not paired the extension: the local Hub must never impersonate
+  // an authenticated ChatGPT tab or silently route through API credentials.
+  await page.locator('textarea').fill('Web transport must wait for extension pairing');
+  await page.getByRole('button',{name:'Gửi',exact:true}).click();
+  await expect.poll(async()=>(await app.hub.state()).agent.tasks.length).toBe(0);
+  await page.getByRole('button',{name:/API Gateway/}).click();
+  await expect.poll(async()=>(await app.hub.state()).agent.mode).toBe('api');
+  await expect(page.getByLabel('API base URL',{exact:true})).toBeVisible();
+});
