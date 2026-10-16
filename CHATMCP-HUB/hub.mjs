@@ -262,6 +262,8 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
         }
         return json(200,value);
       }
+      if (req.method === 'GET' && url.pathname === '/api/background-tasks')
+        return json(200, { tasks: taskEngine?.api?.backgroundTasks?.() ?? [] });
       if (req.method === 'GET' && url.pathname === '/api/workspaces')
         return json(200,workspaceRegistry?.state()??{activePath:manager.workspace,items:[]});
       if (req.method === 'GET' && url.pathname === '/api/catalog') return json(200, manager.catalog ?? { ready: false, tools: [], counts: {} });
