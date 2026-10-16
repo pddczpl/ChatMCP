@@ -22,6 +22,7 @@ $stage = 'initialization'
 $dialog = $null
 $ownerWindow = $null
 $lastError = ''
+$shell = $null
 
 function Resolve-ExistingFolder([string]$candidate) {
     if ([string]::IsNullOrWhiteSpace($candidate)) { return $null }
