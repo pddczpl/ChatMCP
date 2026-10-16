@@ -1,4 +1,4 @@
-import type { HubState, HubHealth, Task, TaskDetail, ChatAttachment, WorkspaceCollection, BackgroundRun, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset } from '@/types';
+import type { HubState, HubHealth, Task, TaskDetail, ChatAttachment, WorkspaceCollection, BackgroundRun, BackgroundWorkflow, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset } from '@/types';
 import { normalizeTask } from './task-view.ts';
 
 export interface BackendCapabilityReport {
@@ -131,7 +131,10 @@ export const api = {
     method:'POST',body:JSON.stringify({path:folder})}),
   removeWorkspace: (folder: string) => request<WorkspaceCollection>('/api/workspaces/remove',{
     method:'POST',body:JSON.stringify({path:folder})}),
-  getBackgroundRuns: () => request<{tasks:BackgroundRun[]}>('/api/background-tasks'),
+  getBackgroundRuns: () => request<{tasks:BackgroundRun[];workflows:BackgroundWorkflow[]}>('/api/background-tasks'),
+  cancelWorkflow: (id:string) => request<{workflow:BackgroundWorkflow}>('/api/workflows/cancel',{
+    method:'POST',body:JSON.stringify({id}),
+  }),
   
   // Permissions & Approvals
   configurePermissions: (payload: { mode?: string; executionPolicy?: string; confirmation?: string }) =>
