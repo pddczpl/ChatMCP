@@ -17,9 +17,13 @@ export function SessionSidebar() {
   const [search,setSearch]=useState('');
   const [collapsed,setCollapsed]=useState<Record<string,boolean>>({});
   const [choosing,setChoosing]=useState(false);
+  const [removingWorkspace,setRemovingWorkspace]=useState<string | null>(null);
+  const [removingConversation,setRemovingConversation]=useState<string | null>(null);
   const {data:hub}=useQuery({queryKey:['hubState'],queryFn:api.getState,refetchInterval:3000});
 
-  const workspaceEntries=hub?.workspaces?.items?.length
+  // An explicitly empty registry means all workspaces were removed from the
+  // ChatMCP sidebar. Never reintroduce the old primary path from Hub state.
+  const workspaceEntries=hub?.workspaces
     ? hub.workspaces.items
     : hub?.workspace?.path
       ? [{path:hub.workspace.path,name:hub.workspace.path.split(/[\\/]/).filter(Boolean).pop()||'Workspace'}]
@@ -38,8 +42,13 @@ export function SessionSidebar() {
   });
 
   useEffect(()=>{
-    if(activeWorkspace&&selectedWorkspacePath!==activeWorkspace)setSelectedWorkspacePath(activeWorkspace);
-  },[activeWorkspace,selectedWorkspacePath,setSelectedWorkspacePath]);
+    if(!hub)return;
+    if(selectedWorkspacePath!==activeWorkspace){
+      setSelectedWorkspacePath(activeWorkspace);
+      // Previously saved chat selections must not reopen a detached project.
+      if(selectedTaskId)setSelectedTaskId('');
+    }
+  },[hub,activeWorkspace,selectedWorkspacePath,selectedTaskId,setSelectedWorkspacePath,setSelectedTaskId]);
 
   const createConversation=()=>setSelectedTaskId('');
   const pickWorkspace=async()=>{
@@ -74,13 +83,47 @@ export function SessionSidebar() {
     }
     setSelectedTaskId(id);
   };
-  const removeConversation=async(id:string)=>{
-    if(!window.confirm('Xóa lịch sử hội thoại này? Các tệp và nhánh Git sẽ được giữ nguyên.'))return;
+  const removeWorkspace=async(folder:string,name:string)=>{
+    if(removingWorkspace)return;
+    const count=perWorkspace(folder).length;
+    if(!window.confirm('Gỡ workspace "'+name+'" khỏi ChatMCP?\n\n'
+      +count+' hội thoại và các background tasks của workspace sẽ được ẩn khỏi giao diện. '
+      +'Lịch sử vẫn được lưu và hiện lại khi thêm đúng thư mục.\n\n'
+      +'KHÔNG xoá thư mục, file, nhánh Git hay worktree trên máy.'))return;
+    setRemovingWorkspace(folder);
+    try{
+      const result=await api.removeWorkspace(folder);
+      if(activeWorkspace===folder || selectedWorkspacePath===folder){
+        setSelectedTaskId('');
+        setSelectedWorkspacePath(result.activePath||'');
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({queryKey:['hubState']}),
+        queryClient.invalidateQueries({queryKey:['backgroundRuns']}),
+      ]);
+      showToast('Đã gỡ workspace khỏi danh sách. Tệp trên ổ đĩa vẫn được giữ nguyên.','success');
+    }catch(error){showToast(error instanceof Error?error.message:'Không thể gỡ workspace.','error');}
+    finally{setRemovingWorkspace(null);}
+  };
+  const removeConversation=async(id:string,title:string)=>{
+    if(removingConversation)return;
+    const related=allTasks.filter(task=>task.id!==id&&task.conversationId===id).length;
+    if(!window.confirm('Xóa hội thoại "'+title+'"?\n\n'
+      +'Lịch sử các lượt task'+(related?' và '+related+' subagent':'')+' sẽ bị xóa khỏi ChatMCP. '
+      +'Không thể hoàn tác việc xóa lịch sử.\n\n'
+      +'KHÔNG xóa file dự án, nhánh Git hay worktree.'))return;
+    setRemovingConversation(id);
     try{
       await api.deleteTask(id);
       if(selectedTaskId===id)setSelectedTaskId('');
-      await queryClient.invalidateQueries({queryKey:['hubState']});
+      queryClient.removeQueries({queryKey:['task',id]});
+      await Promise.all([
+        queryClient.invalidateQueries({queryKey:['hubState']}),
+        queryClient.invalidateQueries({queryKey:['backgroundRuns']}),
+      ]);
+      showToast('Đã xóa hội thoại và các tác vụ con. Các tệp dự án được giữ nguyên.','success');
     }catch(error){showToast(error instanceof Error?error.message:'Không thể xóa hội thoại.','error');}
+    finally{setRemovingConversation(null);}
   };
 
   return <aside className="w-full h-full flex flex-col bg-[var(--panel)] border-r border-[var(--line)] min-w-0 select-none">
@@ -124,10 +167,18 @@ export function SessionSidebar() {
               <span className="text-xs truncate text-[var(--text)] font-medium">{entry.name}</span>
             </button>
             <span className="text-[10px] text-[var(--faint)]">{items.length}</span>
+            <button type="button" aria-label={'Gỡ workspace '+entry.name}
+              title="Gỡ khỏi ChatMCP — không xóa thư mục trên ổ đĩa"
+              disabled={removingWorkspace!==null}
+              onClick={()=>void removeWorkspace(folder,entry.name)}
+              className="p-1 rounded text-[var(--muted)] hover:text-rose-400 hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-rose-400 disabled:opacity-30">
+              {removingWorkspace===folder?<Loader2 className="w-3.5 h-3.5 animate-spin"/>:<Trash2 className="w-3.5 h-3.5"/>}
+            </button>
           </div>
           {!shut&&<div className="pl-5 pt-1 space-y-0.5">
             {items.map(chat=>{
               const selected=chat.id===selectedTaskId;
+              const busy=isTaskActive(chat)||allTasks.some(task=>task.id!==chat.id&&task.conversationId===chat.id&&isTaskActive(task));
               return <div key={chat.id} className={'group flex items-center gap-1 rounded-md '+(selected?'bg-[var(--primary-bg)]':'hover:bg-[var(--surface-hover)]')}>
                 <button onClick={()=>void selectConversation(chat.id,folder)} title={chat.task||chat.prompt}
                   className="flex-1 min-w-0 p-1.5 flex items-center gap-2 text-left text-xs">
@@ -138,9 +189,13 @@ export function SessionSidebar() {
                     {chat.task||chat.prompt||'Cuộc hội thoại'}
                   </span>
                 </button>
-                <button onClick={()=>void removeConversation(chat.id)} title="Xóa hội thoại"
-                  disabled={isTaskActive(chat)} className="opacity-0 group-hover:opacity-100 p-1 text-[var(--muted)] hover:text-rose-400 disabled:opacity-20">
-                  <Trash2 className="w-3 h-3"/>
+                <button type="button"
+                  onClick={()=>void removeConversation(chat.id,chat.task||chat.prompt||'Cuộc hội thoại')}
+                  aria-label={'Xóa hội thoại: '+(chat.task||chat.prompt||chat.id)}
+                  title={busy?'Dừng task và subagent trước khi xóa':'Xóa hội thoại và lịch sử task (không xóa file)'}
+                  disabled={busy||removingConversation!==null}
+                  className="p-1 rounded text-[var(--muted)] hover:text-rose-400 hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-rose-400 disabled:opacity-20">
+                  {removingConversation===chat.id?<Loader2 className="w-3.5 h-3.5 animate-spin"/>:<Trash2 className="w-3.5 h-3.5"/>}
                 </button>
               </div>;
             })}
