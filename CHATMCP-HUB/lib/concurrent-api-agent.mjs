@@ -359,7 +359,8 @@ export class ConcurrentApiAgent {
     // prior chat completed, while never allowing two writers in one checkout.
     const rootOccupied = Boolean(
       (this.primary.activeTaskId && root === this.manager.workspace) ||
-      [...this.records.values()].some(r => r.sourceRoot === root && r.executionRoot === root &&
+      [...this.records.values()].some(r =>
+        [r.executionRoot,r.worktree,r.pendingWorktree?.path].includes(root) &&
         ['queued','preparing','running'].includes(this.#status(r.id)))
     );
     if (!parentTaskId && !dependsOn.length && !baseRef &&
