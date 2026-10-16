@@ -85,7 +85,7 @@
     // Counts and fixed categories only: never collect prompt, result, account,
     // URLs or arbitrary attribute values in a readiness diagnostic.
     const diagnostics = [
-      'companion=1.4.2', 'scope=' + (state.scope?.form ? 'form' : state.scope ? 'composer-container' : 'unknown'),
+      'companion=1.5.0', 'scope=' + (state.scope?.form ? 'form' : state.scope ? 'composer-container' : 'unknown'),
       'editor=' + (state.composer?.tagName === 'TEXTAREA' ? 'textarea' : 'contenteditable'),
       'visibility=' + (document.visibilityState === 'hidden' ? 'hidden' : document.visibilityState === 'visible' ? 'visible' : 'unknown'),
       'controls=' + state.controls.length, 'known=' + state.controls.filter(knownSend).length,
@@ -223,9 +223,9 @@
       const hasText = !!current?.promptNormalized;
       const largePrompt = (current?.text?.length ?? 0) > 5000;
       const witness = replyWitness();
-      return 'submitted_user_message_unverified: Không tìm thấy tin nhắn đầu hoặc câu trả lời có mã phiên chính xác trong tab tác vụ. Không tự gửi lại. [companion=1.4.2;from=home;to=' + shape(to) + ';visibleUsers=' + nodes.length + ';replyWitness=' + (witness?.ambiguous ? 'ambiguous' : !!witness) + ';promptPresent=' + hasText + ';longPrompt=' + largePrompt + ']';
+      return 'submitted_user_message_unverified: Không tìm thấy tin nhắn đầu hoặc câu trả lời có mã phiên chính xác trong tab tác vụ. Không tự gửi lại. [companion=1.5.0;from=home;to=' + shape(to) + ';visibleUsers=' + nodes.length + ';replyWitness=' + (witness?.ambiguous ? 'ambiguous' : !!witness) + ';promptPresent=' + hasText + ';longPrompt=' + largePrompt + ']';
     }
-    return 'conversation_changed: Chưa xác minh được địa chỉ của cùng cuộc chat. [companion=1.4.2;from=' + shape(from) + ';to=' + shape(to) + ';turn=' + (current?.turn || 0) + ';locked=' + !!current?.routeLocked + ']';
+    return 'conversation_changed: Chưa xác minh được địa chỉ của cùng cuộc chat. [companion=1.5.0;from=' + shape(from) + ';to=' + shape(to) + ';turn=' + (current?.turn || 0) + ';locked=' + !!current?.routeLocked + ']';
   }
   function ownUser() {
     if (!current) return null;
@@ -491,7 +491,7 @@
       // Its canonical URL may arrive after the answer becomes idle. Sending
       // again would duplicate the prompt, so only wait for this saved route.
       current.provisionalReplySince ??= Date.now();
-      if (Date.now() - current.provisionalReplySince >= CANONICAL_ROUTE_WAIT_MS) return { ok: false, reason: 'local_conversation_not_saved: ChatGPT vẫn giữ địa chỉ cuộc chat tạm sau 60 giây kể từ khi câu trả lời ổn định. Giữ tab để kiểm tra; prompt không được gửi lại. [companion=1.4.2]', pageId };
+      if (Date.now() - current.provisionalReplySince >= CANONICAL_ROUTE_WAIT_MS) return { ok: false, reason: 'local_conversation_not_saved: ChatGPT vẫn giữ địa chỉ cuộc chat tạm sau 60 giây kể từ khi câu trả lời ổn định. Giữ tab để kiểm tra; prompt không được gửi lại. [companion=1.5.0]', pageId };
       return { ok: true, state: 'waiting_for_canonical_url', pageId };
     }
     current.routeLocked = true; current.stage = 'reply'; current.replyWitnessVerified = Boolean(witness);
