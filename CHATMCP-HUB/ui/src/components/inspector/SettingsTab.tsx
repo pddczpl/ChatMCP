@@ -393,9 +393,23 @@ export function SettingsTab() {
               'Companion đã ghép; chờ mở tab ChatGPT với extension đang bật'}</span>
           {companion?.connected&&<CircleCheck className="w-3.5 h-3.5 text-emerald-500"/>}
         </div>
+        <div className="flex flex-wrap gap-2" data-testid="browser-companion-install-links">
+          <a className="inline-flex items-center gap-1.5 rounded-md border border-[var(--line)] px-2.5 py-1.5 text-[11px] text-[var(--primary)] hover:bg-[var(--surface-hover)]"
+            href="https://github.com/pddczpl/ChatMCP/releases/latest/download/ChatMCP-Browser-Companion.zip"
+            target="_blank" rel="noopener noreferrer"
+            aria-label="Tải Browser Companion ZIP từ GitHub Releases">
+            <Download className="w-3.5 h-3.5"/> Tải Browser Companion (.zip)
+          </a>
+          <a className="inline-flex items-center gap-1.5 rounded-md border border-[var(--line)] px-2.5 py-1.5 text-[11px] text-[var(--muted)] hover:bg-[var(--surface-hover)]"
+            href="https://github.com/pddczpl/ChatMCP/blob/main/CHATMCP-HUB/extension/INSTALL-EXTENSION.txt"
+            target="_blank" rel="noopener noreferrer">Hướng dẫn cài / khôi phục</a>
+        </div>
         <p className="text-[11px] text-[var(--faint)]">
-          Cài extension trong thư mục <code>CHATMCP-HUB/extension</code> bằng
-          Chrome/Edge Extensions → Developer Mode → Load unpacked.
+          Giải nén file ZIP, sau đó mở <code>chrome://extensions</code> hoặc <code>edge://extensions</code> →
+          Developer mode → Load unpacked, chọn <strong>thư mục đã giải nén có manifest.json</strong>.
+          Nếu đã cài ứng dụng Windows, bạn cũng có thể chọn <code>CHATMCP-HUB/extension</code>
+          trong thư mục ChatMCP đã cài. Trình duyệt yêu cầu bạn tự xác nhận quyền cài đặt;
+          ChatMCP không cài extension âm thầm.
           Đăng nhập <a className="underline text-[var(--primary)]"
             href="https://chatgpt.com" target="_blank" rel="noreferrer">chatgpt.com</a> trên trình duyệt,
           mở extension ChatMCP Hub Companion và nhập mã ghép bên dưới.
