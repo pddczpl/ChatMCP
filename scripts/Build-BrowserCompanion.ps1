@@ -94,13 +94,18 @@ function Assert-ZipParity {
     )
     $archive = [IO.Compression.ZipFile]::OpenRead($ZipPath)
     try {
-        $names = @($archive.Entries | ForEach-Object { $_.FullName })
+        $entries = @($archive.Entries)
+        # .NET Framework ZipFile.CreateFromDirectory on Windows may preserve
+        # Windows backslashes in payload.zip entry names. Normalize *names
+        # only*, not ZIP bytes or source filenames, before matching.
+        $names = @($entries | ForEach-Object { $_.FullName.Replace('\', '/') })
         foreach ($name in $ExpectedHashes.Keys) {
             $entryName = $Prefix + $name
-            if (@($names | Where-Object { $_ -ceq $entryName }).Count -ne 1) {
+            $matches = @($entries | Where-Object { $_.FullName.Replace('\','/') -ceq $entryName })
+            if ($matches.Count -ne 1) {
                 throw "Extension archive entry missing or duplicated: $entryName"
             }
-            $entry = $archive.GetEntry($entryName)
+            $entry = $matches[0]
             if ($null -eq $entry -or $entry.Length -le 0) { throw "Invalid extension entry: $entryName" }
             $stream = $entry.Open()
             $sha = [Security.Cryptography.SHA256]::Create()
