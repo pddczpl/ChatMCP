@@ -82,9 +82,9 @@ try {
   // switching the primary Hub manager or waiting for Task A.
   const crossProject=await pool.start({prompt:'Task E: other workspace',workspacePath:secondRepo});
   await until(()=>arrived.has('E'),'secondary workspace running alongside the primary');
-  assert.equal(pool.get(crossProject.id).workspace?.path,secondRepo);
-  assert.equal(pool.get(crossProject.id).workspacePath,secondRepo);
-  assert.equal(manager.workspace,repo,'secondary task cannot switch the primary workspace');
+  assert.equal(pool.get(crossProject.id).workspace?.path,await fs.realpath(secondRepo));
+  assert.equal(pool.get(crossProject.id).workspacePath,await fs.realpath(secondRepo));
+  assert.equal(manager.workspace,await fs.realpath(repo),'secondary task cannot switch the primary workspace');
   const second=await pool.start({prompt:'Task B: inspect README'});
   await until(()=>arrived.has('B'),'independent child running');
   assert.equal(pool.state().activeTaskIds.length,3,'three independent conversations across two workspace roots must run concurrently');
@@ -149,7 +149,7 @@ try {
     'delegated agent must be linked to its originating parent task run');
   await until(()=>pool.get(parent.id)?.status==='completed','delegating parent completes');
   await until(()=>pool.get(delegated.id)?.status==='completed','delegated child completes');
-  assert.notEqual(pool.get(delegated.id)?.workspace?.path,repo,
+  assert.notEqual(pool.get(delegated.id)?.workspace?.path,await fs.realpath(repo),
     'delegated child must not modify the main checkout');
   const background=pool.backgroundTasks();
   assert.ok(background.some(entry=>entry.conversationId===first.id),'main conversation run appears as a background task');
