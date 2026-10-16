@@ -211,6 +211,18 @@ export class BrowserRunner {
     }
     return runs.sort((a,b)=>String(b.startedAt).localeCompare(String(a.startedAt)));
   }
+  pendingApprovals() {
+    const context=this.context;
+    if(!context?.ownedManager)return []; // Primary workspace requests already in Hub gate.
+    return context.executionManager?.permissions?.state()?.pending||[];
+  }
+  decidePermission(id,approved) {
+    const context=this.context;
+    if(!context?.ownedManager)return null;
+    const gate=context.executionManager?.permissions;
+    if((gate?.state()?.pending||[]).some(p=>p.id===id))return gate.decide(id,approved);
+    return null;
+  }
   async executionManager(workspacePath) {
     const desired=this.manager.workspaceRegistry
       ? (await this.manager.workspaceRegistry.resolve(workspacePath)).path
