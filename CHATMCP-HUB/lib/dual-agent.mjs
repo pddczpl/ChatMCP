@@ -45,6 +45,8 @@ export class DualAgent {
       return this.api.start(payload);
     }
     if (this.state().activeTaskId) throw Object.assign(new Error('Browser agent đang sử dụng workspace.'), { statusCode:409 });
+    if (payload?.workspacePath && payload.workspacePath !== this.api.manager?.workspace)
+      throw Object.assign(new Error('Browser Companion chỉ hỗ trợ workspace chính; dùng API mode để giao việc đồng thời ở thư mục khác.'),{statusCode:409});
     return this.browser.start(payload);
   }
   async continue(payload) {
