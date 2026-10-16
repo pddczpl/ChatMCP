@@ -86,6 +86,11 @@ Also choose one operation:
 Wait for each real result from Hub before continuing. Each following Hub message sets the NEXT turn number; preserve task/nonce. Keep code blocks valid JSON. Begin with catalog or an appropriate inspection tool. CURRENT_TURN=1`;
 }
 
+const browserTrace = stage => {
+  if(process.env.CHATMCP_BROWSER_TRACE === '1')
+    process.stderr.write('[browser-lifecycle] '+stage+' heapMB='+
+      Math.round(process.memoryUsage().heapUsed/1048576)+'\n');
+};
 export class BrowserRunner {
   constructor({ manager, directory, log = () => {}, now = () => Date.now(), queueTimeoutMs = 120_000 }) {
     this.manager = manager;
@@ -299,10 +304,13 @@ export class BrowserRunner {
   }
 
   async persist(task, detail = null) {
+    browserTrace('persist.begin');
     const directory = path.join(this.taskDirectory, task.id);
     const snapshot = this.clean(structuredClone(task));
+    browserTrace('persist.snapshot');
     const record = detail ? JSON.stringify(this.clean(detail)) + '\n' : null;
     const report = this.report(task.id);
+    browserTrace('persist.report');
     const previous = this.writes.get(task.id) ?? Promise.resolve();
     const write = previous.catch(() => {}).then(async () => {
       await fs.mkdir(directory, { recursive: true });
@@ -312,6 +320,7 @@ export class BrowserRunner {
     });
     this.writes.set(task.id, write);
     await write;
+    browserTrace('persist.done');
   }
   async event(task, type, message, extra = {}, detail = null) {
     task.updatedAt = this.date();
@@ -529,6 +538,7 @@ Respond with EXACTLY ONE fenced JSON object: "chatmcp_hub":"v1", "task":"${id}",
     return { ok: true };
   }
   async reply(input) {
+    browserTrace('reply.enter');
     const task = this.tasks.get(input.taskId);
     if (!task || input.clientId !== this.client?.clientId) throw fault('stale_task', 'Nhiệm vụ không còn hợp lệ.', 409);
     if (typeof input.replyId !== 'string' || !input.replyId || input.replyId.length > 256 || typeof input.text !== 'string' || !Array.isArray(input.blocks) || input.blocks.some((x) => typeof x !== 'string')) throw fault('invalid_reply', 'Phản hồi trình duyệt không hợp lệ.');
@@ -553,11 +563,14 @@ Respond with EXACTLY ONE fenced JSON object: "chatmcp_hub":"v1", "task":"${id}",
     task.acceptedReplies[input.messageId] = { hash: contentHash, replyId: input.replyId };
     message.status = 'replied';
     if (url) task.chatUrl = url;
+    browserTrace('reply.beforeEvent');
     try { await this.event(task, 'browser_reply', `Đã nhận phản hồi cho gói hội thoại #${message.turn}.`, { protocolTurn: message.turn, messageId: input.messageId }, { at: this.date(), type: 'assistant_reply', messageId: input.messageId, text: input.text, blocks: input.blocks }); }
     catch (error) { await this.finish(context, 'failed', error); throw error; }
+    browserTrace('reply.afterEvent');
     this.check(context);
     context.work = this.handleReply(context, input).catch((error) => this.finish(context, context.controller.signal.aborted ? 'cancelled' : 'failed', error));
     void context.work.catch((error) => this.log(this.clean(error.message)));
+    browserTrace('reply.afterWork');
     return { accepted: true };
   }
   parseReply(context, input) {
@@ -573,6 +586,7 @@ Respond with EXACTLY ONE fenced JSON object: "chatmcp_hub":"v1", "task":"${id}",
     return value;
   }
   async handleReply(context, input) {
+    browserTrace('handleReply.enter');
     this.check(context);
     const task = context.task, call = this.parseReply(context, input);
     task.steps += 1;
@@ -583,7 +597,10 @@ Respond with EXACTLY ONE fenced JSON object: "chatmcp_hub":"v1", "task":"${id}",
       if (typeof call.text !== 'string' || !call.text.trim()) throw fault('empty_final', 'Phản hồi cuối chưa có nội dung.', 422);
       task.finalText = this.clean(call.text.trim());
       task.dialogue ??= []; task.dialogue.push({ role:'assistant', at:this.date(), text:task.finalText, run:task.runs?.length ?? 1 });
-      await this.finish(context, 'completed'); return;
+      browserTrace('handleReply.beforeFinish');
+      await this.finish(context, 'completed');
+      browserTrace('handleReply.afterFinish');
+      return;
     }
     let result;
     try { result = await this.dispatch(context, call); }
@@ -694,6 +711,7 @@ Next reply: exactly one JSON block with chatmcp_hub=v1, task=${task.id}, turn=${
     return { ok: true };
   }
   async finish(context, status, error = null) {
+    browserTrace('finish.enter='+status);
     clearTimeout(context.queueTimer); context.queueTimer = null;
     if (context.finishing) return await context.finishing;
     context.finishing = (async () => {
@@ -702,15 +720,21 @@ Next reply: exactly one JSON block with chatmcp_hub=v1, task=${task.id}, turn=${
       if (error) { task.error = this.clean(error.message ?? String(error)); task.errorCode = error.code ?? 'task_failed'; }
       if (task.runs?.length) Object.assign(task.runs.at(-1), { status, finishedAt:task.finishedAt, endTurn:task.lastIssuedTurn, finalText: task.finalText || task.error || '' });
       if (!context.controller.signal.aborted) context.controller.abort(error ?? fault('task_ended', 'Nhiệm vụ đã kết thúc.', 409));
+      browserTrace('finish.beforeEvent');
       try { await this.event(task, status, task.error || (status === 'completed' ? 'Đã nhận kết quả cuối từ ChatGPT.' : 'Đã dừng nhiệm vụ.')); }
+
       finally {
+        browserTrace('finish.beforeClose');
         try { await context.session?.close(); }
         finally {
+          browserTrace('finish.afterClose');
           if (this.context === context) this.context = null;
           const owned=context.executionManager||this.manager;
           owned.releaseTask(task.id);
+          if(context.ownedManager){browserTrace('finish.beforeShutdown');}
           if(context.ownedManager)await owned.shutdown().catch(error=>
             this.log('Browser workspace manager shutdown failed: '+String(error?.message||error)));
+          browserTrace('finish.done');
         }
       }
     })();
