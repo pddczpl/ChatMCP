@@ -88,7 +88,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 function Assert-ZipParity {
     param(
         [Parameter(Mandatory=$true)][string]$ZipPath,
-        [Parameter(Mandatory=$true)][string]$Prefix,
+        [Parameter(Mandatory=$true)][AllowEmptyString()][string]$Prefix,
         [Parameter(Mandatory=$true)][hashtable]$ExpectedHashes,
         [switch]$ExactContents
     )
