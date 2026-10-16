@@ -222,8 +222,8 @@ export function ConversationView() {
         <div data-testid="chatgpt-web-mode-banner" role="status"
           className="px-4 py-2 bg-[var(--surface)] border-b border-[var(--line)] flex items-center gap-2 text-xs">
           <Bot className="w-4 h-4 text-sky-500 flex-shrink-0"/>
-          <span className="flex-1 text-[var(--muted)]">
-            ChatGPT Web · {hub.browser?.connected?'Companion đã kết nối':
+          <span className="flex-1 text-[var(--muted)]" title="Kênh Web Companion hiện chỉ gửi văn bản qua tab ChatGPT; dùng Model API để gửi ảnh/tệp đính kèm.">
+            ChatGPT Web (text-only) · {hub.browser?.connected?'Companion đã kết nối':
               hub.browser?.paired?'Companion đã ghép; mở tab ChatGPT':'Cần ghép ChatMCP Hub Companion trước khi gửi task'}
           </span>
           <button type="button" onClick={()=>{setInspectorOpen(true);setActiveTab('settings');}}
