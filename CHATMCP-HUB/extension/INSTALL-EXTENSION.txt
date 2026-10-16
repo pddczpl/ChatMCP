@@ -1,0 +1,48 @@
+ChatMCP Hub Companion 1.5.1 — Chrome / Microsoft Edge
+===================================================
+
+The full Windows installer and this ZIP contain the same extension source.
+Install it manually: browser extension installation requires your consent.
+
+HOW TO INSTALL OR RESTORE AFTER REMOVING IT
+1. Extract ChatMCP-Browser-Companion.zip to an ordinary folder, for example
+   Documents\ChatMCP-Browser-Companion. Do not load the ZIP itself.
+2. Open chrome://extensions (Chrome) or edge://extensions (Microsoft Edge).
+3. Enable Developer mode.
+4. Click "Load unpacked" (Chrome) / "Load unpacked" (Edge).
+5. Select the EXTRACTED FOLDER containing manifest.json.
+   Choose CHATMCP-HUB\extension under your installed ChatMCP folder instead
+   if you already have the Windows installer version installed.
+   Do NOT select the repository-root manifest.json: that is an obsolete
+   "ChatMCP Button Fix" helper, not ChatMCP Hub Companion.
+6. Pin "ChatMCP Hub Companion" if desired and refresh https://chatgpt.com.
+7. Open ChatMCP Studio, choose a registered workspace, go to Settings,
+   select ChatGPT Web mode, and generate a NEW temporary pairing code.
+8. Click the extension icon, paste the pairing code and click "Pair and enable".
+9. Keep ChatMCP Hub running locally on 127.0.0.1:3007, sign in to
+   ChatGPT on the visible website yourself, and start a TEXT task in Studio.
+
+QUICK TROUBLESHOOTING
+- If "Load unpacked" fails, make sure the selected folder has manifest.json
+  at its ROOT and that Chrome/Edge is version 120 or later.
+- The extension needs access to chatgpt.com and localhost:3007, as declared
+  in manifest.json. The browser may request these permissions explicitly.
+- After removing/reinstalling it, the extension ID might change. Re-pair
+  with a fresh code in ChatMCP Studio, and do not reuse the previous code.
+- Disable MCP SuperAssistant when using the paired ChatGPT Web transport.
+- ChatGPT Web mode currently supports text prompts and one active web task.
+  Use Model API mode for image/file attachments or multiple parallel model calls.
+- A ChatGPT subscription does not provide third-party API credits. This
+  companion acts through the signed-in regular ChatGPT UI, not private APIs.
+- Do not install an unrelated extension or unpacked code from strangers.
+
+This extension CANNOT be automatically enabled by the ChatMCP installer.
+For browser security reasons YOU choose Load unpacked and approve permissions.
+The extension contains no ChatGPT account password or browser cookies.
+
+Project: https://github.com/pddczpl/ChatMCP
+
+URL RECOVERY AND TRANSPORT SWITCH
+- Changing Model API / ChatGPT Web applies to the NEXT message even in an existing local ChatMCP conversation. The old model history remains stored; the new backend receives a bounded context handoff and has its own model session.
+- If ChatGPT did not yet assign a canonical /c/... URL, open the ORIGINAL tab and choose 'Khôi phục URL ChatGPT từ tab đã gửi' in the ChatMCP conversation. The extension verifies a matching task ID + nonce in that tab before binding the official address. It never clicks Send again to repair a URL.
+- Do not paste browser cookies, ChatGPT passwords, access tokens, or a third-party chat URL to recover a session.
