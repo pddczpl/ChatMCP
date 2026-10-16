@@ -13,6 +13,7 @@ import {WorkspaceRegistry} from '../lib/workspace-registry.mjs';
 import {BrowserRunner} from '../lib/browser-runner.mjs';
 import {DualAgent} from '../lib/dual-agent.mjs';
 
+process.env.CHATMCP_BROWSER_TRACE='1';
 const bundleRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const temp=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-browser-workspaces-'));
 const primary=path.join(temp,'A'),other=path.join(temp,'B');
