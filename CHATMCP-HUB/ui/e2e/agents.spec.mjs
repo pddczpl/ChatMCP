@@ -214,3 +214,18 @@ test('ChatGPT Web mode can be selected and safely paired from Settings', async (
   await expect.poll(async()=>(await app.hub.state()).agent.mode).toBe('api');
   await expect(page.getByTestId('chatgpt-web-mode-banner')).toHaveCount(0);
 });
+
+
+test('ChatGPT Web settings expose standalone Browser Companion download and manual installation instructions',async({page,app})=>{
+  app.mock.define('extension-links',()=>say('Ready'));
+  app.mock.setScenario('extension-links');
+  await onboard(page,app);
+  await page.getByRole('button',{name:'Inspector',exact:true}).click();
+  await page.getByRole('button',{name:'Cài đặt',exact:true}).click();
+  const download=page.getByRole('link',{name:'Tải Browser Companion ZIP từ GitHub Releases'});
+  await expect(download).toBeVisible();
+  await expect(download).toHaveAttribute('href',
+    'https://github.com/pddczpl/ChatMCP/releases/latest/download/ChatMCP-Browser-Companion.zip');
+  await expect(page.getByText('Load unpacked',{exact:false})).toBeVisible();
+  await expect(page.getByText('thư mục đã giải nén có manifest.json',{exact:false})).toBeVisible();
+});

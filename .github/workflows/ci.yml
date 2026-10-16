@@ -138,6 +138,9 @@ jobs:
       - name: Build fresh UI and Windows installer
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Installer.ps1
+      - name: Package Browser Companion and verify parity with installed payload
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-BrowserCompanion.ps1 -VerifyInstallerPayload
       - name: Required native WinForms / WebView2 smoke (current React + Local Hub)
         run: node CHATMCP-HUB/ui/e2e/webview2-smoke.mjs
       - name: Verify installer and checksum
@@ -148,6 +151,12 @@ jobs:
           $actual = (Get-FileHash .\dist\ChatMCPSetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           $expected = ((Get-Content .\dist\ChatMCPSetup.exe.sha256 -Raw).Trim() -split '\s+')[0]
           if ($actual -ne $expected) { throw 'Installer checksum verification failed' }
+          $extensionZip = '.\dist\ChatMCP-Browser-Companion.zip'
+          $extensionChecksum = "$extensionZip.sha256"
+          if (-not (Test-Path $extensionZip) -or -not (Test-Path $extensionChecksum)) { throw 'Companion ZIP or checksum missing' }
+          $extensionExpected = ((Get-Content $extensionChecksum -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+          $extensionActual = (Get-FileHash $extensionZip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($extensionActual -ne $extensionExpected) { throw 'Companion ZIP checksum verification failed' }
       - name: Upload Windows installer build
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -155,6 +164,8 @@ jobs:
           path: |
             dist/ChatMCPSetup.exe
             dist/ChatMCPSetup.exe.sha256
+            dist/ChatMCP-Browser-Companion.zip
+            dist/ChatMCP-Browser-Companion.zip.sha256
           if-no-files-found: error
 
   hygiene:
