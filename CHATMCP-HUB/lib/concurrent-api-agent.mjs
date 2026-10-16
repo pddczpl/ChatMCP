@@ -118,7 +118,7 @@ export class ConcurrentApiAgent {
           taskId: summary.id,
           conversationId: summary.id,
           workspacePath: summary.workspacePath || detail.workspace?.path || this.manager.workspace,
-          title: detail.prompts?.[i]?.text || (i===0 ? summary.prompt : 'Continuation ' + (i + 1)),
+          title: run.title || detail.prompts?.[i]?.text || (i===0 ? summary.prompt : 'Continuation ' + (i + 1)),
           status: latest ? (detail.state || detail.status) : (run.status || 'completed'),
           startedAt: run.startedAt || detail.startedAt || summary.createdAt,
           finishedAt: latest ? detail.finishedAt : run.finishedAt,
