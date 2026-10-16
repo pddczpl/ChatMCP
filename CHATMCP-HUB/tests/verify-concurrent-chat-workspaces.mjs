@@ -87,7 +87,7 @@ try {
   assert.equal(manager.workspace,repo,'secondary task cannot switch the primary workspace');
   const second=await pool.start({prompt:'Task B: inspect README'});
   await until(()=>arrived.has('B'),'independent child running');
-  assert.equal(pool.state().activeTaskIds.length,2,'two independent API conversations must run concurrently');
+  assert.equal(pool.state().activeTaskIds.length,3,'three independent conversations across two workspace roots must run concurrently');
   const third=await pool.start({prompt:'Task C: summarize B',dependsOn:[second.id]});
   assert.equal(pool.get(third.id).status,'queued');
   assert.deepEqual(pool.get(third.id).dependsOn,[second.id]);
