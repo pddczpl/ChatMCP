@@ -20,7 +20,7 @@ export class DualAgent {
   state() {
     const web = this.browser.state(), api = this.api.state();
     const active = web.active || api.active || null;
-    const tasks = [...web.tasks.map(x=>({ ...x, transport:'chatgpt-web' })), ...api.tasks.map(x=>({ ...x, transport:'api' }))].sort((a,b)=> String(b.updatedAt ?? b.startedAt).localeCompare(String(a.updatedAt ?? a.startedAt)));
+    const tasks = [...(web.tasks||[]).map(x=>({ ...x, transport:'chatgpt-web' })), ...(api.tasks||[]).map(x=>({ ...x, transport:'api' }))].sort((a,b)=> String(b.updatedAt ?? b.startedAt).localeCompare(String(a.updatedAt ?? a.startedAt)));
     return { mode: this.mode, activeTaskId: active?.id || null,
       activeTaskIds: [...(web.activeTaskId ? [web.activeTaskId] : []), ...(api.activeTaskIds || (api.activeTaskId ? [api.activeTaskId] : []))],
       active: active ? { ...active, transport: web.active?.id === active.id ? 'chatgpt-web' : 'api' } : null, tasks };

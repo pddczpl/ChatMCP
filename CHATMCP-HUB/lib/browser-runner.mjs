@@ -224,11 +224,16 @@ export class BrowserRunner {
     return null;
   }
   async executionManager(workspacePath) {
+    // Older unit-test and extension fixture managers expose their checkout
+    // through state().workspace.path rather than a direct .workspace field.
+    const mainWorkspace=this.manager.workspace||this.manager.state()?.workspace?.path||null;
     const desired=this.manager.workspaceRegistry
       ? (await this.manager.workspaceRegistry.resolve(workspacePath)).path
-      : this.manager.workspace;
+      : (workspacePath||mainWorkspace);
     if(!desired)throw fault('workspace_missing','Select a registered workspace before starting ChatGPT Web.',409);
-    if(desired===this.manager.workspace)return {manager:this.manager,owned:false};
+    if(desired===mainWorkspace)return {manager:this.manager,owned:false};
+    if(!this.manager.workspaceRegistry)
+      throw fault('unregistered_workspace','Select the project through ChatMCP before creating an independent Browser context.',403);
     // A separate local HubManager pins a secondary project for the whole
     // browser task without switching or replacing the primary workspace.
     const key=hash(desired).slice(0,24);

@@ -52,7 +52,7 @@ try{
   assert.equal(browser.browserState().paired,true);
 
   let apiStarted=null;
-  const api={manager,state:()=>({activeTaskIds:[],activeTaskId:null}),
+  const api={manager,state:()=>({activeTaskIds:[],activeTaskId:null,tasks:[],active:null}),
     get:()=>null,start:async payload=>{apiStarted=payload;return {id:randomUUID(),status:'queued'};},
     continue:async()=>{throw new Error('No API continuation expected');},
     shutdown:async()=>{},
