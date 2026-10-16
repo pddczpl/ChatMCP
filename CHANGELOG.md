@@ -1,5 +1,18 @@
 # Lịch sử thay đổi
 
+## [3.5.0] — 2026-10-16 — Concurrent Chats, Background Agents & Desktop Workspace
+
+- Enable independent concurrent API coding conversations with a persistent task registry, Git worktree-backed isolation for overlapping writing, and explicit dependency queues.
+- Add model-initiated `spawn_agent` delegation directly within chat, with visible parent/child links, independent task progress and cancellation through the Background Tasks panel; remove the legacy standalone "Trợ lý" interface.
+- Allow the user to send further messages while a task is running; deliver new instructions at a model-turn boundary without cancelling or replaying in-flight tool mutations.
+- Add inline branch/worktree selection and attach/paste/drag-drop of images and source files. Forward images using OpenAI Chat Completions, Anthropic Messages and native Gemini formats; reject images clearly on minimal text-only Gemini gateways.
+- Group consecutive tool calls into expandable one-line activity summaries; supplement old-output compaction with structured rolling context checkpoints that preserve recent paired tool call/result records.
+- Harden worktree cancellation and recovery: revoke pending approvals on Stop and record uncertain Git mutations for review instead of blindly retrying or discarding them.
+- Expand regression coverage for concurrent worktree sessions, task dependencies, injected chat messages, model-driven subagent spawning, media adapters and interrupted worktree preparation.
+- Verified the feature integration with nine successful CI jobs in PR #31 (Ubuntu/Windows Hub tests on Node 22/24, React E2E, frontend build, installer/WebView2 smoke and hygiene); subsequent release-commit CI and release workflow re-verify the versioned output.
+- The installer remains unsigned with Authenticode; worktrees are not operating-system sandboxes. Live-model success rates and parity with proprietary coding agents have not been independently established.
+
+
 ## [3.4.2] — 2026-10-15 — Custom Gateway Protocol Selection & Settings Reliability
 
 - Fix custom OpenAI-compatible gateway selection from a previous custom Gemini connection. React preserves the same base URL/model and exposes custom Gemini/Anthropic choices, rather than overwriting the intended host with a generic default.
