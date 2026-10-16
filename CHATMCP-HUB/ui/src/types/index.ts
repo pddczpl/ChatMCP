@@ -235,6 +235,9 @@ export interface Task {
   verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
   lastMessage?: string;
   error?: string;
+  transport?: 'api'|'chatgpt-web';
+  chatUrl?: string | null;
+  handoff?: {fromTaskId:string;toTransport:string;note:string};
 }
 
 export interface HubHealth {
