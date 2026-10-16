@@ -56,6 +56,23 @@ ChatMCP v3.8.0 targets autonomous software engineering while preserving local se
 
 ---
 
+## Browser Companion extension (Chrome / Edge)
+
+For **ChatGPT Web mode**, install the **ChatMCP Hub Companion** extension (Manifest V3, currently version 1.4.2) separately in your browser. The GitHub Release should contain all four matching assets:
+
+- `ChatMCPSetup.exe` — Windows x64 installer
+- `ChatMCPSetup.exe.sha256` — installer SHA-256
+- [`ChatMCP-Browser-Companion.zip`](https://github.com/pddczpl/ChatMCP/releases/latest/download/ChatMCP-Browser-Companion.zip) — standalone extension with `manifest.json` at archive root
+- [`ChatMCP-Browser-Companion.zip.sha256`](https://github.com/pddczpl/ChatMCP/releases/latest/download/ChatMCP-Browser-Companion.zip.sha256) — extension SHA-256
+
+**Restoring a removed extension:** extract the ZIP to a normal directory, open `chrome://extensions` or `edge://extensions`, enable **Developer mode**, click **Load unpacked**, then select the **extracted folder containing `manifest.json`**. An installed copy also exists in the Windows ChatMCP installation under `CHATMCP-HUB/extension`. Do not load the repository's root `manifest.json`: that is the old *Button Fix* helper, not Hub Companion.
+
+Open a normal signed-in `https://chatgpt.com` tab, choose ChatGPT Web mode in ChatMCP Settings, generate a **new temporary pairing code**, and enter it into the Companion popup. Disabling or reinstalling the extension may change its ID and require re-pairing. Browser extension installation must be explicitly approved by the user; the Windows installer cannot silently enable it. The Companion is text-only for now and does not transfer cookies or grant ChatGPT API credits.
+
+Full instructions: [INSTALL-EXTENSION.txt](CHATMCP-HUB/extension/INSTALL-EXTENSION.txt).
+
+---
+
 ## Start ChatMCP on Windows
 
 ### 1. Download Official Installer
