@@ -396,6 +396,13 @@ export class ConcurrentApiAgent {
       workspacePath: this.get(parentTaskId)?.workspacePath || null });
   }
   async continue({ id, prompt, attachments = [], ...limits } = {}) {
+    const original=this.get(id);
+    if(!original)throw fail('task_not_found','Conversation does not exist.',404);
+    const root=original.workspacePath||original.workspace?.path;
+    // A detached workspace must be explicitly re-added before any old chat
+    // can start writing there again, even when its task ID is still known.
+    if(this.manager.workspaceRegistry&&root)
+      await this.manager.workspaceRegistry.resolve(root);
     if (this.primary.get(id)) {
       if (this.primary.activeTaskId === id) return this.primary.enqueueMessage({ id, prompt, attachments });
       return this.primary.continue({ id, prompt, attachments, ...limits });
