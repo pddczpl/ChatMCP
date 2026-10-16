@@ -115,5 +115,11 @@ export class DualAgent {
     throw Object.assign(new Error('Không tìm thấy hội thoại.'),{statusCode:404});
   }
   async cancel(id) { return this.browser.get(id) ? this.browser.cancel(id) : this.api.cancel(id); }
-  async shutdown() { await Promise.allSettled([this.api.shutdown(), this.browser.shutdown()]); }
+  async shutdown() {
+    // Browser tasks may own an isolated manager cached by the API coordinator.
+    // Stop the BrowserRunner and close its MCP session before shutting down the
+    // managers used by concurrently capable API agents.
+    await this.browser.shutdown().catch(()=>{});
+    await this.api.shutdown();
+  }
 }
