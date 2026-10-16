@@ -8,6 +8,8 @@ export interface TaskSummary {
   worktree?: string | null;
   dependsOn?: string[];
   parentTaskId?: string | null;
+  conversationId?: string;
+  workspacePath?: string;
   queuedMessagesCount?: number;
   prompt?: string;
   status?: string;
@@ -110,6 +112,26 @@ export interface ProviderPreset {
   authMode?: string;
 }
 
+export interface WorkspaceEntry {
+  path: string;
+  name: string;
+  addedAt?: string;
+  lastUsedAt?: string;
+}
+export interface WorkspaceCollection {
+  activePath: string | null;
+  items: WorkspaceEntry[];
+}
+export interface BackgroundRun {
+  id: string; taskId: string; conversationId: string; workspacePath: string;
+  title: string; status: string; startedAt?: string; finishedAt?: string;
+  stepCount?: number | null;
+  conversationUsage?: { inputTokens?:number; outputTokens?:number; httpRequests?:number } | null;
+  subagents: {
+    id:string;taskId:string;parentTaskId:string;title:string;status:string;
+    startedAt?:string;finishedAt?:string;branch?:string|null;workspacePath?:string;
+  }[];
+}
 export interface ChatAttachment {
   name: string;
   mimeType: string;
@@ -142,6 +164,8 @@ export interface Task {
   worktree?: string | null;
   dependsOn?: string[];
   parentTaskId?: string | null;
+  conversationId?: string;
+  workspacePath?: string;
   queuedMessagesCount?: number;
   task?: string;
   status: TaskStatus;
@@ -177,6 +201,7 @@ export interface HubState {
   version: string;
   csrfToken: string;
   backend?: string;
+  workspaces?: WorkspaceCollection;
   workspace?: { 
     path: string;
     git?: {
