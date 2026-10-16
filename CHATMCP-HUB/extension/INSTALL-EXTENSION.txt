@@ -1,4 +1,4 @@
-ChatMCP Hub Companion 1.4.2 — Chrome / Microsoft Edge
+ChatMCP Hub Companion 1.5.0 — Chrome / Microsoft Edge
 ===================================================
 
 The full Windows installer and this ZIP contain the same extension source.
@@ -41,3 +41,8 @@ For browser security reasons YOU choose Load unpacked and approve permissions.
 The extension contains no ChatGPT account password or browser cookies.
 
 Project: https://github.com/pddczpl/ChatMCP
+
+URL RECOVERY AND TRANSPORT SWITCH
+- Changing Model API / ChatGPT Web applies to the NEXT message even in an existing local ChatMCP conversation. The old model history remains stored; the new backend receives a bounded context handoff and has its own model session.
+- If ChatGPT did not yet assign a canonical /c/... URL, open the ORIGINAL tab and choose 'Khôi phục URL ChatGPT từ tab đã gửi' in the ChatMCP conversation. The extension verifies a matching task ID + nonce in that tab before binding the official address. It never clicks Send again to repair a URL.
+- Do not paste browser cookies, ChatGPT passwords, access tokens, or a third-party chat URL to recover a session.
