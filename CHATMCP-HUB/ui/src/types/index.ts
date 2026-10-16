@@ -9,6 +9,7 @@ export interface TaskSummary {
   dependsOn?: string[];
   parentTaskId?: string | null;
   parentRunId?: string | null;
+  linkedFromTaskId?: string | null;
   conversationId?: string;
   workspacePath?: string;
   queuedMessagesCount?: number;
@@ -208,6 +209,7 @@ export interface Task {
   dependsOn?: string[];
   parentTaskId?: string | null;
   parentRunId?: string | null;
+  linkedFromTaskId?: string | null;
   conversationId?: string;
   workspacePath?: string;
   queuedMessagesCount?: number;
