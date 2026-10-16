@@ -273,7 +273,8 @@ try {
     'cancel propagated to actual child agent');
   assert.equal(pool.workflows.get(cancelledWorkflow.id).status,'cancelled');
   release.get('RC')(); // the scripted provider must not keep an unresolved test promise.
-
+  await until(()=>!pool.state().activeTaskIds.includes(halted.phases[0].agents[0].taskId),
+    'cancelled reviewer released its execution lock');
   const removed=await pool.delete(reviewParent.id);
   assert.ok(removed.deletedIds.length>=4,'workflow child agents deleted with parent chat');
   assert.equal(pool.workflows.get(workflowId),null,
