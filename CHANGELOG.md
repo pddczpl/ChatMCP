@@ -1,5 +1,16 @@
 # Lịch sử thay đổi
 
+## [3.7.0] — 2026-10-16 — Autonomous In-Chat Phased Workflows
+
+- Add model-callable `spawn_workflow` to create durable, named multi-phase workflows in an ordinary coding conversation (up to five phases and twelve specialist child agents).
+- Independent reviewers run concurrently on distinct Git worktrees. Later phases wait for all predecessors to succeed. Verifiers receive bounded earlier results as untrusted historical data and must inspect actual files and test evidence; branches are not auto-merged.
+- The same live workflow appears in the originating chat and in Background Tasks under its exact workspace/conversation/task, displaying phases, individual agent states, durations, and available provider-reported token usage.
+- Parent conversations stay interactive while workflows execute independently. Users can cancel a workflow; cancellation targets the actual child jobs and preserves uncertainty about interrupted Git mutations.
+- Persist workflow DAG, phase/task IDs, parent-run links and dependencies locally; never auto-replay an ambiguous write after a restart.
+- Extend real-Hub and React E2E coverage for concurrent reviewers, dependent verification, Review-mode worktree approvals, cancellation, persistence and safe descendant cleanup.
+- PR #36 passed all nine CI jobs on Windows/Ubuntu, Node 22/24, real React E2E, Windows installer/WebView2 smoke and repository hygiene. Scripted tests do not verify live provider parity with Codex or Claude.
+- Installer remains unsigned by Authenticode; SHA-256 ensures file integrity only. Worktree isolation is not an OS sandbox.
+
 ## [3.6.0] — 2026-10-16 — Workspace/Conversation/Task Hierarchy & Gateway Diagnostics
 
 - Redesign the desktop workspace structure as **multiple registered local workspaces → conversations → individual execution runs → delegated subagents**. The left sidebar groups conversations by their original workspace, never shows a subagent as an independent user chat, and preserves task history across additional conversation turns.
