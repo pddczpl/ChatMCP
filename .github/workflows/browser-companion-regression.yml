@@ -1,9 +1,14 @@
 name: Browser Companion Workspace Regression
 on:
   push:
-    branches: ['fix/native-workspace-picker-chatgpt-web-mode']
+    branches: [main, 'fix/native-workspace-picker-chatgpt-web-mode']
   pull_request:
     paths:
+      - 'CHATMCP-HUB/windows/Select-Workspace.ps1'
+      - 'desktop-shell/MainWindow.cs'
+      - 'CHATMCP-HUB/ui/src/lib/native-folder-picker.ts'
+      - 'CHATMCP-HUB/tests/verify-native-picker-bridge.mjs'
+      - 'CHATMCP-HUB/lib/manager.mjs'
       - 'CHATMCP-HUB/lib/browser-runner.mjs'
       - 'CHATMCP-HUB/lib/dual-agent.mjs'
       - 'CHATMCP-HUB/tests/verify-browser-web-workspaces.mjs'
