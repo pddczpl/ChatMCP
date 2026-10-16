@@ -26,7 +26,7 @@ import type { ChatAttachment } from '@/types';
 
 export function ConversationView() {
   const queryClient = useQueryClient();
-  const { selectedTaskId, setSelectedTaskId, showToast, streamingToken, streamingTaskId, selectedBaseRef } = useAppStore();
+  const { selectedTaskId, setSelectedTaskId, showToast, streamingToken, streamingTaskId, selectedBaseRef, selectedWorkspacePath } = useAppStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const followOutput = useRef(true);
   const [showLatest, setShowLatest] = useState(false);
@@ -76,7 +76,8 @@ export function ConversationView() {
     setSending(true);
     try {
       if (!selectedTaskId) {
-        const res = await api.startTask(text || 'Hãy phân tích tệp/ảnh đính kèm.', attachments, selectedBaseRef || null, dependsOn);
+        const res = await api.startTask(text || 'Hãy phân tích tệp/ảnh đính kèm.', attachments, selectedBaseRef || null, dependsOn,
+          selectedWorkspacePath || hub?.workspaces?.activePath || hub?.workspace?.path || null);
         if (res?.task?.id) {
           queryClient.setQueryData(['task', res.task.id], res.task);
           setSelectedTaskId(res.task.id);
