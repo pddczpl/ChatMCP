@@ -102,7 +102,14 @@ try{
     url, text:'Finished task',
     blocks:[JSON.stringify({chatmcp_hub:'v1',task:task.id,turn:packet.turn,nonce,
       kind:'final',text:'Read the target README.'})]});
-  await until(()=>browser.get(task.id).status==='completed','final web result accepted');
+  // finish() sets status before it has persisted the transcript and closed
+  // the dedicated task manager. Wait for its real ownership release first;
+  // polling publicTask while the async writer is still settling is not proof
+  // that the browser conversation is ready for continuation.
+  mark('wait browser owner release');
+  await until(()=>browser.context===null,'final reply persisted and task owner released');
+  mark('browser owner released');
+  assert.equal(browser.get(task.id).status,'completed','final web result accepted');
   assert.equal(browser.context,null,'browser manager must be released');
   const summary=browser.backgroundTasks()[0];
   assert.equal(summary.status,'completed');
@@ -127,7 +134,10 @@ try{
     url,text:'Follow-up finished',
     blocks:[JSON.stringify({chatmcp_hub:'v1',task:task.id,turn:next.message.turn,nonce,
       kind:'final',text:'Follow-up successfully completed.'})]});
-  await until(()=>browser.get(task.id).status==='completed','follow-up result');
+  mark('wait follow-up owner release');
+  await until(()=>browser.context===null,'follow-up result persisted and owner released');
+  mark('follow-up owner released');
+  assert.equal(browser.get(task.id).status,'completed','follow-up result');
   assert.equal(browser.backgroundTasks().filter(r=>r.conversationId===task.id).length,2);
   assert.equal(manager.workspace,first);
 
