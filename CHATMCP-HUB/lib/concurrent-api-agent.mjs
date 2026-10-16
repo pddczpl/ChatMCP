@@ -112,7 +112,7 @@ export class ConcurrentApiAgent {
             }))
           : [];
         activities.push({
-          id: summary.id + ':run:' + (i + 1),
+          id: run.id || summary.id + ':run:' + (i + 1),
           taskId: summary.id,
           conversationId: summary.id,
           workspacePath: summary.workspacePath || detail.workspace?.path || this.manager.workspace,
