@@ -1,0 +1,133 @@
+import { useState } from 'react';
+import type { BackgroundWorkflow, WorkflowPhase } from '@/types';
+import {
+  Workflow, ChevronDown, ChevronRight, Loader2, CircleCheck,
+  CircleAlert, CirclePause, GitBranch, Square, Bot, ListChecks,
+} from 'lucide-react';
+
+const running=(state:string)=>['queued','preparing','planning','running','waiting_approval','verifying'].includes(state);
+const completed=(state:string)=>state==='completed';
+const interrupted=(state:string)=>['failed','uncertain','blocked','paused','cancelled','limit'].includes(state);
+const short=(text:string,len=105)=>text.length>len?text.slice(0,len)+'…':text;
+const usage=(tokens:number)=>{
+  if(!Number.isFinite(tokens)||tokens<1)return '';
+  return tokens>=1e6?(tokens/1e6).toFixed(1)+'M':tokens>=1000?(tokens/1000).toFixed(1)+'k':String(tokens);
+};
+const duration=(from?:string|null,to?:string|null)=>{
+  if(!from)return '';
+  const start=new Date(from).getTime(),end=to?new Date(to).getTime():Date.now();
+  if(!Number.isFinite(start)||!Number.isFinite(end)||end<start)return '';
+  const seconds=Math.floor((end-start)/1000);
+  if(seconds<60)return seconds+'s';
+  const minutes=Math.floor(seconds/60);
+  return minutes<60?minutes+'m '+seconds%60+'s':Math.floor(minutes/60)+'h '+minutes%60+'m';
+};
+function StateIcon({status}:{status:string}){
+  if(completed(status))return <CircleCheck className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0"/>;
+  if(interrupted(status))return <CircleAlert className="w-3.5 h-3.5 text-amber-500 flex-shrink-0"/>;
+  if(running(status))return <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-500 flex-shrink-0"/>;
+  return <CirclePause className="w-3.5 h-3.5 text-[var(--faint)] flex-shrink-0"/>;
+}
+
+export function WorkflowCard({
+  workflow,compact=false,onOpenAgent,onCancel,stopPending=false,
+}:{
+  workflow:BackgroundWorkflow;
+  compact?:boolean;
+  onOpenAgent?:(taskId:string)=>void;
+  onCancel?:(workflowId:string)=>void;
+  stopPending?:boolean;
+}){
+  const [expanded,setExpanded]=useState(true);
+  const [phaseExpanded,setPhaseExpanded]=useState<Record<string,boolean>>({});
+  const tokens=usage((workflow.usage?.inputTokens||0)+(workflow.usage?.outputTokens||0));
+  const status=workflow.status;
+  const showPhase=(phase:WorkflowPhase)=>phaseExpanded[phase.id] ?? (!compact && phase.status!=='completed');
+  const canCancel=running(status)&&workflow.activeAgents>0;
+  return <section data-testid="agent-workflow" data-workflow-id={workflow.id}
+    data-parent-run={workflow.parentRunId||''}
+    className="rounded-xl border border-[var(--line)] bg-[var(--surface)] text-xs overflow-hidden">
+    <div className="flex items-center gap-2 p-3">
+      <Workflow className="w-4 h-4 text-[var(--primary)] flex-shrink-0"/>
+      <button type="button" aria-expanded={expanded}
+        onClick={()=>setExpanded(v=>!v)} className="flex-1 min-w-0 text-left flex items-center gap-1.5">
+        <span className="font-semibold text-[var(--text)] truncate" title={workflow.name}>{workflow.name}</span>
+        {expanded?<ChevronDown className="w-3 h-3 flex-shrink-0 text-[var(--muted)]"/>:<ChevronRight className="w-3 h-3 flex-shrink-0 text-[var(--muted)]"/>}
+      </button>
+      <StateIcon status={status}/>
+      <span className="text-[11px] text-[var(--faint)] whitespace-nowrap">{duration(workflow.createdAt,workflow.finishedAt)}</span>
+      {canCancel&&onCancel&&<button type="button" title="Dừng workflow và các agent con"
+        aria-label={'Dừng workflow '+workflow.name} disabled={stopPending}
+        onClick={()=>onCancel(workflow.id)}
+        className="p-1 rounded-md text-[var(--muted)] hover:text-rose-500 disabled:opacity-40">
+        {stopPending?<Loader2 className="w-3.5 h-3.5 animate-spin"/>:<Square className="w-3.5 h-3.5"/>}
+      </button>}
+    </div>
+    {expanded&&<div className="px-3 pb-3 space-y-3">
+      <div className="flex gap-3 flex-wrap items-center text-[11px] text-[var(--muted)]">
+        <span>{status==='completed'?'Workflow completed':status==='cancelled'?'Workflow cancelled':
+          status==='blocked'||status==='failed'?'Workflow needs review':
+          status==='paused'?'Workflow paused':'Workflow running'}</span>
+        <span><Bot className="w-3 h-3 inline align-middle"/> {workflow.total} agents</span>
+        <span>{workflow.completed}/{workflow.total} completed</span>
+        {tokens&&<span title="Số token được provider báo cáo từ các agent con">{tokens} tokens</span>}
+      </div>
+      <div className="h-1.5 rounded-full bg-[var(--surface-hover)] overflow-hidden" aria-label="Tiến độ workflow">
+        <div className="h-full bg-sky-500 transition-all duration-300 rounded-full"
+          style={{width:(workflow.total?100*workflow.completed/workflow.total:0)+'%'}}/>
+      </div>
+      {workflow.error&&<p role="status" className="text-[11px] text-amber-500 break-words">{workflow.error}</p>}
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1 text-[11px] font-medium text-[var(--muted)]">
+          <ListChecks className="w-3.5 h-3.5"/> Phases
+        </div>
+        {workflow.phases.map(phase=>{
+          const open=showPhase(phase);
+          return <div key={phase.id} className="rounded-lg border border-[var(--line)] overflow-hidden"
+            data-testid="workflow-phase" data-phase={phase.name}>
+            <button type="button" aria-expanded={open}
+              onClick={()=>setPhaseExpanded(v=>({...v,[phase.id]:!open}))}
+              className="w-full p-2 flex items-center gap-2 bg-[var(--panel)] hover:bg-[var(--surface-hover)] text-left">
+              <StateIcon status={phase.status}/>
+              <span className="text-[var(--text)] font-medium flex-1 truncate">{phase.name}</span>
+              <span className="text-[var(--muted)] text-[11px]">{phase.completed}/{phase.total}</span>
+              {open?<ChevronDown className="w-3 h-3 text-[var(--muted)]"/>:<ChevronRight className="w-3 h-3 text-[var(--muted)]"/>}
+            </button>
+            <div className="h-1 bg-[var(--surface-hover)] flex gap-0.5">
+              {phase.agents.map(agent=><div key={agent.id} className={'h-full flex-1 '+(completed(agent.status)?'bg-sky-500':running(agent.status)?'bg-sky-300/60':'bg-[var(--line)]')}/>)}
+            </div>
+            {open&&<div className="px-2 py-1 space-y-1 bg-[var(--surface)]">
+              {phase.agents.map(agent=><div key={agent.taskId}
+                data-testid="workflow-subagent" data-agent-status={agent.status}
+                className="flex items-start gap-2 py-1.5 text-[11px]">
+                <StateIcon status={agent.status}/>
+                <div className="flex-1 min-w-0 space-y-0.5">
+                  {onOpenAgent?<button type="button" title={agent.goal} onClick={()=>onOpenAgent(agent.taskId)}
+                    className="text-left font-medium text-[var(--text)] hover:underline break-words">
+                    {agent.role||short(agent.goal,100)}
+                  </button>:<p className="text-[var(--text)] font-medium break-words">{agent.role||short(agent.goal,100)}</p>}
+                  {agent.role&&<p className="text-[var(--faint)] break-words">{short(agent.goal,compact?95:155)}</p>}
+                  {agent.branch&&<div className="text-[var(--faint)] truncate" title={agent.worktree||agent.branch}>
+                    <GitBranch className="w-3 h-3 inline"/> {agent.branch}
+                  </div>}
+                  {agent.status==='completed'&&agent.resultPreview&&
+                    <p className="text-[var(--muted)] line-clamp-2 break-words">{agent.resultPreview}</p>}
+                </div>
+                <div className="text-right flex-shrink-0 text-[var(--faint)] space-y-0.5">
+                  <div>{agent.model||agent.status}</div>
+                  <div>{duration(agent.startedAt,agent.finishedAt)}</div>
+                </div>
+              </div>)}
+              {!phase.agents.length&&<p className="text-[11px] text-[var(--faint)] py-2">
+                Đang giao việc cho các agent…
+              </p>}
+            </div>}
+          </div>;
+        })}
+      </div>
+      <p className="text-[10px] text-[var(--faint)]">
+        Kết quả cần được kiểm chứng bằng mã nguồn, diff và test thực tế. Các Git worktree không được tự động merge.
+      </p>
+    </div>}
+  </section>;
+}
