@@ -4,11 +4,13 @@
 
 [![CI](https://github.com/pddczpl/ChatMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/pddczpl/ChatMCP/actions/workflows/ci.yml) · [Windows Releases](https://github.com/pddczpl/ChatMCP/releases) · [Issues](https://github.com/pddczpl/ChatMCP/issues) · [Security](SECURITY.md)
 
-> **Current release v3.8.0:** ChatMCP operates entirely on local infrastructure (`127.0.0.1:3007`). There is no cloud account, hosted server deployment, multi-tenant database, or external login service. All tool execution is controlled through a local Permission Gate. Outbound network access is restricted to user-configured AI providers, GitHub, and authorized research lookups. **Local-first does not mean fully offline.**
+> **Current release v3.8.1:** ChatMCP operates entirely on local infrastructure (`127.0.0.1:3007`). There is no cloud account, hosted server deployment, multi-tenant database, or external login service. All tool execution is controlled through a local Permission Gate. Outbound network access is restricted to user-configured AI providers, GitHub, and authorized research lookups. **Local-first does not mean fully offline.**
 >
-> Releases are tagged on GitHub and include an installer SHA-256 checksum. The installer is not Authenticode-signed. **v3.2.0** introduced bundled language servers, Tree-sitter WASM and embedded Python; **v3.3.0** expanded local coding tools and token-aware model output handling; **v3.4.0** added enhanced planning, browser/LSP workflows and model usage telemetry; **v3.4.1** fixes stuck preparation and bounds automatic repository mapping. Windows DPAPI protections remain in force. [Latest published release notes](RELEASE-NOTES-v3.8.0.md).
+> Releases are tagged on GitHub and include an installer SHA-256 checksum. The installer is not Authenticode-signed. **v3.2.0** introduced bundled language servers, Tree-sitter WASM and embedded Python; **v3.3.0** expanded local coding tools and token-aware model output handling; **v3.4.0** added enhanced planning, browser/LSP workflows and model usage telemetry; **v3.4.1** fixes stuck preparation and bounds automatic repository mapping. Windows DPAPI protections remain in force. [Latest published release notes](RELEASE-NOTES-v3.8.1.md).
 
 ---
+
+**v3.8.1 ChatGPT Web Companion transport switching and URL recovery:** Existing logical conversations can change between Model API and user-paired ChatGPT Web for the **next** prompt by creating a linked task in the selected transport. ChatMCP stores prior context locally and passes only a bounded, redacted handoff; in-progress/uncertain file mutations are never silently moved or replayed. The paired Chrome/Edge Hub Companion **1.5.0** can recover the official `chatgpt.com/c/...` URL of the original user-opened tab using a unique task ID and nonce witness, without resending the prompt. The official ZIP (plus SHA-256) is published beside the installer; installation and browser pairing still require user approval.
 
 **v3.8.0 native workspace picker and ChatGPT Web Companion:** The packaged Windows desktop displays a native owner-bound folder-selection dialog instead of relying on a hidden PowerShell process. Non-desktop users retain a PowerShell fallback with readable errors and can paste an absolute directory path manually. A new Settings transport selector supports the ordinary signed-in ChatGPT Web interface via the user-installed, paired Chrome/Edge ChatMCP Hub Companion extension. Web tasks use the selected registered workspace and the local Permission Gate; the browser transport is text-only and currently supports one active Web task at a time. It neither uses a private ChatGPT API nor turns a ChatGPT subscription into OpenAI API quota. Live browser/GUI compatibility must be verified on the user's Windows desktop.
 
@@ -24,10 +26,11 @@ ChatMCP does not impose request, token, or spending limits. The user manages pro
 
 ## Features and Capabilities
 
-ChatMCP v3.8.0 targets autonomous software engineering while preserving local security boundaries:
+ChatMCP v3.8.1 targets autonomous software engineering while preserving local security boundaries:
 
+- **Web Companion switch in existing chat:** Switch between Model API and user-paired ChatGPT Web for the next message in a logical conversation, with a new linked task and bounded redacted context handoff. Companion 1.5.0 can recover an official URL by verifying task+nonce evidence in the original tab without a duplicate prompt.
 - **Native Windows folder picker:** WebView2 asks the owning WinForms desktop to show the Explorer-style folder modal; PowerShell fallback errors are diagnosed, and manual absolute-path registration remains available when a native chooser cannot open.
-- **ChatGPT Web Browser Companion mode:** A paired Chrome/Edge extension can convey normal ChatGPT Web chat turns to the local Hub, executing only authorized tools in the selected workspace. Existing chats retain their original transport; API sessions can continue independently in different checkout roots. Browser mode needs a user-signed-in ChatGPT tab, works with text prompts, and is not a private ChatGPT API integration.
+- **ChatGPT Web Browser Companion mode:** A paired Chrome/Edge extension can convey normal ChatGPT Web chat turns to the local Hub, executing only authorized tools in the selected workspace. Switching Model API ↔ ChatGPT Web affects the next message in an existing logical conversation by creating a linked physical task with an explicit bounded context handoff; API sessions can still work independently in different checkout roots. Browser mode needs a user-signed-in ChatGPT tab, works with text prompts, and is not a private ChatGPT API integration.
 - **Autonomous in-chat workflow phases:** Model-driven `spawn_workflow` supports up to five phases and twelve specialized agents; independent reviewers run concurrently, and later phases wait for real predecessor completion. The same durable live workflow card appears in chat and Background Tasks. Worktree creation remains permission-gated and changes are not automatically merged.
 - **Multiple project folders:** Workspace registry groups independent conversations per user-selected folder; new conversations can execute concurrently in distinct workspaces, with isolated Git worktrees for overlapping writers. Native Windows folder selection can remain available while other agents run.
 - **Execution-aware Background Tasks:** Each conversation can contain multiple separate task runs. Subagents are shown beneath their originating run instead of being mistaken for new chat sessions.
@@ -77,7 +80,7 @@ Full instructions: [INSTALL-EXTENSION.txt](CHATMCP-HUB/extension/INSTALL-EXTENSI
 
 ### 1. Download Official Installer
 Download the latest standalone installer from [GitHub Releases](https://github.com/pddczpl/ChatMCP/releases):
-- File: `ChatMCPSetup.exe` (latest published release v3.8.0)
+- File: `ChatMCPSetup.exe` (latest published release v3.8.1)
 - Checksum: Verify against `ChatMCPSetup.exe.sha256`
 - Requirements: Windows 10/11 x64 with Microsoft Edge WebView2 Runtime, Git for Windows.
 
