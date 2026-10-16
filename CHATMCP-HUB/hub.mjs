@@ -123,7 +123,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   });
   manager.sandboxEngine = sandboxEngine;
   manager.executionRegistry = sandboxEngine.registry;
-  const state = (csrf = token) => ({ ...manager.state(), workspaces:workspaceRegistry?.state()??{activePath:manager.workspace,items:manager.workspace?[{path:manager.workspace,name:path.basename(manager.workspace)}]:[]}, ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions: { ...(permissions?.state?.()??gate?.state()??{}), pending: [...(permissions?.state?.().pending??[]), ...(taskEngine?.api?.pendingApprovals?.()??[])] }, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null,dynamicDelegates:dynamic?.state()??null} : null, csrfToken: csrf });
+  const state = (csrf = token) => ({ ...manager.state(), workspaces:workspaceRegistry?.state()??{activePath:manager.workspace,items:manager.workspace?[{path:manager.workspace,name:path.basename(manager.workspace)}]:[]}, ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions: { ...(permissions?.state?.()??gate?.state()??{}), pending: [...(permissions?.state?.().pending??[]), ...(taskEngine?.api?.pendingApprovals?.()??[]), ...(browser?.manager&&browser.manager!==manager?(browser.manager.permissions?.state().pending||[]):[])] }, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null,dynamicDelegates:dynamic?.state()??null} : null, csrfToken: csrf });
   const requireNoTask = () => { if (taskEngine?.state().activeTaskId || dynamic?.activeRunId || coding?.active || delegates?.running) { const e = new Error('Dừng các tác vụ AI đang chạy trước khi đổi Base URL, API key hoặc model.'); e.statusCode = 409; throw e; } };
   const changeAi = async (operation) => {
     requireNoTask();
@@ -383,11 +383,15 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
                 code:'workers_active',statusCode:409,
               });
             result=gate.configure(payload);break;
-          case '/api/studio/permissions/decide': result=(gate?.state().pending||[]).some(p=>p.id===payload.id)
+          case '/api/studio/permissions/decide':
+            result=(gate?.state().pending||[]).some(p=>p.id===payload.id)
               ? gate.decide(payload.id,payload.approved)
-              : taskEngine?.api?.decidePermission?.(payload.id,payload.approved);
-              if(!result)throw Object.assign(new Error('Không tìm thấy yêu cầu phê duyệt.'),{statusCode:404});
-              break;
+              : (browser?.manager&&browser.manager!==manager&&
+                  (browser.manager.permissions?.state().pending||[]).some(p=>p.id===payload.id))
+                ? browser.manager.permissions.decide(payload.id,payload.approved)
+                : taskEngine?.api?.decidePermission?.(payload.id,payload.approved);
+            if(!result)throw Object.assign(new Error('Không tìm thấy yêu cầu phê duyệt.'),{statusCode:404});
+            break;
           case '/api/studio/checkpoint': result=await studio.checkpoint(payload);break;
           case '/api/studio/file/save': if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không ghi file trên Windows host. Đổi sang host-review để lưu bản chỉnh sửa sau khi review.'),{statusCode:403});if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Đợi agent dừng trước khi lưu file từ editor.'),{statusCode:409});result=await studio.save(payload);break;
           case '/api/studio/restore': if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: không khôi phục file trực tiếp trên Windows host.'),{statusCode:403});result=await studio.restore(payload);break;
