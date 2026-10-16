@@ -205,7 +205,7 @@ test('ChatGPT Web mode is selectable, pairs via an explicit browser code and nev
   await page.getByRole('button',{name:/ChatGPT Web/}).click();
   await expect.poll(async()=>(await app.hub.state()).agent.mode).toBe('chatgpt-web');
   await expect(page.getByTestId('chatgpt-web-settings')).toBeVisible();
-  await expect(page.getByTestId('chatgpt-web-settings').getByText('Không cần API key',{exact:false})).toBeVisible();
+  await expect(page.getByRole('button',{name:/ChatGPT Web/})).toHaveAttribute('aria-pressed','true');
   await expect(page.getByRole('button',{name:'Tạo mã ghép (5 phút)'})).toBeVisible();
   await page.getByRole('button',{name:'Tạo mã ghép (5 phút)'}).click();
   await expect(page.getByLabel('Mã ghép Browser Companion')).toHaveValue(/^\d{8}$/);
