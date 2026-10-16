@@ -87,6 +87,49 @@ export class ConcurrentApiAgent {
     return { activeTaskId: activeTaskIds[0] || null, activeTaskIds,
       active: activeTaskIds.length ? this.get(activeTaskIds[0]) : null, tasks };
   }
+  backgroundTasks() {
+    // Deliberately NOT a list of chats. A conversation owns many task runs;
+    // model-created child agents are subordinate to the run that delegated them.
+    const all = this.state().tasks, map = new Map();
+    for (const task of all) map.set(task.id, this.get(task.id));
+    const activities = [];
+    for (const summary of all) {
+      if (summary.parentTaskId) continue; // visible inside its parent execution
+      const detail = map.get(summary.id) || summary;
+      const runs = Array.isArray(detail.runs) && detail.runs.length
+        ? detail.runs : [{ status: detail.status, startedAt: detail.startedAt || detail.createdAt,
+          finishedAt: detail.finishedAt, finalText: detail.finalText }];
+      for (let i = 0; i < runs.length; i++) {
+        const run = runs[i], latest = i === runs.length - 1;
+        const children = latest
+          ? all.filter(child => child.parentTaskId === summary.id).map(child => ({
+              id: child.id, taskId: child.id, parentTaskId: summary.id,
+              title: child.prompt, status: child.state || child.status,
+              startedAt: child.startedAt || child.createdAt,
+              finishedAt: child.finishedAt,
+              branch: child.branch || null,
+              workspacePath: child.workspacePath || summary.workspacePath,
+            }))
+          : [];
+        activities.push({
+          id: summary.id + ':run:' + (i + 1),
+          taskId: summary.id,
+          conversationId: summary.id,
+          workspacePath: summary.workspacePath || detail.workspace?.path || this.manager.workspace,
+          title: detail.prompts?.[i]?.text || (i===0 ? summary.prompt : 'Continuation ' + (i + 1)),
+          status: latest ? (detail.state || detail.status) : (run.status || 'completed'),
+          startedAt: run.startedAt || detail.startedAt || summary.createdAt,
+          finishedAt: latest ? detail.finishedAt : run.finishedAt,
+          stepCount: latest ? Number(detail.steps || 0) : null,
+          // Aggregate model token counts span the entire conversation. Do not
+          // misrepresent them as exact per-run billing.
+          conversationUsage: latest ? (detail.usage || null) : null,
+          subagents: children,
+        });
+      }
+    }
+    return activities.sort((a,b) => String(b.startedAt||'').localeCompare(String(a.startedAt||''))).slice(0,80);
+  }
   get(id) {
     const first = this.primary.get(id);
     if (first) return {...first,conversationId:id,workspacePath:first.workspace?.path||this.manager.workspace};
