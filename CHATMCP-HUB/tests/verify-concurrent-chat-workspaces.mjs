@@ -111,6 +111,8 @@ try {
   const afterFollowup=pool.backgroundTasks().filter(x=>x.conversationId===first.id);
   assert.equal(afterFollowup.length,2,'one conversation contains multiple task runs');
   assert.notEqual(afterFollowup[0].id,afterFollowup[1].id,'task/run IDs must remain distinct');
+  assert.ok(afterFollowup.some(run=>run.title==='Follow up in the same conversation.'),
+    'background run must use its actual per-run prompt, not previous in-flight messages');
 
   const worktrees=pool.state().tasks.filter(x=>x.worktree && x.workspace?.path!==repo);
   assert.ok(worktrees.length>=2,'child conversations must have their own worktree paths');
