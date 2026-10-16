@@ -201,8 +201,11 @@ export class WorkflowOrchestrator {
     for(const taskId of workflow.phases.flatMap(p=>p.agents.map(a=>a.taskId))){
       const task=this.getTask(taskId);
       if(task&&LIVE.has(statusOf(task))){
-        try{await this.cancelTask(taskId);}
-        catch(error){errors.push(String(error?.message||error).slice(0,120));}
+        try{
+          const result=await this.cancelTask(taskId);
+          if(result?.status==='uncertain'||result?.status==='failed')
+            errors.push('Task '+taskId+' is '+result.status+'; inspect its Git worktree before retrying.');
+        }catch(error){errors.push(String(error?.message||error).slice(0,120));}
       }
     }
     workflow.statusOverride=errors.length?'failed':'cancelled';
