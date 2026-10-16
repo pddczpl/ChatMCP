@@ -1,6 +1,6 @@
 import { test, expect, onboard, send, taskByPrompt } from './fixtures.mjs';
 import { waitForState } from '../../tests/e2e/hub-process.mjs';
-import { say } from '../../tests/e2e/scenarios.mjs';
+import { say, call } from '../../tests/e2e/scenarios.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -115,4 +115,72 @@ test('Background tasks supports new chats, Git choices, attachment previews and 
   expect((await app.hub.get('/api/tasks/'+encodeURIComponent(first.id))).status).toBe(404);
   expect((await fs.stat(path.join(app.project,'README.md'))).isFile()).toBe(true);
   await page.screenshot({path:testInfo.outputPath('background-tasks-light-1280.png'),fullPage:true});
+});
+
+
+test('model-created workflow appears live in chat and Background Tasks with real phase agents', async ({page,app})=>{
+  let reviewerStarts=0,verifierStarts=0;
+  app.mock.define('phased-review',async ctx=>{
+    if(ctx.prompt.includes('Workflow E2E:')){
+      if(ctx.turn===0){
+        if(!ctx.tools.includes('spawn_workflow'))throw new Error('Model did not receive spawn_workflow');
+        return call('spawn_workflow',{
+          name:'Independent review + verification',
+          phases:[
+            {name:'Review',agents:[
+              {role:'Security',goal:'Workflow Reviewer One: inspect security evidence'},
+              {role:'Correctness',goal:'Workflow Reviewer Two: inspect correctness evidence'},
+            ]},
+            {name:'Verify',agents:[{role:'Independent verifier',
+              goal:'Workflow Verifier: validate both independent review findings'}]},
+          ],
+        });
+      }
+      return say('Đã giao workflow chạy nền. Báo cáo sẽ được kiểm chứng sau khi các subagent hoàn thành.');
+    }
+    if(ctx.prompt.includes('Workflow Reviewer')){
+      reviewerStarts++;
+      await new Promise(r=>setTimeout(r,900));
+      return say('Reviewer finished with a concrete finding; no code was merged.');
+    }
+    if(ctx.prompt.includes('Workflow Verifier')){
+      verifierStarts++;
+      return say('Verifier cross-checked the earlier findings independently.');
+    }
+    return say('Worker reported a result.');
+  });
+  app.mock.setScenario('phased-review');
+  await onboard(page,app);
+  await page.setViewportSize({width:1280,height:900});
+  const prompt='Workflow E2E: use two independent reviewers and one verifying agent.';
+  await send(page,prompt);
+  const parent=await taskByPrompt(app,prompt);
+  await expect(page.getByTestId('chat-workflow')).toBeVisible();
+  await expect(page.getByTestId('chat-workflow').getByTestId('workflow-phase')).toHaveCount(2);
+  await expect(page.getByTestId('chat-workflow').getByText('Independent review + verification')).toBeVisible();
+  await expect(page.getByTestId('background-workflow')).toHaveCount(1);
+  const first=await app.hub.get('/api/background-tasks');
+  expect(first.ok).toBe(true);
+  expect(first.json.workflows).toHaveLength(1);
+  const workflow=first.json.workflows[0];
+  expect(workflow.conversationId).toBe(parent.id);
+  expect(workflow.phases[0].agents).toHaveLength(2);
+  expect(workflow.phases[1].agents).toHaveLength(1);
+  expect(workflow.phases[1].dependsOn).toEqual([workflow.phases[0].id]);
+  await waitForState(app.hub,parent.id,'completed');
+  // Workflows remain observable AFTER the parent chat turn completes.
+  await expect(page.getByTestId('chat-workflow')).toBeVisible();
+  await expect.poll(async()=>{
+    const response=await app.hub.get('/api/background-tasks');
+    return response.json.workflows?.[0]?.status;
+  },{timeout:30000}).toBe('completed');
+  expect(reviewerStarts).toBe(2);
+  expect(verifierStarts).toBe(1);
+  const final=(await app.hub.get('/api/background-tasks')).json.workflows[0];
+  expect(final.completed).toBe(3);
+  expect(final.phases.every(p=>p.status==='completed')).toBe(true);
+  await expect(page.getByTestId('chat-workflow').getByText('3/3 completed')).toBeVisible();
+  await expect(page.getByTestId('background-workflow')).toHaveCount(1);
+  await expect(page.getByTestId('background-workflow').getByText('Review')).toBeVisible();
+  await expect(page.getByTestId('background-workflow').getByText('Verify')).toBeVisible();
 });
