@@ -4,6 +4,7 @@ import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
 import { taskStateLabel } from '@/lib/task-view';
 import type { BackgroundRun } from '@/types';
+import { WorkflowCard } from '@/components/conversation/WorkflowCard';
 import {
   Loader2, Square, ChevronDown, ChevronRight, CheckCircle2, Clock,
   GitBranch, Network, FolderGit2, MessageSquare,
@@ -35,7 +36,9 @@ export function BackgroundTasks() {
   const {data:hub}=useQuery({queryKey:['hubState'],queryFn:api.getState,refetchInterval:3000});
   const [expanded,setExpanded]=useState<Record<string,boolean>>({});
   const [scope,setScope]=useState<'all'|'workspace'|'conversation'>('all');
+  const [cancellingWorkflow,setCancellingWorkflow]=useState<string|null>(null);
   const tasks=data?.tasks||[];
+  const workflows=data?.workflows||[];
   const workspaceRoots=hub?.workspaces?.items||[];
   const currentWorkspace=workspaceRoots.find(w=>w.path===selectedWorkspacePath)?.path||hub?.workspaces?.activePath||'';
   const currentConversation=hub?.tasks?.find(t=>t.id===selectedTaskId&&!t.parentTaskId);
@@ -80,6 +83,20 @@ export function BackgroundTasks() {
       showToast('Đã gửi yêu cầu dừng riêng task này.','info');
     }catch(e){showToast(e instanceof Error?e.message:'Không thể dừng task.','error');}
   };
+  const stopWorkflow=async(id:string)=>{
+    if(cancellingWorkflow)return;
+    setCancellingWorkflow(id);
+    try{
+      await api.cancelWorkflow(id);
+      await Promise.all([
+        queryClient.invalidateQueries({queryKey:['backgroundRuns']}),
+        queryClient.invalidateQueries({queryKey:['hubState']}),
+      ]);
+      showToast('Đã gửi yêu cầu dừng workflow.','info');
+    }catch(e){
+      showToast(e instanceof Error?e.message:'Không thể dừng workflow.','error');
+    }finally{setCancellingWorkflow(null);}
+  };
   const openChat=async(folder:string,conversationId:string)=>{
     try{
       await api.activateWorkspace(folder);
@@ -87,6 +104,14 @@ export function BackgroundTasks() {
       setSelectedTaskId(conversationId);
       await queryClient.invalidateQueries({queryKey:['hubState']});
     }catch(e){showToast(e instanceof Error?e.message:'Không thể mở hội thoại.','error');}
+  };
+  const openAgent=async(folder:string,taskId:string)=>{
+    try{
+      await api.activateWorkspace(folder);
+      setSelectedWorkspacePath(folder);
+      setSelectedTaskId(taskId);
+      await queryClient.invalidateQueries({queryKey:['hubState']});
+    }catch(e){showToast(e instanceof Error?e.message:'Không thể mở subagent.','error');}
   };
   const openWorkspace=async(folder:string)=>{
     try{
@@ -188,7 +213,18 @@ export function BackgroundTasks() {
             <span className="truncate flex-1 font-medium">{chat.title}</span>
             <span className="text-[var(--faint)]">{chat.runs.length}</span>
           </button>
-          {chat.runs.map(run=>renderRun(run,workspace.name,chat.title))}
+          {chat.runs.map((run,index)=><div key={run.id} className="space-y-1.5">
+            {renderRun(run,workspace.name,chat.title)}
+            {workflows.filter(w=>w.workspacePath===workspace.path&&
+              w.conversationId===chat.id&&
+              (w.parentRunId?w.parentRunId===run.id:index===0)).map(w=>
+              <div className="ml-2" key={w.id} data-testid="background-workflow">
+                <WorkflowCard compact workflow={w}
+                  onOpenAgent={id=>void openAgent(workspace.path,id)}
+                  onCancel={id=>void stopWorkflow(id)}
+                  stopPending={cancellingWorkflow===w.id}/>
+              </div>)}
+          </div>)}
         </div>)}
       </section>)}
     </div>
