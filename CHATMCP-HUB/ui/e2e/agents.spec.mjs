@@ -190,6 +190,6 @@ test('model-created workflow appears live in chat and Background Tasks with real
   expect(final.phases.every(p=>p.status==='completed')).toBe(true);
   await expect(page.getByTestId('chat-workflow').getByText('3/3 completed')).toBeVisible();
   await expect(page.getByTestId('background-workflow')).toHaveCount(1);
-  await expect(page.getByTestId('background-workflow').getByText('Review')).toBeVisible();
-  await expect(page.getByTestId('background-workflow').getByText('Verify')).toBeVisible();
+  await expect(page.getByTestId('background-workflow').getByText('Review',{exact:true})).toBeVisible();
+  await expect(page.getByTestId('background-workflow').getByText('Verify',{exact:true})).toBeVisible();
 });
