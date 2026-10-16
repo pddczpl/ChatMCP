@@ -81,6 +81,7 @@ try {
         contents.includes('Task E')?'E':
         contents.includes('Workflow Review One')?'R1':
         contents.includes('Workflow Review Two')?'R2':
+        contents.includes('Workflow Review Cancel')?'RC':
         contents.includes('Workflow Verify')?'V':'C';
       if(contents.includes('Workflow W')&&!input.some(item=>item?.type==='function_call_output')){
         assert.ok(tools.some(tool=>tool.name==='spawn_workflow'),
@@ -108,7 +109,7 @@ try {
           name:'spawn_agent',call_id:'auto-spawn-fixture',
           arguments:JSON.stringify({goal:'Task D: inspect README as an independent child'})}]};
       }
-      if(['A','B','E','R1','R2'].includes(name)&&!arrived.has(name))await hold(name);
+      if(['A','B','E','R1','R2','RC'].includes(name)&&!arrived.has(name))await hold(name);
       return {status:'completed',output:[{type:'message',role:'assistant',phase:'final',
         content:[{type:'output_text',text:'Task '+name+' completed.'}]}]};
     },
@@ -259,6 +260,20 @@ try {
   pool.workflows.load(outcomes);
   assert.equal(pool.workflows.get(workflowId).status,'completed',
     'reload must preserve completed workflow without re-dispatching agents');
+  // Stop a second workflow while its reviewer is really blocked inside the
+  // model request. Its task is cancelled, not misreported as completed.
+  const cancelledWorkflow=await pool.spawnWorkflow(reviewParent.id,{
+    name:'Cancel a running review',
+    phases:[{name:'Review',agents:[{role:'Reviewer',goal:'Workflow Review Cancel: stop safely'}]}],
+  });
+  await until(()=>arrived.has('RC'),'cancelled workflow reviewer running');
+  const halted=await pool.workflows.cancel(cancelledWorkflow.id);
+  assert.equal(halted.status,'cancelled');
+  await until(()=>pool.get(halted.phases[0].agents[0].taskId)?.status==='cancelled',
+    'cancel propagated to actual child agent');
+  assert.equal(pool.workflows.get(cancelledWorkflow.id).status,'cancelled');
+  release.get('RC')(); // the scripted provider must not keep an unresolved test promise.
+
   const removed=await pool.delete(reviewParent.id);
   assert.ok(removed.deletedIds.length>=4,'workflow child agents deleted with parent chat');
   assert.equal(pool.workflows.get(workflowId),null,
