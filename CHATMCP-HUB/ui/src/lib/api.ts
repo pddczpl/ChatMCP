@@ -117,7 +117,7 @@ export const api = {
   continueTask: (id: string, prompt: string, attachments: ChatAttachment[] = []) =>
     request<{ task: TaskDetail }>('/api/tasks/continue', { method: 'POST', body: JSON.stringify({ id, prompt, attachments }) }).then((r) => ({ task: normalizeTask(r.task) })),
   cancelTask: (id: string) => request<{ task: TaskDetail }>('/api/tasks/cancel', { method: 'POST', body: JSON.stringify({ id }) }).then((r) => ({ task: normalizeTask(r.task) })),
-  deleteTask: (id: string) => request<{ ok: boolean; removed: string }>('/api/tasks/delete', { method: 'POST', body: JSON.stringify({ id }) }),
+  deleteTask: (id: string) => request<{ ok: boolean; deletedId: string; deletedIds?: string[]; preservedWorktrees?: string[] }>('/api/tasks/delete', { method: 'POST', body: JSON.stringify({ id }) }),
   setAutoResume: (id: string, enabled: boolean) => request<{ task: TaskDetail }>('/api/tasks/auto-resume', { method: 'POST', body: JSON.stringify({ id, enabled }) }),
   
   // Workspace
