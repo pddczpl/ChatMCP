@@ -1,5 +1,16 @@
 # Lịch sử thay đổi
 
+## [3.6.0] — 2026-10-16 — Workspace/Conversation/Task Hierarchy & Gateway Diagnostics
+
+- Redesign the desktop workspace structure as **multiple registered local workspaces → conversations → individual execution runs → delegated subagents**. The left sidebar groups conversations by their original workspace, never shows a subagent as an independent user chat, and preserves task history across additional conversation turns.
+- Replace the old conversation list in Background Tasks with **task-run records**, including distinct run IDs, original prompts, execution status, parent-run-linked subagents, and independent Stop actions. Conversation-wide token telemetry is labeled explicitly; it is not reported as per-task billing.
+- Allow a native Windows directory picker to add or activate another workspace while unrelated background agents continue working. Keep separate project roots independent, with Git worktree isolation for overlapping writes. Non-Git folders remain selectable and display no branch list instead of throwing HTTP 409.
+- Bind newly started tasks to the registered folder chosen by the user. Restrict legacy Studio Inspector actions to the primary workspace to avoid silent wrong-project edits when viewing a secondary project.
+- Extend API connection probes and tool-calling probes to **20 seconds each**, with adequate total diagnostic timeout. Keep strict explicit protocol selection and avoid forwarding stored keys to other provider origins.
+- Add synthetic regression coverage for native Anthropic, OpenRouter, DeepSeek, OpenAI and Gemini routing, protected credential separation, multiple independent workspaces, per-conversation follow-up task runs, and parent-run-scoped subagent metadata.
+- PR #33 passed the full nine-job GitHub Actions CI matrix on Ubuntu/Windows, Node 22/24: Hub tests, React E2E, frontend, Windows installer/WebView2 smoke and repository hygiene. Live paid gateway quality and safe real Windows Sandbox guest acceptance remain unverified.
+- Git worktrees are not operating-system sandboxes. The installer remains **unsigned** (no Authenticode publisher identity); verify SHA-256 for file integrity.
+
 ## [3.5.0] — 2026-10-16 — Concurrent Chats, Background Agents & Desktop Workspace
 
 - Enable independent concurrent API coding conversations with a persistent task registry, Git worktree-backed isolation for overlapping writing, and explicit dependency queues.
