@@ -37,6 +37,7 @@ export function ConversationView() {
   const [dependsOn, setDependsOn] = useState<string[]>([]);
   const [approving, setApproving] = useState(false);
   const [cancellingWorkflow,setCancellingWorkflow] = useState<string | null>(null);
+  const [recoveringChatUrl,setRecoveringChatUrl] = useState(false);
 
   // Fetch full Hub state
   const { data: hub } = useQuery({
@@ -123,6 +124,19 @@ export function ConversationView() {
     }catch(err:any){
       showToast(err.message||'Không thể dừng workflow','error');
     }finally{setCancellingWorkflow(null);}
+  };
+  const recoverUrl=async()=>{
+    if(!task||recoveringChatUrl)return;
+    setRecoveringChatUrl(true);
+    try{
+      const result=await api.recoverBrowserChatUrl(task.id);
+      showToast(result.alreadyBound?'URL chính thức đã có.':
+        'Đang yêu cầu Companion kiểm tra tab ChatGPT cũ. Giữ tab đó mở, chờ kết quả rồi nhấn Tiếp tục.',
+        'info');
+      void queryClient.invalidateQueries({queryKey:['task',task.id]});
+    }catch(err:any){
+      showToast(err.message||'Không thể khôi phục URL chat.','error');
+    }finally{setRecoveringChatUrl(false);}
   };
   const handleStopTask = async () => {
     if (!task) return;
@@ -223,6 +237,16 @@ export function ConversationView() {
 
   return (
     <div className="h-full flex flex-col bg-[var(--bg)] min-w-0 overflow-hidden relative">
+      {task?.transport==='chatgpt-web'&&
+        (!task.chatUrl||task.chatUrl.includes('local-chatgpt%3A'))&&
+        !isWorking&&
+        <div className="mx-4 my-2 p-3 rounded-md border border-amber-500/30 text-xs space-y-2">
+          <p>Chưa có URL ChatGPT chính thức cho task này. Mở tab ChatGPT đã gửi nhiệm vụ, rồi yêu cầu Extension xác nhận URL. ChatMCP sẽ không tự tạo chat mới hoặc gửi lại prompt.</p>
+          <button type="button" onClick={()=>void recoverUrl()} disabled={recoveringChatUrl}
+            className="px-3 py-1 rounded border border-[var(--line)] text-[var(--text)] disabled:opacity-40">
+            {recoveringChatUrl?'Đang yêu cầu…':'Khôi phục URL ChatGPT từ tab đã gửi'}
+          </button>
+        </div>}
       {/* Agent transport is distinct from permissions and model provider.
           The Browser Companion uses the user's logged-in ChatGPT web tab and
           never treats an account session/cookie as an API key. */}
