@@ -229,7 +229,9 @@ export const api = {
   testAi: () => request<any>('/api/ai/test', { method: 'POST', body: JSON.stringify({ strictProtocol: true }) }),
   saveAiConfig: (config: any) => request<any>('/api/ai/config', { method: 'POST', body: JSON.stringify(config) }),
   clearAiKey: () => request<any>('/api/ai/clear-key', { method: 'POST' }),
-  setAgentMode: (mode: string) => request<any>('/api/agent/mode', { method: 'POST', body: JSON.stringify({ mode }) }),
+  setAgentMode: (mode: 'api' | 'chatgpt-web') => request<any>('/api/agent/mode', { method: 'POST', body: JSON.stringify({ mode }) }),
+  createBrowserPairCode: () => request<{code:string;expiresAt:string}>('/api/browser/pair-code',{method:'POST',body:JSON.stringify({})}),
+  unpairBrowser: () => request<HubState>('/api/browser/unpair',{method:'POST',body:JSON.stringify({})}),
 
   // Intelligence
   getIntelligenceStatus: () => request<{ engineHealth?: {checkedAt: string | null; engines: {id: string; status: string; source?: string; version?: string | null; detail?: string}[]} }>('/api/studio/intelligence/status'),
