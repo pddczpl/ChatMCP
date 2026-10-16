@@ -123,12 +123,63 @@ export class ConcurrentApiAgent {
     await this.#save();
     return this.state();
   }
+  async #workspaceManager(sourceRoot) {
+    if (sourceRoot === this.manager.workspace) return this.manager;
+    if (!this.accessManagers.has(sourceRoot)) {
+      const initializing = (async () => {
+        const stable = createHash('sha256').update(sourceRoot).digest('hex').slice(0, 24);
+        const access = new HubManager({ bundleRoot: this.bundleRoot,
+          dataDirectory: path.join(this.directory, 'workspace-access', stable), log: this.log });
+        await access.load(sourceRoot);
+        assembleStudio(access, { bundleRoot: this.bundleRoot });
+        await access.permissions.load();
+        access.permissions.mode = this.manager.permissions?.mode || 'review';
+        access.permissions.executionPolicy = this.manager.permissions?.executionPolicy || 'host-review';
+        access.pluginManager = this.manager.pluginManager;
+        await access.startLocal(sourceRoot);
+        this.readyAccessManagers.set(sourceRoot, access);
+        return access;
+      })();
+      this.accessManagers.set(sourceRoot, initializing);
+    }
+    try { return await this.accessManagers.get(sourceRoot); }
+    catch (error) { this.accessManagers.delete(sourceRoot); throw error; }
+  }
+  async gitRefs(workspacePath) {
+    if (!this.manager.workspaceRegistry) throw fail('workspace_unavailable', 'No workspace registry.', 503);
+    const root = (await this.manager.workspaceRegistry.resolve(workspacePath)).path;
+    const owner = await this.#workspaceManager(root);
+    const git = owner.studio?.gitRunner;
+    if (!git) throw fail('git_unavailable', 'Git is not available for this workspace.', 503);
+    const [branchesRun, worktreesRun, branchRun] = await Promise.all([
+      git.text(['for-each-ref', '--format=%(refname)%09%(refname:short)', 'refs/heads'], { timeoutMs: 15000 }),
+      git.text(['worktree', 'list', '--porcelain'], { timeoutMs: 15000 }),
+      git.text(['symbolic-ref', '--quiet', '--short', 'HEAD'], { timeoutMs: 15000 }),
+    ]);
+    if (branchesRun.code !== 0 || worktreesRun.code !== 0 || branchesRun.truncated || worktreesRun.truncated)
+      throw fail('git_failed', 'Unable to inspect Git branches/worktrees.');
+    return {
+      branches: branchesRun.stdout.split(/\r?\n/).filter(Boolean).slice(0, 120)
+        .map(line => { const [ref, name] = line.split('\t'); return { ref, name }; })
+        .filter(x => /^refs\/heads\/[A-Za-z0-9._/-]+$/.test(x.ref) && x.name),
+      worktrees: worktreesRun.stdout.trim().split(/\r?\n\r?\n/).filter(Boolean).slice(0, 100)
+        .map(block => {
+          const rows = block.split(/\r?\n/);
+          const field = prefix => rows.find(x => x.startsWith(prefix))?.slice(prefix.length) || null;
+          const branch = field('branch ');
+          return { path: field('worktree '), head: field('HEAD '),
+            branch: branch?.startsWith('refs/heads/') ? branch.slice(11) : null };
+        }).filter(x => x.path),
+      currentBranch: branchRun.code === 0 ? branchRun.stdout.trim() : null,
+    };
+  }
   async #initChild(record) {
     if (this.children.has(record.id)) return this.children.get(record.id);
     const stateDir = path.join(this.directory, record.id, 'state');
+    const executionRoot = record.worktree || record.executionRoot || record.sourceRoot;
     const manager = new HubManager({ bundleRoot: this.bundleRoot, dataDirectory: stateDir, log: this.log });
-    await manager.load(record.worktree);
-    if (manager.workspace !== await fs.realpath(record.worktree))
+    await manager.load(executionRoot);
+    if (manager.workspace !== await fs.realpath(executionRoot))
       throw fail('missing_worktree', 'Managed worktree is missing.');
     manager.pluginManager = this.manager.pluginManager;
     assembleStudio(manager, { bundleRoot: this.bundleRoot });
@@ -136,7 +187,7 @@ export class ConcurrentApiAgent {
     manager.permissions.mode = record.permissionMode || 'review';
     manager.permissions.executionPolicy = record.executionPolicy || 'host-review';
     manager.spawnBackgroundAgent = (_callerId, request) => this.spawnAgent(record.id, request);
-    await manager.startLocal(record.worktree);
+    await manager.startLocal(executionRoot);
     const runner = new AgentRunner({ manager, provider: this.provider,
       taskDirectory: path.join(stateDir, 'tasks'), log: this.log, toolSelectionMode: 'auto' });
     await runner.load();
