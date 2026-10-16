@@ -211,10 +211,11 @@ test('ChatGPT Web mode is selectable, pairs via an explicit browser code and nev
   await page.getByRole('button',{name:'Tạo mã ghép (5 phút)'}).click();
   await expect(page.getByLabel('Mã ghép Browser Companion')).toHaveValue(/^\d{8}$/);
   await expect(page.getByText('Ghép và bật',{exact:false})).toBeVisible();
-  // A user has not paired the extension: the local Hub must never impersonate
-  // an authenticated ChatGPT tab or silently route through API credentials.
+  // A user has not paired the extension: Send is disabled BEFORE making any
+  // HTTP request. No fake ChatGPT login or API fallback occurs.
   await page.locator('textarea').fill('Web transport must wait for extension pairing');
-  await page.getByRole('button',{name:'Gửi',exact:true}).click();
+  await expect(page.getByText('ChatGPT Web chưa ghép Browser Companion.',{exact:false})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Gửi',exact:true})).toBeDisabled();
   await expect.poll(async()=>(await app.hub.state()).agent.tasks.length).toBe(0);
   await page.getByRole('button',{name:/API Gateway/}).click();
   await expect.poll(async()=>(await app.hub.state()).agent.mode).toBe('api');
