@@ -6,15 +6,18 @@ import { GitBranch, GitMerge, ChevronDown } from 'lucide-react';
 
 export function GitWorkspacePicker({workspace}:{workspace:string}) {
   const [open,setOpen]=useState(false);
-  const {selectedBaseRef,setSelectedBaseRef,showToast}=useAppStore();
+  const {selectedBaseRef,setSelectedBaseRef,showToast,setSelectedWorkspacePath,setSelectedTaskId}=useAppStore();
   const queryClient=useQueryClient();
-  const {data,error}=useQuery({queryKey:['gitRefs',workspace],queryFn:api.getGitRefs,
+  const {data,error}=useQuery({queryKey:['gitRefs',workspace],queryFn:()=>api.getGitRefs(workspace),
     enabled:Boolean(workspace),refetchInterval:7000});
   const selectedName=selectedBaseRef ? data?.branches.find(b=>b.ref===selectedBaseRef)?.name : data?.currentBranch;
   const selectWorktree=async(path:string)=>{
     setOpen(false);
     try {
-      await api.selectWorkspace(path);
+      const selected=await api.addWorkspace(path);
+      await api.activateWorkspace(selected.workspace.path);
+      setSelectedWorkspacePath(selected.workspace.path);
+      setSelectedTaskId('');
       setSelectedBaseRef('');
       await queryClient.invalidateQueries({queryKey:['hubState']});
       await queryClient.invalidateQueries({queryKey:['gitRefs']});
