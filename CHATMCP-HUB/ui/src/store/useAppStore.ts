@@ -16,6 +16,8 @@ interface AppStore {
   setLang: (lang: Language) => void;
   selectedTaskId: string;
   setSelectedTaskId: (id: string) => void;
+  selectedWorkspacePath: string;
+  setSelectedWorkspacePath: (path: string) => void;
   inspectorOpen: boolean;
   toggleInspector: () => void;
   setInspectorOpen: (open: boolean) => void;
@@ -66,6 +68,12 @@ export const useAppStore = create<AppStore>((set) => ({
     set({ lang });
   },
   selectedTaskId: initialTask,
+  selectedWorkspacePath: (typeof window !== 'undefined' && localStorage.getItem('chatmcp:selected-workspace')) || '',
+  setSelectedWorkspacePath: (folder) => {
+    if (folder) localStorage.setItem('chatmcp:selected-workspace', folder);
+    else localStorage.removeItem('chatmcp:selected-workspace');
+    set({selectedWorkspacePath:folder,selectedBaseRef:''});
+  },
   setSelectedTaskId: (id) => {
     if (id) localStorage.setItem('chatmcp:selected-conversation', id);
     else localStorage.removeItem('chatmcp:selected-conversation');
