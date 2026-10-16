@@ -1,6 +1,9 @@
 (() => {
   'use strict';
   if (location.origin !== 'https://chatgpt.com' || window.top !== window) return;
+  // A bounded pre-claim restoration may load this file again. Preserve the
+  // original ownership and listener, including any uncertain Send state.
+  if (globalThis.__chatmcpBrowserRunnerInstalled) return;
   const pageId = crypto.randomUUID();
   const STABLE_MS = 1800;
   const CANONICAL_ROUTE_WAIT_MS = 60000;
@@ -24,11 +27,31 @@
   }
   function elements(selector) { return Array.from(document.querySelectorAll(selector)).filter(visible); }
   function input() {
-    for (const selector of ['#prompt-textarea', '.ProseMirror[contenteditable="true"]']) {
-      const matches = elements(selector).filter(element => !element.disabled && !element.readOnly && (element.tagName === 'TEXTAREA' || element.getAttribute('contenteditable') === 'true'));
+    const excluded = '[data-message-author-role],[data-testid="user-message"],blockquote,[role="dialog"],.mcp-instructions-container,#mcp-popover-container,#mcp-popover-portal';
+    const editable = element => !element.disabled && !element.readOnly && !element.closest(excluded) &&
+      (element.tagName === 'TEXTAREA' || ['true', 'plaintext-only'].includes(element.getAttribute('contenteditable')));
+    for (const selector of ['#prompt-textarea', '.ProseMirror[contenteditable="true"]',
+      'textarea[name="prompt-textarea"]', '[data-testid="prompt-textarea"]']) {
+      const matches = elements(selector).filter(editable);
       if (matches.length > 1) return { reason: 'ambiguous_composer' };
       if (matches.length === 1) return { element: matches[0] };
     }
+    // New editor layouts may omit both the old id and ProseMirror class.
+    // Constrain fallback editors to a form or an explicit ChatGPT label;
+    // never grab an arbitrary page input, search field or conversation node.
+    const label = element => normalized(element.getAttribute('placeholder') ||
+      element.getAttribute('data-placeholder') || element.getAttribute('aria-label') || '').toLowerCase();
+    const named = element => /^(ask chatgpt|message chatgpt|hỏi chatgpt|nhắn tin cho chatgpt)$/.test(label(element));
+    const candidates = new Set();
+    for (const selector of ['[data-lexical-editor="true"][contenteditable="true"]',
+      '[role="textbox"][contenteditable="true"]', '[role="textbox"][contenteditable="plaintext-only"]',
+      'textarea[placeholder]']) {
+      for (const element of elements(selector).filter(editable)) {
+        if (element.tagName === 'TEXTAREA' ? named(element) : element.closest('form') || named(element)) candidates.add(element);
+      }
+    }
+    if (candidates.size > 1) return { reason: 'ambiguous_composer' };
+    if (candidates.size === 1) return { element: [...candidates][0] };
     return { reason: 'composer_missing: Chưa thấy ô chat; kiểm tra đăng nhập và giao diện ChatGPT.' };
   }
   const EXCLUDED_CONTROLS = '[data-message-author-role],blockquote,[contenteditable="true"],[role="dialog"],.function-block,.function-result-container,.system-message-container,.mcp-instructions-container,#mcp-popover-container,#mcp-popover-portal';
@@ -85,7 +108,7 @@
     // Counts and fixed categories only: never collect prompt, result, account,
     // URLs or arbitrary attribute values in a readiness diagnostic.
     const diagnostics = [
-      'companion=1.5.0', 'scope=' + (state.scope?.form ? 'form' : state.scope ? 'composer-container' : 'unknown'),
+      'companion=1.5.1', 'scope=' + (state.scope?.form ? 'form' : state.scope ? 'composer-container' : 'unknown'),
       'editor=' + (state.composer?.tagName === 'TEXTAREA' ? 'textarea' : 'contenteditable'),
       'visibility=' + (document.visibilityState === 'hidden' ? 'hidden' : document.visibilityState === 'visible' ? 'visible' : 'unknown'),
       'controls=' + state.controls.length, 'known=' + state.controls.filter(knownSend).length,
@@ -223,9 +246,9 @@
       const hasText = !!current?.promptNormalized;
       const largePrompt = (current?.text?.length ?? 0) > 5000;
       const witness = replyWitness();
-      return 'submitted_user_message_unverified: Không tìm thấy tin nhắn đầu hoặc câu trả lời có mã phiên chính xác trong tab tác vụ. Không tự gửi lại. [companion=1.5.0;from=home;to=' + shape(to) + ';visibleUsers=' + nodes.length + ';replyWitness=' + (witness?.ambiguous ? 'ambiguous' : !!witness) + ';promptPresent=' + hasText + ';longPrompt=' + largePrompt + ']';
+      return 'submitted_user_message_unverified: Không tìm thấy tin nhắn đầu hoặc câu trả lời có mã phiên chính xác trong tab tác vụ. Không tự gửi lại. [companion=1.5.1;from=home;to=' + shape(to) + ';visibleUsers=' + nodes.length + ';replyWitness=' + (witness?.ambiguous ? 'ambiguous' : !!witness) + ';promptPresent=' + hasText + ';longPrompt=' + largePrompt + ']';
     }
-    return 'conversation_changed: Chưa xác minh được địa chỉ của cùng cuộc chat. [companion=1.5.0;from=' + shape(from) + ';to=' + shape(to) + ';turn=' + (current?.turn || 0) + ';locked=' + !!current?.routeLocked + ']';
+    return 'conversation_changed: Chưa xác minh được địa chỉ của cùng cuộc chat. [companion=1.5.1;from=' + shape(from) + ';to=' + shape(to) + ';turn=' + (current?.turn || 0) + ';locked=' + !!current?.routeLocked + ']';
   }
   function ownUser() {
     if (!current) return null;
@@ -491,7 +514,7 @@
       // Its canonical URL may arrive after the answer becomes idle. Sending
       // again would duplicate the prompt, so only wait for this saved route.
       current.provisionalReplySince ??= Date.now();
-      if (Date.now() - current.provisionalReplySince >= CANONICAL_ROUTE_WAIT_MS) return { ok: false, reason: 'local_conversation_not_saved: ChatGPT vẫn giữ địa chỉ cuộc chat tạm sau 60 giây kể từ khi câu trả lời ổn định. Giữ tab để kiểm tra; prompt không được gửi lại. [companion=1.5.0]', pageId };
+      if (Date.now() - current.provisionalReplySince >= CANONICAL_ROUTE_WAIT_MS) return { ok: false, reason: 'local_conversation_not_saved: ChatGPT vẫn giữ địa chỉ cuộc chat tạm sau 60 giây kể từ khi câu trả lời ổn định. Giữ tab để kiểm tra; prompt không được gửi lại. [companion=1.5.1]', pageId };
       return { ok: true, state: 'waiting_for_canonical_url', pageId };
     }
     current.routeLocked = true; current.stage = 'reply'; current.replyWitnessVerified = Boolean(witness);
@@ -629,4 +652,5 @@
       chrome.runtime.sendMessage({ type: 'CHATMCP_BROWSER_TICK' }).catch(() => {});
     }
   }, 1500);
+  globalThis.__chatmcpBrowserRunnerInstalled = true;
 })();

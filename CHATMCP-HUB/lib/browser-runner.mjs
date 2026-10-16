@@ -337,8 +337,10 @@ export class BrowserRunner {
     context.queueTimer = setTimeout(() => {
       if (this.context !== context || task.status !== 'queued' ||
           task.message?.id !== messageId || task.message.status !== 'pending') return;
+      const heartbeat = this.clientHeartbeat?.taskId === task.id ? this.clientHeartbeat.note : '';
+      const diagnostic = /^\[(receiver_missing|receiver_timeout|receiver_unavailable|receiver_reload_failed|composer_missing|ambiguous_composer|send_button_missing|send_button_disabled|send_button_ambiguous|composer_not_ready|chat_is_busy|network_offline)\]/.exec(heartbeat || '')?.[1];
       void this.finish(context, 'failed', fault('browser_queue_timeout',
-        'Companion không nhận gói hội thoại trong thời gian cho phép. Kiểm tra kết nối tiện ích, tab ChatGPT và ghép nối rồi nhấn Tiếp tục. Tin nhắn chưa được claim; Hub không tự gửi lại.', 504))
+        `Companion không nhận gói hội thoại trong thời gian cho phép. Kiểm tra kết nối tiện ích, tab ChatGPT và ghép nối rồi nhấn Tiếp tục. Tin nhắn chưa được claim; Hub không tự gửi lại.${diagnostic ? ' Chẩn đoán Companion: ' + diagnostic + '.' : ''}`, 504))
         .catch(error => this.log(this.clean(error?.message ?? String(error))));
     }, this.queueTimeoutMs);
     context.queueTimer.unref?.();
@@ -495,7 +497,7 @@ Respond with EXACTLY ONE fenced JSON object: "chatmcp_hub":"v1", "task":"${id}",
     if(!this.client)throw fault('browser_not_paired','Ghép Browser Companion trước khi khôi phục URL.',409);
     const task=this.tasks.get(id);
     if(!task)throw fault('task_not_found','Không tìm thấy task cần khôi phục.',404);
-    if(this.context?.task.id===id)throw fault('task_running','Chờ tác vụ trình duyệt kết thúc trước khi khôi phục URL.',409);
+    if(this.context)throw fault('task_running','Chờ tác vụ trình duyệt kết thúc trước khi khôi phục URL.',409);
     const current=CHAT_ROUTE.parse(task.chatUrl);
     if(current?.kind==='chat'&&!current.provisional)
       return {ok:true,alreadyBound:true,chatUrl:current.url};
@@ -536,7 +538,7 @@ Respond with EXACTLY ONE fenced JSON object: "chatmcp_hub":"v1", "task":"${id}",
       message: task?.message && ['pending', 'claimed', 'sent'].includes(task.message.status) &&
         (task.message.status === 'pending' || task.message.clientId === clientId)
         ? this.messageView(task.message) : null,
-      recovery:this.urlRecovery?{
+      recovery:!this.context && this.urlRecovery?{
         taskId:this.urlRecovery.taskId,nonce:this.urlRecovery.nonce,turn:this.urlRecovery.turn
       }:null };
   }

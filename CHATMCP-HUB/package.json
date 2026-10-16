@@ -1,6 +1,6 @@
 {
   "name": "chatmcp-studio-local",
-  "version": "3.8.1",
+  "version": "3.8.2",
   "private": true,
   "description": "Local coding agent - no CDN runtime dependency",
   "type": "module",

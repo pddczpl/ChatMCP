@@ -252,6 +252,39 @@
       : 'Đang đợi bằng chứng của lượt đã gửi trong tab tác vụ.');
   }
 
+  // Fixed categories only. Do not persist exception text, prompts, DOM text,
+  // nonce, URL, tokens or arbitrary attributes in a readiness heartbeat.
+  function readinessCode(reason) {
+    const code = String(reason || '').split(':', 1)[0];
+    return new Set(['composer_missing', 'ambiguous_composer', 'send_button_missing',
+      'send_button_disabled', 'send_button_ambiguous', 'chat_is_busy', 'network_offline'])
+      .has(code) ? code : 'composer_not_ready';
+  }
+  function receiverCode(error) {
+    const message = String(error?.message || '');
+    if (/Receiving end does not exist|Could not establish connection/i.test(message)) return 'receiver_missing';
+    if (message === 'owned_tab_response_timeout') return 'receiver_timeout';
+    return 'receiver_unavailable';
+  }
+  async function restoreReceiver(record, ownEpoch) {
+    // Only PREPARE may restore a missing listener. Never reinject on a lost
+    // SEND acknowledgement, or replay any claim/send on an uncertain turn.
+    if (!isCurrent(record, ownEpoch) || record.phase !== 'preparing' || record.receiverRestoreAttempted) return;
+    if (typeof chrome.scripting?.executeScript !== 'function') return;
+    const tab = await chrome.tabs.get(record.tabId).catch(() => null);
+    if (!tab || !safeChatUrl(tab.url) || !isCurrent(record, ownEpoch)) return;
+    record.receiverRestoreAttempted = true;
+    await saveJournal();
+    if (!isCurrent(record, ownEpoch) || record.phase !== 'preparing') return;
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: record.tabId, frameIds: [0] }, world: 'ISOLATED',
+        files: ['chat-route.js', 'browser-runner.js']
+      });
+    } catch {
+      lastNote = '[receiver_reload_failed] Không nạp được Companion vào tab. Kiểm tra quyền truy cập chatgpt.com và tải lại extension/tab.';
+    }
+  }
   async function prepareAndSend(message, instanceId, ownEpoch) {
     if (ownEpoch !== epoch) return;
     if (!journal || journal.taskId !== message.taskId || journal.messageId !== message.id) {
@@ -274,9 +307,9 @@
       // saved conversation URL. NEVER fall back to the blank home/new chat.
       const existing = await chrome.tabs.query({url:'https://chatgpt.com/c/*'});
       tab = existing.find(candidate => safeChatUrl(candidate.url) === resumeUrl) ||
-        await chrome.tabs.create({url:resumeUrl,active:false});
+        await chrome.tabs.create({url:resumeUrl,active:true});
     }
-    if (!tab && !resumeUrl) tab = await chrome.tabs.create({url:'https://chatgpt.com/',active:false});
+    if (!tab && !resumeUrl) tab = await chrome.tabs.create({url:'https://chatgpt.com/',active:true});
     if (!atPhase('preparing')) return;
     if (!Number.isInteger(tab?.id)) throw new Error('cannot_find_or_open_chat_tab');
     if (record.tabId !== tab.id) { record.tabId = tab.id; record.pageId = null; await saveJournal(); }
@@ -287,14 +320,22 @@
     }
     let prepared;
     try { prepared = await toTab('CHATMCP_BROWSER_PREPARE', { turn: message.turn, text: message.text, nonce: message.nonce, resumeUrl, resumeStart: message.resumeStart === true }, record); }
-    catch {
+    catch (error) {
       if (!atPhase('preparing')) return;
-      waitForConnection('Chưa đọc được tab ChatGPT; kiểm tra mạng và để tab mở.'); return;
+      const code = receiverCode(error);
+      waitForConnection();
+      lastNote = `[${code}] Chưa liên lạc được với Companion trong tab ChatGPT. Kiểm tra quyền truy cập trang và tải lại extension/tab.`;
+      if (code === 'receiver_missing') await restoreReceiver(record, ownEpoch);
+      return;
     }
     if (!atPhase('preparing')) return;
     if (!prepared?.ok) {
       if (prepared?.reason === 'network_offline') { waitForConnection('ChatGPT báo offline trước khi gửi.'); return; }
-      if (prepared?.retryable) { waitForConnection('Đang đợi ô chat/nút gửi sẵn sàng.'); return; }
+      if (prepared?.retryable) {
+        waitForConnection();
+        lastNote = `[${readinessCode(prepared.reason)}] Chưa chuẩn bị được ô nhập/nút Gửi. Giữ tab ChatGPT mở; kiểm tra đăng nhập và cập nhật Companion.`;
+        return;
+      }
       await fail(prepared?.reason || 'unknown_chat_dom'); return;
     }
     if (typeof prepared.pageId !== 'string' || !safeChatUrl(prepared.url)) { await fail('invalid_prepare_response'); return; }
@@ -320,17 +361,25 @@
     for(const tab of tabs.slice(0,30))
       if(Number.isInteger(tab.id)&&!candidates.some(t=>t.id===tab.id))candidates.push(tab);
     const eligible=[];
+    const deadline = Date.now() + 4000;
     for(const tab of candidates){
+      if (ownEpoch !== epoch) return;
+      if (Date.now() >= deadline) {
+        lastNote = 'Chưa xác minh hết các tab khôi phục. Giữ tab cũ mở và thử lại.';
+        return; // Never bind a URL from a partial scan.
+      }
       const actual=safeChatUrl(tab.url);
       if(!actual||globalThis.__chatmcpChatRoute.parse(actual)?.kind!=='chat'||
         globalThis.__chatmcpChatRoute.parse(actual)?.provisional)continue;
-      let proof;
+      let proof, timer;
       try{
-        proof=await chrome.tabs.sendMessage(tab.id,{
+        proof=await Promise.race([chrome.tabs.sendMessage(tab.id,{
           type:'CHATMCP_BROWSER_VERIFY_OFFICIAL_URL',taskId:recovery.taskId,
           nonce:recovery.nonce,turn:recovery.turn,
-        },{frameId:0});
-      }catch{continue;}
+        },{frameId:0}), new Promise(resolve => {
+          timer = setTimeout(() => resolve(null), Math.max(1, Math.min(1000, deadline - Date.now())));
+        })]);
+      }catch{continue;}finally{clearTimeout(timer);}
       if(proof?.ok===true&&proof.url===actual&&
         ['user_task_nonce','assistant_task_nonce'].includes(proof.proof))
         eligible.push({url:actual,proof:proof.proof});
@@ -362,7 +411,10 @@
       const poll = await api('poll', { taskId: journal?.taskId || null, phase: journal?.phase || 'idle', note: lastNote.slice(0, 250) });
       if (ownEpoch !== epoch) return;
       if (!poll || typeof poll.instanceId !== 'string') throw new Error('invalid_poll_response');
-      if(poll.recovery){
+      // A recovery for an older task must never starve a queued packet or
+      // interrupt reconciliation of an uncertain SEND. Keep idle recovery.
+      const hasLiveTask = poll.task && !TERMINAL.has(poll.task.status);
+      if(poll.recovery && !hasLiveTask){
         await recoverOfficialChat(poll.recovery,ownEpoch);
         return;
       }

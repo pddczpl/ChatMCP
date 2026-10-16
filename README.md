@@ -1,5 +1,7 @@
 # ChatMCP — Local-first AI Coding Agent
 
+**v3.8.2 — ChatGPT Web delivery repair:** update both the desktop installer and Browser Companion **1.5.1**, then reload existing ChatGPT tabs. Fixed stale URL-recovery starvation; added scoped editor compatibility, bounded pre-claim receiver restoration and safe readiness diagnostics. See [release notes](RELEASE-NOTES-v3.8.2.md).
+
 **AI coding workspace for Windows with parallel Git-worktree agents, native Windows Sandbox hardware verification, crash recovery journals, multi-provider models, and a provenance-aware Agent Skills Hub.**
 
 [![CI](https://github.com/pddczpl/ChatMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/pddczpl/ChatMCP/actions/workflows/ci.yml) · [Windows Releases](https://github.com/pddczpl/ChatMCP/releases) · [Issues](https://github.com/pddczpl/ChatMCP/issues) · [Security](SECURITY.md)
@@ -163,7 +165,7 @@ ChatMCP is designed exclusively as a single-tenant local application:
 Verify the entire repository using the test runner:
 
 ~~~powershell
-# Run the complete test suite (91 bộ Node và 5 bộ giao diện)
+# Run the complete test suite (92 bộ Node và 5 bộ giao diện)
 node .\CHATMCP-HUB\tests\run-all.mjs
 
 # Build and verify the frontend

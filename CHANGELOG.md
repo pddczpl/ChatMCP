@@ -1,5 +1,13 @@
 # Lịch sử thay đổi
 
+## [3.8.2] — 2026-10-17 — Web task delivery repair
+
+- Separate idle URL recovery from active queued/send reconciliation; bound tab verification waits.
+- Foreground newly created task tabs, support scoped modern editors, and restore a missing receiver once before claim.
+- Preserve privacy-safe readiness/timeout diagnostics and all no-replay/nonce/permission guards.
+- Ship Companion 1.5.1 with explicitly documented host-limited scripting permission and matching installer/ZIP hashes.
+- Add executable delivery-readiness regression coverage. Live signed-in Edge verification remains an owner acceptance step.
+
 ## [3.8.1] — 2026-10-17 — ChatGPT Web Companion transport switching and URL recovery
 
 - **Switch channel on the next message of an existing conversation:** Changing Model API ↔ ChatGPT Web creates a new linked physical task on the selected transport while retaining the same logical ChatMCP conversation and original local history. A bounded, redacted handoff is provided to the newly selected model, without covertly reusing an incompatible model session.

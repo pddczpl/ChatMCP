@@ -1,4 +1,4 @@
-COMPANION 1.5.0 FIX: background worker forwards resumeStart=true to content script during first user-initiated continuation. See ../STUDIO-2.2.3.md.
+COMPANION 1.5.1 FIX: background worker forwards resumeStart=true to content script during first user-initiated continuation. See ../STUDIO-2.2.3.md.
 
 CHATMCP HUB COMPANION 1.4.0 — Tiếp tục phiên ChatGPT Web sau Hub restart
 
@@ -132,9 +132,9 @@ adapter sau khi xác minh đúng markup.
 
 PHẠM VI DỮ LIỆU VÀ QUYỀN
 
-Quyền khai báo: storage, alarms; host permissions chỉ https://chatgpt.com/*
+Quyền khai báo: storage, alarms, scripting; host permissions chỉ https://chatgpt.com/*
 và http://127.0.0.1:3007/*. Content scripts chạy top frame, ISOLATED world.
-Không có quyền tabs rộng, cookies, scripting, debugger hoặc management.
+Không có quyền tabs rộng, cookies, debugger hoặc management. Quyền scripting chỉ nạp lại hai file đóng gói chat-route.js/browser-runner.js vào top frame ISOLATED của tab task đã xác minh, trước claim khi thiếu receiver; không nạp mã từ xa, không gửi lại SEND chưa xác minh.
 
 Service worker POST tới các endpoint browser/clients cố định trên Hub:
 pair, poll, claim, sent, reply, fail. Token ghép là capability của Hub local,

@@ -52,7 +52,7 @@ if (@($hosts | Where-Object { $_ -notin $expectedHosts }).Count -ne 0 -or
     @($hosts).Count -ne 2) {
     throw 'Unexpected browser extension host permissions. Review before release.'
 }
-$allowedPermissions = @('storage','alarms')
+$allowedPermissions = @('storage','alarms','scripting')
 if (@($manifest.permissions | Where-Object { $_ -notin $allowedPermissions }).Count -ne 0) {
     throw 'Unexpected browser extension permissions. Review before release.'
 }

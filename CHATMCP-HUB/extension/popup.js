@@ -105,7 +105,7 @@ async function updateStatus() {
 
     if (!bridge) {
       summary.textContent = 'Phần hỗ trợ khối lệnh chưa được nạp.';
-      nextStep.textContent = 'Tải lại ChatGPT bằng Ctrl + R sau khi Reload ChatMCP Hub Companion 1.5.0 trong trang quản lý tiện ích.';
+      nextStep.textContent = 'Tải lại ChatGPT bằng Ctrl + R sau khi Reload ChatMCP Hub Companion 1.5.1 trong trang quản lý tiện ích.';
     } else if (bridge.importedCards > 0) {
       summary.textContent = 'MCP SuperAssistant đã tạo thẻ từ khối bạn chuyển.';
       nextStep.textContent = 'Đóng bảng này và bấm Run trên thẻ khi Auto Execute đang tắt. Có thẻ chưa có nghĩa là công cụ đã chạy thành công.';
