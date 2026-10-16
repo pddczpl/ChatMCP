@@ -8,6 +8,7 @@ export interface TaskSummary {
   worktree?: string | null;
   dependsOn?: string[];
   parentTaskId?: string | null;
+  parentRunId?: string | null;
   conversationId?: string;
   workspacePath?: string;
   queuedMessagesCount?: number;
@@ -128,7 +129,7 @@ export interface BackgroundRun {
   stepCount?: number | null;
   conversationUsage?: { inputTokens?:number; outputTokens?:number; httpRequests?:number } | null;
   subagents: {
-    id:string;taskId:string;parentTaskId:string;title:string;status:string;
+    id:string;taskId:string;parentTaskId:string;parentRunId?:string|null;title:string;status:string;
     startedAt?:string;finishedAt?:string;branch?:string|null;workspacePath?:string;
   }[];
 }
@@ -164,6 +165,7 @@ export interface Task {
   worktree?: string | null;
   dependsOn?: string[];
   parentTaskId?: string | null;
+  parentRunId?: string | null;
   conversationId?: string;
   workspacePath?: string;
   queuedMessagesCount?: number;
