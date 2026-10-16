@@ -223,8 +223,12 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
               git.text(['worktree','list','--porcelain'],{timeoutMs:15000}),
               git.text(['symbolic-ref','--quiet','--short','HEAD'],{timeoutMs:15000}),
             ]);
-            if(branchesRun.code!==0||worktreesRun.code!==0||branchesRun.truncated||worktreesRun.truncated)
-              throw Object.assign(new Error('Không đọc được danh sách Git refs và worktrees.'),{statusCode:409});
+            if(branchesRun.truncated||worktreesRun.truncated||branchesRun.timedOut||worktreesRun.timedOut)
+              throw Object.assign(new Error('Git discovery returned truncated or timed-out output.'),{statusCode:409});
+            if(branchesRun.code!==0||worktreesRun.code!==0) {
+              value={branches:[],worktrees:[],currentBranch:null,gitAvailable:false};
+              break;
+            }
             const branches=branchesRun.stdout.split(/\r?\n/).filter(Boolean).slice(0,120)
               .map(line=>{const [ref,name]=line.split('\t');return {ref,name};})
               .filter(b=>/^refs\/heads\/[A-Za-z0-9._/-]+$/.test(b.ref)&&b.name);
@@ -236,7 +240,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
                 return {path:field('worktree '),head:field('HEAD '),
                   branch:gitBranch?.startsWith('refs/heads/')?gitBranch.slice(11):null};
               }).filter(x=>x.path);
-            value={branches,worktrees,currentBranch:branchRun.code===0?branchRun.stdout.trim():null};
+            value={branches,worktrees,currentBranch:branchRun.code===0?branchRun.stdout.trim():null,gitAvailable:true};
             break;
           }
           case '/api/studio/git/diff': value=await studio.gitDiff({file:pick('file'),staged:pick('staged')==='true'});break;
