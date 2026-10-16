@@ -208,11 +208,35 @@ export class HubManager {
       ? await this.validateWorkspace(initialPath).catch(()=>null)
       : null;
     if(initial||this.workspace) args.push('-InitialPath',initial||this.workspace);
-    const output = await this.checkedRun(powershell, args, { quiet: true });
+    const process = spawnLogged(powershell, args, { quiet: true });
+    this.children.add(process.child);
+    let result;
+    try { result = await process.completion; }
+    finally { this.children.delete(process.child); }
+    const diagnostics = redact(String(result.stderr || '').trim().replace(/[\r\n]+/g, ' ').slice(-550), this.secrets);
+    if (result.code !== 0) {
+      const error = new Error(
+        'Không thể mở hộp chọn thư mục Windows (PowerShell mã ' + (result.code ?? result.signal) + '). ' +
+        (diagnostics || 'Kiểm tra Windows Forms/PowerShell và xem nhật ký Hub.') +
+        ' Bạn vẫn có thể nhập đường dẫn thư mục thủ công trong Cài đặt.'
+      );
+      error.code = 'native_folder_picker_failed';
+      error.statusCode = 500;
+      this.log('[Workspace Picker] ' + (diagnostics || error.message));
+      throw error;
+    }
     try {
-      const result = JSON.parse(output.replace(/^\uFEFF/, '').trim());
-      return { path: typeof result.path === 'string' ? result.path : null };
-    } catch { throw new Error('Hộp chọn thư mục chưa trả đường dẫn hợp lệ. Bạn có thể dán đường dẫn vào ô workspace.'); }
+      const parsed = JSON.parse(String(result.stdout ?? result.output).replace(/^\uFEFF/, '').trim());
+      if (parsed.path !== null && (typeof parsed.path !== 'string' || !path.isAbsolute(parsed.path)))
+        throw new Error('Folder path missing or not absolute.');
+      return { path: parsed.path };
+    } catch {
+      const error = new Error('PowerShell không trả JSON đường dẫn hợp lệ. ' +
+        (diagnostics || 'Kiểm tra nhật ký Hub.') + ' Bạn có thể nhập đường dẫn thủ công.');
+      error.code = 'invalid_folder_picker_output';
+      error.statusCode = 502;
+      throw error;
+    }
     } finally { this.pickerOpen = false; }
   }
 
