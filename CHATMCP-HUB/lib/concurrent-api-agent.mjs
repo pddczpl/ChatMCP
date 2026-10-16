@@ -199,8 +199,12 @@ export class ConcurrentApiAgent {
       git.text(['worktree', 'list', '--porcelain'], { timeoutMs: 15000 }),
       git.text(['symbolic-ref', '--quiet', '--short', 'HEAD'], { timeoutMs: 15000 }),
     ]);
-    if (branchesRun.code !== 0 || worktreesRun.code !== 0 || branchesRun.truncated || worktreesRun.truncated)
-      throw fail('git_failed', 'Unable to inspect Git branches/worktrees.');
+    if (branchesRun.truncated || worktreesRun.truncated || branchesRun.timedOut || worktreesRun.timedOut)
+      throw fail('git_failed', 'Git discovery timed out or returned truncated data.');
+    // Non-Git folders are valid local coding workspaces too. Show an empty
+    // selector rather than failing the React page with HTTP 409.
+    if (branchesRun.code !== 0 || worktreesRun.code !== 0)
+      return {branches:[],worktrees:[],currentBranch:null,gitAvailable:false};
     return {
       branches: branchesRun.stdout.split(/\r?\n/).filter(Boolean).slice(0, 120)
         .map(line => { const [ref, name] = line.split('\t'); return { ref, name }; })
@@ -214,6 +218,7 @@ export class ConcurrentApiAgent {
             branch: branch?.startsWith('refs/heads/') ? branch.slice(11) : null };
         }).filter(x => x.path),
       currentBranch: branchRun.code === 0 ? branchRun.stdout.trim() : null,
+      gitAvailable:true,
     };
   }
   async #initChild(record) {
