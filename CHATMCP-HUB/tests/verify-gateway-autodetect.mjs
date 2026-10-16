@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { GatewayProvider, gatewayErrorDetail } from '../lib/gateway-provider.mjs';
+import { GatewayProvider, gatewayErrorDetail, buildEndpoint } from '../lib/gateway-provider.mjs';
+import { PRESETS } from '../lib/provider-presets.mjs';
 
 const dir=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-gateway-auto-'));
 const key='test-private-secret-DO-NOT-SHARE';
@@ -126,5 +127,49 @@ try{
   await assert.rejects(rejectingDialect.diagnoseConnection({strictProtocol:true}),{code:'gateway_probe_failed'});checks++;
   assert.equal(rejectingDialect.state().protocol,'openai-chat');checks++;
   assert.ok(strictRejectCalls.every(url=>url.endsWith('/v1/chat/completions')));checks++;
-  console.log(`PASS ${checks} gateway API diagnostics/auto-probe assertions, same-origin, secret redaction, DPAPI preservation`);
+  // All named provider presets must use their own API wire format and route:
+  // a stored OpenAI/Gemini key may not be re-used when switching provider.
+  const routes = new Map([
+    ['anthropic','https://api.anthropic.com/v1/messages'],
+    ['deepseek','https://api.deepseek.com/v1/chat/completions'],
+    ['openrouter','https://openrouter.ai/api/v1/chat/completions'],
+    ['openai','https://api.openai.com/v1/chat/completions'],
+    ['gemini','https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'],
+  ]);
+  for (const [id, expected] of routes) {
+    const preset=PRESETS.find(p=>p.id===id);
+    assert.equal(buildEndpoint(preset.apiBaseUrl,preset.protocol,
+      id==='gemini'?'gemini-2.5-flash':preset.defaultModel),expected,id);
+    checks++;
+  }
+  const names=['anthropic','openrouter','deepseek'];
+  for (const id of names) {
+    const preset=PRESETS.find(p=>p.id===id);
+    const isolated=new GatewayProvider({directory:path.join(dir,'switch-'+id),bundleRoot:dir,manager,env:{},protect,unprotect});
+    await isolated.load();
+    await isolated.configure({preset:'openai',protocol:'openai-chat',
+      apiBaseUrl:'https://api.openai.com/v1',model:'gpt-5-mini',apiKey:key,remember:true});
+    await assert.rejects(isolated.configure({
+      preset:id,protocol:preset.protocol,apiBaseUrl:preset.apiBaseUrl,model:preset.defaultModel,remember:true,
+    }),{code:'missing_key'},id+' must not re-use OpenAI credential');
+    assert.equal(isolated.state().apiBaseUrl,'https://api.openai.com/v1');
+    checks+=2;
+  }
+  // Assert BOTH connectivity and tool-calling probes have a full 20-second
+  // deadline. Never sleep for 20 seconds or hit live provider endpoints in CI.
+  const savedTimeout=AbortSignal.timeout, deadlines=[];
+  AbortSignal.timeout=(ms)=>{deadlines.push(ms);return savedTimeout(ms)};
+  try {
+    const twenty=new GatewayProvider({directory:path.join(dir,'20s'),bundleRoot:dir,manager,env:{},
+      fetchImpl:async(url,opts)=>fixture(200,successOpenai)});
+    await twenty.load();
+    await twenty.configure({preset:'custom-openai',protocol:'openai-chat',
+      apiBaseUrl:'https://example.invalid/v1',model:'test-model',apiKey:key});
+    const result=await twenty.diagnoseConnection({strictProtocol:true});
+    assert.equal(result.ok,true);
+    assert.deepEqual(deadlines.filter(ms=>ms===20000),[20000,20000],
+      '20s for connection and tool-calling probes');
+    checks++;
+  } finally { AbortSignal.timeout=savedTimeout; }
+  console.log(`PASS ${checks} gateway API diagnostics, named-provider routes, 20s probe timeouts, key isolation`);
 }finally{await fs.rm(dir,{recursive:true,force:true});}

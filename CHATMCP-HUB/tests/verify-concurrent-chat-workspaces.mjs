@@ -10,6 +10,7 @@ import { HubManager } from '../lib/manager.mjs';
 import { assembleStudio } from '../lib/assemble.mjs';
 import { AgentRunner, buildUserAttachmentParts } from '../lib/agent.mjs';
 import { ConcurrentApiAgent } from '../lib/concurrent-api-agent.mjs';
+import { WorkspaceRegistry } from '../lib/workspace-registry.mjs';
 import { compactRollingContext, estimateTokens } from '../lib/context-compaction.mjs';
 
 const bundleRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
@@ -38,12 +39,25 @@ try {
   await manager.permissions.load();
   manager.permissions.mode='autonomous';
   await manager.startLocal(repo);
+  const secondRepo=path.join(temp,'another-project');
+  await fs.mkdir(secondRepo,{recursive:true});
+  execFileSync('git',['init','-b','main'],{cwd:secondRepo,stdio:'ignore'});
+  await fs.writeFile(path.join(secondRepo,'README.md'),'# Independent repository\n');
+  execFileSync('git',['add','.'],{cwd:secondRepo});
+  execFileSync('git',['commit','-m','second fixture'],{cwd:secondRepo,stdio:'ignore'});
+  const registry=new WorkspaceRegistry({manager,directory:path.join(temp,'hub')});
+  await registry.load();
+  await registry.add(secondRepo);
+  manager.workspaceRegistry=registry;
+  const rejected=path.join(temp,'unregistered');
+  await fs.mkdir(rejected);
+  await assert.rejects(registry.resolve(rejected),{code:'unregistered_workspace'});
   const provider={
     ready:()=>true,snapshot:()=>({provider:'fake',model:'mock'}),
     async respond({input,tools=[]}){
       const firstUser=input.find(x=>x?.role==='user'&&Array.isArray(x.content));
       const contents=(firstUser?.content||[]).map(x=>x?.text||'').join(' ');
-      const name=contents.includes('Task A')?'A':contents.includes('Task B')?'B':'C';
+      const name=contents.includes('Task A')?'A':contents.includes('Task B')?'B':contents.includes('Task E')?'E':'C';
       if(contents.includes('Delegate D') &&
         !input.some(item=>item?.type==='function_call_output')) {
         assert.ok(tools.some(tool=>tool.name==='spawn_agent'),
@@ -52,7 +66,7 @@ try {
           name:'spawn_agent',call_id:'auto-spawn-fixture',
           arguments:JSON.stringify({goal:'Task D: inspect README as an independent child'})}]};
       }
-      if((name==='A'||name==='B')&&!arrived.has(name))await hold(name);
+      if(['A','B','E'].includes(name)&&!arrived.has(name))await hold(name);
       return {status:'completed',output:[{type:'message',role:'assistant',phase:'final',
         content:[{type:'output_text',text:'Task '+name+' completed.'}]}]};
     },
@@ -64,21 +78,43 @@ try {
   manager.spawnBackgroundAgent=(parentId,request)=>pool.spawnAgent(parentId,request);
   const first=await pool.start({prompt:'Task A: inspect README'});
   await until(()=>arrived.has('A'),'primary running');
+  // Another selected workspace gets its own writable checkout WITHOUT
+  // switching the primary Hub manager or waiting for Task A.
+  const crossProject=await pool.start({prompt:'Task E: other workspace',workspacePath:secondRepo});
+  await until(()=>arrived.has('E'),'secondary workspace running alongside the primary');
+  assert.equal(pool.get(crossProject.id).workspace?.path,await fs.realpath(secondRepo));
+  assert.equal(pool.get(crossProject.id).workspacePath,await fs.realpath(secondRepo));
+  assert.equal(manager.workspace,await fs.realpath(repo),'secondary task cannot switch the primary workspace');
   const second=await pool.start({prompt:'Task B: inspect README'});
   await until(()=>arrived.has('B'),'independent child running');
-  assert.equal(pool.state().activeTaskIds.length,2,'two independent API conversations must run concurrently');
+  assert.equal(pool.state().activeTaskIds.length,3,'three independent conversations across two workspace roots must run concurrently');
   const third=await pool.start({prompt:'Task C: summarize B',dependsOn:[second.id]});
   assert.equal(pool.get(third.id).status,'queued');
   assert.deepEqual(pool.get(third.id).dependsOn,[second.id]);
   const newMessage=await pool.continue({id:first.id,prompt:'Please also include a tiny status report.'});
   assert.equal(newMessage.queuedMessagesCount,1,'in-flight message must be accepted, not rejected with 409');
   release.get('B')();
+  release.get('E')();
+  await until(()=>pool.get(crossProject.id)?.status==='completed','other workspace completed');
   await until(()=>pool.get(second.id)?.status==='completed','B complete');
   await until(()=>pool.get(third.id)?.status==='completed','C complete after B');
   release.get('A')();
   await until(()=>pool.get(first.id)?.status==='completed','A complete with extra message');
   assert.ok(pool.get(first.id).events.some(x=>x.type==='user_message_delivered'));
-  const worktrees=pool.state().tasks.filter(x=>x.workspace?.path&&x.workspace.path!==repo);
+  // Same workspace, same conversation, two separate execution/task runs.
+  // A completed first task must not turn the follow-up into a new chat.
+  const beforeFollowup=pool.backgroundTasks().filter(x=>x.conversationId===first.id);
+  assert.equal(beforeFollowup.length,1);
+  await pool.continue({id:first.id,prompt:'Follow up in the same conversation.'});
+  await until(()=>pool.get(first.id)?.runs?.length===2&&pool.get(first.id)?.status==='completed',
+    'separate second run in the same conversation');
+  const afterFollowup=pool.backgroundTasks().filter(x=>x.conversationId===first.id);
+  assert.equal(afterFollowup.length,2,'one conversation contains multiple task runs');
+  assert.notEqual(afterFollowup[0].id,afterFollowup[1].id,'task/run IDs must remain distinct');
+  assert.ok(afterFollowup.some(run=>run.title==='Follow up in the same conversation.'),
+    'background run must use its actual per-run prompt, not previous in-flight messages');
+
+  const worktrees=pool.state().tasks.filter(x=>x.worktree && x.workspace?.path!==repo);
   assert.ok(worktrees.length>=2,'child conversations must have their own worktree paths');
   const unique=new Set(worktrees.map(x=>x.workspace.path));
   assert.equal(unique.size,worktrees.length,'each child gets a distinct worktree');
@@ -109,10 +145,18 @@ try {
   await until(()=>pool.state().tasks.some(t=>t.parentTaskId===parent.id),'model spawned child task');
   const delegated=pool.state().tasks.find(t=>t.parentTaskId===parent.id);
   assert.ok(delegated,'spawn tool must create a visible parent-linked task');
+  assert.equal(delegated.parentRunId,pool.get(parent.id)?.runs?.at(-1)?.id,
+    'delegated agent must be linked to its originating parent task run');
   await until(()=>pool.get(parent.id)?.status==='completed','delegating parent completes');
   await until(()=>pool.get(delegated.id)?.status==='completed','delegated child completes');
-  assert.notEqual(pool.get(delegated.id)?.workspace?.path,repo,
+  assert.notEqual(pool.get(delegated.id)?.workspace?.path,await fs.realpath(repo),
     'delegated child must not modify the main checkout');
+  const background=pool.backgroundTasks();
+  assert.ok(background.some(entry=>entry.conversationId===first.id),'main conversation run appears as a background task');
+  assert.ok(background.some(entry=>entry.conversationId===parent.id&&entry.subagents.some(a=>a.id===delegated.id)),
+    'subagent appears NESTED under the parent conversation, not as a chat');
+  assert.ok(background.every(entry=>entry.conversationId&&entry.taskId),
+    'background projections carry conversation and task IDs independently');
   await pool.shutdown();
 
   assert.equal(buildUserAttachmentParts([{name:'hello.md',mimeType:'text/markdown',dataBase64:Buffer.from('A text file').toString('base64')}]).parts[0].type,'input_text');

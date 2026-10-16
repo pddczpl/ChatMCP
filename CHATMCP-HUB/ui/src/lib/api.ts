@@ -1,4 +1,4 @@
-import type { HubState, HubHealth, Task, TaskDetail, ChatAttachment, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset } from '@/types';
+import type { HubState, HubHealth, Task, TaskDetail, ChatAttachment, WorkspaceCollection, BackgroundRun, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset } from '@/types';
 import { normalizeTask } from './task-view.ts';
 
 export interface BackendCapabilityReport {
@@ -109,8 +109,11 @@ export const api = {
   
   // Tasks
   getTask: (id: string): Promise<Task> => request<TaskDetail>(`/api/tasks/${encodeURIComponent(id)}`).then(normalizeTask),
-  startTask: (prompt: string, attachments: ChatAttachment[] = [], baseRef: string | null = null, dependsOn: string[] = []) =>
-    request<{ task: TaskDetail }>('/api/tasks/start', { method: 'POST', body: JSON.stringify({ prompt, attachments, baseRef, dependsOn }) }).then((r) => ({ task: normalizeTask(r.task) })),
+  startTask: (prompt: string, attachments: ChatAttachment[] = [], baseRef: string | null = null,
+    dependsOn: string[] = [], workspacePath: string | null = null) =>
+    request<{ task: TaskDetail }>('/api/tasks/start', { method: 'POST',
+      body: JSON.stringify({ prompt, attachments, baseRef, dependsOn, workspacePath }) })
+      .then((r) => ({ task: normalizeTask(r.task) })),
   continueTask: (id: string, prompt: string, attachments: ChatAttachment[] = []) =>
     request<{ task: TaskDetail }>('/api/tasks/continue', { method: 'POST', body: JSON.stringify({ id, prompt, attachments }) }).then((r) => ({ task: normalizeTask(r.task) })),
   cancelTask: (id: string) => request<{ task: TaskDetail }>('/api/tasks/cancel', { method: 'POST', body: JSON.stringify({ id }) }).then((r) => ({ task: normalizeTask(r.task) })),
@@ -119,7 +122,16 @@ export const api = {
   
   // Workspace
   selectWorkspace: (path: string) => request<HubState>('/api/workspace/select', { method: 'POST', body: JSON.stringify({ path }) }),
-  browseWorkspace: () => request<{ path?: string }>('/api/workspace/browse', { method: 'POST' }),
+  browseWorkspace: (initialPath?: string | null) =>
+    request<{ path?: string }>('/api/workspace/browse', { method:'POST',body:JSON.stringify({initialPath:initialPath||null}) }),
+  getWorkspaces: () => request<WorkspaceCollection>('/api/workspaces'),
+  addWorkspace: (folder: string) => request<{workspace:{path:string;name:string};workspaces:WorkspaceCollection}>('/api/workspaces/add',{
+    method:'POST',body:JSON.stringify({path:folder})}),
+  activateWorkspace: (folder: string) => request<WorkspaceCollection>('/api/workspaces/activate',{
+    method:'POST',body:JSON.stringify({path:folder})}),
+  removeWorkspace: (folder: string) => request<WorkspaceCollection>('/api/workspaces/remove',{
+    method:'POST',body:JSON.stringify({path:folder})}),
+  getBackgroundRuns: () => request<{tasks:BackgroundRun[]}>('/api/background-tasks'),
   
   // Permissions & Approvals
   configurePermissions: (payload: { mode?: string; executionPolicy?: string; confirmation?: string }) =>
@@ -139,7 +151,8 @@ export const api = {
     
   // Git & Review
   getGitStatus: () => request<GitStatus>('/api/studio/git/status'),
-  getGitRefs: () => request<{branches:{ref:string;name:string}[];worktrees:{path:string;branch:string|null;head:string|null}[];currentBranch:string|null}>('/api/studio/git/refs'),
+  getGitRefs: (workspacePath: string = '') => request<{branches:{ref:string;name:string}[];worktrees:{path:string;branch:string|null;head:string|null}[];currentBranch:string|null}>(
+    '/api/studio/git/refs' + (workspacePath ? '?workspacePath='+encodeURIComponent(workspacePath) : '')),
   getGitDiff: (staged = false) => request<{ diff: string; staged?: boolean; truncated?: boolean }>(`/api/studio/git/diff?staged=${staged}`),
   createCheckpoint: (label: string) => request<Checkpoint>('/api/studio/checkpoint', { method: 'POST', body: JSON.stringify({ label }) }),
   getCheckpoints: () => request<Checkpoint[]>('/api/studio/checkpoints'),
