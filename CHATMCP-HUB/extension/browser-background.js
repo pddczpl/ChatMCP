@@ -306,6 +306,53 @@
     await claimThenSend(record, message, ownEpoch);
   }
 
+  async function recoverOfficialChat(recovery,ownEpoch) {
+    // No send, no text entry, and no retry of an old tool. Search only browser
+    // tabs the user has opened at the ChatGPT host. A single verified nonce
+    // witness is mandatory; two matches are ambiguous and are not bound.
+    if(!uuid(recovery?.taskId)||!/^[0-9a-f]{48}$/i.test(recovery?.nonce||''))return;
+    const candidates=[];
+    if(journal?.taskId===recovery.taskId&&Number.isInteger(journal.tabId)) {
+      const owned=await chrome.tabs.get(journal.tabId).catch(()=>null);
+      if(owned)candidates.push(owned);
+    }
+    const tabs=await chrome.tabs.query({url:'https://chatgpt.com/*'}).catch(()=>[]);
+    for(const tab of tabs.slice(0,30))
+      if(Number.isInteger(tab.id)&&!candidates.some(t=>t.id===tab.id))candidates.push(tab);
+    const eligible=[];
+    for(const tab of candidates){
+      const actual=safeChatUrl(tab.url);
+      if(!actual||globalThis.__chatmcpChatRoute.parse(actual)?.kind!=='chat'||
+        globalThis.__chatmcpChatRoute.parse(actual)?.provisional)continue;
+      let proof;
+      try{
+        proof=await chrome.tabs.sendMessage(tab.id,{
+          type:'CHATMCP_BROWSER_VERIFY_OFFICIAL_URL',taskId:recovery.taskId,
+          nonce:recovery.nonce,turn:recovery.turn,
+        },{frameId:0});
+      }catch{continue;}
+      if(proof?.ok===true&&proof.url===actual&&
+        ['user_task_nonce','assistant_task_nonce'].includes(proof.proof))
+        eligible.push({url:actual,proof:proof.proof});
+    }
+    const distinct=[...new Map(eligible.map(x=>[x.url,x])).values()];
+    if(distinct.length!==1){
+      lastNote=distinct.length?'Nhiều tab cùng xác minh task; cần đóng tab trùng và thử lại.':
+        'Chưa thấy tab ChatGPT có URL chính thức và mã task/nonce chính xác. Mở lại tab cũ rồi chờ.';
+      return;
+    }
+    if(ownEpoch!==epoch)return;
+    try{
+      const result=await api('recover-url',{
+        taskId:recovery.taskId,nonce:recovery.nonce,
+        url:distinct[0].url,proof:distinct[0].proof,
+      });
+      if(result?.ok===true)lastNote='Đã khôi phục URL chat chính thức, bạn có thể Tiếp tục trên tab cũ.';
+    }catch(error){
+      lastNote='Không thể xác minh URL chat chính thức: '+String(error.message||error).slice(0,80);
+    }
+  }
+
   async function tick() {
     await ready();
     if (ticking || !pair || pair.authFailed) return;
@@ -315,6 +362,10 @@
       const poll = await api('poll', { taskId: journal?.taskId || null, phase: journal?.phase || 'idle', note: lastNote.slice(0, 250) });
       if (ownEpoch !== epoch) return;
       if (!poll || typeof poll.instanceId !== 'string') throw new Error('invalid_poll_response');
+      if(poll.recovery){
+        await recoverOfficialChat(poll.recovery,ownEpoch);
+        return;
+      }
       const task = poll.task;
       if (!task || TERMINAL.has(task.status)) {
         if (journal && (!task || journal.taskId === task.id)) await end(task?.status || 'interrupted');
