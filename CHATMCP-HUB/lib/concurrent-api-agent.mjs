@@ -442,18 +442,45 @@ export class ConcurrentApiAgent {
     return this.get(id);
   }
   async delete(id) {
-    if (this.primary.get(id)) return this.primary.delete(id);
-    const record = this.records.get(id);
-    if (!record) throw fail('task_not_found', 'Task does not exist.', 404);
-    const child = this.children.get(id);
-    if (child?.runner.activeTaskId === id || record.status === 'preparing') throw fail('task_running', 'Stop the task before deleting.');
-    if (child?.runner.get(id)) await child.runner.delete(id);
-    await child?.manager.shutdown();
-    this.children.delete(id);
-    this.records.delete(id);
+    if (!this.primary.get(id) && !this.records.has(id))
+      throw fail('task_not_found','Conversation or subagent does not exist.',404);
+    // A conversation owns all of its delegated subagents. Removing only the
+    // root would strand those children in Background Tasks and in sessions.json.
+    const visited=new Set([id]), queue=[id];
+    for(let i=0;i<queue.length;i++){
+      for(const record of this.records.values()){
+        if(record.parentTaskId===queue[i]&&!visited.has(record.id)){
+          visited.add(record.id);queue.push(record.id);
+        }
+      }
+    }
+    for(const taskId of queue){
+      const record=this.records.get(taskId),child=this.children.get(taskId);
+      if(this.primary.activeTaskId===taskId || child?.runner.activeTaskId===taskId ||
+        this.preflights.has(taskId) ||
+        (record&&['queued','preparing','running'].includes(record.status)))
+        throw fail('task_running','Stop all tasks and subagents in this conversation before deleting.',409);
+    }
+    const preservedWorktrees=[];
+    // Delete descendants first so no child can retain a dangling parent.
+    for(const taskId of [...queue].reverse()){
+      const record=this.records.get(taskId);
+      if(!record){
+        await this.primary.delete(taskId);
+        continue;
+      }
+      const child=this.children.get(taskId);
+      if(child?.runner.get(taskId))await child.runner.delete(taskId);
+      if(child)await child.manager.shutdown();
+      if(record.worktree)preservedWorktrees.push(record.worktree);
+      this.children.delete(taskId);
+      this.records.delete(taskId);
+    }
     await this.#save();
-    // Worktree/branch are intentionally preserved; never destroy user changes on chat deletion.
-    return { ok: true, deletedId: id, preservedWorktree: record.worktree };
+    this.#event({type:'state',taskId:id,state:'deleted'});
+    // Git worktrees, branches and source files are NEVER deleted by removing
+    // conversation history; only local task records are discarded.
+    return {ok:true,deletedId:id,deletedIds:queue,preservedWorktrees};
   }
   async setAutoResume(id, enabled) {
     if (this.primary.get(id)) return this.primary.setAutoResume(id, enabled);

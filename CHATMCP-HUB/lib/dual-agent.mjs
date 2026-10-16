@@ -62,7 +62,7 @@ export class DualAgent {
     throw Object.assign(new Error('Không tìm thấy phiên hội thoại.'),{statusCode:404});
   }
   async delete(id) {
-    if (this.state().activeTaskId === id) throw Object.assign(new Error('Dừng phiên đang chạy trước khi xóa.'),{statusCode:409});
+    if (this.state().activeTaskIds.includes(id)) throw Object.assign(new Error('Dừng phiên đang chạy trước khi xóa.'),{statusCode:409});
     if (this.browser.get(id)) return this.browser.delete(id);
     if (this.api.get(id)) return this.api.delete(id);
     throw Object.assign(new Error('Không tìm thấy hội thoại.'),{statusCode:404});
