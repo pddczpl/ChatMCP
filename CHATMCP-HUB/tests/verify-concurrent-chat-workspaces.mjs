@@ -132,6 +132,8 @@ try {
   await until(()=>pool.state().tasks.some(t=>t.parentTaskId===parent.id),'model spawned child task');
   const delegated=pool.state().tasks.find(t=>t.parentTaskId===parent.id);
   assert.ok(delegated,'spawn tool must create a visible parent-linked task');
+  assert.equal(delegated.parentRunId,pool.get(parent.id)?.runs?.at(-1)?.id,
+    'delegated agent must be linked to its originating parent task run');
   await until(()=>pool.get(parent.id)?.status==='completed','delegating parent completes');
   await until(()=>pool.get(delegated.id)?.status==='completed','delegated child completes');
   assert.notEqual(pool.get(delegated.id)?.workspace?.path,repo,
