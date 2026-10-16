@@ -61,6 +61,10 @@ export function Header() {
       }
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Không thể chọn workspace.', 'error');
+      // A disabled WinForms desktop/session must not block project selection.
+      // Settings has a manual absolute-path input that needs no GUI process.
+      setInspectorOpen(true);
+      setActiveTab('settings');
     }
   };
 
@@ -137,13 +141,15 @@ export function Header() {
         <button
           onClick={() => {
             setInspectorOpen(true);
-            setActiveTab('intelligence');
+            setActiveTab(hub?.agent?.mode==='chatgpt-web'?'settings':'intelligence');
           }}
           className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--line)] text-[var(--muted)] hover:text-[var(--text)] transition-colors"
-          title="Cấu hình mô hình AI"
+          title={hub?.agent?.mode==='chatgpt-web'?'ChatGPT Web Companion — xem cài đặt kênh Agent':'Cấu hình mô hình AI'}
         >
           <Cpu className="w-3.5 h-3.5 text-teal-400" />
-          <span className="max-w-[120px] truncate">{hub?.ai?.model || (lang === 'en' ? 'No AI configured' : 'Chưa kết nối AI')}</span>
+          <span className="max-w-[120px] truncate">
+            {hub?.agent?.mode==='chatgpt-web'?'ChatGPT Web':(hub?.ai?.model || (lang === 'en' ? 'No AI configured' : 'Chưa kết nối AI'))}
+          </span>
         </button>
 
         {/* Theme Switcher */}
