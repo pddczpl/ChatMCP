@@ -1,5 +1,5 @@
 import { useAppStore } from '@/store/useAppStore';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { 
   Folder, 
@@ -21,6 +21,7 @@ import { useTranslation } from '@/lib/i18n';
 import { GitWorkspacePicker } from './GitWorkspacePicker';
 
 export function Header() {
+  const queryClient=useQueryClient();
   const { data: hub, error } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 2500 });
   const { t, lang } = useTranslation();
   const { 
@@ -33,19 +34,28 @@ export function Header() {
     setCommandPaletteOpen,
     setActiveTab,
     setInspectorOpen,
-    showToast
+    showToast,
+    selectedWorkspacePath,
+    setSelectedWorkspacePath,
+    setSelectedTaskId
   } = useAppStore();
 
-  const workspacePath = hub?.workspace?.path || hub?.studio?.workspace || 'Chưa chọn workspace';
+  const registered=hub?.workspaces?.items || [];
+  const workspacePath = (selectedWorkspacePath && registered.some(x=>x.path===selectedWorkspacePath)
+    ? selectedWorkspacePath : hub?.workspaces?.activePath || hub?.workspace?.path) || 'Chưa chọn workspace';
   const shortWs = workspacePath.split(/[\\/]/).filter(Boolean).pop() || 'Workspace';
   const mode = hub?.studio?.permissions?.mode || 'review';
   const isFullAccess = hub?.studio?.permissions?.executionPolicy === 'full-access';
 
   const handleBrowseWorkspace = async () => {
     try {
-      const res = await api.browseWorkspace();
+      const res = await api.browseWorkspace(workspacePath==='Chưa chọn workspace'?null:workspacePath);
       if (res.path) {
-        await api.selectWorkspace(res.path);
+        const added = await api.addWorkspace(res.path);
+        await api.activateWorkspace(added.workspace.path);
+        setSelectedWorkspacePath(added.workspace.path);
+        setSelectedTaskId('');
+        await queryClient.invalidateQueries({queryKey:['hubState']});
       }
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Không thể chọn workspace.', 'error');
