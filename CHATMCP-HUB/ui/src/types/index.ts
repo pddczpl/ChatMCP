@@ -168,6 +168,7 @@ export interface Task {
   workspacePath?: string;
   queuedMessagesCount?: number;
   task?: string;
+  workspace?: {path:string};
   status: TaskStatus;
   state?: string;
   runnerStatus?: string;
