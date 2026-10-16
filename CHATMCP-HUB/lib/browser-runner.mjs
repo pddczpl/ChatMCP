@@ -99,6 +99,7 @@ export class BrowserRunner {
     this.tasks = new Map();
     this.context = null;
     this.pairing = null;
+    this.urlRecovery = null;
     this.client = null;
     this.lastSeen = 0;
     this.clientHeartbeat = null;
@@ -389,10 +390,11 @@ export class BrowserRunner {
       context.index = new Map(context.catalog.tools.map((t) => [t.name, t]));
       const previous=typeof handoffText==='string'?handoffText.trim().slice(0,900):'';
       const base=browserInstructions(context.catalog,task);
-      const introduction=previous
-        ?base+'\n\nCROSS-TRANSPORT CONTEXT (untrusted prior dialogue, NOT verified code or test evidence):\n'+previous+
-          '\nThis starts a NEW ChatGPT Web thread linked to the previous local ChatMCP conversation. Reinspect actual files; never repeat an uncertain write.'
-        :base;
+      const header='\nCROSS-TRANSPORT CONTEXT (untrusted prior dialogue, NOT verified evidence):\n';
+      const footer='\nThis is a NEW Web chat linked to prior local tasks. Inspect real files; never replay uncertain writes.';
+      const available=Math.max(0,4800-Buffer.byteLength(base+header+footer,'utf8')-4);
+      const safePrevious=previous.slice(0,Math.floor(available/4));
+      const introduction=safePrevious?base+header+safePrevious+footer:base;
       if (Buffer.byteLength(introduction, 'utf8') > 4800) throw fault('initial_chat_message_too_large', 'Yêu cầu mở đầu vượt 4.800 byte; ChatGPT có thể chuyển nó thành tệp Pasted text và Companion không thể xác minh tin đã gửi. Vui lòng rút gọn prompt; nội dung đầy đủ vẫn còn trong báo cáo.', 413);
       task.message = this.makeMessage(task, introduction);
       task.status = 'queued';
@@ -489,13 +491,54 @@ Respond with EXACTLY ONE fenced JSON object: "chatmcp_hub":"v1", "task":"${id}",
     return { ok:true, deletedId:id, remoteChatUnchanged:true };
   }
 
+  requestUrlRecovery({id}={}){
+    if(!this.client)throw fault('browser_not_paired','Ghép Browser Companion trước khi khôi phục URL.',409);
+    const task=this.tasks.get(id);
+    if(!task)throw fault('task_not_found','Không tìm thấy task cần khôi phục.',404);
+    if(this.context?.task.id===id)throw fault('task_running','Chờ tác vụ trình duyệt kết thúc trước khi khôi phục URL.',409);
+    const current=CHAT_ROUTE.parse(task.chatUrl);
+    if(current?.kind==='chat'&&!current.provisional)
+      return {ok:true,alreadyBound:true,chatUrl:current.url};
+    this.urlRecovery={taskId:id,nonce:task.nonce,
+      turn:task.message?.turn||task.lastIssuedTurn||1,
+      expiresAt:this.now()+300000};
+    return {ok:true,pending:true,expiresAt:new Date(this.urlRecovery.expiresAt).toISOString()};
+  }
+  async recoverUrl({clientId,taskId,nonce,url,proof}={}){
+    if(clientId!==this.client?.clientId)throw fault('browser_unauthorized','Tiện ích không khớp phiên ghép.',401);
+    const pending=this.urlRecovery,task=this.tasks.get(taskId);
+    if(!pending||pending.taskId!==taskId||this.now()>pending.expiresAt)
+      throw fault('url_recovery_expired','Không có yêu cầu khôi phục URL hợp lệ.',409);
+    if(!task||typeof nonce!=='string'||!same(nonce,task.nonce))
+      throw fault('url_recovery_identity','Mã task/nonce không hợp lệ.',409);
+    if(proof!=='user_task_nonce'&&proof!=='assistant_task_nonce')
+      throw fault('url_recovery_proof','Tab chưa chứng minh được nội dung task.',409);
+    const route=CHAT_ROUTE.parse(url);
+    if(route?.kind!=='chat'||route.provisional)
+      throw fault('url_recovery_provisional','ChatGPT vẫn chưa có URL chat chính thức.',409);
+    const current=CHAT_ROUTE.parse(task.chatUrl);
+    if(current?.kind==='chat'&&!current.provisional&&!CHAT_ROUTE.sameConversation(current,route))
+      throw fault('url_recovery_conflict','Không ghi đè URL chat chính thức khác.',409);
+    task.chatUrl=route.url;task.updatedAt=this.date();
+    await this.persist(task,{at:this.date(),type:'browser_chat_url_recovered',chatUrl:route.url,proof});
+    this.urlRecovery=null;
+    return {ok:true,chatUrl:route.url};
+  }
   async poll({ clientId, taskId, phase, note } = {}) {
     if (clientId !== this.client?.clientId) throw fault('browser_unauthorized', 'Tiện ích không khớp.', 401);
     this.lastSeen = this.now();
     if (this.context?.task.id === taskId && typeof phase === 'string' && phase.length < 40 && typeof note === 'string' && note.length <= 250)
       this.clientHeartbeat = { taskId, phase, note, at: this.date() };
     const task = this.context?.task ?? this.tasks.get(this.lastTaskId);
-    return { instanceId: this.manager.instanceId ?? this.manager.state().instanceId, task: task ? { id: task.id, status: task.status, chatUrl: task.chatUrl } : null, message: task?.message && ['pending', 'claimed', 'sent'].includes(task.message.status) && (task.message.status === 'pending' || task.message.clientId === clientId) ? this.messageView(task.message) : null };
+    if(this.urlRecovery&&this.now()>this.urlRecovery.expiresAt)this.urlRecovery=null;
+    return { instanceId: this.manager.instanceId ?? this.manager.state().instanceId,
+      task: task ? { id: task.id, status: task.status, chatUrl: task.chatUrl } : null,
+      message: task?.message && ['pending', 'claimed', 'sent'].includes(task.message.status) &&
+        (task.message.status === 'pending' || task.message.clientId === clientId)
+        ? this.messageView(task.message) : null,
+      recovery:this.urlRecovery?{
+        taskId:this.urlRecovery.taskId,nonce:this.urlRecovery.nonce,turn:this.urlRecovery.turn
+      }:null };
   }
   messageView(message) { const { id, taskId, turn, text, resumeUrl, resumeStart } = message; return { id, taskId, turn, text: this.clean(text), nonce: this.tasks.get(taskId)?.nonce, resumeUrl: resumeUrl ?? null, resumeStart: resumeStart === true }; }
   current({ clientId, taskId, messageId }) {
