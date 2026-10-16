@@ -196,13 +196,18 @@ export class HubManager {
     await this.localTools?.close?.();
   }
 
-  async browse() {
-    if (this.busy || this.taskId || this.pickerOpen) { const e = new Error('Chờ nhiệm vụ hoặc hộp chọn thư mục hiện tại hoàn tất.'); e.statusCode = 409; throw e; }
+  async browse({initialPath=null}={}) {
+    // Native picker only selects a folder; it never changes the currently
+    // running workspace or acquires the task lock. Other agents keep working.
+    if (this.pickerOpen) { const e = new Error('Một hộp chọn thư mục đã mở.'); e.statusCode = 409; throw e; }
     this.pickerOpen = true;
     try {
     const powershell = await this.powerShell();
     const args = ['-NoLogo', '-NoProfile', '-STA', '-File', path.join(this.bundleRoot, 'windows', 'Select-Workspace.ps1')];
-    if (this.workspace) args.push('-InitialPath', this.workspace);
+    const initial=initialPath&&typeof initialPath==='string'
+      ? await this.validateWorkspace(initialPath).catch(()=>null)
+      : null;
+    if(initial||this.workspace) args.push('-InitialPath',initial||this.workspace);
     const output = await this.checkedRun(powershell, args, { quiet: true });
     try {
       const result = JSON.parse(output.replace(/^\uFEFF/, '').trim());
