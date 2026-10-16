@@ -6,7 +6,7 @@
   const ALARM = 'chatmcp-browser-poll';
   const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'interrupted', 'limit', 'paused']);
   const UNCERTAIN = new Set(['claiming', 'claimed', 'sending', 'reconciling']);
-  const ENDPOINTS = new Set(['pair', 'poll', 'claim', 'sent', 'reply', 'fail']);
+  const ENDPOINTS = new Set(['pair', 'poll', 'claim', 'sent', 'reply', 'fail', 'recover-url']);
   let pair = null, journal = null, lastNote = 'Chưa ghép với Hub.', lastContact = null;
   let ticking = false, epoch = 0, scheduled = null, networkFailures = 0;
   let persistence = Promise.resolve();
