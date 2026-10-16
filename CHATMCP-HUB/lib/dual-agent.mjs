@@ -117,7 +117,8 @@ export class DualAgent {
     if(!existing)throw Object.assign(new Error('Không tìm thấy cuộc hội thoại cũ.'),{statusCode:404});
     const root=existing.workspacePath||existing.workspace?.path;
     if(this.api.manager?.workspaceRegistry&&root)await this.api.manager.workspaceRegistry.resolve(root);
-    const physicalRunning=this.state().activeTaskIds.includes(existing.id);
+    const physicalRunning=this.state().activeTaskIds.includes(existing.id)||
+      ACTIVE.has(existing.status)||['waiting_approval','planning','verifying'].includes(existing.status);
     if(existing.transport!==this.mode){
       if(physicalRunning)
         throw Object.assign(new Error('Tác vụ cũ còn chạy. Hãy dừng/chờ hoàn thành trước khi chuyển backend cho lượt tiếp theo.'),{statusCode:409,code:'transport_switch_busy'});
