@@ -436,8 +436,14 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
               ? String(p||'').toLowerCase()===target.toLowerCase() : p===target;
             const engine=taskEngine?.state();
             const running=engine?.activeTaskIds??(engine?.activeTaskId?[engine.activeTaskId]:[]);
-            if(running.some(id=>{const task=taskEngine.get(id);return sameRoot(task?.workspacePath||task?.workspace?.path);}))
-              throw Object.assign(new Error('Workspace này còn agent đang chạy. Dừng các task/subagent của workspace trước khi gỡ.'),{statusCode:409,code:'workspace_tasks_active'});
+            const busyStates=new Set(['queued','preparing','planning','running','waiting_approval','verifying']);
+            const hasLiveTask=running.some(id=>{
+              const task=taskEngine.get(id);return sameRoot(task?.workspacePath||task?.workspace?.path);
+            })||(engine?.tasks||[]).some(task=>
+              sameRoot(task.workspacePath||task.workspace?.path)&&
+              busyStates.has(task.state||task.status));
+            if(hasLiveTask)
+              throw Object.assign(new Error('Workspace còn task/subagent đang chạy hoặc xếp hàng. Dừng chúng trước khi gỡ workspace.'),{statusCode:409,code:'workspace_tasks_active'});
             if(sameRoot(manager.workspace)&&(coding?.active||coding?.integrating||dynamic?.activeRunId||delegates?.running))
               throw Object.assign(new Error('Dừng các coding/research workers của workspace chính trước khi gỡ.'),{statusCode:409,code:'workspace_workers_active'});
             result=await workspaceRegistry.remove(target);
