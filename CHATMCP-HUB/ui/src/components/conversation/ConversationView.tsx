@@ -58,6 +58,8 @@ export function ConversationView() {
   });
   const relatedWorkflows=(background?.workflows||[]).filter(w=>w.conversationId===selectedTaskId);
   const isWorking = isTaskActive(task);
+  const desiredTransport=hub?.agent?.mode||'api';
+  const willSwitch=Boolean(selectedTaskId&&task?.transport&&task.transport!==desiredTransport);
   const permissions = hub?.studio?.permissions;
   const mode = permissions?.executionPolicy === 'full-access' ? 'full-access' : permissions?.mode || 'review';
   const visibleToken = isWorking && streamingTaskId === selectedTaskId ? streamingToken : '';
@@ -92,7 +94,13 @@ export function ConversationView() {
         }
       } else {
         const res = await api.continueTask(selectedTaskId, text || 'Hãy phân tích tệp/ảnh đính kèm.', attachments);
-        queryClient.setQueryData(['task', selectedTaskId], res.task);
+        if(res.task.id!==selectedTaskId){
+          // A user-requested mode switch creates a linked task in the chosen
+          // transport rather than silently using the old model runner.
+          queryClient.setQueryData(['task',res.task.id],res.task);
+          setSelectedTaskId(res.task.id);
+          showToast(res.task.handoff?.note||'Đã chuyển sang kênh agent đã chọn.','info');
+        }else queryClient.setQueryData(['task',selectedTaskId],res.task);
       }
       refreshTask();
       return true;
@@ -218,6 +226,12 @@ export function ConversationView() {
       {/* Agent transport is distinct from permissions and model provider.
           The Browser Companion uses the user's logged-in ChatGPT web tab and
           never treats an account session/cookie as an API key. */}
+      {willSwitch&&<div role="status" data-testid="transport-switch-notice"
+        className="mx-4 my-2 p-2 rounded-md border border-sky-500/30 text-xs text-[var(--muted)]">
+        Lượt tiếp theo sử dụng <strong>{desiredTransport==='chatgpt-web'?'ChatGPT Web Companion':'Model API'}</strong>.
+        ChatMCP giữ liên kết với các lượt trước và chuyển tóm tắt ngữ cảnh, nhưng không giả định hai model dùng chung lịch sử.
+        Các thao tác ghi file chưa xác minh sẽ không được tự động phát lại.
+      </div>}
       {hub?.agent?.mode==='chatgpt-web'&&!selectedTaskId&&
         <div data-testid="chatgpt-web-mode-banner" role="status"
           className="px-4 py-2 bg-[var(--surface)] border-b border-[var(--line)] flex items-center gap-2 text-xs">
