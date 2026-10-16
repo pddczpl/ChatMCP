@@ -29,7 +29,7 @@ export function assertCompatibleRunningHub(health, port=3007) {
   return true;
 }
 
-export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle']);
+export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle']);
 const BUNDLE_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MIME = Object.freeze({
   '.html': 'text/html; charset=utf-8',
@@ -271,7 +271,11 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
         const registered=workspaceRegistry?.state().items.map(item=>item.path);
         const isRegistered=folder=>registered?.some(root=>
           process.platform==='win32' ? root.toLowerCase()===String(folder).toLowerCase() : root===folder);
-        return json(200,{tasks:registered?tasks.filter(task=>isRegistered(task.workspacePath)):tasks});
+        const workflows=taskEngine?.api?.workflows?.list?.()??[];
+        return json(200,{
+          tasks:registered?tasks.filter(task=>isRegistered(task.workspacePath)):tasks,
+          workflows:registered?workflows.filter(w=>isRegistered(w.workspacePath)):workflows,
+        });
       }
       if (req.method === 'GET' && url.pathname === '/api/workspaces')
         return json(200,workspaceRegistry?.state()??{activePath:manager.workspace,items:[]});
@@ -488,6 +492,13 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/tasks/continue': if (!taskEngine) throw new Error('Agent chưa khởi tạo.'); if (aiBusy) { const e = new Error('Kết nối AI đang thay đổi.'); e.statusCode=409; throw e; } result = { task: await taskEngine.continue(payload) }; break;
           case '/api/tasks/delete': if (!taskEngine) throw new Error('Agent chưa khởi tạo.'); result = await taskEngine.delete(payload.id); break;
           case '/api/tasks/cancel': if (!taskEngine) throw new Error('Agent chưa khởi tạo.'); result = { task: await taskEngine.cancel(payload.id) }; break;
+          case '/api/workflows/cancel': {
+            const workflow=taskEngine?.api?.workflows?.get?.(payload.id);
+            if(!workflow)throw Object.assign(new Error('Workflow không tồn tại.'),{statusCode:404});
+            if(workspaceRegistry)await workspaceRegistry.resolve(workflow.workspacePath);
+            result={workflow:await taskEngine.api.workflows.cancel(payload.id)};
+            break;
+          }
           case '/api/tasks/auto-resume': if (!taskEngine) throw new Error('Agent chưa khởi tạo.'); result = { task: await taskEngine.setAutoResume(payload) }; break;
           case '/api/ai/profiles/upsert': result = { profile: await aiProfiles.upsert(payload) }; break;
           case '/api/ai/profiles/delete': result = await aiProfiles.delete(payload.id); break;
@@ -641,6 +652,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   const apiAgent = new ConcurrentApiAgent({ primary: primaryAgent, manager, provider, bundleRoot: BUNDLE_ROOT,
     directory: path.join(manager.hubDirectory, 'api-conversations'), log: line => manager.log(line) });
   manager.spawnBackgroundAgent = (parentTaskId,request) => apiAgent.spawnAgent(parentTaskId,request);
+  manager.spawnWorkflow = (parentTaskId,request) => apiAgent.spawnWorkflow(parentTaskId,request);
   const agent = new DualAgent({ browser, api: apiAgent, directory: manager.hubDirectory, defaultMode:'api' });
   const resumer = new RecoveryScheduler({ agent, manager, provider, browser, log:(line)=>manager.log(line) });
   await manager.permissions.load();
