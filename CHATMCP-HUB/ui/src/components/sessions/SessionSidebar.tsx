@@ -1,248 +1,155 @@
-import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
-import { 
-  Plus, 
-  Search, 
-  FolderGit2, 
-  Trash2, 
-  CheckCircle2, 
-  Loader2, 
-  AlertCircle, 
-  Clock, 
-  MessageSquare
-} from 'lucide-react';
+import { FolderGit2, Plus, Search, Trash2, Loader2, MessageSquare, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useTranslation } from '@/lib/i18n';
-import { isTaskActive, taskStateLabel } from '@/lib/task-view';
+import { isTaskActive } from '@/lib/task-view';
 
 export function SessionSidebar() {
-  const { selectedTaskId, setSelectedTaskId, showToast } = useAppStore();
-  const { t } = useTranslation();
-  const [search, setSearch] = useState('');
+  const {
+    selectedTaskId,setSelectedTaskId,selectedWorkspacePath,setSelectedWorkspacePath,
+    showToast,
+  }=useAppStore();
+  const {t}=useTranslation();
+  const queryClient=useQueryClient();
+  const [search,setSearch]=useState('');
+  const [collapsed,setCollapsed]=useState<Record<string,boolean>>({});
+  const [choosing,setChoosing]=useState(false);
+  const {data:hub}=useQuery({queryKey:['hubState'],queryFn:api.getState,refetchInterval:3000});
 
-  const { data: hub, refetch: refetchHub } = useQuery({ 
-    queryKey: ['hubState'], 
-    queryFn: api.getState,
-    refetchInterval: 3000 
+  const workspaceEntries=hub?.workspaces?.items?.length
+    ? hub.workspaces.items
+    : hub?.workspace?.path
+      ? [{path:hub.workspace.path,name:hub.workspace.path.split(/[\\/]/).filter(Boolean).pop()||'Workspace'}]
+      : [];
+  const activeWorkspace=workspaceEntries.find(w=>w.path===selectedWorkspacePath)?.path
+    || hub?.workspaces?.activePath || workspaceEntries[0]?.path || '';
+  const allTasks=hub?.tasks||[];
+  // Conversations are first-class sidebar entities. Model-spawned child tasks
+  // remain inside their parent conversation's background execution, not here.
+  const conversations=useMemo(()=>allTasks.filter(x=>!x.parentTaskId),[allTasks]);
+  const perWorkspace=(folder:string)=>conversations.filter(item=>{
+    const source=item.workspacePath||item.workspace?.path||hub?.workspace?.path;
+    const query=search.trim().toLocaleLowerCase();
+    return source===folder && (!query ||
+      (item.task||item.prompt||'').toLocaleLowerCase().includes(query));
   });
 
-  const tasks = hub?.tasks || [];
-  const workspace = hub?.workspace;
+  useEffect(()=>{
+    if(activeWorkspace&&selectedWorkspacePath!==activeWorkspace)setSelectedWorkspacePath(activeWorkspace);
+  },[activeWorkspace,selectedWorkspacePath,setSelectedWorkspacePath]);
 
-  // Filter tasks
-  const filteredTasks = useMemo(() => {
-    return tasks.filter((t) => {
-      if (!search.trim()) return true;
-      const text = `${t.task || ''} ${t.id || ''}`.toLowerCase();
-      return text.includes(search.toLowerCase());
-    });
-  }, [tasks, search]);
-
-  // Group tasks into "Hôm nay", "7 ngày qua", "Cũ hơn"
-  const groupedTasks = useMemo(() => {
-    const now = Date.now();
-    const oneDay = 24 * 60 * 60 * 1000;
-    const sevenDays = 7 * oneDay;
-
-    const today: typeof tasks = [];
-    const week: typeof tasks = [];
-    const older: typeof tasks = [];
-
-    filteredTasks.forEach((t) => {
-      const time = t.updatedAt || t.createdAt ? new Date(t.updatedAt || t.createdAt!).getTime() : 0;
-      const diff = now - time;
-      if (diff < oneDay) {
-        today.push(t);
-      } else if (diff < sevenDays) {
-        week.push(t);
-      } else {
-        older.push(t);
-      }
-    });
-
-    return { today, week, older };
-  }, [filteredTasks]);
-
-  const handleCreateNewTask = () => setSelectedTaskId('');
-
-  const handleDeleteTask = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!confirm('Bạn có chắc muốn xóa phiên làm việc này?')) return;
-    try {
+  const createConversation=()=>setSelectedTaskId('');
+  const pickWorkspace=async()=>{
+    if(choosing)return;
+    setChoosing(true);
+    try{
+      // Windows native Explorer-style folder selection; the picker is safe to
+      // open while agents in any already selected workspace keep running.
+      const result=await api.browseWorkspace(activeWorkspace||null);
+      if(!result.path)return;
+      const added=await api.addWorkspace(result.path);
+      await api.activateWorkspace(added.workspace.path);
+      setSelectedWorkspacePath(added.workspace.path);
+      setSelectedTaskId('');
+      await queryClient.invalidateQueries({queryKey:['hubState']});
+    }catch(error){
+      showToast(error instanceof Error?error.message:'Không thể chọn workspace.','error');
+    }finally{setChoosing(false);}
+  };
+  const selectWorkspace=async(folder:string)=>{
+    try{
+      await api.activateWorkspace(folder);
+      setSelectedWorkspacePath(folder);
+      setSelectedTaskId('');
+      await queryClient.invalidateQueries({queryKey:['hubState']});
+    }catch(error){showToast(error instanceof Error?error.message:'Không thể chuyển workspace.','error');}
+  };
+  const selectConversation=async(id:string,folder:string)=>{
+    if(folder!==activeWorkspace){
+      await api.activateWorkspace(folder).catch(()=>{});
+      setSelectedWorkspacePath(folder);
+    }
+    setSelectedTaskId(id);
+  };
+  const removeConversation=async(id:string)=>{
+    if(!window.confirm('Xóa lịch sử hội thoại này? Các tệp và nhánh Git sẽ được giữ nguyên.'))return;
+    try{
       await api.deleteTask(id);
-      if (selectedTaskId === id) {
-        setSelectedTaskId('');
-      }
-      refetchHub();
-    } catch (error: any) {
-      showToast(error.message || 'Không thể xóa hội thoại', 'error');
-    }
+      if(selectedTaskId===id)setSelectedTaskId('');
+      await queryClient.invalidateQueries({queryKey:['hubState']});
+    }catch(error){showToast(error instanceof Error?error.message:'Không thể xóa hội thoại.','error');}
   };
 
-  const renderStatusIcon = (status: string) => {
-    if (isTaskActive({ status })) {
-      return <Loader2 className="w-3.5 h-3.5 text-[var(--primary)] animate-spin" />;
-    }
-    if (status === 'completed' || status === 'success') {
-      return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />;
-    }
-    if (status === 'failed' || status === 'error') {
-      return <AlertCircle className="w-3.5 h-3.5 text-rose-400" />;
-    }
-    return <Clock className="w-3.5 h-3.5 text-[var(--faint)]" />;
-  };
-
-  const renderTaskItem = (t: (typeof tasks)[0]) => {
-    const isSelected = selectedTaskId === t.id;
-    const title = t.task || `Phiên #${t.id.slice(0, 8)}`;
-    const timeStr = t.createdAt ? new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-
-    return (
-      <div
-        key={t.id}
-        onClick={() => setSelectedTaskId(t.id)}
-        role="button"
-        tabIndex={0}
-        aria-label={title}
-        onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); setSelectedTaskId(t.id); } }}
-        className={`group relative flex items-start gap-2.5 p-2.5 rounded-lg cursor-pointer transition-all duration-150 select-none ${
-          isSelected
-            ? 'bg-sky-500/10 border border-sky-500/30 text-[var(--text)] shadow-sm'
-            : 'hover:bg-[var(--surface-hover)] border border-transparent text-[var(--muted)] hover:text-[var(--text)]'
-        }`}
-      >
-        <div className="mt-0.5 flex-shrink-0">
-          {renderStatusIcon(t.status)}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-1">
-            <span className={`text-xs truncate font-medium ${isSelected ? 'text-[var(--primary)]' : ''}`}>
-              {title}
-            </span>
-            {timeStr && (
-              <span className="text-xs text-[var(--faint)] flex-shrink-0">
-                {timeStr}
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-[var(--faint)] line-clamp-1 mt-0.5">
-            {taskStateLabel(t.status)}
-          </p>
-        </div>
-        <button
-          onClick={(e) => handleDeleteTask(t.id, e)}
-          className="opacity-0 group-hover:opacity-100 p-1 hover:text-rose-400 rounded transition-opacity"
-          title="Xóa phiên"
-          disabled={isTaskActive(t)}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
+  return <aside className="w-full h-full flex flex-col bg-[var(--panel)] border-r border-[var(--line)] min-w-0 select-none">
+    <div className="p-3 border-b border-[var(--line)] space-y-2.5">
+      <Button size="sm" variant="primary" onClick={createConversation}
+        className="w-full text-xs px-2.5 gap-1.5">
+        <Plus className="w-3.5 h-3.5"/><span>{t('new_conversation_btn')}</span>
+      </Button>
+      <div className="relative">
+        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--faint)]"/>
+        <input aria-label="Tìm hội thoại" type="text" value={search}
+          onChange={e=>setSearch(e.target.value)} placeholder={t('search_sessions')}
+          className="w-full bg-[var(--surface)] text-[var(--text)] text-xs rounded-md pl-8 pr-2.5 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"/>
+      </div>
+    </div>
+    <div className="flex-1 min-h-0 overflow-y-auto p-2">
+      <div className="flex items-center justify-between px-2 py-2">
+        <span className="text-xs font-medium text-[var(--muted)]">This computer · Workspaces</span>
+        <button type="button" aria-label="Thêm workspace" title="Chọn thư mục bằng Windows Explorer"
+          onClick={()=>void pickWorkspace()} disabled={choosing}
+          className="p-1 rounded hover:bg-[var(--surface-hover)] text-[var(--muted)]">
+          {choosing?<Loader2 className="w-4 h-4 animate-spin"/>:<Plus className="w-4 h-4"/>}
         </button>
       </div>
-    );
-  };
-
-  return (
-    <aside className="w-full h-full flex flex-col bg-[var(--panel)] border-r border-[var(--line)] select-none">
-      {/* Top Header & New Button */}
-      <div className="p-3 border-b border-[var(--line)] flex flex-col gap-2.5">
-        <div className="flex flex-col items-start gap-2">
-          <span className="text-xs font-semibold  text-[var(--muted)]">
-            {t('sessions_title')}
-          </span>
-          <Button
-            size="sm"
-            variant="primary"
-            onClick={handleCreateNewTask}
-            className="w-full text-xs px-2.5 gap-1.5"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>{t('new_conversation_btn')}</span>
-          </Button>
-        </div>
-
-        {/* Search */}
-        <div className="relative">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--faint)]" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t('search_sessions')}
-            className="w-full bg-[var(--surface)] text-[var(--text)] text-xs rounded-md pl-8 pr-2.5 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500 transition-colors"
-          />
-        </div>
-      </div>
-
-      {/* Workspace Quick Card */}
-      {workspace && (
-        <div className="p-2.5 mx-2.5 my-2 rounded-lg bg-[var(--surface)] border border-[var(--line)] flex items-center gap-2.5 text-xs text-[var(--muted)]">
-          <FolderGit2 className="w-4 h-4 text-[var(--primary)] flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <div className="text-xs truncate text-[var(--text)] font-medium">
-              {workspace.path?.split(/[\\/]/).filter(Boolean).pop() || 'Workspace'}
-            </div>
-            <div className="text-xs text-[var(--faint)] flex items-center gap-2">
-              <span>{workspace.git?.branch || 'Chưa rõ nhánh'}</span>
-              {workspace.git?.dirty && <span className="text-amber-400 font-semibold">• {t('git_dirty')}</span>}
-            </div>
+      {!workspaceEntries.length&&<div className="p-3 text-xs text-[var(--faint)]">
+        Chưa có workspace. Bấm dấu + để chọn thư mục trên máy Windows.
+      </div>}
+      {workspaceEntries.map(entry=>{
+        const folder=entry.path, current=folder===activeWorkspace, shut=collapsed[folder]===true;
+        const items=perWorkspace(folder);
+        return <div key={folder} className="mb-2">
+          <div className={'rounded-md flex items-center gap-1 px-1 py-1 '+(current?'bg-[var(--surface-hover)]':'')}>
+            <button type="button" aria-label={shut?'Mở nhóm '+entry.name:'Thu gọn nhóm '+entry.name}
+              onClick={()=>setCollapsed(v=>({...v,[folder]:!shut}))} className="p-1 text-[var(--faint)]">
+              {shut?<ChevronRight className="w-3.5 h-3.5"/>:<ChevronDown className="w-3.5 h-3.5"/>}
+            </button>
+            <button type="button" title={folder} onClick={()=>void selectWorkspace(folder)}
+              aria-pressed={current}
+              className="flex-1 min-w-0 flex items-center gap-2 py-1 text-left">
+              <FolderGit2 className="w-4 h-4 flex-shrink-0 text-[var(--primary)]"/>
+              <span className="text-xs truncate text-[var(--text)] font-medium">{entry.name}</span>
+            </button>
+            <span className="text-[10px] text-[var(--faint)]">{items.length}</span>
           </div>
-        </div>
-      )}
-
-      {/* Session Lists Grouped */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-4">
-        {filteredTasks.length === 0 ? (
-          <div className="py-12 px-4 text-center text-[var(--faint)] flex flex-col items-center gap-2">
-            <MessageSquare className="w-8 h-8 opacity-40" />
-            <p className="text-xs">{t('no_sessions')}</p>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={handleCreateNewTask}
-              className="text-xs mt-1"
-            >
-              {t('start_conversation')}
-            </Button>
-          </div>
-        ) : (
-          <>
-            {groupedTasks.today.length > 0 && (
-              <div>
-                <div className="px-2 py-1 text-xs font-semibold  text-[var(--faint)]">
-                  Hôm nay
-                </div>
-                <div className="space-y-1 mt-1">
-                  {groupedTasks.today.map(renderTaskItem)}
-                </div>
-              </div>
-            )}
-
-            {groupedTasks.week.length > 0 && (
-              <div>
-                <div className="px-2 py-1 text-xs font-semibold  text-[var(--faint)]">
-                  7 ngày qua
-                </div>
-                <div className="space-y-1 mt-1">
-                  {groupedTasks.week.map(renderTaskItem)}
-                </div>
-              </div>
-            )}
-
-            {groupedTasks.older.length > 0 && (
-              <div>
-                <div className="px-2 py-1 text-xs font-semibold  text-[var(--faint)]">
-                  Cũ hơn
-                </div>
-                <div className="space-y-1 mt-1">
-                  {groupedTasks.older.map(renderTaskItem)}
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </aside>
-  );
+          {!shut&&<div className="pl-5 pt-1 space-y-0.5">
+            {items.map(chat=>{
+              const selected=chat.id===selectedTaskId;
+              return <div key={chat.id} className={'group flex items-center gap-1 rounded-md '+(selected?'bg-[var(--primary-bg)]':'hover:bg-[var(--surface-hover)]')}>
+                <button onClick={()=>void selectConversation(chat.id,folder)} title={chat.task||chat.prompt}
+                  className="flex-1 min-w-0 p-1.5 flex items-center gap-2 text-left text-xs">
+                  {isTaskActive(chat)
+                    ? <Loader2 className="w-3 h-3 animate-spin text-sky-400 flex-shrink-0"/>
+                    : <MessageSquare className="w-3 h-3 text-[var(--faint)] flex-shrink-0"/>}
+                  <span className={'truncate '+(selected?'text-[var(--primary)]':'text-[var(--muted)]')}>
+                    {chat.task||chat.prompt||'Cuộc hội thoại'}
+                  </span>
+                </button>
+                <button onClick={()=>void removeConversation(chat.id)} title="Xóa hội thoại"
+                  disabled={isTaskActive(chat)} className="opacity-0 group-hover:opacity-100 p-1 text-[var(--muted)] hover:text-rose-400 disabled:opacity-20">
+                  <Trash2 className="w-3 h-3"/>
+                </button>
+              </div>;
+            })}
+            {!items.length&&current&&<p className="px-2 py-2 text-[11px] text-[var(--faint)]">
+              Chưa có hội thoại. Tạo chat mới để giao việc.
+            </p>}
+          </div>}
+        </div>;
+      })}
+    </div>
+  </aside>;
 }
