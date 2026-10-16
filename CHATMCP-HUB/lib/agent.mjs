@@ -773,10 +773,32 @@ export class AgentRunner {
           },required:['goal']}
         });
       }
+      if(typeof this.manager.spawnWorkflow==='function'){
+        context.workflowTool=true;
+        context.tools.push({
+          type:'function',name:'spawn_workflow',strict:false,
+          description:'Create a durable background workflow with named ordered phases and real parallel subagents in isolated Git worktrees. For multi-perspective reviews, use phases Review (independent agents), Verify (independent fact checkers dependent on Review). Returns immediately and keeps running after the chat reply. Never claim completion until real tasks finish.',
+          parameters:{
+            type:'object',additionalProperties:false,properties:{
+              name:{type:'string'},
+              phases:{type:'array',items:{
+                type:'object',additionalProperties:false,
+                properties:{
+                  name:{type:'string'},
+                  dependsOn:{type:'array',items:{type:'string'}},
+                  agents:{type:'array',items:{type:'object',additionalProperties:false,
+                    properties:{role:{type:'string'},goal:{type:'string'}},required:['goal']}},
+                },required:['name','agents'],
+              }},
+            },required:['name','phases'],
+          },
+        });
+      }
       context.instructions = context.direct.functions.length
         ? createLocalAgentInstructions(offeredCatalog, task.workspace, this.manager.state().environment ?? null)
         : createAgentInstructions(context.catalog, task.workspace);
-      if(context.spawnTool)context.instructions+='\nBACKGROUND SUBAGENTS: Use spawn_agent for user-requested delegation or independent subprojects. Wait for their actual results before claiming their work is complete. They never auto-merge Git branches.\n';
+      if(context.spawnTool)context.instructions+='\nBACKGROUND SUBAGENTS: Use spawn_agent for a narrow independent job. Worktrees are isolated, never auto-merged.\n';
+      if(context.workflowTool)context.instructions+='\nAUTONOMOUS WORKFLOWS: For a user request benefiting from MULTIPLE independent viewpoints, multi-step review/verification, or an explicitly requested team of agents, prefer spawn_workflow. Declare a short workflow title and 1–5 named phases with 1–12 total specialized agents. List exact independent agent goals, evidence to gather, and names of earlier phases in dependsOn; omitted dependsOn means wait for the preceding phase. For example Review (several independent reviewers) then Verify (independent checkers). The host runs genuinely parallel agents subject to Git-worktree/approval/concurrency constraints and persists progress under this chat. The workflow can outlive your chat turn; report only that it was STARTED, never that a review, fix or test passed until confirmed in its actual output. Do not spawn a workflow for a simple request that one agent can complete.\n';
       if(selectionMode==='auto') {
         context.instructions += '\nTool schemas are task-selected. Other registered tools remain available through mcp_catalog/mcp_describe/mcp_call with normal approvals.';
         await this.#event(task,'tool_selection','Dynamic task-specific tool schemas: '+context.direct.functions.length+' direct + 4 internal routers.',{},{
@@ -1125,6 +1147,35 @@ export class AgentRunner {
           const result=await this.manager.spawnBackgroundAgent(context.task.id,args);
           const summary={taskId:result.id,status:result.status,dependsOn:result.dependsOn||[]};
           return {isError:false,content:[{type:'text',text:JSON.stringify(summary)}],structuredContent:summary};
+        });
+      }
+      if(call.namespace==null&&call.name==='spawn_workflow'&&context.workflowTool){
+        args=parseObject(call.arguments,'spawn_workflow arguments');
+        if(typeof args.name!=='string'||!Array.isArray(args.phases))
+          throw fault('invalid_arguments','Workflow requires name and phases array.');
+        return await this.#upstream(context,call,'chatmcp.spawn_workflow',args,async()=>{
+          let workflow;
+          try{
+            workflow=await this.manager.spawnWorkflow(context.task.id,args);
+          }catch(error){
+            if(['invalid_workflow','duplicate_phase','workflow_capacity','invalid_dependencies',
+                 'invalid_agents','parent_missing'].includes(error?.code))
+              return {isError:true,content:[{type:'text',text:'Invalid workflow: '+String(error.message).slice(0,300)}],
+                structuredContent:{error:String(error.message).slice(0,300),executed:false}};
+            throw error;
+          }
+          const summary={
+            workflowId:workflow.id,status:workflow.status,
+            conversationId:workflow.conversationId,
+            phaseCount:workflow.phases.length,
+            agents:workflow.total,
+            phases:workflow.phases.map(phase=>({name:phase.name,
+              tasks:phase.agents.map(agent=>({taskId:agent.taskId,role:agent.role,status:agent.status}))})),
+            warning:'This workflow is running in the background. Results are NOT yet verified; no Git branches were automatically merged.',
+            ...(workflow.error?{error:workflow.error}:{}),
+          };
+          return {isError:workflow.status==='failed',
+            content:[{type:'text',text:JSON.stringify(summary)}],structuredContent:summary};
         });
       }
       if (call.namespace == null && context.direct?.byName.has(call.name)) {
