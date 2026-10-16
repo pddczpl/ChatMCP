@@ -145,7 +145,7 @@ try{
   const names=['anthropic','openrouter','deepseek'];
   for (const id of names) {
     const preset=PRESETS.find(p=>p.id===id);
-    const isolated=new GatewayProvider({directory:path.join(dir,'switch-'+id),bundleRoot:dir,manager,env:{}});
+    const isolated=new GatewayProvider({directory:path.join(dir,'switch-'+id),bundleRoot:dir,manager,env:{},protect,unprotect});
     await isolated.load();
     await isolated.configure({preset:'openai',protocol:'openai-chat',
       apiBaseUrl:'https://api.openai.com/v1',model:'gpt-5-mini',apiKey:key,remember:true});
