@@ -39,31 +39,40 @@ export class DualAgent {
     this.mode = mode;
     return this.state();
   }
-  // Browser Companion is a single-tab, sequential transport. Rebind its
-  // local Hub manager to the explicitly selected/registered project ONLY while
-  // all agents are idle. API coding jobs in other workspaces retain their own
-  // managers/worktrees and are never silently redirected.
+  // Web Companion executes one task at a time. Its manager is selected from
+  // the same registered per-workspace managers used for coding agents; this
+  // keeps Studio tools, the Git runner, approvals and OS execution registry
+  // consistently bound to the requested project without mutating the main Hub.
   async #ensureBrowserWorkspace(requestedPath) {
-    const manager = this.browser.manager;
-    const registry = this.api.manager?.workspaceRegistry || manager?.workspaceRegistry;
-    const selected = requestedPath || registry?.state()?.activePath || manager?.workspace;
-    if (!selected) throw Object.assign(new Error('Hãy chọn workspace trước khi giao việc cho ChatGPT Web.'), {
-      statusCode:409,code:'workspace_missing',
-    });
+    const primary = this.api.manager || this.browser.manager;
+    const registry = primary?.workspaceRegistry;
+    const selected = requestedPath || registry?.state()?.activePath || primary?.workspace;
+    if (!selected) throw Object.assign(new Error(
+      'Hãy chọn workspace trước khi giao việc cho ChatGPT Web.'
+    ),{statusCode:409,code:'workspace_missing'});
     let root=selected;
     if (registry) root=(await registry.resolve(selected)).path;
-    else if (root!==manager?.workspace) throw Object.assign(new Error(
-      'Workspace chưa được đăng ký trong ChatMCP.'),{statusCode:403,code:'unregistered_workspace'});
-    if (manager.workspace !== root) {
-      if (this.state().activeTaskIds.length || manager.busy || manager.taskId ||
-          manager.codingOrchestrator?.active || manager.codingOrchestrator?.integrating ||
-          manager.dynamicDelegates?.activeRunId) {
-        throw Object.assign(new Error(
-          'Không thể đổi workspace cho ChatGPT Web khi Hub còn agent hoặc coding worker đang dùng workspace chính. Dừng chúng trước, hoặc tiếp tục bằng API mode.'
-        ),{statusCode:409,code:'browser_workspace_busy'});
-      }
-      await manager.selectWorkspace(root);
+    else if(root!==primary?.workspace)throw Object.assign(new Error(
+      'Workspace chưa được đăng ký trong ChatMCP.'
+    ),{statusCode:403,code:'unregistered_workspace'});
+    if (this.state().activeTaskIds.length || primary.busy || primary.taskId ||
+        primary.codingOrchestrator?.active || primary.codingOrchestrator?.integrating ||
+        primary.dynamicDelegates?.activeRunId) {
+      throw Object.assign(new Error(
+        'Không thể bắt đầu ChatGPT Web khi còn agent hoặc coding worker đang sử dụng Hub. Đợi/dừng tác vụ trước hoặc tiếp tục bằng API mode.'
+      ),{statusCode:409,code:'browser_workspace_busy'});
     }
+    const targetManager=root===primary.workspace?primary
+      : typeof this.api.browserWorkspaceManager==='function'
+        ? await this.api.browserWorkspaceManager(root)
+        : null;
+    if (!targetManager || targetManager.workspace!==root)
+      throw Object.assign(new Error(
+        'Workspace chưa được chuẩn bị độc lập cho Browser Companion; không chuyển công cụ sang sai thư mục.'
+      ),{statusCode:503,code:'browser_workspace_unavailable'});
+    // The paired extension belongs to BrowserRunner, not to a particular
+    // project manager. Rebind only when the Web runner has no active task.
+    this.browser.manager=targetManager;
     return root;
   }
   async start(payload) {
