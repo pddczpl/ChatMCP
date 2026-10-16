@@ -123,7 +123,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   });
   manager.sandboxEngine = sandboxEngine;
   manager.executionRegistry = sandboxEngine.registry;
-  const state = (csrf = token) => ({ ...manager.state(), workspaces:workspaceRegistry?.state()??{activePath:manager.workspace,items:manager.workspace?[{path:manager.workspace,name:path.basename(manager.workspace)}]:[]}, ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions: { ...(permissions?.state?.()??gate?.state()??{}), pending: [...(permissions?.state?.().pending??[]), ...(taskEngine?.api?.pendingApprovals?.()??[])] }, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null,dynamicDelegates:dynamic?.state()??null} : null, csrfToken: csrf });
+  const state = (csrf = token) => ({ ...manager.state(), workspaces:workspaceRegistry?.state()??{activePath:manager.workspace,items:manager.workspace?[{path:manager.workspace,name:path.basename(manager.workspace)}]:[]}, ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions: { ...(permissions?.state?.()??gate?.state()??{}), pending: [...(permissions?.state?.().pending??[]), ...(taskEngine?.api?.pendingApprovals?.()??[]), ...(browser?.pendingApprovals?.()??[])] }, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null,dynamicDelegates:dynamic?.state()??null} : null, csrfToken: csrf });
   const requireNoTask = () => { if (taskEngine?.state().activeTaskId || dynamic?.activeRunId || coding?.active || delegates?.running) { const e = new Error('Dừng các tác vụ AI đang chạy trước khi đổi Base URL, API key hoặc model.'); e.statusCode = 409; throw e; } };
   const changeAi = async (operation) => {
     requireNoTask();
@@ -267,7 +267,10 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
         return json(200,value);
       }
       if (req.method === 'GET' && url.pathname === '/api/background-tasks') {
-        const tasks=taskEngine?.api?.backgroundTasks?.()??[];
+        // Web Companion sessions are actual background executions too.
+        // Never count them as fabricated API tasks or hide their owning chat.
+        const tasks=[...(taskEngine?.api?.backgroundTasks?.()??[]),
+          ...(browser?.backgroundTasks?.()??[])];
         const registered=workspaceRegistry?.state().items.map(item=>item.path);
         const isRegistered=folder=>registered?.some(root=>
           process.platform==='win32' ? root.toLowerCase()===String(folder).toLowerCase() : root===folder);
@@ -385,7 +388,8 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
             result=gate.configure(payload);break;
           case '/api/studio/permissions/decide': result=(gate?.state().pending||[]).some(p=>p.id===payload.id)
               ? gate.decide(payload.id,payload.approved)
-              : taskEngine?.api?.decidePermission?.(payload.id,payload.approved);
+              : taskEngine?.api?.decidePermission?.(payload.id,payload.approved)
+                || browser?.decidePermission?.(payload.id,payload.approved);
               if(!result)throw Object.assign(new Error('Không tìm thấy yêu cầu phê duyệt.'),{statusCode:404});
               break;
           case '/api/studio/checkpoint': result=await studio.checkpoint(payload);break;
@@ -485,7 +489,10 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
               authMode:response.authMode || provider.state().authMode,attempts:Array.isArray(response.attempts)?response.attempts:undefined,
               toolCalling:response.toolCalling,toolCallingNote:response.toolCallingNote };
           }); break;
-          case '/api/agent/mode': if (!agent) throw new Error('Agent chưa khởi tạo.'); await changeAi(() => agent.configure(payload)); result = stateNow(); break;
+          case '/api/agent/mode': if (!agent) throw new Error('Agent chưa khởi tạo.');
+            // Selecting the transport for NEW chats is not a model/API key
+            // reconfiguration and must not interrupt jobs already running.
+            await agent.configure(payload); result = stateNow(); break;
           case '/api/auth/chatgpt/start': return json(410, { error: 'Dùng chế độ ChatGPT Web qua Browser Companion, không dùng OAuth ChatGPT trong Hub.' });
           case '/api/auth/logout': return json(410, { error: 'Để xoá API key đã lưu, dùng /api/ai/clear-key.' });
           case '/api/tasks/start': if (!taskEngine) throw new Error('Agent chưa khởi tạo.'); if (aiBusy) { const e = new Error('Kết nối AI đang thay đổi. Chờ hoàn tất rồi chạy nhiệm vụ.'); e.statusCode = 409; throw e; } result = { task: await taskEngine.start(payload) }; break;

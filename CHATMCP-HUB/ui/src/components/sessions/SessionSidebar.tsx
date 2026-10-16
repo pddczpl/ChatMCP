@@ -17,6 +17,8 @@ export function SessionSidebar() {
   const [search,setSearch]=useState('');
   const [collapsed,setCollapsed]=useState<Record<string,boolean>>({});
   const [choosing,setChoosing]=useState(false);
+  const [manualFolder,setManualFolder]=useState('');
+  const [manualFolderOpen,setManualFolderOpen]=useState(false);
   const [removingWorkspace,setRemovingWorkspace]=useState<string | null>(null);
   const [removingConversation,setRemovingConversation]=useState<string | null>(null);
   const {data:hub}=useQuery({queryKey:['hubState'],queryFn:api.getState,refetchInterval:3000});
@@ -66,7 +68,23 @@ export function SessionSidebar() {
       await queryClient.invalidateQueries({queryKey:['hubState']});
     }catch(error){
       showToast(error instanceof Error?error.message:'Không thể chọn workspace.','error');
+      setManualFolderOpen(true);
     }finally{setChoosing(false);}
+  };
+  const addManualWorkspace=async()=>{
+    if(!manualFolder.trim()||choosing)return;
+    setChoosing(true);
+    try{
+      const added=await api.addWorkspace(manualFolder.trim());
+      await api.activateWorkspace(added.workspace.path);
+      setSelectedWorkspacePath(added.workspace.path);
+      setSelectedTaskId('');
+      setManualFolder('');
+      setManualFolderOpen(false);
+      await queryClient.invalidateQueries({queryKey:['hubState']});
+      showToast('Đã chọn workspace '+added.workspace.path,'success');
+    }catch(e){showToast(e instanceof Error?e.message:'Đường dẫn workspace không hợp lệ.','error');}
+    finally{setChoosing(false);}
   };
   const selectWorkspace=async(folder:string)=>{
     try{
@@ -148,6 +166,19 @@ export function SessionSidebar() {
           {choosing?<Loader2 className="w-4 h-4 animate-spin"/>:<Plus className="w-4 h-4"/>}
         </button>
       </div>
+      {manualFolderOpen&&<form onSubmit={e=>{e.preventDefault();void addManualWorkspace();}}
+        className="mx-2 mb-2 rounded-md border border-[var(--line)] p-2 space-y-1.5">
+        <label className="block text-[11px] text-[var(--muted)]">Nhập đường dẫn thư mục nếu hộp chọn Windows không mở</label>
+        <input aria-label="Nhập đường dẫn workspace thủ công" value={manualFolder}
+          onChange={e=>setManualFolder(e.target.value)} placeholder="F:\\Personal_Project\\Vin\\ChatMCP"
+          className="w-full px-2 py-1.5 rounded bg-[var(--surface)] border border-[var(--line)] text-xs text-[var(--text)]"/>
+        <div className="flex gap-2">
+          <button type="submit" disabled={!manualFolder.trim()||choosing}
+            className="text-xs px-2 py-1 bg-[var(--primary)] text-white rounded disabled:opacity-50">Thêm workspace</button>
+          <button type="button" onClick={()=>setManualFolderOpen(false)}
+            className="text-xs text-[var(--muted)]">Hủy</button>
+        </div>
+      </form>}
       {!workspaceEntries.length&&<div className="p-3 text-xs text-[var(--faint)]">
         Chưa có workspace. Bấm dấu + để chọn thư mục trên máy Windows.
       </div>}

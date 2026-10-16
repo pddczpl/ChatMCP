@@ -118,7 +118,13 @@ export class HubManager {
     this.children.add(proc.child);
     try {
       const result = await proc.completion;
-      if (result.code !== 0) throw new Error(`${path.basename(command)} dừng với mã ${result.code ?? result.signal}. Xem nhật ký để biết bước chưa hoàn tất.`);
+      if (result.code !== 0) {
+        const failure = new Error(`${path.basename(command)} dừng với mã ${result.code ?? result.signal}. Xem nhật ký để biết bước chưa hoàn tất.`);
+        // The caller can show an appropriate diagnostic; do not dump arbitrary
+        // stdout/stderr (which may contain host paths) into the public UI.
+        failure.result = result;
+        throw failure;
+      }
       return result.output;
     } finally { this.children.delete(proc.child); }
   }
@@ -208,11 +214,36 @@ export class HubManager {
       ? await this.validateWorkspace(initialPath).catch(()=>null)
       : null;
     if(initial||this.workspace) args.push('-InitialPath',initial||this.workspace);
-    const output = await this.checkedRun(powershell, args, { quiet: true });
+    // A hidden PowerShell process can hide the owned Windows Forms dialog too.
+    // Run the native picker interactively while keeping all transport output
+    // private. If the dialog fails, reveal only the exception TYPE, not paths.
+    let output;
     try {
-      const result = JSON.parse(output.replace(/^\uFEFF/, '').trim());
-      return { path: typeof result.path === 'string' ? result.path : null };
-    } catch { throw new Error('Hộp chọn thư mục chưa trả đường dẫn hợp lệ. Bạn có thể dán đường dẫn vào ô workspace.'); }
+      output = await this.checkedRun(powershell, args, { quiet:true, windowsHide:false });
+    } catch(error) {
+      const reason = /\[CHATMCP-HUB\] Folder picker failed: ([A-Za-z][A-Za-z0-9]{0,75})/.exec(
+        String(error?.result?.output||''))?.[1]||'unknown';
+      this.log('Native Windows folder picker failed ('+reason+').');
+      throw Object.assign(new Error(
+        'Không mở được hộp chọn thư mục Windows ('+reason+'). '+
+        'Bạn vẫn có thể dán đường dẫn thư mục trong Cài đặt > Workspace.'),
+        {statusCode:503,code:'native_folder_picker_failed'});
+    }
+    try {
+      // On PowerShell some incidental output may precede our JSON response.
+      // The LAST JSON line belongs to the picker; never interpret arbitrary
+      // warnings or PowerShell error text as a selected path.
+      const candidate=output.replace(/^\uFEFF/,'').split(/\r?\n/).map(x=>x.trim())
+        .filter(Boolean).at(-1);
+      const result=JSON.parse(candidate);
+      if(!Object.hasOwn(result,'path') || (result.path !== null && typeof result.path!=='string'))
+        throw new Error('invalid_picker_result');
+      return {path:result.path};
+    }catch{
+      throw Object.assign(new Error('Hộp chọn thư mục chưa trả đường dẫn hợp lệ. '+
+        'Bạn vẫn có thể dán đường dẫn trực tiếp trong Cài đặt > Workspace.'),
+        {code:'native_folder_picker_invalid',statusCode:503});
+    }
     } finally { this.pickerOpen = false; }
   }
 

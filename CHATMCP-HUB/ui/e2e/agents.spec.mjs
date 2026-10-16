@@ -193,3 +193,24 @@ test('model-created workflow appears live in chat and Background Tasks with real
   await expect(page.getByTestId('background-workflow').getByText('Review',{exact:true})).toBeVisible();
   await expect(page.getByTestId('background-workflow').getByText('Verify',{exact:true})).toBeVisible();
 });
+
+
+test('ChatGPT Web mode can be selected and safely paired from Settings', async ({page,app})=>{
+  await onboard(page,app);
+  await page.getByRole('button',{name:'Inspector',exact:true}).click();
+  await page.getByRole('button',{name:'Cài đặt',exact:true}).click();
+  const card=page.getByTestId('agent-transport-settings');
+  await expect(card).toBeVisible();
+  await expect(card.getByRole('button',{name:'Kênh agent: Model API'})).toHaveAttribute('aria-pressed','true');
+  await card.getByRole('button',{name:'Kênh agent: ChatGPT Web'}).click();
+  await expect.poll(async()=>(await app.hub.state()).agent.mode).toBe('chatgpt-web');
+  await expect(card.getByText('Chưa ghép ChatMCP Hub Companion')).toBeVisible();
+  await card.getByRole('button',{name:'Tạo mã ghép 5 phút'}).click();
+  await expect(card.getByTestId('chatgpt-pair-code')).toHaveText(/^\d{8}$/);
+  await expect(page.getByTestId('chatgpt-web-mode-banner')).toBeVisible();
+  // Mode and pairing never expose the saved model provider's secret key.
+  expect((await app.hub.state()).ai.model).toBe('mock-coder');
+  await card.getByRole('button',{name:'Kênh agent: Model API'}).click();
+  await expect.poll(async()=>(await app.hub.state()).agent.mode).toBe('api');
+  await expect(page.getByTestId('chatgpt-web-mode-banner')).toHaveCount(0);
+});

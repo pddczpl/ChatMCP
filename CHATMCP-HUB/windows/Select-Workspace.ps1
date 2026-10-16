@@ -6,7 +6,7 @@ Cancellation is successful (exit 0). An error writes a short stderr message
 and returns {"path":null} with exit 1. No selected directory is modified.
 #>
 [CmdletBinding()]
-param([string]$InitialPath)
+param([string]$InitialPath, [switch]$Probe)
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
@@ -16,7 +16,7 @@ $dialog = $null
 $ownerWindow = $null
 
 try {
-    [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+    [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
     if ($env:OS -ne 'Windows_NT') { throw 'WINDOWS_REQUIRED' }
     if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -ne [System.Threading.ApartmentState]::STA) {
         throw 'STA_REQUIRED'
@@ -28,8 +28,11 @@ try {
     $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
     $dialog.Description = 'ChatMCP - Select the folder to use as your local workspace'
     $dialog.ShowNewFolderButton = $true
-    $dialog.AutoUpgradeEnabled = $true
-    $dialog.RootFolder = [System.Environment+SpecialFolder]::MyComputer
+    if ($dialog.PSObject.Properties.Name -contains 'AutoUpgradeEnabled') {
+        $dialog.AutoUpgradeEnabled = $true
+    }
+    # Leave RootFolder at Desktop to avoid unsupported shell namespace roots
+    # on Windows versions with a different legacy FolderBrowserDialog.
     if (-not [string]::IsNullOrWhiteSpace($InitialPath) -and (Test-Path -LiteralPath $InitialPath -PathType Container)) {
         $initialResolved = Resolve-Path -LiteralPath $InitialPath
         if ($initialResolved.Provider.Name -eq 'FileSystem') {
@@ -37,11 +40,18 @@ try {
         }
     }
 
-    # A hidden topmost owner keeps the picker visible when opened from a browser.
+    # -Probe validates UTF-8, STA and the native folder dialog constructor
+    # without opening a GUI; used by Windows CI smoke tests.
+    if ($Probe) {
+        $probeOk = $true
+    }
+    else {
+    # Use a topmost native owner so the chooser opens above WebView2 desktop.
+    # The parent PowerShell process MUST NOT be launched with windowsHide:true.
     $ownerWindow = New-Object System.Windows.Forms.Form
     $ownerWindow.ShowInTaskbar = $false
     $ownerWindow.TopMost = $true
-    $ownerWindow.Opacity = 0
+    $ownerWindow.Opacity = 0.01
     $ownerWindow.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
     $ownerWindow.Size = New-Object -TypeName System.Drawing.Size -ArgumentList 1, 1
     $ownerWindow.Show()
@@ -54,6 +64,7 @@ try {
         }
         $pickedPath = $selected.ProviderPath
     }
+    }
 }
 catch {
     $pickerExitCode = 1
@@ -64,5 +75,5 @@ finally {
     if ($null -ne $ownerWindow) { $ownerWindow.Dispose() }
 }
 
-[Console]::Out.WriteLine(([pscustomobject]@{ path = $pickedPath } | ConvertTo-Json -Compress))
+[Console]::Out.WriteLine(([pscustomobject]@{ path = $pickedPath; probe = [bool]$Probe } | ConvertTo-Json -Compress))
 exit $pickerExitCode

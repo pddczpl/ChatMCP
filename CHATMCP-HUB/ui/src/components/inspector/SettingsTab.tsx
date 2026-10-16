@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
 import { useTranslation } from '@/lib/i18n';
@@ -13,13 +13,19 @@ import {
   Server, 
   UserCheck,
   Folder,
+  Bot,
+  Link2,
+  Copy,
+  CircleCheck,
   Sparkles,
   RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 
 export function SettingsTab() {
-  const { theme, setTheme, lang, setLang, showToast, setFullAccessModalOpen, setOnboardingOpen } = useAppStore();
+  const { theme, setTheme, lang, setLang, showToast, setFullAccessModalOpen, setOnboardingOpen,
+    selectedWorkspacePath,setSelectedWorkspacePath } = useAppStore();
+  const queryClient=useQueryClient();
   const { t } = useTranslation();
 
   const { data: hub, error: hubError, refetch } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 3000 });
@@ -49,9 +55,47 @@ export function SettingsTab() {
   const currentMode = permissions.mode || 'review';
   const isFullAccess = permissions.executionPolicy === 'full-access';
 
-  const currentWs = hub?.workspace?.path || hub?.studio?.workspace || '';
+  const currentWs = (hub?.workspaces?.items?.some(w=>w.path===selectedWorkspacePath)?selectedWorkspacePath:
+    hub?.workspaces?.activePath) || hub?.workspace?.path || '';
   const [wsInput, setWsInput] = useState(currentWs);
   const [applyingWs, setApplyingWs] = useState(false);
+  const [changingTransport,setChangingTransport]=useState(false);
+  const [pairingBusy,setPairingBusy]=useState(false);
+  const [pairCode,setPairCode]=useState<{code:string;expiresAt:string}|null>(null);
+  const transport=hub?.agent?.mode||'api';
+  const companion=hub?.browser;
+  const changeTransport=async(mode:'api'|'chatgpt-web')=>{
+    if(changingTransport)return;
+    setChangingTransport(true);
+    try{
+      await api.setAgentMode(mode);
+      await queryClient.invalidateQueries({queryKey:['hubState']});
+      showToast(mode==='api'?'Đã chọn agent dùng Model API.':
+        'Đã chọn ChatGPT Web Companion. Hãy ghép extension và đăng nhập ChatGPT trên trình duyệt.','success');
+    }catch(e:any){showToast(e.message||'Không thể chuyển chế độ agent.','error');}
+    finally{setChangingTransport(false);}
+  };
+  const issuePairCode=async()=>{
+    if(pairingBusy)return;
+    setPairingBusy(true);
+    try{
+      const code=await api.createBrowserPairCode();
+      setPairCode(code);
+      showToast('Mã ghép có hiệu lực 5 phút. Nhập vào extension ChatMCP Hub Companion.','info');
+    }catch(e:any){showToast(e.message||'Không thể tạo mã ghép.','error');}
+    finally{setPairingBusy(false);}
+  };
+  const disconnectCompanion=async()=>{
+    if(!window.confirm('Ngắt ghép ChatMCP Companion trên trình duyệt? Các cuộc chat đã lưu vẫn được giữ.'))return;
+    setPairingBusy(true);
+    try{
+      await api.unpairBrowser();
+      setPairCode(null);
+      await queryClient.invalidateQueries({queryKey:['hubState']});
+      showToast('Đã ngắt ghép tiện ích.','info');
+    }catch(e:any){showToast(e.message||'Không thể ngắt ghép.','error');}
+    finally{setPairingBusy(false);}
+  };
 
   useEffect(() => {
     if (currentWs && !wsInput) {
@@ -61,12 +105,14 @@ export function SettingsTab() {
 
   const handleBrowseWs = async () => {
     try {
-      const res = await api.browseWorkspace();
-      if (res.path) {
-        setWsInput(res.path);
-        await api.selectWorkspace(res.path);
-        showToast(`${t('workspace_changed_toast')}: ${res.path}`, 'success');
-        refetch();
+      const res = await api.browseWorkspace(currentWs||null);
+      if(res.path){
+        const added=await api.addWorkspace(res.path);
+        await api.activateWorkspace(added.workspace.path);
+        setWsInput(added.workspace.path);
+        setSelectedWorkspacePath(added.workspace.path);
+        await queryClient.invalidateQueries({queryKey:['hubState']});
+        showToast(`${t('workspace_changed_toast')}: ${added.workspace.path}`,'success');
       }
     } catch (err: any) {
       showToast(err.message || 'Lỗi duyệt thư mục', 'error');
@@ -77,9 +123,12 @@ export function SettingsTab() {
     if (!wsInput.trim()) return;
     setApplyingWs(true);
     try {
-      await api.selectWorkspace(wsInput.trim());
-      showToast(`${t('workspace_changed_toast')}: ${wsInput.trim()}`, 'success');
-      refetch();
+      const added=await api.addWorkspace(wsInput.trim());
+      await api.activateWorkspace(added.workspace.path);
+      setWsInput(added.workspace.path);
+      setSelectedWorkspacePath(added.workspace.path);
+      await queryClient.invalidateQueries({queryKey:['hubState']});
+      showToast(`${t('workspace_changed_toast')}: ${added.workspace.path}`,'success');
     } catch (err: any) {
       showToast(err.message || 'Lỗi thay đổi thư mục', 'error');
     } finally {
@@ -313,6 +362,69 @@ export function SettingsTab() {
             );
           })}
         </div>
+      </section>
+
+      {/* The browser transport is an existing paired extension, NOT a
+          ChatGPT API token and never receives the user's login credentials. */}
+      <section className="rounded-lg p-3 border border-[var(--line)] bg-[var(--surface)] space-y-3"
+        data-testid="agent-transport-settings">
+        <div className="flex items-center gap-2 text-[var(--text)] font-semibold">
+          <Bot className="w-4 h-4 text-[var(--primary)]"/> Kênh điều khiển Coding Agent
+        </div>
+        <p className="text-[11px] text-[var(--muted)]">
+          Chọn kênh xử lý cuộc chat mới. Các cuộc chat đã tạo tiếp tục dùng kênh ban đầu. Quyền đọc/sửa/chạy lệnh vẫn do Local Hub kiểm soát.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {([{id:'api',label:'Model API',hint:'Provider và API key đã cấu hình'},
+             {id:'chatgpt-web',label:'ChatGPT Web',hint:'Qua extension Companion; không cần ChatGPT API key'}] as const).map(option=>
+            <button type="button" key={option.id} disabled={changingTransport}
+              aria-pressed={transport===option.id} aria-label={'Kênh agent: '+option.label}
+              onClick={()=>void changeTransport(option.id)}
+              className={'p-2 rounded-md border text-left space-y-1 disabled:opacity-50 '+
+                (transport===option.id?'border-sky-500 bg-sky-500/10':'border-[var(--line)] hover:bg-[var(--surface-hover)]')}>
+              <span className="block font-medium text-[var(--text)]">{option.label}</span>
+              <span className="block text-[10px] text-[var(--faint)]">{option.hint}</span>
+            </button>)}
+        </div>
+        <div className="flex gap-2 items-center text-[11px] text-[var(--muted)]">
+          <Link2 className="w-3.5 h-3.5"/>
+          <span>{!companion?.paired?'Chưa ghép ChatMCP Hub Companion':
+            companion.connected?'Companion đã ghép và đang kết nối':
+              'Companion đã ghép; chờ mở tab ChatGPT với extension đang bật'}</span>
+          {companion?.connected&&<CircleCheck className="w-3.5 h-3.5 text-emerald-500"/>}
+        </div>
+        <p className="text-[11px] text-[var(--faint)]">
+          Cài extension trong thư mục <code>CHATMCP-HUB/extension</code> bằng
+          Chrome/Edge Extensions → Developer Mode → Load unpacked.
+          Đăng nhập <a className="underline text-[var(--primary)]"
+            href="https://chatgpt.com" target="_blank" rel="noreferrer">chatgpt.com</a> trên trình duyệt,
+          mở extension ChatMCP Hub Companion và nhập mã ghép bên dưới.
+        </p>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={()=>void issuePairCode()}
+            disabled={pairingBusy||companion?.pairingAvailable===false}
+            className="rounded-md border border-[var(--line)] px-2.5 py-1.5 hover:bg-[var(--surface-hover)] disabled:opacity-50">
+            {pairingBusy?'Đang xử lý…':'Tạo mã ghép 5 phút'}
+          </button>
+          {companion?.paired&&<button type="button" onClick={()=>void disconnectCompanion()}
+            disabled={pairingBusy} className="text-rose-400 hover:underline disabled:opacity-50">Ngắt ghép</button>}
+        </div>
+        {pairCode&&<div className="p-2 border border-sky-500/30 rounded-md bg-[var(--panel)] flex items-center gap-2">
+          <code data-testid="chatgpt-pair-code" className="tracking-widest font-semibold text-lg text-[var(--text)]">
+            {pairCode.code}
+          </code>
+          <button type="button" aria-label="Sao chép mã ghép"
+            onClick={()=>void navigator.clipboard.writeText(pairCode.code)
+              .then(()=>showToast('Đã sao chép mã ghép.','success'))
+              .catch(()=>showToast('Hãy chọn và sao chép mã ghép thủ công.','info'))}
+            className="p-1.5 rounded hover:bg-[var(--surface-hover)]"><Copy className="w-3.5 h-3.5"/></button>
+          <span className="ml-auto text-[10px] text-[var(--faint)]">Hết hạn: {new Date(pairCode.expiresAt).toLocaleTimeString('vi-VN')}</span>
+        </div>}
+        {transport==='chatgpt-web'&&<p className="text-[11px] text-amber-500">
+          ChatGPT Web dùng ô chat và model của tab trình duyệt thông qua Companion,
+          không sử dụng cookie, API nội bộ hay ChatGPT API key. Một task web được thực hiện tại một thời điểm.
+          Chọn workspace trước khi giao việc; không thể bảo đảm giao diện ChatGPT Web luôn tương thích.
+        </p>}
       </section>
 
       {/* Permission Execution Modes */}

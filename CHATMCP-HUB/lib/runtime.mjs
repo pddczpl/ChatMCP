@@ -88,8 +88,8 @@ export function portOpen(port, host = '127.0.0.1', timeout = 700) {
   });
 }
 
-export function spawnLogged(command, args, { cwd, log = () => {}, timeout = 0, quiet = false } = {}) {
-  const child = spawn(command, args, { cwd, shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+export function spawnLogged(command, args, { cwd, log = () => {}, timeout = 0, quiet = false, windowsHide = true } = {}) {
+  const child = spawn(command, args, { cwd, shell: false, windowsHide, stdio: ['ignore', 'pipe', 'pipe'] });
   const chunks = [];
   let bytes = 0;
   let timer;

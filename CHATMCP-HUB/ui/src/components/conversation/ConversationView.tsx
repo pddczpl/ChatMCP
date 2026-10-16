@@ -27,7 +27,8 @@ import type { ChatAttachment } from '@/types';
 
 export function ConversationView() {
   const queryClient = useQueryClient();
-  const { selectedTaskId, setSelectedTaskId, showToast, streamingToken, streamingTaskId, selectedBaseRef, selectedWorkspacePath } = useAppStore();
+  const { selectedTaskId, setSelectedTaskId, showToast, streamingToken, streamingTaskId, selectedBaseRef, selectedWorkspacePath,
+    setActiveTab,setInspectorOpen } = useAppStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const followOutput = useRef(true);
   const [showLatest, setShowLatest] = useState(false);
@@ -214,6 +215,20 @@ export function ConversationView() {
 
   return (
     <div className="h-full flex flex-col bg-[var(--bg)] min-w-0 overflow-hidden relative">
+      {/* Agent transport is distinct from permissions and model provider.
+          The Browser Companion uses the user's logged-in ChatGPT web tab and
+          never treats an account session/cookie as an API key. */}
+      {hub?.agent?.mode==='chatgpt-web'&&!selectedTaskId&&
+        <div data-testid="chatgpt-web-mode-banner" role="status"
+          className="px-4 py-2 bg-[var(--surface)] border-b border-[var(--line)] flex items-center gap-2 text-xs">
+          <Bot className="w-4 h-4 text-sky-500 flex-shrink-0"/>
+          <span className="flex-1 text-[var(--muted)]" title="Kênh Web Companion hiện chỉ gửi văn bản qua tab ChatGPT; dùng Model API để gửi ảnh/tệp đính kèm.">
+            ChatGPT Web (text-only) · {hub.browser?.connected?'Companion đã kết nối':
+              hub.browser?.paired?'Companion đã ghép; mở tab ChatGPT':'Cần ghép ChatMCP Hub Companion trước khi gửi task'}
+          </span>
+          <button type="button" onClick={()=>{setInspectorOpen(true);setActiveTab('settings');}}
+            className="underline text-[var(--primary)]">Thiết lập</button>
+        </div>}
       {/* Top Phase Ribbon */}
       {task && <PhaseRibbon task={task} onCancel={handleStopTask} />}
       {task?.usage && (
@@ -338,6 +353,8 @@ export function ConversationView() {
         messagesEndRef.current?.scrollIntoView({ behavior: 'instant', block: 'end' });
       }}>Về nội dung mới nhất ↓</button></div>}
 
+      {/* ChatGPT Web transport only accepts browser-authenticated TEXT packets.
+          It cannot send local image attachments through this protocol. */}
       {/* Bottom Composer */}
       <Composer
         key={selectedTaskId || 'new-conversation'}
