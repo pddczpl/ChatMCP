@@ -14,6 +14,26 @@ import {BrowserRunner} from '../lib/browser-runner.mjs';
 import {DualAgent} from '../lib/dual-agent.mjs';
 
 const bundleRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+// Canonical paired companion, not the obsolete repository-root "Button Fix".
+// Keep the packaged extension manifest self-contained on Chrome and Edge.
+const companionRoot=path.join(bundleRoot,'extension');
+const companionManifest=JSON.parse(await fs.readFile(path.join(companionRoot,'manifest.json'),'utf8'));
+assert.equal(companionManifest.manifest_version,3);
+assert.equal(companionManifest.name,'ChatMCP Hub Companion');
+assert.ok(/^\d+\.\d+\.\d+$/.test(companionManifest.version));
+assert.deepEqual(companionManifest.host_permissions.slice().sort(),
+  ['http://127.0.0.1:3007/*','https://chatgpt.com/*'].sort());
+const companionFiles=[
+  companionManifest.background.service_worker,companionManifest.action.default_popup,
+  ...companionManifest.content_scripts.flatMap(item=>[...item.js,...(item.css||[])]),
+  'browser-background.js','browser-popup.js','popup.js','popup.css','INSTALL-EXTENSION.txt',
+];
+for(const filename of companionFiles){
+  assert.match(filename,/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/);
+  assert.ok((await fs.stat(path.join(companionRoot,filename))).isFile(),
+    'Missing browser extension runtime source: '+filename);
+}
+
 const temp=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-browser-workspaces-'));
 const primary=path.join(temp,'A'),other=path.join(temp,'B');
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
