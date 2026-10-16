@@ -266,8 +266,13 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
         }
         return json(200,value);
       }
-      if (req.method === 'GET' && url.pathname === '/api/background-tasks')
-        return json(200, { tasks: taskEngine?.api?.backgroundTasks?.() ?? [] });
+      if (req.method === 'GET' && url.pathname === '/api/background-tasks') {
+        const tasks=taskEngine?.api?.backgroundTasks?.()??[];
+        const registered=workspaceRegistry?.state().items.map(item=>item.path);
+        const isRegistered=folder=>registered?.some(root=>
+          process.platform==='win32' ? root.toLowerCase()===String(folder).toLowerCase() : root===folder);
+        return json(200,{tasks:registered?tasks.filter(task=>isRegistered(task.workspacePath)):tasks});
+      }
       if (req.method === 'GET' && url.pathname === '/api/workspaces')
         return json(200,workspaceRegistry?.state()??{activePath:manager.workspace,items:[]});
       if (req.method === 'GET' && url.pathname === '/api/catalog') return json(200, manager.catalog ?? { ready: false, tools: [], counts: {} });
@@ -426,7 +431,22 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           }
           case '/api/workspaces/remove': {
             if(!workspaceRegistry)throw Object.assign(new Error('Multi-workspace registry unavailable.'),{statusCode:503});
-            result=await workspaceRegistry.remove(payload.path);
+            const target=(await workspaceRegistry.resolve(payload.path)).path;
+            const sameRoot=p=>process.platform==='win32'
+              ? String(p||'').toLowerCase()===target.toLowerCase() : p===target;
+            const engine=taskEngine?.state();
+            const running=engine?.activeTaskIds??(engine?.activeTaskId?[engine.activeTaskId]:[]);
+            const busyStates=new Set(['queued','preparing','planning','running','waiting_approval','verifying']);
+            const hasLiveTask=running.some(id=>{
+              const task=taskEngine.get(id);return sameRoot(task?.workspacePath||task?.workspace?.path);
+            })||(engine?.tasks||[]).some(task=>
+              sameRoot(task.workspacePath||task.workspace?.path)&&
+              busyStates.has(task.state||task.status));
+            if(hasLiveTask)
+              throw Object.assign(new Error('Workspace còn task/subagent đang chạy hoặc xếp hàng. Dừng chúng trước khi gỡ workspace.'),{statusCode:409,code:'workspace_tasks_active'});
+            if(sameRoot(manager.workspace)&&(coding?.active||coding?.integrating||dynamic?.activeRunId||delegates?.running))
+              throw Object.assign(new Error('Dừng các coding/research workers của workspace chính trước khi gỡ.'),{statusCode:409,code:'workspace_workers_active'});
+            result=await workspaceRegistry.remove(target);
             break;
           }
           case '/api/workspace/select': if(taskEngine?.state()?.activeTaskIds?.length || coding?.active||coding?.integrating||dynamic?.activeRunId)

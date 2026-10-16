@@ -81,5 +81,38 @@ test('Background tasks supports new chats, Git choices, attachment previews and 
   expect(third.workspacePath).toBe(await fs.realpath(other));
   expect((await app.hub.state()).workspace.path).toBe(app.project);
   await expect(page.getByTestId('background-task')).toHaveCount(3);
+  await expect(page.getByTestId('background-workspace')).toHaveCount(2);
+  await expect(page.getByTestId('background-conversation')).toHaveCount(3);
+  await expect(page.getByTestId('background-task').filter({hasText:thirdPrompt}))
+    .toHaveAttribute('data-workspace',await fs.realpath(other));
+
+  // Workspace removal archives its association. No host directory, source file
+  // or conversation record is removed; re-adding restores the task links.
+  page.once('dialog',dialog=>void dialog.accept());
+  await page.getByRole('button',{name:'Gỡ workspace second-workspace'}).click();
+  await expect(page.getByRole('button',{name:'second-workspace',exact:true})).toHaveCount(0);
+  await expect(page.getByTestId('background-task')).toHaveCount(2);
+  expect((await fs.stat(path.join(other,'README.md'))).isFile()).toBe(true);
+  const detached=await app.hub.get('/api/workspaces');
+  const detachedPath=await fs.realpath(other);
+  expect(detached.json.items.some(w=>w.path===detachedPath)).toBe(false);
+  expect((await app.hub.task(third.id)).id).toBe(third.id);
+  const blocked=await app.hub.request('POST','/api/tasks/continue',{
+    id:third.id,prompt:'Should not resume after workspace detachment',
+  });
+  expect(blocked.status).toBe(403);
+
+  await app.hub.post('/api/workspaces/add',{path:other});
+  await expect(page.getByRole('button',{name:'second-workspace',exact:true})).toBeVisible();
+  await expect(page.getByTestId('background-task')).toHaveCount(3);
+
+  // Each workspace shows an always-visible conversation delete control. Its
+  // target and all its subagent records are removed from ChatMCP only.
+  page.once('dialog',dialog=>void dialog.accept());
+  await page.getByRole('button',{name:'Xóa hội thoại: '+prompt1}).click();
+  await expect(page.getByRole('button',{name:'Xóa hội thoại: '+prompt1})).toHaveCount(0);
+  await expect(page.getByTestId('background-task')).toHaveCount(2);
+  expect((await app.hub.get('/api/tasks/'+encodeURIComponent(first.id))).status).toBe(404);
+  expect((await fs.stat(path.join(app.project,'README.md'))).isFile()).toBe(true);
   await page.screenshot({path:testInfo.outputPath('background-tasks-light-1280.png'),fullPage:true});
 });

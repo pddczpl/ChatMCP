@@ -48,7 +48,27 @@ try {
   const registry=new WorkspaceRegistry({manager,directory:path.join(temp,'hub')});
   await registry.load();
   await registry.add(secondRepo);
-  manager.workspaceRegistry=registry;
+  // Detaching a workspace changes only ChatMCP's registry, NEVER files,
+  // conversation transcripts, worktrees or Git metadata.
+  await registry.remove(repo);
+  const restoredPrimary=new WorkspaceRegistry({manager,directory:path.join(temp,'hub')});
+  await restoredPrimary.load();
+  const canonicalRepo=await fs.realpath(repo);
+  assert.equal(restoredPrimary.state().items.some(x=>x.path===canonicalRepo),false);
+  await assert.rejects(restoredPrimary.resolve(repo),{code:'unregistered_workspace'},
+    'removed primary checkout must not be implicitly restored after restart');
+  assert.ok((await fs.stat(path.join(repo,'README.md'))).isFile());
+  await restoredPrimary.add(repo);
+  await restoredPrimary.remove(secondRepo);
+  const restoredSecond=new WorkspaceRegistry({manager,directory:path.join(temp,'hub')});
+  await restoredSecond.load();
+  const canonicalSecond=await fs.realpath(secondRepo);
+  assert.equal(restoredSecond.state().items.some(x=>x.path===canonicalSecond),false,
+    'explicitly removed secondary root stays hidden after restart');
+  await assert.rejects(restoredSecond.resolve(secondRepo),{code:'unregistered_workspace'});
+  assert.ok((await fs.stat(path.join(secondRepo,'README.md'))).isFile());
+  await restoredSecond.add(secondRepo);
+  manager.workspaceRegistry=restoredSecond;
   const rejected=path.join(temp,'unregistered');
   await fs.mkdir(rejected);
   await assert.rejects(registry.resolve(rejected),{code:'unregistered_workspace'});
@@ -88,6 +108,10 @@ try {
   const second=await pool.start({prompt:'Task B: inspect README'});
   await until(()=>arrived.has('B'),'independent child running');
   assert.equal(pool.state().activeTaskIds.length,3,'three independent conversations across two workspace roots must run concurrently');
+  await assert.rejects(pool.delete(first.id),{code:'task_running'},
+    'active chat cannot be deleted');
+  await assert.rejects(pool.delete(second.id),{code:'task_running'},
+    'active worker cannot be deleted');
   const third=await pool.start({prompt:'Task C: summarize B',dependsOn:[second.id]});
   assert.equal(pool.get(third.id).status,'queued');
   assert.deepEqual(pool.get(third.id).dependsOn,[second.id]);
@@ -157,6 +181,18 @@ try {
     'subagent appears NESTED under the parent conversation, not as a chat');
   assert.ok(background.every(entry=>entry.conversationId&&entry.taskId),
     'background projections carry conversation and task IDs independently');
+  await until(()=>!pool.state().activeTaskIds.includes(parent.id)&&
+    !pool.state().activeTaskIds.includes(delegated.id),'delegated agents released their locks');
+  const childWorktree=pool.get(delegated.id).worktree;
+  const deleted=await pool.delete(parent.id);
+  assert.ok(deleted.deletedIds.includes(delegated.id),
+    'deleting a conversation must cascade to its subagents');
+  assert.equal(pool.get(parent.id),null);
+  assert.equal(pool.get(delegated.id),null);
+  assert.equal(pool.backgroundTasks().some(x=>x.conversationId===parent.id),false,
+    'deleted chat and child must disappear from Background Tasks');
+  assert.ok((await fs.stat(childWorktree)).isDirectory(),
+    'removing a chat may not delete Git worktrees on disk');
   await pool.shutdown();
 
   assert.equal(buildUserAttachmentParts([{name:'hello.md',mimeType:'text/markdown',dataBase64:Buffer.from('A text file').toString('base64')}]).parts[0].type,'input_text');

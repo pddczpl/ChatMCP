@@ -54,6 +54,10 @@ export class DualAgent {
     const existing = this.get(payload?.id);
     if (!existing) throw Object.assign(new Error('Không tìm thấy hội thoại cũ. Không tự tạo phiên mới.'),{statusCode:404});
     if (existing.transport !== this.mode) throw Object.assign(new Error('Hội thoại này thuộc chế độ '+existing.transport+'. Hãy chọn đúng chế độ để tiếp tục.'),{statusCode:409});
+    if(existing.transport==='chatgpt-web' && this.api.manager?.workspaceRegistry){
+      const root=existing.workspacePath||existing.workspace?.path;
+      if(root)await this.api.manager.workspaceRegistry.resolve(root);
+    }
     return this.mode === 'api' ? this.api.continue(payload) : this.browser.continue(payload);
   }
   async setAutoResume({ id, enabled } = {}) {
@@ -62,7 +66,7 @@ export class DualAgent {
     throw Object.assign(new Error('Không tìm thấy phiên hội thoại.'),{statusCode:404});
   }
   async delete(id) {
-    if (this.state().activeTaskId === id) throw Object.assign(new Error('Dừng phiên đang chạy trước khi xóa.'),{statusCode:409});
+    if (this.state().activeTaskIds.includes(id)) throw Object.assign(new Error('Dừng phiên đang chạy trước khi xóa.'),{statusCode:409});
     if (this.browser.get(id)) return this.browser.delete(id);
     if (this.api.get(id)) return this.api.delete(id);
     throw Object.assign(new Error('Không tìm thấy hội thoại.'),{statusCode:404});

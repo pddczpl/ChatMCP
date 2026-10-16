@@ -42,7 +42,9 @@ export function Header() {
 
   const registered=hub?.workspaces?.items || [];
   const workspacePath = (selectedWorkspacePath && registered.some(x=>x.path===selectedWorkspacePath)
-    ? selectedWorkspacePath : hub?.workspaces?.activePath || hub?.workspace?.path) || 'Chưa chọn workspace';
+    ? selectedWorkspacePath : hub?.workspaces
+      ? hub.workspaces.activePath
+      : hub?.workspace?.path) || 'Chưa chọn workspace';
   const shortWs = workspacePath.split(/[\\/]/).filter(Boolean).pop() || 'Workspace';
   const mode = hub?.studio?.permissions?.mode || 'review';
   const isFullAccess = hub?.studio?.permissions?.executionPolicy === 'full-access';
