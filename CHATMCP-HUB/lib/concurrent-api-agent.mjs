@@ -128,7 +128,7 @@ export class ConcurrentApiAgent {
         activities.push({
           id: run.id || summary.id + ':run:' + (i + 1),
           taskId: summary.id,
-          conversationId: summary.id,
+          conversationId: summary.conversationId||summary.id,
           workspacePath: summary.workspacePath || detail.workspace?.path || this.manager.workspace,
           title: run.title || detail.prompts?.[i]?.text || (i===0 ? summary.prompt : 'Continuation ' + (i + 1)),
           status: latest ? (detail.state || detail.status) : (run.status || 'completed'),
