@@ -567,6 +567,40 @@
     return { ok: true, state: 'confirmed', pageId, url: url(), recovered: reconstructed };
   }
 
+  // Recovery is read-only and explicitly requested by the user in ChatMCP.
+  // A browser tab is eligible only when its OFFICIAL /c/... URL and visible
+  // task/nonce evidence identify the same earlier prompt or assistant reply.
+  function verifyOfficialChatUrl(message) {
+    const route=routes.parse(url());
+    if(route?.kind!=='chat'||route.provisional)
+      return {ok:false,reason:'official_chat_url_not_ready',pageId};
+    if(typeof message.taskId!=='string'||!/^[0-9a-f]{48}$/i.test(message.nonce||''))
+      return {ok:false,reason:'invalid_recovery_identity',pageId};
+    const users=authored('user').filter(node=>{
+      const content=normalized(plain(node));
+      return content.includes(message.taskId)&&content.includes(message.nonce);
+    });
+    let witnessed=false;
+    for(const node of elements('pre,[data-markdown-copy="code-block"]')){
+      if(node.closest('[data-message-author-role="user"],[data-testid="user-message"],form,blockquote,[contenteditable="true"]'))
+        continue;
+      const text=node.textContent||'';
+      if(text.length>25000||!text.includes(message.taskId)||!text.includes(message.nonce))continue;
+      const start=text.indexOf('{'),end=text.lastIndexOf('}');
+      if(start<0||end<start)continue;
+      try{
+        const item=JSON.parse(text.slice(start,end+1));
+        if(item?.chatmcp_hub==='v1'&&item.task===message.taskId&&
+            item.nonce===message.nonce&&Number.isInteger(item.turn)&&item.turn>=1)
+          witnessed=true;
+      }catch{}
+    }
+    if(users.length===1)return {ok:true,url:url(),pageId,proof:'user_task_nonce'};
+    if(users.length>1)return {ok:false,reason:'ambiguous_owned_chat',pageId};
+    if(witnessed)return {ok:true,url:url(),pageId,proof:'assistant_task_nonce'};
+    return {ok:false,reason:'task_nonce_not_visible',pageId};
+  }
+
   function cancel(message) {
     if (!matches(message)) return { ok: true, pageId };
     const user = ownUser();
@@ -581,8 +615,8 @@
 
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (sender?.id !== chrome.runtime.id || sender.tab || (sender.url && !sender.url.startsWith(chrome.runtime.getURL('')))) return false;
-    if (!['CHATMCP_BROWSER_PREPARE', 'CHATMCP_BROWSER_SEND', 'CHATMCP_BROWSER_CHECK', 'CHATMCP_BROWSER_RECOVER_SEND', 'CHATMCP_BROWSER_CANCEL'].includes(message?.type)) return false;
-    const work = message.type === 'CHATMCP_BROWSER_PREPARE' ? prepare(message) : message.type === 'CHATMCP_BROWSER_SEND' ? send(message) : message.type === 'CHATMCP_BROWSER_CHECK' ? check(message) : message.type === 'CHATMCP_BROWSER_RECOVER_SEND' ? Promise.resolve(recoverSend(message)) : Promise.resolve(cancel(message));
+    if (!['CHATMCP_BROWSER_PREPARE', 'CHATMCP_BROWSER_SEND', 'CHATMCP_BROWSER_CHECK', 'CHATMCP_BROWSER_RECOVER_SEND', 'CHATMCP_BROWSER_VERIFY_OFFICIAL_URL', 'CHATMCP_BROWSER_CANCEL'].includes(message?.type)) return false;
+    const work = message.type === 'CHATMCP_BROWSER_PREPARE' ? prepare(message) : message.type === 'CHATMCP_BROWSER_SEND' ? send(message) : message.type === 'CHATMCP_BROWSER_CHECK' ? check(message) : message.type === 'CHATMCP_BROWSER_RECOVER_SEND' ? Promise.resolve(recoverSend(message)) : message.type==='CHATMCP_BROWSER_VERIFY_OFFICIAL_URL'?Promise.resolve(verifyOfficialChatUrl(message)):Promise.resolve(cancel(message));
     work.then(respond, () => respond({ ok: false, reason: 'browser_dom_operation_failed', pageId }));
     return true;
   });
