@@ -274,7 +274,7 @@ export interface HubState {
     toolCallingNote?: string;
   };
   agent?: {
-    mode: string;
+    mode: 'api'|'chatgpt-web';
     activeTaskId: string | null;
     active: TaskSummary | null;
     tasks: TaskSummary[];
@@ -291,6 +291,10 @@ export interface HubState {
   browser?: {
     paired: boolean;
     connected: boolean;
+    lastSeenAt?: string|null;
+    extensionId?: string|null;
+    pairedAt?: string|null;
+    pairingAvailable?: boolean;
     companionPhase?: string;
     companionNote?: string;
   };
