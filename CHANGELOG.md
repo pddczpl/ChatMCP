@@ -1,5 +1,16 @@
 # Lịch sử thay đổi
 
+## [3.8.0] — 2026-10-16 — Native Windows Folder Picker & ChatGPT Web Companion
+
+- Replace the packaged desktop's hidden/background PowerShell folder chooser with a native WinForms `FolderBrowserDialog` owned by the visible WebView2 desktop window. Guard the message bridge by exact localhost origin, strict request IDs and validated folder selection; the chooser does not rebind other running workspaces.
+- Keep a PowerShell STA fallback for ordinary browser access. Emit sanitized exception-type diagnostics rather than a generic `powershell.exe` exit code, and provide a manual absolute-path selection option in Settings and the workspace sidebar.
+- Expose an existing paired Browser Companion transport as a selectable **ChatGPT Web** mode. A user-installed Chrome/Edge extension pairs with a short-lived code and transports model responses from an ordinary signed-in `chatgpt.com` tab to the authorized local Hub; no cookies, browser session tokens or private ChatGPT API are extracted.
+- Bind Web-mode tasks to the currently selected registered workspace, including independent local HubManager/Permission Gate contexts for secondary projects. Follow-up messages retain the chat's original API or Web transport, and conflicting direct-checkout writes are refused.
+- Group ChatGPT Web jobs beneath their owning workspace and conversation in Background Tasks. Keep API tasks in different checkout roots independent of a running Web task.
+- Expand portable, Windows STA native-picker, provider transport, selected-workspace browser continuation, pairing/security and React E2E regression coverage. The dedicated browser fixture workflow remains enabled after merging into main.
+- PR #39 passed all nine CI jobs on Windows/Ubuntu Node 22/24, React E2E, production frontend build, installer/WebView2 smoke and repository hygiene; separate Browser Companion regression passed on Windows and Ubuntu.
+- Browser Companion is currently text-only and handles one active Web task at a time. Real interactive chooser and signed-in ChatGPT Web UI compatibility still require a manual Windows/browser acceptance test. The installer remains unsigned without Authenticode.
+
 ## [3.7.0] — 2026-10-16 — Autonomous In-Chat Phased Workflows
 
 - Add model-callable `spawn_workflow` to create durable, named multi-phase workflows in an ordinary coding conversation (up to five phases and twelve specialist child agents).
