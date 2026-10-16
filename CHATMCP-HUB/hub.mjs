@@ -29,7 +29,7 @@ export function assertCompatibleRunningHub(health, port=3007) {
   return true;
 }
 
-export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle']);
+export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle']);
 const BUNDLE_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MIME = Object.freeze({
   '.html': 'text/html; charset=utf-8',
@@ -89,7 +89,7 @@ async function bodyJson(req, limit = 65536) {
 }
 
 /** Local-only HTTP Hub: localhost and 127.0.0.1 only. */
-export function createHubServer(manager, {port=3007,token=randomBytes(32).toString('hex'),bundleRoot=BUNDLE_ROOT,provider=null,agent=null,browser=null,onShutdown=()=>{},isInitialized=()=>true}={}) {
+export function createHubServer(manager, {port=3007,token=randomBytes(32).toString('hex'),bundleRoot=BUNDLE_ROOT,provider=null,agent=null,browser=null,workspaceRegistry=null,onShutdown=()=>{},isInitialized=()=>true}={}) {
   const hosts=new Set([`127.0.0.1:${port}`,`localhost:${port}`]);
   const origins=new Set([...hosts].map(host=>`http://${host}`));
   const staticFiles=STATIC_FILES;
@@ -123,7 +123,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   });
   manager.sandboxEngine = sandboxEngine;
   manager.executionRegistry = sandboxEngine.registry;
-  const state = (csrf = token) => ({ ...manager.state(), ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions: { ...(permissions?.state?.()??gate?.state()??{}), pending: [...(permissions?.state?.().pending??[]), ...(taskEngine?.api?.pendingApprovals?.()??[])] }, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null,dynamicDelegates:dynamic?.state()??null} : null, csrfToken: csrf });
+  const state = (csrf = token) => ({ ...manager.state(), workspaces:workspaceRegistry?.state()??{activePath:manager.workspace,items:manager.workspace?[{path:manager.workspace,name:path.basename(manager.workspace)}]:[]}, ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions: { ...(permissions?.state?.()??gate?.state()??{}), pending: [...(permissions?.state?.().pending??[]), ...(taskEngine?.api?.pendingApprovals?.()??[])] }, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null,dynamicDelegates:dynamic?.state()??null} : null, csrfToken: csrf });
   const requireNoTask = () => { if (taskEngine?.state().activeTaskId || dynamic?.activeRunId || coding?.active || delegates?.running) { const e = new Error('Dừng các tác vụ AI đang chạy trước khi đổi Base URL, API key hoặc model.'); e.statusCode = 409; throw e; } };
   const changeAi = async (operation) => {
     requireNoTask();
@@ -211,6 +211,12 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/studio/search': value=await studio.search({query:pick('query'),mode:pick('mode')||'text',limit:Number(pick('limit'))||60});break;
           case '/api/studio/git/status': value=await studio.gitStatus();break;
           case '/api/studio/git/refs': {
+            const desired=pick('workspacePath');
+            if(desired&&workspaceRegistry){
+              const entry=await workspaceRegistry.resolve(desired);
+              if(entry.path!==manager.workspace&&taskEngine?.api?.gitRefs)
+                return json(200,await taskEngine.api.gitRefs(entry.path));
+            }
             const git=studio.gitRunner;
             const [branchesRun,worktreesRun,branchRun]=await Promise.all([
               git.text(['for-each-ref','--format=%(refname)%09%(refname:short)','refs/heads'],{timeoutMs:15000}),
@@ -256,6 +262,8 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
         }
         return json(200,value);
       }
+      if (req.method === 'GET' && url.pathname === '/api/workspaces')
+        return json(200,workspaceRegistry?.state()??{activePath:manager.workspace,items:[]});
       if (req.method === 'GET' && url.pathname === '/api/catalog') return json(200, manager.catalog ?? { ready: false, tools: [], counts: {} });
       if (req.method === 'GET' && url.pathname === '/api/ai/models') {
         // Asking the provider for its model list changes nothing, so it does not take the "AI is being reconfigured" lock.
@@ -397,7 +405,24 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/studio/intelligence/lsp/start': if(gate?.executionPolicy==='sandbox-only')throw Object.assign(new Error('Sandbox-only: language server chạy trên Windows host. Chuyển sang host-review nếu bạn chấp nhận chạy LSP trên host.'),{statusCode:403});result=await intelligence.lspStart({language:payload.language});break;
           case '/api/studio/plan/set': result=await studio.plan({...payload,operation:'set'});break;
           case '/api/studio/verify/run': if(taskEngine?.state()?.activeTaskId)throw Object.assign(new Error('Để tránh xung đột file, chờ agent dừng trước khi chạy kiểm thử thủ công.'),{statusCode:409});if(!verification)throw Object.assign(new Error('Bộ kiểm thử chưa khởi tạo.'),{statusCode:503});result=await verification.start(payload);break;
-          case '/api/workspace/browse': result = await manager.browse(); break;
+          case '/api/workspace/browse': result = await manager.browse({initialPath:payload.initialPath}); break;
+          case '/api/workspaces/add': {
+            if(!workspaceRegistry)throw Object.assign(new Error('Multi-workspace registry unavailable.'),{statusCode:503});
+            const entry=await workspaceRegistry.add(payload.path);
+            if(!manager.workspace)await manager.selectWorkspace(entry.path);
+            result={workspace:entry,workspaces:workspaceRegistry.state()};
+            break;
+          }
+          case '/api/workspaces/activate': {
+            if(!workspaceRegistry)throw Object.assign(new Error('Multi-workspace registry unavailable.'),{statusCode:503});
+            result=await workspaceRegistry.activate(payload.path);
+            break;
+          }
+          case '/api/workspaces/remove': {
+            if(!workspaceRegistry)throw Object.assign(new Error('Multi-workspace registry unavailable.'),{statusCode:503});
+            result=await workspaceRegistry.remove(payload.path);
+            break;
+          }
           case '/api/workspace/select': if(coding?.active||coding?.integrating||dynamic?.activeRunId)throw Object.assign(new Error('Stop coding/dynamic workers before switching workspace.'),{statusCode:409});await manager.selectWorkspace(payload.path); result = stateNow(); break;
           case '/api/services/start': await manager.start(); result = stateNow(); break;
           case '/api/services/stop': if(coding?.active||coding?.integrating||dynamic?.activeRunId)throw Object.assign(new Error('Stop coding/dynamic workers before stopping services.'),{statusCode:409});await manager.stop(); result = stateNow(); break;
@@ -559,6 +584,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   const { BrowserRunner } = await import('./lib/browser-runner.mjs');
   const { AgentRunner } = await import('./lib/agent.mjs');
   const { ConcurrentApiAgent } = await import('./lib/concurrent-api-agent.mjs');
+  const { WorkspaceRegistry } = await import('./lib/workspace-registry.mjs');
   const { GatewayProvider } = await import('./lib/gateway-provider.mjs');
   const { DualAgent } = await import('./lib/dual-agent.mjs');
   const { assembleStudio } = await import('./lib/assemble.mjs');
@@ -566,6 +592,9 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   const { DynamicDelegates } = await import('./lib/dynamic-delegates.mjs');
   const { RecoveryScheduler } = await import('./lib/studio-resumer.mjs');
   assembleStudio(manager,{bundleRoot:BUNDLE_ROOT});
+  const workspaceRegistry=new WorkspaceRegistry({manager,directory:manager.hubDirectory});
+  await workspaceRegistry.load();
+  manager.workspaceRegistry=workspaceRegistry;
   const browser = new BrowserRunner({ manager, directory: path.join(manager.hubDirectory, 'browser'), log: (line) => manager.log(line) });
   const provider = new GatewayProvider({ manager, bundleRoot: BUNDLE_ROOT, directory: path.join(manager.hubDirectory, 'gateway'), env });
   manager.delegates=new StudioDelegates({workspace:manager.studio,provider,directory:path.join(manager.hubDirectory,'studio','delegates')});
@@ -583,7 +612,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   await manager.permissions.load();
   let initialized=false,closing=false;
   let releaseInstance=async()=>{};
-  const server=createHubServer(manager,{port:options.port,browser,agent,provider,onShutdown:close,
+  const server=createHubServer(manager,{port:options.port,browser,agent,provider,workspaceRegistry,onShutdown:close,
     isInitialized:()=>initialized});
   const url=`http://127.0.0.1:${options.port}`;
   try {
