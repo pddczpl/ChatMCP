@@ -58,7 +58,7 @@ ChatMCP v3.8.0 targets autonomous software engineering while preserving local se
 
 ## Browser Companion extension (Chrome / Edge)
 
-For **ChatGPT Web mode**, install the **ChatMCP Hub Companion** extension (Manifest V3, currently version 1.4.2) separately in your browser. The GitHub Release should contain all four matching assets:
+For **ChatGPT Web mode**, install the **ChatMCP Hub Companion** extension (Manifest V3, currently version 1.5.0) separately in your browser. The GitHub Release should contain all four matching assets:
 
 - `ChatMCPSetup.exe` — Windows x64 installer
 - `ChatMCPSetup.exe.sha256` — installer SHA-256

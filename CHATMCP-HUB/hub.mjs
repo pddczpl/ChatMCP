@@ -29,7 +29,7 @@ export function assertCompatibleRunningHub(health, port=3007) {
   return true;
 }
 
-export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle']);
+export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/browser/recover-url/request','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle']);
 const BUNDLE_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MIME = Object.freeze({
   '.html': 'text/html; charset=utf-8',
@@ -148,7 +148,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
       const csrfNow = token;
       const stateNow = () => state(csrfNow);
       const extensionRead = ['/api/extension-state', '/api/instructions'].includes(url.pathname);
-      const browserRoute = /^\/api\/browser\/clients\/(pair|poll|claim|sent|reply|fail)$/.exec(url.pathname);
+      const browserRoute = /^\/api\/browser\/clients\/(pair|poll|claim|sent|reply|fail|recover-url)$/.exec(url.pathname);
       const extensionOrigin = typeof origin === 'string' && /^chrome-extension:\/\/[a-p]{32}$/.test(origin);
       if (origin && !origins.has(origin) && !((extensionRead && ['GET', 'OPTIONS'].includes(req.method) || browserRoute && ['POST', 'OPTIONS'].includes(req.method)) && extensionOrigin)) {
         return json(403, { error: 'Origin không được phép.' });
@@ -180,7 +180,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
         }
         const bearer = /^Bearer ([0-9a-f]{64})$/.exec(req.headers.authorization ?? '');
         browser.authenticate(bearer?.[1], payload.clientId, origin);
-        return json(200, await browser[browserRoute[1]](payload));
+        return json(200, await (browserRoute[1]==='recover-url'?browser.recoverUrl(payload):browser[browserRoute[1]](payload)));
       }
       if (req.method === 'GET' && url.pathname === '/api/studio/terminal/events') {
         if(!terminal) return json(503,{error:'Terminal chưa sẵn sàng.'});
@@ -468,6 +468,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/services/start': await manager.start(); result = stateNow(); break;
           case '/api/services/stop': if(coding?.active||coding?.integrating||dynamic?.activeRunId)throw Object.assign(new Error('Stop coding/dynamic workers before stopping services.'),{statusCode:409});await manager.stop(); result = stateNow(); break;
           case '/api/browser/pair-code': if (!browser) throw new Error('Browser runner chưa khởi tạo.'); result = await browser.createPairCode(); break;
+          case '/api/browser/recover-url/request': if(!browser)throw new Error('Browser runner chưa khởi tạo.'); result=browser.requestUrlRecovery(payload);break;
           case '/api/browser/unpair': if (!browser) throw new Error('Browser runner chưa khởi tạo.'); await browser.unpair(); result = stateNow(); break;
           case '/api/ai/config': if (!provider) throw new Error('Kết nối AI chưa khởi tạo.'); await changeAi(() => provider.configure(payload)); result = stateNow(); break;
           case '/api/ai/clear-key': if (!provider) throw new Error('Kết nối AI chưa khởi tạo.'); await changeAi(() => provider.clearKey()); result = stateNow(); break;

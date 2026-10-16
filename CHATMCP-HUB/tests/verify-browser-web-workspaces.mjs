@@ -72,9 +72,19 @@ try{
   assert.equal(browser.browserState().paired,true);
 
   let apiStarted=null;
-  const api={manager,state:()=>({activeTaskIds:[],activeTaskId:null,tasks:[],active:null}),
-    get:()=>null,start:async payload=>{apiStarted=payload;return {id:randomUUID(),status:'queued'};},
-    continue:async()=>{throw new Error('No API continuation expected');},
+  const apiRecords=new Map();
+  const api={manager,state:()=>({activeTaskIds:[],activeTaskId:null,tasks:[...apiRecords.values()],active:null}),
+    get:id=>apiRecords.get(id)||null,
+    start:async payload=>{
+      apiStarted=payload;
+      const result={id:randomUUID(),prompt:payload.prompt,conversationId:payload.conversationId||null,
+        linkedFromTaskId:payload.linkedFromTaskId||null,
+        workspace:{path:payload.workspacePath},status:'completed',createdAt:new Date().toISOString()};
+      apiRecords.set(result.id,result);
+      return result;
+    },
+    continue:async payload=>({id:payload.id,status:'completed',prompt:payload.prompt}),
+    delete:async id=>{apiRecords.delete(id);return {ok:true,deletedId:id};},
     shutdown:async()=>{},
   };
   const dual=new DualAgent({browser,api,directory:path.join(temp,'hub'),defaultMode:'api'});
@@ -119,22 +129,51 @@ try{
   assert.equal(summary.transport,'chatgpt-web');
   assert.equal(manager.workspace,first);
 
-  // Follow-up automatically continues the ORIGINAL Web chat even if the
-  // global new-conversation mode changed to API in the meantime.
-  const continued=await dual.continue({id:task.id,prompt:'Check it once more.'});
-  assert.equal(continued.id,task.id);
-  assert.equal(continued.workspace.path,second);
-  const next=await browser.poll({clientId,taskId:task.id});
-  assert.equal(next.message.resumeUrl,url);
-  await browser.claim({clientId,taskId:task.id,messageId:next.message.id});
-  await browser.sent({clientId,taskId:task.id,messageId:next.message.id,url});
-  await browser.reply({clientId,taskId:task.id,messageId:next.message.id,replyId:'reply2',
-    url,text:'Follow-up finished',
-    blocks:[JSON.stringify({chatmcp_hub:'v1',task:task.id,turn:next.message.turn,nonce,
-      kind:'final',text:'Follow-up successfully completed.'})]});
-  await until(()=>browser.context===null,'follow-up result persisted and owner released');
-  assert.equal(browser.get(task.id).status,'completed','follow-up result');
-  assert.equal(browser.backgroundTasks().filter(r=>r.conversationId===task.id).length,2);
+  // A mode switch applies to the NEXT instruction, including this existing
+  // Web chat. API receives a new linked physical task, not a Web continuation.
+  const continued=await dual.continue({id:task.id,prompt:'Check it once more using the API.'});
+  assert.notEqual(continued.id,task.id);
+  assert.equal(continued.transport,'api');
+  assert.equal(continued.conversationId,task.id);
+  assert.equal(continued.linkedFromTaskId,task.id);
+  assert.equal(apiStarted.workspacePath,second);
+  assert.equal(apiStarted.conversationId,task.id);
+  assert.equal(apiStarted.linkedFromTaskId,task.id);
+  assert.equal(browser.backgroundTasks().filter(r=>r.conversationId===task.id).length,1);
+  assert.equal(manager.workspace,first);
+
+  // Switching back creates a NEW ChatGPT Web task with the same logical ChatMCP
+  // conversation ID, but cannot impersonate/reuse an API model session or
+  // arbitrarily attach to the earlier ChatGPT thread.
+  await dual.configure({mode:'chatgpt-web'});
+  const back=await dual.continue({id:continued.id,prompt:'Switch back to ChatGPT Web.'});
+  assert.equal(back.transport,'chatgpt-web');
+  assert.notEqual(back.id,task.id);
+  assert.equal(back.conversationId,task.id);
+  assert.equal(back.linkedFromTaskId,continued.id);
+  assert.equal(browser.get(back.id).chatUrl,null);
+  await browser.cancel(back.id);
+  // URL missing after the first send is recoverable ONLY from an explicitly
+  // paired extension proving task/nonce on a canonical official chat URL.
+  const recovery=browser.requestUrlRecovery({id:back.id});
+  assert.equal(recovery.pending,true);
+  const checkpoint=await browser.poll({clientId,taskId:back.id});
+  assert.equal(checkpoint.recovery.taskId,back.id);
+  const childNonce=browser.tasks.get(back.id).nonce;
+  await assert.rejects(browser.recoverUrl({clientId,taskId:back.id,nonce:'f'.repeat(48),
+    url,proof:'user_task_nonce'}),{code:'url_recovery_identity'});
+  await assert.rejects(browser.recoverUrl({clientId,taskId:back.id,nonce:childNonce,
+    url:'https://chatgpt.com/c/local-chatgpt%3A'+randomUUID(),
+    proof:'user_task_nonce'}),{code:'url_recovery_provisional'});
+  const accepted=await browser.recoverUrl({clientId,taskId:back.id,nonce:childNonce,
+    url:'https://chatgpt.com/c/'+randomUUID(),proof:'user_task_nonce'});
+  assert.equal(accepted.ok,true);
+  assert.equal(browser.get(back.id).chatUrl,accepted.chatUrl);
+  assert.equal((await browser.poll({clientId,taskId:back.id})).recovery,null);
+  const reloaded=new DualAgent({browser,api,directory:path.join(temp,'hub'),defaultMode:'api'});
+  await reloaded.load();
+  assert.equal(reloaded.get(back.id).conversationId,task.id);
+  assert.equal(reloaded.get(back.id).linkedFromTaskId,continued.id);
   assert.equal(manager.workspace,first);
 
   await registered.remove(other);

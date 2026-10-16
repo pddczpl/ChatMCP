@@ -372,7 +372,7 @@ export function SettingsTab() {
           <Bot className="w-4 h-4 text-[var(--primary)]"/> Kênh điều khiển Coding Agent
         </div>
         <p className="text-[11px] text-[var(--muted)]">
-          Chọn kênh xử lý cuộc chat mới. Các cuộc chat đã tạo tiếp tục dùng kênh ban đầu. Quyền đọc/sửa/chạy lệnh vẫn do Local Hub kiểm soát.
+          Kênh được chọn xử lý lượt tiếp theo kể cả trong hội thoại cũ. Khi đổi kênh, ChatMCP chuyển tóm tắt ngữ cảnh, liên kết với hội thoại gốc và không tự phát lại các thao tác sửa file chưa xác minh.
         </p>
         <div className="grid grid-cols-2 gap-2">
           {([{id:'api',label:'Model API',hint:'Provider và API key đã cấu hình'},
