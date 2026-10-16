@@ -14,6 +14,7 @@ import {
   Save 
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { ChatTransportMode } from './ChatTransportMode';
 import { aiDraftHasChanges, aiProtocolForPreset, reconcileSavedAiConfig, selectAiProviderDraft, type AiConfigForm } from '@/lib/ai-config-form';
 
 export function IntelligenceTab() {
@@ -157,6 +158,8 @@ export function IntelligenceTab() {
 
   return (
     <div className="h-full flex flex-col p-3 overflow-y-auto space-y-3.5 select-none text-xs">
+      <ChatTransportMode hub={hub} />
+      {hub?.agent?.mode !== 'chatgpt-web' && <>
       {/* Current Active Status */}
       <div className="p-3 rounded-lg bg-[var(--surface)] border border-[var(--line)] flex items-center justify-between">
         <div className="flex items-center gap-2.5">
@@ -308,6 +311,7 @@ export function IntelligenceTab() {
           <span>{t('ai_save_config')}</span>
         </Button>
       </div>
+      </>}
     </div>
   );
 }
