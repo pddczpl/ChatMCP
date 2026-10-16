@@ -5,6 +5,7 @@ import { useAppStore } from '@/store/useAppStore';
 import { PhaseRibbon } from '@/components/layout/PhaseRibbon';
 import { MessageItem } from './MessageItem';
 import { ToolActivityGroup } from './ToolActivityGroup';
+import { WorkflowCard } from './WorkflowCard';
 import { StateBanner } from './StateBanner';
 import { Composer } from './Composer';
 import { CopyButton } from '@/components/ui/CopyButton';
@@ -34,6 +35,7 @@ export function ConversationView() {
   const [sending, setSending] = useState(false);
   const [dependsOn, setDependsOn] = useState<string[]>([]);
   const [approving, setApproving] = useState(false);
+  const [cancellingWorkflow,setCancellingWorkflow] = useState<string | null>(null);
 
   // Fetch full Hub state
   const { data: hub } = useQuery({
@@ -49,6 +51,11 @@ export function ConversationView() {
     enabled: !!selectedTaskId,
     refetchInterval: selectedTaskId ? 2000 : false,
   });
+  const {data:background}=useQuery({
+    queryKey:['backgroundRuns'],queryFn:api.getBackgroundRuns,
+    enabled:!!selectedTaskId,refetchInterval:selectedTaskId?2000:false,
+  });
+  const relatedWorkflows=(background?.workflows||[]).filter(w=>w.conversationId===selectedTaskId);
   const isWorking = isTaskActive(task);
   const permissions = hub?.studio?.permissions;
   const mode = permissions?.executionPolicy === 'full-access' ? 'full-access' : permissions?.mode || 'review';
@@ -67,7 +74,7 @@ export function ConversationView() {
   // Reading/copying earlier output must not be interrupted by streaming or polling.
   useEffect(() => {
     if (followOutput.current) messagesEndRef.current?.scrollIntoView({ behavior: 'instant', block: 'end' });
-  }, [task?.messages, task?.toolCalls, visibleToken]);
+  }, [task?.messages, task?.toolCalls, visibleToken, background?.workflows]);
 
   // Send message handler
   const handleSendMessage = async (text: string, attachments: ChatAttachment[] = []) => {
@@ -97,6 +104,17 @@ export function ConversationView() {
     }
   };
 
+  const stopWorkflow=async(id:string)=>{
+    if(cancellingWorkflow)return;
+    setCancellingWorkflow(id);
+    try{
+      await api.cancelWorkflow(id);
+      await queryClient.invalidateQueries({queryKey:['backgroundRuns']});
+      showToast('Đã gửi yêu cầu dừng các subagent trong workflow.','info');
+    }catch(err:any){
+      showToast(err.message||'Không thể dừng workflow','error');
+    }finally{setCancellingWorkflow(null);}
+  };
   const handleStopTask = async () => {
     if (!task) return;
     try {
@@ -272,6 +290,16 @@ export function ConversationView() {
               ? <MessageItem key={`message:${item.value.id||index}`} message={item.value}/>
               : <ToolActivityGroup key={`tools:${index}`} items={item.items}/>)}
             {task && timeline.length === 0 && <p className="p-4 text-xs text-[var(--muted)]">Chưa có nội dung hội thoại được lưu.</p>}
+
+            {/* The very same persisted workflow displayed in Background Tasks,
+                not another chat or a mock progress widget. It remains live even
+                after the parent agent has replied and released its run. */}
+            {relatedWorkflows.map(workflow=><div key={workflow.id}
+                className="mx-4 my-3 max-w-2xl" data-testid="chat-workflow">
+              <WorkflowCard workflow={workflow} onOpenAgent={setSelectedTaskId}
+                onCancel={id=>void stopWorkflow(id)}
+                stopPending={cancellingWorkflow===workflow.id}/>
+            </div>)}
 
             {/* Streaming Token Chunk */}
             {visibleToken && (
