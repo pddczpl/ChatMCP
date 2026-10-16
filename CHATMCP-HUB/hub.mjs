@@ -425,7 +425,14 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
             result=await workspaceRegistry.remove(payload.path);
             break;
           }
-          case '/api/workspace/select': if(coding?.active||coding?.integrating||dynamic?.activeRunId)throw Object.assign(new Error('Stop coding/dynamic workers before switching workspace.'),{statusCode:409});await manager.selectWorkspace(payload.path); result = stateNow(); break;
+          case '/api/workspace/select': if(coding?.active||coding?.integrating||dynamic?.activeRunId)
+            throw Object.assign(new Error('Stop coding/dynamic workers before switching the legacy Studio workspace.'),{statusCode:409});
+            await manager.selectWorkspace(payload.path);
+            if(workspaceRegistry){
+              await workspaceRegistry.add(payload.path);
+              await workspaceRegistry.activate(payload.path);
+            }
+            result = stateNow(); break;
           case '/api/services/start': await manager.start(); result = stateNow(); break;
           case '/api/services/stop': if(coding?.active||coding?.integrating||dynamic?.activeRunId)throw Object.assign(new Error('Stop coding/dynamic workers before stopping services.'),{statusCode:409});await manager.stop(); result = stateNow(); break;
           case '/api/browser/pair-code': if (!browser) throw new Error('Browser runner chưa khởi tạo.'); result = await browser.createPairCode(); break;
