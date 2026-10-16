@@ -57,9 +57,10 @@ export class ConcurrentApiAgent {
   #queued(r) {
     const state = r.status === 'preparing' ? 'queued' : r.status === 'blocked' ? 'paused' : r.status;
     return {
-      id: r.id, conversationId:r.parentTaskId||r.id, workspacePath:r.sourceRoot, prompt: r.prompt, status: r.status === 'preparing' ? 'running' : r.status,
+      id: r.id, conversationId:r.conversationId||r.parentTaskId||r.id, workspacePath:r.sourceRoot, prompt: r.prompt, status: r.status === 'preparing' ? 'running' : r.status,
       state, createdAt: r.createdAt, updatedAt: r.updatedAt, workspace: { path: r.worktree || r.executionRoot || r.sourceRoot },
       branch: r.branch, dependsOn: r.dependsOn || [], parentTaskId: r.parentTaskId || null,
+      parentRunId: r.parentRunId || null,
       events: [], toolCalls: 0, steps: 0, prompts: [{ at: r.createdAt, text: r.prompt }],
       dialogue: [{ role: 'user', at: r.createdAt, text: r.prompt }],
       error: r.error || null, runCount: 0, transport: 'api',
@@ -68,8 +69,9 @@ export class ConcurrentApiAgent {
   #detail(record) {
     const real = this.children.get(record.id)?.runner.get(record.id);
     return real ? { ...real, branch: record.branch, worktree: record.worktree,
-      workspacePath:record.sourceRoot, conversationId:record.parentTaskId||record.id,
-      dependsOn: record.dependsOn || [], parentTaskId: record.parentTaskId || null } : this.#queued(record);
+      workspacePath:record.sourceRoot, conversationId:record.conversationId||record.parentTaskId||record.id,
+      dependsOn: record.dependsOn || [], parentTaskId: record.parentTaskId || null,
+      parentRunId:record.parentRunId||null } : this.#queued(record);
   }
   #activeIds() {
     const ids = [];
@@ -101,16 +103,16 @@ export class ConcurrentApiAgent {
           finishedAt: detail.finishedAt, finalText: detail.finalText }];
       for (let i = 0; i < runs.length; i++) {
         const run = runs[i], latest = i === runs.length - 1;
-        const children = latest
-          ? all.filter(child => child.parentTaskId === summary.id).map(child => ({
+        const children = all.filter(child => child.parentTaskId === summary.id &&
+            (child.parentRunId ? child.parentRunId === run.id : latest)).map(child => ({
               id: child.id, taskId: child.id, parentTaskId: summary.id,
+              parentRunId:child.parentRunId||null,
               title: child.prompt, status: child.state || child.status,
               startedAt: child.startedAt || child.createdAt,
               finishedAt: child.finishedAt,
               branch: child.branch || null,
               workspacePath: child.workspacePath || summary.workspacePath,
-            }))
-          : [];
+            }));
         activities.push({
           id: run.id || summary.id + ':run:' + (i + 1),
           taskId: summary.id,
@@ -373,6 +375,8 @@ export class ConcurrentApiAgent {
       return this.primary.start({ prompt, attachments });
     const id = randomUUID();
     const record = { id, prompt: prompt.trim(), attachments, attachmentCount: attachments.length,
+      conversationId:parent?.conversationId||parentTaskId||id,
+      parentRunId:parentTaskId?(parent?.runs?.at(-1)?.id||null):null,
       sourceRoot: root, createdAt: now(), updatedAt: now(),
       status: 'queued', dependsOn: [...new Set(dependsOn)], parentTaskId, baseRef,
       executionRoot: root !== this.manager.workspace && !rootOccupied && !parentTaskId && !baseRef ? root : null,
