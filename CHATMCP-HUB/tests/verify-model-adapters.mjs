@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GatewayProvider } from '../lib/gateway-provider.mjs';
+import { AiProfiles } from '../lib/ai-profiles.mjs';
 import { createHubServer } from '../hub.mjs';
 import { createProtector } from '../lib/secret-box.mjs';
 import { PRESETS, detectEnvKeys, isLoopbackUrl, presetById, presetForBaseUrl, publicPresets } from '../lib/provider-presets.mjs';
@@ -713,6 +714,60 @@ try {
       customHeaders:[{name:'X-Unknown-Region',envKeyName:'MISSING_REGION'}]});
     await rejects(missing.respond({input:[userMsg('Hi')],instructions:'ok'}),
       {code:'invalid_header_environment'},'missing environment references never result in a request');
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Immutable per-task provider isolation and profile credential rebinding
+  // ---------------------------------------------------------------------------------------------------------------
+  {
+    const base=(await makeProvider('profiles-base')).provider;
+    const calls=[];
+    base.fetch=async(url,opts)=>{
+      const body=JSON.parse(opts.body);
+      calls.push({url,model:body.model,headers:opts.headers});
+      return reply(200,url.endsWith('/responses')
+        ? {status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:'ok'}]}]}
+        : chatOk('ok'));
+    };
+    const api1=base.forkForTask({provider:'openai-chat',protocol:'openai-chat',
+      apiBaseUrl:'https://one.example/v1',model:'coder-one',apiKey:'sk-fixture-profile-one-12345678'});
+    const api2=base.forkForTask({provider:'openai-responses',protocol:'openai-responses',
+      apiBaseUrl:'https://two.example/v1',model:'coder-two',apiKey:'sk-fixture-profile-two-12345678'});
+    const both=await Promise.all([
+      api1.respond({input:[userMsg('Hello')],instructions:'Say OK'}),
+      api2.respond({input:[userMsg('Hello')],instructions:'Say OK'}),
+    ]);
+    same(both.map(x=>x.status),['completed','completed']);
+    same(calls.map(x=>x.url).sort(),['https://one.example/v1/chat/completions','https://two.example/v1/responses']);
+    same(calls.map(x=>x.model).sort(),['coder-one','coder-two']);
+    same(calls.find(x=>x.model==='coder-one').headers.Authorization,'Bearer sk-fixture-profile-one-12345678');
+    same(calls.find(x=>x.model==='coder-two').headers.Authorization,'Bearer sk-fixture-profile-two-12345678');
+    check(!JSON.stringify(base.state()).includes('one.example'),'profile requests do not change global gateway configuration');
+    await rejects(Promise.resolve().then(()=>base.forkForTask({protocol:'openai-chat',
+      apiBaseUrl:'http://remote.example',model:'m',apiKey:KEY})),
+      {code:'insecure_base_url'},'task profile never sends credentials to insecure remote HTTP');
+
+    const profileDir=path.join(root,'profile-bound');
+    const fakeStore={encrypt:async key=>'cipher:'+Buffer.from(key).toString('base64'),
+      decrypt:async sealed=>Buffer.from(sealed.slice(7),'base64').toString()};
+    const profiles=new AiProfiles({stateDir:profileDir,keyStore:fakeStore});
+    await profiles.load();
+    await profiles.upsert({id:'coding',provider:'openai-chat',protocol:'openai-chat',
+      model:'coder-one',apiBaseUrl:'https://one.example/v1',apiKey:KEY});
+    const original=await profiles.resolveConfig('coding');
+    same(original.apiKey,KEY);
+    check(typeof original.revision==='string','profiles retain a revision for task binding');
+    await profiles.upsert({id:'coding',provider:'openai-chat',protocol:'openai-chat',
+      model:'coder-two',apiBaseUrl:'https://two.example/v1'});
+    const moved=await profiles.resolveConfig('coding');
+    same(moved.apiKey,null,'changing origin invalidates saved credentials');
+    check(moved.revision!==original.revision,'changing a profile updates revision');
+    await rejects(Promise.resolve().then(()=>base.forkForTask(moved)),{code:'profile_not_ready'});
+    await profiles.upsert({id:'coding',provider:'openai-chat',protocol:'openai-chat',
+      model:'coder-two',apiBaseUrl:'https://two.example/v1',apiKey:KEY});
+    const restored=new AiProfiles({stateDir:profileDir,keyStore:fakeStore});
+    await restored.load();
+    same((await restored.resolveConfig('coding')).apiKey,KEY,'protected profile credentials survive restart');
   }
 
   // ---------------------------------------------------------------------------------------------------------------
