@@ -11,6 +11,14 @@ This checkpoint records partial work against the owner-authorized complete ChatM
 - Add a deterministic evaluation CLI, external-process regression fixtures, hashed reports and documentation (docs/EVALUATION.md). No live model parity measurement has been performed.
 - Add selectable OpenAI Responses and compatible custom gateway protocols: stateless text/function tool messages, tool-result pairing, terminal-only SSE parsing, cancellation, protected credential endpoint binding and model function probes. Integrate provider selection into the main React AI configuration panel. These are implementation changes pending runtime confirmation, not proof of universal provider compatibility.
 
+## Completed task/profile UI and regression wiring
+
+- Main React conversation composer supports selecting a saved task model profile, explicitly selecting the global gateway, and optional role-specific profile IDs.
+- React AI Settings supports creating, editing, deleting and setting a default model profile without returning decrypted keys. Stored credentials are cleared on origin changes; explicit key-clearing and environment references are supported.
+- Role keys are canonicalized for model-generated names such as Reviewer / Independent verifier; invalid or duplicate mappings are rejected.
+- Deterministic tests cover parent-to-subagent model routing, immutable profile revisions on resume, credential-free persisted task metadata, and role mapping validation. Browser E2E now includes a loopback-model task using a profile created through React Settings.
+- These are source and test changes; exact-commit CI and live provider acceptance remain mandatory before making a feature or release certification.
+
 ## Current validation boundaries
 
 The latest known full green baseline before recent evaluation/Responses changes is commit `b431d8ccf888423c6a0103a2f03149e7fbc7ee99`, CI run 39035869979: 9/9 jobs passed. **That evidence is not transferrable to any newer commit.** Check the current main SHA's Hub Node 22/24 jobs on Linux and Windows, React/real-Hub E2E, installer build, Browser Companion regression and documentation checks.

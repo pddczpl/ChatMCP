@@ -265,3 +265,37 @@ test.describe('failed verification', () => {
     expect(workflow.verified).toBe(false);
   });
 });
+
+
+// A real React -> Hub -> task-agent round trip with a loopback mock model.
+// Profile storage, default selection, immutable routing and task metadata are
+// verified; this is NOT a test against paid/live provider credentials.
+test('a saved local model profile routes a new task through the real Hub', async ({page, app}) => {
+  app.mock.setScenario('explore');
+  await onboard(page,app);
+  await page.getByRole('button',{name:'Inspector',exact:true}).click();
+  await page.getByRole('button',{name:'AI Model',exact:true}).click();
+  await page.getByLabel('Model profile ID',{exact:true}).fill('local-e2e');
+  await page.getByLabel('Model profile display name',{exact:true}).fill('Local test profile');
+  await page.getByLabel('Model profile API base URL',{exact:true}).fill(app.mock.url);
+  await page.getByLabel('Model profile model',{exact:true}).fill('mock-coder');
+  await page.getByRole('button',{name:'Save model profile',exact:true}).click();
+  await expect.poll(async()=>{
+    const ai=(await app.hub.state()).ai;
+    return {listed:ai.profiles.some(p=>p.id==='local-e2e'),selected:ai.defaultProfileId};
+  }).toEqual({listed:true,selected:'local-e2e'});
+  await expect(page.getByLabel('Task model profile',{exact:true})).toBeVisible();
+  await page.getByLabel('Task model profile',{exact:true}).selectOption('local-e2e');
+  const prompt='Explore the fixture README using the configured task model profile.';
+  await page.locator('#panel-conversation textarea').fill(prompt);
+  await page.locator('#panel-conversation').getByRole('button',{name:'Gửi',exact:true}).click();
+  const started=await taskByPrompt(app,prompt);
+  await waitForState(app.hub,started.id,'completed');
+  const task=await app.hub.task(started.id);
+  expect(task.effectiveProfile.id).toBe('local-e2e');
+  expect(task.effectiveProfile.model).toBe('mock-coder');
+  expect(task.effectiveProfile.endpointOrigin).toBe(new URL(app.mock.url).origin);
+  expect(task.effectiveProfile.revision).toMatch(/^[0-9a-f-]{16,}$/);
+  expect(JSON.stringify(task)).not.toContain('gateway-key.dpapi');
+  await expect(page.getByTestId('active-model-profile')).toContainText('Local test profile');
+});
