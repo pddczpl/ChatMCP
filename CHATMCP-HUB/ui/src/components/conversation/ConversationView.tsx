@@ -453,53 +453,15 @@ export function ConversationView() {
             <p className="text-[var(--faint)]">Profiles are selected when the task starts. Role names must match spawned agent roles.</p>
           </div>}
         </div>}
-      {!!selectedTaskId && !!task?.effectiveProfile && <div className="px-3 py-1 text-[11px] text-[var(--muted)] border-t border-[var(--line-subtle)]"
+      {!!selectedTaskId && !!task?.effectiveProfile && <div
+        className="px-3 py-1 text-[11px] text-[var(--muted)] border-t border-[var(--line-subtle)]"
         data-testid="active-model-profile">
         Model profile: {task.effectiveProfile.name} · {task.effectiveProfile.model} · revision {task.effectiveProfile.revision?.slice(0,8)}
-        {task.modelCost && <span className="ml-2" title="Owner-supplied prices applied only to successfully reported model usage; retries and errors may incur unknown charges.">
-          Recorded model cost: {task.modelCost.complete&&task.modelCost.totalUsd!==null
-            ? '
-      {/* ChatGPT Web transport only accepts browser-authenticated TEXT packets.
-          It cannot send local image attachments through this protocol. */}
-      {/* Bottom Composer */}
-      <Composer
-        key={selectedTaskId || 'new-conversation'}
-        onSendMessage={handleSendMessage}
-        onStop={handleStopTask}
-        isWorking={isWorking}
-        disabled={sending || (!!selectedTaskId && (isLoading || !!taskError))}
-        currentMode={mode}
-        onModeChange={handleModeChange}
-        dependencyOptions={!selectedTaskId ? (hub?.tasks || []).filter(x=>x.id&&x.status!=='failed'&&x.status!=='cancelled').slice(0,15)
-          .map(x=>({id:x.id,label:x.task || x.prompt || x.id,state:x.state || x.status})) : []}
-        selectedDependsOn={dependsOn}
-        onDependsOnChange={setDependsOn}
-      />
-    </div>
-  );
-}
-+task.modelCost.totalUsd.toFixed(6)
-            : '
-      {/* ChatGPT Web transport only accepts browser-authenticated TEXT packets.
-          It cannot send local image attachments through this protocol. */}
-      {/* Bottom Composer */}
-      <Composer
-        key={selectedTaskId || 'new-conversation'}
-        onSendMessage={handleSendMessage}
-        onStop={handleStopTask}
-        isWorking={isWorking}
-        disabled={sending || (!!selectedTaskId && (isLoading || !!taskError))}
-        currentMode={mode}
-        onModeChange={handleModeChange}
-        dependencyOptions={!selectedTaskId ? (hub?.tasks || []).filter(x=>x.id&&x.status!=='failed'&&x.status!=='cancelled').slice(0,15)
-          .map(x=>({id:x.id,label:x.task || x.prompt || x.id,state:x.state || x.status})) : []}
-        selectedDependsOn={dependsOn}
-        onDependsOnChange={setDependsOn}
-      />
-    </div>
-  );
-}
-+task.modelCost.knownSubtotalUsd.toFixed(6)+' known subtotal (total unknown)'}
+        {task.modelCost && <span className="ml-2"
+          title="Owner-supplied prices and provider-reported usage only. Retries and errors can produce unknown charges.">
+          Recorded model cost: {task.modelCost.complete && task.modelCost.totalUsd !== null
+            ? 'USD ' + task.modelCost.totalUsd.toFixed(6)
+            : 'USD ' + task.modelCost.knownSubtotalUsd.toFixed(6) + ' known subtotal (total unknown)'}
         </span>}
       </div>}
       {/* ChatGPT Web transport only accepts browser-authenticated TEXT packets.
