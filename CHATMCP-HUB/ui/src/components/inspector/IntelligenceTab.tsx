@@ -25,7 +25,8 @@ export function IntelligenceTab() {
 
   const providers = [
     { id: 'anthropic', name: 'Anthropic', defaultModel: 'claude-sonnet-5-5', defaultUrl: 'https://api.anthropic.com' },
-    { id: 'openai', name: 'OpenAI', defaultModel: 'gpt-5-mini', defaultUrl: 'https://api.openai.com/v1' },
+    { id: 'openai', name: 'OpenAI (Chat Completions)', defaultModel: 'gpt-5-mini', defaultUrl: 'https://api.openai.com/v1' },
+    { id: 'openai-responses', name: 'OpenAI Responses API', defaultModel: 'gpt-5-mini', defaultUrl: 'https://api.openai.com/v1' },
     { id: 'gemini', name: 'Google Gemini', defaultModel: 'gemini-2.5-flash', defaultUrl: 'https://generativelanguage.googleapis.com' },
     { id: 'openrouter', name: 'OpenRouter', defaultModel: 'anthropic/claude-sonnet-4.5', defaultUrl: 'https://openrouter.ai/api/v1' },
     { id: 'deepseek', name: 'DeepSeek', defaultModel: 'deepseek-chat', defaultUrl: 'https://api.deepseek.com' },
@@ -33,7 +34,8 @@ export function IntelligenceTab() {
     { id: 'mistral', name: 'Mistral', defaultModel: 'mistral-large-latest', defaultUrl: 'https://api.mistral.ai/v1' },
     { id: 'ollama', name: 'Ollama (Local)', defaultModel: 'qwen2.5-coder:7b', defaultUrl: 'http://localhost:11434/v1' },
     { id: 'lmstudio', name: 'LM Studio (Local)', defaultModel: 'local-model', defaultUrl: 'http://localhost:1234/v1' },
-    { id: 'custom-openai', name: 'Custom (OpenAI)', defaultModel: '', defaultUrl: '' },
+    { id: 'custom-openai', name: 'Custom (Chat Completions)', defaultModel: '', defaultUrl: '' },
+    { id: 'custom-responses', name: 'Custom (Responses API)', defaultModel: '', defaultUrl: '' },
     { id: 'custom-gemini', name: 'Custom (Gemini)', defaultModel: '', defaultUrl: '' },
     { id: 'custom-anthropic', name: 'Custom (Anthropic)', defaultModel: '', defaultUrl: '' },
   ];
@@ -92,7 +94,7 @@ export function IntelligenceTab() {
     const result = await api.updateAiConfig({
       preset: submitted.provider,
       ...(aiProtocolForPreset(submitted.provider) ? { protocol: aiProtocolForPreset(submitted.provider) } : {}),
-      ...(submitted.provider === 'custom-openai' ? { authMode: 'bearer' } : {}),
+      ...(['custom-openai','custom-responses'].includes(submitted.provider) ? { authMode: 'bearer' } : {}),
       apiBaseUrl: submitted.apiBaseUrl.trim(),
       model: submitted.model.trim(),
       apiKey: submitted.apiKey.trim() || undefined,

@@ -70,6 +70,19 @@ test('switching custom Gemini to OpenAI keeps the original gateway and model wit
   assert.equal(named.apiKey,'');
   assert.equal(named.apiBaseUrl,'https://api.openai.com/v1');
   assert.equal(named.model,'gpt-mini');
+  assert.equal(aiProtocolForPreset('openai-responses'),'openai-responses');
+  assert.equal(aiProtocolForPreset('custom-responses'),'openai-responses');
+  const responsesDraft=selectAiProviderDraft({...current,apiKey:''},{
+    id:'custom-responses',defaultUrl:'',defaultModel:'',
+  });
+  assert.equal(responsesDraft.apiBaseUrl,current.apiBaseUrl);
+  assert.equal(responsesDraft.model,current.model);
+  assert.equal(responsesDraft.provider,'custom-responses');
+  const namedResponses=selectAiProviderDraft({...current,apiKey:'UNSAVED-DUMMY'},{
+    id:'openai-responses',defaultUrl:'https://api.openai.com/v1',defaultModel:'gpt-5-mini',
+  });
+  assert.equal(namedResponses.apiKey,'','named Responses provider must never inherit custom gateway credentials');
+  assert.equal(namedResponses.apiBaseUrl,'https://api.openai.com/v1');
   assert.equal(aiProtocolForPreset('custom-gemini'),'gemini');
   assert.equal(aiProtocolForPreset('custom-anthropic'),'anthropic');
   assert.equal(aiProtocolForPreset('unknown'),null);

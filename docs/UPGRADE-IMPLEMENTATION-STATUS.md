@@ -1,28 +1,31 @@
 # ChatMCP upgrade implementation checkpoint
 
-This is an auditable handoff for the owner's complete v3.9-class upgrade request, **not a statement of release readiness**. Confirm the latest `main` SHA, GitHub Actions jobs, and working tree before any more changes.
+This checkpoint records partial work against the owner-authorized complete ChatMCP upgrade, not a release readiness certificate. Inspect current `main` and exact-SHA GitHub Actions before resuming or releasing.
 
-## Changes committed to main
+## Committed changes
 
-- English top-level `README.md` reduced to exactly four sections: Introduction, Guide, License, Security; `SECURITY.md` rewritten in English.
-- Detailed documentation links moved into `docs/INDEX.md` without disabling existing orphan/anchor checks; the tool-count reference was moved outside README.
-- `agent-progress.mjs` now invalidates prior test, file-hash and Git-review evidence when a possibly effective file mutation occurs. Test cases cover stale checks, failed writes with uncertain effects, and a confirmed non-executed edit.
-- `context-compaction.mjs` and the normal `AgentRunner` select a per-task context envelope from provider settings/metadata or an estimated 32,768-token fallback. Fixed prompt/tool overhead, response headroom, safe history compaction, and conservative context rejection are exposed in the task API, report and React UI. Unit/integration tests were added.
+- Rewrite the root README in English with only Introduction, Guide, License and Security; rewrite SECURITY.md and move detailed links to docs/INDEX.md without suppressing documentation coverage.
+- Invalidate stale testing and Git-review evidence following possible file mutations; retain a separate execution-completed versus requirements-accepted status and show unresolved objectives in task API/UI.
+- Resolve context envelopes per configured model metadata/window with a conservative fallback, keep canonical evidence, and display context policy to users.
+- Distinguish provider-reported token values from missing usage and avoid double-counting cache/read or reasoning subsets; expose partial usage in task history and React UI.
+- Add a deterministic evaluation CLI, external-process regression fixtures, hashed reports and documentation (docs/EVALUATION.md). No live model parity measurement has been performed.
+- Add selectable OpenAI Responses and compatible custom gateway protocols: stateless text/function tool messages, tool-result pairing, terminal-only SSE parsing, cancellation, protected credential endpoint binding and model function probes. Integrate provider selection into the main React AI configuration panel. These are implementation changes pending runtime confirmation, not proof of universal provider compatibility.
 
-## Outstanding (do not mark verified)
+## Current validation boundaries
 
-- Complete objective-linked completion and fresh evidence model across normal agent, worker, orchestration and UI.
-- Automated real-check discovery/adapters and independently observed failure-repair-retest paths for Node, TypeScript, Python, browser.
-- Dependency-aware code handoff, isolated worktrees, merge/conflict/restart reconciliation and parent-worker reporting.
-- Real per-task/per-role model profile isolation and immutable provider/credential routing.
-- Full OpenAI Responses API adapter with multi-turn tool calls and streams; custom protected headers and origin security.
-- Accurate retry/usage provenance, missing-usage reporting, cache and reasoning semantics, configurable costs.
-- Reproducible deterministic and optional budgeted live model evaluations.
-- All Windows native lifecycle/installer/Companion upgrade verification at the eventual release commit.
-- Verified version bump, release workflow, signature status, exact-commit CI, release manifest/hashes, tag and publication.
+The latest known full green baseline before recent evaluation/Responses changes is commit `b431d8ccf888423c6a0103a2f03149e7fbc7ee99`, CI run 39035869979: 9/9 jobs passed. **That evidence is not transferrable to any newer commit.** Check the current main SHA's Hub Node 22/24 jobs on Linux and Windows, React/real-Hub E2E, installer build, Browser Companion regression and documentation checks.
 
-## Validation handoff
+Read-only/spec-only assertions are not the same as real file/process tests. Browser scripted pages are not signed-in live ChatGPT acceptance. Provider Responses fixtures are not proof that an arbitrary custom gateway implements Responses. Unknown usage/cost remain unknown. Live model evaluation is explicitly not run without an authorized provider and task-scoped budget.
 
-The earlier Node 22/24 CI run for commit `66f2ce83` recorded 92/93 suites passing and an expected docs check failure after README was shortened. A docs index fix was committed; **inspect the newest exact-commit run**, because earlier runs may be cancelled or superseded. React and Windows installer builds in earlier runs do not certify the final version.
+## Remaining mandatory scope
 
-To resume: inspect `main` HEAD, the latest CI job statuses, current `README.md` headings, and changes in the files above; repair actual failures without skipping tests. Preserve unrelated work and never reuse an older SHA's CI for a release. The published baseline at start was `v3.8.3`; the requested upgrade has **not** been fully implemented or released. No signed-in live ChatGPT browser acceptance or Authenticode signature is claimed.
+- Acceptance-criterion-linked evidence with fresh revision snapshots across ordinary agent, coding workers, integration and parent summaries; extensible real Node/TypeScript/Python/browser verification adapters and repair/retest under the existing PermissionGate.
+- Dependency-aware propagation of predecessor code, worktree review, conflict handling and restart reconciliation across chat-created and coding workflows.
+- Immutable per-task/per-worker provider profile resolution, isolated credential origin binding and production UI workflow for role overrides.
+- Protected user-configurable custom HTTP headers; comprehensive streaming error handling and provider-live verification; cost rate configuration, uncertainty and aggregation across workers/conversations.
+- Incremental LSP/Tree-sitter/Python code-intelligence refresh/packaging acceptance, full native Windows lifecycle and installed-upgrade checks, Browser Companion source/ZIP parity, and security acceptance without fabricated attestation.
+- Updated semantic version, exact-commit release workflow, complete mandatory CI gates, tested final installer/Companion assets, source manifest, SHA-256, signing status, GitHub tag/release.
+
+## Resume and release rule
+
+Never claim full completion based on tool counts or fixtures. Check status and tests on actual current `main`; repair failures without unconditional skips or weakening permissions. Continue unfinished production work, only then bump the version and execute the existing exact-commit release gates. Do not reuse old tags or publish unverified binaries. Latest published release when work started was `v3.8.3`. Any future release must be independently inspected after publication.
