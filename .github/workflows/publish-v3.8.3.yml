@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: publish-chatmcp-v3.8.3
+  group: publish-chatmcp-v3.8.3-${{ github.sha }}
   cancel-in-progress: false
 jobs:
   browser:
@@ -24,16 +24,19 @@ jobs:
           node-version: '24'
       - name: Run actual extension IPC on scripted pages, without live login
         working-directory: CHATMCP-HUB/ui
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/companion-release-evidence/results.json
         run: |
+          mkdir -p "$RUNNER_TEMP/companion-release-evidence"
           npm ci --no-audit --no-fund
           npx playwright install --with-deps chromium
-          npx playwright test e2e/companion-ipc.spec.mjs --workers=1 --reporter=line
+          npx playwright test e2e/companion-ipc.spec.mjs --workers=1 --reporter=line,json
       - name: Preserve browser evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ChatMCP-v3.8.3-browser-evidence
-          path: CHATMCP-HUB/ui/test-results
+          path: ${{ runner.temp }}/companion-release-evidence
           if-no-files-found: error
   windows:
     name: Build and test installed Windows upgrade
