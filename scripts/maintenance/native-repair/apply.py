@@ -21,8 +21,12 @@ for name, encoded, expected in [
     file.write_bytes(patch)
     subprocess.run(['git', 'apply', '--check', '--index', str(file)], check=True)
     subprocess.run(['git', 'apply', '--index', str(file)], check=True)
-# Follow-up diffs are visible reviewed text, with git index preimage guards.
-for file in sorted(folder.glob('fix[0-9][0-9].patch')):
+# Read exact Git blobs rather than CRLF-converted Windows checkout patch files.
+for source in sorted(folder.glob('fix[0-9][0-9].patch')):
+    relative = source.relative_to(Path.cwd()).as_posix()
+    patch = subprocess.check_output(['git', 'show', 'HEAD:' + relative])
+    file = proof / source.name
+    file.write_bytes(patch)
     subprocess.run(['git', 'apply', '--check', '--index', str(file)], check=True)
     subprocess.run(['git', 'apply', '--index', str(file)], check=True)
 subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
