@@ -65,10 +65,11 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory "$env:RUNNER_TEMP/native-release-evidence" -Force | Out-Null
+          $env:GITHUB_SHA | Set-Content "$env:RUNNER_TEMP/native-release-evidence/commit.txt" -Encoding utf8
           if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'Wrong checkout' }
           if ((git show -s --format=%s HEAD).Trim() -ne 'release: ChatMCP v3.8.3') { throw 'Wrong release commit' }
           foreach ($file in @('CHATMCP-HUB/package.json','CHATMCP-HUB/ui/package.json','CHATMCP-HUB/ui/package-lock.json')) {
-            if ((Get-Content $file -Raw | ConvertFrom-Json).version -ne '3.8.3') { throw "Version mismatch: $file" }
+            if ((Get-Content $file -Raw | ConvertFrom-Json -AsHashtable)['version'] -ne '3.8.3') { throw "Version mismatch: $file" }
           }
           foreach ($file in @('desktop-shell/ChatMCP.csproj','installer/ChatMCP.Installer.csproj')) {
             if (-not (Get-Content $file -Raw).Contains('<Version>3.8.3</Version>')) { throw "Native version mismatch: $file" }
