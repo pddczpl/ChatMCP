@@ -7,6 +7,7 @@ Current agent capability inventory: **LocalTools (99 công cụ)**. This count i
 Comprehensive documentation across all architecture, implementation, and verification phases:
 
 ### System Architecture and Guides
+- [Reproducible evaluation harness](EVALUATION.md) — deterministic external-process evaluation and explicit live-model limits
 - [Upgrade implementation checkpoint](UPGRADE-IMPLEMENTATION-STATUS.md) — shipped-source changes, outstanding acceptance work and restart handoff
 - [Bundled Code Intelligence Runtime](CODE-INTELLIGENCE-RUNTIME.md) — Offline LSP, WASM, embedded Python staging, verification and limitations
 - [Architecture](ARCHITECTURE.md) — System components, security model, and task state machine
