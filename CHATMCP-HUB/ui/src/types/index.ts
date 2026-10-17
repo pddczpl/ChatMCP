@@ -100,6 +100,10 @@ export interface AiProfile {
   model: string;
   apiBaseUrl?: string;
   apiKey?: string;
+  hasKey?: boolean;
+  envKeyName?: string | null;
+  revision?: string | null;
+  contextWindow?: number | null;
   authMode?: string;
   protocol?: string;
   isDefault?: boolean;

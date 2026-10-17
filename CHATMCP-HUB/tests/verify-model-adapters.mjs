@@ -770,6 +770,36 @@ try {
     same((await restored.resolveConfig('coding')).apiKey,KEY,'protected profile credentials survive restart');
   }
 
+  // Editing an existing profile must not silently forward an environment
+  // credential to a different origin or ignore an explicit replacement key.
+  {
+    const name='profile-credential-controls';
+    const stateDir=path.join(root,name);
+    const keyStore={
+      encrypt:async value=>'sealed:'+Buffer.from(value).toString('base64'),
+      decrypt:async value=>Buffer.from(value.slice(7),'base64').toString('utf8'),
+    };
+    const profiles=new AiProfiles({stateDir,keyStore});
+    await profiles.load();
+    await rejects(profiles.upsert({id:'invalid',provider:'openai-chat',
+      model:'gpt-test',apiBaseUrl:'https://api.example/v1',envKeyName:'BAD-VAR'}),
+      {code:'invalid_env_key_name'});
+    await profiles.upsert({id:'reviewer',provider:'openai-chat',protocol:'openai-chat',
+      model:'gpt-test',apiBaseUrl:'https://api.example/v1',envKeyName:'OPENAI_API_KEY'});
+    same(profiles.list()[0].envKeyName,'OPENAI_API_KEY');
+    await profiles.upsert({id:'reviewer',provider:'openai-chat',protocol:'openai-chat',
+      model:'gpt-test',apiBaseUrl:'https://api.example/v1',envKeyName:null});
+    same(profiles.list()[0].envKeyName,null,'explicitly empty environment mapping can be cleared');
+    await profiles.upsert({id:'reviewer',provider:'openai-chat',model:'gpt-test',
+      apiBaseUrl:'https://api.example/v1',apiKey:KEY});
+    same((await profiles.resolveConfig('reviewer')).apiKey,KEY);
+    await profiles.upsert({id:'reviewer',provider:'openai-chat',model:'gpt-test',
+      apiBaseUrl:'https://api.example/v1',clearCredentials:true});
+    same((await profiles.resolveConfig('reviewer')).apiKey,null,'owner can explicitly clear stored credentials');
+    await rejects(profiles.upsert({id:'invalid2',provider:'openai-chat',model:'gpt-test'}),
+      {code:'missing_profile_endpoint'});
+  }
+
   // ---------------------------------------------------------------------------------------------------------------
   // Test API (diagnoseConnection) for Anthropic
   // ---------------------------------------------------------------------------------------------------------------

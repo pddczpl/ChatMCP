@@ -174,6 +174,21 @@ export class AiProfiles {
     const destinationChanged=Boolean(existing.id) && (
       oldOrigin!==nextOrigin || existing.provider!==provider ||
       (existing.protocol || existing.provider)!==protocol);
+    if(!nextBase)throw error('missing_profile_endpoint','A profile API base URL is required.');
+    if(!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,150}$/.test(model))
+      throw error('invalid_profile_model','The profile model name is invalid.');
+    const explicitEnv=Object.prototype.hasOwnProperty.call(input,'envKeyName');
+    let envReference=destinationChanged?null:existing.envKeyName || null;
+    if(explicitEnv){
+      const reference=String(input.envKeyName??'').trim();
+      if(reference&&!/^[A-Z_][A-Z0-9_]{0,95}$/.test(reference))
+        throw error('invalid_env_key_name','Environment variable name must be uppercase letters, digits and underscores.');
+      envReference=reference || null;
+    }else if(typeof input.apiKey==='string'&&input.apiKey.trim()){
+      // An explicit replacement key supersedes the previous environment
+      // credential rather than silently ignoring the new secret.
+      envReference=null;
+    }
     const profile = {
       id,
       name: input.name?.trim() || existing.name || id,
@@ -181,10 +196,12 @@ export class AiProfiles {
       model, revision:randomUUID(),
       apiBaseUrl:nextBase,
       contextWindow: Number.isFinite(input.contextWindow) ? input.contextWindow : existing.contextWindow || null,
-      envKeyName: input.envKeyName?.trim() || (destinationChanged?null:existing.envKeyName) || null,
-      encryptedKey: destinationChanged?null:existing.encryptedKey || null,
+      envKeyName: envReference,
+      encryptedKey: input.clearCredentials === true ? null
+        : destinationChanged ? null : existing.encryptedKey || null,
     };
 
+    if (input.clearCredentials === true)profile.envKeyName=null;
     if (input.apiKey && typeof input.apiKey === 'string') {
       const key = input.apiKey.trim();
       if (key) {

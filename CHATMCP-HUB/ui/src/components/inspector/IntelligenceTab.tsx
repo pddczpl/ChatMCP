@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { aiDraftHasChanges, aiProtocolForPreset, reconcileSavedAiConfig, selectAiProviderDraft, type AiConfigForm } from '@/lib/ai-config-form';
+import { ModelProfilesPanel } from './ModelProfilesPanel';
 
 export function IntelligenceTab() {
   const { showToast } = useAppStore();
@@ -342,6 +343,7 @@ export function IntelligenceTab() {
           <span>{t('ai_save_config')}</span>
         </Button>
       </div>
+      <ModelProfilesPanel />
     </div>
   );
 }
