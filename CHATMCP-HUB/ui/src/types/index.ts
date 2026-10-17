@@ -20,6 +20,7 @@ export interface TaskSummary {
   toolCalls?: number;
   usage?: { inputTokens?: number; outputTokens?: number; httpRequests?: number; cachedInputTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number };
   verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
+  contextPolicy?: { source:string;capacityTokens:number;maxHistoryTokens:number;compactAtTokens:number;reservedOutputTokens:number;approximate:boolean };
   promptCount?: number;
   updatedAt?: string;
   startedAt?: string;
@@ -233,6 +234,7 @@ export interface Task {
   pendingApprovals?: any[];
   usage?: { inputTokens?: number; outputTokens?: number; httpRequests?: number; cachedInputTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number };
   verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
+  contextPolicy?: { source:string;capacityTokens:number;maxHistoryTokens:number;compactAtTokens:number;reservedOutputTokens:number;approximate:boolean };
   lastMessage?: string;
   error?: string;
   transport?: string;

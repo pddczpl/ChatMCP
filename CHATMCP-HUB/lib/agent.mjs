@@ -5,7 +5,7 @@ import { ACTIVE_STATES, NOT_STARTED_PHASES, applyTransition, deriveState, descri
 import { writeFileAtomic } from './fs-safe.mjs';
 import { callIdentity, createTaskProgress, observeTaskTool, progressCheckpoint } from './agent-progress.mjs';
 import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence, assessCompletionEvidence } from './agent-autonomy.mjs';
-import { estimateTokens as estimateContextTokens, injectRepoMapIntoInstructions, compactConversationHistory, compactRollingContext } from './context-compaction.mjs';
+import { estimateTokens as estimateContextTokens, injectRepoMapIntoInstructions, compactConversationHistory, compactRollingContext, resolveEffectiveContextBudget } from './context-compaction.mjs';
 import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './token-optimization.mjs';
 import { RequestMeter } from './request-budget.mjs';
 import { taskToolSelectionMode, selectTaskCatalog } from './tool-selector.mjs';
@@ -487,6 +487,7 @@ export class AgentRunner {
       goalPlan: task.goalPlan ?? null,
       verifiedSummary: evidenceReport(task.progress,task.goalPlan),
       verificationOutcome:task.verificationOutcome??null,
+      contextPolicy:task.contextPolicy??null,
     };
     if (!summary) {
       result.events = task.events.slice(-EVENT_LIMIT);
@@ -509,6 +510,7 @@ export class AgentRunner {
       `Workspace: ${task.workspace?.path ?? ''}`, `Model: ${task.model ?? ''}`,
       `Bắt đầu: ${task.startedAt}`, `Kết thúc: ${task.finishedAt ?? 'Chưa kết thúc'}`,
       `Lượt model: ${task.steps}; HTTP requests: ${task.usage.httpRequests??0}; lượt MCP: ${task.toolCalls}; input/output tokens: ${task.usage.inputTokens}/${task.usage.outputTokens}; cache read/write: ${task.usage.cachedInputTokens??0}/${task.usage.cacheWriteTokens??0}; reported reasoning: ${task.usage.reasoningTokens??0}`,
+      '', 'NGỮ CẢNH MODEL (DỰ TOÁN)', JSON.stringify(task.contextPolicy??{source:'not_recorded'}),
       '', 'TIẾN ĐỘ CÓ BẰNG CHỨNG', progressCheckpoint(task.progress),
       '', 'KẾ HOẠCH & BẰNG CHỨNG', JSON.stringify(evidenceReport(task.progress,task.goalPlan),null,2),
       '', 'HỘI THOẠI / CÁC YÊU CẦU', ...(task.prompts ?? [{text:task.prompt}]).map((p,i)=>`${i+1}. ${p.text}`), '', 'KẾT QUẢ MỚI NHẤT', task.finalText || '(Chưa có phản hồi kết thúc hợp lệ.)',
@@ -1000,34 +1002,63 @@ export class AgentRunner {
         // Never compact the canonical in-memory history: transcript evidence
         // and original call/result receipts must survive a follow-up or error.
         let modelInput = structuredClone(context.history);
-        if (estimateContextTokens(modelInput) > 20000) {
-          const compacted = compactConversationHistory(modelInput, {
-            maxHistoryTokens: 24000, preserveRecentOutputs: 4,
-            deduplicateReads: true,
+        // Freeze the effective policy for this task. Provider settings changed
+        // afterwards must not silently change its model context budget.
+        if (!context.contextPolicy) {
+          let configuredWindow = null, metadataWindow = null;
+          try { configuredWindow = this.provider.state?.()?.contextWindowTokens ?? null; } catch {}
+          try { metadataWindow = this.provider.snapshot?.()?.metadataContextTokens ?? null; } catch {}
+          context.contextPolicy = resolveEffectiveContextBudget({
+            contextWindowTokens:configuredWindow, modelMetadataTokens:metadataWindow,
+            instructions:context.instructions, tools:context.tools,
+            maxOutputTokens:MAX_OUTPUT_TOKENS,
           });
-          if (compacted.compacted) await this.#event(task, 'context_compaction',
-            'Đã rút gọn bản sao lịch sử gửi model; giữ nguyên kết quả tool gốc và call_id.',
-            {}, {stats:compacted.stats});
+          task.contextPolicy = context.contextPolicy;
+          await this.#event(task,'context_budget',
+            'Dung lượng ngữ cảnh dự toán: '+context.contextPolicy.capacityTokens+' tokens ('+context.contextPolicy.source+').',
+            {},{policy:context.contextPolicy});
         }
-        if (estimateContextTokens(modelInput) > 24000) {
+        const policy = context.contextPolicy;
+        if (policy.maxHistoryTokens < 1000 && policy.source !== 'conservative_fallback')
+          throw fault('context_limit','Context window quá nhỏ so với instructions và tool schemas; hãy tăng context hoặc giảm số schema.');
+        if (estimateContextTokens(modelInput) > policy.compactAtTokens) {
+          const compacted = compactConversationHistory(modelInput, {
+            maxHistoryTokens:Math.max(1000,policy.maxHistoryTokens),
+            preserveRecentOutputs:4, deduplicateReads:true,
+          });
+          if (compacted.compacted) await this.#event(task,'context_compaction',
+            'Đã rút gọn bản sao lịch sử gửi model; giữ nguyên kết quả tool gốc và call_id.',
+            {},{stats:compacted.stats,policySource:policy.source});
+        }
+        if (estimateContextTokens(modelInput) > policy.maxHistoryTokens) {
           const snapshot = [
             'Original task: '+String(task.prompt||'').slice(0,1500),
             'Pending/previous user instructions: '+(task.prompts||[]).slice(-6).map(x=>x.text).join(' | ').slice(0,3000),
             'Plan and verified observations: '+progressCheckpoint(task.progress).slice(-3800),
             'Unverified operations: '+JSON.stringify(task.unverifiedOperations||[]).slice(-1000),
           ].join('\n');
-          const reduced = compactRollingContext(modelInput, {maxTokens:24000,tailTokens:15000,taskCheckpoint:snapshot});
+          const reduced = compactRollingContext(modelInput,{
+            maxTokens:Math.max(1000,policy.maxHistoryTokens),
+            tailTokens:Math.min(Math.max(1000,policy.maxHistoryTokens),policy.tailTokens),
+            taskCheckpoint:snapshot,
+          });
           if(reduced.compacted) {
             modelInput = reduced.history;
             await this.#event(task,'context_compaction',
               'Auto compact: đã tóm tắt lịch sử cũ; giữ nguyên các lời gọi tool mới và checkpoint công việc.',
-              {},{strategy:'rolling-checkpoint',stats:reduced.stats});
+              {},{strategy:'rolling-checkpoint',stats:reduced.stats,policySource:policy.source});
           } else {
             await this.#event(task,'context_compaction_skipped',
               'Không có ranh giới an toàn để compact; không xóa tool receipts hoặc hình ảnh mới nhất.',
-              {},{stats:reduced.stats});
+              {},{stats:reduced.stats,policySource:policy.source});
           }
         }
+        // A known capacity is a hard envelope: do not erase the newest
+        // tool result or silently replay a mutation to fit a model request.
+        if (policy.source !== 'conservative_fallback' &&
+            estimateContextTokens(modelInput) > policy.maxHistoryTokens)
+          throw fault('context_limit','Model context đã đầy sau compaction an toàn; bằng chứng gốc vẫn nằm trong transcript.');
+
         const response = await abortable(this.provider.respond({
           beforeModelRequest: () => {
             this.onBeforeModelRequest?.({taskId:task.id,model:task.model,provider:task.provider});
@@ -1035,7 +1066,7 @@ export class AgentRunner {
             task.usage.httpRequests=snapshot.httpRequests;
           },
           input: modelInput, instructions: context.instructions, tools: structuredClone(context.tools),
-          signal: context.controller.signal, maxOutputTokens: MAX_OUTPUT_TOKENS,
+          signal: context.controller.signal, maxOutputTokens: context.contextPolicy?.reservedOutputTokens ?? MAX_OUTPUT_TOKENS,
           store: false, parallel_tool_calls: false, include: ['reasoning.encrypted_content'],
           onStatus: async (message, kind) => { await this.#event(task, kind === 'model_repair' ? 'model_repair' : kind === 'context_compaction' ? 'context_compaction' : 'network_wait', String(message).slice(0,1000), { status:'running' }); },
           onToken: (token) => { this.#emit({ type: 'token', taskId: task.id, token }); },

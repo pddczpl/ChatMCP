@@ -7,8 +7,21 @@ import os from 'node:os';
 import path from 'node:path';
 import { AgentRunner } from '../lib/agent.mjs';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
-import { compactConversationHistory } from '../lib/context-compaction.mjs';
+import { compactConversationHistory, resolveEffectiveContextBudget } from '../lib/context-compaction.mjs';
 
+const fallback=resolveEffectiveContextBudget({instructions:'policy',tools:[{name:'probe'}]});
+assert.equal(fallback.source,'conservative_fallback');
+assert.equal(fallback.capacityTokens,32768);
+assert.ok(fallback.maxHistoryTokens>0&&fallback.reservedOutputTokens>0);
+const explicit=resolveEffectiveContextBudget({
+  contextWindowTokens:8192,modelMetadataTokens:128000,
+  instructions:'policy'.repeat(120),tools:[{name:'probe'}]});
+assert.equal(explicit.source,'provider_configuration');
+assert.equal(explicit.capacityTokens,8192);
+assert.ok(explicit.maxHistoryTokens<fallback.maxHistoryTokens);
+const metadata=resolveEffectiveContextBudget({modelMetadataTokens:100000});
+assert.equal(metadata.source,'trusted_model_metadata');
+assert.equal(metadata.capacityTokens,100000);
 const big='output: '+('abcdefghijklmno'.repeat(950));
 const sameCall={type:'function_call',call_id:'a',name:'git_status',arguments:'{}'};
 const differing=[
@@ -89,6 +102,9 @@ try{
   const finish=await Promise.race([runner.context.done.promise,
     new Promise((_,reject)=>setTimeout(()=>reject(new Error('smart context integration timed out')),15000))]);
   assert.equal(finish.status,'completed',finish.error);
+  assert.equal(finish.contextPolicy?.source,'conservative_fallback');
+  assert.equal(finish.contextPolicy?.capacityTokens,32768);
+  assert.ok(finish.events.some(e=>e.type==='context_budget'));
   assert.equal(sawMap,true);
   assert.equal(sawCompact,true,'long history must compact a COPY before model request');
   assert.ok(finish.events.some(e=>e.type==='repo_map_injected'));

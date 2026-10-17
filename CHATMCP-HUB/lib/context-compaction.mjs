@@ -20,6 +20,33 @@ export function estimateTokens(text) {
   return Math.ceil(str.length / 3.8);
 }
 
+// Resolve a per-request context envelope, not a usage quota. Source data is
+// provider-owned configuration or trusted model metadata; unknown capacity
+// conservatively uses 32,768 estimated tokens. These are approximate counts,
+// and full evidence stays in the canonical transcript.
+export function resolveEffectiveContextBudget({
+  contextWindowTokens = null, modelMetadataTokens = null,
+  instructions = '', tools = [], maxOutputTokens = 16384,
+} = {}) {
+  const valid = (n) => Number.isSafeInteger(n) && n >= 4096 && n <= 2000000;
+  const source = valid(contextWindowTokens) ? 'provider_configuration'
+    : valid(modelMetadataTokens) ? 'trusted_model_metadata' : 'conservative_fallback';
+  const capacityTokens = source === 'provider_configuration' ? contextWindowTokens
+    : source === 'trusted_model_metadata' ? modelMetadataTokens : 32768;
+  const outputLimit = Number.isSafeInteger(maxOutputTokens) && maxOutputTokens > 0 ? maxOutputTokens : 16384;
+  const reservedOutputTokens = Math.min(outputLimit, Math.max(1024, Math.floor(capacityTokens * 0.18)));
+  const safetyMarginTokens = Math.max(768, Math.ceil(capacityTokens * 0.035));
+  const fixedOverheadTokens = estimateTokens({ instructions, tools }) + 256;
+  const maxHistoryTokens = Math.max(0, capacityTokens - reservedOutputTokens - safetyMarginTokens - fixedOverheadTokens);
+  return Object.freeze({
+    source, capacityTokens, maxHistoryTokens,
+    compactAtTokens: Math.floor(maxHistoryTokens * 0.82),
+    tailTokens: Math.max(1000, Math.floor(maxHistoryTokens * 0.68)),
+    reservedOutputTokens, safetyMarginTokens, fixedOverheadTokens,
+    approximate: true,
+  });
+}
+
 /**
  * Extracts meaningful technical keywords or file/symbol hints from a user task prompt.
  */
