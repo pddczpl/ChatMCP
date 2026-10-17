@@ -2,6 +2,7 @@
 // The host may propose a plan, but only tool receipts verified against local workspace state
 // can establish file/test evidence. Plans and model narration are NOT completion certificates.
 import { createHash } from 'node:crypto';
+import { availableObjectiveReceipts, acceptedObjectiveIds } from './objective-acceptance.mjs';
 
 const hash = (value) => createHash('sha256').update(String(value)).digest('hex');
 const text = (v, n = 190) => String(v ?? '').replace(/[\x00-\x1f\x7f]+/g, ' ').trim().slice(0,n);
@@ -154,6 +155,7 @@ export function evidenceReport(progress,plan) {
   const evidence={verifiedFiles:p.verifiedFiles?.length??0,verifiedChecks:p.verifiedChecks?.length??0,gitReviews:p.gitReviews?.length??0};
   return {
     verifiedEvidence:evidence,
+    objectiveReceipts:availableObjectiveReceipts(p),
     plan:plan?{goal:plan.goal,phases:plan.phases.map(({id,title,status,receipts})=>({id,title,status,receipts})),
       objectives:plan.objectives.map(({id,text,status})=>({id,text,status}))}:null,
     note:'Tool receipts and evidence milestones do not prove the whole requested task is correct; inspect actual diff and test output.',
@@ -174,17 +176,12 @@ export function classifyTaskCompletion(plan, progress, { execution = 'answered' 
     note:'An explanatory/read-only answer does not require code modification or test evidence.',
   });
   const categories=assessCompletionEvidence(plan,progress);
-  const unresolved=plan.objectives.filter(objective=>
-    objective.status!=='verified' ||
-    !Array.isArray(objective.evidence) ||
-    !(objective.acceptanceCriteria||[]).every((criterion, index)=>
-      objective.evidence.some(record=>record?.criterionIndex===index &&
-        typeof record?.receiptId==='string' && record.receiptId.length>0)))
-    .map(objective=>objective.id);
+  const trusted=new Set(acceptedObjectiveIds(plan,progress));
+  const unresolved=plan.objectives.filter(o=>!trusted.has(o.id)).map(o=>o.id);
   return Object.freeze({
     execution,
     requirements:unresolved.length?'unverified':'verified',
-    verification:categories.ready?'evidence_present_not_objective_certified':'missing_evidence',
+    verification:categories.ready?(unresolved.length?'evidence_present_not_objective_certified':'owner_accepted_with_fresh_receipts'):'missing_evidence',
     unresolvedObjectiveIds:unresolved,
     missingChecks:categories.missing,
     note:unresolved.length

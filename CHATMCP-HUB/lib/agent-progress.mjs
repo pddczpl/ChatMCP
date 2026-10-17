@@ -47,6 +47,7 @@ export function createTaskProgress(saved = null, { newRun = false } = {}) {
     recentFingerprints: fingerprints(data.recentFingerprints),
     semanticFingerprints: fingerprints(data.semanticFingerprints),
     recoveryAttempts: newRun ? 0 : Math.min(RECOVERY_POINTS.length,positive(data.recoveryAttempts)),
+    verifiedInspections: receipts(data.verifiedInspections,'inspect'),
     verifiedFiles: receipts(data.verifiedFiles,'edit'),
     verifiedChecks: receipts(data.verifiedChecks,'verify'),
     gitReviews: receipts(data.gitReviews,'review'),
@@ -125,7 +126,8 @@ export function observeTaskTool(progressValue, { call, result, step = 0, verifie
   // attempted file mutation. A fresh, independently validated edit may then
   // be recorded below. Never carry pre-repair PASS into the final report.
   if (FILE_MUTATION.test(name) && result?.executed !== false) {
-    const stale = progress.verifiedFiles.length + progress.verifiedChecks.length + progress.gitReviews.length;
+    const stale = progress.verifiedInspections.length + progress.verifiedFiles.length + progress.verifiedChecks.length + progress.gitReviews.length;
+    progress.verifiedInspections = [];
     progress.verifiedFiles = [];
     progress.verifiedChecks = [];
     progress.gitReviews = [];
@@ -143,8 +145,9 @@ export function observeTaskTool(progressValue, { call, result, step = 0, verifie
   }
   if (!failed && category === 'inspecting') remember(progress.inspected, itemLabel);
 
-  if(verified && ['edit','verify','review'].includes(verified.kind)) {
-    const list=verified.kind==='edit'?progress.verifiedFiles:
+  if(verified && ['inspect','edit','verify','review'].includes(verified.kind)) {
+    const list=verified.kind==='inspect'?progress.verifiedInspections:
+      verified.kind==='edit'?progress.verifiedFiles:
       verified.kind==='verify'?progress.verifiedChecks:progress.gitReviews;
     const record={kind:verified.kind,step:positive(verified.step||step)};
     if(typeof verified.path==='string')record.path=verified.path.slice(0,MAX_LABEL);
