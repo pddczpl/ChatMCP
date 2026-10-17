@@ -47,6 +47,13 @@ export class ConcurrentApiAgent {
     });
     this.primary.subscribe((event) => this.#event(event));
   }
+  async #scopedProvider(profileId=null,expectedRevision=null) {
+    if(typeof this.manager.resolveAiProfileProvider==='function')
+      return this.manager.resolveAiProfileProvider({profileId,expectedRevision});
+    if(profileId && profileId!=='__global__')
+      throw fail('profile_unsupported','Model profile selection is not available on this Hub.',409);
+    return {provider:this.provider,effectiveProfile:null};
+  }
   subscribe(listener) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -72,6 +79,7 @@ export class ConcurrentApiAgent {
       id: r.id, conversationId:r.conversationId||r.parentTaskId||r.id, linkedFromTaskId:r.linkedFromTaskId||null, workspacePath:r.sourceRoot, prompt: r.prompt, workflowId:r.workflowId||null,phaseId:r.phaseId||null,role:r.role||null, status: r.status === 'preparing' ? 'running' : r.status,
       state, createdAt: r.createdAt, updatedAt: r.updatedAt, workspace: { path: r.worktree || r.executionRoot || r.sourceRoot },
       branch: r.branch, dependsOn: r.dependsOn || [], parentTaskId: r.parentTaskId || null,
+      effectiveProfile:r.effectiveProfile||null,roleProfiles:r.roleProfiles||{},
       parentRunId: r.parentRunId || null,
       events: [], toolCalls: 0, steps: 0, prompts: [{ at: r.createdAt, text: r.prompt }],
       dialogue: [{ role: 'user', at: r.createdAt, text: r.prompt }],
@@ -83,7 +91,8 @@ export class ConcurrentApiAgent {
     return real ? { ...real, branch: record.branch, worktree: record.worktree,
       workspacePath:record.sourceRoot, conversationId:record.conversationId||record.parentTaskId||record.id,linkedFromTaskId:record.linkedFromTaskId||null,
       dependsOn: record.dependsOn || [], parentTaskId: record.parentTaskId || null,
-      parentRunId:record.parentRunId||null,workflowId:record.workflowId||null,phaseId:record.phaseId||null,role:record.role||null } : this.#queued(record);
+      parentRunId:record.parentRunId||null,workflowId:record.workflowId||null,phaseId:record.phaseId||null,role:record.role||null,
+      effectiveProfile:record.effectiveProfile||null,roleProfiles:record.roleProfiles||{} } : this.#queued(record);
   }
   #activeIds() {
     const ids = [];
@@ -252,7 +261,9 @@ export class ConcurrentApiAgent {
     manager.spawnBackgroundAgent = (_callerId, request) => this.spawnAgent(record.id, request);
     manager.spawnWorkflow = (_callerId, request) => this.spawnWorkflow(record.id, request);
     await manager.startLocal(executionRoot);
-    const runner = new AgentRunner({ manager, provider: this.provider,
+    const scoped=await this.#scopedProvider(record.effectiveProfile?.id||'__global__',
+      record.effectiveProfile?.revision||null);
+    const runner = new AgentRunner({ manager, provider: scoped.provider,
       taskDirectory: path.join(stateDir, 'tasks'), log: this.log, toolSelectionMode: 'auto' });
     await runner.load();
     runner.subscribe(event => this.#event(event));
@@ -331,7 +342,9 @@ export class ConcurrentApiAgent {
           '\nPrevious workers used independent worktrees. Changes are NOT automatically merged. '+
           'Inspect source, diffs and run actual checks; do not claim prior edits are integrated or verified without evidence.'
         : record.prompt+migration;
-      const result = await child.runner.start({ prompt: taskPrompt, initialId: record.id, attachments: record.attachments || [] });
+      const result = await child.runner.start({ prompt: taskPrompt, initialId: record.id,
+        attachments: record.attachments || [],
+        effectiveProfile:record.effectiveProfile||null,roleProfiles:record.roleProfiles||{} });
       record.status = result.status;
       record.updatedAt = now();
       delete record.attachments;
@@ -372,7 +385,9 @@ export class ConcurrentApiAgent {
       }
     } finally { this.draining = false; }
   }
-  async start({ prompt, attachments = [], dependsOn = [], parentTaskId = null, baseRef = null, workspacePath = null, workflowId = null, phaseId = null, role = null, conversationId = null, linkedFromTaskId = null, handoffText = '' } = {}) {
+  async start({ prompt, attachments = [], dependsOn = [], parentTaskId = null, baseRef = null, workspacePath = null,
+    workflowId = null, phaseId = null, role = null, conversationId = null, linkedFromTaskId = null, handoffText = '',
+    profileId = null, roleProfiles = null } = {}) {
     if (this.closed) throw fail('shutting_down', 'Hub is shutting down.', 503);
     if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 100000) throw fail('invalid_prompt', 'A task prompt is required.', 400);
     if (!Array.isArray(dependsOn) || dependsOn.length > 12 || dependsOn.some(id => !UUID.test(id) || !this.get(id)))
@@ -380,6 +395,16 @@ export class ConcurrentApiAgent {
     if (parentTaskId && (!UUID.test(parentTaskId) || !this.get(parentTaskId)))
       throw fail('invalid_parent', 'Parent task was not found.', 400);
     const parent = parentTaskId ? this.get(parentTaskId) : null;
+    const inherited=parent?.roleProfiles||{};
+    const requestedOverrides=roleProfiles===null ? inherited : roleProfiles;
+    if(!requestedOverrides||typeof requestedOverrides!=='object'||Array.isArray(requestedOverrides)||
+      Object.keys(requestedOverrides).length>12||
+      Object.entries(requestedOverrides).some(([r,p])=>!/^[a-z][a-z0-9_-]{0,40}$/i.test(r)||
+        typeof p!=='string'||!/^[a-z0-9][a-z0-9._-]{0,40}$/i.test(p)))
+      throw fail('invalid_role_profiles','Role-specific model profiles must map valid role names to saved profile IDs.',400);
+    const selectedRoleProfiles={...requestedOverrides};
+    const chosenId=profileId || (role&&selectedRoleProfiles[role]) || parent?.effectiveProfile?.id || null;
+    const scoped=await this.#scopedProvider(chosenId);
     const desired = parent ? parent.workspacePath || parent.workspace?.path || this.manager.workspace : workspacePath;
     const root = this.manager.workspaceRegistry
       ? (await this.manager.workspaceRegistry.resolve(desired)).path
@@ -404,7 +429,11 @@ export class ConcurrentApiAgent {
     );
     if (!parentTaskId && !dependsOn.length && !baseRef && !linkedFromTaskId &&
         root === this.manager.workspace && !this.primary.activeTaskId && !rootOccupied)
-      return this.primary.start({ prompt, attachments });
+      {
+        this.primary.provider=scoped.provider;
+        return this.primary.start({prompt,attachments,effectiveProfile:scoped.effectiveProfile,
+          roleProfiles:selectedRoleProfiles});
+      }
     const id = randomUUID();
     const record = { id, prompt: prompt.trim(), attachments, attachmentCount: attachments.length,
       conversationId:conversationId||parent?.conversationId||parentTaskId||id,
@@ -412,6 +441,8 @@ export class ConcurrentApiAgent {
       handoffText:typeof handoffText==='string'?handoffText.slice(0,2500):'',
       parentRunId:parentTaskId?(parent?.runs?.at(-1)?.id||null):null,
       workflowId,phaseId,role,
+      profileId:scoped.effectiveProfile?.id||null,
+      effectiveProfile:scoped.effectiveProfile||null,roleProfiles:selectedRoleProfiles,
       sourceRoot: root, createdAt: now(), updatedAt: now(),
       status: 'queued', dependsOn: [...new Set(dependsOn)], parentTaskId, baseRef,
       executionRoot: root !== this.manager.workspace && !rootOccupied && !parentTaskId && !baseRef ? root : null,
@@ -425,10 +456,13 @@ export class ConcurrentApiAgent {
   async spawnAgent(parentTaskId, { goal, dependsOn = [], workflowId = null, phaseId = null, role = null } = {}) {
     if (typeof goal !== 'string' || !goal.trim() || goal.length > 8000)
       throw fail('invalid_goal', 'Subagent goal is required and must be under 8000 characters.', 400);
-    // The caller's tool invocation already passes the active conversation's permissions.
+    // Role overrides are inherited from the owner's original task. A model
+    // cannot supply a new credential destination through spawn_agent.
+    const parent=this.get(parentTaskId);
     return this.start({ prompt: goal, dependsOn, parentTaskId,
-      workflowId,phaseId,role,
-      workspacePath: this.get(parentTaskId)?.workspacePath || null });
+      workflowId,phaseId,role,roleProfiles:parent?.roleProfiles||{},
+      profileId:(role?parent?.roleProfiles?.[role]:null)||parent?.effectiveProfile?.id||null,
+      workspacePath: parent?.workspacePath || null });
   }
   async spawnWorkflow(parentTaskId, request = {}) {
     if (!this.get(parentTaskId)) throw fail('parent_missing','Conversation not found.',404);
@@ -447,7 +481,11 @@ export class ConcurrentApiAgent {
       await this.manager.workspaceRegistry.resolve(root);
     if (this.primary.get(id)) {
       if (this.primary.activeTaskId === id) return this.primary.enqueueMessage({ id, prompt, attachments });
-      return this.primary.continue({ id, prompt, attachments, ...limits });
+      const scoped=await this.#scopedProvider(original.effectiveProfile?.id||'__global__',
+        original.effectiveProfile?.revision||null);
+      this.primary.provider=scoped.provider;
+      return this.primary.continue({ id, prompt, attachments, ...limits,
+        effectiveProfile:scoped.effectiveProfile,roleProfiles:original.roleProfiles||{} });
     }
     const record = this.records.get(id);
     if (!record) throw fail('task_not_found', 'Conversation does not exist.', 404);
@@ -469,7 +507,11 @@ export class ConcurrentApiAgent {
       }
       throw fail('missing_worktree', 'No worktree available for continuation.');
     }
-    return child.runner.continue({ id, prompt, attachments, ...limits });
+    const scoped=await this.#scopedProvider(record.effectiveProfile?.id||'__global__',
+      record.effectiveProfile?.revision||null);
+    child.runner.provider=scoped.provider;
+    return child.runner.continue({id,prompt,attachments,...limits,
+      effectiveProfile:scoped.effectiveProfile,roleProfiles:record.roleProfiles||{} });
   }
   async cancel(id) {
     if (this.primary.get(id)) return this.primary.cancel(id);

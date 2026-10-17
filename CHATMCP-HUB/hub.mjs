@@ -118,6 +118,9 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   manager.resolveAiProfileProvider=async ({profileId=null,expectedRevision=null}={})=>{
     if(await profilesReady===false)throw Object.assign(new Error('AI profile storage is unavailable.'),{
       code:'profiles_unavailable',statusCode:503});
+    // A task created before the profile feature, or explicitly using the
+    // global gateway, must not silently inherit a new default on restart.
+    if(profileId==='__global__')return {provider,effectiveProfile:null};
     const id=profileId || aiProfiles.defaultProfileId || null;
     if(!id)return {provider,effectiveProfile:null};
     if(typeof provider?.forkForTask!=='function')
