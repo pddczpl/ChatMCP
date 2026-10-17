@@ -111,9 +111,10 @@ export const api = {
   // Tasks
   getTask: (id: string): Promise<Task> => request<TaskDetail>(`/api/tasks/${encodeURIComponent(id)}`).then(normalizeTask),
   startTask: (prompt: string, attachments: ChatAttachment[] = [], baseRef: string | null = null,
-    dependsOn: string[] = [], workspacePath: string | null = null) =>
+    dependsOn: string[] = [], workspacePath: string | null = null,
+    profileId: string | null = null, roleProfiles: Record<string,string> = {}) =>
     request<{ task: TaskDetail }>('/api/tasks/start', { method: 'POST',
-      body: JSON.stringify({ prompt, attachments, baseRef, dependsOn, workspacePath }) })
+      body: JSON.stringify({ prompt, attachments, baseRef, dependsOn, workspacePath, profileId, roleProfiles }) })
       .then((r) => ({ task: normalizeTask(r.task) })),
   continueTask: (id: string, prompt: string, attachments: ChatAttachment[] = []) =>
     request<{ task: TaskDetail }>('/api/tasks/continue', { method: 'POST', body: JSON.stringify({ id, prompt, attachments }) }).then((r) => ({ task: normalizeTask(r.task) })),

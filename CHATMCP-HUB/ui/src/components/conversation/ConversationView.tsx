@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { isTaskActive, normalizeApproval, taskTimeline } from '@/lib/task-view';
 import type { ChatAttachment } from '@/types';
+import { parseRoleProfileOverrides } from '@/lib/model-profile-selection';
 
 export function ConversationView() {
   const queryClient = useQueryClient();
@@ -35,6 +36,9 @@ export function ConversationView() {
   const requestPending = useRef(false);
   const [sending, setSending] = useState(false);
   const [dependsOn, setDependsOn] = useState<string[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState('');
+  const [roleProfilesDraft, setRoleProfilesDraft] = useState('');
+  const [showRoleProfiles, setShowRoleProfiles] = useState(false);
   const [approving, setApproving] = useState(false);
   const [cancellingWorkflow,setCancellingWorkflow] = useState<string | null>(null);
   const [recoveringChatUrl,setRecoveringChatUrl] = useState(false);
@@ -87,8 +91,15 @@ export function ConversationView() {
     setSending(true);
     try {
       if (!selectedTaskId) {
+        const apiMode=(hub?.agent?.mode||'api')==='api';
+        const knownProfiles=hub?.ai?.profiles||[];
+        if(apiMode && selectedProfileId && selectedProfileId!=='__global__' &&
+           !knownProfiles.some(p=>p.id===selectedProfileId))
+          throw new Error('Model profile đã chọn không còn tồn tại.');
+        const roleProfiles=apiMode?parseRoleProfileOverrides(roleProfilesDraft,knownProfiles):{};
         const res = await api.startTask(text || 'Hãy phân tích tệp/ảnh đính kèm.', attachments, selectedBaseRef || null, dependsOn,
-          selectedWorkspacePath || hub?.workspaces?.activePath || hub?.workspace?.path || null);
+          selectedWorkspacePath || hub?.workspaces?.activePath || hub?.workspace?.path || null,
+          apiMode ? selectedProfileId || null : null, roleProfiles);
         if (res?.task?.id) {
           queryClient.setQueryData(['task', res.task.id], res.task);
           setSelectedTaskId(res.task.id);
@@ -405,6 +416,43 @@ export function ConversationView() {
         messagesEndRef.current?.scrollIntoView({ behavior: 'instant', block: 'end' });
       }}>Về nội dung mới nhất ↓</button></div>}
 
+      {/* New task model routing is independent from permissions and transport.
+          Existing sessions keep the saved immutable profile revision. */}
+      {(!selectedTaskId && desiredTransport==='api') &&
+        <div className="px-3 py-2 border-t border-[var(--line-subtle)] bg-[var(--panel)] text-xs space-y-1.5"
+             data-testid="new-task-model-profile">
+          <div className="flex items-center flex-wrap gap-2">
+            <label htmlFor="chatmcp-task-profile" className="text-[var(--muted)]">Model profile</label>
+            <select id="chatmcp-task-profile" aria-label="Task model profile"
+              value={selectedProfileId} onChange={event=>setSelectedProfileId(event.target.value)}
+              className="min-w-40 max-w-full bg-[var(--surface)] text-[var(--text)] border border-[var(--line)] rounded-md px-2 py-1">
+              <option value="">Default {hub?.ai?.defaultProfileId ? 'saved profile' : 'gateway'}</option>
+              {(hub?.ai?.profiles||[]).length>0 && <option value="__global__">Global gateway (no profile)</option>}
+              {(hub?.ai?.profiles||[]).map(p=><option key={p.id} value={p.id}>
+                {p.name || p.id} · {p.model} {p.isDefault?'(default)':''}
+              </option>)}
+            </select>
+            <button type="button" onClick={()=>setShowRoleProfiles(x=>!x)}
+              aria-expanded={showRoleProfiles}
+              className="underline text-[var(--primary)] hover:opacity-80">Role overrides</button>
+            <span className="text-[var(--faint)]">API transport only</span>
+          </div>
+          {showRoleProfiles && <div className="space-y-1">
+            <label htmlFor="chatmcp-task-role-profiles" className="text-[var(--muted)]">
+              Role to saved profile ID (JSON; max 12)
+            </label>
+            <textarea id="chatmcp-task-role-profiles" aria-label="Task role model profiles"
+              rows={2} value={roleProfilesDraft}
+              onChange={event=>setRoleProfilesDraft(event.target.value)}
+              placeholder='{"reviewer":"review-profile","tester":"test-profile"}'
+              className="w-full font-mono bg-[var(--surface)] text-[var(--text)] border border-[var(--line)] rounded-md p-1.5"/>
+            <p className="text-[var(--faint)]">Profiles are selected when the task starts. Role names must match spawned agent roles.</p>
+          </div>}
+        </div>}
+      {!!selectedTaskId && !!task?.effectiveProfile && <p className="px-3 py-1 text-[11px] text-[var(--muted)] border-t border-[var(--line-subtle)]"
+        data-testid="active-model-profile">
+        Model profile: {task.effectiveProfile.name} · {task.effectiveProfile.model} · revision {task.effectiveProfile.revision?.slice(0,8)}
+      </p>}
       {/* ChatGPT Web transport only accepts browser-authenticated TEXT packets.
           It cannot send local image attachments through this protocol. */}
       {/* Bottom Composer */}
