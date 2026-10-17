@@ -5,7 +5,9 @@
 param(
     [Parameter(Mandatory=$true)][string]$BaselineInstaller,
     [Parameter(Mandatory=$true)][string]$CandidateInstaller,
-    [string]$OutputDirectory = 'native-lifecycle-evidence'
+    [string]$OutputDirectory = 'native-lifecycle-evidence',
+    [Parameter(Mandatory=$true)][ValidatePattern('^\d+\.\d+\.\d+$')][string]$ExpectedBaselineVersion,
+    [Parameter(Mandatory=$true)][ValidatePattern('^\d+\.\d+\.\d+$')][string]$ExpectedCandidateVersion
 )
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
@@ -106,8 +108,9 @@ try {
     $report.baselineVersion=(Get-Item $BaselineInstaller).VersionInfo.ProductVersion
     $report.candidateVersion=(Get-Item $CandidateInstaller).VersionInfo.ProductVersion
     $report.candidateSha256=(Get-FileHash $CandidateInstaller -Algorithm SHA256).Hash.ToLowerInvariant()
-    Assert-Native ($report.candidateVersion -like '3.8.3*') 'candidate EXE metadata is 3.8.3'
-    # Baseline is the published, byte-verified 3.8.2 installer; use its real GUI.
+    Assert-Native ($report.baselineVersion -like "$ExpectedBaselineVersion*") ("published baseline EXE metadata matches " + $ExpectedBaselineVersion + ": " + $report.baselineVersion)
+    Assert-Native ($report.candidateVersion -like "$ExpectedCandidateVersion*") ("candidate EXE metadata matches " + $ExpectedCandidateVersion + ": " + $report.candidateVersion)
+    # Baseline is the published, byte-verified ${ExpectedBaselineVersion} installer; use its real GUI.
     $setup=Start-Process $BaselineInstaller -PassThru; $owned.Add($setup)
     $window=Window-For $setup
     Click (Wait-Button $window 'Install')
@@ -118,7 +121,7 @@ try {
     Click $finish
     Assert-Native ($setup.WaitForExit(30000) -and $setup.ExitCode -eq 0) 'published baseline setup wizard completes'
     $first=Start-Desktop
-    $null=Wait-Health '3.8.2'
+    $null=Wait-Health $ExpectedBaselineVersion
     Assert-Native $true 'published baseline ChatMCP.exe starts the bundled Hub'
     Close-Desktop $first
     Stop-InstalledHub
@@ -126,35 +129,35 @@ try {
     $node=Join-Path $root 'runtimes\node\node.exe'
     $entry=Join-Path $root 'CHATMCP-HUB\hub.mjs'
     $oldHub=Start-Process $node -ArgumentList @(('"'+$entry+'"'),'--port','3007','--no-open') -PassThru -WindowStyle Hidden
-    $owned.Add($oldHub); $null=Wait-Health '3.8.2'
+    $owned.Add($oldHub); $null=Wait-Health $ExpectedBaselineVersion
     $canary=Join-Path $root 'unrelated-user-file.txt'
     [IO.File]::WriteAllText($canary,'PRESERVE-USER-DATA')
     $stateCanary=Join-Path $data 'unrelated-user-state.txt'
     [IO.File]::WriteAllText($stateCanary,'PRESERVE-STATE')
     Assert-Native ((Quiet-Install) -eq 0) 'real candidate installer upgrades with independent old Hub running'
     Assert-Native ($oldHub.HasExited) 'upgrade confirms exact old Hub exited'
-    Assert-Native ((Get-Content (Join-Path $root 'CHATMCP-HUB\package.json') -Raw | ConvertFrom-Json).version -eq '3.8.3') 'installed Hub package is 3.8.3'
-    Assert-Native ((Get-Item (Join-Path $root 'ChatMCP.exe')).VersionInfo.ProductVersion -like '3.8.3*') 'installed launcher EXE is 3.8.3'
-    Assert-Native ((Get-ItemProperty $registry).DisplayVersion -eq '3.8.3') 'Windows Installed Apps reports the assembly version'
+    Assert-Native ((Get-Content (Join-Path $root 'CHATMCP-HUB\package.json') -Raw | ConvertFrom-Json).version -eq $ExpectedCandidateVersion) 'installed Hub package is ${ExpectedCandidateVersion}'
+    Assert-Native ((Get-Item (Join-Path $root 'ChatMCP.exe')).VersionInfo.ProductVersion -like '${ExpectedCandidateVersion}*') 'installed launcher EXE is ${ExpectedCandidateVersion}'
+    Assert-Native ((Get-ItemProperty $registry).DisplayVersion -eq $ExpectedCandidateVersion) 'Windows Installed Apps reports the assembly version'
     Assert-Native ((Get-Content (Join-Path $root 'CHATMCP-HUB\extension\manifest.json') -Raw | ConvertFrom-Json).version -eq '1.5.2') 'installed Companion is 1.5.2'
     Assert-Native ([IO.File]::ReadAllText($canary) -eq 'PRESERVE-USER-DATA' -and [IO.File]::ReadAllText($stateCanary) -eq 'PRESERVE-STATE') 'upgrade preserves unrelated application and state files'
-    $candidate=Start-Desktop; $null=Wait-Health '3.8.3'
+    $candidate=Start-Desktop; $null=Wait-Health $ExpectedCandidateVersion
     $ownerId=(Get-NetTCPConnection -LocalPort 3007 -State Listen).OwningProcess
     $duplicate=Start-Process (Join-Path $root 'ChatMCP.exe') -PassThru; $owned.Add($duplicate)
     Assert-Native ($duplicate.WaitForExit(10000)) 'second launcher activates existing instance then exits'
     Assert-Native (-not $candidate.HasExited -and (Get-NetTCPConnection -LocalPort 3007 -State Listen).OwningProcess -eq $ownerId) 'second invocation does not stop the primary window or Hub'
     Close-Desktop $candidate
-    $null=Wait-Health '3.8.3'
+    $null=Wait-Health $ExpectedCandidateVersion
     Assert-Native ((Get-NetTCPConnection -LocalPort 3007 -State Listen).OwningProcess -eq $ownerId) 'closing GUI leaves the same Hub alive without replay'
-    $candidate=Start-Desktop; $null=Wait-Health '3.8.3'
+    $candidate=Start-Desktop; $null=Wait-Health $ExpectedCandidateVersion
     Assert-Native ((Get-NetTCPConnection -LocalPort 3007 -State Listen).OwningProcess -eq $ownerId) 'reopening GUI reuses the exact-version Hub'
     Close-Desktop $candidate
     Stop-InstalledHub
     # Positive HTTP 200 from the wrong version must not be loaded into WebView2.
     $fakeFile=Join-Path $OutputDirectory 'foreign-service.mjs'
-    [IO.File]::WriteAllText($fakeFile,"import http from 'node:http';http.createServer((q,s)=>{s.setHeader('Content-Type','application/json');s.end(JSON.stringify({app:'chatmcp-local-hub',version:'3.8.2',uiBuild:'3.8.2-react-agent',initialized:true}));}).listen(3007,'127.0.0.1');")
+    [IO.File]::WriteAllText($fakeFile,"import http from 'node:http';http.createServer((q,s)=>{s.setHeader('Content-Type','application/json');s.end(JSON.stringify({app:'chatmcp-local-hub',version:'$ExpectedBaselineVersion',uiBuild:'${ExpectedBaselineVersion}-react-agent',initialized:true}));}).listen(3007,'127.0.0.1');")
     $fake=Start-Process (Get-Command node.exe).Source -ArgumentList ('"'+$fakeFile+'"') -WindowStyle Hidden -PassThru; $owned.Add($fake)
-    $null=Wait-Health '3.8.2'
+    $null=Wait-Health $ExpectedBaselineVersion
     $candidate=Start-Desktop
     Assert-NativeError $candidate 'Hub version mismatch'
     Assert-Native (-not $fake.HasExited) 'launcher refuses old-version health without stopping the foreign process'
@@ -164,7 +167,7 @@ try {
     Assert-Native ((Get-FileHash (Join-Path $root 'ChatMCP.exe') -Algorithm SHA256).Hash -eq $before -and -not $fake.HasExited) 'foreign-port refusal leaves installed bytes and unrelated process unchanged'
     $fake.Kill(); $null=$fake.WaitForExit(10000)
     # Actual uninstall also stops a Hub kept alive after closing the GUI.
-    $candidate=Start-Desktop; $null=Wait-Health '3.8.3'; Close-Desktop $candidate
+    $candidate=Start-Desktop; $null=Wait-Health $ExpectedCandidateVersion; Close-Desktop $candidate
     $uninstall=Start-Process (Join-Path $root 'Uninstall.exe') -ArgumentList '--quiet','--uninstall' -PassThru; $owned.Add($uninstall)
     Assert-Native ($uninstall.WaitForExit(120000) -and $uninstall.ExitCode -eq 0) 'actual installed uninstaller completes with live idle Hub'
     Assert-Native (-not (Get-NetTCPConnection -LocalPort 3007 -State Listen -ErrorAction SilentlyContinue)) 'uninstall confirms Hub listener is gone'

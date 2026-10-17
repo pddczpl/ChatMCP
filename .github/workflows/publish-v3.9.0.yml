@@ -105,7 +105,7 @@ jobs:
           if ((Get-FileHash "$env:RUNNER_TEMP/native-baseline/ChatMCPSetup.exe" -Algorithm SHA256).Hash -ne '9d506108d16abff007be178103c4e8cfa5b8c9fe86126fabfda61f6e42a3d1c2') { throw 'Baseline checksum mismatch' }
       - name: Real setup upgrade, installed EXE lifecycle and uninstall
         run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/Test-NativeLifecycle.ps1 -BaselineInstaller "$env:RUNNER_TEMP/native-baseline/ChatMCPSetup.exe" -CandidateInstaller dist/ChatMCPSetup.exe -OutputDirectory "$env:RUNNER_TEMP/native-release-evidence/installed-lifecycle"
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/Test-NativeLifecycle.ps1 -BaselineInstaller "$env:RUNNER_TEMP/native-baseline/ChatMCPSetup.exe" -CandidateInstaller dist/ChatMCPSetup.exe -ExpectedBaselineVersion 3.8.3 -ExpectedCandidateVersion 3.9.0 -OutputDirectory "$env:RUNNER_TEMP/native-release-evidence/installed-lifecycle"
           if ($LASTEXITCODE -ne 0) { throw 'Installed EXE acceptance failed' }
       - name: Native WebView2 smoke and canonical Companion parity
         run: |
