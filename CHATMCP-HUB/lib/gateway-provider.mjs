@@ -289,6 +289,33 @@ export class GatewayProvider {
     };
   }
   snapshot() { return { provider: `gateway:${this.protocol}`, model: this.model }; }
+  // Fork a task-local provider without changing the global AI settings,
+  // writing a new credential file or routing its key through another origin.
+  forkForTask(profile) {
+    if(!profile||typeof profile!=='object')throw bad('invalid_profile','Model profile configuration is required.');
+    const protocol=profile.protocol || profile.provider;
+    const base=validateBaseUrl(profile.apiBaseUrl);
+    if(!FORMATS.includes(protocol)||!modelOK(profile.model))
+      throw bad('invalid_profile','Profile has an unsupported protocol or model.');
+    const authMode=profile.authMode || 'auto';
+    if(!AUTH_MODES.includes(authMode)||(protocol==='anthropic'&&authMode==='google-key'))
+      throw bad('invalid_profile','Profile authentication is invalid.');
+    const key=typeof profile.apiKey==='string'?profile.apiKey:'';
+    checkKey(key);
+    const context=parseContextWindow(profile.contextWindow ?? null);
+    if(context===undefined)throw bad('invalid_profile','Profile context window is invalid.');
+    const child=new GatewayProvider({
+      directory:this.directory,bundleRoot:this.bundleRoot,manager:this.manager,
+      fetchImpl:this.fetch,env:this.env,sleep:this.sleep,limits:this.limits,
+      protect:this.protect,unprotect:this.unprotect,
+    });
+    child.apiBaseUrl=base;child.protocol=protocol;child.authMode=authMode;
+    child.model=profile.model;child.contextWindowTokens=context;
+    child.customPath='';child.apiKey=key;child.preset='profile';
+    child.keySource=key?'profile':'none';child.registerKey(key);
+    if(!child.ready())throw bad('profile_not_ready','The selected model profile has no usable credentials.',409);
+    return child;
+  }
   /** Names (never values) of provider key variables present in the environment, for the Settings page. */
   envKeys() { return detectEnvKeys(this.env); }
   keyRequired() { return !isLoopbackUrl(this.apiBaseUrl); }

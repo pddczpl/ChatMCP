@@ -14,6 +14,15 @@ import { createProtector } from './secret-box.mjs';
 const PROFILES_FILENAME = 'ai-profiles.json';
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,40}$/i;
 const ALLOWED_PROVIDERS = ['anthropic', 'openai-chat', 'openai-responses', 'gemini', 'ollama', 'custom'];
+const ALLOWED_PROTOCOLS = ['anthropic','openai-chat','openai-responses','gemini'];
+function safeOrigin(value) {
+  if(!value)return null;
+  let url;try{url=new URL(value);}catch{throw error('invalid_profile_endpoint','Profile endpoint is not a valid URL.');}
+  if(url.username||url.password||url.hash||url.search||
+      !(url.protocol==='https:'||(url.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(url.hostname))))
+    throw error('invalid_profile_endpoint','Profile must use HTTPS or loopback HTTP without embedded credentials.');
+  return url.origin;
+}
 const DEFAULT_BUNDLE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const error = (code, message, statusCode = 400) => Object.assign(new Error(message), { code, statusCode });
@@ -100,6 +109,9 @@ export class AiProfiles {
       model: p.model,
       apiBaseUrl: p.apiBaseUrl || null,
       contextWindow: p.contextWindow || null,
+      protocol: p.protocol || (ALLOWED_PROTOCOLS.includes(p.provider)?p.provider:null),
+      authMode: p.authMode || 'auto',
+      revision: p.revision || null,
       hasKey: Boolean(p.encryptedKey || p.envKeyName),
       isDefault: p.id === this.defaultProfileId,
       envKeyName: p.envKeyName || null,
@@ -121,6 +133,9 @@ export class AiProfiles {
       model: p.model,
       apiBaseUrl: p.apiBaseUrl || null,
       contextWindow: p.contextWindow || null,
+      protocol: p.protocol || (ALLOWED_PROTOCOLS.includes(p.provider)?p.provider:null),
+      authMode: p.authMode || 'auto',
+      revision: p.revision || null,
       hasKey: Boolean(p.encryptedKey || p.envKeyName),
       isDefault: p.id === this.defaultProfileId,
     };
@@ -144,15 +159,30 @@ export class AiProfiles {
     if (!model) throw error('missing_model', 'Tên model không được để trống.');
 
     const existing = this.profiles.get(id) || {};
+    const protocol=String(input.protocol || existing.protocol ||
+      (ALLOWED_PROTOCOLS.includes(provider)?provider:'openai-chat')).toLowerCase();
+    if(!ALLOWED_PROTOCOLS.includes(protocol))throw error('invalid_profile_protocol','Unsupported provider profile protocol.');
+    const authMode=String(input.authMode || existing.authMode || 'auto').toLowerCase();
+    if(!['auto','bearer','google-key'].includes(authMode) ||
+       (protocol==='anthropic'&&authMode==='google-key'))
+      throw error('invalid_profile_auth','Unsupported profile authentication mode.');
+    const nextBase=input.apiBaseUrl?.trim() || existing.apiBaseUrl || null;
+    const oldOrigin=safeOrigin(existing.apiBaseUrl);
+    const nextOrigin=safeOrigin(nextBase);
+    // The protected credential cannot be silently reused at a different
+    // endpoint, provider or API protocol.
+    const destinationChanged=Boolean(existing.id) && (
+      oldOrigin!==nextOrigin || existing.provider!==provider ||
+      (existing.protocol || existing.provider)!==protocol);
     const profile = {
       id,
       name: input.name?.trim() || existing.name || id,
-      provider,
-      model,
-      apiBaseUrl: input.apiBaseUrl?.trim() || existing.apiBaseUrl || null,
+      provider, protocol, authMode,
+      model, revision:randomUUID(),
+      apiBaseUrl:nextBase,
       contextWindow: Number.isFinite(input.contextWindow) ? input.contextWindow : existing.contextWindow || null,
-      envKeyName: input.envKeyName?.trim() || existing.envKeyName || null,
-      encryptedKey: existing.encryptedKey || null,
+      envKeyName: input.envKeyName?.trim() || (destinationChanged?null:existing.envKeyName) || null,
+      encryptedKey: destinationChanged?null:existing.encryptedKey || null,
     };
 
     if (input.apiKey && typeof input.apiKey === 'string') {
@@ -225,7 +255,8 @@ export class AiProfiles {
     return {
       id: p.id,
       name: p.name,
-      provider: p.provider,
+      provider: p.provider,protocol:p.protocol || (ALLOWED_PROTOCOLS.includes(p.provider)?p.provider:null),
+      authMode:p.authMode || 'auto',revision:p.revision || null,
       model: p.model,
       apiBaseUrl: p.apiBaseUrl,
       contextWindow: p.contextWindow,
