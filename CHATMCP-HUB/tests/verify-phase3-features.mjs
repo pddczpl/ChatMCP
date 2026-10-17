@@ -125,7 +125,7 @@ console.log('--- Section 2: AiProfiles ---');
   await fs.mkdir(profilesDir, { recursive: true });
   const noDpapiProfiles = new AiProfiles({ stateDir: profilesDir, keyStore: {} });
   await assert.rejects(
-    () => noDpapiProfiles.upsert({ id: 'no-dpapi', provider: 'openai-chat', model: 'gpt-4o', apiKey: 'secret-123' }),
+    () => noDpapiProfiles.upsert({ id: 'no-dpapi', provider: 'openai-chat', model: 'gpt-4o', apiBaseUrl: 'https://api.example/v1', apiKey: 'secret-123' }),
     /Windows DPAPI/
   );
   ok('rejects saving API key without Windows DPAPI keyStore (no Base64 fallback)');
@@ -138,7 +138,7 @@ console.log('--- Section 2: AiProfiles ---');
   if (process.platform !== 'win32') {
     const failClosed = new AiProfiles({ stateDir: path.join(state, 'nonwindows-dpapi-required') });
     await assert.rejects(
-      () => failClosed.upsert({ id: 'must-fail', provider: 'openai-chat', model: 'gpt-4o', apiKey: 'test-key-only' }),
+      () => failClosed.upsert({ id: 'must-fail', provider: 'openai-chat', model: 'gpt-4o', apiBaseUrl: 'https://api.example/v1', apiKey: 'test-key-only' }),
       (err) => err?.code === 'dpapi_required',
       'production profiles must refuse saving keys without DPAPI'
     );
@@ -170,6 +170,7 @@ console.log('--- Section 2: AiProfiles ---');
     name: 'Claude 3.5 Sonnet (Coding)',
     provider: 'anthropic',
     model: 'claude-3-5-sonnet-20241022',
+    apiBaseUrl: 'https://api.anthropic.com',
     apiKey: 'sk-ant-test-key-12345',
     contextWindow: 200000,
   });
@@ -189,6 +190,7 @@ console.log('--- Section 2: AiProfiles ---');
     name: 'GPT-4o (Reviewer)',
     provider: 'openai-chat',
     model: 'gpt-4o',
+    apiBaseUrl: 'https://api.openai.com/v1',
     envKeyName: 'OPENAI_API_KEY',
     isDefault: false,
   });
@@ -362,6 +364,7 @@ console.log('--- Section 4: Hub HTTP Integration ---');
     name: 'DeepSeek Coder',
     provider: 'openai-chat',
     model: 'deepseek-coder-v2',
+    apiBaseUrl: 'https://api.deepseek.com',
     apiKey: 'sk-dsk-12345',
   });
   assert.equal(upsertRes.status, 200);
