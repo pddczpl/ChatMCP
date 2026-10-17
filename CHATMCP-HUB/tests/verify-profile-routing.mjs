@@ -84,7 +84,16 @@ try {
   const sent=JSON.stringify(await fs.readFile(path.join(directory,'sessions.json'),'utf8'));
   assert.ok(!sent.includes('PROTECTED-KEY-NEVER-PERSIST'),'worker metadata must never contain profile credentials');
   assert.ok(sent.includes('review-r1'),'revision recorded for restart binding');
-  await pool.continue({id:task.id,prompt:'Check the implementation'});
+  // A persisted terminal state can precede workspace-lock cleanup. It must
+  // start a new run rather than incorrectly attempting to enqueue a message.
+  let finishLock;
+  primary.activeTaskId=task.id;
+  primary.context={done:{promise:new Promise(resolve=>{finishLock=resolve;})}};
+  const follow=pool.continue({id:task.id,prompt:'Check the implementation'});
+  finishLock();
+  await follow;
+  primary.activeTaskId=null;
+  primary.context=null;
   assert.equal(primary.provider.name,'coding','follow-up uses the original task profile');
   assert.ok(calls.some(x=>x.profileId==='coding'&&x.expectedRevision==='coding-r1'));
   profiles.set('coding',{...profiles.get('coding'),revision:'coding-r2'});

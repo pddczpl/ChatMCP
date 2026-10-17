@@ -496,7 +496,14 @@ export class ConcurrentApiAgent {
     if(this.manager.workspaceRegistry&&root)
       await this.manager.workspaceRegistry.resolve(root);
     if (this.primary.get(id)) {
-      if (this.primary.activeTaskId === id) return this.primary.enqueueMessage({ id, prompt, attachments });
+      if (this.primary.activeTaskId === id) {
+        // The task's completed state is persisted before its finally block
+        // releases the owner workspace lock. A follow-up in this gap must
+        // begin another run, not be enqueued onto a finished model loop.
+        if (this.primary.get(id)?.status === 'running')
+          return this.primary.enqueueMessage({id,prompt,attachments});
+        await this.primary.context?.done?.promise;
+      }
       const scoped=await this.#scopedProvider(original.effectiveProfile?.id||'__global__',
         original.effectiveProfile?.revision||null);
       this.primary.provider=scoped.provider;
@@ -506,7 +513,11 @@ export class ConcurrentApiAgent {
     const record = this.records.get(id);
     if (!record) throw fail('task_not_found', 'Conversation does not exist.', 404);
     const child = this.children.get(id);
-    if (child?.runner.activeTaskId === id) return child.runner.enqueueMessage({ id, prompt, attachments });
+    if (child?.runner.activeTaskId === id) {
+      if (child.runner.get(id)?.status === 'running')
+        return child.runner.enqueueMessage({id,prompt,attachments});
+      await child.runner.context?.done?.promise;
+    }
     if (record.status === 'queued' || record.status === 'preparing')
       throw fail('task_queued', 'This conversation is waiting for its dependencies or worktree.');
     if (!child) {
