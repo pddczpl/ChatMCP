@@ -21,6 +21,10 @@ for name, encoded, expected in [
     file.write_bytes(patch)
     subprocess.run(['git', 'apply', '--check', '--index', str(file)], check=True)
     subprocess.run(['git', 'apply', '--index', str(file)], check=True)
+# Follow-up diffs are visible reviewed text, with git index preimage guards.
+for file in sorted(folder.glob('fix[0-9][0-9].patch')):
+    subprocess.run(['git', 'apply', '--check', '--index', str(file)], check=True)
+    subprocess.run(['git', 'apply', '--index', str(file)], check=True)
 subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
 tree = subprocess.check_output(['git', 'write-tree'], text=True).strip()
 (proof / 'source-tree.txt').write_text(tree + '\n')

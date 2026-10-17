@@ -1,0 +1,44 @@
+diff --git a/CHATMCP-HUB/ui/e2e/companion-ipc.spec.mjs b/CHATMCP-HUB/ui/e2e/companion-ipc.spec.mjs
+index 5302818..5989548 100644
+--- a/CHATMCP-HUB/ui/e2e/companion-ipc.spec.mjs
++++ b/CHATMCP-HUB/ui/e2e/companion-ipc.spec.mjs
+@@ -39,9 +39,9 @@ test('installed Companion sends one claimed turn through real extension IPC and
+   try {
+     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(3007, '127.0.0.1', resolve); });
+     const extension = fileURLToPath(new URL('../../extension/', import.meta.url));
+-    context = await chromium.launchPersistentContext(profile, { channel: 'chromium', headless: true,
++    const launch = () => chromium.launchPersistentContext(profile, { channel: 'chromium', headless: true,
+       args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`] });
+-    await context.route('https://chatgpt.com/**', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html>
++    const installRoute = context => context.route('https://chatgpt.com/**', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html>
+       <html><head><title>Scripted ChatGPT fixture</title></head><body>
+       <form id="search-form"><div contenteditable="true" role="textbox" aria-label="Search">keep search</div></form>
+       <form id="composer"><div id="prompt-textarea" contenteditable="true" role="textbox" aria-label="Ask ChatGPT"></div>
+@@ -52,6 +52,8 @@ test('installed Companion sends one claimed turn through real extension IPC and
+         document.getElementById('prompt-textarea').textContent='';
+         history.pushState({},'', '/c/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee');
+       };</script></body></html>` }));
++    context = await launch();
++    await installRoute(context);
+     let worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker');
+     // Seed a fixture-owned pairing and restart the actual MV3 worker so its
+     // production boot path reads storage. A popup opened as a normal browser
+@@ -60,11 +62,13 @@ test('installed Companion sends one claimed turn through real extension IPC and
+     await worker.evaluate(async value => {
+       await chrome.storage.local.set({ chatmcpBrowserPairV1: value });
+     }, { clientId, token, authFailed: false });
+-    const restarted = context.waitForEvent('serviceworker');
+-    await worker.evaluate(() => chrome.runtime.reload()).catch(error => {
+-      if (!/closed|destroyed|restarted/i.test(error.message)) throw error;
+-    });
+-    worker = await restarted;
++    // Close and reopen the persistent profile after storage has flushed. An
++    // extension runtime.reload destroys its own evaluation channel; awaiting
++    // that evaluation is not a reliable worker-restart test on Chromium.
++    await context.close();
++    context = await launch();
++    await installRoute(context);
++    worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker');
+     state.queued = true;
+     await worker.evaluate(() => chrome.alarms.create('chatmcp-browser-poll', { when: Date.now() + 100 }));
+     await expect.poll(() => state.sent, { timeout: 30_000, message: 'real MV3 claim/send must complete' }).toBe(1);
