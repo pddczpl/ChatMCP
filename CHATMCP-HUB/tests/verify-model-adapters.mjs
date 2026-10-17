@@ -244,7 +244,7 @@ try {
   check(PRESETS.length >= 10 && new Set(PRESETS.map((p) => p.id)).size === PRESETS.length, 'preset ids are unique');
   for (const p of PRESETS.filter((entry) => entry.apiBaseUrl)) {
     check(p.apiBaseUrl.startsWith('https://') || isLoopbackUrl(p.apiBaseUrl), `${p.id} uses HTTPS or loopback`);
-    check(['anthropic', 'openai-chat', 'gemini'].includes(p.protocol), `${p.id} protocol`);
+    check(['anthropic', 'openai-chat', 'openai-responses', 'gemini'].includes(p.protocol), `${p.id} protocol`);
   }
   same(presetForBaseUrl('https://api.anthropic.com/v1/messages')?.id, 'anthropic');
   same(presetForBaseUrl('https://example.com'), null);

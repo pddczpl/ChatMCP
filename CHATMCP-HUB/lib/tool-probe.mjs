@@ -3,6 +3,7 @@
 // It sends no project content, makes no retries, and the fake tool is never executed.
 import { buildAnthropicBody, normalizeAnthropic } from './anthropic-api.mjs';
 import { buildChatBody, normalizeChatCompletion } from './openai-chat-api.mjs';
+import { buildResponsesBody, normalizeResponsesResponse } from './openai-responses-api.mjs';
 import { errorDetail } from './model-http.mjs';
 
 const PROBE_TOOL = Object.freeze({
@@ -22,12 +23,14 @@ const NO_TOOLS = /(?:does(?:n'?t| not) support (?:tools?|function)|tools? (?:is|
  *   unknown     the probe could not be completed (network, rate limit, unexpected answer); says nothing about the model
  */
 export async function probeToolCalling({ protocol, endpoint, headers, model, fetch: fetchImpl, signal, redact = (text) => text, timeoutMs = 20_000 }) {
-  if (protocol !== 'anthropic' && protocol !== 'openai-chat') return { status: 'unknown', note: 'Giao thức này không có bước thăm dò công cụ; tool calling được dò khi chạy tác vụ thật.' };
+  if (protocol !== 'anthropic' && protocol !== 'openai-chat' && protocol !== 'openai-responses') return { status: 'unknown', note: 'Giao thức này không có bước thăm dò công cụ; tool calling được dò khi chạy tác vụ thật.' };
   signal?.throwIfAborted();
   const input = [{ role: 'user', content: [{ type: 'input_text', text: PROMPT }] }];
   const body = protocol === 'anthropic'
     ? buildAnthropicBody({ model, input, instructions: INSTRUCTIONS, tools: [PROBE_TOOL], maxOutputTokens: 256 })
-    : buildChatBody({ model, input, instructions: INSTRUCTIONS, tools: [PROBE_TOOL] });
+    : protocol === 'openai-responses'
+      ? buildResponsesBody({model,input,instructions:INSTRUCTIONS,tools:[PROBE_TOOL],maxOutputTokens:256,stream:false})
+      : buildChatBody({ model, input, instructions: INSTRUCTIONS, tools: [PROBE_TOOL] });
   let response, raw;
   try {
     const timeout = AbortSignal.timeout(timeoutMs);
@@ -47,7 +50,9 @@ export async function probeToolCalling({ protocol, endpoint, headers, model, fet
     return { status: 'unknown', note: `Chưa thăm dò được tool calling (HTTP ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ''}).` };
   }
   let normalized;
-  try { normalized = protocol === 'anthropic' ? normalizeAnthropic(data) : normalizeChatCompletion(data); }
+  try { normalized = protocol === 'anthropic' ? normalizeAnthropic(data)
+    : protocol === 'openai-responses' ? normalizeResponsesResponse(data)
+    : normalizeChatCompletion(data); }
   catch { return { status: 'unknown', note: 'Chưa thăm dò được tool calling: phản hồi không đúng định dạng.' }; }
   const called = normalized.output.find((item) => item.type === 'function_call');
   if (called?.name === PROBE_TOOL.name) return { status: 'supported', note: 'Model gọi công cụ đúng cách.' };

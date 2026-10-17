@@ -21,6 +21,12 @@ export const PRESETS = Object.freeze([
     notes: 'Chat Completions. Tên model mặc định chỉ là gợi ý; dùng "Tải danh sách model" để chọn model có trong tài khoản.',
   }),
   preset({
+    id: 'openai-responses', label: 'OpenAI Responses API', protocol: 'openai-responses',
+    apiBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-5-mini',
+    keyEnv: ['OPENAI_API_KEY'], keyUrl: 'https://platform.openai.com/api-keys',
+    notes: 'Native /v1/responses, function tools and SSE. Select only for genuinely compatible endpoints.',
+  }),
+  preset({
     id: 'gemini', label: 'Google Gemini', protocol: 'gemini', apiBaseUrl: 'https://generativelanguage.googleapis.com', defaultModel: 'gemini-2.5-flash',
     keyEnv: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], contextWindowTokens: 1000000, keyUrl: 'https://aistudio.google.com/apikey',
     notes: 'Gemini API gốc (generateContent).',
@@ -51,6 +57,8 @@ export const PRESETS = Object.freeze([
     notes: 'Không cần API key. Bật local server trong LM Studio, nạp model hỗ trợ tool calling và đặt đủ lớn "context length".',
   }),
   preset({ id: 'custom-openai', label: 'Khác: tương thích OpenAI', protocol: 'openai-chat', apiBaseUrl: '', defaultModel: '', notes: 'Bất kỳ máy chủ nào có /v1/chat/completions (vLLM, LiteLLM, gateway nội bộ…).' }),
+  preset({ id: 'custom-responses', label: 'Khác: Responses API', protocol: 'openai-responses',
+    apiBaseUrl: '', defaultModel: '', notes: 'Gateway implements /v1/responses with function calls and terminal SSE events.' }),
   preset({ id: 'custom-anthropic', label: 'Khác: tương thích Anthropic', protocol: 'anthropic', apiBaseUrl: '', defaultModel: '', notes: 'Gateway có /v1/messages. Chọn kiểu xác thực Bearer nếu gateway không dùng x-api-key.' }),
   preset({ id: 'custom-gemini', label: 'Khác: gateway Gemini', protocol: 'gemini', apiBaseUrl: '', defaultModel: 'gemini-2.5-flash', notes: 'Gateway chuyển tiếp Gemini generateContent (ví dụ Cloud Run).' }),
 ]);
@@ -59,7 +67,8 @@ const BY_ID = new Map(PRESETS.map((entry) => [entry.id, entry]));
 export const presetById = (id) => BY_ID.get(id) ?? null;
 
 /** The "something else" preset for a protocol: what a connection becomes once its URL no longer matches a known provider. */
-export const customPresetId = (protocol) => ({ 'openai-chat': 'custom-openai', anthropic: 'custom-anthropic', gemini: 'custom-gemini' })[protocol] ?? 'custom-openai';
+export const customPresetId = (protocol) => ({ 'openai-chat': 'custom-openai',
+  'openai-responses': 'custom-responses', anthropic: 'custom-anthropic', gemini: 'custom-gemini' })[protocol] ?? 'custom-openai';
 
 export function originOf(value) {
   try { return new URL(value).origin; } catch { return null; }

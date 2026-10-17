@@ -13,7 +13,7 @@ import { createProtector } from './secret-box.mjs';
 
 const PROFILES_FILENAME = 'ai-profiles.json';
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,40}$/i;
-const ALLOWED_PROVIDERS = ['anthropic', 'openai-chat', 'gemini', 'ollama', 'custom'];
+const ALLOWED_PROVIDERS = ['anthropic', 'openai-chat', 'openai-responses', 'gemini', 'ollama', 'custom'];
 const DEFAULT_BUNDLE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const error = (code, message, statusCode = 400) => Object.assign(new Error(message), { code, statusCode });
