@@ -80,6 +80,12 @@ export class DualAgent {
       linkedFromTaskId:this.handoffs.get(id)?.fromTaskId||api.linkedFromTaskId||null } : null;
   }
   async report(id) { return this.browser.get(id) ? this.browser.report(id) : this.api.report(id); }
+  async acceptCriterion(payload={}) {
+    if(this.browser.get(payload.id))
+      throw Object.assign(new Error('ChatGPT Web has no trusted coding acceptance receipts.'),{
+        code:'acceptance_not_supported',statusCode:409});
+    return this.api.acceptCriterion(payload);
+  }
   async configure({ mode }) {
     if (!['chatgpt-web', 'api'].includes(mode)) throw BAD_MODE();
     // The selected transport applies to the NEXT user instruction, including

@@ -216,6 +216,11 @@ export interface Task {
   id: string;
   effectiveProfile?: {id:string;name:string;revision?:string|null;provider:string;protocol:string;model:string;endpointOrigin:string;credentialSource:string}|null;
   roleProfiles?: Record<string,string>;
+  goalPlan?: {objectives:Array<{
+    id:string;text:string;status:string;dependsOn?:string[];acceptanceCriteria:string[];
+    evidence?:Array<{criterionIndex:number;receiptId:string;acceptedAt:string}>;
+  }>};
+  objectiveReceipts?: Array<{receiptId:string;kind:'inspect'|'edit'|'verify'|'review';step:number;path?:string}>;
   prompt?: string;
   branch?: string | null;
   worktree?: string | null;

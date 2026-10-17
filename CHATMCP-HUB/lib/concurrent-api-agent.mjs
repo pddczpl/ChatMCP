@@ -605,6 +605,13 @@ export class ConcurrentApiAgent {
     // conversation history; only local task records are discarded.
     return {ok:true,deletedId:id,deletedIds:queue,preservedWorktrees};
   }
+  async acceptCriterion(payload={}) {
+    const id=payload?.id;
+    if(this.primary.get(id))return this.primary.acceptCriterion(payload);
+    const child=this.children.get(id);
+    if(child?.runner?.get(id))return child.runner.acceptCriterion(payload);
+    throw fail('task_not_found','Task does not exist.',404);
+  }
   async setAutoResume(id, enabled) {
     if (this.primary.get(id)) return this.primary.setAutoResume(id, enabled);
     const child = this.children.get(id);

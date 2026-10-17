@@ -541,6 +541,10 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
             break;
           }
           case '/api/tasks/auto-resume': if (!taskEngine) throw new Error('Agent chưa khởi tạo.'); result = { task: await taskEngine.setAutoResume(payload) }; break;
+          case '/api/tasks/accept-criterion':
+            if(!taskEngine?.acceptCriterion)throw Object.assign(
+              new Error('Owner acceptance is unavailable.'),{statusCode:501});
+            result={task:await taskEngine.acceptCriterion(payload)};break;
           case '/api/ai/profiles/upsert': result = { profile: await aiProfiles.upsert(payload) }; break;
           case '/api/ai/profiles/delete': result = await aiProfiles.delete(payload.id); break;
           case '/api/ai/profiles/default': result = await aiProfiles.setDefault(payload.id); break;

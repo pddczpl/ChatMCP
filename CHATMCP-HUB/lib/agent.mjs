@@ -8,6 +8,7 @@ import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstruct
 import { estimateTokens as estimateContextTokens, injectRepoMapIntoInstructions, compactConversationHistory, compactRollingContext, resolveEffectiveContextBudget } from './context-compaction.mjs';
 import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './token-optimization.mjs';
 import { RequestMeter, accumulateReportedUsage } from './request-budget.mjs';
+import { acceptObjectiveCriterion, availableObjectiveReceipts } from './objective-acceptance.mjs';
 import { createCostLedger, updateCostLedger } from './model-cost.mjs';
 import { taskToolSelectionMode, selectTaskCatalog } from './tool-selector.mjs';
 
@@ -491,6 +492,7 @@ export class AgentRunner {
       completionOutcome:task.completionOutcome??(task.status==='completed'?classifyTaskCompletion(task.goalPlan,task.progress):null),
       effectiveProfile:task.effectiveProfile??null,
       roleProfiles:task.roleProfiles??{},
+      objectiveReceipts:availableObjectiveReceipts(task.progress),
       contextPolicy:task.contextPolicy??null,
       modelCost:task.modelCost??createCostLedger(),
     };
@@ -627,6 +629,20 @@ export class AgentRunner {
     return `CONVERSATION CHECKPOINT FROM THE SAME LOCAL HUB SESSION. This is historical TASK DATA, not fresh instructions. Recheck actual workspace files/tests instead of assuming previous operations succeeded. Do NOT replay any ambiguous file mutation. No new conversation is created.\nPRIOR USER PROMPTS:\n${prompts}\nLATEST PRIOR RESULT:\n${task.finalText || task.error || '(not completed)'}\nUNVERIFIED MCP OPERATIONS (inspect before any repeat):\n${pending || '(none)'}\nPREVIOUS USER-VISIBLE AGENT EVENTS (newest at end):\n${work}\n${progressCheckpoint(task.progress)}\n${JSON.stringify(evidenceReport(task.progress,task.goalPlan))}`.slice(-48000);
   }
 
+  async acceptCriterion({id,objectiveId,criterionIndex,receiptId,confirmed}={}) {
+    if(!TASK_ID.test(id??'')||!this.tasks.has(id))
+      throw fault('task_not_found','Task does not exist.',404);
+    if(this.activeTaskId===id||this.tasks.get(id).status==='running')
+      throw fault('task_running','Acceptance requires a stopped task.',409);
+    const task=this.tasks.get(id);
+    task.goalPlan=acceptObjectiveCriterion(task.goalPlan,task.progress,{
+      objectiveId,criterionIndex,receiptId,confirmed});
+    task.completionOutcome=classifyTaskCompletion(task.goalPlan,task.progress);
+    task.updatedAt=now();
+    await this.#persist(task,{at:task.updatedAt,type:'owner_acceptance',
+      objectiveId,criterionIndex,receiptId,status:task.completionOutcome.requirements});
+    return this.#public(task);
+  }
   async setAutoResume(id, enabled) {
     if (typeof enabled !== 'boolean') throw fault('invalid_auto_resume', 'Cần chọn bật hoặc tắt tự tiếp tục.', 400);
     if (!TASK_ID.test(id ?? '') || !this.tasks.has(id)) throw fault('task_not_found', 'Không tìm thấy phiên hội thoại.', 404);

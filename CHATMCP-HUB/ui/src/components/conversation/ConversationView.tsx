@@ -8,6 +8,7 @@ import { ToolActivityGroup } from './ToolActivityGroup';
 import { WorkflowCard } from './WorkflowCard';
 import { StateBanner } from './StateBanner';
 import { Composer } from './Composer';
+import { ObjectiveAcceptancePanel } from './ObjectiveAcceptancePanel';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { ApprovalStack, PendingApproval } from '@/components/approval/ApprovalStack';
 import { Card } from '@/components/ui/Card';
@@ -395,6 +396,9 @@ export function ConversationView() {
               </div>
             )}
 
+            {/* Owner-reviewed evidence is distinct from an agent completion message. */}
+            {task && !isWorking && task.transport!=='chatgpt-web' && task.goalPlan?.objectives?.length &&
+              <ObjectiveAcceptancePanel task={task} onAccepted={refreshTask}/>}
             {/* State Banner */}
             {task && <StateBanner
               status={task.status}
