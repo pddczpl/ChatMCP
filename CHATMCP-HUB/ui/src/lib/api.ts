@@ -40,7 +40,7 @@ export interface SandboxStatus {
   backends?: BackendCapabilityReport[];
 }
 
-const UI_BUILD = '3.8.3-react-agent';
+const UI_BUILD = '3.9.0-react-agent';
 let currentCsrfToken = '';
 
 export function setCsrfToken(token: string) {

@@ -15,8 +15,8 @@
   }
   const R = window.React;
   const h = R.createElement;
-  const BUILD = '3.8.3-react-agent';
-  const uiVersion = '3.8.3';
+  const BUILD = '3.9.0-react-agent';
+  const uiVersion = '3.9.0';
   const themeStore = {get(){try{return localStorage.getItem('chatmcp:theme')||'dark';}catch{return 'dark';}},set(v){try{localStorage.setItem('chatmcp:theme',v);}catch{}}};
   const applyTheme=v=>{const resolved=v==='system'?(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):v;document.documentElement.setAttribute('data-theme',resolved);};
   applyTheme(themeStore.get());

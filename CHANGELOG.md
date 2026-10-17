@@ -1,5 +1,19 @@
 # Lịch sử thay đổi
 
+## [3.9.0] — 2026-10-17 — Model profiles, evidence-oriented workflows and release safety
+
+- Add per-task and role-specific API model profiles, encrypted local credential references, revision checks on resume, and protected origin-bound custom headers.
+- Add OpenAI Responses API function calls, validated tool-result pairing, opt-in SSE completion parsing, and explicit provider probes; retain Chat Completions, Anthropic and Gemini protocols.
+- Replace fixed model-context thresholds with configurable model capacity and conservative context accounting. Track actual provider usage separately from unknown token counts.
+- Introduce user-priced token cost ledgers with known subtotals and unknown totals where provider metrics or prices are unavailable.
+- Add first-party verification receipt invalidation after file changes and explicit owner review of objective acceptance criteria; a final model message alone is not acceptance.
+- Add read-only multi-language verification discovery and deterministic reproducible regression evaluations, including browser/worktree fixture reports.
+- Improve continuation after workspace-lock cleanup; preserve durable task records and original action receipts after interruption.
+- Rewrite top-level README and security policy in English, retain detailed documentation under docs/INDEX.md.
+
+**Limitations:** scripted-model tests do not establish parity with Codex, Claude Code or Antigravity; live paid-provider acceptance, signed-in Edge/ChatGPT browser behavior, offline Windows Sandbox acceptance and Authenticode signing are not claimed. Coding worktrees still require independent owner review for integration. See RELEASE-NOTES-v3.9.0.md.
+
+
 ## [3.8.3] — 2026-10-17 — Native upgrade lifecycle and verified Companion delivery
 
 - Native desktop is single-instance per Windows user/session. Reopening activates the primary window; closing the GUI leaves the Hub session running without replaying tasks.

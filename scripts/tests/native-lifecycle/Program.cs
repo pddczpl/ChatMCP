@@ -15,15 +15,15 @@ var scratch = Path.Combine(Path.GetTempPath(), "ChatMCP-native-unit-" + Guid.New
 Directory.CreateDirectory(scratch);
 try
 {
-    using var good = JsonDocument.Parse("{\"app\":\"chatmcp-local-hub\",\"version\":\"3.8.3\",\"uiBuild\":\"3.8.3-react-agent\"}");
-    HubLifecycle.ValidateHealth(good.RootElement, "3.8.3"); Check(true, "exact application version and UI build accepted");
-    using var old = JsonDocument.Parse("{\"app\":\"chatmcp-local-hub\",\"version\":\"3.8.2\",\"uiBuild\":\"3.8.2-react-agent\"}");
-    Throws(() => HubLifecycle.ValidateHealth(old.RootElement, "3.8.3"), "old Hub refused even with HTTP 200");
-    using var wrong = JsonDocument.Parse("{\"app\":\"foreign-service\",\"version\":\"3.8.3\"}");
-    Throws(() => HubLifecycle.ValidateHealth(wrong.RootElement, "3.8.3"), "foreign service refused");
-    using var noBuild = JsonDocument.Parse("{\"app\":\"chatmcp-local-hub\",\"version\":\"3.8.3\"}");
-    Throws(() => HubLifecycle.ValidateHealth(noBuild.RootElement, "3.8.3"), "missing UI build refused");
-    Check(InstallerEngine.AppVersion == "3.8.3", "installer display version derives from compiled assembly");
+    using var good = JsonDocument.Parse("{\"app\":\"chatmcp-local-hub\",\"version\":\"3.9.0\",\"uiBuild\":\"3.9.0-react-agent\"}");
+    HubLifecycle.ValidateHealth(good.RootElement, "3.9.0"); Check(true, "exact application version and UI build accepted");
+    using var old = JsonDocument.Parse("{\"app\":\"chatmcp-local-hub\",\"version\":\"3.8.3\",\"uiBuild\":\"3.8.3-react-agent\"}");
+    Throws(() => HubLifecycle.ValidateHealth(old.RootElement, "3.9.0"), "old Hub refused even with HTTP 200");
+    using var wrong = JsonDocument.Parse("{\"app\":\"foreign-service\",\"version\":\"3.9.0\"}");
+    Throws(() => HubLifecycle.ValidateHealth(wrong.RootElement, "3.9.0"), "foreign service refused");
+    using var noBuild = JsonDocument.Parse("{\"app\":\"chatmcp-local-hub\",\"version\":\"3.9.0\"}");
+    Throws(() => HubLifecycle.ValidateHealth(noBuild.RootElement, "3.9.0"), "missing UI build refused");
+    Check(InstallerEngine.AppVersion == "3.9.0", "installer display version derives from compiled assembly");
     var script = @"C:\Users\Native Test\ChatMCP\CHATMCP-HUB\hub.mjs";
     Check(HubLifecycle.IsHubCommand("node.exe \"" + script + "\" --port 3007 --no-open", script), "quoted Hub entrypoint with spaces is recognized");
     Check(!HubLifecycle.IsHubCommand("node.exe other.mjs \"" + script + "\" --port 3007", script), "Hub path supplied as an unrelated script argument is rejected");
