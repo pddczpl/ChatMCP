@@ -198,9 +198,15 @@ function anchorsOf(markdown) {
 {
   const linked = new Set();
   for (const match of docs['README.md'].matchAll(/\]\((?:https:\/\/github\.com\/pddczpl\/ChatMCP\/blob\/main\/)?(docs\/[^)#\s]+\.md)/g)) linked.add(match[1]);
+  // README is intentionally concise: detailed documentation lives in docs/INDEX.md.
+  // Resolve index links from the index's own directory, not the repo root.
+  for (const match of (docs['docs/INDEX.md'] || '').matchAll(/\]\(([^)#\s]+\.md)(?:#[^)]*)?\)/g)) {
+    const resolved = path.posix.normalize(path.posix.join('docs', match[1]));
+    if (resolved.startsWith('docs/')) linked.add(resolved);
+  }
   const orphans = DOC_FILES.filter((name) => name.startsWith('docs/') && !linked.has(name));
-  expectNone(orphans, 'documents in docs/ that README.md does not link to');
-  ok(`README.md links to all ${linked.size} documents in docs/`);
+  expectNone(orphans, 'documents not linked from README.md or docs/INDEX.md');
+  ok(`README.md and docs/INDEX.md link to all ${linked.size} documents in docs/`);
 }
 
 {

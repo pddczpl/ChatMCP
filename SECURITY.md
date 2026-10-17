@@ -1,62 +1,46 @@
-# Bảo mật ChatMCP — local-only
+# ChatMCP Security Policy
 
-> This security policy describes the **v2.6.0 local-only release**. Hosted public mode, Cloud Harness MCP proxy, multi-tenant RBAC, Linux execution broker and Render/VPS deployment were removed from the current runtime. Older commits and previously deployed copies may still contain those features.
+This policy describes the current single-owner, local-first Windows product. It does not claim a security audit, fully isolated host command execution, or live-browser acceptance of every website revision.
 
-## Báo lỗi bảo mật
+## Reporting a vulnerability
 
-Tạo GitHub Security Advisory riêng tư nếu có thể; không đăng API keys, token, private keys hay dữ liệu cá nhân trong Issues công khai. Nếu không có kênh private, chỉ gửi mô tả không chứa bí mật và yêu cầu mở kênh trao đổi bảo mật.
+Use GitHub's private **Report a vulnerability / Security Advisory** option for this repository if it is available. Never post API keys, tokens, private keys, exploit payloads containing secrets, or personal data in public issues. If a private reporting channel is not available, open a minimal public [issue](https://github.com/pddczpl/ChatMCP/issues) asking the maintainer to arrange a private disclosure channel. Do not disclose the vulnerability details publicly before that channel is established.
 
-## Phạm vi được hỗ trợ
+## Supported deployment boundary
 
-- Local Windows app và Hub trên **127.0.0.1**, một chủ sở hữu.
-- Agent file/Git/terminal, checkpoint, plugin/Skills Hub và provider gateway.
-- Browser companion (nếu người dùng tự bật) được ghép qua loopback và xác thực riêng.
-- **Không hỗ trợ** triển khai Hub qua địa chỉ mạng công khai, reverse proxy, Render/VPS, public multi-tenant hoặc backend Cloud Harness MCP.
-- Có thể dùng API model ngoài hoặc Ollama/LM Studio ở loopback. Truyền dữ liệu ra provider là một quyết định riêng của người dùng.
+ChatMCP is designed for a single local Windows account with a Hub listening on **127.0.0.1:3007**. The desktop client and the browser dashboard communicate with the loopback Hub. Public port binding, reverse-proxy publication, cloud-hosted Cloud Harness infrastructure, public multi-tenant use, and mandatory cloud accounts are not supported deployment modes.
 
-## Threat model và giới hạn an toàn
+The local HTTP interface validates Host and Origin and applies CSRF protection to mutations. Browser Companion pairing grants separately authenticated access for the user's own ChatGPT tab; it is not a public remote-control interface. Other processes running with the same Windows account must still be treated as a security concern. Loopback binding is **not** protection against malware already executing as that user.
 
-1. Mã trong repository, SKILL.md và kết quả tìm kiếm là dữ liệu **không đáng tin**. Prompt injection có thể xuất hiện trong bất kỳ file nào.
-2. Quyền công cụ được kiểm tra bởi PermissionGate. Review và Read-only hạn chế tác động; Full Access chỉ dùng khi người dùng chủ động đồng ý.
-3. File path/symlink/Windows path normalization và checkpoint/SHA guards làm giảm rủi ro mất dữ liệu, nhưng không bảo đảm mọi lệnh shell đều vô hại.
-4. **Git worktree không phải sandbox hệ điều hành.** Các coding workers chạy dưới tài khoản Windows đang dùng và không được quyền trực tiếp shell/push/merge; các công cụ file đã được hạn chế. Bản thân tài khoản vẫn có thể truy cập các vị trí mà hệ điều hành cho phép nếu có lỗ hổng.
-5. Local Hub kiểm tra Host/Origin, chỉ listen trên 127.0.0.1, và bắt buộc CSRF cho POST. Các tiến trình khác cùng tài khoản Windows vẫn cần được coi là đáng tin cậy.
-6. Skills tải từ GitHub ghim revision, xác minh SHA blob và giới hạn dung lượng. Assets/scripts được lưu, không tự động thực thi. Chỉ bật skills sau khi kiểm tra nội dung và giấy phép.
-7. Kiểm tra mã nguồn/manifest có thể suy ra **bằng chứng** giấy phép, không thể tự động cho phép redistribution hay chứng minh quyền sở hữu.
-8. Model/API requests, GitHub Skills refresh, Git push/Draft PR và nghiên cứu web là các thao tác có thể dùng mạng. **Local-only không phải offline-only**.
-9. Bộ lọc secret/log và giới hạn size/timeout là defense in depth. Không đưa thông tin bí mật vào prompt hoặc repository không tin tưởng.
-10. SandboxEngine trạng thái host không phải cách ly VM/AppContainer. Docker test sandbox nếu có là một tính năng cục bộ tùy chọn, khác với việc host ChatMCP trên Docker.
+## Permissions and execution isolation
 
-## Lưu ý an ninh từ lịch sử Cloud Harness
+- **Read Only:** inspect without approving file, shell, or Git mutations.
+- **Review:** ask the owner to approve potentially mutating or risky operations.
+- **Autonomous:** allow only operations permitted by the selected policy and the PermissionGate.
+- **Full Access:** requires explicit owner activation. Operations execute using the signed-in Windows account's effective permissions. This is not OS privilege elevation, nor a promise that host commands are harmless.
 
-Các bản cũ của repository có thể chứa thông tin xác thực/URL Cloud Harness hoặc cấu hình deploy trong **Git history**. Việc xóa file khỏi HEAD **không xóa lịch sử Git và không thu hồi một token đã lộ**. Nếu token cũ từng có hiệu lực, chủ sở hữu phải thu hồi/xoay token trên dịch vụ liên quan và đánh giá các bản sao đã clone. Không dựa vào việc xóa file để kết luận token an toàn.
+Repository text, instructions in third-party skills, search results, agent replies, and tool outputs are untrusted inputs and may contain prompt injection. Path normalization, protected paths, permission checks, review tokens, checkpoints, and rollback guards reduce risk but do not make arbitrary shell commands safe. Git worktrees isolate branch checkouts, **not** host processes or filesystem permissions. Host command results must not be described as Windows Sandbox or independent attestation. Where supported, Windows Sandbox execution and sealed verification receipts have their own provenance requirements; experimental support does not prove every test runner is isolated or independently certified.
 
-Nếu từng triển khai public server từ bản cũ, cần tắt riêng những tài nguyên đó ở nền tảng quản lý (Render/VPS/Docker) sau khi sao lưu dữ liệu. Nhánh local-only không tự đóng các server đã triển khai trước đây.
+An interrupted or timed-out mutation can have uncertain effects. ChatMCP must preserve evidence and require inspection instead of blindly repeating file writes, Git operations, shell commands, or browser submissions.
 
-## Kiểm thử và phát hành
+## Credentials, providers, and diagnostics
 
-React approval review reads the actual PermissionGate request IDs and server-provided previews; only explicit Approve/Deny actions submit a decision. Expired/cancelled decisions remain visible in history. New-conversation and SSE handling do not authorize tools or replay mutations. UI/mock-provider regression tests establish these specific flows, not OS isolation or live-model safety.
+Configured model API requests may transmit task instructions, selected source excerpts, tool definitions and output, images/attachments, and conversation context to the selected provider or custom gateway. **Local-first does not mean offline.** Users are responsible for selecting and trusting remote endpoints, verifying allowed sharing, and checking provider retention and charging terms. Ollama or LM Studio can operate locally when installed and configured separately.
 
-The AI configuration form clears typed credentials after successful persistence and when the selected provider or endpoint origin changes. This prevents an unsaved key being carried to another destination; backend key storage and provider transmission still follow the existing local secret policy.
+Where stored, model credentials use the local Windows DPAPI-based secret protection mechanisms. Environment-sourced and session-only credentials have separate lifetimes. Switching credential destinations must not silently forward existing keys to an unrelated origin. Avoid entering sensitive content into model prompts or untrusted source repositories. Diagnostic exports and errors should redact known secrets, but redaction is defense in depth and not a guarantee against every accidental disclosure; inspect logs before sharing them.
 
-Installer builds enumerate tracked runtime files and fresh Vite output instead of copying whole checkout folders. Ignored user state, imported skills, test output and development dependencies are excluded; symlink/junction payload sources and unsafe staging cleanup paths fail the build. This packaging check does not certify installer lifecycle behavior on a clean machine.
+Skills Hub downloads pinned repository assets and verifies content hashes; importing a skill is not permission to execute bundled scripts automatically. Upstream licensing and integrity must be reviewed independently.
 
-- Chạy regression tests, desktop frontend build, Windows installer build và kiểm thử cài/gỡ trên máy ảo Windows sạch.
-- Không mở cổng Hub ra Internet. Không bypass Origin/CSRF để dùng ở mạng LAN.
-- Không xem CI xanh như penetration test hay chứng nhận legal license.
-- Release installer nên ký Authenticode nếu có certificate, và xuất checksum SHA-256 sau khi ký.
+## Browser Companion and desktop lifecycle
 
-[README](README.md) · [Windows Setup](docs/WINDOWS-SETUP.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
+The separately installed Chrome/Edge Manifest V3 Companion pairs with the loopback Hub using a user-approved process. Its ChatGPT Web transport is constrained to supported text-based interaction and transport-specific safety checks. Pairing does not grant API quota. Browser verification on scripted pages is not equivalent to a signed-in user's live ChatGPT session. If a send outcome is uncertain, recovery must not duplicate submissions.
 
+The native desktop enforces single-instance activation, Hub identity/version checks, and ownership-sensitive lifecycle operations. Closing the GUI preserves the running Hub; use an explicit shutdown to stop it. The installer checks owned payloads, prevents unsafe active-task upgrades, stages changes, and retains rollback markers when completion is uncertain. These controls do not provide power-loss atomicity for an entire directory or defend against an adversarial process with the same Windows privileges.
 
-## Companion 1.5.1 receiver restoration
+## Distribution and historic risk
 
-The `scripting` permission is restricted in code to bundled `chat-route.js` and `browser-runner.js`, top frame, ISOLATED world, of a validated owned ChatGPT tab, once per packet before claim when the receiver is missing. Host permissions are unchanged. No remote code, cookies or broad tabs permission is added. Uncertain SEND states are reconciled read-only and never authorize reinjection or another click. Diagnostics retain fixed categories, not exception/page/prompt contents.
+Validate downloaded installers and Companion archives against the release SHA-256 files and release manifest. Verify Authenticode independently when a publisher signature is present. An unsigned installer must be described as unsigned; checksum verification only checks byte integrity relative to the published hash. Signing must precede final checksum calculation.
 
-### Native lifecycle repair (3.8.3)
+Older repository history may still contain retired Cloud Harness configuration or credentials. Removing files from the latest branch does **not** erase Git history or revoke a leaked secret. Rotate any potentially exposed credentials and separately decommission old servers, tokens, and deployment resources. Do not treat passing CI, successful packaging, or release checksums as a penetration test.
 
-Single-instance activation has no command/data execution channel. The GUI checks exact Hub identity/version and never kills a foreign listener. A shared installation mutex guards Hub creation during upgrades. Installer shutdown requires a matching bundled Node path, Hub script, listener PID, recognized health and authenticated local CSRF session, and refuses active work. Closing the GUI preserves the Hub session rather than abruptly terminating tools.
-
-Installation stages version-checked bytes and preflights all owned destinations before mutation. Caught errors roll back touched files; backup checksums and a pending marker prevent silently launching a partially replaced bundle after interrupted recovery. This is not protection from an adversarial process with the same Windows account, nor a claim of power-loss atomicity across the entire directory. Never delete retained rollback evidence without recovery. Quiet mode is explicit and does not bypass these checks.
-
-The Companion requires positive chat-composer purpose before draft insertion and treats an unverified candidate tab as an incomplete recovery, not proof of absence. Real MV3 IPC tests use scripted pages and never obtain account cookies or issue live model requests.
+[README](README.md) · [Windows Setup](docs/WINDOWS-SETUP.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Historical security and test reports](docs/INDEX.md)

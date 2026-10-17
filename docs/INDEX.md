@@ -1,0 +1,49 @@
+# ChatMCP Documentation Library
+
+The documents below cover detailed setup, development, architecture, historical phase reports, and release verification. Historical reports describe the state at the time they were written; use the latest release notes for current behavior.
+
+Comprehensive documentation across all architecture, implementation, and verification phases:
+
+### System Architecture and Guides
+- [Bundled Code Intelligence Runtime](CODE-INTELLIGENCE-RUNTIME.md) — Offline LSP, WASM, embedded Python staging, verification and limitations
+- [Architecture](ARCHITECTURE.md) — System components, security model, and task state machine
+- [Windows Setup](WINDOWS-SETUP.md) — Prerequisites, environment variables, and Windows configuration
+- [Desktop Application](DESKTOP-APP.md) — WinForms + WebView2 architecture, packaging, and releases
+- [User Guide](USER-GUIDE.md) — Workflow instructions, tool definitions, and dashboard navigation
+- [Development](DEVELOPMENT.md) — Contributing guidelines, testing workflows, and codebase conventions
+- [Testing with Real Models](TESTING-WITH-REAL-MODELS.md) — Integration testing with live AI provider endpoints
+- [Agent Tools & Token Optimization](AGENT-TOOL-CAPABILITIES.md) — Updated internal tool inventory, security contracts, deployment dependencies, and acceptance gaps
+- [Troubleshooting](TROUBLESHOOTING.md) — Diagnosing common startup, permission, and runtime issues
+- [Historical Cloud Deployment Notice](DEPLOYMENT.md) — Archived notice regarding deprecated cloud infrastructure
+- [Windows Sandbox Feasibility](WINDOWS-SANDBOX-REAL-FEASIBILITY.md) — Technical feasibility analysis of Windows Sandbox integration
+
+### Phase 0: Desktop Contract Reconnection
+- [Phase 0 Audit](PHASE0-AUDIT.md) — Codebase baseline audit and debt assessment
+- [Phase 0 Desktop Contract Audit](PHASE0-DESKTOP-CONTRACT-AUDIT.md) — Hub-to-UI contract alignment and API verification
+- [Phase 0 Execution Report](PHASE0-EXECUTION-REPORT.md) — Test receipts and reconnection milestone verification
+
+### Phase 1: Windows Sandbox & Hardware Security
+- [Phase 1 Design](PHASE1-DESIGN.md) — Sandbox isolation architecture and security requirements
+- [Phase 1 Implementation Plan](PHASE1-IMPLEMENTATION-PLAN.md) — Step-by-step development roadmap for execution drivers
+- [Phase 1 Report](PHASE1-REPORT.md) — Verification receipts and security gate assessment
+- [Phase 1 Blackbox Checks](PHASE1-BLACKBOX-CHECKS.md) — Native test suite for guest execution boundaries
+- [Phase 1 Staged Status](PHASE1-STAGED-STATUS.md) — Incremental verification log for driver integration
+- [Phase 1 G4 Publisher Transport ADR](PHASE1-G4-PUBLISHER-TRANSPORT-ADR.md) — Architecture decision record for guest exit-code transport
+- [Phase 1 G6 Clean Windows](PHASE1-G6-CLEAN-WINDOWS.md) — Clean-machine installation, upgrade, and uninstallation verification
+- [Phase 1 G4/G6 Execution Handoff](agent-handoffs/G4-G6-EXECUTION-2026-10-13.md) — Detailed execution handoff and test receipts
+
+### Phase 2: Reliable Local Development
+- [Phase 2 Design](PHASE2-DESIGN.md) — Journaling engine, crash recovery, and context management specifications
+- [Phase 2 Local Reliability](PHASE2-LOCAL-RELIABILITY.md) — Implementation guide for crash resilience and rollback protection
+- [Phase 2 Report](PHASE2-REPORT.md) — Verification receipts and recovery benchmark results
+
+### Phase 3: Advanced Multi-Agent Worktrees
+- [Phase 3 Design](PHASE3-DESIGN.md) — Multi-agent DAG engine, worktree coordinator, and review token architecture
+- [Phase 3 Local Multi-Agent](PHASE3-LOCAL-MULTIAGENT.md) — Coordination workflows, concurrency rules, and Git integration
+- [Phase 3 Report](PHASE3-REPORT.md) — Multi-agent benchmark results, DAG execution receipts, and merge verification
+
+### Phase 4: Extended Planning & Optimization
+- [Phase 4 Design](PHASE4-DESIGN.md) — Long-horizon agent planning and autonomous optimization design
+- [Phase 4 Report](PHASE4-REPORT.md) — Experimental evaluation and future milestone documentation
+
+---

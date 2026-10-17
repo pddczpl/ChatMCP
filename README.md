@@ -1,237 +1,42 @@
-# ChatMCP — Local-first AI Coding Agent
+# ChatMCP
 
-**v3.8.2 — ChatGPT Web delivery repair:** update both the desktop installer and Browser Companion **1.5.1**, then reload existing ChatGPT tabs. Fixed stale URL-recovery starvation; added scoped editor compatibility, bounded pre-claim receiver restoration and safe readiness diagnostics. See [release notes](RELEASE-NOTES-v3.8.3.md).
+## Introduction
 
-**AI coding workspace for Windows with parallel Git-worktree agents, native Windows Sandbox hardware verification, crash recovery journals, multi-provider models, and a provenance-aware Agent Skills Hub.**
+ChatMCP is a local-first AI coding agent for a single owner on Windows 10/11 x64. Its WinForms and WebView2 desktop application connects to a local Hub and permission-controlled coding tools. You can inspect repositories, edit files, run approved commands, review Git changes, work with multiple projects and Git worktrees, install reviewed skills, and resume recorded conversations and tasks. A model response is not, by itself, proof that a change or test succeeded.
 
-[![CI](https://github.com/pddczpl/ChatMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/pddczpl/ChatMCP/actions/workflows/ci.yml) · [Windows Releases](https://github.com/pddczpl/ChatMCP/releases) · [Issues](https://github.com/pddczpl/ChatMCP/issues) · [Security](SECURITY.md)
+ChatMCP offers two distinct interaction modes: **Model API**, using a configured model endpoint and its own API credentials, and **ChatGPT Web Companion**, using a separately paired Chrome/Edge extension and an ordinary user-signed-in ChatGPT website session. Web mode is browser-mediated, text-focused and subject to the website's capabilities; it does not provide API credits or identical model/tool semantics. ChatMCP is local-first, **not fully offline**: configured AI providers, GitHub and authorized research tools may use the network.
 
-> **Current release v3.8.1:** ChatMCP operates entirely on local infrastructure (`127.0.0.1:3007`). There is no cloud account, hosted server deployment, multi-tenant database, or external login service. All tool execution is controlled through a local Permission Gate. Outbound network access is restricted to user-configured AI providers, GitHub, and authorized research lookups. **Local-first does not mean fully offline.**
->
-> Releases are tagged on GitHub and include an installer SHA-256 checksum. The installer is not Authenticode-signed. **v3.2.0** introduced bundled language servers, Tree-sitter WASM and embedded Python; **v3.3.0** expanded local coding tools and token-aware model output handling; **v3.4.0** added enhanced planning, browser/LSP workflows and model usage telemetry; **v3.4.1** fixes stuck preparation and bounds automatic repository mapping. Windows DPAPI protections remain in force. [Latest published release notes](RELEASE-NOTES-v3.8.3.md).
+[Latest stable release](https://github.com/pddczpl/ChatMCP/releases/latest) · [Issues](https://github.com/pddczpl/ChatMCP/issues) · [Detailed documentation](docs/INDEX.md)
 
----
+## Guide
 
-**v3.8.1 ChatGPT Web Companion transport switching and URL recovery:** Existing logical conversations can change between Model API and user-paired ChatGPT Web for the **next** prompt by creating a linked task in the selected transport. ChatMCP stores prior context locally and passes only a bounded, redacted handoff; in-progress/uncertain file mutations are never silently moved or replayed. The paired Chrome/Edge Hub Companion **1.5.0** can recover the official `chatgpt.com/c/...` URL of the original user-opened tab using a unique task ID and nonce witness, without resending the prompt. The official ZIP (plus SHA-256) is published beside the installer; installation and browser pairing still require user approval.
+### Install and launch
 
-**v3.8.0 native workspace picker and ChatGPT Web Companion:** The packaged Windows desktop displays a native owner-bound folder-selection dialog instead of relying on a hidden PowerShell process. Non-desktop users retain a PowerShell fallback with readable errors and can paste an absolute directory path manually. A new Settings transport selector supports the ordinary signed-in ChatGPT Web interface via the user-installed, paired Chrome/Edge ChatMCP Hub Companion extension. Web tasks use the selected registered workspace and the local Permission Gate; the browser transport is text-only and currently supports one active Web task at a time. It neither uses a private ChatGPT API nor turns a ChatGPT subscription into OpenAI API quota. Live browser/GUI compatibility must be verified on the user's Windows desktop.
+1. Download the latest **ChatMCPSetup.exe**, **ChatMCPSetup.exe.sha256**, and **RELEASE-MANIFEST.json** from [GitHub Releases](https://github.com/pddczpl/ChatMCP/releases/latest). Verify the published SHA-256 against the actual installer bytes before running it.
+2. Use **Windows 10 or 11 x64**, with **Microsoft Edge WebView2 Runtime** and **Git for Windows**. Git is needed for the repository and worktree workflows. The release installer bundles its portable Node.js runtime, supported language servers, Tree-sitter WASM grammars, and embedded Python; these do not need separate installation just to run the packaged app. Microsoft Edge/Chromium itself, an AI account or API key, Git, and WebView2 are not supplied by the installer.
+3. Run the installer, launch ChatMCP, and select or register a project directory using the native workspace picker. The local Hub normally listens on **127.0.0.1:3007**; do not expose it through a public interface or reverse proxy.
 
-**v3.7.0 in-chat autonomous workflows:** The coding agent can start persistent named workflows with multiple independent reviewers and dependent verification phases via `spawn_workflow`. Real child tasks run under existing Git worktree permissions; phase progress, child-agent status, durations, and available model token telemetry appear in both the originating chat and its workspace's Background Tasks. Workflows continue after a chat reply, and cancellation targets real child tasks. Git branches are not auto-merged. Synthetic CI does not prove arbitrary live-model reliability.
+### Configure an AI connection
 
-**v3.6.0 workspace, conversation and task hierarchy:** Organize multiple registered folders and their conversations; distinguish execution runs from chats, display nested subagents under their actual parent run, and open a native Windows folder chooser while agents in other projects keep working. Provider connection and tool probes now allow up to 20 seconds each (model/tool support still provider dependent). The legacy Inspector remains scoped to the primary workspace; unsafe cross-workspace actions are blocked.
+4. In **Settings**, select Model API mode and choose a provider preset or a custom gateway. Check the **protocol** (Gemini generateContent, OpenAI-compatible Chat Completions, or Anthropic Messages), **base URL**, optional endpoint path, **model**, authentication mode, and context-window setting independently. Enter an API key or select a supported environment variable; use **Save & Test** to check actual connectivity and tool support. A custom URL or a model name does not guarantee tool-call compatibility. Ollama and LM Studio require a locally running compatible model.
+5. For **ChatGPT Web** mode, download the matching **ChatMCP-Browser-Companion.zip** and its checksum from the same release. Extract the ZIP, open chrome://extensions or edge://extensions, enable Developer mode, choose **Load unpacked**, and select the extracted folder containing the extension's manifest.json (not the repository-root legacy manifest). Open a signed-in chatgpt.com tab, generate a fresh pairing code in ChatMCP Settings, and pair through the Companion popup. Approve browser-extension installation yourself; the desktop installer cannot enable it silently. Re-pair when necessary after reinstalling or changing the extension ID.
 
-**v3.5.0 concurrent coding workspace:** Run multiple independent API conversations while a previous agent is active, create task-scoped background coding subagents from chat, choose Git branches/worktrees in the header, attach source files or paste screenshots, and inspect compact tool activity. Concurrent writing uses separate Git worktrees and the existing permission gate; full agent correctness is not guaranteed by scripted tests.
+### Use, verify, and recover
 
-**v3.4.2 gateway configuration improvements:** additional browser/LSP workflows, worktree task planning and model usage telemetry. CI uses scripted model fixtures and cannot establish live-model coding quality.
+6. Select the intended workspace and a permission mode: **Read Only**, **Review** (approval before mutations), **Autonomous** (bounded permitted actions), or explicitly authorized **Full Access**. Full Access executes permitted commands with your Windows account privileges, not inside a universal OS sandbox.
+7. Start a task with its expected changes and acceptance checks. Watch tool results, approvals, actual Git diffs, worker outcomes, and verification evidence. An agent's final message or a green-looking status does not substitute for fresh test results. Research workflows and coding worktrees have different integration guarantees; review changes before integrating them.
+8. Use **Stop** to request cancellation; stopping does not undo changes. Use **Continue** in the same conversation to create a new run and retain historical context. After a crash or an uncertain write, inspect on-disk files and Git state before deciding what to retry; the Hub must not automatically replay ambiguous mutations.
+9. To update, finish or stop active work, download and verify the latest installer, and install over the owned installation. The installer may refuse an active task or foreign Hub process. If using an unpacked Browser Companion, update that extension separately, reload the ChatGPT tabs, and re-pair if required. Keep rollback and recovery evidence until the installation is confirmed healthy.
+10. For error diagnosis, see [Troubleshooting](docs/TROUBLESHOOTING.md), [Windows setup](docs/WINDOWS-SETUP.md), [Desktop application](docs/DESKTOP-APP.md), [User guide](docs/USER-GUIDE.md), and [development and test instructions](docs/DEVELOPMENT.md). The [documentation library](docs/INDEX.md) links the remaining detailed architecture, security, code-intelligence and historical verification material.
 
-ChatMCP does not impose request, token, or spending limits. The user manages provider quota and optional per-task step/time controls. The dashboard counts actual model HTTP attempts (including retries) and reported input/output tokens as telemetry, not as billing guarantees. Coding workers also expose aggregate HTTP counts without a shared cap. Set `CHATMCP_TOOL_SELECTION=auto` to advertise a task-relevant subset of LocalTools while retaining internal router discovery.
+## License
 
-## Features and Capabilities
+ChatMCP does **not** currently have an adopted top-level project license in this repository. Do not assume that the project code is licensed under MIT, Apache-2.0, or any other open-source license. Copyright and attribution notices remain applicable. Consult [Third-party notices](THIRD-PARTY-NOTICES.md) for bundled dependencies and their upstream terms. Imported Skills and third-party components have their own licenses and redistribution conditions.
 
-ChatMCP v3.8.1 targets autonomous software engineering while preserving local security boundaries:
+## Security
 
-- **Web Companion switch in existing chat:** Switch between Model API and user-paired ChatGPT Web for the next message in a logical conversation, with a new linked task and bounded redacted context handoff. Companion 1.5.0 can recover an official URL by verifying task+nonce evidence in the original tab without a duplicate prompt.
-- **Native Windows folder picker:** WebView2 asks the owning WinForms desktop to show the Explorer-style folder modal; PowerShell fallback errors are diagnosed, and manual absolute-path registration remains available when a native chooser cannot open.
-- **ChatGPT Web Browser Companion mode:** A paired Chrome/Edge extension can convey normal ChatGPT Web chat turns to the local Hub, executing only authorized tools in the selected workspace. Switching Model API ↔ ChatGPT Web affects the next message in an existing logical conversation by creating a linked physical task with an explicit bounded context handoff; API sessions can still work independently in different checkout roots. Browser mode needs a user-signed-in ChatGPT tab, works with text prompts, and is not a private ChatGPT API integration.
-- **Autonomous in-chat workflow phases:** Model-driven `spawn_workflow` supports up to five phases and twelve specialized agents; independent reviewers run concurrently, and later phases wait for real predecessor completion. The same durable live workflow card appears in chat and Background Tasks. Worktree creation remains permission-gated and changes are not automatically merged.
-- **Multiple project folders:** Workspace registry groups independent conversations per user-selected folder; new conversations can execute concurrently in distinct workspaces, with isolated Git worktrees for overlapping writers. Native Windows folder selection can remain available while other agents run.
-- **Execution-aware Background Tasks:** Each conversation can contain multiple separate task runs. Subagents are shown beneath their originating run instead of being mistaken for new chat sessions.
-- **More tolerant gateway diagnostics:** Connection and tool-calling tests allow up to 20 seconds per probe. Named Anthropic, OpenRouter, DeepSeek, OpenAI and Gemini adapters preserve provider-specific endpoints and credential isolation, as tested with fixtures.
-- **Multi-chat, subagents and background tasks:** Separate conversations remain interactive while an existing task runs. Model-initiated `spawn_agent` delegates independent work to background tasks; Git worktree isolation, dependency ordering and task-scoped cancellation prevent overlapping writes in the same checkout.
-- **Git/attachments/context UX:** Git branch/worktree picker, file and pasted-image attachments, compact expandable tool receipts, and rolling context checkpoints preserve a more manageable long-running chat experience. Model/image compatibility depends on the configured provider protocol.
-- **Desktop UI Contract Integration:** Full bidirectional synchronization between the WinForms/WebView2 desktop shell and the local Hub daemon, supporting real-time streaming, interactive plan editing, terminal sessions, Git reviews, and execution checkpoints.
-- **Experimental Windows Sandbox execution:** sandbox drivers, restricted guest configuration and sealed receipt protocols are implemented, but guest isolation and hardware-level security have **not been independently accepted**. Clean Windows Sandbox/VM validation remains the owner's responsibility; no unsupported host fallback is implied.
-- **Reliable Autonomous Coding & Crash Recovery:** Transactional state journaling with SHA-256 hash chaining (`prevEntrySha256`), corruption quarantine, persistent recovery acknowledgements across Hub restarts, and atomic rollback protections.
-- **Progress-aware long-task execution:** bounded semantic inspection-cycle detection, a proposed multi-step plan, independently hashed local file-change evidence, test receipts and two recovery prompts before a controlled stop. Progress receipts do not guarantee task correctness.
-- **Multi-Agent DAG & Parallel Git Worktrees:** Dependency-aware orchestrator (`A -> B -> C` and `A -> no-op B -> C`), parallel coding workers isolated on separate Git worktrees (default concurrency limit <= 2), cryptographic review tokens, and collision-free branch integration.
+ChatMCP is intended for one trusted owner and an authenticated loopback Hub, not public or multi-tenant deployment. Requests to its local API have Host/Origin and CSRF restrictions; the paired Browser Companion uses separate authorization. Treat code, skills, tool output, and model output as untrusted. Use Review for sensitive projects, inspect approvals, and understand that **Full Access** gives tools the effective access of your Windows account.
 
-| Capability | Status | Description & Safety Boundaries |
-| --- | --- | --- |
-| Windows Desktop Studio | Available | WinForms + WebView2 desktop application with bundled local Node.js runtime; Git for Windows required for worktrees |
-| Coding agent with local tools | Available | LocalTools (99 công cụ), cho phép trực tiếp 99 tool + 4 internal router (103 definitions) mặc định; cấu hình CHATMCP_DIRECT_TOOL_LIMIT để giảm tải schema cho model yếu |
-| AI Providers & Models | Available | 12 preset provider configurations (OpenAI, Anthropic, Gemini, DeepSeek, Ollama, LM Studio, etc.) + custom OpenAI-compatible endpoints; no token or monetary spending quotas imposed by ChatMCP |
-| Task State Machine | Available | 11 trạng thái lifecycle (created, queued, planning, running, waiting_approval, verifying, paused, completed, failed, cancelled, uncertain) with strictly validated transitions |
-| Crash Recovery & Journaling | Available | Tamper-evident transaction journal with cryptographic chaining; persistent recovery acknowledgements across daemon restarts; context compaction and rollback safety |
-| Research Multi-Agent DAG | Available | Static DAG and dynamic read-only planning roles (Planner, Researcher, Reviewer, Security) with bounded context and no host execution privileges |
-| Parallel Coding Workers | Available | Up to 4 tasks running in parallel on isolated Git worktrees (concurrency limit 2 by default); workers cannot execute host shell commands or external push operations |
-| Mandatory Human Review & Draft PR | Available | Exact Git diff review token required; changes merge into a dedicated integration branch (never directly to main); explicit user confirmation required to publish Draft PR |
-| GitHub Agent Skills Hub | Available | Curated and custom GitHub skill sources, nested SKILL.md discovery, pinned revision downloads, Git blob SHA asset verification, and license provenance auditing |
-| Windows Sandbox Driver | Experimental | Windows Sandbox command driver and receipt checks exist; real guest isolation and clean-machine acceptance are not independently certified |
-| Hosted Cloud Harness / Public Server | **Removed** | Completely removed legacy Docker/Render cloud stack, multi-tenant databases, and remote authentication proxies |
+Model API requests can send task instructions, workspace excerpts, tool schemas/results, and user-selected attachments to the **configured provider**. The application uses local credential protections, but users must still protect prompts, logs and exported diagnostics. Git worktrees provide checkout separation, **not operating-system isolation**; host commands and supported Windows Sandbox verification provide different assurance levels.
 
----
-
-## Browser Companion extension (Chrome / Edge)
-
-For **ChatGPT Web mode**, install the **ChatMCP Hub Companion** extension (Manifest V3, currently version 1.5.0) separately in your browser. The GitHub Release should contain all four matching assets:
-
-- `ChatMCPSetup.exe` — Windows x64 installer
-- `ChatMCPSetup.exe.sha256` — installer SHA-256
-- [`ChatMCP-Browser-Companion.zip`](https://github.com/pddczpl/ChatMCP/releases/latest/download/ChatMCP-Browser-Companion.zip) — standalone extension with `manifest.json` at archive root
-- [`ChatMCP-Browser-Companion.zip.sha256`](https://github.com/pddczpl/ChatMCP/releases/latest/download/ChatMCP-Browser-Companion.zip.sha256) — extension SHA-256
-
-**Restoring a removed extension:** extract the ZIP to a normal directory, open `chrome://extensions` or `edge://extensions`, enable **Developer mode**, click **Load unpacked**, then select the **extracted folder containing `manifest.json`**. An installed copy also exists in the Windows ChatMCP installation under `CHATMCP-HUB/extension`. Do not load the repository's root `manifest.json`: that is the old *Button Fix* helper, not Hub Companion.
-
-Open a normal signed-in `https://chatgpt.com` tab, choose ChatGPT Web mode in ChatMCP Settings, generate a **new temporary pairing code**, and enter it into the Companion popup. Disabling or reinstalling the extension may change its ID and require re-pairing. Browser extension installation must be explicitly approved by the user; the Windows installer cannot silently enable it. The Companion is text-only for now and does not transfer cookies or grant ChatGPT API credits.
-
-Full instructions: [INSTALL-EXTENSION.txt](CHATMCP-HUB/extension/INSTALL-EXTENSION.txt).
-
----
-
-## Start ChatMCP on Windows
-
-### 1. Download Official Installer
-Download the latest standalone installer from [GitHub Releases](https://github.com/pddczpl/ChatMCP/releases):
-- File: `ChatMCPSetup.exe` (latest published release v3.8.1)
-- Checksum: Verify against `ChatMCPSetup.exe.sha256`
-- Requirements: Windows 10/11 x64 with Microsoft Edge WebView2 Runtime, Git for Windows.
-
-### 2. Build and Run from Source
-Prerequisites: Windows 10/11, Git for Windows, Node.js 22.12+ (or Node 24), and npm.
-
-Open PowerShell:
-
-~~~powershell
-git clone https://github.com/pddczpl/ChatMCP.git
-Set-Location ChatMCP
-npm ci --prefix .\CHATMCP-HUB\ui
-npm run build --prefix .\CHATMCP-HUB\ui
-.\START-CHATMCP-DESKTOP.cmd
-~~~
-
-You can also launch the headless Hub daemon and access the browser interface directly:
-
-~~~powershell
-.\CHATMCP-HUB\START-CHATMCP-HUB.cmd -ProjectPath 'C:\Projects\MyRepository'
-~~~
-
-The dashboard is accessible only at **http://127.0.0.1:3007** by default.
-
-### 3. Permission Modes
-The desktop UI provides four security authorization levels:
-- **Read Only:** Inspect files and view project state without modifying files or executing commands.
-- **Review (Default):** Prompts for user confirmation before executing write tools, commands, or Git mutations.
-- **Autonomous:** Automatically permits safe local workspace operations within predefined policy boundaries.
-- **Full Access:** Explicit elevation requiring typing `FULL ACCESS`; executes approved tools under the local Windows user account without OS privilege escalation.
-
----
-
-## Multi-Agent Orchestrator
-
-Navigate to **Inspector → Agents**:
-
-1. **Research DAG:** Specialized read-only agents (Planner, Researcher, Reviewer, Security) collaborate to gather documentation, evaluate requirements, and formulate multi-step plans without host execution privileges.
-2. **Parallel Coding Workers:** Assign up to 4 concurrent subtasks across separate Git worktrees. Each worker operates in an isolated worktree folder, preventing conflicts with your working directory.
-3. **Mandatory Review Tokens:** Inspect the exact Git diff generated by each worker. Generating an approved review token cryptographically binds the owner's sign-off to that specific diff and commit.
-4. **Integration Branching:** Approved worker branches merge into a newly created integration branch (`feat/integrate-*`), guaranteeing that `main` is never modified directly.
-5. **Publish Draft PR:** Review the final integrated diff and test results before approving draft pull request creation via the GitHub CLI (`gh pr create --draft`).
-
----
-
-## Agent Skills Hub
-
-Navigate to **Inspector → Skills → GitHub Agent Skills Hub**:
-
-- **Repository Discovery:** Search and browse nested `SKILL.md` configurations across curated or custom GitHub repositories.
-- **Cryptographic Asset Pinning:** All skill manifests and related assets are pinned to immutable commit SHAs and verified against Git blob hashes.
-- **Safe Import:** Imported scripts and helper files are downloaded to local storage with size limits and disabled by default until explicitly enabled by the user.
-- **License Provenance:** Audits licensing terms and notifies the user of third-party usage restrictions.
-
----
-
-## Reliability and Crash Recovery
-
-ChatMCP includes persistent, crash-resilient task execution:
-
-- **Cryptographic Journaling:** Task state transitions are logged in an append-only JSON journal secured by SHA-256 hash chaining (`prevEntrySha256`).
-- **Restart Resilience:** If the Hub daemon or Windows crashes mid-task, unacknowledged repairs and task states are reconstructed upon restart.
-- **Quarantine Engine:** Corrupted journal entries are automatically quarantined to prevent cascading failures.
-- **Context Compaction:** Large conversation histories are summarized deterministically to conserve model context while preserving exact tool call receipts.
-
----
-
-## Security Model
-
-ChatMCP is designed exclusively as a single-tenant local application:
-- **Loopback Binding:** Binds strictly to `127.0.0.1`, validates HTTP `Host` and `Origin` headers, and enforces CSRF protection on all dashboard mutations.
-- **Workspace Scoping:** Path resolution algorithms prevent directory traversal attacks outside the designated workspace root.
-- **Local Credentials:** API keys for AI providers are stored locally and never transmitted to ChatMCP telemetry servers.
-- For vulnerability reporting and security advisories, see [SECURITY.md](SECURITY.md).
-
----
-
-## Testing and Verification
-
-Verify the entire repository using the test runner:
-
-~~~powershell
-# Run the complete test suite (93 bộ Node và 5 bộ giao diện)
-node .\CHATMCP-HUB\tests\run-all.mjs
-
-# Build and verify the frontend
-npm ci --prefix .\CHATMCP-HUB\ui
-npm run build --prefix .\CHATMCP-HUB\ui
-
-# Verify documentation consistency
-node .\CHATMCP-HUB\tests\verify-docs.mjs
-
-# Maintainers: Build the Windows installer package
-.\scripts\Build-Installer.ps1
-~~~
-
----
-
-## Documentation Index
-
-Comprehensive documentation across all architecture, implementation, and verification phases:
-
-### System Architecture and Guides
-- [Bundled Code Intelligence Runtime](docs/CODE-INTELLIGENCE-RUNTIME.md) — Offline LSP, WASM, embedded Python staging, verification and limitations
-- [Architecture](docs/ARCHITECTURE.md) — System components, security model, and task state machine
-- [Windows Setup](docs/WINDOWS-SETUP.md) — Prerequisites, environment variables, and Windows configuration
-- [Desktop Application](docs/DESKTOP-APP.md) — WinForms + WebView2 architecture, packaging, and releases
-- [User Guide](docs/USER-GUIDE.md) — Workflow instructions, tool definitions, and dashboard navigation
-- [Development](docs/DEVELOPMENT.md) — Contributing guidelines, testing workflows, and codebase conventions
-- [Testing with Real Models](docs/TESTING-WITH-REAL-MODELS.md) — Integration testing with live AI provider endpoints
-- [Agent Tools & Token Optimization](docs/AGENT-TOOL-CAPABILITIES.md) — Updated internal tool inventory, security contracts, deployment dependencies, and acceptance gaps
-- [Troubleshooting](docs/TROUBLESHOOTING.md) — Diagnosing common startup, permission, and runtime issues
-- [Historical Cloud Deployment Notice](docs/DEPLOYMENT.md) — Archived notice regarding deprecated cloud infrastructure
-- [Windows Sandbox Feasibility](docs/WINDOWS-SANDBOX-REAL-FEASIBILITY.md) — Technical feasibility analysis of Windows Sandbox integration
-
-### Phase 0: Desktop Contract Reconnection
-- [Phase 0 Audit](docs/PHASE0-AUDIT.md) — Codebase baseline audit and debt assessment
-- [Phase 0 Desktop Contract Audit](docs/PHASE0-DESKTOP-CONTRACT-AUDIT.md) — Hub-to-UI contract alignment and API verification
-- [Phase 0 Execution Report](docs/PHASE0-EXECUTION-REPORT.md) — Test receipts and reconnection milestone verification
-
-### Phase 1: Windows Sandbox & Hardware Security
-- [Phase 1 Design](docs/PHASE1-DESIGN.md) — Sandbox isolation architecture and security requirements
-- [Phase 1 Implementation Plan](docs/PHASE1-IMPLEMENTATION-PLAN.md) — Step-by-step development roadmap for execution drivers
-- [Phase 1 Report](docs/PHASE1-REPORT.md) — Verification receipts and security gate assessment
-- [Phase 1 Blackbox Checks](docs/PHASE1-BLACKBOX-CHECKS.md) — Native test suite for guest execution boundaries
-- [Phase 1 Staged Status](docs/PHASE1-STAGED-STATUS.md) — Incremental verification log for driver integration
-- [Phase 1 G4 Publisher Transport ADR](docs/PHASE1-G4-PUBLISHER-TRANSPORT-ADR.md) — Architecture decision record for guest exit-code transport
-- [Phase 1 G6 Clean Windows](docs/PHASE1-G6-CLEAN-WINDOWS.md) — Clean-machine installation, upgrade, and uninstallation verification
-- [Phase 1 G4/G6 Execution Handoff](docs/agent-handoffs/G4-G6-EXECUTION-2026-10-13.md) — Detailed execution handoff and test receipts
-
-### Phase 2: Reliable Local Development
-- [Phase 2 Design](docs/PHASE2-DESIGN.md) — Journaling engine, crash recovery, and context management specifications
-- [Phase 2 Local Reliability](docs/PHASE2-LOCAL-RELIABILITY.md) — Implementation guide for crash resilience and rollback protection
-- [Phase 2 Report](docs/PHASE2-REPORT.md) — Verification receipts and recovery benchmark results
-
-### Phase 3: Advanced Multi-Agent Worktrees
-- [Phase 3 Design](docs/PHASE3-DESIGN.md) — Multi-agent DAG engine, worktree coordinator, and review token architecture
-- [Phase 3 Local Multi-Agent](docs/PHASE3-LOCAL-MULTIAGENT.md) — Coordination workflows, concurrency rules, and Git integration
-- [Phase 3 Report](docs/PHASE3-REPORT.md) — Multi-agent benchmark results, DAG execution receipts, and merge verification
-
-### Phase 4: Extended Planning & Optimization
-- [Phase 4 Design](docs/PHASE4-DESIGN.md) — Long-horizon agent planning and autonomous optimization design
-- [Phase 4 Report](docs/PHASE4-REPORT.md) — Experimental evaluation and future milestone documentation
-
----
-
-## License and Notices
-
-- Check the repository's current top-level LICENSE file before assuming redistribution rights. Every imported Skill also has its own provenance and terms; **license detection is not legal verification**.
-- For third-party dependencies and open-source licenses, see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
-- Detailed release history and migration notes are maintained in [CHANGELOG.md](CHANGELOG.md).
-- Contributions and bug reports are welcome via [GitHub Issues](https://github.com/pddczpl/ChatMCP/issues).
+Check each release's SHA-256 files and **RELEASE-MANIFEST.json** and independently inspect Authenticode signatures where present; checksums alone do not prove publisher identity. See the [Security Policy](SECURITY.md) for limitations, historical disclosures and vulnerability reporting instructions.
