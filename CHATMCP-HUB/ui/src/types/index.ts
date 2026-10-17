@@ -24,6 +24,7 @@ export interface TaskSummary {
   verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
   completionOutcome?: {execution:string;requirements:string;verification:string;unresolvedObjectiveIds:string[];missingChecks:string[];note?:string};
   contextPolicy?: { source:string;capacityTokens:number;maxHistoryTokens:number;compactAtTokens:number;reservedOutputTokens:number;approximate:boolean };
+  modelCost?: {schema:number;knownSubtotalUsd:number;pricedResponses:number;unpricedResponses:number;unknownResponses:number;totalUsd:number|null;complete:boolean;lastPriceStatus?:string};
   promptCount?: number;
   updatedAt?: string;
   startedAt?: string;
@@ -107,6 +108,7 @@ export interface AiProfile {
   authMode?: string;
   protocol?: string;
   isDefault?: boolean;
+  ratesUsdPerMillion?: {input:number;output:number;cacheRead?:number;cacheWrite?:number}|null;
 }
 
 export interface ProviderPreset {
@@ -245,6 +247,7 @@ export interface Task {
   verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
   completionOutcome?: {execution:string;requirements:string;verification:string;unresolvedObjectiveIds:string[];missingChecks:string[];note?:string};
   contextPolicy?: { source:string;capacityTokens:number;maxHistoryTokens:number;compactAtTokens:number;reservedOutputTokens:number;approximate:boolean };
+  modelCost?: {schema:number;knownSubtotalUsd:number;pricedResponses:number;unpricedResponses:number;unknownResponses:number;totalUsd:number|null;complete:boolean;lastPriceStatus?:string};
   lastMessage?: string;
   error?: string;
   transport?: string;

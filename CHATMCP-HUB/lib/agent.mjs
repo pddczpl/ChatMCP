@@ -8,6 +8,7 @@ import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstruct
 import { estimateTokens as estimateContextTokens, injectRepoMapIntoInstructions, compactConversationHistory, compactRollingContext, resolveEffectiveContextBudget } from './context-compaction.mjs';
 import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './token-optimization.mjs';
 import { RequestMeter, accumulateReportedUsage } from './request-budget.mjs';
+import { createCostLedger, updateCostLedger } from './model-cost.mjs';
 import { taskToolSelectionMode, selectTaskCatalog } from './tool-selector.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
@@ -491,6 +492,7 @@ export class AgentRunner {
       effectiveProfile:task.effectiveProfile??null,
       roleProfiles:task.roleProfiles??{},
       contextPolicy:task.contextPolicy??null,
+      modelCost:task.modelCost??createCostLedger(),
     };
     if (!summary) {
       result.events = task.events.slice(-EVENT_LIMIT);
@@ -514,6 +516,7 @@ export class AgentRunner {
       `Effective task profile: ${JSON.stringify(task.effectiveProfile??{source:'global_provider'})}`,
       `Bắt đầu: ${task.startedAt}`, `Kết thúc: ${task.finishedAt ?? 'Chưa kết thúc'}`,
       `Lượt model: ${task.steps}; HTTP requests: ${task.usage.httpRequests??0}; lượt MCP: ${task.toolCalls}; provider-reported input/output tokens (partial when missing): ${task.usage.inputTokens}/${task.usage.outputTokens}; missing input/output reports: ${task.usage.inputUsageMissing??'legacy-unknown'}/${task.usage.outputUsageMissing??'legacy-unknown'}; cache read/write: ${task.usage.cachedInputTokens??0}/${task.usage.cacheWriteTokens??0}; reported reasoning: ${task.usage.reasoningTokens??0}`,
+      `Cost in USD (owner rates, model response evidence only; incomplete billing): ${JSON.stringify(task.modelCost??createCostLedger())}`,
       '', 'NGỮ CẢNH MODEL (DỰ TOÁN)', JSON.stringify(task.contextPolicy??{source:'not_recorded'}),
       '', 'TIẾN ĐỘ CÓ BẰNG CHỨNG', progressCheckpoint(task.progress),
       '', 'KẾ HOẠCH & BẰNG CHỨNG', JSON.stringify(evidenceReport(task.progress,task.goalPlan),null,2),
@@ -710,7 +713,9 @@ export class AgentRunner {
       model: config.model ?? '', provider: config.provider ?? null, createdAt: initial, startedAt: initial, updatedAt: initial, finishedAt: null,
       finalText: '', error: null, errorCode: null, steps: 0, toolCalls: 0, maxSteps, maxMinutes,
       usage: { inputTokens: 0, outputTokens: 0, httpRequests: 0, cachedInputTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0,
-        telemetrySchema: 2, inputUsageReported: 0, inputUsageMissing: 0, outputUsageReported: 0, outputUsageMissing: 0 }, events: [], eventCount: 0, pendingCall: null, cancelRequested: false,
+        telemetrySchema: 2, inputUsageReported: 0, inputUsageMissing: 0, outputUsageReported: 0, outputUsageMissing: 0 },
+      modelCost:createCostLedger(),
+      events: [], eventCount: 0, pendingCall: null, cancelRequested: false,
       progress: createTaskProgress(),
       goalPlan: decomposeCodingTask(cleanPrompt),
       prompts: [], runs: [], dialogue: [],
@@ -1091,6 +1096,8 @@ export class AgentRunner {
         // Preserve measured zeros, distinguish missing provider usage, and do
         // not add cache/reasoning subsets to total tokens twice.
         task.usage = accumulateReportedUsage(task.usage, response.usage);
+        task.modelCost = updateCostLedger(task.modelCost, response.usage,
+          task.effectiveProfile?.ratesUsdPerMillion??null);
         context.requestBudget.recordUsage(response.usage?.input_tokens ?? 0, response.usage?.output_tokens ?? 0);
         await this.#persist(task, { at: now(), type: 'model_response', step: task.steps, response });
         if (response.status !== 'completed') {

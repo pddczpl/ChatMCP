@@ -137,6 +137,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
       provider:config.provider,protocol:config.protocol,model:config.model,
       endpointOrigin:new URL(config.apiBaseUrl).origin,
       contextWindow:config.contextWindow,
+      ratesUsdPerMillion:config.ratesUsdPerMillion??null,
       credentialSource:publicInfo.hasKey?'protected_reference':'none',
     }};
   };

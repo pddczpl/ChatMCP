@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { readJson, writeJson } from './runtime.mjs';
 import { createProtector } from './secret-box.mjs';
+import { parseModelRates } from './model-cost.mjs';
 
 const PROFILES_FILENAME = 'ai-profiles.json';
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,40}$/i;
@@ -112,6 +113,7 @@ export class AiProfiles {
       protocol: p.protocol || (ALLOWED_PROTOCOLS.includes(p.provider)?p.provider:null),
       authMode: p.authMode || 'auto',
       revision: p.revision || null,
+      ratesUsdPerMillion: p.ratesUsdPerMillion ?? null,
       hasKey: Boolean(p.encryptedKey || p.envKeyName),
       isDefault: p.id === this.defaultProfileId,
       envKeyName: p.envKeyName || null,
@@ -136,6 +138,7 @@ export class AiProfiles {
       protocol: p.protocol || (ALLOWED_PROTOCOLS.includes(p.provider)?p.provider:null),
       authMode: p.authMode || 'auto',
       revision: p.revision || null,
+      ratesUsdPerMillion: p.ratesUsdPerMillion ?? null,
       hasKey: Boolean(p.encryptedKey || p.envKeyName),
       isDefault: p.id === this.defaultProfileId,
     };
@@ -194,6 +197,9 @@ export class AiProfiles {
       name: input.name?.trim() || existing.name || id,
       provider, protocol, authMode,
       model, revision:randomUUID(),
+      ratesUsdPerMillion: input.ratesUsdPerMillion === undefined
+        ? (existing.ratesUsdPerMillion??null)
+        : parseModelRates(input.ratesUsdPerMillion),
       apiBaseUrl:nextBase,
       contextWindow: Number.isFinite(input.contextWindow) ? input.contextWindow : existing.contextWindow || null,
       envKeyName: envReference,
@@ -274,6 +280,7 @@ export class AiProfiles {
       name: p.name,
       provider: p.provider,protocol:p.protocol || (ALLOWED_PROTOCOLS.includes(p.provider)?p.provider:null),
       authMode:p.authMode || 'auto',revision:p.revision || null,
+      ratesUsdPerMillion:p.ratesUsdPerMillion??null,
       model: p.model,
       apiBaseUrl: p.apiBaseUrl,
       contextWindow: p.contextWindow,

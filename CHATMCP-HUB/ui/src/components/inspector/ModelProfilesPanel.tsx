@@ -8,12 +8,14 @@ type Protocol = 'openai-chat'|'openai-responses'|'anthropic'|'gemini';
 type Draft = {
   id:string; name:string; protocol:Protocol; model:string; apiBaseUrl:string;
   authMode:'auto'|'bearer'|'google-key'; apiKey:string; envKeyName:string; contextWindow:string;
-  isDefault:boolean; clearCredentials:boolean;
+  isDefault:boolean; clearCredentials:boolean; rateInput:string;rateOutput:string;
+  rateCacheRead:string;rateCacheWrite:string;
 };
 const empty = ():Draft => ({
   id:'',name:'',protocol:'openai-chat',model:'',apiBaseUrl:'',
   authMode:'auto',apiKey:'',envKeyName:'',contextWindow:'',
   isDefault:false,clearCredentials:false,
+  rateInput:'',rateOutput:'',rateCacheRead:'',rateCacheWrite:'',
 });
 const choices:Protocol[]=['openai-chat','openai-responses','anthropic','gemini'];
 
@@ -44,6 +46,10 @@ export function ModelProfilesPanel(){
       authMode:p.authMode==='bearer'||p.authMode==='google-key'?p.authMode:'auto',
       apiKey:'',envKeyName:p.envKeyName||'',contextWindow:p.contextWindow?String(p.contextWindow):'',
       isDefault:!!p.isDefault,clearCredentials:false,
+      rateInput:p.ratesUsdPerMillion?.input?.toString()||'',
+      rateOutput:p.ratesUsdPerMillion?.output?.toString()||'',
+      rateCacheRead:p.ratesUsdPerMillion?.cacheRead?.toString()||'',
+      rateCacheWrite:p.ratesUsdPerMillion?.cacheWrite?.toString()||'',
     });
   };
   const save=async()=>{
@@ -55,6 +61,20 @@ export function ModelProfilesPanel(){
       if(draft.apiKey.trim() && draft.envKeyName.trim())
         throw new Error('Choose either an API key or environment key for one profile.');
       const contextWindow=draft.contextWindow.trim()?Number(draft.contextWindow):null;
+      const priceKeys=[
+        ['rateInput','input'],['rateOutput','output'],
+        ['rateCacheRead','cacheRead'],['rateCacheWrite','cacheWrite'],
+      ] as const;
+      const rates:Record<string,number>={};
+      for(const [field,key] of priceKeys){
+        const raw=draft[field].trim();
+        if(!raw)continue;
+        if(!/^(?:0|[0-9]+)(?:\.[0-9]+)?$/.test(raw) || !Number.isFinite(Number(raw)) ||
+           Number(raw)>10000)throw new Error('Model token prices must be numbers 0..10000 USD per 1M tokens.');
+        rates[key]=Number(raw);
+      }
+      if(Object.keys(rates).length && (!Object.hasOwn(rates,'input')||!Object.hasOwn(rates,'output')))
+        throw new Error('Both input and output rates must be provided.');
       if(contextWindow!==null&&(!Number.isSafeInteger(contextWindow)||contextWindow<2000||contextWindow>10000000))
         throw new Error('Context window must be between 2,000 and 10,000,000 tokens.');
       await api.upsertProfile({
@@ -63,6 +83,7 @@ export function ModelProfilesPanel(){
         provider:draft.protocol,protocol:draft.protocol,model:draft.model.trim(),
         apiBaseUrl:draft.apiBaseUrl.trim(),authMode:draft.authMode,
         ...(contextWindow!==null?{contextWindow}:{}),
+        ratesUsdPerMillion:Object.keys(rates).length?rates:null,
         ...(draft.apiKey.trim()?{apiKey:draft.apiKey.trim(),envKeyName:null}:
           {envKeyName:draft.envKeyName.trim()||null}),
         isDefault:draft.isDefault,clearCredentials:draft.clearCredentials,
@@ -169,6 +190,20 @@ export function ModelProfilesPanel(){
             onChange={e=>change('contextWindow',e.target.value)}
             className="w-full p-1.5 rounded border border-[var(--line)] bg-[var(--panel)]"/>
         </label>
+        <fieldset className="space-y-1 border border-[var(--line)] rounded-md p-2">
+          <legend className="text-[var(--muted)]">Optional owner-supplied rates (USD / 1M tokens)</legend>
+          <p className="text-[var(--faint)]">Prices are never assumed. Cache tokens are included in input; reasoning is included in output. Usage may be incomplete.</p>
+          {([
+            ['rateInput','Input'],['rateOutput','Output'],
+            ['rateCacheRead','Cache read'],['rateCacheWrite','Cache write'],
+          ] as const).map(([field,label])=><label key={field} className="flex gap-2 items-center">
+            <span className="w-24">{label}</span>
+            <input type="number" step="any" min="0" max="10000"
+              aria-label={'Model rate '+label} value={draft[field]}
+              onChange={e=>change(field,e.target.value)}
+              className="flex-1 min-w-0 p-1.5 rounded border border-[var(--line)] bg-[var(--panel)]"/>
+          </label>)}
+        </fieldset>
         <label className="flex gap-2 items-center">
           <input type="checkbox" checked={draft.isDefault} onChange={e=>change('isDefault',e.target.checked)}/>
           Use as default profile for future tasks

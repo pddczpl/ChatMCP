@@ -6,6 +6,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { HubManager } from './manager.mjs';
 import { AgentRunner } from './agent.mjs';
 import { WorkflowOrchestrator } from './workflow-orchestrator.mjs';
+import { summarizeCostLedgers } from './model-cost.mjs';
 import { assembleStudio } from './assemble.mjs';
 import { readJson, writeJson } from './runtime.mjs';
 
@@ -129,7 +130,9 @@ export class ConcurrentApiAgent {
     const tasks = [...primary.tasks, ...childTasks].sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)));
     const activeTaskIds = this.#activeIds();
     return { activeTaskId: activeTaskIds[0] || null, activeTaskIds,
-      active: activeTaskIds.length ? this.get(activeTaskIds[0]) : null, tasks };
+      active: activeTaskIds.length ? this.get(activeTaskIds[0]) : null,
+      modelCostSummary:summarizeCostLedgers(tasks.map(t=>t.modelCost).filter(Boolean)),
+      tasks };
   }
   backgroundTasks() {
     // Deliberately NOT a list of chats. A conversation owns many task runs;
