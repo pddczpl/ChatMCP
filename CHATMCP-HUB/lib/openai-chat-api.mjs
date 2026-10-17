@@ -3,6 +3,7 @@
 // Pure functions. Servers differ in small ways, so what comes back is read leniently and what goes out is kept plain.
 import { randomUUID } from 'node:crypto';
 import { contentText, outputText } from './model-history.mjs';
+import { reportedTokenCount } from './request-budget.mjs';
 
 const isObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
 const fail = (code, message, statusCode = 502) => Object.assign(new Error(message), { code, statusCode });
@@ -88,10 +89,10 @@ export function normalizeChatCompletion(result, { usedCallIds = new Set() } = {}
   if (!isObject(choice) || !isObject(choice.message)) throw fail('model_incomplete', 'Chat Completions chưa hoàn tất (hoặc response không đúng định dạng).');
   const message = choice.message;
   const usage = {
-    input_tokens: Number(result.usage?.prompt_tokens) || 0,
-    output_tokens: Number(result.usage?.completion_tokens) || 0,
-    cache_read_tokens: Number(result.usage?.prompt_tokens_details?.cached_tokens) || 0,
-    reasoning_tokens: Number(result.usage?.completion_tokens_details?.reasoning_tokens) || 0,
+    input_tokens: reportedTokenCount(result.usage?.prompt_tokens),
+    output_tokens: reportedTokenCount(result.usage?.completion_tokens),
+    cache_read_tokens: reportedTokenCount(result.usage?.prompt_tokens_details?.cached_tokens),
+    reasoning_tokens: reportedTokenCount(result.usage?.completion_tokens_details?.reasoning_tokens),
   };
   const text = typeof message.content === 'string' ? message.content
     : Array.isArray(message.content) ? message.content.filter((part) => typeof part?.text === 'string' && (!part.type || part.type === 'text')).map((part) => part.text).join('\n') : '';

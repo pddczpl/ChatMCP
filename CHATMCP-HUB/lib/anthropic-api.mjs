@@ -1,6 +1,7 @@
 // Anthropic Messages API (https://docs.anthropic.com/en/api/messages): request building, response normalising,
 // model listing. Pure functions, no network and no state, so the wire format can be tested without a key.
 import { contentText, outputText, parseArguments, safeToolId } from './model-history.mjs';
+import { reportedTokenCount } from './request-budget.mjs';
 
 export const ANTHROPIC_VERSION = '2023-06-01';
 const isObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -97,11 +98,16 @@ export function buildAnthropicBody({ model, input, instructions, tools = [], max
 export function normalizeAnthropic(result) {
   if (!isObject(result) || result.type === 'error') throw fail('model_empty', 'Anthropic không trả message hợp lệ.');
   if (!Array.isArray(result.content)) throw fail('model_empty', 'Anthropic không trả nội dung hợp lệ.');
+  const baseInput=reportedTokenCount(result.usage?.input_tokens);
+  const cacheRead=reportedTokenCount(result.usage?.cache_read_input_tokens);
+  const cacheWrite=reportedTokenCount(result.usage?.cache_creation_input_tokens);
   const usage = {
-    input_tokens: (Number(result.usage?.input_tokens) || 0) + (Number(result.usage?.cache_creation_input_tokens) || 0) + (Number(result.usage?.cache_read_input_tokens) || 0),
-    output_tokens: Number(result.usage?.output_tokens) || 0,
-    cache_read_tokens: Number(result.usage?.cache_read_input_tokens) || 0,
-    cache_creation_tokens: Number(result.usage?.cache_creation_input_tokens) || 0,
+    // Anthropic input_tokens excludes cache read/write, which are included
+    // in the total only once. Missing base input remains unavailable.
+    input_tokens: baseInput === null ? null : baseInput + (cacheRead ?? 0) + (cacheWrite ?? 0),
+    output_tokens: reportedTokenCount(result.usage?.output_tokens),
+    cache_read_tokens: cacheRead,
+    cache_creation_tokens: cacheWrite,
   };
   const stop = result.stop_reason;
   const calls = result.content.filter((block) => block?.type === 'tool_use');

@@ -12,6 +12,7 @@ import { estimateTokens } from './model-history.mjs';
 import { classifyHttpError, sleep as waitFor } from './model-http.mjs';
 import { fetchModelList } from './model-list.mjs';
 import { probeToolCalling } from './tool-probe.mjs';
+import { reportedTokenCount } from './request-budget.mjs';
 
 // These stay importable from here: other modules and the tests have always taken them from this file.
 export { asChatMessages, normalizeChatCompletion };
@@ -161,9 +162,12 @@ export function normalizeGemini(result) {
     output.push({ type: 'function_call', name, call_id: randomUUID(), arguments: JSON.stringify(args), status: 'completed', ...(id ? { providerCallId: id } : {}), providerPart: structuredClone(part) });
   }
   if (!output.length) throw bad('model_empty', 'Gemini không trả văn bản hoặc lời gọi công cụ.', 502);
-  return { status: 'completed', output, usage: { input_tokens: Number(result.usageMetadata?.promptTokenCount) || 0, output_tokens: Number(result.usageMetadata?.candidatesTokenCount) || 0,
-    cache_read_tokens: Number(result.usageMetadata?.cachedContentTokenCount) || 0,
-    reasoning_tokens: Number(result.usageMetadata?.thoughtsTokenCount) || 0 } };
+  return { status: 'completed', output, usage: {
+    input_tokens: reportedTokenCount(result.usageMetadata?.promptTokenCount),
+    output_tokens: reportedTokenCount(result.usageMetadata?.candidatesTokenCount),
+    cache_read_tokens: reportedTokenCount(result.usageMetadata?.cachedContentTokenCount),
+    reasoning_tokens: reportedTokenCount(result.usageMetadata?.thoughtsTokenCount),
+  } };
 }
 const CONTEXT_MIN = 2000;
 const CONTEXT_MAX = 10_000_000;
