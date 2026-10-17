@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { ACTIVE_STATES, NOT_STARTED_PHASES, applyTransition, deriveState, describeState, isTaskState, restState } from './task-state.mjs';
 import { writeFileAtomic } from './fs-safe.mjs';
 import { callIdentity, createTaskProgress, observeTaskTool, progressCheckpoint } from './agent-progress.mjs';
-import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence, assessCompletionEvidence } from './agent-autonomy.mjs';
+import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence, assessCompletionEvidence, classifyTaskCompletion } from './agent-autonomy.mjs';
 import { estimateTokens as estimateContextTokens, injectRepoMapIntoInstructions, compactConversationHistory, compactRollingContext, resolveEffectiveContextBudget } from './context-compaction.mjs';
 import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './token-optimization.mjs';
 import { RequestMeter, accumulateReportedUsage } from './request-budget.mjs';
@@ -487,6 +487,7 @@ export class AgentRunner {
       goalPlan: task.goalPlan ?? null,
       verifiedSummary: evidenceReport(task.progress,task.goalPlan),
       verificationOutcome:task.verificationOutcome??null,
+      completionOutcome:task.completionOutcome??(task.status==='completed'?classifyTaskCompletion(task.goalPlan,task.progress):null),
       contextPolicy:task.contextPolicy??null,
     };
     if (!summary) {
@@ -513,6 +514,7 @@ export class AgentRunner {
       '', 'NGỮ CẢNH MODEL (DỰ TOÁN)', JSON.stringify(task.contextPolicy??{source:'not_recorded'}),
       '', 'TIẾN ĐỘ CÓ BẰNG CHỨNG', progressCheckpoint(task.progress),
       '', 'KẾ HOẠCH & BẰNG CHỨNG', JSON.stringify(evidenceReport(task.progress,task.goalPlan),null,2),
+      '', 'THỰC THI SO VỚI CHẤP NHẬN YÊU CẦU', JSON.stringify(task.completionOutcome??null,null,2),
       '', 'HỘI THOẠI / CÁC YÊU CẦU', ...(task.prompts ?? [{text:task.prompt}]).map((p,i)=>`${i+1}. ${p.text}`), '', 'KẾT QUẢ MỚI NHẤT', task.finalText || '(Chưa có phản hồi kết thúc hợp lệ.)',
     ];
     if (task.error) lines.push('', 'LÝ DO DỪNG / LỖI', task.error);
@@ -1117,6 +1119,7 @@ export class AgentRunner {
           if (!finalTexts.some((text) => text.trim())) throw fault('empty_final', 'Model kết thúc nhưng không đưa ra kết quả văn bản cuối cùng. Thông báo tiến độ không được coi là kết quả hoàn tất.', 502);
           task.finalText = this.#redact(finalTexts.join('\n\n'));
           task.verificationOutcome=assessCompletionEvidence(task.goalPlan,task.progress);
+          task.completionOutcome=classifyTaskCompletion(task.goalPlan,task.progress);
           if(!task.verificationOutcome.ready) {
             const warning='ChatMCP has NOT independently verified full completion: '+task.verificationOutcome.missing.join('; ')+'.';
             task.finalText += '\n\n[Verification notice] '+warning;

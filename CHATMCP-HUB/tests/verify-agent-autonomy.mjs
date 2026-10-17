@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { AgentRunner } from '../lib/agent.mjs';
 import { createTaskProgress, observeTaskTool } from '../lib/agent-progress.mjs';
-import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence, assessCompletionEvidence } from '../lib/agent-autonomy.mjs';
+import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence, assessCompletionEvidence, classifyTaskCompletion } from '../lib/agent-autonomy.mjs';
 
 const sha=(s)=>createHash('sha256').update(s).digest('hex');
 const call=(name,args={})=>({name:'mcp_call',arguments:JSON.stringify({name,arguments_json:JSON.stringify(args)})});
@@ -25,6 +25,10 @@ assert.equal(updateGoalPlan(plan,{kind:'edit'}).objectives[0].status,'working','
 assert.equal(plan.phases[0].status,'working');
 assert.equal(assessCompletionEvidence(plan,{verifiedFiles:[],verifiedChecks:[],gitReviews:[]}).ready,false);
 assert.equal(assessCompletionEvidence(null,{}).ready,true);
+assert.equal(classifyTaskCompletion(null,{}).verification,'not_applicable','read-only simple tasks do not need test receipts');
+assert.equal(classifyTaskCompletion(plan,{}).requirements,'unverified');
+assert.equal(classifyTaskCompletion(plan,{verifiedFiles:[{}],verifiedChecks:[{}],gitReviews:[{}]}).requirements,'unverified',
+  'generic receipt categories do not certify unrelated user objectives');
 assert.equal(assessCompletionEvidence(plan,{verifiedFiles:[{}],verifiedChecks:[{}],gitReviews:[{}]}).ready,true);
 let stale=createTaskProgress();
 for(const [name,verified] of [
@@ -156,6 +160,10 @@ try{
   assert.equal(finished.usage.inputUsageReported,4);
   assert.equal(finished.usage.inputUsageMissing,0);
   assert.equal(finished.verificationOutcome.ready,false,'missing Git diff evidence is not silently certified');
+  assert.equal(finished.status,'completed','execution answered normally');
+  assert.equal(finished.completionOutcome.requirements,'unverified','answer is not requirement acceptance');
+  assert.equal(finished.completionOutcome.verification,'missing_evidence');
+  assert.ok(finished.completionOutcome.unresolvedObjectiveIds.length>0);
   assert.match(finished.finalText,/NOT independently verified full completion/);
   assert.equal(await fs.readFile(code,'utf8'),fixed);
   assert.ok(finished.events.some(e=>e.type==='goal_decomposed'));

@@ -290,6 +290,11 @@ export function ConversationView() {
           {task.contextPolicy && <span title={`Estimated history: ${task.contextPolicy.maxHistoryTokens.toLocaleString()} tokens; output reserved: ${task.contextPolicy.reservedOutputTokens.toLocaleString()} tokens. Source: ${task.contextPolicy.source}. Not provider-billed usage.`}>
             Context: {task.contextPolicy.capacityTokens.toLocaleString()} tokens ({task.contextPolicy.source === 'conservative_fallback' ? 'estimated' : 'configured'})
           </span>}
+          {task.completionOutcome?.requirements === 'unverified' && (
+            <span className="text-amber-400" title={task.completionOutcome.note}>
+              Requirements unverified ({task.completionOutcome.unresolvedObjectiveIds.length})
+            </span>
+          )}
           {task.verificationOutcome?.ready === false &&
             <span className="text-amber-400" title={task.verificationOutcome.missing.join('; ')}>
               Chưa xác minh đầy đủ ({task.verificationOutcome.missing.length})

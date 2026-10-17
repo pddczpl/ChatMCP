@@ -20,6 +20,7 @@ export interface TaskSummary {
   toolCalls?: number;
   usage?: { inputTokens?: number; outputTokens?: number; httpRequests?: number; cachedInputTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number; telemetrySchema?:number; inputUsageReported?:number; inputUsageMissing?:number; outputUsageReported?:number; outputUsageMissing?:number };
   verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
+  completionOutcome?: {execution:string;requirements:string;verification:string;unresolvedObjectiveIds:string[];missingChecks:string[];note?:string};
   contextPolicy?: { source:string;capacityTokens:number;maxHistoryTokens:number;compactAtTokens:number;reservedOutputTokens:number;approximate:boolean };
   promptCount?: number;
   updatedAt?: string;
@@ -234,6 +235,7 @@ export interface Task {
   pendingApprovals?: any[];
   usage?: { inputTokens?: number; outputTokens?: number; httpRequests?: number; cachedInputTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number; telemetrySchema?:number; inputUsageReported?:number; inputUsageMissing?:number; outputUsageReported?:number; outputUsageMissing?:number };
   verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
+  completionOutcome?: {execution:string;requirements:string;verification:string;unresolvedObjectiveIds:string[];missingChecks:string[];note?:string};
   contextPolicy?: { source:string;capacityTokens:number;maxHistoryTokens:number;compactAtTokens:number;reservedOutputTokens:number;approximate:boolean };
   lastMessage?: string;
   error?: string;

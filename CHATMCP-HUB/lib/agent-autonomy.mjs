@@ -159,3 +159,36 @@ export function evidenceReport(progress,plan) {
     note:'Tool receipts and evidence milestones do not prove the whole requested task is correct; inspect actual diff and test output.',
   };
 }
+
+
+/**
+ * Separate the model execution lifecycle from acceptance and verification.
+ * The receipt categories prove only that corresponding work occurred; they
+ * cannot prove that every user objective or criterion was satisfied. A human
+ * or objective-linked independent evaluator must certify those criteria.
+ */
+export function classifyTaskCompletion(plan, progress, { execution = 'answered' } = {}) {
+  if (!plan || !Array.isArray(plan.objectives)) return Object.freeze({
+    execution, requirements:'not_assessed', verification:'not_applicable',
+    unresolvedObjectiveIds:[], missingChecks:[],
+    note:'An explanatory/read-only answer does not require code modification or test evidence.',
+  });
+  const categories=assessCompletionEvidence(plan,progress);
+  const unresolved=plan.objectives.filter(objective=>
+    objective.status!=='verified' ||
+    !Array.isArray(objective.evidence) ||
+    !(objective.acceptanceCriteria||[]).every((criterion, index)=>
+      objective.evidence.some(record=>record?.criterionIndex===index &&
+        typeof record?.receiptId==='string' && record.receiptId.length>0)))
+    .map(objective=>objective.id);
+  return Object.freeze({
+    execution,
+    requirements:unresolved.length?'unverified':'verified',
+    verification:categories.ready?'evidence_present_not_objective_certified':'missing_evidence',
+    unresolvedObjectiveIds:unresolved,
+    missingChecks:categories.missing,
+    note:unresolved.length
+      ? 'Execution finished, but the user requirements are not independently accepted.'
+      : 'Objective-linked criteria have recorded receipts; inspect their freshness and provenance.',
+  });
+}
