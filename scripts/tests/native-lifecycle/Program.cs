@@ -60,6 +60,56 @@ try
     }
     Check(File.ReadAllText(Path.Combine(root, "a.txt")) == "updated-a" && !File.Exists(Path.Combine(root, "b.txt")), "successful transaction commits replacement and owned deletion");
     Check(File.ReadAllText(Path.Combine(root, "user.txt")) == "keep-user", "unrelated user file preserved");
+
+    // An unchanged runtime must not be rewritten/backed up just because its
+    // containing product version changed. Timestamp preservation proves no
+    // replacement occurred; progress inspects the actual transaction backup.
+    var same = Path.Combine(root, "same.txt");
+    File.WriteAllText(same, "same-runtime");
+    File.SetLastWriteTimeUtc(same, new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc));
+    var stableTime = File.GetLastWriteTimeUtc(same);
+    using (var tx = new InstallTransaction(root))
+    {
+        tx.Add("same.txt", Bytes("same-runtime")); tx.Add("a.txt", Bytes("fast-a"));
+        bool inspected = false;
+        tx.Commit((_, _) =>
+        {
+            if (inspected) return;
+            inspected = true;
+            var work = Directory.GetDirectories(root, ".ChatMCP-update-*").Single();
+            Check(Directory.GetFiles(Path.Combine(work, "old")).Length == 1,
+                "unchanged verified runtime is not copied into the rollback backup");
+        });
+        Check(tx.Files.ContainsKey("same.txt"), "unchanged verified runtime stays in the ownership manifest");
+    }
+    Check(File.ReadAllText(same) == "same-runtime" && File.GetLastWriteTimeUtc(same) == stableTime,
+        "unchanged runtime retains exact bytes and last-write timestamp");
+    using (var locked = new FileStream(same, FileMode.Open, FileAccess.Read, FileShare.None))
+    using (var tx = new InstallTransaction(root))
+    {
+        tx.Add("a.txt", Bytes("must-not-appear")); tx.Add("same.txt", Bytes("same-runtime"));
+        Throws(() => tx.Commit((_, _) => { }), "unchanged runtime still receives exclusive-lock preflight");
+        Check(File.ReadAllText(Path.Combine(root, "a.txt")) == "fast-a", "unchanged-file lock refusal precedes all replacements");
+    }
+    using (var tx = new InstallTransaction(root))
+    {
+        tx.Add("a.txt", Bytes("rolled-back-a")); tx.Add("same.txt", Bytes("same-runtime"));
+        bool edited = false;
+        Throws(() => tx.Commit((_, _) =>
+        {
+            if (!edited) { edited = true; File.WriteAllText(same, "external-change"); }
+        }), "unchanged runtime hash is rechecked after preflight");
+    }
+    Check(File.ReadAllText(same) == "external-change" && File.ReadAllText(Path.Combine(root, "a.txt")) == "fast-a",
+        "concurrent edit is preserved while actual installer replacements roll back");
+    using (var tx = new InstallTransaction(Path.Combine(scratch, "many runtime files")))
+    {
+        for (int i = 0; i < 128; i++) tx.Add($"runtime-{i}.txt", Bytes("fixture"));
+        int updates = 0, last = -1;
+        tx.Commit((percent, _) => { updates++; if (percent <= last) throw new Exception("Progress must advance"); last = percent; });
+        Check(updates <= 36 && last == 80, "large payload progress is bounded by percentage, not file count");
+    }
+
     File.WriteAllText(Path.Combine(root, InstallTransaction.PendingName), "{}");
     Throws(() => { using var tx = new InstallTransaction(root); }, "interrupted update marker blocks a blind second update");
     File.Delete(Path.Combine(root, InstallTransaction.PendingName));

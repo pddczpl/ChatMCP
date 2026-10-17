@@ -71,19 +71,30 @@ internal sealed class InstallTransaction : IDisposable
     internal void Commit(Action<int, string> progress)
     {
         Directory.CreateDirectory(root);
-        // Acquire all old bytes BEFORE replacing anything. Locked files, foreign
-        // directories and reparse paths fail here with the old bundle untouched.
+        // Preflight every target, including unchanged files. Keep exclusive
+        // reads so locked files and reparse paths still fail before mutation.
         int backupIndex = 0;
         foreach (var item in changes.Values.ToArray())
         {
             var target = InstallerEngine.SafePath(root, item.Relative);
             if (Directory.Exists(target)) throw new IOException("A directory conflicts with an application file: " + item.Relative);
             if (!File.Exists(target)) continue;
+            using var old = new FileStream(target, FileMode.Open, FileAccess.Read, FileShare.None);
+            var oldHash = Convert.ToHexString(SHA256.HashData(old));
+            if (item.NewHash != null && oldHash == item.NewHash)
+            {
+                // The bundled LSP/Python runtimes contain thousands of files.
+                // Identical, verified bytes need neither replacement nor backup.
+                // Recheck them during commit to catch intervening changes.
+                changes[item.Relative] = item with { OldHash = oldHash };
+                continue;
+            }
+            old.Position = 0;
             var backup = Path.Combine(workspace, "old", (backupIndex++).ToString("D6"));
-            using (var old = new FileStream(target, FileMode.Open, FileAccess.Read, FileShare.None))
             using (var output = new FileStream(backup, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             { old.CopyTo(output); output.Flush(true); }
-            changes[item.Relative] = item with { Backup = backup, OldHash = Hash(backup) };
+            if (Hash(backup) != oldHash) throw new IOException("Upgrade backup checksum mismatch.");
+            changes[item.Relative] = item with { Backup = backup, OldHash = oldHash };
         }
         File.WriteAllText(Path.Combine(workspace, "journal.json"), JsonSerializer.Serialize(changes.Values));
         using (var pending = new FileStream(marker, FileMode.CreateNew, FileAccess.Write, FileShare.None))
@@ -94,22 +105,31 @@ internal sealed class InstallTransaction : IDisposable
         retain = true;
         try
         {
-            int completed = 0;
+            int completed = 0, lastProgress = -1;
             foreach (var change in changes.Values)
             {
                 var target = InstallerEngine.SafePath(root, change.Relative);
                 if (File.Exists(target) ? change.OldHash == null || Hash(target) != change.OldHash : change.OldHash != null)
                     throw new IOException("An application file changed during upgrade: " + change.Relative);
-                touched.Add(change); // Includes a replacement that fails halfway.
-                if (change.Staged == null) File.Delete(target);
-                else
+                if (change.OldHash != change.NewHash)
                 {
-                    Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                    InstallerEngine.ReplaceFile(target, output => { using var input = File.OpenRead(change.Staged); input.CopyTo(output); });
-                    if (Hash(target) != change.NewHash) throw new IOException("Installed file hash mismatch: " + change.Relative);
+                    touched.Add(change); // Includes a replacement that fails halfway.
+                    if (change.Staged == null) File.Delete(target);
+                    else
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                        InstallerEngine.ReplaceFile(target, output => { using var input = File.OpenRead(change.Staged); input.CopyTo(output); });
+                        if (Hash(target) != change.NewHash) throw new IOException("Installed file hash mismatch: " + change.Relative);
+                    }
                 }
                 completed++;
-                progress(45 + (completed * 35 / changes.Count), "Installing verified application files...");
+                int percent = 45 + (completed * 35 / changes.Count);
+                // Bound log/UI updates by percentage, not by runtime file count.
+                if (percent != lastProgress)
+                {
+                    progress(percent, "Installing verified application files...");
+                    lastProgress = percent;
+                }
             }
             File.Delete(marker);
             retain = false;
