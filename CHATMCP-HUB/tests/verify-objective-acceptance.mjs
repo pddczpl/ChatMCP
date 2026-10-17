@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { decomposeCodingTask, classifyTaskCompletion } from '../lib/agent-autonomy.mjs';
 import { acceptObjectiveCriterion, availableObjectiveReceipts } from '../lib/objective-acceptance.mjs';
-const plan=decomposeCodingTask('1. Inspect source files for behavior\n2. Implement a patch and test the changed code thoroughly');
+const plan=decomposeCodingTask('1. Inspect source files and project requirements, capture independently verified read evidence before editing any source code.\n2. Implement a bounded source patch and test the changed code thoroughly with real command exit status and actual Git review evidence.');
 assert.ok(plan&&plan.objectives.length===2);
 const progress={
  verifiedInspections:[{kind:'inspect',step:1,id:'read-1'}],

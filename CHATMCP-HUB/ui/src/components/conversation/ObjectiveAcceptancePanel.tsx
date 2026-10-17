@@ -3,7 +3,7 @@ import {api} from '@/lib/api';
 import {useAppStore} from '@/store/useAppStore';
 import type {Task} from '@/types';
 
-const kindFor=criterion=>criterion.startsWith('Observe workspace evidence')?'inspect':
+const kindFor=(criterion:string):'inspect'|'edit'|'verify'|null=>criterion.startsWith('Observe workspace evidence')?'inspect':
   criterion.startsWith('If code changes')?'edit':
   criterion.startsWith('Run required supported checks')?'verify':null;
 
