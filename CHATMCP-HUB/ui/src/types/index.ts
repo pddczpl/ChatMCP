@@ -18,7 +18,7 @@ export interface TaskSummary {
   state?: string;
   steps?: number;
   toolCalls?: number;
-  usage?: { inputTokens?: number; outputTokens?: number; httpRequests?: number; cachedInputTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number };
+  usage?: { inputTokens?: number; outputTokens?: number; httpRequests?: number; cachedInputTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number; telemetrySchema?:number; inputUsageReported?:number; inputUsageMissing?:number; outputUsageReported?:number; outputUsageMissing?:number };
   verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
   contextPolicy?: { source:string;capacityTokens:number;maxHistoryTokens:number;compactAtTokens:number;reservedOutputTokens:number;approximate:boolean };
   promptCount?: number;
@@ -232,7 +232,7 @@ export interface Task {
   toolCalls?: ToolCall[];
   plan?: { title: string; status: string; details?: string }[];
   pendingApprovals?: any[];
-  usage?: { inputTokens?: number; outputTokens?: number; httpRequests?: number; cachedInputTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number };
+  usage?: { inputTokens?: number; outputTokens?: number; httpRequests?: number; cachedInputTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number; telemetrySchema?:number; inputUsageReported?:number; inputUsageMissing?:number; outputUsageReported?:number; outputUsageMissing?:number };
   verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
   contextPolicy?: { source:string;capacityTokens:number;maxHistoryTokens:number;compactAtTokens:number;reservedOutputTokens:number;approximate:boolean };
   lastMessage?: string;

@@ -1,6 +1,24 @@
 import assert from 'node:assert/strict';
-import {RequestMeter} from '../lib/request-budget.mjs';
+import {RequestMeter, accumulateReportedUsage, reportedTokenCount} from '../lib/request-budget.mjs';
 import {respondStandard} from '../lib/standard-adapter.mjs';
+
+assert.equal(reportedTokenCount(null), null);
+assert.equal(reportedTokenCount(undefined), null);
+assert.equal(reportedTokenCount('invalid'), null);
+assert.equal(reportedTokenCount(0), 0,'reported zero remains a measured zero');
+assert.equal(reportedTokenCount('15'), 15);
+let usage=accumulateReportedUsage({inputTokens:0,outputTokens:0},{input_tokens:0,output_tokens:0});
+assert.equal(usage.inputUsageReported,1);
+assert.equal(usage.outputUsageMissing,0);
+usage=accumulateReportedUsage(usage,null);
+assert.equal(usage.inputUsageMissing,1,'missing usage does not mean zero');
+assert.equal(usage.outputUsageMissing,1);
+usage=accumulateReportedUsage(usage,{input_tokens:7,output_tokens:4,cache_read_tokens:3,cache_creation_tokens:2,reasoning_tokens:1});
+assert.equal(usage.inputTokens,7,'cached subsets are included in input, not counted twice');
+assert.equal(usage.outputTokens,4,'reasoning is part of provider output');
+assert.equal(usage.cachedInputTokens,3);
+assert.equal(usage.reasoningTokens,1);
+assert.equal(accumulateReportedUsage(JSON.parse(JSON.stringify(usage)),{}).inputUsageMissing,2,'missing usage counters persist across restart');
 
 const task=new RequestMeter();
 for(let i=0;i<20000;i++)task.beforeRequest();

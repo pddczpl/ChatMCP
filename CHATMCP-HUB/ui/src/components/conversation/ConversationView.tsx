@@ -273,8 +273,14 @@ export function ConversationView() {
         <div className="px-4 py-1.5 text-[11px] text-[var(--muted)] border-b border-[var(--line-subtle)] flex flex-wrap items-center gap-x-4 gap-y-1"
           data-testid="agent-request-budget" role="status">
           <span>Model HTTP requests: {task.usage.httpRequests ?? 0}</span>
-          <span>Input: {(task.usage.inputTokens ?? 0).toLocaleString()} tokens</span>
-          <span>Output: {(task.usage.outputTokens ?? 0).toLocaleString()} tokens</span>
+          <span title="Only provider-reported input tokens. Missing reports are unknown, not zeros.">
+            Input: {task.usage.inputUsageMissing && !task.usage.inputUsageReported ? 'unavailable'
+              : (task.usage.inputTokens ?? 0).toLocaleString() + ' reported tokens' + (task.usage.inputUsageMissing ? ' (+ unknown)' : '')}
+          </span>
+          <span title="Only provider-reported output tokens. Missing reports are unknown, not zeros.">
+            Output: {task.usage.outputUsageMissing && !task.usage.outputUsageReported ? 'unavailable'
+              : (task.usage.outputTokens ?? 0).toLocaleString() + ' reported tokens' + (task.usage.outputUsageMissing ? ' (+ unknown)' : '')}
+          </span>
           {(task.usage.cachedInputTokens ?? 0)>0&&
             <span>Cache hit: {(task.usage.cachedInputTokens ?? 0).toLocaleString()} tokens</span>}
           {(task.usage.cacheWriteTokens ?? 0)>0&&

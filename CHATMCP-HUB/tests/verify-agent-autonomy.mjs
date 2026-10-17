@@ -153,6 +153,8 @@ try{
   assert.equal(finished.progress.verifiedFiles.length,1);
   assert.equal(finished.progress.verifiedChecks.length,1);
   assert.equal(finished.usage.httpRequests,4,'count all actual model transport sends, not just tool calls');
+  assert.equal(finished.usage.inputUsageReported,4);
+  assert.equal(finished.usage.inputUsageMissing,0);
   assert.equal(finished.verificationOutcome.ready,false,'missing Git diff evidence is not silently certified');
   assert.match(finished.finalText,/NOT independently verified full completion/);
   assert.equal(await fs.readFile(code,'utf8'),fixed);
@@ -195,6 +197,8 @@ try{
   const end=await Promise.race([looping.context.done.promise,
     new Promise((_,reject)=>setTimeout(()=>reject(new Error('loop timeout')),9000))]);
   assert.equal(end.status,'failed');
+  assert.equal(end.usage.inputUsageMissing,11,'responses without usage cannot be reported as zeros');
+  assert.equal(end.usage.inputUsageReported,0);
   assert.equal(end.errorCode,'progress_stalled');
   assert.equal(end.progress.recoveryAttempts,2);
   assert.ok(end.events.some(e=>e.type==='progress_warning'));

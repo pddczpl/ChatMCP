@@ -7,7 +7,7 @@ import { callIdentity, createTaskProgress, observeTaskTool, progressCheckpoint }
 import { decomposeCodingTask, evidenceReport, planInstructions, recoveryInstructions, updateGoalPlan, verifyHostEvidence, assessCompletionEvidence } from './agent-autonomy.mjs';
 import { estimateTokens as estimateContextTokens, injectRepoMapIntoInstructions, compactConversationHistory, compactRollingContext, resolveEffectiveContextBudget } from './context-compaction.mjs';
 import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './token-optimization.mjs';
-import { RequestMeter } from './request-budget.mjs';
+import { RequestMeter, accumulateReportedUsage } from './request-budget.mjs';
 import { taskToolSelectionMode, selectTaskCatalog } from './tool-selector.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
@@ -509,7 +509,7 @@ export class AgentRunner {
       'CHATMCP HUB — BẢN GHI TÁC VỤ', `ID: ${task.id}`, `Trạng thái: ${task.status}${isTaskState(task.state) ? ` · ${describeState(task.state).label} (${task.state})` : ''}`,
       `Workspace: ${task.workspace?.path ?? ''}`, `Model: ${task.model ?? ''}`,
       `Bắt đầu: ${task.startedAt}`, `Kết thúc: ${task.finishedAt ?? 'Chưa kết thúc'}`,
-      `Lượt model: ${task.steps}; HTTP requests: ${task.usage.httpRequests??0}; lượt MCP: ${task.toolCalls}; input/output tokens: ${task.usage.inputTokens}/${task.usage.outputTokens}; cache read/write: ${task.usage.cachedInputTokens??0}/${task.usage.cacheWriteTokens??0}; reported reasoning: ${task.usage.reasoningTokens??0}`,
+      `Lượt model: ${task.steps}; HTTP requests: ${task.usage.httpRequests??0}; lượt MCP: ${task.toolCalls}; provider-reported input/output tokens (partial when missing): ${task.usage.inputTokens}/${task.usage.outputTokens}; missing input/output reports: ${task.usage.inputUsageMissing??'legacy-unknown'}/${task.usage.outputUsageMissing??'legacy-unknown'}; cache read/write: ${task.usage.cachedInputTokens??0}/${task.usage.cacheWriteTokens??0}; reported reasoning: ${task.usage.reasoningTokens??0}`,
       '', 'NGỮ CẢNH MODEL (DỰ TOÁN)', JSON.stringify(task.contextPolicy??{source:'not_recorded'}),
       '', 'TIẾN ĐỘ CÓ BẰNG CHỨNG', progressCheckpoint(task.progress),
       '', 'KẾ HOẠCH & BẰNG CHỨNG', JSON.stringify(evidenceReport(task.progress,task.goalPlan),null,2),
@@ -703,7 +703,8 @@ export class AgentRunner {
       id, prompt: cleanPrompt, status: 'running', workspace: binding,
       model: config.model ?? '', provider: config.provider ?? null, createdAt: initial, startedAt: initial, updatedAt: initial, finishedAt: null,
       finalText: '', error: null, errorCode: null, steps: 0, toolCalls: 0, maxSteps, maxMinutes,
-      usage: { inputTokens: 0, outputTokens: 0, httpRequests: 0, cachedInputTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0 }, events: [], eventCount: 0, pendingCall: null, cancelRequested: false,
+      usage: { inputTokens: 0, outputTokens: 0, httpRequests: 0, cachedInputTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0,
+        telemetrySchema: 2, inputUsageReported: 0, inputUsageMissing: 0, outputUsageReported: 0, outputUsageMissing: 0 }, events: [], eventCount: 0, pendingCall: null, cancelRequested: false,
       progress: createTaskProgress(),
       goalPlan: decomposeCodingTask(cleanPrompt),
       prompts: [], runs: [], dialogue: [],
@@ -1074,12 +1075,10 @@ export class AgentRunner {
         context.inFlight = null;
         this.#check(context);
         if (!object(response) || !Array.isArray(response.output)) throw fault('invalid_response', 'Model trả về response không đúng định dạng. Không gọi thêm công cụ.', 502);
-        task.usage.inputTokens += Number.isFinite(response.usage?.input_tokens) ? response.usage.input_tokens : 0;
-        task.usage.outputTokens += Number.isFinite(response.usage?.output_tokens) ? response.usage.output_tokens : 0;
-        task.usage.cachedInputTokens=(task.usage.cachedInputTokens??0)+(Math.max(0,Number(response.usage?.cache_read_tokens)||0));
-        task.usage.cacheWriteTokens=(task.usage.cacheWriteTokens??0)+(Math.max(0,Number(response.usage?.cache_creation_tokens)||0));
-        task.usage.reasoningTokens=(task.usage.reasoningTokens??0)+(Math.max(0,Number(response.usage?.reasoning_tokens)||0));
-        context.requestBudget.recordUsage(response.usage?.input_tokens||0,response.usage?.output_tokens||0);
+        // Preserve measured zeros, distinguish missing provider usage, and do
+        // not add cache/reasoning subsets to total tokens twice.
+        task.usage = accumulateReportedUsage(task.usage, response.usage);
+        context.requestBudget.recordUsage(response.usage?.input_tokens ?? 0, response.usage?.output_tokens ?? 0);
         await this.#persist(task, { at: now(), type: 'model_response', step: task.steps, response });
         if (response.status !== 'completed') {
           const reason = response.incomplete_details?.reason ?? response.error?.message ?? response.status ?? 'unknown';
