@@ -193,7 +193,7 @@ test('switching custom Gemini to custom OpenAI on the same gateway persists prot
     return {preset:ai.preset,protocol:ai.protocol,keySource:ai.keySource};
   }).toEqual({preset:'custom-gemini',protocol:'gemini',keySource:'saved'});
   const original=(await app.hub.state()).ai;
-  await page.getByRole('button', {name:'Custom (OpenAI)',exact:true}).click();
+  await page.getByRole('button', {name:'Custom (Chat Completions)',exact:true}).click();
   await expect(page.getByLabel('API base URL',{exact:true})).toHaveValue(original.apiBaseUrl);
   await expect(page.getByLabel('Model',{exact:true})).toHaveValue('cx/gpt-6-astra');
   await expect(page.getByRole('status').filter({hasText:'Chưa áp dụng cấu hình mới'})).toContainText('custom-gemini / gemini');

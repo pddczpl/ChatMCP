@@ -309,7 +309,8 @@ try {
   {
     const env = { ANTHROPIC_API_KEY: 'sk-env-anthropic-0123456789', OPENAI_API_KEY: 'sk-env-openai-0123456789' };
     const { provider, directory } = await makeProvider('env', { env });
-    same(provider.envKeys().map((entry) => entry.preset).sort(), ['anthropic', 'openai']);
+    same(provider.envKeys().map((entry) => entry.preset).sort(), ['anthropic', 'openai', 'openai-responses'],
+      'the same named OpenAI key may be offered for both OpenAI protocols, never for a custom gateway');
     check(!JSON.stringify(provider.envKeys()).includes('0123456789'), 'only variable names are listed');
     same(provider.ready(), false, 'an environment key is not used until the person chooses that provider');
     await provider.configure({ preset: 'anthropic', useEnvKey: true, remember: true });

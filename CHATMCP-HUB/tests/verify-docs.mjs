@@ -257,13 +257,19 @@ function anchorsOf(markdown) {
   const presetProblems = [];
   let presetClaims = 0;
   for (const [name, text] of Object.entries(docs)) {
+    // Historical phase reports describe the actual capabilities at the time
+    // of that milestone. Enforce current provider counts only in maintained
+    // product docs; do not rewrite history to match the latest release.
+    if (/^docs\/PHASE[0-9]+-(?:DESIGN|REPORT)\.md$/.test(name)) continue;
     for (const match of text.matchAll(/(\d+) preset\b/g)) {
       presetClaims += 1;
       if (Number(match[1]) !== presets) presetProblems.push(`${name}: says ${match[1]} presets, lib/provider-presets.mjs has ${presets}`);
     }
   }
   expectNone(presetProblems, 'preset counts');
-  assert.ok(presetClaims >= 1, 'no document quotes the number of presets');
+  assert.ok(presetClaims >= 1, 'no maintained document quotes the number of presets');
+  assert.ok(docs['docs/INDEX.md'].includes(`${presets} preset`),
+    'docs/INDEX.md must state the live preset count outside historical reports');
 
   const stateProblems = [];
   for (const [name, text] of Object.entries(docs)) {

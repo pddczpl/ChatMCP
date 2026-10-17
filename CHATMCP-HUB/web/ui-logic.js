@@ -216,6 +216,7 @@
   const PROTOCOLS = Object.freeze([
     { id: 'anthropic', label: 'Anthropic Messages' },
     { id: 'openai-chat', label: 'OpenAI-compatible (chat completions)' },
+    { id: 'openai-responses', label: 'OpenAI Responses API (functions)' },
     { id: 'gemini', label: 'Gemini generateContent' },
   ]);
   const AUTH_MODES = Object.freeze(['auto', 'bearer', 'google-key']);

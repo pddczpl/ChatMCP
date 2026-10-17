@@ -11,6 +11,20 @@ const fail = (code,message) => Object.assign(new Error(message),{code,statusCode
 const messageText = parts => (Array.isArray(parts) ? parts.filter(p=>p?.type==='output_text'&&typeof p.text==='string').map(p=>p.text).join('\n') : '');
 
 export function asResponsesInput(history=[]) {
+  // Other legacy adapters tolerate orphan results by dropping them, but the
+  // Responses wire format has explicit call_id correlation. Reject before
+  // compatibility pairing so an unattested tool result cannot disappear.
+  if(!Array.isArray(history))throw fail('invalid_responses_history','Conversation history must be a list.');
+  const seenCallIds=new Set();
+  for(const item of history){
+    if(item?.type==='function_call'){
+      if(typeof item.call_id!=='string'||!item.call_id||seenCallIds.has(item.call_id))
+        throw fail('duplicate_responses_call','Historical tool call ID is missing or duplicated.');
+      seenCallIds.add(item.call_id);
+    }else if(item?.type==='function_call_output' && !seenCallIds.has(item.call_id)){
+      throw fail('unbound_responses_tool_result','Tool result lacks an earlier matching function call.');
+    }
+  }
   const result=[], called=new Set();
   for(const item of pairToolCalls(history)){
     if(item?.role==='user'){

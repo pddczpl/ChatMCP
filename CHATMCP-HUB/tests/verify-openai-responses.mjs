@@ -44,6 +44,14 @@ assert.equal(incomplete.status,'incomplete');
 assert.equal(incomplete.output.length,0,'partial function calls must not execute');
 assert.throws(()=>normalizeResponsesResponse({...assistant,output:[{...assistant.output[1],status:'incomplete'}]}),{code:'incomplete_responses_tool'});
 assert.throws(()=>asResponsesInput([{type:'function_call_output',call_id:'missing',output:'x'}]),{code:'unbound_responses_tool_result'});
+assert.throws(()=>asResponsesInput([
+  {type:'function_call_output',call_id:'late',output:'x'},
+  {type:'function_call',call_id:'late',name:'read_file',arguments:'{}'},
+]),{code:'unbound_responses_tool_result'},'a later call cannot authenticate an earlier result');
+assert.throws(()=>asResponsesInput([
+  {type:'function_call',call_id:'duplicate',name:'read_file',arguments:'{}'},
+  {type:'function_call',call_id:'duplicate',name:'read_file',arguments:'{}'},
+]),{code:'duplicate_responses_call'},'duplicate historical call IDs fail closed');
 const subsequent=[...history,{...normalized.output[1]},{type:'function_call_output',call_id:'c1',output:'read result'}];
 assert.equal(asResponsesInput(subsequent).at(-1).call_id,'c1','multi-turn tool results bind to their call');
 const textFinal={status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:'All done.'}]}]};
