@@ -7,6 +7,7 @@ import { canonicalRelative } from './fs-safe.mjs';
 import { isProtectedPath } from './protected-paths.mjs';
 import { GitRunner } from './git-runner.mjs';
 import { scrubEnv } from './shell-runner.mjs';
+import { discoverProjectChecks } from './project-check-discovery.mjs';
 
 const SKIP = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__', '.next', 'dist', 'build', 'coverage', '.pytest_cache', '.mypy_cache', '.idea', '.vs', '.gradle', '.terraform']);
 const EXTENSIONS = new Set(['.py','.js','.mjs','.cjs','.jsx','.ts','.tsx','.json','.md','.yaml','.yml','.toml','.sh','.ps1','.bat','.cmd','.c','.cc','.cpp','.h','.hpp','.java','.go','.rs','.rb','.php','.sql','.r','.ipynb','.css','.html','.xml']);
@@ -492,8 +493,7 @@ export class StudioWorkspace {
     return {workspace:root,skills:list};
   }
   async checks(){
-    const root=this.requireRoot();const defs=[['pyproject.toml','python -m pytest -q'],['pytest.ini','python -m pytest -q'],['package.json','npm test'],['Cargo.toml','cargo test'],['go.mod','go test ./...'],['Makefile','make test']];const found=[];
-    for(const [f,suggestion] of defs)try{const st=await fs.stat(path.join(root,f));if(st.isFile())found.push({from:f,command:suggestion});}catch{}
-    return {suggested:found,execution:'User must explicitly run the command or approve terminal execution; no tests executed by discovery.'};
+    const root=this.requireRoot();
+    return discoverProjectChecks(root);
   }
 }
