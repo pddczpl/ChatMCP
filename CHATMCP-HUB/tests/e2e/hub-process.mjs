@@ -195,8 +195,14 @@ export async function startHub({ scratch, stateDir = path.join(scratch, 'state')
 // ----------------------------------------------------------------------------------------------------------------------
 
 /** Connects the Hub to a model server and runs the tool-calling check ("Lưu & kiểm tra"). Returns the check's result. */
-export async function connectModel(hub, mock, { model = 'mock-coder' } = {}) {
-  await hub.post('/api/ai/config', { preset: 'ollama', apiBaseUrl: mock.url, model });
+export async function connectModel(hub, mock, { model = 'mock-coder', contextWindowTokens = undefined } = {}) {
+  // Large-output fixtures may declare the mock model's actual context capacity.
+  // Do not disable production compaction: preserve separate tests of bounded,
+  // conservative fallback behavior for unconfigured real providers.
+  await hub.post('/api/ai/config', {
+    preset: 'ollama', apiBaseUrl: mock.url, model,
+    ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
+  });
   return hub.post('/api/ai/test', {});
 }
 

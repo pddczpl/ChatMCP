@@ -316,7 +316,11 @@ await runScenario({
       },
     });
     const hub = await t.hub({ project: root, stateDir: path.join(home, 'state'), logName: 'hub-limits.log' });
-    await connectModel(hub, mock);
+    // This fixture tests source-file output bounds, not long-context truncation.
+    // The scripted provider consumes every prior tool result by index and must
+    // therefore advertise a large explicit context instead of assuming that
+    // an unknown real provider has unlimited capacity.
+    await connectModel(hub, mock, { contextWindowTokens: 1_000_000 });
     await setMode(hub, 'review');
     const started = await startTask(hub, 'Đọc các file lớn rồi chạy thử.');
     const startedAt = Date.now();
@@ -324,6 +328,8 @@ await runScenario({
     const seconds = (Date.now() - startedAt) / 1000;
     const size = (index) => (results[index] ?? '').length;
     t.equal(task.state, 'completed', '[limits] the task ends completed');
+    t.equal(task.contextPolicy?.source, 'provider_configuration', '[limits] mock model capacity is explicit');
+    t.equal(task.contextPolicy?.capacityTokens, 1_000_000, '[limits] no implicit unlimited capacity');
     t.check(size(0) > 1000 && size(0) <= 260_000 && /offset=2001/.test(results[0] ?? ''), '[limits] a 5 MB text file comes back as a bounded excerpt with a way to read on', `${size(0)} characters`);
     t.check(/file_too_large/.test(results[1] ?? '') && size(1) < 1000, '[limits] a file over the 10 MB limit is refused with an explanation, not loaded', `${size(1)} characters`);
     t.check(/binary_file/.test(results[2] ?? '') && size(2) < 1000 && !(results[2] ?? '').includes('\0'), '[limits] a binary file is refused, not dumped into the conversation', `${size(2)} characters`);
