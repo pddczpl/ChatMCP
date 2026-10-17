@@ -1,0 +1,207 @@
+# Publish only the user-authorized release commit. All gates use that exact SHA.
+name: Publish ChatMCP v3.8.3
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: publish-chatmcp-v3.8.3
+  cancel-in-progress: false
+jobs:
+  browser:
+    name: Real Chromium MV3 delivery gate
+    if: >-
+      ${{ startsWith(github.event.head_commit.message, 'release: ChatMCP v3.8.3') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Run actual extension IPC on scripted pages, without live login
+        working-directory: CHATMCP-HUB/ui
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          npx playwright test e2e/companion-ipc.spec.mjs --workers=1 --reporter=line
+      - name: Preserve browser evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ChatMCP-v3.8.3-browser-evidence
+          path: CHATMCP-HUB/ui/test-results
+          if-no-files-found: error
+  windows:
+    name: Build and test installed Windows upgrade
+    if: >-
+      ${{ startsWith(github.event.head_commit.message, 'release: ChatMCP v3.8.3') }}
+    runs-on: windows-latest
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Guard exact commit and all component versions
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/native-release-evidence" -Force | Out-Null
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'Wrong checkout' }
+          if ((git show -s --format=%s HEAD).Trim() -ne 'release: ChatMCP v3.8.3') { throw 'Wrong release commit' }
+          foreach ($file in @('CHATMCP-HUB/package.json','CHATMCP-HUB/ui/package.json','CHATMCP-HUB/ui/package-lock.json')) {
+            if ((Get-Content $file -Raw | ConvertFrom-Json).version -ne '3.8.3') { throw "Version mismatch: $file" }
+          }
+          foreach ($file in @('desktop-shell/ChatMCP.csproj','installer/ChatMCP.Installer.csproj')) {
+            if (-not (Get-Content $file -Raw).Contains('<Version>3.8.3</Version>')) { throw "Native version mismatch: $file" }
+          }
+          if ((Get-Content CHATMCP-HUB/extension/manifest.json -Raw | ConvertFrom-Json).version -ne '1.5.2') { throw 'Companion version mismatch' }
+          if (-not (Test-Path RELEASE-NOTES-v3.8.3.md)) { throw 'Missing release notes' }
+      - name: Native health, ownership and transactional rollback regression
+        run: |
+          dotnet run --project scripts/tests/native-lifecycle/NativeLifecycle.Tests.csproj --configuration Release 2>&1 | Tee-Object "$env:RUNNER_TEMP/native-release-evidence/native-unit.log"
+          if ($LASTEXITCODE -ne 0) { throw 'Native unit regression failed' }
+          powershell -NoProfile -File scripts/tests/Test-InstallerPayload.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Installer payload regression failed' }
+      - name: Complete no-skip Hub regression
+        run: |
+          python -m pip install -r CHATMCP-HUB/tests/requirements-e2e.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
+          git config --global user.email 'ci@example.invalid'
+          git config --global user.name 'ci'
+          node CHATMCP-HUB/tests/run-all.mjs --no-skip all --json "$env:RUNNER_TEMP/native-release-evidence/node-summary.json" 2>&1 | Tee-Object "$env:RUNNER_TEMP/native-release-evidence/node-all.log"
+          if ($LASTEXITCODE -ne 0) { throw 'Hub regression failed' }
+      - name: Build fresh versioned Windows installer
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Installer.ps1 2>&1 | Tee-Object "$env:RUNNER_TEMP/native-release-evidence/build.log"
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
+      - name: Retrieve published hash-pinned upgrade baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v3.8.2 --repo $env:GITHUB_REPOSITORY --pattern ChatMCPSetup.exe --dir "$env:RUNNER_TEMP/native-baseline"
+          if ($LASTEXITCODE -ne 0) { throw 'Baseline download failed' }
+          if ((Get-FileHash "$env:RUNNER_TEMP/native-baseline/ChatMCPSetup.exe" -Algorithm SHA256).Hash -ne '75bd3085f73af083d772b675729376d2702448f8a8dc4fe94a9cd58ed80d5564') { throw 'Baseline checksum mismatch' }
+      - name: Real setup upgrade, installed EXE lifecycle and uninstall
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/Test-NativeLifecycle.ps1 -BaselineInstaller "$env:RUNNER_TEMP/native-baseline/ChatMCPSetup.exe" -CandidateInstaller dist/ChatMCPSetup.exe -OutputDirectory "$env:RUNNER_TEMP/native-release-evidence/installed-lifecycle"
+          if ($LASTEXITCODE -ne 0) { throw 'Installed EXE acceptance failed' }
+      - name: Native WebView2 smoke and canonical Companion parity
+        run: |
+          node CHATMCP-HUB/ui/e2e/webview2-smoke.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'WebView2 smoke failed' }
+          powershell -NoProfile -File scripts/Build-BrowserCompanion.ps1 -VerifyInstallerPayload
+          if ($LASTEXITCODE -ne 0) { throw 'Companion source/ZIP/payload parity failed' }
+      - name: Verify final asset checksums and record provenance
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $assets = @()
+          foreach ($name in @('ChatMCPSetup.exe','ChatMCP-Browser-Companion.zip')) {
+            $file = Join-Path dist $name
+            $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            $expected = ((Get-Content "$file.sha256" -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+            if ($actual -ne $expected) { throw "Checksum mismatch: $name" }
+            $assets += [ordered]@{ name=$name; sha256=$actual; bytes=(Get-Item $file).Length }
+          }
+          $native = Get-Content "$env:RUNNER_TEMP/native-release-evidence/installed-lifecycle/report.json" -Raw | ConvertFrom-Json
+          if ($native.result -ne 'PASS' -or $native.candidateSha256 -ne $assets[0].sha256) { throw 'Native evidence does not match the release EXE' }
+          [ordered]@{ version='3.8.3'; companionVersion='1.5.2'; commit=$env:GITHUB_SHA; workflowRun=$env:GITHUB_RUN_ID; assets=$assets; signedInEdgeVerified=$false; authenticodeSigned=$false } | ConvertTo-Json -Depth 6 | Set-Content dist/RELEASE-MANIFEST.json -Encoding utf8
+          git diff --exit-code
+          if ($LASTEXITCODE -ne 0) { throw 'Build changed tracked source' }
+      - name: Upload tested release files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ChatMCP-v3.8.3-Windows-and-Companion
+          path: |
+            dist/ChatMCPSetup.exe
+            dist/ChatMCPSetup.exe.sha256
+            dist/ChatMCP-Browser-Companion.zip
+            dist/ChatMCP-Browser-Companion.zip.sha256
+            dist/RELEASE-MANIFEST.json
+          if-no-files-found: error
+      - name: Preserve actual Windows evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ChatMCP-v3.8.3-native-evidence
+          path: ${{ runner.temp }}/native-release-evidence
+          if-no-files-found: error
+  publish:
+    name: Publish verified v3.8.3 release
+    needs: [browser, windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: v3.8.3
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Require regular CI success on this exact release commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            result=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&event=push&per_page=100" --jq '[.workflow_runs[] | select(.path == ".github/workflows/ci.yml")][0] | [.status // "missing", .conclusion // "none"] | @tsv')
+            read -r status conclusion <<< "$result"
+            if [ "$status" = completed ]; then
+              test "$conclusion" = success || { echo "CI ended: $conclusion"; exit 1; }
+              exit 0
+            fi
+            sleep 15
+          done
+          echo 'CI did not finish successfully before publication deadline'; exit 1
+      - name: Retrieve only artifacts from this successful workflow run
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name ChatMCP-v3.8.3-Windows-and-Companion --dir dist
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path('dist')
+          manifest = json.loads((root / 'RELEASE-MANIFEST.json').read_text(encoding='utf-8-sig'))
+          assert manifest['commit'] == os.environ['GITHUB_SHA']
+          assert manifest['version'] == '3.8.3' and manifest['companionVersion'] == '1.5.2'
+          assert {a['name'] for a in manifest['assets']} == {'ChatMCPSetup.exe', 'ChatMCP-Browser-Companion.zip'}
+          for asset in manifest['assets']:
+              file = root / asset['name']
+              assert file.stat().st_size == asset['bytes']
+              digest = hashlib.file_digest(file.open('rb'), 'sha256').hexdigest()
+              assert digest == asset['sha256']
+              assert digest == (root / (asset['name'] + '.sha256')).read_text(encoding='utf-8-sig').split()[0]
+          print('Exact-commit release asset hashes verified again before publication.')
+          PY
+      - name: Publish version tag without moving existing tags and release assets
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA" || { echo 'main moved; refusing stale publication'; exit 1; }
+          if git ls-remote --exit-code origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
+            test "$(git rev-list -n1 "$TAG")" = "$GITHUB_SHA" || { echo 'Tag points at another commit'; exit 1; }
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a "$TAG" -m 'ChatMCP v3.8.3 - Native Lifecycle and Companion Safety' "$GITHUB_SHA"
+            git push origin "refs/tags/$TAG"
+          fi
+          gh release create "$TAG" dist/ChatMCPSetup.exe dist/ChatMCPSetup.exe.sha256 dist/ChatMCP-Browser-Companion.zip dist/ChatMCP-Browser-Companion.zip.sha256 dist/RELEASE-MANIFEST.json --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title 'ChatMCP v3.8.3 - Native Lifecycle and Companion Safety' --notes-file RELEASE-NOTES-v3.8.3.md
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
