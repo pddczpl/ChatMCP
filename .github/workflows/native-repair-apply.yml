@@ -1,0 +1,120 @@
+# Temporary, user-authorized direct-main repair. Removed by the release commit.
+name: Verify native lifecycle repair
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/native-repair-apply.yml'
+      - 'scripts/maintenance/native-repair/**'
+permissions:
+  contents: write
+concurrency:
+  group: native-repair-v3.8.3
+  cancel-in-progress: false
+jobs:
+  repair:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Apply exact locally reviewed patch with SHA-256 and base-blob guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, gzip, hashlib, pathlib, subprocess, os
+          folder = pathlib.Path('scripts/maintenance/native-repair')
+          patch = gzip.decompress(base64.b64decode(''.join((folder/f'part{i}.b64').read_text().strip() for i in range(1,7)), validate=True))
+          assert hashlib.sha256(patch).hexdigest() == 'fed573acbf6b0a085b217692e3197a55536f9e8e62e1a1368d8d28363ec1c7bf', 'Patch transport mismatch'
+          evidence = pathlib.Path(os.environ['RUNNER_TEMP'])/'native-repair-evidence'
+          evidence.mkdir(parents=True,exist_ok=True)
+          file = evidence/'reviewed.patch'; file.write_bytes(patch)
+          subprocess.run(['git','apply','--check','--index',str(file)],check=True)
+          subprocess.run(['git','apply','--index',str(file)],check=True)
+          PY
+      - name: Native shared code and transaction rollback regression
+        run: |
+          dotnet run --project scripts/tests/native-lifecycle/NativeLifecycle.Tests.csproj --configuration Release 2>&1 | Tee-Object "$env:RUNNER_TEMP/native-repair-evidence/native-unit.log"
+          if ($LASTEXITCODE -ne 0) { throw 'Native lifecycle/rollback tests failed' }
+          powershell -NoProfile -File scripts/tests/Test-InstallerPayload.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Installer payload security regression failed' }
+      - name: Complete no-skip Hub regression suite
+        run: |
+          python -m pip install -r CHATMCP-HUB/tests/requirements-e2e.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Test dependency installation failed' }
+          git config --global user.email 'ci@example.invalid'
+          git config --global user.name 'ci'
+          node --check CHATMCP-HUB/extension/browser-runner.js
+          if ($LASTEXITCODE -ne 0) { throw 'Content script syntax failed' }
+          node --check CHATMCP-HUB/extension/browser-background.js
+          if ($LASTEXITCODE -ne 0) { throw 'Service worker syntax failed' }
+          node CHATMCP-HUB/tests/run-all.mjs --no-skip all --json "$env:RUNNER_TEMP/native-repair-evidence/node-summary.json" 2>&1 | Tee-Object "$env:RUNNER_TEMP/native-repair-evidence/node-all.log"
+          if ($LASTEXITCODE -ne 0) { throw 'Hub regression suite failed' }
+      - name: Build fresh candidate Windows installer
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Installer.ps1 2>&1 | Tee-Object "$env:RUNNER_TEMP/native-repair-evidence/build.log"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows installer build failed' }
+      - name: Real Chromium MV3 extension IPC regression with scripted page and Hub
+        working-directory: CHATMCP-HUB/ui
+        run: |
+          npx playwright install chromium
+          if ($LASTEXITCODE -ne 0) { throw 'Chromium installation failed' }
+          npx playwright test e2e/companion-ipc.spec.mjs --workers=1 --reporter=line
+          if ($LASTEXITCODE -ne 0) { throw 'Real MV3 IPC regression failed' }
+      - name: Download hash-pinned published baseline installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v3.8.2 --repo pddczpl/ChatMCP --pattern ChatMCPSetup.exe --dir "$env:RUNNER_TEMP/native-baseline"
+          if ($LASTEXITCODE -ne 0) { throw 'Baseline download failed' }
+          $hash=(Get-FileHash "$env:RUNNER_TEMP/native-baseline/ChatMCPSetup.exe" -Algorithm SHA256).Hash
+          if ($hash -ne '75bd3085f73af083d772b675729376d2702448f8a8dc4fe94a9cd58ed80d5564') { throw 'Baseline installer hash mismatch' }
+      - name: Actual installed EXE upgrade, single-instance, Hub lifetime and uninstall
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/Test-NativeLifecycle.ps1 -BaselineInstaller "$env:RUNNER_TEMP/native-baseline/ChatMCPSetup.exe" -CandidateInstaller "dist/ChatMCPSetup.exe" -OutputDirectory "$env:RUNNER_TEMP/native-repair-evidence/installed-lifecycle"
+          if ($LASTEXITCODE -ne 0) { throw 'Actual installed native lifecycle acceptance failed' }
+      - name: Existing native WebView2 smoke and extension package parity
+        run: |
+          node CHATMCP-HUB/ui/e2e/webview2-smoke.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'WebView2 smoke failed' }
+          powershell -NoProfile -File scripts/Build-BrowserCompanion.ps1 -VerifyInstallerPayload
+          if ($LASTEXITCODE -ne 0) { throw 'Companion source/ZIP/installer parity failed' }
+          git diff --cached --check
+          if ($LASTEXITCODE -ne 0) { throw 'Patch whitespace validation failed' }
+      - name: Preserve actual test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-repair-evidence
+          path: |
+            ${{ runner.temp }}/native-repair-evidence
+            CHATMCP-HUB/ui/test-results
+          if-no-files-found: warn
+      - name: Commit tested runtime changes directly to main without force
+        run: |
+          git fetch origin main
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot refresh main' }
+          if ((git rev-parse origin/main).Trim() -ne $env:GITHUB_SHA) { throw 'main moved; refusing stale update' }
+          git diff --cached --check
+          if ($LASTEXITCODE -ne 0) { throw 'Staged diff invalid' }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: native lifecycle and safe Companion delivery for v3.8.3' -m 'User-authorized direct-main fix. Passed native rollback tests, full no-skip Hub suite, real scripted Chromium MV3 IPC, actual published-installer upgrade and installed desktop lifecycle/uninstall tests on Windows. Live signed-in Edge is not certified.'
+          if ($LASTEXITCODE -ne 0) { throw 'Commit failed' }
+          git push origin HEAD:main
+          if ($LASTEXITCODE -ne 0) { throw 'Push failed; no force attempted' }
