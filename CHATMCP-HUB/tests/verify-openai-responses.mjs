@@ -1,4 +1,9 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {GatewayProvider, buildEndpoint} from '../lib/gateway-provider.mjs';
+
 import {
   asResponsesInput,buildResponsesBody,normalizeResponsesResponse,readResponsesStream,respondOpenAIResponses
 } from '../lib/openai-responses-api.mjs';
@@ -78,3 +83,32 @@ const sse=await respondOpenAIResponses({
 },{input:history,instructions:'Test'});
 assert.equal(sse.status,'completed');
 console.log('PASS OpenAI Responses text, function calls, paired tool results, completion, SSE, missing usage and fail-closed incomplete streams');
+
+const root=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-responses-gateway-'));
+try{
+  const requests=[];
+  const provider=new GatewayProvider({
+    directory:root,manager:{secrets:[]},env:{},platform:'linux',
+    fetchImpl:async(url,init)=>{
+      requests.push({url,init});
+      return {ok:true,status:200,headers:{get:()=> 'application/json'},
+        text:async()=>JSON.stringify(textFinal)};
+    },
+  });
+  await provider.load();
+  await provider.configure({preset:'custom-responses',apiBaseUrl:'http://127.0.0.1:7333/v1',
+    protocol:'openai-responses',model:'gpt-test',authMode:'bearer'});
+  assert.equal(provider.state().protocol,'openai-responses');
+  assert.equal(buildEndpoint('https://api.openai.com/v1','openai-responses','gpt-test'),
+    'https://api.openai.com/v1/responses');
+  const done=await provider.respond({input:history,instructions:'Read files',tools:[tool],maxOutputTokens:2000});
+  assert.equal(done.status,'completed');
+  assert.equal(requests.length,1);
+  assert.equal(requests[0].url,'http://127.0.0.1:7333/v1/responses');
+  const emitted=JSON.parse(requests[0].init.body);
+  assert.equal(emitted.model,'gpt-test');
+  assert.equal(emitted.store,false);
+  assert.equal(emitted.tools[0].name,'read_file');
+  assert.equal(emitted.input[2].call_id,'f1');
+  assert.equal(provider.state().agentRequestMode,'openai-responses-functions');
+}finally{await fs.rm(root,{recursive:true,force:true});}

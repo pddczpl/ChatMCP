@@ -8,6 +8,7 @@ import { customPresetId, detectEnvKeys, isLoopbackUrl, originOf, presetById } fr
 import { anthropicEndpoint, anthropicHeaders, normalizeAnthropic } from './anthropic-api.mjs';
 import { asChatMessages, normalizeChatCompletion } from './openai-chat-api.mjs';
 import { respondStandard } from './standard-adapter.mjs';
+import { respondOpenAIResponses, normalizeResponsesResponse } from './openai-responses-api.mjs';
 import { estimateTokens } from './model-history.mjs';
 import { classifyHttpError, sleep as waitFor } from './model-http.mjs';
 import { fetchModelList } from './model-list.mjs';
@@ -19,7 +20,7 @@ export { asChatMessages, normalizeChatCompletion };
 
 // Direct API mode is deliberately independent of the ChatGPT Web companion.
 // API credentials never pass through the browser extension or the MCP transport.
-export const FORMATS = Object.freeze(['gemini', 'openai-chat', 'anthropic']);
+export const FORMATS = Object.freeze(['gemini', 'openai-chat', 'openai-responses', 'anthropic']);
 export const AUTH_MODES = Object.freeze(['auto', 'google-key', 'bearer']);
 const isObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 const modelOK = (v) => typeof v === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9._:\/-]{0,150}$/.test(v);
@@ -45,6 +46,7 @@ function noSecrets(message, redact) {
 function probePayload(protocol, model) {
   if (protocol === 'gemini') return { contents: [{ role: 'user', parts: [{ text: 'Reply OK.' }] }] };
   if (protocol === 'anthropic') return { model, max_tokens: 32, messages: [{ role: 'user', content: 'Reply OK.' }] };
+  if (protocol === 'openai-responses') return {model,instructions:'Reply OK.',input:[{role:'user',content:'Reply OK.'}],store:false,stream:false,max_output_tokens:256};
   return { model, messages: [{ role: 'user', content: 'Reply OK.' }], stream: false };
 }
 
@@ -72,7 +74,7 @@ export function buildEndpoint(base, protocol, model, customPath = '') {
   }
   if (protocol === 'anthropic') return anthropicEndpoint(url);
   const stem = /\/v1$/.test(url) ? url : `${url}/v1`;
-  return `${stem}/chat/completions`;
+  return `${stem}/${protocol==='openai-responses'?'responses':'chat/completions'}`;
 }
 function geminiSchema(schema) {
   if (!isObject(schema)) return { type: 'string' };
@@ -265,7 +267,7 @@ export class GatewayProvider {
       provider: 'gateway', preset: this.preset, protocol: this.protocol, model: this.model, apiBaseUrl: this.apiBaseUrl, authMode: this.authMode, customPath: this.customPath,
       contextWindowTokens: this.contextWindowTokens, configured: this.ready(), keyRequired: this.keyRequired(), keySource: this.keySource,
       secretStorage: this.protector.describe(), lastError: this.lastError, toolCalling: this.toolCalling, toolCallingNote: this.toolCallingNote,
-      agentRequestMode: this.protocol === 'gemini' ? (this.dialectConfirmed ? this.geminiDialect : 'chưa kiểm tra tool calling') : this.protocol === 'anthropic' ? 'anthropic-tool-use' : 'openai-tool-calls',
+      agentRequestMode: this.protocol === 'gemini' ? (this.dialectConfirmed ? this.geminiDialect : 'chưa kiểm tra tool calling') : this.protocol === 'anthropic' ? 'anthropic-tool-use' : this.protocol === 'openai-responses' ? 'openai-responses-functions' : 'openai-tool-calls',
     };
   }
   snapshot() { return { provider: `gateway:${this.protocol}`, model: this.model }; }
@@ -297,7 +299,7 @@ export class GatewayProvider {
     const nextModel = model ?? defaults.model;
     const nextAuth = authMode ?? defaults.authMode;
     const nextPath = customPath ?? defaults.customPath;
-    if (!FORMATS.includes(nextProtocol)) throw bad('invalid_protocol', 'Chọn giao thức Gemini, OpenAI-compatible hoặc Anthropic.');
+    if (!FORMATS.includes(nextProtocol)) throw bad('invalid_protocol', 'Chọn giao thức Gemini, OpenAI Chat Completions, OpenAI Responses hoặc Anthropic.');
     if (!modelOK(nextModel)) throw bad('invalid_model', 'Tên model không hợp lệ.');
     if (!AUTH_MODES.includes(nextAuth) || (nextProtocol === 'anthropic' && nextAuth === 'google-key')) throw bad('invalid_auth_mode', 'Kiểu xác thực API không hợp lệ.');
     buildEndpoint(base, nextProtocol, nextModel, nextPath);
@@ -446,7 +448,7 @@ export class GatewayProvider {
         let good=false;
         if(response.ok) {
           try {
-            const parsed=item.protocol==='gemini'?normalizeGemini(data):item.protocol==='anthropic'?normalizeAnthropic(data):normalizeChatCompletion(data);
+            const parsed=item.protocol==='gemini'?normalizeGemini(data):item.protocol==='anthropic'?normalizeAnthropic(data):item.protocol==='openai-responses'?normalizeResponsesResponse(data):normalizeChatCompletion(data);
             good=parsed.output.some(x=>x.type==='message');
           } catch { /* HTTP 200 without a valid model response is not success */ }
         }
@@ -476,9 +478,11 @@ export class GatewayProvider {
   }
 
   /** One model step. `maxOutputTokens` is honoured by the Anthropic path (where it is required); the others use the provider's own cap. */
-  async respond({ input, instructions, tools = [], signal, onStatus = async () => {}, maxOutputTokens, beforeModelRequest = () => {} } = {}) {
+  async respond({ input, instructions, tools = [], signal, onStatus = async () => {}, onToken = null, maxOutputTokens, beforeModelRequest = () => {} } = {}) {
     if (!this.ready()) throw bad('gateway_not_ready', 'Hãy cấu hình API Base URL, model và API key.', 409);
     if (!Array.isArray(input)) throw bad('invalid_input', 'Ngữ cảnh Agent không hợp lệ.');
+    if (this.protocol === 'openai-responses')
+      return await this.#respondResponses({ input, instructions, tools, signal, onToken, maxOutputTokens, beforeModelRequest });
     if (this.protocol !== 'gemini') return await this.#respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens, beforeModelRequest });
     // Gemini keeps its own compatibility loop: gateways in front of it differ a lot (see gemini-compat.mjs).
     const protocol = 'gemini';
@@ -633,6 +637,22 @@ export class GatewayProvider {
     this.geminiDialect = dialects[dialectIndex]; this.dialectConfirmed = true;
     this.lastError = '';
     return normalized;
+  }
+
+  // Full Responses request path. Fixed endpoint and credential snapshot; never
+  // turn a failed model request into an uncertain tool mutation or cross-provider retry.
+  async #respondResponses({input,instructions,tools,signal,onToken,maxOutputTokens,beforeModelRequest}) {
+    const model=this.model, protocol=this.protocol, authMode=this.authMode, apiKey=this.apiKey;
+    const endpoint=buildEndpoint(this.apiBaseUrl,protocol,model,this.customPath);
+    const headers=this.#headers(protocol,authMode,apiKey);
+    const result=await respondOpenAIResponses({
+      model,endpoint,headers,fetch:this.fetch,
+      timeoutMs:this.limits?.requestTimeoutMs || 240000,
+      stream:typeof onToken==='function',
+      redact:text=>noSecrets(String(text),value=>this.redact(value)),
+    },{input,instructions,tools,signal,onToken:onToken||(()=>{}),maxOutputTokens,beforeModelRequest});
+    this.lastError='';
+    return result;
   }
 
   /** OpenAI-style Chat Completions and Anthropic Messages. See standard-adapter.mjs for what it guarantees. */
