@@ -50,7 +50,9 @@ export function IntelligenceTab() {
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
-  const draftChanged = aiDraftHasChanges(form, ai as any);
+  const [customHeadersDraft,setCustomHeadersDraft] = useState('');
+  const [customHeadersDirty,setCustomHeadersDirty] = useState(false);
+  const draftChanged = aiDraftHasChanges(form, ai as any) || customHeadersDirty;
   const expectedProtocol = aiProtocolForPreset(form.provider);
   const oldOrigin = (() => { try { return new URL(ai.apiBaseUrl || '').origin; } catch { return ''; } })();
   const newOrigin = (() => { try { return new URL(form.apiBaseUrl).origin; } catch { return ''; } })();
@@ -76,6 +78,8 @@ export function IntelligenceTab() {
     setForm(current => selectAiProviderDraft(current, p));
     setTestResult(null);
     setSaveError('');
+    setCustomHeadersDraft('');
+    setCustomHeadersDirty(false);
   };
 
   const handleEndpointChange = (nextUrl: string) => {
@@ -87,10 +91,15 @@ export function IntelligenceTab() {
     });
     setTestResult(null);
     setSaveError('');
+    setCustomHeadersDraft('');
+    setCustomHeadersDirty(false);
   };
 
   const saveForm = async () => {
     const submitted = form;
+    const parsedHeaders=customHeadersDirty?JSON.parse(customHeadersDraft||'[]'):undefined;
+    if(parsedHeaders!==undefined && !Array.isArray(parsedHeaders))
+      throw new Error('Custom headers must be a JSON array.');
     const result = await api.updateAiConfig({
       preset: submitted.provider,
       ...(aiProtocolForPreset(submitted.provider) ? { protocol: aiProtocolForPreset(submitted.provider) } : {}),
@@ -99,12 +108,15 @@ export function IntelligenceTab() {
       model: submitted.model.trim(),
       apiKey: submitted.apiKey.trim() || undefined,
       remember: true,
+      ...(customHeadersDirty?{customHeaders:parsedHeaders}:{}),
     });
     const saved = result.ai;
     if (!saved || (aiProtocolForPreset(submitted.provider) && saved.protocol !== aiProtocolForPreset(submitted.provider))) {
       throw new Error('Hub chưa lưu đúng giao thức đã chọn. Cấu hình AI hiện tại chưa được xác nhận.');
     }
     setForm(current => reconcileSavedAiConfig(current, submitted, saved));
+    setCustomHeadersDraft('');
+    setCustomHeadersDirty(false);
     return reconcileSavedAiConfig(submitted, submitted, saved);
   };
 
@@ -262,6 +274,26 @@ export function IntelligenceTab() {
             className="w-full bg-[var(--surface)] text-[var(--text)] font-mono text-xs rounded-md pl-8 pr-3 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
           />
         </div>
+      </div>
+
+      {/* Protected custom HTTP headers: never populate editable fields with
+          secret values returned from persisted application state. */}
+      <div className="space-y-1.5">
+        <label htmlFor="chatmcp-custom-headers" className="text-[11px] font-semibold text-[var(--muted)] block">
+          Custom HTTP headers (JSON)
+        </label>
+        <p className="text-[10px] text-[var(--faint)]">
+          Existing: {Array.isArray((ai as any).customHeaders)
+            ? (ai as any).customHeaders.map((h:any)=>h.name).join(', ') || 'none'
+            : 'none'}. Only edit to replace the saved set. Use envKeyName to reference an environment variable.
+          Literal values are encrypted on save and never returned by the API.
+        </p>
+        <textarea id="chatmcp-custom-headers" aria-label="Custom headers JSON" rows={3}
+          spellCheck={false} value={customHeadersDraft}
+          onChange={event=>{setCustomHeadersDraft(event.target.value);setCustomHeadersDirty(true);}}
+          placeholder='[{"name":"X-Tenant","envKeyName":"CHATMCP_TENANT"}]'
+          className="w-full bg-[var(--surface)] text-[var(--text)] font-mono text-xs rounded-md px-3 py-2 border border-[var(--line)] focus:outline-none focus:border-sky-500"/>
+        {customHeadersDirty && <p className="text-[10px] text-amber-400">Saving replaces the existing headers; use [] to clear them.</p>}
       </div>
 
       {/* Test Connection Result */}

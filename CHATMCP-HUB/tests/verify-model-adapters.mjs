@@ -658,6 +658,64 @@ try {
   }
 
   // ---------------------------------------------------------------------------------------------------------------
+  // Custom header security and protected persistence (actual outbound fetch)
+  // ---------------------------------------------------------------------------------------------------------------
+  {
+    const directory=path.join(root,'custom-headers');
+    const manager={secrets:[]};
+    const observed=[];
+    // Only a test cryptographic stand-in; production uses platform protector.
+    const protect=async plain=>'fixture:'+Buffer.from(plain).toString('base64');
+    const unprotect=async cipher=>Buffer.from(cipher.slice('fixture:'.length),'base64').toString('utf8');
+    const make=async()=>{
+      const gateway=new GatewayProvider({
+        directory,bundleRoot:BUNDLE,manager,env:{CHATMCP_REGION:'eu-west'},
+        platform:'linux',protect,unprotect,
+        fetchImpl:async(url,options)=>{observed.push({url,headers:options.headers});
+          return reply(200,chatOk('ok'));}
+      });
+      await gateway.load();
+      return gateway;
+    };
+    const p=await make();
+    await p.configure({preset:'custom-openai',apiBaseUrl:'https://tenant.example/v1',
+      model:'fixture-model',apiKey:KEY,remember:true,customHeaders:[
+        {name:'X-Private-Tenant',value:'secret-tenant-value'},
+        {name:'X-Region',envKeyName:'CHATMCP_REGION'},
+      ]});
+    same(p.state().customHeaders.map(h=>h.name),['X-Private-Tenant','X-Region']);
+    check(!JSON.stringify(p.state()).includes('secret-tenant-value'),'public state redacts all custom header values');
+    check(!(await fs.readFile(path.join(directory,'gateway-config.json'),'utf8')).includes('secret-tenant-value'),
+      'public config never stores headers as plaintext');
+    check(!(await fs.readFile(path.join(directory,'gateway-custom-headers.dpapi'),'utf8')).includes('secret-tenant-value'),
+      'protected header file never stores plaintext values');
+    const response=await p.respond({input:[userMsg('Hi')],instructions:'Say ok',tools:[]});
+    same(response.status,'completed');
+    same([observed[0].headers['X-Private-Tenant'],observed[0].headers['X-Region']],
+      ['secret-tenant-value','eu-west'],'headers applied only at authorized provider');
+    const restored=await make();
+    same(restored.state().customHeaders.map(h=>h.name),['X-Private-Tenant','X-Region'],
+      'restarts restore encrypted headers for matching origin');
+    const validation=restored.validateConfiguration({model:'different-model'});
+    same(validation.customHeaderNames,['X-Private-Tenant','X-Region']);
+    await rejects(restored.configure({customHeaders:[{name:'Authorization',value:'attacker'}]}),
+      {code:'invalid_custom_headers'});
+    await rejects(restored.configure({customHeaders:[{name:'X-Bad',value:'abc\\r\\nInjected: 1'}]}),
+      {code:'invalid_custom_headers'});
+    await rejects(restored.configure({customHeaders:[{name:'X-Region',envKeyName:'CHATMCP_REGION'},
+      {name:'x-region',value:'duplicate'}]}),{code:'invalid_custom_headers'});
+    await restored.configure({apiBaseUrl:'https://other.example/v1',apiKey:KEY,model:'fixture-model'});
+    same(restored.state().customHeaders,[],'changing origin discards headers');
+    check(!(await fs.stat(path.join(directory,'gateway-custom-headers.dpapi')).then(()=>true,()=>false)),
+      'changing origin deletes saved header payload');
+    const missing=await make();
+    await missing.configure({apiBaseUrl:'https://tenant.example/v1',apiKey:KEY,remember:false,
+      customHeaders:[{name:'X-Unknown-Region',envKeyName:'MISSING_REGION'}]});
+    await rejects(missing.respond({input:[userMsg('Hi')],instructions:'ok'}),
+      {code:'invalid_header_environment'},'missing environment references never result in a request');
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
   // Test API (diagnoseConnection) for Anthropic
   // ---------------------------------------------------------------------------------------------------------------
   {

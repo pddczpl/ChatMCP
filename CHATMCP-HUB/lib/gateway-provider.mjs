@@ -14,6 +14,7 @@ import { classifyHttpError, sleep as waitFor } from './model-http.mjs';
 import { fetchModelList } from './model-list.mjs';
 import { probeToolCalling } from './tool-probe.mjs';
 import { reportedTokenCount } from './request-budget.mjs';
+import { normalizeCustomHeaders, publicCustomHeaders, applyCustomHeaders } from './gateway-custom-headers.mjs';
 
 // These stay importable from here: other modules and the tests have always taken them from this file.
 export { asChatMessages, normalizeChatCompletion };
@@ -215,6 +216,9 @@ export class GatewayProvider {
     this.unprotect = unprotect || ((blob) => protector.unprotect(blob));
     this.configFile = path.join(directory, 'gateway-config.json');
     this.keyFile = path.join(directory, 'gateway-key.dpapi'); // the name predates non-Windows storage; kept so existing installs still load
+    this.headersFile = path.join(directory, 'gateway-custom-headers.dpapi');
+    this.customHeaders = [];
+    this.customHeadersOrigin = null;
     this.apiBaseUrl = 'https://generativelanguage.googleapis.com';
     this.protocol = 'gemini';
     this.preset = '';
@@ -261,11 +265,25 @@ export class GatewayProvider {
       if (found) { this.apiKey = found.value; this.keySource = 'environment'; }
     }
     this.registerKey(this.apiKey);
+    // Header values are encrypted at rest, independently of the public
+    // gateway-config.json. Never load a header for a changed origin.
+    try {
+      const saved=await readJson(this.headersFile);
+      if(saved?.origin===originOf(this.apiBaseUrl)&&typeof saved.protected==='string'){
+        const decrypted=JSON.parse(await this.unprotect(saved.protected));
+        this.customHeaders=normalizeCustomHeaders(decrypted);
+        this.customHeadersOrigin=saved.origin;
+        for(const h of this.customHeaders)if(h.value)this.registerKey(h.value);
+      }else if(saved?.protected) this.lastError='Headers saved for another origin were not loaded.';
+    }catch(error){
+      if(error?.code!=='ENOENT')this.lastError='Stored gateway custom headers are unreadable; no custom headers loaded.';
+    }
   }
   state() {
     return {
       provider: 'gateway', preset: this.preset, protocol: this.protocol, model: this.model, apiBaseUrl: this.apiBaseUrl, authMode: this.authMode, customPath: this.customPath,
       contextWindowTokens: this.contextWindowTokens, configured: this.ready(), keyRequired: this.keyRequired(), keySource: this.keySource,
+      customHeaders: publicCustomHeaders(this.customHeaders),
       secretStorage: this.protector.describe(), lastError: this.lastError, toolCalling: this.toolCalling, toolCallingNote: this.toolCallingNote,
       agentRequestMode: this.protocol === 'gemini' ? (this.dialectConfirmed ? this.geminiDialect : 'chưa kiểm tra tool calling') : this.protocol === 'anthropic' ? 'anthropic-tool-use' : this.protocol === 'openai-responses' ? 'openai-responses-functions' : 'openai-tool-calls',
     };
@@ -283,7 +301,7 @@ export class GatewayProvider {
 
   /** Everything configure() decides, without changing anything. Throws on any invalid input. */
   #plan(input = {}) {
-    const { preset: requested, apiBaseUrl, protocol, model, authMode, customPath, contextWindowTokens, apiKey, remember = false, useEnvKey = false } = input ?? {};
+    const { preset: requested, apiBaseUrl, protocol, model, authMode, customPath, contextWindowTokens, apiKey, remember = false, useEnvKey = false, customHeaders } = input ?? {};
     let entry = null;
     if (requested !== undefined && requested !== null && requested !== '') {
       entry = presetById(String(requested));
@@ -337,12 +355,21 @@ export class GatewayProvider {
     checkKey(key);
     const keyRequired = !isLoopbackUrl(base);
     if (remember && !key && keyRequired) throw bad('missing_key', 'Nhập API key trước khi lưu.');
-    return { base, protocol: nextProtocol, model: nextModel, authMode: nextAuth, customPath: nextPath, contextWindowTokens: window, preset: nextPreset, key, fromEnv, persist: Boolean(remember && key && !fromEnv), keyRequired };
+    // An omitted header list retains settings only for the exact authorized
+    // origin/provider. A new explicit list is a new user authorization.
+    const retainHeaders=sameOrigin && this.customHeadersOrigin===originOf(base)
+      && (!switching || sameCustomGateway);
+    const headerSpecs=customHeaders===undefined
+      ? (retainHeaders?this.customHeaders:[])
+      : normalizeCustomHeaders(customHeaders);
+    return { base, protocol: nextProtocol, model: nextModel, authMode: nextAuth, customPath: nextPath, contextWindowTokens: window, preset: nextPreset, key, fromEnv, persist: Boolean(remember && key && !fromEnv), keyRequired,
+      headerSpecs, persistHeaders:Boolean(remember && headerSpecs.length) };
   }
   /** Check a configuration without applying it. Never returns or logs the key. */
   validateConfiguration(input) {
     const plan = this.#plan(input);
-    return { ok: true, preset: plan.preset, protocol: plan.protocol, apiBaseUrl: plan.base, model: plan.model, authMode: plan.authMode, customPath: plan.customPath, contextWindowTokens: plan.contextWindowTokens, keyRequired: plan.keyRequired, keyProvided: Boolean(plan.key), keyFromEnvironment: plan.fromEnv };
+    return { ok: true, preset: plan.preset, protocol: plan.protocol, apiBaseUrl: plan.base, model: plan.model, authMode: plan.authMode, customPath: plan.customPath, contextWindowTokens: plan.contextWindowTokens, keyRequired: plan.keyRequired, keyProvided: Boolean(plan.key), keyFromEnvironment: plan.fromEnv,
+      customHeaderNames: plan.headerSpecs.map(x=>x.name) };
   }
   async configure(input = {}) {
     const plan = this.#plan(input);
@@ -351,15 +378,25 @@ export class GatewayProvider {
       await fs.mkdir(this.directory, { recursive: true, mode: 0o700 });
       ciphertext = await this.protect(plan.key);
     }
+    // Protect custom header values BEFORE writing public configuration.
+    // Environment variable references are protected too, to preserve a
+    // uniform on-disk format with no accidental plaintext fallback.
+    const protectedHeaders=plan.persistHeaders
+      ? await this.protect(JSON.stringify(plan.headerSpecs)) : null;
     // Persist the public configuration first; never write plaintext credentials.
     await writeJson(this.configFile, { version: 2, preset: plan.preset, apiBaseUrl: plan.base, protocol: plan.protocol, model: plan.model, authMode: plan.authMode, customPath: plan.customPath, contextWindowTokens: plan.contextWindowTokens });
     if (ciphertext) await writeJson(this.keyFile, { protected: ciphertext, scheme: this.protector.kind });
     else await fs.unlink(this.keyFile).catch(e => { if (e.code !== 'ENOENT') throw e; });
+    if(protectedHeaders)await writeJson(this.headersFile,{origin:originOf(plan.base),protected:protectedHeaders,scheme:this.protector.kind});
+    else await fs.unlink(this.headersFile).catch(e=>{if(e.code!=='ENOENT')throw e;});
     const sameKey = plan.key === this.apiKey;
     this.keySource = plan.fromEnv ? 'environment' : plan.persist ? 'saved' : !plan.key ? 'none' : (sameKey && this.keySource === 'environment' ? 'environment' : 'session');
     this.apiKey = plan.key;
     this.registerKey(plan.key);
     this.apiBaseUrl = plan.base; this.protocol = plan.protocol; this.model = plan.model; this.authMode = plan.authMode; this.customPath = plan.customPath;
+    this.customHeaders=plan.headerSpecs;
+    this.customHeadersOrigin=originOf(plan.base);
+    for(const h of this.customHeaders)if(h.value)this.registerKey(h.value);
     this.preset = plan.preset; this.contextWindowTokens = plan.contextWindowTokens; this.outputLimit = null;
     this.toolCalling = 'unchecked'; this.toolCallingNote = '';
     this.lastError = ''; this.geminiDialect = 'native'; this.dialectConfirmed = false;
@@ -380,12 +417,16 @@ export class GatewayProvider {
   }
   /** Request headers for one protocol. The key is passed in so a call keeps the credential it started with. */
   #headers(protocol, authMode, apiKey) {
-    if (protocol === 'anthropic') return anthropicHeaders(apiKey, authMode === 'bearer' ? 'bearer' : 'auto');
-    const headers = { 'Content-Type': 'application/json' };
-    if (!apiKey) return headers;
-    const googleHeader = authMode === 'google-key' || (authMode === 'auto' && protocol === 'gemini');
-    if (googleHeader) headers['x-goog-api-key'] = apiKey; else headers.Authorization = `Bearer ${apiKey}`;
-    return headers;
+    const headers=protocol==='anthropic'
+      ? anthropicHeaders(apiKey,authMode==='bearer'?'bearer':'auto')
+      : {'Content-Type':'application/json'};
+    if(protocol!=='anthropic'&&apiKey){
+      const googleHeader=authMode==='google-key'||(authMode==='auto'&&protocol==='gemini');
+      if(googleHeader)headers['x-goog-api-key']=apiKey; else headers.Authorization=`Bearer ${apiKey}`;
+    }
+    if(this.customHeaders.length&&this.customHeadersOrigin!==originOf(this.apiBaseUrl))
+      throw bad('header_origin_mismatch','Custom headers are bound to another origin.',409);
+    return applyCustomHeaders(headers,this.customHeaders,this.env,value=>this.registerKey(value));
   }
   /** Models the account can use. Falls back to the configured model, with a warning, when the provider cannot be asked. */
   async discoverModels({ signal } = {}) {
