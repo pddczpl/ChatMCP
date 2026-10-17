@@ -212,6 +212,8 @@ export interface ToolCall {
 
 export interface Task {
   id: string;
+  effectiveProfile?: {id:string;name:string;revision?:string|null;provider:string;protocol:string;model:string;endpointOrigin:string;credentialSource:string}|null;
+  roleProfiles?: Record<string,string>;
   prompt?: string;
   branch?: string | null;
   worktree?: string | null;
