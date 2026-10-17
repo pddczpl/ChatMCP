@@ -701,7 +701,7 @@ try {
     same(validation.customHeaderNames,['X-Private-Tenant','X-Region']);
     await rejects(restored.configure({customHeaders:[{name:'Authorization',value:'attacker'}]}),
       {code:'invalid_custom_headers'});
-    await rejects(restored.configure({customHeaders:[{name:'X-Bad',value:'abc\\r\\nInjected: 1'}]}),
+    await rejects(restored.configure({customHeaders:[{name:'X-Bad',value:'abc\r\nInjected: 1'}]}),
       {code:'invalid_custom_headers'});
     await rejects(restored.configure({customHeaders:[{name:'X-Region',envKeyName:'CHATMCP_REGION'},
       {name:'x-region',value:'duplicate'}]}),{code:'invalid_custom_headers'});
