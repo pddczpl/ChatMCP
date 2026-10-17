@@ -1,3 +1,5 @@
+using ChatMCP.Native;
+using System.Text;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -15,7 +17,7 @@ namespace ChatMCP.Installer
     {
         public const string AppName = "ChatMCP Studio";
         public const string AppDescription = "ChatMCP - Autonomous AI Coding Agent";
-        public const string AppVersion = "3.0.2";
+        public static string AppVersion => HubLifecycle.Version;
         public const string Publisher = "Phan Danh Dat";
         public const string RegistryKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ChatMCP";
         private const string ManifestName = ".chatmcp-installed-files.json";
@@ -29,7 +31,7 @@ namespace ChatMCP.Installer
             return trimmed;
         }
 
-        private static string SafePath(string directory, string relative)
+        internal static string SafePath(string directory, string relative)
         {
             var root = NormalizeInstallDirectory(directory);
             var result = Path.GetFullPath(Path.Combine(root, relative));
@@ -66,10 +68,12 @@ namespace ChatMCP.Installer
                 if (item.Value == null || item.Value.Length != 64 || !item.Value.All(Uri.IsHexDigit))
                     throw new InvalidOperationException("Installation manifest digest is invalid.");
             }
-            return new Dictionary<string, string>(files, StringComparer.OrdinalIgnoreCase);
+            var normalized = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in files) normalized.Add(InstallTransaction.Normalize(item.Key), item.Value);
+            return normalized;
         }
 
-        private static void ReplaceFile(string destination, Action<Stream> write)
+        internal static void ReplaceFile(string destination, Action<Stream> write)
         {
             // Replacing the directory entry breaks an existing hardlink instead
             // of overwriting the file behind an unrelated hardlink alias.
@@ -88,130 +92,45 @@ namespace ChatMCP.Installer
             return Path.Combine(localAppData, "Programs", "ChatMCP");
         }
 
-        public static void Install(
+        public static void Install(string targetDir, bool createDesktopShortcut, bool createStartMenuShortcut,
+            Action<int, string> reportProgress)
+        {
+            var logs = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ChatMCP", "logs");
+            Directory.CreateDirectory(logs);
+            var log = Path.Combine(logs, "install-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N") + ".log");
+            File.WriteAllText(log, "ChatMCP installer " + AppVersion + " started " + DateTime.UtcNow.ToString("O") + Environment.NewLine);
+            try
+            {
+                InstallCore(targetDir, createDesktopShortcut, createStartMenuShortcut, (percent, status) =>
+                {
+                    File.AppendAllText(log, percent + " " + status + Environment.NewLine);
+                    reportProgress(percent, status);
+                });
+            }
+            catch (Exception error)
+            {
+                File.AppendAllText(log, "FAILED " + error.GetType().Name + Environment.NewLine);
+                throw new IOException(error.Message + " Installer log: " + log, error);
+            }
+        }
+
+        private static void InstallCore(
             string targetDir,
             bool createDesktopShortcut,
             bool createStartMenuShortcut,
             Action<int, string> reportProgress)
         {
             targetDir = NormalizeInstallDirectory(targetDir);
+            using var updateLock = HubLifecycle.AcquireUpdateLock(targetDir);
+            try
+            {
             var manifestPath = SafePath(targetDir, ManifestName);
             var previousFiles = File.Exists(manifestPath) ? ReadManifest(targetDir) : null;
             using var priorRegistration = Registry.CurrentUser.OpenSubKey(RegistryKeyPath);
             var legacyUpgrade = previousFiles == null && string.Equals(
                 priorRegistration?.GetValue("InstallLocation") as string, targetDir, StringComparison.OrdinalIgnoreCase);
-            CloseRunningProcesses(targetDir);
-            var installedFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            reportProgress(5, "Preparing installation directory...");
-            if (!Directory.Exists(targetDir))
-            {
-                Directory.CreateDirectory(targetDir);
-            }
-
-            // Extract embedded payload
-            var assembly = Assembly.GetExecutingAssembly();
-            Stream? stream = assembly.GetManifestResourceStream("ChatMCP.Installer.payload.zip");
-            if (stream == null)
-            {
-                foreach (var name in assembly.GetManifestResourceNames())
-                {
-                    if (name.EndsWith("payload.zip", StringComparison.OrdinalIgnoreCase))
-                    {
-                        stream = assembly.GetManifestResourceStream(name);
-                        break;
-                    }
-                }
-            }
-
-            FileStream? fileStreamToDispose = null;
-            if (stream == null)
-            {
-                var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-                var localZip = Path.Combine(baseDir, "payload.zip");
-                if (File.Exists(localZip))
-                {
-                    fileStreamToDispose = File.OpenRead(localZip);
-                    stream = fileStreamToDispose;
-                }
-            }
-
-            try
-            {
-                if (stream != null)
-                {
-                    reportProgress(15, "Extracting application components from installer payload...");
-                    using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
-                    var totalEntries = archive.Entries.Count;
-                    var processed = 0;
-
-                    // Refuse collisions in a fresh install or with user-created
-                    // files absent from an existing ownership manifest.
-                    foreach (var entry in archive.Entries)
-                    {
-                        var candidatePath = SafePath(targetDir, entry.FullName);
-                        if (!string.IsNullOrEmpty(entry.Name) && File.Exists(candidatePath) &&
-                            !legacyUpgrade && previousFiles?.ContainsKey(entry.FullName) != true)
-                            throw new InvalidOperationException($"Installation would overwrite an unrelated file: {entry.FullName}");
-                    }
-                    var uninstallTarget = SafePath(targetDir, "Uninstall.exe");
-                    if (File.Exists(uninstallTarget) && !legacyUpgrade && previousFiles?.ContainsKey("Uninstall.exe") != true && !IsChatMcpBinary(uninstallTarget))
-                        throw new InvalidOperationException("Installation would overwrite an unrelated Uninstall.exe.");
-
-                    foreach (var entry in archive.Entries)
-                    {
-                        var destPath = SafePath(targetDir, entry.FullName);
-                        if (string.IsNullOrEmpty(entry.Name))
-                        {
-                            Directory.CreateDirectory(destPath);
-                        }
-                        else
-                        {
-                            var parentDir = Path.GetDirectoryName(destPath);
-                            if (!string.IsNullOrEmpty(parentDir) && !Directory.Exists(parentDir))
-                            {
-                                Directory.CreateDirectory(parentDir);
-                            }
-                            ReplaceFile(destPath, output => { using var source = entry.Open(); source.CopyTo(output); });
-                            installedFiles[entry.FullName] = FileDigest(destPath);
-                        }
-
-                        processed++;
-                        var pct = 15 + (int)((processed / (double)totalEntries) * 60);
-                        reportProgress(pct, $"Extracting {entry.Name}...");
-                    }
-                }
-                else
-                {
-                    throw new InvalidOperationException("Installer payload is missing. Rebuild the standalone installer.");
-                }
-            }
-            finally
-            {
-                stream?.Dispose();
-                fileStreamToDispose?.Dispose();
-            }
-
-            // Copy this installer executable as Uninstall.exe into target directory
-            reportProgress(80, "Configuring uninstaller...");
-            var currentExe = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName;
+            InstallFiles(targetDir, previousFiles, legacyUpgrade, reportProgress);
             var uninstallerPath = SafePath(targetDir, "Uninstall.exe");
-            if (!string.IsNullOrEmpty(currentExe) && File.Exists(currentExe))
-            {
-                ReplaceFile(uninstallerPath, output => { using var source = File.OpenRead(currentExe); source.CopyTo(output); });
-                installedFiles["Uninstall.exe"] = FileDigest(uninstallerPath);
-            }
-
-            // The manifest records only files shipped by this installer. User state,
-            // downloaded skills, workspaces and unrelated files are never owned.
-            if (previousFiles != null)
-                foreach (var previous in previousFiles)
-                {
-                    if (installedFiles.ContainsKey(previous.Key)) continue;
-                    var obsolete = SafePath(targetDir, previous.Key);
-                    if (File.Exists(obsolete) && string.Equals(FileDigest(obsolete), previous.Value, StringComparison.OrdinalIgnoreCase))
-                        File.Delete(obsolete);
-                }
-            ReplaceFile(manifestPath, output => JsonSerializer.Serialize(output, installedFiles));
 
             var mainExePath = Path.Combine(targetDir, "ChatMCP.exe");
             var iconPath = Path.Combine(targetDir, "assets", "icons", "chatmcp.ico");
@@ -249,6 +168,68 @@ namespace ChatMCP.Installer
             RegisterUninstall(targetDir, uninstallerPath, iconPath);
 
             reportProgress(100, "Installation complete!");
+            }
+            finally { updateLock.ReleaseMutex(); }
+        }
+
+        private static void InstallFiles(string targetDir, Dictionary<string, string>? previousFiles,
+            bool legacyUpgrade, Action<int, string> reportProgress)
+        {
+            using var transaction = new InstallTransaction(targetDir);
+            reportProgress(5, "Validating and staging the complete installer...");
+            using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("ChatMCP.Installer.payload.zip")
+                ?? throw new InvalidOperationException("The standalone installer payload is missing. No files were replaced.");
+            using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
+            foreach (var entry in archive.Entries)
+            {
+                // Validate directories too, before ignoring their empty content.
+                var relative = InstallTransaction.Normalize(entry.FullName.Replace('\\', '/').TrimEnd('/'));
+                SafePath(targetDir, relative);
+                if (string.IsNullOrEmpty(entry.Name)) continue;
+                if (relative.Equals(ManifestName, StringComparison.OrdinalIgnoreCase) ||
+                    relative.Equals(InstallTransaction.PendingName, StringComparison.OrdinalIgnoreCase) ||
+                    relative.Equals("Uninstall.exe", StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("Reserved installer payload path.");
+                var target = SafePath(targetDir, relative);
+                if (File.Exists(target) && !legacyUpgrade && previousFiles?.ContainsKey(relative) != true)
+                    throw new InvalidOperationException("Installation would overwrite an unrelated file: " + relative);
+                using var source = entry.Open();
+                transaction.Add(relative, source);
+            }
+            // A renamed setup is still the same version. Use metadata, not its
+            // filename or Installed Apps' old hard-coded DisplayVersion.
+            using (var package = JsonDocument.Parse(File.ReadAllText(transaction.StagedPath("CHATMCP-HUB/package.json"))))
+                if (package.RootElement.GetProperty("version").GetString() != AppVersion)
+                    throw new IOException("Installer and embedded Hub package versions differ.");
+            var desktopVersion = FileVersionInfo.GetVersionInfo(transaction.StagedPath("ChatMCP.exe")).ProductVersion?.Split('+')[0];
+            if (desktopVersion != AppVersion) throw new IOException("Embedded desktop version differs from the installer.");
+            var manager = File.ReadAllText(transaction.StagedPath("CHATMCP-HUB/lib/manager.mjs"));
+            var hub = File.ReadAllText(transaction.StagedPath("CHATMCP-HUB/hub.mjs"));
+            if (!manager.Contains("export const VERSION = '" + AppVersion + "';") ||
+                !hub.Contains("export const UI_BUILD = '" + AppVersion + "-react-agent';"))
+                throw new IOException("Embedded Hub runtime version/build differs from the installer.");
+            var uninstallTarget = SafePath(targetDir, "Uninstall.exe");
+            if (File.Exists(uninstallTarget) && !legacyUpgrade && previousFiles?.ContainsKey("Uninstall.exe") != true && !IsChatMcpBinary(uninstallTarget))
+                throw new InvalidOperationException("Installation would overwrite an unrelated Uninstall.exe.");
+            using (var self = File.OpenRead(Environment.ProcessPath ?? throw new IOException("Setup executable path is unavailable.")))
+                transaction.Add("Uninstall.exe", self);
+            var installedFiles = transaction.Files.ToDictionary(x => x.Key, x => x.Value, StringComparer.OrdinalIgnoreCase);
+            if (previousFiles != null)
+                foreach (var previous in previousFiles)
+                {
+                    if (installedFiles.ContainsKey(previous.Key)) continue;
+                    var obsolete = SafePath(targetDir, previous.Key);
+                    if (File.Exists(obsolete) && string.Equals(FileDigest(obsolete), previous.Value, StringComparison.OrdinalIgnoreCase))
+                        transaction.RemoveObsolete(previous.Key);
+                }
+            using (var manifest = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(installedFiles)))
+                transaction.Add(ManifestName, manifest); // Ownership receipt is committed LAST.
+            reportProgress(35, "Checking running tasks and stopping the installed Hub...");
+            HubLifecycle.StopInstalledHub(targetDir).GetAwaiter().GetResult();
+            CloseRunningProcesses(targetDir);
+            if (HubLifecycle.ListenerPid() != null)
+                throw new IOException("A listener appeared during upgrade. No files were replaced.");
+            transaction.Commit(reportProgress);
         }
 
         public static void CreateShortcut(string shortcutPath, string targetPath, string workingDir, string iconPath, string description)
@@ -309,7 +290,13 @@ namespace ChatMCP.Installer
             if (!File.Exists(manifestPath))
                 throw new InvalidOperationException("Installation manifest is missing. Reinstall before uninstalling; user data has not been deleted.");
             var installedFiles = ReadManifest(installDir);
-            reportProgress(10, "Closing running ChatMCP processes...");
+            using var updateLock = HubLifecycle.AcquireUpdateLock(installDir);
+            try
+            {
+            if (File.Exists(SafePath(installDir, InstallTransaction.PendingName)))
+                throw new IOException("An interrupted update must be recovered before uninstalling.");
+            reportProgress(10, "Checking tasks and stopping the installed Hub...");
+            HubLifecycle.StopInstalledHub(installDir).GetAwaiter().GetResult();
             CloseRunningProcesses(installDir);
 
             reportProgress(30, "Removing Desktop shortcut...");
@@ -367,6 +354,8 @@ namespace ChatMCP.Installer
             }
 
             reportProgress(100, "Uninstall completed successfully!");
+            }
+            finally { updateLock.ReleaseMutex(); }
         }
 
         private static void RemoveOwnedShortcut(string shortcutPath, string expectedTarget)
@@ -390,7 +379,8 @@ namespace ChatMCP.Installer
                     {
                         if (!string.Equals(proc.MainModule?.FileName, expected, StringComparison.OrdinalIgnoreCase)) continue;
                         proc.CloseMainWindow();
-                        if (!proc.WaitForExit(5000)) { proc.Kill(entireProcessTree: true); proc.WaitForExit(5000); }
+                        if (!proc.WaitForExit(5000))
+                            throw new IOException("Close the installed ChatMCP window before upgrading. No files were replaced.");
                     }
                     catch (InvalidOperationException) { /* Process already exited. */ }
                 }

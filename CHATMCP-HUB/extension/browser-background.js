@@ -357,15 +357,25 @@
       const owned=await chrome.tabs.get(journal.tabId).catch(()=>null);
       if(owned)candidates.push(owned);
     }
-    const tabs=await chrome.tabs.query({url:'https://chatgpt.com/*'}).catch(()=>[]);
-    for(const tab of tabs.slice(0,30))
+    const incomplete = () => { lastNote = '[recovery_scan_incomplete] Chưa xác minh đủ các tab. Giữ tab cũ mở, tải lại tab chưa phản hồi rồi thử lại; không gắn URL khi thiếu bằng chứng.'; };
+    let tabs;
+    try { tabs = await chrome.tabs.query({url:'https://chatgpt.com/*'}); }
+    catch { incomplete(); return; }
+    const official = tab => {
+      const route = globalThis.__chatmcpChatRoute.parse(safeChatUrl(tab.url));
+      return route?.kind === 'chat' && !route.provisional;
+    };
+    // Do not silently truncate the candidate set and then claim uniqueness.
+    tabs = tabs.filter(official);
+    if (tabs.length > 30) { incomplete(); return; }
+    for(const tab of tabs)
       if(Number.isInteger(tab.id)&&!candidates.some(t=>t.id===tab.id))candidates.push(tab);
     const eligible=[];
     const deadline = Date.now() + 4000;
     for(const tab of candidates){
       if (ownEpoch !== epoch) return;
       if (Date.now() >= deadline) {
-        lastNote = 'Chưa xác minh hết các tab khôi phục. Giữ tab cũ mở và thử lại.';
+        incomplete();
         return; // Never bind a URL from a partial scan.
       }
       const actual=safeChatUrl(tab.url);
@@ -379,7 +389,17 @@
         },{frameId:0}), new Promise(resolve => {
           timer = setTimeout(() => resolve(null), Math.max(1, Math.min(1000, deadline - Date.now())));
         })]);
-      }catch{continue;}finally{clearTimeout(timer);}
+      }catch{incomplete();return;}finally{clearTimeout(timer);}
+      if (ownEpoch !== epoch) return;
+      // Null/timeout/ambiguous/unknown responses are not negative evidence.
+      if (!proof || (proof.ok !== true &&
+          !(proof.ok === false && proof.reason === 'task_nonce_not_visible'))) {
+        incomplete(); return;
+      }
+      if (proof.ok === true && (proof.url !== actual ||
+          !['user_task_nonce','assistant_task_nonce'].includes(proof.proof))) {
+        incomplete(); return;
+      }
       if(proof?.ok===true&&proof.url===actual&&
         ['user_task_nonce','assistant_task_nonce'].includes(proof.proof))
         eligible.push({url:actual,proof:proof.proof});

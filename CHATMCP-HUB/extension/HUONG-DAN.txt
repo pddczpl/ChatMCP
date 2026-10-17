@@ -1,4 +1,4 @@
-COMPANION 1.5.1 FIX: background worker forwards resumeStart=true to content script during first user-initiated continuation. See ../STUDIO-2.2.3.md.
+COMPANION 1.5.2 FIX: background worker forwards resumeStart=true to content script during first user-initiated continuation. See ../STUDIO-2.2.3.md.
 
 CHATMCP HUB COMPANION 1.4.0 — Tiếp tục phiên ChatGPT Web sau Hub restart
 

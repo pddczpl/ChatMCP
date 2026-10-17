@@ -9,7 +9,7 @@
     <ApplicationIcon>..\assets\icons\chatmcp.ico</ApplicationIcon>
     <AssemblyName>ChatMCP</AssemblyName>
     <RootNamespace>ChatMCP.Desktop</RootNamespace>
-    <Version>3.8.2</Version>
+    <Version>3.8.3</Version>
     <Authors>Phan Danh Đạt</Authors>
     <Company>ChatMCP Project</Company>
     <Product>ChatMCP Studio</Product>
@@ -20,4 +20,7 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\native-shared\HubLifecycle.cs" Link="HubLifecycle.cs" />
+  </ItemGroup>
 </Project>

@@ -1,5 +1,14 @@
 # Lịch sử thay đổi
 
+## [3.8.3] — 2026-10-17 — Native upgrade lifecycle and verified Companion delivery
+
+- Native desktop is single-instance per Windows user/session. Reopening activates the primary window; closing the GUI leaves the Hub session running without replaying tasks.
+- Validate exact Hub identity/version/UI build before loading the desktop UI; show a native disconnected state instead of stale interactive task controls.
+- Installer stages and validates all payload versions, stops only its verified idle Hub, preflights destinations and rolls back touched files on an installation error. Preserve user state and retain recovery evidence after an interrupted/failed rollback.
+- Installer DisplayVersion comes from the compiled assembly. Explicit quiet install/uninstall uses the same guarded engine as the wizard; install logs are kept under LocalAppData/ChatMCP/logs.
+- Companion 1.5.2 rejects foreign Search/form editors before inserting a draft and refuses to bind a URL from an incomplete recovery scan.
+- Add Windows native-class/transaction regressions, real installed-EXE upgrade and single-instance tests, and real Chromium MV3 message delivery on scripted pages. These tests do not certify a signed-in Edge account or all ChatGPT layouts.
+
 ## [3.8.2] — 2026-10-17 — Web task delivery repair
 
 - Separate idle URL recovery from active queued/send reconciliation; bound tab verification waits.

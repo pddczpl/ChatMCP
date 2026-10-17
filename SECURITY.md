@@ -52,3 +52,11 @@ Installer builds enumerate tracked runtime files and fresh Vite output instead o
 ## Companion 1.5.1 receiver restoration
 
 The `scripting` permission is restricted in code to bundled `chat-route.js` and `browser-runner.js`, top frame, ISOLATED world, of a validated owned ChatGPT tab, once per packet before claim when the receiver is missing. Host permissions are unchanged. No remote code, cookies or broad tabs permission is added. Uncertain SEND states are reconciled read-only and never authorize reinjection or another click. Diagnostics retain fixed categories, not exception/page/prompt contents.
+
+### Native lifecycle repair (3.8.3)
+
+Single-instance activation has no command/data execution channel. The GUI checks exact Hub identity/version and never kills a foreign listener. A shared installation mutex guards Hub creation during upgrades. Installer shutdown requires a matching bundled Node path, Hub script, listener PID, recognized health and authenticated local CSRF session, and refuses active work. Closing the GUI preserves the Hub session rather than abruptly terminating tools.
+
+Installation stages version-checked bytes and preflights all owned destinations before mutation. Caught errors roll back touched files; backup checksums and a pending marker prevent silently launching a partially replaced bundle after interrupted recovery. This is not protection from an adversarial process with the same Windows account, nor a claim of power-loss atomicity across the entire directory. Never delete retained rollback evidence without recovery. Quiet mode is explicit and does not bypass these checks.
+
+The Companion requires positive chat-composer purpose before draft insertion and treats an unverified candidate tab as an incomplete recovery, not proof of absence. Real MV3 IPC tests use scripted pages and never obtain account cookies or issue live model requests.

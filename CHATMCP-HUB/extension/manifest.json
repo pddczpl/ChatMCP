@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ChatMCP Hub Companion",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "minimum_chrome_version": "120",
   "description": "Paired localhost tasks through ordinary ChatGPT chat, plus the existing manual MCP SuperAssistant compatibility bridge.",
   "permissions": ["storage", "alarms", "scripting"],

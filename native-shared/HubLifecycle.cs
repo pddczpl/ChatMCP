@@ -1,0 +1,205 @@
+using System.Diagnostics;
+using System.Net;
+using System.Net.Http;
+using System.Net.Sockets;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Security.Principal;
+using System.Text;
+using System.Text.Json;
+
+namespace ChatMCP.Native;
+
+// Shared by the real desktop and installer; no test-only bypasses or credentials.
+internal static class HubLifecycle
+{
+    internal const string Origin = "http://127.0.0.1:3007";
+    internal static string Version => Assembly.GetExecutingAssembly().GetName().Version?.ToString(3)
+        ?? throw new InvalidOperationException("Missing native application version.");
+    internal static string UserKey => WindowsIdentity.GetCurrent().User?.Value
+        ?? throw new InvalidOperationException("Windows user identity is unavailable.");
+    internal static string UpdateLockName(string root) => "Local\\ChatMCP.Update." + UserKey + "." +
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(root).TrimEnd('\\', '/').ToUpperInvariant())));
+    internal static Mutex AcquireUpdateLock(string root)
+    {
+        var mutex = new Mutex(false, UpdateLockName(root));
+        try
+        {
+            bool acquired;
+            try { acquired = mutex.WaitOne(0); } catch (AbandonedMutexException) { acquired = true; }
+            if (!acquired) throw new InvalidOperationException("Another ChatMCP installation/update is in progress. Wait for it to finish.");
+            return mutex;
+        }
+        catch { mutex.Dispose(); throw; }
+    }
+    internal static HttpClient Client() => new(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false })
+        { Timeout = TimeSpan.FromSeconds(4), MaxResponseContentBufferSize = 256 * 1024 };
+
+    internal static async Task<JsonDocument> GetJson(HttpClient client, string path)
+    {
+        using var response = await client.GetAsync(Origin + path);
+        if (!response.IsSuccessStatusCode) throw new InvalidOperationException("Hub returned HTTP " + (int)response.StatusCode + " for " + path + ".");
+        return JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+    }
+    internal static void ValidateHealth(JsonElement health, string? expectedVersion = null)
+    {
+        if (health.ValueKind != JsonValueKind.Object || !health.TryGetProperty("app", out var app) ||
+            app.ValueKind != JsonValueKind.String || app.GetString() != "chatmcp-local-hub")
+            throw new InvalidOperationException("Port 3007 is not a verified ChatMCP Hub. No process was stopped.");
+        if (expectedVersion != null)
+        {
+            var actual = health.TryGetProperty("version", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : "unknown";
+            var build = health.TryGetProperty("uiBuild", out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() : "unknown";
+            if (actual != expectedVersion || build != expectedVersion + "-react-agent")
+                throw new InvalidOperationException($"Hub version mismatch: desktop {expectedVersion}, Hub {actual}. Stop the old Hub using its STOP-CHATMCP-HUB.cmd, then reopen the installed app. No task was replayed.");
+        }
+    }
+    internal static bool IsRefused(Exception error)
+    {
+        for (Exception? e = error; e != null; e = e.InnerException)
+            if (e is SocketException socket && socket.SocketErrorCode == SocketError.ConnectionRefused) return true;
+        return false;
+    }
+    internal static async Task<bool> IsReady(string expectedVersion)
+    {
+        using var client = Client();
+        try
+        {
+            using var health = await GetJson(client, "/api/health");
+            ValidateHealth(health.RootElement, expectedVersion);
+            return health.RootElement.TryGetProperty("initialized", out var ready) && ready.ValueKind == JsonValueKind.True;
+        }
+        catch (HttpRequestException error) when (IsRefused(error)) { return false; }
+        // Wrong service, version, malformed JSON or timeout MUST NOT be treated
+        // as an empty port. The native window displays the failure, not a stale UI.
+    }
+
+    [DllImport("iphlpapi.dll", SetLastError = true)]
+    private static extern uint GetExtendedTcpTable(IntPtr table, ref int size, bool order, int family, int tableClass, uint reserved);
+    internal static int? ListenerPid()
+    {
+        int size = 0;
+        uint code = GetExtendedTcpTable(IntPtr.Zero, ref size, false, 2, 3, 0); // AF_INET, OWNER_PID_LISTENER
+        if (code != 122 && code != 0) throw new IOException("Cannot inspect the Hub listener.");
+        if (size < 4 || size > 16 * 1024 * 1024) throw new IOException("Invalid TCP ownership table.");
+        var buffer = Marshal.AllocHGlobal(size);
+        try
+        {
+            code = GetExtendedTcpTable(buffer, ref size, false, 2, 3, 0);
+            if (code != 0) throw new IOException("Hub listener changed during inspection; retry installation.");
+            int count = Marshal.ReadInt32(buffer);
+            if (count < 0 || 4L + 24L * count > size) throw new IOException("Truncated TCP ownership table.");
+            var owners = new HashSet<int>();
+            for (int i = 0; i < count; ++i)
+            {
+                var row = IntPtr.Add(buffer, 4 + 24 * i);
+                int port = (Marshal.ReadByte(row, 8) << 8) | Marshal.ReadByte(row, 9);
+                uint address = unchecked((uint)Marshal.ReadInt32(row, 4));
+                if (port == 3007 && (address == 0 || address == 0x0100007f)) owners.Add(Marshal.ReadInt32(row, 20));
+            }
+            if (owners.Count > 1) throw new IOException("Ambiguous listener ownership on port 3007.");
+            return owners.Count == 1 ? owners.Single() : null;
+        }
+        finally { Marshal.FreeHGlobal(buffer); }
+    }
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr CommandLineToArgvW(string command, out int count);
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr LocalFree(IntPtr memory);
+    internal static bool IsHubCommand(string command, string script)
+    {
+        if (string.IsNullOrWhiteSpace(command) || command.Length > 32768) return false;
+        var argv = CommandLineToArgvW(command, out var count);
+        if (argv == IntPtr.Zero) return false;
+        try
+        {
+            if (count < 2 || count > 64) return false;
+            var entry = Marshal.PtrToStringUni(Marshal.ReadIntPtr(argv, IntPtr.Size));
+            // Check the actual Node entrypoint, not a matching string supplied as
+            // an argument to a different script sharing the bundled executable.
+            return entry != null && Path.IsPathFullyQualified(entry) &&
+                string.Equals(Path.GetFullPath(entry), script, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { LocalFree(argv); }
+    }
+    private static Process? OwnedHub(string root)
+    {
+        var pid = ListenerPid();
+        if (pid == null) return null;
+        var process = Process.GetProcessById(pid.Value);
+        try
+        {
+            var expected = Path.GetFullPath(Path.Combine(root, "runtimes", "node", "node.exe"));
+            if (!string.Equals(process.MainModule?.FileName, expected, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Port 3007 belongs to a different installation or process. It was not stopped.");
+            // Confirm the exact script as well as the bundled executable. WMI is
+            // read-only; the only generated query argument is an integer PID.
+            var psi = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"))
+            { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            psi.ArgumentList.Add("-NoProfile"); psi.ArgumentList.Add("-NonInteractive"); psi.ArgumentList.Add("-EncodedCommand");
+            psi.ArgumentList.Add(Convert.ToBase64String(Encoding.Unicode.GetBytes(
+                $"(Get-CimInstance Win32_Process -Filter 'ProcessId = {pid.Value}').CommandLine | ConvertTo-Json -Compress")));
+            using var probe = Process.Start(psi) ?? throw new IOException("Cannot verify the Hub command line.");
+            var output = probe.StandardOutput.ReadToEndAsync(); var errors = probe.StandardError.ReadToEndAsync();
+            if (!probe.WaitForExit(10000)) { probe.Kill(); throw new IOException("Hub ownership query timed out."); }
+            if (probe.ExitCode != 0) throw new IOException("Hub ownership query failed.");
+            var command = JsonSerializer.Deserialize<string>(output.GetAwaiter().GetResult()) ?? "";
+            var script = Path.GetFullPath(Path.Combine(root, "CHATMCP-HUB", "hub.mjs"));
+            if (!IsHubCommand(command, script))
+                throw new InvalidOperationException("The listener is not the installed Hub script. It was not stopped.");
+            if (process.HasExited || ListenerPid() != process.Id) throw new IOException("Hub changed during inspection; retry.");
+            return process;
+        }
+        catch { process.Dispose(); throw; }
+    }
+    private static bool HasWork(JsonElement value)
+    {
+        if (value.ValueKind == JsonValueKind.Array) return value.EnumerateArray().Any(HasWork);
+        if (value.ValueKind != JsonValueKind.Object) return false;
+        foreach (var property in value.EnumerateObject())
+        {
+            if ((property.Name is "activeTaskId" or "activeRunId") && property.Value.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrEmpty(property.Value.GetString())) return true;
+            if (property.Name == "activeTaskIds" && property.Value.ValueKind == JsonValueKind.Array && property.Value.GetArrayLength() > 0) return true;
+            if ((property.Name is "running" or "integrating") && property.Value.ValueKind == JsonValueKind.True) return true;
+            if ((property.Name is "status" or "state") && property.Value.ValueKind == JsonValueKind.String &&
+                new[] { "running", "preparing", "queued", "planning", "verifying", "waiting_approval" }.Contains(property.Value.GetString())) return true;
+        }
+        return false;
+    }
+    internal static async Task StopInstalledHub(string root)
+    {
+        using var process = OwnedHub(root);
+        if (process == null) return;
+        using var client = Client();
+        using var health = await GetJson(client, "/api/health"); ValidateHealth(health.RootElement);
+        using var state = await GetJson(client, "/api/state");
+        var data = state.RootElement;
+        if (!data.TryGetProperty("agent", out var agent) || HasWork(agent))
+            throw new InvalidOperationException("Stop active ChatMCP tasks before installing or uninstalling. Nothing was cancelled.");
+        if (data.TryGetProperty("studio", out var studio) && studio.ValueKind == JsonValueKind.Object)
+            foreach (var name in new[] { "terminals", "delegates", "dynamicDelegates" })
+                if (studio.TryGetProperty(name, out var work) && HasWork(work))
+                    throw new InvalidOperationException("Stop ChatMCP terminals and background workers before upgrading.");
+        using var coding = await GetJson(client, "/api/studio/coding");
+        if (HasWork(coding.RootElement)) throw new InvalidOperationException("Stop background coding jobs before upgrading.");
+        if (!data.TryGetProperty("csrfToken", out var token) || token.ValueKind != JsonValueKind.String ||
+            !System.Text.RegularExpressions.Regex.IsMatch(token.GetString() ?? "", "^[A-Za-z0-9_-]{16,256}$"))
+            throw new InvalidOperationException("Hub shutdown session is invalid.");
+        if (process.HasExited || ListenerPid() != process.Id) throw new IOException("Hub changed before shutdown; retry.");
+        using var request = new HttpRequestMessage(HttpMethod.Post, Origin + "/api/hub/shutdown")
+        { Content = new StringContent("{}", Encoding.UTF8, "application/json") };
+        request.Headers.Add("Origin", Origin); request.Headers.Add("X-ChatMCP-Request", "local-dashboard");
+        request.Headers.Add("X-ChatMCP-CSRF", token.GetString());
+        try
+        {
+            using var response = await client.SendAsync(request);
+            if (!response.IsSuccessStatusCode) throw new InvalidOperationException("The installed Hub refused shutdown.");
+        }
+        catch (HttpRequestException) { /* ACK can be lost. Do not resend; verify exit. */ }
+        catch (TaskCanceledException) { /* Same rule on a lost/timed-out ACK. */ }
+        if (!process.WaitForExit(15000) || ListenerPid() != null)
+            throw new IOException("Hub shutdown could not be confirmed. No files were replaced; wait and retry.");
+    }
+}

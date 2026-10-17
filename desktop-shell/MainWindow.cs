@@ -1,3 +1,4 @@
+using ChatMCP.Native;
 using System;
 using System.Diagnostics;
 using System.Drawing;
@@ -18,7 +19,8 @@ namespace ChatMCP.Desktop
         private readonly WebView2 _webView;
         private readonly Label _statusLabel;
         private Process? _hubProcess;
-        private bool _isHubOwner;
+        private readonly System.Windows.Forms.Timer _hubMonitor = new() { Interval = 3000 };
+        private bool _monitorBusy;
         private const int HubPort = 3007;
         private readonly string _hubUrl = $"http://127.0.0.1:{HubPort}/";
         private readonly string _repoRoot;
@@ -29,7 +31,7 @@ namespace ChatMCP.Desktop
             _repoRoot = repoRoot;
 
             // Form properties
-            Text = "ChatMCP Studio - AI Coding Agent";
+            Text = "ChatMCP Studio " + HubLifecycle.Version + " - AI Coding Agent";
             Size = new Size(1366, 850);
             MinimumSize = new Size(960, 600);
             StartPosition = FormStartPosition.CenterScreen;
@@ -72,39 +74,37 @@ namespace ChatMCP.Desktop
 
             FormClosing += MainWindow_FormClosing;
             Shown += async (s, e) => await InitializeStudioAsync();
+            _hubMonitor.Tick += async (s, e) => await MonitorHubAsync();
         }
 
         private async Task InitializeStudioAsync()
         {
             try
             {
-                // 1. Ensure Hub daemon is running
-                _statusLabel.Text = "Connecting to ChatMCP Hub Engine...";
+                // Check the installed files, not the terminal's working directory.
+                using (var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(_repoRoot, "CHATMCP-HUB", "package.json"))))
+                    if (manifest.RootElement.GetProperty("version").GetString() != HubLifecycle.Version)
+                        throw new InvalidOperationException("The installed desktop and Hub files have different versions. Run the matching installer again; no Hub was started.");
+                if (File.Exists(Path.Combine(_repoRoot, ".chatmcp-update-pending.json")))
+                    throw new InvalidOperationException("An interrupted installation needs recovery. Keep the installation backup and inspect the installer log before reopening.");
+                _statusLabel.Text = "Connecting to ChatMCP Hub " + HubLifecycle.Version + "...";
                 var isRunning = await CheckHubHealthAsync();
-
                 if (!isRunning)
                 {
-                    _statusLabel.Text = "Booting background Hub daemon...";
-                    StartHubProcess();
-
-                    // Wait for hub to respond (up to 15 seconds)
+                    if (HubLifecycle.ListenerPid() == null)
+                    {
+                        _statusLabel.Text = "Booting background Hub daemon...";
+                        StartHubProcess();
+                    }
                     var started = false;
-                    for (int i = 0; i < 30; i++)
+                    for (int i = 0; i < 60; i++)
                     {
                         await Task.Delay(500);
-                        if (await CheckHubHealthAsync())
-                        {
-                            started = true;
-                            break;
-                        }
+                        if (_hubProcess?.HasExited == true)
+                            throw new InvalidOperationException("Hub exited during startup (exit " + _hubProcess.ExitCode + "). Inspect the local Hub log; no task was replayed.");
+                        if (await CheckHubHealthAsync()) { started = true; break; }
                     }
-
-                    if (!started)
-                    {
-                        _statusLabel.Text = "Failed to start ChatMCP Hub. Please check Node.js installation.";
-                        _statusLabel.ForeColor = Color.FromArgb(239, 68, 68);
-                        return;
-                    }
+                    if (!started) throw new InvalidOperationException("Hub did not become ready in 30 seconds. Close this window and inspect the local Hub log.");
                 }
 
                 // 2. Initialize WebView2
@@ -161,6 +161,7 @@ namespace ChatMCP.Desktop
 
                 // Navigate to Studio
                 _webView.Source = new Uri(_hubUrl);
+                _hubMonitor.Start();
             }
             catch (Exception ex)
             {
@@ -237,18 +238,30 @@ namespace ChatMCP.Desktop
             }));
         }
 
-        private async Task<bool> CheckHubHealthAsync()
+        private Task<bool> CheckHubHealthAsync() => HubLifecycle.IsReady(HubLifecycle.Version);
+
+        private async Task MonitorHubAsync()
         {
+            if (_monitorBusy || IsDisposed || Disposing) return;
+            _monitorBusy = true;
             try
             {
-                using var client = new HttpClient { Timeout = TimeSpan.FromMilliseconds(1000) };
-                var res = await client.GetAsync($"http://127.0.0.1:{HubPort}/api/health");
-                return res.IsSuccessStatusCode;
+                if (!await CheckHubHealthAsync()) throw new IOException("Hub is not ready.");
+                if (IsDisposed || Disposing) return;
+                _statusLabel.Visible = false;
+                _webView.Visible = true;
+                _webView.BringToFront();
             }
-            catch
+            catch (Exception)
             {
-                return false;
+                if (IsDisposed || Disposing) return;
+                _webView.Visible = false;
+                _statusLabel.Text = "Hub disconnected or version changed. Close and reopen ChatMCP to reconnect.\nNo task or prompt was automatically restarted.";
+                _statusLabel.ForeColor = Color.FromArgb(239, 68, 68);
+                _statusLabel.Visible = true;
+                _statusLabel.BringToFront();
             }
+            finally { _monitorBusy = false; }
         }
 
         private void StartHubProcess()
@@ -275,27 +288,28 @@ namespace ChatMCP.Desktop
             psi.EnvironmentVariables["PORT"] = HubPort.ToString();
             psi.EnvironmentVariables["CHATMCP_NO_OPEN"] = "1";
 
-            _hubProcess = Process.Start(psi);
-            if (_hubProcess != null)
+            // Synchronize process creation with installer replacement, including
+            // an installer launched while this window was awaiting /api/health.
+            using var upgrade = HubLifecycle.AcquireUpdateLock(_repoRoot);
+            try
             {
-                _isHubOwner = true;
+                if (File.Exists(Path.Combine(_repoRoot, ".chatmcp-update-pending.json")))
+                    throw new InvalidOperationException("Installation is incomplete. Hub was not started.");
+                if (HubLifecycle.ListenerPid() != null) return;
+                _hubProcess = Process.Start(psi) ?? throw new IOException("Could not start the bundled Hub.");
             }
+            finally { upgrade.ReleaseMutex(); }
         }
 
         private void MainWindow_FormClosing(object? sender, FormClosingEventArgs e)
         {
-            if (_isHubOwner && _hubProcess != null && !_hubProcess.HasExited)
-            {
-                try
-                {
-                    _hubProcess.Kill(true);
-                    _hubProcess.Dispose();
-                }
-                catch
-                {
-                    // Ignore shutdown errors
-                }
-            }
+            // The Hub belongs to the user session, not this window. Closing a
+            // window must not kill active tools or another client's connection.
+            // Explicit Hub shutdown and installer preflight own its termination.
+            _hubMonitor.Stop();
+            _hubMonitor.Dispose();
+            _hubProcess?.Dispose();
+            _hubProcess = null;
         }
     }
 }

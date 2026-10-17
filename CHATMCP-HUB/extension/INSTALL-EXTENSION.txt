@@ -1,4 +1,4 @@
-ChatMCP Hub Companion 1.5.1 — Chrome / Microsoft Edge
+ChatMCP Hub Companion 1.5.2 — Chrome / Microsoft Edge
 ===================================================
 
 The full Windows installer and this ZIP contain the same extension source.

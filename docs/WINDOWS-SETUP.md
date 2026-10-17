@@ -65,3 +65,19 @@ Get-FileHash .\dist\ChatMCPSetup.exe -Algorithm SHA256
 ~~~
 
 Test bản cài trên Windows sạch, đặc biệt WebView2, giữ lại dữ liệu sau nâng cấp, và việc gỡ cài đặt. Xem [Desktop Release Guide](DESKTOP-APP.md) và [Security](../SECURITY.md).
+
+## Native lifecycle and upgrades (3.8.3)
+
+The native launcher is single-instance per user/session and checks the running Hub's exact version before loading its UI. Closing the GUI no longer kills the Hub; reopen the installed shortcut to reconnect, or use the installed `CHATMCP-HUB/STOP-CHATMCP-HUB.cmd` to explicitly stop it. No task is automatically replayed.
+
+Finish active agent/terminal/background work before upgrading. The installer verifies and stops only its own idle Hub, stages the payload and rolls back touched application files on an error. Logs are under `%LOCALAPPDATA%\ChatMCP\logs`. A retained `.chatmcp-update-pending.json` indicates an interrupted update or failed rollback; keep its backup directory for recovery rather than deleting it or launching a mixed bundle.
+
+Unattended installation is opt-in and has the same safety checks as the wizard:
+
+~~~powershell
+.\ChatMCPSetup.exe --quiet --install-dir "$env:LOCALAPPDATA\Programs\ChatMCP"
+# Use only from the actual installed directory:
+.\Uninstall.exe --quiet --uninstall
+~~~
+
+Exit 1 indicates failure. Installing the desktop does not silently replace a Browser Companion loaded unpacked from another directory; update/reload that extension separately.

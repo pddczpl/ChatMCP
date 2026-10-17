@@ -39,7 +39,7 @@ namespace ChatMCP.Installer
 
         private void InitializeComponent()
         {
-            Text = "ChatMCP Studio Setup - Version 3.0.2";
+            Text = "ChatMCP Studio Setup - Version " + InstallerEngine.AppVersion;
             Size = new Size(620, 460);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -182,7 +182,7 @@ namespace ChatMCP.Installer
 
             var infoLabel = new Label
             {
-                Text = "Space required: ~15.0 MB\nChatMCP will be installed and registered in Windows Apps.",
+                Text = "The installer includes the desktop, Hub and bundled runtimes.\nChatMCP will be registered in Windows Apps.",
                 Font = new Font("Segoe UI", 8.5f),
                 ForeColor = Color.FromArgb(156, 163, 175),
                 Location = new Point(25, 205),

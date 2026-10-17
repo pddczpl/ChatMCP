@@ -27,6 +27,30 @@ namespace ChatMCP.Installer
                 }
             }
 
+            // Explicit unattended mode uses exactly the same engine, ownership,
+            // active-task checks and rollback as the wizard. It is not a test bypass.
+            if (Array.Exists(args, arg => arg == "--quiet"))
+            {
+                try
+                {
+                    if (isUninstall)
+                    {
+                        if (args.Length != 2 || !Array.Exists(args, arg => arg == "--uninstall"))
+                            throw new ArgumentException("Use Uninstall.exe --quiet --uninstall.");
+                        InstallerEngine.Uninstall(AppDomain.CurrentDomain.BaseDirectory, (_, _) => { });
+                    }
+                    else
+                    {
+                        int index = Array.IndexOf(args, "--install-dir");
+                        if (args.Length != 3 || index < 0 || index + 1 >= args.Length || !Path.IsPathFullyQualified(args[index + 1]))
+                            throw new ArgumentException("Use ChatMCPSetup.exe --quiet --install-dir <absolute directory>.");
+                        InstallerEngine.Install(args[index + 1], true, true, (_, _) => { });
+                    }
+                }
+                catch (Exception error) { Console.Error.WriteLine(error.Message); Environment.ExitCode = 1; }
+                return;
+            }
+
             if (isUninstall)
             {
                 var installDir = AppDomain.CurrentDomain.BaseDirectory;

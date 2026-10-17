@@ -1,6 +1,6 @@
 # ChatMCP — Local-first AI Coding Agent
 
-**v3.8.2 — ChatGPT Web delivery repair:** update both the desktop installer and Browser Companion **1.5.1**, then reload existing ChatGPT tabs. Fixed stale URL-recovery starvation; added scoped editor compatibility, bounded pre-claim receiver restoration and safe readiness diagnostics. See [release notes](RELEASE-NOTES-v3.8.2.md).
+**v3.8.2 — ChatGPT Web delivery repair:** update both the desktop installer and Browser Companion **1.5.1**, then reload existing ChatGPT tabs. Fixed stale URL-recovery starvation; added scoped editor compatibility, bounded pre-claim receiver restoration and safe readiness diagnostics. See [release notes](RELEASE-NOTES-v3.8.3.md).
 
 **AI coding workspace for Windows with parallel Git-worktree agents, native Windows Sandbox hardware verification, crash recovery journals, multi-provider models, and a provenance-aware Agent Skills Hub.**
 
@@ -8,7 +8,7 @@
 
 > **Current release v3.8.1:** ChatMCP operates entirely on local infrastructure (`127.0.0.1:3007`). There is no cloud account, hosted server deployment, multi-tenant database, or external login service. All tool execution is controlled through a local Permission Gate. Outbound network access is restricted to user-configured AI providers, GitHub, and authorized research lookups. **Local-first does not mean fully offline.**
 >
-> Releases are tagged on GitHub and include an installer SHA-256 checksum. The installer is not Authenticode-signed. **v3.2.0** introduced bundled language servers, Tree-sitter WASM and embedded Python; **v3.3.0** expanded local coding tools and token-aware model output handling; **v3.4.0** added enhanced planning, browser/LSP workflows and model usage telemetry; **v3.4.1** fixes stuck preparation and bounds automatic repository mapping. Windows DPAPI protections remain in force. [Latest published release notes](RELEASE-NOTES-v3.8.1.md).
+> Releases are tagged on GitHub and include an installer SHA-256 checksum. The installer is not Authenticode-signed. **v3.2.0** introduced bundled language servers, Tree-sitter WASM and embedded Python; **v3.3.0** expanded local coding tools and token-aware model output handling; **v3.4.0** added enhanced planning, browser/LSP workflows and model usage telemetry; **v3.4.1** fixes stuck preparation and bounds automatic repository mapping. Windows DPAPI protections remain in force. [Latest published release notes](RELEASE-NOTES-v3.8.3.md).
 
 ---
 
@@ -165,7 +165,7 @@ ChatMCP is designed exclusively as a single-tenant local application:
 Verify the entire repository using the test runner:
 
 ~~~powershell
-# Run the complete test suite (92 bộ Node và 5 bộ giao diện)
+# Run the complete test suite (93 bộ Node và 5 bộ giao diện)
 node .\CHATMCP-HUB\tests\run-all.mjs
 
 # Build and verify the frontend

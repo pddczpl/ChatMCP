@@ -53,7 +53,7 @@ function worker(options = {}) {
         assert.equal(id, 7);
         if (input.type === 'CHATMCP_BROWSER_VERIFY_OFFICIAL_URL') {
           state.probes++;
-          return { ok: false, reason: 'no_witness' };
+          return { ok: false, reason: 'task_nonce_not_visible' };
         }
         if (input.type === 'CHATMCP_BROWSER_PREPARE') {
           state.prepared++;

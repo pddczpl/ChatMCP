@@ -113,7 +113,12 @@ function Launch-Desktop([string]$phase) {
     }
     Start-Sleep -Seconds 2
     $remaining = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.ExecutablePath -eq (Join-Path $installDir 'runtimes\node\node.exe') })
-    Assert-Check ($remaining.Count -eq 0) "$phase owned Hub exits with desktop"
+    $installedVersion = (Get-Content -LiteralPath (Join-Path $installDir 'CHATMCP-HUB\package.json') -Raw | ConvertFrom-Json).version
+    if ([version]$installedVersion -ge [version]'3.8.3') {
+        Assert-Check ($remaining.Count -eq 1) "$phase session Hub survives GUI close without replay"
+        & (Join-Path $installDir 'CHATMCP-HUB\STOP-CHATMCP-HUB.cmd')
+        Assert-Check ($LASTEXITCODE -eq 0) "$phase explicit session Hub shutdown succeeds"
+    } else { Assert-Check ($remaining.Count -eq 0) "$phase legacy owned Hub exits with desktop" }
 }
 try {
     foreach ($tool in @('node.exe','dotnet.exe','git.exe','npm.cmd')) {
