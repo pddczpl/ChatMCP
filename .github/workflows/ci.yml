@@ -42,6 +42,8 @@ jobs:
         run: |
           git config --global user.email "ci@example.invalid"
           git config --global user.name "ci"
+      - name: Release source provenance regression
+        run: python -m unittest discover -s ../scripts/tests -p test_release_source.py -v
       - name: Syntax check
         run: |
           for f in hub.mjs lib/*.mjs tests/*.mjs; do node --check "$f"; done

@@ -14,6 +14,10 @@ Installer/Installed Apps version now derives from the compiled assembly, not a h
 
 Companion **1.5.2** requires an identified chat composer and rejects conflicting Search labels before modifying a draft. URL recovery refuses incomplete, timed-out, inaccessible, malformed, ambiguous or truncated candidate scans. The existing nonce/route ownership, permissions, active-task priority and uncertain-send no-replay controls remain intact.
 
+## Release pipeline repair
+
+The release source gate now distinguishes tracked Vite build output from application source. Before restoring the checkout's generated UI snapshot, it verifies the complete fresh UI file inventory and SHA-256 values against `installer/payload.zip`, records the generated diff and provenance, and checks the exact release commit and installer digest. Runtime-source edits, staged changes, unexpected README edits, extra/missing/mismatched UI files, unsafe archive names and duplicate entries still fail publication. The already-tested installer is not replaced or rebuilt from the restored snapshot. Fourteen executable Git/filesystem regression cases cover this gate on CI.
+
 ## Update
 
 Finish/stop active tasks, run this installer into your existing ChatMCP installation and wait for completion. Updating an installed unpacked extension is separate: update/reload **ChatMCP Hub Companion 1.5.2** in Edge/Chrome and reload its ChatGPT tabs. The desktop installer cannot silently replace a copy loaded from a different folder. Hub health must report `3.8.3` and `3.8.3-react-agent` before testing a new Studio conversation. Do not replay an old task with an uncertain Send outcome.
