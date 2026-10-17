@@ -1,0 +1,45 @@
+name: Inspect interrupted v3.8.3 CI
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/inspect-v383-ci.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 8c3eee7d8ff00bb0751d8f051e6acd27d618a80d
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Capture tracked source and reproduce exact failing suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/chatmcp-v383-inspection"
+          mkdir -p "$evidence"
+          test "$(git rev-parse HEAD)" = '8c3eee7d8ff00bb0751d8f051e6acd27d618a80d'
+          git archive --format=tar HEAD > "$evidence/source.tar"
+          git ls-tree -r HEAD > "$evidence/tracked-blobs.txt"
+          git show -s --format=fuller HEAD > "$evidence/commit.txt"
+          wc -l CHATMCP-HUB/tests/verify-browser-delivery-readiness.mjs
+          nl -ba CHATMCP-HUB/tests/verify-browser-delivery-readiness.mjs | tail -100
+          set +e
+          node CHATMCP-HUB/tests/verify-browser-delivery-readiness.mjs > "$evidence/readiness.log" 2>&1
+          code=$?
+          set -e
+          echo "$code" > "$evidence/readiness.exit"
+          cat "$evidence/readiness.log"
+      - name: Upload exact source and reproduction evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ChatMCP-v383-exact-ci-source
+          path: ${{ runner.temp }}/chatmcp-v383-inspection
+          if-no-files-found: error
+          retention-days: 7
