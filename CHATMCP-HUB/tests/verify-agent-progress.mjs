@@ -29,6 +29,31 @@ assert.equal(successfulEdit.progress.editAttempts,1);
 assert.equal(successfulEdit.progress.changedCandidates.includes('C:\\work\\x.js'),true);
 assert.match(progressCheckpoint(successfulEdit.progress),/NOT verified file changes/);
 
+// Previously passing test and diff receipts cannot survive a later source edit.
+let evidence=createTaskProgress();
+evidence=observeTaskTool(evidence,{call:call('local.run_command',{command:'node --test'}),
+  result:{isError:false},step:1,verified:{kind:'verify',id:'check-a',step:1}}).progress;
+evidence=observeTaskTool(evidence,{call:call('local.git_diff',{}),
+  result:{isError:false},step:2,verified:{kind:'review',id:'diff-a',step:2}}).progress;
+assert.equal(evidence.verifiedChecks.length,1);
+assert.equal(evidence.gitReviews.length,1);
+evidence=observeTaskTool(evidence,{call:call('local.files_apply_patch',{path:'src/a.js'}),
+  result:{isError:false},step:3,verified:{kind:'edit',path:'src/a.js',sha256:'a'.repeat(64),step:3}}).progress;
+assert.equal(evidence.verifiedChecks.length,0,'changing a file invalidates prior passing checks');
+assert.equal(evidence.gitReviews.length,0,'changing a file invalidates the prior Git review');
+assert.equal(evidence.verifiedFiles.length,1,'only the freshly proven revision remains');
+assert.equal(evidence.invalidatedEvidence,2);
+const failedMutation=observeTaskTool(evidence,{call:call('local.write_file',{path:'src/b.js'}),
+  result:{isError:true},step:4}).progress;
+assert.equal(failedMutation.verifiedFiles.length,0,'an errored mutation may have taken effect');
+assert.equal(failedMutation.invalidatedEvidence,3);
+const freshCheck=observeTaskTool(failedMutation,{call:call('local.run_command',{command:'node --test'}),
+  result:{isError:false},step:5,verified:{kind:'verify',id:'check-b',step:5}}).progress;
+const deniedMutation=observeTaskTool(freshCheck,{call:call('local.write_file',{path:'src/b.js'}),
+  result:{isError:true,executed:false},step:6}).progress;
+assert.equal(deniedMutation.verifiedChecks.length,1,'a tool conclusively not executed cannot stale a passing check');
+assert.match(progressCheckpoint(deniedMutation),/Invalidated stale evidence/);
+
 const pollCall=call('desktop-commander.get_process_output',{pid:123});
 p=createTaskProgress();
 for(let i=0;i<25;i++) {

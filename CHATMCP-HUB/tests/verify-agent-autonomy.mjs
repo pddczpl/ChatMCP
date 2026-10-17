@@ -26,6 +26,19 @@ assert.equal(plan.phases[0].status,'working');
 assert.equal(assessCompletionEvidence(plan,{verifiedFiles:[],verifiedChecks:[],gitReviews:[]}).ready,false);
 assert.equal(assessCompletionEvidence(null,{}).ready,true);
 assert.equal(assessCompletionEvidence(plan,{verifiedFiles:[{}],verifiedChecks:[{}],gitReviews:[{}]}).ready,true);
+let stale=createTaskProgress();
+for(const [name,verified] of [
+  ['local.edit_file',{kind:'edit',path:'src/a.js',sha256:'b'.repeat(64),step:1}],
+  ['local.run_command',{kind:'verify',id:'check-a',step:2}],
+  ['local.git_diff',{kind:'review',id:'diff-a',step:3}],
+]){
+  stale=observeTaskTool(stale,{call:call(name,{path:'src/a.js'}),result:result('observed'),step:verified.step,verified}).progress;
+}
+assert.equal(assessCompletionEvidence(plan,stale).ready,true);
+stale=observeTaskTool(stale,{call:call('local.edit_file',{path:'src/a.js'}),result:result('new version'),step:4,
+  verified:{kind:'edit',path:'src/a.js',sha256:'c'.repeat(64),step:4}}).progress;
+assert.equal(assessCompletionEvidence(plan,stale).ready,false,'later repair invalidates older passing check and diff');
+assert.ok(assessCompletionEvidence(plan,stale).missing.length>=2);
 const updatedPlan=updateGoalPlan(plan,{kind:'edit'});
 assert.equal(updatedPlan.evidence.edit,1);
 assert.equal(plan.evidence.edit,0,'plan transition must not mutate previous snapshots');
