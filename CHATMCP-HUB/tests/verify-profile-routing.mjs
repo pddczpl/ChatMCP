@@ -66,15 +66,17 @@ try {
   pool=new ConcurrentApiAgent({primary,manager,provider:globalProvider,bundleRoot:root,
     directory,maxConcurrent:0,log:()=>{}});
   const task=await pool.start({prompt:'Implement code',profileId:'coding',
-    roleProfiles:{reviewer:'review',tester:'coding'}});
+    roleProfiles:{Reviewer:'review',tester:'coding','Independent verifier':'review'}});
   assert.equal(task.effectiveProfile.id,'coding');
   assert.equal(task.providerUsed,'coding');
   assert.equal(primary.provider.name,'coding');
-  assert.deepEqual(task.roleProfiles,{reviewer:'review',tester:'coding'});
-  const review=await pool.spawnAgent(task.id,{goal:'Review this change',role:'reviewer'});
+  assert.deepEqual(task.roleProfiles,{reviewer:'review',tester:'coding',independent_verifier:'review'});
+  const review=await pool.spawnAgent(task.id,{goal:'Review this change',role:'Reviewer'});
   assert.equal(review.effectiveProfile.id,'review');
-  assert.equal(review.role,'reviewer');
+  assert.equal(review.role,'Reviewer');
   assert.equal(review.parentTaskId,task.id);
+  const independently=await pool.spawnAgent(task.id,{goal:'Independent review',role:'Independent verifier'});
+  assert.equal(independently.effectiveProfile.id,'review');
   const tests=await pool.spawnAgent(task.id,{goal:'Test the code',role:'tester'});
   assert.equal(tests.effectiveProfile.id,'coding');
   const unknownRole=await pool.spawnAgent(task.id,{goal:'Other review',role:'security'});
@@ -89,7 +91,7 @@ try {
   await assert.rejects(pool.continue({id:task.id,prompt:'Continue'}),{code:'profile_revision_changed'},
     'edited model credentials require an explicit new review instead of silent resume');
   await assert.rejects(pool.start({prompt:'Unknown',profileId:'missing'}),{code:'profile_not_found'});
-  await assert.rejects(pool.start({prompt:'Invalid roles',roleProfiles:{'bad role':'review'}}),
+  await assert.rejects(pool.start({prompt:'Invalid roles',roleProfiles:{'bad/role':'review'}}),
     {code:'invalid_role_profiles'},'invalid role maps are rejected before task creation');
   const direct=await pool.start({prompt:'Use global explicitly',profileId:'__global__'});
   assert.equal(direct.effectiveProfile,null);

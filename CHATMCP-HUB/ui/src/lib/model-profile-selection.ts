@@ -12,11 +12,16 @@ export function parseRoleProfileOverrides(raw: string, available: ModelProfileCh
   const entries=Object.entries(value);
   if(entries.length>12)throw new Error('Chỉ hỗ trợ tối đa 12 role profile overrides.');
   const allowed=new Set(available.map(p=>p.id));
+  const normalized=new Map<string,string>();
   for(const [role,id] of entries){
-    if(!/^[a-z][a-z0-9_-]{0,40}$/i.test(role) || typeof id!=='string' ||
-       !/^[a-z0-9][a-z0-9._-]{0,40}$/i.test(id))
-      throw new Error('Tên role hoặc ID model profile không hợp lệ.');
+    const key=role.normalize('NFKD').replace(/\p{M}/gu,'').toLowerCase()
+      .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+    if(!/^\p{L}[\p{L}\p{N}_ -]{0,80}$/u.test(role) ||
+       !/^[a-z][a-z0-9_]{0,40}$/.test(key) || normalized.has(key) ||
+       typeof id!=='string' || !/^[a-z0-9][a-z0-9._-]{0,40}$/i.test(id))
+      throw new Error('Tên role hoặc ID model profile bị trùng/không hợp lệ.');
     if(!allowed.has(id))throw new Error('Model profile cho vai trò '+role+' không còn tồn tại.');
+    normalized.set(key,id);
   }
-  return Object.fromEntries(entries) as Record<string,string>;
+  return Object.fromEntries(normalized);
 }

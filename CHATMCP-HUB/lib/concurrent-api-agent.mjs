@@ -13,6 +13,27 @@ const END = new Set(['completed', 'failed', 'cancelled', 'paused', 'uncertain', 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const fail = (code, message, statusCode = 409) => Object.assign(new Error(message), { code, statusCode });
 const now = () => new Date().toISOString();
+// Normalize owner-provided role labels and model-generated workflow role names
+// to the same safe lookup key (e.g. "Independent verifier" -> "independent_verifier").
+const roleKey = role => typeof role==='string'
+  ? role.normalize('NFKD').replace(/\p{M}/gu,'').toLowerCase()
+      .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'')
+  : '';
+function normalizeRoleProfiles(value) {
+  if(!value||typeof value!=='object'||Array.isArray(value)||
+      Object.keys(value).length>12)throw fail('invalid_role_profiles','Role profile mapping must have up to 12 entries.',400);
+  const result=Object.create(null);
+  for(const [label,profileId] of Object.entries(value)){
+    const key=roleKey(label);
+    if(!/^\p{L}[\p{L}\p{N}_ -]{0,80}$/u.test(label) ||
+        !/^[a-z][a-z0-9_]{0,40}$/.test(key) ||
+        typeof profileId!=='string' || !/^[a-z0-9][a-z0-9._-]{0,40}$/i.test(profileId) ||
+        Object.hasOwn(result,key))
+      throw fail('invalid_role_profiles','Invalid or duplicated role profile mapping.',400);
+    result[key]=profileId;
+  }
+  return {...result};
+}
 
 export class ConcurrentApiAgent {
   constructor({ primary, manager, provider, bundleRoot, directory, maxConcurrent = 4, log = () => {} }) {
@@ -397,13 +418,8 @@ export class ConcurrentApiAgent {
     const parent = parentTaskId ? this.get(parentTaskId) : null;
     const inherited=parent?.roleProfiles||{};
     const requestedOverrides=roleProfiles===null ? inherited : roleProfiles;
-    if(!requestedOverrides||typeof requestedOverrides!=='object'||Array.isArray(requestedOverrides)||
-      Object.keys(requestedOverrides).length>12||
-      Object.entries(requestedOverrides).some(([r,p])=>!/^[a-z][a-z0-9_-]{0,40}$/i.test(r)||
-        typeof p!=='string'||!/^[a-z0-9][a-z0-9._-]{0,40}$/i.test(p)))
-      throw fail('invalid_role_profiles','Role-specific model profiles must map valid role names to saved profile IDs.',400);
-    const selectedRoleProfiles={...requestedOverrides};
-    const chosenId=profileId || (role&&selectedRoleProfiles[role]) || parent?.effectiveProfile?.id || null;
+    const selectedRoleProfiles=normalizeRoleProfiles(requestedOverrides);
+    const chosenId=profileId || (role&&selectedRoleProfiles[roleKey(role)]) || parent?.effectiveProfile?.id || null;
     const scoped=await this.#scopedProvider(chosenId);
     const desired = parent ? parent.workspacePath || parent.workspace?.path || this.manager.workspace : workspacePath;
     const root = this.manager.workspaceRegistry
@@ -461,7 +477,7 @@ export class ConcurrentApiAgent {
     const parent=this.get(parentTaskId);
     return this.start({ prompt: goal, dependsOn, parentTaskId,
       workflowId,phaseId,role,roleProfiles:parent?.roleProfiles||{},
-      profileId:(role?parent?.roleProfiles?.[role]:null)||parent?.effectiveProfile?.id||null,
+      profileId:(role?parent?.roleProfiles?.[roleKey(role)]:null)||parent?.effectiveProfile?.id||null,
       workspacePath: parent?.workspacePath || null });
   }
   async spawnWorkflow(parentTaskId, request = {}) {
