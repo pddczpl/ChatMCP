@@ -107,7 +107,36 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   const preview = manager.preview;
   const hubStateDir = manager.hubDirectory ?? manager.stateDirectory ?? manager.stateDir ?? defaultDataDirectory();
   const aiProfiles = new AiProfiles({ stateDir: hubStateDir, keyStore: provider?.keyStore ?? provider?.protector ?? (provider?.protect && provider?.unprotect ? { encrypt: (t) => provider.protect(t), decrypt: (b) => provider.unprotect(b) } : null) });
-  aiProfiles.load().catch(() => {});
+  const profilesReady=aiProfiles.load().catch(error=>{
+    manager.log?.('Model profiles could not be read: '+String(error?.code||'storage_error'));
+    return false;
+  });
+  manager.aiProfiles=aiProfiles;
+  // Resolve and bind a profile before starting a task. Decrypted keys stay in
+  // task-local GatewayProvider objects; only a safe revision/reference is
+  // returned to task JSON, UI and recovery journals.
+  manager.resolveAiProfileProvider=async ({profileId=null,expectedRevision=null}={})=>{
+    if(await profilesReady===false)throw Object.assign(new Error('AI profile storage is unavailable.'),{
+      code:'profiles_unavailable',statusCode:503});
+    const id=profileId || aiProfiles.defaultProfileId || null;
+    if(!id)return {provider,effectiveProfile:null};
+    if(typeof provider?.forkForTask!=='function')
+      throw Object.assign(new Error('Model profiles require a compatible API provider.'),{code:'profile_unsupported',statusCode:409});
+    const publicInfo=aiProfiles.get(id);
+    if(!publicInfo)throw Object.assign(new Error('Selected model profile does not exist.'),{code:'profile_not_found',statusCode:404});
+    const config=await aiProfiles.resolveConfig(id);
+    if(expectedRevision && expectedRevision!==config.revision)
+      throw Object.assign(new Error('The model profile changed. Review its endpoint and credentials before starting a new task.'),{
+        code:'profile_revision_changed',statusCode:409});
+    const taskProvider=provider.forkForTask(config);
+    return {provider:taskProvider,effectiveProfile:{
+      id:config.id,name:config.name||config.id,revision:config.revision,
+      provider:config.provider,protocol:config.protocol,model:config.model,
+      endpointOrigin:new URL(config.apiBaseUrl).origin,
+      contextWindow:config.contextWindow,
+      credentialSource:publicInfo.hasKey?'protected_reference':'none',
+    }};
+  };
   const pluginManager = manager.pluginManager ?? new PluginManager({ stateDir: hubStateDir });
   manager.pluginManager = pluginManager;
   pluginManager.load().catch(() => {});

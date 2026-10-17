@@ -4,6 +4,8 @@ export type TaskStatus = 'blocked' | 'created' | 'queued' | 'planning' | 'runnin
 
 export interface TaskSummary {
   id: string;
+  effectiveProfile?: {id:string;name:string;revision?:string|null;provider:string;protocol:string;model:string;endpointOrigin:string;credentialSource:string}|null;
+  roleProfiles?: Record<string,string>;
   branch?: string | null;
   worktree?: string | null;
   dependsOn?: string[];

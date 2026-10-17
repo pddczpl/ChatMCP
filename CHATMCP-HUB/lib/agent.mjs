@@ -488,6 +488,8 @@ export class AgentRunner {
       verifiedSummary: evidenceReport(task.progress,task.goalPlan),
       verificationOutcome:task.verificationOutcome??null,
       completionOutcome:task.completionOutcome??(task.status==='completed'?classifyTaskCompletion(task.goalPlan,task.progress):null),
+      effectiveProfile:task.effectiveProfile??null,
+      roleProfiles:task.roleProfiles??{},
       contextPolicy:task.contextPolicy??null,
     };
     if (!summary) {
@@ -509,6 +511,7 @@ export class AgentRunner {
     const lines = [
       'CHATMCP HUB — BẢN GHI TÁC VỤ', `ID: ${task.id}`, `Trạng thái: ${task.status}${isTaskState(task.state) ? ` · ${describeState(task.state).label} (${task.state})` : ''}`,
       `Workspace: ${task.workspace?.path ?? ''}`, `Model: ${task.model ?? ''}`,
+      `Effective task profile: ${JSON.stringify(task.effectiveProfile??{source:'global_provider'})}`,
       `Bắt đầu: ${task.startedAt}`, `Kết thúc: ${task.finishedAt ?? 'Chưa kết thúc'}`,
       `Lượt model: ${task.steps}; HTTP requests: ${task.usage.httpRequests??0}; lượt MCP: ${task.toolCalls}; provider-reported input/output tokens (partial when missing): ${task.usage.inputTokens}/${task.usage.outputTokens}; missing input/output reports: ${task.usage.inputUsageMissing??'legacy-unknown'}/${task.usage.outputUsageMissing??'legacy-unknown'}; cache read/write: ${task.usage.cachedInputTokens??0}/${task.usage.cacheWriteTokens??0}; reported reasoning: ${task.usage.reasoningTokens??0}`,
       '', 'NGỮ CẢNH MODEL (DỰ TOÁN)', JSON.stringify(task.contextPolicy??{source:'not_recorded'}),
@@ -631,8 +634,8 @@ export class AgentRunner {
     return this.#public(task);
   }
 
-  async continue({id,prompt,attachments=[],maxSteps=null,maxMinutes=null}={}) {
-    return this.start({prompt,attachments,maxSteps,maxMinutes,resumeId:id});
+  async continue({id,prompt,attachments=[],maxSteps=null,maxMinutes=null,effectiveProfile=null,roleProfiles=null}={}) {
+    return this.start({prompt,attachments,maxSteps,maxMinutes,resumeId:id,effectiveProfile,roleProfiles});
   }
   async enqueueMessage({id,prompt,attachments=[]}={}) {
     const context=this.context;
@@ -679,7 +682,8 @@ export class AgentRunner {
     if (config.model !== context.task.model || (config.provider ?? null) !== context.task.provider) throw fault('provider_changed', 'Cấu hình model đã thay đổi trong khi chạy. Hãy gửi yêu cầu mới với cấu hình hiện tại.', 409);
   }
 
-  async start({ prompt, attachments = [], initialId = null, maxSteps = null, maxMinutes = null, resumeId = null } = {}) {
+  async start({ prompt, attachments = [], initialId = null, maxSteps = null, maxMinutes = null, resumeId = null,
+    effectiveProfile = null, roleProfiles = null } = {}) {
     if (resumeId && this.activeTaskId === resumeId && this.tasks.get(resumeId)?.status !== 'running' && this.context?.done) await this.context.done.promise;
     if (this.closing) throw fault('shutting_down', 'Hub đang dừng.', 503);
     if (this.activeTaskId) throw fault('task_running', 'Đã có một tác vụ đang chạy. Hãy chờ hoặc dừng tác vụ đó.', 409);
@@ -714,6 +718,13 @@ export class AgentRunner {
     };
     const priorContext = existing ? this.#resumeEvidence(task) : null;
     task.workspace = binding; task.model = config.model ?? ''; task.provider = config.provider ?? null;
+    // Only public metadata is persisted; no key or decrypted credential may
+    // appear in a task, tool transcript, checkpoint or API response.
+    task.effectiveProfile=effectiveProfile??null;
+    task.roleProfiles=roleProfiles && typeof roleProfiles==='object' && !Array.isArray(roleProfiles)
+      ? Object.fromEntries(Object.entries(roleProfiles).filter(([role,id])=>
+          /^[a-z][a-z0-9_-]{0,40}$/i.test(role) && typeof id==='string' &&
+          /^[a-z0-9][a-z0-9._-]{0,40}$/i.test(id))) : {};
     task.status = 'running'; task.finishedAt = null; task.finalText = ''; task.error = null; task.errorCode = null; task.cancelRequested = false;
     task.maxSteps = maxSteps === null ? null : task.steps + maxSteps; task.maxMinutes = maxMinutes;
     task.progress = createTaskProgress(task.progress, { newRun: true });
