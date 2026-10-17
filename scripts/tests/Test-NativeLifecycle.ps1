@@ -110,7 +110,7 @@ try {
     $report.candidateSha256=(Get-FileHash $CandidateInstaller -Algorithm SHA256).Hash.ToLowerInvariant()
     Assert-Native ($report.baselineVersion -like "$ExpectedBaselineVersion*") ("published baseline EXE metadata matches " + $ExpectedBaselineVersion + ": " + $report.baselineVersion)
     Assert-Native ($report.candidateVersion -like "$ExpectedCandidateVersion*") ("candidate EXE metadata matches " + $ExpectedCandidateVersion + ": " + $report.candidateVersion)
-    # Baseline is the published, byte-verified ${ExpectedBaselineVersion} installer; use its real GUI.
+    # Baseline is the byte-verified published installer; use its real GUI.
     $setup=Start-Process $BaselineInstaller -PassThru; $owned.Add($setup)
     $window=Window-For $setup
     Click (Wait-Button $window 'Install')
@@ -136,8 +136,8 @@ try {
     [IO.File]::WriteAllText($stateCanary,'PRESERVE-STATE')
     Assert-Native ((Quiet-Install) -eq 0) 'real candidate installer upgrades with independent old Hub running'
     Assert-Native ($oldHub.HasExited) 'upgrade confirms exact old Hub exited'
-    Assert-Native ((Get-Content (Join-Path $root 'CHATMCP-HUB\package.json') -Raw | ConvertFrom-Json).version -eq $ExpectedCandidateVersion) 'installed Hub package is ${ExpectedCandidateVersion}'
-    Assert-Native ((Get-Item (Join-Path $root 'ChatMCP.exe')).VersionInfo.ProductVersion -like '${ExpectedCandidateVersion}*') 'installed launcher EXE is ${ExpectedCandidateVersion}'
+    Assert-Native ((Get-Content (Join-Path $root 'CHATMCP-HUB\package.json') -Raw | ConvertFrom-Json).version -eq $ExpectedCandidateVersion) "installed Hub package is $ExpectedCandidateVersion"
+    Assert-Native ((Get-Item (Join-Path $root 'ChatMCP.exe')).VersionInfo.ProductVersion -like "$ExpectedCandidateVersion*") "installed launcher EXE is $ExpectedCandidateVersion"
     Assert-Native ((Get-ItemProperty $registry).DisplayVersion -eq $ExpectedCandidateVersion) 'Windows Installed Apps reports the assembly version'
     Assert-Native ((Get-Content (Join-Path $root 'CHATMCP-HUB\extension\manifest.json') -Raw | ConvertFrom-Json).version -eq '1.5.2') 'installed Companion is 1.5.2'
     Assert-Native ([IO.File]::ReadAllText($canary) -eq 'PRESERVE-USER-DATA' -and [IO.File]::ReadAllText($stateCanary) -eq 'PRESERVE-STATE') 'upgrade preserves unrelated application and state files'
