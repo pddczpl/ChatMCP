@@ -125,8 +125,54 @@ jobs:
           $native = Get-Content "$env:RUNNER_TEMP/native-release-evidence/installed-lifecycle/report.json" -Raw | ConvertFrom-Json
           if ($native.result -ne 'PASS' -or $native.candidateSha256 -ne $assets[0].sha256) { throw 'Native evidence does not match the release EXE' }
           [ordered]@{ version='3.8.3'; companionVersion='1.5.2'; commit=$env:GITHUB_SHA; workflowRun=$env:GITHUB_RUN_ID; assets=$assets; signedInEdgeVerified=$false; authenticodeSigned=$false } | ConvertTo-Json -Depth 6 | Set-Content dist/RELEASE-MANIFEST.json -Encoding utf8
-          git diff --exit-code
-          if ($LASTEXITCODE -ne 0) { throw 'Build changed tracked source' }
+          @'
+          import hashlib, json, os, re, subprocess
+          from pathlib import Path
+
+          def allowed_metadata_update(original: bytes, actual: bytes, checksum: str) -> bool:
+              before = original.replace(b'\r\n', b'\n')
+              after = actual.replace(b'\r\n', b'\n')
+              if before == after:
+                  return True
+              # Exactly one existing SHA-256 in README may be replaced, and only
+              # with the verified EXE's digest. No other source edit is allowed.
+              if re.fullmatch(r'[0-9a-f]{64}', checksum) is None:
+                  return False
+              for match in re.finditer(rb'(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])', before):
+                  candidate = before[:match.start()] + checksum.encode('ascii') + before[match.end():]
+                  if candidate == after:
+                      return True
+              return False
+
+          # Regression checks for unchanged/CRLF and exact generated metadata;
+          # unrelated edits, wrong hashes and multiple substitutions are rejected.
+          sample = b'Installer checksum: ' + b'a' * 64 + b'\nOther text.\n'
+          checksum = 'b' * 64
+          assert allowed_metadata_update(sample, sample, checksum)
+          assert allowed_metadata_update(sample, sample.replace(b'a' * 64, b'b' * 64), checksum)
+          assert allowed_metadata_update(sample, sample.replace(b'\n', b'\r\n'), checksum)
+          assert not allowed_metadata_update(sample, sample.replace(b'a' * 64, b'c' * 64), checksum)
+          assert not allowed_metadata_update(sample, sample.replace(b'a' * 64, b'b' * 64) + b'extra', checksum)
+          assert not allowed_metadata_update(sample, sample.replace(b'Other', b'Wrong'), checksum)
+          assert not allowed_metadata_update(sample + sample, (sample + sample).replace(b'a' * 64, b'b' * 64), checksum)
+          manifest = json.loads(Path('dist/RELEASE-MANIFEST.json').read_text(encoding='utf-8-sig'))
+          asset = next(a for a in manifest['assets'] if a['name'] == 'ChatMCPSetup.exe')
+          with Path('dist/ChatMCPSetup.exe').open('rb') as stream:
+              checksum = hashlib.file_digest(stream, 'sha256').hexdigest()
+          assert checksum == asset['sha256'], 'Verify installer digest before metadata handling'
+          original = subprocess.check_output(['git', 'show', 'HEAD:README.md'])
+          actual = Path('README.md').read_bytes()
+          assert allowed_metadata_update(original, actual, checksum), 'Unexpected README edit: refusing release'
+          patch = subprocess.check_output(['git', 'diff', '--', 'README.md'])
+          proof = Path(os.environ['RUNNER_TEMP']) / 'native-release-evidence'
+          (proof / 'generated-readme-checksum.patch').write_bytes(patch)
+          if original.replace(b'\r\n', b'\n') != actual.replace(b'\r\n', b'\n'):
+              subprocess.run(['git', 'restore', '--source=HEAD', '--', 'README.md'], check=True)
+          subprocess.run(['git', 'diff', '--exit-code'], check=True)
+          subprocess.run(['git', 'diff', '--cached', '--exit-code'], check=True)
+          print('Tracked source unchanged; verified generated README checksum recorded separately.')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Build changed tracked source beyond verified checksum metadata' }
       - name: Upload tested release files
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
