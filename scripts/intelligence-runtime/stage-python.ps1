@@ -41,10 +41,16 @@ try {
             [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $output, $false)
         }
     } finally { $zip.Dispose() }
-    foreach ($required in @('python.exe','python311.dll','python3.dll','python311.zip','python311._pth')) {
+    foreach ($required in @('python.exe','python311.dll','python3.dll','python311.zip','python311._pth','LICENSE.txt')) {
         if (-not (Test-Path -LiteralPath (Join-Path $destinationFull $required) -PathType Leaf)) {
             throw ('Missing embedded CPython component: ' + $required)
         }
+    }
+    # The interpreter is redistributed, so the Python Software Foundation licence text must travel with it. The archive's
+    # LICENSE.txt is that text (it also names the licences of the libraries bundled in the archive).
+    $licenseText = [IO.File]::ReadAllText((Join-Path $destinationFull 'LICENSE.txt'))
+    if ($licenseText.Length -lt 1024 -or $licenseText -notmatch 'PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2') {
+        throw 'Embedded CPython LICENSE.txt is empty or is not the PSF licence text; refusing to package.'
     }
     # The stdlib archive must remain zipped; -I must not load system site-packages.
     $embedded = Join-Path $destinationFull 'python.exe'

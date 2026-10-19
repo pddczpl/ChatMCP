@@ -139,6 +139,10 @@ jobs:
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Test-InstallerPayload.ps1
       - name: Build fresh UI and Windows installer
         shell: powershell
+        env:
+          # The MIT notices of the Tree-sitter grammars are not vendored yet (scripts/intelligence-runtime/licenses/README.md). A CI
+          # build proceeds with licenses/PENDING-NOTICES.txt; no release workflow sets this, so a release build stops (tests/verify-notices.mjs).
+          CHATMCP_ALLOW_PENDING_NOTICES: '1'
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Installer.ps1
       - name: Package Browser Companion and verify parity with installed payload
         shell: powershell
@@ -190,6 +194,10 @@ jobs:
         run: node scripts/tests/legacy-hub-upgrade/run.mjs --baseline-ref 7f2551720fc65e95d1c2043adba7fde0dfececda
       - name: Build fresh UI and Windows installer
         shell: powershell
+        env:
+          # The MIT notices of the Tree-sitter grammars are not vendored yet (scripts/intelligence-runtime/licenses/README.md). A CI
+          # build proceeds with licenses/PENDING-NOTICES.txt; no release workflow sets this, so a release build stops (tests/verify-notices.mjs).
+          CHATMCP_ALLOW_PENDING_NOTICES: '1'
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Installer.ps1
       - name: Retrieve published hash-pinned upgrade baseline (v3.9.0)
         shell: powershell

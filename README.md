@@ -37,7 +37,9 @@ To reduce accidental exposure, and only on a best-effort basis, ChatMCP masks te
 
 ## License
 
-ChatMCP does **not** currently have an adopted top-level project license in this repository. Do not assume that the project code is licensed under MIT, Apache-2.0, or any other open-source license. Copyright and attribution notices remain applicable. Consult [Third-party notices](THIRD-PARTY-NOTICES.md) for bundled dependencies and their upstream terms. Imported Skills and third-party components have their own licenses and redistribution conditions.
+ChatMCP's own source code is licensed under the **Apache License, Version 2.0**; the full text is in [LICENSE](LICENSE) and the attribution notice in [NOTICE](NOTICE). The installer places both files in the installation folder. There is no Contributor License Agreement: a contribution is accepted under the same license (inbound = outbound), and every commit of a pull request needs a Developer Certificate of Origin sign-off (`git commit -s`); see [CONTRIBUTING.md](CONTRIBUTING.md). The license grants no rights to the ChatMCP name or logo as a brand.
+
+Apache-2.0 covers ChatMCP's code only. The installer also redistributes third-party components (the portable Node.js runtime, embedded CPython, language servers, Tree-sitter grammars, fonts and UI libraries) that stay under their own licenses and copyright notices: see [Third-party notices](THIRD-PARTY-NOTICES.md), which the installer places next to `LICENSE` (a plain-text companion is `CHATMCP-HUB/THIRD-PARTY-NOTICES.txt`), and the [license and dependency scan](docs/LICENSE-SCAN.md) for the gaps that are still open. Imported Skills have their own licenses and redistribution conditions.
 
 ## Security
 

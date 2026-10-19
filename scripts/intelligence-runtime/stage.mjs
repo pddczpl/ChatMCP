@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { Parser, Language } from 'web-tree-sitter';
+import { PENDING_ALLOWED_ENV, PENDING_MARKER, noticeSource, noticeStaged, pendingNoticeText, readGrammarNotices } from './notices.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const destination = path.resolve(process.argv[2] || path.join(here, '../../deploy/.generated/intelligence-runtime'));
@@ -59,6 +60,7 @@ for (const [packagePath, entry] of Object.entries(lock.packages)) {
       await copy(path.join(directory, 'out', 'tree-sitter-' + language + '.wasm'),
         'grammars/tree-sitter-' + language + '.wasm');
     }
+    if (!noticeFiles.includes('LICENSE')) throw new Error('tree-sitter-wasms ships no LICENSE file; refusing to stage its grammars');
     for (const notice of noticeFiles) {
       await copy(path.join(directory, notice), 'licenses/tree-sitter-wasms/' + notice);
     }
@@ -70,6 +72,18 @@ for (const name of Object.keys(dependencies)) {
   if (!packages.some(p => p.path === 'node_modules/' + name)) {
     throw new Error('Required bundled dependency missing: ' + name);
   }
+}
+// tree-sitter-wasms' own LICENSE is the Unlicense. The grammars are compiled from MIT-licensed upstream projects whose notices travel
+// with them (scripts/intelligence-runtime/licenses/). A release build fails here when one is missing; a CI build may proceed with a
+// PENDING-NOTICES.txt marker (CHATMCP_ALLOW_PENDING_NOTICES=1), which the manifest records and verify.mjs understands.
+const grammarNotices = await readGrammarNotices({ sourceDirectory: here, allowPending: process.env[PENDING_ALLOWED_ENV] === '1' });
+for (const { entry } of grammarNotices.found) await copy(path.join(here, noticeSource(entry)), noticeStaged(entry));
+if (grammarNotices.pending.length > 0) {
+  const marker = Buffer.from(pendingNoticeText(grammarNotices.pending), 'utf8');
+  await fs.mkdir(path.join(destination, 'licenses'), { recursive: true });
+  await fs.writeFile(path.join(destination, PENDING_MARKER), marker, { flag: 'wx' });
+  files.push({ path: PENDING_MARKER, size: marker.length, sha256: hash(marker) });
+  console.warn('WARNING: staged WITHOUT licence notices for ' + grammarNotices.pending.map(item => item.entry.id).join(', ') + '. This build must not be released.');
 }
 await Parser.init();
 const grammars = [];
@@ -110,6 +124,7 @@ async function recordStaged(dir, relative) {
   }
 }
 await recordStaged(pythonOutput, 'runtimes/python');
+if (!files.some(file => file.path === 'runtimes/python/LICENSE.txt' && file.size > 0)) throw new Error('Embedded CPython was staged without its LICENSE.txt');
 files.sort((a, b) => a.path.localeCompare(b.path, 'en'));
-await fs.writeFile(path.join(destination, 'runtime-manifest.json'), JSON.stringify({ schemaVersion: 1, target: 'win-x64', packages, grammars, files }, null, 2) + '\n', { flag: 'wx' });
+await fs.writeFile(path.join(destination, 'runtime-manifest.json'), JSON.stringify({ schemaVersion: 1, target: 'win-x64', packages, grammars, pendingNotices: grammarNotices.pending.map(item => item.entry.id), files }, null, 2) + '\n', { flag: 'wx' });
 console.log(JSON.stringify({ destination, files: files.length, grammars, note: 'Runtime integrity checked; installer builder must copy this staged payload and the bundled Node executable' }, null, 2));
