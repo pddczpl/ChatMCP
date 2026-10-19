@@ -113,8 +113,6 @@ namespace ChatMCP.Desktop
                 // one-time ticket: the secret never appears in a URL, a command line or the page's history.
                 _statusLabel.Text = "Reading the Hub session...";
                 _session = await WaitForSessionAsync();
-                string ticket;
-                using (var client = HubLifecycle.Client()) ticket = await HubSession.RequestTicket(client, HubLifecycle.Origin, _session.Secret);
 
                 // 2. Initialize WebView2
                 _statusLabel.Text = "Initializing Desktop Studio UI...";
@@ -167,7 +165,10 @@ namespace ChatMCP.Desktop
                     }
                 };
 
-                // Navigate to Studio, signed in by the ticket in the fragment
+                // Navigate to Studio, signed in by the ticket in the fragment. The ticket lives 60 seconds and is requested only now:
+                // creating the WebView2 environment (first run, runtime update) can take a long time.
+                string ticket;
+                using (var client = HubLifecycle.Client()) ticket = await HubSession.RequestTicket(client, HubLifecycle.Origin, _session.Secret);
                 _webView.Source = new Uri(HubSession.DashboardUrl(HubLifecycle.Origin, ticket));
                 _hubMonitor.Start();
             }

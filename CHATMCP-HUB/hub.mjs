@@ -660,7 +660,12 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
 
 // `url` is what is logged; `target` (the same address plus a one-time sign-in ticket in the fragment) is what is opened.
 async function openDashboard(url, manager, target = url) {
-  if (process.platform !== 'win32') { manager.log(`Mở ${url}`); return; }
+  if (process.platform !== 'win32') {
+    manager.log(`Mở ${url}`);
+    // The sign-in link is single-use and short-lived; show it on a terminal only, never in hub.log.
+    if (process.stdout.isTTY && target !== url) console.log(`Sign-in link (single use, 60 s): ${target}`);
+    return;
+  }
   // This URL is constructed from a validated numeric port and a base64url ticket, never shell input.
   const rundll = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'rundll32.exe');
   await new Promise((resolve) => {

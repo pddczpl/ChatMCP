@@ -36,7 +36,11 @@ internal static class HubSession
         {
             var file = new FileInfo(SessionPath(stateDirectory));
             if (!file.Exists || file.Length > 4096) return null;
-            using var document = JsonDocument.Parse(File.ReadAllText(file.FullName, Encoding.UTF8));
+            // Share everything, delete included: the Hub replaces this file by renaming over it, and a reader that blocks that
+            // rename (polling every few seconds) would make the Hub fail to start.
+            using var stream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            using var document = JsonDocument.Parse(reader.ReadToEnd());
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object) return null;
             if (!root.TryGetProperty("version", out var version) || !version.TryGetInt32(out var v) || v != 1) return null;

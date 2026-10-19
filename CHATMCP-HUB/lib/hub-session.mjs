@@ -95,8 +95,15 @@ export async function writeSession(hubDirectory, { port, secret, pid = process.p
   const body = JSON.stringify({ version: SESSION_FILE_VERSION, app: 'chatmcp-local-hub', pid, port, secret, nonce, startedAt: new Date().toISOString() });
   const temporary = `${file}.${pid}.tmp`;
   await fs.writeFile(temporary, body, { mode: 0o600 });
-  try { await fs.rename(temporary, file); }
-  catch (error) { await fs.unlink(temporary).catch(() => {}); throw error; }
+  // Windows refuses to rename over a file another program has open without delete sharing (a client reading the session at
+  // that instant, an antivirus scan): wait a moment instead of failing the Hub's start.
+  for (let attempt = 0; ; attempt += 1) {
+    try { await fs.rename(temporary, file); break; }
+    catch (error) {
+      if (attempt >= 20 || !['EPERM', 'EBUSY', 'EACCES'].includes(error.code)) { await fs.unlink(temporary).catch(() => {}); throw error; }
+      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+    }
+  }
   return {
     file, nonce,
     async remove() {

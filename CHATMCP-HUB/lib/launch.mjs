@@ -3,7 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { assertBearerHub, parseArguments } from '../hub.mjs';
-import { attachToRunningHub, dashboardUrl } from './hub-session.mjs';
+import { attachToRunningHub, dashboardUrl, readSession, requestTicket } from './hub-session.mjs';
 import { delay, portOpen, redact } from './runtime.mjs';
 
 const bundle = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -16,9 +16,11 @@ async function health(url) {
   } catch { return null; }
 }
 
-// The address carries a one-time sign-in ticket in its fragment, so only the part before it is ever logged.
+// The address carries a one-time sign-in ticket in its fragment.
 async function openBrowser(url, log) {
-  if (process.platform !== 'win32') { log(`[CHATMCP-HUB] ${url.split('#')[0]}`); return; }
+  // Off Windows there is no default-browser opener here, so the terminal is the only way to get the signed-in address; it is
+  // single-use and expires in a minute.
+  if (process.platform !== 'win32') { log(`[CHATMCP-HUB] Open within a minute (single-use sign-in link): ${url}`); return; }
   const command = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'rundll32.exe');
   await new Promise((resolve, reject) => {
     const child = spawn(command, ['url.dll,FileProtocolHandler', url], { shell: false, windowsHide: true, detached: true, stdio: 'ignore' });
@@ -133,6 +135,11 @@ export async function launch(args = process.argv.slice(2), { log = console.log, 
     const ready = await health(url);
     if (ready?.app === 'chatmcp-local-hub' && ready.initialized) {
       log(`[CHATMCP-HUB] Dang chay nen: ${url}`);
+      if (options.open && process.platform !== 'win32') {
+        // The Hub opened nothing it could show here (its own output goes to hub.log): print a fresh sign-in link for this terminal.
+        const session = await readSession(directory);
+        if (session) await openBrowser(dashboardUrl(url, await requestTicket(url, session.secret)), log);
+      }
       log('[CHATMCP-HUB] Local Node.js Hub. Configure your AI model and choose a workspace in the dashboard.');
       return { url, reused: false, backend, logFile, pid: started.pid };
     }

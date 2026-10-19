@@ -75,7 +75,10 @@ function Assert-NoNativeError($process, [string]$pattern, [int]$seconds = 8) {
     $deadline = [DateTime]::UtcNow.AddSeconds($seconds)
     do {
         foreach ($text in $window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)) {
-            if ($text.Current.Name -match $pattern) { throw ('Native window shows a diagnostic instead of attaching: ' + $text.Current.Name) }
+            # Only the shell's own WinForms status label: WebView2 exposes the dashboard's text through UI Automation too, and a
+            # page that happens to say "Error:" is not a failed attach.
+            if ($text.Current.ClassName -notlike 'WindowsForms10.*') { continue }
+            if ($text.Current.Name -cmatch $pattern) { throw ('Native window shows a diagnostic instead of attaching: ' + $text.Current.Name) }
         }
         Start-Sleep -Milliseconds 400
     } while ([DateTime]::UtcNow -lt $deadline)

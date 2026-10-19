@@ -38,7 +38,9 @@ function prepare(name, ref) {
   fs.copyFileSync(process.execPath, path.join(root, 'runtimes', 'node', 'node.exe'));
   const archive = spawnSync('git', ['-C', repo, 'archive', ref, 'CHATMCP-HUB'], { maxBuffer: 1 << 30 });
   assert.equal(archive.status, 0, `git archive ${ref}: ${archive.stderr}`);
-  const unpack = spawnSync('tar', ['-x'], { cwd: root, input: archive.stdout });
+  // Windows' own bsdtar by full path (Git for Windows ships a GNU tar that treats C: as a host); -f - reads the archive from stdin.
+  const tar = path.join(process.env.SystemRoot ?? 'C:/Windows', 'System32', 'tar.exe');
+  const unpack = spawnSync(tar, ['-xf', '-'], { cwd: root, input: archive.stdout });
   assert.equal(unpack.status, 0, String(unpack.stderr));
   return { root, state: path.join(scratch, name, 'state') };
 }
