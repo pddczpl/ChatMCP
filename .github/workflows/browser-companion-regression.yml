@@ -1,7 +1,19 @@
 name: Browser Companion Workspace Regression
+# One run per push: `push` is limited to main (a branch with a pull request is covered by the pull_request event; this workflow used
+# to list a feature branch here, which started it twice for every push to that branch). Same path filter on both events.
 on:
   push:
-    branches: [main, 'fix/native-workspace-picker-chatgpt-web-mode']
+    branches: [main]
+    paths:
+      - 'CHATMCP-HUB/windows/Select-Workspace.ps1'
+      - 'desktop-shell/MainWindow.cs'
+      - 'CHATMCP-HUB/ui/src/lib/native-folder-picker.ts'
+      - 'CHATMCP-HUB/tests/verify-native-picker-bridge.mjs'
+      - 'CHATMCP-HUB/lib/manager.mjs'
+      - 'CHATMCP-HUB/lib/browser-runner.mjs'
+      - 'CHATMCP-HUB/lib/dual-agent.mjs'
+      - 'CHATMCP-HUB/tests/verify-browser-web-workspaces.mjs'
+      - '.github/workflows/browser-companion-regression.yml'
   pull_request:
     paths:
       - 'CHATMCP-HUB/windows/Select-Workspace.ps1'
@@ -13,11 +25,12 @@ on:
       - 'CHATMCP-HUB/lib/dual-agent.mjs'
       - 'CHATMCP-HUB/tests/verify-browser-web-workspaces.mjs'
       - '.github/workflows/browser-companion-regression.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: browser-companion-${{ github.ref }}
-  cancel-in-progress: true
+  group: browser-companion-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   browser-fixture:
     runs-on: ${{ matrix.os }}

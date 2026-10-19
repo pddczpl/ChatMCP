@@ -1,16 +1,37 @@
 name: CI
 
+# One run per push (docs/CI-HEALTH.md): a branch with an open pull request is built by the pull_request event only, so `push` is
+# limited to main (the merge) and a branch without a pull request is not built until the person opens one or starts this workflow by hand.
+# A documentation-only change skips this workflow; docs-gates.yml runs exactly then (its `paths` list equals the `paths-ignore` list
+# below, tests/verify-ci-triggers.mjs checks that) so the suites that read the documents still run.
 on:
   push:
-    branches: [main, 'dev/**', 'fix/**', 'feat/**', 'refactor/**']
+    branches: [main]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'NOTICE'
+      - 'HUONG-DAN.txt'
+      - 'VALIDATION.txt'
   pull_request:
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'NOTICE'
+      - 'HUONG-DAN.txt'
+      - 'VALIDATION.txt'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# Keyed on the pull request number, so every push to one pull request replaces the run of the previous push; a push to main keys on
+# its ref. Only pull request runs are cancelled: a run on main always finishes, so a red main is never hidden by a newer commit.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   hub-tests:
