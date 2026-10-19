@@ -124,6 +124,10 @@ export interface AiProfile {
   contextWindow?: number | null;
   authMode?: string;
   protocol?: string;
+  /** Route template of the endpoint, e.g. /proxy/{model}/messages. Not a secret. */
+  customPath?: string;
+  /** Names and sources of the custom headers. The values are sealed on the Hub and never returned. */
+  customHeaders?: {name:string;source:'protected'|'environment';envKeyName?:string}[];
   isDefault?: boolean;
   ratesUsdPerMillion?: {input:number;output:number;cacheRead?:number;cacheWrite?:number}|null;
 }

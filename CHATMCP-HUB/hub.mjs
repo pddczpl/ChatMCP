@@ -162,6 +162,10 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
       contextWindow:config.contextWindow,
       ratesUsdPerMillion:config.ratesUsdPerMillion??null,
       credentialSource:publicInfo.hasKey?'protected_reference':'none',
+      // What the fork keeps of the profile. Header NAMES only: the values are secrets and live in the task's provider alone.
+      customPath:config.customPath||null,
+      customHeaderNames:config.customHeaders.map(header=>header.name),
+      promptCaching:taskProvider.capabilities().promptCaching,
     }};
   };
   const pluginManager = manager.pluginManager ?? new PluginManager({ stateDir: hubStateDir });

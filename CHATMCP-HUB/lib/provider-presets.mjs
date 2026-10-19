@@ -6,13 +6,19 @@
 //
 // `keyEnv` lists the environment variables that are accepted as the key for THAT provider only. A key found in the
 // environment is never sent to a different host (see GatewayProvider#configure).
+//
+// `promptCaching` says that the endpoint accepts `cache_control` on the Anthropic Messages API, so the instructions, the tool list and
+// the conversation so far are not paid for again on every step. It is a property of the ENDPOINT, never of a word in a name: a profile
+// aimed at api.anthropic.com has the same endpoint as the global "anthropic" connection and so the same flag. Default false, because a
+// gateway that does not know the field may reject the whole request; a preset for Claude behind another front door (Bedrock, Vertex AI,
+// Azure AI Foundry) sets it to true when it is added.
 
-const preset = (value) => Object.freeze({ keyEnv: [], local: false, authMode: 'auto', customPath: '', contextWindowTokens: null, keyUrl: '', notes: '', ...value });
+const preset = (value) => Object.freeze({ keyEnv: [], local: false, authMode: 'auto', customPath: '', contextWindowTokens: null, promptCaching: false, keyUrl: '', notes: '', ...value });
 
 export const PRESETS = Object.freeze([
   preset({
     id: 'anthropic', label: 'Anthropic (Claude)', protocol: 'anthropic', apiBaseUrl: 'https://api.anthropic.com', defaultModel: 'claude-sonnet-5-5',
-    keyEnv: ['ANTHROPIC_API_KEY'], contextWindowTokens: 200000, keyUrl: 'https://console.anthropic.com/settings/keys',
+    keyEnv: ['ANTHROPIC_API_KEY'], contextWindowTokens: 200000, promptCaching: true, keyUrl: 'https://console.anthropic.com/settings/keys',
     notes: 'Messages API gốc, có tool use và prompt caching.',
   }),
   preset({
@@ -82,11 +88,35 @@ export function isLoopbackUrl(value) {
   } catch { return false; }
 }
 
-/** The preset whose endpoint is exactly this origin (custom-* presets have no endpoint and never match). */
-export function presetForBaseUrl(value) {
+/**
+ * The preset whose endpoint is exactly this origin (custom-* presets have no endpoint and never match). Some origins serve more than
+ * one protocol (api.openai.com has Chat Completions and Responses): pass the protocol to get the preset that speaks it.
+ */
+export function presetForBaseUrl(value, protocol) {
   const origin = originOf(value);
   if (!origin) return null;
-  return PRESETS.find((entry) => entry.apiBaseUrl && originOf(entry.apiBaseUrl) === origin) ?? null;
+  return PRESETS.find((entry) => entry.apiBaseUrl && originOf(entry.apiBaseUrl) === origin && (!protocol || entry.protocol === protocol)) ?? null;
+}
+
+/** The connection an endpoint amounts to: a known provider when origin AND protocol match one, else the "something else" preset of the protocol. */
+export function presetIdFor(value, protocol) {
+  return presetForBaseUrl(value, protocol)?.id ?? customPresetId(protocol);
+}
+
+/**
+ * Whether requests to this endpoint may carry `cache_control`. A named provider answers for itself; a custom connection (and a
+ * task profile, which has no preset at all) is judged by its origin, so one aimed at Anthropic itself caches and one aimed at an
+ * unknown gateway does not. Only the Messages API has the field.
+ */
+export function supportsPromptCaching({ apiBaseUrl = '', protocol = '', preset = '' } = {}) {
+  const named = presetById(preset);
+  if (named && !named.id.startsWith('custom-')) return named.protocol === protocol && named.promptCaching === true;
+  return Boolean(protocol) && presetForBaseUrl(apiBaseUrl, protocol)?.promptCaching === true;
+}
+
+/** A route template such as /v1beta/models/{model}:generateContent: absolute, not protocol-relative, no "..", plain characters. */
+export function isValidCustomPath(value) {
+  return typeof value === 'string' && value.length <= 400 && !value.startsWith('//') && !value.split('/').includes('..') && /^\/[A-Za-z0-9_./:{}-]+$/.test(value);
 }
 
 /**
@@ -109,6 +139,6 @@ export function publicPresets(env = process.env) {
   return PRESETS.map((entry) => ({
     id: entry.id, label: entry.label, protocol: entry.protocol, apiBaseUrl: entry.apiBaseUrl, defaultModel: entry.defaultModel,
     authMode: entry.authMode, local: entry.local, keyRequired: !entry.local, contextWindowTokens: entry.contextWindowTokens,
-    keyUrl: entry.keyUrl, notes: entry.notes, envKey: detected.get(entry.id) ?? null,
+    promptCaching: entry.promptCaching, keyUrl: entry.keyUrl, notes: entry.notes, envKey: detected.get(entry.id) ?? null,
   }));
 }

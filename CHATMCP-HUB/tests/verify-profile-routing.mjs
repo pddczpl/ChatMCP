@@ -7,6 +7,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { ConcurrentApiAgent } from '../lib/concurrent-api-agent.mjs';
+import { GatewayProvider } from '../lib/gateway-provider.mjs';
+import { createHubServer } from '../hub.mjs';
 
 const root=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-profile-routing-'));
 const directory=path.join(root,'pool');
@@ -108,6 +110,127 @@ try {
   assert.ok(calls.some(x=>x.profileId==='__global__'));
   assert.ok(!JSON.stringify(direct).includes('PROTECTED-KEY-NEVER-PERSIST'));
   console.log('PASS task/role profile routing, immutable resume revision, global fallback and secret-free session metadata');
+
+  // -------------------------------------------------------------------------------------------------------------
+  // The REAL seam. Everything above routes through a hand-written resolver; this part uses hub.mjs's own
+  // resolveAiProfileProvider, the sealed AiProfiles store and GatewayProvider.forkForTask, and replaces only the network.
+  // A fork used to be built as preset 'profile' with an empty path and no headers: it lost prompt caching, the custom
+  // path and the custom headers of the profile, and a profile edit could not be told apart from the global connection.
+  // -------------------------------------------------------------------------------------------------------------
+  const wire=[];
+  const okAnthropic={type:'message',role:'assistant',stop_reason:'end_turn',content:[{type:'text',text:'done'}],usage:{input_tokens:12,output_tokens:2}};
+  const network=async(url,options)=>{
+    wire.push({url,headers:options.headers,body:JSON.parse(options.body)});
+    return {ok:true,status:200,headers:{get:()=>null},async text(){return JSON.stringify(okAnthropic);}};
+  };
+  const realProvider=new GatewayProvider({directory:path.join(root,'gateway'),bundleRoot:path.resolve(import.meta.dirname,'..'),
+    manager:{secrets:[]},env:{},fetchImpl:network,platform:'linux',sleep:async()=>{}});
+  await realProvider.load();
+  await realProvider.configure({preset:'custom-anthropic',apiBaseUrl:'https://global.example',model:'claude-global',
+    apiKey:'sk-global-key-0123456789abcdef',customHeaders:[{name:'X-Global-Tenant',value:'global-tenant-secret'}]});
+  const hubManager={secrets:realProvider.manager.secrets,log:()=>{},hubDirectory:path.join(root,'hub'),workspace:root,
+    permissions:{mode:'review',executionPolicy:'host-review'},
+    state:()=>({version:'test',workspace:{path:root},generation:1,instanceId:'profile-seam',busy:false,services:{}}),
+    catalog:{ready:true,tools:[]}};
+  createHubServer(hubManager,{port:39007,secret:'profile-seam-secret-0123456789abcdef',provider:realProvider,
+    agent:{state:()=>({activeTaskId:null,tasks:[]}),get:()=>null,shutdown:async()=>{}},
+    browser:{browserState:()=>({paired:false}),shutdown:async()=>{}}});
+  assert.equal(typeof hubManager.resolveAiProfileProvider,'function','hub.mjs installs the resolver');
+  const profileKey='sk-ant-profile-key-0123456789abcdef';
+  const base={provider:'anthropic',protocol:'anthropic',apiKey:profileKey};
+  await hubManager.aiProfiles.upsert({...base,id:'direct',model:'claude-direct',apiBaseUrl:'https://api.anthropic.com',
+    customHeaders:[{name:'X-Profile-Tenant',value:'profile-tenant-secret'}]});
+  await hubManager.aiProfiles.upsert({...base,id:'gateway',model:'claude-gw',apiBaseUrl:'https://llm-gateway.example',
+    customPath:'/proxy/{model}/messages'});
+  const ask=(taskProvider)=>taskProvider.respond({input:[{role:'user',content:[{type:'input_text',text:'Hello'}]}],
+    instructions:'Task instructions',tools:[],maxOutputTokens:2048});
+
+  const direct1=await hubManager.resolveAiProfileProvider({profileId:'direct'});
+  await ask(direct1.provider);
+  const aimedAtAnthropic=wire.at(-1);
+  assert.equal(aimedAtAnthropic.url,'https://api.anthropic.com/v1/messages');
+  assert.deepEqual(aimedAtAnthropic.body.system[0].cache_control,{type:'ephemeral'},
+    'a profile aimed at api.anthropic.com keeps system[0].cache_control');
+  assert.equal(aimedAtAnthropic.headers['X-Profile-Tenant'],'profile-tenant-secret','and sends the header saved with the profile');
+  assert.ok(!('X-Global-Tenant' in aimedAtAnthropic.headers),'but not the header of the global connection');
+  assert.equal(aimedAtAnthropic.headers['x-api-key'],profileKey);
+  assert.equal(direct1.effectiveProfile.promptCaching,true,'the task shows that it caches');
+  assert.deepEqual(direct1.effectiveProfile.customHeaderNames,['X-Profile-Tenant'],'the task record carries header NAMES only');
+  assert.ok(!JSON.stringify(direct1.effectiveProfile).includes('profile-tenant-secret'));
+  assert.ok(!JSON.stringify(direct1.effectiveProfile).includes(profileKey));
+
+  const gateway=await hubManager.resolveAiProfileProvider({profileId:'gateway'});
+  await ask(gateway.provider);
+  const aimedAtGateway=wire.at(-1);
+  assert.equal(aimedAtGateway.url,'https://llm-gateway.example/proxy/claude-gw/messages','the custom path of the profile is used');
+  assert.equal(aimedAtGateway.body.system[0].cache_control,undefined,'another origin: no cache_control (the gateway may reject it)');
+  assert.ok(!('X-Global-Tenant' in aimedAtGateway.headers)&&!('X-Profile-Tenant' in aimedAtGateway.headers),
+    'and neither the global header nor the header of another profile');
+  assert.equal(gateway.effectiveProfile.promptCaching,false);
+  assert.equal(gateway.effectiveProfile.customPath,'/proxy/{model}/messages');
+  assert.deepEqual(gateway.effectiveProfile.customHeaderNames,[]);
+
+  // The global connection is untouched by all of this.
+  await ask(realProvider);
+  assert.equal(wire.at(-1).headers['X-Global-Tenant'],'global-tenant-secret');
+  assert.equal(wire.at(-1).body.system[0].cache_control,undefined,'a custom connection to an unknown host does not cache');
+
+  // A task that resumes with the revision it started with, a sequential chat and a background chat alike.
+  const savedReal=new Map();
+  const realPrimary={
+    activeTaskId:null,provider:realProvider,manager:hubManager,subscribe:()=>()=>{},
+    state:()=>({activeTaskId:null,tasks:[...savedReal.values()]}),get:id=>savedReal.get(id)||null,
+    async shutdown(){},
+    async start(args){
+      const id=randomUUID();
+      await ask(this.provider);
+      const record={id,prompt:args.prompt,workspace:{path:root},status:'completed',state:'completed',
+        effectiveProfile:args.effectiveProfile??null,roleProfiles:args.roleProfiles||{}};
+      savedReal.set(id,record);
+      return record;
+    },
+    async continue(args){
+      await ask(this.provider);
+      const record=savedReal.get(args.id);
+      record.effectiveProfile=args.effectiveProfile??null;
+      return record;
+    },
+  };
+  let realPool;
+  try{
+    const realDirectory=path.join(root,'real-pool');
+    await fs.mkdir(realDirectory,{recursive:true});
+    realPool=new ConcurrentApiAgent({primary:realPrimary,manager:hubManager,provider:realProvider,bundleRoot:root,
+      directory:realDirectory,maxConcurrent:0,log:()=>{}});
+    const started=await realPool.start({prompt:'Use the direct profile',profileId:'direct'});
+    assert.equal(wire.at(-1).headers['X-Profile-Tenant'],'profile-tenant-secret','a started task reaches the provider through its profile');
+    assert.deepEqual(wire.at(-1).body.system[0].cache_control,{type:'ephemeral'});
+    const revisionAtStart=started.effectiveProfile.revision;
+    await realPool.continue({id:started.id,prompt:'Next step'});
+    assert.equal(wire.at(-1).headers['X-Profile-Tenant'],'profile-tenant-secret','a resumed task keeps the headers of its profile');
+    assert.deepEqual(wire.at(-1).body.system[0].cache_control,{type:'ephemeral'},'and its prompt caching');
+
+    const edited=await hubManager.aiProfiles.upsert({...base,id:'direct',model:'claude-direct',apiBaseUrl:'https://api.anthropic.com',
+      customHeaders:[{name:'X-Profile-Tenant',value:'rotated-tenant-secret'}]});
+    assert.notEqual(edited.revision,revisionAtStart,'editing a header is a new revision');
+    const before=wire.length;
+    await assert.rejects(realPool.continue({id:started.id,prompt:'Continue after the edit'}),
+      {code:'profile_revision_changed',statusCode:409},'a task bound to the old header cannot resume on the new one');
+    await assert.rejects(hubManager.resolveAiProfileProvider({profileId:'direct',expectedRevision:revisionAtStart}),
+      {code:'profile_revision_changed',statusCode:409});
+    assert.equal(wire.length,before,'and nothing was sent');
+    const renewed=await hubManager.resolveAiProfileProvider({profileId:'direct',expectedRevision:edited.revision});
+    await ask(renewed.provider);
+    assert.equal(wire.at(-1).headers['X-Profile-Tenant'],'rotated-tenant-secret','a new task gets the edited header');
+    // What the Hub keeps on disk and what it hands to the task record: sealed values and names, never a secret.
+    const everything=await fs.readFile(path.join(root,'hub','ai-profiles.json'),'utf8')+JSON.stringify([...savedReal.values()])+JSON.stringify(realPool.state());
+    for(const secret of ['profile-tenant-secret','rotated-tenant-secret',profileKey,'global-tenant-secret'])
+      assert.ok(!everything.includes(secret),'no secret in ai-profiles.json or in the task records');
+    console.log('PASS real seam: a profile fork keeps prompt caching, custom path and custom headers; another origin gets none of the global ones; a header edit refuses resume');
+  }finally{
+    await realPool?.shutdown?.();
+  }
 }finally{
-  await fs.rm(root,{recursive:true,force:true});
+  // The Hub's plugin and skill stores finish a background read as the test ends; give them a moment instead of failing the cleanup.
+  await fs.rm(root,{recursive:true,force:true,maxRetries:8,retryDelay:150});
 }
