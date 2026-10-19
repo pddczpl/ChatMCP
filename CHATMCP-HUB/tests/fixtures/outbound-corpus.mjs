@@ -135,6 +135,10 @@ export function positives() {
   add('env-secret', 'letmeinplease', (v) => `ADMIN_PASSWORD=${v}`);
   add('env-secret', password(), (v) => `# .env\nPORT=3000\nSTRIPE_WEBHOOK_SECRET=${v}\r\nNODE_ENV=production\r\n`);
   add('env-secret', password(), (v) => `+DB_PASS=${v}`);
+  // a passphrase with spaces in an upper-case NAME=value line
+  add('env-secret', 'correct horse battery staple 9', (v) => `DB_PASSWORD="${v}"`);
+  add('env-secret', 'two word secret', (v) => `ADMIN_PASSWORD=${v}`);
+  add('env-secret', 'abc def ghi', (v) => `export API_TOKEN='${v}'`);
   add('assigned-secret', password(), (v) => `{"password": "${v}", "user": "admin"}`);
   add('assigned-secret', body(B62, 32), (v) => `const config = { apiKey: '${v}', retries: 3 };`);
   add('assigned-secret', 'hunter2hunter2', (v) => `db.connect(host="db", user="root", password="${v}")`);
@@ -166,6 +170,12 @@ export function positives() {
 export function benign() {
   const list = [
     // source code that mentions secrets without containing one
+    // labels and prose with spaces next to a secret-sounding name stay readable
+    'PASSWORD_LABEL="Enter your password"',
+    'TOKEN_HELP="Paste your access token here"',
+    'SECRET_HINT=where I keep the key',
+    'password: "Enter your password"',
+    'password = "The password must have 12 characters"',
     'const token = await getToken();',
     'const apiKey = process.env.OPENAI_API_KEY;',
     'const apiKey = process.env.OPENAI_API_KEY ?? "";',

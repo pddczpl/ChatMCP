@@ -54,7 +54,11 @@ function looksSecretShape(value) {
  */
 function acceptValue(raw, { quoted = false, strong = false, dotenv = false } = {}) {
   const value = raw.trim();
-  if (value.length < 3 || value.length > 4096 || /\s/.test(value) || isTemplate(value) || PATHISH.test(value)) return false;
+  if (value.length < 3 || value.length > 4096 || isTemplate(value) || PATHISH.test(value)) return false;
+  // A passphrase with spaces ("correct horse battery staple"). Everywhere else a value with spaces is prose and stays; but in a
+  // NAME=value line whose NAME is an upper-case variable ending in a secret word (DB_PASSWORD, API_TOKEN) it is a secret whatever
+  // it looks like. Lower-case, JSON and YAML forms with spaces are still left alone (labels and UI text are common there).
+  if (/\s/.test(value)) return strong && dotenv && value.length >= 6 && !/[()[\]{}<>;]/.test(value);
   if (!quoted && /[()[\]{}<>;,]/.test(value)) return false; // code, not a literal
   if (strong && (quoted || dotenv)) return value.length >= 4 || dotenv;
   return looksSecretShape(value);
