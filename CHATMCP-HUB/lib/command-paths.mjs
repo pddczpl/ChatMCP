@@ -25,7 +25,7 @@ const PS_PROVIDER = new RegExp(`^(?:-[A-Za-z]+:)?(?:[\\w.]+\\\\)?(?:${PS_PROVIDE
 
 /**
  * @param {object} options
- * @param {{args?: string[], redirects?: {op: string, target: string}[]}[]} options.segments  from analyzeCommand()
+ * @param {{args?: string[], files?: string[], redirects?: {op: string, target: string}[]}[]} options.segments  from analyzeCommand()
  * @param {string} options.cwd   absolute directory the command will run in
  * @param {string} options.root  absolute workspace root
  * @param {boolean} [options.powershell]  the command runs in PowerShell, where provider drives exist
@@ -34,7 +34,9 @@ const PS_PROVIDER = new RegExp(`^(?:-[A-Za-z]+:)?(?:[\\w.]+\\\\)?(?:${PS_PROVIDE
 export async function pathProblems({ segments = [], cwd, root, powershell = false }) {
   const words = [];
   for (const segment of segments) {
-    for (const arg of segment.args ?? []) words.push(String(arg));
+    // A program with an allowlist names its real file operands (`files`); patterns, scripts and option values are data and must not be
+    // resolved as paths. Any other program is judged by all of its words, as before.
+    for (const arg of segment.files ?? segment.args ?? []) words.push(String(arg));
     for (const redirect of segment.redirects ?? []) if (redirect?.target) words.push(String(redirect.target));
   }
   const problems = [];

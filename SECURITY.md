@@ -14,7 +14,7 @@ The local HTTP interface validates Host and Origin and applies CSRF protection t
 
 ## Permissions and execution isolation
 
-- **Read Only:** inspect without approving file, shell, or Git mutations.
+- **Read Only:** inspect without approving file, shell, or Git mutations. Shell commands run in this mode only when the command classifier (`lib/command-analysis.mjs`, `lib/read-programs.mjs`) positively recognises them as read-only: a program is "read" only if **every** option is on that program's allowlist (exact long names, short clusters split letter by letter, `--opt=value` split first), and `sed` only for scripts that a strict grammar accepts (addresses plus `p`, `d`, `q`, `=` and `s///` with `g`, `p`, `i`, count flags) or under GNU `sed --sandbox`. Anything it does not recognise, such as `sed` `e`/`r`/`w` commands, `sort -o`, `uniq IN OUT`, `file -C`, `rg --pre`, `find -fprint`, `tree -o`, `less +cmd`, or a wildcard that could expand into an option, is treated as an unreviewed command and is refused. The classifier reads command text and is not a sandbox; `tests/fixtures/readonly-bypass-corpus.json` is the regression corpus.
 - **Review:** ask the owner to approve potentially mutating or risky operations.
 - **Autonomous:** allow only operations permitted by the selected policy and the PermissionGate.
 - **Full Access:** requires explicit owner activation. Operations execute using the signed-in Windows account's effective permissions. This is not OS privilege elevation, nor a promise that host commands are harmless.
