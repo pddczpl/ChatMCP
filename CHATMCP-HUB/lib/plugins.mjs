@@ -471,27 +471,28 @@ export function parseSkillManifest(rawText, fallbackUrl = '') {
 }
 
 /**
- * Known trusted source registries for official skill verification.
+ * Skill sources that the project knows about. Being listed here is NOT verification: nothing in this list is checked, signed or audited,
+ * a skill from any of them is still untrusted third-party text (see the "UNTRUSTED SKILL REFERENCES" framing in lib/agent.mjs).
  */
-export const VERIFIED_REGISTRIES = Object.freeze([
+export const KNOWN_SKILL_SOURCES = Object.freeze([
   {
     id: 'github-chatmcp',
-    name: 'Official ChatMCP Skills Registry',
+    name: 'ChatMCP project skills',
     url: 'https://github.com/pddczpl/ChatMCP',
-    verified: true,
   },
   {
     id: 'agentskills-io',
-    name: 'Agent Skills Standard Registry',
+    name: 'Agent Skills standard',
     url: 'https://agentskills.io',
-    verified: true,
   },
 ]);
 
 /**
  * Built-in curated marketplace plugins catalog.
+ * Every entry is prompt-only guidance: a short system prompt and tool-name hints, no code, no MCP server, no tools of its own.
  * Distinguishes ChatMCP built-ins from external community templates.
- * Never invents fabricated commit SHAs or false verification badges.
+ * Never invents fabricated commit SHAs or false verification badges. The repository carries no LICENSE file, so the licence of a
+ * built-in is only declared (never verified) and no entry is marked redistributable.
  */
 export const MARKETPLACE_CATALOG = Object.freeze([
   {
@@ -500,12 +501,12 @@ export const MARKETPLACE_CATALOG = Object.freeze([
     version: '1.2.0',
     license: 'MIT',
     declaredLicense: 'MIT',
-    verifiedLicense: 'MIT',
-    redistributable: true,
+    verifiedLicense: null,
+    redistributable: false,
     provenance: 'chatmcp-builtin',
     category: 'coding',
     author: 'ChatMCP Team',
-    description: 'Semantic git commits, branching automation, pull request templates, and merge conflict assistance.',
+    description: 'Prompt guidance for semantic commit messages, branch naming and pull request templates.',
     tools: ['git_status', 'git_diff', 'git_log', 'git_commit', 'git_branch'],
     systemPrompt: 'You have Git Workflow Pro skill enabled: use semantic commit messages (feat, fix, docs, refactor) and suggest pull request templates upon branch completion.',
     installedByDefault: true,
@@ -518,12 +519,12 @@ export const MARKETPLACE_CATALOG = Object.freeze([
     version: '1.1.0',
     license: 'MIT',
     declaredLicense: 'MIT',
-    verifiedLicense: 'MIT',
-    redistributable: true,
+    verifiedLicense: null,
+    redistributable: false,
     provenance: 'chatmcp-builtin',
     category: 'coding',
     author: 'ChatMCP Team',
-    description: 'Python code analysis, automated pytest fixtures generator, and type-hint verification.',
+    description: 'Prompt guidance for Python structure, pytest fixtures and type hints.',
     tools: ['read_file', 'edit_file', 'write_file', 'run_command'],
     systemPrompt: 'You have Python Architect skill: follow PEP-8 conventions, verify type hints, and ensure unit tests accompany all new functions.',
     installedByDefault: true,
@@ -603,19 +604,19 @@ export const MARKETPLACE_CATALOG = Object.freeze([
     installedByDefault: false,
   },
   {
-    id: 'sqlite-mcp-explorer',
-    name: 'SQLite MCP Explorer',
+    id: 'sqlite-explorer',
+    name: 'SQLite Explorer',
     version: '1.3.0',
     license: 'MIT',
     declaredLicense: 'MIT',
-    verifiedLicense: 'MIT',
-    redistributable: true,
+    verifiedLicense: null,
+    redistributable: false,
     provenance: 'chatmcp-builtin',
-    category: 'mcp-servers',
+    category: 'data',
     author: 'ChatMCP Team',
-    description: 'MCP server plugin for querying local SQLite databases, extracting schemas, and running data sanity checks.',
+    description: 'Prompt guidance for querying local SQLite databases with parameterized queries and checking schemas and indexes. It is not an MCP server and adds no tools.',
     tools: ['read_file', 'run_command'],
-    systemPrompt: 'You have SQLite MCP Explorer: use parameterized queries and analyze database indexes before running joins.',
+    systemPrompt: 'You have SQLite Explorer guidance: use parameterized queries and analyze database indexes before running joins.',
     installedByDefault: false,
     sourceUrl: null,
     commitSha: null,
@@ -626,12 +627,12 @@ export const MARKETPLACE_CATALOG = Object.freeze([
     version: '2.0.0',
     license: 'MIT',
     declaredLicense: 'MIT',
-    verifiedLicense: 'MIT',
-    redistributable: true,
+    verifiedLicense: null,
+    redistributable: false,
     provenance: 'chatmcp-builtin',
     category: 'research',
     author: 'ChatMCP Team',
-    description: 'Web search, technical documentation scraping, and library changelog analysis via MCP.',
+    description: 'Prompt guidance for citing official package documentation and comparing versions. It adds no web search or scraping tools.',
     tools: ['tasks_run', 'tasks_status'],
     systemPrompt: 'You have Web Researcher skill: cite official package documentation and compare semantic versions when investigating dependencies.',
     installedByDefault: false,
@@ -644,12 +645,12 @@ export const MARKETPLACE_CATALOG = Object.freeze([
     version: '1.1.2',
     license: 'Apache-2.0',
     declaredLicense: 'Apache-2.0',
-    verifiedLicense: 'Apache-2.0',
-    redistributable: true,
+    verifiedLicense: null,
+    redistributable: false,
     provenance: 'chatmcp-builtin',
     category: 'governance',
     author: 'ChatMCP Security Team',
-    description: 'Pre-commit scanner for hardcoded credentials, JWTs, private keys, and suspicious open-source package licenses.',
+    description: 'Prompt guidance to keep credentials, JWTs and private keys out of source files and to flag incompatible licenses. It does not scan files by itself.',
     tools: ['read_file', 'search_files'],
     systemPrompt: 'You have Security Guard skill: never allow API keys or private certificates into source files, and reject GPL licenses in proprietary code.',
     installedByDefault: true,
@@ -657,6 +658,9 @@ export const MARKETPLACE_CATALOG = Object.freeze([
     commitSha: null,
   },
 ]);
+
+// Built-ins that earlier releases installed under a name that claimed more than they are (an "MCP explorer" that is prompt-only guidance).
+const RENAMED_BUILTINS = Object.freeze({ 'sqlite-mcp-explorer': 'sqlite-explorer' });
 
 export class PluginManager {
   #loadPromise = null;
@@ -697,7 +701,16 @@ export class PluginManager {
             if (!p || !p.id) continue;
             try {
               const validId = normalizeSkillId(p.id);
-              this.installedPlugins.set(validId, { ...p, id: validId });
+              let entry = { ...p, id: validId };
+              if (entry.provenance === 'chatmcp-builtin') {
+                // Take over the renamed catalog entry (keeping the owner's choice) and drop licence claims an older release wrote down:
+                // the repository has no LICENSE file, so nothing is verified or redistributable.
+                const renamed = MARKETPLACE_CATALOG.find((item) => item.id === RENAMED_BUILTINS[validId]);
+                if (renamed) entry = { ...renamed, enabled: entry.enabled, installedAt: entry.installedAt };
+                entry.verifiedLicense = null;
+                entry.redistributable = false;
+              }
+              this.installedPlugins.set(entry.id, entry);
             } catch {
               // Discard legacy/corrupt persisted ID with path separators or unsafe names
             }

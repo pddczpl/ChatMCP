@@ -162,7 +162,7 @@ async function runTests() {
     assert(names.includes('MainForm.InitializeWebView'), 'Should find C# method MainForm.InitializeWebView');
     console.log('  [PASS] 2. Multi-language symbol extraction (ESM, #private methods, C#)');
 
-    // Test 3: PageRank-style Repo Map prioritizes highly imported modules (tool-schema.mjs)
+    // Test 3: import-degree ranked Repo Map prioritizes highly imported modules (tool-schema.mjs)
     const repoMap = await engine.generateRepoMap({ maxTokens: 1500 });
     assert(repoMap.structured.totalFiles >= 6);
     const topFile = repoMap.structured.topFiles[0];

@@ -39,8 +39,13 @@ Runtime dependencies installed or reused by Hub:
 
 3. @modelcontextprotocol/sdk
    https://github.com/modelcontextprotocol/typescript-sdk
-   Resolved from the installed Desktop Commander dependency tree. The exact
-   transitive SDK version is determined by the installed package lock.
+   Historical 1.x installs only: it arrived as a transitive dependency of the
+   Desktop Commander package, and its exact version was set by that install's
+   package lock. Correction: the current local-only Hub (3.x) does not install,
+   bundle or import this SDK. None of its package.json files lists it, no
+   source file imports it, and no SDK code is redistributed with the current
+   Hub. Earlier wording could be read as crediting the SDK as part of the
+   current runtime; it is not.
 
 4. Existing bestagentkits/cloud-harness-mcp deployment
    https://github.com/bestagentkits/cloud-harness-mcp

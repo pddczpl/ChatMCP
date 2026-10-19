@@ -1,4 +1,4 @@
-// Unified Sandbox Engine for ChatMCP (Phase 1, PR 1).
+// Unified execution engine for ChatMCP (Phase 1, PR 1): host, broker and isolated modes.
 //
 // Provides an extensible execution layer backed by honest execution contracts.
 // Reports osIsolated: false for host mode, explicitly enumerates unsupported limits,
@@ -65,7 +65,7 @@ export class SandboxEngine {
   }
 
   /**
-   * Returns current sandbox configuration and capability status.
+   * Returns the current execution configuration and capability status.
    * Reports honest osIsolated: false and lists unsupported limits.
    */
   status() {
@@ -126,7 +126,7 @@ export class SandboxEngine {
   }
 
   /**
-   * Executes a shell command within the configured sandbox mode.
+   * Executes a shell command in the configured execution mode.
    *
    * @param {object} options
    * @param {string} options.command The command string to execute

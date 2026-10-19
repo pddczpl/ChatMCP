@@ -106,7 +106,7 @@ Tổng thời gian cả bộ Node: khoảng 3 phút (Linux, 180 s đã đo) đ�
 | **Mô hình** | `verify-model-adapters` | Anthropic, OpenAI-chat, preset, liệt kê model, lưu khóa — toàn bộ bằng `fetch` giả |
 | | `verify-dual-mode`, `verify-gateway-*`, `verify-gemini-*` | gateway Gemini/OpenAI: dialect, nén khi 413, sửa lệnh lỗi, bị cắt |
 | **Phiên & HTTP** | `verify-persistent-sessions`, `verify-studio-recovery`, `verify-hub-claim-recovery`, `verify-network-recovery` | phục hồi phiên, tự tiếp tục, mất mạng |
-| | `verify-studio-core`, `verify-studio-http`, `verify-studio-verifications`, `verify-v2-http`, `verify-v2-runtime`, `verify-agent-http`, `verify-agent-autotools` | workspace/checkpoint/review, route HTTP, CSRF/Origin, sandbox |
+| | `verify-studio-core`, `verify-studio-http`, `verify-studio-verifications`, `verify-v2-http`, `verify-v2-runtime`, `verify-agent-http`, `verify-agent-autotools` | workspace/checkpoint/review, route HTTP, CSRF/Origin, Docker terminal |
 | **ChatGPT Web (legacy)** | `verify-browser-continuation`, `verify-first-message`, `verify-recovery-dom`, `verify-reply-witness`, `verify-result-paging`, `verify-send-cycle` | tiện ích trình duyệt và `BrowserRunner` (giữ để không hồi quy) |
 | **Giao diện cũ** | `verify-ui-logic` | quyết định của dashboard (`web/ui-logic.js`) chạy không cần trình duyệt; không thay thế bằng chứng React/Vite |
 | **Long-task autonomy** | `verify-agent-progress`, `verify-agent-autonomy` | Durable, host-proposed task phases, semantically equivalent read/search cycle detection, real local file hashes, approved test receipts, two strategy pivots and bounded stop; mock models are not live-provider proof |

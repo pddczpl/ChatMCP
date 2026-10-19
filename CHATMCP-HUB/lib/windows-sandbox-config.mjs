@@ -162,9 +162,9 @@ export function validateHostMappingPath(dirPath, { isWritable = false, workspace
  * @param {object} options
  * @param {string} options.inputDirectory Read-only host directory containing inputs and supervisor
  * @param {string} options.exportDirectory Dedicated writable host directory for output artifacts
- * @param {number} [options.memoryMb=1024] Sandbox memory in MB
+ * @param {number} [options.memoryMb=1024] Windows Sandbox memory in MB
  * @param {boolean} [options.protectedClient=false] Enable Windows Protected Client mode
- * @param {string} [options.logonCommand] Custom command to execute on Sandbox startup
+ * @param {string} [options.logonCommand] Custom command to execute on Windows Sandbox startup
  * @param {string} [options.workspaceRoot] Optional workspace root for collision checks
  * @returns {string} Hardened .wsb XML string
  */

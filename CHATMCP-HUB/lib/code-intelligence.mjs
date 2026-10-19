@@ -2425,7 +2425,7 @@ export function registerCodeIntelligenceTools(define, workspace, { engine: exist
 
   define('repo_map', {
     description:
-      'Generate a PageRank-style repository map of source files and exported symbol signatures within a token budget. Use this first on large codebases to locate relevant modules and line ranges without reading full files.',
+      'Generate a repository map of source files and exported symbol signatures within a token budget, ranked by how many other files import each file (import-graph in/out degree, boosted by focus files and the query; this is not PageRank). Use this first on large codebases to locate relevant modules and line ranges without reading full files.',
     schema: {
       type: 'object',
       additionalProperties: false,

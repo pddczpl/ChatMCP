@@ -27,7 +27,7 @@ Comprehensive documentation across all architecture, implementation, and verific
 - [Phase 0 Execution Report](PHASE0-EXECUTION-REPORT.md) — Test receipts and reconnection milestone verification
 
 ### Phase 1: Windows Sandbox & Hardware Security
-- [Phase 1 Design](PHASE1-DESIGN.md) — Sandbox isolation architecture and security requirements
+- [Phase 1 Design](PHASE1-DESIGN.md) — Windows Sandbox isolation design and security requirements (historical)
 - [Phase 1 Implementation Plan](PHASE1-IMPLEMENTATION-PLAN.md) — Step-by-step development roadmap for execution drivers
 - [Phase 1 Report](PHASE1-REPORT.md) — Verification receipts and security gate assessment
 - [Phase 1 Blackbox Checks](PHASE1-BLACKBOX-CHECKS.md) — Native test suite for guest execution boundaries

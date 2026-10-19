@@ -417,7 +417,7 @@ export class CodingWorktreeOrchestrator {
     return {workerId,checks:await broker.discoverChecks({workerId})};
   }
   async grantCheck({workerId,checkId,confirmation,maxAttempts=3}={}) {
-    if (confirmation!=='AUTHORIZE ISOLATED CHECK') throw fail('confirmation_required','Type AUTHORIZE ISOLATED CHECK for a scoped sandbox test grant.',403);
+    if (confirmation!=='AUTHORIZE ISOLATED CHECK') throw fail('confirmation_required','Type AUTHORIZE ISOLATED CHECK for a scoped Windows Sandbox check grant.',403);
     const broker=this.checkBrokers.get(workerId);
     if (!broker || this.active===null) throw fail('worker_not_active','Worker has no active managed test broker.',404);
     if (this.manager.permissions?.mode!=='autonomous') throw fail('worker_permission_denied','Parent is not in Autonomous mode.',403);
