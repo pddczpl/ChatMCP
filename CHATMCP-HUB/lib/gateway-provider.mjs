@@ -316,7 +316,8 @@ export class GatewayProvider {
     const key=typeof profile.apiKey==='string'?profile.apiKey:'';
     checkKey(key);
     const context=parseContextWindow(profile.contextWindow ?? null);
-    if(context===undefined)throw bad('invalid_profile','Profile context window is invalid.');
+    // A profile saved by an older build may hold a window that build accepted (2,000..4,095): say which, the range, and where to fix it.
+    if(context===undefined)throw bad('invalid_context_window',`Model profile "${profile.id ?? profile.name ?? ''}" holds a context window of ${shownWindow(profile.contextWindow)}, outside ${contextWindowRangeText()} tokens. Open the AI Model tab, edit the profile, enter a window in that range (or empty it if unknown) and save.`,409);
     // A profile is a connection like the global one and obeys the same rules for its route and its headers. The headers were saved for
     // one origin; if the profile points anywhere else they are refused here, before any request, never sent to the new place.
     const customPath=typeof profile.customPath==='string'?profile.customPath:'';
@@ -672,7 +673,10 @@ export class GatewayProvider {
             continue;
           }
         }
-        const acceptedOutput = response.status === 400 ? geminiOutputRange(gatewayErrorDetail(data)) : null;
+        // Google words the range in its 400 answer; a gateway in front of Gemini words it its own way, or not at all. An answer that names
+        // the cap without a range is still taken as "lower it", to the 8,192 every Gemini model accepts, once.
+        const refusal = response.status === 400 ? gatewayErrorDetail(data) : '';
+        const acceptedOutput = refusal ? (geminiOutputRange(refusal) ?? (/max_?output_?tokens/i.test(refusal) ? GEMINI_DEFAULT_OUTPUT_TOKENS : null)) : null;
         if (acceptedOutput && nativeBody.generationConfig.maxOutputTokens > acceptedOutput) {
           nativeBody.generationConfig.maxOutputTokens = acceptedOutput;
           this.outputLimit = acceptedOutput;

@@ -226,8 +226,31 @@ try {
     const everything=await fs.readFile(path.join(root,'hub','ai-profiles.json'),'utf8')+JSON.stringify([...savedReal.values()])+JSON.stringify(realPool.state());
     for(const secret of ['profile-tenant-secret','rotated-tenant-secret',profileKey,'global-tenant-secret'])
       assert.ok(!everything.includes(secret),'no secret in ai-profiles.json or in the task records');
+    // A profile file written by an older build holds a window that build accepted (2,000..4,095). The new bound refuses it, and the person
+    // who starts a task with that profile must be told which window, which range and where to fix it. A hand-written file on disk, a second
+    // Hub that loads it, the real resolver.
+    const legacyHub = path.join(root, 'legacy-hub');
+    await fs.mkdir(legacyHub, { recursive: true });
+    process.env.CHATMCP_LEGACY_PROFILE_KEY = 'sk-legacy-profile-key-0123456789';
+    await fs.writeFile(path.join(legacyHub, 'ai-profiles.json'), JSON.stringify({ defaultProfileId: 'old-window', profiles: [{
+      id: 'old-window', name: 'Old window', provider: 'openai-chat', protocol: 'openai-chat', model: 'gpt-old', apiBaseUrl: 'https://old.example/v1',
+      authMode: 'auto', contextWindow: 3000, revision: 'legacy-revision', envKeyName: 'CHATMCP_LEGACY_PROFILE_KEY' }] }));
+    const legacyManager = { secrets: [], log: () => {}, hubDirectory: legacyHub, workspace: root, permissions: { mode: 'review', executionPolicy: 'host-review' },
+      state: () => ({ version: 'test', workspace: { path: root }, generation: 1, instanceId: 'legacy-profile', busy: false, services: {} }), catalog: { ready: true, tools: [] } };
+    createHubServer(legacyManager, { port: 39008, secret: 'legacy-profile-secret-0123456789abcdef', provider: realProvider,
+      agent: { state: () => ({ activeTaskId: null, tasks: [] }), get: () => null, shutdown: async () => {} }, browser: { browserState: () => ({ paired: false }), shutdown: async () => {} } });
+    await assert.rejects(legacyManager.resolveAiProfileProvider({ profileId: 'old-window' }), (error) => {
+      assert.equal(error.code, 'invalid_context_window');
+      assert.equal(error.statusCode, 409);
+      assert.match(error.message, /old-window/, 'it names the profile');
+      assert.match(error.message, /3,000/, 'and the window it holds');
+      assert.match(error.message, /4,096.*2,000,000/, 'and the range');
+      assert.match(error.message, /AI Model/, 'and where to change it');
+      return true;
+    });
     console.log('PASS real seam: a profile fork keeps prompt caching, custom path and custom headers; another origin gets none of the global ones; a header edit refuses resume');
   }finally{
+    delete process.env.CHATMCP_LEGACY_PROFILE_KEY;
     await realPool?.shutdown?.();
   }
 }finally{

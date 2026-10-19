@@ -609,6 +609,24 @@ try {
     same(sent, [16384, 8192, 8192], 'the learned cap is used from the start next time');
     await provider.configure({ model: 'gemini-other' });
     same(provider.outputLimit, null, 'a new model starts without the old cap');
+
+    // A gateway in front of Gemini words its refusal its own way: no range to parse. A 400 that names the cap is still answered once with
+    // the 8,192 every Gemini model accepts, and remembered, instead of failing every step the way an unrecognised error would.
+    const worded = [];
+    const { provider: custom } = await makeProvider('gemini-cap-worded', { configure: { preset: 'custom-gemini', apiBaseUrl: 'https://gw.example.com', model: 'gemini-gw', apiKey: KEY }, fetchImpl: async (url, opts) => {
+      const body = JSON.parse(opts.body);
+      worded.push(body.generationConfig?.maxOutputTokens);
+      return body.generationConfig?.maxOutputTokens > 8192
+        ? reply(400, { error: { code: 400, status: 'INVALID_ARGUMENT', message: 'generation_config.max_output_tokens: value must be less than or equal to 8192' } })
+        : reply(200, geminiOk);
+    } });
+    await custom.respond({ input: [userMsg('hi')], instructions: 'S', maxOutputTokens: 16384 });
+    same([worded, custom.outputLimit], [[16384, 8192], 8192], 'an error without a parseable range still lowers the cap to 8,192, once');
+    await custom.respond({ input: [userMsg('hi')], instructions: 'S', maxOutputTokens: 16384 });
+    same(worded, [16384, 8192, 8192], 'and the next step starts there');
+    const unrelated = await makeProvider('gemini-cap-unrelated', { configure: { preset: 'custom-gemini', apiBaseUrl: 'https://gw.example.com', model: 'gemini-gw', apiKey: KEY }, fetchImpl: async () => reply(400, { error: { code: 400, status: 'INVALID_ARGUMENT', message: 'Invalid JSON payload received.' } }) });
+    same((await unrelated.provider.respond({ input: [userMsg('hi')], instructions: 'S', maxOutputTokens: 16384 }).catch((error) => error)).code, 'gateway_http_error', 'a 400 that does not name the cap is not retried as one');
+    same(unrelated.provider.outputLimit, null);
   }
 
   // context window: reactive and proactive compaction
@@ -892,7 +910,8 @@ try {
     same(base.state().customHeaders, [{ name: 'X-Global-Tenant', source: 'protected' }], 'forking leaves the global connection alone');
 
     // A window the profile cannot honour fails the fork with the profile's own reason.
-    await rejects(Promise.resolve().then(() => base.forkForTask({ provider: 'anthropic', protocol: 'anthropic', apiBaseUrl: 'https://other.example', model: 'm', apiKey: profileKey, contextWindow: 3000 })), { code: 'invalid_profile' });
+    await rejects(Promise.resolve().then(() => base.forkForTask({ provider: 'anthropic', protocol: 'anthropic', apiBaseUrl: 'https://other.example', model: 'm', apiKey: profileKey, contextWindow: 3000, id: 'old-profile' })),
+      { code: 'invalid_context_window', statusCode: 409, message: /old-profile.*3,000.*4,096.*2,000,000.*AI Model/ }, 'a profile saved by an older build (2,000..4,095) says which window, which range and where to fix it');
     same(base.forkForTask({ provider: 'anthropic', protocol: 'anthropic', apiBaseUrl: 'https://other.example', model: 'm', apiKey: profileKey, contextWindow: 9_000_000 }).state().contextWindowTokens, 2_000_000, 'and one above the cap is clamped');
   }
 

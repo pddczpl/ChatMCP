@@ -9,7 +9,10 @@ import { makeCalcProject, gitInit, WRONG_EXPECTATION_TEST } from '../../tests/e2
 
 export const test = base.extend({
   failingProject: [false, { option: true }],
-  app: async ({ failingProject, context, browserErrors }, use, testInfo) => {
+  // Extra environment for the Hub process. The shared harness sets CHATMCP_TOOL_SELECTION=full (tests/e2e/hub-process.mjs) because scripted
+  // models call tools by name; a test of the Hub's own choice sets it to '' so that the context window decides.
+  hubEnv: [{}, { option: true }],
+  app: async ({ failingProject, hubEnv, context, browserErrors }, use, testInfo) => {
     // Windows TEMP may use an 8.3 alias; compare the canonical path the Hub returns.
     const scratch = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-react-e2e-')));
     const project = path.join(scratch, 'workspace');
@@ -41,7 +44,7 @@ export const test = base.extend({
       gitInit(project, scratch);
       mock = await startMockModel();
       // The same real production React build the desktop serves; no API/page routes are stubbed.
-      hub = await startHub({ scratch });
+      hub = await startHub({ scratch, env: hubEnv });
       const html = await (await fetch(hub.origin)).text();
       expect(html).toContain('id="root"');
       expect(html).toMatch(/assets\/index-[^" ]+\.js/);

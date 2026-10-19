@@ -299,3 +299,31 @@ test('a saved local model profile routes a new task through the real Hub', async
   expect(JSON.stringify(task)).not.toContain('gateway-key.dpapi');
   await expect(page.getByTestId('active-model-profile')).toContainText('Local test profile');
 });
+
+// The window policy through the real Hub (hub.mjs main() builds the foreground runner) and the real conversation view. The mock model is
+// connected through the Ollama preset with no declared context window, and this Hub is NOT given the harness default CHATMCP_TOOL_SELECTION=full,
+// so the Hub itself decides: an unknown window gets the task-selected tool schemas and the conversation says the window is unknown.
+test.describe('a model with no declared context window', () => {
+  test.use({ hubEnv: { CHATMCP_TOOL_SELECTION: '' } });
+  test('gets task-selected tool schemas and a visible warning that names the fix', async ({ page, app }) => {
+    app.mock.define('answer-only', () => say('calc.js subtracts where it should add.'));
+    app.mock.setScenario('answer-only');
+    await onboard(page, app);
+    const prompt = 'Explain what calc.js does.';
+    await send(page, prompt);
+    const started = await taskByPrompt(app, prompt);
+    await waitForState(app.hub, started.id, 'completed');
+    const warning = page.getByTestId('context-window-warning');
+    await expect(warning).toBeVisible();
+    await expect(warning).toContainText('Context window unknown');
+    await expect(warning).toContainText('AI Model tab');
+    const task = await app.hub.task(started.id);
+    expect(task.contextPolicy.source).toBe('conservative_fallback');
+    expect(task.contextPolicy.reservedOutputTokens).toBeGreaterThanOrEqual(16384);
+    expect(task.contextPolicy.maxHistoryTokens).toBeGreaterThanOrEqual(8000);
+    expect(task.events.some((event) => event.type === 'tool_selection')).toBe(true);
+    const offered = app.mock.state.requests.filter((request) => request.tools.includes('mcp_call')).at(-1).tools;
+    expect(offered.length, 'the task-selected schemas plus the routers, not the full list of 100+').toBeLessThan(60);
+    expect(offered).toContain('read_file');
+  });
+});
