@@ -61,6 +61,11 @@ export function cleanEnvironment(home, extra = {}) {
   Object.assign(env, {
     HOME: home, USERPROFILE: home, NO_PROXY: '127.0.0.1,localhost', no_proxy: '127.0.0.1,localhost', CHATMCP_NO_OPEN: '1',
     GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: gitConfig, GIT_TERMINAL_PROMPT: '0',
+    // A Hub whose model has no configured context window offers the task-selected tool schemas (lib/tool-selector.mjs). The scripted models
+    // of these scenarios call tools by name (write_file, edit_file, git_add ...) whatever the prompt says, which a real model cannot do: it
+    // only calls what it was offered. They test what the Hub does with the call, so they get the full list; the selection itself is tested
+    // in verify-tool-selector and verify-smart-context-compaction.
+    CHATMCP_TOOL_SELECTION: 'full',
   });
   return Object.assign(env, extra);
 }
