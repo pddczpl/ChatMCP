@@ -111,48 +111,48 @@ export function ModelProfilesPanel(){
     finally{setBusy(false);}
   };
   return (
-    <section aria-label="Model profiles" className="space-y-2 border-t border-[var(--line)] pt-4 text-xs"
+    <section aria-label="Model profiles" className="space-y-2 border-t border-line pt-4 text-xs"
       data-testid="model-profiles-panel">
       <div>
-        <h3 className="font-semibold text-[var(--text)]">Model profiles</h3>
-        <p className="mt-1 text-[var(--faint)]">
+        <h3 className="font-semibold text-fg">Model profiles</h3>
+        <p className="mt-1 text-faint">
           Saved profiles are available to task/agent roles in the conversation composer.
           Keys are protected locally and never displayed after saving.
         </p>
       </div>
-      {isLoading && <p className="text-[var(--muted)]">Loading profiles...</p>}
+      {isLoading && <p className="text-muted">Loading profiles...</p>}
       {profiles.map((p:AiProfile)=>(
-        <div key={p.id} className="p-2 rounded-md border border-[var(--line)] bg-[var(--surface)]">
+        <div key={p.id} className="p-2 rounded-md border border-line bg-surface">
           <div className="font-medium break-all">{p.name||p.id} {p.isDefault?'· Default':''}</div>
-          <div className="text-[var(--faint)] break-all">{p.protocol||p.provider} · {p.model} · {p.apiBaseUrl}</div>
-          <div className="text-[var(--faint)]">{p.hasKey?'Protected key / environment reference configured':'No credential saved'}</div>
+          <div className="text-faint break-all">{p.protocol||p.provider} · {p.model} · {p.apiBaseUrl}</div>
+          <div className="text-faint">{p.hasKey?'Protected key / environment reference configured':'No credential saved'}</div>
           <div className="flex flex-wrap gap-2 mt-1.5">
-            <button type="button" className="underline text-[var(--primary)]" disabled={busy} onClick={()=>edit(p)}>Edit</button>
-            {!p.isDefault&&<button type="button" className="underline text-[var(--primary)]" disabled={busy} onClick={()=>void setDefault(p.id)}>Make default</button>}
-            <button type="button" className="underline text-rose-400" disabled={busy} onClick={()=>void remove(p.id)}>Delete</button>
+            <button type="button" className="underline text-primary" disabled={busy} onClick={()=>edit(p)}>Edit</button>
+            {!p.isDefault&&<button type="button" className="underline text-primary" disabled={busy} onClick={()=>void setDefault(p.id)}>Make default</button>}
+            <button type="button" className="underline text-danger" disabled={busy} onClick={()=>void remove(p.id)}>Delete</button>
           </div>
         </div>
       ))}
-      <div className="grid grid-cols-1 gap-2 border border-[var(--line)] rounded-lg bg-[var(--surface)] p-2">
+      <div className="grid grid-cols-1 gap-2 border border-line rounded-lg bg-surface p-2">
         <div className="flex justify-between items-center gap-2">
           <span className="font-semibold">{editing?'Edit profile':'Add profile'}</span>
-          <button type="button" className="underline text-[var(--primary)]"
+          <button type="button" className="underline text-primary"
             onClick={()=>{setEditing(false);setDraft(empty());setMessage('');}}>New profile</button>
         </div>
         <label className="space-y-1">Profile ID (leave empty to generate)
           <input aria-label="Model profile ID" type="text" value={draft.id} disabled={editing}
             onChange={e=>change('id',e.target.value)}
-            className="w-full p-1.5 rounded border border-[var(--line)] bg-[var(--panel)]"/>
+            className="w-full p-1.5 rounded border border-line bg-panel"/>
         </label>
         <label className="space-y-1">Display name
           <input aria-label="Model profile display name" type="text" value={draft.name}
             onChange={e=>change('name',e.target.value)}
-            className="w-full p-1.5 rounded border border-[var(--line)] bg-[var(--panel)]"/>
+            className="w-full p-1.5 rounded border border-line bg-panel"/>
         </label>
         <label className="space-y-1">API protocol
           <select aria-label="Model profile protocol" value={draft.protocol}
             onChange={e=>change('protocol',e.target.value)}
-            className="w-full p-1.5 rounded border border-[var(--line)] bg-[var(--panel)]">
+            className="w-full p-1.5 rounded border border-line bg-panel">
             {choices.map(value=><option key={value} value={value}>{value}</option>)}
           </select>
         </label>
@@ -160,39 +160,39 @@ export function ModelProfilesPanel(){
           <input aria-label="Model profile API base URL" type="url" value={draft.apiBaseUrl}
             placeholder="https://api.openai.com/v1 or http://localhost:11434/v1"
             onChange={e=>change('apiBaseUrl',e.target.value)}
-            className="w-full p-1.5 rounded border border-[var(--line)] bg-[var(--panel)]"/>
+            className="w-full p-1.5 rounded border border-line bg-panel"/>
         </label>
         <label className="space-y-1">Model ID
           <input aria-label="Model profile model" type="text" value={draft.model}
             onChange={e=>change('model',e.target.value)}
-            className="w-full p-1.5 rounded border border-[var(--line)] bg-[var(--panel)]"/>
+            className="w-full p-1.5 rounded border border-line bg-panel"/>
         </label>
         <label className="space-y-1">Authentication
           <select aria-label="Model profile authentication" value={draft.authMode}
             onChange={e=>change('authMode',e.target.value)}
-            className="w-full p-1.5 rounded border border-[var(--line)] bg-[var(--panel)]">
+            className="w-full p-1.5 rounded border border-line bg-panel">
             {['auto','bearer','google-key'].map(value=><option key={value}>{value}</option>)}
           </select>
         </label>
         <label className="space-y-1">API key (new/replacement only)
           <input aria-label="Model profile API key" type="password" autoComplete="off" value={draft.apiKey}
             onChange={e=>change('apiKey',e.target.value)}
-            className="w-full p-1.5 rounded border border-[var(--line)] bg-[var(--panel)]"/>
+            className="w-full p-1.5 rounded border border-line bg-panel"/>
         </label>
         <label className="space-y-1">Environment variable (alternative to API key)
           <input aria-label="Model profile environment key" type="text" value={draft.envKeyName}
             onChange={e=>change('envKeyName',e.target.value)}
             placeholder="OPENAI_API_KEY"
-            className="w-full p-1.5 rounded border border-[var(--line)] bg-[var(--panel)]"/>
+            className="w-full p-1.5 rounded border border-line bg-panel"/>
         </label>
         <label className="space-y-1">Context window tokens (optional)
           <input aria-label="Model profile context window" type="number" value={draft.contextWindow}
             onChange={e=>change('contextWindow',e.target.value)}
-            className="w-full p-1.5 rounded border border-[var(--line)] bg-[var(--panel)]"/>
+            className="w-full p-1.5 rounded border border-line bg-panel"/>
         </label>
-        <fieldset className="space-y-1 border border-[var(--line)] rounded-md p-2">
-          <legend className="text-[var(--muted)]">Optional owner-supplied rates (USD / 1M tokens)</legend>
-          <p className="text-[var(--faint)]">Prices are never assumed. Cache tokens are included in input; reasoning is included in output. Usage may be incomplete.</p>
+        <fieldset className="space-y-1 border border-line rounded-md p-2">
+          <legend className="text-muted">Optional owner-supplied rates (USD / 1M tokens)</legend>
+          <p className="text-faint">Prices are never assumed. Cache tokens are included in input; reasoning is included in output. Usage may be incomplete.</p>
           {([
             ['rateInput','Input'],['rateOutput','Output'],
             ['rateCacheRead','Cache read'],['rateCacheWrite','Cache write'],
@@ -201,7 +201,7 @@ export function ModelProfilesPanel(){
             <input type="number" step="any" min="0" max="10000"
               aria-label={'Model rate '+label} value={draft[field]}
               onChange={e=>change(field,e.target.value)}
-              className="flex-1 min-w-0 p-1.5 rounded border border-[var(--line)] bg-[var(--panel)]"/>
+              className="flex-1 min-w-0 p-1.5 rounded border border-line bg-panel"/>
           </label>)}
         </fieldset>
         <label className="flex gap-2 items-center">
@@ -213,9 +213,9 @@ export function ModelProfilesPanel(){
             onChange={e=>change('clearCredentials',e.target.checked)}/>
           Clear saved credentials for this profile
         </label>}
-        {message&&<p role="alert" className="text-rose-400">{message}</p>}
+        {message&&<p role="alert" className="text-danger">{message}</p>}
         <button type="button" onClick={()=>void save()} disabled={busy}
-          className="rounded-md bg-[var(--primary)] text-[var(--primary-foreground)] px-3 py-1.5 font-semibold disabled:opacity-50">
+          className="rounded-md bg-primary text-primary-fg px-3 py-1.5 font-semibold disabled:opacity-50">
           {busy?'Saving...':'Save model profile'}
         </button>
       </div>

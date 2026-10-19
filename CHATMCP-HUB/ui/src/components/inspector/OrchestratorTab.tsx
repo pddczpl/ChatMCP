@@ -45,29 +45,29 @@ export function OrchestratorTab(){
   };
   const {data:latest,refetch}=useQuery({queryKey:['delegates'],queryFn:api.getOrchestrator,refetchInterval:4000});
   const edit=(i:number,patch:Partial<Node>)=>setNodes(old=>old.map((v,j)=>j===i?{...v,...patch}:v));
-  return <div aria-label="Trợ lý AI" className="h-full min-w-0 overflow-y-auto p-4 text-sm leading-relaxed space-y-5 text-[var(--text)]">
+  return <div aria-label="Trợ lý AI" className="h-full min-w-0 overflow-y-auto p-4 text-sm leading-relaxed space-y-5 text-fg">
     <DynamicSubagents />
-    <details data-testid="manual-agents" className="border-t border-[var(--line)] pt-4">
-      <summary className="cursor-pointer font-semibold rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">Tự chia việc cho từng trợ lý</summary>
+    <details data-testid="manual-agents" className="border-t border-line pt-4">
+      <summary className="cursor-pointer font-semibold rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Tự chia việc cho từng trợ lý</summary>
       <div className="space-y-3 mt-3">
-        <p className="text-[var(--muted)]">Dành cho khi bạn muốn chọn vai trò và giao việc cụ thể. Các trợ lý chỉ đọc và phân tích dự án.</p>
+        <p className="text-muted">Dành cho khi bạn muốn chọn vai trò và giao việc cụ thể. Các trợ lý chỉ đọc và phân tích dự án.</p>
     <div className="flex items-center justify-between">
       <label htmlFor="agent-concurrency">Số trợ lý làm cùng lúc</label>
-      <select id="agent-concurrency" value={concurrency} onChange={e=>setConcurrency(Number(e.target.value))} className="bg-[var(--surface)] border border-[var(--line)] p-2 rounded">
+      <select id="agent-concurrency" value={concurrency} onChange={e=>setConcurrency(Number(e.target.value))} className="bg-surface border border-line p-2 rounded">
         {[1,2,3].map(n=><option key={n} value={n}>{n} trợ lý</option>)}
       </select>
     </div>
-    {nodes.map((node,i)=><div key={i} className="p-2 rounded border border-[var(--line)] bg-[var(--surface)] space-y-2">
+    {nodes.map((node,i)=><div key={i} className="p-2 rounded border border-line bg-surface space-y-2">
       <div className="flex gap-2 items-center">
-        <select aria-label={`Vai trò trợ lý ${i+1}`} value={node.role} disabled={busy} onChange={e=>edit(i,{role:e.target.value})} className="flex-1 min-w-0 p-2 border border-[var(--line)] bg-[var(--panel)] rounded">{roles.map(r=><option key={r} value={r}>{agentRoleLabel(r)}</option>)}</select>
+        <select aria-label={`Vai trò trợ lý ${i+1}`} value={node.role} disabled={busy} onChange={e=>edit(i,{role:e.target.value})} className="flex-1 min-w-0 p-2 border border-line bg-panel rounded">{roles.map(r=><option key={r} value={r}>{agentRoleLabel(r)}</option>)}</select>
         <Button size="sm" variant="danger" disabled={nodes.length===1||busy} onClick={()=>setNodes(old=>old.filter((_,j)=>j!==i))}>Xóa</Button>
       </div>
-      <label className="block space-y-1"><span className="text-xs text-[var(--muted)]">Việc cần làm</span><textarea aria-label={`Việc cần làm của trợ lý ${i+1}`} value={node.question} disabled={busy} onChange={e=>edit(i,{question:e.target.value})} rows={3} className="w-full bg-[var(--panel)] border border-[var(--line)] rounded p-2" /></label>
-      <details className="text-xs text-[var(--muted)]">
+      <label className="block space-y-1"><span className="text-xs text-muted">Việc cần làm</span><textarea aria-label={`Việc cần làm của trợ lý ${i+1}`} value={node.question} disabled={busy} onChange={e=>edit(i,{question:e.target.value})} rows={3} className="w-full bg-panel border border-line rounded p-2" /></label>
+      <details className="text-xs text-muted">
         <summary className="cursor-pointer">Thứ tự thực hiện và mã trợ lý</summary>
         <div className="space-y-2 mt-2">
-          <label className="block space-y-1"><span>Mã trợ lý</span><input value={node.id} disabled={busy} onChange={e=>edit(i,{id:e.target.value})} className="w-full p-2 rounded border border-[var(--line)] bg-[var(--panel)] text-[var(--text)]" /></label>
-          <label className="block space-y-1"><span>Chờ các trợ lý này hoàn tất</span><input value={node.dependsOn.join(',')} disabled={busy} placeholder="Ví dụ: plan, research. Để trống để chạy ngay." onChange={e=>edit(i,{dependsOn:e.target.value.split(',').map(x=>x.trim()).filter(Boolean)})} className="w-full bg-[var(--panel)] text-[var(--text)] border border-[var(--line)] rounded p-2" /></label>
+          <label className="block space-y-1"><span>Mã trợ lý</span><input value={node.id} disabled={busy} onChange={e=>edit(i,{id:e.target.value})} className="w-full p-2 rounded border border-line bg-panel text-fg" /></label>
+          <label className="block space-y-1"><span>Chờ các trợ lý này hoàn tất</span><input value={node.dependsOn.join(',')} disabled={busy} placeholder="Ví dụ: plan, research. Để trống để chạy ngay." onChange={e=>edit(i,{dependsOn:e.target.value.split(',').map(x=>x.trim()).filter(Boolean)})} className="w-full bg-panel text-fg border border-line rounded p-2" /></label>
         </div>
       </details>
     </div>)}
@@ -82,22 +82,22 @@ export function OrchestratorTab(){
     </div>
     {(result||latest?.last)&&<div className="space-y-2 select-text">
       <h4 className="font-semibold">Kết quả của nhóm</h4>
-      {(result||latest?.last)?.workers?.map((w:any)=><div key={w.id} className="border border-[var(--line)] rounded p-3"><div className="font-medium">{agentRoleLabel(w.role||'researcher')} · {agentStatusLabel(w.status)}</div><p className="whitespace-pre-wrap break-words mt-2">{w.summary||w.error||'Chờ kết quả…'}</p></div>)}
-      {(result||latest?.last)?.conclusion&&<div className="border border-[var(--line)] rounded p-3"><div className="font-semibold">Tổng hợp kết quả</div><p className="whitespace-pre-wrap mt-2">{(result||latest?.last)?.conclusion}</p></div>}
-      {(result||latest?.last)?.error&&<p role="alert" className="text-[var(--danger)]">{(result||latest?.last)?.error}</p>}
+      {(result||latest?.last)?.workers?.map((w:any)=><div key={w.id} className="border border-line rounded p-3"><div className="font-medium">{agentRoleLabel(w.role||'researcher')} · {agentStatusLabel(w.status)}</div><p className="whitespace-pre-wrap break-words mt-2">{w.summary||w.error||'Chờ kết quả…'}</p></div>)}
+      {(result||latest?.last)?.conclusion&&<div className="border border-line rounded p-3"><div className="font-semibold">Tổng hợp kết quả</div><p className="whitespace-pre-wrap mt-2">{(result||latest?.last)?.conclusion}</p></div>}
+      {(result||latest?.last)?.error&&<p role="alert" className="text-danger">{(result||latest?.last)?.error}</p>}
     </div>}
       </div>
     </details>
-    <details data-testid="coding-agents" className="border-t border-[var(--line)] pt-4">
-      <summary className="cursor-pointer font-semibold rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">Nhờ AI sửa mã nguồn{activeCoding&&<span className="block text-xs font-normal text-[var(--muted)] mt-1">Lần gần nhất: {agentStatusLabel(activeCoding.status)}</span>}</summary>
+    <details data-testid="coding-agents" className="border-t border-line pt-4">
+      <summary className="cursor-pointer font-semibold rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Nhờ AI sửa mã nguồn{activeCoding&&<span className="block text-xs font-normal text-muted mt-1">Lần gần nhất: {agentStatusLabel(activeCoding.status)}</span>}</summary>
       <div className="space-y-3 mt-3">
-      <p className="text-[var(--muted)]">Mỗi công việc được sửa trên một bản làm việc riêng. Bạn xem thay đổi trước khi gộp hoặc đưa lên GitHub.</p>
-      <div className="space-y-2 p-3 rounded border border-[var(--line)] bg-[var(--surface)]">
+      <p className="text-muted">Mỗi công việc được sửa trên một bản làm việc riêng. Bạn xem thay đổi trước khi gộp hoặc đưa lên GitHub.</p>
+      <div className="space-y-2 p-3 rounded border border-line bg-surface">
         <label className="text-xs font-semibold" htmlFor="coding-goal">Chia công việc từ một yêu cầu</label>
         <textarea id="coding-goal" value={codingGoal} onChange={e=>setCodingGoal(e.target.value)}
           placeholder="Mô tả mục tiêu hoặc viết 2–4 dòng gạch đầu dòng."
-          disabled={codingBusy} rows={3} className="w-full p-2 bg-[var(--panel)] border border-[var(--line)] rounded" />
-        <label className="flex gap-2 items-center text-xs text-[var(--muted)]">
+          disabled={codingBusy} rows={3} className="w-full p-2 bg-panel border border-line rounded" />
+        <label className="flex gap-2 items-center text-xs text-muted">
           <input type="checkbox" checked={codingModelAssist} disabled={codingBusy}
             onChange={e=>setCodingModelAssist(e.target.checked)} />
           Cho AI đề xuất DAG (gửi một lượt gọi API model; bản xem trước vẫn cần bạn duyệt)
@@ -112,20 +112,20 @@ export function OrchestratorTab(){
           }catch(e:any){showToast(e.message||'Không tạo được kế hoạch','error');}
           finally{setCodingBusy(false);}
         }}>Đề xuất chia công việc</Button>
-        {codingPlan&&<p role="status" className="text-xs text-[var(--muted)]">
+        {codingPlan&&<p role="status" className="text-xs text-muted">
           Bản xem trước gồm {codingPlan.taskCount} công việc. Chưa chạy agent hoặc thay đổi Git.
         </p>}
       </div>
-      {codingTasks.map((x,i)=><div key={i} className="p-3 rounded border border-[var(--line)] space-y-3">
+      {codingTasks.map((x,i)=><div key={i} className="p-3 rounded border border-line space-y-3">
         <div className="flex gap-2 items-center justify-between">
           <label htmlFor={`coding-task-${i}`} className="font-medium">Công việc {i+1}</label>
           <Button size="sm" variant="danger" disabled={codingBusy||codingTasks.length<=1} onClick={()=>setCodingTasks(a=>a.filter((_,j)=>j!==i))}>Xóa</Button>
         </div>
-        <textarea id={`coding-task-${i}`} rows={3} disabled={codingBusy} placeholder="Mô tả phần cần sửa và kết quả bạn mong muốn…" className="w-full p-2 rounded border border-[var(--line)] bg-[var(--panel)]" value={x.prompt} onChange={e=>setCodingTasks(a=>a.map((v,j)=>j===i?{...v,prompt:e.target.value}:v))}/>
-        <details className="text-xs text-[var(--muted)] space-y-2">
+        <textarea id={`coding-task-${i}`} rows={3} disabled={codingBusy} placeholder="Mô tả phần cần sửa và kết quả bạn mong muốn…" className="w-full p-2 rounded border border-line bg-panel" value={x.prompt} onChange={e=>setCodingTasks(a=>a.map((v,j)=>j===i?{...v,prompt:e.target.value}:v))}/>
+        <details className="text-xs text-muted space-y-2">
         <summary className="cursor-pointer">Thứ tự công việc và kiểm thử</summary>
-        <label className="block space-y-1"><span>Mã công việc</span><input disabled={codingBusy} className="w-full p-2 bg-[var(--panel)] text-[var(--text)] rounded border border-[var(--line)]" value={x.id} onChange={e=>setCodingTasks(a=>a.map((v,j)=>j===i?{...v,id:e.target.value}:v))}/></label>
-        <label className="block space-y-1"><span>Chờ các công việc này hoàn tất</span><input className="w-full p-2 rounded border border-[var(--line)] bg-[var(--panel)] text-[var(--text)]"
+        <label className="block space-y-1"><span>Mã công việc</span><input disabled={codingBusy} className="w-full p-2 bg-panel text-fg rounded border border-line" value={x.id} onChange={e=>setCodingTasks(a=>a.map((v,j)=>j===i?{...v,id:e.target.value}:v))}/></label>
+        <label className="block space-y-1"><span>Chờ các công việc này hoàn tất</span><input className="w-full p-2 rounded border border-line bg-panel text-fg"
           placeholder="Ví dụ: task-a, task-b. Để trống để chạy ngay." value={x.dependsOn.join(',')}
           disabled={codingBusy}
           onChange={e=>setCodingTasks(a=>a.map((v,j)=>j===i?
@@ -148,12 +148,12 @@ export function OrchestratorTab(){
         {(codingBusy||codingState?.activeRunId)&&<Button size="sm" variant="danger" onClick={async()=>{try{await api.cancelCodingAgents();showToast('Đã yêu cầu dừng sửa mã','info');}catch(e:any){showToast(e.message||'Chưa thể dừng sửa mã','error');}}}>Dừng sửa mã</Button>}
       </div>
       <IsolatedChecksPanel />
-      {codingState?.recoveryFault&&<p role="alert" className="text-[var(--danger)] border border-[var(--danger)] rounded p-2">
+      {codingState?.recoveryFault&&<p role="alert" className="text-danger border border-danger rounded p-2">
         Cần kiểm tra nhật ký khôi phục: {codingState.recoveryFault}. Các thao tác bị gián đoạn sẽ không tự chạy lại.
       </p>}
-      {activeCoding&&<div className="space-y-2 border-t border-[var(--line)] pt-2">
+      {activeCoding&&<div className="space-y-2 border-t border-line pt-2">
         <div className="font-semibold">Kết quả sửa mã · {agentStatusLabel(activeCoding.status)}</div>
-        <details className="text-xs text-[var(--muted)]">
+        <details className="text-xs text-muted">
         <summary className="cursor-pointer">Kiểm tra lần chạy và khôi phục</summary>
         <p className="mt-2">Mã lần chạy: {activeCoding.id?.slice(0,8)}</p>
         <div className="flex items-center gap-2 flex-wrap mt-2">
@@ -183,20 +183,20 @@ export function OrchestratorTab(){
           <span>Chỉ xem thông tin khôi phục. Không tự chạy lại thao tác, kiểm thử hay gộp mã.</span>
         </div>
         {codingRecovery?.runId===activeCoding.id&&
-          <div role="status" data-testid="coding-recovery-status" className="p-2 border border-[var(--line-subtle)] rounded mt-2">
+          <div role="status" data-testid="coding-recovery-status" className="p-2 border border-line-subtle rounded mt-2">
             Nhật ký: {codingRecovery.found?'đã tìm thấy':'không có'} · Trạng thái: {agentStatusLabel(codingRecovery.status)} ·
             Số bản ghi: {codingRecovery.entries??0}. Cần bạn kiểm tra lại. Không tự chạy lại; kết quả kiểm thử cũ chưa được xác minh lại.
           </div>
         }
         </details>
-        {(activeCoding.workers||[]).map((w:any)=><div key={w.id} className="p-3 space-y-2 border border-[var(--line)] rounded select-text">
+        {(activeCoding.workers||[]).map((w:any)=><div key={w.id} className="p-3 space-y-2 border border-line rounded select-text">
           <label className="flex gap-2 items-center">
             <input type="checkbox" disabled={w.status!=='ready_for_review'} checked={selectedWorkers.includes(w.id)} onChange={e=>setSelectedWorkers(a=>e.target.checked?[...a,w.id]:a.filter(id=>id!==w.id))}/>
             <strong>{w.id} · {agentStatusLabel(w.status)}</strong>
           </label>
-          <p className="text-xs text-[var(--muted)] break-all">Nhánh: {w.branch}</p>
-          {w.dependsOn?.length>0&&<p className="text-xs text-[var(--muted)]">Chờ công việc: {w.dependsOn.join(', ')}</p>}
-          {w.inheritedCommits&&<details className="text-xs text-[var(--muted)]"><summary className="cursor-pointer">Các thay đổi nhận từ công việc trước</summary>{Object.entries(w.inheritedCommits).map(([id,sha])=>id+':'+String(sha).slice(0,8)).join(', ')}</details>}
+          <p className="text-xs text-muted break-all">Nhánh: {w.branch}</p>
+          {w.dependsOn?.length>0&&<p className="text-xs text-muted">Chờ công việc: {w.dependsOn.join(', ')}</p>}
+          {w.inheritedCommits&&<details className="text-xs text-muted"><summary className="cursor-pointer">Các thay đổi nhận từ công việc trước</summary>{Object.entries(w.inheritedCommits).map(([id,sha])=>id+':'+String(sha).slice(0,8)).join(', ')}</details>}
           <p className="break-words">Tệp đã sửa: {(w.changedFiles||[]).join(', ')||'chưa có'}</p>
           <div className="flex flex-wrap gap-2">
           {w.status==='ready_for_review'&&<Button size="sm" variant="outline" disabled={codingBusy} onClick={()=>showCodingDiff(activeCoding.id,w.id)}>Xem thay đổi</Button>}
@@ -210,13 +210,13 @@ export function OrchestratorTab(){
             catch(e:any){showToast(e.message||'Không đưa được công việc lên GitHub','error');}finally{setCodingBusy(false);}
           }}>Tạo bản nháp trên GitHub</Button>}
           </div>
-          {w.prUrl&&<p className="text-[var(--muted)] break-all">PR: {w.prUrl}</p>}
-          {w.verifyRequired && <p className="text-xs text-[var(--muted)]">Kiểm thử: {w.verificationOutcome?.state?agentStatusLabel(w.verificationOutcome.state):'chờ bằng chứng xác minh'}. AI báo hoàn tất chưa có nghĩa là kiểm thử đã đạt.</p>}
-          {w.verificationAttempts?.length>0 && <p className="text-xs text-[var(--muted)]">Số lần kiểm thử: {w.verificationAttempts.length} · Kết quả đạt đã xác minh: {w.verificationAttempts.filter((a:any)=>a.testOutcomeVerified===true).length}</p>}
-          {w.summary&&<p className="whitespace-pre-wrap break-words">{w.summary}</p>}{w.error&&<p role="alert" className="text-[var(--danger)] break-words">{w.error}</p>}
+          {w.prUrl&&<p className="text-muted break-all">PR: {w.prUrl}</p>}
+          {w.verifyRequired && <p className="text-xs text-muted">Kiểm thử: {w.verificationOutcome?.state?agentStatusLabel(w.verificationOutcome.state):'chờ bằng chứng xác minh'}. AI báo hoàn tất chưa có nghĩa là kiểm thử đã đạt.</p>}
+          {w.verificationAttempts?.length>0 && <p className="text-xs text-muted">Số lần kiểm thử: {w.verificationAttempts.length} · Kết quả đạt đã xác minh: {w.verificationAttempts.filter((a:any)=>a.testOutcomeVerified===true).length}</p>}
+          {w.summary&&<p className="whitespace-pre-wrap break-words">{w.summary}</p>}{w.error&&<p role="alert" className="text-danger break-words">{w.error}</p>}
         </div>)}
         {activeCoding.integration&&<p className="break-words">Bản gộp: {agentStatusLabel(activeCoding.integration.status)} · {activeCoding.integration.branch}</p>}
-        <p className="text-xs text-[var(--muted)]">Xem thay đổi của từng công việc rồi chọn những mục muốn gộp.</p>
+        <p className="text-xs text-muted">Xem thay đổi của từng công việc rồi chọn những mục muốn gộp.</p>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" disabled={!selectedWorkers.length||codingBusy||selectedWorkers.some(id=>!reviewedTokens[id])} onClick={async()=>{
             if(prompt('Nhập INTEGRATE WORKTREES để gộp các công việc đã chọn vào một nhánh Git MỚI. Nhánh chính không bị thay đổi.')!=='INTEGRATE WORKTREES')return;
@@ -231,22 +231,22 @@ export function OrchestratorTab(){
           }}>Đưa bản gộp lên GitHub</Button>
         </div>
       </div>}
-      {codingContext&&<div data-testid="coding-context-preview" className="border border-[var(--line)] p-3 space-y-2 select-text">
+      {codingContext&&<div data-testid="coding-context-preview" className="border border-line p-3 space-y-2 select-text">
         <div className="font-semibold flex flex-wrap items-center justify-between gap-2">Nội dung tệp · {codingContext.workerId}
           <Button size="sm" variant="outline" onClick={()=>setCodingContext(null)}>Đóng bản xem trước</Button>
         </div>
-        <p className="text-xs text-[var(--muted)]">Chỉ hiển thị một phần mã nguồn trên máy, không tự gửi tới AI. Đây không phải bằng chứng kiểm thử đã đạt.</p>
+        <p className="text-xs text-muted">Chỉ hiển thị một phần mã nguồn trên máy, không tự gửi tới AI. Đây không phải bằng chứng kiểm thử đã đạt.</p>
         {(codingContext.files||[]).map((file:any)=><div key={file.path}>
-          <strong className="break-words">{file.path}</strong><details className="text-xs text-[var(--muted)] break-all"><summary className="cursor-pointer">Mã xác minh tệp</summary>SHA-256: {file.sha256}</details>
-          <pre className="text-xs overflow-auto max-h-52 bg-[var(--surface)] text-[var(--text)] p-2 rounded mt-2">{(file.lines||[]).map((line:any)=>line.line+': '+line.text).join('\n')}</pre>
+          <strong className="break-words">{file.path}</strong><details className="text-xs text-muted break-all"><summary className="cursor-pointer">Mã xác minh tệp</summary>SHA-256: {file.sha256}</details>
+          <pre className="text-xs overflow-auto max-h-52 bg-surface text-fg p-2 rounded mt-2">{(file.lines||[]).map((line:any)=>line.line+': '+line.text).join('\n')}</pre>
         </div>)}
         {!!codingContext.skipped?.length&&<p className="break-words">Tệp không hiển thị: {codingContext.skipped.map((f:any)=>f.path+' ('+f.reason+')').join(', ')}</p>}
       </div>}
-      {codingReview&&<div className="border border-[var(--line)] bg-[var(--surface)] p-2 rounded">
+      {codingReview&&<div className="border border-line bg-surface p-2 rounded">
         <div className="font-semibold flex flex-wrap justify-between gap-2"><span className="break-all">Thay đổi · {codingReview.branch}</span>
           <Button size="sm" variant="quiet" onClick={()=>setCodingReview(null)}>Đóng</Button></div>
-        <p className="text-xs text-[var(--muted)] break-all">Phiên bản: {codingReview.revision}. Hãy đọc toàn bộ thay đổi trước khi gộp hoặc đưa lên GitHub.</p>
-        <pre className="mt-2 p-2 rounded bg-[var(--surface)] text-[var(--text)] text-xs overflow-x-auto whitespace-pre-wrap break-all max-h-80 overflow-y-auto select-text">{codingReview.diff||'Không có thay đổi'}</pre>
+        <p className="text-xs text-muted break-all">Phiên bản: {codingReview.revision}. Hãy đọc toàn bộ thay đổi trước khi gộp hoặc đưa lên GitHub.</p>
+        <pre className="mt-2 p-2 rounded bg-surface text-fg text-xs overflow-x-auto whitespace-pre-wrap break-all max-h-80 overflow-y-auto select-text">{codingReview.diff||'Không có thay đổi'}</pre>
       </div>}
       </div>
     </details>

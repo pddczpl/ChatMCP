@@ -2,17 +2,18 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
-import { FolderGit2, Plus, Search, Trash2, Loader2, MessageSquare, ChevronDown, ChevronRight } from 'lucide-react';
+import { FolderGit2, Plus, Search, Trash2, Loader2, MessageSquare, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useTranslation } from '@/lib/i18n';
 import { isTaskActive } from '@/lib/task-view';
+import { formatRelative } from '@/lib/format';
 
 export function SessionSidebar() {
   const {
     selectedTaskId,setSelectedTaskId,selectedWorkspacePath,setSelectedWorkspacePath,
     showToast,
   }=useAppStore();
-  const {t}=useTranslation();
+  const {t,lang}=useTranslation();
   const queryClient=useQueryClient();
   const [search,setSearch]=useState('');
   const [collapsed,setCollapsed]=useState<Record<string,boolean>>({});
@@ -148,80 +149,85 @@ export function SessionSidebar() {
     finally{setRemovingConversation(null);}
   };
 
-  return <aside className="w-full h-full flex flex-col bg-[var(--panel)] border-r border-[var(--line)] min-w-0 select-none">
-    <div className="p-3 border-b border-[var(--line)] space-y-2.5">
+  return <aside className="flex h-full w-full min-w-0 select-none flex-col border-r border-line bg-panel">
+    <div className="space-y-2.5 border-b border-line p-3">
       <Button size="sm" variant="primary" onClick={createConversation}
-        className="w-full text-xs px-2.5 gap-1.5">
-        <Plus className="w-3.5 h-3.5"/><span>{t('new_conversation_btn')}</span>
+        className="h-9 w-full gap-1.5 px-2.5">
+        <Plus className="h-4 w-4"/><span>{t('new_conversation_btn')}</span>
       </Button>
       <div className="relative">
-        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--faint)]"/>
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint"/>
         <input aria-label="Tìm hội thoại" type="text" value={search}
           onChange={e=>setSearch(e.target.value)} placeholder={t('search_sessions')}
-          className="w-full bg-[var(--surface)] text-[var(--text)] text-xs rounded-md pl-8 pr-2.5 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"/>
+          className="h-9 w-full rounded-lg border border-line bg-surface pl-8 pr-2.5 text-[13px] text-fg placeholder:text-faint transition-colors hover:border-line-strong focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25"/>
       </div>
     </div>
-    <div className="flex-1 min-h-0 overflow-y-auto p-2">
-      <div className="flex items-center justify-between px-2 py-2">
-        <span className="text-xs font-medium text-[var(--muted)]">This computer · Workspaces</span>
+    <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      <div className="flex items-center justify-between px-2 pb-1 pt-2">
+        <span className="text-[12px] font-medium text-faint">{t('sidebar_workspaces')}</span>
         <button type="button" aria-label="Thêm workspace" title="Chọn thư mục bằng Windows Explorer"
           onClick={()=>void pickWorkspace()} disabled={choosing}
-          className="p-1 rounded hover:bg-[var(--surface-hover)] text-[var(--muted)]">
-          {choosing?<Loader2 className="w-4 h-4 animate-spin"/>:<Plus className="w-4 h-4"/>}
+          className="flex h-7 w-7 items-center justify-center rounded-lg text-muted transition-colors hover:bg-hover hover:text-fg">
+          {choosing?<Loader2 className="h-4 w-4 animate-spin"/>:<Plus className="h-4 w-4"/>}
         </button>
       </div>
       {manualFolderOpen&&<form onSubmit={e=>{e.preventDefault();void addManualWorkspace();}}
-        className="mx-2 mb-2 rounded-md border border-[var(--line)] p-2 space-y-1.5">
-        <label className="block text-[11px] text-[var(--muted)]">Nhập đường dẫn thư mục nếu hộp chọn Windows không mở</label>
+        className="mx-1 mb-2 space-y-2 rounded-xl border border-line bg-surface p-3">
+        <label className="block text-[12px] leading-4 text-muted">Nhập đường dẫn thư mục nếu hộp chọn Windows không mở</label>
         <input aria-label="Nhập đường dẫn workspace thủ công" value={manualFolder}
           onChange={e=>setManualFolder(e.target.value)} placeholder="F:\\Personal_Project\\Vin\\ChatMCP"
-          className="w-full px-2 py-1.5 rounded bg-[var(--surface)] border border-[var(--line)] text-xs text-[var(--text)]"/>
+          className="h-8 w-full rounded-lg border border-line bg-panel px-2.5 font-mono text-[12px] text-fg focus:border-primary focus:outline-none"/>
         <div className="flex gap-2">
           <button type="submit" disabled={!manualFolder.trim()||choosing}
-            className="text-xs px-2 py-1 bg-[var(--primary)] text-white rounded disabled:opacity-50">Thêm workspace</button>
+            className="h-8 rounded-lg bg-primary px-3 text-[13px] font-semibold text-primary-fg disabled:opacity-50">Thêm workspace</button>
           <button type="button" onClick={()=>setManualFolderOpen(false)}
-            className="text-xs text-[var(--muted)]">Hủy</button>
+            className="h-8 px-2 text-[13px] text-muted hover:text-fg">Hủy</button>
         </div>
       </form>}
-      {!workspaceEntries.length&&<div className="p-3 text-xs text-[var(--faint)]">
-        Chưa có workspace. Bấm dấu + để chọn thư mục trên máy Windows.
+      {!workspaceEntries.length&&<div className="p-3 text-[13px] leading-5 text-faint">
+        {t('sidebar_empty_workspaces')}
       </div>}
       {workspaceEntries.map(entry=>{
         const folder=entry.path, current=folder===activeWorkspace, shut=collapsed[folder]===true;
         const items=perWorkspace(folder);
-        return <div key={folder} className="mb-2">
-          <div className={'rounded-md flex items-center gap-1 px-1 py-1 '+(current?'bg-[var(--surface-hover)]':'')}>
+        return <div key={folder} className="mb-1">
+          <div className={'group flex items-center gap-0.5 rounded-lg px-1 '+(current?'bg-hover':'hover:bg-hover')}>
             <button type="button" aria-label={shut?'Mở nhóm '+entry.name:'Thu gọn nhóm '+entry.name}
-              onClick={()=>setCollapsed(v=>({...v,[folder]:!shut}))} className="p-1 text-[var(--faint)]">
-              {shut?<ChevronRight className="w-3.5 h-3.5"/>:<ChevronDown className="w-3.5 h-3.5"/>}
+              onClick={()=>setCollapsed(v=>({...v,[folder]:!shut}))} className="flex h-7 w-6 items-center justify-center text-faint hover:text-fg">
+              <ChevronRight className={'h-3.5 w-3.5 transition-transform '+(shut?'':'rotate-90')}/>
             </button>
             <button type="button" title={folder} onClick={()=>void selectWorkspace(folder)}
               aria-pressed={current}
-              className="flex-1 min-w-0 flex items-center gap-2 py-1 text-left">
-              <FolderGit2 className="w-4 h-4 flex-shrink-0 text-[var(--primary)]"/>
-              <span className="text-xs truncate text-[var(--text)] font-medium">{entry.name}</span>
+              className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left">
+              <FolderGit2 className={'h-4 w-4 shrink-0 '+(current?'text-primary':'text-muted')}/>
+              <span className="truncate text-[13px] font-semibold text-fg">{entry.name}</span>
             </button>
-            <span className="text-[10px] text-[var(--faint)]">{items.length}</span>
+            <span className="px-1 text-[12px] tabular-nums text-faint">{items.length}</span>
             <button type="button" aria-label={'Gỡ workspace '+entry.name}
               title="Gỡ khỏi ChatMCP — không xóa thư mục trên ổ đĩa"
               disabled={removingWorkspace!==null}
               onClick={()=>void removeWorkspace(folder,entry.name)}
-              className="p-1 rounded text-[var(--muted)] hover:text-rose-400 hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-rose-400 disabled:opacity-30">
-              {removingWorkspace===folder?<Loader2 className="w-3.5 h-3.5 animate-spin"/>:<Trash2 className="w-3.5 h-3.5"/>}
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-faint opacity-0 transition-opacity hover:bg-danger/10 hover:text-danger focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-30">
+              {removingWorkspace===folder?<Loader2 className="h-3.5 w-3.5 animate-spin"/>:<Trash2 className="h-3.5 w-3.5"/>}
             </button>
           </div>
-          {!shut&&<div className="pl-5 pt-1 space-y-0.5">
+          {!shut&&<div className="space-y-0.5 pb-1 pl-4 pt-1">
             {items.map(chat=>{
               const selected=chat.id===selectedTaskId||latestSegment(chat.id)?.id===selectedTaskId;
               const busy=isTaskActive(chat)||allTasks.some(task=>task.id!==chat.id&&task.conversationId===chat.id&&isTaskActive(task));
-              return <div key={chat.id} className={'group flex items-center gap-1 rounded-md '+(selected?'bg-[var(--primary-bg)]':'hover:bg-[var(--surface-hover)]')}>
+              const when=latestSegment(chat.id)?.updatedAt||chat.updatedAt||chat.createdAt;
+              return <div key={chat.id} className={'group flex items-center gap-1 rounded-lg '+(selected?'bg-primary/10':'hover:bg-hover')}>
                 <button onClick={()=>void selectConversation(chat.id,folder)} title={chat.task||chat.prompt}
-                  className="flex-1 min-w-0 p-1.5 flex items-center gap-2 text-left text-xs">
+                  aria-current={selected?'true':undefined}
+                  className="flex min-w-0 flex-1 items-center gap-2.5 px-2 py-1.5 text-left">
                   {isTaskActive(chat)
-                    ? <Loader2 className="w-3 h-3 animate-spin text-sky-400 flex-shrink-0"/>
-                    : <MessageSquare className="w-3 h-3 text-[var(--faint)] flex-shrink-0"/>}
-                  <span className={'truncate '+(selected?'text-[var(--primary)]':'text-[var(--muted)]')}>
-                    {chat.task||chat.prompt||'Cuộc hội thoại'}
+                    ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary"/>
+                    : <MessageSquare className={'h-3.5 w-3.5 shrink-0 '+(selected?'text-primary':'text-faint')}/>}
+                  <span className="min-w-0 flex-1">
+                    <span className={'block truncate text-[13px] leading-5 '+(selected?'font-medium text-primary':'text-fg')}>
+                      {chat.task||chat.prompt||'Cuộc hội thoại'}
+                    </span>
+                    {when&&<span className="block truncate text-[12px] leading-4 text-faint">{formatRelative(when,lang)}</span>}
                   </span>
                 </button>
                 <button type="button"
@@ -229,13 +235,13 @@ export function SessionSidebar() {
                   aria-label={'Xóa hội thoại: '+(chat.task||chat.prompt||chat.id)}
                   title={busy?'Dừng task và subagent trước khi xóa':'Xóa hội thoại và lịch sử task (không xóa file)'}
                   disabled={busy||removingConversation!==null}
-                  className="p-1 rounded text-[var(--muted)] hover:text-rose-400 hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-rose-400 disabled:opacity-20">
-                  {removingConversation===chat.id?<Loader2 className="w-3.5 h-3.5 animate-spin"/>:<Trash2 className="w-3.5 h-3.5"/>}
+                  className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-faint opacity-0 transition-opacity hover:bg-danger/10 hover:text-danger focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-0">
+                  {removingConversation===chat.id?<Loader2 className="h-3.5 w-3.5 animate-spin"/>:<Trash2 className="h-3.5 w-3.5"/>}
                 </button>
               </div>;
             })}
-            {!items.length&&current&&<p className="px-2 py-2 text-[11px] text-[var(--faint)]">
-              Chưa có hội thoại. Tạo chat mới để giao việc.
+            {!items.length&&current&&<p className="px-2 py-2 text-[12px] leading-4 text-faint">
+              {t('sidebar_empty_chats')}
             </p>}
           </div>}
         </div>;

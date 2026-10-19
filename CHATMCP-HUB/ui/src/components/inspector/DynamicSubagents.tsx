@@ -38,20 +38,20 @@ export function DynamicSubagents() {
   return <section aria-labelledby="agent-goal-heading" className="space-y-4">
     <div className="space-y-1.5">
       <h3 id="agent-goal-heading" className="font-semibold text-base">Bạn muốn tìm hiểu điều gì?</h3>
-      <p className="text-[var(--muted)] leading-relaxed">Mô tả mục tiêu, AI sẽ chia việc cho các trợ lý và trả kết quả để bạn xem.</p>
+      <p className="text-muted leading-relaxed">Mô tả mục tiêu, AI sẽ chia việc cho các trợ lý và trả kết quả để bạn xem.</p>
     </div>
     <div className="space-y-2">
       <label htmlFor="agent-goal" className="block font-medium">Yêu cầu của bạn</label>
       <textarea id="agent-goal" rows={4} maxLength={2000}
         aria-describedby="agent-goal-help"
         placeholder="Ví dụ: Tìm nguyên nhân trang tải chậm và đề xuất cách cải thiện."
-        className="w-full min-w-0 resize-y p-3 rounded-lg border border-[var(--line)] bg-[var(--surface)] leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+        className="w-full min-w-0 resize-y p-3 rounded-lg border border-line bg-surface leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         value={goal} onChange={e => setGoal(e.target.value)} disabled={active || busy} />
       <div className="flex flex-wrap gap-2" aria-label="Gợi ý yêu cầu">
         {suggestions.map(suggestion => <Button key={suggestion.label} size="sm" variant="outline"
           disabled={active || busy} onClick={() => setGoal(suggestion.goal)}>{suggestion.label}</Button>)}
       </div>
-      <p id="agent-goal-help" className="text-xs leading-relaxed text-[var(--muted)]">Chỉ đọc và phân tích, không sửa tệp hay chạy lệnh. Sử dụng model đã cấu hình; phí sử dụng do nhà cung cấp AI tính.</p>
+      <p id="agent-goal-help" className="text-xs leading-relaxed text-muted">Chỉ đọc và phân tích, không sửa tệp hay chạy lệnh. Sử dụng model đã cấu hình; phí sử dụng do nhà cung cấp AI tính.</p>
     </div>
     <div className="flex flex-wrap items-center gap-2">
       <Button variant="primary" size="lg" disabled={active || busy || !goal.trim()} onClick={() => setConfirmOpen(true)}>{active || busy ? 'Đang phân tích…' : 'Bắt đầu phân tích'}</Button>
@@ -62,27 +62,27 @@ export function DynamicSubagents() {
     </div>
     <Modal open={confirmOpen} onOpenChange={setConfirmOpen} role="alertdialog" title="Cho phép AI phân tích dự án?"
       description="Các trợ lý sẽ đọc các phần liên quan của dự án và gửi yêu cầu tới nhà cung cấp AI đã cấu hình. Không sửa tệp, chạy lệnh hay đưa mã lên GitHub. Phí sử dụng do nhà cung cấp AI tính.">
-          <p className="mt-3 rounded-lg bg-[var(--surface)] p-3 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">{goal}</p>
+          <p className="mt-3 rounded-lg bg-surface p-3 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">{goal}</p>
           <div className="mt-5 flex flex-wrap justify-end gap-2">
             <Button variant="outline" autoFocus onClick={() => setConfirmOpen(false)}>Để sau</Button>
             <Button variant="primary" disabled={active || busy || !goal.trim()} onClick={startAnalysis}>Cho phép và bắt đầu</Button>
           </div>
     </Modal>
-    {(active || busy) && <p role="status" className="text-[var(--muted)]">Các trợ lý đang làm việc. Kết quả sẽ xuất hiện bên dưới.</p>}
-    {error && <p role="alert" className="text-[var(--danger)]">Không tải được trạng thái: {error.message}</p>}
-    {last && <div className="space-y-3 border-t border-[var(--line)] pt-4 select-text">
+    {(active || busy) && <p role="status" className="text-muted">Các trợ lý đang làm việc. Kết quả sẽ xuất hiện bên dưới.</p>}
+    {error && <p role="alert" className="text-danger">Không tải được trạng thái: {error.message}</p>}
+    {last && <div className="space-y-3 border-t border-line pt-4 select-text">
       <div>
         <h4 className="font-semibold">Kết quả phân tích</h4>
-        <p className="text-xs text-[var(--muted)] mt-1">{agentStatusLabel(last.status)} · {(last.workers || []).length} trợ lý</p>
+        <p className="text-xs text-muted mt-1">{agentStatusLabel(last.status)} · {(last.workers || []).length} trợ lý</p>
       </div>
-      {(last.workers || []).map((worker: any) => <details key={worker.id} className="rounded-lg border border-[var(--line)] p-3" open={worker.status === 'failed'}>
-        <summary className="cursor-pointer font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 rounded">
-          {agentRoleLabel(worker.role)} <span className="font-normal text-[var(--muted)]">· {agentStatusLabel(worker.status)}</span>
+      {(last.workers || []).map((worker: any) => <details key={worker.id} className="rounded-lg border border-line p-3" open={worker.status === 'failed'}>
+        <summary className="cursor-pointer font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded">
+          {agentRoleLabel(worker.role)} <span className="font-normal text-muted">· {agentStatusLabel(worker.status)}</span>
         </summary>
         <p className="mt-3 whitespace-pre-wrap break-words leading-relaxed">{worker.summary || worker.error || 'Chưa có kết quả.'}</p>
       </details>)}
       {last.conclusion && <p className="whitespace-pre-wrap leading-relaxed">{last.conclusion}</p>}
-      {last.error && <p role="alert" className="text-[var(--danger)] break-words">{last.error}</p>}
+      {last.error && <p role="alert" className="text-danger break-words">{last.error}</p>}
     </div>}
   </section>;
 }

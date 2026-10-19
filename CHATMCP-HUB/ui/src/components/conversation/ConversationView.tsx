@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Bot, Cpu } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
 import { PhaseRibbon } from '@/components/layout/PhaseRibbon';
@@ -8,31 +9,25 @@ import { ToolActivityGroup } from './ToolActivityGroup';
 import { WorkflowCard } from './WorkflowCard';
 import { StateBanner } from './StateBanner';
 import { Composer } from './Composer';
+import { EmptyState } from './EmptyState';
+import { ModelProfilePicker, RoleOverridesField } from './ModelProfilePicker';
+import { ProofStrip } from './ProofStrip';
 import { ObjectiveAcceptancePanel } from './ObjectiveAcceptancePanel';
 import { CopyButton } from '@/components/ui/CopyButton';
-import { ApprovalStack, PendingApproval } from '@/components/approval/ApprovalStack';
+import { ApprovalStack } from '@/components/approval/ApprovalStack';
 import { OutboundReviewCard, type ReviewAction } from '@/components/approval/OutboundReviewCard';
 import { ChatGptWebRiskNote } from '@/components/approval/ChatGptWebRiskNote';
-import { Card } from '@/components/ui/Card';
-import { useTranslation } from '@/lib/i18n';
-import { 
-  Sparkles, 
-  Code2, 
-  CheckCircle2, 
-  ShieldAlert, 
-  Zap, 
-  Bot, 
-  Terminal, 
-  FolderSearch 
-} from 'lucide-react';
 import { isTaskActive, normalizeApproval, taskTimeline } from '@/lib/task-view';
 import type { ChatAttachment } from '@/types';
 import { parseRoleProfileOverrides } from '@/lib/model-profile-selection';
 
+/** The reading column: wide enough for code, narrow enough to read. */
+const column = 'mx-auto w-full max-w-[820px] px-5';
+
 export function ConversationView() {
   const queryClient = useQueryClient();
   const { selectedTaskId, setSelectedTaskId, showToast, streamingToken, streamingTaskId, selectedBaseRef, selectedWorkspacePath,
-    setActiveTab,setInspectorOpen } = useAppStore();
+    openSettings } = useAppStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const followOutput = useRef(true);
   const [showLatest, setShowLatest] = useState(false);
@@ -220,40 +215,6 @@ export function ConversationView() {
     }
   };
 
-  const { t } = useTranslation();
-
-  // Starter Prompts for Empty State
-  const starters = [
-    {
-      title: t('starter_1_title'),
-      desc: t('starter_1_desc'),
-      prompt: 'Hãy quét cấu trúc thư mục hiện tại của workspace, phân tích kiến trúc dự án và chỉ ra các module chính.',
-      icon: FolderSearch,
-      color: 'text-sky-400',
-    },
-    {
-      title: t('starter_2_title'),
-      desc: t('starter_2_desc'),
-      prompt: 'Hãy tìm các file logic hoặc module quan trọng chưa có test và viết unit test bao phủ đầy đủ.',
-      icon: CheckCircle2,
-      color: 'text-emerald-400',
-    },
-    {
-      title: t('starter_3_title'),
-      desc: t('starter_3_desc'),
-      prompt: 'Hãy rà soát toàn bộ cấu hình CSP, các endpoint API và sanitize input để phát hiện rủi ro bảo mật.',
-      icon: ShieldAlert,
-      color: 'text-rose-400',
-    },
-    {
-      title: t('starter_4_title'),
-      desc: t('starter_4_desc'),
-      prompt: 'Hãy phân tích các file code có kích thước lớn hoặc nợ kỹ thuật để thực hiện refactor tối ưu.',
-      icon: Zap,
-      color: 'text-amber-400',
-    },
-  ];
-
   const timeline = task ? taskTimeline(task) : [];
   const timelineGroups: Array<{kind:'message';value:any}|{kind:'tools';items:any[]}> = [];
   for (const item of timeline) {
@@ -265,242 +226,160 @@ export function ConversationView() {
   }
   const continueTask = () => handleSendMessage('Tiếp tục tác vụ trong cùng cuộc hội thoại. Kiểm tra trạng thái hiện tại trước khi thao tác; không tự chạy lại thao tác có kết quả chưa rõ.');
 
+  const chatGptWeb = task?.transport === 'chatgpt-web';
+  const newTaskPicker = !selectedTaskId && desiredTransport === 'api';
+
   return (
-    <div className="h-full flex flex-col bg-[var(--bg)] min-w-0 overflow-hidden relative">
-      {task?.transport==='chatgpt-web'&&
-        (!task.chatUrl||task.chatUrl.includes('local-chatgpt%3A'))&&
-        !isWorking&&
-        <div className="mx-4 my-2 p-3 rounded-md border border-amber-500/30 text-xs space-y-2">
-          <p>Chưa có URL ChatGPT chính thức cho task này. Mở tab ChatGPT đã gửi nhiệm vụ, rồi yêu cầu Extension xác nhận URL. ChatMCP sẽ không tự tạo chat mới hoặc gửi lại prompt.</p>
-          <button type="button" onClick={()=>void recoverUrl()} disabled={recoveringChatUrl}
-            className="px-3 py-1 rounded border border-[var(--line)] text-[var(--text)] disabled:opacity-40">
-            {recoveringChatUrl?'Đang yêu cầu…':'Khôi phục URL ChatGPT từ tab đã gửi'}
-          </button>
-        </div>}
+    <div className="relative flex h-full min-w-0 flex-col overflow-hidden bg-bg">
       {/* Agent transport is distinct from permissions and model provider.
           The Browser Companion uses the user's logged-in ChatGPT web tab and
           never treats an account session/cookie as an API key. */}
-      {willSwitch&&<div role="status" data-testid="transport-switch-notice"
-        className="mx-4 my-2 p-2 rounded-md border border-sky-500/30 text-xs text-[var(--muted)]">
-        Lượt tiếp theo sử dụng <strong>{desiredTransport==='chatgpt-web'?'ChatGPT Web Companion':'Model API'}</strong>.
-        ChatMCP giữ liên kết với các lượt trước và chuyển tóm tắt ngữ cảnh, nhưng không giả định hai model dùng chung lịch sử.
-        Các thao tác ghi file chưa xác minh sẽ không được tự động phát lại.
-      </div>}
-      {hub?.agent?.mode==='chatgpt-web'&&!selectedTaskId&&
-        <div data-testid="chatgpt-web-mode-banner" role="status"
-          className="px-4 py-2 bg-[var(--surface)] border-b border-[var(--line)] flex items-center gap-2 text-xs">
-          <Bot className="w-4 h-4 text-sky-500 flex-shrink-0"/>
-          <span className="flex-1 text-[var(--muted)]" title="Kênh Web Companion hiện chỉ gửi văn bản qua tab ChatGPT; dùng Model API để gửi ảnh/tệp đính kèm.">
-            ChatGPT Web (text-only) · {hub.browser?.connected?'Companion đã kết nối':
-              hub.browser?.paired?'Companion đã ghép; mở tab ChatGPT':'Cần ghép ChatMCP Hub Companion trước khi gửi task'}
-          </span>
-          <button type="button" onClick={()=>{setInspectorOpen(true);setActiveTab('settings');}}
-            className="underline text-[var(--primary)]">Thiết lập</button>
-        </div>}
-      {(task?.transport==='chatgpt-web'||(hub?.agent?.mode==='chatgpt-web'&&!selectedTaskId))&&
-        <div className="mx-4 my-2"><ChatGptWebRiskNote compact testId={task?.transport==='chatgpt-web'?'chatgpt-web-task-risk-note':'chatgpt-web-mode-risk-note'}/></div>}
-      {/* Top Phase Ribbon */}
-      {task && <PhaseRibbon task={task} onCancel={handleStopTask} />}
-      {task?.usage && (
-        <div className="px-4 py-1.5 text-[11px] text-[var(--muted)] border-b border-[var(--line-subtle)] flex flex-wrap items-center gap-x-4 gap-y-1"
-          data-testid="agent-request-budget" role="status">
-          <span>Model HTTP requests: {task.usage.httpRequests ?? 0}</span>
-          <span title="Only provider-reported input tokens. Missing reports are unknown, not zeros.">
-            Input: {task.usage.inputUsageMissing && !task.usage.inputUsageReported ? 'unavailable'
-              : (task.usage.inputTokens ?? 0).toLocaleString() + ' reported tokens' + (task.usage.inputUsageMissing ? ' (+ unknown)' : '')}
-          </span>
-          <span title="Only provider-reported output tokens. Missing reports are unknown, not zeros.">
-            Output: {task.usage.outputUsageMissing && !task.usage.outputUsageReported ? 'unavailable'
-              : (task.usage.outputTokens ?? 0).toLocaleString() + ' reported tokens' + (task.usage.outputUsageMissing ? ' (+ unknown)' : '')}
-          </span>
-          {(task.usage.cachedInputTokens ?? 0)>0&&
-            <span>Cache hit: {(task.usage.cachedInputTokens ?? 0).toLocaleString()} tokens</span>}
-          {(task.usage.cacheWriteTokens ?? 0)>0&&
-            <span>Cache write: {(task.usage.cacheWriteTokens ?? 0).toLocaleString()} tokens</span>}
-          {(task.usage.reasoningTokens ?? 0)>0&&
-            <span>Reasoning: {(task.usage.reasoningTokens ?? 0).toLocaleString()} tokens</span>}
-          {task.contextPolicy && <span title={`Estimated history: ${task.contextPolicy.maxHistoryTokens.toLocaleString()} tokens; output reserved: ${task.contextPolicy.reservedOutputTokens.toLocaleString()} tokens. Source: ${task.contextPolicy.source}. Not provider-billed usage.`}>
-            Context: {task.contextPolicy.capacityTokens.toLocaleString()} tokens ({task.contextPolicy.source === 'conservative_fallback' ? 'estimated' : 'configured'})
-          </span>}
-          {task.completionOutcome?.requirements === 'unverified' && (
-            <span className="text-amber-400" title={task.completionOutcome.note}>
-              Requirements unverified ({task.completionOutcome.unresolvedObjectiveIds.length})
+      {(chatGptWeb && (!task.chatUrl || task.chatUrl.includes('local-chatgpt%3A')) && !isWorking) && (
+        <div className={`${column} pt-3`}>
+          <div className="space-y-2 rounded-xl border border-warning/40 bg-warning/[0.08] p-3 text-[13px] leading-5">
+            <p>Chưa có URL ChatGPT chính thức cho task này. Mở tab ChatGPT đã gửi nhiệm vụ, rồi yêu cầu Extension xác nhận URL. ChatMCP sẽ không tự tạo chat mới hoặc gửi lại prompt.</p>
+            <button type="button" onClick={() => void recoverUrl()} disabled={recoveringChatUrl}
+              className="h-8 rounded-lg border border-line bg-panel px-3 text-[13px] font-medium text-fg transition-colors hover:bg-hover disabled:opacity-40">
+              {recoveringChatUrl ? 'Đang yêu cầu…' : 'Khôi phục URL ChatGPT từ tab đã gửi'}
+            </button>
+          </div>
+        </div>
+      )}
+      {willSwitch && (
+        <div className={`${column} pt-3`}>
+          <div role="status" data-testid="transport-switch-notice" className="rounded-xl border border-primary/30 bg-primary/[0.06] p-3 text-[13px] leading-5 text-muted">
+            Lượt tiếp theo sử dụng <strong className="text-fg">{desiredTransport === 'chatgpt-web' ? 'ChatGPT Web Companion' : 'Model API'}</strong>.
+            ChatMCP giữ liên kết với các lượt trước và chuyển tóm tắt ngữ cảnh, nhưng không giả định hai model dùng chung lịch sử.
+            Các thao tác ghi file chưa xác minh sẽ không được tự động phát lại.
+          </div>
+        </div>
+      )}
+      {hub?.agent?.mode === 'chatgpt-web' && !selectedTaskId && (
+        <div className={`${column} pt-3`}>
+          <div data-testid="chatgpt-web-mode-banner" role="status"
+            className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-[13px]">
+            <Bot className="h-4 w-4 shrink-0 text-primary" />
+            <span className="flex-1 text-muted" title="Kênh Web Companion hiện chỉ gửi văn bản qua tab ChatGPT; dùng Model API để gửi ảnh/tệp đính kèm.">
+              ChatGPT Web (text-only) · {hub.browser?.connected ? 'Companion đã kết nối' :
+                hub.browser?.paired ? 'Companion đã ghép; mở tab ChatGPT' : 'Cần ghép ChatMCP Hub Companion trước khi gửi task'}
             </span>
-          )}
-          {task.verificationOutcome?.ready === false &&
-            <span className="text-amber-400" title={task.verificationOutcome.missing.join('; ')}>
-              Chưa xác minh đầy đủ ({task.verificationOutcome.missing.length})
-            </span>}
+            <button type="button" onClick={() => openSettings('agent-channel')} className="font-medium text-primary hover:underline">Thiết lập</button>
+          </div>
+        </div>
+      )}
+      {(chatGptWeb || (hub?.agent?.mode === 'chatgpt-web' && !selectedTaskId)) && (
+        <div className={`${column} pt-3`}>
+          <ChatGptWebRiskNote compact testId={chatGptWeb ? 'chatgpt-web-task-risk-note' : 'chatgpt-web-mode-risk-note'} />
         </div>
       )}
 
-      {/* Main Conversation Stream */}
-      <div className="flex-1 overflow-y-auto min-h-0 flex flex-col" data-testid="conversation-scroll" onScroll={event => {
+      {task && <PhaseRibbon task={task} onCancel={handleStopTask} />}
+
+      {/* Main conversation stream */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="conversation-scroll" onScroll={event => {
         const el = event.currentTarget;
         followOutput.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
         setShowLatest(!followOutput.current);
       }}>
-        {isLoading && selectedTaskId ? <p className="p-4 text-xs text-[var(--muted)]">Đang tải hội thoại…</p> : taskError ? <p role="alert" className="p-4 text-xs text-rose-400">{taskError.message}</p> : !selectedTaskId ? (
-          /* Empty / Welcome State with smooth cards */
-          <div className="flex-1 flex flex-col items-center justify-center p-6 max-w-3xl mx-auto w-full select-none">
-            <div className="w-12 h-12 rounded-2xl bg-[var(--primary-bg)] text-[var(--primary)] flex items-center justify-center mb-4">
-              <Bot className="w-6 h-6 stroke-[2.2]" />
-            </div>
+        {isLoading && selectedTaskId ? <p className={`${column} py-6 text-[13px] text-muted`}>Đang tải hội thoại…</p>
+          : taskError ? <p role="alert" className={`${column} py-6 text-[13px] text-danger`}>{taskError.message}</p>
+          : !selectedTaskId ? (
+            <EmptyState hub={hub} sending={sending} onPick={prompt => { if (!sending) void handleSendMessage(prompt); }} />
+          ) : (
+            <div className={`${column} flex-1 pb-4 pt-2`}>
+              {timelineGroups.map((item,index)=> item.kind==='message'
+                ? <MessageItem key={`message:${item.value.id||index}`} message={item.value}/>
+                : <ToolActivityGroup key={`tools:${index}`} items={item.items}/>)}
+              {task && timeline.length === 0 && <p className="py-4 text-[13px] text-muted">Chưa có nội dung hội thoại được lưu.</p>}
 
-            <h1 className="text-xl font-bold tracking-tight text-[var(--text)] text-center">
-              {t('welcome_title')}
-            </h1>
-            <p className="text-xs text-[var(--muted)] text-center max-w-md mt-1 mb-6">
-              {t('welcome_desc')}
-            </p>
+              {/* The very same persisted workflow displayed in Background Tasks,
+                  not another chat or a mock progress widget. It remains live even
+                  after the parent agent has replied and released its run. */}
+              {relatedWorkflows.map(workflow=><div key={workflow.id} className="my-3 max-w-2xl" data-testid="chat-workflow">
+                  <WorkflowCard workflow={workflow} onOpenAgent={setSelectedTaskId}
+                    onCancel={id=>void stopWorkflow(id)}
+                    stopPending={cancellingWorkflow===workflow.id}/>
+                </div>)}
 
-            {/* Suggestion Cards Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
-              {starters.map((item, idx) => {
-                const Icon = item.icon;
-                return (
-                  <Card
-                    key={idx}
-                    onClick={() => { if (!sending) void handleSendMessage(item.prompt); }}
-                    className="p-3.5 cursor-pointer bg-[var(--panel)] hover:bg-[var(--surface-hover)] border-[var(--line)] hover:border-sky-500/50 group transition-all duration-150"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="p-2 rounded-lg bg-[var(--surface)] border border-[var(--line)] group-hover:border-sky-500/30 transition-colors">
-                        <Icon className={`w-4 h-4 ${item.color}`} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-xs text-[var(--text)] group-hover:text-sky-300 transition-colors">
-                          {item.title}
-                        </div>
-                        <p className="text-[11px] text-[var(--faint)] mt-0.5 line-clamp-2">
-                          {item.desc}
-                        </p>
-                      </div>
-                    </div>
-                  </Card>
-                );
-              })}
-            </div>
-          </div>
-        ) : (
-          /* Message List */
-          <div className="flex-1 py-2">
-            {timelineGroups.map((item,index)=> item.kind==='message'
-              ? <MessageItem key={`message:${item.value.id||index}`} message={item.value}/>
-              : <ToolActivityGroup key={`tools:${index}`} items={item.items}/>)}
-            {task && timeline.length === 0 && <p className="p-4 text-xs text-[var(--muted)]">Chưa có nội dung hội thoại được lưu.</p>}
-
-            {/* The very same persisted workflow displayed in Background Tasks,
-                not another chat or a mock progress widget. It remains live even
-                after the parent agent has replied and released its run. */}
-            {relatedWorkflows.map(workflow=><div key={workflow.id}
-                className="mx-4 my-3 max-w-2xl" data-testid="chat-workflow">
-              <WorkflowCard workflow={workflow} onOpenAgent={setSelectedTaskId}
-                onCancel={id=>void stopWorkflow(id)}
-                stopPending={cancellingWorkflow===workflow.id}/>
-            </div>)}
-
-            {/* Streaming Token Chunk */}
-            {visibleToken && (
-              <div className="py-4 px-4 flex gap-3 text-sm border-b border-[var(--line-subtle)]" data-testid="streaming-message">
-                <div className="w-6 h-6 rounded-full bg-teal-500/20 text-teal-400 border border-teal-500/30 flex items-center justify-center flex-shrink-0">
-                  <Bot className="w-3.5 h-3.5" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2 mb-1 text-xs text-[var(--muted)]">
-                    <span>Đang trả lời…</span>
-                    <CopyButton text={visibleToken} label="Sao chép nội dung đang trả lời" />
+              {/* Streaming token chunk */}
+              {visibleToken && (
+                <div className="group py-3" data-testid="streaming-message">
+                  <div className="mb-1 flex items-center gap-2 text-[12px] text-muted">
+                    <span className="font-semibold text-primary">ChatMCP</span>
+                    <span className="pulse-dot">Đang trả lời…</span>
+                    <span className="ml-auto"><CopyButton text={visibleToken} label="Sao chép nội dung đang trả lời" /></span>
                   </div>
-                  <div className="conversation-copy text-[var(--text)] whitespace-pre-wrap">{visibleToken}</div>
+                  <div className="conversation-copy whitespace-pre-wrap text-fg">{visibleToken}</div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Owner-reviewed evidence is distinct from an agent completion message. */}
-            {task && !isWorking && task.transport!=='chatgpt-web' && task.goalPlan?.objectives?.length &&
-              <ObjectiveAcceptancePanel task={task} onAccepted={refreshTask}/>}
-            {/* State Banner */}
-            {task && <StateBanner
-              status={task.status}
-              message={task.error}
-              onRetry={() => { void continueTask(); }}
-              onResume={() => { void continueTask(); }}
-              disabled={sending}
-            />}
-            {approvalHistory.length > 0 && <details className="mx-4 my-3 text-xs"><summary>Lịch sử phê duyệt ({approvalHistory.length})</summary><ApprovalStack approvals={approvalHistory} onApprove={handleApprove} onDeny={handleDeny} /></details>}
-
-          </div>
-        )}
-        {outboundReview && <OutboundReviewCard review={outboundReview} onDecide={decideReview} busy={decidingReview} />}
-        <ApprovalStack approvals={pendingApprovals} onApprove={handleApprove} onDeny={handleDeny} busy={approving} />
+              {/* What the Hub recorded, not what the model wrote. */}
+              {task && !isWorking && <ProofStrip task={task} />}
+              {/* Owner-reviewed evidence is distinct from an agent completion message. */}
+              {task && !isWorking && task.transport!=='chatgpt-web' && task.goalPlan?.objectives?.length &&
+                <ObjectiveAcceptancePanel task={task} onAccepted={refreshTask}/>}
+              {task && <StateBanner
+                status={task.status}
+                message={task.error}
+                onRetry={() => { void continueTask(); }}
+                onResume={() => { void continueTask(); }}
+                disabled={sending}
+              />}
+              {approvalHistory.length > 0 && (
+                <details className="my-3 text-[13px]">
+                  <summary className="cursor-pointer text-muted hover:text-fg">Lịch sử phê duyệt ({approvalHistory.length})</summary>
+                  <ApprovalStack approvals={approvalHistory} onApprove={handleApprove} onDeny={handleDeny} />
+                </details>
+              )}
+            </div>
+          )}
+        <div className={column}>
+          {outboundReview && <OutboundReviewCard review={outboundReview} onDecide={decideReview} busy={decidingReview} />}
+          <ApprovalStack approvals={pendingApprovals} onApprove={handleApprove} onDeny={handleDeny} busy={approving} />
+        </div>
         <div ref={messagesEndRef} />
       </div>
-      {showLatest && <div className="flex justify-center py-1 bg-[var(--panel)]"><button type="button" className="px-3 py-1 rounded-full text-xs text-[var(--primary)] border border-[var(--line)]" onClick={() => {
-        followOutput.current = true;
-        setShowLatest(false);
-        messagesEndRef.current?.scrollIntoView({ behavior: 'instant', block: 'end' });
-      }}>Về nội dung mới nhất ↓</button></div>}
 
-      {/* New task model routing is independent from permissions and transport.
-          Existing sessions keep the saved immutable profile revision. */}
-      {(!selectedTaskId && desiredTransport==='api') &&
-        <div className="px-3 py-2 border-t border-[var(--line-subtle)] bg-[var(--panel)] text-xs space-y-1.5"
-             data-testid="new-task-model-profile">
-          <div className="flex items-center flex-wrap gap-2">
-            <label htmlFor="chatmcp-task-profile" className="text-[var(--muted)]">Model profile</label>
-            <select id="chatmcp-task-profile" aria-label="Task model profile"
-              value={selectedProfileId} onChange={event=>setSelectedProfileId(event.target.value)}
-              className="min-w-40 max-w-full bg-[var(--surface)] text-[var(--text)] border border-[var(--line)] rounded-md px-2 py-1">
-              <option value="">Default {hub?.ai?.defaultProfileId ? 'saved profile' : 'gateway'}</option>
-              {(hub?.ai?.profiles||[]).length>0 && <option value="__global__">Global gateway (no profile)</option>}
-              {(hub?.ai?.profiles||[]).map(p=><option key={p.id} value={p.id}>
-                {p.name || p.id} · {p.model} {p.isDefault?'(default)':''}
-              </option>)}
-            </select>
-            <button type="button" onClick={()=>setShowRoleProfiles(x=>!x)}
-              aria-expanded={showRoleProfiles}
-              className="underline text-[var(--primary)] hover:opacity-80">Role overrides</button>
-            <span className="text-[var(--faint)]">API transport only</span>
-          </div>
-          {showRoleProfiles && <div className="space-y-1">
-            <label htmlFor="chatmcp-task-role-profiles" className="text-[var(--muted)]">
-              Role to saved profile ID (JSON; max 12)
-            </label>
-            <textarea id="chatmcp-task-role-profiles" aria-label="Task role model profiles"
-              rows={2} value={roleProfilesDraft}
-              onChange={event=>setRoleProfilesDraft(event.target.value)}
-              placeholder='{"reviewer":"review-profile","tester":"test-profile"}'
-              className="w-full font-mono bg-[var(--surface)] text-[var(--text)] border border-[var(--line)] rounded-md p-1.5"/>
-            <p className="text-[var(--faint)]">Profiles are selected when the task starts. Role names must match spawned agent roles.</p>
-          </div>}
-        </div>}
-      {!!selectedTaskId && !!task?.effectiveProfile && <div
-        className="px-3 py-1 text-[11px] text-[var(--muted)] border-t border-[var(--line-subtle)]"
-        data-testid="active-model-profile">
-        Model profile: {task.effectiveProfile.name} · {task.effectiveProfile.model} · revision {task.effectiveProfile.revision?.slice(0,8)}
-        {task.modelCost && <span className="ml-2"
-          title="Owner-supplied prices and provider-reported usage only. Retries and errors can produce unknown charges.">
-          Recorded model cost: {task.modelCost.complete && task.modelCost.totalUsd !== null
-            ? 'USD ' + task.modelCost.totalUsd.toFixed(6)
-            : 'USD ' + task.modelCost.knownSubtotalUsd.toFixed(6) + ' known subtotal (total unknown)'}
-        </span>}
-      </div>}
-      {/* ChatGPT Web transport only accepts browser-authenticated TEXT packets.
-          It cannot send local image attachments through this protocol. */}
-      {/* Bottom Composer */}
-      <Composer
-        key={selectedTaskId || 'new-conversation'}
-        onSendMessage={handleSendMessage}
-        onStop={handleStopTask}
-        isWorking={isWorking}
-        disabled={sending || (!!selectedTaskId && (isLoading || !!taskError))}
-        currentMode={mode}
-        onModeChange={handleModeChange}
-        dependencyOptions={!selectedTaskId ? (hub?.tasks || []).filter(x=>x.id&&x.status!=='failed'&&x.status!=='cancelled').slice(0,15)
-          .map(x=>({id:x.id,label:x.task || x.prompt || x.id,state:x.state || x.status})) : []}
-        selectedDependsOn={dependsOn}
-        onDependsOnChange={setDependsOn}
-      />
+      {showLatest && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-[112px] z-10 flex justify-center">
+          <button type="button" className="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-panel px-3 text-[13px] font-medium text-primary shadow-[var(--shadow-pop)] transition-colors hover:bg-hover" onClick={() => {
+            followOutput.current = true;
+            setShowLatest(false);
+            messagesEndRef.current?.scrollIntoView({ behavior: 'instant', block: 'end' });
+          }}>Về nội dung mới nhất ↓</button>
+        </div>
+      )}
+
+      {/* Bottom composer. A new conversation also chooses its model profile; an existing one keeps the saved revision. */}
+      <div className="shrink-0 pb-4 pt-1">
+        <div className={`${column} space-y-2`}>
+          {newTaskPicker && showRoleProfiles && <RoleOverridesField value={roleProfilesDraft} onChange={setRoleProfilesDraft} />}
+          <Composer
+            key={selectedTaskId || 'new-conversation'}
+            onSendMessage={handleSendMessage}
+            onStop={handleStopTask}
+            isWorking={isWorking}
+            disabled={sending || (!!selectedTaskId && (isLoading || !!taskError))}
+            currentMode={mode}
+            onModeChange={handleModeChange}
+            extraTools={<>
+              {newTaskPicker && <ModelProfilePicker hub={hub} value={selectedProfileId} onChange={setSelectedProfileId}
+                rolesOpen={showRoleProfiles} onToggleRoles={() => setShowRoleProfiles(x => !x)} />}
+              {!!selectedTaskId && !!task?.effectiveProfile && (
+                <span data-testid="active-model-profile" className="inline-flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-2.5 text-[13px] text-muted"
+                  title={`Model profile: ${task.effectiveProfile.name} · ${task.effectiveProfile.model} · revision ${task.effectiveProfile.revision?.slice(0, 8)}`}>
+                  <Cpu className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{task.effectiveProfile.name} · {task.effectiveProfile.model}</span>
+                </span>
+              )}
+            </>}
+            dependencyOptions={!selectedTaskId ? (hub?.tasks || []).filter(x=>x.id&&x.status!=='failed'&&x.status!=='cancelled').slice(0,15)
+              .map(x=>({id:x.id,label:x.task || x.prompt || x.id,state:x.state || x.status})) : []}
+            selectedDependsOn={dependsOn}
+            onDependsOnChange={setDependsOn}
+          />
+        </div>
+      </div>
     </div>
   );
 }

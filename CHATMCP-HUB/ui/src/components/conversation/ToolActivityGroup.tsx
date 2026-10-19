@@ -1,31 +1,34 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Terminal, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronRight, Loader2, Wrench } from 'lucide-react';
 import type { ToolCall } from '@/types';
+import { useTranslation } from '@/lib/i18n';
+import { summarizeTools } from '@/lib/tool-labels';
+import { cn } from '@/lib/utils';
 import { ToolReceipt } from './ToolReceipt';
 
-export function ToolActivityGroup({items}:{items:ToolCall[]}) {
-  const [expanded,setExpanded]=useState(false);
-  const reads=items.filter(t=>/read|search|find|list|symbol|reference|repo_map/.test(t.name)).length;
-  const commands=items.filter(t=>/command|shell|exec|bash|test|check|terminal/.test(t.name)).length;
-  const edits=items.filter(t=>/write|edit|patch|create|replace/.test(t.name)).length;
-  const other=items.length-reads-commands-edits;
-  const parts=[commands&&'Ran '+commands+' commands',reads&&'read '+reads+' files',edits&&'edited '+edits+' files',
-    other>0&&'used '+other+' tools'].filter(Boolean);
-  const title=parts.join(', ')||'Used '+items.length+' tools';
-  const running=items.some(t=>t.status==='running');
-  const failed=items.some(t=>t.status==='error');
-  return <div className="mx-4 my-1.5 rounded-lg border border-[var(--line)] bg-[var(--panel)]" data-testid="tool-activity-group">
-    <button type="button" aria-expanded={expanded} onClick={()=>setExpanded(x=>!x)}
-      className="w-full px-3 py-2 flex items-center gap-2 text-xs text-left hover:bg-[var(--surface-hover)] rounded-lg">
-      {expanded?<ChevronDown className="w-3.5 h-3.5 text-[var(--muted)]"/>:<ChevronRight className="w-3.5 h-3.5 text-[var(--muted)]"/>}
-      <Terminal className="w-3.5 h-3.5 text-[var(--muted)]"/>
-      <span className="flex-1 truncate text-[var(--text)]">{title}</span>
-      {running?<Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400"/>:
-        failed?<AlertCircle className="w-3.5 h-3.5 text-rose-400"/>:
-        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400"/>}
-    </button>
-    {expanded&&<div className="pb-1 border-t border-[var(--line)]">
-      {items.map((item,index)=><ToolReceipt key={item.id||index} tool={item}/>)}
-    </div>}
-  </div>;
+/** A run of tool calls between two messages, collapsed to one line: "Đọc 2 tệp · sửa 1 tệp · chạy 1 lệnh". */
+export function ToolActivityGroup({ items }: { items: ToolCall[] }) {
+  const { lang } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const title = summarizeTools(items, lang);
+  const running = items.some(t => t.status === 'running');
+  const failed = items.some(t => t.status === 'error');
+  return (
+    <div className="my-1 overflow-hidden rounded-xl border border-line bg-panel" data-testid="tool-activity-group">
+      <button type="button" aria-expanded={expanded} onClick={() => setExpanded(x => !x)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition-colors hover:bg-hover">
+        <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', expanded && 'rotate-90')} />
+        <Wrench className="h-3.5 w-3.5 shrink-0 text-muted" />
+        <span className="flex-1 truncate font-medium text-fg">{title}</span>
+        {running ? <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" aria-label="Đang chạy" />
+          : failed ? <AlertCircle className="h-3.5 w-3.5 text-danger" aria-label="Có lỗi" />
+            : <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-label="Xong" />}
+      </button>
+      {expanded && (
+        <div className="divide-y divide-line-subtle border-t border-line">
+          {items.map((item, index) => <ToolReceipt key={item.id || index} tool={item} />)}
+        </div>
+      )}
+    </div>
+  );
 }

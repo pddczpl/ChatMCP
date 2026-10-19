@@ -112,19 +112,19 @@ export function PreviewTab() {
   const isExternal = activeTab && !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(activeTab.url);
 
   return (
-    <div className="h-full flex flex-col bg-[var(--surface)] text-xs select-none">
+    <div className="h-full flex flex-col bg-surface text-xs select-none">
       {/* In-App Tab Bar */}
-      <div className="flex items-center bg-[var(--panel)] border-b border-[var(--line)] px-1 pt-1 gap-1 overflow-x-auto flex-shrink-0">
+      <div className="flex items-center bg-panel border-b border-line px-1 pt-1 gap-1 overflow-x-auto flex-shrink-0">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
           return (
             <div
               key={tab.id}
               onClick={() => setActiveTabId(tab.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-t-lg text-[11px] font-mono cursor-pointer border-t border-l border-r transition-all max-w-[160px] ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-t-lg text-[12px] font-mono cursor-pointer border-t border-l border-r transition-all max-w-[160px] ${
                 isActive
-                  ? 'bg-[var(--surface)] border-[var(--line)] text-sky-400 font-semibold'
-                  : 'bg-[var(--surface-hover)]/40 border-transparent text-[var(--muted)] hover:text-[var(--text)]'
+                  ? 'bg-surface border-line text-primary font-semibold'
+                  : 'bg-hover/40 border-transparent text-muted hover:text-fg'
               }`}
             >
               <Globe className="w-3 h-3 flex-shrink-0" />
@@ -133,7 +133,7 @@ export function PreviewTab() {
                 <button
                   type="button"
                   onClick={(e) => handleCloseTab(tab.id, e)}
-                  className="p-0.5 rounded hover:bg-[var(--line)] text-[var(--faint)] hover:text-[var(--text)] ml-1"
+                  className="p-0.5 rounded hover:bg-line text-faint hover:text-fg ml-1"
                   title={t('preview_tab_close')}
                 >
                   <X className="w-2.5 h-2.5" />
@@ -147,7 +147,7 @@ export function PreviewTab() {
         <button
           type="button"
           onClick={handleAddNewTab}
-          className="p-1.5 rounded-lg text-[var(--muted)] hover:text-sky-400 hover:bg-[var(--surface-hover)] transition-colors mb-0.5"
+          className="p-1.5 rounded-lg text-muted hover:text-primary hover:bg-hover transition-colors mb-0.5"
           title={t('preview_new_tab')}
         >
           <Plus className="w-3.5 h-3.5" />
@@ -157,14 +157,14 @@ export function PreviewTab() {
       {/* Address Bar */}
       <form
         onSubmit={handleNavigate}
-        className="p-2 border-b border-[var(--line)] bg-[var(--surface)] flex items-center gap-2 flex-shrink-0"
+        className="p-2 border-b border-line bg-surface flex items-center gap-2 flex-shrink-0"
       >
         <input
           type="text"
           value={inputUrl}
           onChange={(e) => setInputUrl(e.target.value)}
           placeholder={t('preview_url_placeholder')}
-          className="flex-1 bg-[var(--panel)] text-[var(--text)] font-mono text-[11px] rounded px-2.5 py-1 border border-[var(--line)] focus:outline-none focus:border-sky-500"
+          className="flex-1 bg-panel text-fg font-mono text-[12px] rounded px-2.5 py-1 border border-line focus:outline-none focus:border-primary"
         />
         <Button
           type="button"
@@ -178,16 +178,16 @@ export function PreviewTab() {
       </form>
 
       {/* Quick Ports Toolbar */}
-      <div className="px-2.5 py-1.5 border-b border-[var(--line-subtle)] bg-[var(--surface-hover)]/30 flex items-center justify-between text-[11px] text-[var(--faint)] flex-shrink-0">
+      <div className="px-2.5 py-1.5 border-b border-line-subtle bg-hover/30 flex items-center justify-between text-[12px] text-faint flex-shrink-0">
         <div className="flex items-center gap-1.5">
-          <MonitorPlay className="w-3 h-3 text-sky-400" />
+          <MonitorPlay className="w-3 h-3 text-primary" />
           <span>{t('preview_quick_ports')}</span>
           {[3000, 5173, 8000, 8080].map((port) => (
             <button
               key={port}
               type="button"
               onClick={() => setQuickPort(port)}
-              className="px-1.5 py-0.5 rounded bg-[var(--panel)] border border-[var(--line)] text-[var(--muted)] hover:text-sky-400 hover:border-sky-500/40 font-mono text-[10px] transition-colors"
+              className="px-1.5 py-0.5 rounded bg-panel border border-line text-muted hover:text-primary hover:border-primary/40 font-mono text-[12px] transition-colors"
             >
               :{port}
             </button>
@@ -197,8 +197,8 @@ export function PreviewTab() {
 
       {/* External Notice */}
       {isExternal && (
-        <div className="px-3 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-300 text-[11px] flex items-start gap-2 flex-shrink-0 leading-relaxed">
-          <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-amber-400" />
+        <div className="px-3 py-2 bg-warning/10 border-b border-warning/20 text-warning text-[12px] flex items-start gap-2 flex-shrink-0 leading-relaxed">
+          <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-warning" />
           <div className="flex-1">
             <span>{t('preview_external_note')}</span>
           </div>

@@ -2,9 +2,36 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
-import { GitBranch, GitCommit, RotateCcw, Bookmark } from 'lucide-react';
+import { Bookmark, GitBranch, GitCommit, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { useTranslation } from '@/lib/i18n';
+import { formatDateTime } from '@/lib/format';
+import { cn } from '@/lib/utils';
+import { EmptyBlock, ErrorLine, LoadingLine, RowCard, SectionHeading, TabBody } from './parts';
+
+/** A unified diff, one line per element, tinted by what the line does. The text of every line is kept exactly as Git printed it. */
+function DiffView({ diff }: { diff: string }) {
+  const lines = diff.replace(/\n$/, '').split('\n');
+  return (
+    <pre aria-label="Git diff" className="max-h-[28rem] overflow-auto rounded-xl border border-line bg-bg py-1 font-mono text-[12px] leading-5">
+      {lines.map((line, index) => {
+        const kind = /^(diff --git|index |--- |\+\+\+ |new file|deleted file|similarity|rename )/.test(line) ? 'meta'
+          : line.startsWith('@@') ? 'hunk'
+          : line.startsWith('+') ? 'add'
+          : line.startsWith('-') ? 'del' : 'ctx';
+        return (
+          <div key={index} className={cn('min-w-max whitespace-pre border-l-2 px-3',
+            kind === 'add' && 'border-success bg-success/10 text-success',
+            kind === 'del' && 'border-danger bg-danger/10 text-danger',
+            kind === 'hunk' && 'border-transparent bg-primary/10 text-primary',
+            kind === 'meta' && 'border-transparent font-semibold text-muted',
+            kind === 'ctx' && 'border-transparent text-muted')}>{line || ' '}</div>
+        );
+      })}
+    </pre>
+  );
+}
 
 export function GitTab() {
   const { t, lang } = useTranslation();
@@ -60,56 +87,65 @@ export function GitTab() {
   };
 
   return (
-    <section aria-label="Git workspace" className="h-full flex flex-col p-3 overflow-y-auto space-y-4 text-xs">
-      {statusError ? <p role="alert" className="text-rose-400">{statusError.message}</p>
-        : hubQuery.isLoading || gitQuery.isLoading ? <p role="status">{lang === 'vi' ? 'Đang tải Git…' : 'Loading Git…'}</p>
-        : !workspace ? <p>{lang === 'vi' ? 'Chọn workspace để xem Git.' : 'Select a workspace to view Git.'}</p>
+    <TabBody label="Git workspace">
+      {statusError ? <ErrorLine message={statusError.message} />
+        : hubQuery.isLoading || gitQuery.isLoading ? <LoadingLine text={lang === 'vi' ? 'Đang tải Git…' : 'Loading Git…'} />
+        : !workspace ? <p className="text-muted">{lang === 'vi' ? 'Chọn workspace để xem Git.' : 'Select a workspace to view Git.'}</p>
         : gitStatus && (
-          <div className="p-3 rounded-lg bg-[var(--surface)] border border-[var(--line)] flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0"><GitBranch className="w-4 h-4 text-sky-400 flex-shrink-0" /><span className="font-mono font-semibold text-[var(--text)] break-all">{gitStatus.branch || gitStatus.head || '—'}</span></div>
-            {typeof gitStatus.dirty === 'boolean' && <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${gitStatus.dirty ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'}`}>{gitStatus.dirty ? t('git_dirty') : t('git_clean')}</span>}
-          </div>
+          <RowCard className="flex items-center justify-between gap-3 py-3">
+            <div className="flex min-w-0 items-center gap-2"><GitBranch className="h-4 w-4 shrink-0 text-primary" /><span className="break-all font-mono text-[13px] font-semibold text-fg">{gitStatus.branch || gitStatus.head || '—'}</span></div>
+            {typeof gitStatus.dirty === 'boolean' && (
+              <span className={cn('shrink-0 rounded-full border px-2.5 py-0.5 text-[12px] font-medium', gitStatus.dirty ? 'border-warning/30 bg-warning/10 text-warning' : 'border-success/30 bg-success/10 text-success')}>
+                {gitStatus.dirty ? t('git_dirty') : t('git_clean')}
+              </span>
+            )}
+          </RowCard>
         )}
       {workspace && (
         <>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="font-semibold text-[var(--muted)]">Git diff</h3>
-              <select aria-label="Git diff scope" value={staged ? 'staged' : 'unstaged'} onChange={(event) => setStaged(event.target.value === 'staged')} className="rounded bg-[var(--surface)] border border-[var(--line)] p-1">
-                <option value="unstaged">{lang === 'vi' ? 'Chưa stage' : 'Unstaged'}</option>
-                <option value="staged">{lang === 'vi' ? 'Đã stage' : 'Staged'}</option>
-              </select>
-            </div>
-            {diffQuery.error ? <p role="alert" className="text-rose-400">{diffQuery.error.message}</p>
-              : diffQuery.isLoading ? <p role="status">{lang === 'vi' ? 'Đang tải diff…' : 'Loading diff…'}</p>
-              : diffQuery.data?.diff ? <pre aria-label="Git diff" className="p-2 rounded bg-[var(--surface)] border border-[var(--line-subtle)] text-[11px] font-mono overflow-x-auto whitespace-pre">{diffQuery.data.diff}</pre>
-              : <p className="text-[var(--faint)]">{lang === 'vi' ? 'Không có diff được Git theo dõi trong phạm vi này. Tệp mới chưa được stage không có trong diff.' : 'No tracked diff in this scope. Untracked files appear after staging.'}</p>}
-            {diffQuery.data?.truncated && <p className="text-amber-400">{lang === 'vi' ? 'Diff bị cắt do giới hạn dung lượng.' : 'Diff truncated at the output limit.'}</p>}
+          <div className="space-y-2.5">
+            <SectionHeading title="Git diff" action={
+              <div role="group" aria-label="Git diff scope" className="flex rounded-lg border border-line bg-surface p-0.5">
+                {([false, true] as const).map(value => (
+                  <button key={String(value)} type="button" aria-pressed={staged === value} onClick={() => setStaged(value)}
+                    className={cn('h-7 rounded-md px-2.5 text-[12px] font-medium transition-colors', staged === value ? 'bg-panel text-fg shadow-sm' : 'text-muted hover:text-fg')}>
+                    {value ? (lang === 'vi' ? 'Đã stage' : 'Staged') : (lang === 'vi' ? 'Chưa stage' : 'Unstaged')}
+                  </button>
+                ))}
+              </div>
+            } />
+            {diffQuery.error ? <ErrorLine message={diffQuery.error.message} />
+              : diffQuery.isLoading ? <LoadingLine text={lang === 'vi' ? 'Đang tải diff…' : 'Loading diff…'} />
+              : diffQuery.data?.diff ? <DiffView diff={diffQuery.data.diff} />
+              : <p className="text-muted">{lang === 'vi' ? 'Không có diff được Git theo dõi trong phạm vi này. Tệp mới chưa được stage không có trong diff.' : 'No tracked diff in this scope. Untracked files appear after staging.'}</p>}
+            {diffQuery.data?.truncated && <p className="text-warning">{lang === 'vi' ? 'Diff bị cắt do giới hạn dung lượng.' : 'Diff truncated at the output limit.'}</p>}
           </div>
-          <div className="space-y-2">
-            <h3 className="font-semibold uppercase tracking-wider text-[10px] text-[var(--muted)]">{t('git_checkpoint_create')}</h3>
+
+          <div className="space-y-2.5">
+            <SectionHeading title={t('git_checkpoint_create')} />
             <div className="flex gap-2">
-              <input aria-label={t('git_checkpoint_placeholder')} type="text" placeholder={t('git_checkpoint_placeholder')} value={checkpointName} onChange={(event) => setCheckpointName(event.target.value)} className="flex-1 min-w-0 bg-[var(--surface)] text-xs rounded-md px-3 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500" />
-              <Button size="sm" variant="primary" disabled={!checkpointName.trim() || loading} onClick={handleCreateCheckpoint} className="h-8 gap-1.5 text-xs"><Bookmark className="w-3.5 h-3.5" /><span>{t('git_checkpoint_save')}</span></Button>
+              <Input aria-label={t('git_checkpoint_placeholder')} type="text" placeholder={t('git_checkpoint_placeholder')} value={checkpointName} onChange={(event) => setCheckpointName(event.target.value)} className="min-w-0 flex-1" />
+              <Button size="md" variant="primary" disabled={!checkpointName.trim() || loading} onClick={handleCreateCheckpoint} className="gap-1.5"><Bookmark className="h-3.5 w-3.5" /><span>{t('git_checkpoint_save')}</span></Button>
             </div>
           </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-[var(--muted)] border-b border-[var(--line-subtle)] pb-1"><h3 className="font-semibold uppercase tracking-wider text-[10px]">{t('git_checkpoint_history')}</h3><span className="text-[10px] font-mono">{checkpoints.length}</span></div>
-            {checkpointsQuery.error ? <p role="alert" className="text-rose-400">{checkpointsQuery.error.message}</p>
-              : checkpointsQuery.isLoading ? <p role="status">{lang === 'vi' ? 'Đang tải checkpoint…' : 'Loading checkpoints…'}</p>
-              : checkpoints.length === 0 ? <div className="py-8 text-center text-[var(--faint)] flex flex-col items-center gap-1.5"><GitCommit className="w-6 h-6 opacity-40" /><p>{t('git_checkpoint_empty')}</p></div>
+
+          <div className="space-y-2.5">
+            <SectionHeading title={t('git_checkpoint_history')} count={checkpoints.length} />
+            {checkpointsQuery.error ? <ErrorLine message={checkpointsQuery.error.message} />
+              : checkpointsQuery.isLoading ? <LoadingLine text={lang === 'vi' ? 'Đang tải checkpoint…' : 'Loading checkpoints…'} />
+              : checkpoints.length === 0 ? <EmptyBlock icon={GitCommit} title={t('git_checkpoint_empty')} />
               : checkpoints.map((checkpoint) => (
-                <div key={checkpoint.id} className="p-2.5 rounded-lg bg-[var(--surface)] border border-[var(--line-subtle)] flex items-center justify-between gap-2">
+                <RowCard key={checkpoint.id} className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-1.5"><span className="font-medium text-[var(--text)] truncate">{checkpoint.label || 'Checkpoint'}</span>{checkpoint.partial && <span className="px-1.5 rounded text-[9px] bg-amber-500/15 text-amber-400">Partial</span>}</div>
-                    <div className="text-[10px] font-mono text-[var(--faint)]">{checkpoint.id.slice(0, 12)} · {checkpoint.fileCount ?? '—'} files · {checkpoint.at ? new Date(checkpoint.at).toLocaleString() : ''}</div>
+                    <div className="flex items-center gap-1.5"><span className="truncate font-medium text-fg">{checkpoint.label || 'Checkpoint'}</span>{checkpoint.partial && <span className="rounded-full border border-warning/30 bg-warning/10 px-1.5 text-[12px] text-warning">Partial</span>}</div>
+                    <div className="font-mono text-[12px] text-faint">{checkpoint.id.slice(0, 12)} · {checkpoint.fileCount ?? '—'} files{checkpoint.at ? ` · ${formatDateTime(checkpoint.at, lang)}` : ''}</div>
                   </div>
-                  <Button size="sm" variant="secondary" disabled={loading} onClick={() => handleRevertCheckpoint(checkpoint.id)} className="h-7 text-[11px] gap-1 text-amber-400" title={t('git_checkpoint_revert')}><RotateCcw className="w-3 h-3" /><span>{t('git_checkpoint_revert')}</span></Button>
-                </div>
+                  <Button size="sm" variant="secondary" disabled={loading} onClick={() => handleRevertCheckpoint(checkpoint.id)} className="shrink-0 gap-1 text-warning" title={t('git_checkpoint_revert')}><RotateCcw className="h-3 w-3" /><span>{t('git_checkpoint_revert')}</span></Button>
+                </RowCard>
               ))}
           </div>
         </>
       )}
-    </section>
+    </TabBody>
   );
 }

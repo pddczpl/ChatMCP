@@ -1,91 +1,136 @@
-import { useAppStore, InspectorTab } from '@/store/useAppStore';
-import { 
-  Activity, 
-  FileCode, 
-  GitBranch, 
-  Terminal, 
-  ListTodo, 
-  Globe, 
-  Cpu, 
-  Puzzle, 
-  
-  Settings, 
-  X 
-} from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { MoreHorizontal } from 'lucide-react';
+import { api } from '@/lib/api';
+import { useAppStore, type InspectorTab } from '@/store/useAppStore';
+import { useTranslation } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
+import { BackgroundTasks } from '@/components/layout/BackgroundTasks';
 import { ActivityTab } from './ActivityTab';
 import { FilesTab } from './FilesTab';
 import { GitTab } from './GitTab';
 import { TerminalTab } from './TerminalTab';
 import { PlanTab } from './PlanTab';
 import { PreviewTab } from './PreviewTab';
-import { IntelligenceTab } from './IntelligenceTab';
-import { SkillsTab } from './SkillsTab';
-import { SettingsTab } from './SettingsTab';
-import { useTranslation } from '@/lib/i18n';
+
+/** Tabs that are always in the strip. The activity log and the preview are used less: they sit under "More" until chosen. */
+const PRIMARY: InspectorTab[] = ['plan', 'changes', 'files', 'terminal', 'agents'];
+const OVERFLOW: InspectorTab[] = ['activity', 'preview'];
 
 export function InspectorPanel() {
-  const { activeTab, setActiveTab, setInspectorOpen } = useAppStore();
+  const { activeTab, setActiveTab, selectedWorkspacePath } = useAppStore();
   const { t } = useTranslation();
+  const { data: hub } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 3000 });
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const stripRef = useRef<HTMLDivElement>(null);
 
-  const tabs: { id: InspectorTab; label: string; icon: any }[] = [
-    { id: 'activity', label: t('tab_activity'), icon: Activity },
-    { id: 'files', label: t('tab_files'), icon: FileCode },
-    { id: 'git', label: t('tab_git'), icon: GitBranch },
-    { id: 'terminal', label: t('tab_terminal'), icon: Terminal },
-    { id: 'plan', label: t('tab_plan'), icon: ListTodo },
-    { id: 'preview', label: t('tab_preview'), icon: Globe },
-    { id: 'intelligence', label: t('tab_ai_model'), icon: Cpu },
-    { id: 'skills', label: t('tab_skills'), icon: Puzzle },
-    { id: 'settings', label: t('tab_settings'), icon: Settings },
-  ];
+  const labels: Record<InspectorTab, string> = {
+    plan: t('tab_progress'),
+    changes: t('tab_changes'),
+    files: t('tab_files'),
+    terminal: t('tab_terminal'),
+    activity: t('tab_activity'),
+    agents: t('tab_agents'),
+    preview: t('tab_preview'),
+  };
+  const visible = OVERFLOW.includes(activeTab) ? [...PRIMARY, activeTab] : PRIMARY;
+  const hidden = OVERFLOW.filter(tab => !visible.includes(tab));
+
+  // The independent second-workspace case: file, Git and terminal tools stay bound to the primary workspace.
+  const current = selectedWorkspacePath || hub?.workspaces?.activePath;
+  const legacy = hub?.workspace?.path;
+  const differentRoot = Boolean(current && legacy && current !== legacy);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: MouseEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent) { if (event.key === 'Escape') setMenuOpen(false); return; }
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', close);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', close); };
+  }, [menuOpen]);
+
+  // Keep the chosen tab in view when the strip scrolls (narrow panel).
+  useEffect(() => {
+    stripRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [activeTab]);
+
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const index = visible.indexOf(activeTab);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? visible.length - 1
+      : (index + (event.key === 'ArrowRight' ? 1 : -1) + visible.length) % visible.length;
+    setActiveTab(visible[next]);
+    stripRef.current?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus();
+  };
+
+  const blocked = differentRoot && activeTab !== 'agents';
 
   return (
-    <aside className="w-full h-full flex flex-col bg-[var(--panel)] border-l border-[var(--line)] select-none min-w-0">
-      {/* Tab Navigation Header */}
-      <div className="border-b border-[var(--line)] flex items-start justify-between px-2 bg-[var(--panel)] flex-shrink-0">
-        <nav aria-label="Công cụ làm việc" className="flex flex-wrap items-center gap-1 flex-1 py-2">
-          {tabs.map((t) => {
-            const Icon = t.icon;
-            const isCurrent = activeTab === t.id;
+    <aside aria-label={t('inspector_nav')} className="flex h-full w-full min-w-0 flex-col border-l border-line bg-panel select-none">
+      <div className="flex shrink-0 items-center border-b border-line px-1.5">
+        <div ref={stripRef} role="tablist" aria-label={t('inspector_nav')} onKeyDown={onKeyDown}
+          className="flex min-w-0 flex-1 items-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {visible.map(tab => {
+            const selected = activeTab === tab;
             return (
-              <button
-                key={t.id}
-                onClick={() => setActiveTab(t.id)}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
-                  isCurrent
-                    ? 'bg-[var(--primary-bg)] text-[var(--primary)] border border-[var(--line)]'
-                    : 'text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--surface-hover)]'
-                }`}
-                title={t.label}
-                aria-pressed={isCurrent}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{t.label}</span>
+              <button key={tab} type="button" role="tab" id={`inspector-tab-${tab}`} aria-selected={selected} aria-controls="inspector-tabpanel"
+                tabIndex={selected ? 0 : -1} onClick={() => setActiveTab(tab)}
+                className={cn(
+                  'relative h-11 shrink-0 whitespace-nowrap px-2 text-[13px] font-medium transition-colors',
+                  selected ? 'text-fg' : 'text-muted hover:text-fg',
+                  'after:absolute after:inset-x-1.5 after:bottom-0 after:h-0.5 after:rounded-full after:transition-colors',
+                  selected ? 'after:bg-primary' : 'after:bg-transparent',
+                )}>
+                {labels[tab]}
               </button>
             );
           })}
-        </nav>
-
-        <button
-          onClick={() => setInspectorOpen(false)}
-          className="p-1 mt-3 rounded text-[var(--faint)] hover:text-[var(--text)] hover:bg-[var(--surface-hover)] ml-1 flex-shrink-0"
-          title="Đóng Inspector (Ctrl+J)"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
+        </div>
+        {hidden.length > 0 && (
+          <div ref={menuRef} className="relative shrink-0">
+            <button type="button" aria-haspopup="menu" aria-expanded={menuOpen} aria-label={t('tab_more')} title={t('tab_more')}
+              onClick={() => setMenuOpen(open => !open)}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors hover:bg-hover hover:text-fg">
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+            {menuOpen && (
+              <div role="menu" className="anim-pop absolute right-0 top-full z-50 mt-1 min-w-36 rounded-xl border border-line bg-panel p-1 shadow-[var(--shadow-pop)]">
+                {hidden.map(tab => (
+                  <button key={tab} type="button" role="menuitem" onClick={() => { setMenuOpen(false); setActiveTab(tab); }}
+                    className="flex w-full items-center rounded-lg px-3 py-2 text-left text-[13px] text-fg transition-colors hover:bg-hover">
+                    {labels[tab]}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Tab Content Body */}
-      <div className="flex-1 overflow-hidden min-h-0">
-        {activeTab === 'activity' && <ActivityTab />}
-        {activeTab === 'files' && <FilesTab />}
-        {activeTab === 'git' && <GitTab />}
-        {activeTab === 'terminal' && <TerminalTab />}
-        {activeTab === 'plan' && <PlanTab />}
-        {activeTab === 'preview' && <PreviewTab />}
-        {activeTab === 'intelligence' && <IntelligenceTab />}
-        {activeTab === 'skills' && <SkillsTab />}
-        {activeTab === 'settings' && <SettingsTab />}
+      <div id="inspector-tabpanel" role="tabpanel" aria-labelledby={`inspector-tab-${activeTab}`} className="min-h-0 flex-1 overflow-hidden">
+        {blocked ? (
+          <div role="status" className="space-y-2 p-4 text-[13px] text-muted">
+            <p className="font-semibold text-fg">Workspace Inspector</p>
+            <p>Agent đang xử lý thư mục đã chọn độc lập. Inspector file/Git/terminal cũ chỉ gắn với workspace chính.</p>
+            <p>Để tránh sửa nhầm một dự án khác, các thao tác Inspector bị ẩn ở workspace thứ hai.
+              Bạn vẫn có thể giao nhiều task, xem kết quả và dừng subagent ở tab {labels.agents}.</p>
+          </div>
+        ) : (
+          <>
+            {activeTab === 'plan' && <PlanTab />}
+            {activeTab === 'changes' && <GitTab />}
+            {activeTab === 'files' && <FilesTab />}
+            {activeTab === 'terminal' && <TerminalTab />}
+            {activeTab === 'activity' && <ActivityTab />}
+            {activeTab === 'agents' && <BackgroundTasks />}
+            {activeTab === 'preview' && <PreviewTab />}
+          </>
+        )}
       </div>
     </aside>
   );

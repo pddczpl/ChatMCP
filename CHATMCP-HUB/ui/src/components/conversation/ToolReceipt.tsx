@@ -1,121 +1,79 @@
 import { useState } from 'react';
-import { 
-  FileCode, 
-  FileEdit, 
-  Terminal, 
-  GitBranch, 
-  Search, 
-  CheckCircle2, 
-  AlertCircle, 
-  Loader2, 
-  ChevronRight, 
-  ChevronDown
+import {
+  AlertCircle, Bot, CheckCircle2, ChevronRight, FileEdit, FileText, GitBranch, ListTodo, Loader2, ScanSearch, Search, Terminal, Wrench,
+  type LucideIcon,
 } from 'lucide-react';
 import { ToolCall } from '@/types';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { formatToolOutput } from '@/lib/tool-output';
+import { describeTool, type ToolKind } from '@/lib/tool-labels';
+import { formatDuration } from '@/lib/format';
+import { useTranslation } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
+
+const ICONS: Record<ToolKind, LucideIcon> = {
+  read: FileText, search: Search, edit: FileEdit, run: Terminal, git: GitBranch, plan: ListTodo, agent: Bot, code: ScanSearch, tool: Wrench,
+};
 
 interface ToolReceiptProps {
   tool: ToolCall;
 }
 
+/** One tool call: what it did in words, the technical name on hover, and the recorded output when opened. */
 export function ToolReceipt({ tool }: ToolReceiptProps) {
+  const { lang } = useTranslation();
   const [expanded, setExpanded] = useState(false);
 
-  const getToolIcon = (name: string) => {
-    if (name.includes('write') || name.includes('create') || name.includes('replace')) {
-      return FileEdit;
-    }
-    if (name.includes('read') || name.includes('view') || name.includes('file')) {
-      return FileCode;
-    }
-    if (name.includes('bash') || name.includes('cmd') || name.includes('exec')) {
-      return Terminal;
-    }
-    if (name.includes('git')) {
-      return GitBranch;
-    }
-    return Search;
-  };
-
-  const Icon = getToolIcon(tool.name);
+  const { kind, verb, target } = describeTool(tool, lang);
+  const Icon = ICONS[kind];
   const isRunning = tool.status === 'running';
   const isError = tool.status === 'error';
   const isSuccess = tool.status === 'success';
-
   const summary = tool.args?.path || tool.args?.command || tool.args?.cmd || tool.args?.query || tool.summary || tool.args?.TargetFile || '';
-
   const output = formatToolOutput(tool.result ?? tool.args ?? tool.summary);
+  const duration = formatDuration(tool.durationMs);
 
   return (
-    <div className="mx-4 my-2 border border-[var(--line)] rounded-lg bg-[var(--panel)] overflow-hidden text-xs" data-testid="tool-receipt" data-status={tool.status || 'unknown'}>
-      {/* Header Bar */}
+    <div className="text-[13px]" data-testid="tool-receipt" data-status={tool.status || 'unknown'}>
       <div
         onClick={() => setExpanded(!expanded)}
         role="button"
         tabIndex={0}
         aria-expanded={expanded}
         aria-label={`${tool.name}: ${summary}`}
+        title={tool.name}
         onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setExpanded(!expanded); } }}
-        className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-[var(--surface-hover)] transition-colors"
+        className="flex cursor-pointer items-center gap-2.5 px-3 py-2 transition-colors hover:bg-hover"
       >
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[var(--faint)] hover:text-[var(--text)]">
-            {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-          </span>
-          
-          <div className="w-5 h-5 rounded bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center flex-shrink-0">
-            <Icon className="w-3 h-3" />
-          </div>
-
-          <span className="font-medium text-xs text-[var(--text)] truncate shrink-0 max-w-[50%]">
-            {tool.name}
-          </span>
-
-          {summary && (
-            <span className="text-xs text-[var(--muted)] truncate">
-              {summary}
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {tool.durationMs !== undefined && (
-            <span className="text-xs tabular-nums text-[var(--muted)] hidden sm:inline">
-              {tool.durationMs < 1000 ? `${tool.durationMs}ms` : `${(tool.durationMs / 1000).toFixed(1)}s`}
-            </span>
-          )}
-
+        <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', expanded && 'rotate-90')} />
+        <span className={cn('flex h-6 w-6 shrink-0 items-center justify-center rounded-md border',
+          isError ? 'border-danger/30 bg-danger/10 text-danger' : 'border-line bg-surface text-muted')}>
+          <Icon className="h-3.5 w-3.5" />
+        </span>
+        <span className="shrink-0 font-medium text-fg">{verb}</span>
+        {target && <span className="min-w-0 truncate font-mono text-[12px] text-muted">{target}</span>}
+        <span className="ml-auto flex shrink-0 items-center gap-3">
+          {duration && <span className="hidden text-[12px] tabular-nums text-faint sm:inline">{duration}</span>}
           {isRunning ? (
-            <div className="flex items-center gap-1 text-[var(--primary)] text-xs">
-              <Loader2 className="w-3 h-3 animate-spin" />
-              <span>Đang chạy</span>
-            </div>
+            <span className="flex items-center gap-1 text-[12px] text-primary"><Loader2 className="h-3 w-3 animate-spin" />Đang chạy</span>
           ) : isError ? (
-            <div className="flex items-center gap-1 text-[var(--danger)] text-xs">
-              <AlertCircle className="w-3 h-3" />
-              <span>Lỗi</span>
-            </div>
+            <span className="flex items-center gap-1 text-[12px] text-danger"><AlertCircle className="h-3 w-3" />Lỗi</span>
           ) : isSuccess ? (
-            <div className="flex items-center gap-1 text-[var(--success)] text-xs">
-              <CheckCircle2 className="w-3 h-3" />
-              <span>Xong</span>
-            </div>
-          ) : <span className="text-[var(--warning)] text-xs">Chưa rõ kết quả</span>}
-        </div>
+            <span className="flex items-center gap-1 text-[12px] text-success"><CheckCircle2 className="h-3 w-3" />Xong</span>
+          ) : <span className="text-[12px] text-warning">Chưa rõ kết quả</span>}
+        </span>
       </div>
 
-      {/* Expanded Output / Payload */}
       {expanded && (
-        <div className="border-t border-[var(--line)] bg-[var(--bg)] p-3 select-text" data-testid="tool-output">
-          <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-[var(--line-subtle)]">
-            <span className="text-[var(--muted)] text-xs font-medium">
+        <div className="border-t border-line-subtle bg-bg px-4 py-3 select-text" data-testid="tool-output">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="text-[12px] font-medium text-muted">
               {tool.result !== undefined ? 'Kết quả phản hồi' : 'Chi tiết công cụ đã ghi nhận'}
+              <span className="ml-2 font-mono font-normal text-faint">{tool.name}</span>
             </span>
             <CopyButton text={output} label="Sao chép kết quả" />
           </div>
-
-          <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words text-[var(--text)] text-xs leading-7" tabIndex={0}>
+          <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-line bg-panel p-3 text-[12px] leading-6 text-fg" tabIndex={0}>
             {output || (isRunning ? 'Đang chờ kết quả…' : 'Không có nội dung phản hồi.')}
           </pre>
         </div>

@@ -1,11 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
-import { CheckCircle2, Circle, Loader2, ListTodo, AlertCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Circle, ListTodo, Loader2 } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 import { VerificationReceipts } from './VerificationReceipts';
 import { IsolatedChecksPanel } from './IsolatedChecksPanel';
+import { EmptyBlock, ErrorLine, LoadingLine, SectionHeading, TabBody } from './parts';
 
+/**
+ * Progress and evidence. A step counts as done in the bar only when the agent attached evidence to it; a step the agent
+ * merely reports as done is shown as exactly that, with no check mark.
+ */
 export function PlanTab() {
   const { t, lang } = useTranslation();
   const { selectedTaskId } = useAppStore();
@@ -22,54 +28,59 @@ export function PlanTab() {
   const progressLabel = lang === 'vi' ? 'Tiến độ theo bằng chứng đã ghi nhận' : 'Progress with recorded evidence';
 
   return (
-    <section aria-label="Task plan" className="h-full flex flex-col p-3 overflow-y-auto space-y-4 text-xs">
+    <TabBody label="Task plan">
       {error ? (
-        <p role="alert" className="text-rose-400">{error.message}</p>
+        <ErrorLine message={error.message} />
       ) : isLoading ? (
-        <p role="status" className="text-[var(--muted)]">{lang === 'vi' ? 'Đang tải kế hoạch…' : 'Loading plan…'}</p>
+        <LoadingLine text={lang === 'vi' ? 'Đang tải kế hoạch…' : 'Loading plan…'} />
       ) : !selectedTaskId || planSteps.length === 0 ? (
-        <div className="py-12 text-center text-[var(--faint)] flex flex-col items-center gap-2">
-          <ListTodo className="w-8 h-8 opacity-40" />
-          <p>{lang === 'vi' ? 'Chưa có kế hoạch' : 'No plan yet'}</p>
-        </div>
+        <EmptyBlock icon={ListTodo} title={lang === 'vi' ? 'Chưa có kế hoạch' : 'No plan yet'}
+          hint={lang === 'vi' ? 'Khi agent lập kế hoạch, từng bước và bằng chứng của nó hiện ở đây.' : 'When the agent makes a plan, each step and its evidence appear here.'} />
       ) : (
         <>
-          <div className="p-3 rounded-lg bg-[var(--surface)] border border-[var(--line)] space-y-2">
-            {plan?.title && <h3 className="font-semibold text-[var(--text)]">{plan.title}</h3>}
-            <div className="flex items-center justify-between">
-              <span className="font-semibold text-[var(--text)]">{progressLabel}</span>
-              <span className="font-mono text-sky-400 font-bold">{progressPercent}%</span>
+          <div className="space-y-3 rounded-xl border border-line bg-surface p-4">
+            {plan?.title && <h3 className="text-[14px] font-semibold text-fg">{plan.title}</h3>}
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[13px] font-medium text-muted">{progressLabel}</span>
+              <span className="font-mono text-[14px] font-semibold tabular-nums text-fg">{progressPercent}%</span>
             </div>
-            <div role="progressbar" aria-label={progressLabel} aria-valuenow={completedCount} aria-valuemin={0} aria-valuemax={planSteps.length} className="w-full h-1.5 rounded-full bg-[var(--panel)] overflow-hidden">
-              <div className="h-full bg-sky-500 transition-all duration-500" style={{ width: `${progressPercent}%` }} />
+            <div role="progressbar" aria-label={progressLabel} aria-valuenow={completedCount} aria-valuemin={0} aria-valuemax={planSteps.length} className="h-2 w-full overflow-hidden rounded-full bg-hover">
+              <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${progressPercent}%` }} />
             </div>
-            <div className="text-[11px] text-[var(--faint)]">{completedCount} / {planSteps.length} {lang === 'vi' ? 'mục hoàn tất có bằng chứng đã ghi nhận' : 'done steps with recorded evidence'}</div>
-            <div className="text-[11px] text-[var(--faint)]">{reportedCount} / {planSteps.length} {lang === 'vi' ? 'mục do agent báo hoàn tất' : 'agent-reported done steps'}</div>
-            <p className="text-[11px] text-[var(--muted)]">{lang === 'vi' ? 'Bằng chứng do agent ghi nhận; xem kết quả công cụ để kiểm tra các tuyên bố.' : 'Evidence is recorded by the agent; inspect tool results to verify its claims.'}</p>
+            <div className="space-y-0.5 text-[12px] text-muted">
+              <p>{completedCount} / {planSteps.length} {lang === 'vi' ? 'mục hoàn tất có bằng chứng đã ghi nhận' : 'done steps with recorded evidence'}</p>
+              <p>{reportedCount} / {planSteps.length} {lang === 'vi' ? 'mục do agent báo hoàn tất' : 'agent-reported done steps'}</p>
+            </div>
+            <p className="text-[12px] leading-4 text-faint">{lang === 'vi' ? 'Bằng chứng do agent ghi nhận; xem kết quả công cụ để kiểm tra các tuyên bố.' : 'Evidence is recorded by the agent; inspect tool results to verify its claims.'}</p>
           </div>
+
           <div className="space-y-2">
-            <h3 className="font-semibold uppercase tracking-wider text-[10px] text-[var(--muted)] pb-1 border-b border-[var(--line-subtle)]">{t('plan_steps')}</h3>
-            {planSteps.map((step, index) => (
-              <div key={index} className={`p-2.5 rounded-lg border flex items-start gap-2.5 ${step.status === 'doing' ? 'bg-sky-500/10 border-sky-500/40' : 'bg-[var(--surface)] border-[var(--line-subtle)]'}`}>
-                <div className="mt-0.5 flex-shrink-0" aria-label={step.status}>
-                  {step.status === 'done' && step.evidence?.trim() ? <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    : step.status === 'done' ? <AlertCircle className="w-4 h-4 text-amber-400" />
-                    : step.status === 'doing' ? <Loader2 className="w-4 h-4 text-sky-400 animate-spin" />
-                    : step.status === 'blocked' ? <AlertCircle className="w-4 h-4 text-rose-400" />
-                    : <Circle className="w-4 h-4 text-[var(--faint)]" />}
+            <SectionHeading title={t('plan_steps')} count={planSteps.length} />
+            {planSteps.map((step, index) => {
+              const proven = step.status === 'done' && !!step.evidence?.trim();
+              return (
+                <div key={index} className={cn('flex items-start gap-3 rounded-xl border px-3 py-2.5',
+                  step.status === 'doing' ? 'border-primary/40 bg-primary/[0.06]' : 'border-line bg-surface')}>
+                  <div className="mt-0.5 shrink-0" aria-label={step.status}>
+                    {proven ? <CheckCircle2 className="h-4 w-4 text-success" />
+                      : step.status === 'done' ? <AlertCircle className="h-4 w-4 text-warning" />
+                      : step.status === 'doing' ? <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      : step.status === 'blocked' ? <AlertCircle className="h-4 w-4 text-danger" />
+                      : <Circle className="h-4 w-4 text-faint" />}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className={cn('font-medium text-fg', proven && 'text-muted line-through decoration-faint')}>{step.text}</div>
+                    {step.status === 'done' && !step.evidence?.trim() && <p className="mt-0.5 text-[12px] text-warning">{lang === 'vi' ? 'Agent báo hoàn tất · chưa có bằng chứng' : 'Agent reports done · no evidence'}</p>}
+                    {step.evidence?.trim() && <p className="mt-0.5 whitespace-pre-wrap break-words text-[12px] text-muted">{step.evidence}</p>}
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className={`font-medium ${step.status === 'done' && step.evidence?.trim() ? 'line-through opacity-75' : ''}`}>{step.text}</div>
-                  {step.status === 'done' && !step.evidence?.trim() && <p className="text-[11px] text-amber-400 mt-0.5">{lang === 'vi' ? 'Agent báo hoàn tất · chưa có bằng chứng' : 'Agent reports done · no evidence'}</p>}
-                  {step.evidence?.trim() && <p className="text-[11px] text-[var(--muted)] mt-0.5 whitespace-pre-wrap break-words">{step.evidence}</p>}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}
       {selectedTaskId && <VerificationReceipts taskId={selectedTaskId} />}
       <IsolatedChecksPanel />
-    </section>
+    </TabBody>
   );
 }

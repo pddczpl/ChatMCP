@@ -14,7 +14,7 @@ type Skill = {
 };
 type RegistrySkill = Skill & { key: string; repo: string; revision?: string; license?: string };
 const installedKey = ['pluginsInstalled'];
-const fieldClass = 'w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[13px] text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]';
+const fieldClass = 'w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px] text-fg focus:outline-none focus:ring-2 focus:ring-primary';
 
 export function SkillsTab() {
   const showToast = useAppStore((state) => state.showToast);
@@ -143,19 +143,19 @@ export function SkillsTab() {
   };
 
   return (
-    <div className="h-full overflow-y-auto p-4 space-y-4 text-[13px] leading-relaxed text-[var(--text)]">
+    <div className="h-full overflow-y-auto p-4 space-y-4 text-[13px] leading-relaxed text-fg">
       <header className="space-y-2">
-        <h2 className="flex items-center gap-2 text-[15px] font-semibold"><Puzzle className="h-4 w-4 text-[var(--primary)]" />{copy('Kỹ năng cho trợ lý', 'Assistant skills')}</h2>
-        <p className="text-[var(--muted)]">{copy('Thêm hướng dẫn chuyên môn để trợ lý làm việc phù hợp hơn với bạn.', 'Add specialized instructions to help your assistant work your way.')}</p>
+        <h2 className="flex items-center gap-2 text-[15px] font-semibold"><Puzzle className="h-4 w-4 text-primary" />{copy('Kỹ năng cho trợ lý', 'Assistant skills')}</h2>
+        <p className="text-muted">{copy('Thêm hướng dẫn chuyên môn để trợ lý làm việc phù hợp hơn với bạn.', 'Add specialized instructions to help your assistant work your way.')}</p>
       </header>
-      <div className="flex gap-1 rounded-lg bg-[var(--surface)] p-1" aria-label={copy('Danh sách kỹ năng', 'Skill lists')}>
+      <div className="flex gap-1 rounded-lg bg-surface p-1" aria-label={copy('Danh sách kỹ năng', 'Skill lists')}>
         {(['discover', 'installed'] as const).map((item) => <button key={item} type="button" aria-pressed={view === item} onClick={() => { setView(item); setCategory('all'); setVisibleCount(30); }}
-          className={`min-h-9 flex-1 rounded-md px-2 py-1.5 font-medium focus-visible:outline-2 focus-visible:outline-[var(--primary)] ${view === item ? 'bg-[var(--panel)] text-[var(--text)] shadow-sm' : 'text-[var(--muted)] hover:text-[var(--text)]'}`}>
+          className={`min-h-9 flex-1 rounded-md px-2 py-1.5 font-medium focus-visible:outline-2 focus-visible:outline-primary ${view === item ? 'bg-panel text-fg shadow-sm' : 'text-muted hover:text-fg'}`}>
           {item === 'discover' ? copy('Khám phá', 'Discover') : `${copy('Đã cài', 'Installed')}${stateReady ? ` (${installed.length})` : ''}`}
         </button>)}
       </div>
       <div className="space-y-2">
-        <div className="relative"><Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-[var(--muted)]" />
+        <div className="relative"><Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted" />
           <input aria-label={copy('Tìm kỹ năng', 'Search skills')} value={search} onChange={(event) => { setSearch(event.target.value); setVisibleCount(30); }} placeholder={copy('Tìm tên hoặc công việc cần hỗ trợ…', 'Search by name or task…')} className={`${fieldClass} pl-9`} />
         </div>
         <div className="flex items-center gap-2">
@@ -165,53 +165,53 @@ export function SkillsTab() {
           <Button disabled={registryBusy || Boolean(pending)} onClick={refreshRegistry} className="h-10 shrink-0 text-[13px]"><RefreshCw className={`h-4 w-4 ${registryBusy ? 'animate-spin' : ''}`} />{registryBusy ? copy('Đang tải…', 'Loading…') : copy('Làm mới', 'Refresh')}</Button>
         </div>
       </div>
-      {(installedQuery.error || marketplaceQuery.error || registryQuery.error || registryError) && <div role="alert" className="rounded-lg border border-[var(--line)] bg-[var(--surface)] p-3 text-[var(--danger)]">
+      {(installedQuery.error || marketplaceQuery.error || registryQuery.error || registryError) && <div role="alert" className="rounded-lg border border-line bg-surface p-3 text-danger">
         <p>{copy('Chưa tải được đầy đủ danh sách kỹ năng.', 'Could not load the complete skills list.')}</p>
-        <p className="mt-1 break-words text-[var(--muted)]">{installedQuery.error?.message || marketplaceQuery.error?.message || registryQuery.error?.message || registryError}</p>
+        <p className="mt-1 break-words text-muted">{installedQuery.error?.message || marketplaceQuery.error?.message || registryQuery.error?.message || registryError}</p>
         <Button className="mt-2 text-[13px]" onClick={registryError ? refreshRegistry : syncSkills}>{copy('Thử lại', 'Retry')}</Button>
       </div>}
       <section aria-label={copy('Kỹ năng', 'Skills')} className="space-y-3">
-        {installedQuery.isLoading || marketplaceQuery.isLoading ? <p role="status" className="flex items-center gap-2 py-6 text-[var(--muted)]"><Loader2 className="h-4 w-4 animate-spin" />{copy('Đang tải kỹ năng…', 'Loading skills…')}</p>
-          : filtered.length === 0 ? <div className="py-8 text-center text-[var(--muted)]"><Puzzle className="mx-auto mb-3 h-7 w-7" /><p>{view === 'installed' && !search ? copy('Bạn chưa cài kỹ năng nào.', 'No skills installed yet.') : copy('Không tìm thấy kỹ năng phù hợp.', 'No matching skills.')}</p>{view === 'installed' && <Button onClick={() => { setView('discover'); setSearch(''); setCategory('all'); }} className="mt-3 text-[13px]">{copy('Khám phá kỹ năng', 'Explore skills')}</Button>}</div>
+        {installedQuery.isLoading || marketplaceQuery.isLoading ? <p role="status" className="flex items-center gap-2 py-6 text-muted"><Loader2 className="h-4 w-4 animate-spin" />{copy('Đang tải kỹ năng…', 'Loading skills…')}</p>
+          : filtered.length === 0 ? <div className="py-8 text-center text-muted"><Puzzle className="mx-auto mb-3 h-7 w-7" /><p>{view === 'installed' && !search ? copy('Bạn chưa cài kỹ năng nào.', 'No skills installed yet.') : copy('Không tìm thấy kỹ năng phù hợp.', 'No matching skills.')}</p>{view === 'installed' && <Button onClick={() => { setView('discover'); setSearch(''); setCategory('all'); }} className="mt-3 text-[13px]">{copy('Khám phá kỹ năng', 'Explore skills')}</Button>}</div>
           : filtered.slice(0, visibleCount).map((skill) => {
             const current = installedById.get(skill.id);
             const entry = registryById.get(skill.id);
             const hasUpdate = Boolean(current && entry && updateKeys.has(entry.key));
             const isBusy = pending?.id === skill.id;
-            return <article key={skill.id} aria-label={skill.name} aria-busy={isBusy} className="rounded-lg border border-[var(--line)] bg-[var(--panel)] p-3 space-y-3">
+            return <article key={skill.id} aria-label={skill.name} aria-busy={isBusy} className="rounded-lg border border-line bg-panel p-3 space-y-3">
               <div className="space-y-1">
                 <h3 className="break-words text-[14px] font-semibold">{skill.name}</h3>
-                <p className="break-words text-[12px] text-[var(--muted)]">{entry?.repo || (skill.author === 'ChatMCP Team' ? 'ChatMCP' : skill.author && skill.author !== 'unknown' ? skill.author : copy('Kỹ năng tự thêm', 'Custom skill'))}</p>
-                {skill.description && <p className="text-[var(--muted)]">{skill.description}</p>}
+                <p className="break-words text-[12px] text-muted">{entry?.repo || (skill.author === 'ChatMCP Team' ? 'ChatMCP' : skill.author && skill.author !== 'unknown' ? skill.author : copy('Kỹ năng tự thêm', 'Custom skill'))}</p>
+                {skill.description && <p className="text-muted">{skill.description}</p>}
               </div>
-              <div className="space-y-2 border-t border-[var(--line-subtle)] pt-3">
-                <p className={`flex flex-wrap items-center gap-1.5 font-medium ${current?.enabled ? 'text-[var(--success)]' : 'text-[var(--muted)]'}`}>
+              <div className="space-y-2 border-t border-line-subtle pt-3">
+                <p className={`flex flex-wrap items-center gap-1.5 font-medium ${current?.enabled ? 'text-success' : 'text-muted'}`}>
                   {current && <Check className="h-4 w-4" />}
                   {current ? (current.enabled ? copy('Đã cài · Đang bật', 'Installed · Enabled') : copy('Đã cài · Đang tắt', 'Installed · Disabled')) : stateReady ? copy('Chưa cài', 'Not installed') : copy('Chưa xác định trạng thái cài đặt', 'Installation state unavailable')}
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
-                  {isBusy ? <span role="status" className="inline-flex min-h-9 items-center gap-2 text-[var(--muted)]"><Loader2 className="h-4 w-4 animate-spin" />{pending.action}</span> : current ? <>
+                  {isBusy ? <span role="status" className="inline-flex min-h-9 items-center gap-2 text-muted"><Loader2 className="h-4 w-4 animate-spin" />{pending.action}</span> : current ? <>
                     <Button disabled={Boolean(pending) || !stateReady} onClick={() => runAction(current, 'toggle')} className="h-9 text-[13px]" variant={current.enabled ? 'outline' : 'primary'}>{current.enabled ? copy('Tắt', 'Disable') : copy('Bật', 'Enable')}</Button>
                     {hasUpdate && <Button disabled={Boolean(pending) || registryBusy || !stateReady} onClick={() => runAction(current, 'update')} className="h-9 text-[13px]"><RefreshCw className="h-3.5 w-3.5" />{copy('Cập nhật', 'Update')}</Button>}
-                    <Button disabled={Boolean(pending) || !stateReady} onClick={() => runAction(current, 'uninstall')} variant="quiet" className="h-9 text-[13px] text-[var(--danger)] hover:text-[var(--danger)]"><Trash2 className="h-3.5 w-3.5" />{copy('Gỡ cài đặt', 'Uninstall')}</Button>
+                    <Button disabled={Boolean(pending) || !stateReady} onClick={() => runAction(current, 'uninstall')} variant="quiet" className="h-9 text-[13px] text-danger hover:text-danger"><Trash2 className="h-3.5 w-3.5" />{copy('Gỡ cài đặt', 'Uninstall')}</Button>
                   </> : <Button disabled={Boolean(pending) || registryBusy || !stateReady} onClick={() => runAction(skill, 'install')} variant="primary" className="h-9 text-[13px]"><Download className="h-3.5 w-3.5" />{copy('Cài đặt', 'Install')}</Button>}
                 </div>
-                {current && !current.enabled && <p className="text-[12px] text-[var(--muted)]">{copy('Nhấn Bật để trợ lý dùng kỹ năng này.', 'Enable this skill to let your assistant use it.')}</p>}
-                {hasUpdate && <p className="text-[12px] text-[var(--muted)]">{copy('Có bản mới. Sau khi cập nhật, hãy kiểm tra rồi bật lại.', 'Update available. Review and re-enable after updating.')}</p>}
+                {current && !current.enabled && <p className="text-[12px] text-muted">{copy('Nhấn Bật để trợ lý dùng kỹ năng này.', 'Enable this skill to let your assistant use it.')}</p>}
+                {hasUpdate && <p className="text-[12px] text-muted">{copy('Có bản mới. Sau khi cập nhật, hãy kiểm tra rồi bật lại.', 'Update available. Review and re-enable after updating.')}</p>}
               </div>
-              {(skill.tools?.length || entry || skill.version || current?.dependencies?.unresolved?.length) ? <details className="text-[12px] text-[var(--muted)]"><summary className="cursor-pointer py-1 focus-visible:outline-2 focus-visible:outline-[var(--primary)]">{copy('Chi tiết kỹ năng', 'Skill details')}</summary><div className="mt-2 space-y-1 break-words">
+              {(skill.tools?.length || entry || skill.version || current?.dependencies?.unresolved?.length) ? <details className="text-[12px] text-muted"><summary className="cursor-pointer py-1 focus-visible:outline-2 focus-visible:outline-primary">{copy('Chi tiết kỹ năng', 'Skill details')}</summary><div className="mt-2 space-y-1 break-words">
                 {skill.version && <p>{copy('Phiên bản', 'Version')}: {skill.version}</p>}
                 {skill.tools?.length ? <p>{copy('Công cụ', 'Tools')}: {skill.tools.join(', ')}</p> : null}
                 {entry && <><p>{copy('Nguồn', 'Source')}: {entry.repo}</p><p>{copy('Giấy phép khai báo', 'Declared license')}: {entry.license || 'unknown'}</p><p>{copy('Chỉ tải hướng dẫn và tệp đi kèm; không tự chạy mã khi cài.', 'Installation downloads instructions and supporting files; it does not execute their scripts.')}</p></>}
-                {current?.dependencies?.unresolved?.length ? <p className="text-[var(--warning)]">{copy('Thiếu tệp tham chiếu', 'Missing referenced files')}: {current.dependencies.unresolved.join(', ')}</p> : null}
+                {current?.dependencies?.unresolved?.length ? <p className="text-warning">{copy('Thiếu tệp tham chiếu', 'Missing referenced files')}: {current.dependencies.unresolved.join(', ')}</p> : null}
               </div></details> : null}
             </article>;
           })}
         {filtered.length > visibleCount && <Button className="h-9 w-full text-[13px]" onClick={() => setVisibleCount((count) => count + 30)}>{copy(`Xem thêm (${filtered.length - visibleCount})`, `Show more (${filtered.length - visibleCount})`)}</Button>}
-        {!search && view === 'discover' && registry.length === 0 && !registryQuery.isLoading && <p className="text-[var(--muted)]">{copy('Nhấn Làm mới để khám phá thêm kỹ năng từ GitHub.', 'Select Refresh to discover more skills from GitHub.')}</p>}
+        {!search && view === 'discover' && registry.length === 0 && !registryQuery.isLoading && <p className="text-muted">{copy('Nhấn Làm mới để khám phá thêm kỹ năng từ GitHub.', 'Select Refresh to discover more skills from GitHub.')}</p>}
       </section>
-      <details className="border-t border-[var(--line)] pt-3 text-[var(--muted)]">
-        <summary className="cursor-pointer py-1 font-medium focus-visible:outline-2 focus-visible:outline-[var(--primary)]">{copy('Nguồn kỹ năng & tùy chỉnh', 'Skill sources & customization')}</summary>
+      <details className="border-t border-line pt-3 text-muted">
+        <summary className="cursor-pointer py-1 font-medium focus-visible:outline-2 focus-visible:outline-primary">{copy('Nguồn kỹ năng & tùy chỉnh', 'Skill sources & customization')}</summary>
         <div className="mt-3 space-y-3">
           <p>{copy('Các nguồn GitHub được phép. Nguồn bên ngoài cần được bạn tin cậy trước khi thêm.', 'Allowed GitHub sources. Only add third-party sources you trust.')}</p>
           <ul className="space-y-2">{(registryQuery.data?.sources || []).map((source: any) => <li key={source.id} className="flex flex-wrap items-center justify-between gap-2"><span className="break-all">{source.repo}</span>{!source.official && <Button size="sm" disabled={registryBusy} onClick={async () => {
@@ -246,7 +246,7 @@ export function SkillsTab() {
               <label className="block">{copy('Mô tả ngắn', 'Short description')}<input value={customDesc} onChange={(event) => setCustomDesc(event.target.value)} className={fieldClass} /></label>
               <label className="block">{copy('Hướng dẫn cho trợ lý', 'Assistant instructions')}<textarea rows={4} value={customPrompt} onChange={(event) => setCustomPrompt(event.target.value)} className={fieldClass} /></label>
             </>}
-            {customError && <p role="alert" className="rounded-lg border border-[var(--danger)] bg-[var(--danger-bg)] p-3 text-[var(--danger)]">{customError}</p>}
+            {customError && <p role="alert" className="rounded-lg border border-danger bg-danger/10 p-3 text-danger">{customError}</p>}
             <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="quiet" className="h-9 text-[13px]" onClick={() => setShowAddModal(false)}>{copy('Hủy', 'Cancel')}</Button><Button type="submit" disabled={Boolean(pending)} variant="primary" className="h-9 text-[13px]">{pending?.id === 'custom' && <Loader2 className="h-4 w-4 animate-spin" />}{pending?.id === 'custom' ? copy('Đang cài…', 'Installing…') : copy('Cài kỹ năng', 'Install skill')}</Button></div>
           </form>
       </Modal>
