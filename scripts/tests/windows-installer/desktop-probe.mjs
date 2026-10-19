@@ -39,6 +39,9 @@ function command(method, params = {}) {
     socket.send(JSON.stringify({ id, method, params }));
   });
 }
+// A current build signs the page in with the Hub's per-launch secret (kept in sessionStorage); the older build this probe also
+// meets in the baseline phase has none and needs no header. Either way the page itself makes the request, as a person's click would.
+const AUTH = "(() => { const secret = sessionStorage.getItem('chatmcp.hub-session'); return secret ? { Authorization: 'Bearer ' + secret } : {}; })()";
 async function evaluate(expression) {
   const reply = await command('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
   assert.ok(!reply.exceptionDetails, JSON.stringify(reply.exceptionDetails));
@@ -52,24 +55,24 @@ try {
     await new Promise(resolve => setTimeout(resolve, 250));
   }
   assert.ok(rendered, 'actual desktop React root rendered');
-  const state = await evaluate("fetch('/api/state').then(r => r.json())");
+  const state = await evaluate(`fetch('/api/state', { headers: ${AUTH} }).then(r => r.json())`);
   assert.equal(state.agent.tasks.length, 0, 'clean startup creates no AI task');
   if (phase === 'baseline') {
     assert.equal(await evaluate("Boolean(document.querySelector('[role=dialog][aria-label=\"Thiết lập ChatMCP\"]'))"), true, 'fresh onboarding rendered');
     await evaluate("document.querySelector('[aria-label=\"Đóng thiết lập\"]').click()");
     const profile = await evaluate(`(async () => {
-      const state = await (await fetch('/api/state')).json();
+      const state = await (await fetch('/api/state', { headers: ${AUTH} })).json();
       const response = await fetch('/api/ai/profiles/upsert', { method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-ChatMCP-Request': 'local-dashboard', 'X-ChatMCP-CSRF': state.csrfToken },
+        headers: { ...${AUTH}, 'Content-Type': 'application/json', 'X-ChatMCP-Request': 'local-dashboard', 'X-ChatMCP-CSRF': state.csrfToken },
         body: JSON.stringify({ id: 'g6-retained', name: 'G6 retained configuration', provider: 'custom', model: 'g6-test-model', apiBaseUrl: 'http://127.0.0.1:9/v1' }) });
       return { status: response.status, body: await response.json() };
     })()`);
     assert.equal(profile.status, 200, 'a real BYO model setting can be saved without sending any AI request');
     await fs.mkdir('C:\\G6EmptyWorkspace');
     const workspace = await evaluate(`(async () => {
-      const state = await (await fetch('/api/state')).json();
+      const state = await (await fetch('/api/state', { headers: ${AUTH} })).json();
       const response = await fetch('/api/workspace/select', { method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-ChatMCP-Request': 'local-dashboard', 'X-ChatMCP-CSRF': state.csrfToken },
+        headers: { ...${AUTH}, 'Content-Type': 'application/json', 'X-ChatMCP-Request': 'local-dashboard', 'X-ChatMCP-CSRF': state.csrfToken },
         body: JSON.stringify({ path: 'C:\\\\G6EmptyWorkspace' }) });
       return { status: response.status, body: await response.json() };
     })()`);

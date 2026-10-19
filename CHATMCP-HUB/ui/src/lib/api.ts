@@ -1,6 +1,7 @@
 import { browseNativeWorkspace } from './native-folder-picker.ts';
 import type { HubState, HubHealth, Task, TaskDetail, ChatAttachment, WorkspaceCollection, BackgroundRun, BackgroundWorkflow, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset } from '@/types';
 import { normalizeTask } from './task-view.ts';
+import { getHubSecret, hubSessionReady, reportHubSessionLost } from './session.ts';
 
 export interface BackendCapabilityReport {
   backend: string;
@@ -49,11 +50,15 @@ export function setCsrfToken(token: string) {
 
 export async function request<T>(route: string, options: RequestInit = {}): Promise<T> {
   const method = options.method || 'GET';
+  await hubSessionReady;
   const headers: Record<string, string> = {
     'X-ChatMCP-Request': 'local-dashboard',
     'X-ChatMCP-UI-Build': UI_BUILD,
     ...(options.headers as Record<string, string>),
   };
+  // The Hub's per-launch secret (see session.ts); every API route, reads included, requires it.
+  const secret = getHubSecret();
+  if (secret) headers.Authorization = `Bearer ${secret}`;
 
   if (method === 'POST') {
     headers['Content-Type'] = 'application/json';
@@ -74,6 +79,15 @@ export async function request<T>(route: string, options: RequestInit = {}): Prom
   catch {
     if (res.ok) throw new Error(`Phản hồi JSON không hợp lệ tại ${route}`);
     data = null;
+  }
+
+  if (res.status === 401 && data?.code === 'hub_auth_required') {
+    // The Hub restarted (new secret) or this tab never had one. A reload cannot fix that: show the "reopen ChatMCP" screen.
+    reportHubSessionLost();
+    const err = new Error(data?.error || 'Cần mở lại ChatMCP từ launcher.') as Error & { status: number; code?: string };
+    err.status = 401;
+    err.code = 'hub_auth_required';
+    throw err;
   }
 
   if (res.status === 401 && data?.code === 'login_required') {

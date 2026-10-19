@@ -21,7 +21,7 @@ Có thể dùng backend local duy nhất; các flag -RepoRoot, -Backend mcp và 
 
 ## An toàn
 
-Hub chỉ listen 127.0.0.1 và kiểm tra Host, Origin, CSRF. PermissionGate bảo vệ tools; worktree không cung cấp cách ly VM/OS. Không mở Hub trực tiếp ra Internet.
+Hub chỉ listen 127.0.0.1; mọi yêu cầu API (kể cả đọc và luồng sự kiện) phải mang bí mật theo từng lần khởi động (`Authorization: Bearer`), ghi trong `run/hub-session.json` của thư mục dữ liệu và chỉ tài khoản Windows hiện tại đọc được. Host, Origin, CSRF vẫn được kiểm tra thêm. Ranh giới này chặn tài khoản Windows khác, tiến trình sandbox và trang web trong trình duyệt; nó KHÔNG chặn mã độc chạy dưới cùng tài khoản của bạn. PermissionGate bảo vệ tools; worktree không cung cấp cách ly VM/OS. Không mở Hub trực tiếp ra Internet.
 
 ## Test
 

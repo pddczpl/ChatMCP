@@ -24,5 +24,6 @@
 
   <ItemGroup>
     <Compile Include="..\native-shared\HubLifecycle.cs" Link="HubLifecycle.cs" />
+    <Compile Include="..\native-shared\HubSession.cs" Link="HubSession.cs" />
   </ItemGroup>
 </Project>

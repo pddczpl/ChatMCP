@@ -2,7 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { parseArguments } from '../hub.mjs';
+import { assertBearerHub, parseArguments } from '../hub.mjs';
+import { attachToRunningHub, dashboardUrl, readSession, requestTicket } from './hub-session.mjs';
 import { delay, portOpen, redact } from './runtime.mjs';
 
 const bundle = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -15,8 +16,11 @@ async function health(url) {
   } catch { return null; }
 }
 
+// The address carries a one-time sign-in ticket in its fragment.
 async function openBrowser(url, log) {
-  if (process.platform !== 'win32') { log(`[CHATMCP-HUB] ${url}`); return; }
+  // Off Windows there is no default-browser opener here, so the terminal is the only way to get the signed-in address; it is
+  // single-use and expires in a minute.
+  if (process.platform !== 'win32') { log(`[CHATMCP-HUB] Open within a minute (single-use sign-in link): ${url}`); return; }
   const command = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'rundll32.exe');
   await new Promise((resolve, reject) => {
     const child = spawn(command, ['url.dll,FileProtocolHandler', url], { shell: false, windowsHide: true, detached: true, stdio: 'ignore' });
@@ -106,19 +110,12 @@ export async function launch(args = process.argv.slice(2), { log = console.log, 
     }
     if(running.backend&&running.backend!=='local')
       throw new Error('A legacy MCP Hub is using this port. Stop it explicitly; do not reuse it.');
-    if (options.project) {
-      const state = await fetch(`${url}/api/state`, { signal: AbortSignal.timeout(3000), redirect: 'error' }).then((r) => r.json());
-      if (state.workspace?.path !== options.project) {
-        const response = await fetch(`${url}/api/workspace/select`, {
-          method: 'POST', redirect: 'error',
-          headers: { 'Content-Type': 'application/json', Origin: url, 'X-ChatMCP-Request': 'local-dashboard', 'X-ChatMCP-CSRF': state.csrfToken },
-          body: JSON.stringify({ path: options.project }),
-        });
-        if (!response.ok) log(`[CHATMCP-HUB] ${(await response.json()).error ?? 'Chưa đổi workspace.'}`);
-      }
-    }
+    // A Hub that predates the per-launch secret cannot be authenticated to; stopping it is the user's call, not ours.
+    assertBearerHub(running, options.port);
+    const attached = await attachToRunningHub({ origin: url, stateDirectory: hubDirectoryFor(options), project: options.project });
+    if (attached.selectError) log(`[CHATMCP-HUB] ${attached.selectError}`);
     if (options.open) {
-      await openBrowser(url, log);
+      await openBrowser(dashboardUrl(url, await attached.ticket()), log);
       log('[CHATMCP-HUB] Hub da chay nen. Da mo lai trang localhost.');
     } else {
       log(`[CHATMCP-HUB] Hub da chay nen: ${url}`);
@@ -138,6 +135,11 @@ export async function launch(args = process.argv.slice(2), { log = console.log, 
     const ready = await health(url);
     if (ready?.app === 'chatmcp-local-hub' && ready.initialized) {
       log(`[CHATMCP-HUB] Dang chay nen: ${url}`);
+      if (options.open && process.platform !== 'win32') {
+        // The Hub opened nothing it could show here (its own output goes to hub.log): print a fresh sign-in link for this terminal.
+        const session = await readSession(directory);
+        if (session) await openBrowser(dashboardUrl(url, await requestTicket(url, session.secret)), log);
+      }
       log('[CHATMCP-HUB] Local Node.js Hub. Configure your AI model and choose a workspace in the dashboard.');
       return { url, reused: false, backend, logFile, pid: started.pid };
     }

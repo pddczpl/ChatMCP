@@ -248,6 +248,28 @@
       ]
     },
     {
+      "name": "M19-bearer-gate",
+      "what": "the per-launch bearer is no longer required on the API",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "&& !ticketRedeem && !hasBearer(req)) {",
+          "new": "&& !ticketRedeem && false) {"
+        }
+      ]
+    },
+    {
+      "name": "M20-bearer-compare",
+      "what": "any bearer value is accepted (the secret is not compared)",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "return Boolean(match)&&equalToken(match[1],secret);",
+          "new": "return Boolean(match);"
+        }
+      ]
+    },
+    {
       "name": "M04b-workspace-all-layers",
       "what": "every workspace containment layer disabled",
       "patches": [

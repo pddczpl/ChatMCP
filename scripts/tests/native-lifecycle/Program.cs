@@ -28,6 +28,51 @@ try
     Check(HubLifecycle.IsHubCommand("node.exe \"" + script + "\" --port 3007 --no-open", script), "quoted Hub entrypoint with spaces is recognized");
     Check(!HubLifecycle.IsHubCommand("node.exe other.mjs \"" + script + "\" --port 3007", script), "Hub path supplied as an unrelated script argument is rejected");
     Check(!HubLifecycle.IsHubCommand("node.exe --eval \"" + script + "\"", script), "Node eval is not an owned Hub entrypoint");
+    // Per-launch Hub secret: a current build says auth=bearer and is only attached to by a shell that can present the secret.
+    using var bearer = JsonDocument.Parse("{\"app\":\"chatmcp-local-hub\",\"version\":\"3.9.0\",\"uiBuild\":\"3.9.0-react-agent\",\"auth\":\"bearer\"}");
+    HubLifecycle.ValidateHealth(bearer.RootElement, "3.9.0", requireBearer: true); Check(HubLifecycle.RequiresBearer(bearer.RootElement), "current Hub (auth=bearer) accepted by the shell");
+    Throws(() => HubLifecycle.ValidateHealth(good.RootElement, "3.9.0", requireBearer: true), "same-version Hub without session authentication is refused by the shell");
+    HubLifecycle.ValidateHealth(good.RootElement); Check(!HubLifecycle.RequiresBearer(good.RootElement), "the installer can still identify (and stop) a Hub that predates the secret");
+
+    var stateDir = Path.Combine(scratch, "hub state"); Directory.CreateDirectory(Path.Combine(stateDir, "run"));
+    var sessionFile = HubSession.SessionPath(stateDir);
+    var secret = new string('a', 64);
+    string Session(string secretValue = "", int port = 3007, int pid = 4242, int version = 1, string app = "chatmcp-local-hub") =>
+        JsonSerializer.Serialize(new { version, app, pid, port, secret = secretValue == "" ? secret : secretValue, nonce = "n", startedAt = "2026-01-01T00:00:00Z" });
+    Check(HubSession.Read(stateDir, 3007) == null, "no session file: nothing to authenticate with");
+    File.WriteAllText(sessionFile, Session());
+    var read = HubSession.Read(stateDir, 3007);
+    Check(read != null && read.Pid == 4242 && read.Port == 3007 && read.Secret == secret, "a published session is read");
+    Check(HubSession.Read(stateDir, 3010) == null, "a session for another port is not used");
+    File.WriteAllText(sessionFile, Session(secretValue: "short")); Check(HubSession.Read(stateDir, 3007) == null, "a weak secret is refused");
+    File.WriteAllText(sessionFile, Session(app: "other-app")); Check(HubSession.Read(stateDir, 3007) == null, "a file for another application is refused");
+    File.WriteAllText(sessionFile, Session(version: 2)); Check(HubSession.Read(stateDir, 3007) == null, "an unknown file version is refused");
+    File.WriteAllText(sessionFile, "{not json"); Check(HubSession.Read(stateDir, 3007) == null, "a malformed file is refused");
+    File.WriteAllText(sessionFile, new string(' ', 8000)); Check(HubSession.Read(stateDir, 3007) == null, "an oversized file is refused");
+    File.WriteAllText(sessionFile, Session());
+    Check(HubSession.ReadForListener(stateDir, 3007) == null || HubLifecycle.ListenerPid(3007) == 4242, "a file whose process is not the port's listener is stale and never used");
+    Check(HubSession.DashboardUrl("http://127.0.0.1:3007", "abc_DEF-123456789012") == "http://127.0.0.1:3007/#chatmcp-boot=abc_DEF-123456789012", "the dashboard address carries the ticket in its fragment");
+    var previous = Environment.GetEnvironmentVariable("CHATMCP_STATE_DIR");
+    try
+    {
+        Environment.SetEnvironmentVariable("CHATMCP_STATE_DIR", Path.Combine(scratch, "custom"));
+        Check(HubSession.DefaultStateDirectory() == Path.Combine(scratch, "custom"), "CHATMCP_STATE_DIR moves the session location like it moves the Hub's data");
+        Environment.SetEnvironmentVariable("CHATMCP_STATE_DIR", null);
+        Check(HubSession.DefaultStateDirectory().EndsWith(Path.Combine("ChatMCP", "hub"), StringComparison.OrdinalIgnoreCase), "otherwise %LOCALAPPDATA%\\ChatMCP\\hub, where the Hub keeps its data");
+    }
+    finally { Environment.SetEnvironmentVariable("CHATMCP_STATE_DIR", previous); }
+
+    // A link from the page reaches the shell's message as the same string and never as script text.
+    var hostile = "http://127.0.0.1:3007/#back\\slash'quote\"dq</script><img src=x onerror=window.__pwned=1>";
+    Check(OpenLink.TryCreateMessage(hostile, out var message), "an http address with hostile characters is forwarded");
+    using (var parsedMessage = JsonDocument.Parse(message))
+        Check(parsedMessage.RootElement.GetProperty("type").GetString() == OpenLink.MessageType && parsedMessage.RootElement.GetProperty("url").GetString() == hostile,
+            "the address survives the JSON message exactly");
+    Check(!message.Contains("</script>") && !message.Contains("<img"), "and no markup is left in the message text");
+    foreach (var blocked in new[] { "javascript:window.__pwned=1", "about:blank", "file:///C:/Windows/win.ini", "data:text/html,<script>1</script>", "ftp://127.0.0.1/", "chrome://settings", "relative/path", "", "http://" + new string('a', 9000) })
+        Check(!OpenLink.TryCreateMessage(blocked, out _), "dropped: " + (blocked.Length > 40 ? blocked[..40] + "..." : blocked));
+    Check(OpenLink.TryCreateMessage("HTTPS://Example.com/a?b=c#d", out _), "https is accepted");
+
     var root = Path.Combine(scratch, "installed app with spaces"); Directory.CreateDirectory(root);
     File.WriteAllText(Path.Combine(root, "a.txt"), "old-a"); File.WriteAllText(Path.Combine(root, "b.txt"), "old-b");
     File.WriteAllText(Path.Combine(root, "user.txt"), "keep-user");

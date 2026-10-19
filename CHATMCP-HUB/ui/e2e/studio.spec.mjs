@@ -234,7 +234,7 @@ test('Stop, Resume and Hub restart preserve the same read-only conversation', as
   await browserErrors.closePage(page);
   await app.restart();
   const recovered = await context.newPage();
-  await recovered.goto(app.hub.origin);
+  await recovered.goto(await app.signInUrl());
   await expect(recovered.locator('#panel-conversation').getByText('Resumed the same conversation; no files were changed.', { exact: true })).toBeVisible();
   await expect(recovered.getByText(prompt, { exact: true }).last()).toBeVisible();
   expect((await app.hub.state()).agent.tasks.map((item) => item.id)).toEqual([task.id]);

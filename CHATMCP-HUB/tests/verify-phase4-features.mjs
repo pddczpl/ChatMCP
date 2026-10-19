@@ -286,6 +286,7 @@ console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
   });
 
   const csrfToken = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  const hubSecret = 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
   const dummyManager = {
     workspace: work,
     stateDir: state,
@@ -305,6 +306,7 @@ console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
   const hubServer = createHubServer(dummyManager, {
     port: hubPort,
     token: csrfToken,
+    secret: hubSecret,
     execMode: 'no-shell',
   });
 
@@ -323,6 +325,7 @@ console.log('--- Section 3: Hub HTTP API Integration for Phase 4 ---');
           'Origin': `http://127.0.0.1:${hubPort}`,
           'X-ChatMCP-Request': 'local-dashboard',
           'X-ChatMCP-CSRF': csrfToken,
+          'Authorization': `Bearer ${hubSecret}`,
           ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
         },
       }, (res) => {
