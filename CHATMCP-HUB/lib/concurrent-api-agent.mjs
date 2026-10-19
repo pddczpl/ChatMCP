@@ -11,6 +11,23 @@ import { assembleStudio } from './assemble.mjs';
 import { readJson, writeJson } from './runtime.mjs';
 
 const END = new Set(['completed', 'failed', 'cancelled', 'paused', 'uncertain', 'limit', 'interrupted']);
+// Agents that a model spawns can spawn again. Without a limit a model that always delegates grows an unbounded tree of worktrees and
+// model calls. Depth counts from the conversation the user started (depth 0): with the default 2 that conversation can spawn children
+// (depth 1) and those can spawn grandchildren (depth 2), which cannot spawn at all and are not even offered the spawn tools.
+export const DEFAULT_SPAWN_LIMITS = Object.freeze({ maxSpawnDepth: 2, maxSpawnDescendants: 16 });
+const SPAWN_LIMIT_BOUNDS = Object.freeze({ maxSpawnDepth: [0, 4], maxSpawnDescendants: [0, 64] });
+export const SPAWN_LIMIT_CODES = Object.freeze(['spawn_depth_exceeded', 'spawn_descendants_exceeded']);
+function normalizeSpawnLimits(value, base = DEFAULT_SPAWN_LIMITS) {
+  const next = { ...base };
+  for (const key of Object.keys(SPAWN_LIMIT_BOUNDS)) {
+    if (value?.[key] === undefined) continue;
+    const [min, max] = SPAWN_LIMIT_BOUNDS[key];
+    if (!Number.isInteger(value[key]) || value[key] < min || value[key] > max)
+      throw Object.assign(new Error(`${key} must be an integer from ${min} to ${max}.`), { code: 'invalid_spawn_limits', statusCode: 400 });
+    next[key] = value[key];
+  }
+  return next;
+}
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const fail = (code, message, statusCode = 409) => Object.assign(new Error(message), { code, statusCode });
 const now = () => new Date().toISOString();
@@ -37,9 +54,13 @@ function normalizeRoleProfiles(value) {
 }
 
 export class ConcurrentApiAgent {
-  constructor({ primary, manager, provider, bundleRoot, directory, maxConcurrent = 4, log = () => {} }) {
+  constructor({ primary, manager, provider, bundleRoot, directory, maxConcurrent = 4, log = () => {}, ...spawnLimits }) {
     if (!primary || !manager || !provider || !bundleRoot || !directory)
       throw new TypeError('ConcurrentApiAgent requires the primary agent and local Hub resources.');
+    this.limits = normalizeSpawnLimits(spawnLimits);
+    this.spawnReservations = new Map();
+    // The primary agent asks this before it offers spawn_agent / spawn_workflow to the model.
+    manager.spawnAllowed = (taskId) => this.spawnAllowed(taskId);
     this.primary = primary;
     this.manager = manager;
     this.provider = provider;
@@ -89,7 +110,7 @@ export class ConcurrentApiAgent {
     }
   }
   #save() {
-    const snapshot = { version: 2, records: [...this.records.values()].map(({ attachments, ...r }) => r), workflows:this.workflows.serialize() };
+    const snapshot = { version: 2, records: [...this.records.values()].map(({ attachments, ...r }) => r), workflows:this.workflows.serialize(), spawnLimits: { ...this.limits } };
     const next = this.writes.catch(() => {}).then(() => writeJson(path.join(this.directory, 'sessions.json'), snapshot));
     this.writes = next;
     next.catch(() => {});
@@ -132,6 +153,7 @@ export class ConcurrentApiAgent {
     return { activeTaskId: activeTaskIds[0] || null, activeTaskIds,
       active: activeTaskIds.length ? this.get(activeTaskIds[0]) : null,
       modelCostSummary:summarizeCostLedgers(tasks.map(t=>t.modelCost).filter(Boolean)),
+      spawnLimits: this.spawnLimits(),
       tasks };
   }
   backgroundTasks() {
@@ -192,6 +214,8 @@ export class ConcurrentApiAgent {
   async load() {
     await this.primary.load();
     const data = await readJson(path.join(this.directory, 'sessions.json')).catch(() => null);
+    // The limits chosen in the Hub's state win over the constructor defaults; a damaged value falls back to what the constructor set.
+    try { this.limits = normalizeSpawnLimits(data?.spawnLimits, this.limits); } catch { /* keep the constructor limits */ }
     if (!data || !Array.isArray(data.records)) return this.state();
     for (const raw of data.records.slice(-100)) {
       if (!UUID.test(raw?.id || '') || typeof raw.sourceRoot !== 'string') continue;
@@ -269,6 +293,76 @@ export class ConcurrentApiAgent {
       gitAvailable:true,
     };
   }
+  // ------------------------------------------------------------------ spawn limits
+  /** Depth of a task: 0 for a conversation the user started, parent depth + 1 for an agent that another agent spawned. */
+  #depthOf(id) {
+    if (!id || this.primary.get(id)) return 0;
+    let record = this.records.get(id);
+    let depth = 0;
+    while (record && depth < 32) {
+      if (Number.isInteger(record.depth)) return record.depth + depth;
+      if (!record.parentTaskId) return depth;
+      depth += 1;
+      record = this.records.get(record.parentTaskId);
+    }
+    return depth;
+  }
+  #conversationOf(id) {
+    const record = this.records.get(id);
+    return record ? (record.conversationId || record.parentTaskId || record.id) : id;
+  }
+  #descendantCount(conversationId) {
+    let count = this.spawnReservations.get(conversationId) || 0;
+    for (const record of this.records.values()) {
+      if (record.parentTaskId && (record.conversationId || record.parentTaskId || record.id) === conversationId) count += 1;
+    }
+    return count;
+  }
+  spawnLimits() { return { ...this.limits }; }
+  /** Changes the limits (persisted with the Hub's conversation state) and re-syncs the tools of the running children. */
+  async configureSpawnLimits(patch = {}) {
+    this.limits = normalizeSpawnLimits(patch, this.limits);
+    for (const [id, child] of this.children) { const record = this.records.get(id); if (record) this.#syncSpawnTools(record, child.manager); }
+    await this.#save();
+    return this.spawnLimits();
+  }
+  /** Whether the model working on `taskId` may be offered the spawn tools at all: below the depth cap and with room left in the tree. */
+  spawnAllowed(taskId) {
+    const { maxSpawnDepth, maxSpawnDescendants } = this.limits;
+    return this.#depthOf(taskId) < maxSpawnDepth && this.#descendantCount(this.#conversationOf(taskId)) < maxSpawnDescendants;
+  }
+  /** Spawn tools exist on a child's manager only while its depth is below the cap, so an agent at the cap is never offered them. */
+  #syncSpawnTools(record, manager) {
+    if (this.#depthOf(record.id) < this.limits.maxSpawnDepth) {
+      manager.spawnBackgroundAgent = (_callerId, request) => this.spawnAgent(record.id, request);
+      manager.spawnWorkflow = (_callerId, request) => this.spawnWorkflow(record.id, request);
+    } else {
+      delete manager.spawnBackgroundAgent;
+      delete manager.spawnWorkflow;
+    }
+  }
+  /** Checks depth and tree size for `count` new agents under `parentTaskId` and holds their place until the records exist. */
+  #reserveSpawn(parentTaskId, count = 1) {
+    const parentDepth = this.#depthOf(parentTaskId);
+    const { maxSpawnDepth, maxSpawnDescendants } = this.limits;
+    const conversationId = this.#conversationOf(parentTaskId);
+    const used = this.#descendantCount(conversationId);
+    const detail = { depth: parentDepth, requestedDepth: parentDepth + 1, maxSpawnDepth, descendants: used, requested: count, maxSpawnDescendants, conversationId };
+    const refuse = (code, message) => Object.assign(fail(code, message, 409), { structured: { code, message, ...detail } });
+    if (parentDepth + 1 > maxSpawnDepth)
+      throw refuse('spawn_depth_exceeded', `This agent is at spawn depth ${parentDepth} and the limit is ${maxSpawnDepth}: it cannot start more agents. Finish the work yourself or report what is missing.`);
+    if (used + count > maxSpawnDescendants)
+      throw refuse('spawn_descendants_exceeded', `This conversation already has ${used} spawned agents and the limit is ${maxSpawnDescendants}; ${count} more were requested. Reuse the agents that exist or finish the work yourself.`);
+    this.spawnReservations.set(conversationId, (this.spawnReservations.get(conversationId) || 0) + count);
+    let released = false;
+    return { release: () => {
+      if (released) return;
+      released = true;
+      const left = (this.spawnReservations.get(conversationId) || 0) - count;
+      if (left > 0) this.spawnReservations.set(conversationId, left); else this.spawnReservations.delete(conversationId);
+    } };
+  }
+
   async #initChild(record) {
     if (this.children.has(record.id)) return this.children.get(record.id);
     const stateDir = path.join(this.directory, record.id, 'state');
@@ -282,8 +376,8 @@ export class ConcurrentApiAgent {
     await manager.permissions.load();
     manager.permissions.mode = record.permissionMode || 'review';
     manager.permissions.executionPolicy = record.executionPolicy || 'host-review';
-    manager.spawnBackgroundAgent = (_callerId, request) => this.spawnAgent(record.id, request);
-    manager.spawnWorkflow = (_callerId, request) => this.spawnWorkflow(record.id, request);
+    manager.spawnAllowed = (taskId) => this.spawnAllowed(taskId);
+    this.#syncSpawnTools(record, manager);
     await manager.startLocal(executionRoot);
     const scoped=await this.#scopedProvider(record.effectiveProfile?.id||'__global__',
       record.effectiveProfile?.revision||null);
@@ -411,7 +505,7 @@ export class ConcurrentApiAgent {
   }
   async start({ prompt, attachments = [], dependsOn = [], parentTaskId = null, baseRef = null, workspacePath = null,
     workflowId = null, phaseId = null, role = null, conversationId = null, linkedFromTaskId = null, handoffText = '',
-    profileId = null, roleProfiles = null } = {}) {
+    profileId = null, roleProfiles = null, spawnReservation = null } = {}) {
     if (this.closed) throw fail('shutting_down', 'Hub is shutting down.', 503);
     if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 100000) throw fail('invalid_prompt', 'A task prompt is required.', 400);
     if (!Array.isArray(dependsOn) || dependsOn.length > 12 || dependsOn.some(id => !UUID.test(id) || !this.get(id)))
@@ -463,11 +557,14 @@ export class ConcurrentApiAgent {
       profileId:scoped.effectiveProfile?.id||null,
       effectiveProfile:scoped.effectiveProfile||null,roleProfiles:selectedRoleProfiles,
       sourceRoot: root, createdAt: now(), updatedAt: now(),
+      depth: parentTaskId ? this.#depthOf(parentTaskId) + 1 : 0,
       status: 'queued', dependsOn: [...new Set(dependsOn)], parentTaskId, baseRef,
       executionRoot: root !== this.manager.workspace && !rootOccupied && !parentTaskId && !baseRef ? root : null,
       worktree: null, branch: null, permissionMode: this.manager.permissions?.mode || 'review',
       executionPolicy: this.manager.permissions?.executionPolicy || 'host-review', error: null };
     this.records.set(id, record);
+    // The record now counts toward the tree size by itself.
+    spawnReservation?.release();
     await this.#save();
     void this.#drain().catch(error => this.log(error.message));
     return this.#queued(record);
@@ -475,16 +572,25 @@ export class ConcurrentApiAgent {
   async spawnAgent(parentTaskId, { goal, dependsOn = [], workflowId = null, phaseId = null, role = null } = {}) {
     if (typeof goal !== 'string' || !goal.trim() || goal.length > 8000)
       throw fail('invalid_goal', 'Subagent goal is required and must be under 8000 characters.', 400);
-    // Role overrides are inherited from the owner's original task. A model
-    // cannot supply a new credential destination through spawn_agent.
-    const parent=this.get(parentTaskId);
-    return this.start({ prompt: goal, dependsOn, parentTaskId,
-      workflowId,phaseId,role,roleProfiles:parent?.roleProfiles||{},
-      profileId:(role?parent?.roleProfiles?.[roleKey(role)]:null)||parent?.effectiveProfile?.id||null,
-      workspacePath: parent?.workspacePath || null });
+    // The enforcement point: depth and tree size are checked here, whatever tools the model was offered, and the place is held
+    // synchronously so parallel spawn calls cannot all slip under the limit together.
+    const reservation = this.#reserveSpawn(parentTaskId, 1);
+    try {
+      // Role overrides are inherited from the owner's original task. A model
+      // cannot supply a new credential destination through spawn_agent.
+      const parent=this.get(parentTaskId);
+      return await this.start({ prompt: goal, dependsOn, parentTaskId,
+        workflowId,phaseId,role,roleProfiles:parent?.roleProfiles||{},
+        profileId:(role?parent?.roleProfiles?.[roleKey(role)]:null)||parent?.effectiveProfile?.id||null,
+        workspacePath: parent?.workspacePath || null, spawnReservation: reservation });
+    } finally { reservation.release(); }
   }
   async spawnWorkflow(parentTaskId, request = {}) {
     if (!this.get(parentTaskId)) throw fail('parent_missing','Conversation not found.',404);
+    // A workflow starts many agents; refuse it up front when they cannot all fit, instead of creating half of it.
+    const planned = Array.isArray(request?.phases)
+      ? request.phases.reduce((sum, phase) => sum + (Array.isArray(phase?.agents) ? phase.agents.length : 0), 0) : 0;
+    this.#reserveSpawn(parentTaskId, Math.max(1, Math.min(planned, 1000))).release();
     const root=this.get(parentTaskId)?.workspacePath||this.get(parentTaskId)?.workspace?.path;
     if (this.manager.workspaceRegistry&&root)
       await this.manager.workspaceRegistry.resolve(root);

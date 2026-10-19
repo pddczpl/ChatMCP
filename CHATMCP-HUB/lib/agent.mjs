@@ -274,6 +274,17 @@ function normalizeCatalog(value) {
   return { catalog, index };
 }
 
+// A spawn refused by the Hub's depth / tree-size limit is an ordinary, structured tool error the model can read and act on.
+const SPAWN_LIMIT_ERRORS = new Set(['spawn_depth_exceeded', 'spawn_descendants_exceeded']);
+// The tool was offered when the run began and the Hub's limits changed afterwards: the function is gone, the answer is the same refusal.
+const spawnUnavailable = () => Object.assign(new Error('This agent is no longer allowed to start agents (the Hub spawn limit changed). Finish the work yourself or report what is missing.'), { code: 'spawn_depth_exceeded' });
+function spawnLimitResult(error) {
+  if (!SPAWN_LIMIT_ERRORS.has(error?.code)) return null;
+  const detail = { code: error.code, message: String(error.message).slice(0, 400), ...(error.structured ?? {}) };
+  const structured = { error: detail, executed: false };
+  return { isError: true, content: [{ type: 'text', text: JSON.stringify(structured) }], structuredContent: structured };
+}
+
 function parseObject(value, label = 'arguments_json') {
   if (typeof value !== 'string' || Buffer.byteLength(value) > MAX_ARGUMENT_BYTES) throw fault('invalid_arguments', `${label} phải là chuỗi JSON object hợp lệ, tối đa 4 MiB.`);
   let parsed;
@@ -801,7 +812,10 @@ export class AgentRunner {
         : context.catalog;
       context.direct = directToolsFor(offeredCatalog);
       context.tools = [...structuredClone(ROUTER_TOOLS), ...context.direct.functions];
-      if(typeof this.manager.spawnBackgroundAgent==='function'){
+      // The spawn tools are offered only to an agent that may still spawn (depth below the cap, room left in the tree). The limit itself
+      // is enforced where the agent is started, so a call that arrives anyway is refused with spawn_depth_exceeded.
+      const spawnAllowed=typeof this.manager.spawnAllowed==='function'?Boolean(this.manager.spawnAllowed(task.id)):true;
+      if(spawnAllowed&&typeof this.manager.spawnBackgroundAgent==='function'){
         context.spawnTool=true;
         context.tools.push({type:'function',name:'spawn_agent',strict:false,
           description:'Start an independent background subagent in its own Git worktree. Returns a task ID immediately; it is not a finished result. Permissions and dependencies are enforced by the Hub.',
@@ -810,7 +824,7 @@ export class AgentRunner {
           },required:['goal']}
         });
       }
-      if(typeof this.manager.spawnWorkflow==='function'){
+      if(spawnAllowed&&typeof this.manager.spawnWorkflow==='function'){
         context.workflowTool=true;
         context.tools.push({
           type:'function',name:'spawn_workflow',strict:false,
@@ -1216,7 +1230,15 @@ export class AgentRunner {
           (args.dependsOn!=null&&(!Array.isArray(args.dependsOn)||args.dependsOn.some(id=>typeof id!=='string'))))
           throw fault('invalid_arguments','spawn_agent cần goal và dependsOn hợp lệ.');
         return await this.#upstream(context,call,'chatmcp.spawn_agent',args,async()=>{
-          const result=await this.manager.spawnBackgroundAgent(context.task.id,args);
+          let result;
+          try{
+            if(typeof this.manager.spawnBackgroundAgent!=='function')throw spawnUnavailable();
+            result=await this.manager.spawnBackgroundAgent(context.task.id,args);
+          }catch(error){
+            const limited=spawnLimitResult(error);
+            if(limited)return limited;
+            throw error;
+          }
           const summary={taskId:result.id,status:result.status,dependsOn:result.dependsOn||[]};
           return {isError:false,content:[{type:'text',text:JSON.stringify(summary)}],structuredContent:summary};
         });
@@ -1228,8 +1250,11 @@ export class AgentRunner {
         return await this.#upstream(context,call,'chatmcp.spawn_workflow',args,async()=>{
           let workflow;
           try{
+            if(typeof this.manager.spawnWorkflow!=='function')throw spawnUnavailable();
             workflow=await this.manager.spawnWorkflow(context.task.id,args);
           }catch(error){
+            const limited=spawnLimitResult(error);
+            if(limited)return limited;
             if(['invalid_workflow','duplicate_phase','workflow_capacity','invalid_dependencies',
                  'invalid_agents','parent_missing'].includes(error?.code))
               return {isError:true,content:[{type:'text',text:'Invalid workflow: '+String(error.message).slice(0,300)}],
