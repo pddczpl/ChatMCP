@@ -48,7 +48,7 @@ export const translations = {
     perm_auto: 'Tự động (Autonomous)',
     perm_auto_desc: 'Tự động chạy các tool trong workspace mà không hỏi lại.',
     perm_full_access: 'FULL ACCESS ⚠️',
-    perm_full_access_desc: 'Quyền tối đa không giới hạn, vượt qua xác nhận.',
+    perm_full_access_desc: 'Bỏ qua xác nhận cho việc thường ngày; xóa dữ liệu, git push, merge PR, tạo/xóa release hoặc repo vẫn hỏi lại.',
 
     // Inspector Tabs
     tab_activity: 'Hoạt động',
@@ -220,7 +220,7 @@ export const translations = {
     perm_auto: 'Autonomous',
     perm_auto_desc: 'Automatically executes workspace tools without prompts.',
     perm_full_access: 'FULL ACCESS ⚠️',
-    perm_full_access_desc: 'Unrestricted autonomy, bypasses confirmations.',
+    perm_full_access_desc: 'Skips confirmations for everyday work; deleting data, git push, merging PRs and creating/deleting releases or repos still ask.',
 
     // Inspector Tabs
     tab_activity: 'Activity',

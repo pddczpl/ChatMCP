@@ -24,8 +24,13 @@ try {
   ok(pathChecks===0,'full access does not apply workspace path gate');
   const stopped=new AbortController();stopped.abort(new Error('STOP'));
   await assert.rejects(gate.authorize({name:'desktop-commander.start_process',taskId:'task',signal:stopped.signal}),/STOP/);passed++;
-  const dangerous=await gate.authorize({name:'desktop-commander.delete_file',args:{file:'/outside'},taskId:'task'});
-  ok(dangerous.allowed&&audit===2,'destructive tool requires no per-tool prompt and is audited');
+  // Full Access still stops for what cannot be taken back (see tests/verify-full-access-always-ask.mjs).
+  const dangerousRun=gate.authorize({name:'desktop-commander.delete_file',args:{file:'/outside'},taskId:'task'});
+  for(let i=0;i<200&&gate.state().pending.length===0;i++)await new Promise(resolve=>setTimeout(resolve,10));
+  ok(gate.state().pending.length===1&&gate.state().pending[0].category==='dangerous','a destructive tool still asks in Full Access');
+  gate.decide(gate.state().pending[0].id,false);
+  const dangerous=await dangerousRun;
+  ok(!dangerous.allowed&&audit===1,'and runs only when the owner approves it (audited full-access calls: the shell tool only)');
   await gate.writes;
   const reloaded=new PermissionGate({manager,workspace,directory:root});await reloaded.load();
   ok(reloaded.state().fullAccess,'full access is persisted across restart');

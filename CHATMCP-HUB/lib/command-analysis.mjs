@@ -305,12 +305,66 @@ function classifyGit(args) {
   }
 }
 
+// ---------------------------------------------------------------- remote mutations
+
+// Commands that merge, publish, release or delete something on a remote system. They are "dangerous", not just "exec" (an unknown
+// network call), because Full Access still stops for them: they outlive the session and usually cannot be taken back.
+const GH_DANGEROUS = {
+  repo: ['delete', 'archive', 'unarchive', 'rename', 'edit', 'create', 'transfer'],
+  release: ['create', 'delete', 'upload', 'edit', 'delete-asset'],
+  pr: ['merge'],
+  issue: ['delete', 'transfer'],
+  gist: ['delete'],
+  secret: ['set', 'delete', 'remove'],
+  variable: ['set', 'delete', 'remove'],
+  'ssh-key': ['add', 'delete'],
+  'gpg-key': ['add', 'delete'],
+  workflow: ['disable'],
+  cache: ['delete'],
+  run: ['delete'],
+  label: ['delete'],
+  auth: ['logout'],
+};
+const GH_VALUE_FLAGS = new Set(['-R', '--repo', '--hostname']);
+
+function classifyGh(args) {
+  const words = [];
+  const list = args.map(String);
+  for (let i = 0; i < list.length; i += 1) {
+    const word = list[i];
+    if (GH_VALUE_FLAGS.has(word)) { i += 1; continue; }
+    if (word.startsWith('-')) continue;
+    words.push(word.toLowerCase());
+  }
+  const [group, action] = words;
+  if (group === 'api') {
+    const method = list.findIndex((word, index) => /^(?:-X|--method)$/i.test(word) && index + 1 < list.length);
+    const named = method !== -1 ? list[method + 1].toUpperCase() : (list.find((word) => /^(?:-X|--method)=/i.test(word)) ?? '').split('=')[1]?.toUpperCase();
+    const writes = (named && named !== 'GET') || list.some((word) => /^(?:-[fF]|--field|--raw-field|--input)(?:=|$)/.test(word) || /^-[fF].+/.test(word));
+    return writes ? danger('gh api ghi dữ liệu lên GitHub (phương thức không phải GET hoặc có trường dữ liệu)') : null;
+  }
+  if (group && action && GH_DANGEROUS[group]?.includes(action)) return danger(`gh ${group} ${action} thay đổi hoặc xóa dữ liệu trên GitHub`);
+  return null;
+}
+
+function classifyRemoteMutation(name, args) {
+  if (name === 'gh') return classifyGh(args);
+  const first = String(operands(args)[0] ?? '').toLowerCase();
+  if (['docker', 'podman'].includes(name) && ['push', 'login', 'logout'].includes(first)) return danger(`${name} ${first} gửi image hoặc thông tin đăng nhập ra registry`);
+  if (name === 'kubectl' && ['delete', 'apply', 'replace', 'patch', 'drain', 'scale', 'rollout'].includes(first)) return danger(`kubectl ${first} thay đổi cluster`);
+  if (name === 'terraform' && ['apply', 'destroy', 'import', 'taint', 'untaint', 'force-unlock', 'state'].includes(first)) return danger(`terraform ${first} thay đổi hạ tầng`);
+  if (['aws', 'gcloud', 'az'].includes(name) && operands(args).some((word) => /^(?:delete|remove|rm|terminate|destroy|purge|deprovision)(?:-|$)/i.test(String(word)))) return danger(`${name} xóa tài nguyên đám mây`);
+  return null;
+}
+
 // ---------------------------------------------------------------- project tools
 
 function classifyPackageManager(name, args) {
   const sub = String(operands(args)[0] ?? '').toLowerCase();
   const argsAfter = operands(args).slice(1);
   if (!sub) return hasFlag(args, '-v', '--version') ? read('Phiên bản') : exec(`${name} không đối số`);
+  const registryVerb = /^(?:publish|unpublish|deprecate|dist-tag|owner|access|token|login|logout|adduser|team|org|tag)$/;
+  if (registryVerb.test(sub) || (name === 'yarn' && sub === 'npm' && registryVerb.test(String(argsAfter[0] ?? '').toLowerCase()))) return danger(`${name} ${sub} xuất bản hoặc thay đổi gói/tài khoản trên registry`);
   if (['test', 't', 'tst'].includes(sub)) return plain(args) ? verify(`${name} test`) : exec(`${name} test với tham số không an toàn`);
   if (['run', 'run-script', 'rum', 'urn'].includes(sub)) {
     const script = String(argsAfter[0] ?? '');
@@ -393,6 +447,8 @@ function classifyBuildTool(name, args) {
 function classifyProgram(name, args, { ps = false } = {}) {
   if (DANGEROUS_PROGRAMS.has(name)) return danger(`Lệnh có thể xóa dữ liệu hoặc thay đổi hệ thống: ${name}`);
   if (INTERPRETERS.has(name) && !['node', 'python', 'python3', 'py'].includes(name)) return exec(`Trình thông dịch/shell lồng nhau — không thể kiểm tra nội dung: ${name}`);
+  const remote = classifyRemoteMutation(name, args);
+  if (remote) return remote;
   if (NETWORK_PROGRAMS.has(name)) return exec(`Truy cập mạng hoặc dịch vụ ngoài: ${name}`);
   if (name === 'git') return classifyGit(args);
   if (['npm', 'pnpm', 'yarn'].includes(name)) return classifyPackageManager(name, args);

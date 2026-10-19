@@ -376,6 +376,9 @@ export class ConcurrentApiAgent {
     await manager.permissions.load();
     manager.permissions.mode = record.permissionMode || 'review';
     manager.permissions.executionPolicy = record.executionPolicy || 'host-review';
+    // An agent that a model spawned runs in the background: it may ask in Review, but in Autonomous and Full Access nobody is watching,
+    // so an operation that needs approval is refused at once instead of holding the agent for the approval timeout.
+    manager.permissions.backgroundAgent = Boolean(record.parentTaskId);
     manager.spawnAllowed = (taskId) => this.spawnAllowed(taskId);
     this.#syncSpawnTools(record, manager);
     await manager.startLocal(executionRoot);

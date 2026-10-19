@@ -302,6 +302,8 @@ export class CodingWorktreeOrchestrator {
       // The real coding worker requires an explicitly selected Autonomous parent.
       manager.permissions.mode=this.manager.permissions?.mode || 'review';
       manager.permissions.executionPolicy=this.manager.permissions?.executionPolicy || 'host-review';
+      // Nobody answers this gate: an operation that needs approval is refused at once instead of holding the worker for the timeout.
+      manager.permissions.interactive=false;
       await manager.startLocal(worktree);
       signal.throwIfAborted();
       const runner=new AgentRunner({manager,provider:this.provider,taskDirectory:path.join(stateDir,'tasks'),log:()=>{},
