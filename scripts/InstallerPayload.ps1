@@ -53,7 +53,7 @@ function Get-InstallerPayloadFiles {
         throw 'Installer source must be the root of its Git checkout.'
     }
     # NUL records preserve spaces and Unicode without relying on Git quotePath.
-    $raw = Invoke-InstallerGitRead -Git $git.Path -Root $root -Arguments 'ls-files --stage -z -- assets CHATMCP-HUB scripts START-CHATMCP-DESKTOP.cmd'
+    $raw = Invoke-InstallerGitRead -Git $git.Path -Root $root -Arguments 'ls-files --stage -z -- assets CHATMCP-HUB scripts START-CHATMCP-DESKTOP.cmd LICENSE NOTICE'
     $files = New-Object 'System.Collections.Generic.List[object]'
     foreach ($record in $raw.Split([char]0)) {
         if (-not $record) { continue }
@@ -64,6 +64,7 @@ function Get-InstallerPayloadFiles {
         $include = $relative -match '^assets/' -or
             $relative -match '^scripts/(Start-DesktopApp|install-desktop|uninstall-desktop)\.ps1$' -or
             $relative -eq 'START-CHATMCP-DESKTOP.cmd' -or
+            $relative -match '^(LICENSE|NOTICE)$' -or
             $relative -match '^CHATMCP-HUB/(lib|workers|extension|windows)/' -or
             ($relative -match '^CHATMCP-HUB/web/' -and $relative -notmatch '^CHATMCP-HUB/web/dist/') -or
             $relative -match '^CHATMCP-HUB/(hub\.mjs|package\.json|README\.md|THIRD-PARTY-NOTICES\.txt|Start-ChatMcpHub\.ps1|Stop-ChatMcpHub\.ps1|START-CHATMCP-HUB\.cmd|STOP-CHATMCP-HUB\.cmd)$'
@@ -101,7 +102,8 @@ function Get-InstallerPayloadFiles {
             $files.Add([pscustomobject]@{ RelativePath = 'CHATMCP-HUB/web/dist/' + $relativeUi; Source = $item.FullName })
         }
     }
-    foreach ($required in @('CHATMCP-HUB/hub.mjs', 'CHATMCP-HUB/package.json', 'START-CHATMCP-DESKTOP.cmd', 'scripts/Start-DesktopApp.ps1')) {
+    # Apache-2.0 section 4(a): recipients of a redistributed copy must receive the license (and NOTICE).
+    foreach ($required in @('CHATMCP-HUB/hub.mjs', 'CHATMCP-HUB/package.json', 'START-CHATMCP-DESKTOP.cmd', 'scripts/Start-DesktopApp.ps1', 'LICENSE', 'NOTICE')) {
         if (-not ($files | Where-Object { $_.RelativePath -eq $required })) { throw "Required runtime source is not tracked: $required" }
     }
     return $files.ToArray()
