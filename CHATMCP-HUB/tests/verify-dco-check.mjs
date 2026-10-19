@@ -6,6 +6,7 @@
 // least privilege, and the two revisions passed through env rather than interpolated into the shell.
 //
 // Needs the repository root next to CHATMCP-HUB (scripts/, .github/); without it the suite reports SKIP, never PASS.
+// CLAIM: dco-signoff
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';

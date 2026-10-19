@@ -6,6 +6,7 @@
 // directly with the engine's own option name, which is why nothing noticed. This suite goes
 // through the production integration point only: a real StudioWorkspace (it has `root`, not
 // `path`) and a real LocalTools, driven through the registered tools.
+// CLAIM: tree-sitter-tier
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';

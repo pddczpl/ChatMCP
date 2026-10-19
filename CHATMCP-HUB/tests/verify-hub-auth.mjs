@@ -10,6 +10,8 @@
 //   * Inner layers (Host, Origin, marker, CSRF) are covered by verify-e2e-isolation.mjs WITH a valid bearer.
 //   * Companion pairing still works; a ticket is single-use, short-lived and redeemable only by the Hub's own page.
 //   * The session file holds {pid, port, secret} for this Hub, is readable by the current user only, and goes away on shutdown.
+// CLAIM: hub-bearer-auth
+// CLAIM: hub-auth-boundary
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';

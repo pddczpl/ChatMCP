@@ -10,6 +10,7 @@
 //               installed in a temporary bundle with the layout of the staged runtime (runtimes/lsp/node_modules/...).
 //   * when found: the real typescript-language-server and pyright from a global npm install (the staged runtime under
 //               scripts/intelligence-runtime is not built on this machine), linked into the same bundle layout.
+// CLAIM: lsp-tier
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';

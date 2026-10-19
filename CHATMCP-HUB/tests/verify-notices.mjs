@@ -20,6 +20,7 @@
 //
 // The notices whose upstream text is not in the repository yet (the Tree-sitter grammar licenses) are PENDING: the suite prints them and does
 // not fail, because the staging code refuses a release build without them (step 5).
+// CLAIM: license-apache-2
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';

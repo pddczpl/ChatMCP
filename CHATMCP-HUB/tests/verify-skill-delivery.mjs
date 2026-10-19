@@ -7,6 +7,7 @@
 //
 // Negative control: the same scenario is run against a temporary copy of lib/ in which the defect is put back. That run must FAIL,
 // otherwise this suite could not have caught the original bug.
+// CLAIM: skills-reach-model
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';

@@ -10,6 +10,8 @@
 //   * a protected file read through a non-local tool (what Desktop Commander does) is withheld whole, including its harmless lines
 //   * the protocol envelope survives (a model that reads the scrubbed text can still answer it), a secret registered with the Hub is
 //     still masked, and the ledger records labels and counts only
+// CLAIM: outbound-secret-masking
+// CLAIM: outbound-protected-files
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';

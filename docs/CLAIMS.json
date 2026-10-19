@@ -1,0 +1,442 @@
+{
+  "version": 1,
+  "about": "Claims map (docs/CLAIMS.json). Each entry binds a claim made in the documents to the test that exercises it on the production code path, or says that none does. Validated by CHATMCP-HUB/tests/verify-claims-map.mjs; see docs/CLAIMS.md.",
+  "scannedDocuments": [
+    "README.md",
+    "RELEASE-NOTES-v3.9.0.md"
+  ],
+  "claims": [
+    {
+      "id": "skills-reach-model",
+      "claim": "An installed and enabled skill reaches the model.",
+      "source": {
+        "file": "README.md",
+        "line": 5,
+        "quote": "install reviewed skills"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-skill-delivery.mjs",
+      "seamNote": "Real AgentRunner, real PluginManager and real GitHub registry install path; only the model (a capturing provider) and the GitHub HTTP transport are scripted. Run again against a copy of lib/ with the v3.9.0 defect put back, which must fail.",
+      "forbiddenDoubles": [
+        "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Agent|Runner|Plugin)",
+        "\\b(?:AgentRunner|PluginManager)\\s*=\\s*(?:class|function|\\{)"
+      ]
+    },
+    {
+      "id": "lsp-tier",
+      "claim": "Code intelligence answers from the language server tier through the production chain.",
+      "source": {
+        "file": "README.md",
+        "line": 22,
+        "quote": "supported language servers"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-lsp-tier.mjs",
+      "seamNote": "Real StudioWorkspace -> LocalTools -> CodeIntelligenceEngine -> CodeIntelligence -> LspProcess; only the language-server child process differs (a protocol-faithful stub always, the real servers when installed).",
+      "forbiddenDoubles": [
+        "\\bworkspace\\s*[:=]\\s*\\{\\s*(?:path|root)\\b"
+      ]
+    },
+    {
+      "id": "tree-sitter-tier",
+      "claim": "A Tree-sitter adapter handed to LocalTools reaches the code-intelligence engine.",
+      "source": {
+        "file": "README.md",
+        "line": 22,
+        "quote": "Tree-sitter WASM grammars"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-tree-sitter-wiring.mjs",
+      "seamNote": "Real StudioWorkspace and real LocalTools driven through the registered tools; the parser is a recording stand-in, and the recording is what proves the injected adapter was reached.",
+      "forbiddenDoubles": [
+        "\\bworkspace\\s*[:=]\\s*\\{\\s*(?:path|root)\\b"
+      ]
+    },
+    {
+      "id": "read-only-mode",
+      "claim": "In Read Only a shell command runs only when the classifier recognises it as read-only.",
+      "source": {
+        "file": "SECURITY.md",
+        "line": 17,
+        "quote": "Shell commands run in this mode only when the command classifier (`lib/command-analysis.mjs`, `lib/read-programs.mjs`) positively recognises them as read-only"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-readonly-corpus.mjs",
+      "seamNote": "Bypass corpus through the real classifier, real LocalTools and real PermissionGate on real files; a positive control shows the same commands DO write when approved in Review.",
+      "forbiddenDoubles": [
+        "\\bworkspace\\s*[:=]\\s*\\{\\s*(?:path|root)\\b",
+        "attachLocalTools\\(\\s*\\{"
+      ]
+    },
+    {
+      "id": "no-replay-after-kill",
+      "claim": "After the Hub is killed during a command, the command is not run again by the Hub.",
+      "source": {
+        "file": "README.md",
+        "line": 34,
+        "quote": "the Hub must not automatically replay ambiguous mutations"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-e2e-recovery.mjs",
+      "seamNote": "A real Hub process killed with SIGKILL / TerminateProcess, restarted on the same state folder; the number of lines a script appended to a file says how many times it ran.",
+      "forbiddenDoubles": [
+        "new\\s+(?:AgentRunner|HubManager|BrowserRunner|ConcurrentApiAgent)\\("
+      ]
+    },
+    {
+      "id": "checkpoints",
+      "claim": "The Hub takes a checkpoint before an agent edit and restores it only if the file is still as reviewed.",
+      "source": {
+        "file": "docs/USER-GUIDE.md",
+        "line": 201,
+        "quote": "Hub tự lưu một checkpoint của các file sắp đổi"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-e2e-bugfix.mjs",
+      "seamNote": "A real Hub process over HTTP: edit approved in Review, checkpoint listed, diff reviewed, a stale restore refused with 409, the restore applied when the file is as reviewed.",
+      "forbiddenDoubles": [
+        "new\\s+(?:AgentRunner|HubManager|BrowserRunner|ConcurrentApiAgent)\\("
+      ]
+    },
+    {
+      "id": "hub-bearer-auth",
+      "claim": "Every Hub API route needs the per-launch bearer except the named exceptions.",
+      "source": {
+        "file": "README.md",
+        "line": 46,
+        "quote": "every API request (reads and the live event streams included) must carry a per-launch secret as `Authorization: Bearer`"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-hub-auth.mjs",
+      "seamNote": "A real Hub process: every route found in hub.mjs is requested without the secret; tested routes must equal declared routes. The exceptions are pinned (see docs/THREAT-MODEL.md, RR-2 and RR-3).",
+      "forbiddenDoubles": [
+        "createHubServer\\("
+      ]
+    },
+    {
+      "id": "hub-auth-boundary",
+      "claim": "The bearer protects against other accounts, restricted processes and web pages (not against same-user programs).",
+      "source": {
+        "file": "README.md",
+        "line": 46,
+        "quote": "This boundary protects against other Windows accounts, sandboxed processes that cannot read your files, and web pages in your browser."
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-hub-auth.mjs",
+      "seamNote": "Real Hub: session file ACL (SDDL has only the owner), Host/Origin/CSRF layers refuse web pages, the secret is not inherited by child processes. Not tested: a second Windows account, a restricted-token process. The two forged-Origin read routes are an open exception (docs/THREAT-MODEL.md RR-2; verify-threat-model.mjs observes it).",
+      "forbiddenDoubles": [
+        "createHubServer\\("
+      ]
+    },
+    {
+      "id": "outbound-secret-masking",
+      "claim": "Secret-shaped text in a tool result never reaches the text the Companion types into chatgpt.com.",
+      "source": {
+        "file": "README.md",
+        "line": 15,
+        "quote": "masks text that is shaped like a secret before it is sent"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-outbound-runner.mjs",
+      "seamNote": "The real BrowserRunner runs start -> poll -> claim -> sent -> reply as the extension drives it; the assertions read the text poll() and claim() return. Only the tool server is a stand-in. Pattern-based: secrets without a recognisable shape are not caught.",
+      "forbiddenDoubles": [
+        "class\\s+\\w*(?:Fake|Stub|Mock)\\w*Runner",
+        "\\b(?:redactDeep|redactText)\\s*[:=]\\s*(?:\\(|function|async)"
+      ]
+    },
+    {
+      "id": "outbound-protected-files",
+      "claim": "A tool result that names .env*, *.pem, *.key, id_rsa* or another protected file is withheld whole.",
+      "source": {
+        "file": "README.md",
+        "line": 15,
+        "quote": "withholds what a tool read from"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-outbound-runner.mjs",
+      "seamNote": "Same real BrowserRunner flow, including a protected file read through a non-local tool.",
+      "forbiddenDoubles": [
+        "class\\s+\\w*(?:Fake|Stub|Mock)\\w*Runner",
+        "\\bwithholdProtected\\s*[:=]\\s*(?:\\(|function|async)"
+      ]
+    },
+    {
+      "id": "outbound-review-before-send",
+      "claim": "With Review before send on, a tool result is held until the owner decides and is never offered to the Companion before Approve.",
+      "source": {
+        "file": "README.md",
+        "line": 15,
+        "quote": "offers an optional **Review before send**"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-outbound-hub.mjs",
+      "seamNote": "A real Hub process over HTTP with the Companion played through its own routes and the person through the dashboard routes (with the Hub secret); the tool that runs is the real local.read_file.",
+      "forbiddenDoubles": [
+        "createHubServer\\("
+      ]
+    },
+    {
+      "id": "license-apache-2",
+      "claim": "ChatMCP's own code is licensed under Apache-2.0 (LICENSE, NOTICE, README, installer payload).",
+      "source": {
+        "file": "README.md",
+        "line": 40,
+        "quote": "ChatMCP's own source code is licensed under the **Apache License, Version 2.0**"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-notices.mjs",
+      "seamNote": "Reads the real README, LICENSE and NOTICE; the installer payload requirement is checked in the script and in scripts/tests/Test-InstallerPayload.ps1 (a CI step). 15 seeded defects are each reported."
+    },
+    {
+      "id": "dco-signoff",
+      "claim": "A pull request commit without a Signed-off-by trailer fails the DCO check.",
+      "source": {
+        "file": "README.md",
+        "line": 40,
+        "quote": "every commit of a pull request needs a Developer Certificate of Origin sign-off"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-dco-check.mjs",
+      "seamNote": "The real scripts/check-dco.mjs against real temporary Git repositories, plus the properties of .github/workflows/dco.yml. Not run: the workflow on GitHub."
+    },
+    {
+      "id": "responses-adapter",
+      "claim": "The OpenAI Responses adapter validates messages, binds tool results to calls and requires a terminal SSE event.",
+      "source": {
+        "file": "RELEASE-NOTES-v3.9.0.md",
+        "line": 11,
+        "quote": "supports validated text/function call messages, tool result correlation, bounded SSE with terminal completion"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-openai-responses.mjs",
+      "seamNote": "The real adapter module and the real GatewayProvider; only fetch is scripted. The separate function-probe path of the same sentence is not exercised here."
+    },
+    {
+      "id": "usage-and-cost",
+      "claim": "Cost totals are shown only from known usage and owner-supplied rates.",
+      "source": {
+        "file": "RELEASE-NOTES-v3.9.0.md",
+        "line": 13,
+        "quote": "No guessed total is shown when usage, pricing or failed-attempt billing is unknown."
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-model-cost.mjs",
+      "seamNote": "Pure functions of lib/model-cost.mjs with no collaborators; the UI that shows the total is not exercised by this test."
+    },
+    {
+      "id": "project-check-discovery",
+      "claim": "Project check discovery lists checks without running them.",
+      "source": {
+        "file": "RELEASE-NOTES-v3.9.0.md",
+        "line": 15,
+        "quote": "Read-only project check discovery can list Node, TypeScript, Python, Rust, Go and Playwright checks."
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-project-check-discovery.mjs",
+      "seamNote": "The real discoverProjectChecks on real temporary projects. Covers Node, TypeScript, Python, Rust and browser checks and that nothing runs; there is no Go case."
+    },
+    {
+      "id": "evaluation-cli",
+      "claim": "The evaluation CLI runs fixtures, saves a revision-bound report and reports no live-model result.",
+      "source": {
+        "file": "RELEASE-NOTES-v3.9.0.md",
+        "line": 15,
+        "quote": "A deterministic evaluation CLI runs existing real-process regression fixtures and saves revision-bound reports; it does not fabricate live-model results."
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-evaluation-harness.mjs",
+      "seamNote": "Spawns the real tests/evaluate.mjs process and reads the report it wrote."
+    },
+    {
+      "id": "receipt-invalidation",
+      "claim": "Passing test receipts and file hashes are invalidated after a potentially mutating edit.",
+      "source": {
+        "file": "RELEASE-NOTES-v3.9.0.md",
+        "line": 7,
+        "quote": "Previously passing tests and file hashes are invalidated after potentially mutating edits."
+      },
+      "kind": "claim",
+      "seam": "unmapped",
+      "test": null,
+      "candidateTest": "CHATMCP-HUB/tests/verify-objective-acceptance.mjs",
+      "reason": "No test drives the real agent loop through an edit and then looks at the receipts: tests build the receipt objects by hand.",
+      "phase": "P4"
+    },
+    {
+      "id": "owner-acceptance",
+      "claim": "The owner accepts each objective criterion against fresh first-party receipts.",
+      "source": {
+        "file": "RELEASE-NOTES-v3.9.0.md",
+        "line": 7,
+        "quote": "an owner accepting each objective criterion"
+      },
+      "kind": "claim",
+      "seam": "unmapped",
+      "test": null,
+      "candidateTest": "CHATMCP-HUB/tests/verify-objective-acceptance.mjs",
+      "reason": "verify-objective-acceptance.mjs calls the real acceptObjectiveCriterion with hand-written receipts (progress objects), not receipts produced by the agent.",
+      "phase": "P4"
+    },
+    {
+      "id": "model-profiles",
+      "claim": "Encrypted provider profiles, defaults, role overrides and revision checks.",
+      "source": {
+        "file": "RELEASE-NOTES-v3.9.0.md",
+        "line": 9,
+        "quote": "AI Settings can manage multiple encrypted local provider profiles"
+      },
+      "kind": "claim",
+      "seam": "unmapped",
+      "test": null,
+      "candidateTest": "CHATMCP-HUB/tests/verify-profile-routing.mjs",
+      "reason": "Not audited for the production seam: verify-profile-routing.mjs uses a fake primary runner; encryption at rest and the revision check on resume are not shown on a production path.",
+      "phase": null
+    },
+    {
+      "id": "context-budgets",
+      "claim": "Context budgets include instructions, tool schemas and reserved response space.",
+      "source": {
+        "file": "RELEASE-NOTES-v3.9.0.md",
+        "line": 13,
+        "quote": "Model-specific context budgets estimate instructions, tool schemas and reserved response space"
+      },
+      "kind": "claim",
+      "seam": "unmapped",
+      "test": null,
+      "candidateTest": "CHATMCP-HUB/tests/verify-smart-context-compaction.mjs",
+      "reason": "Not audited: the candidate suite has not been checked for doubles.",
+      "phase": null
+    },
+    {
+      "id": "release-gates-exact-sha",
+      "claim": "Publishing needs a green run on the exact release commit.",
+      "source": {
+        "file": "RELEASE-NOTES-v3.9.0.md",
+        "line": 29,
+        "quote": "Publication requires success on the **exact release commit**"
+      },
+      "kind": "claim",
+      "seam": "unmapped",
+      "test": null,
+      "reason": "Enforced by .github/workflows/publish-v3.9.0.yml; no suite reads or runs it.",
+      "phase": null
+    },
+    {
+      "id": "companion-zip-verified",
+      "claim": "The Companion ZIP is verified against the installer payload in the release workflow.",
+      "source": {
+        "file": "RELEASE-NOTES-v3.9.0.md",
+        "line": 23,
+        "quote": "is packaged from the matching source/payload and verified in the release workflow"
+      },
+      "kind": "claim",
+      "seam": "unmapped",
+      "test": null,
+      "reason": "Done by scripts/Build-BrowserCompanion.ps1 -VerifyInstallerPayload in the CI and release workflows; no Node suite exercises it.",
+      "phase": null
+    },
+    {
+      "id": "integration-guarantees",
+      "claim": "Research workflows and coding worktrees have different integration guarantees.",
+      "source": {
+        "file": "README.md",
+        "line": 33,
+        "quote": "Research workflows and coding worktrees have different integration guarantees"
+      },
+      "kind": "claim",
+      "seam": "unmapped",
+      "test": null,
+      "candidateTest": "CHATMCP-HUB/tests/verify-phase3-worktrees.mjs",
+      "reason": "Descriptive, not a single testable property; the worktree half is exercised by verify-phase3-worktrees.mjs (scripted workers), the research half has no test that states its guarantee.",
+      "phase": null
+    },
+    {
+      "id": "compat-not-guaranteed",
+      "claim": "A custom URL or model name does not guarantee tool-call compatibility.",
+      "source": {
+        "file": "README.md",
+        "line": 27,
+        "quote": "A custom URL or a model name does not guarantee tool-call compatibility."
+      },
+      "kind": "disclaimer",
+      "seam": "unmapped",
+      "test": null,
+      "reason": "Negated statement: it promises nothing.",
+      "phase": null
+    },
+    {
+      "id": "full-access-not-a-sandbox",
+      "claim": "Full Access is not an OS sandbox.",
+      "source": {
+        "file": "README.md",
+        "line": 32,
+        "quote": "Full Access executes permitted commands with your Windows account privileges, not inside a universal OS sandbox."
+      },
+      "kind": "disclaimer",
+      "seam": "unmapped",
+      "test": null,
+      "candidateTest": "CHATMCP-HUB/tests/verify-full-access.mjs",
+      "reason": "Negated statement: it promises nothing.",
+      "phase": null
+    },
+    {
+      "id": "worktrees-not-isolation",
+      "claim": "Worktrees are not OS isolation.",
+      "source": {
+        "file": "README.md",
+        "line": 48,
+        "quote": "Git worktrees provide checkout separation, **not operating-system isolation**; host commands and supported Windows Sandbox verification provide different assurance levels."
+      },
+      "kind": "disclaimer",
+      "seam": "unmapped",
+      "test": null,
+      "reason": "Negated statement: it promises nothing.",
+      "phase": null
+    },
+    {
+      "id": "rn-not-live-certified",
+      "claim": "Limits of the evidence for this release.",
+      "source": {
+        "file": "RELEASE-NOTES-v3.9.0.md",
+        "line": 31,
+        "quote": "In particular, an arbitrary custom Responses gateway has not been live-certified; a signed-in ChatGPT Edge session is not reproduced by scripted Chromium pages; host Git worktrees are not an OS sandbox."
+      },
+      "kind": "disclaimer",
+      "seam": "unmapped",
+      "test": null,
+      "reason": "Negated statement: it promises nothing.",
+      "phase": null
+    },
+    {
+      "id": "rn-not-claimed",
+      "claim": "Things the release does not claim.",
+      "source": {
+        "file": "RELEASE-NOTES-v3.9.0.md",
+        "line": 31,
+        "quote": "Live-model benchmark parity, offline Windows Sandbox certification, Authenticode signing and real-user browser account acceptance are **not claimed**."
+      },
+      "kind": "disclaimer",
+      "seam": "unmapped",
+      "test": null,
+      "reason": "Negated statement: it promises nothing.",
+      "phase": null
+    }
+  ]
+}

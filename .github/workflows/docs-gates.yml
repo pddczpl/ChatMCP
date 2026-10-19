@@ -44,10 +44,16 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
-      - name: Documents, trust labels, notices and threat model
+      - name: Documents, trust labels, notices, threat model and claims map
         working-directory: CHATMCP-HUB
         run: |
           set -euo pipefail
-          for suite in docs trust-labels notices threat-model; do
+          for suite in docs trust-labels notices threat-model claims-map; do
             node "tests/verify-$suite.mjs"
           done
+      - name: Claims map against the base branch (the unmapped count may not grow)
+        if: github.event_name == 'pull_request'
+        working-directory: CHATMCP-HUB
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: node tests/verify-claims-map.mjs --base "origin/$BASE_REF"
