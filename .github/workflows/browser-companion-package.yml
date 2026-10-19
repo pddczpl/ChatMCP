@@ -1,21 +1,28 @@
 name: Browser Companion Release Package
 
+# One run per push: no branch-pinned push trigger (it started this workflow twice for every push to that branch); main and pull requests only.
 on:
   push:
-    branches: ['fix/publish-browser-companion-archive']
+    branches: [main]
+    paths:
+      - 'CHATMCP-HUB/extension/**'
+      - 'scripts/Build-BrowserCompanion.ps1'
+      - 'scripts/InstallerPayload.ps1'
+      - '.github/workflows/browser-companion-package.yml'
   pull_request:
     paths:
       - 'CHATMCP-HUB/extension/**'
       - 'scripts/Build-BrowserCompanion.ps1'
       - 'scripts/InstallerPayload.ps1'
       - '.github/workflows/browser-companion-package.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: companion-zip-${{ github.ref }}
-  cancel-in-progress: true
+  group: companion-zip-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   extension-zip:

@@ -13,6 +13,7 @@
 // 4. end to end: in Read Only the attacks leave NO marker/outside file behind; with the same commands approved in Review the files
 //    DO appear (positive control, so "no file" means something); GNU sed --sandbox refuses the e command by itself
 // 5. the sed script grammar and the option parser on their own
+// CLAIM: read-only-mode
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';

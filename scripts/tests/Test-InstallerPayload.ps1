@@ -51,7 +51,7 @@ try {
     New-Item -ItemType Directory -Path $fixture -Force | Out-Null
     Invoke-FixtureGit @('init', '-q')
     Write-Fixture '.gitignore' "installed-plugins.json`nsecrets.json`ntest-results/`nnode_modules/`n"
-    foreach ($file in @('START-CHATMCP-DESKTOP.cmd', 'CHATMCP-HUB/hub.mjs', 'CHATMCP-HUB/package.json', 'CHATMCP-HUB/lib/agent.mjs', 'CHATMCP-HUB/lib/space name.mjs', 'CHATMCP-HUB/windows/sandbox/GuestSupervisor/Program.cs', 'CHATMCP-HUB/tests/private-fixture.json', 'CHATMCP-HUB/ui/src/App.tsx', 'CHATMCP-HUB/web/dist/index.html', 'CHATMCP-HUB/web/dist/assets/old-hash.js', 'scripts/Start-DesktopApp.ps1', 'scripts/uninstall-desktop.ps1', 'scripts/Build-Installer.ps1', 'scripts/tests/developer.ps1', 'assets/icons/app.ico', 'LICENSE', 'NOTICE')) { Write-Fixture $file }
+    foreach ($file in @('START-CHATMCP-DESKTOP.cmd', 'CHATMCP-HUB/hub.mjs', 'CHATMCP-HUB/package.json', 'CHATMCP-HUB/lib/agent.mjs', 'CHATMCP-HUB/lib/space name.mjs', 'CHATMCP-HUB/windows/sandbox/GuestSupervisor/Program.cs', 'CHATMCP-HUB/tests/private-fixture.json', 'CHATMCP-HUB/ui/src/App.tsx', 'CHATMCP-HUB/web/dist/index.html', 'CHATMCP-HUB/web/dist/assets/old-hash.js', 'scripts/Start-DesktopApp.ps1', 'scripts/uninstall-desktop.ps1', 'scripts/Build-Installer.ps1', 'scripts/tests/developer.ps1', 'assets/icons/app.ico', 'LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md')) { Write-Fixture $file }
     $unicodeSource = 'CHATMCP-HUB/lib/caf' + [char]0x00e9 + '.mjs'
     Write-Fixture $unicodeSource
     Invoke-FixtureGit @('add', '--all')
@@ -71,6 +71,10 @@ try {
     Invoke-FixtureGit @('rm', '--cached', '-q', 'LICENSE')
     Assert-Rejected { Get-InstallerPayloadFiles -RepositoryRoot $fixture } 'not tracked: LICENSE' 'a payload without the license text fails closed'
     Invoke-FixtureGit @('add', 'LICENSE')
+    Assert-Payload (Test-Path -LiteralPath (Join-Path $destination 'THIRD-PARTY-NOTICES.md')) 'THIRD-PARTY-NOTICES.md ships at the payload root'
+    Invoke-FixtureGit @('rm', '--cached', '-q', 'THIRD-PARTY-NOTICES.md')
+    Assert-Rejected { Get-InstallerPayloadFiles -RepositoryRoot $fixture } 'not tracked: THIRD-PARTY-NOTICES.md' 'a payload without the third-party notices fails closed'
+    Invoke-FixtureGit @('add', 'THIRD-PARTY-NOTICES.md')
     Assert-Payload (Test-Path -LiteralPath (Join-Path $destination 'CHATMCP-HUB/web/dist/assets/new-hash.js')) 'new generated UI asset ships'
     Assert-Payload (-not (Test-Path -LiteralPath (Join-Path $destination 'CHATMCP-HUB/web/dist/assets/old-hash.js'))) 'stale tracked UI asset is not resurrected'
     foreach ($excluded in @('CHATMCP-HUB/installed-plugins.json', 'CHATMCP-HUB/secrets.json', 'CHATMCP-HUB/test-results', 'CHATMCP-HUB/node_modules', 'CHATMCP-HUB/skills', 'CHATMCP-HUB/tests', 'CHATMCP-HUB/ui', 'CHATMCP-HUB/windows/sandbox/GuestSupervisor', 'scripts/tests', 'scripts/Build-Installer.ps1', 'scripts/local-personal.ps1', 'assets/private.png')) {
@@ -116,6 +120,27 @@ try {
     Assert-Payload ((Test-Path -LiteralPath (Join-Path $nativePayload 'ChatMCP.exe')) -and (Test-Path -LiteralPath (Join-Path $nativePayload 'WebView2Loader.dll'))) 'validated desktop and x64 loader are both copied'
     Assert-Payload ((Test-Path -LiteralPath (Join-Path $nativePayload 'Microsoft.Web.WebView2.Core.dll')) -and (Test-Path -LiteralPath (Join-Path $nativePayload 'Microsoft.Web.WebView2.WinForms.dll'))) 'separately emitted WebView2 runtime assemblies are retained'
     Assert-Payload (-not (Test-Path -LiteralPath (Join-Path $nativePayload 'ChatMCP.pdb')) -and -not (Test-Path -LiteralPath (Join-Path $nativePayload 'Microsoft.Web.WebView2.Core.xml'))) 'publish debug symbols and XML documentation do not ship'
+    # Node.js LICENSE: node.exe may only be packaged together with the licence text of its bundled components.
+    Assert-Payload ($builder.Contains('Copy-InstallerNodeLicense -NodeExecutable $sysNode -Destination $stagingNode')) 'real builder copies the Node.js LICENSE next to the bundled node.exe'
+    $nodeHome = Join-Path $scratch 'node-home'
+    $nodeStage = Join-Path $scratch 'node-stage'
+    New-Item -ItemType Directory -Path $nodeHome | Out-Null
+    [IO.File]::WriteAllText((Join-Path $nodeHome 'node.exe'), 'fixture node')
+    $nodeLicenseText = "Node.js is licensed for use as follows:`nPermission is hereby granted, free of charge, to any person obtaining a copy of this software`n" + ('This fixture stands in for the long Node.js LICENSE file. ' * 30)
+    Assert-Rejected { Copy-InstallerNodeLicense -NodeExecutable (Join-Path $nodeHome 'node.exe') -Destination $nodeStage -SuppliedLicense '' } 'No Node.js LICENSE' 'node.exe without a LICENSE beside it is not packaged'
+    Assert-Payload (-not (Test-Path -LiteralPath (Join-Path $nodeStage 'LICENSE'))) 'the refused Node.js build leaves no LICENSE behind'
+    [IO.File]::WriteAllText((Join-Path $nodeHome 'LICENSE'), 'MIT')
+    Assert-Rejected { Copy-InstallerNodeLicense -NodeExecutable (Join-Path $nodeHome 'node.exe') -Destination $nodeStage -SuppliedLicense '' } 'not the Node.js licence' 'a stub LICENSE file is refused'
+    [IO.File]::WriteAllText((Join-Path $nodeHome 'LICENSE'), $nodeLicenseText)
+    Copy-InstallerNodeLicense -NodeExecutable (Join-Path $nodeHome 'node.exe') -Destination $nodeStage -SuppliedLicense ''
+    Assert-Payload ([IO.File]::ReadAllText((Join-Path $nodeStage 'LICENSE')) -eq $nodeLicenseText) 'the LICENSE beside node.exe is copied byte for byte'
+    Remove-Item -LiteralPath (Join-Path $nodeHome 'LICENSE') -Force
+    $suppliedLicense = Join-Path $scratch 'supplied-node-license.txt'
+    [IO.File]::WriteAllText($suppliedLicense, $nodeLicenseText)
+    Remove-Item -LiteralPath (Join-Path $nodeStage 'LICENSE') -Force
+    Copy-InstallerNodeLicense -NodeExecutable (Join-Path $nodeHome 'node.exe') -Destination $nodeStage -SuppliedLicense $suppliedLicense
+    Assert-Payload (Test-Path -LiteralPath (Join-Path $nodeStage 'LICENSE')) 'a supplied Node.js LICENSE file is accepted for an MSI-installed Node.js'
+    Assert-Rejected { Copy-InstallerNodeLicense -NodeExecutable (Join-Path $nodeHome 'node.exe') -Destination $nodeStage -SuppliedLicense (Join-Path $scratch 'no-such-file') } 'does not name an existing file' 'a supplied LICENSE path that does not exist is an error, not a silent fallback'
     Write-Host "PASS: Installer payload regression ($count passed, 0 failed, 0 skipped)"
 } finally {
     $resolved = [IO.Path]::GetFullPath($scratch).TrimEnd('\', '/')

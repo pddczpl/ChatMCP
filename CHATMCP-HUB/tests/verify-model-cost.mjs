@@ -1,3 +1,5 @@
+// CLAIM: usage-and-cost
+
 import assert from 'node:assert/strict';
 import {parseModelRates,priceModelResponse,createCostLedger,updateCostLedger,summarizeCostLedgers} from '../lib/model-cost.mjs';
 const rates={input:2,output:8,cacheRead:0.5,cacheWrite:2.5};

@@ -8,6 +8,7 @@
 //     not in poll(); claim() of it is refused
 //   * Redact more and Approve go through POST /api/browser/outbound/decide; what the Companion then receives is the scrubbed text
 //   * cancelling the task through the dashboard route clears the hold and sends nothing
+// CLAIM: outbound-review-before-send
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';

@@ -1,0 +1,59 @@
+name: Documentation gates
+
+# ci.yml skips a documentation-only change (its `paths-ignore` list). The suites below read the README, SECURITY.md, docs/, the notices
+# and the claims map, so they must still run for such a change: this workflow starts exactly when ci.yml does not. Its `paths` list is
+# the `paths-ignore` list of ci.yml; tests/verify-ci-triggers.mjs fails when the two differ. A change that also touches code runs both.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'NOTICE'
+      - 'HUONG-DAN.txt'
+      - 'VALIDATION.txt'
+  pull_request:
+    paths:
+      - '*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'NOTICE'
+      - 'HUONG-DAN.txt'
+      - 'VALIDATION.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-gates-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  docs:
+    name: Documentation suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # The whole history: the claims map compares its ratchet with the one on the base branch.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Documents, trust labels, notices, threat model and claims map
+        working-directory: CHATMCP-HUB
+        run: |
+          set -euo pipefail
+          for suite in docs trust-labels notices threat-model claims-map; do
+            node "tests/verify-$suite.mjs"
+          done
+      - name: Claims map against the base branch (the unmapped count may not grow)
+        if: github.event_name == 'pull_request'
+        working-directory: CHATMCP-HUB
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: node tests/verify-claims-map.mjs --base "origin/$BASE_REF"

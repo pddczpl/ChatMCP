@@ -1,4 +1,5 @@
 // Executes the actual evaluation process, not just checks source strings.
+// CLAIM: evaluation-cli
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
