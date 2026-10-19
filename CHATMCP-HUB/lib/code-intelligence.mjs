@@ -858,7 +858,8 @@ export class CodeIntelligenceEngine {
     // Windows runner workspaces may be reparse points whose displayed path
     // differs from fs.realpath() (drive letters, junctions and long paths).
     if (this._resolvedRoot) return this._resolvedRoot;
-    const root = this.workspace.root || this.workspace.path;
+    // StudioWorkspace exposes root; a double that only carries another property must fail loudly, not pass silently.
+    const root = this.workspace.root;
     if (typeof root !== 'string' || !root) throw new TypeError('Workspace root is unavailable');
     return path.resolve(root);
   }
@@ -867,7 +868,7 @@ export class CodeIntelligenceEngine {
     // StudioWorkspace.resolve is async and returns {root,absolute,relative};
     // test doubles may return a path string. Never compare a canonical target
     // against a non-canonical Windows/Junction root: that gives false escapes.
-    const declaredRoot = this.workspace.root || this.workspace.path;
+    const declaredRoot = this.workspace.root;
     if (typeof declaredRoot !== 'string' || !declaredRoot) throw new TypeError('Workspace root is unavailable');
     const resolved = await this.workspace.resolve(targetPath);
     const inputPath = typeof resolved === 'string' ? resolved : resolved?.absolute;

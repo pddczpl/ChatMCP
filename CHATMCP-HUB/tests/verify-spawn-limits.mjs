@@ -55,6 +55,16 @@ const provider = {
     if (/leaf/.test(user)) return { status: 'completed', output: [{ type: 'message', role: 'assistant', phase: 'final', content: [{ type: 'output_text', text: `Run ${tag} done.` }] }] };
     // "always spawns": it calls spawn_agent whether or not the tool was offered; `breadth` asks for several calls in one answer
     const count = /breadth (\d+)/.exec(user)?.[1] ?? '1';
+    if (!run.toolNames.includes('spawn_agent')) {
+      // not offered the tool: try every other way to reach it - the bare name, and the same name through the mcp_call router
+      const goal = JSON.stringify({ goal: `Run ${tag}0: always spawn again` });
+      const viaRouter = (name) => ({ type: 'function_call', status: 'completed', name: 'mcp_call', call_id: `router-${tag}-${name}`,
+        arguments: JSON.stringify({ name, arguments_json: goal }) });
+      return { status: 'completed', output: [
+        { type: 'function_call', status: 'completed', name: 'spawn_agent', call_id: `spawn-${tag}-direct`, arguments: goal },
+        viaRouter('spawn_agent'), viaRouter('chatmcp.spawn_agent'), viaRouter('local.spawn_agent'),
+      ] };
+    }
     return { status: 'completed', output: Array.from({ length: Number(count) }, (_, index) => ({
       type: 'function_call', status: 'completed', name: 'spawn_agent', call_id: `spawn-${tag}-${index}`,
       arguments: JSON.stringify({ goal: `Run ${tag}${index}: ${/breadth/.test(user) ? 'leaf worker' : 'always spawn again'}` }),
@@ -102,9 +112,12 @@ try {
     }
     assert.equal(level(2).toolNames.some((name) => /^spawn_/.test(name)), false, 'the agent at the cap is offered no spawn tool');
     assert.equal(recordsOf().some((record) => record.depth > 2), false);
-    assert.ok(level(2).outputs.length >= 1, 'the agent at the cap called spawn_agent anyway');
-    assert.match(level(2).outputs[0], /unknown_function|Không có hàm/i, 'and the unoffered tool simply does not exist for it');
-    assert.equal(recordsOf().length, 2, 'that call created nothing');
+    assert.equal(level(2).outputs.length, 4, 'the agent at the cap tried spawn_agent directly and three ways through the mcp_call router');
+    for (const output of level(2).outputs) {
+      assert.doesNotMatch(output, /"taskId"/, `no attempt may start an agent: ${output.slice(0, 200)}`);
+      assert.match(output, /unknown_function|Không có hàm|unknown|không|not found|Unknown/i, `each attempt is refused as an unknown tool: ${output.slice(0, 200)}`);
+    }
+    assert.equal(recordsOf().length, 2, 'those calls created nothing');
     assert.equal(pool.get(root.id).status, 'completed');
     ok('default limits: the always-spawning model builds depth 1 and 2 and stops; the agent at the cap is not offered spawn tools and its stray call creates nothing');
   }
