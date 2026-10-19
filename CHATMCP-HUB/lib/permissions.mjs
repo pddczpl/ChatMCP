@@ -12,6 +12,14 @@ const EXECUTION_POLICIES = Object.freeze(['host-review', 'sandbox-only', 'full-a
 const normalizeMode = (value) => { const mode = MODE_ALIASES[value] ?? value; return PERMISSION_MODES.includes(mode) ? mode : null; };
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
+// Operations that Full Access still asks about. Category 'dangerous' (deletion, history rewrite, git push, destructive gh/npm/kubectl/
+// terraform commands as classified by lib/command-analysis.mjs) covers most of them; the tool names are listed too so that
+// re-categorising a tool can never silently drop them from the list.
+const ALWAYS_ASK_TOOLS=/(?:^|\.)(?:github_pr_merge|github_release_create)$/i;
+function mustAskEvenInFullAccess(name,verdict){
+  return verdict.category==='dangerous'||verdict.risk?.kind==='dangerous'||ALWAYS_ASK_TOOLS.test(String(name));
+}
+
 const READ=/\b(?:read|list|search|find|browse|stat|info|status|get|describe|inspect|query|diff|diagnostic)\b/i;
 const MUTATE=/\b(?:write|edit|replace|patch|move|rename|create|update|add|delete|remove|save|insert|commit|upload|run|execute|install|start_process|spawn|terminal|bash|powershell|execute_code|push|publish)\b/i;
 const SECRET_KEYS=/authorization|secret|password|token|api.?key|private.?key/i;
@@ -62,6 +70,16 @@ export class PermissionGate {
     this.mode='review';this.executionPolicy='host-review';this.requests=new Map();this.history=[];this.onEvent=()=>{};this.listeners=new Set();this.file=directory?path.join(directory,'permission-history.json'):null;this.writes=Promise.resolve();
     this.localTools=null;
     this.executionRegistry=null;
+    // Who can answer an approval request. A coding-orchestrator worker is never interactive. A background agent that a model spawned
+    // can ask only in Review, where the owner expects to be asked and sees the request; in Autonomous and Full Access nobody is watching.
+    this.interactive=true;
+    this.backgroundAgent=false;
+  }
+  /** Whether a request for approval can be answered at all in this context. */
+  canAsk(){
+    if(!this.interactive)return false;
+    if(this.backgroundAgent&&this.mode!=='review')return false;
+    return true;
   }
   /** Gives the gate knowledge of the execution capability registry. */
   attachExecutionRegistry(registry){this.executionRegistry=registry;}
@@ -83,7 +101,7 @@ export class PermissionGate {
     if(Array.isArray(saved?.history))this.history=saved.history.slice(-100);
   }
   #save(){if(!this.file)return;this.writes=this.writes.catch(()=>{}).then(()=>writeJson(this.file,{mode:this.mode,executionPolicy:this.executionPolicy,history:this.history.slice(-100)}));this.writes.catch(()=>{});}
-  state(){return {mode:this.mode,modes:[...PERMISSION_MODES],executionPolicy:this.executionPolicy,fullAccess:this.executionPolicy==='full-access',approvalTimeoutMs:this.timeout,pending:[...this.requests.values()].map(({id,taskId,toolName,category,reason,summary,preview,detail,at,expiresAt})=>({id,taskId,toolName,category,reason,summary,preview,detail,at,expiresAt})),recent:this.history.slice(-60)};}
+  state(){return {mode:this.mode,modes:[...PERMISSION_MODES],executionPolicy:this.executionPolicy,fullAccess:this.executionPolicy==='full-access',canAsk:this.canAsk(),approvalTimeoutMs:this.timeout,pending:[...this.requests.values()].map(({id,taskId,toolName,category,reason,summary,preview,detail,at,expiresAt})=>({id,taskId,toolName,category,reason,summary,preview,detail,at,expiresAt})),recent:this.history.slice(-60)};}
   configure({mode,executionPolicy,confirmation}={}){
     let nextMode;
     if(mode==='full-access'){
@@ -183,11 +201,15 @@ export class PermissionGate {
     // Explicit Full Access: run MCP tools with the current Windows account's OS
     // permissions, without Studio workspace checks or per-tool approvals.
     // This never elevates OS privileges, disables Windows ACLs, or grants admin.
-    if(this.executionPolicy==='full-access'){
+    // It does NOT cover what cannot be taken back: deletion, history rewrites, git push, merging a pull request, creating or deleting
+    // a release or repository. Those fall through to the ordinary approval below, in every mode.
+    const fullAccess=this.executionPolicy==='full-access';
+    if(fullAccess&&!mustAskEvenInFullAccess(name,verdict)){
       this.#emit({type:'full_access_tool',taskId,toolName:name,category});
       return {allowed:true,category,risk:verdict.risk,local:verdict.local,reason:'Full Access: user explicitly enabled unrestricted host tools'};
     }
-    if(!verdict.local)await this.inspectPaths(args,category);
+    // Full Access stays outside the workspace checks even for the operations it still asks about.
+    if(!verdict.local&&!fullAccess)await this.inspectPaths(args,category);
     // STRICT MODE: external MCP tools are not OS-confined (even when they claim
     // readOnlyHint). Allow built-in Studio tools and local file tools only; commands run on the host,
     // so they are refused here as well, even with an approval.
@@ -199,6 +221,10 @@ export class PermissionGate {
     }
     if(category==='read'||category==='checkpoint'||(category==='workspace_edit'&&this.mode==='autonomous'))return {allowed:true,category,risk:verdict.risk,local:verdict.local};
     if(this.mode==='autonomous'&&category==='unknown') return {allowed:false,category,reason:'Chế độ Tự động: công cụ chưa phân loại bị từ chối. Chuyển sang Review nếu muốn được hỏi từng lần.'};
+    // A worker or background agent has nobody to answer: refuse at once instead of holding the run for the whole approval timeout.
+    if(!this.canAsk()){
+      return this.#refuse(name,args,verdict,taskId,'policy',`Ngữ cảnh chạy nền: thao tác này (${reason}) cần người dùng phê duyệt nhưng không có ai để hỏi trong worker/agent nền nên bị từ chối ngay, không chờ ${Math.round(this.timeout/60000)} phút. Hãy tự chạy thao tác này hoặc yêu cầu từ một phiên tương tác.`);
+    }
     if(!taskId)throw error('missing_task','Thiếu mã tác vụ khi xin quyền.');
     if(signal?.aborted)throw signal.reason;
     const id=randomUUID();const {preview,detail,summary,reason:shownReason}=this.#describe(name,args,verdict);

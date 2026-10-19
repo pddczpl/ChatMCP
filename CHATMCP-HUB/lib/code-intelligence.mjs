@@ -858,7 +858,8 @@ export class CodeIntelligenceEngine {
     // Windows runner workspaces may be reparse points whose displayed path
     // differs from fs.realpath() (drive letters, junctions and long paths).
     if (this._resolvedRoot) return this._resolvedRoot;
-    const root = this.workspace.root || this.workspace.path;
+    // StudioWorkspace exposes root; a double that only carries another property must fail loudly, not pass silently.
+    const root = this.workspace.root;
     if (typeof root !== 'string' || !root) throw new TypeError('Workspace root is unavailable');
     return path.resolve(root);
   }
@@ -867,7 +868,7 @@ export class CodeIntelligenceEngine {
     // StudioWorkspace.resolve is async and returns {root,absolute,relative};
     // test doubles may return a path string. Never compare a canonical target
     // against a non-canonical Windows/Junction root: that gives false escapes.
-    const declaredRoot = this.workspace.root || this.workspace.path;
+    const declaredRoot = this.workspace.root;
     if (typeof declaredRoot !== 'string' || !declaredRoot) throw new TypeError('Workspace root is unavailable');
     const resolved = await this.workspace.resolve(targetPath);
     const inputPath = typeof resolved === 'string' ? resolved : resolved?.absolute;
@@ -1276,7 +1277,7 @@ export class CodeIntelligenceEngine {
       const normalizedRel = toPosix(relPath);
       const payload = await new Promise((resolve, reject) => {
         const proc = spawn(pythonExe, ['-I', '-X', 'utf8', workerScript], {
-          cwd: this.workspace.path,
+          cwd: this.rootPath,
           stdio: ['pipe', 'pipe', 'pipe'],
           windowsHide: true,
         });
@@ -1480,11 +1481,6 @@ export class CodeIntelligenceEngine {
         return null;
       }
 
-      health.failures = 0;
-      health.cooldownUntil = 0;
-      health.lastErrorReason = null;
-      health.lastSuccessAt = Date.now();
-
       const raw = response?.result == null ? [] : Array.isArray(response.result) ? response.result : [response.result];
       const locations = [];
       for (const location of raw) {
@@ -1494,8 +1490,16 @@ export class CodeIntelligenceEngine {
         if (!uri || !range || !Number.isInteger(range.start?.line)) continue;
         const url = new URL(uri);
         if (url.protocol !== 'file:') continue;
-        const relative = toPosix(path.relative(this.workspace.path, fileURLToPath(url)));
-        if (!relative || relative === '..' || relative.startsWith('../') || path.isAbsolute(relative)) continue;
+        // StudioWorkspace has root, not path; getParsedFile above already pinned the canonical root.
+        const locationPath = fileURLToPath(url);
+        const outside = (rel) => !rel || rel === '..' || rel.startsWith('../') || path.isAbsolute(rel);
+        let relative = toPosix(path.relative(this.rootPath, locationPath));
+        if (outside(relative)) {
+          // A server may spell the same file through a Windows 8.3 alias or a junction; judge the canonical target instead.
+          const canonical = await fs.realpath(locationPath).catch(() => null);
+          relative = canonical ? toPosix(path.relative(this.rootPath, canonical)) : '';
+        }
+        if (outside(relative)) continue;
         // getParsedFile enforces canonical workspace boundaries before exposing locations.
         if (!await this.getParsedFile(relative)) continue;
         locations.push({
@@ -1507,6 +1511,12 @@ export class CodeIntelligenceEngine {
           engine: this._getEngineForTier('lsp', language),
         });
       }
+      // Success is recorded only after the response was translated. Anything that throws above lands in the catch
+      // block as a failure; resetting earlier let a repeatedly failing translation keep the breaker closed forever.
+      health.failures = 0;
+      health.cooldownUntil = 0;
+      health.lastErrorReason = null;
+      health.lastSuccessAt = Date.now();
       if (locations.length === 0) {
         this._lastLspFallbackReason = 'lsp_empty_result';
       } else {
@@ -2416,7 +2426,7 @@ export function registerCodeIntelligenceTools(define, workspace, { engine: exist
 
   define('repo_map', {
     description:
-      'Generate a PageRank-style repository map of source files and exported symbol signatures within a token budget. Use this first on large codebases to locate relevant modules and line ranges without reading full files.',
+      'Generate a repository map of source files and exported symbol signatures within a token budget, ranked by how many other files import each file (import-graph in/out degree, boosted by focus files and the query; this is not PageRank). Use this first on large codebases to locate relevant modules and line ranges without reading full files.',
     schema: {
       type: 'object',
       additionalProperties: false,

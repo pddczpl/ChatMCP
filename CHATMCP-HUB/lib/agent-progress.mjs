@@ -11,11 +11,11 @@ const MAX_LABELS = 24;
 const MAX_LABEL = 160;
 const PHASES = new Set(['planning', 'inspecting', 'editing', 'verifying', 'working']);
 const INSPECTION = /(?:^|\.)(?:mcp_catalog|mcp_describe|mcp_capabilities|read_file|read_multiple_files|list_directory|list_files|find_files|search_files|search|tree|file|git_status|git_diff|git_log|plan_get|checks_list|list_tools)$/i;
-const EDIT = /(?:^|\.)(?:edit_file|write_file|create_file|delete_file|move_file|rename_file|git_add|git_commit|git_restore|apply_patch|files_apply_patch|plan_set|update_plan)$/i;
+const EDIT = /(?:^|\.)(?:edit_file|write_file|files_write_batch|create_file|delete_file|move_file|rename_file|git_add|git_commit|git_restore|apply_patch|files_apply_patch|plan_set|update_plan)$/i;
 // A mutating tool can have changed the tested/reviewed tree even if the tool
 // returned an error. Only an explicit never-executed response rules it out.
 // These names describe real file-content changes, not plan or Git staging edits.
-const FILE_MUTATION = /(?:^|\.)(?:edit_file|write_file|create_file|delete_file|move_file|rename_file|apply_patch|files_apply_patch|git_restore)$/i;
+const FILE_MUTATION = /(?:^|\.)(?:edit_file|write_file|files_write_batch|create_file|delete_file|move_file|rename_file|apply_patch|files_apply_patch|git_restore)$/i;
 const VERIFY = /(?:^|\.)(?:run_command|checks_run|diff_check|test|run_tests)$/i;
 // A process may legitimately be polled many times while it is still running.
 // Never interpret an unchanged poll as evidence that the coding agent is stuck.
@@ -149,12 +149,16 @@ export function observeTaskTool(progressValue, { call, result, step = 0, verifie
     const list=verified.kind==='inspect'?progress.verifiedInspections:
       verified.kind==='edit'?progress.verifiedFiles:
       verified.kind==='verify'?progress.verifiedChecks:progress.gitReviews;
-    const record={kind:verified.kind,step:positive(verified.step||step)};
-    if(typeof verified.path==='string')record.path=verified.path.slice(0,MAX_LABEL);
-    if(typeof verified.sha256==='string')record.sha256=verified.sha256;
-    if(typeof verified.id==='string')record.id=verified.id.slice(0,40);
-    const last=list.at(-1);
-    if(!last || json(last)!==json(record)){list.push(record);if(list.length>24)list.shift();}
+    // One call can verify several files (files_write_batch): `more` carries the receipts after the first.
+    const items=[verified,...(verified.kind==='edit'&&Array.isArray(verified.more)?verified.more.slice(0,49).map(item=>({...item,kind:'edit',step:verified.step})):[])];
+    for(const item of items){
+      const record={kind:verified.kind,step:positive(item.step||step)};
+      if(typeof item.path==='string')record.path=item.path.slice(0,MAX_LABEL);
+      if(typeof item.sha256==='string')record.sha256=item.sha256;
+      if(typeof item.id==='string')record.id=item.id.slice(0,40);
+      const last=list.at(-1);
+      if(!last || json(last)!==json(record)){list.push(record);if(list.length>24)list.shift();}
+    }
   }
   // An unchanged read or rerun is not new goal progress, even if the
   // first-party host can prove the file/test result is authentic.

@@ -77,7 +77,7 @@ node tests/run-all.mjs --no-skip all             # một bộ bị SKIP bị tí
 npm run test:ui                                  # bộ giao diện Python/Playwright (tùy chọn)
 ```
 
-Hiện có **100 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
+Hiện có **107 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
 
 Runner in một dòng cho mỗi bộ (`PASS`/`FAIL`/`TIMEOUT`/`SKIP`, thời gian, mã thoát thật) và thoát khác 0 nếu có bộ nào fail hoặc quá hạn (mặc định 180 giây/bộ, đổi bằng `--timeout`). Bộ kiểm thử in một dòng `CHATMCP_TEST_SKIP: <lý do>` rồi thoát 0 để được báo là **SKIP — không bao giờ được tính là PASS**. `--no-skip all` (hoặc `--no-skip tên1,tên2`) biến SKIP thành FAIL. Workflow hiện tại cài Python 3.11 và các gói ghim trong `tests/requirements-e2e.txt`, rồi chạy **`--no-skip all`** trên cả Windows và Linux, Node 22 và 24. Một bộ bắt buộc bị bỏ qua vì thiếu môi trường vì thế làm CI thất bại. Một phần không thể kiểm chứng trong bản này được in `BLOCKED: <gì> - <vì sao>`.
 
@@ -100,6 +100,8 @@ Tổng thời gian cả bộ Node: khoảng 3 phút (Linux, 180 s đã đo) đ�
 | | `verify-fs-helpers` | kiểm tra đối số, ghi nguyên tử, glob, Git runner |
 | | `verify-local-tools` | các công cụ cục bộ trên workspace và kho Git thật; nhấn vào điều *không bao giờ* được xảy ra |
 | | `verify-permissions-modes`, `verify-full-access` | `PermissionGate`: ba chế độ, đường dẫn bị chặn, `sandbox-only`, Full Access, lịch sử phê duyệt |
+| | `verify-readonly-corpus`, `verify-full-access-always-ask`, `verify-spawn-limits`, `verify-batch-write` | chế độ Chỉ đọc chống lách lệnh (kho `tests/fixtures/readonly-bypass-corpus.json`), Full Access vẫn hỏi thao tác không hoàn tác, giới hạn độ sâu/số agent con, `files_write_batch` giữ mã hóa và chống ghi đè |
+| | `verify-skill-delivery`, `verify-source-lint`, `verify-lsp-tier`, `verify-trust-labels` | kỹ năng cài đặt thật sự tới mô hình, mã không còn dòng bị nuốt vào chú thích, tầng LSP trên workspace thật, cổng chặn nhãn tin cậy sai |
 | **Tích hợp** | `verify-local-backend` | `HubManager` (backend `local`) + gate + công cụ + `AgentRunner` với mô hình giả; không cần Docker, mạng hay khóa |
 | | `verify-task-state` | máy trạng thái nhiệm vụ: luật thuần, cách `AgentRunner` áp dụng, kết luận về nhiệm vụ tìm thấy sau khi Hub chết |
 | | `verify-launcher` | launcher nền (`lib/launch.mjs`, và `Start/Stop-ChatMcpHub.ps1` trên Windows) |
@@ -107,7 +109,7 @@ Tổng thời gian cả bộ Node: khoảng 3 phút (Linux, 180 s đã đo) đ�
 | **Mô hình** | `verify-model-adapters` | Anthropic, OpenAI-chat, preset, liệt kê model, lưu khóa — toàn bộ bằng `fetch` giả |
 | | `verify-dual-mode`, `verify-gateway-*`, `verify-gemini-*` | gateway Gemini/OpenAI: dialect, nén khi 413, sửa lệnh lỗi, bị cắt |
 | **Phiên & HTTP** | `verify-persistent-sessions`, `verify-studio-recovery`, `verify-hub-claim-recovery`, `verify-network-recovery` | phục hồi phiên, tự tiếp tục, mất mạng |
-| | `verify-studio-core`, `verify-studio-http`, `verify-studio-verifications`, `verify-v2-http`, `verify-v2-runtime`, `verify-agent-http`, `verify-agent-autotools` | workspace/checkpoint/review, route HTTP, CSRF/Origin, sandbox |
+| | `verify-studio-core`, `verify-studio-http`, `verify-studio-verifications`, `verify-v2-http`, `verify-v2-runtime`, `verify-agent-http`, `verify-agent-autotools` | workspace/checkpoint/review, route HTTP, CSRF/Origin, Docker terminal |
 | **ChatGPT Web (legacy)** | `verify-browser-continuation`, `verify-first-message`, `verify-recovery-dom`, `verify-reply-witness`, `verify-result-paging`, `verify-send-cycle` | tiện ích trình duyệt và `BrowserRunner` (giữ để không hồi quy) |
 | **Giao diện cũ** | `verify-ui-logic` | quyết định của dashboard (`web/ui-logic.js`) chạy không cần trình duyệt; không thay thế bằng chứng React/Vite |
 | **Long-task autonomy** | `verify-agent-progress`, `verify-agent-autonomy` | Durable, host-proposed task phases, semantically equivalent read/search cycle detection, real local file hashes, approved test receipts, two strategy pivots and bounded stop; mock models are not live-provider proof |

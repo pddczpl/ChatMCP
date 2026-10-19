@@ -460,11 +460,16 @@ export class LocalTools {
       summary: (a) => `tasks_cancel ${a.taskId}`, run: (a) => this.#tasksCancel(a),
     });
     define('files_write_batch', {
-      description: 'Write multiple files in one call with preflight checks and automatic rollback on error. Parent folders are created automatically.',
+      description: 'Write several files in one call. Every item is checked before anything is written (if one item is refused, none is written) and a failed write is rolled back. Same rules as write_file: a file that already exists is replaced only when its item carries expected_sha256 (from read_file) or overwrite:true; an existing file keeps its encoding (UTF-8 BOM, UTF-16LE) and CRLF line endings. Parent folders are created automatically. Returns path, sha256 and previousSha for every file.',
       schema: obj({
         files: {
           type: 'array', minItems: 1, maxItems: 50,
-          items: obj({ path: str('File path relative to workspace.'), content: str('New file content.'), expected_sha256: EXPECTED_SHA }, ['path', 'content']),
+          items: obj({
+            path: str('File path relative to workspace.'),
+            content: str('New file content.'),
+            expected_sha256: EXPECTED_SHA,
+            overwrite: bool('Set true only to replace an existing file that you did not read first (no expected_sha256). Prefer expected_sha256.'),
+          }, ['path', 'content']),
         },
       }, ['files']),
       annotations: WRITE, category: 'workspace_edit', reason: 'Ghi nhiều file',
@@ -713,6 +718,23 @@ export class LocalTools {
   }
 
   // ------------------------------------------------------------------ write tools
+  /**
+   * Encodes `content` the way the file it replaces is encoded, so overwriting a file never silently changes its encoding or line
+   * endings: a UTF-8 BOM file stays UTF-8 BOM, a UTF-16LE file stays UTF-16LE, a CRLF file stays CRLF. A file that does not exist
+   * (or cannot be decoded losslessly) is written as plain UTF-8 with the line endings the caller used. Shared by write_file and
+   * files_write_batch.
+   * @returns {{data: Buffer, text: string, encoding: string}}
+   */
+  #encodeLike(existing, content) {
+    let encoding = 'utf8';
+    let text = content;
+    if (existing) {
+      const old = decodeText(existing);
+      if (old.ok) { encoding = old.encoding; if (old.eol === 'crlf') text = applyEol(content, 'crlf'); }
+    }
+    return { data: encodeText(text, encoding), text, encoding };
+  }
+
   async #writeFile({ path: p, content, overwrite = false, expected_sha256: expectedSha }) {
     const target = await this.#target(p, { write: true });
     if (Buffer.byteLength(content, 'utf8') > LIMITS.writeBytes) throw fault('content_too_large', `Nội dung vượt ${formatBytes(LIMITS.writeBytes)}; chia nhỏ file.`, 413);
@@ -736,13 +758,7 @@ export class LocalTools {
       if (parentStat && !parentStat.isDirectory()) throw fault('not_directory', 'Thư mục cha là một file.');
       if (!parentStat) await fs.mkdir(parent, { recursive: true });
     }
-    let encoding = 'utf8';
-    let text = content;
-    if (existing) {
-      const old = decodeText(existing);
-      if (old.ok) { encoding = old.encoding; if (old.eol === 'crlf') text = applyEol(content, 'crlf'); }
-    }
-    const data = encodeText(text, encoding);
+    const { data, text } = this.#encodeLike(existing, content);
     const digest = sha256(data);
     if (existing && data.equals(existing)) return ok(`${target.relative}: nội dung không đổi, không ghi.`, { path: target.relative, unchanged: true, sha256: digest });
     await writeFileAtomic(target.absolute, data, { mode: this.#fileMode(stat?.mode), expectedSha: existing ? sha256(existing) : null });
@@ -1250,8 +1266,12 @@ export class LocalTools {
     if (!Array.isArray(files) || !files.length) throw fault('bad_files', 'Cần danh sách files.');
     if (files.length > 50) throw fault('bad_files', 'Tối đa 50 file trong một lần ghi.');
 
+    // PREFLIGHT: every item is judged before the first byte is written, so a refusal never leaves a partial batch. The rules are
+    // those of write_file: an existing file is replaced only when the caller proves what it last saw (expected_sha256) or says
+    // overwrite:true on purpose; a symlink, a directory, a protected file and a file name that is not valid are never written.
     const preflight = [];
     const seenPaths = new Set();
+    const alreadyThere = [];
     for (const item of files) {
       if (!item || typeof item.path !== 'string' || !item.path.trim()) {
         throw fault('bad_path', 'Đường dẫn file không hợp lệ trong danh sách.');
@@ -1259,56 +1279,67 @@ export class LocalTools {
       if (typeof item.content !== 'string') {
         throw fault('bad_content', `Nội dung file "${item.path}" phải là chuỗi text.`);
       }
+      if (item.content.includes('\0')) throw fault('bad_content', `Nội dung file "${item.path}" chứa ký tự NUL; công cụ chỉ ghi file văn bản.`);
+      if (item.expected_sha256 !== undefined && (typeof item.expected_sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(item.expected_sha256))) {
+        throw fault('bad_revision', `expected_sha256 của file "${item.path}" không phải mã SHA-256 hợp lệ.`);
+      }
       const target = await this.#target(item.path, { write: true });
       if (seenPaths.has(target.relative)) {
         throw fault('duplicate_path', `Đường dẫn "${target.relative}" bị lặp lại trong danh sách.`);
       }
       seenPaths.add(target.relative);
 
-      const encoded = encodeText(item.content);
-      if (encoded.length > LIMITS.writeBytes) {
-        throw fault('file_too_large', `File "${target.relative}" (${formatBytes(encoded.length)}) vượt giới hạn ${formatBytes(LIMITS.writeBytes)}.`);
-      }
-
-      let existed = false;
-      let originalBuffer = null;
-      try {
-        const stat = await fs.lstat(target.absolute);
+      const stat = await fs.lstat(target.absolute).catch((error) => { if (error.code === 'ENOENT') return null; throw error; });
+      let existing = null;
+      if (stat) {
+        if (stat.isSymbolicLink()) throw fault('symlink', `"${target.relative}" là symlink; không ghi qua symlink.`, 403);
         if (stat.isDirectory()) throw fault('is_directory', `"${target.relative}" là thư mục, không thể ghi đè.`);
-        if (stat.isSymbolicLink()) throw fault('symlink', `"${target.relative}" là symlink, không thể ghi đè.`);
-        originalBuffer = await fs.readFile(target.absolute);
-        existed = true;
-      } catch (err) {
-        if (err.code !== 'ENOENT') throw err;
+        if (!stat.isFile()) throw fault('not_file', `"${target.relative}" không phải file thông thường.`);
+        existing = await fs.readFile(target.absolute);
+        if (item.expected_sha256) {
+          const currentSha = sha256(existing);
+          if (currentSha !== item.expected_sha256.toLowerCase()) {
+            throw fault('stale_revision', `File "${target.relative}" đã bị thay đổi kể từ lần đọc trước (SHA hiện tại ${currentSha.slice(0, 8)} khác với ${item.expected_sha256.slice(0, 8)}). Đọc lại trước khi ghi.`, 409);
+          }
+        } else if (item.overwrite !== true) {
+          alreadyThere.push(target.relative);
+          continue;
+        }
+      } else {
+        if (item.expected_sha256) {
+          throw fault('stale_revision', `File "${target.relative}" không tồn tại trên đĩa nhưng có expected_sha256.`, 409);
+        }
+        const parentStat = await fs.stat(path.dirname(target.absolute)).catch(() => null);
+        if (parentStat && !parentStat.isDirectory()) throw fault('not_directory', `Thư mục cha của "${target.relative}" là một file.`);
       }
 
-      if (item.expected_sha256) {
-        if (typeof item.expected_sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(item.expected_sha256)) {
-          throw fault('bad_revision', `expected_sha256 của file "${item.path}" không phải mã SHA-256 hợp lệ.`);
-        }
-        if (!existed) {
-          throw fault('stale_revision', `File "${target.relative}" không tồn tại trên đĩa nhưng có expected_sha256.`);
-        }
-        const currentSha = sha256(originalBuffer);
-        if (currentSha !== item.expected_sha256.toLowerCase()) {
-          throw fault('stale_revision', `File "${target.relative}" đã bị thay đổi kể từ lần đọc trước (SHA hiện tại ${currentSha.slice(0, 8)} khác với ${item.expected_sha256.slice(0, 8)}).`);
-        }
+      const { data } = this.#encodeLike(existing, item.content);
+      if (data.length > LIMITS.writeBytes) {
+        throw fault('file_too_large', `File "${target.relative}" (${formatBytes(data.length)}) vượt giới hạn ${formatBytes(LIMITS.writeBytes)}.`);
       }
-
       preflight.push({
         relative: target.relative,
         absolute: target.absolute,
-        encoded,
-        existed,
-        originalBuffer,
+        data,
+        sha: sha256(data),
+        existed: existing !== null,
+        originalBuffer: existing,
+        previousSha: existing ? sha256(existing) : null,
+        mode: stat?.mode,
+        unchanged: existing !== null && data.equals(existing),
       });
+    }
+    if (alreadyThere.length) {
+      throw fault('file_exists', `${alreadyThere.length} file đã tồn tại: ${alreadyThere.slice(0, 10).join(', ')}${alreadyThere.length > 10 ? ', ...' : ''}. Chưa ghi file nào. Đọc từng file (read_file) rồi truyền expected_sha256 cho mục tương ứng, hoặc đặt overwrite=true cho mục nào thật sự muốn ghi đè toàn bộ.`, 409);
     }
 
     const written = [];
     try {
       for (const item of preflight) {
+        if (item.unchanged) continue;
         await fs.mkdir(path.dirname(item.absolute), { recursive: true });
-        await writeFileAtomic(item.absolute, item.encoded, { mode: this.#fileMode(undefined) });
+        // The file is hashed again right before the rename: an edit made after the preflight is detected, not overwritten.
+        await writeFileAtomic(item.absolute, item.data, { mode: this.#fileMode(item.mode), expectedSha: item.previousSha, createOnly: !item.existed });
         written.push(item);
       }
     } catch (writeError) {
@@ -1316,8 +1347,9 @@ export class LocalTools {
       const failedRollback = [];
       for (const item of written) {
         try {
-          if (item.existed && item.originalBuffer) {
-            await writeFileAtomic(item.absolute, item.originalBuffer, { mode: this.#fileMode(undefined) });
+          if (item.existed) {
+            // Restore only if the file is still what this call wrote; a newer edit by someone else is reported, never clobbered.
+            await writeFileAtomic(item.absolute, item.originalBuffer, { mode: this.#fileMode(item.mode), expectedSha: item.sha });
             const check = await fs.readFile(item.absolute);
             if (check.equals(item.originalBuffer)) {
               rolledBack.push(item.relative);
@@ -1325,15 +1357,21 @@ export class LocalTools {
               failedRollback.push({ path: item.relative, error: 'Checksum mismatch after rollback' });
             }
           } else {
-            await fs.unlink(item.absolute).catch(() => {});
-            rolledBack.push(item.relative);
+            const current = await fs.readFile(item.absolute).catch(() => null);
+            if (current && sha256(current) !== item.sha) {
+              failedRollback.push({ path: item.relative, error: 'File was changed by someone else after it was created; left in place' });
+            } else {
+              await fs.unlink(item.absolute).catch(() => {});
+              rolledBack.push(item.relative);
+            }
           }
         } catch (rbErr) {
           failedRollback.push({ path: item.relative, error: rbErr.message });
         }
       }
+      const stale = writeError.code === 'stale_revision';
       if (failedRollback.length === 0) {
-        throw fault('batch_failed', `Ghi hàng loạt thất bại: ${writeError.message}. Đã hoàn tác an toàn ${rolledBack.length} file: ${rolledBack.join(', ')}.`);
+        throw fault(stale ? 'stale_revision' : 'batch_failed', `Ghi hàng loạt thất bại: ${writeError.message}. Đã hoàn tác an toàn ${rolledBack.length} file: ${rolledBack.join(', ') || 'không có'}.`, stale ? 409 : 400);
       } else {
         throw Object.assign(fault('batch_partial_rollback_failed', `Ghi hàng loạt thất bại: ${writeError.message}. CẢNH BÁO: ${failedRollback.length} file không thể hoàn tác: ${failedRollback.map((f) => f.path).join(', ')}. Đã hoàn tác: ${rolledBack.join(', ') || 'không có'}.`), {
           rolledBack,
@@ -1342,12 +1380,17 @@ export class LocalTools {
       }
     }
 
+    // One entry per file with the same fields write_file returns, so the host can mint an edit receipt for each of them.
     const results = preflight.map((p) => ({
       path: p.relative,
-      bytes: p.encoded.length,
-      sha256: sha256(p.encoded),
+      bytes: p.data.length,
+      sha256: p.sha,
+      previousSha: p.previousSha,
+      created: !p.existed,
+      ...(p.unchanged ? { unchanged: true } : {}),
     }));
-    return ok(`Đã ghi thành công ${results.length} file:\n${results.map((r) => `- ${r.path} (${r.bytes} B)`).join('\n')}`, { count: results.length, files: results });
+    const changed = results.filter((r) => !r.unchanged).length;
+    return ok(`Đã ghi thành công ${changed} file${changed === results.length ? '' : ` (${results.length - changed} file không đổi)`}:\n${results.map((r) => `- ${r.path} (${r.bytes} B, ${r.unchanged ? 'không đổi' : r.created ? 'tạo mới' : 'ghi đè'}) sha256: ${r.sha256}`).join('\n')}`, { count: results.length, changed, files: results });
   }
 
   async #filesApplyPatch({ path: p, old_text: oldText, new_text: newText, expected_sha256: expectedSha }) {

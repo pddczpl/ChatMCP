@@ -8,7 +8,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { PluginManager, MARKETPLACE_CATALOG, validateSkillUrl, parseSkillManifest, VERIFIED_REGISTRIES, normalizeSkillId, isPrivateOrReservedIp, safeFetchSkillManifest } from '../lib/plugins.mjs';
+import { PluginManager, MARKETPLACE_CATALOG, validateSkillUrl, parseSkillManifest, KNOWN_SKILL_SOURCES, normalizeSkillId, isPrivateOrReservedIp, safeFetchSkillManifest } from '../lib/plugins.mjs';
 import { createHubServer } from '../hub.mjs';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { StudioDelegates } from '../lib/studio-delegates.mjs';
@@ -58,18 +58,18 @@ console.log('--- Section 1: PluginManager & Skills Marketplace ---');
   // Search query
   const queryResult = pm.marketplace({ query: 'sqlite' });
   assert.equal(queryResult.length, 1);
-  assert.equal(queryResult[0].id, 'sqlite-mcp-explorer');
+  assert.equal(queryResult[0].id, 'sqlite-explorer');
   ok('Marketplace search, category filtering, and installation status');
 
   // Install a plugin from catalog
-  const installedSqlite = await pm.install('sqlite-mcp-explorer');
-  assert.equal(installedSqlite.id, 'sqlite-mcp-explorer');
+  const installedSqlite = await pm.install('sqlite-explorer');
+  assert.equal(installedSqlite.id, 'sqlite-explorer');
   assert.equal(installedSqlite.enabled, true);
-  assert.ok(pm.installed().some((p) => p.id === 'sqlite-mcp-explorer'));
+  assert.ok(pm.installed().some((p) => p.id === 'sqlite-explorer'));
   ok('Install plugin from marketplace catalog');
 
   // Re-install throws 409
-  await assert.rejects(() => pm.install('sqlite-mcp-explorer'), /đã được cài đặt/);
+  await assert.rejects(() => pm.install('sqlite-explorer'), /đã được cài đặt/);
 
   // Install custom plugin
   const customPlugin = await pm.install('my-custom-tool', {
@@ -84,19 +84,19 @@ console.log('--- Section 1: PluginManager & Skills Marketplace ---');
   ok('Install custom plugin manifest');
 
   // Toggle enable/disable
-  await pm.toggle('sqlite-mcp-explorer', false);
-  let installedItem = pm.installed().find((p) => p.id === 'sqlite-mcp-explorer');
+  await pm.toggle('sqlite-explorer', false);
+  let installedItem = pm.installed().find((p) => p.id === 'sqlite-explorer');
   assert.equal(installedItem.enabled, false);
 
-  await pm.toggle('sqlite-mcp-explorer', true);
-  installedItem = pm.installed().find((p) => p.id === 'sqlite-mcp-explorer');
+  await pm.toggle('sqlite-explorer', true);
+  installedItem = pm.installed().find((p) => p.id === 'sqlite-explorer');
   assert.equal(installedItem.enabled, true);
   ok('Toggle plugin enabled and disabled states');
 
   // Active skills injection
   const activeSkills = pm.activeSkills();
   assert.ok(activeSkills.some((s) => s.id === 'git-workflow-pro'));
-  assert.ok(activeSkills.some((s) => s.id === 'sqlite-mcp-explorer'));
+  assert.ok(activeSkills.some((s) => s.id === 'sqlite-explorer'));
   for (const s of activeSkills) {
     assert.ok(typeof s.systemPrompt === 'string');
     assert.ok(Array.isArray(s.tools));
@@ -112,7 +112,7 @@ console.log('--- Section 1: PluginManager & Skills Marketplace ---');
   // Persistence check
   const pm2 = new PluginManager({ stateDir: state });
   await pm2.load();
-  assert.ok(pm2.installed().some((p) => p.id === 'sqlite-mcp-explorer'));
+  assert.ok(pm2.installed().some((p) => p.id === 'sqlite-explorer'));
   ok('Plugin configuration persists and reloads');
 
   // SSRF protection on skill manifest URL
@@ -245,13 +245,13 @@ OSI prompt body.`);
 
 
   // Multi-file directory installation & skills-lock.json
-  const skillDir = path.join(state, 'skills', 'sqlite-mcp-explorer');
+  const skillDir = path.join(state, 'skills', 'sqlite-explorer');
   const manifestStat = await fs.stat(path.join(skillDir, 'manifest.json'));
   assert.ok(manifestStat.isFile(), 'manifest.json written to skill directory');
   const skillMdStat = await fs.stat(path.join(skillDir, 'SKILL.md'));
   assert.ok(skillMdStat.isFile(), 'SKILL.md written to skill directory');
   const lockData = JSON.parse(await fs.readFile(path.join(state, 'skills-lock.json'), 'utf8'));
-  assert.ok(lockData.skills['sqlite-mcp-explorer']);
+  assert.ok(lockData.skills['sqlite-explorer']);
   ok('Multi-file skill directory structure and skills-lock.json tracking');
 
   // Dynamic token-budgeted skill selection

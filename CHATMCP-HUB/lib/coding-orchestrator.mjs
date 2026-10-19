@@ -302,6 +302,8 @@ export class CodingWorktreeOrchestrator {
       // The real coding worker requires an explicitly selected Autonomous parent.
       manager.permissions.mode=this.manager.permissions?.mode || 'review';
       manager.permissions.executionPolicy=this.manager.permissions?.executionPolicy || 'host-review';
+      // Nobody answers this gate: an operation that needs approval is refused at once instead of holding the worker for the timeout.
+      manager.permissions.interactive=false;
       await manager.startLocal(worktree);
       signal.throwIfAborted();
       const runner=new AgentRunner({manager,provider:this.provider,taskDirectory:path.join(stateDir,'tasks'),log:()=>{},
@@ -415,7 +417,7 @@ export class CodingWorktreeOrchestrator {
     return {workerId,checks:await broker.discoverChecks({workerId})};
   }
   async grantCheck({workerId,checkId,confirmation,maxAttempts=3}={}) {
-    if (confirmation!=='AUTHORIZE ISOLATED CHECK') throw fail('confirmation_required','Type AUTHORIZE ISOLATED CHECK for a scoped sandbox test grant.',403);
+    if (confirmation!=='AUTHORIZE ISOLATED CHECK') throw fail('confirmation_required','Type AUTHORIZE ISOLATED CHECK for a scoped Windows Sandbox check grant.',403);
     const broker=this.checkBrokers.get(workerId);
     if (!broker || this.active===null) throw fail('worker_not_active','Worker has no active managed test broker.',404);
     if (this.manager.permissions?.mode!=='autonomous') throw fail('worker_permission_denied','Parent is not in Autonomous mode.',403);

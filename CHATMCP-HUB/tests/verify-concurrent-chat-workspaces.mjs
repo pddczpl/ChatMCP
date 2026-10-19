@@ -75,7 +75,8 @@ try {
   const provider={
     ready:()=>true,snapshot:()=>({provider:'fake',model:'mock'}),
     async respond({input,tools=[]}){
-      const firstUser=input.find(x=>x?.role==='user'&&Array.isArray(x.content));
+      // Installed skills now reach the model as a leading user message (UNTRUSTED SKILL REFERENCES); the task prompt is the first message after it.
+      const firstUser=input.find(x=>x?.role==='user'&&Array.isArray(x.content)&&!String(x.content[0]?.text||'').startsWith('UNTRUSTED SKILL REFERENCES'));
       const contents=(firstUser?.content||[]).map(x=>x?.text||'').join(' ');
       const name=contents.includes('Task A')?'A':contents.includes('Task B')?'B':
         contents.includes('Task E')?'E':

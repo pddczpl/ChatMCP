@@ -111,7 +111,7 @@ export async function probeWindowsSandboxPreflight() {
 
   // This experimental CLI backend initially targets Windows 11 24H2+ x64.
   if (osArch !== 'x64') {
-    blockers.push(`Initial ChatMCP Sandbox backend requires x64 (detected '${osArch}').`);
+    blockers.push(`Initial ChatMCP Windows Sandbox backend requires x64 (detected '${osArch}').`);
     remediations.push('Use a supported Windows 11 x64 host.');
   }
   if (osBuild < 26100) {

@@ -48,7 +48,7 @@ export const translations = {
     perm_auto: 'Tự động (Autonomous)',
     perm_auto_desc: 'Tự động chạy các tool trong workspace mà không hỏi lại.',
     perm_full_access: 'FULL ACCESS ⚠️',
-    perm_full_access_desc: 'Quyền tối đa không giới hạn, vượt qua xác nhận.',
+    perm_full_access_desc: 'Bỏ qua xác nhận cho việc thường ngày; xóa dữ liệu, git push, merge PR, tạo/xóa release hoặc repo vẫn hỏi lại.',
 
     // Inspector Tabs
     tab_activity: 'Hoạt động',
@@ -112,13 +112,13 @@ export const translations = {
     // Skills Marketplace Tab
     skills_title: 'Chợ kỹ năng (Skills Marketplace)',
     skills_subtitle: 'Mở rộng sức mạnh agent với kỹ năng online & local',
-    skills_search_placeholder: 'Tìm kiếm kỹ năng hoặc MCP server...',
+    skills_search_placeholder: 'Tìm kiếm kỹ năng...',
     cat_all: 'Tất cả',
     cat_coding: 'Lập trình',
     cat_devops: 'DevOps',
     cat_research: 'Nghiên cứu & Web',
     cat_governance: 'Bảo mật & Quản trị',
-    cat_mcp: 'MCP Servers',
+    cat_data: 'Dữ liệu',
     skill_installed: 'Đã cài đặt',
     skill_install: 'Cài đặt',
     skill_uninstall: 'Gỡ cài đặt',
@@ -220,7 +220,7 @@ export const translations = {
     perm_auto: 'Autonomous',
     perm_auto_desc: 'Automatically executes workspace tools without prompts.',
     perm_full_access: 'FULL ACCESS ⚠️',
-    perm_full_access_desc: 'Unrestricted autonomy, bypasses confirmations.',
+    perm_full_access_desc: 'Skips confirmations for everyday work; deleting data, git push, merging PRs and creating/deleting releases or repos still ask.',
 
     // Inspector Tabs
     tab_activity: 'Activity',
@@ -284,13 +284,13 @@ export const translations = {
     // Skills Marketplace Tab
     skills_title: 'Skills Marketplace',
     skills_subtitle: 'Extend autonomous agent capabilities with online & local skills',
-    skills_search_placeholder: 'Search skills or MCP servers...',
+    skills_search_placeholder: 'Search skills...',
     cat_all: 'All',
     cat_coding: 'Coding',
     cat_devops: 'DevOps',
     cat_research: 'Research & Web',
     cat_governance: 'Security & Governance',
-    cat_mcp: 'MCP Servers',
+    cat_data: 'Data',
     skill_installed: 'Installed',
     skill_install: 'Install',
     skill_uninstall: 'Uninstall',

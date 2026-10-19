@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 
 const mod = await import('../lib/context-compaction.mjs').catch(() => import('./context-compaction.mjs'));
 const {
@@ -40,9 +41,14 @@ export class AgentRunner {
     'utf8'
   );
 
+  // Production workspace, not a hand-written double that carries a path property StudioWorkspace does not have.
+  const stateDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-compaction-state-'));
   return {
-    workspace: { path: root, resolve: (rel = '.') => path.resolve(root, rel) },
-    cleanup: () => fs.rm(root, { recursive: true, force: true }),
+    workspace: new StudioWorkspace({ manager: { workspace: root, secrets: [] }, directory: stateDirectory }),
+    cleanup: async () => {
+      await fs.rm(root, { recursive: true, force: true });
+      await fs.rm(stateDirectory, { recursive: true, force: true });
+    },
   };
 }
 
