@@ -10,9 +10,64 @@
 // PowerShell reaches further than files: Env:, HKCU:, HKLM:, Cert:, Variable: are "drives" whose items are environment variables
 // (where API keys live), the registry and certificates. `Get-Content Env:OPENAI_API_KEY` reads a secret that no file path shows,
 // and `FileSystem::C:\Users\me\.ssh\id_rsa` is a file path spelled so that it does not look like one.
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { canonicalRelative } from './fs-safe.mjs';
 import { isProtectedPath } from './protected-paths.mjs';
+
+// A wildcard is expanded by the shell AFTER the command was approved, so `cat ./*.json` also prints secrets.json and `cat ./*/x` follows
+// a junction out of the project, while the text `./*.json` looks like one ordinary in-project file. The words with a wildcard are
+// therefore expanded here against the real directory (the way a shell does it) and every match is judged like a word of its own.
+const EXPANSION_LIMIT = 4000;
+const hasWildcard = (value) => /[*?[]/.test(value);
+
+function segmentPattern(segment) {
+  let source = '';
+  for (let i = 0; i < segment.length; i += 1) {
+    const ch = segment[i];
+    if (ch === '*') source += '.*';
+    else if (ch === '?') source += '.';
+    else if (ch === '[' && segment.indexOf(']', i + 2) !== -1) {
+      const close = segment.indexOf(']', i + 2);
+      let body = segment.slice(i + 1, close).replaceAll('\\', '\\\\');
+      if (body[0] === '!') body = `^${body.slice(1)}`;
+      source += `[${body}]`;
+      i = close;
+    } else source += ch.replace(/[\\^$.|+(){}[\]]/g, '\\$&');
+  }
+  try { return new RegExp(`^${source}$`, process.platform === 'win32' ? 'i' : ''); } catch { return /^.*$/s; }
+}
+
+/** Absolute paths that `word` can expand to inside `cwd`, or null when there are too many to look at. A literal tail need not exist. */
+async function expandWildcards(cwd, word) {
+  const normalized = word.replaceAll('\\', '/');
+  const rooted = path.isAbsolute(word);
+  const rootPart = rooted ? path.parse(path.resolve(word)).root : '';
+  const parts = (rooted ? normalized.slice(rootPart.length) : normalized).split('/').filter((part) => part !== '' && part !== '.');
+  let bases = [rooted ? rootPart : cwd];
+  let visited = 0;
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i];
+    if (!hasWildcard(part)) { bases = bases.map((base) => path.join(base, part)); continue; }
+    const pattern = segmentPattern(part);
+    const next = [];
+    for (const base of bases) {
+      let entries;
+      try { entries = await fs.readdir(base, { withFileTypes: true }); } catch { continue; }
+      for (const entry of entries) {
+        visited += 1;
+        if (visited > EXPANSION_LIMIT) return null;
+        if (entry.name.startsWith('.') && !part.startsWith('.')) continue;
+        if (!pattern.test(entry.name)) continue;
+        if (i < parts.length - 1 && !entry.isDirectory() && !entry.isSymbolicLink()) continue;
+        next.push(path.join(base, entry.name));
+      }
+    }
+    bases = next;
+    if (bases.length > EXPANSION_LIMIT) return null;
+  }
+  return bases;
+}
 
 const MAX_WORDS = 64;
 const MAX_WORD_LENGTH = 400;
@@ -47,6 +102,19 @@ export async function pathProblems({ segments = [], cwd, root, powershell = fals
     if (powershell && PS_PROVIDER.test(word)) { seen.add(word); problems.push({ word, problem: 'provider' }); continue; }
     if (word.startsWith('-') || URL_LIKE.test(word)) continue;
     seen.add(word);
+    if (hasWildcard(word)) {
+      const matches = await expandWildcards(cwd, word);
+      if (matches === null) { problems.push({ word, problem: 'unresolvable' }); continue; }
+      let flagged = null;
+      for (const match of matches) {
+        let canonical;
+        try { canonical = await canonicalRelative(root, match); } catch { flagged = 'unresolvable'; break; }
+        if (!canonical.inside) { flagged = 'outside'; break; }
+        if (isProtectedPath(canonical.relative)) { flagged = 'protected'; break; }
+      }
+      if (flagged) { problems.push({ word, problem: flagged }); continue; }
+      if (matches.length) continue;
+    }
     const absolute = path.resolve(cwd, word);
     let canonical;
     try { canonical = await canonicalRelative(root, absolute); } catch { problems.push({ word, problem: 'unresolvable' }); continue; }

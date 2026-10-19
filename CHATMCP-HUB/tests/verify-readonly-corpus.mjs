@@ -5,7 +5,9 @@
 // in Read Only. Nothing in the older tests exercised those flags with real files and a real gate.
 //
 // 1. corpus integrity (>= 30 attacks, >= 30 benign commands)
-// 2. classifier: no attack is read/edit/verify (so none is auto-allowed in Autonomous either); every benign command is read
+// 2. classifier: no attack is read/edit/verify (so none is auto-allowed in Autonomous either); every benign command is read.
+//    Attacks that need the file system (a wildcard that expands to secrets.json, to a junction out of the project) look like one
+//    ordinary file to the text classifier by nature: they are marked needsFileSystem and caught by the real-path layer in step 3
 // 3. gate: every attack is refused in Read Only without a prompt, and still needs a decision in Review and Autonomous;
 //    >= 95% of the benign commands run unasked in Read Only (bash and PowerShell styles)
 // 4. end to end: in Read Only the attacks leave NO marker/outside file behind; with the same commands approved in Review the files
@@ -55,11 +57,13 @@ const placeholders = { outside: path.join(os.tmpdir(), 'chatmcp-outside-demo'), 
 {
   const read = [];
   for (const attack of attackEntries) {
+    if (attack.needsFileSystem) continue;
     const analysis = analyzeCommand(substitute(attack.command, placeholders), { shell: attack.shell });
     if (!['exec', 'dangerous'].includes(analysis.kind)) read.push(`[${attack.shell}] ${attack.id}: ${attack.command.replace(/\n/g, '\\n')} -> ${analysis.kind}`);
   }
   assert.deepEqual(read, [], `${read.length} attack vector(s) classified read/edit/verify (those run without a prompt in Read Only or Autonomous):\n${read.join('\n')}`);
-  ok(`0 of ${corpus.attacks.length} attack vectors (${attackEntries.length} shell-style checks) classify as read, edit or verify`);
+  const textual = attackEntries.filter((attack) => !attack.needsFileSystem);
+  ok(`0 of ${new Set(textual.map((attack) => attack.id)).size} text-level attack vectors (${textual.length} shell-style checks) classify as read, edit or verify; ${attackEntries.length - textual.length} wildcard/junction vectors are judged against the real file system`);
 
   const blocked = [];
   for (const item of benignEntries) {
@@ -82,12 +86,17 @@ async function makeWorld(label) {
     await fs.mkdir(path.dirname(path.join(work, name)), { recursive: true });
     await fs.writeFile(path.join(work, name), content);
   }
+  for (const [name, content] of Object.entries(corpus.outsideFiles ?? {})) await fs.writeFile(path.join(outside, name), content);
+  let junctions = true;
+  for (const junction of corpus.junctions ?? []) {
+    try { await fs.symlink(outside, path.join(work, junction.name), process.platform === 'win32' ? 'junction' : 'dir'); } catch { junctions = false; }
+  }
   const manager = { workspace: work, secrets: [] };
   const studio = new StudioWorkspace({ manager, directory: path.join(state, 'studio') });
   const localTools = new LocalTools({ workspace: studio, stateDirectory: state });
   const gate = new PermissionGate({ manager, workspace: studio, timeout: 60_000 });
   gate.attachLocalTools(localTools);
-  return { root, work, outside, gate, localTools, paths: { outside, work } };
+  return { root, work, outside, gate, localTools, junctions, paths: { outside, work } };
 }
 
 /** authorize() and report: allowed unasked ('allow'), asked ('prompt', answered with `approve`), or refused ('policy' / 'blocked' / 'deny'). */
@@ -117,6 +126,7 @@ try {
   for (const mode of MODES) {
     world.gate.configure({ mode });
     for (const attack of attackEntries) {
+      if (attack.id === 'glob-through-junction' && !world.junctions) continue;
       const command = substitute(attack.command, world.paths);
       const result = await outcome(world.gate, 'local.run_command', runArgs(command, attack.shell), { approve: false });
       const acceptable = mode === 'readonly' ? ['policy', 'blocked'] : ['prompt', 'policy', 'blocked'];
@@ -167,7 +177,7 @@ try {
   for (const attack of withEffect) {
     await assert.rejects(fs.access(effectPath(attack, readOnlyWorld.paths)), `${attack.id}: Read Only must not create ${attack.effect}`);
   }
-  assert.deepEqual((await fs.readdir(readOnlyWorld.outside)), [], 'nothing may appear outside the workspace');
+  assert.deepEqual((await fs.readdir(readOnlyWorld.outside)).sort(), Object.keys(corpus.outsideFiles ?? {}).sort(), 'nothing but the fixture may appear outside the workspace');
   assert.equal(await fs.readFile(path.join(readOnlyWorld.work, 'a.txt'), 'utf8'), corpus.workspaceFiles['a.txt'], 'a.txt is untouched');
   assert.equal(await fs.readFile(path.join(readOnlyWorld.work, '.env'), 'utf8'), corpus.workspaceFiles['.env']);
   ok(`Read Only through the gate: ${withEffect.length} attack commands refused, no marker file and nothing outside the workspace was created`);
@@ -189,6 +199,20 @@ try {
       await controlWorld.localTools.call('run_command', args);
       const exists = await fs.access(effectPath(attack, controlWorld.paths)).then(() => true, () => false);
       (exists ? created : missing).push(attack.id);
+    }
+    // the wildcard vectors really print the protected / outside content when they are allowed to run
+    const leaking = attackEntries.filter((attack) => attack.shell === 'bash' && attack.leaks && (attack.id !== 'glob-through-junction' || controlWorld.junctions));
+    for (const attack of leaking) {
+      const args = runArgs(substitute(attack.command, controlWorld.paths), 'bash');
+      const decision = await outcome(controlWorld.gate, 'local.run_command', args, { approve: true });
+      assert.equal(decision.kind, 'prompt', `${attack.id}: Review must ask`);
+      const result = await controlWorld.localTools.call('run_command', args);
+      assert.ok(result.content[0].text.includes(attack.leaks), `positive control: ${attack.id} must print ${attack.leaks} when approved:
+${result.content[0].text}`);
+    }
+    // Read Only: the same commands are refused and print nothing (checked above through the gate); the text classifier alone cannot see them
+    for (const attack of attackEntries.filter((entry) => entry.needsFileSystem && entry.shell === 'bash')) {
+      assert.equal(analyzeCommand(substitute(attack.command, controlWorld.paths), { shell: 'bash' }).kind, 'read', `${attack.id}: documents that only the real-path layer catches this`);
     }
     const mustExist = ['sed-e-command', 'sed-w-outside', 'sed-s-w-flag', 'sort-o', 'sort-output-long', 'uniq-in-out', 'file-compile-magic', 'sort-glob-option-injection', 'find-fprint0'];
     for (const id of mustExist) assert.ok(created.includes(id), `positive control: ${id} must create its file when approved (created: ${created.join(', ')}; missing: ${missing.join(', ')})`);
