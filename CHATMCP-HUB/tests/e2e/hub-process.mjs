@@ -7,11 +7,13 @@
 // A Hub can be stopped politely (`stop()`), or killed on the spot (`kill()`, SIGKILL / TerminateProcess) to see what the
 // next start finds on disk. That is how the session-recovery test simulates a crash.
 import { spawn, spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readSession } from '../../lib/hub-session.mjs';
 
 export const HUB_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CREDENTIAL_LIKE = /(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|^OPENAI_|^ANTHROPIC_|^GEMINI_|^GOOGLE_|^OPENROUTER_|^DEEPSEEK_|^GROQ_|^MISTRAL_|^CHATMCP_|PROXY)/i;
@@ -64,11 +66,12 @@ export function cleanEnvironment(home, extra = {}) {
 }
 
 export class HubProcess {
-  constructor({ child, port, logFile, stateDir }) {
+  constructor({ child, port, logFile, stateDir, secret }) {
     this.child = child;
     this.port = port;
     this.logFile = logFile;
     this.stateDir = stateDir;
+    this.secret = secret;
     this.csrf = null;
     this.exitInfo = null;
     this.exited = new Promise((resolve) => child.once('exit', (code, signal) => { this.exitInfo = { code, signal }; resolve(this.exitInfo); }));
@@ -79,14 +82,23 @@ export class HubProcess {
   get running() { return this.exitInfo === null; }
   logText() { try { return fs.readFileSync(this.logFile, 'utf8'); } catch { return ''; } }
 
+  /** The per-launch bearer every API call (reads included) must carry. */
+  get authorization() { return `Bearer ${this.secret}`; }
+  get authHeaders() { return { authorization: this.authorization }; }
+  /** The session file the Hub published for local clients (null while there is none). */
+  session() { return readSession(this.stateDir); }
+
   async csrfToken() {
-    if (!this.csrf) this.csrf = (await (await fetch(`${this.origin}/api/state`)).json()).csrfToken;
+    if (!this.csrf) this.csrf = (await (await fetch(`${this.origin}/api/state`, { headers: this.authHeaders })).json()).csrfToken;
     return this.csrf;
   }
 
-  /** One HTTP call. POSTs carry the headers the Hub demands of the page (Origin, request marker, CSRF token). */
-  async request(method, route, body, { csrf = true, headers = {} } = {}) {
-    const init = { method, headers: { ...headers } };
+  /**
+   * One HTTP call. Every call carries the bearer (`auth: false` sends none, to test the refusal); POSTs also carry the
+   * headers the Hub demands of the page (Origin, request marker, CSRF token).
+   */
+  async request(method, route, body, { csrf = true, headers = {}, auth = true } = {}) {
+    const init = { method, headers: { ...(auth ? this.authHeaders : {}), ...headers } };
     if (method !== 'GET') {
       Object.assign(init.headers, { 'content-type': 'application/json', origin: this.origin, 'x-chatmcp-request': 'local-dashboard' });
       if (csrf) init.headers['x-chatmcp-csrf'] = await this.csrfToken();
@@ -154,7 +166,7 @@ export class HubProcess {
  * Starts a Hub with the local backend. `scratch` holds its log and the empty Git config; `stateDir` is where it keeps its data
  * (reuse the same one to model a restart). Resolves when /api/health says the Hub finished initialising.
  */
-export async function startHub({ scratch, stateDir = path.join(scratch, 'state'), project = null, port = 0, logName = 'hub.log', env = {}, timeoutMs = 45_000 } = {}) {
+export async function startHub({ scratch, stateDir = path.join(scratch, 'state'), project = null, port = 0, logName = 'hub.log', env = {}, timeoutMs = 45_000, secret = randomBytes(32).toString('hex') } = {}) {
   if (!scratch) throw new TypeError('startHub needs a scratch folder');
   fs.mkdirSync(scratch, { recursive: true });
   fs.mkdirSync(stateDir, { recursive: true });
@@ -163,23 +175,27 @@ export async function startHub({ scratch, stateDir = path.join(scratch, 'state')
   const log = fs.openSync(logFile, 'a');
   const argv = [path.join(HUB_ROOT, 'hub.mjs'), '--backend', 'local', '--port', String(chosenPort), '--state-dir', stateDir, '--no-open', ...(project ? ['--project', project] : [])];
   const child = spawn(process.execPath, argv, {
-    cwd: HUB_ROOT, env: cleanEnvironment(scratch, env), stdio: ['ignore', log, log], detached: process.platform !== 'win32', windowsHide: true,
+    cwd: HUB_ROOT, env: cleanEnvironment(scratch, { CHATMCP_HUB_SECRET: secret, ...env }), stdio: ['ignore', log, log], detached: process.platform !== 'win32', windowsHide: true,
   });
   fs.closeSync(log);
-  const hub = new HubProcess({ child, port: chosenPort, logFile, stateDir });
+  const hub = new HubProcess({ child, port: chosenPort, logFile, stateDir, secret });
   try {
     await waitFor(async () => {
       if (!hub.running) throw Object.assign(new Error(`the Hub exited early (code ${hub.exitInfo.code}, signal ${hub.exitInfo.signal}):\n${hub.logText().slice(-1500)}`), { fatal: true });
       const health = await fetch(`${hub.origin}/api/health`).then((response) => response.json());
       return health.initialized === true ? health : null;
     }, { timeoutMs, intervalMs: 150, label: 'the Hub to answer /api/health' });
+    // The published session must match the secret this Hub was given, and be there before "initialized" (what a client reads).
+    const published = await hub.session();
+    if (!published || published.secret !== hub.secret || published.port !== hub.port || published.pid !== hub.pid)
+      throw new Error('the Hub did not publish the expected run/hub-session.json');
     // /api/health turns "initialized" before the Hub has finished starting the tools for the workspace (that goes on in the
     // background, and a task started in that gap is refused with 409). A person cannot click that fast; a script can, so wait for
     // what the page waits for: the tool catalogue is ready and nothing is busy.
     if (project) {
       await waitFor(async () => {
         if (!hub.running) throw Object.assign(new Error(`the Hub exited early (code ${hub.exitInfo.code}, signal ${hub.exitInfo.signal}):\n${hub.logText().slice(-1500)}`), { fatal: true });
-        const state = await fetch(`${hub.origin}/api/state`).then((response) => response.json());
+        const state = await fetch(`${hub.origin}/api/state`, { headers: hub.authHeaders }).then((response) => response.json());
         return state.catalogReady === true && state.busy !== true ? state : null;
       }, { timeoutMs, intervalMs: 100, label: 'the workspace tools to be ready' });
     }

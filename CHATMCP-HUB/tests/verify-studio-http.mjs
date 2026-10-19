@@ -21,11 +21,12 @@ manager.workflow=new StudioWorkflow({directory:path.join(temp,'workflow')});
 manager.delegates=new StudioDelegates({workspace:manager.studio,provider:{ready:()=>false},directory:path.join(temp,'delegates')});
 const browser={browserState:()=>({paired:false})};
 const engine={state:()=>({activeTaskId:null,active:null,tasks:[]}),get:()=>null,setAutoResume:async({id,enabled})=>({id,autoResume:enabled})};
-const server=createHubServer(manager,{port,agent:engine,browser,bundleRoot:path.resolve(import.meta.dirname,'..')});await new Promise(r=>server.listen(port,'127.0.0.1',r));
+const secret='studio-http-test-secret-0123456789abcdef';const auth={Authorization:`Bearer ${secret}`};
+const server=createHubServer(manager,{port,secret,agent:engine,browser,bundleRoot:path.resolve(import.meta.dirname,'..')});await new Promise(r=>server.listen(port,'127.0.0.1',r));
 let n=0;const ok=x=>{assert.ok(x);n++;};
-async function get(url){const r=await fetch(origin+url);return [r,await r.json().catch(()=>null)];}
+async function get(url){const r=await fetch(origin+url,{headers:auth});return [r,await r.json().catch(()=>null)];}
 let csrf;
-async function post(url,payload,override=null){const r=await fetch(origin+url,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json','X-ChatMCP-Request':'local-dashboard','X-ChatMCP-CSRF':override??csrf},body:JSON.stringify(payload)});return [r,await r.json().catch(()=>null)];}
+async function post(url,payload,override=null){const r=await fetch(origin+url,{method:'POST',headers:{...auth,Origin:origin,'Content-Type':'application/json','X-ChatMCP-Request':'local-dashboard','X-ChatMCP-CSRF':override??csrf},body:JSON.stringify(payload)});return [r,await r.json().catch(()=>null)];}
 try{
   const [s,st]=await get('/api/state');ok(s.ok&&st.studio.permissions.mode==='review');csrf=st.csrfToken;
   let [r,v]=await get('/api/studio/tree');ok(r.ok&&v.entries.length===1);

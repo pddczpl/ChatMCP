@@ -289,6 +289,7 @@ console.log('--- Section 4: Hub HTTP Integration ---');
   });
 
   const csrfToken = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  const hubSecret = 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
   const dummyManager = {
     workspace: work,
     stateDir: state,
@@ -308,6 +309,7 @@ console.log('--- Section 4: Hub HTTP Integration ---');
   const hubServer = createHubServer(dummyManager, {
     port: hubPort,
     token: csrfToken,
+    secret: hubSecret,
     // createHubServer normally receives a GatewayProvider with a keyStore.
     // Provide one in this HTTP fixture so Linux CI can test the route without
     // weakening the production Windows-only DPAPI requirement.
@@ -334,6 +336,7 @@ console.log('--- Section 4: Hub HTTP Integration ---');
           'Origin': `http://127.0.0.1:${hubPort}`,
           'X-ChatMCP-Request': 'local-dashboard',
           'X-ChatMCP-CSRF': csrfToken,
+          'Authorization': `Bearer ${hubSecret}`,
           ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
         },
       }, (res) => {

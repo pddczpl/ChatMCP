@@ -25,10 +25,11 @@ manager.preview=previewStatus;
 manager.codingOrchestrator={active:null,integrating:false};
 manager.dynamicDelegates={activeRunId:null,state:()=>({activeRunId:null,last:null})};
 const agent={state:()=>({activeTaskId:null,active:null,tasks:[]})};
-const http=createHubServer(manager,{port,agent,bundleRoot:path.resolve('.')});
+const secret='v2-http-test-secret-0123456789abcdef';const auth={Authorization:`Bearer ${secret}`};
+const http=createHubServer(manager,{port,secret,agent,bundleRoot:path.resolve('.')});
 await new Promise(r=>http.listen(port,'127.0.0.1',r));
-let csrf;async function get(route){const res=await fetch(origin+route);return {status:res.status,value:await res.json()};}
-async function post(route,body={},headers={}){const res=await fetch(origin+route,{method:'POST',headers:{'Content-Type':'application/json','Origin':origin,'X-ChatMCP-Request':'local-dashboard','X-ChatMCP-CSRF':csrf,'X-ChatMCP-UI-Build':UI_BUILD,...headers},body:JSON.stringify(body)});return {status:res.status,value:await res.json()};}
+let csrf;async function get(route){const res=await fetch(origin+route,{headers:auth});return {status:res.status,value:await res.json()};}
+async function post(route,body={},headers={}){const res=await fetch(origin+route,{method:'POST',headers:{...auth,'Content-Type':'application/json','Origin':origin,'X-ChatMCP-Request':'local-dashboard','X-ChatMCP-CSRF':csrf,'X-ChatMCP-UI-Build':UI_BUILD,...headers},body:JSON.stringify(body)});return {status:res.status,value:await res.json()};}
 try{
   let a=await get('/api/health');check(a.value.version===VERSION&&a.value.uiBuild===UI_BUILD,'version handshake');
   a=await get('/api/state');csrf=a.value.csrfToken;check(csrf?.length===64,'csrf exists');

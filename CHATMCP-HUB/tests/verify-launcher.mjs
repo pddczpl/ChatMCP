@@ -8,6 +8,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
+import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { launch, hubDirectoryFor, quoteWindowsArgument } from '../lib/launch.mjs';
 import { defaultDataDirectory } from '../lib/manager.mjs';
 import { parseArguments } from '../hub.mjs';
+import { readSession, sessionFile } from '../lib/hub-session.mjs';
 
 const bundleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -29,10 +31,12 @@ const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-launcher-'));
 const root = await fs.realpath(temp);
 const pids = new Set();
 const hubPorts = new Set();
+const hubStates = new Map(); // port -> state directory (where the Hub published its session)
 const servers = [];
 const freePort = () => new Promise((resolve) => { const server = net.createServer(); server.listen(0, '127.0.0.1', () => { const { port } = server.address(); server.close(() => resolve(port)); }); });
 const listening = (port) => new Promise((resolve) => { const socket = net.connect({ port, host: '127.0.0.1' }); socket.once('connect', () => { socket.destroy(); resolve(true); }); socket.once('error', () => resolve(false)); });
-const getJson = async (url) => { try { const response = await fetch(url, { signal: AbortSignal.timeout(3000) }); return response.ok ? await response.json() : null; } catch { return null; } };
+const bearer = async (stateDir) => { const session = stateDir ? await readSession(stateDir) : null; return session ? { Authorization: `Bearer ${session.secret}` } : {}; };
+const getJson = async (url, stateDir = null) => { try { const response = await fetch(url, { signal: AbortSignal.timeout(3000), headers: await bearer(stateDir) }); return response.ok ? await response.json() : null; } catch { return null; } };
 async function waitFor(label, probe, ms = 30_000) {
   const until = Date.now() + ms;
   let last;
@@ -47,9 +51,10 @@ async function project(name) {
 }
 async function shutdown(port) {
   const base = `http://127.0.0.1:${port}`;
-  const state = await getJson(`${base}/api/state`);
+  const stateDir = hubStates.get(port);
+  const state = await getJson(`${base}/api/state`, stateDir);
   if (!state) return false;
-  await fetch(`${base}/api/hub/shutdown`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base, 'X-ChatMCP-Request': 'local-dashboard', 'X-ChatMCP-CSRF': state.csrfToken }, body: '{}' }).catch(() => {});
+  await fetch(`${base}/api/hub/shutdown`, { method: 'POST', headers: { ...(await bearer(stateDir)), 'Content-Type': 'application/json', Origin: base, 'X-ChatMCP-Request': 'local-dashboard', 'X-ChatMCP-CSRF': state.csrfToken }, body: '{}' }).catch(() => {});
   await waitFor(`port ${port} to close`, async () => !(await listening(port)), 20_000);
   return true;
 }
@@ -96,6 +101,7 @@ try {
   const port = await freePort();
   hubPorts.add(port);
   const state = path.join(root, 'hub-state');
+  hubStates.set(port, state);
   const base = `http://127.0.0.1:${port}`;
   const first = await project('first project');
   const second = await project('second project');
@@ -111,12 +117,16 @@ try {
     check(lines.some((line) => line.includes(base)) && lines.some((line) => /Node\.js/.test(line)), `the user is told where it runs and that only Node.js is needed:\n${lines.join('\n')}`);
     const health = await getJson(`${base}/api/health`);
     equal([health.app, health.initialized, health.backend], ['chatmcp-local-hub', true, 'local'], 'health reports the backend');
-    const snapshot = await waitFor('the local tools to be ready', async () => { const s = await getJson(`${base}/api/state`); return s?.services?.local?.state === 'ready' ? s : null; });
+    const snapshot = await waitFor('the local tools to be ready', async () => { const s = await getJson(`${base}/api/state`, state); return s?.services?.local?.state === 'ready' ? s : null; });
     equal([snapshot.backend, snapshot.workspace.path, snapshot.dataDirectory], ['local', first, state], 'project opened, data where --state-dir says');
     const log = await fs.readFile(result.logFile, 'utf8');
     check(log.includes(`Dashboard: ${base}`), `hub.log has the startup lines:\n${log}`);
     await fs.access(path.join(state, 'hub-instance.lock'));
     checks += 1;
+    const published = await readSession(state);
+    check(published && published.port === port && (!result.pid || published.pid === result.pid), 'the Hub published run/hub-session.json for its port and process');
+    equal((await fetch(`${base}/api/state`)).status, 401, 'the state endpoint refuses a caller without the session secret');
+    equal((await getJson(`${base}/api/health`)).auth, 'bearer', 'health says the Hub requires the secret');
   });
 
   await section('a second launch reuses the running Hub and can switch its project', async () => {
@@ -127,7 +137,7 @@ try {
     const switchArgs = ['--state-dir', state, '--port', String(port), '--no-open', '--project', second];
     const switched = await launch(switchArgs, { log: (line) => lines.push(line), warn: (line) => lines.push(line) });
     equal(switched.reused, true, 'still the same Hub');
-    const snapshot = await waitFor('the second project to be open', async () => { const s = await getJson(`${base}/api/state`); return s?.workspace?.path === second && s?.services?.local?.state === 'ready' ? s : null; });
+    const snapshot = await waitFor('the second project to be open', async () => { const s = await getJson(`${base}/api/state`, state); return s?.workspace?.path === second && s?.services?.local?.state === 'ready' ? s : null; });
     equal(snapshot.workspace.path, second, 'the project was switched through the dashboard API');
     const processes = [...pids];
     equal(processes.length, 1, 'only one Hub process was ever started');
@@ -143,9 +153,25 @@ try {
     check(await shutdown(port), 'shutdown accepted');
     await waitFor('the instance lock to disappear', async () => { try { await fs.access(path.join(state, 'hub-instance.lock')); return false; } catch { return true; } }, 10_000);
     check(!(await listening(port)), 'the port is free again');
+    check(await fs.access(sessionFile(state)).then(() => false, () => true), 'the session file is removed on a clean shutdown');
     pids.clear();
     await fs.access(path.join(state, 'hub-state.json'));
     checks += 1;
+  });
+
+  await section('a Hub from before the per-launch secret is never reused', async () => {
+    const legacyPort = await freePort();
+    const requested = [];
+    const legacy = http.createServer((request, response) => {
+      requested.push(request.url);
+      response.setHeader('Content-Type', 'application/json');
+      response.end(request.url === '/api/health' ? JSON.stringify({ app: 'chatmcp-local-hub', version: '3.9.0', uiBuild: '3.9.0-react-agent', initialized: true, backend: 'local' }) : JSON.stringify({ csrfToken: 'x'.repeat(64) }));
+    });
+    await new Promise((resolve) => legacy.listen(legacyPort, '127.0.0.1', resolve));
+    servers.push(legacy);
+    await assert.rejects(() => launch(['--state-dir', path.join(root, 'legacy-state'), '--port', String(legacyPort), '--no-open', '--project', first], { log: () => {}, warn: () => {} }), /STOP-CHATMCP-HUB/); checks += 1;
+    check(requested.every((url) => url === '/api/health'), `only the health probe was sent to the old Hub (it would hand its CSRF token to anyone): ${requested.join(' ')}`);
+    legacy.close();
   });
 
   // ---------------------------------------------------------------- failures are explained, other programs are left alone
@@ -225,6 +251,7 @@ try {
       const realPort = await freePort();
       hubPorts.add(realPort);
       const realState = path.join(root, 'ps-state');
+      hubStates.set(realPort, realState);
       const realProject = await project('ps project');
       const started = runScript(startScript, ['-NoOpen', '-StateDir', realState, '-Port', String(realPort), '-ProjectPath', realProject]);
       equal(started.code, 0, `Start-ChatMcpHub.ps1 succeeded\n${started.output}`);
@@ -232,16 +259,16 @@ try {
       // The output is captured through pipes here, as a CI step or an IDE task would. A Hub that inherited those pipes
       // would keep this call waiting until it exits (that took the full timeout before the Hub was started detached).
       check(started.ms < 60_000, `the call returns while the Hub keeps running (took ${started.ms} ms)`);
-      const snapshot = await waitFor('the Hub to be ready', async () => { const s = await getJson(`http://127.0.0.1:${realPort}/api/state`); return s?.services?.local?.state === 'ready' ? s : null; });
+      const snapshot = await waitFor('the Hub to be ready', async () => { const s = await getJson(`http://127.0.0.1:${realPort}/api/state`, realState); return s?.services?.local?.state === 'ready' ? s : null; });
       equal([snapshot.backend, snapshot.workspace.path, snapshot.dataDirectory], ['local', realProject, realState], 'the Hub opened the project in the folder that was asked for');
       const again = runScript(startScript, ['-NoOpen', '-StateDir', realState, '-Port', String(realPort), '-ProjectPath', realProject]);
       equal(again.code, 0, 'starting again succeeds');
       check(/Hub da chay nen/.test(again.output), `and reuses the running Hub\n${again.output}`);
-      const stopped = runScript(stopScript, ['-Port', String(realPort)]);
+      const stopped = runScript(stopScript, ['-Port', String(realPort), '-StateDir', realState]);
       equal(stopped.code, 0, `Stop-ChatMcpHub.ps1 succeeded\n${stopped.output}`);
       check(/Stopped/.test(stopped.output), 'it confirms the Hub closed');
       check(!(await listening(realPort)), 'the port is free');
-      const nothing = runScript(stopScript, ['-Port', String(realPort)]);
+      const nothing = runScript(stopScript, ['-Port', String(realPort), '-StateDir', realState]);
       equal(nothing.code, 0, 'stopping a Hub that is not running is not an error');
       check(/Already stopped/.test(nothing.output), 'and says so');
     });

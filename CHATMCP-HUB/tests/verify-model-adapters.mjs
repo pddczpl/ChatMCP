@@ -876,18 +876,20 @@ try {
     const manager = { secrets: [], log: () => {}, catalog: { ready: true, tools: [] }, state: () => ({ version: '1.3.0', workspace: { path: 'C:\\Example' }, generation: 1, instanceId: 'mock', busy: false, services: {} }) };
     const agent = { state: () => ({ mode: 'api', activeTaskId: null, active: null, tasks: [] }), get: () => null, report: async () => '', shutdown: async () => {} };
     const browser = { browserState: () => ({ paired: false }), shutdown: async () => {} };
-    const server = createHubServer(manager, { port, browser, agent, provider });
+    const secret = 'model-adapters-test-secret-0123456789abcdef';
+    const auth = { Authorization: `Bearer ${secret}` };
+    const server = createHubServer(manager, { port, secret, browser, agent, provider });
     await new Promise((resolve) => server.listen(port, '127.0.0.1', resolve));
     try {
-      const state = await fetch(`${origin}/api/state`).then((r) => r.json());
-      const post = (route, body) => fetch(origin + route, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', 'X-ChatMCP-Request': 'local-dashboard', 'X-ChatMCP-CSRF': state.csrfToken }, body: JSON.stringify(body) });
-      const presets = await fetch(`${origin}/api/ai/presets`).then((r) => r.json());
+      const state = await fetch(`${origin}/api/state`, { headers: auth }).then((r) => r.json());
+      const post = (route, body) => fetch(origin + route, { method: 'POST', headers: { ...auth, Origin: origin, 'Content-Type': 'application/json', 'X-ChatMCP-Request': 'local-dashboard', 'X-ChatMCP-CSRF': state.csrfToken }, body: JSON.stringify(body) });
+      const presets = await fetch(`${origin}/api/ai/presets`, { headers: auth }).then((r) => r.json());
       check(presets.presets.some((p) => p.id === 'anthropic') && presets.envKeys.some((entry) => entry.preset === 'openai'), 'presets and detected variables are served');
       check(!JSON.stringify(presets).includes('0123456789'), 'without any value');
       let response = await post('/api/ai/config', { preset: 'anthropic', apiKey: KEY });
       const configured = await response.json();
       check(response.ok && configured.ai.preset === 'anthropic' && configured.ai.configured && configured.ai.secretStorage.kind === 'aes-gcm' && !JSON.stringify(configured).includes(KEY), 'config route: preset applied, key never echoed');
-      const models = await fetch(`${origin}/api/ai/models`).then((r) => r.json());
+      const models = await fetch(`${origin}/api/ai/models`, { headers: auth }).then((r) => r.json());
       same([models.source, models.models.map((m) => m.id).includes('claude-http-a')], ['provider', true], 'models route');
       response = await post('/api/ai/test', {});
       const tested = await response.json();
