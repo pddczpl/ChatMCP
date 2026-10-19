@@ -92,11 +92,19 @@ try {
     check(!result.text.includes('blue-green-rollout') && !result.text.includes('CACHE_TTL'), 'no line of a protected file is delivered, secret-shaped or not', JSON.stringify(args));
   }
   check(flow.calls.some((call) => call.args.path === '.env.production'), 'the tool did run (only its output was withheld)');
+  {
+    // a "file name" is a string the model wrote: one that holds a credential shape must not be echoed in the notice or the ledger
+    const leakyName = `AKIA${body('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 16)}`;
+    const named = await readThrough(SHELL, { command: `cat .env.${leakyName}` }, harmless);
+    check(/WITHHELD by ChatMCP/.test(named.text) && !named.text.includes(leakyName), 'a file name that holds a secret-shaped string is not echoed in the notice');
+    const ledger = JSON.stringify(flow.task.events.filter((event) => event.type === 'outbound_filtered'));
+    check(!ledger.includes(leakyName), 'nor in the ledger of what was filtered');
+  }
   const normal = await readThrough(FILE, { path: 'src/app.ts' }, 'export const answer = 42;');
   check(normal.text.includes('export const answer = 42;'), 'an ordinary file is delivered as before');
   const filtered = flow.task.events.filter((event) => event.type === 'outbound_filtered' && event.withheld?.length);
-  check(filtered.length >= 6, 'the ledger records each withheld read', `${filtered.length}`);
-  console.log(`PASS six protected-file reads withheld whole (${filtered.length} ledger entries), an ordinary file untouched`);
+  check(filtered.length >= 7, 'the ledger records each withheld read', `${filtered.length}`);
+  console.log(`PASS seven protected-file reads withheld whole (${filtered.length} ledger entries), an ordinary file untouched, a secret-shaped file name never echoed`);
 
   // ---- 4. registered secrets, and what the ledger may contain ---------------------------------------------------------
   const masked = await readThrough(FILE, { path: 'notes.txt' }, 'the hub token is registered-secret-value-77 and that is all');

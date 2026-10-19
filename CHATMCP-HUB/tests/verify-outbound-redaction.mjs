@@ -213,6 +213,9 @@ console.log(`PASS false positives: ${altered.length} of ${clean.length} benign s
     assert.ok(!JSON.stringify(result).includes('DB_PASSWORD'), 'content leaked');
     assert.equal(result.structuredContent.withheld, true);
   }
+  // the names in a notice come from a string the model wrote: they are file names only, and short
+  const long = withholdProtected({ name: 'x.run', arguments: { command: `cat .env.${'a'.repeat(300)}` } }, { content: [] });
+  assert.ok(long.withheld.length === 1 && long.withheld[0].length <= 80, 'a long name is cut');
   // an ordinary call passes through untouched
   for (const call of [
     { name: 'desktop-commander.read_file', arguments: { path: 'src/app.ts' } },

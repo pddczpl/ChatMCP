@@ -78,7 +78,6 @@ function keyClass(key) {
 // ----------------------------------------------------------------------------------------------------------------------
 const NOT_ALNUM_BEFORE = '(?<![A-Za-z0-9])';
 const NOT_ALNUM_AFTER = '(?![A-Za-z0-9])';
-const wordStart = '(?<![A-Za-z0-9_.-])';
 
 /**
  * @typedef {{id: string, pattern: RegExp, accept?: (groups: Record<string,string>) => boolean}} Rule
@@ -368,7 +367,8 @@ export function withholdProtected(call, result) {
   const argumentsValue = call?.arguments ?? (call?.uri ? { uri: call.uri } : {});
   const named = pathsOfCall(argumentsValue).filter(isDeniedOutboundPath);
   if (named.length) {
-    const names = [...new Set(named.map((item) => cleanPath(item).split(/[\\/]/).pop()))];
+    // file names only, and short: a "name" comes from a string the model wrote
+    const names = [...new Set(named.map((item) => cleanPath(item).split(/[\\/]/).pop().slice(0, 80)))];
     return {
       withheld: names,
       result: { isError: false, content: [{ type: 'text', text: WITHHELD_NOTICE(names) }], structuredContent: { withheld: true, reason: 'protected_path', paths: names } },

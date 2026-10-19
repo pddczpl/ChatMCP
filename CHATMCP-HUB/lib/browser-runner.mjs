@@ -143,9 +143,10 @@ export class BrowserRunner {
     if (Object.keys(labels).length) parts.push(`đã che ${Object.values(labels).reduce((a, b) => a + b, 0)} chuỗi giống bí mật (${joinLabels(labels)})`);
     if (withheld.length) parts.push(`không gửi nội dung file được bảo vệ (${withheld.slice(0, 5).join(', ')})`);
     if (!parts.length) return;
-    const message = `Trước khi gửi sang ChatGPT (${where}): ${parts.join('; ')}.`;
+    // A file name or tool name in this record came from the model: it goes through the scanner like everything else.
+    const message = this.scrub(`Trước khi gửi sang ChatGPT (${where}): ${parts.join('; ')}.`).text;
     this.log(message);
-    await this.event(task, 'outbound_filtered', message, { where, labels, withheld: withheld.slice(0, 20) });
+    await this.event(task, 'outbound_filtered', message, { where: this.scrub(where).text, labels, withheld: withheld.slice(0, 20).map((name) => this.scrub(name).text) });
   }
 
   // ---- review before send (opt-in) ----------------------------------------------------------------------------------
