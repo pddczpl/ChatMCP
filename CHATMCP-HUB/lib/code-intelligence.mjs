@@ -59,6 +59,12 @@ const CODE_EXTENSIONS = new Map([
 
 const RESOLVE_EXTENSIONS = ['.mjs', '.js', '.ts', '.tsx', '.jsx', '.cjs', '.mts', '.cts', '.json'];
 
+// find_definition ranking. A language server answer that is a declaration outranks every heuristic candidate (the best of those scores 90).
+// A cold typescript-language-server first answers with the import binding in the queried file itself; that location is an alias of the
+// symbol, not its definition, so it ranks behind every heuristic declaration (the lowest of those scores 10) but stays in the list.
+const LSP_DEFINITION_SCORE = 120;
+const LSP_IMPORT_BINDING_SCORE = 5;
+
 const JS_KEYWORDS = new Set([
   'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default', 'break', 'continue',
   'return', 'try', 'catch', 'finally', 'throw', 'new', 'delete', 'typeof', 'instanceof',
@@ -73,6 +79,15 @@ function toPosix(p) {
 
 function escapeRegExp(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Extra lines that an import or re-export statement occupies below its first line. The patterns of parseJsTsStructure run lazily up to
+ * the first `from '...'`, so `import './a'; ...code...; export { b } from './b'` is one match over everything in between. Only a clause that
+ * can really be one (words, commas, braces, `*`) counts as a multi-line statement; anything else is a match that ran past its statement.
+ */
+function statementLines(clause, matched) {
+  return /^[\w$\s,{}*]*$/.test(clause) ? (String(matched).match(/\n/g) || []).length : 0;
 }
 
 function hashContent(text) {
@@ -359,7 +374,7 @@ function parseJsTsStructure(rawLines, maskedLines, symbols, imports, exportedNam
     const specifier = m[2].trim();
     const line = fullText.slice(0, m.index).split('\n').length;
     const names = parseJsImportClause(clause);
-    imports.push({ specifier, names, kind: 'import', line });
+    imports.push({ specifier, names, kind: 'import', line, endLine: line + statementLines(clause, m[0]) });
   }
 
   // Side-effect imports: import 'specifier'
@@ -384,6 +399,7 @@ function parseJsTsStructure(rawLines, maskedLines, symbols, imports, exportedNam
       names: names.map((n) => n.imported),
       kind: 're-export',
       line,
+      endLine: line + statementLines(clause, m[0]),
     });
   }
 
@@ -1543,6 +1559,22 @@ export class CodeIntelligenceEngine {
   }
 
   /**
+   * True when `line` of the parsed file lies inside an import or re-export statement that names `symbol`, under its own name or as an
+   * alias: such a location binds the symbol in this file, it does not define it. Statements are the ones parseJsTsStructure and
+   * parsePythonStructure recognise (a parenthesised Python import over several lines is not).
+   */
+  _isImportBinding(rec, line, symbol) {
+    // A declaration is never a binding, whatever statement span the import patterns reported around it.
+    if (rec.parsed.symbols.some((sym) => sym.name === symbol && sym.line === line)) return false;
+    const word = new RegExp(`(?<![\\w$])${escapeRegExp(symbol)}(?![\\w$])`);
+    return rec.parsed.imports.some((imp) => {
+      if (imp.kind !== 'import' && imp.kind !== 're-export') return false;
+      const endLine = imp.endLine ?? imp.line;
+      return line >= imp.line && line <= endLine && word.test(rec.rawLines.slice(imp.line - 1, endLine).join('\n'));
+    });
+  }
+
+  /**
    * Resolves a relative module specifier from `fromRelPath` to an existing workspace `relPath`.
    */
   resolveImportSpecifier(fromRelPath, specifier, knownFilesSet) {
@@ -1828,11 +1860,16 @@ export class CodeIntelligenceEngine {
 
     // Tier 1: Query LSP if studioIntelligence is attached
     const lspLocations = await this._queryLsp('textDocument/definition', normalizedContext, null, shortTarget);
+    let lspDeclarations = 0;
+    let lspImportBindings = 0;
     if (Array.isArray(lspLocations)) {
       for (const loc of lspLocations) {
         const locFile = toPosix(loc.file || loc.path || '');
         const rec = locFile ? await this.getParsedFile(locFile) : null;
         const lineNum = Number(loc.line) || 1;
+        // The queried file's own import statement is where a cold server puts its first answer; it is an alias, not the definition.
+        const isImportBinding = Boolean(rec && locFile === normalizedContext && this._isImportBinding(rec, lineNum, shortTarget));
+        if (isImportBinding) lspImportBindings += 1; else lspDeclarations += 1;
         const endLineNum = Number(loc.endLine) || lineNum;
         let snippet = '';
         if (rec && rec.rawLines) {
@@ -1844,12 +1881,12 @@ export class CodeIntelligenceEngine {
             .join('\n');
         }
         candidates.push({
-          score: 120,
+          score: isImportBinding ? LSP_IMPORT_BINDING_SCORE : LSP_DEFINITION_SCORE,
           file: locFile,
           sha256: rec?.sha256 || '',
           name: shortTarget,
           qualifiedName: target,
-          kind: loc.kind || 'definition',
+          kind: loc.kind || (isImportBinding ? 'import-binding' : 'definition'),
           line: lineNum,
           endLine: endLineNum,
           signature: loc.signature || shortTarget,
@@ -1892,7 +1929,7 @@ export class CodeIntelligenceEngine {
           tier: defTier,
           engine: this._getEngineForTier(defTier, defLang),
           language: defLang,
-          fallbackUsed: Boolean(!Array.isArray(lspLocations) || lspLocations.length === 0),
+          fallbackUsed: lspDeclarations === 0,
           snippet,
         });
       }
@@ -1921,6 +1958,9 @@ export class CodeIntelligenceEngine {
     const bestLang = best.language || this._getLanguageForPath(best.file);
     const bestEngine = best.engine || this._getEngineForTier(bestTier, bestLang);
     const usedFallback = bestTier !== 'lsp';
+    const fallbackReason = usedFallback
+      ? (this._lastLspFallbackReason || (lspImportBindings > 0 && lspDeclarations === 0 ? 'lsp_import_binding_only' : 'lsp_not_used'))
+      : null;
     const lines = [`Tìm thấy ${candidates.length} định nghĩa cho "${target}":`];
     for (const def of slicedDefs) {
       lines.push(`\n### ${def.file}:${def.line}-${def.endLine} (${def.kind} ${def.qualifiedName})`);
@@ -1937,13 +1977,13 @@ export class CodeIntelligenceEngine {
         engine: bestEngine,
         language: bestLang,
         fallbackUsed: usedFallback,
-        fallbackReason: usedFallback ? (this._lastLspFallbackReason || 'lsp_not_used') : null,
+        fallbackReason,
         provenance: {
           tier: bestTier,
           engine: bestEngine,
           language: bestLang,
           fallbackUsed: usedFallback,
-          fallbackReason: usedFallback ? (this._lastLspFallbackReason || 'lsp_not_used') : null,
+          fallbackReason,
         },
         definitions: slicedDefs,
       },
