@@ -18,6 +18,7 @@ import { PluginManager } from './lib/plugins.mjs';
 import { CodingWorktreeOrchestrator } from './lib/coding-orchestrator.mjs';
 import { GitHubSkillRegistry } from './lib/skill-registry.mjs';
 import { BEARER_PATTERN, attachToRunningHub, createSecret, createTicketBook, dashboardUrl, hubRequiresBearer, writeSession } from './lib/hub-session.mjs';
+import { followProviderWindow } from './lib/tool-selector.mjs';
 
 const APP_ID = 'chatmcp-local-hub';
 export const UI_BUILD = '3.9.0-react-agent';
@@ -664,6 +665,12 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   return server;
 }
 
+// The foreground runner. Its tool list follows the context window of the model of the task it starts (see lib/tool-selector.mjs): an unknown
+// or small window gets the task-selected schemas instead of all 103. AgentRunner is passed in because main() loads it lazily.
+export function createPrimaryAgentRunner(AgentRunner, { manager, provider, taskDirectory, log, env = process.env }) {
+  return followProviderWindow(new AgentRunner({ manager, provider, taskDirectory, log }), env);
+}
+
 // `url` is what is logged; `target` (the same address plus a one-time sign-in ticket in the fragment) is what is opened.
 async function openDashboard(url, manager, target = url) {
   if (process.platform !== 'win32') {
@@ -754,7 +761,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   await manager.dynamicDelegates.load();
   manager.codingOrchestrator=new CodingWorktreeOrchestrator({manager,provider,directory:path.join(manager.hubDirectory,'coding-orchestrator'),bundleRoot:BUNDLE_ROOT});
   await manager.codingOrchestrator.load();
-  const primaryAgent = new AgentRunner({ manager, provider, taskDirectory: path.join(manager.hubDirectory, 'api-tasks'), log: (line) => manager.log(line) });
+  const primaryAgent = createPrimaryAgentRunner(AgentRunner, { manager, provider, taskDirectory: path.join(manager.hubDirectory, 'api-tasks'), log: (line) => manager.log(line), env });
   const apiAgent = new ConcurrentApiAgent({ primary: primaryAgent, manager, provider, bundleRoot: BUNDLE_ROOT,
     directory: path.join(manager.hubDirectory, 'api-conversations'), log: line => manager.log(line) });
   manager.spawnBackgroundAgent = (parentTaskId,request) => apiAgent.spawnAgent(parentTaskId,request);

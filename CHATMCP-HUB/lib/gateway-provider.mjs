@@ -45,6 +45,21 @@ function noSecrets(message, redact) {
     .replace(/(?:x-goog-api-key|authorization|api[_-]?key|access[_-]?token)\s*[=:]\s*[^\s,;]+/gi, '[REDACTED]')
     .replace(/\bAIza[0-9A-Za-z_-]{20,}\b/g, '[REDACTED]');
 }
+// Gemini's output cap: the caller's budget (the agent's context policy) within 256..65,536 tokens, 8,192 when the caller says nothing.
+// A thinking model spends the cap on its thoughts, so a fixed 8,192 ended answers at MAX_TOKENS. Some models accept less: the range in
+// their 400 answer is learned (this.outputLimit) and used from then on, as the Anthropic path does for "max_tokens".
+const GEMINI_DEFAULT_OUTPUT_TOKENS = 8192;
+const GEMINI_MAX_OUTPUT_TOKENS = 65536;
+function geminiOutputCap(requested, learned) {
+  const wanted = Number.isFinite(requested) && requested > 0 ? Math.min(Math.max(256, Math.floor(requested)), GEMINI_MAX_OUTPUT_TOKENS) : GEMINI_DEFAULT_OUTPUT_TOKENS;
+  return learned ? Math.min(wanted, learned) : wanted;
+}
+/** "...maxOutputTokens value of 16384 but the supported range is from 1 (inclusive) to 8193 (exclusive)" -> 8192, else null. */
+function geminiOutputRange(detail) {
+  const match = /maxOutputTokens[^]*?supported range is from \d+ \(inclusive\) to (\d+) \(exclusive\)/i.exec(String(detail || ''));
+  const limit = match ? Number(match[1]) - 1 : 0;
+  return Number.isInteger(limit) && limit >= 256 ? limit : null;
+}
 function probePayload(protocol, model) {
   if (protocol === 'gemini') return { contents: [{ role: 'user', parts: [{ text: 'Reply OK.' }] }] };
   if (protocol === 'anthropic') return { model, max_tokens: 32, messages: [{ role: 'user', content: 'Reply OK.' }] };
@@ -558,7 +573,7 @@ export class GatewayProvider {
     throw err;
   }
 
-  /** One model step. `maxOutputTokens` is honoured by the Anthropic path (where it is required); the others use the provider's own cap. */
+  /** One model step. `maxOutputTokens` is the output budget: Anthropic requires it, Responses and Gemini send it, Chat Completions leaves the provider's own cap. */
   async respond({ input, instructions, tools = [], signal, onStatus = async () => {}, onToken = null, maxOutputTokens, beforeModelRequest = () => {} } = {}) {
     if (!this.ready()) throw bad('gateway_not_ready', 'Hãy cấu hình API Base URL, model và API key.', 409);
     if (!Array.isArray(input)) throw bad('invalid_input', 'Ngữ cảnh Agent không hợp lệ.');
@@ -573,7 +588,7 @@ export class GatewayProvider {
       systemInstruction: { parts: [{ text: instructions }] },
       contents: asGeminiContents(input),
       tools: tools.length ? [{ functionDeclarations: tools.map((x) => ({ name: x.name, description: x.description, parameters: geminiSchema(x.parameters) })) }] : undefined,
-      generationConfig: { maxOutputTokens: 8192 },
+      generationConfig: { maxOutputTokens: geminiOutputCap(maxOutputTokens, this.outputLimit) },
     };
     const inlineInstructions = () => {
       const contents = asGeminiContents(input);
@@ -656,6 +671,13 @@ export class GatewayProvider {
             await onStatus(`Gateway trả HTTP 413; giảm request model còn tối đa ${Math.round(textRequestBudget/1024)} KiB và thử lại. Lịch sử MCP đầy đủ vẫn được lưu trên máy; không gọi lại MCP.`, 'context_compaction');
             continue;
           }
+        }
+        const acceptedOutput = response.status === 400 ? geminiOutputRange(gatewayErrorDetail(data)) : null;
+        if (acceptedOutput && nativeBody.generationConfig.maxOutputTokens > acceptedOutput) {
+          nativeBody.generationConfig.maxOutputTokens = acceptedOutput;
+          this.outputLimit = acceptedOutput;
+          await onStatus(`Model chỉ cho phép tối đa ${acceptedOutput} token đầu ra; thử lại với giới hạn này.`);
+          continue;
         }
         if (!response.ok && dialectIndex < dialects.length - 1 &&
             unsupportedGeminiFields(response.status, gatewayErrorDetail(data))) {

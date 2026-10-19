@@ -16,6 +16,7 @@ import {
 import { Button } from '@/components/ui/Button';
 import { aiDraftHasChanges, aiProtocolForPreset, reconcileSavedAiConfig, selectAiProviderDraft, type AiConfigForm } from '@/lib/ai-config-form';
 import { ModelProfilesPanel } from './ModelProfilesPanel';
+import { contextWindowField, contextWindowRangeText } from '@/lib/context-window';
 
 export function IntelligenceTab() {
   const { showToast } = useAppStore();
@@ -53,7 +54,11 @@ export function IntelligenceTab() {
   const [saveError, setSaveError] = useState('');
   const [customHeadersDraft,setCustomHeadersDraft] = useState('');
   const [customHeadersDirty,setCustomHeadersDirty] = useState(false);
-  const draftChanged = aiDraftHasChanges(form, ai as any) || customHeadersDirty;
+  // Only an edited window is sent; an untouched form leaves the saved one (or the preset default) alone.
+  const [contextWindowDraft,setContextWindowDraft] = useState('');
+  const [contextWindowDirty,setContextWindowDirty] = useState(false);
+  const savedWindow = (ai as any).contextWindowTokens as number | null | undefined;
+  const draftChanged = aiDraftHasChanges(form, ai as any) || customHeadersDirty || contextWindowDirty;
   const expectedProtocol = aiProtocolForPreset(form.provider);
   const oldOrigin = (() => { try { return new URL(ai.apiBaseUrl || '').origin; } catch { return ''; } })();
   const newOrigin = (() => { try { return new URL(form.apiBaseUrl).origin; } catch { return ''; } })();
@@ -81,6 +86,8 @@ export function IntelligenceTab() {
     setSaveError('');
     setCustomHeadersDraft('');
     setCustomHeadersDirty(false);
+    setContextWindowDraft('');
+    setContextWindowDirty(false);
   };
 
   const handleEndpointChange = (nextUrl: string) => {
@@ -101,6 +108,7 @@ export function IntelligenceTab() {
     const parsedHeaders=customHeadersDirty?JSON.parse(customHeadersDraft||'[]'):undefined;
     if(parsedHeaders!==undefined && !Array.isArray(parsedHeaders))
       throw new Error('Custom headers must be a JSON array.');
+    const windowField = contextWindowField(contextWindowDraft, contextWindowDirty);
     const result = await api.updateAiConfig({
       preset: submitted.provider,
       ...(aiProtocolForPreset(submitted.provider) ? { protocol: aiProtocolForPreset(submitted.provider) } : {}),
@@ -110,6 +118,7 @@ export function IntelligenceTab() {
       apiKey: submitted.apiKey.trim() || undefined,
       remember: true,
       ...(customHeadersDirty?{customHeaders:parsedHeaders}:{}),
+      ...windowField,
     });
     const saved = result.ai;
     if (!saved || (aiProtocolForPreset(submitted.provider) && saved.protocol !== aiProtocolForPreset(submitted.provider))) {
@@ -118,6 +127,8 @@ export function IntelligenceTab() {
     setForm(current => reconcileSavedAiConfig(current, submitted, saved));
     setCustomHeadersDraft('');
     setCustomHeadersDirty(false);
+    setContextWindowDraft('');
+    setContextWindowDirty(false);
     return reconcileSavedAiConfig(submitted, submitted, saved);
   };
 
@@ -256,6 +267,26 @@ export function IntelligenceTab() {
           placeholder="vd: claude-sonnet-5-5, gpt-4o, deepseek-chat..."
           className="w-full bg-[var(--surface)] text-[var(--text)] font-mono text-xs rounded-md px-3 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
         />
+      </div>
+
+      {/* Context window: what the agent plans its history and tool list against */}
+      <div className="space-y-1.5">
+        <label htmlFor="chatmcp-context-window" className="text-[11px] font-semibold text-[var(--muted)] block">
+          Context window (tokens)
+        </label>
+        <input
+          id="chatmcp-context-window"
+          type="number"
+          aria-label="Context window tokens"
+          value={contextWindowDirty ? contextWindowDraft : (savedWindow ?? '')}
+          onChange={(e) => { setContextWindowDraft(e.target.value); setContextWindowDirty(true); }}
+          placeholder="unknown"
+          className="w-full bg-[var(--surface)] text-[var(--text)] font-mono text-xs rounded-md px-3 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500"
+        />
+        <p data-testid="context-window-hint" className={`text-[10px] ${savedWindow ? 'text-[var(--faint)]' : 'text-amber-400'}`}>
+          {savedWindow ? '' : 'Unknown: the agent plans with a conservative estimate and shows a warning on every task. '}
+          {`Allowed: ${contextWindowRangeText()} tokens (larger values are reduced to the maximum, smaller ones are refused). Leave empty if you do not know it.`}
+        </p>
       </div>
 
       {/* API Key */}

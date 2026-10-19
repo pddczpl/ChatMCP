@@ -581,6 +581,36 @@ try {
     same(provider.outputLimit, null, 'a new model starts without the old cap');
   }
 
+  // Gemini: the output cap was a constant 8192. It now follows the caller's output budget (a thinking model spends the cap on thoughts and
+  // ends MAX_TOKENS), keeps 8192 when the caller says nothing, and learns the range of a model that accepts less instead of failing.
+  {
+    const geminiOk = { candidates: [{ content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 1 } };
+    const sent = [];
+    let range = null;
+    const { provider } = await makeProvider('gemini-cap', { configure: { preset: 'gemini', apiKey: KEY }, fetchImpl: async (url, opts) => {
+      const body = JSON.parse(opts.body);
+      sent.push(body.generationConfig?.maxOutputTokens);
+      if (range !== null && body.generationConfig?.maxOutputTokens >= range) {
+        return reply(400, { error: { code: 400, status: 'INVALID_ARGUMENT', message: `Unable to submit request because it has a maxOutputTokens value of ${body.generationConfig.maxOutputTokens} but the supported range is from 1 (inclusive) to ${range} (exclusive). Update the value and try again.` } });
+      }
+      return reply(200, geminiOk);
+    } });
+    const ask = (maxOutputTokens) => provider.respond({ input: [userMsg('hi')], instructions: 'S', ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }) });
+    await ask();
+    await ask(16384);
+    await ask(100);
+    await ask(1_000_000);
+    same(sent, [8192, 16384, 256, 65536], 'default 8,192; the caller\'s budget otherwise, within 256..65,536');
+    sent.length = 0;
+    range = 8193;
+    await ask(16384);
+    same([sent, provider.outputLimit], [[16384, 8192], 8192], 'a model that accepts at most 8,192 is asked again with 8,192 and the limit is remembered');
+    await ask(16384);
+    same(sent, [16384, 8192, 8192], 'the learned cap is used from the start next time');
+    await provider.configure({ model: 'gemini-other' });
+    same(provider.outputLimit, null, 'a new model starts without the old cap');
+  }
+
   // context window: reactive and proactive compaction
   {
     const reads = [userMsg('Task')];

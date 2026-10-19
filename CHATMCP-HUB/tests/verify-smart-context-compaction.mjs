@@ -8,6 +8,9 @@ import path from 'node:path';
 import { AgentRunner } from '../lib/agent.mjs';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { compactConversationHistory, resolveEffectiveContextBudget } from '../lib/context-compaction.mjs';
+import { GatewayProvider } from '../lib/gateway-provider.mjs';
+import { LocalTools } from '../lib/local-tools.mjs';
+import { createPrimaryAgentRunner } from '../hub.mjs';
 
 const fallback=resolveEffectiveContextBudget({instructions:'policy',tools:[{name:'probe'}]});
 assert.equal(fallback.source,'conservative_fallback');
@@ -22,6 +25,36 @@ assert.ok(explicit.maxHistoryTokens<fallback.maxHistoryTokens);
 const metadata=resolveEffectiveContextBudget({modelMetadataTokens:100000});
 assert.equal(metadata.source,'trusted_model_metadata');
 assert.equal(metadata.capacityTokens,100000);
+
+// Output policy. An unknown window is a planning estimate (32,768), not a fact: the request may still ask for the full default output
+// (reasoning models spend it on hidden reasoning and end "incomplete" when it is small; v3.9.0 sent 18% of the estimate = 5,898), while
+// the history is planned against a quarter of the estimate so that the tool schemas and a useful history still fit.
+// F = about 8.2k tokens of instructions + tool schemas, what the real catalog costs in auto mode for a coding prompt (measured in
+// the agent wiring test below).
+const instructionsAbout1500Tokens='i'.repeat(Math.round(1500*3.8));
+const toolsAbout6700Tokens=Array.from({length:30},(_,index)=>({type:'function',name:'tool_'+index,description:'d'.repeat(500),parameters:{type:'object',properties:{value:{type:'string'}}}}));
+const unknownWindow=resolveEffectiveContextBudget({instructions:instructionsAbout1500Tokens,tools:toolsAbout6700Tokens});
+assert.equal(unknownWindow.source,'conservative_fallback');
+assert.equal(unknownWindow.capacityTokens,32768);
+assert.equal(unknownWindow.reservedOutputTokens,16384,'the request may use the full default output when the window is unknown');
+assert.equal(unknownWindow.plannedOutputTokens,8192,'but history is planned against min(16,384, capacity/4)');
+assert.ok(unknownWindow.maxHistoryTokens>=8000,'an unknown window still leaves 8k tokens of history with a trimmed tool list ('+unknownWindow.maxHistoryTokens+')');
+assert.equal(unknownWindow.maxHistoryTokens,32768-8192-unknownWindow.safetyMarginTokens-unknownWindow.fixedOverheadTokens);
+// A known window is a fact: the cap IS the reservation, a quarter of the window up to the default output.
+for(const [window,expected] of [[8192,2048],[16384,4096],[32768,8192],[65535,16383],[65536,16384],[200000,16384],[1000000,16384]]){
+  const known=resolveEffectiveContextBudget({contextWindowTokens:window});
+  assert.equal(known.source,'provider_configuration');
+  assert.equal(known.reservedOutputTokens,expected,window+' tokens: output cap');
+  assert.equal(known.plannedOutputTokens,expected,window+' tokens: planned output equals the cap when the window is known');
+}
+assert.equal(resolveEffectiveContextBudget({contextWindowTokens:4096}).reservedOutputTokens,1024,'never below 1,024');
+assert.equal(resolveEffectiveContextBudget({modelMetadataTokens:100000,maxOutputTokens:4000}).reservedOutputTokens,4000,'a caller\'s smaller maximum is respected');
+// One bound for every validator (lib/context-window.mjs): above the cap is clamped, not discarded; below the minimum is not a window.
+const oversized=resolveEffectiveContextBudget({contextWindowTokens:5_000_000});
+assert.deepEqual([oversized.source,oversized.capacityTokens],['provider_configuration',2_000_000]);
+assert.equal(resolveEffectiveContextBudget({modelMetadataTokens:9_000_000}).capacityTokens,2_000_000);
+assert.equal(resolveEffectiveContextBudget({contextWindowTokens:3000}).source,'conservative_fallback','a window below 4,096 is not used as a window');
+assert.equal(resolveEffectiveContextBudget({contextWindowTokens:'64000'}).source,'conservative_fallback','only a number from the provider counts');
 const big='output: '+('abcdefghijklmno'.repeat(950));
 const sameCall={type:'function_call',call_id:'a',name:'git_status',arguments:'{}'};
 const differing=[
@@ -114,3 +147,69 @@ try{
   await runner.shutdown();
   console.log('PASS Smart Context Compaction wired to AgentRunner, safe Repo Map, paired call IDs, durable full transcript');
 }finally{await fs.rm(root,{recursive:true,force:true});}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// The numbers of gate G1-7 through the REAL path: the hub's primary AgentRunner -> its context policy -> a GatewayProvider speaking OpenAI
+// Responses -> the request body. Only the network is replaced; the catalog is the real 99-tool LocalTools inventory and the prompt is a
+// coding task, so the numbers are what a person with an unconfigured Responses endpoint gets. (v3.9.0: 103 schemas = 15.4k tokens, 10.3k
+// tokens of history, max_output_tokens 5,898.)
+// ---------------------------------------------------------------------------------------------------------------------------------
+{
+  const base=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-window-policy-'));
+  try{
+    const catalogTools=new LocalTools({workspace:{async resolve(){throw new Error('not called');}},shell:{},git:{}}).definitions();
+    let runNumber=0;
+    const sse=payload=>({ok:true,status:200,headers:{get:name=>String(name).toLowerCase()==='content-type'?'text/event-stream':null},
+      body:new Response('data: '+JSON.stringify({type:'response.completed',response:payload})+'\n\n').body});
+    const completed={status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:'Nothing to change.'}]}],usage:{input_tokens:20000,output_tokens:5}};
+    async function runTask({window,prompt}){
+      const number=++runNumber;
+      const requests=[];
+      const provider=new GatewayProvider({directory:path.join(base,'gateway-'+number),bundleRoot:path.resolve(import.meta.dirname,'..'),manager:{secrets:[]},env:{},platform:'linux',sleep:async()=>{},
+        fetchImpl:async(url,options)=>{requests.push({url,body:JSON.parse(options.body)});return sse(completed);}});
+      await provider.load();
+      await provider.configure({preset:'custom-responses',apiBaseUrl:'https://responses.example/v1',model:'gpt-test',apiKey:'sk-window-policy-key-0123456789',
+        ...(window?{contextWindowTokens:window}:{})});
+      let locked=false;
+      const root=path.join(base,'workspace-'+number);
+      await fs.mkdir(root,{recursive:true});
+      const manager={secrets:[],workspace:root,generation:1,instanceId:'window-policy',
+        studio:{checks:async()=>({suggested:[{from:'package.json',command:'npm test'}]})},
+        state(){return {workspace:{path:root},generation:1,instanceId:'window-policy',services:{}};},
+        acquireTask(){if(locked)return false;locked=true;return true;},releaseTask(){locked=false;},
+        async createAgentSession(){return {catalog:{tools:catalogTools,prompts:[],resources:[],resourceTemplates:[],servers:{}},async close(){},async callTool(){throw new Error('no tool is called');}};}};
+      const runner=createPrimaryAgentRunner(AgentRunner,{manager,provider,taskDirectory:path.join(base,'tasks-'+number),log:()=>{},env:{}});
+      await runner.load();
+      const {id}=await runner.start({prompt,maxSteps:3,maxMinutes:1});
+      await Promise.race([runner.context.done.promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error('window policy task timed out')),20000))]);
+      const task=runner.get(id);
+      await runner.shutdown();
+      return {task,requests};
+    }
+    const codingTask='Fix the failing test in src/core.mjs and run the tests.';
+
+    const unknown=await runTask({window:null,prompt:codingTask});
+    assert.equal(unknown.task.status,'completed',unknown.task.error);
+    const unknownBody=unknown.requests[0].body;
+    assert.equal(unknown.task.contextPolicy.source,'conservative_fallback','nothing configured: the policy says so');
+    assert.ok(unknownBody.max_output_tokens>=16384,'Responses request for an unknown window: max_output_tokens '+unknownBody.max_output_tokens+' (v3.9.0: 5,898)');
+    assert.ok(unknown.task.contextPolicy.reservedOutputTokens>=4096);
+    assert.ok(unknown.task.contextPolicy.maxHistoryTokens>=8000,'unknown window, task-selected tools: history '+unknown.task.contextPolicy.maxHistoryTokens+' tokens');
+    assert.ok(unknownBody.tools.length>0&&unknownBody.tools.length<60,'an unknown window gets the task-selected schemas, not all 103 ('+unknownBody.tools.length+')');
+    assert.ok(unknown.task.events.some(e=>e.type==='tool_selection'),'and the selection is recorded');
+    const unknownToolTokens=Math.ceil(JSON.stringify(unknownBody.tools).length/3.8);
+    assert.ok(unknownToolTokens<9000,'tool schemas cost '+unknownToolTokens+' tokens in auto mode (full list: about 13.4k)');
+
+    const large=await runTask({window:200000,prompt:codingTask});
+    assert.equal(large.task.contextPolicy.source,'provider_configuration');
+    assert.equal(large.requests[0].body.tools.length,103,'a known large window keeps the full list, as before');
+    assert.equal(large.requests[0].body.max_output_tokens,16384);
+    assert.ok(large.task.contextPolicy.maxHistoryTokens>100000);
+
+    const small=await runTask({window:16384,prompt:codingTask});
+    assert.equal(small.task.status,'completed',small.task.error);
+    assert.ok(small.requests[0].body.tools.length<60,'a small known window is trimmed too');
+    assert.equal(small.requests[0].body.max_output_tokens,4096,'and its output cap is a quarter of it, not more than fits');
+    console.log('PASS unknown window: warning source, >=8k history, task-selected tools, Responses max_output_tokens >= 16,384; large window unchanged');
+  }finally{await fs.rm(base,{recursive:true,force:true,maxRetries:8,retryDelay:150});}
+}

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONTEXT_WINDOW_MIN, CONTEXT_WINDOW_MAX, parseContextWindowInput } from '../src/lib/context-window.ts';
+import { CONTEXT_WINDOW_MIN, CONTEXT_WINDOW_MAX, contextWindowField, parseContextWindowInput } from '../src/lib/context-window.ts';
 import { buildProfilePayload, draftFromProfile, emptyProfileDraft } from '../src/lib/model-profile-form.ts';
 import * as hub from '../../lib/context-window.mjs';
 
@@ -61,4 +61,13 @@ test('editing a saved profile starts from its path and the NAMES of its headers,
   assert.equal(draft.customHeadersText, '', 'the textarea starts empty: values are never returned by the Hub');
   assert.equal(draft.customHeadersDirty, false);
   assert.equal('customHeaders' in buildProfilePayload(draft), false);
+});
+
+test('the global connection form sends a window only when the person edited it', () => {
+  assert.deepEqual(contextWindowField('', false), {}, 'untouched: the Hub keeps its value or the preset default');
+  assert.deepEqual(contextWindowField('999999', false), {}, 'untouched, whatever the field shows');
+  assert.deepEqual(contextWindowField('64000', true), { contextWindowTokens: 64000 });
+  assert.deepEqual(contextWindowField('', true), { contextWindowTokens: null }, 'emptied: unknown again');
+  assert.deepEqual(contextWindowField('9999999', true), { contextWindowTokens: 2_000_000 }, 'clamped, as the Hub would');
+  assert.throws(() => contextWindowField('3000', true), /4,096/);
 });

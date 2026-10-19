@@ -24,6 +24,28 @@ const GROUPS=[
 export function taskToolSelectionMode(env=process.env) {
   return env.CHATMCP_TOOL_SELECTION==='auto'?'auto':'full';
 }
+// The foreground chat (the hub's primary runner) used to offer all 103 schemas, about 15.4k tokens, to every model. Against an unknown or
+// small window that is most of the room there is: the task-selected subset (about 3-7k tokens) leaves the history the space. A window of
+// this size or more keeps the full list, as before. CHATMCP_TOOL_SELECTION=full|auto overrides the choice either way.
+export const LARGE_WINDOW_TOKENS=65536;
+export function windowToolSelectionMode(contextWindowTokens,env=process.env) {
+  if(env.CHATMCP_TOOL_SELECTION==='full'||env.CHATMCP_TOOL_SELECTION==='auto')return env.CHATMCP_TOOL_SELECTION;
+  return Number.isFinite(contextWindowTokens)&&contextWindowTokens>=LARGE_WINDOW_TOKENS?'full':'auto';
+}
+// Make runner.toolSelectionMode follow the context window of the provider the runner has when a task starts (ConcurrentApiAgent sets
+// runner.provider to the task's profile before it starts the task). Assigning a mode still wins; assigning null hands the choice back.
+export function followProviderWindow(runner,env=process.env) {
+  let explicit=runner.toolSelectionMode??null;
+  Object.defineProperty(runner,'toolSelectionMode',{configurable:true,enumerable:true,
+    get() {
+      if(explicit!==null)return explicit;
+      let window=null;
+      try{window=this.provider?.state?.()?.contextWindowTokens??null;}catch{/* a provider that cannot say counts as unknown */}
+      return windowToolSelectionMode(window,env);
+    },
+    set(value) {explicit=value??null;}});
+  return runner;
+}
 export function selectTaskToolNames(prompt,{cap=48}={}) {
   if(!Number.isInteger(cap)||cap<1||cap>124)throw new TypeError('Invalid schema budget');
   const set=new Set(BASE);

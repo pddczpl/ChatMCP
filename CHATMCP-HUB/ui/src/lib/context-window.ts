@@ -30,3 +30,11 @@ export function parseContextWindowInput(raw: string): ContextWindowInput {
   if (number > CONTEXT_WINDOW_MAX) return { ok: true, value: CONTEXT_WINDOW_MAX, clamped: true };
   return { ok: true, value: number, clamped: false };
 }
+
+/** The part of a save request that carries the window: nothing unless the field was edited (an untouched form must not reset it). */
+export function contextWindowField(raw: string, edited: boolean): { contextWindowTokens?: number | null } {
+  if (!edited) return {};
+  const parsed = parseContextWindowInput(raw);
+  if (!parsed.ok) throw new Error(parsed.message);
+  return { contextWindowTokens: parsed.value };
+}
