@@ -12,6 +12,7 @@ Comprehensive documentation across all architecture, implementation, and verific
 - [Bundled Code Intelligence Runtime](CODE-INTELLIGENCE-RUNTIME.md) — Offline LSP, WASM, embedded Python staging, verification and limitations
 - [Architecture](ARCHITECTURE.md) — System components, security model, and task state machine
 - [Hub authentication](HUB-AUTH.md) — Per-launch bearer secret, session file, dashboard sign-in ticket, and what it does not protect
+- [Threat model](THREAT-MODEL.md) — Hub credential, Companion outbound filter and Read Only classifier: assets, actors, mitigations with code references, residual risks
 - [ChatGPT Web Companion privacy](COMPANION-PRIVACY.md) — Terms-of-Use risk, outbound secret scanner, protected-file deny-list, review before send, and what they do not do
 - [Windows Setup](WINDOWS-SETUP.md) — Prerequisites, environment variables, and Windows configuration
 - [Desktop Application](DESKTOP-APP.md) — WinForms + WebView2 architecture, packaging, and releases
