@@ -13,7 +13,7 @@ export const CHATGPT_WEB_RISK: Record<'vi' | 'en', RiskCopy> = {
     points: [
       'Đây không phải API hay kênh do OpenAI cung cấp, hỗ trợ hoặc cho phép; ChatMCP không liên kết với OpenAI. Một Companion điều khiển ô chat của tab chatgpt.com mà bạn đã đăng nhập.',
       'Nội dung workspace (kết quả công cụ, đoạn file, prompt) được gửi vào cuộc chat và nằm trong lịch sử ChatGPT của bạn, theo chính sách của OpenAI.',
-      'ChatMCP che các chuỗi giống bí mật (khóa, token, mật khẩu) và không gửi nội dung file .env, khóa riêng, credentials. Việc này chỉ là nỗ lực tối đa, không bảo đảm phát hiện hết và không biết nội dung nào là bí mật của khách hàng.',
+      'ChatMCP che các chuỗi giống bí mật (khóa, token, mật khẩu) và giữ lại nội dung file .env, khóa riêng, credentials khi lời gọi hoặc kết quả nêu tên chúng. Việc này chỉ là nỗ lực tối đa, không bảo đảm phát hiện hết và không biết nội dung nào là bí mật của khách hàng.',
       'Bật "Xem lại trước khi gửi" nếu workspace chứa thông tin nhạy cảm hoặc của khách hàng. Dùng Model API nếu cần một kênh có điều khoản rõ ràng.',
     ],
   },
@@ -23,7 +23,7 @@ export const CHATGPT_WEB_RISK: Record<'vi' | 'en', RiskCopy> = {
     points: [
       'It is not an API or a channel that OpenAI provides, supports or permits, and ChatMCP is not affiliated with OpenAI. A Companion drives the chat box of the chatgpt.com tab you are signed in to.',
       'Workspace content (tool results, file excerpts, prompts) is sent into the chat and stays in your ChatGPT history, under OpenAI\'s policies.',
-      'ChatMCP masks text shaped like a secret (keys, tokens, passwords) and does not send the content of .env files, private keys or credentials. This is best effort: it will miss some secrets and cannot know what is confidential for a client.',
+      'ChatMCP masks text shaped like a secret (keys, tokens, passwords) and withholds the content of .env files, private keys and credentials when the call or its result names them. This is best effort: it will miss some secrets and cannot know what is confidential for a client.',
       'Turn on "Review before send" when the workspace holds sensitive or client material. Use the Model API when you need a channel with clear terms.',
     ],
   },

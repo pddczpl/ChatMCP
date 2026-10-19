@@ -15,7 +15,7 @@ The same wording is shown in Settings (next to the channel selector, before you 
 
 ## What ChatMCP does to limit accidental exposure
 
-Three safeguards apply to everything the Hub hands to the extension: the first message, a continuation prompt, handoff text, every tool result, every `result_page` and what `poll()` returns. Nothing here hides the automation from the page or from OpenAI, and nothing here changes how the extension is paired or how it talks to the Hub.
+Three safeguards sit between the Hub and the extension. The scanner covers everything the Hub hands over: the first message, a continuation prompt, handoff text, every tool result, every `result_page` and what `poll()` returns. The protected-file filter and the optional review apply to tool results. Nothing here hides the automation from the page or from OpenAI, and nothing here changes how the extension is paired or how it talks to the Hub.
 
 ### 1. Outbound secret scanner (always on)
 
@@ -30,7 +30,7 @@ Three safeguards apply to everything the Hub hands to the extension: the first m
 | Generic frames | JWT, `Bearer` tokens, `Authorization`, `X-Api-Key` and cookie headers, `user:password@` in a URL of any scheme, connection strings with `Password=`, SQL `PASSWORD '...'`, `.npmrc`/`.netrc` entries, kubeconfig key data, PowerShell `ConvertTo-SecureString`, secret flags on a command line, secret-looking query parameters |
 | Assignments | `NAME=value` where the name looks sensitive (`API_TOKEN`, `DB_PASSWORD`, `SECRET_KEY_BASE`), `"password": "..."` and `key: value` forms, `setx`, `$env:` and `export` lines; a structured result is also judged by its field names |
 
-53 labelled rules in total; `REDACTION_LABELS` in the module lists them. A report from the scanner holds labels and counts only. A matched string is never returned, logged or written into the task events.
+53 labelled rules in total (`REDACTION_LABELS` in the module lists them, plus `secret-field` for a structured result judged by its field name and `manual` for text you hide yourself). A report from the scanner holds labels and counts only. A matched string is never returned, logged or written into the task events.
 
 Where it runs, and why there:
 
@@ -41,9 +41,9 @@ Where it runs, and why there:
 
 The task events carry one line per message that was changed, for example "Before sending to ChatGPT (result desktop-commander.read_file): 2 secret-shaped strings masked (github-token×1, env-secret×1)". That is the ledger of what was removed. A second ledger records what was sent: when the extension confirms a send, the task's `transcript.jsonl` gets an `outbound_message` entry with the exact text that was handed over (already scrubbed), its size and its SHA-256, so you can see afterwards what reached chatgpt.com.
 
-### 2. Protected files are never sent (always on)
+### 2. Protected files are withheld (always on)
 
-What a tool read from `.env*`, `*.pem`, `*.key`, `id_rsa*` or anything under the existing protected set (`lib/protected-paths.mjs`: `.git`, `.ssh`, `.aws`, `.gnupg`, `.kube`, `credentials`, `secrets.*`, `.npmrc`, `.netrc` and similar) is **withheld whole**: ChatGPT receives a short notice instead, even for lines that look harmless. The check looks at the path arguments of the call, at the tokens of a command line (`cat .env`, `git show HEAD:.env`, `--env-file .env`) and at the file names a search result or a structured result names. `.env.example` is withheld as well (stricter than `lib/protected-paths.mjs`, which lets templates through for the local tools).
+When a call or its result names `.env*`, `*.pem`, `*.key`, `id_rsa*` or anything under the existing protected set (`lib/protected-paths.mjs`: `.git`, `.ssh`, `.aws`, `.gnupg`, `.kube`, `credentials`, `secrets.*`, `.npmrc`, `.netrc` and similar), what the tool read is **withheld whole**: ChatGPT receives a short notice instead, even for lines that look harmless. The check looks at the path arguments of the call, at the tokens of a command line (`cat .env`, `git show HEAD:.env`, `--env-file .env`) and at the file names a search result or a structured result names. `.env.example` is withheld as well (stricter than `lib/protected-paths.mjs`, which lets templates through for the local tools).
 
 The tool itself still runs; only its output is withheld. The built-in `local.*` tools already refuse these files; this safeguard is for external servers such as Desktop Commander and for shell output.
 
@@ -61,7 +61,7 @@ Settings, next to the channel selector: **Review before send to ChatGPT**, globa
 
 Catalog and describe replies carry no workspace data and are not held. The first message, continuation prompts and handoff text are not held (they are scrubbed); the review applies to tool results.
 
-The preview and the decision routes (`POST /api/browser/outbound/decide`, `POST /api/browser/privacy/config`) sit behind the per-launch Hub secret like every other `/api` route ([Hub authentication](HUB-AUTH.md)). The preview is part of `/api/state` only; it is not in `/api/extension-state` and not in anything the extension can read.
+The preview and the decision routes (`POST /api/browser/outbound/decide`, `POST /api/browser/privacy/config`) sit behind the per-launch Hub secret like every other `/api` route ([Hub authentication](HUB-AUTH.md)). The preview appears only in responses that need the Hub secret (`GET /api/state` and the dashboard POST routes that return the Hub state, such as `/api/browser/privacy/config`); it is not in `/api/extension-state`, not in `poll()` and not in anything else the extension can read.
 
 ## What this does not do
 

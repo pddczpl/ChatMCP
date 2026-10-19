@@ -256,7 +256,8 @@ export class BrowserRunner {
       pairedAt: this.client?.pairedAt ?? null, pairingAvailable: !this.context && !this.pairBusy,
       companionPhase: this.context && this.clientHeartbeat?.taskId === this.context.task.id ? this.clientHeartbeat.phase : null,
       companionNote: this.context && this.clientHeartbeat?.taskId === this.context.task.id ? this.clientHeartbeat.note : null,
-      // Shown only in the dashboard (GET /api/state is behind the Hub secret); never part of /api/extension-state or of poll().
+      // For the dashboard only: it travels in responses that need the Hub secret (GET /api/state and the POST routes that return the
+      // Hub state), never in /api/extension-state or in poll().
       privacy: this.privacyState(), outboundReview: this.reviewView(),
     };
   }
