@@ -1,5 +1,5 @@
 import { browseNativeWorkspace } from './native-folder-picker.ts';
-import type { HubState, HubHealth, Task, TaskDetail, ChatAttachment, WorkspaceCollection, BackgroundRun, BackgroundWorkflow, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset } from '@/types';
+import type { OutboundReview, HubState, HubHealth, Task, TaskDetail, ChatAttachment, WorkspaceCollection, BackgroundRun, BackgroundWorkflow, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset } from '@/types';
 import { normalizeTask } from './task-view.ts';
 import { getHubSecret, hubSessionReady, reportHubSessionLost } from './session.ts';
 
@@ -259,6 +259,11 @@ export const api = {
   setAgentMode: (mode: 'api'|'chatgpt-web') => request<any>('/api/agent/mode', { method: 'POST', body: JSON.stringify({ mode }) }),
   createBrowserPairCode: () => request<{code:string;expiresAt:string}>('/api/browser/pair-code',{method:'POST'}),
   unpairBrowser: () => request<any>('/api/browser/unpair',{method:'POST'}),
+  // ChatGPT Web privacy: "review before send" (global or for one workspace) and the decision about a held tool result.
+  configureBrowserPrivacy: (payload:{reviewBeforeSend?:boolean;workspacePath?:string;workspaceReview?:boolean|null}) =>
+    request<HubState>('/api/browser/privacy/config',{method:'POST',body:JSON.stringify(payload)}),
+  decideOutboundReview: (id:string,action:'approve'|'redact_more'|'withhold',redact:string[]=[]) =>
+    request<{ok:boolean;matched?:number;review?:OutboundReview|null}>('/api/browser/outbound/decide',{method:'POST',body:JSON.stringify({id,action,redact})}),
   recoverBrowserChatUrl: (id:string) => request<{ok:boolean;pending?:boolean;alreadyBound?:boolean;chatUrl?:string}>('/api/browser/recover-url/request',{method:'POST',body:JSON.stringify({id})}),
 
   // Intelligence

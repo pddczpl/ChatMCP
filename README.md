@@ -8,6 +8,12 @@ ChatMCP offers two distinct interaction modes: **Model API**, using a configured
 
 [Latest stable release](https://github.com/pddczpl/ChatMCP/releases/latest) · [Issues](https://github.com/pddczpl/ChatMCP/issues) · [Detailed documentation](docs/INDEX.md)
 
+## ChatGPT Web Companion: risks and privacy
+
+The ChatGPT Web Companion **automates the consumer ChatGPT page** (chatgpt.com) through a browser extension: it types the Hub's messages into the tab you are signed in to and reads the reply back. It is not an API, and it is not a channel that OpenAI provides, supports or permits; ChatMCP is not affiliated with OpenAI. Automating that page **may conflict with OpenAI's Terms of Use**, and your ChatGPT account could be warned or suspended. Everything the agent reads for a task and sends through the Companion (your prompt, tool results, file excerpts, command output) goes **into your ChatGPT chat and stays in your ChatGPT history**, under OpenAI's policies. Use the Model API when you need a channel with clear terms or when the workspace holds client material.
+
+To reduce accidental exposure, and only on a best-effort basis, ChatMCP masks text that is shaped like a secret before it is sent (`[REDACTED:<label>]`), never sends what a tool read from `.env*`, `*.pem`, `*.key`, `id_rsa*` or other protected files, and offers an optional **Review before send** that holds each tool result for your approval (off by default). These are pattern-based: they miss secrets without a recognisable shape and cannot know what is confidential for a client. Details and limits: [ChatGPT Web Companion privacy](docs/COMPANION-PRIVACY.md).
+
 ## Guide
 
 ### Install and launch

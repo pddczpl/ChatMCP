@@ -21,6 +21,9 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { ChatGptWebRiskNote } from '@/components/approval/ChatGptWebRiskNote';
+
+const samePath = (a: string, b: string) => a.replace(/[\\/]+$/, '').replaceAll('\\', '/').toLowerCase() === b.replace(/[\\/]+$/, '').replaceAll('\\', '/').toLowerCase();
 
 export function SettingsTab() {
   const { theme, setTheme, lang, setLang, showToast, setFullAccessModalOpen, setOnboardingOpen,
@@ -74,6 +77,20 @@ export function SettingsTab() {
         'Đã chọn ChatGPT Web Companion. Hãy ghép extension và đăng nhập ChatGPT trên trình duyệt.','success');
     }catch(e:any){showToast(e.message||'Không thể chuyển chế độ agent.','error');}
     finally{setChangingTransport(false);}
+  };
+  // "Review before send": off unless chosen; one global switch and an optional override for the workspace shown above.
+  const [savingPrivacy,setSavingPrivacy]=useState(false);
+  const reviewGlobal=companion?.privacy?.reviewBeforeSend===true;
+  const workspaceOverride=companion?.privacy?.workspaces?.find(item=>currentWs&&samePath(item.path,currentWs));
+  const savePrivacy=async(payload:{reviewBeforeSend?:boolean;workspacePath?:string;workspaceReview?:boolean|null},message:string)=>{
+    if(savingPrivacy)return;
+    setSavingPrivacy(true);
+    try{
+      await api.configureBrowserPrivacy(payload);
+      await queryClient.invalidateQueries({queryKey:['hubState']});
+      showToast(message,'success');
+    }catch(e:any){showToast(e.message||'Không thể lưu cài đặt riêng tư.','error');}
+    finally{setSavingPrivacy(false);}
   };
   const issuePairCode=async()=>{
     if(pairingBusy)return;
@@ -385,6 +402,29 @@ export function SettingsTab() {
               <span className="block font-medium text-[var(--text)]">{option.label}</span>
               <span className="block text-[10px] text-[var(--faint)]">{option.hint}</span>
             </button>)}
+        </div>
+        {/* Visible BEFORE the person switches to this channel: what it automates, the Terms-of-Use risk, where content goes. */}
+        <ChatGptWebRiskNote testId="chatgpt-web-risk-note"/>
+        <div className="space-y-1.5 rounded-md border border-[var(--line)] p-2" data-testid="chatgpt-web-privacy-settings">
+          <label className="flex items-start gap-2">
+            <input type="checkbox" data-testid="review-before-send-toggle" checked={reviewGlobal} disabled={savingPrivacy}
+              onChange={event=>void savePrivacy({reviewBeforeSend:event.target.checked},event.target.checked?'Đã bật xem lại trước khi gửi (mọi workspace, trừ nơi có cài đặt riêng).':'Đã tắt xem lại trước khi gửi.')}/>
+            <span>
+              <span className="block font-medium text-[var(--text)]">Xem lại trước khi gửi sang ChatGPT</span>
+              <span className="block text-[10px] text-[var(--faint)]">Mỗi kết quả công cụ được giữ trên máy bạn cho tới khi bạn duyệt, che thêm hoặc giữ lại. Không có gì tự gửi; hết thời gian chờ thì nhiệm vụ dừng. Mặc định tắt.</span>
+            </span>
+          </label>
+          <label className="flex items-center gap-2 text-[11px] text-[var(--muted)]">
+            <span>Workspace hiện tại</span>
+            <select data-testid="review-before-send-workspace" disabled={savingPrivacy||!currentWs} aria-label="Xem lại trước khi gửi cho workspace hiện tại"
+              value={workspaceOverride?(workspaceOverride.review?'on':'off'):''}
+              onChange={event=>void savePrivacy({workspacePath:currentWs,workspaceReview:event.target.value==='on'?true:event.target.value==='off'?false:null},'Đã lưu cài đặt cho workspace.')}
+              className="rounded border border-[var(--line)] bg-[var(--bg)] px-1.5 py-1">
+              <option value="">Theo cài đặt chung ({reviewGlobal?'bật':'tắt'})</option>
+              <option value="on">Luôn xem lại</option>
+              <option value="off">Không xem lại</option>
+            </select>
+          </label>
         </div>
         <div className="flex gap-2 items-center text-[11px] text-[var(--muted)]">
           <Link2 className="w-3.5 h-3.5"/>

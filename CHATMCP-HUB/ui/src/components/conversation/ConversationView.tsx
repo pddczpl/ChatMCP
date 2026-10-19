@@ -11,6 +11,8 @@ import { Composer } from './Composer';
 import { ObjectiveAcceptancePanel } from './ObjectiveAcceptancePanel';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { ApprovalStack, PendingApproval } from '@/components/approval/ApprovalStack';
+import { OutboundReviewCard, type ReviewAction } from '@/components/approval/OutboundReviewCard';
+import { ChatGptWebRiskNote } from '@/components/approval/ChatGptWebRiskNote';
 import { Card } from '@/components/ui/Card';
 import { useTranslation } from '@/lib/i18n';
 import { 
@@ -43,6 +45,7 @@ export function ConversationView() {
   const [approving, setApproving] = useState(false);
   const [cancellingWorkflow,setCancellingWorkflow] = useState<string | null>(null);
   const [recoveringChatUrl,setRecoveringChatUrl] = useState(false);
+  const [decidingReview,setDecidingReview] = useState(false);
 
   // Fetch full Hub state
   const { data: hub } = useQuery({
@@ -64,6 +67,21 @@ export function ConversationView() {
   });
   const relatedWorkflows=(background?.workflows||[]).filter(w=>w.conversationId===selectedTaskId);
   const isWorking = isTaskActive(task);
+  // ChatGPT Web "review before send": a tool result held on this computer until the owner decides.
+  const outboundReview = hub?.browser?.outboundReview || null;
+  const decideReview = async (action: ReviewAction, redact: string[] = []) => {
+    if (!outboundReview || decidingReview) return;
+    setDecidingReview(true);
+    try {
+      const result = await api.decideOutboundReview(outboundReview.id, action, redact);
+      if (action === 'redact_more' && result.matched === 0) showToast('Không tìm thấy chuỗi đó trong gói đang chờ.', 'info');
+      else showToast(action === 'approve' ? 'Đã duyệt: gói được chuyển cho Companion để gửi.' : action === 'withhold' ? 'Đã giữ lại: ChatGPT chỉ nhận một thông báo.' : 'Đã che thêm; gói vẫn đang chờ bạn quyết định.', 'success');
+      refreshTask();
+    } catch (error: any) {
+      showToast(error.message || 'Không thể gửi quyết định xem lại.', 'error');
+      refreshTask();
+    } finally { setDecidingReview(false); }
+  };
   const desiredTransport=hub?.agent?.mode||'api';
   const willSwitch=Boolean(selectedTaskId&&task?.transport&&task.transport!==desiredTransport);
   const permissions = hub?.studio?.permissions;
@@ -279,6 +297,8 @@ export function ConversationView() {
           <button type="button" onClick={()=>{setInspectorOpen(true);setActiveTab('settings');}}
             className="underline text-[var(--primary)]">Thiết lập</button>
         </div>}
+      {(task?.transport==='chatgpt-web'||(hub?.agent?.mode==='chatgpt-web'&&!selectedTaskId))&&
+        <div className="mx-4 my-2"><ChatGptWebRiskNote compact testId={task?.transport==='chatgpt-web'?'chatgpt-web-task-risk-note':'chatgpt-web-mode-risk-note'}/></div>}
       {/* Top Phase Ribbon */}
       {task && <PhaseRibbon task={task} onCancel={handleStopTask} />}
       {task?.usage && (
@@ -411,6 +431,7 @@ export function ConversationView() {
 
           </div>
         )}
+        {outboundReview && <OutboundReviewCard review={outboundReview} onDecide={decideReview} busy={decidingReview} />}
         <ApprovalStack approvals={pendingApprovals} onApprove={handleApprove} onDeny={handleDeny} busy={approving} />
         <div ref={messagesEndRef} />
       </div>

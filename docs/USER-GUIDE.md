@@ -250,6 +250,6 @@ Danh sách đầy đủ ở [SECURITY.md](../SECURITY.md). Các điểm người
 - Bí mật đã bị commit vào lịch sử Git vẫn đọc được bằng `git log -p`.
 - Nội dung file/README/issue trong dự án có thể chứa **chỉ dẫn độc hại nhắm vào agent** (prompt injection). Lớp phòng thủ là khung duyệt: hãy đọc kỹ lệnh trước khi cho phép, đặc biệt với repo lạ.
 - Hub chỉ dành cho **một người dùng trên máy của chính bạn**, nghe ở `127.0.0.1`. Đừng mở cổng này ra Internet hay mạng chung. Xem [DEPLOYMENT.md](DEPLOYMENT.md).
-- Chế độ ChatGPT Web là đường **cũ, thử nghiệm cục bộ**; bạn tự đăng nhập, Hub không đọc cookie hay phiên của bạn.
+- Chế độ ChatGPT Web là đường **cũ, thử nghiệm cục bộ**; bạn tự đăng nhập, Hub không đọc cookie hay phiên của bạn. Chế độ này tự động hóa trang ChatGPT dành cho người dùng cuối: đó không phải kênh do OpenAI cung cấp hay cho phép, có thể vi phạm Điều khoản sử dụng của OpenAI (tài khoản có thể bị cảnh báo hoặc đình chỉ) và đưa nội dung workspace vào lịch sử ChatGPT của bạn. ChatMCP che chuỗi giống bí mật theo cách nỗ lực tối đa, không gửi nội dung file `.env`/khóa riêng và có tùy chọn **Xem lại trước khi gửi**; xem [ChatGPT Web Companion privacy](COMPANION-PRIVACY.md).
 
 Gặp sự cố: [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
