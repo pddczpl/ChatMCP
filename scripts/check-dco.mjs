@@ -14,9 +14,8 @@
 // Exit:  0 every commit is signed off or exempt, 1 at least one commit is not, 2 usage or git error.
 
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 
-export const BOT_IDENTITIES = {
+const BOT_IDENTITIES = {
   names: ['github-actions[bot]', 'dependabot[bot]', 'semantic-release-bot', 'semantic-release[bot]'],
   emails: [
     '41898282+github-actions[bot]@users.noreply.github.com',
@@ -30,7 +29,7 @@ export const BOT_IDENTITIES = {
 // "Name <local@domain>": a non-empty name, one address in angle brackets, nothing after it.
 const SIGNOFF = /^[^<>\r\n]*[^<>\s] <[^<>\s@]+@[^<>\s@]+>$/;
 
-export function isBotAuthor(name, email) {
+function isBotAuthor(name, email) {
   const lower = (text) => text.trim().toLowerCase();
   return BOT_IDENTITIES.names.some((bot) => lower(bot) === lower(name)) || BOT_IDENTITIES.emails.some((bot) => lower(bot) === lower(email));
 }
@@ -43,7 +42,7 @@ function git(cwd, args) {
 }
 
 /** Commits of base..head that are subject to the check, with the verdict for each. Throws when git cannot answer. */
-export function inspect({ cwd = process.cwd(), base, head }) {
+function inspect({ cwd = process.cwd(), base, head }) {
   if (!base || !head) throw new Error('both a base and a head revision are required');
   // A shallow clone has no merge base, and base..head would then silently cover far too much (or too little).
   try { git(cwd, ['merge-base', base, head]); } catch (error) {
@@ -74,7 +73,7 @@ function printable(text, limit = 100) {
   return clean.length > limit ? `${clean.slice(0, limit - 3)}...` : clean;
 }
 
-export function run(argv, { cwd = process.cwd(), out = console.log, err = console.error } = {}) {
+function run(argv, { cwd = process.cwd(), out = console.log, err = console.error } = {}) {
   const options = {};
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -102,6 +101,6 @@ export function run(argv, { cwd = process.cwd(), out = console.log, err = consol
   return 1;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  process.exitCode = run(process.argv.slice(2));
-}
+// A command-line tool, not a library: it always runs. (A "run only when executed directly" guard compares file paths, and a
+// drive-letter or case mismatch on Windows would make it exit 0 without checking anything.)
+process.exitCode = run(process.argv.slice(2));
