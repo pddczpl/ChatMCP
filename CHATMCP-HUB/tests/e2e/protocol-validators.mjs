@@ -1,5 +1,5 @@
-// Strict validators for the three wire protocols the Hub speaks (OpenAI Chat Completions, Anthropic Messages, OpenAI Responses):
-// pure functions that say what the real APIs refuse, plus readers and shape checks for the SSE streams a server sends back.
+// Strict validators for the wire protocols the Hub speaks (OpenAI Chat Completions, Anthropic Messages, OpenAI Responses, Gemini
+// generateContent): pure functions that say what the real APIs refuse, plus readers and shape checks for the SSE streams a server sends.
 //
 // They exist so that a mock model server can refuse a request the way the real API would, and a defect in what the Hub sends shows up
 // as an HTTP 400 at the network seam instead of passing silently. A rule is here for one of four reasons, named in `provenance`:
@@ -41,6 +41,11 @@ export const RULES = Object.freeze({
   'responses.tool_result_pairing': { api: 'responses', provenance: 'report', source: 'https://community.openai.com/t/issue-with-new-responses-api-400-no-tool-call-found-for-function-call-output-with-call-id/1142327 (first text); the second text is recalled', summary: 'every function_call_output follows a function_call with its call_id, and every function_call is answered' },
   'responses.tool_definition': { api: 'responses', provenance: 'recalled', source: 'OpenAI API reference: tools (a function tool has type, name and parameters at the top level)', summary: 'known tool types; a function tool has a name' },
   'responses.stream_options_need_stream': { api: 'responses', provenance: 'sdk', source: 'response_create_params.py: stream_options is only for stream: true', summary: 'stream_options only on a stream' },
+  'gemini.unknown_field': { api: 'gemini', provenance: 'doc', source: 'https://ai.google.dev/api/generate-content (the request fields); the error text is quoted in Google AI developer forum and GitHub reports', summary: 'a top-level field generateContent does not know is refused (the model is in the URL, not in the body)' },
+  'gemini.contents': { api: 'gemini', provenance: 'recalled', source: 'Gemini API reference: Content (role user or model) and Part (one kind of data per part)', summary: 'non-empty contents; role user or model; parts with exactly one kind of data' },
+  'gemini.function_turns': { api: 'gemini', provenance: 'report', source: 'https://discuss.ai.google.dev (threads quoting "Please ensure that function response turn comes immediately after a function call turn" and "... function call turn comes immediately after a user turn or after a function response turn")', summary: 'a model turn with functionCall parts follows a user turn and is followed by a user turn with one functionResponse part per call' },
+  'gemini.tool_declarations': { api: 'gemini', provenance: 'recalled', source: 'Gemini API function calling: function names of letters, digits, _ . : - (at most 64, not starting with a digit)', summary: 'functionDeclarations is a list of declarations with valid names' },
+  'gemini.thought_signature': { api: 'gemini', provenance: 'report', source: 'reports of Gemini 3 "thought signature" errors (the signature of a function call must be passed back unmodified)', summary: 'a thoughtSignature on a function call is the one the server issued for that call' },
   'chat.stream_shape': { api: 'chat', provenance: 'sdk', source: 'openai-python chat_completion_chunk.py: chunks, tool call fragments, a usage chunk with no choices, [DONE]', summary: 'what a Chat Completions SSE stream looks like' },
   'anthropic.stream_shape': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/build-with-claude/streaming', summary: 'message_start, blocks with start/delta/stop, message_delta, message_stop' },
   'responses.stream_shape': { api: 'responses', provenance: 'sdk', source: 'openai-python src/openai/types/responses/response_*_event.py', summary: 'response.created ... response.completed with increasing sequence_number and items that match their deltas' },
@@ -54,9 +59,12 @@ function collector() {
   };
 }
 
-/** The JSON body of an error answer, in the envelope each API uses. */
-export function errorBody(api, { message, param = null, code = null, type = 'invalid_request_error' }) {
+const GOOGLE_STATUS = { 400: 'INVALID_ARGUMENT', 401: 'UNAUTHENTICATED', 403: 'PERMISSION_DENIED', 404: 'NOT_FOUND', 413: 'INVALID_ARGUMENT', 429: 'RESOURCE_EXHAUSTED', 500: 'INTERNAL', 503: 'UNAVAILABLE', 529: 'UNAVAILABLE' };
+
+/** The JSON body of an error answer, in the envelope each API uses (Gemini puts the HTTP status in the body, so it needs `status`). */
+export function errorBody(api, { message, param = null, code = null, type = 'invalid_request_error', status = 400 }) {
   if (api === 'anthropic') return { type: 'error', error: { type, message }, request_id: 'req_mock' };
+  if (api === 'gemini') return { error: { code: status, message, status: GOOGLE_STATUS[status] ?? 'UNKNOWN' } };
   return { error: { message, type, param, code } };
 }
 
@@ -79,6 +87,9 @@ export function createThinkingSigner(secret = crypto.randomBytes(16).toString('h
       const match = /^mock-redacted\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{43})$/.exec(String(data));
       return Boolean(match) && match[2] === mac('redacted', Buffer.from(match[1], 'base64url').toString());
     },
+    /** The thoughtSignature Gemini puts on a function call: bound to the call it belongs to. */
+    signGemini: (functionCall) => `mock-gsig.${mac('gemini', JSON.stringify(functionCall))}`,
+    verifyGemini: (functionCall, signature) => isNonEmptyText(signature) && signature === `mock-gsig.${mac('gemini', JSON.stringify(functionCall))}`,
   };
 }
 
@@ -388,6 +399,80 @@ export function validateResponsesRequest(body) {
   for (const [callId, i] of callIndex) {
     if (!answered.has(callId)) c.add('responses.tool_result_pairing', `No tool output found for function call ${callId}.`, { param: `input[${i}]` });
   }
+  return c.result();
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Gemini generateContent (the native request, as GatewayProvider sends it first)
+// ---------------------------------------------------------------------------------------------------------------------
+// https://ai.google.dev/api/generate-content: the request fields. The model is in the URL; streaming is another method.
+const GEMINI_FIELDS = new Set(['contents', 'tools', 'toolConfig', 'safetySettings', 'systemInstruction', 'generationConfig', 'cachedContent', 'continuationToken', 'labels', 'serviceTier', 'store']);
+const GEMINI_DATA = ['text', 'inlineData', 'fileData', 'functionCall', 'functionResponse', 'executableCode', 'codeExecutionResult'];
+const GEMINI_FUNCTION_NAME = /^[a-zA-Z_][a-zA-Z0-9_.:-]{0,63}$/;
+const hasCall = (part) => isObject(part) && part.functionCall !== undefined;
+const hasResponse = (part) => isObject(part) && part.functionResponse !== undefined;
+
+export function validateGeminiRequest(body, { signer = null } = {}) {
+  const c = collector();
+  if (!isObject(body)) { c.add('gemini.contents', 'Invalid JSON payload received. Expected a JSON object.'); return c.result(); }
+  for (const key of Object.keys(body)) {
+    if (!GEMINI_FIELDS.has(key)) c.add('gemini.unknown_field', `Invalid JSON payload received. Unknown name "${key}": Cannot find field.`, { param: key });
+  }
+  if (!Array.isArray(body.contents) || body.contents.length === 0) {
+    c.add('gemini.contents', 'GenerateContentRequest.contents: contents is not specified', { param: 'contents' });
+    return c.result();
+  }
+  const contents = body.contents;
+  contents.forEach((content, i) => {
+    const at = `contents[${i}]`;
+    if (!isObject(content)) { c.add('gemini.contents', `Invalid JSON payload received. ${at} must be an object.`, { param: at }); return; }
+    if (content.role !== undefined && content.role !== 'user' && content.role !== 'model') c.add('gemini.contents', 'Please use a valid role: user, model.', { param: `${at}.role` });
+    if (!Array.isArray(content.parts) || content.parts.length === 0) { c.add('gemini.contents', `Unable to submit request because it must have at least one parts field. (${at})`, { param: `${at}.parts` }); return; }
+    content.parts.forEach((part, j) => {
+      if (!isObject(part)) { c.add('gemini.contents', `${at}.parts[${j}] must be an object.`, { param: `${at}.parts[${j}]` }); return; }
+      const kinds = GEMINI_DATA.filter((kind) => part[kind] !== undefined);
+      if (kinds.length !== 1) c.add('gemini.contents', `${at}.parts[${j}]: a part must carry exactly one of ${list(GEMINI_DATA)} (found ${kinds.length ? list(kinds) : 'none'}).`, { param: `${at}.parts[${j}]` });
+      if (part.text !== undefined && !isText(part.text)) c.add('gemini.contents', `${at}.parts[${j}].text must be a string.`, { param: `${at}.parts[${j}].text` });
+      if (hasCall(part) && !(isObject(part.functionCall) && isNonEmptyText(part.functionCall.name))) c.add('gemini.contents', `${at}.parts[${j}].functionCall needs a name.`, { param: `${at}.parts[${j}].functionCall` });
+      if (hasResponse(part) && !(isObject(part.functionResponse) && isNonEmptyText(part.functionResponse.name) && isObject(part.functionResponse.response))) c.add('gemini.contents', `${at}.parts[${j}].functionResponse needs a name and a response object.`, { param: `${at}.parts[${j}].functionResponse` });
+    });
+  });
+
+  if (body.tools !== undefined) {
+    if (!Array.isArray(body.tools)) c.add('gemini.tool_declarations', 'Invalid JSON payload received. tools must be a list.', { param: 'tools' });
+    else body.tools.forEach((tool, i) => {
+      if (!isObject(tool)) { c.add('gemini.tool_declarations', `Invalid JSON payload received. tools[${i}] must be an object.`, { param: `tools[${i}]` }); return; }
+      if (tool.functionDeclarations === undefined) return;
+      if (!Array.isArray(tool.functionDeclarations)) { c.add('gemini.tool_declarations', `Invalid JSON payload received. tools[${i}].functionDeclarations must be a list.`, { param: `tools[${i}].functionDeclarations` }); return; }
+      tool.functionDeclarations.forEach((declaration, j) => {
+        const where = `tools[${i}].functionDeclarations[${j}]`;
+        if (!isObject(declaration) || !isText(declaration.name) || !GEMINI_FUNCTION_NAME.test(declaration.name)) c.add('gemini.tool_declarations', `Invalid function name at ${where}.name: must start with a letter or an underscore and contain only letters, digits, underscores, dots, colons and dashes (at most 64).`, { param: `${where}.name` });
+        else if (declaration.parameters !== undefined && !isObject(declaration.parameters)) c.add('gemini.tool_declarations', `Invalid JSON payload received. ${where}.parameters must be an object.`, { param: `${where}.parameters` });
+      });
+    });
+  }
+
+  // function calling: the model turn with the calls, then one turn with a response for each of them
+  contents.forEach((content, i) => {
+    if (!isObject(content) || !Array.isArray(content.parts)) return;
+    const calls = content.parts.filter(hasCall);
+    if (content.role === 'model' && calls.length) {
+      if (contents[i - 1]?.role !== 'user') c.add('gemini.function_turns', 'Please ensure that function call turn comes immediately after a user turn or after a function response turn.', { param: `contents[${i}]` });
+      const next = contents[i + 1];
+      if (!(next?.role === 'user' && Array.isArray(next.parts) && next.parts.filter(hasResponse).length === calls.length)) {
+        c.add('gemini.function_turns', 'Please ensure that function response turn comes immediately after a function call turn. And the number of function response parts should be equal to number of function call parts of the function call turn.', { param: `contents[${i + 1}]` });
+      }
+    }
+    if (content.parts.some(hasResponse)) {
+      const previous = contents[i - 1];
+      if (!(previous?.role === 'model' && Array.isArray(previous.parts) && previous.parts.some(hasCall))) c.add('gemini.function_turns', 'Please ensure that function response turn comes immediately after a function call turn.', { param: `contents[${i}]` });
+    }
+    content.parts.forEach((part, j) => {
+      if (!isObject(part) || part.thoughtSignature === undefined) return;
+      const genuine = isNonEmptyText(part.thoughtSignature) && (!signer || !hasCall(part) || signer.verifyGemini(part.functionCall, part.thoughtSignature));
+      if (!genuine) c.add('gemini.thought_signature', 'Corrupted thought signature.', { param: `contents[${i}].parts[${j}].thoughtSignature` });
+    });
+  });
   return c.result();
 }
 

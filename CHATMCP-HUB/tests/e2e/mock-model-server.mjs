@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// A scripted stand-in for a model server, used by the end-to-end tests. It speaks three wire protocols the way the real APIs do:
+// A scripted stand-in for a model server, used by the end-to-end tests. It speaks four wire protocols the way the real APIs do:
 //   POST /v1/chat/completions   OpenAI Chat Completions, as JSON or as SSE (delta.tool_calls fragments, a usage chunk, [DONE])
 //   POST /v1/messages           Anthropic Messages: tool_use, thinking with signature, redacted_thinking, cache usage fields,
 //                               stop_reason max_tokens, SSE (message_start ... message_stop)
 //   POST /v1/responses          OpenAI Responses, as JSON or as SSE (output_text and reasoning-summary deltas, response.completed
 //                               with parallel function_call items)
+//   POST /v1beta/models/<model>:generateContent   Gemini (JSON; functionCall parts, thought parts, thoughtSignature, usageMetadata)
 //
 // It is NOT a model. It answers with the next step of a fixed scenario (see scenarios.mjs), decided only by what the conversation
 // already contains. A run is therefore repeatable and needs no API key, no network and no GPU. It listens on loopback only. It
@@ -12,13 +13,13 @@
 //
 // It also refuses what the real APIs refuse (protocol-validators.mjs): a tool result in the wrong place, an unknown parameter, a
 // thinking block that was edited. The adapters under test stay real, so such a defect shows up as an HTTP 400 at the network seam.
-// Anthropic and Responses are strict by default. Chat Completions is strict only when asked (`strict: true`, or {chat: true}): the
-// older suites were written against a lenient Chat route and the Playwright suites share it.
+// Anthropic, Responses and Gemini are strict by default. Chat Completions is strict only when asked (`strict: true`, or {chat: true}):
+// the older suites were written against a lenient Chat route and the Playwright suites share it.
 //
 // As a library:   const mock = await startMockModel({ scenario: 'repair-add' }); mock.url; await mock.close();
 // As a program:   node tests/e2e/mock-model-server.mjs [--port N] [--scenario NAME] [--strict]   (prints one "READY {json}" line)
 // Options of startMockModel: scenario, scenarios, host, port, models, plus
-//   strict       true | false | { chat, anthropic, responses }          which protocols refuse invalid requests (default: not chat)
+//   strict       true | false | { chat, anthropic, responses, gemini }  which protocols refuse invalid requests (default: not chat)
 //   chatDialect  'openai' | 'compat'                                   'compat' accepts and sends reasoning_content (DeepSeek and kin)
 //   streamUsage  'on-request' | 'always'                               when a Chat stream carries its usage chunk
 // Faults, for the failures that only happen on a real network (library: mock.inject(spec); a scenario step may carry `fault: spec`):
@@ -41,11 +42,11 @@ import http from 'node:http';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { SCENARIOS, call } from './scenarios.mjs';
-import { createThinkingSigner, errorBody, validateAnthropicRequest, validateChatRequest, validateResponsesRequest } from './protocol-validators.mjs';
+import { createThinkingSigner, errorBody, validateAnthropicRequest, validateChatRequest, validateGeminiRequest, validateResponsesRequest } from './protocol-validators.mjs';
 
 export const MODEL_IDS = Object.freeze(['mock-coder', 'mock-coder-small']);
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
-const DEFAULT_STRICT = Object.freeze({ chat: false, anthropic: true, responses: true });
+const DEFAULT_STRICT = Object.freeze({ chat: false, anthropic: true, responses: true, gemini: true });
 const PIECE = 8;
 
 const contentText = (message) => {
@@ -54,7 +55,9 @@ const contentText = (message) => {
   if (Array.isArray(content)) return content.map((part) => (typeof part?.text === 'string' ? part.text : '')).join('\n');
   return '';
 };
-const toolNames = (body) => (Array.isArray(body?.tools) ? body.tools : []).map((tool) => tool?.function?.name ?? tool?.name).filter(Boolean);
+const toolNames = (body) => (Array.isArray(body?.tools) ? body.tools : [])
+  .flatMap((tool) => (Array.isArray(tool?.functionDeclarations) ? tool.functionDeclarations : [tool]))
+  .map((tool) => tool?.function?.name ?? tool?.name).filter(Boolean);
 
 /** What a scenario is allowed to see, from a conversation in the Chat Completions shape (system, user, assistant, tool). */
 function describeMessages(messages, tools) {
@@ -78,10 +81,25 @@ export function describeConversation(body) {
   return describeMessages(Array.isArray(body?.messages) ? body.messages : [], toolNames(body));
 }
 
-/** Anthropic and Responses carry the same conversation in another shape; this puts it in the Chat shape so one scenario serves all. */
+/** Anthropic, Responses and Gemini carry the same conversation in another shape; this puts it in the Chat shape so one scenario serves all. */
 function chatShape(protocol, body) {
   if (protocol === 'chat') return Array.isArray(body?.messages) ? body.messages : [];
   const messages = [];
+  if (protocol === 'gemini') {
+    const system = (Array.isArray(body?.systemInstruction?.parts) ? body.systemInstruction.parts : []).map((part) => part?.text ?? '').join('\n');
+    if (system) messages.push({ role: 'system', content: system });
+    for (const content of Array.isArray(body?.contents) ? body.contents : []) {
+      const parts = Array.isArray(content?.parts) ? content.parts : [];
+      if (content?.role === 'model') { messages.push({ role: 'assistant', content: parts.filter((part) => typeof part?.text === 'string' && part.thought !== true).map((part) => part.text).join('') }); continue; }
+      // function responses lead a user turn like tool results do; the text after them is the person (or the host) speaking
+      for (const part of parts) {
+        if (part?.functionResponse) messages.push({ role: 'tool', tool_call_id: part.functionResponse.id, content: typeof part.functionResponse.response?.output === 'string' ? part.functionResponse.response.output : JSON.stringify(part.functionResponse.response ?? {}) });
+      }
+      const text = parts.filter((part) => typeof part?.text === 'string').map((part) => part.text).join('\n');
+      if (text) messages.push({ role: 'user', content: text });
+    }
+    return messages;
+  }
   if (protocol === 'anthropic') {
     const system = typeof body?.system === 'string' ? body.system : Array.isArray(body?.system) ? body.system.map((block) => block?.text ?? '').join('\n') : '';
     if (system) messages.push({ role: 'system', content: system });
@@ -133,7 +151,7 @@ const readJson = async (req) => (await readJsonWithText(req)).json;
 
 const pieces = (text, size = PIECE) => { const out = []; for (let i = 0; i < text.length; i += size) out.push(text.slice(i, i + size)); return out; };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
-const protocolOf = (route) => (route.endsWith('/chat/completions') ? 'chat' : route.endsWith('/messages') ? 'anthropic' : route.endsWith('/responses') ? 'responses' : null);
+const protocolOf = (route) => (route.endsWith('/chat/completions') ? 'chat' : route.endsWith('/messages') ? 'anthropic' : route.endsWith('/responses') ? 'responses' : route.endsWith(':generateContent') ? 'gemini' : null);
 
 export async function startMockModel({ scenario = 'repair-add', scenarios: extra = {}, host = '127.0.0.1', port = 0, models = MODEL_IDS, strict = undefined, chatDialect = 'openai', streamUsage = 'on-request' } = {}) {
   // `scenarios` lets a test bring its own scripted behaviour (a closure over the paths it created) next to the shared ones.
@@ -321,7 +339,35 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
     return { frames, terminal: 1 };
   };
 
+  // ---- Gemini generateContent (JSON only: the Hub's Gemini loop does not stream)
+  const geminiResponse = (plan, model) => {
+    const parts = [];
+    if (plan.thinking !== null) parts.push({ text: plan.thinking, thought: true });
+    if (plan.text) parts.push({ text: plan.text });
+    plan.calls.forEach((entry, index) => {
+      const functionCall = { name: entry.name, args: plan.truncated ? {} : entry.args };
+      // As with Gemini 3: when the model thought, the first function call of the turn carries a thoughtSignature that is passed back with it.
+      parts.push(index === 0 && plan.thinking !== null ? { functionCall, thoughtSignature: signer.signGemini(functionCall) } : { functionCall });
+    });
+    const total = inputTotal(plan.usage);
+    const usageMetadata = { promptTokenCount: total };
+    if (plan.usage.cacheRead) usageMetadata.cachedContentTokenCount = plan.usage.cacheRead;
+    usageMetadata.candidatesTokenCount = plan.usage.output;
+    if (plan.usage.reasoning) usageMetadata.thoughtsTokenCount = plan.usage.reasoning;
+    usageMetadata.totalTokenCount = total + plan.usage.output + plan.usage.reasoning;
+    return {
+      candidates: [{ content: { role: 'model', parts }, finishReason: plan.truncated ? 'MAX_TOKENS' : 'STOP', index: 0 }],
+      usageMetadata, modelVersion: model ?? 'mock-gemini', responseId: `resp_mock_${state.callCounter}_${state.requests.length}`,
+    };
+  };
+
   const PROTOCOLS = {
+    gemini: {
+      validate: (body) => validateGeminiRequest(body, { signer }),
+      json: (plan, model) => geminiResponse(plan, model),
+      stream: null,
+      count: (body) => (Array.isArray(body?.contents) ? body.contents.length : 0),
+    },
     chat: {
       validate: (body) => validateChatRequest(body, { dialect: chatDialect }),
       json: (plan, model) => chatCompletion(plan, model),
@@ -353,6 +399,7 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
   };
   const statusBody = (protocol, fault) => {
     if (fault.kind === 'payload-too-large') {
+      if (protocol === 'gemini') return { status: 413, body: errorBody('gemini', { message: 'Request payload size exceeds the limit: 20971520 bytes.', status: 413 }) };
       return { status: 413, body: protocol === 'anthropic'
         ? errorBody('anthropic', { type: 'request_too_large', message: 'Request exceeds the maximum allowed number of bytes.' })
         : errorBody(protocol, { message: 'Request too large: the request body exceeds the size this endpoint accepts.', code: 'request_too_large' }) };
@@ -364,7 +411,7 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
     }
     const status = fault.status ?? 500;
     const type = fault.type ?? (status >= 500 ? 'api_error' : 'invalid_request_error');
-    return { status, body: errorBody(protocol, { message: fault.message ?? 'mock failure', type }), headers: fault.headers };
+    return { status, body: errorBody(protocol, { message: fault.message ?? 'mock failure', type, status }), headers: fault.headers };
   };
 
   const server = http.createServer(async (req, res) => {
@@ -429,13 +476,15 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
       if (protocol) {
         const adapter = PROTOCOLS[protocol];
         const { text: rawBody, json: body } = await readJsonWithText(req);
-        const stream = body?.stream === true;
+        // generateContent is never a stream (streaming is another method) and carries its model in the URL, not in the body.
+        const stream = protocol !== 'gemini' && body?.stream === true;
+        const model = body?.model ?? (protocol === 'gemini' ? decodeURIComponent(/\/models\/([^/:]+):generateContent$/.exec(route)?.[1] ?? '') || null : null);
         const info = describeProtocolConversation(protocol, body);
         const probe = info.tools.includes('record_probe');
         state.lastBody = body;
         const record = {
-          at: new Date().toISOString(), model: body.model ?? null, probe, turn: info.turn, tools: info.tools, messages: adapter.count(body),
-          hasAuthorization: Boolean(req.headers.authorization || req.headers['x-api-key']), promptStart: info.prompt.slice(0, 160),
+          at: new Date().toISOString(), model, probe, turn: info.turn, tools: info.tools, messages: adapter.count(body),
+          hasAuthorization: Boolean(req.headers.authorization || req.headers['x-api-key'] || req.headers['x-goog-api-key']), promptStart: info.prompt.slice(0, 160),
           protocol, stream, bytes: Buffer.byteLength(rawBody), rejected: null, fault: null,
         };
         state.requests.push(record);
@@ -468,8 +517,8 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
         const midway = (fault && (fault.kind === 'stall' || fault.kind === 'cut') ? fault : null) ?? inline;
         if (inline) { record.fault = inline.kind; state.faultLog.push({ kind: inline.kind, protocol, request: number }); }
         const plan = planOf(step ?? { text: '' }, protocol);
-        if (stream) return await sendStream(adapter.stream(plan, body.model, body), midway);
-        return await sendJson(adapter.json(plan, body.model, body), midway);
+        if (stream) return await sendStream(adapter.stream(plan, model, body), midway);
+        return await sendJson(adapter.json(plan, model, body), midway);
       }
       return reply(404, { error: { message: `no route for ${req.method} ${url.pathname}` } });
     } catch (error) {

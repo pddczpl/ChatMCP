@@ -3,8 +3,9 @@
 // The mock sits at the NETWORK: the adapters under test (respondStandard, respondOpenAIResponses, GatewayProvider) stay real, so a
 // defect shows up where it happens. This suite proves four things:
 //   1. Every validator rule rejects what the real API rejects and accepts what it accepts: one accept and one reject fixture each.
-//   2. The three servers (Chat Completions, Anthropic Messages, Responses) answer in the real wire format, as JSON and as SSE,
-//      with cache usage fields, thinking blocks with signatures, reasoning summaries, parallel calls and truncation.
+//   2. The servers (Chat Completions, Anthropic Messages, Responses, Gemini generateContent) answer in the real wire format, as JSON
+//      and (all but Gemini, whose adapter does not stream) as SSE, with cache usage fields, thinking blocks with signatures,
+//      reasoning summaries, parallel calls and truncation.
 //   3. Real adapters complete six canned conversations against them (and are refused when they would be refused for real).
 //   4. Faults at the network (idle stall, a cut before the terminal event, 413, 400 "stream not supported") reach the adapters.
 //
@@ -16,7 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   RULES, accumulateAnthropicStream, accumulateChatStream, accumulateResponsesStream, createThinkingSigner, errorBody, parseSse,
-  validateAnthropicRequest, validateAnthropicStream, validateChatRequest, validateChatStream, validateResponsesRequest, validateResponsesStream,
+  validateAnthropicRequest, validateAnthropicStream, validateChatRequest, validateChatStream, validateGeminiRequest, validateResponsesRequest, validateResponsesStream,
 } from './e2e/protocol-validators.mjs';
 import { startMockModel } from './e2e/mock-model-server.mjs';
 import { CANNED_CONVERSATIONS, SCENARIOS, call, redacted as withRedacted, say, thinking as withThinking, truncated } from './e2e/scenarios.mjs';
@@ -41,6 +42,7 @@ const VALIDATE = {
   chat: (body, options) => validateChatRequest(body, options),
   anthropic: (body, options) => validateAnthropicRequest(body, { signer, ...options }),
   responses: (body, options) => validateResponsesRequest(body, options),
+  gemini: (body, options) => validateGeminiRequest(body, { signer, ...options }),
 };
 
 // ---- Chat Completions
@@ -65,6 +67,13 @@ const fcall = (id, args = '{"path":"a"}') => ({ type: 'function_call', call_id: 
 const fout = (id, output = 'result') => ({ type: 'function_call_output', call_id: id, output });
 const respWith = (...items) => ({ ...respBase(), input: [...respBase().input, ...items] });
 const respTool = { type: 'function', name: 'read_file', description: 'Read a file', parameters: { type: 'object', properties: { path: { type: 'string' } } }, strict: false };
+
+// ---- Gemini generateContent
+const geminiBase = () => ({ contents: [{ role: 'user', parts: [{ text: 'Hi' }] }] });
+const geminiTool = { functionDeclarations: [{ name: 'read_file', description: 'Read a file', parameters: { type: 'object', properties: { path: { type: 'string' } } } }] };
+const gcall = (name = 'read_file', args = { path: 'a' }) => ({ functionCall: { name, args } });
+const gresp = (name = 'read_file', output = 'result') => ({ functionResponse: { name, response: { output } } });
+const geminiWith = (...contents) => ({ ...geminiBase(), contents: [...geminiBase().contents, ...contents] });
 
 // A fixture: [label, body, options?]. A reject fixture also says a piece of the message that the API's own text contains.
 const FIXTURES = {
@@ -278,6 +287,55 @@ const FIXTURES = {
     accept: [['stream_options on a stream', { ...respBase(), stream: true, stream_options: { include_obfuscation: false } }]],
     reject: [['stream_options on a request that is not a stream', { ...respBase(), stream_options: { include_obfuscation: false } }, 'stream_options']],
   },
+
+  // Gemini generateContent ----------------------------------------------------------------------------------------------
+  'gemini.unknown_field': {
+    api: 'gemini',
+    accept: [['the fields the Hub sends', { ...geminiBase(), systemInstruction: { parts: [{ text: 'sys' }] }, tools: [geminiTool], generationConfig: { maxOutputTokens: 8192 } }]],
+    reject: [
+      ['the model in the body (it is in the URL)', { ...geminiBase(), model: 'gemini-2.5-flash' }, 'Invalid JSON payload received. Unknown name "model": Cannot find field.'],
+      ['an OpenAI field (messages)', { ...geminiBase(), messages: [] }, 'Unknown name "messages"'],
+    ],
+  },
+  'gemini.contents': {
+    api: 'gemini',
+    accept: [['text and an inline image', { contents: [{ role: 'user', parts: [{ text: 'look' }, { inlineData: { mimeType: 'image/png', data: 'AA==' } }] }] }]],
+    reject: [
+      ['no contents', { systemInstruction: { parts: [{ text: 'sys' }] } }, 'contents is not specified'],
+      ['a role Gemini does not have (assistant)', { contents: [{ role: 'user', parts: [{ text: 'a' }] }, { role: 'assistant', parts: [{ text: 'b' }] }] }, 'Please use a valid role: user, model.'],
+      ['a turn with no parts', { contents: [{ role: 'user', parts: [] }] }, 'at least one parts field'],
+      ['a part with two kinds of data', { contents: [{ role: 'user', parts: [{ text: 'a', functionCall: { name: 'f' } }] }] }, 'exactly one of'],
+    ],
+  },
+  'gemini.function_turns': {
+    api: 'gemini',
+    accept: [
+      ['two calls, then two responses in the next turn, then text', geminiWith({ role: 'model', parts: [gcall('read_file', { path: 'a' }), gcall('read_file', { path: 'b' })] }, { role: 'user', parts: [gresp(), gresp()] }, { role: 'model', parts: [{ text: 'done' }] })],
+      ['responses followed by a host message in the same user turn', geminiWith({ role: 'model', parts: [gcall()] }, { role: 'user', parts: [gresp(), { text: 'HOST HINT' }] })],
+    ],
+    reject: [
+      ['two calls and one response', geminiWith({ role: 'model', parts: [gcall(), gcall()] }, { role: 'user', parts: [gresp()] }), 'number of function response parts should be equal to number of function call parts'],
+      ['a response after a model turn that made no call', geminiWith({ role: 'model', parts: [{ text: 'ok' }] }, { role: 'user', parts: [gresp()] }), 'Please ensure that function response turn comes immediately after a function call turn.'],
+      ['a call turn that does not follow a user turn', { contents: [{ role: 'model', parts: [gcall()] }, { role: 'user', parts: [gresp()] }] }, 'Please ensure that function call turn comes immediately after a user turn or after a function response turn.'],
+      ['a call with nothing after it', geminiWith({ role: 'model', parts: [gcall()] }), 'Please ensure that function response turn comes immediately after a function call turn.'],
+    ],
+  },
+  'gemini.tool_declarations': {
+    api: 'gemini',
+    accept: [['a function declaration with a name of letters, digits and underscores', { ...geminiBase(), tools: [geminiTool] }]],
+    reject: [
+      ['a name with a space', { ...geminiBase(), tools: [{ functionDeclarations: [{ name: 'read file', parameters: { type: 'object' } }] }] }, 'name'],
+      ['functionDeclarations that is not a list', { ...geminiBase(), tools: [{ functionDeclarations: { name: 'x' } }] }, 'functionDeclarations'],
+    ],
+  },
+  'gemini.thought_signature': {
+    api: 'gemini',
+    accept: [['a function call with the signature the server issued', geminiWith({ role: 'model', parts: [{ functionCall: { name: 'read_file', args: { path: 'a' } }, thoughtSignature: signer.signGemini({ name: 'read_file', args: { path: 'a' } }) }] }, { role: 'user', parts: [gresp()] })]],
+    reject: [
+      ['a signature nobody issued', geminiWith({ role: 'model', parts: [{ functionCall: { name: 'read_file', args: { path: 'a' } }, thoughtSignature: 'forged' }] }, { role: 'user', parts: [gresp()] }), 'Corrupted thought signature.'],
+      ['a call whose arguments were edited after it was signed', geminiWith({ role: 'model', parts: [{ functionCall: { name: 'read_file', args: { path: 'edited' } }, thoughtSignature: signer.signGemini({ name: 'read_file', args: { path: 'a' } }) }] }, { role: 'user', parts: [gresp()] }), 'Corrupted thought signature.'],
+    ],
+  },
 };
 
 {
@@ -315,7 +373,8 @@ const FIXTURES = {
   assert.equal(first.errors[0].message.startsWith("An assistant message with 'tool_calls'"), true, 'and the first one is the one the API reports');
   assert.deepEqual(errorBody('anthropic', { message: 'm' }), { type: 'error', error: { type: 'invalid_request_error', message: 'm' }, request_id: 'req_mock' });
   assert.deepEqual(errorBody('chat', { message: 'm', param: 'p', code: 'c' }), { error: { message: 'm', type: 'invalid_request_error', param: 'p', code: 'c' } });
-  ok('the Chat dialect option, the complete error list and the error envelopes of the three APIs');
+  assert.deepEqual(errorBody('gemini', { message: 'm', status: 413 }), { error: { code: 413, message: 'm', status: 'INVALID_ARGUMENT' } });
+  ok('the Chat dialect option, the complete error list and the error envelopes of the four APIs');
 }
 
 // ---- Streams: the shape of what a server sends
@@ -452,9 +511,10 @@ const STREAM_FIXTURES = {
 }
 
 {
-  const total = Object.values(FIXTURES).reduce((sum, f) => sum + f.accept.length + f.reject.length, 0) + 3 + 3;
+  const count = (table) => Object.values(table).reduce((sum, f) => sum + f.accept.length + f.reject.length, 0);
+  const total = count(FIXTURES) + count(STREAM_FIXTURES);
   assert.ok(total >= 12, 'at least 12 validator cases');
-  note(`validator cases in all: ${total} (a rule needs one accept and one reject fixture; the limit is 12)`);
+  note(`validator cases in all: ${total} for ${Object.keys(RULES).length} rules (each rule has at least one accept and one reject fixture; the limit asked for is 12 cases)`);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -469,11 +529,12 @@ const post = async (url, body, { signal, headers } = {}) => {
   try { json = JSON.parse(text); } catch { /* an SSE body */ }
   return { status: response.status, headers: response.headers, text, json };
 };
-const ENDPOINTS = (mock) => ({ chat: `${mock.url}/chat/completions`, anthropic: `${mock.url}/messages`, responses: `${mock.url}/responses` });
+const ENDPOINTS = (mock) => ({ chat: `${mock.url}/chat/completions`, anthropic: `${mock.url}/messages`, responses: `${mock.url}/responses`, gemini: `${mock.origin}/v1beta/models/mock-gemini:generateContent` });
 const bodies = {
   chat: (extra = {}) => ({ model: 'mock-coder', messages: [{ role: 'system', content: 'sys' }, { role: 'user', content: 'Hi' }], tools: [readTool], tool_choice: 'auto', ...extra }),
   anthropic: (extra = {}) => ({ model: 'mock-coder', max_tokens: 1024, system: [{ type: 'text', text: 'sys' }], messages: [{ role: 'user', content: 'Hi' }], tools: [anthTool], ...extra }),
   responses: (extra = {}) => ({ model: 'mock-coder', instructions: 'sys', input: [{ role: 'user', content: 'Hi' }], tools: [respTool], store: false, include: ['reasoning.encrypted_content'], ...extra }),
+  gemini: (extra = {}) => ({ systemInstruction: { parts: [{ text: 'sys' }] }, contents: [{ role: 'user', parts: [{ text: 'Hi' }] }], tools: [geminiTool], generationConfig: { maxOutputTokens: 1024 }, ...extra }),
 };
 const TOOL_USE_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 
@@ -555,8 +616,25 @@ mock.setScenario('rich');
   assert.equal(plain.json.output[0].encrypted_content, undefined, 'without include, no encrypted reasoning');
   ok('Responses as JSON: reasoning summary (encrypted content only when asked for), message, two function_call items, usage details');
 
-  const recorded = mock.state.requests.slice(-4).map((request) => [request.protocol, request.stream, request.rejected]);
-  assert.deepEqual(recorded, [['chat', false, null], ['anthropic', false, null], ['responses', false, null], ['responses', false, null]]);
+  const gemini = await post(URL.gemini, bodies.gemini());
+  assert.equal(gemini.status, 200);
+  const candidate = gemini.json.candidates[0];
+  assert.equal(candidate.finishReason, 'STOP');
+  assert.equal(candidate.content.role, 'model');
+  const [thoughtPart, textPart, ...callParts] = candidate.content.parts;
+  assert.deepEqual(thoughtPart, { text: 'I should read both files.', thought: true }, 'the reasoning is a thought part');
+  assert.deepEqual(textPart, { text: 'Reading both.' });
+  assert.equal(callParts.length, 2, 'two functionCall parts in one model turn');
+  assert.deepEqual(callParts[0].functionCall, { name: 'read_file', args: { path: 'a.txt' } });
+  assert.equal(typeof callParts[0].thoughtSignature, 'string', 'the first call of a thinking turn carries a thoughtSignature');
+  assert.equal(callParts[1].thoughtSignature, undefined, 'and the second does not (only the first call of a parallel turn is signed)');
+  assert.equal(mock.signer.verifyGemini(callParts[0].functionCall, callParts[0].thoughtSignature), true);
+  assert.deepEqual(gemini.json.usageMetadata, { promptTokenCount: 450, cachedContentTokenCount: 300, candidatesTokenCount: 20, thoughtsTokenCount: 7, totalTokenCount: 477 });
+  ok('Gemini generateContent as JSON: a thought part, text, two functionCall parts (the first signed), finishReason, usageMetadata with cached and thought tokens');
+
+  const recorded = mock.state.requests.slice(-5).map((request) => [request.protocol, request.stream, request.rejected]);
+  assert.deepEqual(recorded, [['chat', false, null], ['anthropic', false, null], ['responses', false, null], ['responses', false, null], ['gemini', false, null]]);
+  assert.equal(mock.state.requests.at(-1).model, 'mock-gemini', 'the model of a Gemini request is the one in the URL');
   assert.ok(mock.state.requests.at(-1).bytes > 100, 'the size of each request is recorded');
 }
 
@@ -612,6 +690,7 @@ mock.setScenario('rich');
   assert.equal(odd.status, 200, 'by default the Chat route still answers a request with a parameter OpenAI would refuse');
   assert.equal((await post(URLS.anthropic, bodies.anthropic({ parallel_tool_calls: false }))).status, 400, 'Anthropic is strict by default');
   assert.equal((await post(URLS.responses, bodies.responses({ messages: [] }))).status, 400, 'Responses is strict by default');
+  assert.equal((await post(URLS.gemini, bodies.gemini({ model: 'x' }))).status, 400, 'Gemini is strict by default');
   const loose = await server({ scenario: 'canned-answer', strict: false });
   assert.equal((await post(ENDPOINTS(loose).anthropic, bodies.anthropic({ parallel_tool_calls: false }))).status, 200, 'strict: false turns every check off');
 
@@ -624,7 +703,9 @@ mock.setScenario('rich');
   assert.deepEqual(refusedResponses.json, { error: { message: "Unknown parameter: 'messages'.", type: 'invalid_request_error', param: 'messages', code: 'unknown_parameter' } });
   const last = mock.state.requests.at(-1);
   assert.equal(last.rejected.rule, 'responses.unknown_param', 'the server records which rule refused the request');
-  assert.ok(mock.state.rejections.length >= 3);
+  const refusedGemini = await post(URL.gemini, bodies.gemini({ model: 'x' }));
+  assert.deepEqual(refusedGemini.json, { error: { code: 400, message: 'Invalid JSON payload received. Unknown name "model": Cannot find field.', status: 'INVALID_ARGUMENT' } });
+  assert.ok(mock.state.rejections.length >= 4);
   ok('strictness: refused requests get the API\'s own error envelope and status 400, and the rule is recorded; the Chat route is lenient unless strict is set');
 }
 
@@ -640,16 +721,18 @@ mock.setScenario('rich');
   const responses1 = (await post(U.responses, bodies.responses())).json;
   const calledItem = responses1.output.find((item) => item.type === 'function_call');
   await post(U.responses, bodies.responses({ input: [...bodies.responses().input, { type: 'function_call', call_id: calledItem.call_id, name: calledItem.name, arguments: calledItem.arguments }, { type: 'function_call_output', call_id: calledItem.call_id, output: 'RESULT' }] }));
-  const byProtocol = Object.fromEntries(['chat', 'anthropic', 'responses'].map((protocol) => [protocol, seen.filter((entry) => entry.protocol === protocol)]));
+  const geminiCall = (await post(U.gemini, bodies.gemini())).json.candidates[0].content.parts.find((part) => part.functionCall);
+  await post(U.gemini, bodies.gemini({ contents: [...bodies.gemini().contents, { role: 'model', parts: [geminiCall] }, { role: 'user', parts: [{ functionResponse: { name: 'read_file', response: { output: 'RESULT' } } }] }] }));
+  const byProtocol = Object.fromEntries(['chat', 'anthropic', 'responses', 'gemini'].map((protocol) => [protocol, seen.filter((entry) => entry.protocol === protocol)]));
   for (const [protocol, entries] of Object.entries(byProtocol)) assert.equal(entries.length, 2, `${protocol}: two requests reached the scenario`);
-  for (const protocol of ['chat', 'anthropic', 'responses']) {
+  for (const protocol of ['chat', 'anthropic', 'responses', 'gemini']) {
     const [firstCtx, secondCtx] = byProtocol[protocol];
     assert.deepEqual({ prompt: firstCtx.prompt, turn: firstCtx.turn, last: firstCtx.last, tools: firstCtx.tools, system: firstCtx.system }, { prompt: 'Hi', turn: 0, last: '', tools: ['read_file'], system: 'sys' }, `${protocol}: first request`);
     assert.deepEqual({ prompt: secondCtx.prompt, turn: secondCtx.turn, last: secondCtx.last, tools: secondCtx.tools }, { prompt: 'Hi', turn: 1, last: 'RESULT', tools: ['read_file'] }, `${protocol}: after one tool result`);
   }
-  ok('a scenario sees the same prompt, system text, tool names, turn and last result on Chat, Anthropic and Responses');
+  ok('a scenario sees the same prompt, system text, tool names, turn and last result on Chat, Anthropic, Responses and Gemini');
 
-  // Host messages: a user message after the results moves "the last user message" in the Chat view, as before, on every protocol.
+  // The Hub's "Test API" button sends a probe with a record_probe tool, and a connectivity check with no tools at all.
   const probe = await server({ scenario: 'canned-answer' });
   const P = ENDPOINTS(probe);
   const chatProbe = await post(P.chat, bodies.chat({ tools: [{ type: 'function', function: { name: 'record_probe', parameters: { type: 'object' } } }] }));
@@ -695,6 +778,23 @@ mock.setScenario('rich');
   assert.deepEqual(validateAnthropicStream(streamed).errors, []);
   assert.equal(accumulateAnthropicStream(streamed).content[0].type, 'redacted_thinking');
   ok('redacted_thinking: emitted as JSON and as SSE, verified, accepted when echoed back');
+
+  // Gemini: the thoughtSignature of a function call is passed back with it, unmodified.
+  const g = await server({ scenario: 'gthink', scenarios: { gthink: ({ turn }) => (turn === 0 ? withThinking('Plan: read it.', call('read_file', { path: 'a' })) : say('done')) } });
+  const G = ENDPOINTS(g).gemini;
+  const modelTurn = (await post(G, bodies.gemini())).json.candidates[0].content;
+  const followGemini = (content) => bodies.gemini({ contents: [...bodies.gemini().contents, content, { role: 'user', parts: [{ functionResponse: { name: 'read_file', response: { output: 'RESULT' } } }] }] });
+  assert.equal((await post(G, followGemini(modelTurn))).status, 200, 'the model turn echoed back unmodified is accepted');
+  const forgedTurn = structuredClone(modelTurn);
+  forgedTurn.parts.find((part) => part.functionCall).thoughtSignature = 'forged';
+  const forgedAnswer = await post(G, followGemini(forgedTurn));
+  assert.equal(forgedAnswer.status, 400);
+  assert.equal(forgedAnswer.json.error.message, 'Corrupted thought signature.');
+  const editedTurn = structuredClone(modelTurn);
+  editedTurn.parts.find((part) => part.functionCall).functionCall.args = { path: 'somewhere else' };
+  assert.equal((await post(G, followGemini(editedTurn))).status, 400, 'a call edited after it was signed is refused too');
+  assert.equal(g.state.requests.at(-1).rejected.rule, 'gemini.thought_signature');
+  ok('Gemini: the thoughtSignature of a function call is accepted unmodified and refused when forged or when the call was edited');
 }
 
 {
@@ -708,6 +808,7 @@ mock.setScenario('rich');
   const responses = (await post(U.responses, bodies.responses())).json;
   assert.equal(responses.status, 'incomplete');
   assert.deepEqual(responses.incomplete_details, { reason: 'max_output_tokens' });
+  assert.equal((await post(U.gemini, bodies.gemini())).json.candidates[0].finishReason, 'MAX_TOKENS');
   assert.throws(() => JSON.parse(chat.choices[0].message.tool_calls[0].function.arguments), 'a call the limit cut off carries half of its arguments: not JSON');
   assert.deepEqual(anthropic.content.find((block) => block.type === 'tool_use').input, {}, 'Anthropic: a cut-off tool_use has an empty input');
   assert.equal(responses.output.find((item) => item.type === 'function_call').status, 'incomplete', 'Responses: the cut-off function_call is incomplete');
@@ -729,15 +830,23 @@ mock.setScenario('rich');
   await post(U.anthropic, bodies.anthropic({ messages: [{ role: 'user', content: [{ type: 'text', text: `a ${needle} b` }] }] }));
   await post(U.responses, bodies.responses({ input: `a ${needle} b` }));
   await post(U.responses, bodies.responses({ input: 'clean' }));
+  await post(U.gemini, bodies.gemini({ contents: [{ role: 'user', parts: [{ text: `a ${needle} b` }] }] }));
   const report = m.watchReport();
-  assert.equal(report.scanned, 4);
-  assert.deepEqual(report.hits.map((hit) => hit.request), [1, 2, 3], 'the watch looks inside the body of a request on every route');
+  assert.equal(report.scanned, 5);
+  assert.deepEqual(report.hits.map((hit) => hit.request), [1, 2, 3, 5], 'the watch looks inside the body of a request on every route');
   const listed = await (await fetch(`${m.origin}/__requests`)).json();
-  assert.equal(listed.requests.length, 4);
-  assert.deepEqual(listed.requests.map((request) => request.protocol), ['chat', 'anthropic', 'responses', 'responses']);
+  assert.equal(listed.requests.length, 5);
+  assert.deepEqual(listed.requests.map((request) => request.protocol), ['chat', 'anthropic', 'responses', 'responses', 'gemini']);
   assert.equal(listed.requests.every((request) => request.hasAuthorization === false), true);
   assert.equal(m.state.requests[1].promptStart.startsWith('a secret-needle'), true);
-  ok('the control routes, the watch for secrets and the recorded requests work on Chat, Anthropic and Responses');
+  ok('the control routes, the watch for secrets and the recorded requests work on Chat, Anthropic, Responses and Gemini');
+
+  // A Chat stream carries its usage chunk when asked for, or always when the server is told to (some compatible servers do).
+  const always = await server({ scenario: 'canned-answer', streamUsage: 'always' });
+  const alwaysEvents = parseSse((await post(ENDPOINTS(always).chat, bodies.chat({ stream: true }))).text);
+  assert.deepEqual(validateChatStream(alwaysEvents, { includeUsage: true }).errors, [], 'streamUsage: always sends the usage chunk without being asked');
+  assert.equal(validateChatStream(alwaysEvents, { includeUsage: false }).ok, false, 'and a client that did not ask for it can tell');
+  ok('streamUsage: always puts the usage chunk in a Chat stream that did not ask for it');
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -747,11 +856,12 @@ const APIS = ['chat', 'anthropic', 'responses'];
 {
   const m = await server({ scenario: 'canned-answer', strict: true });
   const U = ENDPOINTS(m);
-  for (const api of APIS) {
+  for (const api of [...APIS, 'gemini']) {
     const fault = m.inject({ kind: 'payload-too-large', on: api });
     const refused = await post(U[api], bodies[api]());
     assert.equal(refused.status, 413, `${api}: 413`);
     if (api === 'anthropic') assert.deepEqual(refused.json, { type: 'error', error: { type: 'request_too_large', message: 'Request exceeds the maximum allowed number of bytes.' }, request_id: 'req_mock' });
+    else if (api === 'gemini') assert.deepEqual(refused.json, { error: { code: 413, message: 'Request payload size exceeds the limit: 20971520 bytes.', status: 'INVALID_ARGUMENT' } });
     else assert.equal(refused.json.error.code, 'request_too_large');
     assert.equal(fault.used, 1);
     assert.equal((await post(U[api], bodies[api]())).status, 200, `${api}: a fault hits one request, the next one is answered`);
@@ -766,7 +876,11 @@ const APIS = ['chat', 'anthropic', 'responses'];
     assert.equal(fault.used, 1);
     assert.match((await post(U[api], bodies[api]({ stream: true }))).headers.get('content-type'), /event-stream/, `${api}: the stream after the fault works`);
   }
-  assert.deepEqual(m.state.faultLog.map((entry) => entry.kind), ['payload-too-large', 'payload-too-large', 'payload-too-large', 'stream-unsupported', 'stream-unsupported', 'stream-unsupported']);
+  assert.deepEqual(m.state.faultLog.map((entry) => entry.kind), ['payload-too-large', 'payload-too-large', 'payload-too-large', 'payload-too-large', 'stream-unsupported', 'stream-unsupported', 'stream-unsupported']);
+  const noStreamGemini = m.inject({ kind: 'stream-unsupported', on: 'gemini' });
+  assert.equal((await post(U.gemini, bodies.gemini())).status, 200, 'generateContent is never a stream, so "stream not supported" never fires on it');
+  assert.equal(noStreamGemini.used, 0);
+  m.clearFaults();
   const only = m.inject({ kind: 'status', status: 529, message: 'Overloaded', on: 'anthropic', headers: { 'retry-after': '3' } });
   assert.equal((await post(U.chat, bodies.chat())).status, 200, 'a fault for Anthropic leaves Chat alone');
   const overloaded = await post(U.anthropic, bodies.anthropic());
@@ -834,11 +948,16 @@ const rows = (m, { limits, timeoutMs = 5000 } = {}) => {
   const responses = (stream) => (input, options = {}) => respondOpenAIResponses(
     { model: 'mock-coder', endpoint: `${m.url}/responses`, headers: { 'content-type': 'application/json' }, fetch, timeoutMs, redact: (value) => value, stream },
     { input, instructions: 'system', tools: TOOLS, maxOutputTokens: 1024, ...options });
+  // Gemini has no function of its own: its loop is GatewayProvider.respond. A no-op sleep, because that loop retries a thrown
+  // TypeError as a network failure with 3-30 s waits and no cap, which would turn a bug into a hang; and a signal to bound each call.
+  const gemini = new GatewayProvider({ directory: path.join(os.tmpdir(), 'chatmcp-mock-gemini-unused'), bundleRoot: os.tmpdir(), manager: { secrets: [] }, env: {}, sleep: async () => {} })
+    .forkForTask({ protocol: 'gemini', apiBaseUrl: m.origin, model: 'mock-gemini' });
   return {
     chat: { label: 'respondStandard / Chat Completions', api: 'chat', run: standard('openai-chat', 'chat/completions', { 'content-type': 'application/json' }) },
     anthropic: { label: 'respondStandard / Anthropic Messages', api: 'anthropic', run: standard('anthropic', 'messages', anthropicHeaders('test-key')) },
     responses: { label: 'respondOpenAIResponses / JSON', api: 'responses', run: responses(false) },
     'responses-sse': { label: 'respondOpenAIResponses / SSE', api: 'responses', run: responses(true) },
+    gemini: { label: 'GatewayProvider / Gemini generateContent', api: 'gemini', run: (input, options = {}) => gemini.respond({ input, instructions: 'system', tools: TOOLS, maxOutputTokens: 1024, signal: AbortSignal.timeout(8000), ...options }) },
   };
 };
 
@@ -889,6 +1008,7 @@ for (const [name, row] of Object.entries(ROWS)) {
   if (row.api === 'chat') assert.deepEqual(last.messages.slice(-2).map((message) => message.role), ['assistant', 'tool']);
   if (row.api === 'anthropic') assert.deepEqual(last.messages.slice(-1)[0].content.map((block) => block.type), ['tool_result']);
   if (row.api === 'responses') assert.deepEqual(last.input.slice(-2).map((item) => item.type), ['function_call', 'function_call_output']);
+  if (row.api === 'gemini') assert.deepEqual(last.contents.slice(-2).map((content) => [content.role, Object.keys(content.parts[0])[0]]), [['model', 'functionCall'], ['user', 'functionResponse']]);
 
   const parallel = await converse(row, contract, 'canned-parallel');
   assert.equal(parallel.turns.length, 2);
@@ -901,6 +1021,7 @@ for (const [name, row] of Object.entries(ROWS)) {
   if (row.api === 'chat') assert.deepEqual(lastParallel.messages.slice(-3).map((message) => message.role), ['assistant', 'tool', 'tool'], 'one assistant message with two calls, then both results');
   if (row.api === 'anthropic') assert.deepEqual(lastParallel.messages.slice(-1)[0].content.map((block) => block.type), ['tool_result', 'tool_result'], 'both results in ONE user message');
   if (row.api === 'responses') assert.deepEqual(lastParallel.input.slice(-4).map((item) => item.type), ['function_call', 'function_call', 'function_call_output', 'function_call_output']);
+  if (row.api === 'gemini') assert.deepEqual(lastParallel.contents.slice(-2).map((content) => content.parts.map((part) => Object.keys(part)[0])), [['functionCall', 'functionCall'], ['functionResponse', 'functionResponse']], 'one model turn with two calls, one user turn with two responses');
 
   // Chat reasoning exists only in the compat dialect (reasoning_content, as DeepSeek sends it), so that row talks to the compat server.
   const thinkingServer = name === 'chat' ? compat : contract;
@@ -918,14 +1039,27 @@ for (const [name, row] of Object.entries(ROWS)) {
   }
   if (row.api === 'anthropic') findings.push(`Anthropic: the thinking block of the previous turn was ${replayBody.messages.some((message) => Array.isArray(message.content) && message.content.some((block) => block.type === 'thinking')) ? '' : 'NOT '}sent back with the tool result`);
 
-  const cut = await converse(row, contract, 'canned-truncated');
-  assert.equal(cut.turns.length, 1, `${label}: a truncated answer ends the conversation, no tool is run`);
-  assert.equal(cut.turns[0].status, 'incomplete');
-  assert.equal(cut.turns[0].incomplete_details.reason, 'max_output_tokens');
-  assert.equal(functionCalls(cut.turns[0]).length, 0, 'the call that the limit cut off is never returned');
-  assert.equal(cut.ledger.snapshotForModel().some((item) => item.type === 'function_call_output'), false);
-  if (row.api !== 'responses') assert.equal(finalText(cut.turns[0]), 'The answer is cut o');
-  accepted(cut);
+  if (row.api === 'gemini') {
+    const modelTurn = replayBody.contents.find((content) => content.role === 'model');
+    assert.equal(typeof modelTurn.parts.find((part) => part.functionCall).thoughtSignature, 'string', `${label}: the thoughtSignature of the call is sent back with it`);
+  }
+
+  if (row.api === 'gemini') {
+    // The native Gemini path throws on MAX_TOKENS instead of returning an incomplete response, as the other protocols do.
+    const failure = await converse(row, contract, 'canned-truncated').then(() => null, (error) => error);
+    assert.equal(failure?.code, 'model_incomplete', `${label}: MAX_TOKENS is an error`);
+    assert.equal(contract.state.requests.length, 1);
+    assert.equal(contract.state.requests[0].rejected, null);
+  } else {
+    const cut = await converse(row, contract, 'canned-truncated');
+    assert.equal(cut.turns.length, 1, `${label}: a truncated answer ends the conversation, no tool is run`);
+    assert.equal(cut.turns[0].status, 'incomplete');
+    assert.equal(cut.turns[0].incomplete_details.reason, 'max_output_tokens');
+    assert.equal(functionCalls(cut.turns[0]).length, 0, 'the call that the limit cut off is never returned');
+    assert.equal(cut.ledger.snapshotForModel().some((item) => item.type === 'function_call_output'), false);
+    if (row.api !== 'responses') assert.equal(finalText(cut.turns[0]), 'The answer is cut o');
+    accepted(cut);
+  }
 
   const cached = await converse(row, contract, 'canned-cache-usage');
   const usage = cached.turns[0].usage;
@@ -1043,7 +1177,7 @@ for (const finding of findings) note(finding);
     // Four identical listings, then one model turn with two calls (the first of them is the fifth identical observation, which makes
     // the host write a recovery hint), then the answer. A counter, not `turn`: the hint is a user message and moves the turn count.
     const script = () => { let step = 0; return () => { step += 1; return step <= 4 ? { calls: [listDirectory()] } : step === 5 ? { calls: [listDirectory(), listDirectory()] } : { text: 'Done.' }; }; };
-    for (const [format, api] of [['openai-chat', 'chat'], ['anthropic', 'anthropic'], ['openai-responses', 'responses']]) {
+    for (const [format, api] of [['openai-chat', 'chat'], ['anthropic', 'anthropic'], ['openai-responses', 'responses'], ['gemini', 'gemini']]) {
       const m = await server({ scenario: 'agent', scenarios: { agent: script() }, strict: true });
       const gateway = new GatewayProvider({ directory: path.join(root, `gateway-${api}`), bundleRoot: root, manager, env: {} });
       const provider = gateway.forkForTask({ protocol: format, apiBaseUrl: m.origin, model: 'mock-coder' });
@@ -1065,9 +1199,13 @@ for (const finding of findings) note(finding);
         assert.deepEqual(tail, ['tool_result', 'tool_result', 'text'], 'Anthropic: both results lead the user message, the hint follows');
       }
       if (api === 'responses') assert.deepEqual(lastBody.input.slice(-5).map((item) => item.type ?? item.role), ['function_call', 'function_call', 'function_call_output', 'function_call_output', 'user']);
+      if (api === 'gemini') {
+        assert.deepEqual(lastBody.contents.slice(-2).map((content) => content.role), ['model', 'user']);
+        assert.deepEqual(lastBody.contents.at(-1).parts.map((part) => Object.keys(part)[0]), ['functionResponse', 'functionResponse', 'text'], 'Gemini: both responses lead the user turn, the hint follows');
+      }
       await runner.shutdown();
     }
-    ok('real AgentRunner -> GatewayProvider -> real adapters -> network -> strict mock, on Chat, Anthropic and Responses: a turn with two calls and a recovery hint is accepted, the hint follows both results');
+    ok('real AgentRunner -> GatewayProvider -> real adapters -> network -> strict mock, on Chat, Anthropic, Responses and Gemini: a turn with two calls and a recovery hint is accepted, the hint follows both results');
 
     // The same history written the OLD way (the hint between two results) is refused at the network by the strict Chat route.
     const m = await server({ scenario: 'canned-answer', strict: true });
