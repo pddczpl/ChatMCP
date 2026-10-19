@@ -1,14 +1,20 @@
 #requires -Version 5.1
 <#
 Stop the existing ChatMCP Hub through its authenticated local shutdown endpoint.
+The Hub publishes a per-launch secret in <state dir>\run\hub-session.json (readable by your Windows account only); this
+script presents it as a bearer token. A Hub from before that secret existed (v3.9.0 and older) has no such file and is
+stopped with the older session-token flow instead.
 Examples:
   & 'F:\Personal_Project\Vin\ChatMCP\CHATMCP-HUB\STOP-CHATMCP-HUB.cmd'
   & 'F:\Personal_Project\Vin\ChatMCP\CHATMCP-HUB\STOP-CHATMCP-HUB.cmd' -Port 3007
+  & 'F:\Personal_Project\Vin\ChatMCP\CHATMCP-HUB\STOP-CHATMCP-HUB.cmd' -Port 3010 -StateDir 'D:\hub-state'
 #>
 [CmdletBinding()]
 param(
     [ValidateRange(1024, 65535)]
-    [int]$Port = 3007
+    [int]$Port = 3007,
+    # The Hub's --state-dir. Default: CHATMCP_STATE_DIR, else %LOCALAPPDATA%\ChatMCP\hub (what the Hub itself defaults to).
+    [string]$StateDir = ''
 )
 
 Set-StrictMode -Version 2.0
@@ -74,6 +80,19 @@ function Test-HubPortListening {
     catch { return $true }
 }
 
+function Read-HubSessionSecret {
+    # The secret of the Hub that owns this port, from the session file it published; $null when there is no usable file.
+    $directory = $StateDir
+    if ([string]::IsNullOrWhiteSpace($directory)) { $directory = $env:CHATMCP_STATE_DIR }
+    if ([string]::IsNullOrWhiteSpace($directory)) { $directory = Join-Path $env:LOCALAPPDATA 'ChatMCP\hub' }
+    $file = Join-Path (Join-Path $directory 'run') 'hub-session.json'
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { return $null }
+    try { $session = Get-Content -LiteralPath $file -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop } catch { return $null }
+    if ($null -eq $session.PSObject.Properties['secret'] -or $null -eq $session.PSObject.Properties['port']) { return $null }
+    if ([int]$session.port -ne $Port -or $session.secret -isnot [string] -or $session.secret -notmatch '^[A-Za-z0-9_-]{32,256}$') { return $null }
+    return $session.secret
+}
+
 function Assert-HubIdentity {
     param([object]$Health)
     if ($null -eq $Health -or $null -eq $Health.PSObject.Properties['app'] -or $Health.app -ne 'chatmcp-local-hub') {
@@ -105,7 +124,19 @@ try {
     Assert-HubIdentity -Health $hubStopHealth
 
     $hubStopPhase = 'reading the verified Hub session'
-    $hubStopState = Invoke-HubStopJson -Endpoint '/api/state'
+    # A Hub that says auth=bearer gets the secret from its session file. One that does not predates the secret and only
+    # knows the older flow (the session token its /api/state hands out); the secret is never sent to it.
+    $hubStopAuth = @{}
+    $hubStopRequiresBearer = ($null -ne $hubStopHealth.PSObject.Properties['auth'] -and $hubStopHealth.auth -eq 'bearer')
+    if ($hubStopRequiresBearer) {
+        $hubStopSecret = Read-HubSessionSecret
+        if ($null -eq $hubStopSecret) {
+            Write-Host ('[CHATMCP-HUB] This Hub requires its session file, which was not found or does not match port ' + $Port + '. Use -StateDir with the folder the Hub was started with (--state-dir).')
+            throw 'No usable Hub session file.'
+        }
+        $hubStopAuth['Authorization'] = 'Bearer ' + $hubStopSecret
+    }
+    $hubStopState = Invoke-HubStopJson -Endpoint '/api/state' -Headers $hubStopAuth
     $hubStopToken = $hubStopState.PSObject.Properties['csrfToken']
     if ($null -eq $hubStopToken -or $hubStopToken.Value -isnot [string] -or $hubStopToken.Value -notmatch '^[A-Za-z0-9_-]{16,256}$') {
         throw 'The verified Hub did not provide a valid local session token.'
@@ -113,11 +144,13 @@ try {
 
     $hubStopPhase = 'requesting Hub shutdown'
     try {
-        $hubStopResult = Invoke-HubStopJson -Endpoint '/api/hub/shutdown' -Method 'POST' -Headers @{
+        $hubStopShutdownHeaders = @{
             'Origin' = $hubStopBase
             'X-ChatMCP-Request' = 'local-dashboard'
             'X-ChatMCP-CSRF' = $hubStopToken.Value
         }
+        foreach ($entry in $hubStopAuth.GetEnumerator()) { $hubStopShutdownHeaders[$entry.Key] = $entry.Value }
+        $hubStopResult = Invoke-HubStopJson -Endpoint '/api/hub/shutdown' -Method 'POST' -Headers $hubStopShutdownHeaders
         if ($null -eq $hubStopResult -or $null -eq $hubStopResult.PSObject.Properties['ok'] -or $hubStopResult.ok -ne $true) {
             throw 'The Hub did not acknowledge shutdown.'
         }

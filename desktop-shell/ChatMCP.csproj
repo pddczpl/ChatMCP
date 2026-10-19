@@ -22,5 +22,8 @@
 
   <ItemGroup>
     <Compile Include="..\native-shared\HubLifecycle.cs" Link="HubLifecycle.cs" />
+    <Compile Include="..\native-shared\HubSession.cs" Link="HubSession.cs" />
+    <Compile Include="..\native-shared\OpenLink.cs" Link="OpenLink.cs" />
+    <Compile Include="..\native-shared\WebViewBridge.cs" Link="WebViewBridge.cs" />
   </ItemGroup>
 </Project>

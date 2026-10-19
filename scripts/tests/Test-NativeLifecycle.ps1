@@ -69,6 +69,17 @@ function Wait-Health([string]$version) {
     } while ([DateTime]::UtcNow -lt $deadline)
     throw "Hub $version did not become ready."
 }
+function Assert-NoNativeError($process, [string]$pattern, [int]$seconds = 8) {
+    # The shell hides its status label once the dashboard has loaded, so a diagnostic still readable after the wait means it did not attach.
+    $window = Window-For $process
+    $deadline = [DateTime]::UtcNow.AddSeconds($seconds)
+    do {
+        foreach ($text in $window.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)) {
+            if ($text.Current.Name -match $pattern) { throw ('Native window shows a diagnostic instead of attaching: ' + $text.Current.Name) }
+        }
+        Start-Sleep -Milliseconds 400
+    } while ([DateTime]::UtcNow -lt $deadline)
+}
 function Stop-InstalledHub {
     & (Join-Path $root 'CHATMCP-HUB\STOP-CHATMCP-HUB.cmd') -Port 3007
     if ($LASTEXITCODE -ne 0) { throw 'Owned test Hub shutdown was not confirmed.' }
@@ -130,6 +141,14 @@ try {
     $entry=Join-Path $root 'CHATMCP-HUB\hub.mjs'
     $oldHub=Start-Process $node -ArgumentList @(('"'+$entry+'"'),'--port','3007','--no-open') -PassThru -WindowStyle Hidden
     $owned.Add($oldHub); $null=Wait-Health $ExpectedBaselineVersion
+    # Releases up to 3.9.0 have no per-launch secret: their Hub hands its CSRF token to any local caller, and the candidate
+    # installer's preflight must still be able to stop exactly that Hub (legacy flow after the secret path finds no session).
+    $oldHealth = Invoke-RestMethod 'http://127.0.0.1:3007/api/health' -TimeoutSec 5
+    $legacyBaseline = ($null -eq $oldHealth.PSObject.Properties['auth'])
+    if ($legacyBaseline) {
+        $oldState = Invoke-RestMethod 'http://127.0.0.1:3007/api/state' -TimeoutSec 5
+        Assert-Native (($oldState.csrfToken -is [string]) -and $oldState.csrfToken.Length -ge 16) 'baseline Hub is secretless (an unauthenticated caller receives its CSRF token): the legacy shutdown flow is what the preflight must handle'
+    }
     $canary=Join-Path $root 'unrelated-user-file.txt'
     [IO.File]::WriteAllText($canary,'PRESERVE-USER-DATA')
     $stateCanary=Join-Path $data 'unrelated-user-state.txt'
@@ -141,8 +160,23 @@ try {
     Assert-Native ((Get-ItemProperty $registry).DisplayVersion -eq $ExpectedCandidateVersion) 'Windows Installed Apps reports the assembly version'
     Assert-Native ((Get-Content (Join-Path $root 'CHATMCP-HUB\extension\manifest.json') -Raw | ConvertFrom-Json).version -eq '1.5.2') 'installed Companion is 1.5.2'
     Assert-Native ([IO.File]::ReadAllText($canary) -eq 'PRESERVE-USER-DATA' -and [IO.File]::ReadAllText($stateCanary) -eq 'PRESERVE-STATE') 'upgrade preserves unrelated application and state files'
-    $candidate=Start-Desktop; $null=Wait-Health $ExpectedCandidateVersion
+    $candidate=Start-Desktop; $newHealth=Wait-Health $ExpectedCandidateVersion
     $ownerId=(Get-NetTCPConnection -LocalPort 3007 -State Listen).OwningProcess
+    Assert-Native ($newHealth.auth -eq 'bearer') 'candidate Hub requires its per-launch secret'
+    $unauthenticatedStatus = 0
+    try { Invoke-RestMethod 'http://127.0.0.1:3007/api/state' -TimeoutSec 5 | Out-Null } catch { if ($_.Exception.Response) { $unauthenticatedStatus = [int]$_.Exception.Response.StatusCode } }
+    Assert-Native ($unauthenticatedStatus -eq 401) 'candidate Hub refuses an unauthenticated local caller (HTTP 401)'
+    $sessionFile = Join-Path $data 'hub\run\hub-session.json'
+    Assert-Native (Test-Path $sessionFile) 'candidate Hub published run\hub-session.json in its data folder'
+    $session = Get-Content $sessionFile -Raw | ConvertFrom-Json
+    Assert-Native (($session.port -eq 3007) -and ($session.pid -eq $ownerId) -and ($session.secret -match '^[A-Za-z0-9_-]{32,256}$')) 'the session names the process that listens on port 3007'
+    $mySid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $principals = @((Get-Acl $sessionFile).Access | ForEach-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } | Sort-Object -Unique)
+    Assert-Native (($principals.Count -eq 1) -and ($principals[0] -eq $mySid)) 'the session file is readable by the current Windows account only'
+    $authorized = Invoke-RestMethod 'http://127.0.0.1:3007/api/state' -Headers @{ Authorization = ('Bearer ' + $session.secret) } -TimeoutSec 5
+    Assert-Native (($authorized.csrfToken -is [string]) -and $authorized.csrfToken.Length -ge 16) 'the published secret authenticates'
+    Assert-NoNativeError $candidate 'Error:|Hub disconnected|predates session authentication'
+    Assert-Native $true 'new shell attached to the new Hub with the secret (no diagnostic in its window)'
     $duplicate=Start-Process (Join-Path $root 'ChatMCP.exe') -PassThru; $owned.Add($duplicate)
     Assert-Native ($duplicate.WaitForExit(10000)) 'second launcher activates existing instance then exits'
     Assert-Native (-not $candidate.HasExited -and (Get-NetTCPConnection -LocalPort 3007 -State Listen).OwningProcess -eq $ownerId) 'second invocation does not stop the primary window or Hub'
@@ -159,8 +193,10 @@ try {
     $fake=Start-Process (Get-Command node.exe).Source -ArgumentList ('"'+$fakeFile+'"') -WindowStyle Hidden -PassThru; $owned.Add($fake)
     $null=Wait-Health $ExpectedBaselineVersion
     $candidate=Start-Desktop
-    Assert-NativeError $candidate 'Hub version mismatch'
-    Assert-Native (-not $fake.HasExited) 'launcher refuses old-version health without stopping the foreign process'
+    # With a different baseline version the version check fires first; with the same version number the missing auth field does.
+    $fakeDiagnostic = if ($ExpectedBaselineVersion -eq $ExpectedCandidateVersion) { 'predates session authentication' } else { 'Hub version mismatch' }
+    Assert-NativeError $candidate $fakeDiagnostic
+    Assert-Native (-not $fake.HasExited) 'launcher refuses a Hub without session authentication or of the wrong version, without stopping the foreign process'
     Close-Desktop $candidate
     $before=(Get-FileHash (Join-Path $root 'ChatMCP.exe') -Algorithm SHA256).Hash
     Assert-Native ((Quiet-Install) -ne 0) 'installer refuses a foreign port owner'

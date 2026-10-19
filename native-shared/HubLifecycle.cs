@@ -36,13 +36,18 @@ internal static class HubLifecycle
     internal static HttpClient Client() => new(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false })
         { Timeout = TimeSpan.FromSeconds(4), MaxResponseContentBufferSize = 256 * 1024 };
 
-    internal static async Task<JsonDocument> GetJson(HttpClient client, string path)
+    internal static async Task<JsonDocument> GetJson(HttpClient client, string path, string? secret = null)
     {
-        using var response = await client.GetAsync(Origin + path);
+        using var request = secret == null ? new HttpRequestMessage(HttpMethod.Get, Origin + path) : HubSession.Authorized(HttpMethod.Get, Origin + path, secret);
+        using var response = await client.SendAsync(request);
         if (!response.IsSuccessStatusCode) throw new InvalidOperationException("Hub returned HTTP " + (int)response.StatusCode + " for " + path + ".");
         return JsonDocument.Parse(await response.Content.ReadAsStringAsync());
     }
-    internal static void ValidateHealth(JsonElement health, string? expectedVersion = null)
+    /// <summary>True when /api/health says the Hub requires the per-launch bearer. A Hub without that field predates it (v3.9.0 and older).</summary>
+    internal static bool RequiresBearer(JsonElement health) =>
+        health.ValueKind == JsonValueKind.Object && health.TryGetProperty("auth", out var auth) &&
+        auth.ValueKind == JsonValueKind.String && auth.GetString() == "bearer";
+    internal static void ValidateHealth(JsonElement health, string? expectedVersion = null, bool requireBearer = false)
     {
         if (health.ValueKind != JsonValueKind.Object || !health.TryGetProperty("app", out var app) ||
             app.ValueKind != JsonValueKind.String || app.GetString() != "chatmcp-local-hub")
@@ -54,6 +59,9 @@ internal static class HubLifecycle
             if (actual != expectedVersion || build != expectedVersion + "-react-agent")
                 throw new InvalidOperationException($"Hub version mismatch: desktop {expectedVersion}, Hub {actual}. Stop the old Hub using its STOP-CHATMCP-HUB.cmd, then reopen the installed app. No task was replayed.");
         }
+        // The same version number can still be a Hub that serves its CSRF token to any local process. Never attach to it.
+        if (requireBearer && !RequiresBearer(health))
+            throw new InvalidOperationException("The running Hub predates session authentication (an older build of the same version). Stop it using its STOP-CHATMCP-HUB.cmd, then reopen the installed app. No task was replayed.");
     }
     internal static bool IsRefused(Exception error)
     {
@@ -67,7 +75,7 @@ internal static class HubLifecycle
         try
         {
             using var health = await GetJson(client, "/api/health");
-            ValidateHealth(health.RootElement, expectedVersion);
+            ValidateHealth(health.RootElement, expectedVersion, requireBearer: true);
             return health.RootElement.TryGetProperty("initialized", out var ready) && ready.ValueKind == JsonValueKind.True;
         }
         catch (HttpRequestException error) when (IsRefused(error)) { return false; }
@@ -77,7 +85,7 @@ internal static class HubLifecycle
 
     [DllImport("iphlpapi.dll", SetLastError = true)]
     private static extern uint GetExtendedTcpTable(IntPtr table, ref int size, bool order, int family, int tableClass, uint reserved);
-    internal static int? ListenerPid()
+    internal static int? ListenerPid(int listenPort = 3007)
     {
         int size = 0;
         uint code = GetExtendedTcpTable(IntPtr.Zero, ref size, false, 2, 3, 0); // AF_INET, OWNER_PID_LISTENER
@@ -96,9 +104,9 @@ internal static class HubLifecycle
                 var row = IntPtr.Add(buffer, 4 + 24 * i);
                 int port = (Marshal.ReadByte(row, 8) << 8) | Marshal.ReadByte(row, 9);
                 uint address = unchecked((uint)Marshal.ReadInt32(row, 4));
-                if (port == 3007 && (address == 0 || address == 0x0100007f)) owners.Add(Marshal.ReadInt32(row, 20));
+                if (port == listenPort && (address == 0 || address == 0x0100007f)) owners.Add(Marshal.ReadInt32(row, 20));
             }
-            if (owners.Count > 1) throw new IOException("Ambiguous listener ownership on port 3007.");
+            if (owners.Count > 1) throw new IOException("Ambiguous listener ownership on port " + listenPort + ".");
             return owners.Count == 1 ? owners.Single() : null;
         }
         finally { Marshal.FreeHGlobal(buffer); }
@@ -174,7 +182,14 @@ internal static class HubLifecycle
         if (process == null) return;
         using var client = Client();
         using var health = await GetJson(client, "/api/health"); ValidateHealth(health.RootElement);
-        using var state = await GetJson(client, "/api/state");
+        // Secret path first: the session file of THIS listener (a stale file from an earlier launch never qualifies).
+        var session = HubSession.ReadForListener(HubSession.DefaultStateDirectory(), 3007);
+        var secret = session != null && session.Pid == process.Id ? session.Secret : null;
+        // No secret and a Hub that says it needs one: it is a current build whose session cannot be read, so refuse. Only a
+        // Hub that predates the secret (v3.9.0 and older, no "auth" in its health) is stopped with the older session-token flow.
+        if (secret == null && RequiresBearer(health.RootElement))
+            throw new InvalidOperationException("The running Hub requires its session file, which is missing or unreadable. Nothing was stopped; close ChatMCP, run STOP-CHATMCP-HUB.cmd and retry.");
+        using var state = await GetJson(client, "/api/state", secret);
         var data = state.RootElement;
         if (!data.TryGetProperty("agent", out var agent) || HasWork(agent))
             throw new InvalidOperationException("Stop active ChatMCP tasks before installing or uninstalling. Nothing was cancelled.");
@@ -182,14 +197,14 @@ internal static class HubLifecycle
             foreach (var name in new[] { "terminals", "delegates", "dynamicDelegates" })
                 if (studio.TryGetProperty(name, out var work) && HasWork(work))
                     throw new InvalidOperationException("Stop ChatMCP terminals and background workers before upgrading.");
-        using var coding = await GetJson(client, "/api/studio/coding");
+        using var coding = await GetJson(client, "/api/studio/coding", secret);
         if (HasWork(coding.RootElement)) throw new InvalidOperationException("Stop background coding jobs before upgrading.");
         if (!data.TryGetProperty("csrfToken", out var token) || token.ValueKind != JsonValueKind.String ||
             !System.Text.RegularExpressions.Regex.IsMatch(token.GetString() ?? "", "^[A-Za-z0-9_-]{16,256}$"))
             throw new InvalidOperationException("Hub shutdown session is invalid.");
         if (process.HasExited || ListenerPid() != process.Id) throw new IOException("Hub changed before shutdown; retry.");
-        using var request = new HttpRequestMessage(HttpMethod.Post, Origin + "/api/hub/shutdown")
-        { Content = new StringContent("{}", Encoding.UTF8, "application/json") };
+        using var request = secret == null ? new HttpRequestMessage(HttpMethod.Post, Origin + "/api/hub/shutdown") : HubSession.Authorized(HttpMethod.Post, Origin + "/api/hub/shutdown", secret);
+        request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
         request.Headers.Add("Origin", Origin); request.Headers.Add("X-ChatMCP-Request", "local-dashboard");
         request.Headers.Add("X-ChatMCP-CSRF", token.GetString());
         try

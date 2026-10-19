@@ -19,6 +19,7 @@ namespace ChatMCP.Desktop
         private readonly WebView2 _webView;
         private readonly Label _statusLabel;
         private Process? _hubProcess;
+        private HubSessionInfo? _session;
         private readonly System.Windows.Forms.Timer _hubMonitor = new() { Interval = 3000 };
         private bool _monitorBusy;
         private const int HubPort = 3007;
@@ -107,6 +108,14 @@ namespace ChatMCP.Desktop
                     if (!started) throw new InvalidOperationException("Hub did not become ready in 30 seconds. Close this window and inspect the local Hub log.");
                 }
 
+                // The Hub publishes a per-launch secret in <state dir>\run\hub-session.json (readable by this Windows account only).
+                // Whether this window started the Hub or attached to one that was already running, sign the dashboard in with a
+                // one-time ticket: the secret never appears in a URL, a command line or the page's history.
+                _statusLabel.Text = "Reading the Hub session...";
+                _session = await WaitForSessionAsync();
+                string ticket;
+                using (var client = HubLifecycle.Client()) ticket = await HubSession.RequestTicket(client, HubLifecycle.Origin, _session.Secret);
+
                 // 2. Initialize WebView2
                 _statusLabel.Text = "Initializing Desktop Studio UI...";
                 var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -119,22 +128,21 @@ namespace ChatMCP.Desktop
                 // Configure WebView2 settings
                 _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
                 _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+#if DEBUG
                 _webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
+#else
+                // WebView2 enables DevTools by default; a release build must not hand a page-inspection console to anyone at the keyboard.
+                _webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
+#endif
                 // Desktop-native selection belongs to the visible WinForms
                 // window, NOT to an invisible PowerShell child process.
                 // Requests from any page other than our exact localhost UI
                 // are ignored before parsing message data.
                 _webView.CoreWebView2.WebMessageReceived += HandleNativeFolderRequest;
 
-                // Intercept new window requests: keep everything inside ChatMCP app
-                _webView.CoreWebView2.NewWindowRequested += (s, e) =>
-                {
-                    e.Handled = true;
-                    var safeUrl = e.Uri.Replace("'", "\\'");
-                    _webView.CoreWebView2.ExecuteScriptAsync(
-                        $"window.dispatchEvent(new CustomEvent('chatmcp:open-in-app-tab', {{ detail: {{ url: '{safeUrl}' }} }}));"
-                    );
-                };
+                // Intercept new window requests: keep everything inside ChatMCP app. The address goes to the page as a JSON web
+                // message (http/https only), never as text inside a script.
+                WebViewBridge.AttachNewWindowHandler(_webView.CoreWebView2);
 
                 // Show WebView2 as soon as DOM is ready or navigation completes
                 _webView.CoreWebView2.DOMContentLoaded += (s, e) =>
@@ -159,8 +167,8 @@ namespace ChatMCP.Desktop
                     }
                 };
 
-                // Navigate to Studio
-                _webView.Source = new Uri(_hubUrl);
+                // Navigate to Studio, signed in by the ticket in the fragment
+                _webView.Source = new Uri(HubSession.DashboardUrl(HubLifecycle.Origin, ticket));
                 _hubMonitor.Start();
             }
             catch (Exception ex)
@@ -240,6 +248,18 @@ namespace ChatMCP.Desktop
 
         private Task<bool> CheckHubHealthAsync() => HubLifecycle.IsReady(HubLifecycle.Version);
 
+        private static async Task<HubSessionInfo> WaitForSessionAsync()
+        {
+            // /api/health reports "initialized" only after the Hub wrote its session file, so this normally returns at once.
+            for (int i = 0; i < 40; i++)
+            {
+                var session = HubSession.ReadForListener(HubSession.DefaultStateDirectory(), HubPort);
+                if (session != null) return session;
+                await Task.Delay(250);
+            }
+            throw new InvalidOperationException("The Hub did not publish a readable session file (run\\hub-session.json in its data folder). Close this window, stop the Hub with STOP-CHATMCP-HUB.cmd and reopen ChatMCP; no task was replayed.");
+        }
+
         private async Task MonitorHubAsync()
         {
             if (_monitorBusy || IsDisposed || Disposing) return;
@@ -247,6 +267,10 @@ namespace ChatMCP.Desktop
             try
             {
                 if (!await CheckHubHealthAsync()) throw new IOException("Hub is not ready.");
+                // A restarted Hub has a new secret: the signed-in page is stale even though the port answers again.
+                var current = HubSession.Read(HubSession.DefaultStateDirectory(), HubPort);
+                if (_session != null && (current == null || current.Pid != _session.Pid || current.Secret != _session.Secret))
+                    throw new IOException("The Hub restarted since this window signed in.");
                 if (IsDisposed || Disposing) return;
                 _statusLabel.Visible = false;
                 _webView.Visible = true;
