@@ -128,15 +128,21 @@ export function checkThreatModel(docsRoot, codeRoot = REPO) {
   if (/validates Host and Origin and applies CSRF protection to mutations\. Browser Companion/.test(security)) fail('SECURITY.md still describes only Host, Origin and CSRF for the local interface');
   if (!/best effort/i.test(security) || !/credential/.test(security)) fail('SECURITY.md does not state that the Companion outbound filter is best effort');
   if (!/best effort|pattern-based/i.test(model)) fail('docs/THREAT-MODEL.md does not state the limits of the outbound filter');
-  // RR-4 is closed: the Node launcher checks the listener. The old exception must be gone everywhere and the check must be stated.
+  // RR-4 is closed for every client that reads the session file: the native clients, the Node launcher and the PowerShell helper scripts.
+  // The old exceptions must be gone everywhere and the check must be stated.
   for (const [name, text] of [['docs/THREAT-MODEL.md', model], ['SECURITY.md', security], ['README.md', readme], ['docs/HUB-AUTH.md', hubAuth]]) {
     if (/does not check which process listens on the port|do not compare the session's process id|does not do that check|checks only the port and the health answer/.test(text)) fail(`${name} still says that the Node launcher does not check which process listens on the port`);
+    if (/\*\*Still open:\*\*|without (?:first )?(?:checking|looking up) (?:which process listens|the listener)|do not (?:yet )?look (?:that )?up|do not yet look up|look up no listener/i.test(text)) fail(`${name} still says that the PowerShell helper scripts do not look up which process listens on the port`);
   }
-  if (!/Node launcher present the secret only to the process that listens on the port/.test(model)) fail('docs/THREAT-MODEL.md (H6) does not say that the Node launcher presents the secret only to the process that listens on the port');
-  if (!/Node launcher[\s\S]{0,120}present the secret only to the process that listens on the port/.test(hubAuth)) fail('docs/HUB-AUTH.md does not say that the Node launcher presents the secret only to the process that listens on the port');
-  // What is still open (RR-4): the PowerShell helper scripts read the session file and look up no listener. It is named in the three documents.
+  if (!/Node launcher and the PowerShell helper scripts present the secret only to the process that listens on the port/.test(model)) fail('docs/THREAT-MODEL.md (H6) does not say that the Node launcher and the PowerShell helper scripts present the secret only to the process that listens on the port');
+  if (!/Node launcher[\s\S]{0,120}PowerShell helper scripts[\s\S]{0,60}present the secret only to the process that listens on the port/.test(hubAuth)) fail('docs/HUB-AUTH.md does not say that the Node launcher and the PowerShell helper scripts present the secret only to the process that listens on the port');
+  if (!/PowerShell helper scripts[\s\S]{0,300}only to the process that listens on the port/.test(security)) fail('SECURITY.md does not say that the PowerShell helper scripts present the secret only to the process that listens on the port');
+  // The three scripts are named where the check is described.
   for (const [name, text] of [['docs/THREAT-MODEL.md', model], ['SECURITY.md', security], ['docs/HUB-AUTH.md', hubAuth]]) {
-    if (!text.includes('Stop-ChatMcpHub.ps1')) fail(`${name} does not name Stop-ChatMcpHub.ps1, one of the PowerShell helper scripts that read the session secret without looking up the listener`);
+    if (!text.includes('Stop-ChatMcpHub.ps1')) fail(`${name} does not name Stop-ChatMcpHub.ps1, one of the PowerShell helper scripts that check the listener before they present the session secret`);
+  }
+  for (const script of ['Run-StudioSmoke.ps1', 'Test-Gateway-ViaHub.ps1']) {
+    if (!model.includes(script)) fail(`docs/THREAT-MODEL.md does not name ${script}, one of the PowerShell helper scripts that check the listener before they present the session secret`);
   }
   return problems;
 }
@@ -151,8 +157,9 @@ ok('the threat model, SECURITY.md, the README and HUB-AUTH.md all state the same
 
 // ---- the open exceptions, observed on a real Hub ---------------------------------------------------------------------------------------
 // RR-2 and RR-3 are documented as open. Each is pinned to what the code does today, so a fix flips an assertion here and the
-// threat model, SECURITY.md and the README have to be changed together with it. RR-4 (the Node launcher presenting the secret to
-// whatever listens on the port) is closed; its wiring is pinned below and the real squatter is in verify-hub-listener.mjs.
+// threat model, SECURITY.md and the README have to be changed together with it. RR-4 (a client presenting the secret to whatever
+// listens on the port) is closed for the Node launcher and the PowerShell helper scripts; its wiring is pinned below and the real
+// squatters are in verify-hub-listener.mjs and verify-hub-listener-powershell.mjs.
 {
   const { startHub } = await import(pathToFileURL(path.join(HUB, 'tests', 'e2e', 'hub-process.mjs')).href);
   const liveScratch = mkdtempSync(path.join(os.tmpdir(), 'chatmcp-threat-live-'));
@@ -203,14 +210,18 @@ ok('the threat model, SECURITY.md, the README and HUB-AUTH.md all state the same
     const attached = await attachToRunningHub({ origin: hub.origin, stateDirectory: hub.stateDir });
     assert.equal(attached.session.pid, hub.pid, 'RR-4: with the real lookup the live Hub is attached to');
     assert.match(readFileSync(path.join(REPO, 'native-shared', 'HubSession.cs'), 'utf8'), /HubLifecycle\.ListenerPid\(port\) == session\.Pid/, 'the native clients do compare the listener with the session pid');
-    // What RR-4 still leaves open, pinned to what the scripts do today: they read the session file and look up no listener.
-    // If one of them does after a fix, the threat model, SECURITY.md and HUB-AUTH.md have to change with it.
+    // The PowerShell helper scripts read the same file. Each asks Windows who owns the listening socket of the port and compares that
+    // process id with the session's before the first place that builds the Authorization header; the real squatter that shows what
+    // that does is in verify-hub-listener-powershell.mjs, which also compares the three copies of the block.
     for (const script of ['Stop-ChatMcpHub.ps1', 'windows/Run-StudioSmoke.ps1', 'windows/Test-Gateway-ViaHub.ps1']) {
-      const source = readFileSync(path.join(HUB, script), 'utf8');
+      const source = readFileSync(path.join(HUB, script), 'utf8').replace(/\r\n/g, '\n');
       assert.ok(source.includes('hub-session.json'), `RR-4: ${script} reads the session file`);
-      assert.ok(!/OwningProcess|Get-NetTCPConnection|ListenerPid|GetExtendedTcpTable|netstat/i.test(source), `RR-4 is documented as still open for ${script}: it looks up no listener (if it does now, update THREAT-MODEL.md RR-4, SECURITY.md and HUB-AUTH.md)`);
+      assert.ok(/Get-NetTCPConnection -State Listen -LocalPort/.test(source) && /\$listener -ne \$SessionPid/.test(source), `RR-4: ${script} asks Windows who owns the listening socket of the port and compares it with the process id in the session file`);
+      const checkAt = source.indexOf('Assert-HubSessionListener -SessionPid', source.indexOf('# END hub-listener-check'));
+      const headerAt = [...source.matchAll(/'Bearer '/g)].map((match) => match.index);
+      assert.ok(checkAt > 0 && headerAt.length >= 1 && headerAt.every((at) => at > checkAt), `RR-4: ${script} calls the listener check before every place that builds the Authorization header`);
     }
-    ok('RR-4 observed: attachToRunningHub and launch check the listener process id before they send the secret (source and a live Hub), the callers use the real lookup, the native clients do the same; the three PowerShell helper scripts still look up no listener (still open, as documented)');
+    ok('RR-4 observed: attachToRunningHub and launch check the listener process id before they send the secret (source and a live Hub), the callers use the real lookup, the native clients do the same; the three PowerShell helper scripts ask Windows who owns the listening socket before they build the Authorization header (source)');
   } finally {
     hub?.killTree();
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -254,9 +265,14 @@ try {
     ['the best-effort statement removed from SECURITY.md', 'SECURITY.md', (text) => text.replaceAll('best effort', 'complete'), /best effort/],
     ['the Node launcher exception back in SECURITY.md', 'SECURITY.md', (text) => text.replace('Browser Companion pairing grants', 'The Node launcher does not check which process listens on the port. Browser Companion pairing grants'), /SECURITY\.md still says that the Node launcher does not check/],
     ['the PowerShell helper scripts no longer named in SECURITY.md', 'SECURITY.md', (text) => text.replaceAll('Stop-ChatMcpHub.ps1', 'the stop script'), /SECURITY\.md does not name Stop-ChatMcpHub\.ps1/],
-    ['the launcher check no longer stated in the threat model', model, (text) => text.replace('the Node launcher present the secret only to the process that listens on the port', 'the Node launcher present the secret'), /does not say that the Node launcher presents the secret only to the process/],
-    ['the launcher check no longer stated in HUB-AUTH.md', 'docs/HUB-AUTH.md', (text) => text.replace('present the secret only to the process that listens on the port (the file\'s `pid`)', 'present the secret (the file\'s `pid`)'), /docs\/HUB-AUTH\.md does not say that the Node launcher presents the secret only to the process/],
-    ['the RR-4 row saying again that the launcher does not check', model, (text) => text.replace('**Still open:**', 'The Node launcher does not check which process listens on the port. **Still open:**'), /docs\/THREAT-MODEL\.md still says that the Node launcher does not check/],
+    ['the launcher and script check no longer stated in the threat model', model, (text) => text.replace('the Node launcher and the PowerShell helper scripts present the secret only to the process that listens on the port', 'the Node launcher and the PowerShell helper scripts present the secret'), /docs\/THREAT-MODEL\.md \(H6\) does not say that the Node launcher and the PowerShell helper scripts present the secret only/],
+    ['the launcher and script check no longer stated in HUB-AUTH.md', 'docs/HUB-AUTH.md', (text) => text.replace('present the secret only to the process that listens on the port (the file\'s `pid`)', 'present the secret (the file\'s `pid`)'), /docs\/HUB-AUTH\.md does not say that the Node launcher and the PowerShell helper scripts present the secret only/],
+    ['the RR-4 row saying again that the launcher does not check', model, (text) => text.replace('A Hub from before the secret existed', 'The Node launcher does not check which process listens on the port. A Hub from before the secret existed'), /docs\/THREAT-MODEL\.md still says that the Node launcher does not check/],
+    ['the RR-4 row open again for the PowerShell scripts', model, (text) => text.replace('A Hub from before the secret existed', '**Still open:** the PowerShell helper scripts look up no listener. A Hub from before the secret existed'), /docs\/THREAT-MODEL\.md still says that the PowerShell helper scripts do not look up/],
+    ['the PowerShell exception back in SECURITY.md', 'SECURITY.md', (text) => text.replace('Browser Companion pairing grants', 'The PowerShell helper scripts of the launcher read the secret of the last launch without first checking which process listens on the port. Browser Companion pairing grants'), /SECURITY\.md still says that the PowerShell helper scripts do not look up/],
+    ['HUB-AUTH.md saying again that the scripts do not look the listener up', 'docs/HUB-AUTH.md', (text) => text.replace('and first ask `Get-NetTCPConnection`', '**They do not yet look up which process listens on the port** and first ask `Get-NetTCPConnection`'), /docs\/HUB-AUTH\.md still says that the PowerShell helper scripts do not look up/],
+    ['the SECURITY.md sentence on the scripts weakened', 'SECURITY.md', (text) => text.replace('presents the secret only to the process that listens on the port and is the one the file names, and sends nothing otherwise', 'presents the secret, and sends nothing otherwise'), /SECURITY\.md does not say that the PowerShell helper scripts present the secret only/],
+    ['a script no longer named in the threat model', model, (text) => text.replaceAll('Test-Gateway-ViaHub.ps1', 'the gateway script'), /docs\/THREAT-MODEL\.md does not name Test-Gateway-ViaHub\.ps1/],
   ];
   for (const [label, name, change, expected] of mutations) {
     const restore = mutate(name, change);

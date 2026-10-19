@@ -24,13 +24,12 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { launch } from '../lib/launch.mjs';
-import { assertSessionListener, attachToRunningHub, sessionFile, writeSession } from '../lib/hub-session.mjs';
+import { assertSessionListener, attachToRunningHub, sessionFile } from '../lib/hub-session.mjs';
 import { linuxOwners, listenerPid, parseNetstat, parseProcNetTcp } from '../lib/port-listener.mjs';
 import { HUB_ROOT, cleanEnvironment, freePort, sleep, startHub, waitFor } from './e2e/hub-process.mjs';
+import { createSquatterHarness } from './e2e/squatter-harness.mjs';
 
-const SQUATTER = path.join(path.dirname(fileURLToPath(import.meta.url)), 'e2e', 'port-squatter.mjs');
 let checks = 0;
 const check = (condition, label, detail = '') => { assert.ok(condition, `${label}${detail ? `: ${detail}` : ''}`); checks += 1; };
 const equal = (actual, expected, label) => { assert.deepEqual(actual, expected, label); checks += 1; };
@@ -148,38 +147,8 @@ if (!['win32', 'linux'].includes(process.platform)) {
 }
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'chatmcp-listener-'));
-const children = [];
 let hub;
-const sandbox = (name) => { const directory = path.join(scratch, name); fs.mkdirSync(directory, { recursive: true }); return directory; };
-const stopChild = async (child) => {
-  if (child.exitCode !== null) return;
-  child.kill();
-  await Promise.race([new Promise((resolve) => child.once('exit', resolve)), sleep(5000)]);
-};
-
-/** A separate process that listens on `port` and answers like a Hub; see e2e/port-squatter.mjs. */
-async function squat({ name, port, host, healthText }) {
-  const directory = sandbox(`squatter-${name}`);
-  const files = { health: path.join(directory, 'health.json'), requests: path.join(directory, 'requests.jsonl'), raw: path.join(directory, 'raw.bin') };
-  fs.writeFileSync(files.health, healthText);
-  for (const file of [files.requests, files.raw]) fs.writeFileSync(file, '');
-  const child = spawn(process.execPath, [SQUATTER, '--port', String(port), ...(host ? ['--host', host] : []), '--health', files.health, '--requests', files.requests, '--raw', files.raw], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true });
-  children.push(child);
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('the squatter did not start')), 15_000);
-    child.stdout.once('data', () => { clearTimeout(timer); resolve(); });
-    child.once('exit', (code) => { clearTimeout(timer); reject(new Error(`the squatter exited early (${code})`)); });
-  });
-  return {
-    port, pid: child.pid, origin: `http://127.0.0.1:${port}`,
-    requests: () => fs.readFileSync(files.requests, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)),
-    raw: () => fs.readFileSync(files.raw, 'latin1'),
-    stop: () => stopChild(child),
-  };
-}
-const deadPid = async () => { const child = spawn(process.execPath, ['-e', '0'], { stdio: 'ignore', windowsHide: true }); await new Promise((resolve) => child.once('exit', resolve)); return child.pid; };
-/** The session file as the Hub's own writer makes it, naming `pid` (a process that is not the one listening, unless a test says so). */
-async function staleSession(stateDir, { port, pid, secret = randomBytes(32).toString('hex') }) { await writeSession(stateDir, { port, secret, pid }); return { stateDir, secret, pid, port }; }
+const { children, sandbox, squat, deadPid, staleSession, stopAll } = createSquatterHarness(scratch); // e2e/squatter-harness.mjs
 
 try {
   // ---- 6. the positive case, on a real Hub ------------------------------------------------------------------------------------
@@ -319,7 +288,7 @@ try {
 
   console.log(`PASS: ${checks} checks - netstat and /proc parsers, the decision, the real lookup, a real squatter refused through attachToRunningHub, launch() and hub.mjs, and a real Hub attached to`);
 } finally {
-  for (const child of children) await stopChild(child);
+  await stopAll();
   hub?.killTree();
   await sleep(300);
   fs.rmSync(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
