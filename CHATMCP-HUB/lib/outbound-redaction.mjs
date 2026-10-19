@@ -27,6 +27,7 @@ const PLACEHOLDER = new RegExp('^(?:'
   + '|\\*{3,}|\\.{3,}|(?:your|my)[-_ ].*|enter[-_ ].*'
   + '|string|number|boolean|text|null|nil|none|undefined|true|false|yes|no|required|optional|secret|password|passwd|pass|token'
   + '|changeme|change[-_]?me|replace[-_]?me|placeholder|example|sample|redacted|hidden|empty|todo|tbd|dummy|value|bool|int|str'
+  + '|omit|include|same-origin|inherit' // fetch(): `credentials: "omit"` is a policy, not a credential
   + ')$', 'i');
 // A lookup of a value kept elsewhere: `process.env.X`, `$VAR`, `os.environ[...]`, `config.apiKey`.
 const ENV_LOOKUP = /^(?:\$(?:\{|[A-Za-z_(])|%[A-Za-z_]|\{\{|process\.env|import\.meta\.env|os\.(?:environ|getenv)|getenv|System\.getenv|ENV\[|env\(|Deno\.env|config\.|settings\.|secrets\.|vault\.|self\.|this\.|args\.|opts\.|options\.|params\.|req\.|request\.)/i;
@@ -132,14 +133,18 @@ const RULES = [
     accept: ({ secret }) => /\d/.test(secret) || /[._~+/=]/.test(secret) || (/[a-z]/.test(secret) && /[A-Z]/.test(secret)) },
   { id: 'cookie-header', pattern: /(?<pre>^[ \t]*(?:Set-)?Cookie:[ \t]*)(?<secret>[^\r\n]{8,})/gim,
     accept: ({ secret }) => secret.includes('=') && !isTemplate(secret.trim()) },
-  { id: 'auth-header', pattern: /(?<pre>\b(?:Proxy-)?Authorization["']?[ \t]*[:=][ \t]*\\?["']?(?:(?:Basic|Digest|Token|ApiKey|Negotiate|NTLM|AWS4-HMAC-SHA256)[ \t]+)?|\bX-(?:Api-Key|Auth-Token|Access-Token|Amz-Security-Token|Secret)["']?[ \t]*[:=][ \t]*\\?["']?)(?<secret>[^\s"',;]{8,})/gi,
-    accept: ({ secret }) => !isTemplate(secret) && !/[()[\]{}<>$]/.test(secret) },
+  // `[:=](?![=>])`: `headers.Authorization === token` is a comparison, not a header. A scheme word with nothing after it
+  // ("`Authorization: Bearer`.") is prose; the token behind `Bearer ` is the bearer rule's.
+  { id: 'auth-header', pattern: /(?<pre>\b(?:Proxy-)?Authorization["']?[ \t]*[:=](?![=>])[ \t]*\\?["']?(?:(?:Basic|Digest|Token|ApiKey|Negotiate|NTLM|AWS4-HMAC-SHA256)[ \t]+)?|\bX-(?:Api-Key|Auth-Token|Access-Token|Amz-Security-Token|Secret)["']?[ \t]*[:=](?![=>])[ \t]*\\?["']?)(?<secret>[^\s"',;]{8,})/gi,
+    // After a scheme word the value must look like a credential ("Authorization: Basic followed by ..." is prose).
+    accept: ({ pre, secret }) => !isTemplate(secret) && !/[()[\]{}<>$]/.test(secret) && !/^(?:Bearer|Basic|Digest|Token|ApiKey|Negotiate|NTLM)\b/i.test(secret)
+      && (!/(?:Basic|Digest|Token|ApiKey|Negotiate|NTLM|AWS4-HMAC-SHA256)[ \t]+$/i.test(pre) || looksSecretShape(secret)) },
   // user:password@ inside a URL of any scheme (postgres, mongodb+srv, amqp, redis, ftp, https ...)
   { id: 'url-credentials', pattern: /(?<pre>\b[a-z][a-z0-9+.-]{1,20}:\/\/[^\s:/@"'<>]{0,64}:)(?<secret>[^\s@/"'<>]{3,})(?=@)/gi,
     accept: ({ secret }) => !/^(?:\[REDACTED[^\]]*\]|<.*|\$\{.*|\{\{.*|\$[A-Za-z_]\w*|%s|%[A-Za-z_]\w*%|\*{3,}|x{3,})$/i.test(secret) },
   { id: 'azure-storage-key', pattern: /(?<pre>\b(?:AccountKey|SharedAccessKey|SharedAccessSignature)=)(?<secret>[A-Za-z0-9+/=%]{20,})|(?<pre2>[?&]sig=)(?<secret2>[A-Za-z0-9%+/=]{20,})/g },
   // ADO.NET / ODBC / JDBC style: Server=...;Password=...;  jdbc:...?user=a&password=b
-  { id: 'connection-password', pattern: /(?<pre>(?:^|[;?&\s])(?:password|pwd|passwd)[ \t]*=[ \t]*)(?<secret>[^;&\s"'`\\]{3,})/gim,
+  { id: 'connection-password', pattern: /(?<pre>(?:^|[;?&\s])(?:password|pwd|passwd)[ \t]*=(?!=)[ \t]*)(?<secret>[^;&\s"'`\\]{3,})/gim,
     accept: ({ secret }) => acceptValue(secret, { strong: true, dotenv: true }) },
   { id: 'sql-password', pattern: /(?<pre>\b(?:IDENTIFIED[ \t]+BY|PASSWORD)[ \t]+')(?<secret>[^'\r\n]{3,200})(?=')/g,
     accept: ({ secret }) => !isTemplate(secret) },
@@ -159,7 +164,7 @@ const RULES = [
 
   // ---- assignments: the key says it is a secret ---------------------------------------------------------------------
   // NAME=value at the start of a line (.env, shell, ini, toml, a diff of one of them)
-  { id: 'env-secret', pattern: /^(?<pre>[ \t]*(?:[+-][ \t]*)?(?:export[ \t]+|setx?[ \t]+|\$env:)?(?<key>[A-Za-z_][A-Za-z0-9_.-]{0,80})[ \t]*=[ \t]*["']?)(?<secret>[^\r\n"']{3,300}?)(?=["']?[ \t]*[;,]?[ \t]*$)/gm,
+  { id: 'env-secret', pattern: /^(?<pre>[ \t]*(?:[+-][ \t]*)?(?:export[ \t]+|setx?[ \t]+|\$env:)?(?<key>[A-Za-z_][A-Za-z0-9_.-]{0,80})[ \t]*=(?!=)[ \t]*["']?)(?<secret>[^\r\n"']{3,300}?)(?=["']?[ \t]*[;,]?[ \t]*$)/gm,
     accept: ({ key, secret }) => {
       const klass = keyClass(key);
       return klass > 0 && acceptValue(secret, { strong: klass === 2, dotenv: /^[A-Z][A-Z0-9_]*$/.test(key) });
