@@ -14,8 +14,9 @@
 // line `// CLAIM: <id>`; no forbiddenDoubles pattern matches its code (comments removed). Every `// CLAIM:` marker in any suite must name
 // an existing real entry that points at that suite. Every sentence of README.md and RELEASE-NOTES-v3.9.0.md that contains `verified`,
 // `guarantee(d)`, `sandbox` or `secure` must be covered by an entry (mapped, unmapped or a disclaimer); the counts are printed. A
-// disclaimer is a statement that denies something ("not ...") and must contain a negation: it promises nothing, so it needs no test and
-// is not part of the ratchet; an unmapped claim is.
+// disclaimer is a statement that ONLY denies something ("not ..."; a sentence that also affirms something, like "X does Y, not Z", is a claim) and
+// must contain a negation: it promises nothing, so it needs no test and is not part of the ratchet; an unmapped claim is. The negation is
+// checked by the suite; that the sentence has no positive clause is for a reviewer.
 //
 // Usage: node tests/verify-claims-map.mjs [--base <git ref>] [--update-lines]
 //   --base          also compare the ratchet with the one on that ref (CI passes origin/<base branch>): it may not be raised.
@@ -162,6 +163,7 @@ export function checkClaims(root, { base = null } = {}) {
     else stats.unmappedClaims += 1;
   }
   stats.claims = entries.length;
+  stats.unmappedEntries = stats.unmappedClaims + stats.disclaimers; // every entry whose seam is "unmapped"
   for (const file of scanned) {
     if (!existsSync(path.join(root, file))) { fail(`scanned document ${file} does not exist`); continue; }
     for (const sentence of triggerSentences(read(root, file))) {
@@ -220,6 +222,7 @@ const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
 const real = checkClaims(REPO, { base });
 const { stats } = real;
 console.log(`  claims map: ${stats.claims} entries - ${stats.real} mapped to a test (seam real), ${stats.unmappedClaims} UNMAPPED claims, ${stats.disclaimers} disclaimers (statements that deny something and promise nothing)`);
+console.log(`  entries with seam "unmapped": ${stats.unmappedEntries} = ${stats.unmappedClaims} unmapped claims (these are ratcheted) + ${stats.disclaimers} disclaimers (not ratcheted: entirely negative statements, judged by a reviewer)`);
 console.log(`  trigger sentences (verified / guarantee / sandbox / secure) in ${JSON.parse(readFileSync(path.join(REPO, 'docs', 'CLAIMS.json'), 'utf8')).scannedDocuments.join(', ')}: ${stats.triggerSentences} - covered by a mapped claim ${stats.byReal}, by an unmapped claim ${stats.byUnmapped}, by a disclaimer ${stats.byDisclaimer}, uncovered ${stats.triggerSentences - stats.byReal - stats.byUnmapped - stats.byDisclaimer}`);
 console.log(`  UNMAPPED COUNT: ${stats.unmappedClaims} (ratchet ${JSON.parse(readFileSync(path.join(REPO, 'docs', 'claims-ratchet.json'), 'utf8')).maxUnmapped})`);
 for (const note of real.notes) console.log(`  note - ${note}`);

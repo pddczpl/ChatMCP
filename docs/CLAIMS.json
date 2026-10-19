@@ -292,7 +292,7 @@
       "test": null,
       "candidateTest": "CHATMCP-HUB/tests/verify-objective-acceptance.mjs",
       "reason": "verify-objective-acceptance.mjs calls the real acceptObjectiveCriterion with hand-written receipts (progress objects), not receipts produced by the agent.",
-      "phase": "P4"
+      "phase": null
     },
     {
       "id": "model-profiles",
@@ -382,32 +382,33 @@
       "phase": null
     },
     {
-      "id": "full-access-not-a-sandbox",
-      "claim": "Full Access is not an OS sandbox.",
+      "id": "full-access-host-privileges",
+      "claim": "Full Access runs permitted commands with the owner's Windows account privileges and is not an OS sandbox.",
       "source": {
         "file": "README.md",
         "line": 32,
         "quote": "Full Access executes permitted commands with your Windows account privileges, not inside a universal OS sandbox."
       },
-      "kind": "disclaimer",
+      "kind": "claim",
       "seam": "unmapped",
       "test": null,
       "candidateTest": "CHATMCP-HUB/tests/verify-full-access.mjs",
-      "reason": "Negated statement: it promises nothing.",
+      "reason": "Mixed sentence: it denies OS isolation but also says commands run with the owner's account privileges. verify-full-access.mjs checks the gate decision only (no approval, no workspace path check) with a hand-written workspace; no test runs a command in Full Access and shows whose privileges it has.",
       "phase": null
     },
     {
-      "id": "worktrees-not-isolation",
-      "claim": "Worktrees are not OS isolation.",
+      "id": "worktree-and-windows-sandbox-assurance",
+      "claim": "Worktrees are not OS isolation; host commands and supported Windows Sandbox verification give different assurance levels.",
       "source": {
         "file": "README.md",
         "line": 48,
         "quote": "Git worktrees provide checkout separation, **not operating-system isolation**; host commands and supported Windows Sandbox verification provide different assurance levels."
       },
-      "kind": "disclaimer",
+      "kind": "claim",
       "seam": "unmapped",
       "test": null,
-      "reason": "Negated statement: it promises nothing.",
+      "candidateTest": "CHATMCP-HUB/tests/verify-windows-sandbox-config.mjs",
+      "reason": "Mixed sentence: it denies OS isolation for worktrees but also says supported Windows Sandbox verification gives a different assurance level. The Windows Sandbox suites (verify-windows-sandbox-config.mjs, verify-sandbox-publisher.mjs) were not audited for the production seam.",
       "phase": null
     },
     {

@@ -12,7 +12,7 @@ A claim in the documentation is only as good as the test behind it. In v3.9.0 se
 | `id` | lower-case words with hyphens; it is also the marker text |
 | `claim` | the claim in a sentence |
 | `source` | `file`, `line` and a verbatim `quote` of at least 12 characters from that line |
-| `kind` | `claim`, or `disclaimer` for a statement that denies something (its quote must contain "not", "no", "never", "without" ...); a disclaimer promises nothing, so it needs no test and is not part of the ratchet |
+| `kind` | `claim`, or `disclaimer` for a statement that only denies something (its quote must contain "not", "no", "never", "without" ...); a disclaimer promises nothing, so it needs no test and is not part of the ratchet. A sentence that also affirms something ("X does Y, not Z") is a claim |
 | `seam` | `real`: a test exercises the claim on the production code path; `unmapped`: none does |
 | `test` | for `real`: `CHATMCP-HUB/tests/verify-<name>.mjs`; for `unmapped`: `null` |
 | `seamNote` | for `real`: what is real and what is scripted in that test (the model, an HTTP transport, a child process ...) |
@@ -34,4 +34,4 @@ The suite proves itself on temporary copies of the files: a deleted marker, a re
 
 ## Limits
 
-A marker and a pattern do not prove that a test is good; they make it expensive to leave a claim without evidence and to replace a real path by a double without anyone noticing. `forbiddenDoubles` is a text match, not a program analysis. `real` means the production objects are used; the note says what is still scripted. Disclaimers are judged by a negation in the quote, which a reviewer must still read.
+A marker and a pattern do not prove that a test is good; they make it expensive to leave a claim without evidence and to replace a real path by a double without anyone noticing. `forbiddenDoubles` is a text match, not a program analysis. `real` means the production objects are used; the note says what is still scripted. Disclaimers are judged by a negation in the quote; the suite cannot see whether the same sentence also carries a positive clause, so a reviewer must read each one (two sentences that looked like disclaimers were reclassified as claims for that reason). Entries whose seam is `unmapped` are the unmapped claims plus the disclaimers; the ratchet counts the claims only, and the run prints both numbers.
