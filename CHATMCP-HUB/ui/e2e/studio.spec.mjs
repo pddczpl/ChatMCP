@@ -2,7 +2,7 @@
 // It is deliberately NOT evidence for a live AI provider or Windows WebView2.
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { test, expect, onboard, send, taskByPrompt } from './fixtures.mjs';
+import { test, expect, onboard, send, taskByPrompt, openWorkTab, openSettings, closeSettings } from './fixtures.mjs';
 import { waitFor, waitForState } from '../../tests/e2e/hub-process.mjs';
 import { BUGGY_CALC, FIXED_CALC } from '../../tests/e2e/fixtures.mjs';
 import { call, say, shaOf, exitedZero } from '../../tests/e2e/scenarios.mjs';
@@ -34,13 +34,12 @@ test('onboarding, blank conversation, real approvals/edit/test/diff/plan and Ski
   });
   app.mock.setScenario('planned-repair');
   await onboard(page, app);
-  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
   const callsBefore = app.mock.state.requests.length;
   await page.getByRole('button', { name: 'Hội thoại mới', exact: true }).click();
   await expect(page.locator('textarea')).toHaveValue('');
   expect((await app.hub.state()).agent.tasks).toHaveLength(0);
   expect(app.mock.state.requests).toHaveLength(callsBefore);
-  await page.getByRole('button', { name: 'Kế hoạch', exact: true }).click();
+  await openWorkTab(page, 'Tiến độ');
   await expect(page.getByText('Chưa có kế hoạch', { exact: true })).toBeVisible();
   expect(app.runProjectTest().status).not.toBe(0);
   const prompt = 'Repair addition and verify its test, with an honest plan.';
@@ -67,27 +66,34 @@ test('onboarding, blank conversation, real approvals/edit/test/diff/plan and Ski
   expect(await fs.readFile(path.join(app.project, 'calc.js'), 'utf8')).toBe(FIXED_CALC);
   expect(app.runProjectTest().status).toBe(0);
   await expect(page.getByRole('region', { name: 'Task plan' })).toContainText(/3\s*\/\s*3/);
-  await page.getByRole('button', { name: 'Git', exact: true }).click();
+  // The model ran `node test.js` and the file is fixed, but the Hub recorded no verified check: the strip must say so, never green.
+  const proof = page.getByTestId('proof-strip');
+  await expect(proof).toBeVisible();
+  await expect(proof).toHaveAttribute('data-tone', 'warning');
+  await expect(proof).toHaveAttribute('data-kind', 'no-evidence');
+  await expect(proof).toContainText('1 tệp đã sửa');
+  await openWorkTab(page, 'Thay đổi');
   await expect(page.getByLabel('Git diff', { exact: true })).toContainText('+  return a + b;');
   await expect(page.getByLabel('Git diff', { exact: true })).toContainText('-  return a - b;');
-  await page.getByRole('button', { name: 'Tệp', exact: true }).click();
+  await openWorkTab(page, 'Tệp');
   await expect(page.getByRole('region', { name: 'Workspace files' })).toContainText('M calc.js');
-  await page.getByRole('button', { name: 'Hoạt động', exact: true }).click();
+  await openWorkTab(page, 'Hoạt động');
   await expect(page.getByRole('region', { name: 'Task activity' })).toContainText('edit_file');
   // Seed a real manual terminal session through its normal protected API; the tab must read it.
   await app.hub.post('/api/studio/terminal/start', { command: 'node test.js' });
-  await page.getByRole('button', { name: 'Terminal', exact: true }).click();
+  await openWorkTab(page, 'Terminal');
   await expect(page.getByRole('region', { name: 'Terminal sessions' })).toContainText('add() ok');
   await expect(page.getByRole('region', { name: 'Terminal sessions' })).toContainText('Exit: 0');
-  await page.getByRole('button', { name: 'Skills', exact: true }).click();
+  await openSettings(page, 'Kỹ năng');
   await expect(page.getByRole('heading', { name: 'Kỹ năng cho trợ lý', exact: true })).toBeVisible();
   await expect.poll(() => [...browserErrors.requests].some((route) => route === '/api/plugins/marketplace')).toBe(true);
   await expect.poll(() => [...browserErrors.requests].some((route) => route === '/api/plugins/registry')).toBe(true);
   const callsAfterCompletion = app.mock.state.requests.length;
+  await closeSettings(page);
   await page.getByRole('button', { name: 'Hội thoại mới', exact: true }).click();
   await expect(page.locator('#panel-conversation').getByRole('heading', { name: 'ChatMCP Studio', exact: true })).toBeVisible();
   await expect(page.locator('#panel-conversation').getByText('Verified addition: node test.js passed with exit code 0.', { exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Kế hoạch', exact: true }).click();
+  await openWorkTab(page, 'Tiến độ');
   await expect(page.getByText('Chưa có kế hoạch', { exact: true })).toBeVisible();
   expect((await app.hub.state()).agent.tasks).toHaveLength(1);
   expect(app.mock.state.requests).toHaveLength(callsAfterCompletion);
@@ -95,7 +101,6 @@ test('onboarding, blank conversation, real approvals/edit/test/diff/plan and Ski
 
 test('Deny leaves the real file unchanged and displays the refusal', async ({ page, app }) => {
   await onboard(page, app);
-  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
   const prompt = 'Repair addition, but wait for my permission.';
   await send(page, prompt);
   const task = await taskByPrompt(app, prompt);
@@ -111,8 +116,7 @@ test('Deny leaves the real file unchanged and displays the refusal', async ({ pa
 
 test('Settings persists read-only and review without an invalid execution policy', async ({ page, app }) => {
   await onboard(page, app);
-  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
-  await page.getByRole('button', { name: 'Cài đặt', exact: true }).last().click();
+  await openSettings(page, 'Quyền & thực thi');
   await expect.soft(page.getByText(/LEVEL:\s*ADMIN/i)).toHaveCount(0);
   await expect.soft(page.getByText(/RBAC/)).toHaveCount(0);
   await page.getByRole('button', { name: /^Chỉ đọc \(Read-only\)/ }).click();
@@ -122,10 +126,36 @@ test('Settings persists read-only and review without an invalid execution policy
   expect((await app.hub.state()).studio.permissions.executionPolicy).toBe('host-review');
 });
 
+test('FULL ACCESS needs the typed words, shows a permanent banner, and one click goes back to Review', async ({ page, app }) => {
+  await onboard(page, app);
+  const dialog = await openSettings(page, 'Quyền & thực thi');
+  await expect(page.getByTestId('full-access-banner')).toHaveCount(0);
+  // The confirmation opens above Settings (the permission list lives there), not behind it.
+  await dialog.getByRole('button', { name: /^FULL ACCESS/ }).click();
+  const confirm = page.getByRole('alertdialog', { name: 'Xác nhận quyền FULL ACCESS' });
+  await expect(confirm).toBeVisible();
+  const activate = confirm.getByRole('button', { name: 'Kích hoạt FULL ACCESS', exact: true });
+  await expect(activate).toBeDisabled();
+  await confirm.getByLabel(/gõ chính xác cụm từ/).fill('full access');
+  await expect(activate).toBeDisabled();
+  await confirm.getByLabel(/gõ chính xác cụm từ/).fill('FULL ACCESS');
+  await activate.click();
+  await expect(confirm).toHaveCount(0);
+  await expect.poll(async () => (await app.hub.state()).studio.permissions.executionPolicy).toBe('full-access');
+  await closeSettings(page);
+  const banner = page.getByTestId('full-access-banner');
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText('FULL ACCESS đang bật');
+  await expect(page.getByTestId('status-bar')).toContainText('FULL ACCESS');
+  await banner.getByRole('button', { name: 'Quay về Review', exact: true }).click();
+  await expect(banner).toHaveCount(0);
+  await expect.poll(async () => (await app.hub.state()).studio.permissions).toMatchObject({ mode: 'review', executionPolicy: 'host-review' });
+  await expect(page.getByTestId('status-bar')).not.toContainText('FULL ACCESS');
+});
+
 test('AI config clears a typed fixture key after save and destination changes', async ({ page, app }) => {
   await onboard(page, app);
-  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
-  await page.getByRole('button', { name: 'AI Model', exact: true }).click();
+  await openSettings(page, 'Mô hình AI');
   const key = page.getByLabel('API key', { exact: true });
   // Deliberately fake, sent only to this fixture's own loopback server.
   await key.fill('E2E-DUMMY-NOT-A-REAL-KEY');
@@ -148,9 +178,8 @@ test('AI config clears a typed fixture key after save and destination changes', 
 
 test('saving a custom endpoint twice retains its canonical provider and saved fixture key', async ({ page, app }) => {
   await onboard(page, app);
-  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
   const callsBefore = app.mock.state.requests.length;
-  await page.getByRole('button', { name: 'AI Model', exact: true }).click();
+  await openSettings(page, 'Mô hình AI');
   await page.getByRole('button', { name: 'Ollama (Local)', exact: true }).click();
   await page.getByLabel('API base URL', { exact: true }).fill(app.mock.url);
   await page.getByLabel('Model', { exact: true }).fill('mock-coder');
@@ -181,8 +210,7 @@ test('saving a custom endpoint twice retains its canonical provider and saved fi
 
 test('switching custom Gemini to custom OpenAI on the same gateway persists protocol without re-entering key', async ({ page, app }) => {
   await onboard(page, app);
-  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
-  await page.getByRole('button', { name:'AI Model',exact:true }).click();
+  await openSettings(page, 'Mô hình AI');
   await page.getByRole('button', { name:'Custom (Gemini)',exact:true }).click();
   await page.getByLabel('API base URL', {exact:true}).fill(app.mock.url);
   await page.getByLabel('Model', {exact:true}).fill('cx/gpt-6-astra');
@@ -210,7 +238,6 @@ test('switching custom Gemini to custom OpenAI on the same gateway persists prot
 
 test('Stop, Resume and Hub restart preserve the same read-only conversation', async ({ page, context, app, browserErrors }) => {
   await onboard(page, app);
-  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
   app.mock.define('slow-read', async ({ turn }) => {
     if (turn === 0) return call('read_file', { path: 'calc.js' });
     await new Promise((resolve) => setTimeout(resolve, 20_000));
@@ -245,7 +272,6 @@ test.describe('failed verification', () => {
   test.use({ failingProject: true });
   test('a finished model response does not claim passing tests when the real test exits nonzero', async ({ page, app }) => {
     await onboard(page, app);
-  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
     const prompt = 'Repair addition and run the project test.';
     await send(page, prompt);
     const task = await taskByPrompt(app, prompt);
@@ -255,6 +281,7 @@ test.describe('failed verification', () => {
     await waitForState(app.hub, task.id, ['completed', 'failed']);
     await expect(page.locator('#panel-conversation').getByText(/Đã sửa calc.js nhưng node test.js vẫn thất bại/)).toBeVisible();
     expect(app.runProjectTest().status).not.toBe(0);
+    await expect(page.getByTestId('proof-strip')).toHaveAttribute('data-tone', 'danger');
     // Tool receipts are now hidden under an expandable activity summary.
     await expandToolActivity(page);
     await expect(page.getByText('Lỗi', { exact: true }).first()).toBeVisible();
@@ -273,8 +300,7 @@ test.describe('failed verification', () => {
 test('a saved local model profile routes a new task through the real Hub', async ({page, app}) => {
   app.mock.setScenario('explore');
   await onboard(page,app);
-  await page.getByRole('button',{name:'Inspector',exact:true}).click();
-  await page.getByRole('button',{name:'AI Model',exact:true}).click();
+  await openSettings(page, 'Mô hình AI');
   await page.getByLabel('Model profile ID',{exact:true}).fill('local-e2e');
   await page.getByLabel('Model profile display name',{exact:true}).fill('Local test profile');
   await page.getByLabel('Model profile API base URL',{exact:true}).fill(app.mock.url);
@@ -284,6 +310,7 @@ test('a saved local model profile routes a new task through the real Hub', async
     const ai=(await app.hub.state()).ai;
     return {listed:ai.profiles.some(p=>p.id==='local-e2e'),selected:ai.defaultProfileId};
   }).toEqual({listed:true,selected:'local-e2e'});
+  await closeSettings(page);
   await expect(page.getByLabel('Task model profile',{exact:true})).toBeVisible();
   await page.getByLabel('Task model profile',{exact:true}).selectOption('local-e2e');
   const prompt='Explore the fixture README using the configured task model profile.';

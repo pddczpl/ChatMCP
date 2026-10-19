@@ -136,23 +136,28 @@ internal sealed class SmokeWindow : Form
         passed.Add("about:, javascript: and file: addresses are dropped by the shell");
     }
 
-    private async Task SelectInspectorTab(string title)
+    private async Task SelectWorkTab(string title)
     {
-        // Compact layouts intentionally start with Inspector closed. Use its
-        // real header control, then address tabs within the visible panel.
-        await WaitFor("document.querySelector('header button[title=\"Mở Inspector (Ctrl+J)\"]') || document.querySelector('#panel-inspector')", "Inspector control available");
-        // The new layout opens on Background tasks. Toggle the side panel if
-        // needed, then explicitly select its Inspector view before looking for
-        // the nested tool tabs.
+        // Compact layouts intentionally start with the work panel closed. Use its real header control, then address the tab
+        // in the visible strip (role=tab, aria-selected).
+        await WaitFor("document.querySelector('header button[title=\"Mở Inspector (Ctrl+J)\"]') || document.querySelector('#panel-inspector')", "work panel control available");
         await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('header button[title=\"Mở Inspector (Ctrl+J)\"]')?.click()");
-        await WaitFor("Array.from(document.querySelectorAll('#panel-inspector button')).some(b => b.textContent?.trim() === 'Inspector' && b.getClientRects().length > 0)", "Inspector view control visible");
-        await browser.CoreWebView2.ExecuteScriptAsync("Array.from(document.querySelectorAll('#panel-inspector button')).find(b => b.textContent?.trim() === 'Inspector')?.click()");
-        await WaitFor("document.querySelector('#panel-inspector nav')?.getClientRects().length > 0", "Inspector opened through UI");
-        var selector = JsonSerializer.Serialize($"#panel-inspector nav button[title=\"{title}\"]");
-        await WaitFor($"document.querySelector({selector})?.getClientRects().length > 0", $"{title} tab visible");
-        var clicked = await browser.CoreWebView2.ExecuteScriptAsync($"(() => {{ const button=document.querySelector({selector}); if (!button || button.disabled) return false; button.click(); return true; }})()");
+        await WaitFor("document.querySelector('#panel-inspector [role=\"tablist\"]')?.getClientRects().length > 0", "work panel opened through UI");
+        var tab = $"Array.from(document.querySelectorAll('#panel-inspector [role=\"tab\"]')).find(item => item.textContent?.trim() === {JsonSerializer.Serialize(title)})";
+        await WaitFor($"{tab}?.getClientRects().length > 0", $"{title} tab visible");
+        var clicked = await browser.CoreWebView2.ExecuteScriptAsync($"(() => {{ const item = {tab}; if (!item || item.disabled) return false; item.click(); return true; }})()");
         if (clicked != "true") throw new InvalidOperationException($"Could not click {title} tab.");
-        await WaitFor($"document.querySelector({selector})?.getAttribute('aria-pressed') === 'true'", $"{title} tab selected");
+        await WaitFor($"{tab}?.getAttribute('aria-selected') === 'true'", $"{title} tab selected");
+    }
+
+    /// <summary>Settings is a full-page native dialog; its sections are the buttons of its left menu.</summary>
+    private async Task OpenSettingsSection(string section)
+    {
+        await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('header button[aria-label=\"Cài đặt\"]').click()");
+        await WaitFor("document.querySelector('dialog[open][aria-label=\"Cài đặt\"]')", "Settings opened");
+        var name = JsonSerializer.Serialize(section);
+        await browser.CoreWebView2.ExecuteScriptAsync($"Array.from(document.querySelectorAll('dialog[open][aria-label=\"Cài đặt\"] nav[aria-label=\"Các mục cài đặt\"] button')).find(item => item.textContent?.trim() === {name})?.click()");
+        await WaitFor($"document.querySelector('dialog[open][aria-label=\"Cài đặt\"] nav [aria-current=\"page\"]')?.textContent?.trim() === {name}", $"{section} section selected");
     }
 
     private async Task RunSmoke()
@@ -199,19 +204,23 @@ internal sealed class SmokeWindow : Form
             await WaitFor("document.querySelector('[role=dialog][aria-label=\"Thiết lập ChatMCP\"]')", "fresh onboarding rendered");
             await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('[aria-label=\"Đóng thiết lập\"]').click()");
             await WaitFor("!document.querySelector('[role=dialog][aria-label=\"Thiết lập ChatMCP\"]')", "onboarding dismiss works");
-            await SelectInspectorTab("Skills");
-            await WaitFor("Array.from(document.querySelectorAll('aside')).some(panel => panel.innerText.includes('Kỹ năng cho trợ lý'))", "Skills inspector rendered");
+            await OpenSettingsSection("Kỹ năng");
+            await WaitFor("document.querySelector('dialog[open][aria-label=\"Cài đặt\"]')?.innerText.includes('Kỹ năng cho trợ lý')", "Skills settings rendered");
             await WaitFor("performance.getEntriesByType('resource').some(entry => entry.name.includes('/api/plugins/marketplace')) && performance.getEntriesByType('resource').some(entry => entry.name.includes('/api/plugins/registry'))", "Skills API requests completed");
             await browser.CoreWebView2.ExecuteScriptAsync("Array.from(document.querySelectorAll('summary')).find(el => el.textContent === 'Nguồn kỹ năng & tùy chỉnh').click()");
             await browser.CoreWebView2.ExecuteScriptAsync("Array.from(document.querySelectorAll('button')).find(el => el.textContent.includes('Thêm kỹ năng từ URL hoặc tự viết')).click()");
-            await WaitFor("document.querySelector('dialog[open]')?.innerText.includes('Thêm kỹ năng')", "native Skills dialog rendered without CSP violations");
-            await browser.CoreWebView2.ExecuteScriptAsync("Array.from(document.querySelectorAll('dialog[open] button')).find(el => el.textContent === 'Hủy').click()");
-            await WaitFor("!document.querySelector('dialog[open]')", "native Skills dialog dismissal works");
+            // A second native dialog opens above Settings.
+            var addDialog = "Array.from(document.querySelectorAll('dialog[open]')).find(item => item.getAttribute('aria-label') !== 'Cài đặt')";
+            await WaitFor($"{addDialog}?.innerText.includes('Thêm kỹ năng')", "native Skills dialog rendered above Settings without CSP violations");
+            await browser.CoreWebView2.ExecuteScriptAsync($"Array.from({addDialog}.querySelectorAll('button')).find(el => el.textContent === 'Hủy').click()");
+            await WaitFor("document.querySelectorAll('dialog[open]').length === 1", "native Skills dialog dismissal works");
+            await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('dialog[open][aria-label=\"Cài đặt\"] button[aria-label=\"Đóng cài đặt\"]').click()");
+            await WaitFor("!document.querySelector('dialog[open]')", "Settings closes");
             // Exercise close/reopen via the same user-facing control as well;
             // selecting a tab must not rely on the panel already being open.
             await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('header button[title=\"Thu gọn Inspector (Ctrl+J)\"]').click()");
-            await WaitFor("!document.querySelector('#panel-inspector')", "Inspector close works");
-            await SelectInspectorTab("Kế hoạch");
+            await WaitFor("!document.querySelector('#panel-inspector')", "work panel close works");
+            await SelectWorkTab("Tiến độ");
             await WaitFor("document.querySelector('[aria-label=\"Task plan\"]')?.innerText.includes('Chưa có kế hoạch')", "empty plan reports no plan");
             var fabricated = await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('[aria-label=\"Task plan\"]')?.innerText.includes('100%')");
             if (fabricated == "true") throw new InvalidOperationException("Empty plan claimed 100% completion.");
