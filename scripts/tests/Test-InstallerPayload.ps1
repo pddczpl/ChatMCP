@@ -51,7 +51,7 @@ try {
     New-Item -ItemType Directory -Path $fixture -Force | Out-Null
     Invoke-FixtureGit @('init', '-q')
     Write-Fixture '.gitignore' "installed-plugins.json`nsecrets.json`ntest-results/`nnode_modules/`n"
-    foreach ($file in @('START-CHATMCP-DESKTOP.cmd', 'CHATMCP-HUB/hub.mjs', 'CHATMCP-HUB/package.json', 'CHATMCP-HUB/lib/agent.mjs', 'CHATMCP-HUB/lib/space name.mjs', 'CHATMCP-HUB/windows/sandbox/GuestSupervisor/Program.cs', 'CHATMCP-HUB/tests/private-fixture.json', 'CHATMCP-HUB/ui/src/App.tsx', 'CHATMCP-HUB/web/dist/index.html', 'CHATMCP-HUB/web/dist/assets/old-hash.js', 'scripts/Start-DesktopApp.ps1', 'scripts/uninstall-desktop.ps1', 'scripts/Build-Installer.ps1', 'scripts/tests/developer.ps1', 'assets/icons/app.ico')) { Write-Fixture $file }
+    foreach ($file in @('START-CHATMCP-DESKTOP.cmd', 'CHATMCP-HUB/hub.mjs', 'CHATMCP-HUB/package.json', 'CHATMCP-HUB/lib/agent.mjs', 'CHATMCP-HUB/lib/space name.mjs', 'CHATMCP-HUB/windows/sandbox/GuestSupervisor/Program.cs', 'CHATMCP-HUB/tests/private-fixture.json', 'CHATMCP-HUB/ui/src/App.tsx', 'CHATMCP-HUB/web/dist/index.html', 'CHATMCP-HUB/web/dist/assets/old-hash.js', 'scripts/Start-DesktopApp.ps1', 'scripts/uninstall-desktop.ps1', 'scripts/Build-Installer.ps1', 'scripts/tests/developer.ps1', 'assets/icons/app.ico', 'LICENSE', 'NOTICE')) { Write-Fixture $file }
     $unicodeSource = 'CHATMCP-HUB/lib/caf' + [char]0x00e9 + '.mjs'
     Write-Fixture $unicodeSource
     Invoke-FixtureGit @('add', '--all')
@@ -67,6 +67,10 @@ try {
     Assert-Payload ([IO.File]::ReadAllText((Join-Path $destination 'CHATMCP-HUB/lib/agent.mjs')) -eq 'current modified runtime') 'current working tree content ships for tracked runtime files'
     Assert-Payload (Test-Path -LiteralPath (Join-Path $destination 'CHATMCP-HUB/lib/space name.mjs')) 'tracked paths containing spaces survive enumeration'
     Assert-Payload (Test-Path -LiteralPath (Join-Path $destination $unicodeSource)) 'tracked Unicode paths survive Git output decoding'
+    Assert-Payload ((Test-Path -LiteralPath (Join-Path $destination 'LICENSE')) -and (Test-Path -LiteralPath (Join-Path $destination 'NOTICE'))) 'Apache-2.0 LICENSE and NOTICE ship at the payload root'
+    Invoke-FixtureGit @('rm', '--cached', '-q', 'LICENSE')
+    Assert-Rejected { Get-InstallerPayloadFiles -RepositoryRoot $fixture } 'not tracked: LICENSE' 'a payload without the license text fails closed'
+    Invoke-FixtureGit @('add', 'LICENSE')
     Assert-Payload (Test-Path -LiteralPath (Join-Path $destination 'CHATMCP-HUB/web/dist/assets/new-hash.js')) 'new generated UI asset ships'
     Assert-Payload (-not (Test-Path -LiteralPath (Join-Path $destination 'CHATMCP-HUB/web/dist/assets/old-hash.js'))) 'stale tracked UI asset is not resurrected'
     foreach ($excluded in @('CHATMCP-HUB/installed-plugins.json', 'CHATMCP-HUB/secrets.json', 'CHATMCP-HUB/test-results', 'CHATMCP-HUB/node_modules', 'CHATMCP-HUB/skills', 'CHATMCP-HUB/tests', 'CHATMCP-HUB/ui', 'CHATMCP-HUB/windows/sandbox/GuestSupervisor', 'scripts/tests', 'scripts/Build-Installer.ps1', 'scripts/local-personal.ps1', 'assets/private.png')) {
