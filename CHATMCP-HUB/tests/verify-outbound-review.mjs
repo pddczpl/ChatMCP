@@ -194,4 +194,24 @@ const ask = (flow, message, path) => flow.reply(message, { kind: 'tool', name: F
   } finally { await flow.close(); }
 }
 
+// ---- 5. a Hub restart while a message is held -----------------------------------------------------------------------------------------
+{
+  const flow = await makeFlow({ tools, reviewBeforeSend: true });
+  try {
+    const message = await started(flow);
+    files.set('src/a.ts', 'export const a = 1;');
+    await ask(flow, message, 'src/a.ts');
+    const id = flow.task.id;
+    check(flow.task.message.status === 'held', 'held before the restart');
+    // The files on disk are what a restarted Hub reads: the held text was scrubbed, and it is never offered again.
+    const reborn = new BrowserRunner({ manager: flow.manager, directory: flow.directory });
+    await reborn.load();
+    const task = reborn.tasks.get(id);
+    check(task.status === 'paused' && task.errorCode === 'hub_restarted' && task.message === null, 'a restarted Hub pauses the task and drops the held message', `${task.status}/${task.errorCode}`);
+    check(task.unverifiedDelivery?.status === 'held', 'the restart records the undelivered result, so the resumer will not continue on its own');
+    check(reborn.browserState().outboundReview === null, 'there is nothing to review after a restart');
+    console.log('PASS restart while held: the task is paused, the message is gone, automatic resume is blocked');
+  } finally { await flow.close(); }
+}
+
 console.log(`PASS outbound review suite (${checks} checks)`);

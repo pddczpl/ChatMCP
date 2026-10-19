@@ -661,7 +661,10 @@ Respond with EXACTLY ONE fenced JSON object: "chatmcp_hub":"v1", "task":"${id}",
     if (task.chatUrl && url && !CHAT_ROUTE.sameConversation(task.chatUrl, url)) throw fault('chat_changed', 'Cuộc chat của nhiệm vụ đã thay đổi.', 409);
     message.status = 'sent'; message.sentAt = this.date();
     if (url) task.chatUrl = url;
-    await this.event(task, 'browser_sent', `Đã gửi gói hội thoại #${message.turn} vào cuộc chat ChatGPT.`, { protocolTurn: message.turn, messageId: message.id });
+    // The ledger of what left this computer: the exact text handed to the extension (already scrubbed), with its size and hash.
+    const sentText = this.messageView(message).text;
+    await this.event(task, 'browser_sent', `Đã gửi gói hội thoại #${message.turn} vào cuộc chat ChatGPT.`, { protocolTurn: message.turn, messageId: message.id },
+      { at: this.date(), type: 'outbound_message', turn: message.turn, messageId: message.id, bytes: Buffer.byteLength(sentText, 'utf8'), sha256: hash(sentText), text: sentText });
     return { ok: true };
   }
   async reply(input) {
@@ -815,12 +818,13 @@ Next reply: exactly one JSON block with chatmcp_hub=v1, task=${task.id}, turn=${
       context.manualRedactions = merged;
       // Rebuilt from the filtered source, so the header, the nonce and the paging copy stay consistent. The old result id dies.
       const filtered = redactDeep(review.source, { extra: [...merged] });
+      const matched = redactDeep(review.source, { extra: list }).labels.manual ?? 0; // occurrences of the strings just submitted
       if (review.resultId) context.pagedResults.delete(review.resultId);
       const composed = this.composeResult(context, review.call, filtered.value, message.turn);
       message.text = this.scrub(composed.text).text;
       review.resultId = composed.resultId; review.labels = filtered.labels;
       await this.event(task, 'outbound_redacted_more', `Đã che thêm các chuỗi bạn chọn trong gói #${message.turn}; gói vẫn đang chờ bạn quyết định.`);
-      return { ok: true, matched: filtered.labels.manual ?? 0, review: this.reviewView() };
+      return { ok: true, matched, review: this.reviewView() };
     }
     if (action !== 'approve' && action !== 'withhold') throw fault('invalid_review_action', 'action phải là approve, redact_more hoặc withhold.');
     clearTimeout(review.timer); context.review = null; // synchronous: a second decision finds nothing to decide

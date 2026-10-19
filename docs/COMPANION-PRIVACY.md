@@ -39,7 +39,7 @@ Where it runs, and why there:
 - Again in `makeMessage` and in `messageView` (what `poll()` and `claim()` return), as a last line of defence. A message stored by an older Hub version is masked on its way out.
 - The protocol header (task id, turn, nonce) is never altered, so the model can still answer.
 
-The task events carry one line per message that was changed, for example "Before sending to ChatGPT (result desktop-commander.read_file): 2 secret-shaped strings masked (github-token×1, env-secret×1)". That is the ledger of what was removed.
+The task events carry one line per message that was changed, for example "Before sending to ChatGPT (result desktop-commander.read_file): 2 secret-shaped strings masked (github-token×1, env-secret×1)". That is the ledger of what was removed. A second ledger records what was sent: when the extension confirms a send, the task's `transcript.jsonl` gets an `outbound_message` entry with the exact text that was handed over (already scrubbed), its size and its SHA-256, so you can see afterwards what reached chatgpt.com.
 
 ### 2. Protected files are never sent (always on)
 

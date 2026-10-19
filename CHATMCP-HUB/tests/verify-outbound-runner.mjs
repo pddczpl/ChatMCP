@@ -11,6 +11,9 @@
 //   * the protocol envelope survives (a model that reads the scrubbed text can still answer it), a secret registered with the Hub is
 //     still masked, and the ledger records labels and counts only
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { positives, body } from './fixtures/outbound-corpus.mjs';
 import { envelopeOf, makeFlow, textResult } from './fixtures/companion-flow.mjs';
 
@@ -102,6 +105,16 @@ try {
   for (const sample of corpus) check(!ledgerText.includes(sample.secret), 'the ledger holds no raw match', sample.label);
   check(/outbound_filtered/.test(ledgerText), 'the ledger exists');
   console.log('PASS registered secrets still masked; the ledger carries labels and counts only');
+
+  // The ledger of what left the computer: every message handed to the extension is recorded as it was handed over.
+  const transcript = (await fs.readFile(path.join(flow.directory, 'tasks', task.id, 'transcript.jsonl'), 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+  const sent = transcript.filter((entry) => entry.type === 'outbound_message');
+  check(sent.length >= corpus.length, 'every delivered message is in the ledger', `${sent.length} entries`);
+  const recorded = sent.find((entry) => entry.messageId === masked.id);
+  check(recorded && recorded.text === masked.text && recorded.sha256 === createHash('sha256').update(masked.text).digest('hex') && recorded.bytes === Buffer.byteLength(masked.text), 'an entry holds the exact text, its size and its hash');
+  for (const entry of sent) for (const sample of corpus) if (entry.text.includes(sample.secret)) assert.fail(`the ledger holds a raw secret (${sample.label})`);
+  check(true, 'the ledger of sent messages holds no raw match');
+  console.log(`PASS the transcript records what was sent: ${sent.length} messages, exact text with size and hash, no raw secret`);
 
   // ---- 5. the backstop in messageView ------------------------------------------------------------------------------------
   {
