@@ -11,7 +11,7 @@
 // it is not an estimate of recall on text the author never saw (see docs/COMPANION-PRIVACY.md).
 import assert from 'node:assert/strict';
 import { performance } from 'node:perf_hooks';
-import { REDACTION_LABELS, isDeniedOutboundPath, redactDeep, redactText, withholdProtected } from '../lib/outbound-redaction.mjs';
+import { REDACTION_LABELS, isDeniedOutboundPath, redactDeep, profileRules, redactText, withholdProtected } from '../lib/outbound-redaction.mjs';
 import { benign, body, positives } from './fixtures/outbound-corpus.mjs';
 
 let checks = 0;
@@ -168,7 +168,11 @@ console.log(`PASS false positives: ${altered.length} of ${clean.length} benign s
     redactText(text);
     const elapsed = performance.now() - started;
     timings.push(`${name} ${elapsed.toFixed(0)}ms`);
-    assert.ok(elapsed < 4000, `${name} took ${elapsed.toFixed(0)} ms for 1 MiB`);
+    if (elapsed >= 4000) {
+      // Node 22 on the CI runners needed ~8.7 s for the base64 case that takes ~22 ms on Node 24: say which rules and how they scale.
+      const slowest = (input) => profileRules(input).slice(0, 4).map((item) => `${item.id} ${item.ms.toFixed(0)} ms`).join(', ');
+      assert.fail(`${name} took ${elapsed.toFixed(0)} ms for 1 MiB (node ${process.version}); slowest rules on 1 MiB: ${slowest(text)}; on 256 KiB: ${slowest(text.slice(0, MB / 4))}`);
+    }
   }
   check(true, 'linear time');
   console.log(`PASS 1 MiB inputs stay fast: ${timings.join(', ')}`);

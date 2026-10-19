@@ -10,7 +10,8 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
-import { chmodSync, mkdirSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { listenerPid as portListenerPid } from './port-listener.mjs';
 
@@ -69,17 +70,38 @@ function windowsUserSid() {
   return sid;
 }
 
+// Principals a new directory can carry as EXPLICIT entries: a process that creates a folder where the parent has nothing to inherit gets
+// its token's default DACL, which is the user plus SYSTEM, plus Administrators when the process is elevated (a CI runner, an
+// administrator who started the Hub from an elevated shell). /inheritance:r does not touch explicit entries.
+const EXTRA_PRINCIPALS = Object.freeze(['S-1-5-18', 'S-1-5-32-544', 'S-1-5-32-545', 'S-1-5-11', 'S-1-1-0', 'S-1-3-0', 'S-1-5-4']);
+
+/** The allowed principals of a directory's DACL, read from `icacls /save` (SDDL, so independent of the display language). */
+function windowsAllowedPrincipals(icacls, directory) {
+  const scratch = mkdtempSync(path.join(os.tmpdir(), 'chatmcp-acl-'));
+  try {
+    const saved = path.join(scratch, 'acl.txt');
+    execFileSync(icacls, [directory, '/save', saved], { stdio: 'ignore', windowsHide: true, timeout: 30_000 });
+    const sddl = readFileSync(saved).toString('utf16le');
+    return [...sddl.matchAll(/\((?:A|OA);[^;]*;[^;]*;[^;]*;[^;]*;([^)]+)\)/g)].map((match) => match[1]);
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+}
+
 /**
- * Create `directory` readable by the current user only. Windows: drop inherited ACEs and grant the user alone (a
- * failure is fatal: a secret in a world-readable folder is worse than a Hub that does not start). POSIX: mode 0700.
+ * Create `directory` readable by the current user only. Windows: drop inherited ACEs, grant the user alone, remove the explicit
+ * entries of the well-known groups and check the result (a failure is fatal: a secret in a folder others can read is worse than a
+ * Hub that does not start). POSIX: mode 0700.
  */
 export function protectDirectory(directory, { platform = process.platform } = {}) {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   if (platform === 'win32') {
-    const icacls = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'icacls.exe');
+    const icacls = path.join(process.env.SystemRoot ?? 'C:\Windows', 'System32', 'icacls.exe');
     try {
-      execFileSync(icacls, [directory, '/inheritance:r', '/grant:r', `*${windowsUserSid()}:(OI)(CI)F`],
+      const sid = windowsUserSid();
+      execFileSync(icacls, [directory, '/inheritance:r', '/grant:r', `*${sid}:(OI)(CI)F`, '/remove:g', ...EXTRA_PRINCIPALS.filter((id) => id !== sid).map((id) => `*${id}`)],
         { stdio: 'ignore', windowsHide: true, timeout: 30_000 });
+      // SDDL writes the built-in Administrator account (RID 500) as "LA" instead of its SID.
+      const others = windowsAllowedPrincipals(icacls, directory).filter((principal) => principal !== sid && !(principal === 'LA' && /-500$/.test(sid)));
+      if (others.length > 0) throw new Error(`still granted to ${others.join(', ')}`);
     } catch (error) {
       throw new Error(`Cannot restrict ${directory} to the current user (${String(error.message).split('\n')[0]}). The Hub will not publish its session secret.`);
     }

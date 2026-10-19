@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { EXTENSION_READ_ROUTES, GET_ROUTES, POST_ROUTES, PUBLIC_API_ROUTES, SESSION_ROUTES } from '../hub.mjs';
-import { createSecret, createTicketBook, sessionFile } from '../lib/hub-session.mjs';
+import { createSecret, createTicketBook, protectDirectory, sessionFile } from '../lib/hub-session.mjs';
 import { HUB_ROOT, cleanEnvironment, sleep, startHub, waitFor } from './e2e/hub-process.mjs';
 import { gitInit, makeCalcProject } from './e2e/fixtures.mjs';
 
@@ -224,8 +224,22 @@ try {
     for (const target of [sessionFile(hub.stateDir), path.dirname(sessionFile(hub.stateDir))]) {
       execFileSync(path.join(system32, 'icacls.exe'), [target, '/save', saved], { stdio: 'ignore' });
       const sddl = fs.readFileSync(saved).toString('utf16le');
-      const aces = [...sddl.matchAll(/\((?:A|D|OA);[^;]*;[^;]*;[^;]*;[^;]*;([^)]+)\)/g)].map((match) => match[1]);
+      // SDDL writes the built-in Administrator account (RID 500, the CI runner's user) as "LA" instead of its SID
+      const aces = [...sddl.matchAll(/\((?:A|D|OA);[^;]*;[^;]*;[^;]*;[^;]*;([^)]+)\)/g)].map((match) => (match[1] === 'LA' && /-500$/.test(sid) ? sid : match[1]));
       equal(sorted(aces), [sid], `Windows: the only principal in the ACL of ${path.basename(target)} is the current user (${aces.join(',')})`);
+    }
+    // A folder that already carries EXPLICIT entries for SYSTEM and Administrators (what a process started elevated gets as its default
+    // DACL when the parent has nothing to inherit, e.g. the CI runner) must end up with the current user alone: /inheritance:r keeps them.
+    const seeded = path.join(scratch, 'seeded-run');
+    fs.mkdirSync(seeded, { recursive: true });
+    execFileSync(path.join(system32, 'icacls.exe'), [seeded, '/inheritance:r', '/grant:r', '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F', `*${sid}:(OI)(CI)F`], { stdio: 'ignore' });
+    protectDirectory(seeded);
+    fs.writeFileSync(path.join(seeded, 'hub-session.json'), '{}');
+    for (const target of [seeded, path.join(seeded, 'hub-session.json')]) {
+      const saved = path.join(scratch, 'acl-seeded.txt');
+      execFileSync(path.join(system32, 'icacls.exe'), [target, '/save', saved], { stdio: 'ignore' });
+      const principals = [...fs.readFileSync(saved).toString('utf16le').matchAll(/\((?:A|OA);[^;]*;[^;]*;[^;]*;[^;]*;([^)]+)\)/g)].map((match) => (match[1] === 'LA' && /-500$/.test(sid) ? sid : match[1]));
+      equal(sorted(principals), [sid], `Windows: SYSTEM and Administrators entries that were already on ${path.basename(target)} are removed (${principals.join(',')})`);
     }
   } else {
     const mode = (target) => fs.statSync(target).mode & 0o777;

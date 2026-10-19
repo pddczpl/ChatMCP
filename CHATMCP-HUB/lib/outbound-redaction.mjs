@@ -225,6 +225,16 @@ function applyRule(rule, text, found) {
   });
 }
 
+/** Diagnostics for tests: how long every rule takes on `text`, slowest first (a rule is run once, on its own). */
+export function profileRules(text) {
+  const found = new Map();
+  return RULES.map((rule) => {
+    const started = performance.now();
+    applyRule(rule, text, found);
+    return { id: rule.id, ms: performance.now() - started };
+  }).sort((a, b) => b.ms - a.ms);
+}
+
 function manualPatterns(extra) {
   const literals = [];
   for (const item of extra ?? []) {

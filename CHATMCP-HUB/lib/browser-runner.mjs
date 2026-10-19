@@ -122,6 +122,8 @@ export class BrowserRunner {
   }
 
   date() { return new Date(this.now()).toISOString(); }
+  /** Resolves once a task that is already finishing has released the runner (status 'completed' is visible before that). */
+  async settle() { if (this.context?.finishing) await this.context.finishing; }
   clean(value) {
     const replace = (v) => {
       if (typeof v === 'string') {
@@ -436,6 +438,8 @@ export class BrowserRunner {
   async start({ prompt, workspacePath = null, conversationId = null, linkedFromTaskId = null, handoffText = '' } = {}) {
     if (this.stopped) throw fault('hub_stopped', 'Hub đang dừng.', 409);
     if (!this.client) throw fault('browser_not_paired', 'Ghép tiện ích ChatMCP Hub trước khi giao nhiệm vụ.', 409);
+    // A task that has just reported 'completed' is still closing its session: wait for it instead of answering 409.
+    await this.settle();
     if (this.context || this.pairBusy) throw fault('task_active', 'Một nhiệm vụ hoặc thao tác ghép đang chạy.', 409);
     if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 16000) throw fault('invalid_prompt', 'Nhập yêu cầu từ 1 đến 16.000 ký tự.');
     const id = randomUUID();
