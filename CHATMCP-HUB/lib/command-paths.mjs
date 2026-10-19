@@ -69,6 +69,68 @@ async function expandWildcards(cwd, word) {
   return bases;
 }
 
+// Programs that read the CONTENT of every file below a directory when given no file: `rg token` searches the whole tree, `diff a b` on two
+// folders compares the files that have the same name in both. The text `rg token` names no secret, but secrets.json, credentials.json,
+// id_rsa and *.pem are not hidden files, so a default recursive search prints them. Hidden entries are skipped (ripgrep skips them too, and
+// every flag that would include them is not on the allowlist); noise folders are skipped; the walk is bounded.
+const WALK_LIMIT = 20000;
+const WALK_SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'target', '__pycache__', '.venv', 'venv', 'coverage', '.next']);
+
+async function protectedBelow(directory, root, state) {
+  let entries;
+  try { entries = await fs.readdir(directory, { withFileTypes: true }); } catch { return null; }
+  for (const entry of entries) {
+    state.visited += 1;
+    if (state.visited > WALK_LIMIT) { state.exceeded = true; return null; }
+    if (entry.name.startsWith('.') || entry.isSymbolicLink()) continue;
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (WALK_SKIP.has(entry.name)) continue;
+      const found = await protectedBelow(full, root, state);
+      if (found || state.exceeded) return found;
+    } else {
+      let canonical;
+      try { canonical = await canonicalRelative(root, full); } catch { continue; }
+      if (canonical.inside && isProtectedPath(canonical.relative)) return canonical.relative;
+    }
+  }
+  return null;
+}
+
+async function isDirectory(absolute) {
+  try { return (await fs.lstat(absolute)).isDirectory(); } catch { return false; }
+}
+
+/** Problems for the recursive readers among `segments`; same shape as the word problems. */
+async function recursiveReadProblems({ segments, cwd, root }) {
+  const problems = [];
+  for (const segment of segments) {
+    const operands = (segment.files ?? []).filter((word) => !hasWildcard(word));
+    if (segment.program === 'rg') {
+      const targets = operands.length ? operands : ['.'];
+      for (const target of targets) {
+        const absolute = path.resolve(cwd, target);
+        if (!await isDirectory(absolute)) continue;
+        const state = { visited: 0, exceeded: false };
+        const found = await protectedBelow(absolute, root, state);
+        if (found) problems.push({ word: target, problem: 'protected', via: found });
+        else if (state.exceeded) problems.push({ word: target, problem: 'unresolvable' });
+      }
+    } else if (segment.program === 'diff' && operands.length === 2) {
+      const [left, right] = operands.map((word) => path.resolve(cwd, word));
+      if (await isDirectory(left) && await isDirectory(right)) {
+        let names;
+        try { names = await fs.readdir(left); } catch { names = []; }
+        for (const name of names.slice(0, WALK_LIMIT)) {
+          if (!isProtectedPath(name)) continue;
+          if (await fs.lstat(path.join(right, name)).then(() => true, () => false)) problems.push({ word: operands[0], problem: 'protected', via: name });
+        }
+      }
+    }
+  }
+  return problems;
+}
+
 const MAX_WORDS = 64;
 const MAX_WORD_LENGTH = 400;
 const URL_LIKE = /^[a-z][a-z0-9+.-]*:\/\//i;
@@ -121,12 +183,14 @@ export async function pathProblems({ segments = [], cwd, root, powershell = fals
     if (!canonical.inside) problems.push({ word, problem: 'outside' });
     else if (isProtectedPath(canonical.relative)) problems.push({ word, problem: 'protected' });
   }
+  problems.push(...await recursiveReadProblems({ segments, cwd, root }));
   return problems;
 }
 
-export const describeProblem = ({ word, problem }) => {
+export const describeProblem = ({ word, problem, via }) => {
   const shown = word.length > 60 ? `${word.slice(0, 57)}...` : word;
   if (problem === 'outside') return `"${shown}" nằm ngoài workspace (qua symlink, junction hoặc tên rút gọn)`;
+  if (problem === 'protected' && via) return `"${shown}" chứa file bí mật (${via}) mà lệnh đọc đệ quy sẽ in ra`;
   if (problem === 'protected') return `"${shown}" thực chất là file bí mật hoặc metadata Git`;
   if (problem === 'provider') return `"${shown}" là ổ đĩa ảo của PowerShell (biến môi trường, registry, chứng chỉ), không phải file trong dự án`;
   return `không xác định được "${shown}" thật sự trỏ tới đâu`;

@@ -202,7 +202,12 @@ try {
     }
     // the wildcard vectors really print the protected / outside content when they are allowed to run
     const leaking = attackEntries.filter((attack) => attack.shell === 'bash' && attack.leaks && (attack.id !== 'glob-through-junction' || controlWorld.junctions));
+    const skippedPrograms = [];
     for (const attack of leaking) {
+      if (attack.requires) {
+        const probe = await controlWorld.localTools.call('run_command', { command: `command -v ${attack.requires}`, shell: 'bash', timeout_seconds: 20 });
+        if (probe.isError) { skippedPrograms.push(`${attack.id} (${attack.requires} not installed)`); continue; }
+      }
       const args = runArgs(substitute(attack.command, controlWorld.paths), 'bash');
       const decision = await outcome(controlWorld.gate, 'local.run_command', args, { approve: true });
       assert.equal(decision.kind, 'prompt', `${attack.id}: Review must ask`);
@@ -210,6 +215,7 @@ try {
       assert.ok(result.content[0].text.includes(attack.leaks), `positive control: ${attack.id} must print ${attack.leaks} when approved:
 ${result.content[0].text}`);
     }
+    if (skippedPrograms.length) console.log(`  note - positive control not run for: ${skippedPrograms.join(', ')}`);
     // Read Only: the same commands are refused and print nothing (checked above through the gate); the text classifier alone cannot see them
     for (const attack of attackEntries.filter((entry) => entry.needsFileSystem && entry.shell === 'bash')) {
       assert.equal(analyzeCommand(substitute(attack.command, controlWorld.paths), { shell: 'bash' }).kind, 'read', `${attack.id}: documents that only the real-path layer catches this`);

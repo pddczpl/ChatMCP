@@ -1,6 +1,6 @@
 // CHATMCP-HUB/lib/code-intelligence.mjs
 // Zero-dependency Code Intelligence Engine for ChatMCP Studio Local.
-// Provides AST-like structural symbol extraction, import-degree ranked Repository Map generation,
+// Provides AST-like structural symbol extraction, PageRank-style Repository Map generation,
 // Go-to-Definition, Scope-Aware Find References, Dependency/Impact Graph, and Static Diagnostics.
 
 import crypto from 'node:crypto';
@@ -1646,7 +1646,7 @@ export function registerCodeIntelligenceTools(define, workspace, { engine: exist
 
   define('repo_map', {
     description:
-      'Generate a repository map of source files and exported symbol signatures within a token budget, ranked by how many other files import each file (import-graph in/out degree, boosted by focus files and the query; this is not PageRank). Use this first on large codebases to locate relevant modules and line ranges without reading full files.',
+      'Generate a PageRank-style repository map of source files and exported symbol signatures within a token budget. Use this first on large codebases to locate relevant modules and line ranges without reading full files.',
     schema: {
       type: 'object',
       additionalProperties: false,
