@@ -126,6 +126,19 @@ export async function verifyHostEvidence({manager, name, result, step = 0} = {})
         return {kind:'edit',path:text(fresh.path,160),sha256:meta.sha256.toLowerCase(),step};
     }catch{/* Large/protected/unknown files remain UNVERIFIED. */}
   }
+  if(nameStr==='local.files_write_batch' && Array.isArray(meta.files) && manager.studio?.read) {
+    // One receipt per file that really changed, each confirmed by a fresh hash of the file on disk.
+    const receipts=[];
+    for(const file of meta.files.slice(0,50)) {
+      if(!object(file) || file.unchanged===true || typeof file.path!=='string' || !/^[a-f0-9]{64}$/i.test(file.sha256??''))continue;
+      if(typeof file.previousSha==='string' && file.previousSha.toLowerCase()===file.sha256.toLowerCase())continue;
+      try {
+        const fresh=await manager.studio.read({file:file.path,maxBytes:500000});
+        if(fresh?.sha256?.toLowerCase()===file.sha256.toLowerCase())receipts.push({path:text(fresh.path,160),sha256:file.sha256.toLowerCase()});
+      }catch{/* Large/protected/unknown files remain UNVERIFIED. */}
+    }
+    if(receipts.length)return {kind:'edit',path:receipts[0].path,sha256:receipts[0].sha256,step,more:receipts.slice(1).map(item=>({...item,step}))};
+  }
   if(nameStr==='local.run_command' && meta.kind==='verify' && meta.exitCode===0 &&
     !meta.timedOut && !meta.cancelled && !meta.lingering && !meta.truncated?.stdout && !meta.truncated?.stderr) {
     return {kind:'verify',id:hash(nameStr+'\0'+meta.cwd+'\0'+step).slice(0,16),step};

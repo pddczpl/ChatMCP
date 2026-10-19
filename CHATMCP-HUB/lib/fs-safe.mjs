@@ -125,7 +125,7 @@ let newFileMode = 0o644;
  */
 export function setNewFileMode(mode) { newFileMode = mode & 0o777; }
 
-export async function writeFileAtomic(file, data, { mode, expectedSha = null } = {}) {
+export async function writeFileAtomic(file, data, { mode, expectedSha = null, createOnly = false } = {}) {
   const temp = `${file}.${randomUUID()}.tmp`;
   try {
     await fs.writeFile(temp, data, { flag: 'wx', mode: mode === undefined ? newFileMode : mode & 0o777 });
@@ -133,6 +133,16 @@ export async function writeFileAtomic(file, data, { mode, expectedSha = null } =
       const current = await fs.readFile(file).catch(() => null);
       if (!current || sha256(current) !== expectedSha) {
         throw Object.assign(new Error('File đã bị thay đổi trong lúc ghi; chưa ghi đè. Đọc lại rồi thử lại.'), { code: 'stale_revision', statusCode: 409 });
+      }
+    }
+    if (createOnly) {
+      // The caller saw no file here; one that appeared since must not be replaced. link() refuses an existing target atomically.
+      const appeared = () => Object.assign(new Error('File đã được tạo trong lúc ghi; chưa ghi đè. Đọc lại rồi thử lại.'), { code: 'stale_revision', statusCode: 409 });
+      try { await fs.link(temp, file); return; } catch (error) {
+        if (error.code === 'EEXIST') throw appeared();
+        // A file system without hard links: fall back to a plain check just before the rename.
+        if (!['EPERM', 'ENOTSUP', 'EXDEV', 'EINVAL', 'ENOSYS', 'EACCES'].includes(error.code)) throw error;
+        if (await fs.lstat(file).then(() => true, () => false)) throw appeared();
       }
     }
     for (let attempt = 0; ; attempt += 1) {
