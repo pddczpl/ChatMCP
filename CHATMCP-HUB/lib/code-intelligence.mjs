@@ -827,6 +827,13 @@ function parseGenericStructure(rawLines, maskedLines, symbols, imports, exported
  * Core Code Intelligence Engine with SHA-256 content-addressed caching.
  */
 export class CodeIntelligenceEngine {
+  /**
+   * @param {object} options
+   * @param {object} options.workspace  needs resolve()
+   * @param {object} [options.studioIntelligence]  Tier 1: the Studio CodeIntelligence; the engine only calls its lspRequest(), which keeps
+   *                                               the sandbox-only policy for host language servers (there is no separate LSP client option)
+   * @param {object} [options.treeSitterAdapter]   Tier 2a: { getParser(language) } or a parser with parse(source, previousTree, { language, relPath })
+   */
   constructor({
     workspace,
     ignoredDirs = DEFAULT_IGNORED_DIRS,
@@ -850,7 +857,6 @@ export class CodeIntelligenceEngine {
     this._treeSitterInitPromise = null;
     this._treeSitterParsers = new Map();
     this._pythonAstAvailable = null;
-    this._lspClients = new Map();
   }
 
   get rootPath() {
@@ -2411,8 +2417,8 @@ function formatSuccess(text, structuredContent) {
 /**
  * Registers the 6 Code Intelligence tools directly into LocalTools.#register() via `define`.
  */
-export function registerCodeIntelligenceTools(define, workspace, { engine: existingEngine, studioIntelligence = null, lspClient = null, treeSitterParser = null } = {}) {
-  const engine = existingEngine ?? new CodeIntelligenceEngine({ workspace, studioIntelligence, lspClient, treeSitterParser });
+export function registerCodeIntelligenceTools(define, workspace, { engine: existingEngine, studioIntelligence = null, treeSitterAdapter = null } = {}) {
+  const engine = existingEngine ?? new CodeIntelligenceEngine({ workspace, studioIntelligence, treeSitterAdapter });
 
   define('repo_map', {
     description:

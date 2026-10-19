@@ -90,8 +90,10 @@ export class LocalTools {
    * @param {string[]} [options.disabledTools]  tools left out of the catalog (public server without a way to isolate commands: run_command)
    * @param {boolean} [options.sharedWorkspace] the agent's commands run under another account that shares a group with the Hub, so files
    *                                            the Hub writes keep group-write permission (the agent must be able to change them too)
+   * @param {object} [options.studioIntelligence]  Studio CodeIntelligence; the Code Intelligence tools reach the language servers only through its lspRequest()
+   * @param {object} [options.treeSitterAdapter]   Tree-sitter tier of the Code Intelligence tools: { getParser(language) } or a parser with parse(); forwarded under this same name
    */
-  constructor({ workspace, shell, git, stateDirectory = null, secrets = () => [], disabledTools = [], sharedWorkspace = false, studioIntelligence = null, lspClient = null, treeSitterParser = null } = {}) {
+  constructor({ workspace, shell, git, stateDirectory = null, secrets = () => [], disabledTools = [], sharedWorkspace = false, studioIntelligence = null, treeSitterAdapter = null } = {}) {
     if (!workspace || typeof workspace.resolve !== 'function') throw new TypeError('LocalTools cần workspace có resolve().');
     this.workspace = workspace;
     this.stateDirectory = stateDirectory;
@@ -101,8 +103,7 @@ export class LocalTools {
     this.backgroundTasks = new Map();
     this.sharedWorkspace = sharedWorkspace;
     this.studioIntelligence = studioIntelligence;
-    this.lspClient = lspClient;
-    this.treeSitterParser = treeSitterParser;
+    this.treeSitterAdapter = treeSitterAdapter;
     this.#register();
     for (const name of disabledTools) this.tools.delete(String(name).replace(/^local\./, ''));
     this.shellDisabled = !this.tools.has('run_command');
@@ -307,8 +308,7 @@ export class LocalTools {
     const WRITE = { readOnlyHint: false, destructiveHint: false };
     registerCodeIntelligenceTools(define, this.workspace, {
       studioIntelligence: this.studioIntelligence ?? null,
-      lspClient: this.lspClient ?? null,
-      treeSitterParser: this.treeSitterParser ?? null,
+      treeSitterAdapter: this.treeSitterAdapter ?? null,
     });
 
     define('read_file', {
