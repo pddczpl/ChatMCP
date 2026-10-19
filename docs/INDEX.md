@@ -15,6 +15,8 @@ Comprehensive documentation across all architecture, implementation, and verific
 - [Desktop Application](DESKTOP-APP.md) — WinForms + WebView2 architecture, packaging, and releases
 - [User Guide](USER-GUIDE.md) — Workflow instructions, tool definitions, and dashboard navigation
 - [Development](DEVELOPMENT.md) — Contributing guidelines, testing workflows, and codebase conventions
+- [Contributing](../CONTRIBUTING.md) — Apache-2.0 inbound = outbound, Developer Certificate of Origin sign-off, commit conventions, AI-assistance policy
+- [License and dependency scan](LICENSE-SCAN.md) — Apache-2.0 compatibility of every redistributed component, findings and open notice gaps
 - [Testing with Real Models](TESTING-WITH-REAL-MODELS.md) — Integration testing with live AI provider endpoints
 - [Agent Tools & Token Optimization](AGENT-TOOL-CAPABILITIES.md) — Updated internal tool inventory, security contracts, deployment dependencies, and acceptance gaps
 - [Troubleshooting](TROUBLESHOOTING.md) — Diagnosing common startup, permission, and runtime issues
