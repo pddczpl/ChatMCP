@@ -163,17 +163,21 @@ console.log(`PASS false positives: ${altered.length} of ${clean.length} benign s
     'scheme spam': 'a://'.repeat(MB / 4 | 0),
   };
   const timings = [];
+  const slow = [];
   for (const [name, text] of Object.entries(cases)) {
     const started = performance.now();
     redactText(text);
     const elapsed = performance.now() - started;
     timings.push(`${name} ${elapsed.toFixed(0)}ms`);
     if (elapsed >= 4000) {
-      // Node 22 on the CI runners needed ~8.7 s for the base64 case that takes ~22 ms on Node 24: say which rules and how they scale.
-      const slowest = (input) => profileRules(input).slice(0, 4).map((item) => `${item.id} ${item.ms.toFixed(0)} ms`).join(', ');
-      assert.fail(`${name} took ${elapsed.toFixed(0)} ms for 1 MiB (node ${process.version}); slowest rules on 1 MiB: ${slowest(text)}; on 256 KiB: ${slowest(text.slice(0, MB / 4))}`);
+      // Every slow shape is collected before the suite fails, so one CI run names all of them. Node 22 (V8 12.4) needed 16 s for
+      // the base64 case that takes ~22 ms on Node 24. The per-rule profile runs on slices: a quadratic rule costs 16x less at a
+      // quarter of the size, so the 64 KiB / 256 KiB pair still tells linear from quadratic.
+      const slowest = (input) => profileRules(input).slice(0, 3).map((item) => `${item.id} ${item.ms.toFixed(0)} ms`).join(', ');
+      slow.push(`${name} took ${elapsed.toFixed(0)} ms for 1 MiB; slowest rules on 64 KiB: ${slowest(text.slice(0, MB / 16))}; on 256 KiB: ${slowest(text.slice(0, MB / 4))}`);
     }
   }
+  assert.equal(slow.length, 0, `node ${process.version}: ${slow.join(' | ')}`);
   check(true, 'linear time');
   console.log(`PASS 1 MiB inputs stay fast: ${timings.join(', ')}`);
 }

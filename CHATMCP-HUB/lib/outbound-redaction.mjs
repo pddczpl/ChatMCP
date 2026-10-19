@@ -79,7 +79,8 @@ function keyClass(key) {
 
 // ----------------------------------------------------------------------------------------------------------------------
 // The rules. Order matters: the specific formats go first, so a generic rule later only sees what is left.
-// Every pattern has a bounded quantifier or a word boundary on its leading edge: input can be a megabyte of base64.
+// Every pattern has a bounded quantifier or a word boundary on its leading edge: input can be a megabyte of base64. No
+// lookaround at a match start may hold an unbounded quantifier either: older V8 rescans it from every start position.
 // ----------------------------------------------------------------------------------------------------------------------
 const NOT_ALNUM_BEFORE = '(?<![A-Za-z0-9])';
 const NOT_ALNUM_AFTER = '(?![A-Za-z0-9])';
@@ -128,7 +129,9 @@ const RULES = [
   { id: 'doppler-token', pattern: new RegExp(`${NOT_ALNUM_BEFORE}dp\\.(?:pt|st|sa|ct)\\.[A-Za-z0-9]{40,}`, 'g') },
   { id: 'age-secret-key', pattern: /AGE-SECRET-KEY-1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{58}/g },
   { id: 'telegram-bot-token', pattern: /(?<![0-9])[0-9]{8,10}:AA[A-Za-z0-9_-]{33}(?![A-Za-z0-9_-])/g },
-  { id: 'discord-bot-token', pattern: /(?<![A-Za-z0-9_.-])(?=[^.\s]*[0-9])[MNO][A-Za-z0-9_-]{23,25}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,38}(?![A-Za-z0-9_-])/g },
+  // The digit check is bounded to the first segment (at most 26 characters): an unbounded `[^.\s]*` here is rescanned to the end
+  // of a megabyte of base64 from every start position after a `+` or `/`, which Node 22 (V8 12.4) takes 16 s for.
+  { id: 'discord-bot-token', pattern: /(?<![A-Za-z0-9_.-])(?=[A-Za-z0-9_-]{0,25}[0-9])[MNO][A-Za-z0-9_-]{23,25}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,38}(?![A-Za-z0-9_-])/g },
 
   // ---- generic credentials with a recognisable frame ----------------------------------------------------------------
   { id: 'jwt', pattern: /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g },
