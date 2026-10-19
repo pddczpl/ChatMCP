@@ -1276,7 +1276,7 @@ export class CodeIntelligenceEngine {
       const normalizedRel = toPosix(relPath);
       const payload = await new Promise((resolve, reject) => {
         const proc = spawn(pythonExe, ['-I', '-X', 'utf8', workerScript], {
-          cwd: this.workspace.path,
+          cwd: this.rootPath,
           stdio: ['pipe', 'pipe', 'pipe'],
           windowsHide: true,
         });
@@ -1480,11 +1480,6 @@ export class CodeIntelligenceEngine {
         return null;
       }
 
-      health.failures = 0;
-      health.cooldownUntil = 0;
-      health.lastErrorReason = null;
-      health.lastSuccessAt = Date.now();
-
       const raw = response?.result == null ? [] : Array.isArray(response.result) ? response.result : [response.result];
       const locations = [];
       for (const location of raw) {
@@ -1494,8 +1489,16 @@ export class CodeIntelligenceEngine {
         if (!uri || !range || !Number.isInteger(range.start?.line)) continue;
         const url = new URL(uri);
         if (url.protocol !== 'file:') continue;
-        const relative = toPosix(path.relative(this.workspace.path, fileURLToPath(url)));
-        if (!relative || relative === '..' || relative.startsWith('../') || path.isAbsolute(relative)) continue;
+        // StudioWorkspace has root, not path; getParsedFile above already pinned the canonical root.
+        const locationPath = fileURLToPath(url);
+        const outside = (rel) => !rel || rel === '..' || rel.startsWith('../') || path.isAbsolute(rel);
+        let relative = toPosix(path.relative(this.rootPath, locationPath));
+        if (outside(relative)) {
+          // A server may spell the same file through a Windows 8.3 alias or a junction; judge the canonical target instead.
+          const canonical = await fs.realpath(locationPath).catch(() => null);
+          relative = canonical ? toPosix(path.relative(this.rootPath, canonical)) : '';
+        }
+        if (outside(relative)) continue;
         // getParsedFile enforces canonical workspace boundaries before exposing locations.
         if (!await this.getParsedFile(relative)) continue;
         locations.push({
@@ -1507,6 +1510,12 @@ export class CodeIntelligenceEngine {
           engine: this._getEngineForTier('lsp', language),
         });
       }
+      // Success is recorded only after the response was translated. Anything that throws above lands in the catch
+      // block as a failure; resetting earlier let a repeatedly failing translation keep the breaker closed forever.
+      health.failures = 0;
+      health.cooldownUntil = 0;
+      health.lastErrorReason = null;
+      health.lastSuccessAt = Date.now();
       if (locations.length === 0) {
         this._lastLspFallbackReason = 'lsp_empty_result';
       } else {
