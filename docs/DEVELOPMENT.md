@@ -77,7 +77,7 @@ node tests/run-all.mjs --no-skip all             # một bộ bị SKIP bị tí
 npm run test:ui                                  # bộ giao diện Python/Playwright (tùy chọn)
 ```
 
-Hiện có **99 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
+Hiện có **100 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
 
 Runner in một dòng cho mỗi bộ (`PASS`/`FAIL`/`TIMEOUT`/`SKIP`, thời gian, mã thoát thật) và thoát khác 0 nếu có bộ nào fail hoặc quá hạn (mặc định 180 giây/bộ, đổi bằng `--timeout`). Bộ kiểm thử in một dòng `CHATMCP_TEST_SKIP: <lý do>` rồi thoát 0 để được báo là **SKIP — không bao giờ được tính là PASS**. `--no-skip all` (hoặc `--no-skip tên1,tên2`) biến SKIP thành FAIL. Workflow hiện tại cài Python 3.11 và các gói ghim trong `tests/requirements-e2e.txt`, rồi chạy **`--no-skip all`** trên cả Windows và Linux, Node 22 và 24. Một bộ bắt buộc bị bỏ qua vì thiếu môi trường vì thế làm CI thất bại. Một phần không thể kiểm chứng trong bản này được in `BLOCKED: <gì> - <vì sao>`.
 
@@ -89,6 +89,7 @@ Tổng thời gian cả bộ Node: khoảng 3 phút (Linux, 180 s đã đo) đ�
 |---|---|---|
 | **Chính bộ test** | `verify-test-runner` (12) | `tests/run-all.mjs`: mã thoát thật quyết định PASS/FAIL, bộ treo bị giết và báo `TIMEOUT`, dòng `CHATMCP_TEST_SKIP` không che được lỗi, `--no-skip`, lỗi cú pháp lệnh |
 | | `verify-mutation-runner` (11) | `tests/mutation/run-mutations.mjs`: đột biến bị nhận ra → `KILLED`, không bị nhận ra → `SURVIVED`, mẫu không khớp → `ERROR` (không bao giờ là "giết miễn phí"), đột biến của hệ điều hành khác → `N/A`, bộ test không chạy được thì không bị phán xét, tệp thật không bị đụng |
+| | `verify-dco-check` | `scripts/check-dco.mjs` (chạy bởi `.github/workflows/dco.yml`) trên kho Git tạm: commit có `Signed-off-by: Tên <email>` (ví dụ do `git commit -s` tạo ra) qua, commit thiếu hoặc sai định dạng thì fail và được nêu tên; merge commit và tác giả bot đã biết (`github-actions[bot]`, `dependabot[bot]`, `semantic-release-bot`) được miễn, tên giống bot thì không; dòng sign-off không nằm trong khối trailer không tính; workflow dùng `pull_request`, token chỉ đọc, checkout đủ lịch sử và action ghim SHA |
 | | `verify-docs` | tài liệu khớp với mã: liên kết và neo, phiên bản (`package.json` = mã = giao diện = CHANGELOG), các con số được trích dẫn (số bộ test, công cụ, preset, trạng thái), script `.ps1/.cmd` chỉ có ASCII, phụ thuộc test và action CI được ghim, mọi mẫu trong danh sách đột biến còn khớp mã (phần cần cả repository thì SKIP khi thiếu) |
 | **Lõi an toàn** | `verify-command-analysis` | bảng ca của bộ phân loại lệnh và vùng cấm, kể cả các cách lách (mở rộng, lồng nhau, pipe) |
 | | `verify-shell-guards` (14) | cấu hình/hook Git của kho, theo dõi symlink/junction/bí danh tới nơi thật, ổ PowerShell (`Env:`, registry), phân loại quyền và công cụ Git |
