@@ -3,7 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { assertBearerHub, parseArguments } from '../hub.mjs';
-import { attachToRunningHub, dashboardUrl, readSession, requestTicket } from './hub-session.mjs';
+import { assertSessionListener, attachToRunningHub, dashboardUrl, readSession, requestTicket, sessionFile } from './hub-session.mjs';
 import { delay, portOpen, redact } from './runtime.mjs';
 
 const bundle = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -138,7 +138,10 @@ export async function launch(args = process.argv.slice(2), { log = console.log, 
       if (options.open && process.platform !== 'win32') {
         // The Hub opened nothing it could show here (its own output goes to hub.log): print a fresh sign-in link for this terminal.
         const session = await readSession(directory);
-        if (session) await openBrowser(dashboardUrl(url, await requestTicket(url, session.secret)), log);
+        if (session) {
+          await assertSessionListener(session, { file: sessionFile(directory) }); // the file may be a stale one and the port another program's
+          await openBrowser(dashboardUrl(url, await requestTicket(url, session.secret)), log);
+        }
       }
       log('[CHATMCP-HUB] Local Node.js Hub. Configure your AI model and choose a workspace in the dashboard.');
       return { url, reused: false, backend, logFile, pid: started.pid };
