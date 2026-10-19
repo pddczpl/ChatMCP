@@ -93,7 +93,7 @@
       "claim": "The Hub takes a checkpoint before an agent edit and restores it only if the file is still as reviewed.",
       "source": {
         "file": "docs/USER-GUIDE.md",
-        "line": 201,
+        "line": 205,
         "quote": "Hub tự lưu một checkpoint của các file sắp đổi"
       },
       "kind": "claim",
