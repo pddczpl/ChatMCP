@@ -10,8 +10,10 @@
 
 Each file is the project's own `LICENSE` file, copied unchanged from the upstream repository (`tree-sitter-wasms` 0.1.13 declares `^0.20.3`, `^0.20.5` and `^0.21.0` as the development dependencies it built the grammars from; the exact versions are not recorded in the package). A file is accepted only when it has a copyright line with a year and the MIT permission paragraph; anything else counts as missing.
 
-**These three files are not in the repository yet.** They were not available offline when the notice work was done and the text must not be written from memory. Until they are added:
+These three files were copied unchanged from the default branch of each upstream repository on 2026-10-19 (`gh api repos/tree-sitter/<project>/contents/LICENSE`): tree-sitter-javascript (Copyright (c) 2014 Max Brunsfeld), tree-sitter-typescript (2017 Max Brunsfeld), tree-sitter-python (2016 Max Brunsfeld). The upstream default branch may be newer than the grammar builds inside `tree-sitter-wasms` 0.1.13; the copyright lines of these projects have not changed, but the grammar versions are not recorded in the package.
+
+If one of them is missing or unusable:
 
 - `stage.mjs` stops, so `Build-Installer.ps1` and the release workflow fail with a message that names the missing files.
 - A build that is not a release may set `CHATMCP_ALLOW_PENDING_NOTICES=1` (CI does). It stages `licenses/PENDING-NOTICES.txt`, records `pendingNotices` in `runtime-manifest.json` and prints a warning.
-- `tests/verify-notices.mjs` prints which notices are pending and fails if a release workflow sets the variable.
+- `tests/verify-notices.mjs` prints which notices are pending (none when all three files are present) and fails if a release workflow sets the variable.
