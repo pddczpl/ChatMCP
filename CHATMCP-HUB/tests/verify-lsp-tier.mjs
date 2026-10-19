@@ -189,18 +189,23 @@ try {
     if (realTypeScript) { await link('typescript-language-server', findPackage('typescript-language-server', 'lib/cli.mjs')); await link('typescript', findPackage('typescript', 'lib/tsserver.js')); }
     if (realPyright) await link('pyright', findPackage('pyright', 'langserver.index.js'));
     const { local, intelligence } = await production('real', bundle);
-    // The first request of a real server waits for it to load the project; warm it up outside the 4.5 s engine budget.
-    const warmUp = async (language, file, line, column) => {
+    // The first request of a real server waits for it to load the project; warm it up outside the 4.5 s engine budget. "Answered" is not
+    // "ready": a cold typescript-language-server first answers a call site with the import binding (src/entry.mjs, the alias) and only
+    // a few seconds later with the declaration (src/math.mjs). Measured with typescript-language-server 4.3.4 / typescript 5.9.3 on the
+    // same files outside ChatMCP, so this is the server and not the client. The warm-up therefore waits for the answer it will assert.
+    const warmUp = async (language, file, line, column, expectedFile = null) => {
       const deadline = Date.now() + 90000;
+      const locations = (value) => (Array.isArray(value) ? value : value ? [value] : []);
       for (;;) {
         const warm = await intelligence.lspRequest({ language, method: 'definition', file, line, column }).catch(() => null);
-        if (warm?.result && (!Array.isArray(warm.result) || warm.result.length)) return;
-        assert.ok(Date.now() < deadline, `the real ${language} language server did not answer within 90 s`);
+        const found = locations(warm?.result);
+        if (found.length && (!expectedFile || found.some((item) => String(item.uri ?? item.targetUri).endsWith(expectedFile)))) return;
+        assert.ok(Date.now() < deadline, `the real ${language} language server did not answer${expectedFile ? ' with ' + expectedFile : ''} within 90 s`);
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
     };
     if (realTypeScript) {
-      await warmUp('typescript', 'src/entry.mjs', 1, 12);
+      await warmUp('typescript', 'src/entry.mjs', 2, 29, '/src/math.mjs');
       const definition = await call(local, 'find_definition', { symbol: 'calculateSum', context_path: 'src/entry.mjs' });
       assert.equal(definition.tier, 'lsp', `real typescript-language-server (fallbackReason=${definition.fallbackReason})`);
       assert.equal(definition.fallbackReason, null);
