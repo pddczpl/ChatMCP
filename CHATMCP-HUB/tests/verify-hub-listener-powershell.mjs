@@ -12,8 +12,9 @@
 //      unreadable table and "no listener" each give the documented answer, and each refusal says that no secret was sent.
 //   3. The attack, with a real squatter process (it serves a real Hub's /api/health verbatim and records every byte it receives)
 //      and a stale session file that names another process: each script refuses with a readable error and the squatter receives
-//      no Authorization header, no secret and no "Bearer" in anything it was sent. A Hub that predates the secret is still stopped
-//      without any secret. A base URL of http://localhost:port is connected to as 127.0.0.1, so a squatter on ::1 gets nothing either.
+//      no Authorization header, no secret and no "Bearer" in anything it was sent. For a Hub that predates the secret (no `auth` in its
+//      health) the stop script's older flow runs on and sends no secret either (a squatter that imitates one stands in for it; the
+//      real v3.9.0 Hub is only in the CI job windows-upgrade-from-secretless-hub). A base URL of http://localhost:port is connected to as 127.0.0.1, so a squatter on ::1 gets nothing either.
 //   4. The control: when the stale file names the squatter's own process id (a recycled id) the lookup agrees and the bearer does
 //      reach it, which shows that the recording can see a leak from PowerShell and pins the limit of a process-id check.
 //   5. The positive case: against a real Hub the scripts get through (the state request with the secret succeeds; Stop stops it).
@@ -213,7 +214,7 @@ Write-Output 'DONE'
     equal(sent.filter((request) => !allowed.includes(`${request.method} ${request.path}`)), [], `${label}: the squatter received nothing but ${allowed.join(', ') || 'nothing'}`);
     check(!sent.some((request) => 'authorization' in request.headers), `${label}: no request carried an Authorization header`);
     check(!squatter.raw().includes(stale.secret) && !/Bearer/i.test(squatter.raw()), `${label}: neither the secret nor the word Bearer is in anything the squatter received`);
-    check(!squatter.raw().includes('POST '), `${label}: and no POST (no shutdown request, no ticket) reached it`);
+    check(allowed.some((request) => request.startsWith('POST ')) || !squatter.raw().includes('POST '), `${label}: and no POST (no shutdown request, no ticket) reached it`);
   };
   const assertRefusal = (run, { squatter, stale, stalePid }, label, prefix) => {
     equal(run.code, 1, `${label}: exits with 1\n${run.output}`);
@@ -237,9 +238,11 @@ Write-Output 'DONE'
   equal(nobodyRun.code, 1, `Run-StudioSmoke.ps1 with a stale file and nobody on the port: exits with 1\n${nobodyRun.output}`);
   check(new RegExp(`Smoke test stopped: Nothing listens on port ${scenarios.nobody.port}, although hub-session\\.json says that the Hub \\(process ${process.pid}\\) runs there.* The session secret was not sent\\.`).test(nobodyRun.output), 'Run-StudioSmoke.ps1: a stale file with nobody on the port is refused with that explanation', nobodyRun.output);
 
-  // A Hub that predates the secret has no `auth` in its health: the script uses the older flow, sends no secret and does not consult the listener.
-  assertNothingSent(scenarios.legacy, 'Stop-ChatMcpHub.ps1 against a Hub that predates the secret', ['GET /api/health', 'GET /api/state']);
-  check(!/is held by process/.test(legacyRun.output), 'Stop-ChatMcpHub.ps1: for such a Hub it does not run the listener check (it never had a secret to protect)');
+  // A Hub that predates the secret has no `auth` in its health: the script uses the older flow (session token, then shutdown), which
+  // sends no secret, and does not consult the listener. The squatter acknowledges the shutdown and exits, so the flow runs to its end.
+  assertNothingSent(scenarios.legacy, 'Stop-ChatMcpHub.ps1 against a Hub that predates the secret', ['GET /api/health', 'GET /api/state', 'POST /api/hub/shutdown']);
+  check(scenarios.legacy.squatter.requests().some((request) => request.method === 'POST' && request.path === '/api/hub/shutdown'), 'Stop-ChatMcpHub.ps1: the older flow got as far as the shutdown request, without a secret');
+  check(legacyRun.code === 0 && /Stopped\./.test(legacyRun.output) && !/is held by process/.test(legacyRun.output), 'Stop-ChatMcpHub.ps1: and it ended with "Stopped", without the listener check (there was no secret to protect)', legacyRun.output);
 
   // 4. the control: a recycled process id
   check(scenarios.control.squatter.requests().some((request) => request.method === 'GET' && request.path === '/api/state' && request.headers.authorization === `Bearer ${scenarios.control.stale.secret}`), 'LIMIT (RR-4 residual): when the stale file names the squatter\'s own process id, the lookup agrees and the bearer reaches it; a process-id check cannot tell a recycled id from the Hub, and this shows that the harness sees a leak from PowerShell');
