@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readJson, writeJson, redact, resolveProgram, spawnLogged, stopOwned } from './runtime.mjs';
 import { buildInternalCatalog } from './catalog.mjs';
+import { hookTextParts } from './hooks.mjs';
 
 export const VERSION = '3.9.0';
 const baseService = () => ({ state:'unknown', detail:'Chưa kiểm tra' });
@@ -13,6 +14,11 @@ export const BACKENDS = Object.freeze(['local']);
 // something are offered next to them (code intelligence, test discovery, checkpoints); the rest would duplicate local.*.
 const LOCAL_BACKEND_STUDIO_TOOLS = new Set(['symbols', 'references', 'definitions', 'index_status', 'checks', 'skills', 'diff_check', 'checkpoints', 'checkpoint', 'review']);
 const CHECKPOINT_CATEGORIES = new Set(['workspace_edit', 'dangerous', 'execute', 'unknown']);
+/** What a failed tool result says, for the PostToolUseFailure hooks. */
+const failureText = (result) => {
+  const parts = (Array.isArray(result?.content) ? result.content : []).filter((part) => part?.type === 'text' && typeof part.text === 'string').map((part) => part.text);
+  return (parts.join('\n') || result?.structuredContent?.error?.message || 'The tool reported an error.').slice(0, 4000);
+};
 // Calls that pass the same gate as a file edit without being one: a test run may write caches or build output, Git bookkeeping changes .git.
 const NOT_FILE_EDITS = new Set(['local.run_command', 'local.git_add', 'local.git_commit', 'local.git_branch']);
 
@@ -56,6 +62,13 @@ export class HubManager {
     this.localTools = null;
     this.environment = null;
     this.workflow = null;
+    // Lifecycle hooks (lib/hooks.mjs). assembleStudio creates the runner for the manager that owns the Hub's data folder. A manager
+    // that works for it (a spawned agent, a second workspace, a coding worker) has a data folder of its own, so it is handed that SAME
+    // instance before it is assembled: reading hooks.json from its own folder would silently run it without the owner's hooks.
+    this.hooks = null;
+    this.hooksOwned = false;
+    // Where a project's .chatmcp/hooks.json is looked for when the tools run in another folder than the project (a managed worktree).
+    this.hooksProjectRoot = null;
   }
 
   log(message) {
@@ -200,6 +213,8 @@ export class HubManager {
     await Promise.allSettled([...this.agentSessions].map(s=>s.close()));
     for(const child of this.children)await stopOwned(child).catch(()=>{});
     await this.localTools?.close?.();
+    // Only the manager that created the runner stops the hooks that are still running; a borrowed instance serves other managers too.
+    if(this.hooksOwned)await this.hooks?.close?.().catch(()=>{});
   }
 
   async browse({initialPath=null}={}) {
@@ -308,14 +323,18 @@ export class HubManager {
 
   /**
    * Every call an agent makes passes through here, whatever the backend: workspace binding, permission
-   * decision, workflow timeline, a checkpoint before changes, then the tool itself. A refusal and a failed
-   * checkpoint are returned as results that say nothing was executed, so a model can react to them.
+   * decision, the owner's PreToolUse hooks, workflow timeline, a checkpoint before changes, then the tool itself,
+   * then the PostToolUse hooks. A refusal and a failed checkpoint are returned as results that say nothing was
+   * executed, so a model can react to them.
+   *
+   * The ChatGPT Web Companion, a spawned agent and a coding worker reach their tools through the session built
+   * here, so the hooks cover them without knowing about them.
    */
   #guardCalls(session, { catalog, binding, checkBinding, external }) {
     const refused = (code, message) => ({ isError: true, content: [{ type: 'text', text: message }], structuredContent: { error: { code, message }, executed: false } });
     session.callTool = async (name, args, callerOptions = {}) => {
-      // `onDecision` is for this guard only; the tool itself receives the transport options (signal, timeout).
-      const { onDecision, ...options } = callerOptions;
+      // `onDecision` and `toolUseId` are for this guard only; the tool itself receives the transport options (signal, timeout).
+      const { onDecision, toolUseId: suppliedId, ...options } = callerOptions;
       checkBinding();
       const definition = catalog.tools.find((tool) => tool.name === name);
       if (!definition) throw new Error('Unknown tool ' + name);
@@ -324,20 +343,35 @@ export class HubManager {
         const checked = this.localTools.validate(name, args);
         if (!checked.ok) return { ...refused(checked.code, `Tham số không hợp lệ cho ${name}: ${checked.errors.join('; ')}.`), structuredContent: { error: { code: checked.code, message: checked.errors.join('; ') }, executed: false, details: checked.errors } };
       }
-      const decision = this.permissions ? await this.permissions.authorize({ name, args, definition, taskId: binding.taskId, signal: options.signal }) : { allowed: true, category: 'read' };
+      // One id for the Pre and the Post hook of this call (the agent loop does not hand its own id down).
+      const toolUseId = typeof suppliedId === 'string' && suppliedId ? suppliedId : `chatmcp_${randomUUID()}`;
+      const gateDecision = this.permissions ? await this.permissions.authorize({ name, args, definition, taskId: binding.taskId, signal: options.signal }) : { allowed: true, category: 'read' };
+      // The owner's PreToolUse hooks run AFTER the gate and BEFORE the caller is told, the timeline is written or a checkpoint is made.
+      const { decision, refusal } = await this.#preToolHooks({ name, args, definition, binding, toolUseId, options, decision: gateDecision });
       // The caller learns what was decided BEFORE anything runs. It is awaited: whoever records "this call is now going
       // ahead" must have finished writing that down before the call can have any effect. If it throws, nothing runs.
-      if (typeof onDecision === 'function') await onDecision({ name, allowed: decision.allowed === true, category: decision.category ?? null, kind: decision.risk?.kind ?? null });
+      if (typeof onDecision === 'function') await onDecision({ name, allowed: decision.allowed === true && refusal === null, category: decision.category ?? null, kind: decision.risk?.kind ?? null });
       await this.workflow?.mark(binding.taskId, 'tool_start', { toolName: name, category: decision.category });
+      if (refusal !== null) {
+        await this.workflow?.mark(binding.taskId, 'hook_denied', { toolName: name, category: decision.category, isError: true });
+        return refused('hook_denied', `Blocked by a PreToolUse hook (${refusal}). The operation was NOT executed.`);
+      }
       if (!decision.allowed) return refused('permission_denied', 'Permission denied: ' + decision.reason);
       try { await this.#checkpointBefore(name, args, decision, binding); }
       catch (error) {
         if (options.signal?.aborted) throw error;
         return refused('checkpoint_failed', 'Could not create pre-operation checkpoint: ' + error.message + ' The operation was NOT executed.');
       }
-      const result = name.startsWith('local.') && this.localTools ? await this.localTools.call(name, args, { taskId: binding.taskId, signal: options.signal })
-        : name.startsWith('studio.') ? await this.studioTools.call(name, args, { taskId: binding.taskId, signal: options.signal })
-          : await external(name, args, options);
+      let result;
+      try {
+        result = name.startsWith('local.') && this.localTools ? await this.localTools.call(name, args, { taskId: binding.taskId, signal: options.signal })
+          : name.startsWith('studio.') ? await this.studioTools.call(name, args, { taskId: binding.taskId, signal: options.signal })
+            : await external(name, args, options);
+      } catch (error) {
+        // A stopped call is not a failure of the tool; any other exception is, and the hooks are told before it travels on.
+        if (!options.signal?.aborted) await this.#postToolHooks('PostToolUseFailure', { name, args, binding, toolUseId, error: error?.message ?? String(error), signal: options.signal });
+        throw error;
+      }
       const structured = result?.structuredContent;
       const verified = (name === 'studio.diff_check' && structured?.ok === true)
         || (name === 'local.run_command' && result?.isError !== true && structured?.kind === 'verify' && structured?.exitCode === 0);
@@ -346,8 +380,59 @@ export class HubManager {
         fileEdit: decision.category === 'workspace_edit' && !NOT_FILE_EDITS.has(name),
         commandKind: name === 'local.run_command' ? String(decision.risk?.kind ?? '') : '',
       });
-      return result;
+      const failed = result?.isError === true;
+      const parts = await this.#postToolHooks(failed ? 'PostToolUseFailure' : 'PostToolUse', { name, args, binding, toolUseId, toolResponse: result, error: failed ? failureText(result) : undefined, signal: options.signal });
+      // Only text is added to the content; isError, structuredContent and the tool's own parts stay as the tool returned them.
+      return parts.length ? { ...result, content: [...(Array.isArray(result?.content) ? result.content : []), ...parts] } : result;
     };
+  }
+
+  #hookInput(binding, extra) {
+    return {
+      taskId: binding.taskId, projectRoot: this.hooksProjectRoot ?? binding.workspace, cwd: binding.workspace,
+      permissionMode: this.permissions?.mode ?? null, executionPolicy: this.permissions?.executionPolicy ?? null, ...extra,
+    };
+  }
+
+  /**
+   * PreToolUse hooks (lib/hooks.mjs). They run for every call that passed argument validation, whatever the gate decided, and they can
+   * only add: a veto (`refusal` is the reason) or a question for the owner. A hook can never turn a refusal of the gate into an
+   * approval and its "allow" skips nothing: the gate has already decided when the hook is asked. A question is asked through
+   * PermissionGate.authorize({ forceAsk }) and only when the gate did not ask the owner itself, so a call costs the owner at most one
+   * question. Where nobody can answer, the gate refuses at once.
+   */
+  async #preToolHooks({ name, args, definition, binding, toolUseId, options, decision }) {
+    if (!this.hooks) return { decision, refusal: null };
+    let outcome;
+    try {
+      outcome = await this.hooks.run(this.#hookInput(binding, { event: 'PreToolUse', toolName: name, toolInput: args, toolUseId, signal: options.signal }));
+    } catch (error) {
+      if (options.signal?.aborted || error?.code === 'hooks_closed') throw error;
+      // The owner configured hooks and they cannot be run: the call is refused rather than run without them.
+      this.log(`Hooks: PreToolUse could not run (${error?.code ?? error?.message}); the call to ${name} was refused.`);
+      outcome = { permission: 'deny', reason: 'the hooks could not be run' };
+    }
+    if (!decision.allowed) return { decision, refusal: null };
+    if (outcome.permission === 'deny') return { decision, refusal: outcome.reason ?? 'blocked by a hook' };
+    if (outcome.permission !== 'ask' || decision.asked === true) return { decision, refusal: null };
+    if (!this.permissions) return { decision, refusal: `a hook asked for confirmation and nobody can be asked${outcome.reason ? `: ${outcome.reason}` : ''}` };
+    await this.workflow?.mark(binding.taskId, 'hook_asked', { toolName: name, category: decision.category });
+    const asked = await this.permissions.authorize({ name, args, definition, taskId: binding.taskId, signal: options.signal, forceAsk: true, askReason: outcome.reason ?? '' });
+    return { decision: asked.allowed ? { ...decision, asked: true } : asked, refusal: null };
+  }
+
+  /**
+   * PostToolUse / PostToolUseFailure hooks. The tool has run, so nothing a hook does can change what happened: the result of the tool
+   * is returned whatever happens here. What comes back are labelled text parts (additionalContext, feedback) for the model.
+   */
+  async #postToolHooks(event, { name, args, binding, toolUseId, toolResponse, error, signal }) {
+    if (!this.hooks) return [];
+    try {
+      return hookTextParts(await this.hooks.run(this.#hookInput(binding, { event, toolName: name, toolInput: args, toolUseId, toolResponse, error, signal })));
+    } catch (caught) {
+      if (!signal?.aborted) this.log(`Hooks: ${event} for ${name} could not run (${caught?.code ?? caught?.message}).`);
+      return [];
+    }
   }
 
   /**

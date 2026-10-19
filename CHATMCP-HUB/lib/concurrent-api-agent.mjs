@@ -246,6 +246,7 @@ export class ConcurrentApiAgent {
         const access = new HubManager({ bundleRoot: this.bundleRoot,
           dataDirectory: path.join(this.directory, 'workspace-access', stable), log: this.log });
         await access.load(sourceRoot);
+        access.hooks = this.manager.hooks; // the owner's hooks, as for a child: its own data folder holds none
         assembleStudio(access, { bundleRoot: this.bundleRoot });
         await access.permissions.load();
         access.permissions.mode = this.manager.permissions?.mode || 'review';
@@ -372,6 +373,10 @@ export class ConcurrentApiAgent {
     if (manager.workspace !== await fs.realpath(executionRoot))
       throw fail('missing_worktree', 'Managed worktree is missing.');
     manager.pluginManager = this.manager.pluginManager;
+    // The SAME hooks instance as the Hub's: this manager has a state folder of its own, and reading hooks.json from it would run the
+    // agent without the owner's hooks. The project's own file is looked for where the project is, not in the agent's worktree.
+    manager.hooks = this.manager.hooks;
+    manager.hooksProjectRoot = record.sourceRoot;
     assembleStudio(manager, { bundleRoot: this.bundleRoot });
     await manager.permissions.load();
     manager.permissions.mode = record.permissionMode || 'review';

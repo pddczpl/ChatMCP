@@ -268,6 +268,9 @@ export class CodingWorktreeOrchestrator {
     try {
       await manager.load(worktree);
       manager.pluginManager=this.manager.pluginManager;
+      // The owner's hooks run for the worker too; its worktree is not the project, so the project's own hooks file is read from there.
+      manager.hooks=this.manager.hooks;
+      manager.hooksProjectRoot=this.manager.workspace;
       assembleStudio(manager,{bundleRoot:this.bundleRoot});
       // The test broker only resolves worker identity, paths and commands from
       // managed Hub/worktree records, never from agent request arguments.

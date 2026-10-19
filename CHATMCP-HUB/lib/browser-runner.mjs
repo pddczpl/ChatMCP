@@ -319,6 +319,7 @@ export class BrowserRunner {
       dataDirectory:path.join(this.directory,'workspace-runtimes',key),log:this.log,
     });
     await execution.load(desired);
+    execution.hooks=this.manager.hooks; // the owner's hooks: this manager's own data folder holds none
     assembleStudio(execution,{bundleRoot:this.manager.bundleRoot});
     await execution.permissions.load();
     execution.permissions.mode=this.manager.permissions?.mode||'review';

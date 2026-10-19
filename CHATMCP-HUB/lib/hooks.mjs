@@ -554,7 +554,7 @@ export class HookRunner {
     const project = await this.#loadProject(projectRoot);
     if (!project.exists) throw fault('hooks_project_missing', 'This project has no .chatmcp/hooks.json.', 404);
     if (project.state === 'unreadable') throw fault('hooks_project_unreadable', `The project hooks file cannot be approved: ${project.errors[0]}.`);
-    if (project.sha256 !== sha256) throw Object.assign(fault('hooks_project_changed', 'The project hooks file is not the one you reviewed (its sha256 differs). Review it again before approving.', 409), { sha256: project.sha256 });
+    if (project.sha256 !== sha256) throw Object.assign(fault('hooks_project_changed', `The project hooks file is not the one you reviewed: its sha256 is ${project.sha256}. Review it again before approving.`, 409), { sha256: project.sha256 });
     if (!project.valid) throw Object.assign(fault('hooks_project_invalid', `The project hooks file is not valid: ${project.errors[0]}.`), { errors: project.errors });
     const state = await this.#load();
     state.approvals = state.approvals.filter((item) => rootKey(item.root) !== rootKey(project.root));

@@ -186,7 +186,13 @@ export class PermissionGate {
     this.#record({id:randomUUID(),taskId,toolName:name,category:verdict.category,reason:maskSecrets(reason,this.manager?.secrets??[]),summary,preview,at:new Date(this.now()).toISOString()},decision);
     return {allowed:false,category:verdict.category,reason};
   }
-  async authorize({name,args={},definition={},taskId,signal}={}){
+  /**
+   * The decision for one call. `forceAsk` is the only thing a PreToolUse hook can ask of the gate (lib/manager.mjs): a call that
+   * would have run without a question becomes a question for the owner. It is checked after every refusal below (a protected file,
+   * Read Only, sandbox-only, an unclassified tool in Autonomous, nobody to ask), so it can add a question and never remove one or
+   * turn a refusal into an approval; `askReason` is shown with the question. A result with `asked: true` went to the owner.
+   */
+  async authorize({name,args={},definition={},taskId,signal,forceAsk=false,askReason=''}={}){
     const verdict=await this.assess(name,args,definition);
     const {category,reason}=verdict;
     if(signal?.aborted)throw signal.reason || error('cancelled','Tác vụ đã dừng.');
@@ -204,7 +210,7 @@ export class PermissionGate {
     // It does NOT cover what cannot be taken back: deletion, history rewrites, git push, merging a pull request, creating or deleting
     // a release or repository. Those fall through to the ordinary approval below, in every mode.
     const fullAccess=this.executionPolicy==='full-access';
-    if(fullAccess&&!mustAskEvenInFullAccess(name,verdict)){
+    if(fullAccess&&!forceAsk&&!mustAskEvenInFullAccess(name,verdict)){
       this.#emit({type:'full_access_tool',taskId,toolName:name,category});
       return {allowed:true,category,risk:verdict.risk,local:verdict.local,reason:'Full Access: user explicitly enabled unrestricted host tools'};
     }
@@ -219,7 +225,7 @@ export class PermissionGate {
       if(verdict.local&&(category==='execute'||String(name).toLowerCase()==='local.run_command'))
         return {allowed:false,category,reason:'Sandbox-only: lệnh shell chạy trực tiếp trên máy host nên bị chặn. Chuyển sang host-review để dùng (mỗi lệnh đều cần xác nhận).'};
     }
-    if(category==='read'||category==='checkpoint'||(category==='workspace_edit'&&this.mode==='autonomous'))return {allowed:true,category,risk:verdict.risk,local:verdict.local};
+    if(!forceAsk&&(category==='read'||category==='checkpoint'||(category==='workspace_edit'&&this.mode==='autonomous')))return {allowed:true,category,risk:verdict.risk,local:verdict.local};
     if(this.mode==='autonomous'&&category==='unknown') return {allowed:false,category,reason:'Chế độ Tự động: công cụ chưa phân loại bị từ chối. Chuyển sang Review nếu muốn được hỏi từng lần.'};
     // A worker or background agent has nobody to answer: refuse at once instead of holding the run for the whole approval timeout.
     if(!this.canAsk()){
@@ -227,7 +233,10 @@ export class PermissionGate {
     }
     if(!taskId)throw error('missing_task','Thiếu mã tác vụ khi xin quyền.');
     if(signal?.aborted)throw signal.reason;
-    const id=randomUUID();const {preview,detail,summary,reason:shownReason}=this.#describe(name,args,verdict);
+    const id=randomUUID();const {preview,detail,summary,reason:describedReason}=this.#describe(name,args,verdict);
+    // A hook that asked for this question says why; the text is the hook's (already cleaned), so it is masked like every other reason.
+    const hookReason=forceAsk&&askReason?maskSecrets(`Hook: ${String(askReason).slice(0,500)}`,this.manager?.secrets??[]):'';
+    const shownReason=hookReason?(describedReason?`${hookReason} · ${describedReason}`:hookReason):describedReason;
     // `expiresAt` lets the page show how long the request will wait; the timer below is what actually enforces it.
     const askedAt=this.now();
     const request={id,taskId,toolName:name,category,reason:shownReason,summary,preview,detail,at:new Date(askedAt).toISOString(),expiresAt:new Date(askedAt+this.timeout).toISOString()};
@@ -239,7 +248,7 @@ export class PermissionGate {
     });
     this.#emit({type:'approval_requested',...request});
     const yes=await promise;
-    return {allowed:yes,category,risk:verdict.risk,local:verdict.local,reason:yes?'Đã được người dùng phê duyệt':'Người dùng từ chối hoặc hết hạn phê duyệt'};
+    return {allowed:yes,category,risk:verdict.risk,local:verdict.local,asked:true,reason:yes?'Đã được người dùng phê duyệt':'Người dùng từ chối hoặc hết hạn phê duyệt'};
   }
   #record(request,decision){
     // The audit trail keeps a bounded preview, never the full structured detail.

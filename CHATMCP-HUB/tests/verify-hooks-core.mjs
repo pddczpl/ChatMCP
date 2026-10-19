@@ -37,47 +37,13 @@ const TASK = '3c2f9c78-436d-4b2e-bd8d-2e803d8695cf';
 const SECRET = 'registered-secret-value-1234';
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-hooks-core-'));
 const hub = path.join(root, 'hub');
-const scripts = path.join(root, 'scripts');
 await fs.mkdir(hub, { recursive: true });
-await fs.mkdir(scripts, { recursive: true });
 await fs.mkdir(path.join(root, 'work'), { recursive: true });
 const work = await fs.realpath(path.join(root, 'work'));
 const realDirectory = async (name) => { await fs.mkdir(path.join(root, name), { recursive: true }); return fs.realpath(path.join(root, name)); };
 
-// ---- the hook program every case uses: behaves as the JSON in argv[2] says ---------------------------------------------------------------
-const HOOK = path.join(scripts, 'hook.mjs');
-await fs.writeFile(HOOK, `
-import fs from 'node:fs';
-import { spawn } from 'node:child_process';
-const spec = JSON.parse(process.argv[2] ?? '{}');
-const chunks = [];
-if (!spec.ignoreStdin) { for await (const chunk of process.stdin) chunks.push(chunk); }
-const input = Buffer.concat(chunks).toString('utf8');
-let payload = {};
-try { payload = JSON.parse(input); } catch { /* not JSON: the dump shows it */ }
-if (spec.log) fs.appendFileSync(spec.log, JSON.stringify({ pid: process.pid, event: payload.hook_event_name, tool: payload.tool_name, id: payload.tool_use_id }) + '\\n');
-if (spec.dump) fs.writeFileSync(spec.dump, input);
-if (spec.env) fs.writeFileSync(spec.env, JSON.stringify(process.env));
-if (spec.where) fs.writeFileSync(spec.where, process.cwd());
-if (spec.argv) fs.writeFileSync(spec.argv, JSON.stringify(process.argv.slice(3)));
-if (spec.pids) {
-  // On Windows a Node parent puts the children it starts in a job object that dies with it, so the process that proves "the whole tree is
-  // killed" must be detached from that job; its parent link stays, which is what taskkill /T follows. On POSIX it stays in the group.
-  const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', detached: process.platform === 'win32' });
-  fs.writeFileSync(spec.pids, JSON.stringify({ hook: process.pid, grandchild: grandchild.pid }));
-}
-if (spec.sleepMs) await new Promise((resolve) => setTimeout(resolve, spec.sleepMs));
-if (spec.fill) { // a long string is built here: a Windows command line cannot carry 30 KB
-  let target = spec.stdout;
-  for (const key of spec.fill.path.slice(0, -1)) target = target[key];
-  target[spec.fill.path.at(-1)] = spec.fill.text.repeat(spec.fill.times);
-}
-if (spec.stdout !== undefined) process.stdout.write(typeof spec.stdout === 'string' ? spec.stdout : JSON.stringify(spec.stdout));
-if (spec.stdoutRepeat) { for (let i = 0; i < spec.stdoutRepeat.times; i += 1) process.stdout.write(spec.stdoutRepeat.text); }
-if (spec.stderr) process.stderr.write(spec.stderr);
-if (spec.stderrRepeat) { for (let i = 0; i < spec.stderrRepeat.times; i += 1) process.stderr.write(spec.stderrRepeat.text); }
-process.exitCode = spec.exit ?? 0;
-`);
+// ---- the hook program every case uses: tests/fixtures/hook-program.mjs behaves as the JSON in argv[2] says -------------------------------------
+const HOOK = path.join(HUB, 'tests', 'fixtures', 'hook-program.mjs');
 
 const handler = (spec = {}, extra = {}) => ({ type: 'command', command: process.execPath, args: [HOOK, JSON.stringify(spec)], ...extra });
 const group = (matcher, ...hooks) => (matcher === undefined ? { hooks } : { matcher, hooks });
