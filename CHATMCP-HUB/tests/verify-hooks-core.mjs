@@ -257,13 +257,20 @@ try {
       ['protected-paths.mjs', 'mayExpandToProtected', "'.' + '*'.repeat(4000) + 'x/hooks.json'", false, 'a long run of stars in the folder segment'],
       ['protected-paths.mjs', 'mayExpandToProtected', "'.chatmcp/' + '*'.repeat(4000)", true, 'stars that can stand for hooks.json still count'],
       ['protected-paths.mjs', 'mayExpandToProtected', "'.chatmcp/' + '[a-z]'.repeat(2000) + 'x'", false, 'a long run of bracket expressions'],
+      // the trailing-dot and stream-suffix handling of a name: an end-anchored regular expression over a name the model chose is quadratic
+      ['protected-paths.mjs', 'isProtectedPath', "'a/' + '.'.repeat(300000) + 'x'", false, 'a path whose last name is 300,000 dots and an x'],
+      ['protected-paths.mjs', 'isProtectedPath', "'a/' + ' '.repeat(300000) + 'x'", false, 'a path whose last name is 300,000 spaces and an x'],
+      ['protected-paths.mjs', 'isProtectedPath', "'a/' + ':'.repeat(300000) + '\\n'", false, 'a path whose last name is 300,000 colons and a line break'],
+      ['protected-paths.mjs', 'mayExpandToProtected', "'.chatmcp/' + '.'.repeat(300000) + 'x'", false, 'a command operand with a 300,000 dot segment'],
+      ['protected-paths.mjs', 'isProtectedPath', "'.chatmcp/hooks.json' + '.'.repeat(1000)", true, 'trailing dots on the hooks file name still name the hooks file'],
+      ['protected-paths.mjs', 'isProtectedPath', "'.chatmcp/hooks.json::$DATA'", true, 'an NTFS stream suffix still names the hooks file'],
     ];
     for (const [module, name, args, expected, label] of hostile) {
       const outcome = timedCall(module, name, args);
       assert.equal(outcome.result, expected, label);
       assert.ok(outcome.ms < 1000, `${label}: ${outcome.ms} ms`);
     }
-    ok(`${hostile.length} hostile inputs (60,000 characters against six stars, 30,000 sub-commands, 4,000 stars in a command operand ...) are judged in under a second each, in a child process with an 8 s deadline`);
+    ok(`${hostile.length} hostile inputs (60,000 characters against six stars, 30,000 sub-commands, 4,000 stars in a command operand, 300,000 dots, spaces or colons in a path ...) are judged in under a second each, in a child process with an 8 s deadline`);
 
     // the table matcher against the straightforward regular expression, on short random inputs
     const mulberry32 = (seed) => () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };

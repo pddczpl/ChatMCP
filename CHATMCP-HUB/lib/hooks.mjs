@@ -289,7 +289,8 @@ const handlerId = (event, handler) => `h_${sha256Of(`${event}\n${handlerKey(hand
  * token-shaped strings are masked, and the length is capped.
  */
 export function sanitizeHookText(text, { secrets = [], max = MAX_REASON_CHARS } = {}) {
-  let value = String(text ?? '')
+  // What follows is cut to `max` anyway; the regular expressions below (and the secret patterns of maskSecrets) only ever see a bounded text.
+  let value = String(text ?? '').slice(0, max * 4 + 64)
     .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)?/g, '')
     .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
     .replace(/\u001b[@-Z\\-_]/g, '')

@@ -21,8 +21,16 @@ const components = (value) => String(value).split(/[\\/]+/).filter((part) => par
 // (lib/hooks.mjs), and no tool may write it or read it into a prompt. The rule names that one file, not the whole folder.
 const HOOKS_FOLDER = '.chatmcp';
 const HOOKS_FILE = 'hooks.json';
-// Windows ignores trailing dots and spaces in a name and an NTFS stream suffix ("hooks.json::$DATA") names the same file.
-const nameOf = (part) => String(part).toLowerCase().replace(/:.*$/, '').replace(/[. ]+$/, '');
+// Windows ignores trailing dots and spaces in a name and an NTFS stream suffix ("hooks.json::$DATA") names the same file. Plain string
+// work on purpose: an end-anchored regular expression ("[. ]+$") over a name that a model chose takes quadratic time.
+function nameOf(part) {
+  let name = String(part).toLowerCase();
+  const stream = name.indexOf(':');
+  if (stream !== -1) name = name.slice(0, stream);
+  let end = name.length;
+  while (end > 0 && (name[end - 1] === '.' || name[end - 1] === ' ')) end -= 1;
+  return name.slice(0, end);
+}
 
 /** True when a workspace-relative path names a secret file or sits inside a protected directory. */
 export function isProtectedPath(relative) {
