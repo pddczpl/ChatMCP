@@ -78,7 +78,7 @@ export function checkThreatModel(docsRoot, codeRoot = REPO) {
     const candidates = [name, `CHATMCP-HUB/tests/${name}`, `CHATMCP-HUB/${name}`].map((candidate) => path.join(codeRoot, candidate));
     if (!candidates.some((candidate) => existsSync(candidate))) fail(`the test ${name} does not exist`);
   }
-  for (const match of model.matchAll(/^\| ((?:H|O|R)\d+) \|(.*)\|$/gm)) {
+  for (const match of model.matchAll(/^\| ((?:H|O|R|K)\d+) \|(.*)\|$/gm)) {
     const cells = match[2].split(' | ');
     const testCell = cells[cells.length - 2] ?? '';
     if (!/`[^`]*(?:verify-|\.spec\.|smoke|run\.mjs)[^`]*`|not tested/i.test(testCell)) fail(`${match[1]}: the Test column names no test and does not say "not tested"`);
@@ -262,6 +262,9 @@ try {
     ['the README no longer names the forged-origin exception', 'README.md', (text) => text.replace('browser-extension origin', 'extension'), /README\.md does not say that the Companion status routes/],
     ['the threat model no longer in the index', 'docs/INDEX.md', (text) => text.replace('(THREAT-MODEL.md)', '(ARCHITECTURE.md)'), /INDEX\.md does not link THREAT-MODEL\.md/],
     ['a threat row without a test', model, (text) => text.replace('comparison is exercised by `verify-hub-auth.mjs`; no timing measurement', 'nothing'), /H3: the Test column/],
+    ['a hooks threat row without a test', model, (text) => text.replace('`verify-hooks-core.mjs` (inert until approved, a one-byte edit, a restart, the same bytes in another folder), `verify-hooks-guard.mjs` (the route on a real Hub, behind the bearer)', 'nothing'), /K1: the Test column/],
+    ['a hooks symbol that does not exist', model, (text) => text.replace('| `HookRunner` |', '| `HookRunnerOld` |'), /no symbol HookRunnerOld/],
+    ['a hooks test that does not exist', model, (text) => text.replace('`CHATMCP-HUB/tests/verify-hooks-guard.mjs`', '`CHATMCP-HUB/tests/verify-hooks-nothing.mjs`'), /verify-hooks-nothing\.mjs does not exist/],
     ['the best-effort statement removed from SECURITY.md', 'SECURITY.md', (text) => text.replaceAll('best effort', 'complete'), /best effort/],
     ['the Node launcher exception back in SECURITY.md', 'SECURITY.md', (text) => text.replace('Browser Companion pairing grants', 'The Node launcher does not check which process listens on the port. Browser Companion pairing grants'), /SECURITY\.md still says that the Node launcher does not check/],
     ['the PowerShell helper scripts no longer named in SECURITY.md', 'SECURITY.md', (text) => text.replaceAll('Stop-ChatMcpHub.ps1', 'the stop script'), /SECURITY\.md does not name Stop-ChatMcpHub\.ps1/],
