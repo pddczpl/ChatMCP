@@ -77,9 +77,11 @@ node tests/run-all.mjs --no-skip all             # một bộ bị SKIP bị tí
 npm run test:ui                                  # bộ giao diện Python/Playwright (tùy chọn)
 ```
 
-Hiện có **122 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
+Hiện có **123 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
 
 Runner in một dòng cho mỗi bộ (`PASS`/`FAIL`/`TIMEOUT`/`SKIP`, thời gian, mã thoát thật) và thoát khác 0 nếu có bộ nào fail hoặc quá hạn (mặc định 180 giây/bộ, đổi bằng `--timeout`). Bộ kiểm thử in một dòng `CHATMCP_TEST_SKIP: <lý do>` rồi thoát 0 để được báo là **SKIP — không bao giờ được tính là PASS**. `--no-skip all` (hoặc `--no-skip tên1,tên2`) biến SKIP thành FAIL. Workflow hiện tại cài Python 3.11 và các gói ghim trong `tests/requirements-e2e.txt`, rồi chạy **`--no-skip all`** trên cả Windows và Linux, Node 22 và 24. Một bộ bắt buộc bị bỏ qua vì thiếu môi trường vì thế làm CI thất bại. Một phần không thể kiểm chứng trong bản này được in `BLOCKED: <gì> - <vì sao>`.
+
+**Máy chủ LSP thật trong CI.** `tests/verify-lsp-tier.mjs` luôn chạy với máy chủ LSP giả; `typescript-language-server` và `pyright` thật chỉ chạy khi tìm thấy (thư mục `node_modules` trong `CHATMCP_LSP_NODE_MODULES`, hoặc bản cài npm toàn cục) và nếu không thì chỉ in một dòng `skip`. Job Windows installer của CI dựng runtime đã khóa bằng `scripts/intelligence-runtime/stage.mjs` (đúng các tệp installer đóng gói) rồi chạy `CHATMCP_REQUIRE_REAL_LSP=1 CHATMCP_LSP_NODE_MODULES=<runtime>/runtimes/lsp/node_modules node CHATMCP-HUB/tests/verify-lsp-tier.mjs`: với biến này, thiếu một máy chủ thật là **lỗi** (và chỉ thư mục đó được tìm, bản cài toàn cục không thay thế được). Bộ `verify-lsp-real-gate` chạy chính tệp đó trong từng tình huống và đọc mã thoát. Bước CI này chưa từng chạy trên GitHub trong bản này; đã chạy cục bộ trên Windows 11 / Node 24 với typescript 5.9.3, typescript-language-server 4.3.4, pyright 1.1.407.
 
 Tổng thời gian cả bộ Node: khoảng 3 phút (Linux, 180 s đã đo) đến 4 phút (Windows, 243 s đã đo); bộ lâu nhất là `verify-e2e-recovery` (~57 s, vì phải giết và khởi động lại Hub nhiều lần).
 
@@ -101,7 +103,7 @@ Tổng thời gian cả bộ Node: khoảng 3 phút (Linux, 180 s đã đo) đ�
 | | `verify-local-tools` | các công cụ cục bộ trên workspace và kho Git thật; nhấn vào điều *không bao giờ* được xảy ra |
 | | `verify-permissions-modes`, `verify-full-access` | `PermissionGate`: ba chế độ, đường dẫn bị chặn, `sandbox-only`, Full Access, lịch sử phê duyệt |
 | | `verify-readonly-corpus`, `verify-full-access-always-ask`, `verify-spawn-limits`, `verify-batch-write` | chế độ Chỉ đọc chống lách lệnh (kho `tests/fixtures/readonly-bypass-corpus.json`), Full Access vẫn hỏi thao tác không hoàn tác, giới hạn độ sâu/số agent con, `files_write_batch` giữ mã hóa và chống ghi đè |
-| | `verify-skill-delivery`, `verify-source-lint`, `verify-lsp-tier`, `verify-trust-labels` | kỹ năng cài đặt thật sự tới mô hình, mã không còn dòng bị nuốt vào chú thích, tầng LSP trên workspace thật, cổng chặn nhãn tin cậy sai |
+| | `verify-skill-delivery`, `verify-source-lint`, `verify-lsp-tier`, `verify-lsp-real-gate`, `verify-trust-labels` | kỹ năng cài đặt thật sự tới mô hình, mã không còn dòng bị nuốt vào chú thích, tầng LSP trên workspace thật (máy chủ giả luôn chạy, máy chủ thật khi tìm thấy), cổng `CHATMCP_REQUIRE_REAL_LSP`, cổng chặn nhãn tin cậy sai |
 | **Tích hợp** | `verify-local-backend` | `HubManager` (backend `local`) + gate + công cụ + `AgentRunner` với mô hình giả; không cần Docker, mạng hay khóa |
 | | `verify-task-state` | máy trạng thái nhiệm vụ: luật thuần, cách `AgentRunner` áp dụng, kết luận về nhiệm vụ tìm thấy sau khi Hub chết |
 | | `verify-launcher` | launcher nền (`lib/launch.mjs`, và `Start/Stop-ChatMcpHub.ps1` trên Windows) |

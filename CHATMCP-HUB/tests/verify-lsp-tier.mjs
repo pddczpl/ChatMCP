@@ -8,8 +8,13 @@
 // -> LspProcess chain; only the language-server child process differs:
 //   * always:   tests/fixtures/stub-lsp-server.mjs, a protocol-faithful stdio LSP that answers from the real workspace files,
 //               installed in a temporary bundle with the layout of the staged runtime (runtimes/lsp/node_modules/...).
-//   * when found: the real typescript-language-server and pyright from a global npm install (the staged runtime under
-//               scripts/intelligence-runtime is not built on this machine), linked into the same bundle layout.
+//   * when found: the real typescript-language-server and pyright from the node_modules folder named by CHATMCP_LSP_NODE_MODULES (the
+//               staged runtime's runtimes/lsp/node_modules, or an `npm ci --ignore-scripts` of scripts/intelligence-runtime) or, failing
+//               that, from a global npm install, linked into the same bundle layout.
+//
+// CHATMCP_REQUIRE_REAL_LSP=1 turns "a real server was not found" from a skip line into a failure (the CI job that stages the runtime sets
+// it, like CHATMCP_REQUIRE_HOST_SUPERVISOR for the Windows host fixture). With CHATMCP_LSP_NODE_MODULES also set, only that folder counts,
+// so a global install cannot stand in for a runtime that lacks a package. tests/verify-lsp-real-gate.mjs tests this gate.
 // CLAIM: lsp-tier
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -28,6 +33,28 @@ const STUB = path.join(here, 'fixtures', 'stub-lsp-server.mjs');
 let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
 
+// ---- which real language servers an npm install can be found for (decided before anything is started) ------------------------------
+const requireRealLsp = process.env.CHATMCP_REQUIRE_REAL_LSP === '1';
+const candidates = [];
+if (process.env.CHATMCP_LSP_NODE_MODULES) candidates.push(process.env.CHATMCP_LSP_NODE_MODULES);
+if (!(requireRealLsp && process.env.CHATMCP_LSP_NODE_MODULES)) {
+  if (process.platform === 'win32' && process.env.APPDATA) candidates.push(path.join(process.env.APPDATA, 'npm', 'node_modules'));
+  else { try { candidates.push(execFileSync('npm', ['root', '-g'], { encoding: 'utf8', timeout: 15000 }).trim()); } catch { /* npm not on PATH */ } }
+}
+const findPackage = (name, entry) => candidates.find((candidate) => fsSync.existsSync(path.join(candidate, name, entry)));
+const realTypeScript = findPackage('typescript-language-server', 'lib/cli.mjs') && findPackage('typescript', 'lib/tsserver.js');
+const realPyright = findPackage('pyright', 'langserver.index.js');
+if (requireRealLsp) {
+  const missing = [];
+  if (!findPackage('typescript-language-server', 'lib/cli.mjs')) missing.push('typescript-language-server (lib/cli.mjs)');
+  if (!findPackage('typescript', 'lib/tsserver.js')) missing.push('typescript (lib/tsserver.js)');
+  if (!findPackage('pyright', 'langserver.index.js')) missing.push('pyright (langserver.index.js)');
+  if (missing.length) {
+    console.error(`not ok - CHATMCP_REQUIRE_REAL_LSP=1: the real language servers must run, but ${missing.join(', ')} not found in ${candidates.join(' or ') || '(no folder to look in: set CHATMCP_LSP_NODE_MODULES)'}`);
+    process.exit(1);
+  }
+}
+
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-lsp-tier-'));
 const spawnLog = path.join(root, 'spawns.log');
 const crashFile = path.join(root, 'crash-now');
@@ -35,6 +62,7 @@ process.env.CHATMCP_STUB_LSP_SPAWN_LOG = spawnLog;
 process.env.CHATMCP_STUB_LSP_CRASH_FILE = crashFile;
 const spawns = () => (fsSync.existsSync(spawnLog) ? fsSync.readFileSync(spawnLog, 'utf8').split('\n').filter(Boolean).length : 0);
 const toClose = [];
+let realServersRan = 'real typescript-language-server: skipped, real pyright: skipped';
 
 async function makeProject(name) {
   const project = path.join(root, name, 'project');
@@ -171,14 +199,9 @@ try {
     ok('three responses that cannot be translated open the breaker (the success counter is only reset after translation)');
   }
 
-  // ---- 4. optional: the real language servers, for each one an npm install can be found for ------------------------------------
-  const candidates = [];
-  if (process.env.CHATMCP_LSP_NODE_MODULES) candidates.push(process.env.CHATMCP_LSP_NODE_MODULES);
-  if (process.platform === 'win32' && process.env.APPDATA) candidates.push(path.join(process.env.APPDATA, 'npm', 'node_modules'));
-  else { try { candidates.push(execFileSync('npm', ['root', '-g'], { encoding: 'utf8', timeout: 15000 }).trim()); } catch { /* npm not on PATH */ } }
-  const findPackage = (name, entry) => candidates.find((candidate) => fsSync.existsSync(path.join(candidate, name, entry)));
-  const realTypeScript = findPackage('typescript-language-server', 'lib/cli.mjs') && findPackage('typescript', 'lib/tsserver.js');
-  const realPyright = findPackage('pyright', 'langserver.index.js');
+  // ---- 4. the real language servers, for each one an npm install was found for (all of them when CHATMCP_REQUIRE_REAL_LSP=1) -----
+  let ranTypeScript = false;
+  let ranPyright = false;
   if (!realTypeScript && !realPyright) {
     console.log('  skip - no real typescript-language-server (with typescript/lib/tsserver.js) or pyright found; the protocol-faithful stub covered the production seam');
   } else {
@@ -213,6 +236,7 @@ try {
       const references = await call(local, 'find_references', { symbol: 'calculateSum', path: 'src/entry.mjs' });
       assert.equal(references.tier, 'lsp', `real typescript-language-server references (fallbackReason=${references.fallbackReason})`);
       ok('real typescript-language-server answers find_definition and find_references on the production seam');
+      ranTypeScript = true;
     } else {
       console.log('  skip - real typescript-language-server: no typescript package with lib/tsserver.js (a global typescript 7 ships none)');
     }
@@ -223,13 +247,17 @@ try {
       assert.equal(python.fallbackReason, null);
       assert.equal(python.definitions[0].file, 'src/calc.py');
       ok('real pyright-langserver answers find_definition on the production seam');
+      ranPyright = true;
     }
   }
+  // The gate above guarantees both ran when they are required; this is the same fact, stated where a CI log is read.
+  if (requireRealLsp) assert.ok(ranTypeScript && ranPyright, 'CHATMCP_REQUIRE_REAL_LSP=1: both real servers must have run');
+  realServersRan = `real typescript-language-server: ${ranTypeScript ? 'ran' : 'skipped'}, real pyright: ${ranPyright ? 'ran' : 'skipped'}`;
 } finally {
   for (const intelligence of toClose) intelligence.close();
   await new Promise((resolve) => setTimeout(resolve, 200));
   await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }).catch(() => {});
 }
 
-console.log(`PASS: ${checks} LSP tier checks`);
+console.log(`PASS: ${checks} LSP tier checks (${realServersRan})`);
 process.exit(0);

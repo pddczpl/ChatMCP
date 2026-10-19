@@ -158,6 +158,24 @@ jobs:
       - name: Required installer payload and cleanup regression tests
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Test-InstallerPayload.ps1
+      - name: Stage the locked intelligence runtime (the files the installer ships) for the real language-server test
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd scripts/intelligence-runtime
+          npm ci --ignore-scripts --no-audit --no-fund
+          node stage.mjs "$RUNNER_TEMP/chatmcp-intelligence-runtime"
+          node verify.mjs "$RUNNER_TEMP/chatmcp-intelligence-runtime"
+      # Without this step CI only ever ran the stub language server. CHATMCP_REQUIRE_REAL_LSP=1 makes a missing real server a failure
+      # (the test would otherwise print a skip line and still pass); CHATMCP_LSP_NODE_MODULES makes the staged runtime the only place it looks.
+      - name: Real TypeScript and Pyright language servers through the production seam (a skipped server fails)
+        shell: bash
+        env:
+          CHATMCP_REQUIRE_REAL_LSP: '1'
+        run: |
+          set -euo pipefail
+          export CHATMCP_LSP_NODE_MODULES="$RUNNER_TEMP/chatmcp-intelligence-runtime/runtimes/lsp/node_modules"
+          node CHATMCP-HUB/tests/verify-lsp-tier.mjs
       - name: Build fresh UI and Windows installer
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Installer.ps1
