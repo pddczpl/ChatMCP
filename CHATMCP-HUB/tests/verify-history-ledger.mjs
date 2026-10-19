@@ -280,6 +280,7 @@ class LedgerWriter {
 function playConversation(rand, writer, serial) {
   const stats = { batches: 0, multiCall: 0, aborted: 0, host: Object.fromEntries(HOST_KINDS.map((kind) => [kind, 0])) };
   const expected = [];
+  const unanswered = [];
   const waiting = [];
   let open = false;
   let counter = 0;
@@ -319,7 +320,7 @@ function playConversation(rand, writer, serial) {
     inject();
     const aborted = callCount > 0 && turn === turns - 1 && rand() < 0.12;
     const answered = aborted ? Math.floor(rand() * callCount) : callCount;
-    if (aborted) stats.aborted += 1;
+    if (aborted) { stats.aborted += 1; unanswered.push(...calls.slice(answered).map((entry) => entry.call_id)); }
     for (let i = 0; i < answered; i += 1) {
       const result = `result of ${calls[i].call_id}`;
       writer.appendToolOutput(calls[i].call_id, result);
@@ -331,7 +332,7 @@ function playConversation(rand, writer, serial) {
     expected.push(...waiting.splice(0));
     inject();
   }
-  return { expected, stats };
+  return { expected, stats, unanswered };
 }
 
 /** A tool message after a user message that follows the assistant message which asked for it. */
@@ -403,7 +404,7 @@ const violationsOf = (protocol, history) => {
 const CONVERSATIONS = 200;
 const G11 = {};
 for (const [index, protocol] of Object.keys(PIPELINES).entries()) {
-  const result = { conversations: 0, batches: 0, multiCall: 0, aborted: 0, host: 0, hostByKind: Object.fromEntries(HOST_KINDS.map((kind) => [kind, 0])), ledger: 0, raw: 0 };
+  const result = { conversations: 0, batches: 0, multiCall: 0, aborted: 0, host: 0, hostByKind: Object.fromEntries(HOST_KINDS.map((kind) => [kind, 0])), ledger: 0, raw: 0, unchanged: 0, repaired: 0 };
   for (let n = 0; n < CONVERSATIONS; n += 1) {
     const seed = (SEED + index * 1000003 + n * 7919) >>> 0;
     const viaLedger = new LedgerWriter();
@@ -411,6 +412,23 @@ for (const [index, protocol] of Object.keys(PIPELINES).entries()) {
     const viaRaw = new RawWriter();
     playConversation(mulberry32(seed), viaRaw, { value: n * 100 });
     assert.deepEqual(viaLedger.history(), planned.expected, `conversation ${n} (${protocol}): the ledger holds exactly the history the rules describe`);
+    // The ledger produces the layout pairToolCalls() assumes (calls, all their results, then the rest), so the adapters' repair is the
+    // identity on it. For a turn that was cut short the only thing it adds is a result for each call that never got one, placed
+    // before the host messages that follow, and it removes nothing.
+    const kept = viaLedger.history();
+    const paired = pairToolCalls(kept);
+    const added = paired.filter((item) => !kept.includes(item));
+    assert.deepEqual(paired.filter((item) => kept.includes(item)), kept, `conversation ${n} (${protocol}): pairToolCalls drops and reorders nothing`);
+    assert.deepEqual(added.map((item) => item.call_id).sort(), [...planned.unanswered].sort(), `conversation ${n} (${protocol}): it adds results for exactly the calls that never got one`);
+    assert.ok(added.every((item) => item.type === 'function_call_output'));
+    paired.forEach((item, index) => {
+      if (!added.includes(item)) return;
+      let after = index + 1;
+      while (added.includes(paired[after])) after += 1;
+      assert.ok(paired[after] === undefined || paired[after].role === 'user', `conversation ${n} (${protocol}): a repaired result is followed by a host message or the end, never by another model item`);
+    });
+    result.unchanged += added.length === 0 ? 1 : 0;
+    result.repaired += added.length === 0 ? 0 : 1;
     const mine = violationsOf(protocol, viaLedger.history());
     assert.deepEqual(mine, [], `conversation ${n} (${protocol}): tool>user>tool through the ledger: ${JSON.stringify(mine)}`);
     result.conversations += 1;
@@ -426,7 +444,8 @@ for (const [index, protocol] of Object.keys(PIPELINES).entries()) {
   assert.ok(result.multiCall >= 100, `${protocol}: most batches must have 2+ calls, the only ones that can show the defect (got ${result.multiCall})`);
   for (const kind of HOST_KINDS) assert.ok(result.hostByKind[kind] >= 50, `${protocol}: host message kind ${kind} was injected enough (got ${result.hostByKind[kind]})`);
   assert.equal(result.ledger, 0, `${protocol}: violations through the ledger`);
-  note(`G1-1 ${protocol}: ${result.conversations} conversations, ${result.batches} batches (${result.multiCall} with 2+ calls, ${result.aborted} cut short), ${result.host} host messages (${HOST_KINDS.map((kind) => `${kind} ${result.hostByKind[kind]}`).join(', ')}); tool>user>tool violations: ledger ${result.ledger}, raw-array control ${result.raw}`);
+  note(`G1-1 ${protocol}: ${result.conversations} conversations, ${result.batches} batches (${result.multiCall} with 2+ calls, ${result.aborted} cut short), ${result.host} host messages (${HOST_KINDS.map((kind) => `${kind} ${result.hostByKind[kind]}`).join(', ')}); tool>user>tool violations: ledger ${result.ledger}, raw-array control ${result.raw}; pairToolCalls is the identity on ${result.unchanged} of these histories and repairs only ${result.repaired} cut-short ones`);
+  assert.equal(result.repaired, result.aborted, `${protocol}: pairToolCalls repairs exactly the conversations that were cut short`);
 }
 assert.ok(G11.chat.raw > 0, 'the control must show the defect on Chat Completions or the checker is blind');
 assert.ok(G11.responses.raw > 0, 'the control must show the defect on Responses or the checker is blind');
