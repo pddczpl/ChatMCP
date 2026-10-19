@@ -32,7 +32,7 @@ try {
     assert.match(html, /role="status"/);
     assert.match(html, /Context window unknown/);
     assert.match(html, /32,768/);
-    assert.match(html, /Settings/);
+    assert.match(html, /AI Model tab/, 'it names where the fix is');
     assert.match(html, /context window/i);
     assert.match(html, /text-amber-/, 'it is styled as a warning');
     assert.doesNotMatch(html, /\(estimated\)/, 'the old muted chip is gone');

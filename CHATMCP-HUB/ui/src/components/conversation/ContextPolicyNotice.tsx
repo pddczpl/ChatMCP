@@ -24,7 +24,7 @@ export function ContextPolicyNotice({ policy }: { policy: ContextPolicy }) {
         className="inline-flex items-center gap-1 text-amber-400">
         <AlertTriangle className="w-3 h-3 flex-shrink-0" aria-hidden="true" />
         Context window unknown — planning with {grouped(policy.capacityTokens)} tokens.
-        Set the model&apos;s context window in Settings → Model (or in its model profile) to the real size.
+        Set the model&apos;s context window in the AI Model tab (or in its model profile) to the real size.
       </span>
     );
   }
