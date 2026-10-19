@@ -9,6 +9,9 @@
 *.cmd  eol=crlf
 *.bat  eol=crlf
 *.ps1  eol=crlf
+# The license text is distributed byte for byte (it is compared with the canonical Apache-2.0 text).
+LICENSE eol=lf
+NOTICE  eol=lf
 
 # Binary files
 *.png   binary
