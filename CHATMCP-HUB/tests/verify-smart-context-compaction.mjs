@@ -87,6 +87,12 @@ try{
         if(received[0].output.length < big.length)sawCompact=true;
         assert.equal(received.at(-1).output.includes(big.slice(0,90)),true,
           'newest tool output must remain available to model');
+        // The compaction works on the copy that is sent. The ledger (the canonical history) still holds every result in full,
+        // although its snapshot is a shallow copy that shares the items with it.
+        const canonical=runner.context.history.snapshotForModel().filter(x=>x.type==='function_call_output');
+        assert.equal(canonical.length,received.length,'the ledger holds every result the model was offered');
+        assert.ok(canonical[0].output.length>big.length,'the ledger keeps the first result in full');
+        assert.ok(canonical[0].output.length>received[0].output.length,'only the copy sent to the model was compacted');
       }
       if(steps<=12)return {status:'completed',output:[{
         type:'function_call',call_id:'call-'+steps,name:'read_file',status:'completed',
