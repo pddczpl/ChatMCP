@@ -17,11 +17,9 @@ Hub **không có bước build** và không có dependency bắt buộc để `n
 
 ## Dynamic task tool schemas
 
-Set `CHATMCP_TOOL_SELECTION=auto` to select at most 48 task-relevant LocalTools
-for each task, plus the four internal routers. Default is `full` for backward
-compatibility with existing providers and scripts. Tools not directly advertised
-remain registered in the original catalog and reachable via internal
-`mcp_catalog`, `mcp_describe`, `mcp_call` behind PermissionGate.
+The Hub offers each task either all 99 LocalTools plus the four internal routers (103 schemas, about 15.4k tokens) or the at most 48 LocalTools relevant to the prompt plus the routers (3-7k tokens). The foreground chat (the primary runner) follows the context window of the model of the task it starts: an unknown window, or one below 65,536 tokens, gets the selection; 65,536 or more keeps the full list. Background chats always use the selection. `CHATMCP_TOOL_SELECTION=auto` or `=full` overrides the choice either way, and a runner built without a mode (as the tests do) is still `full`. Tools not directly advertised remain registered in the original catalog and reachable via internal `mcp_catalog`, `mcp_describe`, `mcp_call` behind PermissionGate. Measured through the real runner and catalog for a coding prompt against an unconfigured window: fixed overhead 15.4k -> 8.2k tokens, history 10.3k -> 15.3k tokens.
+
+An unknown context window is planned as 32,768 tokens and shown as a warning on the task (`conservative_fallback`). The request may still ask for the full default output (16,384 tokens; v3.9.0 sent 18% of the estimate, 5,898, which ends a reasoning answer as incomplete) while the history is planned against a quarter of the estimate. A window is 4,096..2,000,000 tokens everywhere it can be set (`lib/context-window.mjs`): smaller is refused with `invalid_context_window`, larger is clamped.
 Selection does not remove tool permissions and must be benchmarked before
 claiming lower total request consumption.
 Parallel coding workers use the bounded 48-schema `auto` selection by default; the ordinary single-agent flow keeps its existing full-tool default unless configured.
@@ -322,8 +320,8 @@ ChatMCP is a standalone local desktop app; no IDE/VS Code integration is needed.
 ## Cached and reasoning-token usage diagnostics
 
 Agent tasks now preserve provider-reported cache hits, cache writes and
-reasoning tokens separately from total input/output. Anthropic prompt caching
-is requested only for its native preset; compatible gateways remain conservative.
+reasoning tokens separately from total input/output. Prompt caching (`cache_control`)
+is requested from endpoints known to accept it, a `promptCaching` flag in `lib/provider-presets.mjs`: the `anthropic` preset and any connection or model profile aimed at api.anthropic.com; compatible gateways remain conservative.
 OpenAI-compatible Chat Completions and Gemini include cache and reasoning
 telemetry when returned by the provider. Missing or zero usage fields are
 **unknown or zero as reported**, not verified billing savings. Reports and

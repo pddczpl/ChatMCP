@@ -16,7 +16,7 @@ This checkpoint records partial work against the owner-authorized complete ChatM
 ## Completed task/profile UI and regression wiring
 
 - Main React conversation composer supports selecting a saved task model profile, explicitly selecting the global gateway, and optional role-specific profile IDs.
-- React AI Settings supports creating, editing, deleting and setting a default model profile without returning decrypted keys. Stored credentials are cleared on origin changes; explicit key-clearing and environment references are supported.
+- React AI Settings supports creating, editing, deleting and setting a default model profile without returning decrypted keys. Stored credentials are cleared on origin changes; explicit key-clearing and environment references are supported. A profile also carries an optional custom API path and custom HTTP headers: header values are sealed with the same key store as the key, bound to the origin they were saved for, dropped with the key when the destination changes, and never returned (names only); a task forked from a profile keeps both, and keeps Anthropic prompt caching when the profile points at api.anthropic.com.
 - Role keys are canonicalized for model-generated names such as Reviewer / Independent verifier; invalid or duplicate mappings are rejected.
 - Deterministic tests cover parent-to-subagent model routing, immutable profile revisions on resume, credential-free persisted task metadata, and role mapping validation. Browser E2E now includes a loopback-model task using a profile created through React Settings.
 - These are source and test changes; exact-commit CI and live provider acceptance remain mandatory before making a feature or release certification.
