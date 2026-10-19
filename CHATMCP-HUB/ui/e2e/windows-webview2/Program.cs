@@ -1,4 +1,7 @@
+using System.Net;
+using System.Net.Http;
 using System.Text.Json;
+using ChatMCP.Native;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
@@ -15,20 +18,20 @@ internal static class Program
         Console.InputEncoding = System.Text.Encoding.UTF8;
         var width = 1600;
         var height = 1000;
-        if ((args.Length != 2 && args.Length != 4) || !Uri.TryCreate(args[0], UriKind.Absolute, out var url)
+        if ((args.Length != 3 && args.Length != 5) || !Uri.TryCreate(args[0], UriKind.Absolute, out var url)
             || url.Scheme != "http" || url.Host != "127.0.0.1" || url.Port == 3007)
         {
-            Console.Error.WriteLine("FAIL: Supply an isolated loopback Hub URL and temporary WebView2 profile.");
+            Console.Error.WriteLine("FAIL: Supply an isolated loopback Hub URL, a temporary WebView2 profile and that Hub's state directory.");
             return 1;
         }
-        if (args.Length == 4 && (!int.TryParse(args[2], out width) || !int.TryParse(args[3], out height)
+        if (args.Length == 5 && (!int.TryParse(args[3], out width) || !int.TryParse(args[4], out height)
             || width < 640 || width > 1920 || height < 480 || height > 1200))
         {
             Console.Error.WriteLine("FAIL: Optional window width and height must be within 640–1920 and 480–1200.");
             return 1;
         }
         ApplicationConfiguration.Initialize();
-        using var form = new SmokeWindow(url, args[1], new Size(width, height));
+        using var form = new SmokeWindow(url, args[1], args[2], new Size(width, height));
         Application.Run(form);
         return Result;
     }
@@ -39,15 +42,18 @@ internal sealed class SmokeWindow : Form
     private readonly WebView2 browser = new() { Dock = DockStyle.Fill };
     private readonly Uri origin;
     private readonly string profile;
+    private readonly string stateDirectory;
     private readonly List<string> errors = [];
     private readonly HashSet<string> requests = [];
     private readonly List<string> passed = [];
+    private readonly List<string> newWindowUris = [];
     private readonly Size requestedSize;
 
-    public SmokeWindow(Uri origin, string profile, Size requestedSize)
+    public SmokeWindow(Uri origin, string profile, string stateDirectory, Size requestedSize)
     {
         this.origin = origin;
         this.profile = profile;
+        this.stateDirectory = stateDirectory;
         this.requestedSize = requestedSize;
         // WebView2 needs a native window/message pump. Keep the harness invisible,
         // off screen and out of the taskbar; it never opens the user's desktop app.
@@ -75,6 +81,59 @@ internal sealed class SmokeWindow : Form
         }
         var body = await browser.CoreWebView2.ExecuteScriptAsync("JSON.stringify({width:innerWidth,height:innerHeight,body:document.body?.innerText?.slice(0,2500)})");
         throw new TimeoutException($"Waiting for {label}: {body}");
+    }
+
+    /// <summary>
+    /// What the desktop shell does before it shows the dashboard, run with the shell's own code: an API call without the secret
+    /// is refused, the session file of the process listening on the port is readable, and the secret buys a one-time ticket.
+    /// </summary>
+    private async Task<string> SignInUrl()
+    {
+        using var client = new HttpClient(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(10) };
+        var authority = origin.GetLeftPart(UriPartial.Authority);
+        using (var bare = await client.GetAsync(authority + "/api/state"))
+        {
+            var body = await bare.Content.ReadAsStringAsync();
+            if (bare.StatusCode != HttpStatusCode.Unauthorized || body.Contains("csrfToken"))
+                throw new InvalidOperationException($"An API call without the session secret must be refused with 401 and no token, got {(int)bare.StatusCode}.");
+            passed.Add("Hub refuses an API call without the session secret");
+        }
+        var session = HubSession.ReadForListener(stateDirectory, origin.Port)
+            ?? throw new InvalidOperationException("The shell code could not read run/hub-session.json for the process listening on the port.");
+        passed.Add("shell reads the session file of the listening Hub");
+        var ticket = await HubSession.RequestTicket(client, authority, session.Secret);
+        passed.Add("shell obtains a one-time ticket with the bearer secret");
+        return HubSession.DashboardUrl(authority, ticket);
+    }
+
+    /// <summary>
+    /// pod-9: a link whose address holds a backslash, a single and a double quote and a script end tag reaches the page as the
+    /// exact string WebView2 reported, and runs nothing. Addresses that are not http/https are dropped by the shell.
+    /// The characters sit in the fragment, where Chromium keeps them as written.
+    /// </summary>
+    private async Task CheckNewWindowBridge()
+    {
+        var listener = "window.__opened = []; window.__pwned = 0; window.addEventListener('chatmcp:open-in-app-tab', event => window.__opened.push(event.detail.url)); true";
+        await browser.CoreWebView2.ExecuteScriptAsync(listener);
+        var hostile = origin.GetLeftPart(UriPartial.Authority) + "/#back\\slash'quote\"dq</script><img src=x onerror=window.__pwned=1>";
+        await browser.CoreWebView2.ExecuteScriptAsync("window.open(" + JsonSerializer.Serialize(hostile) + ", '_blank'); true");
+        await WaitFor("window.__opened.length === 1", "the page received the forwarded link");
+        if (newWindowUris.Count != 1) throw new InvalidOperationException($"Expected one new-window request, saw {newWindowUris.Count}.");
+        var reported = newWindowUris[0];
+        if (!reported.Contains('\\') || !reported.Contains('\'') || !reported.Contains("</script>", StringComparison.OrdinalIgnoreCase) && !reported.Contains("%3C/script%3E", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("WebView2 normalised the test address so it no longer holds a backslash, a quote and a script end tag: " + reported);
+        var received = JsonSerializer.Deserialize<string[]>(await browser.CoreWebView2.ExecuteScriptAsync("window.__opened")) ?? [];
+        if (received.Length != 1 || !string.Equals(received[0], reported, StringComparison.Ordinal))
+            throw new InvalidOperationException($"The link changed on its way to the page.\nWebView2 reported: {reported}\nThe page received: {string.Join(" | ", received)}");
+        passed.Add("a link with a backslash, quotes and </script> reached the page as the exact URL string");
+        if (await browser.CoreWebView2.ExecuteScriptAsync("window.__pwned") != "0") throw new InvalidOperationException("The link ran script in the page.");
+        passed.Add("and ran no script");
+        await browser.CoreWebView2.ExecuteScriptAsync("window.open('about:blank', '_blank'); window.open('javascript:window.__pwned=2', '_blank'); window.open('file:///C:/Windows/win.ini', '_blank'); true");
+        await Task.Delay(1500);
+        var opened = int.Parse(await browser.CoreWebView2.ExecuteScriptAsync("window.__opened.length"));
+        if (opened != 1 || await browser.CoreWebView2.ExecuteScriptAsync("window.__pwned") != "0")
+            throw new InvalidOperationException("A non-http(s) address reached the page or ran script.");
+        passed.Add("about:, javascript: and file: addresses are dropped by the shell");
     }
 
     private async Task SelectInspectorTab(string title)
@@ -131,7 +190,11 @@ internal sealed class SmokeWindow : Form
                   originalError.apply(console, args);
                 };
                 """);
-            browser.CoreWebView2.Navigate(origin.ToString());
+            // The shipped shell code (native-shared): the new-window bridge, then the Hub's session file and a one-time ticket.
+            WebViewBridge.AttachNewWindowHandler(browser.CoreWebView2);
+            browser.CoreWebView2.NewWindowRequested += (_, link) => newWindowUris.Add(link.Uri);
+            browser.CoreWebView2.Navigate(await SignInUrl());
+            await WaitFor("location.hash === '' && Boolean(sessionStorage.getItem('chatmcp.hub-session'))", "page traded the ticket for the session and removed it from the address");
             await WaitFor("document.querySelector('#root header')", "current React root rendered");
             await WaitFor("document.querySelector('[role=dialog][aria-label=\"Thiết lập ChatMCP\"]')", "fresh onboarding rendered");
             await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('[aria-label=\"Đóng thiết lập\"]').click()");
@@ -152,6 +215,7 @@ internal sealed class SmokeWindow : Form
             await WaitFor("document.querySelector('[aria-label=\"Task plan\"]')?.innerText.includes('Chưa có kế hoạch')", "empty plan reports no plan");
             var fabricated = await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('[aria-label=\"Task plan\"]')?.innerText.includes('100%')");
             if (fabricated == "true") throw new InvalidOperationException("Empty plan claimed 100% completion.");
+            await CheckNewWindowBridge();
             if (errors.Count > 0) throw new InvalidOperationException(string.Join("; ", errors));
             foreach (var route in new[] { "/api/state", "/api/plugins/marketplace", "/api/plugins/registry" })
                 if (!requests.Contains(route)) throw new InvalidOperationException($"Missing real API request: {route}");
