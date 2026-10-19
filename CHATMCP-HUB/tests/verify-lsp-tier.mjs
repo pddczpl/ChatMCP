@@ -22,7 +22,7 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { LocalTools } from '../lib/local-tools.mjs';
 import { CodeIntelligence } from '../lib/studio-intelligence.mjs';
@@ -59,7 +59,9 @@ const root = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-lsp-tier-'));
 const spawnLog = path.join(root, 'spawns.log');
 const crashFile = path.join(root, 'crash-now');
 process.env.CHATMCP_STUB_LSP_SPAWN_LOG = spawnLog;
+const coldFile = path.join(root, 'cold-now');
 process.env.CHATMCP_STUB_LSP_CRASH_FILE = crashFile;
+process.env.CHATMCP_STUB_LSP_COLD_FILE = coldFile;
 const spawns = () => (fsSync.existsSync(spawnLog) ? fsSync.readFileSync(spawnLog, 'utf8').split('\n').filter(Boolean).length : 0);
 const toClose = [];
 let realServersRan = 'real typescript-language-server: skipped, real pyright: skipped';
@@ -199,7 +201,82 @@ try {
     ok('three responses that cannot be translated open the breaker (the success counter is only reset after translation)');
   }
 
-  // ---- 4. the real language servers, for each one an npm install was found for (all of them when CHATMCP_REQUIRE_REAL_LSP=1) -----
+  // ---- 4. a cold server first answers with the import binding of the queried file; that is not the definition ----------------------
+  // Measured with typescript-language-server 4.3.4 / typescript 5.9.3 outside ChatMCP: the first answer on a call site AND on the import
+  // specifier is src/entry.mjs:1:10 (the alias), the declaration in src/math.mjs follows after about a second. The stub reproduces that
+  // (CHATMCP_STUB_LSP_COLD_FILE). The binding must not outrank a declaration the heuristic tier found in another file, and must not vanish.
+  {
+    const { project, workspace, local } = await production('stub-cold', await stubBundle('stub-cold'));
+    await fs.writeFile(path.join(project, 'src', 'multi.mjs'), "import {\n  calculateSum,\n  other,\n} from './math.mjs';\nexport const total = calculateSum(3, 4);\n");
+    await fs.writeFile(path.join(project, 'src', 'ghost.mjs'), "import { ghost } from 'ghost-package';\nghost();\n");
+    const definitions = (context, symbol) => call(local, 'find_definition', { symbol, context_path: context });
+    const at = (result, file, line) => result.definitions.findIndex((definition) => definition.file === file && definition.line === line);
+
+    // The parser's import pattern runs lazily up to the first `from '...'`: a side-effect import followed, lines later, by a re-export
+    // makes one match over all lines in between, and a declaration inside that span must not be taken for an import binding.
+    await fs.writeFile(path.join(project, 'src', 'spanning.mjs'), "import './setup.mjs';\nexport function uniqueName() {}\nexport { other } from './other.mjs';\n");
+    const spanning = await definitions('src/spanning.mjs', 'uniqueName');
+    assert.deepEqual([spanning.definitions[0].file, spanning.definitions[0].line, spanning.definitions[0].tier], ['src/spanning.mjs', 2, 'lsp'], JSON.stringify(spanning.definitions.map((d) => [d.file, d.line, d.tier, d.kind])));
+    assert.equal(spanning.tier, 'lsp');
+    ok('a declaration between a side-effect import and a later re-export is the LSP answer and stays first (never taken for an import binding)');
+
+    await fs.writeFile(coldFile, 'binding');
+
+    const declarationFile = await definitions('src/math.mjs', 'calculateSum');
+    assert.equal(declarationFile.tier, 'lsp', `a name that the queried file declares is answered by the LSP (fallbackReason=${declarationFile.fallbackReason})`);
+    assert.deepEqual([declarationFile.definitions[0].file, declarationFile.definitions[0].line, declarationFile.definitions[0].tier], ['src/math.mjs', 1, 'lsp']);
+    ok('cold server, query from the declaring file: the LSP answer is the declaration and stays first (same file as the query, not an import)');
+
+    const cold = await definitions('src/entry.mjs', 'calculateSum');
+    const bindingAt = at(cold, 'src/entry.mjs', 1);
+    assert.ok(bindingAt >= 0, `the LSP import binding must stay in the list: ${JSON.stringify(cold.definitions.map((d) => [d.file, d.line, d.tier]))}`);
+    assert.equal(cold.definitions[bindingAt].tier, 'lsp');
+    assert.deepEqual([cold.definitions[0].file, cold.definitions[0].line], ['src/math.mjs', 1], 'the declaration found by the heuristic tier is the first answer');
+    assert.notEqual(cold.definitions[0].tier, 'lsp');
+    assert.ok(bindingAt > 0, 'the binding ranks behind the declaration');
+    assert.equal(cold.tier, cold.definitions[0].tier);
+    assert.equal(cold.fallbackUsed, true, 'the first answer comes from the fallback tier, and the result says so');
+    assert.equal(cold.fallbackReason, 'lsp_import_binding_only');
+    ok('cold server answers with the import binding only: the heuristic declaration (src/math.mjs) ranks first, the binding stays listed behind it, the result says why');
+
+    await fs.writeFile(coldFile, 'binding-then-declaration');
+    const both = await definitions('src/entry.mjs', 'calculateSum');
+    assert.deepEqual([both.definitions[0].file, both.definitions[0].line, both.definitions[0].tier], ['src/math.mjs', 1, 'lsp'], 'the LSP declaration is first');
+    assert.equal(both.tier, 'lsp');
+    assert.equal(both.fallbackUsed, false);
+    const lastDeclaration = Math.max(...both.definitions.map((d, index) => (d.file === 'src/math.mjs' ? index : -1)));
+    assert.ok(at(both, 'src/entry.mjs', 1) > lastDeclaration, 'the import binding ranks behind every declaration');
+    ok('cold server answers binding then declaration: the LSP declaration is first, the binding ranks behind all declarations');
+
+    await fs.writeFile(coldFile, 'binding');
+    const multi = await definitions('src/multi.mjs', 'calculateSum');
+    assert.deepEqual([multi.definitions[0].file, multi.definitions[0].line], ['src/math.mjs', 1]);
+    assert.ok(at(multi, 'src/multi.mjs', 2) > 0, `the binding inside a multi-line import statement is recognised and kept: ${JSON.stringify(multi.definitions.map((d) => [d.file, d.line, d.tier]))}`);
+    ok('an import binding on the second line of a multi-line import statement is demoted like a one-line one');
+
+    const ghost = await definitions('src/ghost.mjs', 'ghost');
+    assert.deepEqual(ghost.definitions.map((d) => [d.file, d.line, d.tier]), [['src/ghost.mjs', 1, 'lsp']], 'with no declaration anywhere the binding is still the answer');
+    assert.equal(ghost.tier, 'lsp');
+    ok('an import binding with no declaration in the workspace is still returned (demoted, never hidden)');
+
+    const python = await definitions('src/use.py', 'total');
+    assert.deepEqual([python.definitions[0].file, python.definitions[0].line], ['src/calc.py', 1]);
+    assert.notEqual(python.definitions[0].tier, 'lsp');
+    assert.ok(at(python, 'src/use.py', 1) > 0, 'the Python import binding stays listed behind the declaration');
+    ok('the same holds for a Python "from calc import total" binding');
+    await fs.rm(coldFile, { force: true });
+
+    // Only the queried file's own import statement is an alias binding. An answer in another file stays what the server said, even when
+    // it sits on a re-export (the engine does not second-guess where a server points).
+    await fs.writeFile(path.join(project, 'src', 'barrel.mjs'), "export { calculateSum } from './math.mjs';\n");
+    const barrel = { async lspRequest() { return { result: [{ uri: pathToFileURL(path.join(project, 'src', 'barrel.mjs')).href, range: { start: { line: 0, character: 9 }, end: { line: 0, character: 21 } } }] }; } };
+    const elsewhere = await new CodeIntelligenceEngine({ workspace, studioIntelligence: barrel }).findDefinition({ symbol: 'calculateSum', contextPath: 'src/entry.mjs' });
+    assert.deepEqual([elsewhere.structured.definitions[0].file, elsewhere.structured.definitions[0].tier, elsewhere.structured.definitions[0].kind], ['src/barrel.mjs', 'lsp', 'definition']);
+    assert.equal(elsewhere.structured.tier, 'lsp');
+    ok('an LSP answer in another file than the query (a re-export in a barrel) is not treated as the query file\'s import binding');
+  }
+
+  // ---- 5. the real language servers, for each one an npm install was found for (all of them when CHATMCP_REQUIRE_REAL_LSP=1) -----
   let ranTypeScript = false;
   let ranPyright = false;
   if (!realTypeScript && !realPyright) {
@@ -228,6 +305,12 @@ try {
       }
     };
     if (realTypeScript) {
+      // Before the warm-up, on the cold server: whatever it answers first (the import binding in src/entry.mjs, or nothing within the
+      // engine's budget), the first definition is the declaration in src/math.mjs.
+      const first = await call(local, 'find_definition', { symbol: 'calculateSum', context_path: 'src/entry.mjs' });
+      assert.deepEqual([first.definitions[0].file, first.definitions[0].line], ['src/math.mjs', 1], `cold real server: ${JSON.stringify(first.definitions.map((d) => [d.file, d.line, d.tier, d.kind]))}`);
+      const coldBinding = first.definitions.find((definition) => definition.kind === 'import-binding');
+      console.log(`  note - the real server's cold answer ${coldBinding ? `was the import binding ${coldBinding.file}:${coldBinding.line}, ranked behind the declaration` : 'was not an import binding (already warm, or no answer within the engine budget)'}`);
       await warmUp('typescript', 'src/entry.mjs', 2, 29, '/src/math.mjs');
       const definition = await call(local, 'find_definition', { symbol: 'calculateSum', context_path: 'src/entry.mjs' });
       assert.equal(definition.tier, 'lsp', `real typescript-language-server (fallbackReason=${definition.fallbackReason})`);
