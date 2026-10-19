@@ -27,17 +27,23 @@ const labelOk = (expected, labels) => (GENERIC.has(expected) ? Object.keys(label
 const samples = positives();
 const formats = new Set(samples.map((sample) => sample.label));
 const missed = [], mislabeled = [];
+// Each sample is tried bare and inside surrounding lines: a rule that only works at the start of the text is not a rule.
+const framings = [(text) => text, (text) => `// config\n${text}\nexport default {};\n`, (text) => `output of the command:\r\n${text}\r\n(exit 0)`];
+let trials = 0;
 for (const sample of samples) {
-  const report = redactText(sample.text);
-  if (report.text.includes(sample.secret)) missed.push(`${sample.label}: ${JSON.stringify(sample.text).slice(0, 80)}`);
-  else if (!labelOk(sample.label, report.labels)) mislabeled.push(`${sample.label} -> ${Object.keys(report.labels).join(',')}`);
+  for (const [index, frame] of framings.entries()) {
+    trials++;
+    const report = redactText(frame(sample.text));
+    if (report.text.includes(sample.secret)) missed.push(`${sample.label}[frame ${index}]: ${JSON.stringify(sample.text).slice(0, 80)}`);
+    else if (!labelOk(sample.label, report.labels)) mislabeled.push(`${sample.label} -> ${Object.keys(report.labels).join(',')}`);
+  }
 }
-const recall = (samples.length - missed.length) / samples.length;
+const recall = (trials - missed.length) / trials;
 check(formats.size >= 25, 'at least 25 secret formats are exercised', `${formats.size}`);
 check(samples.length >= 100, 'at least 100 positive samples', `${samples.length}`);
 check(recall >= 0.95, `recall >= 0.95`, `${recall.toFixed(3)}; missed: ${missed.join(' | ')}`);
 check(mislabeled.length === 0, 'every secret is attributed to the rule that was written for it', mislabeled.join(' | '));
-console.log(`PASS recall: ${formats.size} formats, ${samples.length} samples, recall ${recall.toFixed(3)} (${missed.length} missed)`);
+console.log(`PASS recall: ${formats.size} formats, ${samples.length} samples x ${framings.length} framings = ${trials} trials, recall ${recall.toFixed(3)} (${missed.length} missed)`);
 
 // Every format the module claims to know is exercised at least once by the corpus (a rule without a sample is untested).
 const exercised = new Set(samples.map((sample) => sample.label));

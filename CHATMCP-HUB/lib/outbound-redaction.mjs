@@ -140,7 +140,7 @@ const RULES = [
     accept: ({ secret }) => !/^(?:\[REDACTED[^\]]*\]|<.*|\$\{.*|\{\{.*|\$[A-Za-z_]\w*|%s|%[A-Za-z_]\w*%|\*{3,}|x{3,})$/i.test(secret) },
   { id: 'azure-storage-key', pattern: /(?<pre>\b(?:AccountKey|SharedAccessKey|SharedAccessSignature)=)(?<secret>[A-Za-z0-9+/=%]{20,})|(?<pre2>[?&]sig=)(?<secret2>[A-Za-z0-9%+/=]{20,})/g },
   // ADO.NET / ODBC / JDBC style: Server=...;Password=...;  jdbc:...?user=a&password=b
-  { id: 'connection-password', pattern: /(?<pre>(?:^|[;?&\s])(?:password|pwd|passwd)[ \t]*=[ \t]*)(?<secret>[^;&\s"'`\\]{3,})/gi,
+  { id: 'connection-password', pattern: /(?<pre>(?:^|[;?&\s])(?:password|pwd|passwd)[ \t]*=[ \t]*)(?<secret>[^;&\s"'`\\]{3,})/gim,
     accept: ({ secret }) => acceptValue(secret, { strong: true, dotenv: true }) },
   { id: 'sql-password', pattern: /(?<pre>\b(?:IDENTIFIED[ \t]+BY|PASSWORD)[ \t]+')(?<secret>[^'\r\n]{3,200})(?=')/g,
     accept: ({ secret }) => !isTemplate(secret) },
@@ -152,7 +152,7 @@ const RULES = [
   // command lines: --password hunter2, --token=abc, -u user:pass, sshpass -p secret, cmdkey /pass:secret
   { id: 'query-secret', pattern: /(?<pre>[?&](?<key>access_token|id_token|refresh_token|api[_-]?key|apikey|token|secret|client_secret|password|passwd|pwd|auth)=)(?<secret>[^&\s"'#]{4,300})/gi,
     accept: ({ key, secret }) => { const klass = keyClass(key); return klass > 0 && acceptValue(secret, { quoted: true, strong: klass === 2 }); } },
-  { id: 'cli-secret-flag', pattern: /(?<pre>(?:^|[ \t])(?:--?(?:[a-z0-9]+-)?(?:password|passwd|token|api-?key|apikey|secret|client-?secret|access-?token|auth-?token)(?:=|[ \t]+)["']?|sshpass[ \t]+-p[ \t]*["']?|\/pass(?:word)?:|(?:docker|podman|helm|oras)[ \t]+(?:registry[ \t]+)?login\b[^\n|;&]*?[ \t]-p[ \t]*["']?|mysql(?:dump|admin)?\b[^\n|;&]*?[ \t]-p(?=[^\s-])|redis-cli\b[^\n|;&]*?[ \t]-a[ \t]+["']?|(?:curl|wget|http|https)\b[^\n|;&]*?[ \t]-u[ \t]+["']?[^\s:"']+:))(?<secret>[^\s"'|;&]{3,})/gi,
+  { id: 'cli-secret-flag', pattern: /(?<pre>(?:^|[ \t])(?:--?(?:[a-z0-9]+-)?(?:password|passwd|token|api-?key|apikey|secret|client-?secret|access-?token|auth-?token)(?:=|[ \t]+)["']?|sshpass[ \t]+-p[ \t]*["']?|\/pass(?:word)?:|(?:docker|podman|helm|oras)[ \t]+(?:registry[ \t]+)?login\b[^\n|;&]*?[ \t]-p[ \t]*["']?|mysql(?:dump|admin)?\b[^\n|;&]*?[ \t]-p(?=[^\s-])|redis-cli\b[^\n|;&]*?[ \t]-a[ \t]+["']?|(?:curl|wget|http|https)\b[^\n|;&]*?[ \t]-u[ \t]+["']?[^\s:"']+:))(?<secret>[^\s"'|;&]{3,})/gim,
     accept: ({ secret }) => !isTemplate(secret) && !/^-/.test(secret) },
 
   { id: 'setx-secret', pattern: /(?<pre>\bsetx[ \t]+(?<key>[A-Za-z_][A-Za-z0-9_]{0,80})[ \t]+["']?)(?<secret>[^\s"']{3,})/gi,
