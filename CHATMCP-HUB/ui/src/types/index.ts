@@ -1,3 +1,20 @@
+/** A tool result held on this computer until the owner decides (ChatGPT Web "review before send"). */
+export interface OutboundReview {
+  id: string;
+  taskId: string;
+  turn: number;
+  tool: string;
+  kind: string;
+  at: string;
+  expiresAt: string;
+  bytes: number;
+  /** exactly the text that would be typed into the ChatGPT tab */
+  preview: string;
+  /** labels and counts of what was masked automatically; never the matches */
+  redactions: Record<string, number>;
+  withheld: string[];
+  manualCount: number;
+}
 export type PermissionMode = 'readonly' | 'review' | 'autonomous';
 export type ExecutionPolicy = 'host-review' | 'sandbox-only' | 'full-access';
 export type TaskStatus = 'blocked' | 'created' | 'queued' | 'planning' | 'running' | 'waiting_approval' | 'verifying' | 'paused' | 'completed' | 'failed' | 'cancelled' | 'uncertain' | 'unknown';
@@ -323,6 +340,10 @@ export interface HubState {
     pairingAvailable?: boolean;
     companionPhase?: string;
     companionNote?: string;
+    /** "Review before send": the global switch and the per-workspace overrides. */
+    privacy?: { reviewBeforeSend: boolean; workspaces: { path: string; review: boolean }[] };
+    /** The tool result held for the owner right now (null when nothing is held). */
+    outboundReview?: OutboundReview | null;
   };
   studio?: {
     workspace: string;
