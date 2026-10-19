@@ -550,7 +550,7 @@ export class GatewayProvider {
     if (!this.ready()) throw bad('gateway_not_ready', 'Hãy cấu hình API Base URL, model và API key.', 409);
     if (!Array.isArray(input)) throw bad('invalid_input', 'Ngữ cảnh Agent không hợp lệ.');
     if (this.protocol === 'openai-responses')
-      return await this.#respondResponses({ input, instructions, tools, signal, onToken, maxOutputTokens, beforeModelRequest });
+      return await this.#respondResponses({ input, instructions, tools, signal, onToken, onStatus, maxOutputTokens, beforeModelRequest });
     if (this.protocol !== 'gemini') return await this.#respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens, beforeModelRequest });
     // Gemini keeps its own compatibility loop: gateways in front of it differ a lot (see gemini-compat.mjs).
     const protocol = 'gemini';
@@ -707,18 +707,25 @@ export class GatewayProvider {
     return normalized;
   }
 
+  // The endpoint and model of a gateway that answered 400 to stream: true, and then accepted the same request without it. Its later
+  // calls do not ask for a stream. A call for another endpoint or model forgets it: the refusal is about that pair only.
+  #streamRefused = null;
   // Full Responses request path. Fixed endpoint and credential snapshot; never
   // turn a failed model request into an uncertain tool mutation or cross-provider retry.
-  async #respondResponses({input,instructions,tools,signal,onToken,maxOutputTokens,beforeModelRequest}) {
+  async #respondResponses({input,instructions,tools,signal,onToken,onStatus,maxOutputTokens,beforeModelRequest}) {
     const model=this.model, protocol=this.protocol, authMode=this.authMode, apiKey=this.apiKey;
     const endpoint=buildEndpoint(this.apiBaseUrl,protocol,model,this.customPath);
     const headers=this.#headers(protocol,authMode,apiKey);
+    if(this.#streamRefused&&(this.#streamRefused.endpoint!==endpoint||this.#streamRefused.model!==model))this.#streamRefused=null;
     const result=await respondOpenAIResponses({
       model,endpoint,headers,fetch:this.fetch,
       timeoutMs:this.limits?.requestTimeoutMs || 240000,
+      idleTimeoutMs:this.limits?.idleTimeoutMs,
       stream:typeof onToken==='function',
+      streamRefused:this.#streamRefused!==null,
+      onStreamRefused:()=>{ this.#streamRefused={endpoint,model}; },
       redact:text=>noSecrets(String(text),value=>this.redact(value)),
-    },{input,instructions,tools,signal,onToken:onToken||(()=>{}),maxOutputTokens,beforeModelRequest});
+    },{input,instructions,tools,signal,onToken:onToken||(()=>{}),onStatus,maxOutputTokens,beforeModelRequest});
     this.lastError='';
     return result;
   }

@@ -941,12 +941,12 @@ const finalText = (turn) => turn.output.filter((item) => item.type === 'message'
 const functionCalls = (turn) => turn.output.filter((item) => item.type === 'function_call');
 
 /** The adapters under test, pointed at one mock server. */
-const rows = (m, { limits, timeoutMs = 5000 } = {}) => {
+const rows = (m, { limits, timeoutMs = 5000, idleTimeoutMs } = {}) => {
   const standard = (protocol, path, headers) => (input, options = {}) => respondStandard(
     { protocol, endpoint: `${m.url}/${path}`, headers, model: 'mock-coder', fetch, sleep: async () => {}, redact: (value) => value, limits: { requestTimeoutMs: 5000, ...limits } },
     { input, instructions: 'system', tools: TOOLS, maxOutputTokens: 1024, ...options });
   const responses = (stream) => (input, options = {}) => respondOpenAIResponses(
-    { model: 'mock-coder', endpoint: `${m.url}/responses`, headers: { 'content-type': 'application/json' }, fetch, timeoutMs, redact: (value) => value, stream },
+    { model: 'mock-coder', endpoint: `${m.url}/responses`, headers: { 'content-type': 'application/json' }, fetch, timeoutMs, idleTimeoutMs, redact: (value) => value, stream },
     { input, instructions: 'system', tools: TOOLS, maxOutputTokens: 1024, ...options });
   // Gemini has no function of its own: its loop is GatewayProvider.respond. A no-op sleep, because that loop retries a thrown
   // TypeError as a network failure with 3-30 s waits and no cap, which would turn a bug into a hang; and a signal to bound each call.
@@ -1132,25 +1132,100 @@ for (const finding of findings) note(finding);
   assert.equal(m.state.requests.length, 1, 'and it is not repeated (no tool call can be replayed by accident)');
   assert.equal(cutFault.used, 1);
 
+  // A stall in the middle of a stream can be ended by two clocks, and each one says so in its own code: the idle timeout (no bytes for
+  // that long) and the timeout of the whole call. Here the idle clock is 300 ms and the whole call 2.5 s, so the time it takes tells which.
+  const hi = () => [{ role: 'user', content: userText('hi') }];
+  m.setScenario('canned-answer');
+  const idleStall = m.inject({ kind: 'stall', on: 'responses', stream: true, afterEvents: 4 });
+  const startedIdle = Date.now();
+  const idled = await rows(m, { timeoutMs: 2500, idleTimeoutMs: 300 })['responses-sse'].run(hi()).then(() => null, (error) => error);
+  const idleWaited = Date.now() - startedIdle;
+  assert.equal(idled?.code, 'responses_idle_timeout', `a stalled stream ends with the idle timeout (got ${idled?.name} ${idled?.code})`);
+  assert.equal(idled.kind, 'network', 'which is a network failure like the others');
+  assert.ok(idleWaited >= 250 && idleWaited < 2000, `after the idle time, not after the timeout of the whole call (${idleWaited} ms)`);
+  assert.equal(m.state.requests.length, 1, 'the model request is not repeated');
+  assert.equal(idleStall.used, 1);
+
   m.setScenario('canned-answer');
   m.inject({ kind: 'stall', on: 'responses', stream: true, afterEvents: 4 });
   const startedStall = Date.now();
-  const stalled = await streaming.run(userText('hi')).then(() => null, (error) => error);
-  assert.ok(stalled, 'a stalled stream ends with an error instead of hanging');
-  assert.ok(stalled.name === 'TimeoutError' || stalled.code === 'responses_timeout', `the error says it was a timeout (got ${stalled.name} ${stalled.code})`);
-  assert.ok(Date.now() - startedStall < 3000);
-  note(`a stalled Responses stream ends with ${stalled.name}${stalled.code ? ` (${stalled.code})` : ''} after the timeout of the whole call; there is no separate idle timeout`);
+  const stalled = await streaming.run(hi()).then(() => null, (error) => error);
+  const stallWaited = Date.now() - startedStall;
+  assert.equal(stalled?.code, 'responses_timeout', `the timeout of the whole call in the middle of a stream is a coded error, not a raw ${stalled?.name}`);
+  assert.equal(stalled.kind, 'network');
+  assert.ok(stallWaited >= 550 && stallWaited < 3000, `after the whole-call timeout (${stallWaited} ms)`);
+  assert.equal(m.state.requests.length, 1, 'and the model request is not repeated');
 
+  // A JSON body that stalls is the whole call timing out too (this is also the path of a request repeated without a stream).
+  m.setScenario('canned-answer');
+  m.inject({ kind: 'stall', on: 'responses', stream: false });
+  const bodyStalled = await rows(m, { timeoutMs: 600 }).responses.run(hi()).then(() => null, (error) => error);
+  assert.equal(bodyStalled?.code, 'responses_timeout', `a stalled JSON body is the same coded error (got ${bodyStalled?.name} ${bodyStalled?.code})`);
+  assert.equal(bodyStalled.kind, 'network');
+  m.clearFaults();
+  ok('respondOpenAIResponses: a stream cut before its terminal event ends with an error and is not repeated; a stalled stream ends with a coded network error (idle timeout, or the timeout of the whole call), also when the body is JSON');
+
+  // A gateway that answers 400 to stream: true ("stream not supported"). AgentRunner always streams (it always passes onToken), so such
+  // a gateway used to fail every task. The same model request is repeated once without the stream; no tool is involved.
   m.setScenario('canned-answer');
   const noStream = m.inject({ kind: 'stream-unsupported', on: 'responses' });
-  const refused = await streaming.run(userText('hi')).then(() => null, (error) => error);
-  assert.equal(refused?.upstreamStatus, 400);
-  assert.equal(refused?.kind, 'request');
-  assert.match(refused.message, /stream/i);
-  assert.equal((await rows(m)['responses'].run(userText('hi'))).status, 'completed', 'the same request without stream: true works');
+  const seenTokens = [];
+  const statuses = [];
+  let announced = 0;
+  const repeated = await streaming.run(hi(), { onToken: (token) => seenTokens.push(token), onStatus: async (message) => statuses.push(message), beforeModelRequest: () => { announced += 1; } });
+  assert.equal(repeated.status, 'completed', 'the model request is repeated once without stream: true and answered');
+  assert.deepEqual(m.state.requests.map((request) => request.stream), [true, false], 'the refused request, then the same request without a stream');
+  assert.equal(m.state.requests[0].fault, 'stream-unsupported');
+  assert.deepEqual(m.state.requests.map((request) => request.rejected), [null, null], 'the strict server accepts the repeated request');
+  const [refusedRequest, repeatedRequest] = m.state.requests;
+  assert.deepEqual([repeatedRequest.messages, repeatedRequest.tools, repeatedRequest.turn, repeatedRequest.promptStart], [refusedRequest.messages, refusedRequest.tools, refusedRequest.turn, refusedRequest.promptStart], 'it is the same model request');
+  assert.equal(announced, 2, 'both requests were announced to the caller, which counts the attempts');
+  assert.equal(statuses.length, 1, 'the person is told once');
+  assert.match(statuses[0], /stream: false/, 'what is being done');
+  assert.match(statuses[0], /không chạy lại công cụ/, 'and that no tool runs again');
+  assert.equal(seenTokens.join(''), 'Hello from the mock.', 'onToken still gets the text, at the end');
   assert.equal(noStream.used, 1);
-  note('a gateway that answers 400 to stream: true is NOT retried without streaming by respondOpenAIResponses (the Hub always streams: AgentRunner always passes onToken)');
-  ok('respondOpenAIResponses: a cut stream, a stalled stream and a refused stream: true each end with an error that names the cause, none is repeated');
+
+  // The provider remembers a refusal for that endpoint and model: the next call does not ask for a stream again.
+  const makeProvider = (limits) => new GatewayProvider({ directory: path.join(os.tmpdir(), 'chatmcp-mock-responses-unused'), bundleRoot: os.tmpdir(), manager: { secrets: [] }, env: {}, sleep: async () => {}, limits })
+    .forkForTask({ protocol: 'openai-responses', apiBaseUrl: m.origin, model: 'mock-coder' });
+  const provider = makeProvider({ requestTimeoutMs: 5000 });
+  const ask = (options = {}) => provider.respond({ input: hi(), instructions: 'system', tools: TOOLS, maxOutputTokens: 1024, signal: AbortSignal.timeout(8000), ...options });
+  const said = [];
+  const gotText = [];
+  const listen = { onToken: (token) => gotText.push(token), onStatus: async (message) => said.push(message) };
+  m.setScenario('canned-answer');
+  const refusal = m.inject({ kind: 'stream-unsupported', on: 'responses', times: 5 });
+  assert.equal((await ask(listen)).status, 'completed');
+  assert.equal((await ask(listen)).status, 'completed');
+  assert.deepEqual(m.state.requests.map((request) => request.stream), [true, false, false], 'the second call does not try a stream again');
+  assert.equal(refusal.used, 1, 'the gateway refused once');
+  assert.equal(said.length, 1, 'and was announced once');
+  assert.equal(gotText.join(''), 'Hello from the mock.Hello from the mock.', 'the text of both answers reached onToken');
+  provider.model = 'mock-coder-2';
+  assert.equal((await ask(listen)).status, 'completed');
+  assert.deepEqual(m.state.requests.map((request) => request.stream), [true, false, false, true, false], 'another model asks for a stream again');
+  assert.equal(refusal.used, 2);
+  assert.equal((await ask(listen)).status, 'completed');
+  assert.deepEqual(m.state.requests.slice(5).map((request) => request.stream), [false], 'and the refusal of that model is remembered too');
+  provider.apiBaseUrl = `${m.origin}/gateway`;
+  assert.equal((await ask(listen)).status, 'completed');
+  assert.deepEqual(m.state.requests.slice(6).map((request) => request.stream), [true, false], 'another endpoint asks for a stream again');
+  assert.equal(refusal.used, 3);
+  m.clearFaults();
+  ok('respondOpenAIResponses: a stream refused with HTTP 400 is repeated once without stream: true (announced, both requests counted, the text arrives at the end); the provider does not ask again for that endpoint and model, and does for another');
+
+  // The idle timeout is a limit of the provider next to the request timeout.
+  m.setScenario('canned-answer');
+  m.inject({ kind: 'stall', on: 'responses', stream: true, afterEvents: 4 });
+  const startedProvider = Date.now();
+  const impatient = makeProvider({ requestTimeoutMs: 2500, idleTimeoutMs: 300 });
+  const providerIdle = await impatient.respond({ input: hi(), instructions: 'system', tools: TOOLS, maxOutputTokens: 1024, signal: AbortSignal.timeout(8000), onToken: () => {} }).then(() => null, (error) => error);
+  assert.equal(providerIdle?.code, 'responses_idle_timeout', `through GatewayProvider (got ${providerIdle?.name} ${providerIdle?.code})`);
+  assert.ok(Date.now() - startedProvider < 2000);
+  assert.deepEqual([impatient.normalizeError(providerIdle).kind, impatient.normalizeError(providerIdle).retryable], ['network', true], 'the provider reports it like the other network failures');
+  m.clearFaults();
+  ok('GatewayProvider passes limits.idleTimeoutMs to the Responses adapter, and its stall error is a retryable network failure');
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1160,6 +1235,7 @@ for (const finding of findings) note(finding);
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-mock-agent-'));
   try {
     const listing = { content: [{ type: 'text', text: '[FILE] README.md' }] };
+    let toolRuns = 0;
     const manager = {
       secrets: [], generation: 1, instanceId: 'mock-agent', locked: false,
       state() { return { workspace: { path: root }, generation: 1, instanceId: this.instanceId }; },
@@ -1169,7 +1245,7 @@ for (const finding of findings) note(finding);
         return {
           catalog: { tools: [{ name: 'desktop-commander.list_directory', server: 'desktop-commander', inputSchema: { type: 'object' } }], prompts: [], resources: [], resourceTemplates: [], servers: {} },
           async close() {},
-          async callTool(name, args, { onDecision } = {}) { await onDecision?.({ name, category: 'read', allowed: true }); return listing; },
+          async callTool(name, args, { onDecision } = {}) { toolRuns += 1; await onDecision?.({ name, category: 'read', allowed: true }); return listing; },
         };
       },
     };
@@ -1206,6 +1282,53 @@ for (const finding of findings) note(finding);
       await runner.shutdown();
     }
     ok('real AgentRunner -> GatewayProvider -> real adapters -> network -> strict mock, on Chat, Anthropic, Responses and Gemini: a turn with two calls and a recovery hint is accepted, the hint follows both results');
+
+    // AgentRunner always streams (it always passes onToken). A Responses gateway that answers 400 to stream: true used to fail the task at
+    // its first model request. Now only that model request is repeated, once, and the later steps do not ask for a stream again.
+    {
+      const m = await server({ scenario: 'agent', scenarios: { agent: script() }, strict: true });
+      const refusal = m.inject({ kind: 'stream-unsupported', on: 'responses', times: 50 });
+      const gateway = new GatewayProvider({ directory: path.join(root, 'gateway-refused'), bundleRoot: root, manager, env: {} });
+      const provider = gateway.forkForTask({ protocol: 'openai-responses', apiBaseUrl: m.origin, model: 'mock-coder' });
+      const runner = new AgentRunner({ manager, provider, taskDirectory: path.join(root, 'tasks-refused') });
+      await runner.load();
+      const runsBefore = toolRuns;
+      await runner.start({ prompt: 'Look at the project until you know enough.' });
+      const task = await Promise.race([runner.context.done.promise, new Promise((_, reject) => setTimeout(() => reject(new Error('refused stream: the agent run timed out')), 15000))]);
+      assert.equal(task.status, 'completed', `a gateway that refuses stream: true no longer fails the task: ${task.error ?? ''}`);
+      assert.deepEqual(m.state.requests.map((request) => request.stream), [true, false, false, false, false, false, false], 'one refused request, then the six model requests of the script, none of them with a stream');
+      assert.equal(refusal.used, 1, 'the gateway was asked for a stream once');
+      assert.equal(toolRuns - runsBefore, 6, 'the refused request repeated no tool: each of the six calls of the script ran once');
+      assert.deepEqual(m.state.requests.map((request) => request.rejected), Array(7).fill(null));
+      assert.equal(task.events.filter((event) => event.type === 'network_wait' && /stream: false/.test(event.message)).length, 1, 'the task says once, in its events, that the request was repeated without a stream');
+      assert.equal(task.usage.httpRequests, 7, 'the request meter counted the refused request and its repeat');
+      await runner.shutdown();
+      ok('real AgentRunner against a Responses gateway that refuses stream: true: the task completes, only the first model request is repeated (without a stream), no tool runs twice, later steps do not ask for a stream, the request meter counts 7');
+    }
+
+    // The same gateway going quiet in the middle of the stream. The task used to end with the numeric code of a raw DOMException
+    // (TimeoutError, 23) as its errorCode; now it ends with the code of the idle timeout, as a failed network call of any adapter does.
+    {
+      const m = await server({ scenario: 'agent', scenarios: { agent: script() }, strict: true });
+      m.inject({ kind: 'stall', on: 'responses', stream: true, afterEvents: 4 });
+      const gateway = new GatewayProvider({ directory: path.join(root, 'gateway-quiet'), bundleRoot: root, manager, env: {}, limits: { requestTimeoutMs: 2500, idleTimeoutMs: 300 } });
+      const provider = gateway.forkForTask({ protocol: 'openai-responses', apiBaseUrl: m.origin, model: 'mock-coder' });
+      const runner = new AgentRunner({ manager, provider, taskDirectory: path.join(root, 'tasks-quiet') });
+      await runner.load();
+      const runsBefore = toolRuns;
+      const startedQuiet = Date.now();
+      await runner.start({ prompt: 'Look at the project until you know enough.' });
+      const task = await Promise.race([runner.context.done.promise, new Promise((_, reject) => setTimeout(() => reject(new Error('stalled stream: the agent run timed out')), 15000))]);
+      assert.equal(task.status, 'failed');
+      assert.equal(task.errorCode, 'responses_idle_timeout', `the task reports the idle timeout (got ${task.errorCode}: ${task.error})`);
+      assert.match(task.error, /no data for 300 ms/);
+      assert.match(task.error, /No tool was run for this step/);
+      assert.ok(Date.now() - startedQuiet < 2000, 'the idle clock ended it, not the whole-call timeout');
+      assert.equal(m.state.requests.length, 1, 'the model request is not repeated');
+      assert.equal(toolRuns, runsBefore, 'no tool ran');
+      await runner.shutdown();
+      ok('real AgentRunner against a Responses stream that goes quiet: the task fails with errorCode responses_idle_timeout (it was 23, the code of a raw TimeoutError), no model request is repeated, no tool runs');
+    }
 
     // The same history written the OLD way (the hint between two results) is refused at the network by the strict Chat route.
     const m = await server({ scenario: 'canned-answer', strict: true });

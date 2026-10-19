@@ -4,11 +4,18 @@
 import { randomUUID } from 'node:crypto';
 import { reportedTokenCount } from './request-budget.mjs';
 import { pairToolCalls } from './model-history.mjs';
-import { classifyHttpError, readBodyText } from './model-http.mjs';
+import { classifyHttpError, errorDetail, readBodyText } from './model-http.mjs';
 
 const object = x => x !== null && typeof x === 'object' && !Array.isArray(x);
 const fail = (code,message) => Object.assign(new Error(message),{code,statusCode:502});
+// The connection or a clock failed, not the model: reported like the network failures of the standard adapter.
+const networkFail = (code,message) => Object.assign(fail(code,message),{kind:'network'});
+const lapse = ms => (ms>=1000?`${Math.round(ms/1000)} s`:`${ms} ms`);
 const messageText = parts => (Array.isArray(parts) ? parts.filter(p=>p?.type==='output_text'&&typeof p.text==='string').map(p=>p.text).join('\n') : '');
+
+// A stream that sends no byte for this long is given up. ctx.timeoutMs, the whole call, is the other clock. Reasoning models can be
+// silent for a while between events, so this is well above a healthy pause and well below the whole call.
+const IDLE_TIMEOUT_MS = 120000;
 
 export function asResponsesInput(history=[]) {
   // Other legacy adapters tolerate orphan results by dropping them, but the
@@ -139,7 +146,8 @@ export function normalizeResponsesResponse(raw,{usedCallIds=new Set()}={}){
 
 // Decode SSE without executing partial tool arguments. Only terminal
 // response.completed provides authoritative final items and call IDs.
-export async function readResponsesStream(body,{signal,onToken=()=>{}}={}){
+// onChunk runs whenever bytes arrived, of any kind: it is how the caller knows the stream is alive.
+export async function readResponsesStream(body,{signal,onToken=()=>{},onChunk=()=>{}}={}){
   if(!body||typeof body.getReader!=='function')throw fail('invalid_responses_stream','Provider returned no SSE stream.');
   const reader=body.getReader(),decoder=new TextDecoder();
   let pending='',total=0,terminal=null;
@@ -159,6 +167,7 @@ export async function readResponsesStream(body,{signal,onToken=()=>{}}={}){
       signal?.throwIfAborted?.();
       const {done,value}=await reader.read();
       if(done)break;
+      onChunk();
       total+=value?.byteLength||0;
       if(total>12*1024*1024)throw fail('responses_stream_too_large','Response stream exceeded 12 MiB.');
       pending+=decoder.decode(value,{stream:true});
@@ -176,42 +185,95 @@ export async function readResponsesStream(body,{signal,onToken=()=>{}}={}){
   }finally{try{await reader.cancel();}catch{}reader.releaseLock();}
 }
 
-// One network attempt per call, with a fixed destination/credential snapshot.
-// The caller counts actual attempts. No retry can replay filesystem effects.
-export async function respondOpenAIResponses(ctx,{input,instructions,tools=[],signal,onToken=()=>{},beforeModelRequest=()=>{},maxOutputTokens=16384}={}){
-  const streaming=ctx.stream===true;
-  const body=buildResponsesBody({model:ctx.model,input,instructions,tools,maxOutputTokens,stream:streaming});
-  const timeout=AbortSignal.timeout(ctx.timeoutMs||240000);
-  const effectiveSignal=signal?AbortSignal.any([signal,timeout]):timeout;
-  beforeModelRequest();
-  let response;
-  try{
-    response=await ctx.fetch(ctx.endpoint,{
-      method:'POST',headers:ctx.headers,body:JSON.stringify(body),
-      signal:effectiveSignal,redirect:'error',
-    });
-  }catch(error){
-    if(signal?.aborted)throw signal.reason;
-    if(timeout.aborted)throw fail('responses_timeout','Responses model request timed out.');
-    throw fail('responses_network','Cannot connect to selected Responses API endpoint.');
+// The 400 of a gateway that cannot stream this model. It says so in the field it names or in its words ("Unsupported value: 'stream'
+// does not support true with this model", "Your organization must be verified to stream this model"). A plain refusal only: a 400
+// about the context, the output cap, the quota or the model is not about the stream.
+const refusesStream=(status,data,info)=>status===400&&info.kind==='request'&&(data?.error?.param==='stream'||/\bstream/i.test(errorDetail(data)));
+
+// The stream was refused, so the text did not arrive in pieces: hand it to onToken now, as the stream would have.
+async function deliverText(result,onToken){
+  if(result.status!=='completed')return;
+  for(const item of result.output)
+    if(item.type==='message')for(const part of item.content)if(part.type==='output_text')await onToken(part.text);
+}
+
+/**
+ * One model request. At most two network attempts, each announced to the caller through beforeModelRequest, which counts them: a
+ * gateway that answers 400 to stream: true is asked once more WITHOUT it. That is the same model request and never a tool call, so
+ * nothing can be replayed. Everything else is one attempt with a fixed destination and credential snapshot; no retry can replay
+ * filesystem effects.
+ * @param {object} ctx fixed for the whole call
+ * @param {string} ctx.model
+ * @param {string} ctx.endpoint
+ * @param {object} ctx.headers
+ * @param {Function} ctx.fetch
+ * @param {boolean} [ctx.stream] the caller wants the text as it arrives (onToken)
+ * @param {number} [ctx.timeoutMs] the whole call, for each attempt (default 240 s)
+ * @param {number} [ctx.idleTimeoutMs] a stream that sends no byte for this long is closed (default 120 s)
+ * @param {boolean} [ctx.streamRefused] this gateway is known to refuse stream: true, so do not ask; onToken still gets the text, at the end
+ * @param {() => void} [ctx.onStreamRefused] a refusal is confirmed: the repeat without a stream was accepted
+ * @param {(text: string) => string} [ctx.redact] removes keys and other secrets from provider text
+ */
+export async function respondOpenAIResponses(ctx,{input,instructions,tools=[],signal,onToken=()=>{},onStatus=async()=>{},beforeModelRequest=()=>{},maxOutputTokens=16384}={}){
+  const wantsStream=ctx.stream===true,redact=ctx.redact||(s=>s);
+  let streaming=wantsStream&&ctx.streamRefused!==true,repeated=false;
+  const usedCallIds=new Set((input||[]).filter(x=>x?.type==='function_call').map(x=>x.call_id));
+  for(;;){
+    const body=buildResponsesBody({model:ctx.model,input,instructions,tools,maxOutputTokens,stream:streaming});
+    const wholeMs=ctx.timeoutMs||240000,idleMs=ctx.idleTimeoutMs||IDLE_TIMEOUT_MS;
+    const timeout=AbortSignal.timeout(wholeMs),idle=new AbortController();
+    const effectiveSignal=AbortSignal.any(signal?[signal,timeout,idle.signal]:[timeout,idle.signal]);
+    // Why a request stopped, when the caller or a clock stopped it. The caller comes first: its own reason is never replaced.
+    const stopped=()=>signal?.aborted?signal.reason
+      :timeout.aborted?networkFail('responses_timeout',`Responses model request did not finish within ${lapse(wholeMs)}. The provider may be overloaded or the request too large; try again later or choose a faster model. No tool was run for this step.`)
+      :idle.signal.aborted?idle.signal.reason:null;
+    // The idle clock runs while a stream is read and starts over with every byte. Aborting it closes the connection, as the other two do.
+    let idleTimer;
+    const watch=()=>{
+      clearTimeout(idleTimer);
+      idleTimer=setTimeout(()=>idle.abort(networkFail('responses_idle_timeout',`Responses stream sent no data for ${lapse(idleMs)} and was closed. The gateway or the network may have stalled; try again or check the gateway log. No tool was run for this step.`)),idleMs);
+    };
+    beforeModelRequest();
+    let response;
+    try{
+      response=await ctx.fetch(ctx.endpoint,{
+        method:'POST',headers:ctx.headers,body:JSON.stringify(body),
+        signal:effectiveSignal,redirect:'error',
+      });
+    }catch{
+      throw stopped()??networkFail('responses_network','Cannot connect to selected Responses API endpoint.');
+    }
+    if(!response.ok){
+      let data=null;
+      try{data=JSON.parse(await readBodyText(response));}catch{}
+      const info=classifyHttpError({status:response.status,data:data||{},headers:response.headers,redact});
+      if(streaming&&refusesStream(response.status,data,info)){
+        streaming=false;repeated=true;
+        const detail=redact(errorDetail(data)).slice(0,200);
+        await onStatus(`Gateway từ chối stream: true (HTTP 400${detail?`: ${detail}`:''}). Gửi lại đúng yêu cầu model này một lần với stream: false; không chạy lại công cụ. Các bước sau không thử stream nữa, văn bản trả lời hiện khi model trả xong.`);
+        signal?.throwIfAborted();
+        continue;
+      }
+      throw Object.assign(fail(info.code,info.message),{kind:info.kind,upstreamStatus:response.status});
+    }
+    // The gateway refused a stream and accepted the same request without one.
+    if(repeated)ctx.onStreamRefused?.();
+    let data;
+    try{
+      if(streaming){
+        const mime=response.headers?.get?.('content-type')||'';
+        if(!mime.includes('text/event-stream'))throw fail('invalid_responses_stream','Endpoint did not return SSE content type.');
+        watch();
+        data=await readResponsesStream(response.body,{signal:effectiveSignal,onToken,onChunk:watch});
+      }else{
+        const raw=await readBodyText(response);
+        try{data=JSON.parse(raw);}catch{throw fail('invalid_responses_json','Responses API did not return valid JSON.');}
+      }
+    }catch(error){
+      throw stopped()??error;
+    }finally{clearTimeout(idleTimer);}
+    const result=normalizeResponsesResponse(data,{usedCallIds});
+    if(wantsStream&&!streaming)await deliverText(result,onToken);
+    return result;
   }
-  if(!response.ok){
-    let data=null;
-    try{data=JSON.parse(await readBodyText(response));}catch{}
-    const info=classifyHttpError({status:response.status,data:data||{},headers:response.headers,
-      redact:ctx.redact||((s)=>s)});
-    throw Object.assign(fail(info.code,info.message),{kind:info.kind,upstreamStatus:response.status});
-  }
-  let data;
-  if(streaming){
-    const mime=response.headers?.get?.('content-type')||'';
-    if(!mime.includes('text/event-stream'))throw fail('invalid_responses_stream','Endpoint did not return SSE content type.');
-    data=await readResponsesStream(response.body,{signal:effectiveSignal,onToken});
-  }else{
-    const raw=await readBodyText(response);
-    try{data=JSON.parse(raw);}catch{throw fail('invalid_responses_json','Responses API did not return valid JSON.');}
-  }
-  return normalizeResponsesResponse(data,{
-    usedCallIds:new Set((input||[]).filter(x=>x?.type==='function_call').map(x=>x.call_id)),
-  });
 }
