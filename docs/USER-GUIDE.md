@@ -1,10 +1,14 @@
 # Hướng dẫn sử dụng ChatMCP Studio
 
-## Current React UI — unreleased Phase 0 corrections
+## Current React UI
+
+**Layout.** The top bar has the sessions toggle, the workspace and branch, search (**Ctrl K**), the light/dark toggle, **Cài đặt** (**Ctrl ,**) and the work-panel toggle (**Ctrl J**). The left column lists conversations per workspace. The right **work panel** has one row of tabs: **Tiến độ** (plan and evidence), **Thay đổi** (Git diff and checkpoints), **Tệp**, **Terminal**, **Tác nhân** (background tasks and subagents) and, under **⋯**, **Hoạt động** and **Xem trước**. The bar at the bottom shows the Hub connection, the branch, the agent channel, the context window, the model and the permission mode; each of those opens the matching page of Settings. **Cài đặt** is a page of its own (project, AI model, permissions and execution, agent channel and Companion, skills, code intelligence, appearance and language, about); **Esc** closes it. While **FULL ACCESS** is on, a red strip under the top bar says so and offers one click back to Review.
+
+**Evidence under each answer.** After a turn that changed files or ran commands, a strip says what the Hub recorded: *Kiểm tra đã được xác minh* (green) appears only when the Hub verified the outcome of a check itself, or when you accepted the criteria; *Chưa có bằng chứng kiểm tra được ghi nhận* or *Lệnh chạy xong, chưa xác minh kết quả test* (amber) means the agent says it is done but nothing independent backs that; red means a tool or check failed. Even green does not prove every requirement is met: read the diff. **Xem bằng chứng** opens the **Tiến độ** tab.
 
 Choose **Hội thoại mới** to open an empty draft; the model starts only after **Gửi**. Select a saved session to load its recorded conversation. **Dừng** requests cancellation without undoing edits; **Tiếp tục** starts a new run in the same conversation. For an uncertain operation, inspect Git changes before continuing.
 
-Pending approvals show the real tool, operation preview, risk category and expiry. **Phê duyệt** and **Từ chối** send your decision to the gate; resolved decisions are available in history. The Plan tab says **Chưa có kế hoạch** until a plan has been stored. A final model answer does not prove tests were run or passed: inspect tool results and the real Git diff.
+Pending approvals show the real tool, operation preview, risk category and expiry. **Phê duyệt** and **Từ chối** send your decision to the gate; resolved decisions are available in history. The **Tiến độ** tab says **Chưa có kế hoạch** until a plan has been stored. A final model answer does not prove tests were run or passed: inspect tool results and the real Git diff.
 
 Onboarding accepts a typed workspace path as well as the native folder picker. Apply the path, configure and test the actual AI endpoint, then save the chosen permission mode. Failed operations stay visible. The older guide below describes historical labels and should not override this workflow.
 
