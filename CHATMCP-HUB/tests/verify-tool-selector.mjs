@@ -100,8 +100,8 @@ const summary='recall '+(100*recall).toFixed(1)+'% ('+(100*decided).toFixed(1)+'
 
 // Floors and ceilings are what the selector measures today, so a change that loses recall or adds cost fails here. A prompt the corpus gains
 // that the selector cannot serve yet is a decision: fix the selector, or lower a floor on purpose.
-// A tool the prompt needs but the selector did not offer is a detour; the mutation tools below are the ones whose absence strands an ordinary
-// edit prompt ("Update the version in package.json", "Remove the unused helper", "Convert this file to TypeScript").
+// A tool the prompt needs but the selector did not offer is a detour; the file-changing tools below are the ones whose absence strands an
+// ordinary edit prompt ("Update the version in package.json", "Remove the unused helper", "Convert this file to TypeScript").
 const FLOOR={recall:1,decided:1,served:rows.length};
 const CEILING={median:5000,max:8000};
 assert.ok(recall>=FLOOR.recall,'the selector offers the tools a solution calls: '+summary+'. Missed: '+misses(rows));
@@ -188,10 +188,12 @@ for(let sentence=0;sentence<3000;sentence++) {
   mustKeep(words.join(' '),[48,48,30,20,12][Math.floor(random()*5)]);
 }
 // Vietnamese typed in decomposed form (some editors and PDF copies) is the same text, and the prompt is user text: a pasted log stays cheap to scan.
+// The bound is generous on purpose (this takes under 0.1 s on Node 24; a slower runner or Node 22 must not trip it): a pattern that backtracks
+// badly on 390 kB would take minutes.
 assert.ok(selectTaskToolNames('Cập nhật phiên bản trong package.json'.normalize('NFD')).includes('edit_file'));
 const pasted='error  thay  đổi doesnt does '.repeat(10000)+'x'.repeat(100000);
 const scanStarted=Date.now();
 selectTaskToolNames(pasted);
-assert.ok(Date.now()-scanStarted<1500,'scanning a 390 kB prompt took '+(Date.now()-scanStarted)+' ms');
+assert.ok(Date.now()-scanStarted<5000,'scanning a 390 kB prompt took '+(Date.now()-scanStarted)+' ms');
 
 console.log('PASS task-tool-selector: dynamic intent routing, full catalog untouched, exact router fallback; corpus of '+prompts.length+' prompts: '+summary);
