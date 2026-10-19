@@ -5,11 +5,14 @@
 // web page the user opens (DNS rebinding, forged requests). Requiring `Authorization: Bearer <secret>` on every API
 // route, with the secret only in a file the OS lets the current user read, keeps all of those out.
 // What it does NOT protect: malware running as the same user can read the file like the desktop shell does.
+// The file outlives a crash, so a client presents the secret only to the process the file names AND that listens on the port
+// (assertSessionListener, lib/port-listener.mjs): a health reply proves nothing, any program that bound the port can send one.
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { chmodSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
+import { listenerPid as portListenerPid } from './port-listener.mjs';
 
 export const SESSION_FILE_VERSION = 1;
 export const SECRET_PATTERN = /^[A-Za-z0-9_-]{32,256}$/;
@@ -151,15 +154,37 @@ export async function requestTicket(origin, secret, { signal = AbortSignal.timeo
 export const dashboardUrl = (origin, ticket) => `${origin}/#${BOOT_FRAGMENT}=${encodeURIComponent(ticket)}`;
 
 /**
+ * Refuse to present `session.secret` to anything but the process that wrote the session. A crash leaves the file behind and a
+ * program that binds the port afterwards can answer /api/health like a Hub, so the check is on the listener of the port: its
+ * process id must be the file's. Same rule as HubSession.ReadForListener in the native clients. `listenerPid` returns the pid
+ * that listens on a port (or null) and is injectable for tests.
+ * Throws, with `code` ERR_SESSION_LISTENER, when the listener is another process, when nothing listens, or when the listener
+ * cannot be determined; nothing has been sent by then.
+ */
+export async function assertSessionListener(session, { listenerPid = portListenerPid, file = 'run/hub-session.json' } = {}) {
+  const refuse = (message) => Object.assign(new Error(message), { code: 'ERR_SESSION_LISTENER' });
+  const advice = 'Không gửi secret của session và không mở trình duyệt. Đóng chương trình đó (hoặc dùng --port khác), hoặc chạy STOP-CHATMCP-HUB.cmd rồi START-CHATMCP-HUB.cmd.';
+  let listener;
+  try { listener = await listenerPid(session.port); }
+  catch (error) { throw refuse(`Không xác định được tiến trình đang lắng nghe cổng ${session.port} (${error.message}), nên không chắc nó là Hub pid ${session.pid} đã ghi ${file}. ${advice}`); }
+  if (listener === null || listener === undefined)
+    throw refuse(`Không có tiến trình nào đang lắng nghe cổng ${session.port}, trong khi ${file} nói Hub pid ${session.pid} chạy ở đó (file còn lại sau sự cố?). ${advice}`);
+  if (listener !== session.pid)
+    throw refuse(`Cổng ${session.port} đang do tiến trình pid ${listener} giữ, không phải Hub pid ${session.pid} đã ghi ${file} (file còn lại sau sự cố, hoặc một chương trình khác chiếm cổng). ${advice}`);
+}
+
+/**
  * Talk to a Hub that is already running on `origin`, using the secret in its state directory: optionally select
  * `project` as the workspace, and return the URL that opens the dashboard already signed in.
- * Throws a readable error when the Hub is not one this build can authenticate to.
+ * Throws a readable error when the Hub is not one this build can authenticate to, or when the process that listens on the port
+ * is not the one the session file names (`assertSessionListener`): then no request carries the secret.
  */
-export async function attachToRunningHub({ origin, stateDirectory, project = null }) {
+export async function attachToRunningHub({ origin, stateDirectory, project = null, listenerPid = portListenerPid }) {
   const session = await readSession(stateDirectory);
   const port = Number(new URL(origin).port);
   if (!session || session.port !== port)
     throw new Error(`Cổng ${port} đang chạy một Hub mà bản này không có session để xác thực (không thấy ${sessionFile(stateDirectory)}). Chạy STOP-CHATMCP-HUB.cmd rồi START-CHATMCP-HUB.cmd; không dùng tiến trình cũ.`);
+  await assertSessionListener(session, { listenerPid, file: sessionFile(stateDirectory) });
   const options = { redirect: 'error', signal: AbortSignal.timeout(5000) };
   const stateResponse = await fetch(`${origin}/api/state`, { ...options, headers: bearerHeaders(session.secret) });
   if (stateResponse.status === 401)
