@@ -11,16 +11,17 @@
 //   8. a project hooks file is inert until the owner approves its sha256 and inert again after a one-byte edit
 //   9. an invalid owner file fails closed; shell forms; a hook that never reads stdin; the protected-path rule; the per-task ledger
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { delay } from '../lib/runtime.mjs';
 import { ShellRunner } from '../lib/shell-runner.mjs';
 import { isProtectedPath, mayExpandToProtected } from '../lib/protected-paths.mjs';
+import { globMatches } from '../lib/glob-match.mjs';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { LocalTools } from '../lib/local-tools.mjs';
 import {
@@ -62,7 +63,14 @@ async function writeProject(dir, events, raw = null) {
 let counter = 0;
 const scratchFile = (label) => path.join(root, `${label}-${counter += 1}.txt`);
 const readLines = (file) => (fsSync.existsSync(file) ? fsSync.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)) : []);
-const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+// A process that was killed can stay visible for a moment: on Linux a zombie answers kill(pid, 0) until its parent or init collects it.
+// So "alive" reads /proc where it can, and "gone" is waited for (a few seconds at most) instead of asserted at one instant.
+const alive = (pid) => {
+  try { process.kill(pid, 0); } catch { return false; }
+  if (process.platform === 'linux') { try { return !/^\d+ \(.*\) Z /.test(fsSync.readFileSync(`/proc/${pid}/stat`, 'utf8')); } catch { return false; } }
+  return true;
+};
+const gone = async (...pids) => { try { await until(() => pids.every((pid) => !alive(pid)), 'the processes to be gone', 5000); return true; } catch { return false; } };
 // every process a hook reported is remembered, so that a failing run does not leave a sleeping process behind
 const strays = new Set();
 const readPids = (text) => { const pids = JSON.parse(text); strays.add(pids.hook); strays.add(pids.grandchild); return pids; };
@@ -228,6 +236,65 @@ try {
     ok('warnings: an event that is not fired, async, a handler type that cannot run, an unreadable `if`; errors: a matcher that is not a regular expression');
   }
 
+  // ------------------------------------------------------------------------------------------------------------------ 1c. matching cannot be made slow
+  {
+    // The pattern of an `if` rule is the owner's, but the command it is tried on is chosen by the model, and the operands of a shell command are
+    // looked at for protected names before the command is even judged. A glob turned into a regular expression backtracks without a bound,
+    // so each case runs in a child process with a deadline: a regression fails here instead of freezing this suite (and the Hub).
+    const timedCall = (module, name, args) => {
+      const url = pathToFileURL(path.join(HUB, 'lib', module)).href;
+      const code = `import { ${name} as f } from ${JSON.stringify(url)}; const args = [${args}]; const started = performance.now(); const result = f(...args); console.log(JSON.stringify({ result, ms: Math.round(performance.now() - started) }));`;
+      const run = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8', timeout: 8000, windowsHide: true });
+      assert.notEqual(run.error?.code, 'ETIMEDOUT', `${name}(${args.slice(0, 70)}) did not finish in 8 s`);
+      assert.equal(run.status, 0, run.stderr);
+      return JSON.parse(run.stdout);
+    };
+    const hostile = [
+      ['hooks.mjs', 'conditionMatches', "'Bash(*a*a*a*a*a*a*b)', { toolName: 'local.run_command', toolInput: { command: 'a'.repeat(60000) }, workspace: '.' }", false, 'a 60,000 character command against six stars'],
+      ['hooks.mjs', 'conditionMatches', "'Bash(git *)', { toolName: 'local.run_command', toolInput: { command: Array.from({ length: 30000 }, (_, i) => 'c' + i).join(';') }, workspace: '.' }", true, '30,000 sub-commands are more than can be judged in bounded time: the hook runs'],
+      ['hooks.mjs', 'conditionMatches', "'Edit(**/*a*a*a*a*a*b)', { toolName: 'local.edit_file', toolInput: { path: 'a'.repeat(3000) }, workspace: '.' }", false, 'a 3,000 character path against a rule with a folder wildcard'],
+      ['protected-paths.mjs', 'mayExpandToProtected', "'.chatmcp/' + '*'.repeat(4000) + 'x'", false, 'a long run of stars in the file segment of a command operand'],
+      ['protected-paths.mjs', 'mayExpandToProtected', "'.' + '*'.repeat(4000) + 'x/hooks.json'", false, 'a long run of stars in the folder segment'],
+      ['protected-paths.mjs', 'mayExpandToProtected', "'.chatmcp/' + '*'.repeat(4000)", true, 'stars that can stand for hooks.json still count'],
+      ['protected-paths.mjs', 'mayExpandToProtected', "'.chatmcp/' + '[a-z]'.repeat(2000) + 'x'", false, 'a long run of bracket expressions'],
+    ];
+    for (const [module, name, args, expected, label] of hostile) {
+      const outcome = timedCall(module, name, args);
+      assert.equal(outcome.result, expected, label);
+      assert.ok(outcome.ms < 1000, `${label}: ${outcome.ms} ms`);
+    }
+    ok(`${hostile.length} hostile inputs (60,000 characters against six stars, 30,000 sub-commands, 4,000 stars in a command operand ...) are judged in under a second each, in a child process with an 8 s deadline`);
+
+    // the table matcher against the straightforward regular expression, on short random inputs
+    const mulberry32 = (seed) => () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    const reference = (glob, subject, { path: pathMode, ignoreCase }) => {
+      let source = '';
+      for (let index = 0; index < glob.length; index += 1) {
+        const char = glob[index];
+        if (char === '*' && pathMode && glob[index + 1] === '*') { if (glob[index + 2] === '/') { source += '(?:.*/)?'; index += 2; } else { source += '.*'; index += 1; } } else if (char === '*') source += pathMode ? '[^/]*' : '.*';
+        else if (char === '?' && pathMode) source += '[^/]';
+        else source += char.replace(/[.+^${}()|[\]\\?*]/g, '\\$&');
+      }
+      return new RegExp(`^${source}$`, ignoreCase ? 'is' : 's').test(subject);
+    };
+    const random = mulberry32(20261020);
+    const pick = (alphabet, maximum) => Array.from({ length: Math.floor(random() * maximum) }, () => alphabet[Math.floor(random() * alphabet.length)]).join('');
+    let compared = 0;
+    for (const pathMode of [false, true]) {
+      for (let round = 0; round < 15000; round += 1) {
+        const glob = pick('aAb/*?.', 7);
+        const subject = pick('aAbB/.', 8);
+        const options = { path: pathMode, ignoreCase: round % 2 === 0 };
+        assert.equal(globMatches(glob, subject, options), reference(glob, subject, options), `${JSON.stringify(glob)} on ${JSON.stringify(subject)} ${JSON.stringify(options)}`);
+        compared += 1;
+      }
+    }
+    for (const [glob, subject, options, expected] of [['', '', {}, true], ['', 'a', {}, false], ['*', '', {}, true], ['a*', 'a', {}, true], ['**/src/**', 'src/a.ts', { path: true }, true], ['**/src/**', 'x/y/src/a.ts', { path: true }, true], ['*.ts', 'a/b.ts', { path: true }, false], ['**/*.ts', 'a/b.ts', { path: true }, true], ['?x', '/x', { path: true }, false]]) {
+      assert.equal(globMatches(glob, subject, options), expected, `${JSON.stringify(glob)} on ${JSON.stringify(subject)}`);
+    }
+    ok(`the table matcher (lib/glob-match.mjs) agrees with the regular expression it replaces on ${compared} random pattern / text pairs, in default and in path mode, with and without case folding`);
+  }
+
   // ------------------------------------------------------------------------------------------------------------------ 2. what a hook receives
   {
     await removeOwner();
@@ -357,12 +424,12 @@ try {
     assert.equal(fast.outcome.fired[0].timedOut, true);
     assert.equal(fast.outcome.fired[0].failure, 'timeout');
     assert.ok(fast.elapsed < 9000, `the one second limit took ${fast.elapsed} ms`);
-    assert.equal(alive(fast.hook), false, 'the hook process is gone');
-    assert.equal(alive(fast.grandchild), false, 'and so is the process it started');
+    assert.ok(await gone(fast.hook), 'the hook process is gone');
+    assert.ok(await gone(fast.grandchild), 'and so is the process it started');
     assert.equal(fast.outcome.blocked, false, 'a timeout alone does not block');
     const strict = await probe('block');
     assert.equal(strict.outcome.blocked, true); assert.equal(strict.outcome.permission, 'deny'); assert.match(strict.outcome.reason, /time/i);
-    assert.equal(alive(strict.hook) || alive(strict.grandchild), false);
+    assert.ok(await gone(strict.hook, strict.grandchild), 'the second run left nothing behind either');
     ok('a 1 s timeout kills the hook and the process it started (2 live before the kill, 0 after); onFailure=block turns the timeout into a block');
 
     const pids = scratchFile('pids');
@@ -373,7 +440,7 @@ try {
     assert.ok(alive(seen.hook) && alive(seen.grandchild), 'both processes are running before the cancel');
     controller.abort(Object.assign(new Error('task cancelled'), { code: 'cancelled' }));
     await assert.rejects(running, { code: 'cancelled' });
-    assert.equal(alive(seen.hook) || alive(seen.grandchild), false, 'a cancel kills the whole tree before run() returns');
+    assert.ok(await gone(seen.hook, seen.grandchild), 'a cancel kills the whole tree before run() returns');
     ok('a cancelled task kills the hook tree and run() rejects with the reason of the cancel');
 
     const second = scratchFile('pids');
@@ -382,7 +449,7 @@ try {
     const mine = readPids(await until(() => fsSync.existsSync(second) && fsSync.readFileSync(second, 'utf8'), 'the second hook'));
     await runner.close();
     await closing.catch(() => {});
-    assert.equal(alive(mine.hook) || alive(mine.grandchild), false, 'close() stops hooks that are still running');
+    assert.ok(await gone(mine.hook, mine.grandchild), 'close() stops hooks that are still running');
     ok('close() (Hub shutdown) kills hooks that are still running');
   }
   {
@@ -584,7 +651,7 @@ try {
     const racing = await runChild('loop', (text) => (text.match(/^COUNT /gm) ?? []).length >= 4);
     const lastRacing = racing.at(-1);
     const afterRace = await new HookRunner({ hubDirectory: hub }).retryState({ taskId: killTask, event: 'Stop' });
-    assert.ok(afterRace.total === lastRacing[1] || afterRace.total === lastRacing[1] + 1, `killed in the middle of a run: the counter is the last reported one or the one in flight (${afterRace.total} vs ${lastRacing[1]})`);
+    assert.ok(afterRace.total >= lastRacing[1] && afterRace.total <= lastRacing[1] + 3, `killed in the middle of a run: the counter is at least the last one reported and a few runs ahead at most, which are the runs that finished while the parent was reading the pipe (${afterRace.total} vs ${lastRacing[1]})`);
     assert.ok(afterRace.total >= 6, 'and it continued from the persisted value (5) of the previous process');
     JSON.parse(await fs.readFile(path.join(hub, 'hooks', 'state.json'), 'utf8'));
     ok('a runner killed while it was looping leaves a state file that parses and a counter that continues from the persisted value');

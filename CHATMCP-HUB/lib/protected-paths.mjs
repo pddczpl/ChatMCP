@@ -1,6 +1,7 @@
 // Paths a coding agent must never read, write or print: credentials, private keys
 // and Git internals. Shared by the local tool server and the shell-command
 // analyzer so both apply exactly the same rule.
+import { globMatches } from './glob-match.mjs';
 
 const EXAMPLE = '(?:example|sample|template|dist|defaults?)';
 export const PRIVATE_FILE = new RegExp(
@@ -40,8 +41,9 @@ export function isProtectedPath(relative) {
 function segmentMayBe(segment, literal) {
   if (nameOf(segment) === literal) return true;
   if (!/[*?[]/.test(segment) || (literal.startsWith('.') && !segment.startsWith('.'))) return false;
-  const pattern = [...segment.replace(/\[[^\]]*\]/g, '?')].map((char) => (char === '*' ? '.*' : char === '?' ? '.' : char.replace(/[.+^${}()|[\]\\]/g, '\\$&'))).join('');
-  return new RegExp(`^${pattern}$`, 'i').test(literal);
+  // The segment is text from a shell command, that is from a model, so it is matched by a table walk (lib/glob-match.mjs) and not by a
+  // regular expression made from it: a run of stars against a name that almost matches would otherwise never finish.
+  return globMatches(segment, literal, { path: true, ignoreCase: true, brackets: true });
 }
 
 /**

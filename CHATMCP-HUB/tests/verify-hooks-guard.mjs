@@ -16,6 +16,8 @@
 //   D. the ChatGPT Web Companion transport (BrowserRunner -> createAgentSession) fires them exactly once per call, on the primary workspace and on
 //      a second one that gets a manager of its own
 //   E. the approval route of a project hooks file, behind the Hub bearer, on a real Hub process
+//   F. a real Hub process (hub.mjs, the composition root) with a scripted model: a veto, one invocation per tool call, the context reaching the model over HTTP
+//   G. a coding worker (CodingWorktreeOrchestrator -> AgentRunner -> its own HubManager) fires the hooks of the Hub
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
@@ -31,13 +33,16 @@ import { assembleStudio } from '../lib/assemble.mjs';
 import { AgentRunner } from '../lib/agent.mjs';
 import { ConcurrentApiAgent } from '../lib/concurrent-api-agent.mjs';
 import { BrowserRunner } from '../lib/browser-runner.mjs';
+import { CodingWorktreeOrchestrator } from '../lib/coding-orchestrator.mjs';
 import { WorkspaceRegistry } from '../lib/workspace-registry.mjs';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { LocalTools } from '../lib/local-tools.mjs';
 import { PermissionGate } from '../lib/permissions.mjs';
 import { HookRunner } from '../lib/hooks.mjs';
 import { POST_ROUTES } from '../hub.mjs';
-import { startHub } from './e2e/hub-process.mjs';
+import { answerApprovals, connectModel, setMode as setHubMode, startHub, startTask } from './e2e/hub-process.mjs';
+import { startMockModel } from './e2e/mock-model-server.mjs';
+import { BUGGY_CALC, FIXED_CALC, gitInit, makeCalcProject, read } from './e2e/fixtures.mjs';
 
 let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
@@ -52,7 +57,14 @@ const group = (matcher, ...hooks) => (matcher === undefined ? { hooks } : { matc
 let counter = 0;
 const scratchFile = (label) => path.join(root, `${label}-${counter += 1}.txt`);
 const readLines = (file) => (fsSync.existsSync(file) ? fsSync.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)) : []);
-const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+// A process that was killed can stay visible for a moment: on Linux a zombie answers kill(pid, 0) until its parent or init collects it.
+// So "alive" reads /proc where it can, and "gone" is waited for (a few seconds at most) instead of asserted at one instant.
+const alive = (pid) => {
+  try { process.kill(pid, 0); } catch { return false; }
+  if (process.platform === 'linux') { try { return !/^\d+ \(.*\) Z /.test(fsSync.readFileSync(`/proc/${pid}/stat`, 'utf8')); } catch { return false; } }
+  return true;
+};
+const gone = async (...pids) => { try { await until(() => pids.every((pid) => !alive(pid)), 'the processes to be gone', 5000); return true; } catch { return false; } };
 async function until(test, label, ms = 10_000) {
   const end = Date.now() + ms;
   while (Date.now() < end) { const value = await test(); if (value) return value; await delay(20); }
@@ -87,7 +99,7 @@ const setMode = (mode) => gate.configure({ mode });
 const nextPending = () => until(() => gate.state().pending[0], 'an approval request');
 
 const stubs = [];
-let pool; let browser; let realHub;
+let pool; let browser; let realHub; let hubF; let mock;
 try {
   // ------------------------------------------------------------------------------------------------------------------ A. forceAsk
   {
@@ -395,7 +407,7 @@ try {
     assert.ok(alive(seen.hook) && alive(seen.grandchild));
     controller.abort(Object.assign(new Error('task cancelled'), { code: 'cancelled' }));
     await assert.rejects(running, { code: 'cancelled' });
-    assert.equal(alive(seen.hook) || alive(seen.grandchild), false, 'the hook and what it started are gone');
+    assert.ok(await gone(seen.hook, seen.grandchild), 'the hook and what it started are gone');
     assert.equal(fsSync.existsSync(path.join(work, 'never-written.txt')), false, 'the tool never ran');
     ok('cancelling the task while a PreToolUse hook runs kills its process tree and the tool never runs');
   }
@@ -475,6 +487,10 @@ try {
       PreToolUse: [group('Write', handler({ log }))],
       PostToolUse: [group('Write', handler({ log, stdout: { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: 'the hook context of the owner' } } }))],
     });
+    const registered = new WorkspaceRegistry({ manager: hub, directory: hubDirectory });
+    await registered.load();
+    await registered.add(other);
+    hub.workspaceRegistry = registered;
     const received = { ROOT: [], CHILD: [] };
     const provider = {
       ready: () => true,
@@ -528,6 +544,11 @@ try {
     assert.equal(childManager.hooks, hub.hooks, 'it holds the same hooks instance as the Hub');
     assert.notEqual(forAgent(child.id, 'PreToolUse')[0].cwd, forAgent(rootTask.id, 'PreToolUse')[0].cwd, 'the hook of the child runs in the child\'s worktree');
     assert.equal(fsSync.existsSync(path.join(childManager.workspace, 'child.txt')), true, 'the child\'s call went through');
+    // the manager the pool makes to run Git for another project holds the instance as well (it runs no tools today; it must not be the one place that forgets)
+    await pool.gitRefs(other);
+    const accessManagers = [...pool.readyAccessManagers.values()];
+    assert.equal(accessManagers.length, 1);
+    assert.equal(accessManagers[0].hooks, hub.hooks, 'the access manager of another project shares the hooks instance'); assert.equal(accessManagers[0].hooksOwned, false);
     for (const who of ['ROOT', 'CHILD']) {
       assert.match(received[who][0], /Hook context · PostToolUse/, `${who}: the model\'s function_call_output carries the label`);
       assert.match(received[who][0], /the hook context of the owner/, `${who}: and the text of the hook`);
@@ -549,10 +570,6 @@ try {
       PreToolUse: [group('Write', handler({ log }))],
       PostToolUse: [group('Write', handler({ log, stdout: { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: 'context for the web chat' } } }))],
     });
-    const registered = new WorkspaceRegistry({ manager: hub, directory: hubDirectory });
-    await registered.load();
-    await registered.add(other);
-    hub.workspaceRegistry = registered;
     browser = new BrowserRunner({ manager: hub, directory: path.join(root, 'browser'), log: () => {} });
     await browser.load();
     const pairing = await browser.createPairCode();
@@ -651,9 +668,105 @@ try {
     assert.ok(capabilities.json.postRoutes.includes('/api/hooks/approve-project'));
     ok('POST /api/hooks/approve-project on a real Hub: 401 without the bearer, 400 for a malformed hash, 409 (naming the real sha256) for a file that is not the reviewed one, 200 and a stored approval for this project and content, 409 again after a change, 404 without a file');
   }
+  // ------------------------------------------------------------------------------------------------------------------ F. a real Hub process and a scripted model
+  {
+    // hub.mjs is where everything is put together in production: its own HubManager, assembleStudio, AgentRunner and the HTTP client of
+    // the model. The model is scripted (the repair-add scenario: read calc.js, edit it, run the test); the hooks file is written into the
+    // Hub's data folder and picked up on the next call, with no restart.
+    const scratch = path.join(root, 'hub-f');
+    const project = path.join(root, 'calc-app');
+    makeCalcProject(project);
+    gitInit(project, root);
+    mock = await startMockModel({ scenario: 'repair-add' });
+    mock.watch(['HOOK-CONTEXT-MARKER-4242']);
+    hubF = await startHub({ scratch, project });
+    const log = scratchFile('log');
+    const hooksOf = (events) => fs.writeFile(path.join(hubF.stateDir, 'hooks.json'), JSON.stringify({ hooks: events }));
+    await hooksOf({
+      PreToolUse: [group('Edit', handler({ exit: 2, stderr: 'the hooks of this test freeze every edit' })), group('*', handler({ log }))],
+      PostToolUse: [group('*', handler({ log, stdout: { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: 'HOOK-CONTEXT-MARKER-4242' } } }))],
+    });
+    await connectModel(hubF, mock);
+    await setHubMode(hubF, 'autonomous');
+
+    const first = await startTask(hubF, 'Fix add() and prove it with the test.');
+    const firstResult = await answerApprovals(hubF, first.id, () => true);
+    assert.equal(firstResult.task.state, 'completed');
+    assert.equal(read(project, 'calc.js'), BUGGY_CALC, 'the hook refused the edit: calc.js is as it was');
+    const firstFull = await hubF.task(first.id);
+    assert.equal(firstFull.toolCalls, 2, 'the model made two tool calls: read and edit');
+    assert.ok(firstFull.events.some((event) => /hook_denied/.test(JSON.stringify(event))), 'the task shows the refusal as hook_denied');
+    assert.ok((await hubF.get(`/api/studio/workflow?taskId=${first.id}`)).json.steps.some((step) => step.type === 'hook_denied'), 'and so does the workflow timeline');
+    let rows = readLines(log);
+    const forTask = (id, event) => rows.filter((row) => row.session === id && row.event === event);
+    assert.equal(forTask(first.id, 'PreToolUse').length, firstFull.toolCalls, 'PreToolUse fired once per tool call');
+    assert.equal(forTask(first.id, 'PostToolUse').length, 1, 'PostToolUse fired for the call that ran (the refused edit did not run)');
+    assert.deepEqual(forTask(first.id, 'PreToolUse').map((row) => row.tool), ['local.read_file', 'local.edit_file']);
+    assert.ok(mock.watchReport().hits.length >= 1, 'the PostToolUse context reached the model\'s next request over HTTP (the scripted model saw it)');
+
+    // the owner removes the veto: the next task is not refused, with no restart of the Hub
+    await hooksOf({
+      PreToolUse: [group('*', handler({ log }))],
+      PostToolUse: [group('*', handler({ log }))],
+    });
+    const second = await startTask(hubF, 'Fix add() and prove it with the test.');
+    const secondResult = await answerApprovals(hubF, second.id, () => true);
+    assert.equal(secondResult.task.state, 'completed');
+    assert.equal(read(project, 'calc.js'), FIXED_CALC, 'without the veto the edit is made');
+    const secondFull = await hubF.task(second.id);
+    rows = readLines(log);
+    assert.equal(secondFull.toolCalls, 3, 'read, edit, test');
+    assert.equal(forTask(second.id, 'PreToolUse').length, secondFull.toolCalls, 'PreToolUse: one per tool call');
+    assert.equal(forTask(second.id, 'PostToolUse').length, secondFull.toolCalls, 'PostToolUse: one per tool call that ran');
+    assert.equal(rows.filter((row) => row.event === 'PreToolUse').length, firstFull.toolCalls + secondFull.toolCalls, 'in total 5 invocations for 5 tool calls');
+    ok('a real Hub process with a scripted model: a PreToolUse veto on Edit leaves calc.js untouched (hook_denied in the task and the timeline), PreToolUse fires once per tool call (2 + 3 calls = 5 invocations), PostToolUse once per call that ran, the context reaches the model over HTTP, and removing the veto takes effect on the next task without a restart');
+  }
+
+  // ------------------------------------------------------------------------------------------------------------------ G. a coding worker
+  {
+    // The coding orchestrator makes a HubManager of its own for each worker (own state folder, own worktree). Without the shared instance
+    // that worker would run without the owner's hooks.
+    const repo = await makeRepo('coder-repo');
+    const coderHub = new HubManager({ bundleRoot, dataDirectory: path.join(root, 'coder-hub'), log: () => {} });
+    await coderHub.load(repo);
+    assembleStudio(coderHub, { bundleRoot });
+    await coderHub.startLocal();
+    coderHub.permissions.mode = 'autonomous'; // a worker takes its parent's mode; only an explicit Autonomous parent may delegate writes
+    const log = scratchFile('log');
+    await fs.writeFile(path.join(coderHub.hubDirectory, 'hooks.json'), JSON.stringify({ hooks: {
+      PreToolUse: [group('Write', handler({ log }))],
+      PostToolUse: [group('Write', handler({ log, stdout: { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: 'context for the coding worker' } } }))],
+    } }));
+    let seen = '';
+    const provider = {
+      ready: () => true,
+      snapshot: () => ({ provider: 'coding-fixture', model: 'coding-fixture' }),
+      async respond({ input }) {
+        const outputs = input.filter((item) => item.type === 'function_call_output');
+        if (outputs.length) {
+          seen = String(outputs.at(-1).output);
+          return { status: 'completed', output: [{ type: 'message', role: 'assistant', phase: 'final', content: [{ type: 'output_text', text: 'Edited with the file tool.' }] }] };
+        }
+        return { status: 'completed', output: [{ type: 'function_call', call_id: 'coding-hook-call', name: 'write_file', arguments: JSON.stringify({ path: 'generated.md', content: '# generated\n' }) }] };
+      },
+    };
+    const orchestrator = new CodingWorktreeOrchestrator({ manager: coderHub, provider, directory: path.join(root, 'coder-orchestrator'), bundleRoot });
+    const job = await orchestrator.run({ tasks: [{ id: 'coder', prompt: 'Create generated.md.' }], maxConcurrency: 1, confirmation: 'CREATE WORKTREES' });
+    assert.equal(job.status, 'ready_for_review', JSON.stringify(job).slice(0, 500));
+    const rows = readLines(log);
+    assert.deepEqual(rows.map((row) => row.event), ['PreToolUse', 'PostToolUse'], 'one PreToolUse and one PostToolUse for the worker\'s one tool call');
+    assert.equal(await fs.realpath(rows[0].cwd), await fs.realpath(job.workers[0].worktree), 'the hooks ran in the worker\'s worktree');
+    assert.match(seen, /Hook context · PostToolUse/); assert.match(seen, /context for the coding worker/);
+    assert.ok(fsSync.existsSync(path.join(job.workers[0].worktree, 'generated.md')), 'the worker\'s call went through');
+    await coderHub.shutdown();
+    ok('a coding worker (CodingWorktreeOrchestrator -> AgentRunner -> its own HubManager): one PreToolUse and one PostToolUse for its one call, run in its worktree, and the hook context is in the function_call_output its model receives');
+  }
+
 } finally {
   for (const pid of stubs) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
   realHub?.killTree();
+  hubF?.killTree();
+  await mock?.close().catch(() => {});
   await browser?.shutdown().catch(() => {});
   await pool?.shutdown?.().catch(() => {});
   await hub.shutdown().catch(() => {});

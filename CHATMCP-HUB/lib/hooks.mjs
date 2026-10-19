@@ -23,6 +23,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { isObject, readJson, resolveProgram, stopOwned, writeJson } from './runtime.mjs';
 import { ShellRunner, scrubEnv } from './shell-runner.mjs';
+import { globMatches } from './glob-match.mjs';
 import { maskSecrets } from './permissions.mjs';
 
 // ------------------------------------------------------------------------------------------------------------------ constants
@@ -127,6 +128,7 @@ const parseCondition = (condition) => CONDITION.exec(String(condition));
 const isKnownToolClass = (name) => Object.hasOwn(TOOL_ALIASES, name) || name.includes('.') || name.startsWith('mcp__');
 
 const SEGMENT_SPLIT = /&&|\|\||[;|&\n\r]/;
+const MAX_COMMAND_FORMS = 64;
 /** The command as written, each simple command in it and each `$(...)` or backtick body, with leading VAR=value words dropped. */
 function commandForms(command) {
   const forms = new Set();
@@ -144,26 +146,12 @@ function commandForms(command) {
   return [...forms];
 }
 
+// The pattern is the owner's, the command is the model's (up to 60,000 characters): both are matched by lib/glob-match.mjs, a table walk
+// with a bounded cost, never by a regular expression made from the pattern.
 function commandPatternMatches(pattern, form) {
   const glob = pattern.trim();
-  let source = '';
-  for (const char of glob) source += char === '*' ? '.*' : char.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
   // "git *" stands for a bare "git" too: the space before the star only keeps "git *" from matching "gitk"
-  if (glob.endsWith(' *')) source = `${source.slice(0, -3)}(?:\\ .*)?`;
-  return new RegExp(`^${source}$`, 's').test(form);
-}
-
-function pathGlobRegExp(glob) {
-  let source = '';
-  for (let index = 0; index < glob.length; index += 1) {
-    const char = glob[index];
-    if (char === '*' && glob[index + 1] === '*') {
-      if (glob[index + 2] === '/') { source += '(?:.*/)?'; index += 2; } else { source += '.*'; index += 1; }
-    } else if (char === '*') source += '[^/]*';
-    else if (char === '?') source += '[^/]';
-    else source += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  }
-  return new RegExp(`^${source}$`, 'i');
+  return globMatches(glob, form) || (glob.endsWith(' *') && globMatches(glob.slice(0, -2), form));
 }
 
 function relativeTarget(value, workspace) {
@@ -176,9 +164,9 @@ function relativeTarget(value, workspace) {
 
 function pathPatternMatches(pattern, target) {
   const glob = pattern.trim().replaceAll('\\', '/').replace(/^\.\//, '');
-  const regex = pathGlobRegExp(glob);
-  if (regex.test(target)) return true;
-  return !glob.includes('/') && regex.test(path.posix.basename(target));
+  const options = { path: true, ignoreCase: true };
+  if (globMatches(glob, target, options)) return true;
+  return !glob.includes('/') && globMatches(glob, path.posix.basename(target), options);
 }
 
 /**
@@ -194,7 +182,10 @@ export function conditionMatches(condition, { toolName, toolInput, workspace } =
   if (pattern === undefined) return true;
   const input = isObject(toolInput) ? toolInput : {};
   if (toolName === 'local.run_command') {
-    return typeof input.command !== 'string' ? true : commandForms(input.command).some((form) => commandPatternMatches(pattern, form));
+    if (typeof input.command !== 'string') return true;
+    const forms = commandForms(input.command);
+    // more sub-commands than can be judged in bounded time: the hook runs, it is never skipped for being hard to read
+    return forms.length > MAX_COMMAND_FORMS || forms.some((form) => commandPatternMatches(pattern, form));
   }
   if (FILE_PATH_TOOLS.has(toolName)) {
     const target = relativeTarget(input.path, workspace);
