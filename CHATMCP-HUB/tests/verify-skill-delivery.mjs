@@ -5,6 +5,10 @@
 // tests used fakes in front of AgentRunner and stayed green. This suite runs the REAL AgentRunner, the REAL PluginManager and the REAL
 // GitHubSkillRegistry install path; only the model (a capturing provider) and the GitHub HTTP transport are scripted.
 //
+// What "reaches the model" means now: the conversation carries an INDEX of the selected skills, at most 4,096 bytes (lib/skill-index.mjs). A skill of 1 KiB or
+// less is carried in it whole, so it reaches a model that never calls a tool, exactly once; a bigger one is a line in the index and its text arrives, once per
+// load, as the result of skill_load. The scenario runs for both kinds. (verify-skill-on-demand covers the index and the tool in depth.)
+//
 // Negative control: the same scenario is run against a temporary copy of lib/ in which the defect is put back. That run must FAIL,
 // otherwise this suite could not have caught the original bug.
 //
@@ -28,7 +32,8 @@ let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
 const count = (haystack, needle) => haystack.split(needle).length - 1;
 
-async function scenario(libDirectory) {
+// `onDemand`: the installed skill is bigger than the index carries (a registry skill is), so the model has to ask for its text; otherwise it is small.
+async function scenario(libDirectory, { onDemand = false } = {}) {
   const load = (name) => import(pathToFileURL(path.join(libDirectory, name)).href);
   const { AgentRunner } = await load('agent.mjs');
   const { PluginManager } = await load('plugins.mjs');
@@ -37,7 +42,8 @@ async function scenario(libDirectory) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-skill-delivery-'));
   const stateDir = path.join(root, 'state');
   const revision = 'b'.repeat(40);
-  const skillText = `---\nname: zephyrflux-notes\ndescription: zephyrflux notes conventions\n---\nWhen asked about zephyrflux notes, follow this convention. ${MARKER}\n`;
+  const padding = onDemand ? 'Keep the notes short and dated. '.repeat(60) : '';
+  const skillText = `---\nname: zephyrflux-notes\ndescription: zephyrflux notes conventions\n---\nWhen asked about zephyrflux notes, follow this convention. ${MARKER}\n${padding}`;
   const transport = async (url) => {
     if (url.endsWith('/commits/HEAD')) return { text: JSON.stringify({ sha: revision }) };
     if (url.includes('/contents/skills?ref=')) return { text: JSON.stringify([{ type: 'dir', path: 'skills/zephyrflux-notes' }]) };
@@ -75,9 +81,14 @@ async function scenario(libDirectory) {
     const provider = {
       ready: () => true,
       snapshot: () => ({ provider: 'fixture', model: 'capture' }),
-      async respond({ input, instructions, beforeModelRequest }) {
+      async respond({ input, instructions, tools, beforeModelRequest }) {
         beforeModelRequest?.();
-        requests.push({ input: JSON.parse(JSON.stringify(input)), instructions: String(instructions ?? '') });
+        requests.push({ input: JSON.parse(JSON.stringify(input)), instructions: String(instructions ?? ''), tools: (tools ?? []).map((tool) => tool.name) });
+        const asked = input.some((item) => item?.type === 'function_call_output');
+        // A model that reads what it is given: when skill_load is offered it asks for the skill, once, and then answers.
+        if (!asked && (tools ?? []).some((tool) => tool.name === 'skill_load')) {
+          return { status: 'completed', usage: { input_tokens: 1, output_tokens: 1 }, output: [{ type: 'function_call', call_id: 'load-1', name: 'skill_load', status: 'completed', arguments: JSON.stringify({ id: imported.id }) }] };
+        }
         return { status: 'completed', usage: { input_tokens: 1, output_tokens: 1 }, output: [{ type: 'message', role: 'assistant', phase: 'final', content: [{ type: 'output_text', text: 'Done.' }] }] };
       },
     };
@@ -95,11 +106,23 @@ async function scenario(libDirectory) {
     assert.ok(requests.length >= 1, 'the model must have been called');
     const first = JSON.stringify(requests[0].input);
     assert.equal(count(first, HEADER), 1, `"${HEADER}" must reach the provider input exactly once`);
-    assert.equal(count(first, MARKER), 1, 'the marker from the installed SKILL.md must reach the provider input exactly once');
-    assert.ok(!requests[0].instructions.includes(MARKER), 'skill text is untrusted data and must stay out of the privileged instructions');
+    const index = requests[0].input.map((item) => String(item?.content?.[0]?.text ?? '')).find((text) => text.startsWith(HEADER)) ?? '';
+    assert.ok(Buffer.byteLength(index) > 0 && Buffer.byteLength(index) <= 4096, `the index is at most 4,096 bytes (it is ${Buffer.byteLength(index)})`);
+    assert.ok(requests.every((request) => !request.instructions.includes(MARKER)), 'skill text is untrusted data and must stay out of the privileged instructions');
     const activated = finished.events.filter((event) => event.type === 'skills_activated');
     assert.equal(activated.length, 1, 'skills_activated must fire once, after the context was added to the history');
     assert.ok(JSON.stringify(activated[0]).includes(imported.id), 'the activation event must name the installed skill');
+    if (!onDemand) {
+      assert.equal(count(first, MARKER), 1, 'a small skill is carried in the index: the marker from the installed SKILL.md must reach the provider input exactly once');
+      assert.ok(!requests.some((request) => request.tools.includes('skill_load')), 'and with nothing to read, skill_load is not offered');
+      assert.ok(requests.every((request) => count(JSON.stringify(request.input), MARKER) === 1), 'once on every request');
+    } else {
+      assert.equal(count(first, MARKER), 0, 'a bigger skill is a line in the index: its text is not in the first request');
+      assert.ok(requests[0].tools.includes('skill_load'), 'skill_load is offered');
+      assert.equal(requests.length, 2, 'the model asked for the skill and then answered');
+      assert.equal(count(JSON.stringify(requests[1].input), MARKER), 1, 'the text arrives once per load: after skill_load it is in the next request exactly once');
+      assert.equal(finished.events.filter((event) => event.type === 'skill_loaded').length, 1, 'with one receipt');
+    }
   } finally {
     await fs.rm(root, { recursive: true, force: true }).catch(() => {});
   }
@@ -108,7 +131,8 @@ async function scenario(libDirectory) {
 if (process.env[MUTANT_ENV]) {
   // Child process of the negative control: run the scenario against the mutated copy and report through the exit code.
   try {
-    await scenario(process.env[MUTANT_ENV]);
+    await scenario(process.env[MUTANT_ENV], { onDemand: false });
+    await scenario(process.env[MUTANT_ENV], { onDemand: true });
     console.log('mutated build was NOT detected');
     process.exit(0);
   } catch (error) {
@@ -117,8 +141,10 @@ if (process.env[MUTANT_ENV]) {
   }
 }
 
-await scenario(path.join(hubRoot, 'lib'));
-ok('real AgentRunner + PluginManager + registry install: skill header and SKILL.md marker reach the model exactly once');
+await scenario(path.join(hubRoot, 'lib'), { onDemand: false });
+ok('real AgentRunner + PluginManager + registry install: a small skill\'s header and SKILL.md marker reach the model exactly once, on every request, with no tool call');
+await scenario(path.join(hubRoot, 'lib'), { onDemand: true });
+ok('and a bigger one: an index of at most 4,096 bytes first, then its text exactly once after the model calls skill_load');
 
 // Negative control: restore the v3.9.0 defect in a temporary copy of lib/ and require the scenario to fail.
 const mutantRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-skill-mutant-'));
@@ -128,7 +154,7 @@ try {
   const source = await fs.readFile(agentFile, 'utf8');
   const lines = source.split(/\r?\n/);
   const start = lines.findIndex((line) => line.includes('External skills are untrusted task material'));
-  const assign = lines.findIndex((line, index) => index > start && line.includes('context.skillContext = `'));
+  const assign = lines.findIndex((line, index) => index > start && line.includes('context.skillContext = skillIndex.text;'));
   assert.ok(start >= 0 && assign > start && assign - start <= 4, 'the skill context block must be present for the mutation to apply');
   const joined = lines.slice(start, assign + 1).map((line) => line.replace(/^\s+/, '')).join(BACKSLASH_N + '        ');
   lines.splice(start, assign - start + 1, '        ' + joined);
@@ -223,6 +249,8 @@ try {
     assert.ok(!words.some((word) => request.instructions.includes(skillTextOf(word))), 'skill text is untrusted data and must stay out of the privileged instructions');
     return words.sort((a, b) => input.indexOf(skillTextOf(a)) - input.indexOf(skillTextOf(b)));
   };
+  // The skills a request's index lists (carried whole or on demand), in the order they are listed: the header line of each is "### Skill: <name> (<id>) [License: ...]".
+  const indexed = (request) => [...JSON.stringify(request.input).matchAll(/### Skill: [^\\]*? \(([a-z0-9_-]+)\) \[License:/g)].map((match) => match[1]);
   const activations = (c) => c.runner.get(c.id).events.filter((event) => event.type === 'skills_activated').map((event) => event.selectedSkills);
 
   // The problem as it was reported: the continuation names another skill than the first message.
@@ -328,26 +356,34 @@ try {
   }
   ok('the newest message is given at least what it is given alone, even where that evicts the conversation\'s skills');
 
-  // The 8,000 characters hold across the prompts: a skill from an earlier prompt that no longer fits is skipped, the others still get in.
+  // How big a skill is does not decide whether it is selected. The 8,000 characters that used to be the limit of the text of the selected skills (a skill of 5,000
+  // characters pushed a skill of 4,000 out of the run) are gone: the conversation carries an index (at most 4,096 bytes), a skill too big to be carried in it is a
+  // line that says "on demand", and its text arrives only when the model asks for it. What stays is the limit of 4 skills.
   {
+    const indexOf = (request) => request.input.map((item) => String(item?.content?.[0]?.text ?? '')).find((text) => text.startsWith(HEADER)) ?? '';
     const c = await chat();
     try {
       await c.say('Use zephyrflux.');
       await c.say('Use bulkalpha.');
       await c.say('Use bulkbeta.');
       const [four] = await c.say('ok');
-      assert.deepEqual(delivered(four), ['bulkbeta', 'zephyrflux'], 'bulkalpha (5,000 characters) does not fit beside bulkbeta (4,000) and is skipped; the older zephyrflux fits');
+      assert.deepEqual(indexed(four), ['bulkbeta', 'bulkalpha', 'zephyrflux'], 'all three are in the index, newest first: bulkalpha (5,000 characters) is not left out for being big');
+      assert.deepEqual(delivered(four), ['zephyrflux'], 'the small one is carried in the index; the two bulky ones are lines that say "on demand" and their text is not sent');
+      assert.equal(count(indexOf(four), 'On demand ('), 2);
+      assert.ok(Buffer.byteLength(indexOf(four)) <= 4096, `the index is ${Buffer.byteLength(indexOf(four))} bytes`);
+      assert.ok(four.tools.includes('skill_load'), 'and skill_load is offered');
     } finally { await c.runner.shutdown(); }
-    // Skipped, not the end of that prompt's list: tinydot, named after bulkalpha in the same prompt, still gets in.
+    // Not the end of that prompt's list either: tinydot, named after bulkalpha in the same prompt, is in.
     const d = await chat();
     try {
       await d.say('Use bulkalpha and tinydot.');
       await d.say('Use bulkbeta.');
       const [three] = await d.say('ok');
-      assert.deepEqual(delivered(three), ['bulkbeta', 'tinydot'], 'bulkalpha is skipped, tinydot after it in the same prompt is carried');
+      assert.deepEqual(indexed(three), ['bulkbeta', 'bulkalpha', 'tinydot'], 'bulkalpha and tinydot are both in, in the order their prompt selected them');
+      assert.deepEqual(delivered(three), ['tinydot'], 'tinydot is carried whole');
     } finally { await d.runner.shutdown(); }
   }
-  ok('the character budget holds across the prompts of the conversation');
+  ok('the size of a skill no longer decides whether it is selected: big ones are lines in the index (on demand), small ones are carried whole, the limit of 4 stays');
 
   // The same selection as a pure function, over many histories.
   {
