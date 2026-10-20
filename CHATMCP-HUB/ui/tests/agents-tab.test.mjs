@@ -44,15 +44,16 @@ test('tabs and panel are wired to each other for a screen reader', async () => {
   assert.match(html, /id="agents-viewpanel"[^>]*role="tabpanel"[^>]*aria-labelledby="agents-view-background"|role="tabpanel"[^>]*id="agents-viewpanel"[^>]*aria-labelledby="agents-view-background"|id="agents-viewpanel"[^>]*aria-labelledby="agents-view-background"[^>]*role="tabpanel"/);
 });
 
-test('the sections can be opened directly, and each shows its own content', async () => {
-  const groups = await renderWith(AgentsTab, { initialView: 'groups' }, base);
-  assert.match(tabs(groups)[1].tag, /aria-selected="true"/);
-  assert.match(groups, /data-testid="agent-groups"/);
-  assert.doesNotMatch(groups, /data-testid="coding-agents"/);
-  const coding = await renderWith(AgentsTab, { initialView: 'coding' }, base);
-  assert.match(tabs(coding)[2].tag, /aria-selected="true"/);
-  assert.match(coding, /data-testid="coding-agents"/);
-  assert.doesNotMatch(coding, /data-testid="agent-groups"/);
+// What the two delegation sections show is not asserted through this switch: they are scripts fetched on first use, and a server render cannot
+// wait for one. The sections are tested where they are rendered alone (agents.test.mjs, coding.test.mjs), and the switch's handling of the wait
+// and of the arrival in tests/agents-lazy.test.mjs. Nothing below depends on whether a section has arrived.
+test('the sections can be opened directly: the tab asked for is the only one selected and it names the panel', async () => {
+  for (const [view, index] of [['groups', 1], ['coding', 2]]) {
+    const html = await renderWith(AgentsTab, { initialView: view }, base);
+    const found = tabs(html);
+    assert.deepEqual(found.map(tab => /aria-selected="(\w+)"/.exec(tab.tag)?.[1]), found.map((_, at) => String(at === index)), view);
+    assert.match(html, new RegExp(`aria-labelledby="agents-view-${view}"`));
+  }
 });
 
 test('no section name repeats a tab of the work panel, so a tab can still be found by its name', () => {
@@ -80,15 +81,12 @@ test('another tab of the work panel does not carry the switch', async () => {
   assert.doesNotMatch(html, /agents-view-/);
 });
 
-test('with another folder in view, groups and code edits say so and are switched off; background tasks stay usable', async () => {
+// With another folder in view the two delegation sections say so and switch their forms off: agents.test.mjs and coding.test.mjs check that on
+// the sections themselves. Here the part that belongs to this switch: the background list does not act on a folder, so it is not switched off.
+test('with another folder in view, background tasks stay usable', async () => {
   const other = { ...hub, workspaces: { activePath: '/elsewhere', items: [] } };
   const entries = [[['hubState'], other], [['backgroundRuns'], { tasks: [], workflows: [] }]];
-  const groups = await renderWith(AgentsTab, { initialView: 'groups' }, entries, [], { selectedWorkspacePath: '/elsewhere' });
-  assert.match(groups, /role="status"[^>]*>[^<]*\/project[^<]*\/elsewhere|\/project[^<]*\/elsewhere/);
-  assert.match(groups, /<fieldset[^>]*disabled/);
-  const coding = await renderWith(AgentsTab, { initialView: 'coding' }, entries, [], { selectedWorkspacePath: '/elsewhere' });
-  assert.match(coding, /<fieldset[^>]*disabled/);
-  // the background list does not act on a folder, so it is not switched off
   const background = await renderWith(AgentsTab, {}, entries, [], { selectedWorkspacePath: '/elsewhere' });
   assert.doesNotMatch(background, /<fieldset[^>]*disabled/);
+  assert.match(background, /Chưa có công việc nền\./);
 });

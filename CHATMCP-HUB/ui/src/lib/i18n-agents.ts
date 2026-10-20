@@ -10,6 +10,10 @@ export const agentsVi = {
   agents_view_background: 'Công việc nền',
   agents_view_groups: 'Nhóm trợ lý',
   agents_view_coding: 'Sửa mã',
+  // Each of the two delegation sections is a script fetched when its tab is first opened
+  agents_section_loading: 'Đang tải mục này…',
+  agents_section_failed: 'Không tải được mục này. Có thể trang đã cũ so với Hub hoặc kết nối bị ngắt; hãy tải lại trang.',
+  agents_section_reload: 'Tải lại trang',
   agents_works_on: 'Làm việc trên thư mục: {folder}',
   agents_other_folder: 'Bạn đang xem thư mục khác với thư mục chính của Hub. Nhóm trợ lý và việc sửa mã chỉ làm việc trên thư mục chính ({primary}), nên bắt đầu, gộp và tạo bản nháp trên GitHub đang tắt ở đây; việc đang chạy vẫn dừng được. Đang xem: {viewing}.',
 
@@ -322,6 +326,9 @@ export const agentsEn: Record<keyof typeof agentsVi, string> = {
   agents_view_background: 'Background',
   agents_view_groups: 'Agent groups',
   agents_view_coding: 'Code edits',
+  agents_section_loading: 'Loading this section…',
+  agents_section_failed: 'This section could not be loaded. The page may be out of date with the Hub, or the connection dropped; reload the page.',
+  agents_section_reload: 'Reload page',
   agents_works_on: 'Works on the folder: {folder}',
   agents_other_folder: 'You are looking at a different folder from the Hub’s main one. Agent groups and code edits only work on the main folder ({primary}), so starting, merging and creating a draft on GitHub are turned off here; a run in progress can still be stopped. Viewing: {viewing}.',
 
