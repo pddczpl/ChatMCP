@@ -17,10 +17,46 @@
       "kind": "claim",
       "seam": "real",
       "test": "CHATMCP-HUB/tests/verify-skill-delivery.mjs",
-      "seamNote": "Real AgentRunner, real PluginManager and real GitHub registry install path; only the model (a capturing provider) and the GitHub HTTP transport are scripted. Run again against a copy of lib/ with the v3.9.0 defect put back, which must fail.",
+      "seamNote": "Real AgentRunner, real PluginManager and real GitHub registry install path; only the model (a capturing provider) and the GitHub HTTP transport are scripted. A small skill reaches the model whole in the index of the conversation; a bigger one is a line in the index and its text arrives once after the model calls skill_load. Run again against a copy of lib/ with the v3.9.0 defect put back, which must fail.",
       "forbiddenDoubles": [
         "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Agent|Runner|Plugin)",
         "\\b(?:AgentRunner|PluginManager)\\s*=\\s*(?:class|function|\\{)"
+      ]
+    },
+    {
+      "id": "project-instructions-bounded",
+      "claim": "AGENTS.md and CLAUDE.md of the workspace are loaded into the agent's instructions with a hard cap of 8,192 bytes, read only inside the workspace, and cannot change what the permission gate decides.",
+      "source": {
+        "file": "docs/USER-GUIDE.md",
+        "line": 229,
+        "quote": "giới hạn cứng **tối đa 8.192 byte**"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-project-instructions.mjs",
+      "seamNote": "The loader runs on real files in temporary workspaces (links, junctions, a 2 GiB file, binary files). The block is delivered through the real AgentRunner (only the model and a minimal tool session are scripted) with a mutation check, and a hostile AGENTS.md is run through the real HubManager, PermissionGate and LocalTools in Review, Read Only and Autonomous; verify-e2e-prompt-budgets does it again through a real Hub process.",
+      "forbiddenDoubles": [
+        "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Gate|Permission)",
+        "\\bpermissions\\s*[:=]\\s*\\{",
+        "\\bPermissionGate\\s*=\\s*(?:class|function|\\{)"
+      ]
+    },
+    {
+      "id": "skills-on-demand",
+      "claim": "A skill too big for the index is read through skill_load: bounded, once per load, with the Hub's redaction, and without any effect on permissions.",
+      "source": {
+        "file": "docs/USER-GUIDE.md",
+        "line": 230,
+        "quote": "mỗi lần nạp tối đa 16 KiB, một lần cho mỗi lần gọi"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-skill-on-demand.mjs",
+      "seamNote": "The index and the loader on their own, then the real AgentRunner and the real PluginManager (only the model is scripted): the text arrives once per load, a pooled worker is offered the tool, and a hostile skill is run through the real HubManager, PermissionGate and LocalTools in three modes.",
+      "forbiddenDoubles": [
+        "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Gate|Permission|Plugin)",
+        "\\bpermissions\\s*[:=]\\s*\\{",
+        "\\b(?:PluginManager|PermissionGate)\\s*=\\s*(?:class|function|\\{)"
       ]
     },
     {

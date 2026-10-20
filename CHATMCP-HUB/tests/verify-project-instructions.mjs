@@ -8,7 +8,9 @@
 //      toward the context budget as fixed overhead, keeps the prefix of the instructions stable, is recorded in the task, can be switched off, and
 //      cannot change what the permission gate decides: a hostile AGENTS.md is run through the real manager, gate and tools in three modes.
 //
-// The model is the only scripted part of the second half; the manager, the gate, the tools and the runner are the production objects.
+// The model is the only scripted part of the second half (the hostile-text block runs the real manager, gate and tools; the others put a minimal tool
+// session in front of the real runner).
+// CLAIM: project-instructions-bounded
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -534,6 +536,38 @@ try {
   }
   ok('the fence carries an id made from the content: a file cannot contain the line that closes its own block');
 
+  // ---- credentials ---------------------------------------------------------------------------------------------------------------------------------
+  {
+    // The runner passes its own redactor, the one every tool result goes through; here a stand-in with the same job.
+    const KEY = 'sk-proj-abcdefghijklmnopqrstuvwx';
+    const mask = (text) => text.replace(/\bsk-(?:proj-)?[A-Za-z0-9_-]{16,}/g, '[REDACTED-CREDENTIAL]');
+    const hidden = String.fromCodePoint(0x200b);
+    // A key with an invisible character inside it: the pattern must see it whole, so the text is cleaned before it is masked.
+    const text = `Deploy with ${KEY.slice(0, 12)}${hidden}${KEY.slice(12)} on friday.\n`;
+    const dir = await workspace({ 'AGENTS.md': text });
+    const plain = await load(dir);
+    assert.ok(plain.block.includes(`Deploy with ${KEY} on friday.`), '(the premise: without the hook the key is in the block, whole, once the invisible character is gone)');
+    assert.equal(plain.record.files[0].redacted, false);
+    const masked = await load(dir, { redact: mask });
+    assert.ok(masked.block.includes('Deploy with [REDACTED-CREDENTIAL] on friday.') && !masked.block.includes('abcdefghijklmnopqrstuvwx'), 'with the hook no part of the key is in the block');
+    assert.equal(masked.record.files[0].redacted, true);
+    assert.match(masked.block, /\(\d+ bytes; 1 invisible or control characters? removed; credentials masked\)/, 'and the block says what was done to the file');
+    assert.equal(masked.record.files[0].sha256, sha256(Buffer.from(text)), 'the hash of the file on disk is still that of the file');
+    assert.equal(masked.record.files[0].textBytes, bytes(mask(text.replace(hidden, '')).trimEnd()), 'while the sizes are those of the text that is sent');
+    assert.notEqual(masked.record.blockSha256, plain.record.blockSha256);
+    // Sizes are counted after the masking: a redactor that makes the text longer cannot push the block over the cap.
+    const grow = (value) => value.replaceAll('secret', '[REDACTED-LONG-PLACEHOLDER-TEXT]');
+    const big = await load(await workspace({ 'AGENTS.md': 'secret '.repeat(2000) }), { redact: grow });
+    assert.ok(bytes(big.block) <= 8192 && big.record.files[0].status === 'truncated' && big.record.files[0].redacted, `${bytes(big.block)} bytes`);
+    // A redactor that fails, or answers with something that is not text, fails the file: the unmasked text is never the fallback.
+    for (const broken of [() => 42, () => undefined, () => { throw new Error('boom'); }]) {
+      const failed = await load(dir, { redact: broken });
+      assert.equal(failed.block, '', 'nothing is sent');
+      assert.deepEqual([failed.record.files[0].status, failed.record.files[0].reason], ['skipped', 'unreadable']);
+    }
+  }
+  ok('credentials in a project file are masked after the invisible characters are removed and before the sizes are counted; a redactor that fails fails the file');
+
   // ---- the owner switch ---------------------------------------------------------------------------------------------------------------------------
   {
     const dir = await workspace({ 'AGENTS.md': 'MARK-OFF' });
@@ -700,6 +734,21 @@ try {
     } finally { await s.runner.shutdown(); }
   }
   ok('each run records an instructions_loaded event and task.projectInstructions: paths, status, sizes and sha256 of the file and of the block, and no text');
+
+  // ---- a key in AGENTS.md does not go to the provider --------------------------------------------------------------------------------------------
+  {
+    const key = 'sk-proj-abcdefghijklmnopqrstuvwx';
+    const s = await session({ files: { 'AGENTS.md': `# Rules\nThe deploy key is ${key} (do not print it).\nKeep going.\n` } });
+    try {
+      const requests = await s.say('Explain the layout of this project.');
+      for (const request of requests) assert.ok(!`${request.instructions}${JSON.stringify(request.input)}`.includes('abcdefghijklmnopqrstuvwx'), 'the key is in no request');
+      assert.ok(requests[0].instructions.includes('The deploy key is [REDACTED] (do not print it).'), 'the runner\'s own redactor masked it: what a tool result would have been');
+      assert.equal(s.task().projectInstructions.files[0].redacted, true);
+      const task = JSON.stringify(s.task());
+      assert.ok(!task.includes('abcdefghijklmnopqrstuvwx'), 'and the task has none of it');
+    } finally { await s.runner.shutdown(); }
+  }
+  ok('a credential in AGENTS.md is masked by the runner\'s own redactor before the block is built: it reaches neither the provider nor the task');
 
   // ---- the files are read again for every run ---------------------------------------------------------------------------------------------------
   {

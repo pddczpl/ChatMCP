@@ -77,7 +77,7 @@ function normalize(raw) {
 
 // ---- files ----------------------------------------------------------------------------------------------------------------------------
 
-const skipped = (name, reason, extra = {}) => ({ path: name, status: 'skipped', reason, sizeBytes: null, textBytes: 0, loadedBytes: 0, cutBytes: 0, sha256: null, loadedSha256: null, strippedCharacters: 0, aliasOf: null, ...extra });
+const skipped = (name, reason, extra = {}) => ({ path: name, status: 'skipped', reason, sizeBytes: null, textBytes: 0, loadedBytes: 0, cutBytes: 0, sha256: null, loadedSha256: null, strippedCharacters: 0, redacted: false, aliasOf: null, ...extra });
 const printable = (value) => String(value).replace(/[^\x20-\x7e]/g, '?').slice(0, 80);
 
 /** A name that can only point inside the workspace: relative, no `..` segment, no drive, no NUL. The production list is fixed; this guards the rest. */
@@ -88,7 +88,7 @@ function insideName(name) {
 }
 
 /** One candidate file: an entry that says why it was refused, `{ absent: true }` when there is no such file, or the entry with its text. */
-async function readCandidate(rootReal, name, limit) {
+async function readCandidate(rootReal, name, limit, redact) {
   if (!insideName(name)) return skipped(printable(name), 'outside_workspace');
   const absolute = path.join(rootReal, ...name.split(/[\\/]+/));
   try { await fs.lstat(absolute); } catch (error) {
@@ -124,8 +124,16 @@ async function readCandidate(rootReal, name, limit) {
 
   const normalized = normalize(raw);
   if (normalized.reason) return skipped(name, normalized.reason, { sizeBytes: raw.length, sha256: sha256(raw) });
-  const buffer = Buffer.from(normalized.text, 'utf8');
-  const entry = skipped(name, 'empty', { sizeBytes: raw.length, sha256: sha256(raw), strippedCharacters: normalized.stripped });
+  // A credential in a project file is masked as it would be in a tool result. After the cleaning: a hidden character inside a key must not hide it from the pattern.
+  // A redactor that fails, or answers with anything but text, fails the file: the unmasked text is never the fallback.
+  let masked = normalized.text;
+  if (typeof redact === 'function') {
+    try { masked = redact(normalized.text); } catch { masked = null; }
+    if (typeof masked !== 'string') return skipped(name, 'unreadable', { sizeBytes: raw.length, sha256: sha256(raw) });
+  }
+  const text = trimBlank(masked);
+  const buffer = Buffer.from(text, 'utf8');
+  const entry = skipped(name, 'empty', { sizeBytes: raw.length, sha256: sha256(raw), strippedCharacters: normalized.stripped, redacted: text !== normalized.text });
   if (!buffer.length) return entry;
   return { ...entry, status: 'loaded', reason: null, textBytes: buffer.length, buffer, textSha256: sha256(buffer) };
 }
@@ -141,7 +149,7 @@ const REASONS = Object.freeze({
 function renderBlock(parts, notLoaded, cap) {
   const sections = parts.map((part) => {
     if (part.alias) return `=== ${part.path}: same text as ${part.alias}, not repeated ===`;
-    const note = part.strippedCharacters ? `; ${part.strippedCharacters} invisible or control characters removed` : '';
+    const note = [part.strippedCharacters ? `${part.strippedCharacters} invisible or control characters removed` : '', part.redacted ? 'credentials masked' : ''].filter(Boolean).map((item) => `; ${item}`).join('');
     const lines = [`=== ${part.path} (${part.textBytes} bytes${note}) ===`, part.buffer.subarray(0, part.keep).toString('utf8')];
     if (part.keep < part.textBytes) lines.push(`[${part.path} truncated: ${part.textBytes - part.keep} more bytes were not loaded; read_file ${part.path} for the rest]`);
     return lines.join('\n');
@@ -163,11 +171,14 @@ function renderBlock(parts, notLoaded, cap) {
  * Never throws and never reads outside the workspace: a problem with a file is a reason in the record, a workspace that cannot be read gives an
  * empty block and `record.error`. `enabled: false` returns at once without touching the file system.
  *
+ * `redact(text)` masks what looks like a credential (the runner passes its own redactor, the one every tool result goes through); it runs on the cleaned text,
+ * before the sizes are counted, so the cap holds for the text that is sent.
+ *
  * @returns {Promise<{enabled: boolean, block: string, record: object}>} the block ('' when there is nothing to say) and a record without any
  *   text of the files: per file its path, status (loaded, truncated, alias, skipped), reason, sizes, the hash of the file as it is on disk and of
  *   what was loaded; for the block its size and hash, and whether any text was left out.
  */
-export async function loadProjectInstructions({ workspacePath, enabled = true, maxBytes = PROJECT_INSTRUCTIONS_MAX_BYTES, files = PROJECT_INSTRUCTION_FILES, fileLimitBytes = PROJECT_INSTRUCTION_FILE_LIMIT_BYTES } = {}) {
+export async function loadProjectInstructions({ workspacePath, enabled = true, maxBytes = PROJECT_INSTRUCTIONS_MAX_BYTES, files = PROJECT_INSTRUCTION_FILES, fileLimitBytes = PROJECT_INSTRUCTION_FILE_LIMIT_BYTES, redact = null } = {}) {
   const cap = capOf(maxBytes);
   if (enabled === false) return { enabled: false, block: '', record: emptyRecord(cap, { enabled: false }) };
   let rootReal;
@@ -178,7 +189,7 @@ export async function loadProjectInstructions({ workspacePath, enabled = true, m
 
   const found = [];
   for (const name of files) {
-    const entry = await readCandidate(rootReal, name, fileLimitBytes);
+    const entry = await readCandidate(rootReal, name, fileLimitBytes, redact);
     if (!entry.absent) found.push(entry);
   }
   // The same text twice (a copy, or a link to the other file) is loaded once; the second file is named as an alias.
@@ -216,7 +227,7 @@ export async function loadProjectInstructions({ workspacePath, enabled = true, m
   const report = found.map((entry) => {
     const part = parts.find((candidate) => candidate.path === entry.path);
     const base = { path: entry.path, status: entry.status, reason: entry.reason, sizeBytes: entry.sizeBytes, textBytes: entry.textBytes, loadedBytes: 0, cutBytes: 0,
-      sha256: entry.sha256, loadedSha256: null, strippedCharacters: entry.strippedCharacters, aliasOf: entry.aliasOf ?? null };
+      sha256: entry.sha256, loadedSha256: null, strippedCharacters: entry.strippedCharacters, redacted: entry.redacted === true, aliasOf: entry.aliasOf ?? null };
     if (!part) return base;
     if (!included.has(entry.path)) return { ...base, status: 'skipped', reason: 'budget_exhausted', aliasOf: null };
     if (part.alias) return base;
