@@ -11,7 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { HubManager } from '../lib/manager.mjs';
 import { assembleStudio } from '../lib/assemble.mjs';
-import { CodingWorktreeOrchestrator, splitRunnerNotice } from '../lib/coding-orchestrator.mjs';
+import { CodingWorktreeOrchestrator, splitRunnerNotice, workerWords } from '../lib/coding-orchestrator.mjs';
 import { ExecutionBackend, validateCapabilityReport, validateExecutionReceipt } from '../lib/execution-contract.mjs';
 import { BLACKBOX_KIND } from '../lib/native-blackbox-contract.mjs';
 
@@ -46,6 +46,34 @@ class FailingBackend extends ExecutionBackend {
     return Object.freeze({ ...receipt, publisherAuthenticated: true, provenance: 'publisher_authenticated', graderAuthenticated: true, publicationProtocol: 'system-sealed-exit-v1' });
   }
   async cancel() { return true; }
+}
+
+/** A backend that passes every check it is asked to run. */
+class PassingBackend extends FailingBackend {
+  async execute(request) {
+    this.executions += 1;
+    const stamp = new Date().toISOString();
+    const receipt = validateExecutionReceipt({
+      runId: request.runId, status: 'completed', exitCode: 0, stdout: 'Synthetic native comparison matched', stderr: '',
+      startedAt: stamp, completedAt: stamp, durationMs: 1, backend: 'windows-sandbox', snapshotHash: request.snapshotHash,
+      checkHash: request.checkHash, truncated: false, evidencePath: null, reasons: [],
+      grader: { version: 1, kind: 'native-blackbox', manifestSha256: request.grader.manifestSha256, cases: 1, passed: 1, failed: 0, valid: true },
+    });
+    return Object.freeze({ ...receipt, publisherAuthenticated: true, provenance: 'publisher_authenticated', graderAuthenticated: true, publicationProtocol: 'system-sealed-exit-v1' });
+  }
+}
+
+/** What the owner does in the Agents tab: wait until the worker asks for its check to be allowed, and allow the one check the Hub found. */
+async function allowChecks(agent, workerId) {
+  let waiting = false;
+  for (let i = 0; i < 200 && !waiting; i++) {
+    waiting = [...agent.jobs.values()].at(-1)?.workers?.find((worker) => worker.id === workerId)?.status === 'awaiting_test_grant';
+    if (!waiting) await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.equal(waiting, true, 'the worker asks for a test grant after editing');
+  const checks = (await agent.discoverWorkerChecks({ workerId })).checks;
+  assert.equal(checks.length, 1);
+  await agent.grantCheck({ workerId, checkId: checks[0].id, confirmation: 'AUTHORIZE ISOLATED CHECK' });
 }
 
 /** One project, one Hub, one orchestrator. `manifest` adds a declarative check the Hub can find; without it the project has a test file and no supported check. */
@@ -144,6 +172,9 @@ const NOTICE_MARK = '\n\n[Verification notice] ';
 const NOTICE = 'ChatMCP has NOT independently verified full completion: No verified successful project check; No independently recorded Git diff review.';
 /** A task the Hub plans in phases (decomposeCodingTask: 160+ characters and 2+ clauses). The scripted model writes the file named in its "add <file>". */
 const longTask = (file) => `Add the file ${file} to the project root with one line of text. Then update the tests so that the whole suite still passes, and verify that the new file is listed by the README. add ${file}`;
+/** A task of the repair scenario: long enough to be planned, with no "add <file>" in it, so the scripted model takes the next file of its script. */
+const REPAIR_TASK = 'WANTS: fix it. Then repair when the check fails, and keep repairing until the registered check passes or the retry budget is used up. Do not touch anything else in the project.';
+assert.ok(longTask('x.txt').length >= 160 && REPAIR_TASK.length >= 160, '(premise) both tasks are long enough to be planned in phases');
 const NOTES = {
   no_checks: 'No supported pinned Node test definition was discovered.',
   grant_timeout: 'Owner did not approve all isolated test grants in the allotted window.',
@@ -173,6 +204,14 @@ try {
       assert.deepEqual(splitRunnerNotice(quoted, bad), { answer: quoted, notice: '' }, JSON.stringify(bad));
     }
     for (const bad of [undefined, null, 7, {}, ['x']]) assert.deepEqual(splitRunnerNotice(bad, outcome), { answer: '', notice: '' }, String(bad));
+    // the words of a worker: the model's, cut at 12,000 characters, and the Hub's, cut at 2,000, each cut AFTER the split (a long answer must not cut the sentence off)
+    assert.deepEqual(workerWords({ finalText: ANSWER + NOTICE_MARK + NOTICE, verificationOutcome: outcome }), { summary: ANSWER, notice: NOTICE });
+    assert.deepEqual(workerWords({ finalText: ANSWER, verificationOutcome: { ready: true, missing: [] } }), { summary: ANSWER, notice: '' });
+    const big = 'word '.repeat(2600);
+    assert.deepEqual(workerWords({ finalText: big + NOTICE_MARK + NOTICE, verificationOutcome: outcome }), { summary: big.slice(0, 12000), notice: NOTICE }, 'a long answer does not cut the Hub\'s sentence off');
+    const tail = NOTICE + '\n\n[Hook notice] ' + 'y'.repeat(5000);
+    assert.deepEqual(workerWords({ finalText: ANSWER + NOTICE_MARK + tail, verificationOutcome: outcome }), { summary: ANSWER, notice: tail.slice(0, 2000) }, 'and what the Hub says is cut at 2,000');
+    for (const bad of [undefined, null, {}, { finalText: 7 }, 'text']) assert.deepEqual(workerWords(bad), { summary: '', notice: '' }, JSON.stringify(bad));
     ok('the runner\'s verification notice is split off the end of a final text only where the runner\'s own record says it wrote one');
   }
 
@@ -193,6 +232,7 @@ try {
       assert.equal(wants.summary, ANSWER, 'the summary is what the model said: the Hub\'s sentence is not in it');
       assert.deepEqual(wants.verificationNote, { code: 'no_checks', text: NOTES.no_checks });
       assert.ok(!('runnerError' in plain) && !('runnerError' in wants), 'a run that ended normally has no error of the runner to report');
+      assert.ok(!('runnerNotice' in plain) && !('runnerNotice' in wants), 'and tasks too short to be planned have no sentence of the runner either');
       assert.equal(job.status, 'partial_failure');
       const saved = JSON.parse(await fs.readFile(path.join(agent.directory, 'jobs.json'), 'utf8')).jobs.at(-1);
       assert.deepEqual(saved.workers.find((worker) => worker.id === 'wants').verificationNote, wants.verificationNote, 'what is saved is what is reported');
@@ -205,11 +245,12 @@ try {
     const { agent, stop } = await fixture('grant-timeout', { manifest: true, provider: scriptedModel(ANSWER, []), grantWindowMs: 400 });
     try {
       assert.equal(agent.grantWindowMs, 400);
-      const job = await withDeadline(agent.run({ tasks: [{ id: 'wants', prompt: 'WANTS: add wants.txt', verify: true }], confirmation: 'CREATE WORKTREES', maxConcurrency: 1 }),
+      const job = await withDeadline(agent.run({ tasks: [{ id: 'wants', prompt: longTask('wants.txt'), verify: true }], confirmation: 'CREATE WORKTREES', maxConcurrency: 1 }),
         30_000, 'the worker kept waiting for a grant that nobody gives: the window is not the one given');
       const wants = job.workers[0];
       assert.equal(wants.status, 'needs_attention', JSON.stringify(wants));
       assert.equal(wants.summary, ANSWER);
+      assert.equal(wants.runnerNotice, NOTICE, 'a long task: the same first run, the same split, whatever the Hub did after it');
       assert.deepEqual(wants.verificationNote, { code: 'grant_timeout', text: NOTES.grant_timeout });
       assert.ok(!('runnerError' in wants), 'the run itself ended normally');
       assert.equal(wants.verificationOutcome, undefined, 'no verification ran: there is no outcome to report');
@@ -230,21 +271,14 @@ try {
     const backend = new FailingBackend();
     parent.executionRegistry.register(backend);
     try {
-      const running = agent.run({ tasks: [{ id: 'wants', prompt: 'WANTS: fix it, then repair when the check fails', verify: true }], confirmation: 'CREATE WORKTREES', maxConcurrency: 1 });
-      let waiting = false;
-      for (let i = 0; i < 200 && !waiting; i++) {
-        waiting = [...agent.jobs.values()].at(-1)?.workers?.[0]?.status === 'awaiting_test_grant';
-        if (!waiting) await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-      assert.equal(waiting, true, 'the worker asks for a test grant after editing');
-      const checks = (await agent.discoverWorkerChecks({ workerId: 'wants' })).checks;
-      assert.equal(checks.length, 1);
-      await agent.grantCheck({ workerId: 'wants', checkId: checks[0].id, confirmation: 'AUTHORIZE ISOLATED CHECK' });
+      const running = agent.run({ tasks: [{ id: 'wants', prompt: REPAIR_TASK, verify: true }], confirmation: 'CREATE WORKTREES', maxConcurrency: 1 });
+      await allowChecks(agent, 'wants');
       const job = await withDeadline(running, 60_000, 'the verified loop did not end');
       const wants = job.workers[0];
       assert.equal(backend.executions, 3, 'three attempts at the check, two repairs between them');
       assert.equal(wants.status, 'needs_attention', JSON.stringify(wants));
       assert.equal(wants.summary, ANSWER, 'the model\'s own words');
+      assert.equal(wants.runnerNotice, NOTICE, 'the runner\'s sentence on the first run, which the repairs after it do not touch');
       const reason = 'Repair/test retry budget exhausted.';
       assert.deepEqual(wants.verificationNote, { code: 'blocked', text: 'Verified coding blocked: ' + reason, detail: reason });
       assert.ok(!('runnerError' in wants), 'the Hub\'s reason for stopping the loop is the note\'s, not an error of the runner');
@@ -347,6 +381,11 @@ try {
       assert.equal(saved.workers.find((worker) => worker.id === 'long').runnerNotice, NOTICE, 'what is saved is what is reported');
       assert.equal(saved.workers.find((worker) => worker.id === 'long').summary, ANSWER);
       assert.equal(agent.state().jobs.at(-1).workers.find((worker) => worker.id === 'long').runnerNotice, NOTICE, 'and it is what GET /api/studio/coding sends to a page');
+      // and a Hub that is started again reads it back: a second orchestrator on the same folder reports the same
+      const restarted = new CodingWorktreeOrchestrator({ manager: {}, provider: {}, bundleRoot, directory: agent.directory });
+      await restarted.load();
+      assert.equal(restarted.recoveryFault, null);
+      assert.equal(restarted.state().jobs.at(-1).workers.find((worker) => worker.id === 'long').runnerNotice, NOTICE, 'after a restart');
       ok('a worker whose final text the runner ended with its verification notice has the model\'s words as summary and the sentence as runnerNotice');
     } finally { await stop(); }
   }
@@ -367,6 +406,43 @@ try {
       assert.equal(long.summary, quoting, 'the model\'s sentence stays in its summary');
       assert.equal(long.runnerNotice, NOTICE, 'and the runner\'s, which comes after it, is the runner\'s');
       ok('a model that writes the Hub\'s sentence itself keeps it in its summary; the runner\'s own is the one after it');
+    } finally { await stop(); }
+  }
+
+  // 9. the model's words are cut at 12,000 characters AFTER the runner's sentence is split off: a long answer must not cut the Hub's sentence off the end of the text first
+  {
+    const answer = 'word '.repeat(2600);
+    assert.ok(answer.length > 12_000, '(premise) the answer is longer than the bound');
+    const { agent, stop } = await fixture('big-answer', { manifest: false, provider: scriptedModel(answer, []) });
+    try {
+      const job = await withDeadline(agent.run({ tasks: [{ id: 'big', prompt: longTask('big.txt') }], confirmation: 'CREATE WORKTREES', maxConcurrency: 1 }),
+        90_000, 'the run of a model with a long answer did not end');
+      const big = job.workers[0];
+      assert.equal(big.status, 'ready_for_review', JSON.stringify(big).slice(0, 300));
+      assert.equal(big.summary, answer.slice(0, 12_000), 'the summary is the model\'s words, cut at the bound');
+      assert.equal(big.runnerNotice, NOTICE, 'and the Hub\'s sentence, which came last, is whole');
+      ok('a model answer longer than the bound is cut, and the Hub\'s sentence after it is not');
+    } finally { await stop(); }
+  }
+
+  // 10. the check is allowed and passes: the worker is verified. The first run's final text is the same text, so it is split the same way, and the Hub's sentence on it
+  // is a field of its own beside the Hub's note that every check has evidence
+  {
+    const { parent, agent, stop } = await fixture('verified', { manifest: true, provider: scriptedModel(ANSWER, []) });
+    const backend = new PassingBackend();
+    parent.executionRegistry.register(backend);
+    try {
+      const running = agent.run({ tasks: [{ id: 'wants', prompt: longTask('wants.txt'), verify: true }], confirmation: 'CREATE WORKTREES', maxConcurrency: 1 });
+      await allowChecks(agent, 'wants');
+      const job = await withDeadline(running, 60_000, 'the verified loop did not end');
+      const wants = job.workers[0];
+      assert.equal(backend.executions, 1, 'the check passed at the first attempt');
+      assert.equal(wants.status, 'ready_for_review', JSON.stringify(wants).slice(0, 400));
+      assert.equal(wants.verificationAttempts.at(-1).testOutcomeVerified, true, '(premise) the Hub verified the check itself');
+      assert.deepEqual(wants.verificationNote, { code: 'verified', text: NOTES.verified });
+      assert.equal(wants.summary, ANSWER);
+      assert.equal(wants.runnerNotice, NOTICE, 'the runner\'s sentence on the first run stays the Hub\'s, beside the note that the checks the Hub ran have evidence');
+      ok('a worker the Hub verified keeps the model\'s words as summary and the runner\'s sentence on them as runnerNotice');
     } finally { await stop(); }
   }
 

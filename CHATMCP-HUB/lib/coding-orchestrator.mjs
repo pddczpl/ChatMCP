@@ -36,7 +36,9 @@ const RUNNER_ERROR_MAX=2000;
 // this is kept apart so that a page can label each for what it is. `code` is what a page translates (and the pages know exactly these four); `text` is the
 // English sentence for a reader that does not know the code; `detail` is the part of the sentence that varies.
 const verificationNote=(code,text,detail)=>detail===undefined?{code,text}:{code,text,detail};
-// How much of the AgentRunner's notice on a final answer a worker keeps: its sentence is a few hundred characters at most, and what it appends after it is cut here too.
+// How much of the model's final answer a worker keeps as its summary, and how much of the AgentRunner's notice on it: the sentence is a few hundred characters at most,
+// and whatever the runner appends after it is cut here too.
+const SUMMARY_MAX=12000;
 const RUNNER_NOTICE_MAX=2000;
 // A final answer that the Hub's evidence does not back ends, in the AgentRunner's text, with this separator and a sentence of the runner's own (lib/agent.mjs). The main
 // chat shows that text whole, on purpose. For a worker the model's words are the `summary` and the sentence is the Hub's, so they are split here and kept as two fields.
@@ -52,6 +54,14 @@ export function splitRunnerNotice(finalText,outcome){
   if(outcome?.ready!==false||!Array.isArray(outcome.missing))return {answer:text,notice:''};
   const at=text.lastIndexOf(RUNNER_NOTICE_MARK+'ChatMCP has NOT independently verified full completion: '+outcome.missing.join('; ')+'.');
   return at<0?{answer:text,notice:''}:{answer:text.slice(0,at),notice:text.slice(at+RUNNER_NOTICE_MARK.length)};
+}
+/**
+ * What a worker said and what the Hub's runner added to it, from the runner's finished task: the model's words as the summary and the runner's notice, each cut AFTER the
+ * split, so that a long answer cannot cut the Hub's sentence off the end of the text.
+ */
+export function workerWords(result){
+  const {answer,notice}=splitRunnerNotice(result?.finalText,result?.verificationOutcome);
+  return {summary:bounded(answer,SUMMARY_MAX),notice:bounded(notice,RUNNER_NOTICE_MAX)};
 }
 const cleanGitPath=(p)=>p.replaceAll('\\','/');
 const getError=(result,operation)=>{
@@ -367,10 +377,8 @@ export class CodingWorktreeOrchestrator {
         const initialState=result?.state||result?.status;
         // What the model said and nothing else: a run that failed before it said anything has an empty summary. The notice the AgentRunner ends a final answer with when the
         // Hub's evidence does not back the run's plan is the Hub's sentence, so it is split off and kept as a field of its own, on every way this worker can end below.
-        const {answer,notice}=splitRunnerNotice(result?.finalText,result?.verificationOutcome);
-        const initialSummary=bounded(answer,12000);
-        const runnerNotice=bounded(notice,RUNNER_NOTICE_MAX);
-        const said=runnerNotice?{runnerNotice}:{};
+        const {summary:initialSummary,notice}=workerWords(result);
+        const said=notice?{runnerNotice:notice}:{};
         if (initialState!=='completed' || node.verifyRequired!==true) {
           // Why a run stopped is the AgentRunner's own record (redacted; its sentences are mostly Vietnamese and may quote the provider or a refusal), so it is the
           // Hub's and not the model's: a field of its own, only when the run ended with an error.
