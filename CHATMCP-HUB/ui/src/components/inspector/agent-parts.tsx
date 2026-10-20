@@ -1,6 +1,6 @@
 import { AlertTriangle, Bot, CircleDashed, CircleSlash, Hourglass, Loader2, ShieldCheck, XCircle, type LucideIcon } from 'lucide-react';
 import { useTranslation, type TranslationKey, type Translate } from '@/lib/i18n';
-import type { AgentTone, ReportKind, WorkerProofKind } from '@/lib/agent-proof';
+import type { AgentTone, ReportKind, VerificationNote, WorkerProofKind } from '@/lib/agent-proof';
 import type { DraftIssue } from '@/lib/agent-draft';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/Badge';
@@ -73,6 +73,40 @@ export function AiReport({ text, label, className }: { text: string; label?: str
       <p className="text-[12px] font-medium text-muted">{label ?? t('agent_report_label')}</p>
       <HiddenNote show={hasHidden(text)} />
       <p className="max-h-52 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-line-subtle bg-panel px-3 py-2 text-[13px] leading-5 text-fg select-text"><HiddenText text={text} /></p>
+    </div>
+  );
+}
+
+/**
+ * The line for a note the Hub sent about how a worker's verification ended, in the language on screen. Each code the Hub sends has its line
+ * (tests/agent-errors.test.mjs keeps the two lists equal); a code this page has no line for is shown as the Hub wrote it, and so is a "blocked"
+ * note that has lost its reason.
+ */
+export function hubNoteText(note: VerificationNote, t: Translate): string {
+  if (note.code === 'blocked' && !note.detail) return note.text ?? '';
+  switch (note.code) {
+    case 'no_checks': return t('agent_hub_note_no_checks');
+    case 'grant_timeout': return t('agent_hub_note_grant_timeout');
+    case 'blocked': return t('agent_hub_note_blocked', { reason: note.detail ?? '' });
+    case 'verified': return t('agent_hub_note_verified');
+    default: return note.text ?? '';
+  }
+}
+
+/**
+ * The Hub's own note about a worker, kept apart from the AI's report and labelled as the Hub's: plain text beside the evidence line, in no colour
+ * of proof. Whether it may be shown at all is decided by `hubNoteOf` (lib/agent-proof.ts), which holds back the note that repeats the evidence.
+ */
+export function HubNote({ note }: { note: VerificationNote | null }) {
+  const { t } = useTranslation();
+  const text = note ? hubNoteText(note, t) : '';
+  if (!note || !text) return null;
+  return (
+    <div className="space-y-0.5">
+      <HiddenNote show={hasHidden(text)} />
+      <p data-testid="hub-note" data-code={note.code} className="text-[12px] leading-4 text-muted select-text">
+        <span className="font-medium text-fg">{t('agent_hub_note_label')}</span>{' '}<HiddenText text={text} />
+      </p>
     </div>
   );
 }

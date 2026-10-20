@@ -8,7 +8,7 @@ import { useAppStore } from '@/store/useAppStore';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Input';
 import { agentStatusLabel } from './agentLabels';
-import { StatusBadge } from './agent-parts';
+import { NoticeLine, StatusBadge } from './agent-parts';
 import { CodingWorkerCard } from './CodingWorkerCard';
 import { ReviewPanel } from './CodingReview';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -41,8 +41,13 @@ interface Props {
   hubBusy: boolean;
   /** The Hub is running this very run. A run that is not going any more has no worker that is still working, whatever status was saved for it. */
   active: boolean;
-  /** Another folder than the Hub's own is in view: merging, publishing and recording an interrupted run wait (reading does not). */
+  /**
+   * Another folder than the Hub's own is in view, so this run is the viewed folder's and not the Hub's. The Hub reads, merges and publishes only the runs of
+   * its own folder and answers any other with "not in the selected workspace", so reading waits as well as merging, publishing and recording an interrupted run.
+   */
   blocked?: boolean;
+  /** The folder the Hub works on, named when `blocked` says why nothing here can be read. */
+  primary?: string;
   refetch: () => Promise<unknown>;
   /** The workers to tick when a run has just been started from this tab. */
   preselect: { runId: string; ids: string[] } | null;
@@ -52,7 +57,7 @@ interface Props {
  * The newest (or the chosen) coding run: its workers, what the Hub recorded about each, the diffs to read, the merge and the draft pull
  * request. Reading a diff is what unlocks merging and publishing, and each of those asks for its phrase in a dialog first.
  */
-export function CodingRunView({ run, jobs, onPick, busy, setBusy, hubBusy, active, blocked = false, refetch, preselect }: Props) {
+export function CodingRunView({ run, jobs, onPick, busy, setBusy, hubBusy, active, blocked = false, primary = '', refetch, preselect }: Props) {
   const { t, lang } = useTranslation();
   const showToast = useAppStore((state) => state.showToast);
   const [selection, setSelection] = useState<{ runId: string; ids: string[] } | null>(null);
@@ -67,7 +72,7 @@ export function CodingRunView({ run, jobs, onPick, busy, setBusy, hubBusy, activ
 
   const workers: any[] = run.workers || [];
   const locked = busy || hubBusy;
-  // What changes Git (a merge, a draft on GitHub, recording an interrupted run) also waits while the Hub's other folder is not the one in view.
+  // Reading a run, and what changes Git (a merge, a draft on GitHub, recording an interrupted run), also wait while the Hub's folder is not the one in view.
   const changeLocked = locked || blocked;
   const slot = (key: string) => `${run.id}:${key}`;
   const keyOf = reviewKey;
@@ -151,12 +156,13 @@ export function CodingRunView({ run, jobs, onPick, busy, setBusy, hubBusy, activ
           </Select>
         </div>
       )}
+      {blocked && <NoticeLine tone="neutral" testId="coding-run-foreign">{t('coding_run_foreign', { primary })}</NoticeLine>}
       {run.error && <ErrorLine message={run.error} />}
       <details className="text-[12px] text-muted">
         <summary className="cursor-pointer rounded">{t('coding_run_details')}</summary>
         <p className="mt-2 break-all font-mono">{t('coding_run_id', { id: String(run.id).slice(0, 8) })}</p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="outline" disabled={locked} onClick={viewRecovery}>{t('coding_recovery_view')}</Button>
+          <Button size="sm" variant="outline" disabled={changeLocked} onClick={viewRecovery}>{t('coding_recovery_view')}</Button>
           {canAcknowledge && <Button size="sm" variant="outline" disabled={changeLocked} onClick={() => setAsk({ kind: 'acknowledge' })}>{t('coding_recovery_ack')}</Button>}
         </div>
         <p className="mt-2">{t('coding_recovery_only')}</p>
@@ -180,7 +186,7 @@ export function CodingRunView({ run, jobs, onPick, busy, setBusy, hubBusy, activ
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" aria-describedby={statusBlocksMerge ? 'coding-merge-status-hint' : undefined}
               disabled={!canMerge({ selected, reviewed: (id) => Boolean(tokens[slot(keyOf(id))]), hasMerge: Boolean(integration), locked: changeLocked, runStatus: run.status })} onClick={() => setAsk({ kind: 'integrate' })}>{t('coding_integrate')}</Button>
-            {integration?.status === 'ready_for_review' && <Button ref={readMergeRef} size="sm" variant="outline" disabled={locked} onClick={() => viewDiff()}>{t('coding_view_integration')}</Button>}
+            {integration?.status === 'ready_for_review' && <Button ref={readMergeRef} size="sm" variant="outline" disabled={changeLocked} onClick={() => viewDiff()}>{t('coding_view_integration')}</Button>}
             <Button size="sm" variant="outline" disabled={!canPublishMerge({ status: integration?.status, reviewed: Boolean(tokens[slot(keyOf())]), locked: changeLocked })} onClick={() => setAsk({ kind: 'publish', workerId: null })}>{t('coding_publish_integration')}</Button>
           </div>
           {integration?.prUrl && <p className="break-all text-muted">{t('coding_pr', { url: integration.prUrl })}</p>}

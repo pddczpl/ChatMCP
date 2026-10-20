@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { GitBranch, Plus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { agentErrorText } from '@/lib/agent-errors';
-import { codingBlock, outcomeToast, preselectIds } from '@/lib/agent-proof';
+import { codingBlock, outcomeToast, preselectIds, runsOfFolder } from '@/lib/agent-proof';
 import { draftIssues, parseDeps, CODING_LIMITS } from '@/lib/agent-draft';
 import { useTranslation, hasTranslation, type TranslationKey } from '@/lib/i18n';
 import { useAppStore } from '@/store/useAppStore';
@@ -46,7 +46,10 @@ export function CodingWorkers() {
   const [preselect, setPreselect] = useState<{ runId: string; ids: string[] } | null>(null);
   const { data, error, isLoading, refetch } = useQuery({ queryKey: ['coding-runs'], queryFn: api.getCodingRuns, refetchInterval: 3000 });
 
-  const jobs: any[] = Array.isArray(data?.jobs) ? data.jobs : [];
+  // The Hub keeps the runs of every folder it has worked on in one list and says which folder each belongs to. Only the runs of the folder in view are
+  // shown; the others are counted and said, and when another folder is in view the runs of the Hub's own folder are among them.
+  const { shown: jobs, hidden } = runsOfFolder<any>(data?.jobs, delegation.viewing);
+  const hiddenOfHub = delegation.blocked ? runsOfFolder<any>(data?.jobs, delegation.primary).shown.length : 0;
   const run = jobs.find((job) => job.id === pickedRunId) ?? jobs.find((job) => job.id === data?.activeRunId) ?? jobs.at(-1);
   // Busy comes from the Hub as well as from this page: a reopened tab must not offer a second run.
   const hubBusy = Boolean(data?.activeRunId) || data?.integrating === true;
@@ -209,13 +212,23 @@ export function CodingWorkers() {
         </ul>
       </ConfirmDialog>
 
-      <IsolatedChecksPanel run={run} />
+      {/* Without a run of this folder the panel would fall back to the newest run of any folder, and show its checks here. */}
+      {run && <IsolatedChecksPanel run={run} />}
 
       {error ? <ErrorLine message={t('coding_load_error', { message: agentErrorText(error, t, '') })} />
-        : isLoading ? <LoadingLine text={t('coding_loading')} />
-        : !run ? <EmptyBlock icon={GitBranch} title={t('coding_empty_title')} hint={t('coding_empty_hint')} />
-        : <CodingRunView run={run} jobs={jobs} onPick={setPickedRunId} busy={busy} setBusy={setBusy} hubBusy={hubBusy} active={Boolean(data?.activeRunId) && data.activeRunId === run.id}
-          blocked={delegation.blocked} refetch={refetch} preselect={preselect} />}
+        : isLoading || !delegation.ready ? <LoadingLine text={t('coding_loading')} />
+        : (
+          <>
+            {hidden > 0 && (
+              <NoticeLine tone="neutral" testId="coding-other-folders">
+                {hiddenOfHub > 0 ? t('coding_runs_main_hidden', { n: hiddenOfHub, primary: delegation.primary }) : t('coding_runs_hidden', { n: hidden })}
+              </NoticeLine>
+            )}
+            {!run ? <EmptyBlock icon={GitBranch} title={t('coding_empty_title')} hint={delegation.blocked ? t('coding_empty_hint_other_folder') : t('coding_empty_hint')} />
+              : <CodingRunView run={run} jobs={jobs} onPick={setPickedRunId} busy={busy} setBusy={setBusy} hubBusy={hubBusy} active={Boolean(data?.activeRunId) && data.activeRunId === run.id}
+                blocked={delegation.blocked} primary={delegation.primary} refetch={refetch} preselect={preselect} />}
+          </>
+        )}
     </TabBody>
   );
 }
