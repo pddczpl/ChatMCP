@@ -40,7 +40,7 @@ export interface TaskSummary {
   usage?: { inputTokens?: number; outputTokens?: number; httpRequests?: number; cachedInputTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number; telemetrySchema?:number; inputUsageReported?:number; inputUsageMissing?:number; outputUsageReported?:number; outputUsageMissing?:number };
   verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
   completionOutcome?: {execution:string;requirements:string;verification:string;unresolvedObjectiveIds:string[];missingChecks:string[];note?:string};
-  contextPolicy?: { source:string;capacityTokens:number;maxHistoryTokens:number;compactAtTokens:number;reservedOutputTokens:number;approximate:boolean };
+  contextPolicy?: { source:string;capacityTokens:number;maxHistoryTokens:number;compactAtTokens:number;reservedOutputTokens:number;plannedOutputTokens?:number;approximate:boolean };
   modelCost?: {schema:number;knownSubtotalUsd:number;pricedResponses:number;unpricedResponses:number;unknownResponses:number;totalUsd:number|null;complete:boolean;lastPriceStatus?:string};
   promptCount?: number;
   updatedAt?: string;
@@ -124,6 +124,10 @@ export interface AiProfile {
   contextWindow?: number | null;
   authMode?: string;
   protocol?: string;
+  /** Route template of the endpoint, e.g. /proxy/{model}/messages. Not a secret. */
+  customPath?: string;
+  /** Names and sources of the custom headers. The values are sealed on the Hub and never returned. */
+  customHeaders?: {name:string;source:'protected'|'environment';envKeyName?:string}[];
   isDefault?: boolean;
   ratesUsdPerMillion?: {input:number;output:number;cacheRead?:number;cacheWrite?:number}|null;
 }
@@ -268,7 +272,7 @@ export interface Task {
   usage?: { inputTokens?: number; outputTokens?: number; httpRequests?: number; cachedInputTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number; telemetrySchema?:number; inputUsageReported?:number; inputUsageMissing?:number; outputUsageReported?:number; outputUsageMissing?:number };
   verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
   completionOutcome?: {execution:string;requirements:string;verification:string;unresolvedObjectiveIds:string[];missingChecks:string[];note?:string};
-  contextPolicy?: { source:string;capacityTokens:number;maxHistoryTokens:number;compactAtTokens:number;reservedOutputTokens:number;approximate:boolean };
+  contextPolicy?: { source:string;capacityTokens:number;maxHistoryTokens:number;compactAtTokens:number;reservedOutputTokens:number;plannedOutputTokens?:number;approximate:boolean };
   modelCost?: {schema:number;knownSubtotalUsd:number;pricedResponses:number;unpricedResponses:number;unknownResponses:number;totalUsd:number|null;complete:boolean;lastPriceStatus?:string};
   lastMessage?: string;
   error?: string;

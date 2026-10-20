@@ -28,6 +28,7 @@ import {
 import { isTaskActive, normalizeApproval, taskTimeline } from '@/lib/task-view';
 import type { ChatAttachment } from '@/types';
 import { parseRoleProfileOverrides } from '@/lib/model-profile-selection';
+import { ContextPolicyNotice } from '@/components/conversation/ContextPolicyNotice';
 
 export function ConversationView() {
   const queryClient = useQueryClient();
@@ -319,9 +320,7 @@ export function ConversationView() {
             <span>Cache write: {(task.usage.cacheWriteTokens ?? 0).toLocaleString()} tokens</span>}
           {(task.usage.reasoningTokens ?? 0)>0&&
             <span>Reasoning: {(task.usage.reasoningTokens ?? 0).toLocaleString()} tokens</span>}
-          {task.contextPolicy && <span title={`Estimated history: ${task.contextPolicy.maxHistoryTokens.toLocaleString()} tokens; output reserved: ${task.contextPolicy.reservedOutputTokens.toLocaleString()} tokens. Source: ${task.contextPolicy.source}. Not provider-billed usage.`}>
-            Context: {task.contextPolicy.capacityTokens.toLocaleString()} tokens ({task.contextPolicy.source === 'conservative_fallback' ? 'estimated' : 'configured'})
-          </span>}
+          {task.contextPolicy && <ContextPolicyNotice policy={task.contextPolicy} />}
           {task.completionOutcome?.requirements === 'unverified' && (
             <span className="text-amber-400" title={task.completionOutcome.note}>
               Requirements unverified ({task.completionOutcome.unresolvedObjectiveIds.length})

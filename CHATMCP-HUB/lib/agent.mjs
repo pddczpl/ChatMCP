@@ -10,7 +10,7 @@ import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './
 import { RequestMeter, accumulateReportedUsage } from './request-budget.mjs';
 import { acceptObjectiveCriterion, availableObjectiveReceipts } from './objective-acceptance.mjs';
 import { createCostLedger, updateCostLedger } from './model-cost.mjs';
-import { taskToolSelectionMode, selectTaskCatalog } from './tool-selector.mjs';
+import { taskToolSelectionMode, selectTaskToolNames } from './tool-selector.mjs';
 import { HistoryLedger } from './history-ledger.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
@@ -182,6 +182,30 @@ export function directToolsFor(catalog, { limit = resolveDirectToolLimit() } = {
       parameters:structuredClone(tool.inputSchema),strict:false});
   }
   return {functions,byName};
+}
+
+// Auto mode offers directly only the schemas that the conversation's own words select. The prompt of the run that is starting selects first: the
+// cap cuts by group order, not by prompt, so with the prompts joined an earlier request that filled the cap would push out the group this one asks
+// for ("fix the UI, run the tests, check the symbols" and then "commit it" would lose git_commit). That way a message is offered at least what it
+// would be as the first message of a conversation. The earlier prompts, newest first, then fill what is left under the cap, so a follow-up with no
+// task word ("yes, go ahead") keeps the tools the conversation has been using, and one that names only part of the work (the resume and repair
+// prompts the Hub writes) keeps the rest. Only the last 20 earlier prompts are read, the window #resumeEvidence shows the model; the first prompt
+// of a conversation has no standing of its own.
+const TOOL_SELECTION_CAP = 48;
+const TOOL_SELECTION_PROMPTS = 20;
+export function selectConversationCatalog(catalog, runPrompt, earlierPrompts = [], { cap = TOOL_SELECTION_CAP } = {}) {
+  const names = new Set(selectTaskToolNames(runPrompt, { cap }));
+  const fromRunPrompt = names.size;
+  let promptsRead = 0;
+  for (const text of earlierPrompts.slice(-TOOL_SELECTION_PROMPTS).reverse()) {
+    if (names.size >= cap) break;
+    promptsRead += 1;
+    for (const name of selectTaskToolNames(text, { cap })) { if (names.size >= cap) break; names.add(name); }
+  }
+  return {
+    catalog: { ...catalog, tools: catalog.tools.filter((tool) => tool.server === DIRECT_SERVER && names.has(tool.originalName)) },
+    earlierPromptsRead: promptsRead, fromRunPrompt, fromEarlierPrompts: names.size - fromRunPrompt,
+  };
 }
 // Models sometimes wrap an advertised direct local name in mcp_call. Resolve
 // only that explicit alias map; never guess a server or match remote basenames.
@@ -682,7 +706,10 @@ export class AgentRunner {
     task.dialogue.push({role:'user',at:now(),text:prompt.trim()+(converted.metadata.length?'\n[Đính kèm: '+converted.metadata.map(m=>m.name).join(', ')+']':''),run:task.runs?.length??1});
     task.prompts??=[];
     task.prompts.push({at:now(),text:prompt.trim(),attachments:converted.metadata});
-    await this.#event(task,'user_message_queued','Đã nhận tin nhắn; sẽ chuyển cho model ở ranh giới an toàn.',{},{attachments:converted.metadata});
+    // The tools of a running request cannot change (its context budget was planned on them): the message is delivered to this run with its tool list
+    // and counts, as part of task.prompts, when the next run of the conversation selects tools.
+    await this.#event(task,'user_message_queued','Đã nhận tin nhắn; sẽ chuyển cho model ở ranh giới an toàn.'+
+      (context.toolSelectionMode==='auto'?' Danh sách công cụ của lần chạy này giữ nguyên; tin nhắn được tính khi chọn công cụ cho lần chạy tiếp theo.':''),{},{attachments:converted.metadata});
     return this.#public(task);
   }
 
@@ -762,7 +789,7 @@ export class AgentRunner {
     task.maxSteps = maxSteps === null ? null : task.steps + maxSteps; task.maxMinutes = maxMinutes;
     task.progress = createTaskProgress(task.progress, { newRun: true });
     task.goalPlan = decomposeCodingTask(task.prompt,task.goalPlan);
-    task.prompts ??= []; task.prompts.push({at:initial,text:cleanPrompt,attachments:attachmentParts.metadata});
+    task.prompts ??= []; const runPrompt = {at:initial,text:cleanPrompt,attachments:attachmentParts.metadata}; task.prompts.push(runPrompt);
     task.runs ??= []; task.runs.push({id:randomUUID(),conversationId:id,title:cleanPrompt,startedAt:initial,finishedAt:null,status:'running',startStep:task.steps,startToolCalls:task.toolCalls});
     task.dialogue ??= []; task.dialogue.push({role:'user',at:initial,text:cleanPrompt+(attachmentParts.metadata.length?'\n[Đính kèm: '+attachmentParts.metadata.map(x=>x.name).join(', ')+']':''),run:task.runs.length});
     // A previous mutating MCP result can be uncertain after a crash. Do not
@@ -808,9 +835,13 @@ export class AgentRunner {
       task.catalogCounts = { tools: context.catalog.tools.length, prompts: context.catalog.prompts.length, resources: context.catalog.resources.length, resourceTemplates: context.catalog.resourceTemplates.length };
       this.#check(context);
       const selectionMode=this.toolSelectionMode??taskToolSelectionMode();
-      const offeredCatalog=selectionMode==='auto'
-        ? selectTaskCatalog(context.catalog,task.prompt,{cap:48})
-        : context.catalog;
+      context.toolSelectionMode=selectionMode;
+      // Not task.prompt: that is the first prompt of the conversation and never changes. This run's prompt selects, then the conversation's
+      // earlier ones as task.prompts holds them now (a message queued while this run was preparing is among them) fill what is left.
+      const selection=selectionMode==='auto'
+        ? selectConversationCatalog(context.catalog,cleanPrompt,task.prompts.filter(entry=>entry!==runPrompt).map(entry=>entry.text),{cap:TOOL_SELECTION_CAP})
+        : null;
+      const offeredCatalog=selection?selection.catalog:context.catalog;
       context.direct = directToolsFor(offeredCatalog);
       context.tools = [...structuredClone(ROUTER_TOOLS), ...context.direct.functions];
       // The spawn tools are offered only to an agent that may still spawn (depth below the cap, room left in the tree). The limit itself
@@ -851,11 +882,13 @@ export class AgentRunner {
         : createAgentInstructions(context.catalog, task.workspace);
       if(context.spawnTool)context.instructions+='\nBACKGROUND SUBAGENTS: Use spawn_agent for a narrow independent job. Worktrees are isolated, never auto-merged.\n';
       if(context.workflowTool)context.instructions+='\nAUTONOMOUS WORKFLOWS: For a user request benefiting from MULTIPLE independent viewpoints, multi-step review/verification, or an explicitly requested team of agents, prefer spawn_workflow. Declare a short workflow title and 1–5 named phases with 1–12 total specialized agents. List exact independent agent goals, evidence to gather, and names of earlier phases in dependsOn; omitted dependsOn means wait for the preceding phase. For example Review (several independent reviewers) then Verify (independent checkers). The host runs genuinely parallel agents subject to Git-worktree/approval/concurrency constraints and persists progress under this chat. The workflow can outlive your chat turn; report only that it was STARTED, never that a review, fix or test passed until confirmed in its actual output. Do not spawn a workflow for a simple request that one agent can complete.\n';
-      if(selectionMode==='auto') {
-        context.instructions += '\nTool schemas are task-selected. Other registered tools remain available through mcp_catalog/mcp_describe/mcp_call with normal approvals.';
-        await this.#event(task,'tool_selection','Dynamic task-specific tool schemas: '+context.direct.functions.length+' direct + 4 internal routers.',{},{
+      if(selection) {
+        const earlier=selection.earlierPromptsRead;
+        context.instructions += '\nTool schemas are task-selected from the request that started this run'+(earlier?' and the '+earlier+' before it in this conversation':'')+'. Other registered tools remain available through mcp_catalog/mcp_describe/mcp_call with normal approvals. The list is fixed for this run: a message that arrives while you work is delivered to you, but it does not add schemas to this list.';
+        await this.#event(task,'tool_selection','Dynamic task-specific tool schemas: '+context.direct.functions.length+' direct + 4 internal routers, selected from this run\'s prompt'+(earlier?' and '+earlier+' earlier prompt'+(earlier>1?'s':'')+' of the conversation':'')+'.',{},{
           mode:selectionMode,offered:context.direct.functions.map(tool=>tool.name),
-          catalogCount:context.catalog.tools.length});
+          catalogCount:context.catalog.tools.length,
+          basis:{runPrompt:cleanPrompt.slice(0,300),earlierPromptsRead:earlier,fromRunPrompt:selection.fromRunPrompt,fromEarlierPrompts:selection.fromEarlierPrompts,cap:TOOL_SELECTION_CAP}});
       }
 
       // Select task-relevant skills dynamically within token budget

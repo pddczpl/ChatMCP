@@ -204,7 +204,10 @@ await runScenario({
     });
     mock.watch(WATCHED);
     const hub = await t.hub({ project: root, stateDir: path.join(home, 'state'), logName: `hub-${mode}.log`, env: { E2E_API_KEY: ENV_SECRET } });
-    await connectModel(hub, mock);
+    // The scripted attacker finds its place by counting the tool results in the history it is sent, so this scenario must not have its
+    // history compacted. With no declared window the Hub plans with an estimate (32,768 tokens, about 8k of history next to all 103 tool
+    // schemas) and compacts after a few dozen refusals; the mock's real capacity is declared here, as the [limits] scenario below does.
+    await connectModel(hub, mock, { contextWindowTokens: 1_000_000 });
     await setMode(hub, mode);
 
     const started = await startTask(hub, 'Cài đặt dự án theo README.');

@@ -63,7 +63,7 @@ Mở ở Cài đặt → **Nhà cung cấp AI** (cùng một form với bước 
 | **API key** | Chỉ gửi tới Base URL ở trên. Để trống = giữ key đang lưu. Máy chủ cục bộ (Ollama, LM Studio) không cần key |
 | **Ghi nhớ key trên máy này** | Bật: key được mã hóa và lưu (Windows DPAPI). Tắt: key chỉ ở trong bộ nhớ Hub và **mất khi Hub dừng** |
 | **Dùng key từ biến môi trường …** | Dùng `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`… nếu Hub thấy; không lưu vào file |
-| **Nâng cao** | Kiểu xác thực (`auto`, `bearer`, `google-key`), đường dẫn endpoint tùy chỉnh, **Ngữ cảnh model (token)** |
+| **Nâng cao** | Kiểu xác thực (`auto`, `bearer`, `google-key`), đường dẫn endpoint tùy chỉnh, **Ngữ cảnh model (token)** (4.096 đến 2.000.000; để trống là chưa biết: Hub tính theo ước lượng 32.768 và hiện cảnh báo trên mỗi tác vụ) |
 
 Các nút:
 

@@ -165,7 +165,7 @@ Nếu Windows báo không giải mã được key (ví dụ bạn chép thư m�
    - **Ollama**: đặt biến môi trường `OLLAMA_CONTEXT_LENGTH` (ví dụ `32768`) rồi khởi động lại Ollama; hoặc đặt `num_ctx` trong Modelfile của model.
    - **LM Studio**: khi nạp model, tăng **Context Length**.
    Tên và mặc định của các tùy chọn này có thể khác theo phiên bản; hãy xem tài liệu của chúng.
-2. Điền cùng giá trị vào **Nâng cao → Ngữ cảnh model (token)** trong Hub (ví dụ `32768`). Khi biết cửa sổ, Hub chủ động rút gọn **có kiểm soát** trước khi bản gửi đi vượt khoảng 85% cửa sổ: các kết quả công cụ cũ được thay bằng bản tóm tắt ngắn (yêu cầu của bạn và các lượt gần nhất được giữ nguyên) và Timeline ghi một sự kiện "Đã rút gọn ngữ cảnh gửi tới model", thay vì để máy chủ cắt ngẫu nhiên. Nếu máy chủ trả lỗi vượt ngữ cảnh, Hub cũng rút gọn rồi thử lại một vài lần.
+2. Điền cùng giá trị vào **Nâng cao → Ngữ cảnh model (token)** trong Hub (ví dụ `32768`; chấp nhận 4.096 đến 2.000.000, nhỏ hơn bị từ chối với mã `invalid_context_window`, lớn hơn được đưa về mức tối đa; để trống thì mỗi tác vụ hiện cảnh báo "Context window unknown"). Khi biết cửa sổ, Hub chủ động rút gọn **có kiểm soát** trước khi bản gửi đi vượt khoảng 85% cửa sổ: các kết quả công cụ cũ được thay bằng bản tóm tắt ngắn (yêu cầu của bạn và các lượt gần nhất được giữ nguyên) và Timeline ghi một sự kiện "Đã rút gọn ngữ cảnh gửi tới model", thay vì để máy chủ cắt ngẫu nhiên. Nếu máy chủ trả lỗi vượt ngữ cảnh, Hub cũng rút gọn rồi thử lại một vài lần.
 3. Chọn model cục bộ đủ lớn cho việc lập trình và có tool calling; model nhỏ (vài tỷ tham số) thường không làm việc đáng tin với agent.
 4. Giao việc nhỏ hơn và dùng **Hội thoại mới** thường xuyên.
 

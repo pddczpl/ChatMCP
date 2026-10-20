@@ -10,6 +10,7 @@
 //   node tests/run-all.mjs [--list] [--filter text] [--bail] [--verbose]
 //                          [--timeout seconds] [--python] [--json file]
 //                          [--no-skip all|name[,name...]] [--tests-dir dir]
+//                          [--retry-failed-once] [--fail-on-flaky]
 //
 // A suite that cannot run in the current environment may print a line that
 // starts with "CHATMCP_TEST_SKIP:" followed by the reason and exit with 0.
@@ -21,11 +22,19 @@
 // --tests-dir runs the verify-*.mjs / verify-*.py files of another folder; it
 // exists so that the runner itself can be tested (tests/verify-test-runner.mjs).
 //
+// --retry-failed-once runs a suite that FAILED or TIMED OUT a second time. A suite that passes the second time is reported as FLAKY: not
+// PASS (it did not pass cleanly), not FAIL (it passed), counted on its own in the summary and in the JSON, with both attempts and the
+// output of the first one kept. A suite that fails both times stays FAIL (or TIMEOUT); one that skips the second time stays FAIL, because
+// a skip never turns a failure into anything else. A suite that passes is never run twice. One FLAKY suite does not fail the run (that is
+// what the retry is for); the same thing on several runs in a row does, and scripts/ci-flaky-gate.mjs decides that across runs on main.
+// --fail-on-flaky makes any FLAKY suite fail this run (exit 1), for local use where nothing should need a retry.
+// On GitHub Actions each FLAKY suite is also a ::warning annotation and a line in the step summary.
+//
 // Exit code: 0 when no suite failed or timed out, 1 otherwise, 2 for usage
 // errors.
 
 import { spawn } from 'node:child_process';
-import { mkdir, readdir, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -34,7 +43,7 @@ const hubRoot = path.resolve(ownDirectory, '..');
 const TAIL_LIMIT = 6000;
 
 function parseOptions(argv) {
-  const options = { list: false, filter: '', bail: false, verbose: false, timeoutSeconds: 180, python: false, json: '', noSkip: null, testsDirectory: ownDirectory };
+  const options = { list: false, filter: '', bail: false, verbose: false, timeoutSeconds: 180, python: false, json: '', noSkip: null, testsDirectory: ownDirectory, retryFailedOnce: false, failOnFlaky: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const value = () => {
@@ -46,6 +55,8 @@ function parseOptions(argv) {
     else if (arg === '--bail') options.bail = true;
     else if (arg === '--verbose') options.verbose = true;
     else if (arg === '--python') options.python = true;
+    else if (arg === '--retry-failed-once') options.retryFailedOnce = true;
+    else if (arg === '--fail-on-flaky') options.failOnFlaky = true;
     else if (arg === '--filter') options.filter = value().toLowerCase();
     else if (arg === '--json') options.json = value();
     else if (arg === '--tests-dir') options.testsDirectory = path.resolve(value());
@@ -129,6 +140,26 @@ function runSuite(name, options) {
   });
 }
 
+/** Run a suite; with --retry-failed-once a FAIL or TIMEOUT gets exactly one more attempt, and the outcome says how the two went. */
+async function runWithRetry(name, options) {
+  const first = await runSuite(name, options);
+  if (!options.retryFailedOnce || (first.status !== 'FAIL' && first.status !== 'TIMEOUT')) return first;
+  const second = await runSuite(name, options);
+  const attempts = [first, second].map(({ status, code, note, milliseconds, tail }) => ({ status, code, note, milliseconds, tail }));
+  const milliseconds = first.milliseconds + second.milliseconds;
+  if (second.status === 'PASS') {
+    // The tail shown for a FLAKY suite is the one of the attempt that failed: the evidence of a flake is what the failure said.
+    return { ...second, status: 'FLAKY', note: `failed once (${first.note}) and passed on retry`, milliseconds, attempts, tail: first.tail };
+  }
+  if (second.status === 'SKIP') {
+    return { ...second, status: 'FAIL', code: first.code, note: `failed (${first.note}), then skipped on retry (${second.note}); a skip never rescues a failure`, milliseconds, attempts, tail: first.tail };
+  }
+  return { ...second, note: `failed twice (first: ${first.note}; retry: ${second.note})`, milliseconds, attempts };
+}
+
+/** GitHub workflow commands take %, CR and LF escaped. */
+const escapeCommand = (text) => String(text).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+
 function pad(text, width) { return text.length >= width ? text : text + ' '.repeat(width - text.length); }
 
 async function main() {
@@ -141,10 +172,11 @@ async function main() {
   console.log(`ChatMCP Hub test runner - node ${process.version} on ${process.platform}/${process.arch} - ${suites.length} suite(s)`);
   const results = [];
   for (const name of suites) {
-    const result = await runSuite(name, options);
+    const result = await runWithRetry(name, options);
     results.push(result);
     console.log(`${pad(result.status, 8)}${pad(name, 46)}${pad(`${(result.milliseconds / 1000).toFixed(1)}s`, 8)}${result.note}`);
-    if ((result.status === 'FAIL' || result.status === 'TIMEOUT') && !options.verbose) {
+    // A FLAKY suite prints what its first attempt said: a flake is only worth anything if somebody can read why it failed.
+    if ((result.status === 'FAIL' || result.status === 'TIMEOUT' || result.status === 'FLAKY') && !options.verbose) {
       const lines = result.tail.trimEnd().split(/\r?\n/).slice(-25);
       for (const line of lines) console.log(`    | ${line}`);
     }
@@ -152,13 +184,26 @@ async function main() {
   }
 
   const count = (status) => results.filter((r) => r.status === status).length;
-  const summary = { node: process.version, platform: process.platform, arch: process.arch, total: results.length, pass: count('PASS'), fail: count('FAIL'), timeout: count('TIMEOUT'), skip: count('SKIP') };
-  console.log(`\nSUMMARY: ${summary.pass} pass, ${summary.fail} fail, ${summary.timeout} timeout, ${summary.skip} skip (of ${summary.total} suites run)`);
+  const summary = { node: process.version, platform: process.platform, arch: process.arch, total: results.length, pass: count('PASS'), fail: count('FAIL'), timeout: count('TIMEOUT'), skip: count('SKIP'), flaky: count('FLAKY') };
+  console.log(`\nSUMMARY: ${summary.pass} pass, ${summary.fail} fail, ${summary.timeout} timeout, ${summary.skip} skip, ${summary.flaky} flaky (of ${summary.total} suites run)`);
+  const flaky = results.filter((r) => r.status === 'FLAKY');
+  if (flaky.length) {
+    console.log(`\nFLAKY - passed only on the second attempt, so NOT counted as pass: ${flaky.map((r) => r.name).join(', ')}`);
+    if (process.env.GITHUB_ACTIONS === 'true') {
+      for (const r of flaky) console.log(`::warning title=FLAKY suite::${escapeCommand(`${r.name} ${r.note}`)}`);
+      if (process.env.GITHUB_STEP_SUMMARY) {
+        const lines = ['### FLAKY suites (failed, then passed on retry)', '', '| Suite | First attempt | Retry |', '| --- | --- | --- |',
+          ...flaky.map((r) => `| ${r.name} | ${r.attempts[0].note} | ${r.attempts[1].note || 'passed'} |`), ''];
+        await appendFile(process.env.GITHUB_STEP_SUMMARY, lines.join('\n')).catch(() => {});
+      }
+    }
+  }
   if (options.json) {
     await mkdir(path.dirname(path.resolve(options.json)), { recursive: true });
+    // The attempts keep their own tail (the output of the failed attempt); the top-level tail was never part of the report.
     await writeFile(options.json, JSON.stringify({ summary, results: results.map(({ tail, ...rest }) => rest) }, null, 2) + '\n');
   }
-  return summary.fail + summary.timeout === 0 ? 0 : 1;
+  return summary.fail + summary.timeout === 0 && !(options.failOnFlaky && summary.flaky > 0) ? 0 : 1;
 }
 
 process.exitCode = await main();

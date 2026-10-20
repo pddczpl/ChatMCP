@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { readJson, writeJson } from './runtime.mjs';
 import { geminiTextActionContract, geminiTextEnvelope, normalizeGeminiTextReply, unsupportedGeminiFields } from './gemini-compat.mjs';
 import { createProtector } from './secret-box.mjs';
-import { customPresetId, detectEnvKeys, isLoopbackUrl, originOf, presetById } from './provider-presets.mjs';
+import { customPresetId, detectEnvKeys, isLoopbackUrl, isValidCustomPath, originOf, presetById, presetIdFor, supportsPromptCaching } from './provider-presets.mjs';
 import { anthropicEndpoint, anthropicHeaders, normalizeAnthropic } from './anthropic-api.mjs';
 import { asChatMessages, normalizeChatCompletion } from './openai-chat-api.mjs';
 import { respondStandard } from './standard-adapter.mjs';
@@ -15,6 +15,7 @@ import { fetchModelList } from './model-list.mjs';
 import { probeToolCalling } from './tool-probe.mjs';
 import { reportedTokenCount } from './request-budget.mjs';
 import { normalizeCustomHeaders, publicCustomHeaders, applyCustomHeaders } from './gateway-custom-headers.mjs';
+import { CONTEXT_WINDOW_MAX, CONTEXT_WINDOW_MIN, contextWindowRangeText, parseContextWindow } from './context-window.mjs';
 
 // These stay importable from here: other modules and the tests have always taken them from this file.
 export { asChatMessages, normalizeChatCompletion };
@@ -44,6 +45,21 @@ function noSecrets(message, redact) {
     .replace(/(?:x-goog-api-key|authorization|api[_-]?key|access[_-]?token)\s*[=:]\s*[^\s,;]+/gi, '[REDACTED]')
     .replace(/\bAIza[0-9A-Za-z_-]{20,}\b/g, '[REDACTED]');
 }
+// Gemini's output cap: the caller's budget (the agent's context policy) within 256..65,536 tokens, 8,192 when the caller says nothing.
+// A thinking model spends the cap on its thoughts, so a fixed 8,192 ended answers at MAX_TOKENS. Some models accept less: the range in
+// their 400 answer is learned (this.outputLimit) and used from then on, as the Anthropic path does for "max_tokens".
+const GEMINI_DEFAULT_OUTPUT_TOKENS = 8192;
+const GEMINI_MAX_OUTPUT_TOKENS = 65536;
+function geminiOutputCap(requested, learned) {
+  const wanted = Number.isFinite(requested) && requested > 0 ? Math.min(Math.max(256, Math.floor(requested)), GEMINI_MAX_OUTPUT_TOKENS) : GEMINI_DEFAULT_OUTPUT_TOKENS;
+  return learned ? Math.min(wanted, learned) : wanted;
+}
+/** "...maxOutputTokens value of 16384 but the supported range is from 1 (inclusive) to 8193 (exclusive)" -> 8192, else null. */
+function geminiOutputRange(detail) {
+  const match = /maxOutputTokens[^]*?supported range is from \d+ \(inclusive\) to (\d+) \(exclusive\)/i.exec(String(detail || ''));
+  const limit = match ? Number(match[1]) - 1 : 0;
+  return Number.isInteger(limit) && limit >= 256 ? limit : null;
+}
 function probePayload(protocol, model) {
   if (protocol === 'gemini') return { contents: [{ role: 'user', parts: [{ text: 'Reply OK.' }] }] };
   if (protocol === 'anthropic') return { model, max_tokens: 32, messages: [{ role: 'user', content: 'Reply OK.' }] };
@@ -66,7 +82,7 @@ export function buildEndpoint(base, protocol, model, customPath = '') {
   if (!FORMATS.includes(protocol) || !modelOK(model)) throw bad('invalid_gateway_config', 'Giao thức API hoặc model không hợp lệ.');
   const url = validateBaseUrl(base);
   if (customPath) {
-    if (typeof customPath !== 'string' || customPath.length > 400 || customPath.startsWith('//') || customPath.split('/').includes('..') || !/^\/[A-Za-z0-9_./:{}-]+$/.test(customPath)) throw bad('invalid_api_path', 'Đường dẫn API tùy chỉnh không hợp lệ. Dùng ví dụ /v1beta/models/{model}:generateContent.');
+    if (!isValidCustomPath(customPath)) throw bad('invalid_api_path', 'Đường dẫn API tùy chỉnh không hợp lệ. Dùng ví dụ /v1beta/models/{model}:generateContent.');
     return new URL(customPath.replaceAll('{model}', encodeURIComponent(model)), new URL(url).origin).href;
   }
   if (protocol === 'gemini') {
@@ -172,14 +188,8 @@ export function normalizeGemini(result) {
     reasoning_tokens: reportedTokenCount(result.usageMetadata?.thoughtsTokenCount),
   } };
 }
-const CONTEXT_MIN = 2000;
-const CONTEXT_MAX = 10_000_000;
-/** null = "not set" (also what clearing sends); undefined = not a valid window. */
-function parseContextWindow(value) {
-  if (value === null || value === '' || value === 0 || value === '0') return null;
-  const number = Number(value);
-  return Number.isInteger(number) && number >= CONTEXT_MIN && number <= CONTEXT_MAX ? number : undefined;
-}
+const shownWindow = (value) => (Number.isFinite(value) ? value.toLocaleString('en-US') : JSON.stringify(value));
+const invalidContextWindow = (value) => bad('invalid_context_window', `Ngữ cảnh model ${shownWindow(value)} không hợp lệ: nhập số token nguyên từ ${contextWindowRangeText()} (để trống nếu không biết). Giá trị lớn hơn ${CONTEXT_WINDOW_MAX.toLocaleString('en-US')} được giảm về mức đó; nhỏ hơn ${CONTEXT_WINDOW_MIN.toLocaleString('en-US')} thì agent không đủ chỗ cho công cụ nên bị từ chối.`);
 /** Environment variables whose value may be used as the key for this endpoint: only the ones of a matching preset. */
 function envNamesFor(presetId, protocol, base) {
   const entry = presetById(presetId);
@@ -251,7 +261,10 @@ export class GatewayProvider {
     if (FORMATS.includes(data?.protocol)) this.protocol = data.protocol;
     if (AUTH_MODES.includes(data?.authMode) && !(this.protocol === 'anthropic' && data.authMode === 'google-key')) this.authMode = data.authMode;
     if (typeof data?.preset === 'string' && presetById(data.preset)) this.preset = data.preset;
-    this.contextWindowTokens = parseContextWindow(data?.contextWindowTokens) ?? null;
+    const savedWindow = parseContextWindow(data?.contextWindowTokens);
+    this.contextWindowTokens = savedWindow ?? null;
+    // An older build accepted 2,000..4,095 tokens. Ignoring such a value is allowed; ignoring it without saying so is not.
+    if (savedWindow === undefined) this.lastError = `Ngữ cảnh model đã lưu (${shownWindow(data.contextWindowTokens)}) nằm ngoài khoảng ${contextWindowRangeText()} nên chưa được dùng; Hub coi như chưa biết ngữ cảnh. Nhập lại giá trị hợp lệ ở phần Model.`;
     if (typeof data?.customPath === 'string') { try { buildEndpoint(this.apiBaseUrl, this.protocol, this.model, data.customPath); this.customPath = data.customPath; } catch { this.lastError = 'Đường dẫn endpoint lưu trước đây không hợp lệ.'; } }
     if (modelOK(data?.model || this.env.GEMINI_MODEL)) this.model = data?.model || this.env.GEMINI_MODEL;
     let encrypted = '';
@@ -303,7 +316,15 @@ export class GatewayProvider {
     const key=typeof profile.apiKey==='string'?profile.apiKey:'';
     checkKey(key);
     const context=parseContextWindow(profile.contextWindow ?? null);
-    if(context===undefined)throw bad('invalid_profile','Profile context window is invalid.');
+    // A profile saved by an older build may hold a window that build accepted (2,000..4,095): say which, the range, and where to fix it.
+    if(context===undefined)throw bad('invalid_context_window',`Model profile "${profile.id ?? profile.name ?? ''}" holds a context window of ${shownWindow(profile.contextWindow)}, outside ${contextWindowRangeText()} tokens. Open the AI Model tab, edit the profile, enter a window in that range (or empty it if unknown) and save.`,409);
+    // A profile is a connection like the global one and obeys the same rules for its route and its headers. The headers were saved for
+    // one origin; if the profile points anywhere else they are refused here, before any request, never sent to the new place.
+    const customPath=typeof profile.customPath==='string'?profile.customPath:'';
+    buildEndpoint(base,protocol,profile.model,customPath);
+    const headers=normalizeCustomHeaders(profile.customHeaders);
+    if(headers.length&&profile.customHeadersOrigin!==originOf(base))
+      throw bad('header_origin_mismatch','Custom headers are bound to another origin.',409);
     const child=new GatewayProvider({
       directory:this.directory,bundleRoot:this.bundleRoot,manager:this.manager,
       fetchImpl:this.fetch,env:this.env,sleep:this.sleep,limits:this.limits,
@@ -311,10 +332,18 @@ export class GatewayProvider {
     });
     child.apiBaseUrl=base;child.protocol=protocol;child.authMode=authMode;
     child.model=profile.model;child.contextWindowTokens=context;
-    child.customPath='';child.apiKey=key;child.preset='profile';
+    child.customPath=customPath;child.apiKey=key;
+    // Which known provider this endpoint is (or the "something else" of its protocol): capabilities such as prompt caching follow it.
+    child.preset=presetIdFor(base,protocol);
+    child.customHeaders=headers;child.customHeadersOrigin=headers.length?profile.customHeadersOrigin:null;
+    for(const header of headers)if(header.value)child.registerKey(header.value);
     child.keySource=key?'profile':'none';child.registerKey(key);
     if(!child.ready())throw bad('profile_not_ready','The selected model profile has no usable credentials.',409);
     return child;
+  }
+  /** What the endpoint of this connection is known to accept; the task profile shows it so that a missing capability is visible. */
+  capabilities() {
+    return { promptCaching: this.protocol === 'anthropic' && supportsPromptCaching({ apiBaseUrl: this.apiBaseUrl, protocol: this.protocol, preset: this.preset }) };
   }
   /** Names (never values) of provider key variables present in the environment, for the Settings page. */
   envKeys() { return detectEnvKeys(this.env); }
@@ -349,7 +378,7 @@ export class GatewayProvider {
     if (!AUTH_MODES.includes(nextAuth) || (nextProtocol === 'anthropic' && nextAuth === 'google-key')) throw bad('invalid_auth_mode', 'Kiểu xác thực API không hợp lệ.');
     buildEndpoint(base, nextProtocol, nextModel, nextPath);
     const window = contextWindowTokens === undefined ? defaults.contextWindowTokens : parseContextWindow(contextWindowTokens);
-    if (window === undefined) throw bad('invalid_context_window', `Ngữ cảnh model phải là số token từ ${CONTEXT_MIN.toLocaleString('en-US')} đến ${CONTEXT_MAX.toLocaleString('en-US')} (để trống nếu không biết).`);
+    if (window === undefined) throw invalidContextWindow(contextWindowTokens);
 
     // A preset describes one provider. If the endpoint or protocol no longer matches, it is a custom connection now.
     let nextPreset = entry ? entry.id : this.preset;
@@ -545,7 +574,7 @@ export class GatewayProvider {
     throw err;
   }
 
-  /** One model step. `maxOutputTokens` is honoured by the Anthropic path (where it is required); the others use the provider's own cap. */
+  /** One model step. `maxOutputTokens` is the output budget: Anthropic requires it, Responses and Gemini send it, Chat Completions leaves the provider's own cap. */
   async respond({ input, instructions, tools = [], signal, onStatus = async () => {}, onToken = null, maxOutputTokens, beforeModelRequest = () => {} } = {}) {
     if (!this.ready()) throw bad('gateway_not_ready', 'Hãy cấu hình API Base URL, model và API key.', 409);
     if (!Array.isArray(input)) throw bad('invalid_input', 'Ngữ cảnh Agent không hợp lệ.');
@@ -560,7 +589,7 @@ export class GatewayProvider {
       systemInstruction: { parts: [{ text: instructions }] },
       contents: asGeminiContents(input),
       tools: tools.length ? [{ functionDeclarations: tools.map((x) => ({ name: x.name, description: x.description, parameters: geminiSchema(x.parameters) })) }] : undefined,
-      generationConfig: { maxOutputTokens: 8192 },
+      generationConfig: { maxOutputTokens: geminiOutputCap(maxOutputTokens, this.outputLimit) },
     };
     const inlineInstructions = () => {
       const contents = asGeminiContents(input);
@@ -643,6 +672,16 @@ export class GatewayProvider {
             await onStatus(`Gateway trả HTTP 413; giảm request model còn tối đa ${Math.round(textRequestBudget/1024)} KiB và thử lại. Lịch sử MCP đầy đủ vẫn được lưu trên máy; không gọi lại MCP.`, 'context_compaction');
             continue;
           }
+        }
+        // Google words the range in its 400 answer; a gateway in front of Gemini words it its own way, or not at all. An answer that names
+        // the cap without a range is still taken as "lower it", to the 8,192 every Gemini model accepts, once.
+        const refusal = response.status === 400 ? gatewayErrorDetail(data) : '';
+        const acceptedOutput = refusal ? (geminiOutputRange(refusal) ?? (/max_?output_?tokens/i.test(refusal) ? GEMINI_DEFAULT_OUTPUT_TOKENS : null)) : null;
+        if (acceptedOutput && nativeBody.generationConfig.maxOutputTokens > acceptedOutput) {
+          nativeBody.generationConfig.maxOutputTokens = acceptedOutput;
+          this.outputLimit = acceptedOutput;
+          await onStatus(`Model chỉ cho phép tối đa ${acceptedOutput} token đầu ra; thử lại với giới hạn này.`);
+          continue;
         }
         if (!response.ok && dialectIndex < dialects.length - 1 &&
             unsupportedGeminiFields(response.status, gatewayErrorDetail(data))) {
@@ -739,8 +778,9 @@ export class GatewayProvider {
       headers: this.#headers(protocol, authMode, apiKey),
       redact: (text) => noSecrets(String(text), (value) => this.redact(value)),
       contextWindowTokens,
-      // Prompt caching is only requested from Anthropic itself; compatible gateways may reject the field.
-      promptCaching: protocol === 'anthropic' && this.preset === 'anthropic',
+      // Prompt caching follows the capability of the endpoint (provider-presets.mjs), not the preset name: a profile fork aimed at
+      // api.anthropic.com keeps it, a compatible gateway that may reject the field does not get it.
+      promptCaching: this.capabilities().promptCaching,
       outputLimit: this.outputLimit,
       onOutputLimit: (limit) => { if (this.model === model) this.outputLimit = limit; },
     };
