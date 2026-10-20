@@ -1,5 +1,6 @@
 // The Hub's own sentences about how a worker's verification ended are a field of their own (verificationNote), not text appended to what the model
 // said. The summary of a worker is the model's words and nothing else, so that a page can label the one as the AI's report and the other as the Hub's.
+// The same holds for a worker whose run fails: the AgentRunner's own error is the field `runnerError`, and a model that said nothing leaves the summary empty.
 // Real orchestrator, real AgentRunner and real test broker; the model and the isolated backend are scripted (this is not OS isolation).
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -106,6 +107,33 @@ const scriptedModel = (answer, files) => {
   };
 };
 
+/** A model that ends its turn without a word: no text and no tool call. The AgentRunner turns that into an error of its own. */
+const silentModel = () => ({
+  ready: () => true,
+  snapshot: () => ({ provider: 'fake', model: 'fixture' }),
+  async respond() { return { status: 'completed', output: [] }; },
+});
+/** A model that refuses, in as many words as it likes: the refusal is its own text, which the AgentRunner puts inside an error sentence of its own. */
+const refusingModel = (refusal) => ({
+  ready: () => true,
+  snapshot: () => ({ provider: 'fake', model: 'fixture' }),
+  async respond() { return { status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'refusal', refusal }] }] }; },
+});
+/** A model that is still thinking when the owner stops the run: it answers only when it is aborted, and then with the abort. */
+const waitingModel = (onAsked) => ({
+  ready: () => true,
+  snapshot: () => ({ provider: 'fake', model: 'fixture' }),
+  async respond({ signal }) {
+    onAsked();
+    await new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+  },
+});
+/** What the AgentRunner records when a model ends without any text (the `empty_final` fault of lib/agent.mjs), and when the owner stops a run (`user_cancelled`). */
+const EMPTY_FINAL = 'Model kết thúc nhưng không đưa ra kết quả văn bản cuối cùng. Thông báo tiến độ không được coi là kết quả hoàn tất.';
+const USER_CANCELLED = 'Đã dừng theo yêu cầu. Tác vụ chưa được xác nhận hoàn tất.';
+const REFUSAL_PREFIX = 'Model không thể thực hiện yêu cầu: ';
+const RUNNER_ERROR_MAX = 2000;
+
 const ANSWER = 'Edited the file; checking it is for the Hub.';
 const NOTES = {
   no_checks: 'No supported pinned Node test definition was discovered.',
@@ -129,6 +157,7 @@ try {
       assert.equal(wants.status, 'needs_attention', JSON.stringify(wants));
       assert.equal(wants.summary, ANSWER, 'the summary is what the model said: the Hub\'s sentence is not in it');
       assert.deepEqual(wants.verificationNote, { code: 'no_checks', text: NOTES.no_checks });
+      assert.ok(!('runnerError' in plain) && !('runnerError' in wants), 'a run that ended normally has no error of the runner to report');
       assert.equal(job.status, 'partial_failure');
       const saved = JSON.parse(await fs.readFile(path.join(agent.directory, 'jobs.json'), 'utf8')).jobs.at(-1);
       assert.deepEqual(saved.workers.find((worker) => worker.id === 'wants').verificationNote, wants.verificationNote, 'what is saved is what is reported');
@@ -147,6 +176,7 @@ try {
       assert.equal(wants.status, 'needs_attention', JSON.stringify(wants));
       assert.equal(wants.summary, ANSWER);
       assert.deepEqual(wants.verificationNote, { code: 'grant_timeout', text: NOTES.grant_timeout });
+      assert.ok(!('runnerError' in wants), 'the run itself ended normally');
       assert.equal(wants.verificationOutcome, undefined, 'no verification ran: there is no outcome to report');
       ok('an unanswered request for a test grant ends as needs_attention with a grant_timeout note');
     } finally { await stop(); }
@@ -182,11 +212,69 @@ try {
       assert.equal(wants.summary, ANSWER, 'the model\'s own words');
       const reason = 'Repair/test retry budget exhausted.';
       assert.deepEqual(wants.verificationNote, { code: 'blocked', text: 'Verified coding blocked: ' + reason, detail: reason });
+      assert.ok(!('runnerError' in wants), 'the Hub\'s reason for stopping the loop is the note\'s, not an error of the runner');
       assert.equal(wants.verificationOutcome.state, 'needs_attention', 'the loop\'s own record agrees with the note');
       assert.equal(wants.verificationOutcome.reason, reason);
       assert.equal(wants.verificationAttempts.length, 3);
       assert.ok(wants.verificationAttempts.every((attempt) => attempt.testOutcomeVerified !== true), 'and no attempt was verified');
       ok('a verification the loop gave up on ends as needs_attention with a blocked note that carries the loop\'s reason');
+    } finally { await stop(); }
+  }
+
+  // 4. the model says nothing at all: the AgentRunner fails the run with a sentence of its own. That sentence is the Hub's, so it is the worker's runnerError,
+  // and the summary stays what the model said, which is nothing (it used to be that sentence, and a page labelled it "AI report")
+  {
+    const { agent, stop } = await fixture('silent', { manifest: false, provider: silentModel() });
+    try {
+      const job = await withDeadline(agent.run({ tasks: [{ id: 'quiet', prompt: 'QUIET: add quiet.txt' }], confirmation: 'CREATE WORKTREES', maxConcurrency: 1 }),
+        60_000, 'the run of a model that says nothing did not end');
+      const quiet = job.workers[0];
+      assert.equal(quiet.status, 'failed', JSON.stringify(quiet));
+      assert.equal(quiet.summary, '', 'the model said nothing: the summary is empty, and the runner\'s sentence is not put in its place');
+      assert.equal(quiet.runnerError, EMPTY_FINAL, 'the runner\'s own sentence, exactly');
+      assert.ok(!('verificationNote' in quiet), 'it is an error of the run, not a note about a verification');
+      assert.equal(job.workers.length, 1);
+      const saved = JSON.parse(await fs.readFile(path.join(agent.directory, 'jobs.json'), 'utf8')).jobs.at(-1).workers[0];
+      assert.equal(saved.summary, '');
+      assert.equal(saved.runnerError, quiet.runnerError, 'what is saved is what is reported');
+      assert.equal(agent.state().jobs.at(-1).workers[0].runnerError, EMPTY_FINAL, 'and it is what GET /api/studio/coding sends to a page');
+      ok('a worker whose model said nothing fails with an empty summary and the runner\'s sentence as its own runnerError');
+    } finally { await stop(); }
+  }
+
+  // 5. a refusal is the model's own words, wrapped in the runner's sentence. It is still the runner's record of why the run stopped, kept apart from the
+  // summary, and cut at the bound however long the model went on
+  {
+    const refusal = 'I will not do that, because it is not a good idea. '.repeat(100);
+    assert.ok(REFUSAL_PREFIX.length + refusal.length > RUNNER_ERROR_MAX, '(premise) the refusal is longer than the bound');
+    const { agent, stop } = await fixture('refusing', { manifest: false, provider: refusingModel(refusal) });
+    try {
+      const job = await withDeadline(agent.run({ tasks: [{ id: 'no', prompt: 'NO: add no.txt' }], confirmation: 'CREATE WORKTREES', maxConcurrency: 1 }),
+        60_000, 'the run of a model that refuses did not end');
+      const refused = job.workers[0];
+      assert.equal(refused.status, 'failed', JSON.stringify({ status: refused.status, error: refused.error }));
+      assert.equal(refused.summary, '', 'a refusal is not a report of work');
+      assert.equal(refused.runnerError.length, RUNNER_ERROR_MAX, 'cut at the bound');
+      assert.equal(refused.runnerError, (REFUSAL_PREFIX + refusal).slice(0, RUNNER_ERROR_MAX), 'the runner\'s sentence and the beginning of the refusal, in that order');
+      ok('a long refusal is the runnerError of the worker, cut at ' + RUNNER_ERROR_MAX + ' characters, and not its summary');
+    } finally { await stop(); }
+  }
+
+  // 6. the owner stops the run while the model is still working: the runner's sentence about it is the runnerError of the worker that was stopped
+  {
+    let asked;
+    const reached = new Promise((resolve) => { asked = resolve; });
+    const { agent, stop } = await fixture('stopped', { manifest: false, provider: waitingModel(() => asked()) });
+    try {
+      const running = agent.run({ tasks: [{ id: 'slow', prompt: 'SLOW: add slow.txt' }], confirmation: 'CREATE WORKTREES', maxConcurrency: 1 });
+      await withDeadline(reached, 30_000, 'the model was never asked');
+      assert.equal(agent.cancel().cancelled, true);
+      const job = await withDeadline(running, 30_000, 'the run did not end after it was stopped');
+      const slow = job.workers[0];
+      assert.equal(slow.status, 'cancelled', JSON.stringify(slow));
+      assert.equal(slow.summary, '');
+      assert.equal(slow.runnerError, USER_CANCELLED);
+      ok('a worker the owner stopped carries the runner\'s sentence about it as runnerError, with an empty summary');
     } finally { await stop(); }
   }
 

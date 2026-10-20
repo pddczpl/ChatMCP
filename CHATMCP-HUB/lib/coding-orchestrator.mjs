@@ -30,6 +30,8 @@ const allowedTools = new Set([
 const slug=(s)=>typeof s==='string'&&/^[a-z][a-z0-9-]{0,30}$/.test(s);
 const bounded=(s,n=250)=>String(s||'').slice(0,n);
 const GRANT_WINDOW_MS=90_000;
+// How much of the AgentRunner's own error a worker keeps (a provider's detail is already cut at 200 characters; a model's refusal inside it is not).
+const RUNNER_ERROR_MAX=2000;
 // The Hub's own words about how a worker's verification ended. They are NOT the model's: a worker's `summary` is what its model said and nothing else, and
 // this is kept apart so that a page can label each for what it is. `code` is what a page translates (and the pages know exactly these four); `text` is the
 // English sentence for a reader that does not know the code; `detail` is the part of the sentence that varies.
@@ -346,9 +348,13 @@ export class CodingWorktreeOrchestrator {
               signal.addEventListener('abort',()=>{clearInterval(timer);reject(signal.reason);},{once:true});
             });
         const initialState=result?.state||result?.status;
-        const initialSummary=bounded(result?.finalText||result?.error,12000);
+        // What the model said and nothing else: a run that failed before it said anything has an empty summary.
+        const initialSummary=bounded(result?.finalText,12000);
         if (initialState!=='completed' || node.verifyRequired!==true) {
-          return {state:initialState,summary:initialSummary,taskId:task.id,steps:result?.steps,toolCalls:result?.toolCalls};
+          // Why a run stopped is the AgentRunner's own record (redacted; its sentences are mostly Vietnamese and may quote the provider or a refusal), so it is the
+          // Hub's and not the model's: a field of its own, only when the run ended with an error.
+          const runnerError=bounded(result?.error,RUNNER_ERROR_MAX);
+          return {state:initialState,summary:initialSummary,taskId:task.id,steps:result?.steps,toolCalls:result?.toolCalls,...(runnerError?{runnerError}:{})};
         }
         // Verified coding is opt-in and can never silently execute on host.
         // Require explicitly granted immutable test IDs and a positive Node TAP
@@ -586,6 +592,8 @@ export class CodingWorktreeOrchestrator {
           node.summary=out.summary;
           // The Hub's own words, kept apart from the model's: only a worker that was asked to verify has one.
           if(out.verificationNote)node.verificationNote=out.verificationNote;
+          // And the AgentRunner's record of why a run stopped, kept apart from what the model said: only a run that ended with an error has one.
+          if(out.runnerError)node.runnerError=out.runnerError;
           node.steps=out.steps;node.toolCalls=out.toolCalls;
           if(out.state!=='completed'){
             node.status=out.state==='needs_attention'?'needs_attention':'failed';
