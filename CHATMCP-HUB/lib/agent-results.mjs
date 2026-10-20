@@ -167,7 +167,7 @@ const clip = (text, limit) => {
 };
 
 /** Runner redaction first (the secrets the Hub knows), then the outbound scanner (the shapes of credentials). Never throws. */
-function makeRedactor(known) {
+export function makeRedactor(known) {
   return (value) => {
     let text = isText(value) ? value : String(value ?? '');
     if (typeof known === 'function') { try { const changed = known(text); if (isText(changed)) text = changed; } catch { /* the scanner below still runs */ } }
