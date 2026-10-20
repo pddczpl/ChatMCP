@@ -93,8 +93,9 @@ try {
 
   // the Agents tab has sections of its own: groups of read-only helpers and coding workers
   await page.getByRole('tab', { name: 'Tác nhân', exact: true }).click();
-  for (const [section, slug] of [['Nhóm trợ lý', 'groups'], ['Sửa mã', 'coding']]) {
+  for (const [section, slug, marker] of [['Nhóm trợ lý', 'groups', 'agent-groups'], ['Sửa mã', 'coding', 'coding-agents']]) {
     await page.getByRole('tab', { name: section, exact: true }).click();
+    await page.getByTestId(marker).waitFor(); // a section is a script fetched when its tab is first opened
     await shot(page, `26-work-agents-${slug}`);
   }
   await page.getByRole('tab', { name: 'Tiến độ', exact: true }).click();
@@ -145,8 +146,9 @@ try {
     await shot(page, `61-light-work-${index}`);
   }
   await page.getByRole('tab', { name: 'Tác nhân', exact: true }).click();
-  for (const [section, slug] of [['Nhóm trợ lý', 'groups'], ['Sửa mã', 'coding']]) {
+  for (const [section, slug, marker] of [['Nhóm trợ lý', 'groups', 'agent-groups'], ['Sửa mã', 'coding', 'coding-agents']]) {
     await page.getByRole('tab', { name: section, exact: true }).click();
+    await page.getByTestId(marker).waitFor();
     await shot(page, `64-light-agents-${slug}`);
   }
   await page.getByRole('tab', { name: 'Tiến độ', exact: true }).click();

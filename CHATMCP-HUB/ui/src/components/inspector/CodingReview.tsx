@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { hasHidden } from '@/lib/hidden-chars';
 import { useTranslation } from '@/lib/i18n';
+import '@/lib/i18n-agents-sections'; // the strings only the sections ask for load with them
 import { Button } from '@/components/ui/Button';
 import { skipReasonText } from './agent-parts';
 import { DiffView } from './DiffView';

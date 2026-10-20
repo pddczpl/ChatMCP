@@ -1,5 +1,6 @@
 import { useAppStore } from '@/store/useAppStore';
 import { agentsVi, agentsEn } from './i18n-agents.ts';
+import type { sectionsVi } from './i18n-agents-sections.ts';
 
 export const translations = {
   vi: {
@@ -62,7 +63,7 @@ export const translations = {
     tab_skills: 'Skills',
     tab_settings: 'Cài đặt',
 
-    // Agents tab: delegated work (the strings are in i18n-agents.ts)
+    // Agents tab: the strings the first screen asks for (the sections' own are in i18n-agents-sections.ts and join these when the sections load)
     ...agentsVi,
 
     // Settings Tab
@@ -278,7 +279,7 @@ export const translations = {
     tab_skills: 'Skills',
     tab_settings: 'Settings',
 
-    // Agents tab: delegated work (the strings are in i18n-agents.ts)
+    // Agents tab: the strings the first screen asks for (the sections' own are in i18n-agents-sections.ts and join these when the sections load)
     ...agentsEn,
 
     // Settings Tab
@@ -436,10 +437,19 @@ export const translations = {
   },
 };
 
-export type TranslationKey = keyof typeof translations.vi;
+export type TranslationKey = keyof typeof translations.vi | keyof typeof sectionsVi;
 /** Values for the {name} placeholders of a string: t('agents_works_on', { folder }). */
 export type TranslationParams = Record<string, string | number>;
 export type Translate = (key: TranslationKey, params?: TranslationParams) => string;
+
+/**
+ * Strings that come with a script fetched after the first screen (lib/i18n-agents-sections.ts). The script adds them as it is evaluated, which is
+ * before any component of that script renders, so a component finds its words at its first render.
+ */
+export function addTranslations(vi: Record<string, string>, en: Record<string, string>) {
+  Object.assign(translations.vi, vi);
+  Object.assign(translations.en, en);
+}
 
 /** For a key built at run time (a status, a role) that may not have a string: ask first, fall back to the raw value. */
 export const hasTranslation = (key: string): key is TranslationKey => Object.hasOwn(translations.vi, key);
