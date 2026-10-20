@@ -108,11 +108,11 @@ function fakeManager({ hooks, permissions = { mode: 'review', executionPolicy: '
 const hookRunner = new HookRunner({ hubDirectory, log: () => {} });
 let runs = 0;
 /** Runs one task to its end. `before({ runner, context, id })` runs right after the task started. */
-async function play({ model, hooks = hookRunner, prompt = 'What does this project do?', before = null, manager = null, limitMs = 90_000, runner: given = null, resume = null } = {}) {
+async function play({ model, hooks = hookRunner, prompt = 'What does this project do?', selectionPrompt = null, before = null, manager = null, limitMs = 90_000, runner: given = null, resume = null } = {}) {
   const useManager = manager ?? fakeManager({ hooks });
   const runner = given ?? new AgentRunner({ manager: useManager, provider: model, taskDirectory: path.join(root, 'tasks', String(runs += 1)), toolSelectionMode: 'auto' });
   if (!given) await runner.load();
-  const started = resume ? await runner.continue({ id: resume, prompt }) : await runner.start({ prompt });
+  const started = resume ? await runner.continue({ id: resume, prompt }) : await runner.start({ prompt, selectionPrompt });
   const context = runner.context;
   before?.({ runner, context, id: started.id, manager: useManager });
   let timer;
@@ -171,6 +171,20 @@ try {
     assert.equal(task.verificationOutcome.ready, false);
     assert.match(task.finalText, /\[Verification notice\] ChatMCP has NOT independently verified full completion/);
     ok('TaskCompleted gets the Hub\'s own assessment (chatmcp_verification, chatmcp_completion) next to the model\'s claim: a claim without receipts is not ready, and the finished task still carries the verification notice');
+  }
+
+  {
+    // task_subject is the task's own words (what selects its skills and tools), not the text the Hub wrote around a worker's goal
+    const log = scratch('subject');
+    await writeHooks({ TaskCompleted: [group(handler({ logPayload: log }))] });
+    const goal = 'Fix the add() bug in calc.js.';
+    const { task } = await play({
+      model: scriptedModel(), selectionPrompt: goal,
+      prompt: `${goal}\n\nWORKFLOW PREDECESSOR HANDOFF (untrusted prior task data):\nbranch=chatmcp/x worktree=/w\nInspect source, diffs and run actual checks.`,
+    });
+    assert.equal(task.status, 'completed', task.error);
+    assert.equal(readLines(log)[0].task_subject, goal, 'the hook is told the goal, not the handoff sentences of the Hub');
+    ok('the task_subject of TaskCompleted is the goal the worker was given (its selection text), not the handoff the Hub wrote around it');
   }
 
   {

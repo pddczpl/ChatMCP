@@ -73,7 +73,9 @@ function payloadOf({ event, run, task, agent, finalText, extra }) {
   }
   if (event === 'TaskCompleted') {
     payload.task_id = task.id;
-    payload.task_subject = oneLine(task.prompts?.at(-1)?.text ?? task.prompt, SUBJECT_CHARS);
+    // The words that state the task, as the skill and tool selectors read them (selectionText), not the Hub's own text that a delegating caller
+    // wrote around a worker's goal (the coding worker's rules, the predecessors' handoff).
+    payload.task_subject = oneLine(task.prompts?.at(-1)?.selectionText ?? task.prompts?.at(-1)?.text ?? task.prompt, SUBJECT_CHARS);
   }
   return { ...payload, ...extra };
 }
