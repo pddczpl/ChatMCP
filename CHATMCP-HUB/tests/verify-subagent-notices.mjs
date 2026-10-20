@@ -9,6 +9,8 @@
 //   D. the pool: a parent spawns two agents, both stop, its next request carries the notice, it reads their results and its final answer is
 //      built from them; the same when the parent finished first; blocked and cancelled agents; workflows; only the caller's children; a full tree.
 //   E. restart of the pool.
+//   F. the same notices and the tool on the wire of all four protocols (Chat Completions, Anthropic Messages, Responses, Gemini): the real runner and provider
+//      against a mock server that refuses what the real API refuses.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -24,6 +26,8 @@ import { childFacts } from '../lib/agent-results.mjs';
 import { SUBAGENT_NOTICE_LIMITS, subagentNoticeText } from '../lib/subagent-notices.mjs';
 import { selectTaskToolNames } from '../lib/tool-selector.mjs';
 import { MARKETPLACE_CATALOG } from '../lib/plugins.mjs';
+import { GatewayProvider } from '../lib/gateway-provider.mjs';
+import { startMockModel } from './e2e/mock-model-server.mjs';
 
 let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
@@ -785,6 +789,23 @@ try {
     ok('D6 a full tree: a task that cannot spawn any more but has an agent is still offered agent_results (and not spawn_agent); one with neither is offered neither');
   }
 
+  // ---- D7 an agent that fails before it ever starts: no runner reports that ending, the pool's own catch does
+  {
+    reset();
+    handler = () => final('Finished before the agent was made.');
+    const parent = await pool.start({ prompt: 'Parent P8: nothing to spawn myself.' });
+    await until(() => pool.get(parent.id)?.status === 'completed', 'parent P8');
+    // the pool's own entry point for a child, with a base branch that does not exist: the worktree cannot be made
+    const child = await pool.start({ prompt: 'Child C13: needs a branch that does not exist', parentTaskId: parent.id, baseRef: 'refs/heads/does-not-exist' });
+    await until(() => (pool.get(parent.id)?.subagentNotices ?? []).some((entry) => entry.id === child.id), 'the failed start is recorded on the parent');
+    const entry = pool.get(parent.id).subagentNotices.find((item) => item.id === child.id);
+    assert.deepEqual([entry.status, entry.notice, entry.goal], ['failed', 'recorded', 'Child C13: needs a branch that does not exist']);
+    const fact = pool.listSubagents(parent.id).find((item) => item.id === child.id);
+    assert.equal(fact.status, 'failed'); assert.equal(fact.finalText, null); assert.match(fact.error, /branch no longer exists/i);
+    assert.equal(pool.primary.activeTaskId, null, 'and nothing ran for the parent');
+    ok('D7 an agent that fails before it starts (its base branch is gone, so no worktree and no runner): the pool\'s own catch records the ending on the parent, with the Hub\'s error and no claim');
+  }
+
   // =========================================================================================================================================== E. restart of the pool
   {
     const persisted = [...pool.records.values()].filter((record) => record.parentTaskId).length;
@@ -822,6 +843,85 @@ try {
     assert.equal(pool2.get(parentRecord.id).finalText, 'restarted, 2 agents');
     await pool2.shutdown();
     ok('E the pool restarts: the records, the parent\'s entries and what agent_results reads all come back as they were; loading made no event and no request; an ending that was told before the restart is not told again');
+  }
+
+  // =========================================================================================================================================== F. the four wire formats
+  {
+    const wireRoot = path.join(temp, 'wire');
+    await fs.mkdir(wireRoot, { recursive: true });
+    const listing = { content: [{ type: 'text', text: '[FILE] README.md' }] };
+    const wireFacts = [childFacts({ record: { id: uuid(1), prompt: 'Goal 1: inspect part 1', createdAt: iso(1) }, detail: { id: uuid(1), status: 'completed', startedAt: iso(2), finishedAt: iso(42), finalText: 'Part 1 is fine.', steps: 2 } })];
+    const listDirectory = () => ({ name: 'mcp_call', args: { name: 'desktop-commander.list_directory', arguments_json: JSON.stringify({ path: wireRoot }) } });
+    const NOTICE = 'HUB NOTICE';
+    const times = (haystack, needle) => haystack.split(needle).length - 1;
+    for (const [format, api] of [['openai-chat', 'chat'], ['anthropic', 'anthropic'], ['openai-responses', 'responses'], ['gemini', 'gemini']]) {
+      const wireManager = {
+        secrets: [], generation: 1, instanceId: `wire-${api}`, locked: false,
+        state() { return { workspace: { path: wireRoot }, generation: 1, instanceId: this.instanceId }; },
+        acquireTask() { if (this.locked) return false; this.locked = true; return true; },
+        releaseTask() { this.locked = false; },
+        spawnAllowed: () => true, listSubagents: () => wireFacts,
+        async createAgentSession() {
+          return {
+            catalog: { tools: [{ name: 'desktop-commander.list_directory', server: 'desktop-commander', inputSchema: { type: 'object' } }], prompts: [], resources: [], resourceTemplates: [], servers: {} },
+            async close() {},
+            async callTool(name, args, { onDecision } = {}) { await onDecision?.({ name, category: 'read', allowed: true }); return listing; },
+          };
+        },
+      };
+      const bodies = [];
+      let runnerOfWire = null; let step = 0;
+      const wire = await startMockModel({ scenario: 'wire', strict: true, scenarios: {
+        wire: async () => {
+          step += 1;
+          bodies.push(JSON.stringify(wire.state.lastBody));
+          // 1: an agent stops while the request is in flight; the model answers with two calls -> the notice must follow BOTH results
+          if (step === 1) { await runnerOfWire.recordSubagentFinished(runnerOfWire.activeTaskId, stopSummary(1)); return { calls: [listDirectory(), listDirectory()] }; }
+          if (step === 2) return { calls: [{ name: 'agent_results', args: {} }] };
+          // 3: another agent stops while the FINAL answer is written -> the run goes on; the notice follows the answer
+          if (step === 3) { await runnerOfWire.recordSubagentFinished(runnerOfWire.activeTaskId, stopSummary(2)); return { text: 'First answer.' }; }
+          if (step === 4) return { text: 'Second answer.' };
+          return { text: 'Done.' };
+        },
+      } });
+      try {
+        const gateway = new GatewayProvider({ directory: path.join(wireRoot, `gateway-${api}`), bundleRoot, manager: wireManager, env: {} });
+        const wireProvider = gateway.forkForTask({ protocol: format, apiBaseUrl: wire.origin, model: 'mock-coder' });
+        runnerOfWire = new AgentRunner({ manager: wireManager, provider: wireProvider, taskDirectory: path.join(wireRoot, `tasks-${api}`), log: () => {} });
+        await runnerOfWire.load();
+        const started = await runnerOfWire.start({ prompt: 'Look at the project and read what the agents found.' });
+        await settle(runnerOfWire, started.id, `${api}: the first run`);
+        assert.equal(runnerOfWire.get(started.id).status, 'completed', `${api}: ${runnerOfWire.get(started.id).error ?? ''} ${JSON.stringify(wire.state.rejections.at(-1)?.errors?.[0] ?? null)}`);
+        // 5: a finished parent: the ending is recorded and the next run tells the model before its prompt
+        await runnerOfWire.recordSubagentFinished(started.id, stopSummary(3));
+        await runnerOfWire.continue({ id: started.id, prompt: 'And now?' });
+        await settle(runnerOfWire, started.id, `${api}: the continued run`);
+        assert.equal(runnerOfWire.get(started.id).status, 'completed');
+        assert.equal(wire.state.requests.length, 5, `${api}: five model requests`);
+        assert.deepEqual(wire.state.requests.map((request) => request.rejected), Array(5).fill(null), `${api}: the strict server refused nothing the Hub sent: ${JSON.stringify(wire.state.rejections.at(-1)?.errors?.[0] ?? null)}`);
+        assert.ok(wire.state.requests.every((request) => request.tools.includes('agent_results')), `${api}: the tool was declared in a form this protocol accepts, in every request`);
+        // the two results first, then the notice
+        assert.equal(times(bodies[1], NOTICE), 1, `${api}: request 2 carries one notice`);
+        assert.ok(bodies[1].lastIndexOf('[FILE] README.md') < bodies[1].indexOf(NOTICE), `${api}: and it follows both results`);
+        // the tool's answer round-trips on this wire
+        assert.ok(bodies[2].includes('Part 1 is fine.') && bodies[2].includes('verifiedByHub'), `${api}: the answer of agent_results reached the model`);
+        // the second notice follows the first final answer
+        assert.equal(times(bodies[3], NOTICE), 2, `${api}: request 4 carries both notices`);
+        assert.ok(bodies[3].indexOf('First answer.') < bodies[3].lastIndexOf(NOTICE), `${api}: and the second follows the answer that was already given`);
+        // the continued run: checkpoint, notice, prompt
+        assert.equal(times(bodies[4], NOTICE), 1, `${api}: the continued run carries the notice of the finished parent once`);
+        const [checkpointAt, noticeAt, promptAt] = ['CONVERSATION CHECKPOINT', NOTICE, 'And now?'].map((needle) => bodies[4].indexOf(needle));
+        assert.ok(checkpointAt >= 0 && checkpointAt < noticeAt && noticeAt < promptAt, `${api}: checkpoint, then the notice, then the prompt (${checkpointAt} < ${noticeAt} < ${promptAt})`);
+        if (api === 'chat') assert.deepEqual(JSON.parse(bodies[1]).messages.slice(-4).map((message) => message.role), ['assistant', 'tool', 'tool', 'user'], 'Chat: the notice follows BOTH results');
+        if (api === 'anthropic') assert.deepEqual(JSON.parse(bodies[1]).messages.at(-1).content.map((block) => block.type), ['tool_result', 'tool_result', 'text'], 'Anthropic: both results lead the user message, the notice follows');
+        if (api === 'responses') assert.deepEqual(JSON.parse(bodies[1]).input.slice(-5).map((item) => item.type ?? item.role), ['function_call', 'function_call', 'function_call_output', 'function_call_output', 'user']);
+        if (api === 'gemini') assert.deepEqual(JSON.parse(bodies[1]).contents.at(-1).parts.map((part) => Object.keys(part)[0]), ['functionResponse', 'functionResponse', 'text'], 'Gemini: both responses lead the user turn, the notice follows');
+      } finally {
+        await runnerOfWire?.shutdown().catch(() => {});
+        await wire.close();
+      }
+    }
+    ok('F the wire: the tool declaration, a notice behind the results of a turn, a notice behind a final answer given while an agent stops, and a notice before the prompt of a continued run are all accepted by the strict mock of Chat Completions, Anthropic Messages, Responses and Gemini through the real runner and provider, in the order the Hub means');
   }
 } finally {
   try { await pool?.shutdown?.(); } catch { /* best effort */ }
