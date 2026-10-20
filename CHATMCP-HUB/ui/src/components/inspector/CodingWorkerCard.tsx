@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { assessWorker, hubNoteOf, runnerErrorOf, runnerNoticeOf } from '@/lib/agent-proof';
+import { assessWorker, hubNoteOf, runnerErrorCodeOf, runnerErrorOf, runnerNoticeOf } from '@/lib/agent-proof';
 import { useTranslation } from '@/lib/i18n';
 import { Button } from '@/components/ui/Button';
 import { agentStatusLabel } from './agentLabels';
@@ -72,7 +72,7 @@ export function CodingWorkerCard({ worker, selected, onSelect, reviewed, busy, r
       <p className="break-words text-muted">{t('coding_changed_files', { files: (worker.changedFiles || []).join(', ') || t('coding_changed_none') })}</p>
       <EvidenceLine tone={proof.tone} kind={proof.kind} facts={proof.checks > 0 ? t('agent_proof_facts', { checks: proof.checks, verified: proof.verifiedChecks }) : undefined} />
       <HubNote note={hubNote} />
-      <RunnerError text={runnerError} />
+      <RunnerError text={runnerError} code={runnerErrorCodeOf(worker)} />
       <RunnerNotice text={runnerNotice} />
       {worker.summary && <AiReport text={worker.summary} />}
       {worker.error && <ErrorLine message={worker.error} />}

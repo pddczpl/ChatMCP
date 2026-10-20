@@ -4,6 +4,7 @@ import type { AgentTone, ReportKind, VerificationNote, WorkerProofKind } from '@
 import type { DraftIssue } from '@/lib/agent-draft';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/Badge';
+import { errorSentenceKey } from '@/lib/agent-errors';
 import { hasHidden } from '@/lib/hidden-chars';
 import { HiddenNote, HiddenText } from './HiddenText';
 
@@ -114,13 +115,21 @@ export function HubNote({ note }: { note: VerificationNote | null }) {
 /**
  * The AgentRunner's record of why a worker's run stopped, kept apart from the AI's report and labelled as the Hub's record, as it wrote it: the text may be
  * in either language, quote the provider, or hold the model's own refusal. Plain text after the Hub's note, in no colour of proof, with what cannot be seen
- * shown as markers like in any text from outside.
+ * shown as markers like in any text from outside. For a code the page has a sentence for (`errorSentenceKey`, the `agent_error_` convention of the Hub's route errors) a line
+ * in the language on screen says what it means, above the record.
  */
-export function RunnerError({ text }: { text: string | null }) {
+export function RunnerError({ text, code }: { text: string | null; code?: string | null }) {
   const { t } = useTranslation();
   if (!text) return null;
+  // What the code means, in the language on screen, when the page has a sentence for it. It stands above the record and never in its place: a code cannot carry what the runner
+  // adds to its sentence (a number of steps, a provider's words, a caution about the last action), and a refusal holds the model's own words, which have no end to cut at. It is
+  // left out where the Hub's sentence begins with it already (the Vietnamese sentence of a code the runner always says in the same words is that sentence).
+  const key = errorSentenceKey(code);
+  const lead = key ? t(key) : '';
+  const showLead = lead.trim() !== '' && !text.trim().startsWith(lead.trim());
   return (
     <div className="space-y-0.5">
+      {showLead && <p data-testid="runner-error-lead" data-code={code ?? undefined} className="break-words text-[12px] leading-4 text-fg select-text">{lead}</p>}
       <HiddenNote show={hasHidden(text)} />
       <p data-testid="runner-error" className="whitespace-pre-wrap break-words text-[12px] leading-4 text-muted select-text">
         <span className="font-medium text-fg">{t('coding_runner_error_label')}</span>{' '}<HiddenText text={text} />

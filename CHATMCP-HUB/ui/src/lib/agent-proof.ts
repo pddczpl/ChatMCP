@@ -35,6 +35,7 @@ export interface WorkerRecord {
   verificationAttempts?: RecordedAttempt[] | null;
   verificationNote?: VerificationNote | null;
   runnerError?: string | null;
+  runnerErrorCode?: string | null;
   runnerNotice?: string | null;
 }
 
@@ -105,6 +106,16 @@ export function hubNoteOf(worker: WorkerRecord | null | undefined, proof: Worker
 export function runnerErrorOf(worker: WorkerRecord | null | undefined): string | null {
   const raw: unknown = worker?.runnerError;
   return typeof raw === 'string' && raw.trim() !== '' ? raw : null;
+}
+
+/**
+ * The code the Hub's AgentRunner ended a worker's run with (lib/coding-orchestrator.mjs, `runnerErrorCode`), which the page looks a sentence up by. The Hub passes on only a short
+ * plain code and so does this: lowercase letters, digits and underscores, starting with a letter, 64 characters at most. Anything else is none, whatever the worker says, because
+ * a code is used to build a dictionary key. It is neither evidence nor a verdict, so `assessWorker` never reads it.
+ */
+export function runnerErrorCodeOf(worker: WorkerRecord | null | undefined): string | null {
+  const raw: unknown = worker?.runnerErrorCode;
+  return typeof raw === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(raw) ? raw : null;
 }
 
 /**

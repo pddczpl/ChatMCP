@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analysisBlock, assessWorker, assessReport, awaitingCheckWorkers, canMerge, canPublishMerge, codingBlock, delegationTarget, effectiveReportStatus, grantState, groupBlock, hubNoteOf, outcomeToast, preselectIds, reviewKey, runnerErrorOf, runnerNoticeOf, runsOfFolder, statusTone } from '../src/lib/agent-proof.ts';
+import { analysisBlock, assessWorker, assessReport, awaitingCheckWorkers, canMerge, canPublishMerge, codingBlock, delegationTarget, effectiveReportStatus, grantState, groupBlock, hubNoteOf, outcomeToast, preselectIds, reviewKey, runnerErrorCodeOf, runnerErrorOf, runnerNoticeOf, runsOfFolder, statusTone } from '../src/lib/agent-proof.ts';
 
 // "Reported done" is not "proven done" (see proof.test.mjs for a conversation turn). A coding worker is a model: what it says about itself is its
 // own claim. The only thing that turns a worker green is a check the Hub itself ran and verified; every other path must stay below success.
@@ -406,6 +406,37 @@ test('what the runner recorded changes nothing about how a worker is read: the c
   const claim = verifiedWorker({ runnerError: RUNNER_SENTENCE });
   assert.equal(proofOf(claim).kind, 'verified', 'and it cannot take away what the Hub verified either');
   assert.equal(hubNoteOf(worker({ status: 'failed', runnerError: RUNNER_SENTENCE }), proofOf(worker({ status: 'failed' }))), null, 'nor is it a verification note');
+});
+
+test('the code of the runner’s record is passed on as the short plain code it is, for a worker in any state', () => {
+  for (const status of ['failed', 'cancelled', 'needs_attention', 'interrupted', 'ready_for_review']) {
+    assert.equal(runnerErrorCodeOf(worker({ status, summary: '', runnerError: RUNNER_SENTENCE, runnerErrorCode: 'empty_final' })), 'empty_final', status);
+  }
+  for (const code of ['a', 'a1', 'a_', 'gateway_rate_limit', 'x'.repeat(64)]) assert.equal(runnerErrorCodeOf(worker({ runnerErrorCode: code })), code, code);
+});
+
+test('a code that is not a short plain code is none: the page looks a sentence up by it, so nothing else may reach the dictionary', () => {
+  const notCodes = [undefined, null, '', ' ', ' empty_final', 'empty_final ', 'empty_final\n', 'ECONNRESET', 'Empty_final', 'empty-final', 'empty final', '_x', '1x', 'x'.repeat(65), 'kém',
+    '../agent_status_failed', 'a.b', '__proto__', 7, 0, true, {}, [], ['empty_final'], { code: 'empty_final' }];
+  for (const bad of notCodes) assert.equal(runnerErrorCodeOf(worker({ runnerErrorCode: bad })), null, typeof bad === 'object' ? JSON.stringify(bad) : String(bad));
+  assert.equal(runnerErrorCodeOf(null), null);
+  assert.equal(runnerErrorCodeOf(undefined), null);
+  assert.equal(runnerErrorCodeOf(worker()), null, 'a worker that has none');
+  // the code belongs to the Hub’s record; the model’s summary and the Hub’s sentence are never taken for it
+  assert.equal(runnerErrorCodeOf(worker({ status: 'failed', summary: 'empty_final', runnerError: RUNNER_SENTENCE })), null);
+  assert.equal(runnerErrorCodeOf(worker({ verificationNote: { code: 'no_checks', text: 'x' }, runnerNotice: 'x' })), null);
+});
+
+test('the code changes nothing about how a worker is read: the colour is the evidence rule’s', () => {
+  for (const status of ['queued', 'running', 'awaiting_test_grant', 'ready_for_review', 'no_changes', 'failed', 'needs_attention', 'cancelled', 'interrupted']) {
+    for (const options of [{}, { runActive: false }]) {
+      assert.deepEqual(assessWorker(worker({ status, runnerError: RUNNER_SENTENCE, runnerErrorCode: 'empty_final' }), options), assessWorker(worker({ status }), options), `${status} ${JSON.stringify(options)}`);
+    }
+  }
+  assert.equal(proofOf(verifiedWorker({ runnerError: RUNNER_SENTENCE, runnerErrorCode: 'user_cancelled' })).kind, 'verified', 'and it cannot take away what the Hub verified either');
+  const failed = worker({ status: 'failed', runnerError: RUNNER_SENTENCE, runnerErrorCode: 'empty_final' });
+  assert.equal(hubNoteOf(failed, proofOf(failed)), null, 'nor is it a verification note');
+  assert.equal(runnerNoticeOf(failed), null, 'nor a notice on the AI’s report');
 });
 
 const NOTICE_SENTENCE = 'ChatMCP has NOT independently verified full completion: No verified successful project check; No independently recorded Git diff review.';
