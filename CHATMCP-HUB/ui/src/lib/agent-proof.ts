@@ -71,6 +71,16 @@ export function assessReport(status: string | undefined): { tone: AgentTone; kin
   return { tone: 'warning', kind: 'attention' };
 }
 
+/**
+ * The colour of a status word that is not an assessment of a worker (a run, a merge): red when the Hub says it failed, amber when it needs the
+ * owner, plain otherwise. Never green: a word such as "completed" or "verified" in a status field is not the Hub's evidence about the work.
+ */
+export function statusTone(status: string | undefined): AgentTone {
+  if (status === 'failed') return 'danger';
+  if (status && ['needs_attention', 'partial_failure', 'interrupted', 'conflict', 'blocked'].includes(status)) return 'warning';
+  return 'neutral';
+}
+
 /** The workers of a run that may need the owner to allow a check right now: only those that asked for verification. Nobody else has a test broker. */
 export function awaitingCheckWorkers<T extends WorkerRecord>(job: { workers?: T[] } | null | undefined): T[] {
   return (job?.workers ?? []).filter(worker => worker.verifyRequired === true && ['running', 'awaiting_test_grant', 'testing'].includes(String(worker.status)));
@@ -99,4 +109,17 @@ export function codingBlock(input: { differentRoot: boolean; mode?: string; busy
   if (input.mode !== 'autonomous') return 'needs-autonomous';
   if (input.busy) return 'busy';
   return null;
+}
+
+/**
+ * Merging the ticked workers into one new branch: something is ticked, the diff of every ticked worker was read in this session (its review
+ * token is what the Hub checks), the run has no merge yet (the Hub keeps one per run) and nothing else is running.
+ */
+export function canMerge(input: { selected: string[]; reviewed: (id: string) => boolean; hasMerge: boolean; locked: boolean }): boolean {
+  return input.selected.length > 0 && input.selected.every(input.reviewed) && !input.hasMerge && !input.locked;
+}
+
+/** Asking for a draft pull request from the merge: the merge exists and is ready for review, its own diff was read, nothing else is running. */
+export function canPublishMerge(input: { status?: string; reviewed: boolean; locked: boolean }): boolean {
+  return input.status === 'ready_for_review' && input.reviewed && !input.locked;
 }

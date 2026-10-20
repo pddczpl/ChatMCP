@@ -2,8 +2,8 @@ import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /** The scrolling body of a work-panel tab: one padding, one rhythm. */
-export function TabBody({ label, className, children }: { label: string; className?: string; children: React.ReactNode }) {
-  return <section aria-label={label} className={cn('h-full space-y-5 overflow-y-auto px-4 py-4 text-[13px] leading-5 select-text', className)}>{children}</section>;
+export function TabBody({ label, className, testId, children }: { label: string; className?: string; testId?: string; children: React.ReactNode }) {
+  return <section aria-label={label} data-testid={testId} className={cn('h-full space-y-5 overflow-y-auto px-4 py-4 text-[13px] leading-5 select-text', className)}>{children}</section>;
 }
 
 /** A section title with an optional count and a control on the right. */

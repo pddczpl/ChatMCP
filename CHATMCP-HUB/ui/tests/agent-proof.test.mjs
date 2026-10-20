@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assessWorker, assessReport, awaitingCheckWorkers, codingBlock, delegationTarget } from '../src/lib/agent-proof.ts';
+import { assessWorker, assessReport, awaitingCheckWorkers, canMerge, canPublishMerge, codingBlock, delegationTarget, statusTone } from '../src/lib/agent-proof.ts';
 
 // "Reported done" is not "proven done" (see proof.test.mjs for a conversation turn). A coding worker is a model: what it says about itself is its
 // own claim. The only thing that turns a worker green is a check the Hub itself ran and verified; every other path must stay below success.
@@ -126,6 +126,15 @@ test('a read-only report is the AI saying something, never green', () => {
   assert.equal(assessReport('cancelled').kind, 'stopped');
 });
 
+test('the colour of a run or merge status word is only ever a warning: green belongs to the evidence of a worker', () => {
+  for (const status of ['completed', 'ready_for_review', 'verified', 'published', 'draft_pr_created', 'running', 'queued', 'no_changes', 'whatever']) {
+    assert.equal(statusTone(status), 'neutral', status);
+  }
+  assert.equal(statusTone('failed'), 'danger');
+  for (const status of ['needs_attention', 'partial_failure', 'interrupted', 'conflict', 'blocked']) assert.equal(statusTone(status), 'warning', status);
+  assert.equal(statusTone(undefined), 'neutral');
+});
+
 test('only a worker that asked for verification and is mid-run can have checks to grant (no 404 polling for the rest)', () => {
   const job = { workers: [
     worker({ id: 'plain', status: 'running' }),
@@ -164,4 +173,23 @@ test('coding workers are refused for a reason the owner can read, in the order t
   assert.equal(codingBlock({ differentRoot: true, mode: 'review', busy: true, recoveryFault: 'x' }), 'other-workspace');
   assert.equal(codingBlock({ differentRoot: false, mode: 'review', busy: true, recoveryFault: 'x' }), 'recovery');
   assert.equal(codingBlock({ differentRoot: false, mode: 'review', busy: true, recoveryFault: null }), 'needs-autonomous');
+});
+
+test('a merge needs something ticked, every ticked diff read, no merge yet for the run, and nothing else running', () => {
+  const read = (...ids) => (id) => ids.includes(id);
+  const ok = { selected: ['task-a', 'task-b'], reviewed: read('task-a', 'task-b'), hasMerge: false, locked: false };
+  assert.equal(canMerge(ok), true);
+  assert.equal(canMerge({ ...ok, selected: [] }), false, 'nothing ticked');
+  assert.equal(canMerge({ ...ok, reviewed: read('task-a') }), false, 'one diff not read');
+  assert.equal(canMerge({ ...ok, reviewed: read() }), false, 'no diff read');
+  assert.equal(canMerge({ ...ok, hasMerge: true }), false, 'the Hub keeps one merge per run');
+  assert.equal(canMerge({ ...ok, locked: true }), false, 'a run or merge is going on');
+});
+
+test('the merge is published only when it exists, is ready for review, its own diff was read and nothing else is running', () => {
+  const ok = { status: 'ready_for_review', reviewed: true, locked: false };
+  assert.equal(canPublishMerge(ok), true);
+  for (const status of [undefined, 'conflict', 'draft_pr_created', 'failed']) assert.equal(canPublishMerge({ ...ok, status }), false, String(status));
+  assert.equal(canPublishMerge({ ...ok, reviewed: false }), false);
+  assert.equal(canPublishMerge({ ...ok, locked: true }), false);
 });

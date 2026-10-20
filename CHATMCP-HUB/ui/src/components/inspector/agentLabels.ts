@@ -1,22 +1,14 @@
-const roles: Record<string, string> = {
-  planner: 'Lập kế hoạch',
-  researcher: 'Tìm hiểu',
-  tester: 'Kiểm thử',
-  reviewer: 'Rà soát',
-  security: 'Kiểm tra bảo mật',
-  summarizer: 'Tổng hợp',
+import { hasTranslation, type Translate } from '@/lib/i18n';
+
+/** The name of a read-only helper's role in the language on screen; a role the dictionary does not know is shown as the Hub wrote it. */
+export const agentRoleLabel = (role: string, t: Translate): string => {
+  const key = `agent_role_${role}`;
+  return hasTranslation(key) ? t(key) : role;
 };
 
-const statuses: Record<string, string> = {
-  pending: 'Đang chờ', queued: 'Đang chờ', preparing: 'Đang chuẩn bị', planning: 'Đang lập kế hoạch',
-  running: 'Đang thực hiện', completed: 'Đã hoàn tất', failed: 'Không hoàn tất',
-  cancelled: 'Đã dừng', interrupted: 'Bị gián đoạn', needs_attention: 'Cần bạn kiểm tra',
-  ready_for_review: 'Chờ bạn duyệt', awaiting_test_grant: 'Chờ cho phép kiểm thử',
-  testing: 'Đang kiểm thử', blocked: 'Chưa thể tiếp tục', skipped: 'Đã bỏ qua',
-  no_changes: 'Không có thay đổi', conflict: 'Cần xử lý xung đột',
-  partial_failure: 'Một số công việc chưa hoàn tất',
-  published: 'Đã tạo yêu cầu duyệt', draft_pr_created: 'Đã tạo yêu cầu duyệt bản nháp', verified: 'Đã xác minh',
+/** What the Hub's status word means in the language on screen. No status reads as waiting; an unknown one is shown as written. */
+export const agentStatusLabel = (status: string | undefined, t: Translate): string => {
+  if (!status) return t('agent_status_queued');
+  const key = `agent_status_${status}`;
+  return hasTranslation(key) ? t(key) : status;
 };
-
-export const agentRoleLabel = (role: string) => roles[role] || role;
-export const agentStatusLabel = (status?: string) => status ? statuses[status] || status : 'Đang chờ';
