@@ -178,7 +178,7 @@ Bảng này là kế hoạch chỗ đặt, không phải danh sách đã làm: m
 
 - Độ tương phản như mục 3.1; vòng focus 2 px (`--focus`) ở mọi điều khiển; hộp thoại là `<dialog>` native; hàng tab là `tablist` thật (`aria-selected`, `aria-controls`, phím mũi tên); trạng thái không chỉ bằng màu (luôn có chữ hoặc nhãn).
 - Giảm chuyển động và chế độ tương phản cao của Windows được tôn trọng.
-- Ngân sách: JS khởi tạo ≈ 256,4 KB gzip (ngân sách 260 KB, còn dư khoảng 3,6 KB nên các nhánh P1 khác sẽ chạm trần; tab Tác nhân thêm khoảng 23 KB, trong đó từ điển hai ngôn ngữ; tách hai mục thành chunk lazy lấy lại khoảng 15 KB), CSS ≈ 10 KB gzip. Không có request ra ngoài domain, không telemetry; CSP của Hub (`style-src 'self'`) vẫn đúng vì không có style nội tuyến trong HTML.
+- Ngân sách: JS khởi tạo ≈ 256,5 KB gzip (ngân sách 260 KB, còn dư khoảng 3,5 KB nên các nhánh P1 khác sẽ chạm trần; tab Tác nhân thêm khoảng 23 KB, trong đó từ điển hai ngôn ngữ; tách hai mục thành chunk lazy lấy lại khoảng 15 KB), CSS ≈ 10 KB gzip. Không có request ra ngoài domain, không telemetry; CSP của Hub (`style-src 'self'`) vẫn đúng vì không có style nội tuyến trong HTML.
 
 ## 8. Chưa làm / giới hạn đã biết
 
