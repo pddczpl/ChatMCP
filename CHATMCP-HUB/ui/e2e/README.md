@@ -40,6 +40,8 @@ task's recorded cancellation is treated as task data.
 Deliberate page closes stop response capture and finish checking response bodies
 already received before disposing the page, including the restart scenario.
 
+`orchestrator.spec.mjs` covers the Agents tab against the real Hub: the owner plans a coding task, starts a worker (after switching the permission mode to Autonomous in Settings, which the tab asks for), reads its diff, merges it into a new branch and sees that the worker's own claim ("all tests pass") is shown as the AI's report and never as the Hub's evidence; a read-only analysis and a hand-made helper group (the scripted model answers "OK" to a request with no tools, which is enough to see a report and a failed plan); a run that was stopped (the worker that had committed still waits for the owner, the one cut off is "stopped", and the tab says beside the merge button what the Hub says: only a finished run is merged); focus after a dialog, after closing a diff and after removing a task, and a zero-width character in a diff shown as a marker; a code edit running while another section is open; the section switch as an ARIA tablist; 600 and 900 px windows with a real run on screen; a second folder in view (reading works, merging and drafts stay off); English and the light theme. The tests that start a worker need Git; the project the fixture makes is a clean repository, which the Hub requires. Screenshots of each step are attached to the test output.
+
 Playwright writes its JSON result, Hub logs, and failure screenshots/traces to
 `test-results/`. The required reporter also fails a run containing skipped tests;
 `tests/e2e-gate.test.mjs` checks real process exit codes for skips and malformed
@@ -55,6 +57,6 @@ On Windows with .NET SDK 10 and WebView2 Runtime, run the separate native smoke:
 node e2e/webview2-smoke.mjs
 ```
 
-It uses a real WinForms/WebView2 harness and a temporary Hub/profile. The harness is compiled against the desktop shell's own session, ticket and new-window code (`native-shared/`): it signs in with the Hub's session file and checks that a link holding a backslash, quotes and `</script>` reaches the page as the exact string and runs nothing. Missing
+It uses a real WinForms/WebView2 harness and a temporary Hub/profile. The harness is compiled against the desktop shell's own session, ticket and new-window code (`native-shared/`): it signs in with the Hub's session file and checks that a link holding a backslash, quotes and `</script>` reaches the page as the exact string and runs nothing. It also opens the Agents tab and its two delegation sections (navigation only: no model request, no task), so the sections are rendered in the real WebView2 as well, in the desktop and the compact layout. Missing
 prerequisites fail by default and in CI. `--allow-unavailable` is only for local
 environment surveys; a reported skip is not native verification.

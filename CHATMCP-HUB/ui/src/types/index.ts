@@ -369,7 +369,11 @@ export interface HubState {
     secretStorage?: { protection?: string };
     toolCalling?: boolean;
     toolCallingNote?: string;
+    /** The AI connection (provider, model, key) is being changed; the Hub refuses to start model work meanwhile. */
+    busy?: boolean;
   };
+  /** The id of the task the Hub is running for the main agent (null when none). */
+  taskId?: string | null;
   agent?: {
     mode: 'api'|'chatgpt-web';
     activeTaskId: string | null;
@@ -411,6 +415,8 @@ export interface HubState {
     };
     terminals?: TerminalState[];
     features?: string[];
+    /** The group of read-only helpers: `running` while it works. */
+    delegates?: { running?: boolean } | null;
   };
   plugins?: {
     count: number;

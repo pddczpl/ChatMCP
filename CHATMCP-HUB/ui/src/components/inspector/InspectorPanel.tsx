@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { MoreHorizontal } from 'lucide-react';
 import { api } from '@/lib/api';
+import { delegationTarget } from '@/lib/agent-proof';
+import { nextTabIndex } from '@/lib/tab-keys';
 import { useAppStore, type InspectorTab } from '@/store/useAppStore';
 import { useTranslation } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { BackgroundTasks } from '@/components/layout/BackgroundTasks';
 import { ActivityTab } from './ActivityTab';
+import { AgentsTab } from './AgentsTab';
 import { FilesTab } from './FilesTab';
 import { GitTab } from './GitTab';
 import { TerminalTab } from './TerminalTab';
@@ -38,9 +40,7 @@ export function InspectorPanel() {
   const hidden = OVERFLOW.filter(tab => !visible.includes(tab));
 
   // The independent second-workspace case: file, Git and terminal tools stay bound to the primary workspace.
-  const current = selectedWorkspacePath || hub?.workspaces?.activePath;
-  const legacy = hub?.workspace?.path;
-  const differentRoot = Boolean(current && legacy && current !== legacy);
+  const differentRoot = delegationTarget({ selectedWorkspacePath, activePath: hub?.workspaces?.activePath ?? undefined, primaryPath: hub?.workspace?.path ?? undefined }).blocked;
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -59,11 +59,9 @@ export function InspectorPanel() {
   }, [activeTab]);
 
   const onKeyDown = (event: React.KeyboardEvent) => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const next = nextTabIndex(event.key, visible.indexOf(activeTab), visible.length);
+    if (next === null) return;
     event.preventDefault();
-    const index = visible.indexOf(activeTab);
-    const next = event.key === 'Home' ? 0 : event.key === 'End' ? visible.length - 1
-      : (index + (event.key === 'ArrowRight' ? 1 : -1) + visible.length) % visible.length;
     setActiveTab(visible[next]);
     stripRef.current?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus();
   };
@@ -127,7 +125,7 @@ export function InspectorPanel() {
             {activeTab === 'files' && <FilesTab />}
             {activeTab === 'terminal' && <TerminalTab />}
             {activeTab === 'activity' && <ActivityTab />}
-            {activeTab === 'agents' && <BackgroundTasks />}
+            {activeTab === 'agents' && <AgentsTab />}
             {activeTab === 'preview' && <PreviewTab />}
           </>
         )}

@@ -1,4 +1,5 @@
 import { useAppStore } from '@/store/useAppStore';
+import { agentsVi, agentsEn } from './i18n-agents.ts';
 
 export const translations = {
   vi: {
@@ -60,6 +61,9 @@ export const translations = {
     tab_ai_model: 'AI Model',
     tab_skills: 'Skills',
     tab_settings: 'Cài đặt',
+
+    // Agents tab: delegated work (the strings are in i18n-agents.ts)
+    ...agentsVi,
 
     // Settings Tab
     rbac_title: 'Vai trò người dùng (RBAC)',
@@ -296,6 +300,9 @@ export const translations = {
     tab_skills: 'Skills',
     tab_settings: 'Settings',
 
+    // Agents tab: delegated work (the strings are in i18n-agents.ts)
+    ...agentsEn,
+
     // Settings Tab
     rbac_title: 'User Role (RBAC)',
     rbac_full: 'FULL ACCESS',
@@ -474,14 +481,25 @@ export const translations = {
 };
 
 export type TranslationKey = keyof typeof translations.vi;
+/** Values for the {name} placeholders of a string: t('agents_works_on', { folder }). */
+export type TranslationParams = Record<string, string | number>;
+export type Translate = (key: TranslationKey, params?: TranslationParams) => string;
+
+/** For a key built at run time (a status, a role) that may not have a string: ask first, fall back to the raw value. */
+export const hasTranslation = (key: string): key is TranslationKey => Object.hasOwn(translations.vi, key);
+
+/**
+ * A string in the language asked for, else in Vietnamese, else the key itself. {name} is replaced by params.name; a placeholder with no
+ * value is left as written, so a missing value is visible instead of turning into "undefined".
+ */
+export function translate(lang: string, key: string, params?: TranslationParams): string {
+  const dict = (translations as Record<string, Record<string, string>>)[lang] || translations.vi;
+  const text = dict[key] || (translations.vi as Record<string, string>)[key] || key;
+  return params ? text.replace(/\{(\w+)\}/g, (placeholder, name) => (Object.hasOwn(params, name) ? String(params[name]) : placeholder)) : text;
+}
 
 export function useTranslation() {
   const lang = useAppStore((state) => state.lang);
-  const dict = translations[lang] || translations.vi;
-
-  const t = (key: TranslationKey): string => {
-    return (dict as any)[key] || (translations.vi as any)[key] || key;
-  };
-
+  const t: Translate = (key, params) => translate(lang, key, params);
   return { t, lang };
 }

@@ -92,7 +92,7 @@ Một nguồn duy nhất: `src/index.css`. Component dùng tiện ích ngữ ngh
 - **Header** chỉ có thứ dùng liên tục: bật/tắt panel (`Ctrl B`, `Ctrl J`), nơi đang làm việc (workspace, nhánh), tìm kiếm/lệnh (`Ctrl K`), theme, Cài đặt (`Ctrl ,`). Báo mất kết nối Hub hiện ở đây khi có sự cố.
 - **Thanh trạng thái** chỉ hiện dữ liệu thật của Hub: kết nối, nhánh (chấm vàng khi có thay đổi chưa commit), kênh ChatGPT Web Companion (khi dùng), cửa sổ ngữ cảnh (dấu `~` = ước tính), model, chế độ quyền, phiên bản. Mỗi mục mở đúng trang của Cài đặt. Không có mục giữ chỗ cho tính năng chưa có.
 - **Sidebar:** workspace → hội thoại, thời gian tương đối, nút xóa chỉ hiện khi rê chuột/focus.
-- **Work panel:** một hàng tab, chữ thuần (không icon), tab đang chọn có gạch chân; `Hoạt động` và `Xem trước` (dùng ít hơn) nằm dưới `⋯` và tự hiện thành tab khi được chọn; bàn phím `←/→/Home/End`. Không còn tầng "Background tasks / Inspector": tác vụ nền là tab **Tác nhân**.
+- **Work panel:** một hàng tab, chữ thuần (không icon), tab đang chọn có gạch chân; `Hoạt động` và `Xem trước` (dùng ít hơn) nằm dưới `⋯` và tự hiện thành tab khi được chọn; bàn phím `←/→/Home/End`. Không còn tầng "Background tasks / Inspector": tác vụ nền là tab **Tác nhân**, và tab này có thanh chuyển mục riêng (**Công việc nền** · **Nhóm trợ lý** · **Sửa mã**, mục 5.5): một `tablist` thứ hai nằm *trong* tab, kiểu nút phân đoạn (không phải hàng tab thứ hai), cùng phím `←/→/Home/End` (`lib/tab-keys.ts` dùng chung với hàng tab của panel); tên các mục không trùng tên tab nào của panel.
 - **Cài đặt** là hộp thoại toàn trang (native `<dialog>`: focus nằm trong, `Esc` đóng) với menu trái: Dự án · Mô hình AI · Quyền & thực thi · Kênh agent · Kỹ năng · Phân tích mã · Giao diện & ngôn ngữ · Thông tin & dữ liệu. Thêm mục mới = thêm một phần tử vào `SECTIONS` (`components/settings/SettingsView.tsx`). Toast hiện *bên trong* hộp thoại khi nó đang mở (chỉ có một toast tại mọi thời điểm). Hộp xác nhận FULL ACCESS cũng là native modal nên mở được *phía trên* Cài đặt.
 - **Bảng lệnh** (`Ctrl K`): câu thường, nhóm theo việc (hội thoại, quyền, đi tới, cài đặt, giao diện), mục đang chọn bằng bàn phím được tô sáng.
 - **Hướng dẫn khởi động:** 3 bước (thư mục → mô hình → quyền) với bước đã xong đánh dấu rõ.
@@ -128,13 +128,39 @@ Mỗi đoạn công cụ giữa hai tin nhắn gập thành một dòng ("Đọc
 
 Bốn chế độ (Chỉ đọc, Review, Tự động, FULL ACCESS) chọn ở ô nhập hoặc Cài đặt; chế độ hiện tại luôn thấy ở thanh trạng thái. FULL ACCESS cần gõ đúng cụm từ, có dải đỏ cố định và một nút "Quay về Review".
 
+### 5.5 Tab Tác nhân: giao việc cho trợ lý và worker sửa mã
+
+`OrchestratorTab` (gắn lại từ P1-G) là hai mục của tab Tác nhân: `AgentGroups` (nhóm trợ lý **chỉ đọc**: AI tự chia việc hoặc bạn tự chia) và `CodingWorkers` (worker sửa mã, mỗi việc một nhánh Git và một worktree riêng). Dùng token, mọi chuỗi qua `t()` (`lib/i18n-agents.ts`, vi và en, có test đối chiếu khóa và chỗ giữ `{tham_số}`), không còn `confirm()`/`prompt()`: hộp thoại xác nhận là `<dialog>` native, hành động nguy hiểm đòi gõ đúng cụm (`INTEGRATE WORKTREES`, `PUBLISH DRAFT PR`, `REVIEW INTERRUPTED RUN`).
+
+**Báo xong khác với chứng minh xong, cho worker.** Một worker là một model: `summary` của nó là lời của nó, nằm trong khối **Báo cáo của AI**, tách khỏi **dòng bằng chứng** (`lib/agent-proof.ts`, giữ bởi `tests/agent-proof.test.mjs`, `tests/coding.test.mjs`, `e2e/orchestrator.spec.mjs`):
+
+| Dòng bằng chứng | Màu | Điều kiện (chỉ từ bản ghi của Hub) |
+|---|---|---|
+| Hub đã xác minh kiểm tra | xanh | bạn yêu cầu kiểm thử (`verifyRequired`), Hub kết thúc vòng xác minh bằng `ready_for_review`, và lần thử mới nhất của **mọi** check đều do Hub xác minh (`testOutcomeVerified`); ghi chú nhắc rằng chưa chứng minh mọi yêu cầu |
+| AI báo xong · Hub chưa xác minh | vàng | worker `ready_for_review` nhưng thiếu một trong các điều kiện trên (không có lần thử nào, `exit 0` không đủ, vòng xác minh chưa xong, không yêu cầu kiểm thử) |
+| Có kiểm tra thất bại | đỏ | lần thử mới nhất của một check thất bại, dù trước đó đã có lần đạt |
+| Cần bạn kiểm tra · Công việc không hoàn tất | vàng · đỏ | `needs_attention`/`blocked`/`interrupted`/trạng thái lạ · `failed` |
+| Đang làm việc · Đã dừng · Không có thay đổi | trung tính | đang chạy trong lượt mà Hub đang chạy · `cancelled`, hoặc worker còn "đang chạy/đang chờ" trong lượt **không còn chạy** (đã dừng, hỏng, Hub khởi động lại: trạng thái đã lưu không phải trạng thái đang chạy) · `no_changes` |
+| Chờ bạn cho phép kiểm thử | vàng | `awaiting_test_grant` trong lượt đang chạy: Hub chờ khoảng 90 giây sau khi AI xong; hết hạn thì worker dừng ở `needs_attention` và thay đổi **chưa commit** nằm trong bản làm việc riêng (thẻ worker ghi đường dẫn) |
+| AI báo cáo · Hub chưa kiểm chứng | trung tính | kết quả của nhóm trợ lý chỉ đọc: không bao giờ xanh |
+
+Từ trạng thái của một lượt chạy hay một bản gộp (`completed`, `ready_for_review`, `verified`, `published`...) không bao giờ tô xanh; chỉ `failed` là đỏ và các trạng thái cần bạn là vàng (`statusTone`). Thông báo khi lượt chạy kết thúc là thông tin, không phải "thành công". Xuất bản và gộp bị khóa đến khi bạn đọc diff của chính nhánh đó (token duyệt của Hub), mỗi lượt chạy chỉ gộp một lần, và Hub chỉ gộp lượt đang `ready_for_review` hoặc `partial_failure` (lượt đã dừng hay hỏng: tab nói lý do ngay cạnh nút, không chỉ làm nút xám). Token duyệt khóa theo `worker:<id>` hoặc `merge` nên một worker tên `integration` không đụng bản gộp. Nhóm trợ lý mà Hub lưu "đang chạy" khi không có gì chạy là lượt bị cắt ngang: hiện **Bị gián đoạn** (vàng), không hiện là đang làm việc.
+
+Ảnh: `design/screenshots/v3/agents-coding-evidence.png` (worker "AI báo xong · Hub chưa xác minh", vàng, báo cáo của AI tách riêng), `agents-groups-report.png` (nhóm trợ lý: báo cáo trung tính), `agents-narrow-600.png` (cửa sổ 600 px), `agents-english-light.png` (tiếng Anh, giao diện sáng). Chụp lại bằng `npx playwright test e2e/orchestrator.spec.mjs` (ảnh nằm ở `test-results/`) hoặc `npm run gallery`.
+
+**Việc Hub sẽ từ chối được nói trước.** Sửa mã chỉ chạy ở chế độ quyền **Tự động** (Hub trả 403 ở chế độ khác): tab nói rõ chế độ hiện tại và có nút tới Cài đặt → Quyền. Hub cũng từ chối (409) khi agent chính đang làm việc, khi một nhóm trợ lý đang chạy, khi một lượt sửa mã đang chạy (với phân tích) và khi kết nối AI đang đổi: mỗi lý do là một dòng thông tin trung tính (không phải lỗi) và nút bắt đầu tắt (`codingBlock`, `analysisBlock`, `groupBlock` trong `lib/agent-proof.ts`, có test thứ tự lý do). Giao việc chỉ làm trên *thư mục chính* của Hub: khi panel đang xem thư mục khác, form của hai mục tắt và nêu hai thư mục; gộp, tạo bản nháp, ghi nhận lượt bị gián đoạn và cho phép kiểm thử cũng tắt (đọc diff thì vẫn được, nút **Dừng** vẫn dùng được). Form kiểm tra id, phụ thuộc, vòng lặp và độ dài trước khi bấm bắt đầu (`lib/agent-draft.ts`). Bảng kiểm thử cần cho phép chỉ hỏi worker đã yêu cầu kiểm thử, của lượt đang chạy (chỉ các worker đó đang có test broker và là đường Hub chờ bạn), nói rõ Hub chờ khoảng 90 giây; danh sách check của Hub không cho biết quyền nào đã cấp, nên trang giữ câu trả lời của Hub khi bạn cho phép (tối đa số lần chạy và hạn dùng) và hiện "Đã cho phép: tối đa N lần trong Windows Sandbox, đến HH:MM" cho tới khi hết hạn; "đã cho phép" không phải "đã đạt": kết quả chỉ hiện ở mục đã ghi nhận khi Hub chạy xong. Chữ đang gõ giữ lại khi sang tab khác (`store/useAgentDrafts.ts`, trong bộ nhớ, không ghi đĩa).
+
+**Đọc diff và lời của AI.** Diff chia dòng theo vị trí (`diff --git` đặt lại, tiêu đề tệp chỉ có trước hunk đầu, trong hunk mọi dòng bắt đầu bằng khoảng trắng, `+` hoặc `-`), nên dòng xóa có nội dung `-- ghi chú` vẫn là dòng xóa. Ký tự nhìn không thấy nhưng đổi cách đọc (ghi đè chiều chữ, khoảng trắng độ rộng 0, ký tự điều khiển) trong diff, bản xem trước tệp và báo cáo của AI hiện thành dấu `‹U+202E›` và một dòng giải thích (`lib/hidden-chars.ts`; dấu thay chính ký tự nên hiệu ứng đổi chiều cũng mất; ZWJ/ZWNJ hợp lệ trong emoji ghép hay vài hệ chữ, và BOM ở đầu tệp, cũng hiện dấu: chấp nhận vài báo động giả hơn là bỏ sót; áp dụng cả cho tab **Thay đổi** vì dùng chung `DiffView`). Vùng cuộn của diff và của tệp là `region` có tên, nhận focus bằng bàn phím.
+
+**Bàn phím và trình đọc màn hình.** Hộp thoại xác nhận gắn cụm phải gõ vào tên của ô nhập và quy tắc (nút chỉ bật khi khớp) vào mô tả của nó; khi đóng, focus về nút đã mở, hoặc về tiêu đề của mục nếu nút đó đã thành "đang chạy". Mở một bản xem diff/tệp đưa focus vào nó, đóng thì trả về đúng nút đã mở; xóa một dòng công việc đưa focus tới "Thêm công việc". Lỗi nhập liệu là *mô tả* của ô (`aria-describedby`), không phải `role="alert"` (sẽ bị đọc lại ở mỗi phím gõ). Lỗi từ Hub nói bằng ngôn ngữ trên màn hình theo `error.code` (`lib/agent-errors.ts`); mã chưa có câu thì hiện nguyên văn của Hub.
+
 ## 6. Lộ trình hạ cánh ở đâu trong giao diện (dự kiến)
 
 Bảng này là kế hoạch chỗ đặt, không phải danh sách đã làm: mục "Hooks", mục "MCP", nút xuất gói bằng chứng, duyệt diff theo hunk và plan mode **chưa tồn tại**. Điều đã có là chỗ để chúng vào (`SECTIONS`, hàng tab, danh sách mục của thanh trạng thái, các trạng thái của dải bằng chứng) mà không phải làm lại bố cục.
 
 | Hạng mục lộ trình | Chỗ trong giao diện |
 |---|---|
-| P1 hooks (PreToolUse/PostToolUse, Stop), `agent_results`, gắn lại OrchestratorTab, lỗi provider | mục "Hooks" mới trong `SECTIONS`; dòng hook trong tab Hoạt động; OrchestratorTab thành mục của tab **Tác nhân**; lỗi provider ở dải trạng thái hội thoại |
+| P1 hooks (PreToolUse/PostToolUse, Stop), `agent_results`, lỗi provider | mục "Hooks" mới trong `SECTIONS`; dòng hook trong tab Hoạt động; kết quả của `agent_results` vào thẻ worker và khối báo cáo của tab **Tác nhân** (OrchestratorTab đã gắn lại, mục 5.5); lỗi provider ở dải trạng thái hội thoại |
 | P1 cửa sổ ngữ cảnh | thanh trạng thái ("Ngữ cảnh", `~` = ước tính) + hàng "Chi tiết" của đầu hội thoại; cảnh báo cửa sổ chưa rõ giữ ở hội thoại |
 | P2 MCP client | mục "MCP" trong Cài đặt (máy chủ, công cụ, allow-list); công cụ ngoài hiện trong chuỗi công cụ với nguồn gốc |
 | P4–P5 Receipt v2, `acceptance.yml`, done-gate, gói evidence | **dải bằng chứng** và tab **Tiến độ** (tiêu chí, receipt, hash cây file); nút "Xuất gói bằng chứng" cạnh "Xem bằng chứng" |
@@ -148,13 +174,14 @@ Bảng này là kế hoạch chỗ đặt, không phải danh sách đã làm: m
 
 - Độ tương phản như mục 3.1; vòng focus 2 px (`--focus`) ở mọi điều khiển; hộp thoại là `<dialog>` native; hàng tab là `tablist` thật (`aria-selected`, `aria-controls`, phím mũi tên); trạng thái không chỉ bằng màu (luôn có chữ hoặc nhãn).
 - Giảm chuyển động và chế độ tương phản cao của Windows được tôn trọng.
-- Ngân sách: JS khởi tạo ≈ 230 KB gzip (ngân sách 260 KB), CSS ≈ 10 KB gzip. Không có request ra ngoài domain, không telemetry; CSP của Hub (`style-src 'self'`) vẫn đúng vì không có style nội tuyến trong HTML.
+- Ngân sách: JS khởi tạo ≈ 255 KB gzip (ngân sách 260 KB, còn dư khoảng 5 KB nên các nhánh P1 khác sẽ chạm trần; tab Tác nhân thêm khoảng 23 KB, trong đó từ điển hai ngôn ngữ; tách hai mục thành chunk lazy lấy lại khoảng 15 KB), CSS ≈ 10 KB gzip. Không có request ra ngoài domain, không telemetry; CSP của Hub (`style-src 'self'`) vẫn đúng vì không có style nội tuyến trong HTML.
 
 ## 8. Chưa làm / giới hạn đã biết
 
-- **Chuỗi tiếng Việt cứng còn lại** ở các panel chưa làm lại hẳn (`IntelligenceTab`, `ModelProfilesPanel`, `SkillsTab`, `PreviewTab`, `OrchestratorTab`); chúng đã dùng token, đã đạt độ tương phản và cỡ chữ, nhưng bố cục bên trong là bản cũ. Lint i18n thuộc P8.
+- **Chuỗi tiếng Việt cứng còn lại** ở các panel chưa làm lại hẳn (`IntelligenceTab`, `ModelProfilesPanel`, `SkillsTab`, `PreviewTab`, `BackgroundTasks` (mục "Công việc nền" của tab Tác nhân: e2e khớp theo chữ của nó); `OrchestratorTab` đã làm xong); chúng đã dùng token, đã đạt độ tương phản và cỡ chữ, nhưng bố cục bên trong là bản cũ. Lint i18n thuộc P8.
 - **Thanh trạng thái chưa có thước đo ngữ cảnh đang dùng**: Hub chỉ báo cửa sổ cấu hình và ngân sách lịch sử, chưa báo số token đang chiếm. Hiện hiển thị đúng những gì có, không vẽ thước giả.
 - **Cửa sổ ngữ cảnh chưa rõ (P1-C)**: cảnh báo `ContextPolicyNotice` (`data-testid="context-window-warning"`) nằm ngay dưới thanh tiêu đề hội thoại, nói tên chỗ sửa là "Cài đặt → Mô hình AI" và có nút "Mở cài đặt" tới đúng trường. Hàng "Cửa sổ ngữ cảnh" trong "Chi tiết" và thanh trạng thái ghi "chưa rõ", không còn chữ "ước tính" im lặng. Các trường mới của profile (đường dẫn tùy chỉnh, header, cửa sổ) dùng token như phần còn lại nhưng bố cục trong panel vẫn là bản cũ.
+- **Tab Tác nhân, giới hạn đã biết (P1-G).** (1) `GET /api/studio/coding` trả mọi lượt (tối đa 20) mà không ghi thư mục của lượt, nên khi panel xem thư mục khác tab vẫn hiện lượt của thư mục chính của Hub (đọc diff vẫn chạy vì Hub xác thực theo thư mục chính; gộp, bản nháp và cho phép kiểm thử bị khóa): cần Hub trả `workspace` cho từng lượt. (2) Token duyệt chỉ sống trong lần mở tab: rời tab rồi quay lại phải đọc diff lại (an toàn, hơi phiền). (3) Hub nối câu của chính nó ("Verified coding blocked: ...") vào `summary` của worker, và tab gắn cả khối là "Báo cáo của AI": an toàn nhưng nhãn chưa chính xác, cần một trường riêng. (4) Bước cho phép kiểm thử với Windows Sandbox thật và việc tạo bản nháp trên GitHub thật chưa được thử (chỉ có test đơn vị và hộp thoại); mục "Công việc nền" vẫn chỉ có tiếng Việt.
 - Đã kiểm trên Chromium (Playwright); WebView2 thật được kiểm bằng `e2e/webview2-smoke.mjs`.
 
 ## 9. Kiểm tra và chụp lại
@@ -164,5 +191,5 @@ cd CHATMCP-HUB/ui
 npm run build          # web/dist
 npm run test:unit      # token, độ tương phản, dải bằng chứng, định dạng, nhãn công cụ, component
 npm run test:e2e:built # luồng thật: Hub thật, model giả lập, Chromium
-npm run gallery        # ảnh chụp mọi màn hình (test-results/gallery), thất bại nếu trang ghi lỗi console
+npm run gallery        # ảnh chụp mọi màn hình (test-results/gallery; gồm các mục của tab Tác nhân), thất bại nếu trang ghi lỗi console
 ```
