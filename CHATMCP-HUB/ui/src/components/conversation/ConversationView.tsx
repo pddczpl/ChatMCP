@@ -12,6 +12,7 @@ import { Composer } from './Composer';
 import { EmptyState } from './EmptyState';
 import { ModelProfilePicker, RoleOverridesField } from './ModelProfilePicker';
 import { ProofStrip } from './ProofStrip';
+import { ProjectInstructionsNote } from './ProjectInstructionsNote';
 import { ContextPolicyNotice } from './ContextPolicyNotice';
 import { ObjectiveAcceptancePanel } from './ObjectiveAcceptancePanel';
 import { CopyButton } from '@/components/ui/CopyButton';
@@ -322,6 +323,8 @@ export function ConversationView() {
 
               {/* What the Hub recorded, not what the model wrote. */}
               {task && !isWorking && <ProofStrip task={task} />}
+              {/* What the Hub put into the instructions of this run (AGENTS.md, CLAUDE.md) and which skills the model read: a record, never a proof. */}
+              {task && !isWorking && <ProjectInstructionsNote task={task} />}
               {/* Owner-reviewed evidence is distinct from an agent completion message. */}
               {task && !isWorking && task.transport!=='chatgpt-web' && task.goalPlan?.objectives?.length &&
                 <ObjectiveAcceptancePanel task={task} onAccepted={refreshTask}/>}
