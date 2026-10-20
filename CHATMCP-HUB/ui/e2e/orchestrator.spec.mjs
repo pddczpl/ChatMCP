@@ -123,6 +123,7 @@ test('a coding worker: plan, start, read the diff, merge on a new branch — and
   const report = card.getByTestId('ai-report');
   await expect(report).toContainText('Báo cáo của AI');
   await expect(report).toContainText('All tests pass');
+  await expect(card.getByTestId('runner-notice'), 'a task too short to be planned has nothing for the Hub to add').toHaveCount(0);
   await expect(coding.locator('[data-tone="success"]')).toHaveCount(0);
   await expect(card.getByText('Hub đã xác minh', { exact: false })).toHaveCount(0);
   await card.scrollIntoViewIfNeeded();
@@ -694,6 +695,55 @@ test('a worker whose model said nothing: the card has no AI report, and the Hub�
   await expect(card.getByTestId('ai-report')).toHaveCount(0);
   await expect(card.getByText('AI report')).toHaveCount(0);
   await shot(page, testInfo, 'coding-runner-error-english');
+});
+
+test('a worker whose task the Hub planned in phases: the AI report keeps the AI’s words, and the Hub’s notice on it is shown as the Hub’s', async ({ page, app }, testInfo) => {
+  test.setTimeout(240_000);
+  defineNoteWorker(app.mock);
+  await onboard(page, app);
+  await setMode(app.hub, 'autonomous');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  // A task of 160+ characters in two clauses is planned in phases (inspect, edit, verify, review). The scripted worker writes its file and says it is done: it runs no
+  // check and reads no diff, so the Hub cannot back the plan and its AgentRunner ends the AI's answer with a sentence of its own, as it does for any such worker.
+  const goal = 'Add a file named AGENT-NOTE.md that explains this project in two sentences. Then check that nothing else in the project changed, and report exactly which files this task touched.';
+  expect(goal.length).toBeGreaterThanOrEqual(160);
+  const run = await app.hub.post('/api/studio/coding/run', { tasks: [{ id: 'task-1', prompt: goal }], maxConcurrency: 1, confirmation: 'CREATE WORKTREES' });
+  expect(run.status).toBe('ready_for_review');
+  const [record] = run.workers;
+  expect(record.summary, 'the summary is what the model said and nothing else').toBe(CLAIM);
+  expect(typeof record.runnerNotice, 'and the Hub’s sentence is a field of its own').toBe('string');
+  expect(record.runnerNotice).toMatch(/^ChatMCP has NOT independently verified full completion: .+\.$/);
+  expect((await app.hub.get('/api/studio/coding')).json.jobs.at(-1).workers[0].runnerNotice, 'which is what the page is sent').toBe(record.runnerNotice);
+
+  await openAgents(page, 'Sửa mã');
+  const coding = page.getByTestId('coding-agents');
+  const card = coding.getByTestId('coding-worker').filter({ hasText: 'task-1' });
+  await expect(card).toHaveAttribute('data-kind', 'unverified');
+  const notice = card.getByTestId('runner-notice');
+  await expect(notice).toHaveText(`Ghi chú của Hub lúc AI báo xong, nguyên văn: ${record.runnerNotice}`);
+  await expect(notice).not.toHaveClass(/success|danger|warning/);
+  // beside the evidence line, before the AI's report, which holds the AI's words and none of the Hub's
+  const parts = await card.locator('[data-testid="agent-proof"], [data-testid="runner-notice"], [data-testid="ai-report"]').evaluateAll((nodes) => nodes.map((node) => node.dataset.testid));
+  expect(parts).toEqual(['agent-proof', 'runner-notice', 'ai-report']);
+  const report = card.getByTestId('ai-report');
+  await expect(report).toContainText('All tests pass and the task is complete.');
+  await expect(report).not.toContainText('NOT independently verified');
+  await expect(report).not.toContainText('Verification notice');
+  await expect(card.getByTestId('agent-proof')).toHaveAttribute('data-tone', 'warning');
+  await expect(coding.locator('[data-tone="success"]')).toHaveCount(0);
+  await card.scrollIntoViewIfNeeded();
+  await shot(page, testInfo, 'coding-runner-notice');
+
+  // in English the label follows the language on screen; the Hub's sentence stays as the Hub wrote it
+  const dialog = await openSettings(page, 'Giao diện & ngôn ngữ');
+  await dialog.getByRole('button', { name: 'English' }).click();
+  await closeSettings(page);
+  await openWorkTab(page, 'Agents');
+  await page.getByRole('tab', { name: 'Code edits', exact: true }).click();
+  await expect(card.getByTestId('runner-notice')).toHaveText(`The Hub’s note when the AI reported done, as it wrote it: ${record.runnerNotice}`);
+  await expect(card.getByTestId('ai-report')).toContainText('AI report');
+  await expect(card.getByTestId('ai-report')).not.toContainText('NOT independently verified');
+  await shot(page, testInfo, 'coding-runner-notice-english');
 });
 
 test('in English, and in the light theme, the tab reads in one language and keeps the evidence colours', async ({ page, app }, testInfo) => {
