@@ -559,9 +559,11 @@ test('in English, and in the light theme, the tab reads in one language and keep
 
   await openWorkTab(page, 'Agents');
   await expect(page.getByRole('tablist', { name: 'Agent sections' }).getByRole('tab')).toHaveText(['Background', 'Agent groups', 'Code edits']);
-  for (const section of ['Agent groups', 'Code edits']) {
+  for (const [section, marker] of [['Agent groups', 'agent-groups'], ['Code edits', 'coding-agents']]) {
     await page.getByRole('tab', { name: section, exact: true }).click();
     await expect(page.getByRole('tabpanel', { name: section })).toBeVisible();
+    // a section is a script fetched when its tab is first opened: read its words once it is there, not the line that stands in for it
+    await expect(page.getByTestId(marker)).toBeVisible();
     const text = await page.getByRole('tabpanel', { name: section }).innerText();
     expect(text, `${section} still holds Vietnamese`).not.toMatch(VIETNAMESE);
   }
