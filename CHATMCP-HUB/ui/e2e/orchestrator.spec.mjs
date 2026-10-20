@@ -1,6 +1,6 @@
 import { test, expect, onboard, send, taskByPrompt, openWorkTab, openSettings, closeSettings } from './fixtures.mjs';
 import { say, call } from '../../tests/e2e/scenarios.mjs';
-import { setMode, waitForState } from '../../tests/e2e/hub-process.mjs';
+import { setMode, waitForState, continueTask } from '../../tests/e2e/hub-process.mjs';
 import { git } from '../../tests/e2e/fixtures.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -567,7 +567,8 @@ test('in English, and in the light theme, the tab reads in one language and keep
   // something for the Background section to list: an ordinary chat, sent while the screen is still Vietnamese (the send button is named there)
   const prompt = 'Please say hello in one short line.';
   await send(page, prompt);
-  await waitForState(app.hub, (await taskByPrompt(app, prompt)).id, 'completed');
+  const chat = await taskByPrompt(app, prompt);
+  await waitForState(app.hub, chat.id, 'completed');
   const dialog = await openSettings(page, 'Giao diện & ngôn ngữ');
   await dialog.getByRole('button', { name: 'English' }).click();
   await closeSettings(page);
@@ -612,4 +613,54 @@ test('in English, and in the light theme, the tab reads in one language and keep
   await expect(page.getByTestId('coding-agents').locator('[data-tone="success"]')).toHaveCount(0);
   await shot(page, testInfo, 'english-light');
   expect(WARNING.light).not.toBe(SUCCESS.light);
+
+  // The conversation that chat made: the ribbon above it in English (its state, then the facts under Details), and after a second run that is held
+  // back and stopped from the ribbon, the banner it leaves. What the Hub wrote about a stop (task.error) is the Hub's own Vietnamese sentence and is
+  // shown as written, so the banner is read for its title and its button; the ribbon is read whole.
+  const ribbon = page.getByTestId('task-status');
+  await expect(ribbon).toHaveAttribute('data-status', 'completed');
+  await expect(ribbon).toContainText('Final reply received');
+  await expect(ribbon).toContainText(prompt);
+  await expectEnglishOnly(ribbon, 'Ribbon (completed)');
+  await ribbon.getByRole('button', { name: 'Details', exact: true }).click();
+  const budget = ribbon.getByTestId('agent-request-budget');
+  await expect(budget).toContainText('Model HTTP requests');
+  await expect(budget).toContainText('Input tokens (provider-reported)');
+  await expect(budget).toContainText('Context window');
+  await expectEnglishOnly(ribbon, 'Ribbon (details open)');
+  await shot(page, testInfo, 'english-ribbon', ribbon);
+
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  app.mock.define('held-answer', async () => { await held; return say('Xong.'); });
+  app.mock.setScenario('held-answer');
+  try {
+    await continueTask(app.hub, chat.id, 'Say it once more.');
+    const stop = ribbon.getByRole('button', { name: 'Stop agent', exact: true });
+    await expect(stop).toBeVisible();
+    await expect(ribbon).toContainText(/Reading and planning|Running/);
+    await expectEnglishOnly(ribbon, 'Ribbon (running)');
+    await expect(page.getByRole('status').filter({ has: page.getByRole('button', { name: 'Continue', exact: true }) })).toHaveCount(0);
+    await stop.click();
+    const stopped = await waitForState(app.hub, chat.id, ['cancelled', 'paused']);
+    const word = { cancelled: 'Stopped', paused: 'Paused' }[stopped.state];
+    const banner = page.getByRole('status').filter({ has: page.getByRole('button', { name: 'Continue', exact: true }) });
+    await expect(banner).toHaveCount(1);
+    await expect(banner.getByText(word, { exact: true })).toBeVisible();
+    await expect(ribbon).toContainText(word);
+    await expect(stop).toHaveCount(0);
+    await shot(page, testInfo, 'english-banner', banner);
+
+    // the banner's one next step, in English: the same conversation runs again, the banner goes away and the ribbon says what the model did
+    release();
+    app.mock.define('answer', () => say('Xong.'));
+    app.mock.setScenario('answer');
+    await banner.getByRole('button', { name: 'Continue', exact: true }).click();
+    await waitForState(app.hub, chat.id, 'completed');
+    await expect(banner).toHaveCount(0);
+    await expect(ribbon).toContainText('Final reply received');
+    await expectEnglishOnly(ribbon, 'Ribbon (continued)');
+  } finally {
+    release();
+  }
 });
