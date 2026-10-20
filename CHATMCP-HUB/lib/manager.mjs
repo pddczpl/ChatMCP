@@ -69,6 +69,10 @@ export class HubManager {
     this.hooksOwned = false;
     // Where a project's .chatmcp/hooks.json is looked for when the tools run in another folder than the project (a managed worktree).
     this.hooksProjectRoot = null;
+    // Set on the manager of an agent that a model (spawn_agent, a workflow) or the coding orchestrator started: its run ends with SubagentStop
+    // instead of Stop (lib/lifecycle-hooks.mjs). { kind: 'subagent', role, parentTaskId, conversationId, workflowId, phaseId }; null for the
+    // conversations a person started, which end with Stop.
+    this.lifecycleAgent = null;
   }
 
   log(message) {
