@@ -426,7 +426,7 @@ try {
   {
     const marker = scratch('started');
     const plan = scratch('plan');
-    await writeHooks({ Stop: [group(handler({ write: marker, sleepMs: 900, plan: { file: plan, steps: [{ exit: 2, stderr: 'Check the lint too.' }, { exit: 0, sleepMs: 0 }] } }))] });
+    await writeHooks({ Stop: [group(handler({ write: marker, sleepMs: 1500, plan: { file: plan, steps: [{ exit: 2, stderr: 'Check the lint too.' }, { exit: 0, sleepMs: 0 }] } }))] });
     const appended = [];
     const model = scriptedModel((n) => (n === 1 ? [listDirectory('c1')] : say(`Answer ${n}.`)));
     const { task, id } = await play({
@@ -454,7 +454,7 @@ try {
   {
     // a message queued while a hook PASSES: the agent has not stopped, so it goes on
     const marker = scratch('started');
-    await writeHooks({ Stop: [group(handler({ write: marker, sleepMs: 700 }))] });
+    await writeHooks({ Stop: [group(handler({ write: marker, sleepMs: 1500 }))] });
     const model = scriptedModel();
     const { task } = await play({
       model,

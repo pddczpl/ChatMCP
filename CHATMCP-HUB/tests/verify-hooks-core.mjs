@@ -7,7 +7,7 @@
 //   4. a timeout and a cancel kill the whole process tree; stdout is capped at 64 KB and never parsed when it was cut
 //   5. hostile output: escape sequences, control characters, secrets, prototype keys and fields this build does not act on
 //   6. several hooks run in parallel and the strictest decision wins; Post events can give feedback but never block
-//   7. Stop / TaskCompleted / SubagentStop are accepted and run (wired later) and keep a retry counter that survives a hard kill
+//   7. Stop / TaskCompleted / SubagentStop are accepted and run by the runner (the agent loop asks them: tests/verify-hooks-lifecycle.mjs) and keep a retry counter that survives a hard kill
 //   8. a project hooks file is inert until the owner approves its sha256 and inert again after a one-byte edit
 //   9. an invalid owner file fails closed; shell forms; a hook that never reads stdin; the protected-path rule; the per-task ledger
 import assert from 'node:assert/strict';
