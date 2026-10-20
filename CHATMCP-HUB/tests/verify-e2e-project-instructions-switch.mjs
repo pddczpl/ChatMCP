@@ -6,6 +6,7 @@
 // The route is behind the same layers as the others (bearer, Origin, marker, CSRF) and takes nothing but true or false.
 //
 // The scripted model proves what the Hub sends. It does not prove that any real model follows the guidance (docs/TESTING-WITH-REAL-MODELS.md).
+// CLAIM: project-instructions-switch
 import fs from 'node:fs';
 import path from 'node:path';
 import { runScenario } from './e2e/harness.mjs';
