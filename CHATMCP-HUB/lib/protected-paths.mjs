@@ -1,6 +1,7 @@
 // Paths a coding agent must never read, write or print: credentials, private keys
 // and Git internals. Shared by the local tool server and the shell-command
 // analyzer so both apply exactly the same rule.
+import { globMatches } from './glob-match.mjs';
 
 const EXAMPLE = '(?:example|sample|template|dist|defaults?)';
 export const PRIVATE_FILE = new RegExp(
@@ -16,12 +17,41 @@ export const PRIVATE_DIRECTORIES = new Set(['.git', '.ssh', '.aws', '.gnupg', '.
 
 const components = (value) => String(value).split(/[\\/]+/).filter((part) => part && part !== '.');
 
+// A project can ship `.chatmcp/hooks.json`: configuration that starts programs. It is inert until the owner approves its sha256
+// (lib/hooks.mjs), and no tool may write it or read it into a prompt. The rule names that one file, not the whole folder.
+const HOOKS_FOLDER = '.chatmcp';
+const HOOKS_FILE = 'hooks.json';
+// Windows ignores trailing dots and spaces in a name and an NTFS stream suffix ("hooks.json::$DATA") names the same file. Plain string
+// work on purpose: an end-anchored regular expression ("[. ]+$") over a name that a model chose takes quadratic time.
+function nameOf(part) {
+  let name = String(part).toLowerCase();
+  const stream = name.indexOf(':');
+  if (stream !== -1) name = name.slice(0, stream);
+  let end = name.length;
+  while (end > 0 && (name[end - 1] === '.' || name[end - 1] === ' ')) end -= 1;
+  return name.slice(0, end);
+}
+
 /** True when a workspace-relative path names a secret file or sits inside a protected directory. */
 export function isProtectedPath(relative) {
   const parts = components(relative);
   if (!parts.length) return false;
   if (parts.some((part) => PRIVATE_DIRECTORIES.has(part.toLowerCase()))) return true;
+  if (parts.length >= 2 && nameOf(parts.at(-1)) === HOOKS_FILE && nameOf(parts.at(-2)) === HOOKS_FOLDER) return true;
   return PRIVATE_FILE.test(parts.at(-1));
+}
+
+/**
+ * Whether one path segment, which may hold wildcards, can stand for `literal` (a bracket expression counts as any one character).
+ * A wildcard that does not begin with a dot is not taken for a dot-folder: shells leave dot-names out of a bare star, and a pattern such
+ * as star-slash-star is too common to refuse. The rule is a second line of defence; a file written by other means is inert until approved.
+ */
+function segmentMayBe(segment, literal) {
+  if (nameOf(segment) === literal) return true;
+  if (!/[*?[]/.test(segment) || (literal.startsWith('.') && !segment.startsWith('.'))) return false;
+  // The segment is text from a shell command, that is from a model, so it is matched by a table walk (lib/glob-match.mjs) and not by a
+  // regular expression made from it: a run of stars against a name that almost matches would otherwise never finish.
+  return globMatches(segment, literal, { path: true, ignoreCase: true, brackets: true });
 }
 
 /**
@@ -38,5 +68,10 @@ export function mayExpandToProtected(value) {
   if (/(^|[\\/:])\.git(?:$|[\\/])/.test(text)) return true;
   if (/\*[^\\/]*\.(?:pem|p12|pfx|key|keystore|jks|ppk)\b/.test(text)) return true;
   if (/(^|[\\/:*?])id_(?:rsa|dsa|ecdsa|ed25519)/.test(text)) return true;
+  // the project hooks file, also through a wildcard in either segment (".chatmcp/*", ".chatmcp/hook*", ".chat*/hooks.json")
+  const segments = text.split(/[\\/:]+/).filter(Boolean);
+  for (let index = 0; index + 1 < segments.length; index += 1) {
+    if (segmentMayBe(segments[index], HOOKS_FOLDER) && segmentMayBe(segments[index + 1], HOOKS_FILE)) return true;
+  }
   return false;
 }
