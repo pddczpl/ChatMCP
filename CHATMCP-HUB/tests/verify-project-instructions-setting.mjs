@@ -173,8 +173,12 @@ try {
       const store = new ProjectInstructionsStore({ directory, env: {}, log: (line) => logged.push(line) });
       await assert.doesNotReject(() => store.load(), `${label}: loading does not throw`);
       assert.deepEqual([store.current().enabled, store.current().source, store.current().saved], [true, 'default', null], `${label}: the default applies`);
-      if (label === 'invalid JSON' || label === 'a binary file') assert.equal(logged.length, 1, `${label}: and one line says the file could not be read`);
-      assert.ok(logged.every((line) => line.includes(PROJECT_INSTRUCTIONS_FILE) && !line.includes(text.slice(0, 6)) || text.length < 6), `${label}: without quoting the file`);
+      // 'null' is valid JSON that holds nothing (nothing was saved); an unreadable file and a file of the wrong shape each get one line, and the line never quotes the file.
+      const unreadable = ['invalid JSON', 'an empty file', 'a binary file'].includes(label);
+      assert.equal(logged.length, label === 'null' ? 0 : 1, `${label}: ${label === 'null' ? 'nothing to say' : 'one line says that the file is of no use'}`);
+      if (unreadable) assert.match(logged[0], /^Không đọc được project-instructions\.json \(dữ liệu không hợp lệ\); dùng mặc định: nạp hướng dẫn dự án\.$/, `${label}: says it could not be read, and why, without the path or the text`);
+      else if (label !== 'null') assert.match(logged[0], /^project-instructions\.json không có lựa chọn hợp lệ; dùng mặc định: nạp hướng dẫn dự án\.$/, `${label}: says the file holds no valid choice`);
+      assert.ok(logged.every((line) => !line.includes(text.slice(0, 6)) || text.length < 6), `${label}: without quoting the file`);
       const chosen = await store.set(false);
       assert.deepEqual([chosen.enabled, chosen.source], [false, 'config'], `${label}: the owner can choose again`);
       assert.deepEqual(JSON.parse(await readFile(directory)), { version: 1, enabled: false }, `${label}: and the file is valid afterwards`);

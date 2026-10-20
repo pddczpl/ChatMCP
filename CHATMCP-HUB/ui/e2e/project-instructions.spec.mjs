@@ -4,8 +4,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { test, expect, onboard, openSettings, closeSettings, send, setTheme, taskByPrompt } from './fixtures.mjs';
-import { waitFor, waitForState } from '../../tests/e2e/hub-process.mjs';
-import { say } from '../../tests/e2e/scenarios.mjs';
+import { pendingApprovals, waitFor, waitForState } from '../../tests/e2e/hub-process.mjs';
+import { call, say } from '../../tests/e2e/scenarios.mjs';
 
 const ROUTE = '/api/agent/project-instructions';
 const MARK = 'PW-AGENTS-MARK-7d21';
@@ -112,6 +112,18 @@ test('Settings flips the switch, the Hub and the next request follow, and the li
   const borders = await note.evaluate((element) => { const style = getComputedStyle(element); return [style.borderTopColor, style.backgroundColor]; });
   expect(borders.join(' '), 'neutral surface and border, not the green of a verified check').not.toMatch(/rgb\((?:[0-9]{1,2}|1[0-4][0-9]), (?:1[5-9][0-9]|2[0-9]{2}), /);
 
+  // ---- a narrow window: the line wraps and the card fits, nothing scrolls sideways --------------------------------------------------------------------------
+  await page.setViewportSize({ width: 640, height: 900 });
+  await expect(note).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'the conversation does not scroll sideways').toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('narrow-turn-note.png'), animations: 'disabled' });
+  await openSettings(page, 'Dự án');
+  await expect(card).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Settings does not scroll sideways').toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('narrow-settings-card.png'), animations: 'disabled' });
+  await closeSettings(page);
+  await page.setViewportSize({ width: 1600, height: 1000 });
+
   // ---- the same words in English, from the real language switch --------------------------------------------------------------------------------------
   await openSettings(page, 'Giao diện & ngôn ngữ');
   await page.getByRole('button', { name: 'English', exact: true }).click();
@@ -125,6 +137,41 @@ test('Settings flips the switch, the Hub and the next request follow, and the li
   await expect(english).toHaveCount(0);
   await expect(note).toContainText('Project instructions loaded');
   await expect(note).toContainText('does not mean the model followed it');
+});
+
+test('a task is waiting for an approval: the switch still works, says when the change applies, and that run keeps what it loaded', async ({ page, app }) => {
+  await fs.writeFile(path.join(app.project, 'AGENTS.md'), AGENTS);
+  const seen = [];
+  app.mock.define('hold-for-approval', (ctx) => {
+    seen.push(ctx.system.split(MARK).length - 1);
+    return ctx.turn === 0 ? call('run_command', { command: 'echo hi > hi.txt', description: 'as AGENTS.md says' }) : say('Đã dừng: lệnh không được phép.');
+  });
+  app.mock.setScenario('hold-for-approval');
+  await onboard(page, app);
+  const prompt = 'Hãy chạy bản dựng theo AGENTS.md.';
+  await send(page, prompt);
+  const task = await taskByPrompt(app, prompt);
+  const request = await waitFor(async () => (await pendingApprovals(app.hub)).find((entry) => entry.taskId === task.id), { label: 'the command to be put to the person' });
+  expect(seen, 'the run began with the block').toEqual([1]);
+
+  const dialog = await openSettings(page, 'Dự án');
+  const card = dialog.getByTestId('project-instructions-settings');
+  const toggle = card.getByTestId('project-instructions-toggle');
+  await expect(card.getByTestId('project-instructions-running')).toContainText('Có tác vụ đang chạy: thay đổi áp dụng từ lượt chạy kế tiếp.');
+  await expect(toggle, 'the Hub accepts the change while a task runs, so the page does not lock it').toBeEnabled();
+  const saved = page.waitForResponse(isSwitch);
+  await toggle.click();
+  expect((await saved).status()).toBe(200);
+  await expect(toggle).not.toBeChecked();
+  expect((await app.hub.state()).projectInstructions).toMatchObject({ enabled: false, source: 'config', saved: false });
+  await closeSettings(page);
+
+  await app.hub.post('/api/studio/permissions/decide', { id: request.id, approved: false });
+  await waitForState(app.hub, task.id, 'completed');
+  expect(seen, 'the run that was going kept its block').toEqual([1, 1]);
+  const note = page.getByTestId('project-instructions-note');
+  await expect(note, 'and its line says what it was given, not what the setting is now').toHaveAttribute('data-kind', 'files');
+  await expect(page.getByTestId('project-instructions-file')).toContainText('AGENTS.md');
 });
 
 test.describe('with CHATMCP_PROJECT_INSTRUCTIONS set in the environment of the Hub', () => {

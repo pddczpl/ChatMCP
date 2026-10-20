@@ -54,13 +54,13 @@ try {
     assert.match(html, />AGENTS\.md · 1,2 KB</);
     assert.match(html, />CLAUDE\.md · 6,7 KB, cắt 2\.100 byte</);
     assert.equal((html.match(/data-testid="project-instructions-file"/g) ?? []).length, 2, 'one chip per file');
-    assert.match(html, /không có nghĩa là model đã làm theo/, 'loaded is not followed, said where it is read');
-    assert.match(html, /không tin cậy/, 'and the text is untrusted');
+    assert.match(html, /<p class="mt-1">[^<]*không có nghĩa là model đã làm theo[^<]*<\/p>/, 'loaded is not followed, in the text a person reads (not only in the tooltip)');
+    assert.match(html, /<p class="mt-1">[^<]*không tin cậy/, 'and the text is untrusted');
     assert.doesNotMatch(html, PROOF_LOOK, 'never the look of the evidence strip');
     assert.match(html, /border-line/, 'it is drawn with the neutral tokens');
     const en = note(task, 'en');
     assert.match(en, />CLAUDE\.md · 6\.7 KB, cut 2,100 bytes</);
-    assert.match(en, /does not mean the model followed it/);
+    assert.match(en, /<p class="mt-1">[^<]*does not mean the model followed it[^<]*<\/p>/, 'the same words in English, in the visible text');
     assert.doesNotMatch(en, PROOF_LOOK);
   });
 
@@ -68,7 +68,7 @@ try {
     const html = note({ projectInstructions: record({ enabled: false, files: [], blockBytes: 0 }) }, 'vi');
     assert.match(html, /data-kind="off"/);
     assert.match(html, /Hướng dẫn dự án: tắt/);
-    assert.match(html, /vẫn có thể tự mở chúng bằng công cụ đọc tệp/);
+    assert.match(html, /<p class="mt-1">[^<]*vẫn có thể tự mở chúng bằng công cụ đọc tệp/, 'in the visible text');
     assert.doesNotMatch(html, /data-testid="project-instructions-file"/, 'no file is listed when none was loaded');
     assert.doesNotMatch(html, PROOF_LOOK);
     assert.match(note({ projectInstructions: record({ enabled: false, files: [], blockBytes: 0 }) }, 'en'), /Project instructions: off/);
