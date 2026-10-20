@@ -77,7 +77,7 @@ node tests/run-all.mjs --fail-on-flaky           # một bộ FLAKY làm cả l�
 npm run test:ui                                  # bộ giao diện Python/Playwright (tùy chọn)
 ```
 
-Hiện có **130 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
+Hiện có **131 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
 
 Runner in một dòng cho mỗi bộ (`PASS`/`FAIL`/`TIMEOUT`/`SKIP`, thời gian, mã thoát thật) và thoát khác 0 nếu có bộ nào fail hoặc quá hạn (mặc định 180 giây/bộ, đổi bằng `--timeout`). Bộ kiểm thử in một dòng `CHATMCP_TEST_SKIP: <lý do>` rồi thoát 0 để được báo là **SKIP — không bao giờ được tính là PASS**. `--no-skip all` (hoặc `--no-skip tên1,tên2`) biến SKIP thành FAIL. Workflow hiện tại cài Python 3.11 và các gói ghim trong `tests/requirements-e2e.txt`, rồi chạy **`--no-skip all`** trên cả Windows và Linux, Node 22 và 24. Một bộ bắt buộc bị bỏ qua vì thiếu môi trường vì thế làm CI thất bại. Một phần không thể kiểm chứng trong bản này được in `BLOCKED: <gì> - <vì sao>`.
 
@@ -129,6 +129,7 @@ Tổng thời gian cả bộ Node: khoảng 3 phút (Linux, 180 s đã đo) đ�
 | | `verify-e2e-git` (25) | nhánh, commit, và chỉ push khi bạn đồng ý (remote là kho bare cục bộ) |
 | | `verify-e2e-recovery` (30) | giết Hub giữa nhiệm vụ; lần khởi động sau không phát lại thao tác chưa rõ kết quả |
 | | `verify-e2e-isolation` (52) | hai Hub cạnh nhau không thấy dữ liệu của nhau; cửa vào của Hub |
+| | `verify-e2e-subagent-results` (47) | Hub thật + máy chủ model giả (Chat Completions, strict): cha khởi động hai agent con, chúng dừng trong lúc cha còn làm việc, yêu cầu kế tiếp của cha mang MỘT thông báo (không có chữ nào của agent con), cha đọc kết quả bằng `agent_results` và câu trả lời cuối dựng từ kết quả đó; cha xong trước, `kill -9`, khởi động lại, rồi người dùng quay lại; khóa mà agent con in ra không có trong yêu cầu model nào |
 | | `verify-e2e-adversarial` (74) | repo độc hại + mô hình "ngoan ngoãn" làm mọi thứ README bảo; kiểm tra điều gì **đúng** sau đó |
 
 Bộ giao diện Python cũ (tùy chọn, cần Python + Playwright; xem bên dưới): `verify-ui-e2e.py`, `verify-react-ui.py`, `verify-v2-ui.py`, `verify-studio-ui.py`, `verify-auto-project-ui.py`. Tên có chữ React không chứng minh bộ đó kiểm tra frontend TypeScript/Vite hiện tại; cổng bắt buộc cho frontend này là bộ bên dưới.

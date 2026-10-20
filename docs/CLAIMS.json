@@ -93,7 +93,7 @@
       "claim": "The Hub takes a checkpoint before an agent edit and restores it only if the file is still as reviewed.",
       "source": {
         "file": "docs/USER-GUIDE.md",
-        "line": 205,
+        "line": 207,
         "quote": "Hub tự lưu một checkpoint của các file sắp đổi"
       },
       "kind": "claim",
@@ -438,6 +438,22 @@
       "test": null,
       "reason": "Negated statement: it promises nothing.",
       "phase": null
+    },
+    {
+      "id": "subagent-results-reach-parent",
+      "claim": "The agent that started background agents is told when one stops and can read the agent's own final message, marked as that agent's claim, next to what the Hub recorded itself.",
+      "source": {
+        "file": "docs/USER-GUIDE.md",
+        "line": 9,
+        "quote": "It can then read what they produced with `agent_results`"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-e2e-subagent-results.mjs",
+      "seamNote": "A real Hub process over HTTP with real Git worktrees for the agents; only the model server is scripted (strict Chat Completions). The parent's answer is built from what the tool returned; a SIGKILL and restarts happen between the endings and the next run.",
+      "forbiddenDoubles": [
+        "new\\s+(?:AgentRunner|HubManager|BrowserRunner|ConcurrentApiAgent)\\("
+      ]
     }
   ]
 }
