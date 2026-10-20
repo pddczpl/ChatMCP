@@ -111,6 +111,24 @@ export function HubNote({ note }: { note: VerificationNote | null }) {
   );
 }
 
+/**
+ * The AgentRunner's record of why a worker's run stopped, kept apart from the AI's report and labelled as the Hub's record, as it wrote it: the text may be
+ * in either language, quote the provider, or hold the model's own refusal. Plain text after the Hub's note, in no colour of proof, with what cannot be seen
+ * shown as markers like in any text from outside.
+ */
+export function RunnerError({ text }: { text: string | null }) {
+  const { t } = useTranslation();
+  if (!text) return null;
+  return (
+    <div className="space-y-0.5">
+      <HiddenNote show={hasHidden(text)} />
+      <p data-testid="runner-error" className="whitespace-pre-wrap break-words text-[12px] leading-4 text-muted select-text">
+        <span className="font-medium text-fg">{t('coding_runner_error_label')}</span>{' '}<HiddenText text={text} />
+      </p>
+    </div>
+  );
+}
+
 /** A line under a heading that is information, not an error: the folder delegated work acts on, or why it cannot run. */
 export function NoticeLine({ tone = 'warning', role = 'status', testId, children, className }: { tone?: 'warning' | 'danger' | 'neutral'; role?: 'status' | 'alert'; testId?: string; children: React.ReactNode; className?: string }) {
   const style = boxes[tone];

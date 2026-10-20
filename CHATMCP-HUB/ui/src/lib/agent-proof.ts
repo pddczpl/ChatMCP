@@ -34,6 +34,7 @@ export interface WorkerRecord {
   verificationOutcome?: { state?: string } | null;
   verificationAttempts?: RecordedAttempt[] | null;
   verificationNote?: VerificationNote | null;
+  runnerError?: string | null;
 }
 
 export interface WorkerProof {
@@ -92,6 +93,17 @@ export function hubNoteOf(worker: WorkerRecord | null | undefined, proof: Worker
   if (typeof code !== 'string' || code === '') return null;
   if (code === 'verified' && proof.kind !== 'verified') return null;
   return { code, ...(typeof text === 'string' ? { text } : {}), ...(typeof detail === 'string' ? { detail } : {}) };
+}
+
+/**
+ * Why the Hub's AgentRunner stopped a worker's run, in its own words (lib/coding-orchestrator.mjs, `runnerError`): a field of its own, because it is the Hub's
+ * record and not what the model said. The worker's summary is the model's alone, and is empty when the model said nothing. The text is passed on exactly as
+ * it came (what cannot be seen in it is for the page to show as a marker); text that says nothing is none. It is neither evidence nor a verdict, so
+ * `assessWorker` never reads it.
+ */
+export function runnerErrorOf(worker: WorkerRecord | null | undefined): string | null {
+  const raw: unknown = worker?.runnerError;
+  return typeof raw === 'string' && raw.trim() !== '' ? raw : null;
 }
 
 /** A read-only group or analysis: text an AI wrote from excerpts of the project. The Hub does not check it, so it is never green. */
