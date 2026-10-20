@@ -22,12 +22,15 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { isProtectedPath } from './protected-paths.mjs';
+import { readJson, writeJson } from './runtime.mjs';
 import { alignCut, cleanText, trimBlank } from './text-bounds.mjs';
 
 export const PROJECT_INSTRUCTIONS_MAX_BYTES = 8192;
 export const PROJECT_INSTRUCTION_FILES = Object.freeze(['AGENTS.md', 'CLAUDE.md', '.claude/CLAUDE.md']);
 export const PROJECT_INSTRUCTION_FILE_LIMIT_BYTES = 256 * 1024;
 export const PROJECT_INSTRUCTIONS_VARIABLE = 'CHATMCP_PROJECT_INSTRUCTIONS';
+// The owner's saved choice, next to the other files of the Hub's data folder (agent-mode.json, hooks.json ...).
+export const PROJECT_INSTRUCTIONS_FILE = 'project-instructions.json';
 // A file that could keep fewer bytes than this is not worth a header and a marker: it is named as not loaded instead.
 const MIN_USEFUL_BYTES = 64;
 
@@ -36,14 +39,79 @@ const strictUtf8 = new TextDecoder('utf-8', { fatal: true });
 
 const OFF = new Set(['off', '0', 'false', 'no', 'disabled']);
 const ON = new Set(['on', '1', 'true', 'yes', 'enabled']);
-/** The owner's switch: CHATMCP_PROJECT_INSTRUCTIONS=off (or 0, false, no, disabled) turns the loading off. On by default. */
-export function projectInstructionsSetting(env = process.env) {
+/**
+ * The owner's switch, from the three places it can be said, strongest first:
+ *   1. the environment of the Hub: CHATMCP_PROJECT_INSTRUCTIONS=off (or 0, false, no, disabled) turns the loading off, =on (1, true, yes, enabled) keeps it on. A value
+ *      that is neither decides nothing. `source` is 'env';
+ *   2. the choice the owner saved in Settings (`saved`, true or false; anything else is no choice). `source` is 'config';
+ *   3. the default: on. `source` is 'default'.
+ * `saved` is reported whatever decided, so the page can show what applies once the variable is gone.
+ */
+export function projectInstructionsSetting(env = process.env, saved = null) {
   const value = String(env?.[PROJECT_INSTRUCTIONS_VARIABLE] ?? '').trim().toLowerCase();
   const off = OFF.has(value);
+  const decidedByEnvironment = off || ON.has(value);
+  const stored = typeof saved === 'boolean' ? saved : null;
   return Object.freeze({
-    enabled: !off, source: off || ON.has(value) ? 'env' : 'default',
+    enabled: decidedByEnvironment ? !off : stored ?? true,
+    source: decidedByEnvironment ? 'env' : stored === null ? 'default' : 'config', saved: stored,
     variable: PROJECT_INSTRUCTIONS_VARIABLE, maxBytes: PROJECT_INSTRUCTIONS_MAX_BYTES, files: [...PROJECT_INSTRUCTION_FILES],
   });
+}
+
+/**
+ * The owner's choice, kept in the Hub's data folder and asked again at the start of every run (AgentRunner takes the store as its `projectInstructions`): a runner that
+ * exists when the owner changes the choice follows it from its next run, a pooled chat or a coding worker included. A run that is going keeps what it loaded. The one thing
+ * read once is the environment variable, when the Hub starts, as it always was; the stronger setting is never changed by a click.
+ */
+export class ProjectInstructionsStore {
+  #variable;
+  #saved = null;
+  #writes = Promise.resolve();
+
+  constructor({ directory, env = process.env, log = () => {} } = {}) {
+    if (typeof directory !== 'string' || !directory) throw new TypeError('ProjectInstructionsStore needs the data folder of the Hub.');
+    this.file = path.join(directory, PROJECT_INSTRUCTIONS_FILE);
+    this.log = log;
+    this.#variable = env?.[PROJECT_INSTRUCTIONS_VARIABLE];
+  }
+
+  /** Reads the saved choice. Never throws: a file that cannot be used costs the owner the saved choice and nothing else (the default is on). */
+  async load() {
+    this.#saved = null;
+    let data;
+    try { data = await readJson(this.file); } catch (error) {
+      this.log(`Không đọc được ${PROJECT_INSTRUCTIONS_FILE} (${error?.code ?? 'dữ liệu không hợp lệ'}); dùng mặc định: nạp hướng dẫn dự án.`);
+      return;
+    }
+    if (data === null) return;
+    if (typeof data?.enabled === 'boolean') this.#saved = data.enabled;
+    else this.log(`${PROJECT_INSTRUCTIONS_FILE} không có lựa chọn hợp lệ; dùng mặc định: nạp hướng dẫn dự án.`);
+  }
+
+  /** What applies now: the variable of the Hub's start, else the saved choice, else on. */
+  current() { return projectInstructionsSetting({ [PROJECT_INSTRUCTIONS_VARIABLE]: this.#variable }, this.#saved); }
+
+  /**
+   * Saves the choice. Refused, with nothing saved, for a value that is not true or false (400), and while the variable decides (409): it is the stronger setting, and a
+   * choice that cannot take effect must not look as if it had. The file is written first and the memory follows, so a failed write changes nothing; calls are applied in
+   * the order they were made. Resolves with the setting that applies afterwards.
+   */
+  async set(enabled) {
+    if (typeof enabled !== 'boolean') throw Object.assign(new TypeError('enabled phải là true hoặc false.'), { statusCode: 400, code: 'project_instructions_invalid' });
+    const decided = this.current();
+    if (decided.source === 'env') {
+      throw Object.assign(new Error(`Biến môi trường ${PROJECT_INSTRUCTIONS_VARIABLE} đang đặt hướng dẫn dự án ở trạng thái ${decided.enabled ? 'bật' : 'tắt'} và mạnh hơn cài đặt. Bỏ biến đó rồi khởi động lại Hub để đổi ở đây.`), { statusCode: 409, code: 'project_instructions_env' });
+    }
+    const write = this.#writes.catch(() => {}).then(async () => {
+      await writeJson(this.file, { version: 1, enabled });
+      this.#saved = enabled;
+      this.log(`Hướng dẫn dự án: ${enabled ? 'bật' : 'tắt'} (chủ máy chọn trong Cài đặt); áp dụng từ lượt chạy tiếp theo.`);
+      return this.current();
+    });
+    this.#writes = write;
+    return write;
+  }
 }
 
 // (0 is a cap: nothing fits. What is not a number at all, or negative, is no cap and gets the default.)
