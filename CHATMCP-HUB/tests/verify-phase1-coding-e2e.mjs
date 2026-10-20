@@ -140,6 +140,16 @@ try {
   assert.ok(worker.changedFiles.includes('initial.js'));
   assert.ok(worker.changedFiles.includes('repair.js'));
   assert.equal(git(['rev-parse','HEAD']).trim(),finished.baseSha,'Coding still isolated to managed worktree');
+  // The run reports the folder it belongs to, as the very string the Hub reports for its own folder (what a page compares with hub.workspace.path), and
+  // that string is the real path of the project (the temp folder of this machine may be spelled with a short 8.3 name).
+  assert.equal(finished.workspace,parent.state().workspace.path,'the run reports the Hub\'s own spelling of its folder');
+  assert.equal(finished.workspace,await fs.realpath(work));
+  // The summary is what the model said and nothing else. The Hub's sentence about the evidence is a field of its own, and the page reads it as the Hub's.
+  assert.equal(worker.summary,'File edited, verification must be checked independently.','the summary is the model\'s own words');
+  assert.deepEqual(worker.verificationNote,{code:'verified',text:'All registered pinned Node checks have fresh signed TAP evidence.'});
+  const saved=JSON.parse(await fs.readFile(path.join(agent.directory,'jobs.json'),'utf8')).jobs.at(-1);
+  assert.deepEqual(saved.workers[0].verificationNote,worker.verificationNote,'what is saved is what is reported');
+  assert.equal(saved.workspace,finished.workspace);
 
   // The orchestrator writes the first prompt of every worker: "TASK: <goal>" and then its own instructions ("managed, isolated Git worktree", "Git publish
   // tools", "tests", "checks_list" ...). The model reads all of it; skills and tool schemas are selected on the goal. Selected on the whole text, the
@@ -195,6 +205,8 @@ try {
     confirmation:'CREATE WORKTREES',maxConcurrency:1,
   });
   assert.equal(selectionJob.status,'ready_for_review',JSON.stringify(selectionJob));
+  assert.equal(selectionJob.workspace,parent.state().workspace.path,'every run reports its folder');
+  for(const entry of selectionJob.workers)assert.ok(!('verificationNote' in entry),'a worker that was not asked to verify has no verification note: '+entry.id);
   // The calls of each worker, told apart by the goal its prompt starts with: one, and two for the worker that writes through the router.
   const callsOf=(goal,count)=>{
     const found=calls2.filter(call=>call.prompt.startsWith('TASK: '+goal+'\n'));

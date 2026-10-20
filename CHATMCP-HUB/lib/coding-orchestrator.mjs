@@ -29,6 +29,11 @@ const allowedTools = new Set([
 ]);
 const slug=(s)=>typeof s==='string'&&/^[a-z][a-z0-9-]{0,30}$/.test(s);
 const bounded=(s,n=250)=>String(s||'').slice(0,n);
+const GRANT_WINDOW_MS=90_000;
+// The Hub's own words about how a worker's verification ended. They are NOT the model's: a worker's `summary` is what its model said and nothing else, and
+// this is kept apart so that a page can label each for what it is. `code` is what a page translates (and the pages know exactly these four); `text` is the
+// English sentence for a reader that does not know the code; `detail` is the part of the sentence that varies.
+const verificationNote=(code,text,detail)=>detail===undefined?{code,text}:{code,text,detail};
 const cleanGitPath=(p)=>p.replaceAll('\\','/');
 const getError=(result,operation)=>{
   if(result.code!==0||result.truncated||result.timedOut){
@@ -38,9 +43,12 @@ const getError=(result,operation)=>{
 };
 
 export class CodingWorktreeOrchestrator {
-  constructor({manager,provider,directory,bundleRoot,createWorker=null}={}){
+  constructor({manager,provider,directory,bundleRoot,createWorker=null,grantWindowMs=GRANT_WINDOW_MS}={}){
     if(!manager||!provider||!directory||!bundleRoot)throw new TypeError('CodingWorktreeOrchestrator requires manager, provider, directory and bundleRoot.');
+    // How long a verified worker waits for the owner to allow its isolated checks. The owner is told "about 90 seconds"; only a test shortens it.
+    if(typeof grantWindowMs!=='number'||!Number.isFinite(grantWindowMs)||grantWindowMs<=0)throw new TypeError('grantWindowMs must be a positive number of milliseconds.');
     this.manager=manager;this.provider=provider;this.directory=path.resolve(directory);
+    this.grantWindowMs=grantWindowMs;
     this.bundleRoot=bundleRoot;this.createWorker=createWorker;
     this.active=null;this.controller=null;this.runners=new Map();this.jobs=new Map();this.integrating=false;
     this.writes=Promise.resolve();
@@ -114,9 +122,12 @@ export class CodingWorktreeOrchestrator {
       this.jobs.set(j.id,j);
     }
   }
+  // `workspace` is the folder a run was made in: the same string the Hub reports as its own folder (hub.workspace.path), and the one this class compares
+  // before it reads, merges or publishes a run. A page shows the runs of the folder in view by comparing it. It is the owner's own project folder, a string
+  // the page already holds; a saved run that never recorded one reports null.
   state(){return {activeRunId:this.active,integrating:this.integrating,
     recoveryFault:this.recoveryFault,jobs:[...this.jobs.values()].slice(-20).map(j=>({
-    id:j.id,status:j.status,baseSha:j.baseSha,baseBranch:j.baseBranch,createdAt:j.createdAt,
+    id:j.id,status:j.status,workspace:typeof j.workspace==='string'?j.workspace:null,baseSha:j.baseSha,baseBranch:j.baseBranch,createdAt:j.createdAt,
     finishedAt:j.finishedAt,workers:j.workers.map(w=>({...w})),integration:j.integration||null,error:j.error||null,
   }))};}
   #save({checkpointRunId=this.active}={}){
@@ -344,12 +355,13 @@ export class CodingWorktreeOrchestrator {
         // result from the authenticated OS-isolated execution backend.
         const checks=await broker.discoverChecks({workerId:node.id});
         if (!checks.length) {
-          return {state:'needs_attention',summary:initialSummary+'\nNo supported pinned Node test definition was discovered.',taskId:task.id};
+          return {state:'needs_attention',summary:initialSummary,taskId:task.id,
+            verificationNote:verificationNote('no_checks','No supported pinned Node test definition was discovered.')};
         }
         node.status='awaiting_test_grant';
         await this.#save();
         let grantIds=null;
-        const expiry=Date.now()+90_000;
+        const expiry=Date.now()+this.grantWindowMs;
         while(Date.now()<expiry && !signal.aborted) {
           const matches=checks.map(check=>[...broker.grants.values()].find(grant=>
             grant.workerId===node.id && grant.checkId===check.id &&
@@ -367,7 +379,8 @@ export class CodingWorktreeOrchestrator {
         }
         signal.throwIfAborted();
         if(!grantIds) {
-          return {state:'needs_attention',summary:initialSummary+'\nOwner did not approve all isolated test grants in the allotted window.',taskId:task.id};
+          return {state:'needs_attention',summary:initialSummary,taskId:task.id,
+            verificationNote:verificationNote('grant_timeout','Owner did not approve all isolated test grants in the allotted window.')};
         }
         node.status='testing';await this.#save();
         const contentHash=async()=>{
@@ -401,10 +414,12 @@ export class CodingWorktreeOrchestrator {
         });
         node.verificationOutcome=verified;
         if(verified.state!=='ready_for_review') {
-          return {state:'needs_attention',summary:initialSummary+'\nVerified coding blocked: '+verified.reason,taskId:task.id};
+          const reason=bounded(verified.reason,500);
+          return {state:'needs_attention',summary:initialSummary,taskId:task.id,
+            verificationNote:verificationNote('blocked','Verified coding blocked: '+reason,reason)};
         }
-        return {state:'completed',summary:initialSummary+'\nAll registered pinned Node checks have fresh signed TAP evidence.',
-          taskId:task.id,steps:result?.steps,toolCalls:result?.toolCalls,verified:true};
+        return {state:'completed',summary:initialSummary,taskId:task.id,steps:result?.steps,toolCalls:result?.toolCalls,verified:true,
+          verificationNote:verificationNote('verified','All registered pinned Node checks have fresh signed TAP evidence.')};
       }finally{signal.removeEventListener('abort',onAbort);}
     }finally{
       // Evidence is captured by the broker itself, never by the model's final
@@ -569,6 +584,8 @@ export class CodingWorktreeOrchestrator {
           const out=await this.#worker({worktree:node.worktree,job,node,signal});
           node.agentTaskId=out.taskId;
           node.summary=out.summary;
+          // The Hub's own words, kept apart from the model's: only a worker that was asked to verify has one.
+          if(out.verificationNote)node.verificationNote=out.verificationNote;
           node.steps=out.steps;node.toolCalls=out.toolCalls;
           if(out.state!=='completed'){
             node.status=out.state==='needs_attention'?'needs_attention':'failed';
