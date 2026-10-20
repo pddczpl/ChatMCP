@@ -9,6 +9,8 @@ import { WorkflowOrchestrator } from './workflow-orchestrator.mjs';
 import { summarizeCostLedgers } from './model-cost.mjs';
 import { assembleStudio } from './assemble.mjs';
 import { readJson, writeJson } from './runtime.mjs';
+import { childFacts } from './agent-results.mjs';
+import { endSummary } from './subagent-notices.mjs';
 
 const END = new Set(['completed', 'failed', 'cancelled', 'paused', 'uncertain', 'limit', 'interrupted']);
 // Agents that a model spawns can spawn again. Without a limit a model that always delegates grows an unbounded tree of worktrees and
@@ -65,6 +67,8 @@ export class ConcurrentApiAgent {
     this.spawnReservations = new Map();
     // The primary agent asks this before it offers spawn_agent / spawn_workflow to the model.
     manager.spawnAllowed = (taskId) => this.spawnAllowed(taskId);
+    // And this to read what the agents it started produced (its agent_results tool) and to know whether it has any.
+    manager.listSubagents = (taskId) => this.listSubagents(taskId);
     this.primary = primary;
     this.manager = manager;
     this.provider = provider;
@@ -112,6 +116,8 @@ export class ConcurrentApiAgent {
     if (event.type === 'state' || (event.type === 'event' && END.has(event.event?.type))) {
       setTimeout(() => { void this.#drain().catch(error => this.log(error.message)); }, 0);
     }
+    // A child run that ended (its runner emits this from #finish, after its result is recorded) is news for the task that started it.
+    if (event.type === 'event' && END.has(event.event?.type) && typeof event.taskId === 'string') this.#noteEnded(event.taskId);
   }
   #save() {
     const snapshot = { version: 2, records: [...this.records.values()].map(({ attachments, ...r }) => r), workflows:this.workflows.serialize(), spawnLimits: { ...this.limits } };
@@ -298,6 +304,32 @@ export class ConcurrentApiAgent {
       gitAvailable:true,
     };
   }
+  // ------------------------------------------------------------------ what a task's children produced
+  /** The workflow and phase a child belongs to, by name, for what the parent reads. */
+  #workflowOf(record) {
+    const workflow = record.workflowId ? this.workflows.workflows.get(record.workflowId) : null;
+    if (!workflow) return null;
+    return { name: workflow.name, phase: workflow.phases?.find((phase) => phase.id === record.phaseId)?.name ?? null };
+  }
+  #factsOf(record) { return childFacts({ record, detail: this.#detail(record), workflow: this.#workflowOf(record) }); }
+  /** What the Hub knows about the agents that `parentTaskId` started, one object per agent (lib/agent-results.mjs): the source of that task's agent_results tool. */
+  listSubagents(parentTaskId) {
+    const facts = [];
+    for (const record of this.records.values()) if (record.parentTaskId === parentTaskId) facts.push(this.#factsOf(record));
+    return facts;
+  }
+  /** A child may have stopped: the runner that holds its parent task is told, once per ending (the parent's record keeps the key). Never throws. */
+  #noteEnded(childId) {
+    try {
+      const record = this.records.get(childId);
+      if (this.closed || !record?.parentTaskId) return;
+      const runner = this.primary.tasks.has(record.parentTaskId) ? this.primary : this.children.get(record.parentTaskId)?.runner;
+      if (!runner?.tasks.has(record.parentTaskId)) return;
+      const summary = endSummary(this.#factsOf(record));
+      if (summary) void runner.recordSubagentFinished(record.parentTaskId, summary).catch((error) => this.log(`Subagent notice: ${error.message}`));
+    } catch (error) { this.log(`Subagent notice: ${error.message}`); }
+  }
+
   // ------------------------------------------------------------------ spawn limits
   /** Depth of a task: 0 for a conversation the user started, parent depth + 1 for an agent that another agent spawned. */
   #depthOf(id) {
@@ -392,6 +424,7 @@ export class ConcurrentApiAgent {
     // so an operation that needs approval is refused at once instead of holding the agent for the approval timeout.
     manager.permissions.backgroundAgent = Boolean(record.parentTaskId);
     manager.spawnAllowed = (taskId) => this.spawnAllowed(taskId);
+    manager.listSubagents = (taskId) => this.listSubagents(taskId);
     this.#syncSpawnTools(record, manager);
     await manager.startLocal(executionRoot);
     const scoped=await this.#scopedProvider(record.effectiveProfile?.id||'__global__',
@@ -501,6 +534,7 @@ export class ConcurrentApiAgent {
       delete record.attachments;
       await this.#save().catch(() => {});
       this.#event({ type: 'state', taskId: record.id, state: record.status });
+      this.#noteEnded(record.id);
     } finally {
       if (this.preflights.get(record.id) === controller) this.preflights.delete(record.id);
     }
@@ -517,6 +551,7 @@ export class ConcurrentApiAgent {
           record.status = 'blocked'; record.error = 'A dependency has not completed successfully.';
           record.updatedAt = now();
           await this.#save();
+          this.#noteEnded(record.id);
           continue;
         }
         if (deps.some(status => status !== 'completed')) continue;
@@ -691,6 +726,7 @@ export class ConcurrentApiAgent {
         : null;
       record.updatedAt = now();
       await this.#save();
+      this.#noteEnded(id);
     }
     return this.get(id);
   }

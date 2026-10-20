@@ -78,7 +78,7 @@ export function checkThreatModel(docsRoot, codeRoot = REPO) {
     const candidates = [name, `CHATMCP-HUB/tests/${name}`, `CHATMCP-HUB/${name}`].map((candidate) => path.join(codeRoot, candidate));
     if (!candidates.some((candidate) => existsSync(candidate))) fail(`the test ${name} does not exist`);
   }
-  for (const match of model.matchAll(/^\| ((?:H|O|R|K)\d+) \|(.*)\|$/gm)) {
+  for (const match of model.matchAll(/^\| ((?:H|O|R|K|S)\d+) \|(.*)\|$/gm)) {
     const cells = match[2].split(' | ');
     const testCell = cells[cells.length - 2] ?? '';
     if (!/`[^`]*(?:verify-|\.spec\.|smoke|run\.mjs)[^`]*`|not tested/i.test(testCell)) fail(`${match[1]}: the Test column names no test and does not say "not tested"`);

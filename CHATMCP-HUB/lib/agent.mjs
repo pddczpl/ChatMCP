@@ -13,6 +13,8 @@ import { createCostLedger, updateCostLedger } from './model-cost.mjs';
 import { taskToolSelectionMode, selectTaskToolNames } from './tool-selector.mjs';
 import { HistoryLedger } from './history-ledger.mjs';
 import { FinalAnswerHooks } from './lifecycle-hooks.mjs';
+import { AGENT_RESULTS_INSTRUCTIONS, AGENT_RESULTS_TOOL, parseAgentResultsArguments, shapeAgentResults } from './agent-results.mjs';
+import { SUBAGENT_NOTICE_LIMITS, normalizeSubagentNotices, publicSubagentNotices, recordSubagentEnd, takeSubagentNotice, unreadSubagentNotices } from './subagent-notices.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
 // from disk or the environment, evaluates model text, or executes a local shell.
@@ -569,6 +571,7 @@ export class AgentRunner {
       objectiveReceipts:availableObjectiveReceipts(task.progress),
       contextPolicy:task.contextPolicy??null,
       modelCost:task.modelCost??createCostLedger(),
+      subagentNotices:publicSubagentNotices(task,{summary}),
     };
     if (!summary) {
       result.events = task.events.slice(-EVENT_LIMIT);
@@ -666,6 +669,7 @@ export class AgentRunner {
           if(!Number.isFinite(task.usage[k])||task.usage[k]<0)task.usage[k]=0;
         task.prompts ??= [{at:task.startedAt,text:task.prompt}];
         task.runs ??= [{startedAt:task.startedAt,finishedAt:task.finishedAt,status:task.status,startStep:0}];
+        task.subagentNotices = normalizeSubagentNotices(task.subagentNotices);
         task.progress = createTaskProgress(task.progress);
         task.goalPlan = decomposeCodingTask(planTextOf(task),task.goalPlan);
         task.dialogue ??= [];
@@ -749,6 +753,53 @@ export class AgentRunner {
     await this.#event(task,'user_message_queued','Đã nhận tin nhắn; sẽ chuyển cho model ở ranh giới an toàn.'+
       (context.toolSelectionMode==='auto'?' Danh sách công cụ của lần chạy này giữ nguyên; tin nhắn được tính khi chọn công cụ cho lần chạy tiếp theo.':''),{},{attachments:converted.metadata});
     return this.#public(task);
+  }
+
+  // A background agent that this task started has stopped (ConcurrentApiAgent calls this once per ending). The task keeps a bounded record of it and the model is told at the next
+  // boundary of a run (#tellAboutAgents), or at the start of the task's next run when none is going. Nothing is started and nothing is sent to the model from here.
+  async recordSubagentFinished(id, summary) {
+    const task = typeof id === 'string' ? this.tasks.get(id) : null;
+    if (!task) return false;
+    const entry = recordSubagentEnd(task, summary, { at: now(), redact: (text) => this.#redact(text) });
+    if (!entry) return false;
+    const running = this.activeTaskId === task.id && task.status === 'running';
+    await this.#event(task, 'subagent_finished', `Tác nhân nền ${entry.id.slice(0, 8)} đã dừng (${entry.status}): ${entry.goal.slice(0, 80)}`
+      + (running ? '' : '. Tác vụ này không đang chạy: đã ghi nhận, model sẽ được báo ở lần chạy tiếp theo.'), {}, { childId: entry.id, agentStatus: entry.status, errorCode: entry.errorCode, ends: entry.ends, taskRunning: running });
+    return true;
+  }
+
+  // Tells the model which background agents stopped since it was last told, once (lib/subagent-notices.mjs). Called only where no model turn is open - the top of the loop, behind
+  // HistoryLedger.endBatch, and start() before the prompt - so the message follows every result of the turn before it and never stands between two of them. It is a host message of
+  // its own kind; it is not added to task.prompts or task.dialogue, so it selects no tool or skill and is not something the user asked.
+  async #tellAboutAgents(context) {
+    const { task } = context;
+    const notice = takeSubagentNotice(task, { at: now(), run: task.runs?.length ?? 1, redact: (text) => this.#redact(text) });
+    if (!notice) return;
+    context.history.appendUser([{ type: 'input_text', text: notice.text }], { kind: 'completion_notice' });
+    await this.#event(task, 'subagent_notice', `Đã báo cho model: ${notice.count} tác nhân nền đã dừng.`, {}, { ids: notice.ids });
+  }
+
+  // A final answer was given while an agent stopped (an entry is recorded and the model was not told): the run goes on instead of finishing, and the top of the loop tells the model. The
+  // notice cannot be added behind the answer, because the ledger drops what waits when a run ends. True when the run should `continue`; the answer that was given stays in the conversation.
+  // Not when another turn is not possible (#canTakeAnotherStep): the entry then stays recorded for the next run. Each turn held back consumes at least one entry, so their number is
+  // bounded by the entries a task keeps: a source of endless new endings, or a defect that failed to consume an entry, cannot keep the model answering for ever. A check that must
+  // also hold after something slow that ran behind the answer (a Stop hook) is one more call to this.
+  #goOnForNotices(context, finalTexts) {
+    const { task } = context;
+    if (!unreadSubagentNotices(task).length || !this.#canTakeAnotherStep(context)) return false;
+    if ((context.noticeTurns = (context.noticeTurns ?? 0) + 1) > SUBAGENT_NOTICE_LIMITS.entries) return false;
+    if (finalTexts.some((text) => text.trim())) task.dialogue.push({ role: 'assistant', at: now(), text: finalTexts.join('\n\n'), run: task.runs?.length ?? 1 });
+    return true;
+  }
+
+  // Whether the loop could take another model turn now. A step limit, the deadline, a stop or the size of the context would end the run at the top of the loop instead, and a
+  // final answer that was already given would be lost.
+  #canTakeAnotherStep(context) {
+    const { task } = context;
+    if (context.controller.signal.aborted) return false;
+    if (task.maxSteps !== null && task.maxSteps !== undefined && task.steps >= task.maxSteps) return false;
+    if (Number.isFinite(context.deadline) && Date.now() >= context.deadline) return false;
+    return context.history.byteLength() + Buffer.byteLength(context.instructions) <= MAX_CONTEXT_BYTES;
   }
 
   async delete(id) {
@@ -934,9 +985,15 @@ export class AgentRunner {
           },
         });
       }
+      // The tool that reads what the agents it started produced. Offered where the spawn tools are, and to a task that already has agents when its tree is full: it still has to read them.
+      if(typeof this.manager.listSubagents==='function'&&(spawnAllowed||this.manager.listSubagents(task.id).length>0)){
+        context.resultsTool=true;
+        context.tools.push(structuredClone(AGENT_RESULTS_TOOL));
+      }
       context.instructions = context.direct.functions.length
         ? createLocalAgentInstructions(offeredCatalog, task.workspace, this.manager.state().environment ?? null)
         : createAgentInstructions(context.catalog, task.workspace);
+      if(context.resultsTool)context.instructions+='\n'+AGENT_RESULTS_INSTRUCTIONS+'\n';
       if(context.spawnTool)context.instructions+='\nBACKGROUND SUBAGENTS: Use spawn_agent for a narrow independent job. Worktrees are isolated, never auto-merged.\n';
       if(context.workflowTool)context.instructions+='\nAUTONOMOUS WORKFLOWS: For a user request benefiting from MULTIPLE independent viewpoints, multi-step review/verification, or an explicitly requested team of agents, prefer spawn_workflow. Declare a short workflow title and 1–5 named phases with 1–12 total specialized agents. List exact independent agent goals, evidence to gather, and names of earlier phases in dependsOn; omitted dependsOn means wait for the preceding phase. For example Review (several independent reviewers) then Verify (independent checkers). The host runs genuinely parallel agents subject to Git-worktree/approval/concurrency constraints and persists progress under this chat. The workflow can outlive your chat turn; report only that it was STARTED, never that a review, fix or test passed until confirmed in its actual output. Do not spawn a workflow for a simple request that one agent can complete.\n';
       if(selection) {
@@ -1034,6 +1091,7 @@ export class AgentRunner {
         await this.#event(task, 'skills_activated', `Đã kích hoạt ${selectedSkills.length} kỹ năng agent (${selectedSkills.map((s) => s.name).join(', ')}).`, { status: 'running', selectedSkills: task.selectedSkills });
       }
       if (context.resumeEvidence) context.history.appendUser([{type:'input_text',text:context.resumeEvidence}], { kind:'resume_evidence' });
+      await this.#tellAboutAgents(context);
       context.history.appendUser([{type:'input_text',text:cleanPrompt},
         ...(repoMapPart ? [repoMapPart] : []), ...attachmentParts.parts], { kind:'prompt' });
       this.#advance(task, 'planning', 'preflight_done');
@@ -1134,6 +1192,7 @@ export class AgentRunner {
         // The previous model turn is complete here (every result is in): host messages that waited for it follow its last result.
         context.history.endBatch();
         this.#check(context);
+        await this.#tellAboutAgents(context);
         if(task.pendingMessages?.length){
           const queued=task.pendingMessages.splice(0);
           for(const message of queued){
@@ -1267,6 +1326,8 @@ export class AgentRunner {
             if(finalTexts.some(text=>text.trim()))task.dialogue.push({role:'assistant',at:now(),text:finalTexts.join('\n\n'),run:task.runs?.length??1});
             continue;
           }
+          // A background agent stopped while this request was in flight: the final answer is not the last thing the model should say (see #goOnForNotices).
+          if(this.#goOnForNotices(context,finalTexts))continue;
           if (!finalTexts.some((text) => text.trim())) throw fault('empty_final', 'Model kết thúc nhưng không đưa ra kết quả văn bản cuối cùng. Thông báo tiến độ không được coi là kết quả hoàn tất.', 502);
           const answer = this.#redact(finalTexts.join('\n\n'));
           // The owner's Stop (SubagentStop) and TaskCompleted hooks judge the answer before the task can complete. Their verdict, the final text and the
@@ -1284,6 +1345,9 @@ export class AgentRunner {
             else task.dialogue.push({ role: 'assistant', at: now(), text: answer, run: task.runs?.length ?? 1 });
             continue;
           }
+          // A background agent can stop while a hook runs behind the answer: the answer is then not the last thing the model should say. The same check as above, once more
+          // behind the slow part (see #goOnForNotices); the next final answer is reviewed again.
+          if (this.#goOnForNotices(context, finalTexts)) continue;
           task.finalText = answer;
           task.verificationOutcome = verdict.verification;
           task.completionOutcome = verdict.completion;
@@ -1340,6 +1404,21 @@ export class AgentRunner {
   async #dispatch(context, call) {
     let args;
     try {
+      if(call.namespace==null&&call.name==='agent_results'&&context.resultsTool){
+        args=parseObject(typeof call.arguments==='string'&&!call.arguments.trim()?'{}':call.arguments,'agent_results arguments');
+        const request=parseAgentResultsArguments(args);
+        return await this.#upstream(context,call,'chatmcp.agent_results',args,async(options)=>{
+          // Read-only and internal: a stop while it runs is not an unknown outcome.
+          await options.onDecision?.({allowed:true,category:'read',name:'chatmcp.agent_results',kind:'read'});
+          try{
+            return shapeAgentResults(this.manager.listSubagents(context.task.id),request,{redact:text=>this.#redact(text)});
+          }catch(error){
+            // The answer is the Hub's own; if it cannot be made, the model is told so and the run goes on.
+            const detail={code:'agent_results_unavailable',message:this.#redact(String(error?.message??error)).slice(0,300)};
+            return {isError:true,content:[{type:'text',text:'agent_results is unavailable: '+detail.message}],structuredContent:{error:detail,executed:false}};
+          }
+        });
+      }
       if(call.namespace==null&&call.name==='spawn_agent'&&context.spawnTool){
         args=parseObject(call.arguments,'spawn_agent arguments');
         if(typeof args.goal!=='string'||!args.goal.trim()||args.goal.length>8000||
