@@ -23,7 +23,7 @@ import { AgentRunner } from '../lib/agent.mjs';
 import { BLOCK_RETRY_LIMIT, HookRunner } from '../lib/hooks.mjs';
 import { pairToolCalls } from '../lib/model-history.mjs';
 import { buildChatBody } from '../lib/openai-chat-api.mjs';
-import { asResponsesInput, buildResponsesBody } from '../lib/openai-responses-api.mjs';
+import { buildResponsesBody } from '../lib/openai-responses-api.mjs';
 import { buildAnthropicBody } from '../lib/anthropic-api.mjs';
 import { validateAnthropicRequest, validateChatRequest, validateResponsesRequest } from './e2e/protocol-validators.mjs';
 
@@ -128,7 +128,6 @@ const PIPELINES = {
   anthropic: (input) => validateAnthropicRequest(buildAnthropicBody({ model: 'mock', input: pairToolCalls(input), instructions: 'system' })).errors,
 };
 const violationsOf = (protocol, input) => { try { return PIPELINES[protocol](input); } catch (error) { return [{ refused: error.code ?? error.message }]; } };
-void asResponsesInput;
 
 try {
   // ------------------------------------------------------------------------------------------------------------------ A. payloads and order

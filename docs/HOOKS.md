@@ -124,7 +124,7 @@ Not asked: a run that fails, is cancelled or reaches a limit (nothing was finish
 | `agent_id`, `agent_type` | for an agent that was started by another agent or by the orchestrator: its task id and its role (the role a workflow gave it, `coding_worker`, else `subagent`) |
 | `chatmcp_parent_task_id`, `chatmcp_workflow_id`, `chatmcp_phase_id`, `chatmcp_worker_id`, `chatmcp_run_id` | where they apply |
 | `task_id`, `task_subject` | (`TaskCompleted`) the task, and the first 200 characters of the prompt of this run |
-| `chatmcp_verification`, `chatmcp_completion` | (`TaskCompleted`) what the **Hub** concluded from its own evidence receipts: `ready`, `missing`, `requirements`, `verification` ... It stands next to `last_assistant_message` and is never the same thing: a model that says "all tests pass" has not made `ready` true |
+| `chatmcp_verification`, `chatmcp_completion` | (`TaskCompleted`) what the **Hub** concluded from its own evidence receipts: `ready`, `missing`, `requirements`, `verification` ... It stands next to `last_assistant_message` and is never the same thing: a model that says "all tests pass" has not made `ready` true. `ready: true` means that no evidence the host plan asked for is missing (a task with no plan asked for none, and says so in `reason`); it is not a certificate that the work is right, and `chatmcp_completion.requirements` is `verified` only when the owner accepted the objectives |
 
 **What it can answer.**
 
