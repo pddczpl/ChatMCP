@@ -257,6 +257,9 @@ test('a run in progress is the Hub’s state, not the page’s: another tab and 
   await expect(coding.getByTestId('coding-worker').first().getByTestId('agent-proof')).toContainText('Đã dừng');
   // the model had said nothing when it was stopped: the runner's sentence about the stop is the Hub's, and there is no AI report to hold it
   await expect(coding.getByTestId('coding-worker').first().getByTestId('runner-error')).toContainText('Đã dừng theo yêu cầu');
+  // the Vietnamese sentence for the code is the runner's own, so the Vietnamese screen shows it once; the code reached the page all the same
+  await expect(coding.getByTestId('coding-worker').first().getByTestId('runner-error-lead')).toHaveCount(0);
+  expect((await app.hub.get('/api/studio/coding')).json.jobs.at(-1).workers[0].runnerErrorCode, 'the code is what the Hub sent').toBe('user_cancelled');
   await expect(coding.getByTestId('coding-worker').first().getByTestId('ai-report')).toHaveCount(0);
   // and the analysis can be started again now that nothing else is running
   await page.getByRole('tab', { name: 'Nhóm trợ lý', exact: true }).click();
@@ -667,7 +670,11 @@ test('a worker whose model said nothing: the card has no AI report, and the Hub�
   expect(record).toMatchObject({ id: 'task-1', status: 'failed', summary: '' });
   expect(typeof record.runnerError, 'the runner’s sentence is a field of its own').toBe('string');
   expect(record.runnerError.trim().length).toBeGreaterThan(0);
-  expect((await app.hub.get('/api/studio/coding')).json.jobs.at(-1).workers[0].runnerError, 'and it is what the page is sent').toBe(record.runnerError);
+  // the empty message reaches the Hub through the model adapter, which names it with a code of its own (and not the runner's `empty_final`): that code is what the page tells
+  expect(record.runnerErrorCode, 'the code of the sentence is a field of its own too').toBe('model_empty');
+  const listed = (await app.hub.get('/api/studio/coding')).json.jobs.at(-1).workers[0];
+  expect(listed.runnerError, 'and it is what the page is sent').toBe(record.runnerError);
+  expect(listed.runnerErrorCode, 'with its code').toBe('model_empty');
 
   await openAgents(page, 'Sửa mã');
   const coding = page.getByTestId('coding-agents');
@@ -676,25 +683,68 @@ test('a worker whose model said nothing: the card has no AI report, and the Hub�
   const reason = card.getByTestId('runner-error');
   await expect(reason).toHaveText(`Lý do công việc dừng, Hub ghi nguyên văn: ${record.runnerError}`);
   await expect(reason).not.toHaveClass(/success|danger|warning/);
+  // what the code means, in the language on screen, above the Hub's sentence, which is not changed by it
+  const lead = card.getByTestId('runner-error-lead');
+  await expect(lead).toHaveText('Model trả về phản hồi rỗng hoặc không dùng được.');
+  await expect(lead).toHaveAttribute('data-code', 'model_empty');
+  await expect(lead).not.toHaveClass(/success|danger|warning/);
   // the model said nothing, so there is no AI report; before this the runner's sentence sat under that label
   await expect(card.getByTestId('ai-report')).toHaveCount(0);
   await expect(card.getByText('Báo cáo của AI')).toHaveCount(0);
-  const parts = await card.locator('[data-testid="agent-proof"], [data-testid="runner-error"], [data-testid="ai-report"]').evaluateAll((nodes) => nodes.map((node) => node.dataset.testid));
-  expect(parts).toEqual(['agent-proof', 'runner-error']);
+  const parts = await card.locator('[data-testid="agent-proof"], [data-testid="runner-error-lead"], [data-testid="runner-error"], [data-testid="ai-report"]').evaluateAll((nodes) => nodes.map((node) => node.dataset.testid));
+  expect(parts).toEqual(['agent-proof', 'runner-error-lead', 'runner-error']);
   await expect(coding.locator('[data-tone="success"]')).toHaveCount(0);
   await card.scrollIntoViewIfNeeded();
   await shot(page, testInfo, 'coding-runner-error');
 
-  // in English the label follows the language on screen; the Hub's sentence stays as the Hub wrote it
+  // in English the label and the page's line follow the language on screen; the Hub's sentence stays as the Hub wrote it
   const dialog = await openSettings(page, 'Giao diện & ngôn ngữ');
   await dialog.getByRole('button', { name: 'English' }).click();
   await closeSettings(page);
   await openWorkTab(page, 'Agents');
   await page.getByRole('tab', { name: 'Code edits', exact: true }).click();
+  await expect(card.getByTestId('runner-error-lead')).toHaveText('The model sent back an empty or unusable reply.');
   await expect(card.getByTestId('runner-error')).toHaveText(`Why the task stopped, as the Hub recorded it: ${record.runnerError}`);
+  await expect(card.getByTestId('runner-error-lead')).not.toHaveText(VIETNAMESE);
   await expect(card.getByTestId('ai-report')).toHaveCount(0);
   await expect(card.getByText('AI report')).toHaveCount(0);
   await shot(page, testInfo, 'coding-runner-error-english');
+});
+
+test('a worker whose provider rejected the API key: the page says what that means in the language on screen, and the Hub’s sentence with the provider’s own words stays whole', async ({ page, app }, testInfo) => {
+  test.setTimeout(240_000);
+  // the provider answers every request of the coding worker with HTTP 401 and a message of its own; the Hub's adapter names it `gateway_auth` and keeps the provider's words in its sentence
+  app.mock.define('rejected-worker', () => say('Xong.'));
+  app.mock.setScenario('rejected-worker');
+  await onboard(page, app);
+  await setMode(app.hub, 'autonomous');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  app.mock.inject({ kind: 'status', status: 401, message: 'Invalid API key (rejected by the mock).', times: 20 });
+  const run = await app.hub.post('/api/studio/coding/run', { tasks: [{ id: 'task-1', prompt: 'Add a file named AGENT-NOTE.md that explains this project' }], maxConcurrency: 1, confirmation: 'CREATE WORKTREES' });
+  const [record] = run.workers;
+  expect(record).toMatchObject({ id: 'task-1', status: 'failed', summary: '', runnerErrorCode: 'gateway_auth' });
+  expect(record.runnerError, 'the Hub’s sentence keeps what the provider said, as it was said').toContain('Invalid API key (rejected by the mock).');
+  expect(record.runnerError).toContain('HTTP 401');
+
+  await openAgents(page, 'Sửa mã');
+  const coding = page.getByTestId('coding-agents');
+  const card = coding.getByTestId('coding-worker').filter({ hasText: 'task-1' });
+  await expect(card.getByTestId('runner-error-lead')).toHaveText('Nhà cung cấp model từ chối API key. Kiểm tra key và quyền của nó trong cấu hình AI.');
+  await expect(card.getByTestId('runner-error')).toHaveText(`Lý do công việc dừng, Hub ghi nguyên văn: ${record.runnerError}`);
+
+  const dialog = await openSettings(page, 'Giao diện & ngôn ngữ');
+  await dialog.getByRole('button', { name: 'English' }).click();
+  await closeSettings(page);
+  await openWorkTab(page, 'Agents');
+  await page.getByRole('tab', { name: 'Code edits', exact: true }).click();
+  // the English reader gets what to do about it; the provider's words, and the Hub's, are below it exactly as they were
+  await expect(card.getByTestId('runner-error-lead')).toHaveText('The model provider rejected the API key. Check the key and its permissions in the AI settings.');
+  await expect(card.getByTestId('runner-error')).toHaveText(`Why the task stopped, as the Hub recorded it: ${record.runnerError}`);
+  await expect(card.getByTestId('runner-error')).toContainText('Invalid API key (rejected by the mock).');
+  await expect(card.getByTestId('ai-report')).toHaveCount(0);
+  await expect(coding.locator('[data-tone="success"]')).toHaveCount(0);
+  await card.scrollIntoViewIfNeeded();
+  await shot(page, testInfo, 'coding-runner-error-provider-english');
 });
 
 test('a worker whose task the Hub planned in phases: the AI report keeps the AI’s words, and the Hub’s notice on it is shown as the Hub’s', async ({ page, app }, testInfo) => {
