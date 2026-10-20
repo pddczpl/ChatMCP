@@ -317,7 +317,7 @@ export class GatewayProvider {
     checkKey(key);
     const context=parseContextWindow(profile.contextWindow ?? null);
     // A profile saved by an older build may hold a window that build accepted (2,000..4,095): say which, the range, and where to fix it.
-    if(context===undefined)throw bad('invalid_context_window',`Model profile "${profile.id ?? profile.name ?? ''}" holds a context window of ${shownWindow(profile.contextWindow)}, outside ${contextWindowRangeText()} tokens. Open the AI Model tab, edit the profile, enter a window in that range (or empty it if unknown) and save.`,409);
+    if(context===undefined)throw bad('invalid_context_window',`Model profile "${profile.id ?? profile.name ?? ''}" holds a context window of ${shownWindow(profile.contextWindow)}, outside ${contextWindowRangeText()} tokens. Open Settings → Mô hình AI (AI model), edit the profile, enter a window in that range (or empty it if unknown) and save.`,409);
     // A profile is a connection like the global one and obeys the same rules for its route and its headers. The headers were saved for
     // one origin; if the profile points anywhere else they are refused here, before any request, never sent to the new place.
     const customPath=typeof profile.customPath==='string'?profile.customPath:'';

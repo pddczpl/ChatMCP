@@ -1,4 +1,4 @@
-import { test, expect, onboard, send, taskByPrompt } from './fixtures.mjs';
+import { test, expect, onboard, send, taskByPrompt, openWorkTab, openSettings, SURFACE } from './fixtures.mjs';
 import { waitForState } from '../../tests/e2e/hub-process.mjs';
 import { say, call } from '../../tests/e2e/scenarios.mjs';
 import fs from 'node:fs/promises';
@@ -12,17 +12,16 @@ test('Background tasks supports new chats, Git choices, attachment previews and 
   app.mock.setScenario('background-workspace');
   await onboard(page,app);
   await page.setViewportSize({width:1280,height:900});
-  const tasks=page.getByRole('button',{name:'Background tasks',exact:true});
-  await expect(tasks).toBeVisible();
-  await expect(tasks).toHaveAttribute('aria-pressed','true');
+  // Background tasks are the "Tác nhân" tab of the work panel, next to progress, changes, files, terminal and activity.
+  await expect(page.getByRole('tab',{name:'Tiến độ',exact:true})).toHaveAttribute('aria-selected','true');
+  await openWorkTab(page,'Tác nhân');
   await expect(page.getByText('Chưa có công việc nền.',{exact:false})).toBeVisible();
-  await expect(page.getByRole('button',{name:'Inspector',exact:true})).toBeVisible();
 
   const workspaceButton=page.locator('button[title^="Thư mục:"]');
-  await expect(workspaceButton).toHaveCSS('background-color','rgb(24, 32, 43)');
+  await expect(workspaceButton).toHaveCSS('background-color',SURFACE.dark);
   await page.getByRole('button',{name:'Chuyển theme sáng / tối',exact:true}).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme','light');
-  await expect(workspaceButton).toHaveCSS('background-color','rgb(241, 245, 249)');
+  await expect(workspaceButton).toHaveCSS('background-color',SURFACE.light);
 
   // Users can choose the source branch directly, no terminal command needed.
   const picker=page.getByRole('button',{name:'Chọn nhánh Git và worktree'});
@@ -152,6 +151,7 @@ test('model-created workflow appears live in chat and Background Tasks with real
   app.mock.setScenario('phased-review');
   await onboard(page,app);
   await page.setViewportSize({width:1280,height:900});
+  await openWorkTab(page,'Tác nhân');
   const prompt='Workflow E2E: use two independent reviewers and one verifying agent.';
   await send(page,prompt);
   const parent=await taskByPrompt(app,prompt);
@@ -197,8 +197,7 @@ test('model-created workflow appears live in chat and Background Tasks with real
 
 test('ChatGPT Web mode can be selected and safely paired from Settings', async ({page,app})=>{
   await onboard(page,app);
-  await page.getByRole('button',{name:'Inspector',exact:true}).click();
-  await page.getByRole('button',{name:'Cài đặt',exact:true}).click();
+  await openSettings(page,'Kênh agent');
   const card=page.getByTestId('agent-transport-settings');
   await expect(card).toBeVisible();
   await expect(card.getByRole('button',{name:'Kênh agent: Model API'})).toHaveAttribute('aria-pressed','true');
@@ -220,8 +219,7 @@ test('ChatGPT Web settings expose standalone Browser Companion download and manu
   app.mock.define('extension-links',()=>say('Ready'));
   app.mock.setScenario('extension-links');
   await onboard(page,app);
-  await page.getByRole('button',{name:'Inspector',exact:true}).click();
-  await page.getByRole('button',{name:'Cài đặt',exact:true}).click();
+  await openSettings(page,'Kênh agent');
   const download=page.getByRole('link',{name:'Tải Browser Companion ZIP từ GitHub Releases'});
   await expect(download).toBeVisible();
   await expect(download).toHaveAttribute('href',

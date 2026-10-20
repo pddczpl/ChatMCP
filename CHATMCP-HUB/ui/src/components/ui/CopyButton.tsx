@@ -22,8 +22,8 @@ export function CopyButton({ text, label = 'Sao chép', className = '' }: { text
   };
 
   return <button type="button" onClick={() => void copy()} disabled={!text} aria-label={label}
-    className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:opacity-50 ${className}`}>
-    {copied ? <Check className="h-3.5 w-3.5 text-[var(--success)]" /> : <Copy className="h-3.5 w-3.5" />}
+    className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted hover:bg-hover hover:text-fg disabled:opacity-50 ${className}`}>
+    {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
     <span aria-live="polite">{copied ? 'Đã sao chép' : 'Sao chép'}</span>
   </button>;
 }

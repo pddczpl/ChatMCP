@@ -1,55 +1,57 @@
 import { useEffect } from 'react';
 import { Command } from 'cmdk';
-import { useAppStore, InspectorTab } from '@/store/useAppStore';
-import { api } from '@/lib/api';
 import { useQuery } from '@tanstack/react-query';
-import { 
-  Plus, 
-  Folder, 
-  ShieldCheck, 
-  ShieldAlert, 
-  Bot, 
-  Eye, 
-  Moon, 
-  Sun, 
-  Activity, 
-  FileCode, 
-  GitBranch, 
-  Terminal, 
-  ListTodo, 
-  Globe, 
-  Cpu, 
-  Puzzle, 
-  Settings, 
-  Search 
+import {
+  Activity, Bot, Code2, Cpu, Eye, FileCode, Folder, GitBranch, Globe, Link2, ListTodo, Monitor, Moon, Palette, Plus, Puzzle,
+  Search, Settings, ShieldAlert, ShieldCheck, Sun, Terminal, Users, type LucideIcon,
 } from 'lucide-react';
+import { api } from '@/lib/api';
+import { useAppStore, type InspectorTab, type SettingsSection } from '@/store/useAppStore';
+import { useTranslation } from '@/lib/i18n';
+import { Kbd } from '@/components/ui/Kbd';
+import { cn } from '@/lib/utils';
+
+function Item({ icon: Icon, label, hint, tone, onSelect, keywords }: {
+  icon: LucideIcon; label: string; hint?: string; tone?: 'danger'; onSelect: () => void; keywords?: string[];
+}) {
+  return (
+    <Command.Item
+      onSelect={onSelect}
+      keywords={keywords}
+      className={cn(
+        'flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-[13px] transition-colors',
+        'data-[selected=true]:bg-hover',
+        tone === 'danger' ? 'text-danger data-[selected=true]:bg-danger/10' : 'text-fg',
+      )}
+    >
+      <Icon className={cn('h-4 w-4 shrink-0', tone === 'danger' ? 'text-danger' : 'text-muted')} />
+      <span className="flex-1 truncate">{label}</span>
+      {hint && <span className="shrink-0 text-[12px] text-faint">{hint}</span>}
+    </Command.Item>
+  );
+}
 
 export function CommandPalette() {
-  const { 
-    commandPaletteOpen, 
-    setCommandPaletteOpen, 
-    setSelectedTaskId, 
-    setActiveTab, 
-    setInspectorOpen, 
-    setTheme, 
+  const {
+    commandPaletteOpen,
+    setCommandPaletteOpen,
+    setSelectedTaskId,
+    setActiveTab,
+    setInspectorOpen,
+    openSettings,
+    setTheme,
     setFullAccessModalOpen,
-    showToast 
+    showToast,
   } = useAppStore();
+  const { t } = useTranslation();
 
   const { data: hub } = useQuery({ queryKey: ['hubState'], queryFn: api.getState });
 
-  // Global Ctrl+K / Cmd+K shortcut listener
+  // Escape closes the palette (Ctrl+K toggles it from the shell).
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setCommandPaletteOpen(!commandPaletteOpen);
-      }
-      if (e.key === 'Escape' && commandPaletteOpen) {
-        setCommandPaletteOpen(false);
-      }
+      if (e.key === 'Escape' && commandPaletteOpen) setCommandPaletteOpen(false);
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [commandPaletteOpen, setCommandPaletteOpen]);
@@ -60,8 +62,6 @@ export function CommandPalette() {
     fn();
     setCommandPaletteOpen(false);
   };
-
-  const handleCreateNewTask = () => setSelectedTaskId('');
 
   const handleSelectMode = async (mode: string) => {
     if (mode === 'full-access') {
@@ -84,168 +84,77 @@ export function CommandPalette() {
         showToast(`Đã chọn workspace: ${res.path}`, 'success');
       }
     } catch {
-      // Ignore
+      // The native folder picker may be unavailable; Settings has a manual path field.
+      openSettings('workspace');
     }
   };
 
-  const openInspectorTab = (tab: InspectorTab) => {
-    setInspectorOpen(true);
-    setActiveTab(tab);
-  };
+  const go = (tab: InspectorTab) => runAction(() => { setInspectorOpen(true); setActiveTab(tab); });
+  const settings = (section: SettingsSection) => runAction(() => openSettings(section));
+
+  const group = 'px-1 py-1 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[12px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint';
 
   return (
     <div
       onClick={() => setCommandPaletteOpen(false)}
-      className="fixed inset-0 z-50 flex items-start justify-center pt-24 p-4 bg-black/60 backdrop-blur-sm perspective-container"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-[var(--scrim)] px-4 pt-[12vh]"
     >
       <div
+        role="dialog"
+        aria-label="Bảng lệnh"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-xl rounded-2xl border border-[var(--line)] bg-[var(--panel)] shadow-2xl modal-3d-enter overflow-hidden text-xs select-none"
+        className="anim-pop w-full max-w-xl select-none overflow-hidden rounded-2xl border border-line bg-panel shadow-[var(--shadow-pop)]"
       >
-        <Command className="flex flex-col h-full">
-          {/* Search Input Bar */}
-          <div className="flex items-center gap-2.5 px-4 py-3 border-b border-[var(--line)] bg-[var(--surface)]">
-            <Search className="w-4 h-4 text-sky-400 flex-shrink-0" />
+        <Command className="flex flex-col" loop>
+          <div className="flex items-center gap-3 border-b border-line px-4 py-3">
+            <Search className="h-4 w-4 shrink-0 text-faint" />
             <Command.Input
               autoFocus
-              placeholder="Gõ lệnh hoặc tìm kiếm thao tác (Enter để chọn)..."
-              className="w-full bg-transparent text-[var(--text)] text-xs placeholder-[var(--faint)] focus:outline-none"
+              placeholder="Gõ lệnh hoặc tìm kiếm thao tác…"
+              className="w-full bg-transparent text-[14px] text-fg placeholder:text-faint focus:outline-none"
             />
-            <kbd className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-[var(--panel)] border border-[var(--line)] text-[var(--faint)]">
-              ESC
-            </kbd>
+            <Kbd>Esc</Kbd>
           </div>
 
-          {/* List of Suggestions */}
-          <Command.List className="max-h-80 overflow-y-auto p-2 space-y-1">
-            <Command.Empty className="py-6 text-center text-xs text-[var(--faint)]">
-              Không tìm thấy lệnh phù hợp
-            </Command.Empty>
+          <Command.List className="max-h-[min(26rem,60vh)] overflow-y-auto p-2">
+            <Command.Empty className="py-8 text-center text-[13px] text-faint">Không tìm thấy lệnh phù hợp</Command.Empty>
 
-            {/* Section: Phiên làm việc */}
-            <Command.Group heading="Phiên làm việc & Workspace" className="text-[10px] font-semibold uppercase tracking-wider text-[var(--faint)] px-2 py-1">
-              <Command.Item
-                onSelect={() => runAction(handleCreateNewTask)}
-                className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs cursor-pointer hover:bg-[var(--surface-hover)] text-[var(--text)] transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5 text-sky-400" />
-                <span className="flex-1 font-medium">Tạo phiên làm việc mới</span>
-                <span className="text-[10px] text-[var(--faint)] font-mono">New Session</span>
-              </Command.Item>
-
-              <Command.Item
-                onSelect={() => runAction(handleBrowseWorkspace)}
-                className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs cursor-pointer hover:bg-[var(--surface-hover)] text-[var(--text)] transition-colors"
-              >
-                <Folder className="w-3.5 h-3.5 text-sky-400" />
-                <span className="flex-1 font-medium">Đổi thư mục Workspace</span>
-                <span className="text-[10px] text-[var(--faint)] font-mono">Open Folder</span>
-              </Command.Item>
+            <Command.Group heading="Hội thoại & workspace" className={group}>
+              <Item icon={Plus} label="Tạo hội thoại mới" keywords={['new', 'chat', 'session']} onSelect={() => runAction(() => setSelectedTaskId(''))} />
+              <Item icon={Folder} label="Đổi thư mục workspace" keywords={['open', 'folder', 'workspace']} onSelect={() => runAction(() => void handleBrowseWorkspace())} />
             </Command.Group>
 
-            {/* Section: Chế độ quyền */}
-            <Command.Group heading="Chế độ quyền thực thi" className="text-[10px] font-semibold uppercase tracking-wider text-[var(--faint)] px-2 py-1 mt-2">
-              <Command.Item
-                onSelect={() => runAction(() => handleSelectMode('readonly'))}
-                className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs cursor-pointer hover:bg-[var(--surface-hover)] text-[var(--text)]"
-              >
-                <Eye className="w-3.5 h-3.5 text-slate-400" />
-                <span className="flex-1 font-medium">Chế độ Chỉ đọc (Read-only)</span>
-              </Command.Item>
-
-              <Command.Item
-                onSelect={() => runAction(() => handleSelectMode('review'))}
-                className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs cursor-pointer hover:bg-[var(--surface-hover)] text-[var(--text)]"
-              >
-                <ShieldCheck className="w-3.5 h-3.5 text-sky-400" />
-                <span className="flex-1 font-medium">Chế độ Review (Phê duyệt trước khi ghi)</span>
-              </Command.Item>
-
-              <Command.Item
-                onSelect={() => runAction(() => handleSelectMode('autonomous'))}
-                className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs cursor-pointer hover:bg-[var(--surface-hover)] text-[var(--text)]"
-              >
-                <Bot className="w-3.5 h-3.5 text-purple-400" />
-                <span className="flex-1 font-medium">Chế độ Tự động (Autonomous)</span>
-              </Command.Item>
-
-              <Command.Item
-                onSelect={() => runAction(() => handleSelectMode('full-access'))}
-                className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs cursor-pointer hover:bg-rose-950/30 text-rose-300"
-              >
-                <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
-                <span className="flex-1 font-medium">FULL ACCESS ⚠️ (Cần xác nhận)</span>
-              </Command.Item>
+            <Command.Group heading="Chế độ quyền" className={group}>
+              <Item icon={Eye} label="Chỉ đọc (Read-only)" hint="Không sửa gì" onSelect={() => runAction(() => void handleSelectMode('readonly'))} />
+              <Item icon={ShieldCheck} label="Review" hint="Hỏi trước khi ghi" onSelect={() => runAction(() => void handleSelectMode('review'))} />
+              <Item icon={Bot} label="Tự động (Autonomous)" hint="Tự chạy trong workspace" onSelect={() => runAction(() => void handleSelectMode('autonomous'))} />
+              <Item icon={ShieldAlert} tone="danger" label="FULL ACCESS" hint="Cần xác nhận" onSelect={() => runAction(() => void handleSelectMode('full-access'))} />
             </Command.Group>
 
-            {/* Section: Chuyển tab Inspector */}
-            <Command.Group heading="Điều hướng Inspector" className="text-[10px] font-semibold uppercase tracking-wider text-[var(--faint)] px-2 py-1 mt-2">
-              <Command.Item
-                onSelect={() => runAction(() => openInspectorTab('activity'))}
-                className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs cursor-pointer hover:bg-[var(--surface-hover)] text-[var(--text)]"
-              >
-                <Activity className="w-3.5 h-3.5 text-sky-400" />
-                <span>Xem nhật ký Hoạt động (Activity)</span>
-              </Command.Item>
-
-              <Command.Item
-                onSelect={() => runAction(() => openInspectorTab('git'))}
-                className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs cursor-pointer hover:bg-[var(--surface-hover)] text-[var(--text)]"
-              >
-                <GitBranch className="w-3.5 h-3.5 text-teal-400" />
-                <span>Xem Git & Checkpoints</span>
-              </Command.Item>
-
-              <Command.Item
-                onSelect={() => runAction(() => openInspectorTab('terminal'))}
-                className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs cursor-pointer hover:bg-[var(--surface-hover)] text-[var(--text)]"
-              >
-                <Terminal className="w-3.5 h-3.5 text-amber-400" />
-                <span>Xem Terminal Output</span>
-              </Command.Item>
-
-              <Command.Item
-                onSelect={() => runAction(() => openInspectorTab('intelligence'))}
-                className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs cursor-pointer hover:bg-[var(--surface-hover)] text-[var(--text)]"
-              >
-                <Cpu className="w-3.5 h-3.5 text-sky-400" />
-                <span>Cấu hình AI Models & Kiểm tra kết nối</span>
-              </Command.Item>
-
-              <Command.Item
-                onSelect={() => runAction(() => openInspectorTab('skills'))}
-                className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs cursor-pointer hover:bg-[var(--surface-hover)] text-[var(--text)]"
-              >
-                <Puzzle className="w-3.5 h-3.5 text-purple-400" />
-                <span>Mở Chợ kỹ năng (Skills Marketplace)</span>
-              </Command.Item>
-
-              <Command.Item
-                onSelect={() => runAction(() => openInspectorTab('settings'))}
-                className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs cursor-pointer hover:bg-[var(--surface-hover)] text-[var(--text)]"
-              >
-                <Settings className="w-3.5 h-3.5 text-slate-400" />
-                <span>Mở Cài đặt hệ thống (Settings)</span>
-              </Command.Item>
+            <Command.Group heading="Đi tới" className={group}>
+              <Item icon={ListTodo} label={t('tab_progress')} hint="Kế hoạch và bằng chứng" keywords={['plan', 'evidence', 'kế hoạch']} onSelect={() => go('plan')} />
+              <Item icon={GitBranch} label={t('tab_changes')} hint="Git diff, checkpoint" keywords={['git', 'diff', 'checkpoint']} onSelect={() => go('changes')} />
+              <Item icon={FileCode} label={t('tab_files')} keywords={['files']} onSelect={() => go('files')} />
+              <Item icon={Terminal} label={t('tab_terminal')} onSelect={() => go('terminal')} />
+              <Item icon={Activity} label={t('tab_activity')} keywords={['log', 'nhật ký']} onSelect={() => go('activity')} />
+              <Item icon={Users} label={t('tab_agents')} hint="Tác vụ nền, subagent" keywords={['background', 'subagent']} onSelect={() => go('agents')} />
+              <Item icon={Globe} label={t('tab_preview')} onSelect={() => go('preview')} />
             </Command.Group>
 
-            {/* Section: Giao diện */}
-            <Command.Group heading="Giao diện (Theme)" className="text-[10px] font-semibold uppercase tracking-wider text-[var(--faint)] px-2 py-1 mt-2">
-              <Command.Item
-                onSelect={() => runAction(() => setTheme('dark'))}
-                className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs cursor-pointer hover:bg-[var(--surface-hover)] text-[var(--text)]"
-              >
-                <Moon className="w-3.5 h-3.5 text-sky-400" />
-                <span>Giao diện Tối (Dark mode)</span>
-              </Command.Item>
+            <Command.Group heading="Cài đặt" className={group}>
+              <Item icon={Cpu} label="Mô hình AI và kiểm tra kết nối" keywords={['model', 'provider', 'api']} onSelect={() => settings('model')} />
+              <Item icon={Puzzle} label="Kỹ năng" keywords={['skills']} onSelect={() => settings('skills')} />
+              <Item icon={Link2} label="Kênh agent và ChatGPT Web Companion" keywords={['companion', 'chatgpt']} onSelect={() => settings('agent-channel')} />
+              <Item icon={ShieldCheck} label="Quyền và môi trường thực thi" keywords={['permissions', 'execution', 'isolation']} onSelect={() => settings('permissions')} />
+              <Item icon={Code2} label="Phân tích mã" keywords={['lsp', 'intelligence']} onSelect={() => settings('code-intelligence')} />
+              <Item icon={Settings} label="Mở cài đặt" hint="Ctrl ," onSelect={() => runAction(() => openSettings())} />
+            </Command.Group>
 
-              <Command.Item
-                onSelect={() => runAction(() => setTheme('light'))}
-                className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs cursor-pointer hover:bg-[var(--surface-hover)] text-[var(--text)]"
-              >
-                <Sun className="w-3.5 h-3.5 text-amber-400" />
-                <span>Giao diện Sáng (Light mode)</span>
-              </Command.Item>
+            <Command.Group heading="Giao diện" className={group}>
+              <Item icon={Moon} label="Tối" keywords={['dark', 'theme']} onSelect={() => runAction(() => setTheme('dark'))} />
+              <Item icon={Sun} label="Sáng" keywords={['light', 'theme']} onSelect={() => runAction(() => setTheme('light'))} />
+              <Item icon={Monitor} label="Theo hệ thống" keywords={['system', 'theme']} onSelect={() => runAction(() => setTheme('system'))} />
+              <Item icon={Palette} label="Giao diện và ngôn ngữ" onSelect={() => settings('appearance')} />
             </Command.Group>
           </Command.List>
         </Command>

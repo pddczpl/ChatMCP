@@ -1,18 +1,9 @@
-import { useState, useRef, useEffect } from 'react';
-import { 
-  Send, 
-  Square, 
-  Paperclip, 
-  ShieldCheck, 
-  ShieldAlert, 
-  Bot, 
-  Eye, 
-  ChevronDown, 
-  Sparkles, X
-} from 'lucide-react';
+import { useState, useRef, useEffect, type ReactNode } from 'react';
+import { ArrowUp, Bot, Check, ChevronDown, Eye, Paperclip, ShieldAlert, ShieldCheck, Square, X } from 'lucide-react';
 import type { ChatAttachment } from '@/types';
 import { useAppStore } from '@/store/useAppStore';
 import { useTranslation } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 
 interface ComposerProps {
   onSendMessage: (text: string, attachments: ChatAttachment[]) => boolean | void | Promise<boolean | void>;
@@ -25,7 +16,11 @@ interface ComposerProps {
   dependencyOptions?: {id: string; label: string; state: string}[];
   selectedDependsOn?: string[];
   onDependsOnChange?: (ids: string[]) => void;
+  /** More controls for the toolbar (for example the model profile of a new conversation). */
+  extraTools?: ReactNode;
 }
+
+const chip = 'inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-transparent px-2.5 text-[13px] font-medium text-muted transition-colors hover:bg-hover hover:text-fg';
 
 export function Composer({
   onSendMessage,
@@ -38,6 +33,7 @@ export function Composer({
   dependencyOptions = [],
   selectedDependsOn = [],
   onDependsOnChange,
+  extraTools,
 }: ComposerProps) {
   const { t } = useTranslation();
   const [text, setText] = useState('');
@@ -48,6 +44,7 @@ export function Composer({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const submitPending = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const { setFullAccessModalOpen, showToast } = useAppStore();
 
   const activePlaceholder = placeholder || t('composer_placeholder');
@@ -59,6 +56,21 @@ export function Composer({
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 220)}px`;
     }
   }, [text]);
+
+  // Close the open menu on an outside click or Escape.
+  useEffect(() => {
+    if (!modeMenuOpen && !dependencyMenuOpen) return;
+    const close = (event: MouseEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent) {
+        if (event.key === 'Escape') { setModeMenuOpen(false); setDependencyMenuOpen(false); }
+        return;
+      }
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) { setModeMenuOpen(false); setDependencyMenuOpen(false); }
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', close);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', close); };
+  }, [modeMenuOpen, dependencyMenuOpen]);
 
   const handleFiles = async (files: File[]) => {
     if (submitting || !files.length) return;
@@ -120,6 +132,7 @@ export function Composer({
 
   const currentModeObj = modes.find((m) => m.id === currentMode) || modes[1];
   const ModeIcon = currentModeObj.icon;
+  const canSend = (text.trim() || attachments.length > 0) && !disabled && !submitting;
 
   const handleSelectMode = (modeId: string) => {
     setModeMenuOpen(false);
@@ -133,14 +146,13 @@ export function Composer({
   };
 
   return (
-    <div className="p-3 border-t border-[var(--line)] bg-[var(--panel)] flex-shrink-0 select-none"
+    <div className="@container select-none"
       onDragOver={e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
       onDrop={e => { if (e.dataTransfer.files.length) { e.preventDefault(); void handleFiles(Array.from(e.dataTransfer.files)); } }}>
-      <div className="relative border border-[var(--line)] focus-within:border-sky-500 rounded-xl bg-[var(--surface)] shadow-md transition-all">
+      <div className="relative rounded-2xl border border-line bg-panel shadow-sm transition-colors focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/20">
         <input ref={fileInputRef} className="hidden" type="file" multiple
           accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.json,.js,.jsx,.ts,.tsx,.mjs,.cjs,.py,.cs,.go,.rs,.java,.html,.css,.sql,.xml,.yaml,.yml,.toml,.sh,.ps1"
           onChange={e=>{void handleFiles(Array.from(e.target.files||[]));e.target.value='';}} />
-        {/* Text Area */}
         <textarea
           ref={textareaRef}
           value={text}
@@ -150,82 +162,83 @@ export function Composer({
             const files=Array.from(e.clipboardData.items).filter(item=>item.kind==='file'&&item.type.startsWith('image/')).map(item=>item.getAsFile()).filter((file):file is File=>!!file);
             if(files.length){e.preventDefault();void handleFiles(files);}
           }}
-          placeholder={isWorking ? 'Agent đang chạy — gửi chỉ dẫn mới bất kỳ lúc nào...' : activePlaceholder}
+          placeholder={isWorking ? 'Agent đang chạy — gửi chỉ dẫn mới bất kỳ lúc nào…' : activePlaceholder}
+          aria-label="Tin nhắn cho agent"
           disabled={disabled || submitting}
           rows={1}
-          className="w-full bg-transparent px-3.5 pt-3 pb-2 text-[15px] text-[var(--text)] placeholder-[var(--faint)] resize-none focus:outline-none max-h-56 min-h-[44px] leading-relaxed font-sans"
+          className="block max-h-56 min-h-[52px] w-full resize-none select-text bg-transparent px-4 pb-1 pt-3.5 font-sans text-[15px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
         />
 
         {attachments.length>0 && <div className="flex flex-wrap gap-1.5 px-3 pb-2" aria-label="Tệp đính kèm">
-          {attachments.map((file,index) => <span key={index} className="flex items-center gap-1 rounded border border-[var(--line)] bg-[var(--panel)] px-2 py-1 text-xs text-[var(--text)]">
-            <Paperclip className="w-3 h-3"/><span className="max-w-40 truncate">{file.name}</span>
-            <button aria-label={'Bỏ '+file.name} type="button" onClick={()=>setAttachments(items=>items.filter((_,i)=>i!==index))}><X className="w-3 h-3"/></button>
+          {attachments.map((file,index) => <span key={index} className="flex items-center gap-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-fg">
+            <Paperclip className="h-3 w-3"/><span className="max-w-40 truncate">{file.name}</span>
+            <button aria-label={'Bỏ '+file.name} type="button" className="text-faint hover:text-fg" onClick={()=>setAttachments(items=>items.filter((_,i)=>i!==index))}><X className="h-3 w-3"/></button>
           </span>)}
         </div>}
-        {/* Bottom Toolbar */}
-        <div className="px-3 pb-2.5 pt-1 flex items-center justify-between gap-2 border-t border-[var(--line-subtle)]">
-          {/* Left: Mode Picker & Quick Tools */}
-          <div className="relative flex items-center gap-2">
+
+        <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-1">
+          <div ref={menuRef} className="relative flex min-w-0 flex-wrap items-center gap-1">
             <button
               type="button"
-              onClick={() => setModeMenuOpen(!modeMenuOpen)}
-              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium bg-[var(--surface-hover)] hover:bg-[var(--line)] text-[var(--text)] border border-[var(--line)] transition-colors"
+              aria-haspopup="menu"
+              aria-expanded={modeMenuOpen}
+              onClick={() => { setModeMenuOpen(open => !open); setDependencyMenuOpen(false); }}
+              className={cn(chip, 'border-line bg-surface', currentMode === 'full-access' && 'border-danger/40 bg-danger/10 text-danger')}
               title={t('agent_exec_mode')}
             >
-              <ModeIcon className={`w-3.5 h-3.5 ${currentMode === 'full-access' ? 'text-rose-400' : 'text-[var(--primary)]'}`} />
-              <span>{currentModeObj.label}</span>
-              <ChevronDown className="w-3 h-3 text-[var(--faint)]" />
+              <ModeIcon className={cn('h-3.5 w-3.5', currentMode === 'full-access' ? 'text-danger' : 'text-primary')} />
+              <span className="text-fg">{currentModeObj.label}</span>
+              <ChevronDown className="h-3 w-3 text-faint" />
             </button>
 
             <button type="button" aria-label="Đính kèm file hoặc ảnh" title="Chọn file / kéo thả / Ctrl+V để dán ảnh"
               onClick={()=>fileInputRef.current?.click()}
-              className="p-1.5 rounded-md hover:bg-[var(--surface-hover)] text-[var(--muted)]">
-              <Paperclip className="w-4 h-4"/>
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors hover:bg-hover hover:text-fg">
+              <Paperclip className="h-4 w-4"/>
             </button>
+            {extraTools}
             {dependencyOptions.length > 0 && (
               <div className="relative">
                 <button type="button" title="Chờ các task được chọn hoàn tất"
                   aria-expanded={dependencyMenuOpen}
-                  className="rounded-md px-2 py-1.5 text-xs text-[var(--muted)] hover:bg-[var(--surface-hover)]"
-                  onClick={() => setDependencyMenuOpen(x=>!x)}>
+                  className={chip}
+                  onClick={() => { setDependencyMenuOpen(x=>!x); setModeMenuOpen(false); }}>
                   Chờ task {selectedDependsOn.length ? '('+selectedDependsOn.length+')' : ''}
-                  <ChevronDown className="w-3 h-3 inline ml-1"/>
+                  <ChevronDown className="h-3 w-3 text-faint"/>
                 </button>
-                {dependencyMenuOpen && <div className="absolute bottom-full left-0 z-50 mb-2 w-72 max-h-64 overflow-y-auto border border-[var(--line)] rounded-lg bg-[var(--panel)] p-2 shadow-xl">
-                  <p className="text-xs font-semibold mb-2">Chỉ bắt đầu khi các task đã chọn hoàn tất</p>
-                  {dependencyOptions.map(option=><label key={option.id} className="flex items-center gap-2 p-1.5 hover:bg-[var(--surface-hover)] rounded text-xs">
-                    <input type="checkbox" checked={selectedDependsOn.includes(option.id)}
+                {dependencyMenuOpen && <div className="anim-pop absolute bottom-full left-0 z-50 mb-2 max-h-64 w-80 overflow-y-auto rounded-xl border border-line bg-panel p-2 shadow-[var(--shadow-pop)]">
+                  <p className="mb-2 px-1 text-[13px] font-semibold">Chỉ bắt đầu khi các task đã chọn hoàn tất</p>
+                  {dependencyOptions.map(option=><label key={option.id} className="flex items-center gap-2 rounded-lg p-1.5 text-[13px] hover:bg-hover">
+                    <input type="checkbox" className="accent-primary" checked={selectedDependsOn.includes(option.id)}
                       onChange={e=>onDependsOnChange?.(e.target.checked?[...selectedDependsOn,option.id]:selectedDependsOn.filter(id=>id!==option.id))}/>
-                    <span className="truncate flex-1" title={option.label}>{option.label}</span>
-                    <span className="text-[var(--faint)]">{option.state}</span>
+                    <span className="min-w-0 flex-1 truncate" title={option.label}>{option.label}</span>
+                    <span className="text-faint">{option.state}</span>
                   </label>)}
                 </div>}
               </div>
             )}
-            {/* Mode Dropdown */}
             {modeMenuOpen && (
-              <div className="absolute left-0 bottom-full mb-1 w-64 rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-xl z-50 p-1.5 space-y-1 modal-3d-enter">
-                <div className="px-2 py-1 text-xs font-semibold  text-[var(--faint)]">
-                  {t('agent_exec_mode')}
-                </div>
+              <div role="menu" className="anim-pop absolute bottom-full left-0 z-50 mb-2 w-72 rounded-xl border border-line bg-panel p-1.5 shadow-[var(--shadow-pop)]">
+                <div className="px-2.5 py-1.5 text-[12px] font-medium text-faint">{t('agent_exec_mode')}</div>
                 {modes.map((m) => {
                   const Icon = m.icon;
                   const isCurrent = m.id === currentMode;
+                  const danger = m.id === 'full-access';
                   return (
                     <button
                       key={m.id}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={isCurrent}
                       onClick={() => handleSelectMode(m.id)}
-                      className={`w-full flex items-start gap-2.5 p-2 rounded-lg text-left transition-colors ${
-                        isCurrent
-                          ? 'bg-sky-500/15 text-[var(--primary)] font-medium'
-                          : 'hover:bg-[var(--surface-hover)] text-[var(--muted)] hover:text-[var(--text)]'
-                      }`}
+                      className={cn('flex w-full items-start gap-2.5 rounded-lg p-2.5 text-left transition-colors', isCurrent ? 'bg-primary/10' : 'hover:bg-hover')}
                     >
-                      <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${m.id === 'full-access' ? 'text-rose-400' : 'text-[var(--primary)]'}`} />
-                      <div className="min-w-0">
-                        <div className="text-xs font-semibold">{m.label}</div>
-                        <div className="text-xs text-[var(--faint)] leading-snug">{m.desc}</div>
+                      <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', danger ? 'text-danger' : isCurrent ? 'text-primary' : 'text-muted')} />
+                      <div className="min-w-0 flex-1">
+                        <div className={cn('text-[13px] font-semibold', danger ? 'text-danger' : isCurrent ? 'text-primary' : 'text-fg')}>{m.label}</div>
+                        <div className="text-[12px] leading-4 text-muted">{m.desc}</div>
                       </div>
+                      {isCurrent && <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />}
                     </button>
                   );
                 })}
@@ -233,39 +246,30 @@ export function Composer({
             )}
           </div>
 
-          {/* Right: Hint & Send/Stop Button */}
-          <div className="flex items-center gap-2">
-            <span className="hidden sm:inline text-xs text-[var(--faint)]">
-              {t('enter_to_send')}
-            </span>
-
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="hidden whitespace-nowrap text-[12px] text-faint @[820px]:inline">{t('enter_to_send')}</span>
             {isWorking && (
               <button
                 type="button"
                 onClick={onStop}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shadow-md shadow-rose-900/30 transition-all"
+                className="flex h-8 items-center gap-1.5 rounded-lg bg-danger px-3 text-[13px] font-semibold text-danger-fg transition-colors hover:bg-danger/90"
                 title={t('stop')}
               >
-                <Square className="w-3.5 h-3.5 fill-current" />
+                <Square className="h-3 w-3 fill-current" />
                 <span>{t('stop')}</span>
               </button>
             )}
-            {(
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={(!text.trim() && attachments.length===0) || disabled || submitting}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-md transition-all ${
-                  (text.trim() || attachments.length>0) && !disabled
-                    ? 'bg-sky-500 hover:bg-sky-400 text-slate-950 shadow-sky-500/20 active:scale-95'
-                    : 'bg-[var(--surface-hover)] text-[var(--faint)] cursor-not-allowed opacity-50'
-                }`}
-                title={t('send')}
-              >
-                <span>{t('send')}</span>
-                <Send className="w-3.5 h-3.5" />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={!canSend}
+              className={cn('flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] font-semibold transition-colors',
+                canSend ? 'bg-primary text-primary-fg hover:bg-primary-hover' : 'cursor-not-allowed bg-hover text-faint')}
+              title={t('send')}
+            >
+              <span>{t('send')}</span>
+              <ArrowUp className="h-3.5 w-3.5" />
+            </button>
           </div>
         </div>
       </div>

@@ -1,183 +1,168 @@
-# ChatMCP Studio — Design Direction & System Specification
+# ChatMCP Studio — Hướng thiết kế giao diện
 
-> **Phiên bản:** 2.4.0 (Frontend Rebuild)  
-> **Tác giả:** Principal Product Designer & Staff Front-end Engineer  
-> **Trạng thái:** Chờ phê duyệt (Giai đoạn 1)  
-> **Nguyên tắc chủ đạo:** *Calm Precision* (Bình tĩnh · Chính xác · Kiểm soát · Thân thiện)
-
----
-
-## 1. Tầm nhìn & Triết lý Thiết kế: "Calm Precision"
-
-ChatMCP là một **AI Coding Agent tự trị** hoạt động trực tiếp trên mã nguồn thật của lập trình viên trên Windows 11 và các môi trường Cloud/Container. Mỗi lệnh sửa file, chạy bash/PowerShell hay git commit đều tác động tới repository thật.
-
-Do đó, cảm xúc trọng tâm của giao diện phải là: **Bình tĩnh, chính xác, đáng tin cậy và hoàn toàn trong tầm kiểm soát**.
-Người dùng không cần những hiệu ứng hào nhoáng, gradient tím hồng ("AI slop") hay chuyển động giật mắt. Họ cần một công cụ làm việc 8 tiếng mỗi ngày như **Linear, Cursor, Raycast, Claude.ai hay VS Code**:
-- Mật độ thông tin cao nhưng thoáng đãng, phân cấp thị giác rõ ràng.
-- Mọi hành động của Agent đều minh bạch: biết rõ agent đang nghĩ gì, đọc file nào, sửa gì, chạy lệnh gì với quyền hạn gì.
-- Phê duyệt an toàn (Approvals & Permissions) là trung tâm của sự tin cậy.
-- Phím tắt là công dân hạng nhất (`Ctrl+K`, `Ctrl+B`, `Ctrl+J`, `Enter`/`Shift+Enter`, `Esc`).
+> **Trạng thái:** đang áp dụng cho bản làm mới giao diện sau v3.9.0 (nhánh `pddczpl/ux-refresh`). Thay thế bản đặc tả "Frontend Rebuild 2.4.0".
+> **Nguyên tắc chủ đạo:** *Calm Precision* — bình tĩnh, chính xác, kiểm soát được — và một nguyên tắc mới: **báo xong khác với chứng minh xong**.
+> **Nguồn sự thật:** mã trong `CHATMCP-HUB/ui/src` (token ở `src/index.css`). Tài liệu này giải thích *vì sao*; test ở `ui/tests` và `ui/e2e` giữ cho nó đúng.
+> **Ảnh minh họa:** `design/screenshots/v3/` (tạo lại bằng `npm run gallery`, xem mục 9).
 
 ---
 
-## 2. Điểm nhấn Nhận diện (Design Signatures)
+## 1. Vì sao làm lại
 
-### Signature 1: Thanh Pha Agent (Agent Phase Ribbon)
-Một dải mảnh tinh tế (chiều cao 28px) xuất hiện dưới header khi Agent đang hoạt động, hiển thị tiến trình chu kỳ nhận thức:
-`[ Đang nghĩ ] ──> [ Đọc file ] ──> [ Sửa đổi ] ──> [ Chạy kiểm thử ] ──> [ Hoàn tất ]`
-Mỗi pha có biểu tượng ngữ nghĩa, màu sắc tương ứng, thời gian thực thi (ms/s) và hiệu ứng pulse nhẹ nhàng. Người dùng luôn biết agent đang ở pha nào mà không cần đọc từng dòng log thô.
+Kiểm tra giao diện của v3.9.0 bằng ảnh chụp thật (Hub thật, model giả lập, Chromium) cho thấy:
 
-### Signature 2: Tool-Call Receipt Card
-Thay vì in log thô dạng text hoặc JSON cồng kềnh, mỗi hành động gọi công cụ của Agent được đóng gói trong một **Receipt Card** gọn gàng:
-- **Header:** Icon công cụ (`file-edit`, `terminal`, `search`, `git`), tên tool, đường dẫn file mono `student/kalman.py`, thời lượng chạy `1.2s`, trạng thái (thành công / đang chạy / lỗi).
-- **Body (thu gọn mặc định):** Nhấn để mở rộng xem output chi tiết hoặc diff thu nhỏ, có nút sao chép (Copy) và xem trong Inspector tương ứng.
+| Vấn đề | Hậu quả |
+|---|---|
+| **Theme sáng hỏng một nửa.** Khoảng 300 chỗ dùng màu Tailwind cố định (`bg-sky-500/10`, `text-rose-400`, `bg-slate-…`) thay vì token. | Thẻ, chip và ô nhập vẫn tối trên nền sáng; chữ nhạt khó đọc. |
+| **Panel phải quá tải.** Hai tầng tab (Background tasks / Inspector), rồi 9 tab xếp hai dòng; Cài đặt, AI Model và Skills bị nhồi vào cột 440 px. | Khó tìm, khó dùng form dài, không còn chỗ cho hooks, MCP, receipts. |
+| **Nhiễu thị giác.** Lẫn Việt–Anh ("This computer · Workspaces", "Role overrides"), ngày giờ kiểu Mỹ ("10/20/2026, 2:47 AM"), nhãn thô (`workspace_edit`), dòng số liệu kỹ thuật luôn hiện ở đầu hội thoại, nhãn 10–11 px viết hoa, hiệu ứng 3D/glow. | Mắt phải lọc nhiễu để thấy việc quan trọng. |
+| **Ý "báo xong vs chứng minh xong" bị giấu** trong tab Kế hoạch. | Đúng thứ làm ChatMCP khác biệt (lộ trình P4–P7) lại không thấy ở chỗ người dùng nhìn. |
 
-### Signature 3: Mode Pill Ngữ nghĩa & Quyền Hạn Minh Bạch
-Nằm cố định góc dưới bên trái của Composer và hiển thị trên Header:
-- **Chỉ đọc (Read-only):** Màu xanh xám `neutral`, icon `Eye`.
-- **Review (Mặc định):** Màu xanh dương `info`, icon `ShieldCheck`. Mọi thay đổi file và lệnh shell đều hỏi duyệt.
-- **Tự động (Autonomous):** Màu tím nhạt `primary`, icon `Bot`. Tự động sửa file trong workspace và chạy test an toàn.
-- **FULL ACCESS ⚠️:** Màu đỏ cam `danger`, viền sọc chéo tinh xảo, icon `Unlock`. Khi bật, một cảnh báo cố định xuất hiện ở header. Yêu cầu nhập đúng `FULL ACCESS` để kích hoạt.
+## 2. Triết lý
 
-### Signature 4: Diff Viewer Chuẩn IDE
-Diff viewer chuyên dụng tích hợp trong Review & Git Inspector:
-- Hỗ trợ cả hai chế độ **Split** (2 cột) và **Unified** (1 cột).
-- Line numbers rõ ràng, highlight cấp từ (word-level diff) với màu nền `add` (`oklch(0.92 0.08 145)` / dark: `oklch(0.28 0.06 145)`) và `delete` (`oklch(0.92 0.08 25)` / dark: `oklch(0.28 0.06 25)`).
-- Thanh công cụ hành động dính dưới đáy: "Chấp nhận thay đổi (Accept)" và "Khôi phục checkpoint (Restore)".
+ChatMCP là một agent lập trình chạy trên mã nguồn thật, bằng quyền của người dùng. Cảm giác cần có là **bình tĩnh và đáng tin**, không phải hào nhoáng. Bốn ý dẫn đường:
 
-### Signature 5: Empty States & Skeletons Đồng bộ
-Không sử dụng spinner đơn điệu ở khắp nơi:
-- Khi đang tải dữ liệu: Skeleton animation đồng bộ hình dạng của card, table và message stream.
-- Khi rỗng: Minh họa vector đơn sắc tối giản, một dòng tiêu đề súc tích, mô tả ngắn và một nút hành động tiếp theo rõ ràng (Call-to-Action).
+1. **Bằng chứng trước tiên.** Mọi thứ agent *nói* được tách khỏi thứ hệ thống *ghi nhận*. Màu xanh lá chỉ có nghĩa "Hub đã xác minh", không bao giờ là "model báo xong".
+2. **Hội thoại là nhân vật chính.** Cột đọc rộng tối đa 820 px; trạng thái nền (kết nối, quyền, model, ngữ cảnh) nằm ở thanh dưới cùng, không chen vào việc đang làm.
+3. **An toàn đọc được trong một cái liếc.** Chế độ quyền hiện ở ô nhập và thanh trạng thái; FULL ACCESS có dải đỏ cố định dưới thanh trên cùng; thẻ phê duyệt nói rõ làm gì, ở đâu, rủi ro cỡ nào, thay đổi gì.
+4. **Chỗ cho những gì sắp tới.** Cài đặt là trang riêng với danh sách mục mở rộng được; panel phải là một hàng tab; thanh trạng thái là danh sách mục. Hooks, MCP, receipts, duyệt diff theo hunk, plan mode đều có nơi để vào mà không phải dựng lại bố cục.
 
----
+## 3. Hệ thống token
 
-## 3. Hệ thống Design Tokens (OKLCH & Tailwind v4)
+Một nguồn duy nhất: `src/index.css`. Component dùng tiện ích ngữ nghĩa (`bg-panel`, `text-muted`, `border-line`, `text-primary`, `bg-danger/10`…), được khai báo bằng `@theme inline` nên đổi theme lúc chạy không cần build lại, và đi cùng độ trong suốt (`/10`). Bảng màu mặc định của Tailwind bị tắt (`--color-*: initial`), nên một lớp như `text-sky-400` không tạo ra CSS.
 
-Hệ thống token được khai báo qua CSS variables thuần túy (không sinh `<style>` động lúc runtime), tương thích 100% CSP `'style-src self'`.
+### 3.1 Màu
 
-### 3.1 Bảng màu Trung tính 12 bậc (Radix-inspired Slate)
-
-| Bậc | Mục đích | Giá trị Dark Mode (OKLCH) | Giá trị Light Mode (OKLCH) |
+| Token | Tối | Sáng | Dùng cho |
 |---|---|---|---|
-| **1** | Nền ứng dụng chính (App Canvas) | `oklch(0.14 0.015 250)` (#0e1217) | `oklch(0.985 0.005 250)` (#f8fafc) |
-| **2** | Nền panel / Card bề mặt (Surface) | `oklch(0.17 0.018 250)` (#131820) | `oklch(1.000 0.000 000)` (#ffffff) |
-| **3** | Nền phần tử tương tác (Component BG) | `oklch(0.21 0.020 250)` (#19212b) | `oklch(0.955 0.008 250)` (#f1f5f9) |
-| **4** | Hover trên tương tác | `oklch(0.25 0.024 250)` (#212b38) | `oklch(0.925 0.012 250)` (#e2e8f0) |
-| **5** | Active / Selected bề mặt | `oklch(0.29 0.028 250)` (#2a3747) | `oklch(0.890 0.015 250)` (#cbd5e1) |
-| **6** | Viền mờ phụ (Subtle Border) | `oklch(0.24 0.018 250)` | `oklch(0.910 0.010 250)` |
-| **7** | Viền mặc định (Default Border 1px) | `oklch(0.30 0.022 250)` | `oklch(0.830 0.015 250)` |
-| **8** | Viền nổi bật (Hover/Focus Border) | `oklch(0.40 0.030 250)` | `oklch(0.700 0.020 250)` |
-| **9** | Solid Primary Accent | `oklch(0.72 0.140 175)` (Cyan Mint) | `oklch(0.55 0.130 175)` (Deep Teal) |
-| **10** | Solid Primary Hover | `oklch(0.78 0.150 175)` | `oklch(0.48 0.140 175)` |
-| **11** | Chữ phụ / Muted text (≥ 4.5:1) | `oklch(0.72 0.025 250)` | `oklch(0.42 0.030 250)` |
-| **12** | Chữ chính / High-contrast text (≥ 12:1)| `oklch(0.96 0.008 250)` | `oklch(0.16 0.020 250)` |
+| `bg` | `#0b0e13` | `#f3f5f8` | nền ứng dụng, vùng đọc |
+| `panel` | `#11151b` | `#ffffff` | header, sidebar, panel, thẻ |
+| `surface` | `#171c24` | `#f6f8fb` | ô nhập, chip, hàng trong danh sách |
+| `hover` / `active` | `#1e2530` / `#263040` | `#edf1f6` / `#e3e9f1` | rê chuột / đang chọn |
+| `line-subtle` / `line` / `line-strong` | `#1a2029` / `#273040` / `#394558` | `#e9edf3` / `#d9e0ea` / `#bcc7d6` | viền |
+| `text` / `muted` / `faint` | `#e9edf3` / `#a6b1c0` / `#8591a3` | `#0f1722` / `#475468` / `#5b6a82` | chữ chính / phụ / mờ |
+| `primary` (+ `-hover`, `-fg`) | `#5aa9ff`, `#7bbcff`, `#06121f` | `#1763d8`, `#0f4fb2`, `#ffffff` | thương hiệu, liên kết, hành động chính, vòng focus |
+| `accent` | `#38d2bd` | `#0b8a7a` | logo, chế độ Tự động (dùng rất ít) |
+| `success` | `#3fd99b` | `#0b7a52` | **đã xác minh**, thành công |
+| `warning` | `#f3b94d` | `#9a5a00` | **agent tự báo / chưa xác minh**, chú ý |
+| `danger` (+ `-fg`) | `#ff7f8f`, `#1d0509` | `#c22d45`, `#ffffff` | lỗi, từ chối, FULL ACCESS |
 
-### 3.2 Màu Ngữ nghĩa (Semantic Colors)
+**Nghĩa của màu, không đổi:** xanh dương là thương hiệu và focus; xanh lá = *bằng chứng được Hub xác minh*; vàng = *chưa có bằng chứng*; đỏ = *lỗi hoặc nguy hiểm*. Không dùng các màu này cho việc khác.
 
-- **Brand Accent:** Cyan-Teal `oklch(0.72 0.14 175)` — kế thừa nhận diện của ChatMCP Studio, sắc sảo và hiện đại.
-- **Success:** `oklch(0.72 0.16 145)` (Dark text) / `oklch(0.25 0.07 145)` (Dark bg) — Tác vụ hoàn tất, test pass, checkpoint an toàn.
-- **Warning:** `oklch(0.78 0.14 80)` (Dark text) / `oklch(0.26 0.06 80)` (Dark bg) — Cần chú ý, tạm dừng, session recovery.
-- **Danger:** `oklch(0.68 0.20 25)` (Dark text) / `oklch(0.25 0.08 25)` (Dark bg) — Lỗi, từ chối, Full Access ⚠️, xóa session.
-- **Info:** `oklch(0.70 0.14 240)` (Dark text) / `oklch(0.24 0.06 240)` (Dark bg) — Review mode, chỉ dẫn hệ thống.
+Độ tương phản đo từ chính token (và `ui/tests/design-tokens.test.mjs` giữ ngưỡng ở cả hai theme):
 
-### 3.3 Typography & Font Stacks
+| Cặp | Tối | Sáng | Ngưỡng của test |
+|---|---|---|---|
+| chữ chính trên panel | 15,6 | 18,0 | ≥ 10 trên mọi nền |
+| chữ phụ (`muted`) trên panel | 8,4 | 7,7 | ≥ 6 |
+| chữ mờ (`faint`) trên panel / surface | 5,7 / 5,4 | 5,5 / 5,2 | ≥ 4,5 |
+| `primary`, `success`, `warning`, `danger` trên panel | 7,5–10,3 | 5,4–5,6 | ≥ 4,5 |
+| chữ trên nút `primary` | 7,7 | 5,5 | ≥ 4,5 |
 
-- **UI Text:** `"Segoe UI Variable", "Inter Variable", system-ui, -apple-system, sans-serif`
-  - Đảm bảo font Windows 11 nguyên bản (`Segoe UI Variable`), hiển thị dấu tiếng Việt hoàn hảo, không bị đè dấu hay vỡ kerning trên Windows WebView2.
-- **Code & Numbers:** `"JetBrains Mono", "Cascadia Code", Consolas, monospace`
-  - Tự host via `@fontsource/jetbrains-mono`, hiển thị số liệu dạng `font-variant-numeric: tabular-nums` (`tnum`) để cột số và bảng không bị rung khi nhảy số.
-- **Thang kích thước:**
-  - Micro: `10px / 14px` (Tags, status badges, timestamps)
-  - Caption: `11px / 16px` (Field notes, secondary labels)
-  - Compact: `12px / 18px` (Table cells, file tree items, buttons)
-  - Body: `13px / 20px` (Mặc định cho đoạn văn, chat stream, composer)
-  - Body Large: `14px / 22px` (Tiêu đề tin nhắn, modal body)
-  - Heading Sm: `16px / 24px` (Card titles, section headings)
-  - Heading Md: `20px / 28px` (Screen headers, modal titles)
-  - Heading Lg: `26px / 34px` (Welcome headline)
+### 3.2 Chữ, khoảng cách, góc
 
-### 3.4 Lưới & Spacing, Bo góc, Viền
-- Lưới cơ sở **4px** (`4px, 8px, 12px, 16px, 20px, 24px, 32px, 48px`).
-- Radius: `rounded-sm: 4px`, `rounded-md: 6px`, `rounded-lg: 8px` (mặc định cho button, input, card), `rounded-xl: 12px` (modal, popover), `rounded-full: 9999px` (pills, badges).
-- Viền mảnh **1px solid** tinh tế, không dùng bóng đổ dày mà dùng viền phân cách sạch sẽ kèm 1px inner highlight trên nền tối.
+- **Font:** Inter Variable (tự host), JetBrains Mono cho mã. Nội dung đọc (tin nhắn, mã) 15 px / 1,72; giao diện 13–14 px; **không dùng cỡ dưới 12 px** cho thứ cần đọc (chỉ phím tắt `Kbd` 11 px). Test chặn lớp `text-[8–11px]`.
+- **Không viết hoa** nhãn tiếng Việt; nhãn nhóm là câu thường 12 px, màu `faint`.
+- **Ngày giờ** theo ngôn ngữ giao diện, đồng hồ 24 giờ (`lib/format.ts`): `20/10/2026 14:47`, "5 phút trước", `842 ms`, `12k` token.
+- **Góc:** điều khiển 8 px (`rounded-lg`), thẻ 12 px (`rounded-xl`), hộp thoại 16 px (`rounded-2xl`), chip tròn đầy. Viền 1 px, không bóng đổ trừ lớp nổi (popover, hộp thoại, toast: `--shadow-pop`).
+- **Chuyển động:** ngắn và đơn giản (`anim-pop`, `anim-rise`, 140–180 ms). Đã bỏ hiệu ứng nghiêng 3D và quầng sáng. `prefers-reduced-motion` tắt hết; `forced-colors` giữ focus nhìn thấy.
 
----
+### 3.3 Cổng chống tái phát
 
-## 4. Kiến trúc Màn hình & Tương tác
+`ui/tests/design-tokens.test.mjs` fail khi: có lớp màu Tailwind cố định, có mã màu hex trong component (ngoại lệ duy nhất: nền trắng của khung Preview), có `bg-[var(--…)]` thay cho tiện ích ngữ nghĩa, có chữ dưới 12 px, còn lớp hiệu ứng 3D, hoặc hai theme không khai báo cùng một bộ token.
 
-### 4.1 Bố cục 3 Panel (App Shell)
-- Sử dụng `react-resizable-panels`:
-  - **Trái: Sessions Sidebar (240px - 320px, mặc định 260px)**. Thu gọn nhanh bằng `Ctrl+B`.
-  - **Giữa: Conversation View (min 500px, flex 1, độ rộng đọc tin nhắn max 780px căn giữa)**.
-  - **Phải: Inspector 9 Tabs (320px - 550px, mặc định 380px)**. Thu gọn nhanh bằng `Ctrl+J`.
-- Header đồng nhất 48px:
-  - Trái: Logo ChatMCP Studio + Workspace selector pill (nhấn mở dropdown chọn thư mục gần đây hoặc browse).
-  - Giữa: Ô tìm kiếm nhanh "Tìm hoặc chạy lệnh… `Ctrl K`".
-  - Phải: Badge kết nối Hub (Online/Offline), Provider Chip (model hiện tại + tool-call status), Theme Toggle (Dark/Light/System), nút Thu gọn Inspector, Avatar + Role.
+## 4. Kiến trúc màn hình
 
-### 4.2 Sessions List (Quản lý Phiên)
-- Nhóm thông minh: **Hôm nay**, **7 ngày qua**, **Cũ hơn**.
-- Mỗi item: Tiêu đề tóm tắt (1-2 dòng), thời gian tương đối (`5 phút trước`), trạng thái (chấm xanh hoàn tất, chấm vàng pulse đang chạy, chấm đỏ lỗi), workspace tương ứng.
-- Menu context `...`: Đổi tên phiên, Sao chép ID, Xóa phiên.
-- Tìm kiếm tức thì có highlight từ khóa, virtualized bằng `@tanstack/react-virtual`.
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│ Header 48 px: [☰] ChatMCP · 📁 workspace ▾ · ⎇ nhánh ▾      [🔍 Tìm kiếm hoặc chạy lệnh  Ctrl K]      ☀  ⚙  ▯ │
+├──────────────────────────────────────────────────────────────────────────────────────────┤
+│ (dải đỏ cố định khi FULL ACCESS bật)                                                      │
+├────────────┬───────────────────────────────────────────────┬─────────────────────────────┤
+│ Sidebar    │ Hội thoại                                     │ Work panel                  │
+│ Workspace  │  Tiêu đề · trạng thái · thời gian · [Dừng]     │ Tiến độ · Thay đổi · Tệp ·  │
+│  └ chat    │  tin nhắn · chuỗi công cụ · thẻ phê duyệt      │ Terminal · Tác nhân · ⋯     │
+│            │  ▸ Dải bằng chứng                              │ (⋯: Hoạt động, Xem trước)   │
+│            │  Ô nhập: [chế độ] 📎 [profile]        [Gửi]    │                             │
+├────────────┴───────────────────────────────────────────────┴─────────────────────────────┤
+│ Status bar 28 px: ● Hub · ⎇ nhánh · kênh        Ngữ cảnh · model · chế độ quyền · phiên bản │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+```
 
-### 4.3 Màn hình Chào (Welcome Screen) & Luồng Hội thoại
-- Khi chưa chọn phiên: Lời chào thân thiện theo thời gian trong ngày ("Chào buổi sáng, lập trình viên!"), hiển thị workspace đang mở, và **4 gợi ý tác vụ thực tế** (quét mã nguồn, tìm lỗi chưa commit, kiểm tra test suite, đề xuất refactor).
-- Luồng tin nhắn:
-  - Tin nhắn User: Căn phải, nền subtly tinted, rõ ràng số thứ tự yêu cầu.
-  - Tin nhắn Agent: Căn trái kèm avatar AI, render Markdown chuẩn GFM an toàn (không dùng `rehype-raw`), code block có nút Copy, hiển thị ngôn ngữ và đường dẫn file liên quan.
-  - Receipt card cho các tool call thu gọn gọn gàng.
-  - Nút **Dừng tác vụ (Cancel)** nổi bật khi agent đang chạy, đi kèm bộ đếm thời gian và bước hiện tại.
-  - Tự động cuộn thông minh: Khi người dùng cuộn lên để đọc lịch sử, hệ thống không tự giật xuống; hiển thị nút pill "↓ Có tin mới" ở góc dưới.
+- **Header** chỉ có thứ dùng liên tục: bật/tắt panel (`Ctrl B`, `Ctrl J`), nơi đang làm việc (workspace, nhánh), tìm kiếm/lệnh (`Ctrl K`), theme, Cài đặt (`Ctrl ,`). Báo mất kết nối Hub hiện ở đây khi có sự cố.
+- **Thanh trạng thái** chỉ hiện dữ liệu thật của Hub: kết nối, nhánh (chấm vàng khi có thay đổi chưa commit), kênh ChatGPT Web Companion (khi dùng), cửa sổ ngữ cảnh (dấu `~` = ước tính), model, chế độ quyền, phiên bản. Mỗi mục mở đúng trang của Cài đặt. Không có mục giữ chỗ cho tính năng chưa có.
+- **Sidebar:** workspace → hội thoại, thời gian tương đối, nút xóa chỉ hiện khi rê chuột/focus.
+- **Work panel:** một hàng tab, chữ thuần (không icon), tab đang chọn có gạch chân; `Hoạt động` và `Xem trước` (dùng ít hơn) nằm dưới `⋯` và tự hiện thành tab khi được chọn; bàn phím `←/→/Home/End`. Không còn tầng "Background tasks / Inspector": tác vụ nền là tab **Tác nhân**.
+- **Cài đặt** là hộp thoại toàn trang (native `<dialog>`: focus nằm trong, `Esc` đóng) với menu trái: Dự án · Mô hình AI · Quyền & thực thi · Kênh agent · Kỹ năng · Phân tích mã · Giao diện & ngôn ngữ · Thông tin & dữ liệu. Thêm mục mới = thêm một phần tử vào `SECTIONS` (`components/settings/SettingsView.tsx`). Toast hiện *bên trong* hộp thoại khi nó đang mở (chỉ có một toast tại mọi thời điểm). Hộp xác nhận FULL ACCESS cũng là native modal nên mở được *phía trên* Cài đặt.
+- **Bảng lệnh** (`Ctrl K`): câu thường, nhóm theo việc (hội thoại, quyền, đi tới, cài đặt, giao diện), mục đang chọn bằng bàn phím được tô sáng.
+- **Hướng dẫn khởi động:** 3 bước (thư mục → mô hình → quyền) với bước đã xong đánh dấu rõ.
+- **Màn hình hẹp:** dưới 1100 px sidebar và work panel thành lớp phủ; ô nhập dùng container query để ẩn bớt nhãn thay vì xuống dòng.
 
-### 4.4 Composer Đẳng cấp
-- Textarea auto-grow từ 1 đến 10 dòng, placeholder động theo ngữ cảnh.
-- Hỗ trợ `@` mention file trong workspace (popup combobox tìm kiếm file nhanh).
-- Mode pill: hiển thị rõ quyền hiện tại (Chỉ đọc, Review, Tự động, FULL ACCESS) ngay cạnh nút Gửi.
-- Provider selector: Nhấp để chuyển nhanh AI profile hoặc mở Settings.
-- Ước tính context / token counter.
-- Phím tắt: `Enter` gửi, `Shift+Enter` xuống dòng, `Esc` dừng, `↑` khi ô rỗng để lật lại prompt vừa gửi.
+## 5. Điểm nhấn
 
-### 4.5 Inspector 9 Tabs Đầy Đủ (Feature Parity)
-1. **Activity (`activity`):** Nhật ký timeline các sự kiện theo lượt, lọc theo loại (Tools, AI thoughts, System, Checkpoints).
-2. **Files (`files`):** Cây thư mục dự án tương tác chuẩn ARIA tree, tìm kiếm file nhanh, trình xem file tích hợp Shiki highlight và số dòng, cho phép sửa file thủ công có kiểm tra SHA-256 an toàn.
-3. **Git (`git`):** Trạng thái nhánh hiện tại, danh sách file thay đổi (M/A/D/U), diff viewer Split/Unified, tạo checkpoint và review checkpoint trước khi merge.
-4. **Terminal (`terminal`):** Terminal tích hợp với `@xterm/xterm`, hỗ trợ cả interactive shell và non-interactive commands, hiển thị exit code, lịch sử kiểm thử dự án (Project Verification).
-5. **Plan (`plan`):** Checklist công việc của agent theo từng bước (`todo`, `doing`, `done`, `blocked`), cho phép người dùng thêm/bớt/sửa bước hoặc kích hoạt research subagents.
-6. **Preview (`preview`):** Trình xem ứng dụng localhost an toàn trong sandboxed iframe (chặn truy cập vào origin dashboard), kiểm tra cổng dev server và reload 1-click.
-7. **Intelligence (`intelligence`):** Code Index AST (Python AST index), tìm kiếm symbols, references, definitions; khởi động và quản lý Pyright / TypeScript LSP server.
-8. **Skills Marketplace (`skills`):** Lưới các kỹ năng, plugins và công cụ MCP được phân loại (Coding, Testing, Security, Automation), tìm kiếm, bộ lọc, xem chi tiết và bật/tắt/cài đặt.
-9. **Settings (`settings`):** Cấu hình chung, Quản lý Profiles AI (multi-profile, test kết nối có hiển thị độ trễ ms, tự động phát hiện tool calling), Quyền hạn phê duyệt, Tùy chọn giao diện và kiểm tra tính năng hệ thống.
+### 5.1 Dải bằng chứng (`ProofStrip`, `lib/proof.ts`)
 
-### 4.6 Approval Stack & Chế độ Quyền Hạn (Trọng tâm An toàn)
-- Xuất hiện ở vị trí ưu tiên cao (phía trên Composer hoặc dialog modal khi thao tác rủi ro cao):
-  - Badge mức độ rủi ro: **Thấp** (xanh), **Trung bình** (vàng), **Cao** (đỏ).
-  - Tóm tắt hành vi: lệnh shell nào được thực thi, file nào bị ghi đè, diff chi tiết.
-  - Đồng hồ đếm ngược tự động từ chối khi hết hạn.
-  - Phím tắt: `Enter` chấp nhận, `Esc` từ chối.
-- Chế độ **FULL ACCESS**:
-  - Hộp thoại cảnh báo bảo mật nghiêm ngặt (`AlertDialog`), giải thích nguy cơ truy cập toàn bộ máy và Internet không qua sandbox.
-  - Bắt buộc gõ chính xác chuỗi `FULL ACCESS` mới kích hoạt nút Xác nhận.
-  - Header và Composer đổi sang theme cảnh báo đỏ-cam khi chế độ này đang bật.
+Dưới câu trả lời của một lượt có sửa file hoặc chạy lệnh, một dải nói rõ lượt đó là *được báo xong* hay *được chứng minh xong*, **chỉ từ những gì Hub ghi nhận** (lời gọi công cụ, kiểm tra đã chạy, kết quả xác minh của chính Hub), không bao giờ từ lời của model.
 
-### 4.7 Command Palette (`Ctrl+K`)
-- Sử dụng `cmdk`:
-  - Tìm kiếm mờ (fuzzy search) với highlight ký tự khớp.
-  - Nhóm lệnh: Hành động nhanh, Điều hướng tab, Quản lý phiên, Chế độ quyền, Cài đặt & Theme.
-  - Hiển thị phím tắt dạng `<kbd>` chuẩn đẹp.
-  - Ghi nhớ các lệnh vừa chạy gần đây (Recent commands).
+| Trạng thái | Màu | Điều kiện |
+|---|---|---|
+| Có lỗi trong lượt này | đỏ | lượt `failed`, có công cụ báo lỗi, hoặc có kiểm tra thất bại |
+| Đã nghiệm thu | xanh | chủ máy đã xác nhận các tiêu chí bằng bằng chứng còn mới (`completionOutcome.requirements = verified`) |
+| Kiểm tra đã được xác minh | xanh | có ít nhất một kiểm tra mà Hub tự xác minh kết quả (`testOutcomeVerified`), và không còn thiếu bằng chứng; lời ghi chú nhắc rằng điều này *chưa* chứng minh mọi yêu cầu |
+| Chưa xác minh đầy đủ | vàng | Hub còn liệt kê bằng chứng thiếu (`verificationOutcome.ready = false`) |
+| Lệnh chạy xong, chưa xác minh kết quả test | vàng | mã thoát 0 nhưng kết quả test chưa được xác minh |
+| Chưa có bằng chứng kiểm tra được ghi nhận | vàng | có sửa file/chạy lệnh nhưng Hub không ghi nhận kiểm tra nào |
+| *(không hiện)* | — | lượt chỉ đọc và trả lời |
 
----
+**Bài học đã ghi vào mã:** `verificationOutcome.ready` của Hub *cũng bằng true khi không có yêu cầu xác minh nào* ("No complex task graph required"), nên nó không bao giờ tự làm dải thành xanh. `ui/tests/proof.test.mjs` và hai bài e2e (`studio.spec.mjs`) giữ điều đó.
 
-## 5. Tiêu chuẩn Tiếp cận (A11y) & Hiệu năng
+### 5.2 Thẻ phê duyệt
 
-- **WCAG 2.2 AA:** Tương phản chữ chính ≥ 7:1, chữ phụ ≥ 4.5:1, viền tương tác ≥ 3:1 ở cả 2 theme.
-- **Hỗ trợ bàn phím 100%:** Focus ring rõ ràng (`outline: 2px solid var(--mint)`), focus trap chuẩn trong modal, phím tắt điều hướng tab và danh sách.
-- **Tôn trọng người dùng:** Tự động nhận diện `prefers-reduced-motion` để tắt chuyển động; hỗ trợ `forced-colors` (High Contrast mode của Windows); hỗ trợ phóng to màn hình 200%.
-- **Ngân sách Bundle & Tải trang:**
-  - Initial JS bundle ≤ 260 KB gzip (đạt ngân sách 300 KB).
-  - Static CSS ≤ 35 KB gzip (đạt ngân sách 50 KB).
-  - Lazy load: `@xterm/xterm`, `shiki`, `react-diff-view`, `marketplace`.
-  - Không có bất kỳ request nào ra ngoài domain lúc chạy (0 external requests, 0 telemetry).
-  - Tốc độ First Meaningful Paint ≤ 800ms trên máy cục bộ.
+Tiêu đề (đang chờ / đã quyết), mức rủi ro bằng chữ (Thấp / Trung bình / Cao, `lib/tool-labels.ts`), đếm ngược tới lúc tự từ chối, mô tả, tên công cụ, "Phân loại rủi ro: Sửa tệp trong workspace", đường dẫn, lệnh hoặc diff có nền tô màu, chi tiết gập lại, rồi hai nút. Quyết định từ chối cần xác nhận lần hai. Cố ý **không** gán Enter/Esc toàn cục cho phê duyệt: Enter đang dùng để gửi tin nhắn.
+
+### 5.3 Chuỗi công cụ
+
+Mỗi đoạn công cụ giữa hai tin nhắn gập thành một dòng ("Đọc 2 tệp · sửa 1 tệp · chạy 1 lệnh"); mở ra là từng việc bằng lời ("Sửa tệp calc.js", thời lượng, trạng thái), tên kỹ thuật (`local.edit_file`) nằm ở tooltip và nhãn truy cập.
+
+### 5.4 Chế độ quyền
+
+Bốn chế độ (Chỉ đọc, Review, Tự động, FULL ACCESS) chọn ở ô nhập hoặc Cài đặt; chế độ hiện tại luôn thấy ở thanh trạng thái. FULL ACCESS cần gõ đúng cụm từ, có dải đỏ cố định và một nút "Quay về Review".
+
+## 6. Lộ trình hạ cánh ở đâu trong giao diện (dự kiến)
+
+Bảng này là kế hoạch chỗ đặt, không phải danh sách đã làm: mục "Hooks", mục "MCP", nút xuất gói bằng chứng, duyệt diff theo hunk và plan mode **chưa tồn tại**. Điều đã có là chỗ để chúng vào (`SECTIONS`, hàng tab, danh sách mục của thanh trạng thái, các trạng thái của dải bằng chứng) mà không phải làm lại bố cục.
+
+| Hạng mục lộ trình | Chỗ trong giao diện |
+|---|---|
+| P1 hooks (PreToolUse/PostToolUse, Stop), `agent_results`, gắn lại OrchestratorTab, lỗi provider | mục "Hooks" mới trong `SECTIONS`; dòng hook trong tab Hoạt động; OrchestratorTab thành mục của tab **Tác nhân**; lỗi provider ở dải trạng thái hội thoại |
+| P1 cửa sổ ngữ cảnh | thanh trạng thái ("Ngữ cảnh", `~` = ước tính) + hàng "Chi tiết" của đầu hội thoại; cảnh báo cửa sổ chưa rõ giữ ở hội thoại |
+| P2 MCP client | mục "MCP" trong Cài đặt (máy chủ, công cụ, allow-list); công cụ ngoài hiện trong chuỗi công cụ với nguồn gốc |
+| P4–P5 Receipt v2, `acceptance.yml`, done-gate, gói evidence | **dải bằng chứng** và tab **Tiến độ** (tiêu chí, receipt, hash cây file); nút "Xuất gói bằng chứng" cạnh "Xem bằng chứng" |
+| P5 sổ egress Companion | mục "Kênh agent" (đã có thẻ xem lại trước khi gửi) + danh sách những gì đã gửi |
+| P8 duyệt diff theo hunk, rollback | tab **Thay đổi** (đã có DiffView theo dòng; thêm duyệt theo hunk); hộp thoại phê duyệt dùng cùng DiffView |
+| P8 i18n lint | `lib/i18n.ts` + `lib/format.ts`; phần giao diện mới đã đi qua `t()` hoặc `lang`, phần cũ còn chuỗi cứng (xem mục 8) |
+| P9 plan mode | tab **Tiến độ** (kế hoạch cần duyệt) và chế độ thứ năm trong menu quyền |
+| Files tab, PTY, onboarding (D7) | tab **Tệp**, tab **Terminal**, hướng dẫn khởi động (đã làm lại) |
+
+## 7. Truy cập và hiệu năng
+
+- Độ tương phản như mục 3.1; vòng focus 2 px (`--focus`) ở mọi điều khiển; hộp thoại là `<dialog>` native; hàng tab là `tablist` thật (`aria-selected`, `aria-controls`, phím mũi tên); trạng thái không chỉ bằng màu (luôn có chữ hoặc nhãn).
+- Giảm chuyển động và chế độ tương phản cao của Windows được tôn trọng.
+- Ngân sách: JS khởi tạo ≈ 230 KB gzip (ngân sách 260 KB), CSS ≈ 10 KB gzip. Không có request ra ngoài domain, không telemetry; CSP của Hub (`style-src 'self'`) vẫn đúng vì không có style nội tuyến trong HTML.
+
+## 8. Chưa làm / giới hạn đã biết
+
+- **Chuỗi tiếng Việt cứng còn lại** ở các panel chưa làm lại hẳn (`IntelligenceTab`, `ModelProfilesPanel`, `SkillsTab`, `PreviewTab`, `OrchestratorTab`); chúng đã dùng token, đã đạt độ tương phản và cỡ chữ, nhưng bố cục bên trong là bản cũ. Lint i18n thuộc P8.
+- **Thanh trạng thái chưa có thước đo ngữ cảnh đang dùng**: Hub chỉ báo cửa sổ cấu hình và ngân sách lịch sử, chưa báo số token đang chiếm. Hiện hiển thị đúng những gì có, không vẽ thước giả.
+- **Cửa sổ ngữ cảnh chưa rõ (P1-C)**: cảnh báo `ContextPolicyNotice` (`data-testid="context-window-warning"`) nằm ngay dưới thanh tiêu đề hội thoại, nói tên chỗ sửa là "Cài đặt → Mô hình AI" và có nút "Mở cài đặt" tới đúng trường. Hàng "Cửa sổ ngữ cảnh" trong "Chi tiết" và thanh trạng thái ghi "chưa rõ", không còn chữ "ước tính" im lặng. Các trường mới của profile (đường dẫn tùy chỉnh, header, cửa sổ) dùng token như phần còn lại nhưng bố cục trong panel vẫn là bản cũ.
+- Đã kiểm trên Chromium (Playwright); WebView2 thật được kiểm bằng `e2e/webview2-smoke.mjs`.
+
+## 9. Kiểm tra và chụp lại
+
+```sh
+cd CHATMCP-HUB/ui
+npm run build          # web/dist
+npm run test:unit      # token, độ tương phản, dải bằng chứng, định dạng, nhãn công cụ, component
+npm run test:e2e:built # luồng thật: Hub thật, model giả lập, Chromium
+npm run gallery        # ảnh chụp mọi màn hình (test-results/gallery), thất bại nếu trang ghi lỗi console
+```

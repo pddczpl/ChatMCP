@@ -4,6 +4,7 @@ import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
 import { Terminal, Copy, Check, ArrowDown } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 
 export function TerminalTab() {
   const { t, lang } = useTranslation();
@@ -33,24 +34,30 @@ export function TerminalTab() {
   };
 
   return (
-    <section aria-label="Terminal sessions" className="h-full flex flex-col bg-[#090d12] text-xs font-mono">
-      <div className="px-3 py-1.5 bg-[var(--surface)] border-b border-[var(--line)] flex items-center justify-between text-[11px] text-[var(--muted)] flex-shrink-0 font-sans">
-        <div className="flex items-center gap-2"><Terminal className="w-3.5 h-3.5 text-sky-400" /><span className="font-semibold text-xs">{t('terminal_title')}</span></div>
-        <div className="flex items-center gap-2">
-          <button aria-pressed={autoScroll} onClick={() => setAutoScroll(!autoScroll)} className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] ${autoScroll ? 'text-sky-400 bg-sky-950/40' : 'text-[var(--faint)]'}`} title={t('terminal_autoscroll')}><ArrowDown className="w-3 h-3" /><span>{t('terminal_autoscroll')}</span></button>
-          <button aria-label="Copy terminal output" disabled={!sessions.length} onClick={handleCopy} className="p-1 rounded hover:bg-[var(--line)] disabled:opacity-40" title="Copy terminal output">{copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}</button>
+    <section aria-label="Terminal sessions" className="flex h-full flex-col bg-bg font-mono text-[12px]">
+      <div className="flex shrink-0 items-center justify-between border-b border-line bg-panel px-4 py-2 font-sans">
+        <div className="flex items-center gap-2 text-[13px] font-semibold text-fg"><Terminal className="h-4 w-4 text-primary" /><span>{t('terminal_title')}</span></div>
+        <div className="flex items-center gap-1">
+          <button aria-pressed={autoScroll} onClick={() => setAutoScroll(!autoScroll)}
+            className={cn('flex h-7 items-center gap-1 rounded-md px-2 text-[12px] font-medium transition-colors', autoScroll ? 'bg-primary/10 text-primary' : 'text-muted hover:bg-hover hover:text-fg')} title={t('terminal_autoscroll')}>
+            <ArrowDown className="h-3 w-3" /><span>{t('terminal_autoscroll')}</span>
+          </button>
+          <button aria-label="Copy terminal output" disabled={!sessions.length} onClick={handleCopy}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-hover hover:text-fg disabled:opacity-40" title="Copy terminal output">
+            {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
+          </button>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-3 text-[11px] leading-relaxed text-slate-300 space-y-3">
-        {error ? <p role="alert" className="text-rose-400">{error.message}</p>
-          : hubQuery.isLoading || terminalQuery.isLoading ? <p role="status">{lang === 'vi' ? 'Đang tải terminal…' : 'Loading terminals…'}</p>
-          : !workspace ? <p>{lang === 'vi' ? 'Chọn workspace để xem terminal.' : 'Select a workspace to view terminals.'}</p>
-          : sessions.length === 0 ? <p className="text-[var(--faint)] italic py-8 text-center font-sans">{t('terminal_empty')}</p>
+      <div className="flex-1 space-y-3 overflow-y-auto p-4 leading-relaxed text-muted select-text">
+        {error ? <p role="alert" className="font-sans text-[13px] text-danger">{error.message}</p>
+          : hubQuery.isLoading || terminalQuery.isLoading ? <p role="status" className="font-sans text-[13px]">{lang === 'vi' ? 'Đang tải terminal…' : 'Loading terminals…'}</p>
+          : !workspace ? <p className="font-sans text-[13px]">{lang === 'vi' ? 'Chọn workspace để xem terminal.' : 'Select a workspace to view terminals.'}</p>
+          : sessions.length === 0 ? <p className="py-10 text-center font-sans text-[13px] text-faint">{t('terminal_empty')}</p>
           : sessions.map((session) => (
-            <article key={session.id} className="border border-[var(--line-subtle)] rounded p-2 space-y-2">
-              <div className="break-words text-sky-300">$ {session.command || (session.interactive ? 'Interactive shell' : session.id)}</div>
-              <div className={session.status === 'failed' ? 'text-rose-400' : 'text-[var(--muted)]'}>{session.status} · Exit: {session.exitCode ?? '—'}{session.mode && ` · ${session.mode}`}</div>
-              <pre className="whitespace-pre-wrap break-words font-mono">{(session.logs ?? []).map((line, index) => <span key={line.seq ?? index} className={line.type === 'stderr' ? 'text-rose-300' : undefined}>{line.message}</span>)}</pre>
+            <article key={session.id} className="space-y-1.5 rounded-xl border border-line bg-panel p-3">
+              <div className="break-words text-primary">$ {session.command || (session.interactive ? 'Interactive shell' : session.id)}</div>
+              <div className={session.status === 'failed' ? 'text-danger' : 'text-faint'}>{session.status} · Exit: {session.exitCode ?? '—'}{session.mode && ` · ${session.mode}`}</div>
+              <pre className="whitespace-pre-wrap break-words font-mono text-fg">{(session.logs ?? []).map((line, index) => <span key={line.seq ?? index} className={line.type === 'stderr' ? 'text-danger' : undefined}>{line.message}</span>)}</pre>
             </article>
           ))}
         <div ref={logEndRef} />

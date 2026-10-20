@@ -25,9 +25,9 @@ export function Modal({ open, onOpenChange, title, description, role = 'dialog',
 
   return <dialog ref={ref} role={role} aria-labelledby={`${id}-title`} aria-describedby={description ? `${id}-description` : undefined}
     onCancel={() => onOpenChange(false)} onClose={() => onOpenChange(false)}
-    className={cn('fixed inset-0 m-auto w-[calc(100%-2rem)] max-w-md max-h-[90vh] overflow-y-auto rounded-xl border border-[var(--line)] bg-[var(--panel)] p-5 text-sm leading-relaxed text-[var(--text)] shadow-xl select-text backdrop:bg-black/50', className)}>
-    <h3 id={`${id}-title`} className="text-lg font-semibold">{title}</h3>
-    {description && <p id={`${id}-description`} className="mt-3 text-[var(--muted)]">{description}</p>}
+    className={cn('anim-pop fixed inset-0 m-auto w-[calc(100%-2rem)] max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-line bg-panel p-6 text-sm leading-relaxed text-fg shadow-[var(--shadow-pop)] select-text backdrop:bg-[var(--scrim)]', className)}>
+    <h3 id={`${id}-title`} className="text-lg font-semibold tracking-tight">{title}</h3>
+    {description && <p id={`${id}-description`} className="mt-3 text-muted">{description}</p>}
     {children}
   </dialog>;
 }

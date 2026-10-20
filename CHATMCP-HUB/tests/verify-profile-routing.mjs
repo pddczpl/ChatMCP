@@ -245,7 +245,7 @@ try {
       assert.match(error.message, /old-window/, 'it names the profile');
       assert.match(error.message, /3,000/, 'and the window it holds');
       assert.match(error.message, /4,096.*2,000,000/, 'and the range');
-      assert.match(error.message, /AI Model/, 'and where to change it');
+      assert.match(error.message, /Settings → Mô hình AI/, 'and where to change it, as Settings calls it');
       return true;
     });
     console.log('PASS real seam: a profile fork keeps prompt caching, custom path and custom headers; another origin gets none of the global ones; a header edit refuses resume');

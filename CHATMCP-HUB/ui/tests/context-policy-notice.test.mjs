@@ -18,7 +18,7 @@ try {
       import React from 'react';
       import { renderToStaticMarkup } from 'react-dom/server';
       import { ContextPolicyNotice } from './src/components/conversation/ContextPolicyNotice';
-      export const render = policy => renderToStaticMarkup(React.createElement(ContextPolicyNotice, { policy }));
+      export const render = (policy, props = {}) => renderToStaticMarkup(React.createElement(ContextPolicyNotice, { policy, lang: 'en', ...props }));
     `, resolveDir: ui, loader: 'tsx' },
     bundle: true, platform: 'node', format: 'cjs', outfile: bundle,
     tsconfig: path.join(ui, 'tsconfig.json'), define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'silent',
@@ -32,10 +32,29 @@ try {
     assert.match(html, /role="status"/);
     assert.match(html, /Context window unknown/);
     assert.match(html, /32,768/);
-    assert.match(html, /AI Model tab/, 'it names where the fix is');
+    assert.match(html, /Settings → AI model/, 'it names where the fix is, as Settings calls it');
     assert.match(html, /context window/i);
-    assert.match(html, /text-amber-/, 'it is styled as a warning');
+    assert.match(html, /text-warning/, 'it is styled as a warning');
     assert.doesNotMatch(html, /\(estimated\)/, 'the old muted chip is gone');
+    assert.doesNotMatch(html, /<button/, 'no button unless the caller can open the fix');
+  });
+
+  await test('the warning can take you to the field that fixes it', () => {
+    const html = render(fallback, { onFix: () => {} });
+    assert.match(html, /<button[^>]*>Open settings<\/button>/);
+    const vi = render(fallback, { onFix: () => {}, lang: 'vi' });
+    assert.match(vi, /<button[^>]*>Mở cài đặt<\/button>/);
+  });
+
+  await test('in Vietnamese it says the same, with the numbers grouped the Vietnamese way', () => {
+    const html = render(fallback, { lang: 'vi' });
+    assert.match(html, /data-testid="context-window-warning"/);
+    assert.match(html, /Chưa biết cửa sổ ngữ cảnh/);
+    assert.match(html, /32\.768/);
+    assert.match(html, /Cài đặt → Mô hình AI/, 'it names where the fix is, as Settings calls it');
+    assert.match(html, /16\.384/);
+    assert.match(html, /8\.192/);
+    assert.doesNotMatch(html, /ước tính\)/, 'no quiet "estimated" chip');
   });
 
   await test('a configured window shows its size and where it came from, without a warning', () => {

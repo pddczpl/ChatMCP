@@ -1,8 +1,21 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { FileCode, Search, FileEdit } from 'lucide-react';
+import { FileCode, Search } from 'lucide-react';
 import { useTranslation } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
+import { EmptyBlock, ErrorLine, LoadingLine, SectionHeading, TabBody } from './parts';
+
+/** Git status letters in plain words: M modified, A added, D deleted, R renamed, ?? new and untracked. */
+const statusLook = (code: string): { label: string; tone: string } => {
+  const c = code.trim();
+  if (c === '??') return { label: 'Mới', tone: 'text-primary' };
+  if (c.includes('D')) return { label: 'Xóa', tone: 'text-danger' };
+  if (c.includes('A')) return { label: 'Thêm', tone: 'text-success' };
+  if (c.includes('R')) return { label: 'Đổi tên', tone: 'text-warning' };
+  if (c.includes('M')) return { label: 'Sửa', tone: 'text-warning' };
+  return { label: c || '·', tone: 'text-muted' };
+};
 
 export function FilesTab() {
   const { t, lang } = useTranslation();
@@ -15,35 +28,33 @@ export function FilesTab() {
   const error = hubQuery.error || gitQuery.error;
 
   return (
-    <section aria-label="Workspace files" className="h-full flex flex-col p-3 overflow-y-auto space-y-3 text-xs">
+    <TabBody label="Workspace files" className="space-y-3">
       <div className="relative">
-        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--faint)]" />
-        <input aria-label={t('files_search')} type="text" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('files_search')} className="w-full bg-[var(--surface)] text-[var(--text)] text-xs rounded-md pl-8 pr-2.5 py-1.5 border border-[var(--line)] focus:outline-none focus:border-sky-500" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+        <input aria-label={t('files_search')} type="text" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('files_search')}
+          className="h-9 w-full rounded-lg border border-line bg-surface pl-9 pr-3 text-[13px] text-fg placeholder:text-faint transition-colors hover:border-line-strong focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25" />
       </div>
-      <div className="flex items-center justify-between pb-1 text-[var(--muted)] border-b border-[var(--line-subtle)]">
-        <span className="font-semibold uppercase tracking-wider text-[10px]">{t('files_modified')}</span>
-        <span className="text-[10px] font-mono">{filtered.length} {t('files_count')}</span>
-      </div>
-      {error ? <p role="alert" className="text-rose-400">{error.message}</p>
-        : hubQuery.isLoading || gitQuery.isLoading ? <p role="status">{lang === 'vi' ? 'Đang tải tệp…' : 'Loading files…'}</p>
-        : !workspace ? <p className="text-[var(--muted)]">{lang === 'vi' ? 'Chọn workspace để xem tệp.' : 'Select a workspace to view files.'}</p>
+      <SectionHeading title={t('files_modified')} count={`${filtered.length} ${t('files_count')}`} />
+      {error ? <ErrorLine message={error.message} />
+        : hubQuery.isLoading || gitQuery.isLoading ? <LoadingLine text={lang === 'vi' ? 'Đang tải tệp…' : 'Loading files…'} />
+        : !workspace ? <p className="text-muted">{lang === 'vi' ? 'Chọn workspace để xem tệp.' : 'Select a workspace to view files.'}</p>
         : filtered.length === 0 ? (
-          <div className="py-12 text-center text-[var(--faint)] flex flex-col items-center gap-2">
-            <FileCode className="w-8 h-8 opacity-40" />
-            <p>{search ? (lang === 'vi' ? 'Không có tệp phù hợp.' : 'No matching files.') : (lang === 'vi' ? 'Không có thay đổi Git trong workspace.' : 'No Git changes in the workspace.')}</p>
-          </div>
+          <EmptyBlock icon={FileCode} title={search ? (lang === 'vi' ? 'Không có tệp phù hợp.' : 'No matching files.') : (lang === 'vi' ? 'Không có thay đổi Git trong workspace.' : 'No Git changes in the workspace.')} />
         ) : (
-          <div className="space-y-1.5">
-            {filtered.map((entry, index) => (
-              <div key={`${entry}-${index}`} className="p-2 rounded-lg bg-[var(--surface)] border border-[var(--line-subtle)] flex items-start gap-2">
-                <FileEdit className="w-3.5 h-3.5 text-sky-400 flex-shrink-0" />
-                {/* Preserve Git's quoted paths and rename notation; neither is a literal filesystem path. */}
-                <code className="text-[11px] whitespace-pre-wrap break-all"><span className="text-sky-400">{entry.slice(0, 2)}</span>{' '}{entry.slice(3)}</code>
-              </div>
-            ))}
-          </div>
+          <ul className="divide-y divide-line-subtle overflow-hidden rounded-xl border border-line bg-surface">
+            {filtered.map((entry, index) => {
+              const look = statusLook(entry.slice(0, 2));
+              return (
+                <li key={`${entry}-${index}`} className="flex items-start gap-3 px-3 py-2">
+                  {/* Preserve Git's quoted paths and rename notation; neither is a literal filesystem path. */}
+                  <code className="min-w-0 flex-1 whitespace-pre-wrap break-all text-[12px] leading-5 text-fg"><span className={cn('font-semibold', look.tone)}>{entry.slice(0, 2)}</span>{' '}{entry.slice(3)}</code>
+                  <span className={cn('shrink-0 text-[12px]', look.tone)}>{look.label}</span>
+                </li>
+              );
+            })}
+          </ul>
         )}
-      {gitQuery.data?.partial && <p className="text-amber-400">{lang === 'vi' ? 'Danh sách Git bị giới hạn; có thể còn tệp chưa hiển thị.' : 'Git results are limited; more files may exist.'}</p>}
-    </section>
+      {gitQuery.data?.partial && <p className="text-warning">{lang === 'vi' ? 'Danh sách Git bị giới hạn; có thể còn tệp chưa hiển thị.' : 'Git results are limited; more files may exist.'}</p>}
+    </TabBody>
   );
 }

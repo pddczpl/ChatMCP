@@ -26,21 +26,21 @@ export function ObjectiveAcceptancePanel({task,onAccepted}:{
     }catch(e:any){showToast(e.message||'Evidence acceptance failed.','error');}
     finally{setSaving(null);}
   };
-  return <details className="mx-4 my-3 rounded-lg border border-[var(--line)] p-3 text-xs"
+  return <details className="my-3 rounded-xl border border-line bg-panel p-4 text-[13px]"
     data-testid="objective-acceptance">
-    <summary className="cursor-pointer font-semibold text-[var(--text)]">
+    <summary className="cursor-pointer font-semibold text-fg">
       Objective acceptance · {objectives.filter(x=>x.status==='verified').length}/{objectives.length} verified
     </summary>
-    <p className="mt-2 text-[var(--muted)]">
+    <p className="mt-2 text-muted">
       A model response is not verification. Review each criterion and match it to a current
       first-party tool receipt. No automatic acceptance; receipts can become stale after edits.
     </p>
     <div className="mt-2 space-y-3">
       {objectives.map(objective=>{
         const blocked=(objective.dependsOn||[]).some(id=>!completed.has(id));
-        return <section key={objective.id} className="border-t border-[var(--line-subtle)] pt-2">
-          <p className="font-medium text-[var(--text)]">{objective.id}: {objective.text}</p>
-          <p className="text-[var(--faint)]">Status: {objective.status}{blocked?' · waiting for predecessor':''}</p>
+        return <section key={objective.id} className="border-t border-line-subtle pt-2">
+          <p className="font-medium text-fg">{objective.id}: {objective.text}</p>
+          <p className="text-faint">Status: {objective.status}{blocked?' · waiting for predecessor':''}</p>
           {objective.acceptanceCriteria.map((criterion,index)=>{
             const matched=objective.evidence?.some(e=>e.criterionIndex===index&&
               receipts.some(r=>r.receiptId===e.receiptId));
@@ -52,7 +52,7 @@ export function ObjectiveAcceptancePanel({task,onAccepted}:{
               <div className="flex items-center gap-2">
                 <select value={receiptId} onChange={e=>setSelection(prev=>({...prev,[key]:e.target.value}))}
                   aria-label={'Acceptance evidence '+key}
-                  className="flex-1 min-w-0 rounded bg-[var(--surface)] border border-[var(--line)] p-1">
+                  className="min-w-0 flex-1 rounded-lg border border-line bg-surface p-1.5">
                   <option value="">Choose a verified receipt</option>
                   {options.map(r=><option key={r.receiptId} value={r.receiptId}>
                     {r.kind} · step {r.step}{r.path?' · '+r.path:''}
@@ -60,7 +60,7 @@ export function ObjectiveAcceptancePanel({task,onAccepted}:{
                 </select>
                 <button type="button" disabled={blocked||!receiptId||saving!==null||matched}
                   onClick={()=>void approve(objective.id,index,receiptId)}
-                  className="rounded border border-[var(--line)] px-2 py-1 disabled:opacity-40">
+                  className="rounded-lg border border-line bg-surface px-3 py-1.5 font-medium transition-colors hover:bg-hover disabled:opacity-40">
                   Confirm
                 </button>
               </div>

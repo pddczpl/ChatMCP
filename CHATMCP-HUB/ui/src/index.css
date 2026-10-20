@@ -2,62 +2,113 @@
 @import "@fontsource-variable/inter";
 @import "@fontsource/jetbrains-mono";
 
+/* ---------------------------------------------------------------------------------------------------------------------
+   ChatMCP Studio design tokens ("Calm Precision").
+
+   Rules:
+   - Every colour in a component comes from a token below (bg-panel, text-muted, border-line, text-primary ...). Raw palette
+     classes (text-sky-400, bg-rose-950 ...) are refused by tests/design-tokens.test.mjs: they look right in one theme and
+     break in the other.
+   - Green means "verified by evidence", amber means "reported or unverified", red means "failed or dangerous", blue is the
+     brand and the focus colour. Nothing else uses those hues.
+   - Text on the canvas keeps >= 4.5:1 in both themes; sizes below 12px are not used for anything a person has to read.
+   --------------------------------------------------------------------------------------------------------------------- */
+
 @theme {
-  --font-sans: "Inter Variable", "Segoe UI", system-ui, sans-serif;
+  --font-sans: "Inter Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  /* 13px is the smallest size used for meaningful text; 12px (text-[12px]) is for timestamps and helper lines only. */
   --text-xs: 0.8125rem;
   --text-xs--line-height: 1.5;
 }
 
+/* The utilities reference the variables at run time, so one class works in both themes (and with /opacity). */
+@theme inline {
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+  --color-white: #ffffff;
+  --color-black: #000000;
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-surface: var(--surface);
+  --color-hover: var(--surface-hover);
+  --color-active: var(--surface-active);
+  --color-line: var(--line);
+  --color-line-subtle: var(--line-subtle);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-fg: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-danger-fg: var(--danger-foreground);
+}
+
 :root, [data-theme="dark"] {
-  --bg: #0e1217;
-  --panel: #131820;
-  --surface: #18202b;
-  --surface-hover: #222c3a;
-  --line: #293444;
-  --line-subtle: #1e2734;
-  --text: #f0f4f8;
-  --muted: #96a5b8;
-  --faint: #93a2b5;
-  --primary: #38bdf8;
-  --primary-hover: #7dd3fc;
-  --primary-foreground: #082838;
-  --primary-bg: #082838;
-  --accent: #2dd4bf;
-  --success: #34d399;
-  --success-bg: rgba(6, 78, 59, 0.25);
-  --warning: #fbbf24;
-  --warning-bg: rgba(120, 53, 15, 0.25);
-  --danger: #f87171;
-  --danger-bg: rgba(127, 29, 29, 0.25);
-  --info: #60a5fa;
-  --shadow-3d: 0 10px 30px -10px rgba(0, 0, 0, 0.5), 0 20px 25px -5px rgba(0, 0, 0, 0.4);
+  --bg: #0b0e13;
+  --panel: #11151b;
+  --surface: #171c24;
+  --surface-hover: #1e2530;
+  --surface-active: #263040;
+  --line-subtle: #1a2029;
+  --line: #273040;
+  --line-strong: #394558;
+  --text: #e9edf3;
+  --muted: #a6b1c0;
+  --faint: #8591a3;
+  --primary: #5aa9ff;
+  --primary-hover: #7bbcff;
+  --primary-foreground: #06121f;
+  --primary-bg: color-mix(in oklab, var(--primary) 14%, var(--panel));
+  --accent: #38d2bd;
+  --success: #3fd99b;
+  --success-bg: color-mix(in oklab, var(--success) 13%, var(--panel));
+  --warning: #f3b94d;
+  --warning-bg: color-mix(in oklab, var(--warning) 13%, var(--panel));
+  --danger: #ff7f8f;
+  --danger-bg: color-mix(in oklab, var(--danger) 13%, var(--panel));
+  --danger-foreground: #1d0509;
+  --info: var(--primary);
+  --focus: #7bbcff;
+  --shadow-pop: 0 12px 32px -8px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --scrim: rgba(3, 6, 10, 0.64);
   color-scheme: dark;
 }
 
 [data-theme="light"] {
-  --bg: #f8fafc;
+  --bg: #f3f5f8;
   --panel: #ffffff;
-  --surface: #f1f5f9;
-  --surface-hover: #e2e8f0;
-  --line: #cbd5e1;
-  --line-subtle: #e2e8f0;
-  --text: #0f172a;
-  --muted: #475569;
-  --faint: #64748b;
-  --primary: #0369a1;
-  --primary-hover: #075985;
+  --surface: #f6f8fb;
+  --surface-hover: #edf1f6;
+  --surface-active: #e3e9f1;
+  --line-subtle: #e9edf3;
+  --line: #d9e0ea;
+  --line-strong: #bcc7d6;
+  --text: #0f1722;
+  --muted: #475468;
+  --faint: #5b6a82;
+  --primary: #1763d8;
+  --primary-hover: #0f4fb2;
   --primary-foreground: #ffffff;
-  --primary-bg: #e0f2fe;
-  --accent: #0d9488;
-  --success: #047857;
-  --success-bg: #d1fae5;
-  --warning: #92400e;
-  --warning-bg: #fef3c7;
-  --danger: #dc2626;
-  --danger-bg: #fee2e2;
-  --info: #2563eb;
-  --shadow-3d: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  --primary-bg: color-mix(in oklab, var(--primary) 9%, var(--panel));
+  --accent: #0b8a7a;
+  --success: #0b7a52;
+  --success-bg: color-mix(in oklab, var(--success) 9%, var(--panel));
+  --warning: #9a5a00;
+  --warning-bg: color-mix(in oklab, var(--warning) 10%, var(--panel));
+  --danger: #c22d45;
+  --danger-bg: color-mix(in oklab, var(--danger) 8%, var(--panel));
+  --danger-foreground: #ffffff;
+  --info: var(--primary);
+  --focus: #1763d8;
+  --shadow-pop: 0 12px 32px -8px rgba(15, 23, 34, 0.22), 0 0 0 1px rgba(15, 23, 34, 0.06);
+  --scrim: rgba(15, 23, 34, 0.38);
   color-scheme: light;
 }
 
@@ -67,6 +118,7 @@
 
 html {
   font-size: 16px;
+  -webkit-text-size-adjust: 100%;
 }
 
 html, body, #root {
@@ -76,12 +128,15 @@ html, body, #root {
   font-family: var(--font-sans);
   background-color: var(--bg);
   color: var(--text);
-  line-height: 1.6;
+  line-height: 1.55;
   overflow: hidden;
 }
 
 body {
   font-size: 14px;
+  font-feature-settings: "cv11", "ss03";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 button, input, textarea, select {
@@ -92,90 +147,74 @@ button:not(:disabled), summary {
   cursor: pointer;
 }
 
-:where(button, input, textarea, select, summary, [tabindex]):focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 3px;
+:where(button, input, textarea, select, summary, [tabindex], a):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 
 ::selection {
-  background: var(--primary-bg);
+  background: color-mix(in oklab, var(--primary) 30%, transparent);
   color: var(--text);
 }
 
+/* Reading text: messages and code. The readability e2e test pins the size (>= 15px) and the contrast. */
 .conversation-copy {
   font-size: 15px;
-  line-height: 1.75;
+  line-height: 1.72;
   overflow-wrap: anywhere;
   user-select: text;
 }
 
 .conversation-copy > :first-child { margin-top: 0; }
 
-/* 3D Motion and Interactive Depth System */
-.perspective-container {
-  perspective: 1200px;
-}
-
-.transform-style-3d {
-  transform-style: preserve-3d;
-}
-
-.tilt-3d {
-  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, border-color 0.2s ease;
-  will-change: transform;
-}
-
-.tilt-3d:hover {
-  transform: translateY(-1.5px);
-  box-shadow: var(--shadow-3d);
-}
-
-.modal-3d-enter {
-  animation: modalEnter3D 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+/* Motion: short, plain, and off for people who ask for less of it. */
+.anim-pop {
+  animation: popIn 0.14s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   transform-origin: center top;
-  backface-visibility: hidden;
-  -webkit-font-smoothing: antialiased;
 }
 
-@keyframes modalEnter3D {
-  from {
-    opacity: 0;
-    transform: perspective(1000px) translateY(-10px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: perspective(1000px) translateY(0) scale(1);
-  }
+.anim-rise {
+  animation: riseIn 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
-.floating-step {
-  box-shadow: 0 0 14px rgba(56, 189, 248, 0.25);
-  animation: glowPulse 2.4s ease-in-out infinite alternate;
+@keyframes popIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.985); }
+  to { opacity: 1; transform: none; }
 }
 
-@keyframes glowPulse {
-  0% {
-    box-shadow: 0 0 6px rgba(56, 189, 248, 0.15);
-    border-color: rgba(56, 189, 248, 0.3);
-  }
-  100% {
-    box-shadow: 0 0 16px rgba(56, 189, 248, 0.35);
-    border-color: rgba(56, 189, 248, 0.6);
-  }
+@keyframes riseIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.pulse-dot {
+  animation: pulseDot 1.6s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tilt-3d, .tilt-3d:hover, .modal-3d-enter, .floating-step {
-    transform: none !important;
+  .anim-pop, .anim-rise, .pulse-dot, .animate-spin, .animate-pulse {
     animation: none !important;
-    transition: none !important;
+  }
+  * {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }
 
-/* Custom Scrollbars */
+/* Scrollbars: thin, quiet, visible on hover. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
 ::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
+  width: 9px;
+  height: 9px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -183,12 +222,22 @@ button:not(:disabled), summary {
 ::-webkit-scrollbar-thumb {
   background: var(--line);
   border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--faint);
+  background: var(--line-strong);
+  background-clip: content-box;
 }
 
 /* Code & monospace */
 pre, code, .font-mono {
-  font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
+}
+
+/* Windows high-contrast mode: keep borders and focus visible when colours are overridden. */
+@media (forced-colors: active) {
+  :where(button, input, textarea, select, summary, [tabindex], a):focus-visible {
+    outline: 2px solid Highlight;
+  }
 }

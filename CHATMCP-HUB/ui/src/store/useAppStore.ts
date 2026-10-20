@@ -2,7 +2,9 @@ import { create } from 'zustand';
 
 export type Theme = 'dark' | 'light' | 'system';
 export type Language = 'vi' | 'en';
-export type InspectorTab = 'activity' | 'files' | 'git' | 'terminal' | 'intelligence' | 'preview' | 'plan' | 'skills' | 'settings';
+/** The tabs of the right-hand work panel. Model, skills, permissions and the rest live in the Settings view. */
+export type InspectorTab = 'plan' | 'changes' | 'files' | 'terminal' | 'activity' | 'agents' | 'preview';
+export type SettingsSection = 'workspace' | 'model' | 'permissions' | 'agent-channel' | 'skills' | 'code-intelligence' | 'appearance' | 'about';
 
 interface ToastState {
   message: string;
@@ -25,8 +27,11 @@ interface AppStore {
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   activeTab: InspectorTab;
-  rightPanelView: 'tasks' | 'inspector';
-  setRightPanelView: (view: 'tasks' | 'inspector') => void;
+  settingsOpen: boolean;
+  settingsSection: SettingsSection;
+  openSettings: (section?: SettingsSection) => void;
+  closeSettings: () => void;
+  setSettingsSection: (section: SettingsSection) => void;
   selectedBaseRef: string;
   setSelectedBaseRef: (ref: string) => void;
   setActiveTab: (tab: InspectorTab) => void;
@@ -85,12 +90,15 @@ export const useAppStore = create<AppStore>((set) => ({
   sidebarOpen: true,
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
-  activeTab: 'activity',
-  rightPanelView: 'tasks',
-  setRightPanelView: (rightPanelView) => set({rightPanelView}),
+  activeTab: 'plan',
+  settingsOpen: false,
+  settingsSection: 'workspace',
+  openSettings: (section) => set((state) => ({ settingsOpen: true, settingsSection: section ?? state.settingsSection })),
+  closeSettings: () => set({ settingsOpen: false }),
+  setSettingsSection: (settingsSection) => set({ settingsSection }),
   selectedBaseRef: '',
   setSelectedBaseRef: (selectedBaseRef) => set({selectedBaseRef}),
-  setActiveTab: (tab) => set({ activeTab: tab, rightPanelView: 'inspector' }),
+  setActiveTab: (tab) => set({ activeTab: tab, inspectorOpen: true }),
   commandPaletteOpen: false,
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
   fullAccessModalOpen: false,

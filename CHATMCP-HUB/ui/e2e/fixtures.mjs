@@ -186,3 +186,50 @@ export async function send(page, prompt) {
 export async function taskByPrompt(app, prompt) {
   return waitFor(async () => (await app.hub.state()).agent.tasks.find((task) => task.prompt === prompt || task.task === prompt));
 }
+
+/** The work panel on the right: choose a tab by its visible name (Tiến độ, Thay đổi, Tệp, Terminal, Hoạt động, Tác nhân). */
+export async function openWorkTab(page, name) {
+  const tab = page.getByRole('tab', { name, exact: true });
+  if (!(await tab.count())) {
+    // Preview lives under "Thêm" until it is chosen.
+    await page.getByRole('button', { name: 'Thêm', exact: true }).click();
+    await page.getByRole('menuitem', { name, exact: true }).click();
+    return;
+  }
+  await tab.click();
+  await expect(tab).toHaveAttribute('aria-selected', 'true');
+}
+
+/** Settings is a full-page dialog. `section` is the visible name of an entry in its left menu (Mô hình AI, Kỹ năng, ...). */
+export async function openSettings(page, section) {
+  const dialog = page.getByRole('dialog', { name: 'Cài đặt' });
+  if (!(await dialog.isVisible().catch(() => false))) await page.getByRole('button', { name: 'Cài đặt', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  if (section) await dialog.getByRole('navigation', { name: 'Các mục cài đặt' }).getByRole('button', { name: section, exact: true }).click();
+  return dialog;
+}
+
+export async function closeSettings(page) {
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Cài đặt' })).toHaveCount(0);
+}
+
+/** Light or dark, from wherever the person is: the header toggle, or the Appearance section when Settings covers the page. */
+export async function setTheme(page, theme) {
+  if (await page.locator('html').getAttribute('data-theme') === theme) return;
+  const dialog = page.getByRole('dialog', { name: 'Cài đặt' });
+  if (await dialog.isVisible().catch(() => false)) {
+    const menu = dialog.getByRole('navigation', { name: 'Các mục cài đặt' });
+    const current = (await menu.locator('[aria-current="page"]').innerText()).trim();
+    await menu.getByRole('button', { name: 'Giao diện & ngôn ngữ', exact: true }).click();
+    await dialog.getByRole('button', { name: theme === 'light' ? 'Sáng' : 'Tối', exact: true }).click();
+    await menu.getByRole('button', { name: current, exact: true }).click();
+  } else {
+    await page.getByTitle('Chuyển theme sáng / tối').click();
+  }
+  await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+}
+
+/** The tokens of src/index.css as computed colours, so a test does not repeat hex values. */
+export const SURFACE = { light: 'rgb(246, 248, 251)', dark: 'rgb(23, 28, 36)' };
+

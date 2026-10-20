@@ -911,7 +911,7 @@ try {
 
     // A window the profile cannot honour fails the fork with the profile's own reason.
     await rejects(Promise.resolve().then(() => base.forkForTask({ provider: 'anthropic', protocol: 'anthropic', apiBaseUrl: 'https://other.example', model: 'm', apiKey: profileKey, contextWindow: 3000, id: 'old-profile' })),
-      { code: 'invalid_context_window', statusCode: 409, message: /old-profile.*3,000.*4,096.*2,000,000.*AI Model/ }, 'a profile saved by an older build (2,000..4,095) says which window, which range and where to fix it');
+      { code: 'invalid_context_window', statusCode: 409, message: /old-profile.*3,000.*4,096.*2,000,000.*Mô hình AI/ }, 'a profile saved by an older build (2,000..4,095) says which window, which range and where to fix it');
     same(base.forkForTask({ provider: 'anthropic', protocol: 'anthropic', apiBaseUrl: 'https://other.example', model: 'm', apiKey: profileKey, contextWindow: 9_000_000 }).state().contextWindowTokens, 2_000_000, 'and one above the cap is clamped');
   }
 

@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { test, expect, onboard } from './fixtures.mjs';
+import { test, expect, onboard, openSettings, closeSettings, setTheme, SURFACE } from './fixtures.mjs';
 import { PluginManager } from '../../lib/plugins.mjs';
 
 test('Skills show real install state, correct toggle actions, removal and persisted registry imports', async ({ page, app, browserErrors }, testInfo) => {
@@ -24,8 +24,7 @@ test('Skills show real install state, correct toggle actions, removal and persis
   await app.restart();
   await expect.poll(async () => (await app.hub.get('/api/plugins/registry')).json.skills.map((skill) => skill.id)).toContain(registrySkill.id);
   await onboard(page, app);
-  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
-  await page.getByRole('button', { name: 'Skills', exact: true }).click();
+  await openSettings(page, 'Kỹ năng');
   await expect(page.getByRole('heading', { name: 'Kỹ năng cho trợ lý' })).toBeVisible();
 
   const git = page.getByRole('article', { name: 'Git Workflow Pro', exact: true });
@@ -50,16 +49,17 @@ test('Skills show real install state, correct toggle actions, removal and persis
   // Wait for all observed JSON response checks before navigation discards bodies.
   await browserErrors.flush(page);
   await page.reload();
-  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
-  await page.getByRole('button', { name: 'Skills', exact: true }).click();
+  await openSettings(page, 'Kỹ năng');
   await expect(imported).toContainText('Đã cài · Đang bật');
   await expect(imported.getByRole('button', { name: 'Cài đặt', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: /^Đã cài \(/ }).click();
   for (const theme of ['light', 'dark']) {
-    if (await page.locator('html').getAttribute('data-theme') !== theme) await page.getByTitle('Chuyển theme sáng / tối').click();
-    await expect(page.getByRole('banner').getByRole('button', { name: 'workspace', exact: true })).toHaveCSS('background-color', theme === 'light' ? 'rgb(241, 245, 249)' : 'rgb(24, 32, 43)');
+    await setTheme(page, theme);
+    await expect(page.getByRole('banner').getByRole('button', { name: 'workspace', exact: true })).toHaveCSS('background-color', theme === 'light' ? SURFACE.light : SURFACE.dark);
     await page.screenshot({ path: testInfo.outputPath(`skills-${theme}.png`), animations: 'disabled' });
   }
+  // Changing the theme from Settings leaves the Skills section and comes back: it opens on "Khám phá" again.
+  await page.getByRole('button', { name: /^Đã cài \(/ }).click();
   await imported.getByRole('button', { name: 'Tắt', exact: true }).click();
   await expect(imported).toContainText('Đã cài · Đang tắt');
   await imported.getByRole('button', { name: 'Gỡ cài đặt', exact: true }).click();
@@ -74,7 +74,7 @@ test('Skills show real install state, correct toggle actions, removal and persis
   // installed list immediately, with a working uninstall action.
   await page.getByText('Nguồn kỹ năng & tùy chỉnh', { exact: true }).click();
   await page.getByRole('button', { name: 'Thêm kỹ năng từ URL hoặc tự viết', exact: true }).click();
-  const dialog = page.getByRole('dialog');
+  const dialog = page.getByRole('dialog', { name: 'Thêm kỹ năng', exact: true });
   await dialog.getByRole('button', { name: 'Tự viết', exact: true }).click();
   await dialog.getByLabel('Mã kỹ năng', { exact: true }).fill('   ');
   await dialog.getByLabel('Tên kỹ năng', { exact: true }).fill('   ');

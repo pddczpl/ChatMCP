@@ -1,7 +1,7 @@
 // ChatGPT Web Companion privacy in the real React page, served by a real Hub: the honest risk wording and "review before send".
 // The Companion is played over HTTP with its own pairing (the extension itself is covered by companion-ipc.spec.mjs); the tool that
 // runs is the real local.read_file on the test workspace. Nothing in the Hub or the page is stubbed.
-import { test, expect, onboard, send, taskByPrompt } from './fixtures.mjs';
+import { test, expect, onboard, send, taskByPrompt, openSettings, closeSettings } from './fixtures.mjs';
 import { waitFor } from '../../tests/e2e/hub-process.mjs';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
@@ -39,8 +39,7 @@ async function pairCompanion(app) {
 
 test('the ChatGPT Web risk wording is visible in Settings before switching, and review before send is off by default and can be saved', async ({ page, app }) => {
   await onboard(page, app);
-  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
-  await page.getByRole('button', { name: 'Cài đặt', exact: true }).click();
+  await openSettings(page, 'Kênh agent');
   const card = page.getByTestId('agent-transport-settings');
   await expect(card.getByRole('button', { name: 'Kênh agent: Model API' })).toHaveAttribute('aria-pressed', 'true');
   // visible while the Model API is still selected: the person reads it BEFORE choosing the channel
