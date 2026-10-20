@@ -187,8 +187,9 @@ export function directToolsFor(catalog, { limit = resolveDirectToolLimit() } = {
 // cap cuts by group order, not by prompt, so with the prompts joined an earlier request that filled the cap would push out the group this one asks
 // for ("fix the UI, run the tests, check the symbols" and then "commit it" would lose git_commit). That way a message is offered at least what it
 // would be as the first message of a conversation. The earlier prompts, newest first, then fill what is left under the cap, so a follow-up with no
-// task word ("yes, go ahead", a resume, a repair prompt) keeps the tools the conversation has been using. Only the last 20 earlier prompts are
-// read, the window #resumeEvidence shows the model; the first prompt of a conversation has no standing of its own.
+// task word ("yes, go ahead") keeps the tools the conversation has been using, and one that names only part of the work (the resume and repair
+// prompts the Hub writes) keeps the rest. Only the last 20 earlier prompts are read, the window #resumeEvidence shows the model; the first prompt
+// of a conversation has no standing of its own.
 const TOOL_SELECTION_CAP = 48;
 const TOOL_SELECTION_PROMPTS = 20;
 export function selectConversationCatalog(catalog, runPrompt, earlierPrompts = [], { cap = TOOL_SELECTION_CAP } = {}) {

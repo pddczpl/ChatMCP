@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { LocalTools } from '../lib/local-tools.mjs';
 import {selectTaskToolNames,selectTaskCatalog,taskToolSelectionMode,windowToolSelectionMode,followProviderWindow,LARGE_WINDOW_TOKENS} from '../lib/tool-selector.mjs';
-import {directToolsFor,ROUTER_TOOLS,AgentRunner,selectConversationCatalog} from '../lib/agent.mjs';
+import {directToolsFor,ROUTER_TOOLS,AgentRunner} from '../lib/agent.mjs';
 import {estimateTokens} from '../lib/context-compaction.mjs';
 import {createPrimaryAgentRunner} from '../hub.mjs';
 
@@ -255,8 +255,7 @@ try{
     }finally{await chat.runner.shutdown();}
   }
 
-  // A follow-up with no task word keeps what the conversation has been using: "yes, go ahead" after the agent proposed the edit, and the
-  // prompts the Hub writes itself (the auto-resume after a restart, the repair prompt of a coding worker).
+  // A follow-up with no task word keeps what the conversation has been using: "yes, go ahead" after the agent proposed the edit.
   {
     const chat=conversation();
     try{
@@ -264,6 +263,20 @@ try{
       const [two]=await chat.say('yes, go ahead');
       for(const tool of ['edit_file','test_run'])assert.ok(one.offered.includes(tool)&&two.offered.includes(tool),'"yes, go ahead" is still offered '+tool);
       assert.deepEqual(sorted(two.offered),sorted(one.offered),'the same tools as the message it answers');
+    }finally{await chat.runner.shutdown();}
+  }
+
+  // A follow-up that names only part of the work keeps the rest. The prompts the Hub writes itself (the auto-resume after a restart, the repair
+  // prompt of a coding worker) name the edit and test tools and not what the conversation used besides, such as the browser.
+  {
+    const first='Open the app in the browser and take a screenshot.',second='Now fix the failing test.';
+    const chat=conversation();
+    try{
+      const [one]=await chat.say(first);
+      const [two]=await chat.say(second);
+      for(const tool of ['browser_launch','browser_screenshot'])assert.ok(one.offered.includes(tool)&&!offeredAsFirst(second).includes(tool),'(only the first message asks for '+tool+')');
+      assert.ok(!one.offered.includes('edit_file')&&offeredAsFirst(second).includes('edit_file'));
+      for(const tool of ['edit_file','test_run','browser_launch','browser_screenshot'])assert.ok(two.offered.includes(tool),'the second message is offered '+tool);
     }finally{await chat.runner.shutdown();}
   }
 
@@ -392,6 +405,8 @@ try{
   // The same selection as a pure function, over many histories: whatever has been said before, a message is offered at least what it is offered as
   // the first message of a conversation, within the cap, and a conversation of one message is selected exactly as selectTaskCatalog does.
   {
+    // Imported here and not at the top: run against an agent.mjs without it, the blocks above fail first, on the behaviour they test.
+    const {selectConversationCatalog}=await import('../lib/agent.mjs');
     const offeredBy=(selection)=>directToolsFor(selection.catalog).functions.map(f=>f.name);
     for(const p of prompts) {
       assert.deepEqual(selectConversationCatalog(catalog,p.prompt).catalog.tools,selectTaskCatalog(catalog,p.prompt).tools,p.id+': a conversation of one message is selected as before');
