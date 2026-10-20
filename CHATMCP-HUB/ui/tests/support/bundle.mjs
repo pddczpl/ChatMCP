@@ -8,14 +8,24 @@ import { fileURLToPath } from 'node:url';
 
 export const ui = fileURLToPath(new URL('../../', import.meta.url));
 
-export async function bundleTsx(contents, prefix = 'chatmcp-ui-') {
+/**
+ * `options.rewrites`: [{ file, from, to }]: the source file whose path ends with `file` is read with `from` replaced by `to`, so that a test can
+ * start a component in a state that only a click reaches (an open form, a typed value). A `from` that is not found fails the build: a rename
+ * can not turn a rewrite into a silent no-op.
+ * `options.recordJsx`: every element a component creates (its type and props) is pushed on globalThis.__chatmcpJsx, so that a test can take
+ * the handler a component gave to a button or to a child and call it, which a server render never does.
+ */
+export async function bundleTsx(contents, prefix = 'chatmcp-ui-', { rewrites = [], recordJsx = false } = {}) {
   const { build } = createRequire(path.join(ui, 'package.json'))('esbuild');
   const scratch = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   const outfile = path.join(scratch, 'bundle.cjs');
+  const plugins = [];
+  if (rewrites.length) plugins.push(rewritePlugin(rewrites));
+  if (recordJsx) plugins.push(jsxRecorderPlugin());
   try {
     await build({
       stdin: { contents, resolveDir: ui, loader: 'tsx' },
-      bundle: true, platform: 'node', format: 'cjs', outfile,
+      bundle: true, platform: 'node', format: 'cjs', outfile, plugins,
       tsconfig: path.join(ui, 'tsconfig.json'), define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'silent',
     });
   } catch (error) {
@@ -52,6 +62,50 @@ export const renderPrelude = `
     return html;
   }
 `;
+
+// esbuild wants the pattern of a plugin under one particular name, and Tailwind, which reads every file under ui/ for class names, takes that bare
+// word for a utility of its own and adds a rule to the stylesheet (and so changes its file name). The name is put together here instead.
+const PATTERN = ['fil', 'ter'].join('');
+const where = (pattern, more = {}) => ({ [PATTERN]: pattern, ...more });
+
+function rewritePlugin(rewrites) {
+  return {
+    name: 'rewrite',
+    setup(build) {
+      build.onLoad(where(/\.tsx?$/), async (args) => {
+        const file = args.path.replace(/\\/g, '/');
+        const mine = rewrites.filter((item) => file.endsWith(item.file));
+        if (!mine.length) return undefined;
+        let source = await fs.readFile(args.path, 'utf8');
+        for (const { from, to } of mine) {
+          if (!source.includes(from)) throw new Error(`rewrite target not found in ${file}: ${from}`);
+          source = source.replace(from, () => to);
+        }
+        return { contents: source, loader: file.endsWith('.tsx') ? 'tsx' : 'ts' };
+      });
+    },
+  };
+}
+
+function jsxRecorderPlugin() {
+  const real = path.join(ui, 'node_modules', 'react', 'jsx-runtime.js').replace(/\\/g, '/');
+  return {
+    name: 'jsx-recorder',
+    setup(build) {
+      build.onResolve(where(/^react\/jsx-runtime$/), () => ({ path: 'jsx-runtime', namespace: 'jsx-recorder' }));
+      build.onLoad(where(/.*/, { namespace: 'jsx-recorder' }), () => ({
+        resolveDir: ui,
+        contents: `
+          import * as real from ${JSON.stringify(real)};
+          const log = () => (globalThis.__chatmcpJsx ??= []);
+          export const Fragment = real.Fragment;
+          export function jsx(type, props, key) { log().push({ type, props }); return real.jsx(type, props, key); }
+          export function jsxs(type, props, key) { log().push({ type, props }); return real.jsxs(type, props, key); }
+        `,
+      }));
+    },
+  };
+}
 
 // Only the temporary folder this helper made is ever removed.
 async function dispose(scratch, prefix) {

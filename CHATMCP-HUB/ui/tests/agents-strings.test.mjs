@@ -8,14 +8,17 @@ import { fileURLToPath } from 'node:url';
 // These read the source of the files that make up the tab and refuse prose that is written into them. The Background section is made of
 // layout/BackgroundTasks.tsx and the workflow card (conversation/WorkflowCard.tsx, which the chat shows too), so both are read as well, and so
 // are the two components that name the state of a conversation with the same words: its ribbon (layout/PhaseRibbon.tsx) and its banner
-// (conversation/StateBanner.tsx).
+// (conversation/StateBanner.tsx). The conversation screen (conversation/ConversationView.tsx) and the sidebar (sessions/SessionSidebar.tsx) are read
+// too. They show the Hub's refusals as the Hub wrote them (the Hub's message, else the screen's own sentence), which the rule about error codes below
+// does not match: the sentences of the codes in the dictionary are worded for the Agents tab (workspace_missing speaks of a Git project folder).
 
 const src = fileURLToPath(new URL('../src/', import.meta.url));
 const FILES = [
   'AgentsTab.tsx', 'OrchestratorTab.tsx', 'AgentGroups.tsx', 'DynamicSubagents.tsx', 'ManualGroup.tsx', 'CodingWorkers.tsx', 'CodingRunView.tsx',
   'CodingWorkerCard.tsx', 'CodingReview.tsx', 'ConfirmDialog.tsx', 'IsolatedChecksPanel.tsx', 'agent-parts.tsx', 'agentLabels.ts', 'useDelegation.ts', 'DiffView.tsx', 'HiddenText.tsx',
 ].map((name) => `components/inspector/${name}`).concat(['lib/agent-proof.ts', 'lib/agent-draft.ts', 'lib/agent-errors.ts', 'lib/hidden-chars.ts', 'lib/tab-keys.ts', 'store/useAgentDrafts.ts',
-  'components/layout/BackgroundTasks.tsx', 'components/conversation/WorkflowCard.tsx', 'components/layout/PhaseRibbon.tsx', 'components/conversation/StateBanner.tsx']);
+  'components/layout/BackgroundTasks.tsx', 'components/conversation/WorkflowCard.tsx', 'components/layout/PhaseRibbon.tsx', 'components/conversation/StateBanner.tsx',
+  'components/conversation/ConversationView.tsx', 'components/sessions/SessionSidebar.tsx']);
 
 const read = (file) => fs.readFileSync(path.join(src, file), 'utf8');
 /** The source without its comments (a comment may be written in Vietnamese; a string may not). */
