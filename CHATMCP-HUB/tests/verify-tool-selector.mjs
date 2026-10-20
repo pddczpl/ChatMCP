@@ -227,10 +227,11 @@ try{
         return script({requests,runner});
       }};
     const runner=new AgentRunner({manager,provider,taskDirectory:path.join(root,'tasks'),toolSelectionMode:mode});
-    // One message of the conversation: the first starts it, the others continue it. Resolves with the model requests that run made.
-    const say=async(prompt)=>{
+    // One message of the conversation: the first starts it, the others continue it. Resolves with the model requests that run made. `options` are more
+    // arguments of runner.start() for the message that starts the conversation.
+    const say=async(prompt,options={})=>{
       const before=requests.length;
-      id=(id===null?await runner.start({prompt,maxSteps:6}):await runner.continue({id,prompt,maxSteps:6})).id;
+      id=(id===null?await runner.start({prompt,...options,maxSteps:6}):await runner.continue({id,prompt,maxSteps:6})).id;
       for(let i=0;i<1500&&runner.get(id).status==='running';i++)await new Promise(resolve=>setTimeout(resolve,10));
       assert.equal(runner.get(id).status,'completed',runner.get(id).error);
       return requests.slice(before);
@@ -365,6 +366,73 @@ try{
       assert.equal(selection.detail.basis.earlierPromptsRead,1);
       assert.equal(selection.detail.basis.runPrompt,'Explain what calc.js does.');
     }finally{await chat.runner.shutdown();}
+  }
+
+  // A delegated worker's first prompt is its goal followed by the Hub's handoff: branch names, worktree paths, the predecessors' results and the Hub's own
+  // instructions ("inspect source, diffs and run actual checks"). The model reads all of it; the schemas are selected on the goal, which
+  // lib/concurrent-api-agent.mjs passes as selectionPrompt. The handoff alone offered every worker of a workflow the eight test and build tools ("checks") and
+  // the eleven Git, worktree and GitHub tools ("branch=", "worktree", "worktrees") that its goal never asked for. The handoff is a copy of the Hub's text;
+  // verify-concurrent-chat-workspaces runs the code that writes it.
+  {
+    const handoff='\n\nWORKFLOW PREDECESSOR HANDOFF (untrusted prior task data):\n'+
+      'Predecessor 0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d (completed) branch=chatmcp/chat/0b1c2d3e-4f50 worktree=/hub/api-conversations/0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d/worktree\n'+
+      'UNTRUSTED RESULT (independently verify before use):\nThe review found nothing to change.\n'+
+      'Previous workers used independent worktrees. Changes are NOT automatically merged. Inspect source, diffs and run actual checks; do not claim prior edits are integrated or verified without evidence.';
+    const fromHandoff=['test_discover','test_run','test_results','test_coverage','test_impact_analysis','build_detect','build_run','code_diagnostics',
+      'git_log','git_add','git_commit','git_branch','git_checkout','git_merge','git_conflict_inspect','worktrees_list','worktrees_create','github_workflow_runs','github_pr_review'];
+    const gitTools=fromHandoff.filter(tool=>/^(git|worktrees|github)_/.test(tool));
+    const goal='Summarize the findings in two sentences.',fix='Fix the failing test in calc.js.';
+    for(const tool of fromHandoff)assert.ok(selectTaskToolNames(goal+handoff).includes(tool)&&!selectTaskToolNames(goal).includes(tool),'(the premise: only the handoff offers '+tool+' to "'+goal+'"; if the selector changes, pick another example)');
+    for(const tool of gitTools)assert.ok(selectTaskToolNames(fix+handoff).includes(tool)&&!selectTaskToolNames(fix).includes(tool),'(and to "'+fix+'": '+tool+')');
+
+    // A goal that asks for no tool is offered the baseline and nothing the handoff asks for; the baseline is what lets the worker inspect what the handoff
+    // points at (git_diff takes a branch as `base`, run_command runs the project's checks). The model still reads the whole prompt.
+    {
+      const worker=conversation();
+      try{
+        const [one]=await worker.say(goal+handoff,{selectionPrompt:goal});
+        assert.deepEqual(sorted(one.offered),offeredAsFirst(goal),'a worker is offered the schemas its goal selects, as if the goal were the whole prompt');
+        for(const tool of fromHandoff)assert.ok(!one.offered.includes(tool),'and not '+tool+', which only its handoff asks for');
+        for(const tool of ['git_status','git_diff','run_command','read_file'])assert.ok(one.offered.includes(tool),'the baseline stays: '+tool);
+        const text=JSON.stringify(one.input);
+        for(const part of [goal,'WORKFLOW PREDECESSOR HANDOFF (untrusted prior task data):','branch=chatmcp/chat/0b1c2d3e-4f50','The review found nothing to change.','Inspect source, diffs and run actual checks'])
+          assert.ok(text.includes(part),'the model still reads the whole prompt: "'+part+'"');
+        const selection=transcript(worker).find(entry=>entry.type==='tool_selection');
+        assert.equal(selection.detail.basis.runPrompt,goal,'the event names the text the schemas were selected on, not the handoff');
+        assert.equal(selection.detail.basis.fromRunPrompt,selectTaskToolNames(goal).length,'and how many tools it selected');
+        assert.deepEqual(selection.detail.offered,one.offered,'and lists what the model was offered');
+        assert.equal(worker.runner.get(worker.id).prompts[0].selectionText,goal);
+        const [two]=await worker.say('ok');
+        assert.deepEqual(sorted(two.offered),offeredAsFirst('ok'),'the next message reads the goal of the first prompt, not its handoff: the baseline');
+      }finally{await worker.runner.shutdown();}
+    }
+
+    // A goal that asks for edits and tests is offered those, and "yes, go ahead" keeps them: the first prompt counts by its goal. Not the Git tools.
+    {
+      const worker=conversation();
+      try{
+        const [one]=await worker.say(fix+handoff,{selectionPrompt:fix});
+        assert.deepEqual(sorted(one.offered),offeredAsFirst(fix));
+        for(const tool of ['edit_file','test_run'])assert.ok(one.offered.includes(tool),'the goal asks for '+tool);
+        for(const tool of gitTools)assert.ok(!one.offered.includes(tool),'and not for '+tool);
+        const [two]=await worker.say('yes, go ahead');
+        assert.deepEqual(sorted(two.offered),sorted(one.offered),'"yes, go ahead" is offered what the goal selected, and still not '+gitTools[0]+' and the other Git tools');
+      }finally{await worker.runner.shutdown();}
+    }
+
+    // Without a selectionPrompt, or with one that is the prompt, the schemas are selected on the whole prompt exactly as before (a worker without
+    // predecessors has no handoff: its prompt is its goal), and the event names that prompt.
+    for(const [label,options] of [['no selectionPrompt',{}],['a selectionPrompt that is the prompt',{selectionPrompt:fix+handoff}]]){
+      const worker=conversation();
+      try{
+        const [one]=await worker.say(fix+handoff,options);
+        assert.deepEqual(sorted(one.offered),offeredAsFirst(fix+handoff),label+': the schemas of the whole prompt, as before');
+        for(const tool of gitTools)assert.ok(one.offered.includes(tool),label+': whole, the prompt is offered '+tool);
+        const selection=transcript(worker).find(entry=>entry.type==='tool_selection');
+        assert.equal(selection.detail.basis.runPrompt,(fix+handoff).slice(0,300),label+': the event names the prompt');
+        assert.ok(!('selectionText' in worker.runner.get(worker.id).prompts[0]),label+': nothing is stored beside the prompt');
+      }finally{await worker.runner.shutdown();}
+    }
   }
 
   // A conversation across the kinds of prompt of the corpus: each message is offered at least what it is offered alone, never more than the cap.

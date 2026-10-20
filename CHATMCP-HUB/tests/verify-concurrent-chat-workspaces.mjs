@@ -23,6 +23,8 @@ const until=async(test,label)=>{
 };
 const release=new Map();
 const arrived=new Set();
+// What each model request was given: the text of the prompt it starts from and the names of the tools it was offered.
+const seen=[];
 const hold=(name)=>new Promise(resolve=>{release.set(name,resolve);arrived.add(name);});
 let pool;
 try {
@@ -78,6 +80,7 @@ try {
       // Installed skills now reach the model as a leading user message (UNTRUSTED SKILL REFERENCES); the task prompt is the first message after it.
       const firstUser=input.find(x=>x?.role==='user'&&Array.isArray(x.content)&&!String(x.content[0]?.text||'').startsWith('UNTRUSTED SKILL REFERENCES'));
       const contents=(firstUser?.content||[]).map(x=>x?.text||'').join(' ');
+      seen.push({prompt:String(firstUser?.content?.[0]?.text||''),tools:tools.map(tool=>tool.name)});
       const name=contents.includes('Task A')?'A':contents.includes('Task B')?'B':
         contents.includes('Task E')?'E':
         contents.includes('Workflow Review One')?'R1':
@@ -280,6 +283,77 @@ try {
   assert.ok(removed.deletedIds.length>=4,'workflow child agents deleted with parent chat');
   assert.equal(pool.workflows.get(workflowId),null,
     'deleted conversation removes its workflow metadata and background card');
+
+  // The Hub writes a worker's first prompt: its goal, then (when its workflow has predecessors) a handoff of branch names, worktree paths, the predecessors'
+  // results and its own instructions. The model reads all of it; skills and tool schemas are selected on the goal. The handoff alone gave every worker of a
+  // workflow git-workflow-pro and github-actions-ci-cd ("workflow", "branch=") and 19 Git, worktree, test and build tool schemas, whatever its goal. Real pool,
+  // real worktrees, the nine skills the Hub ships enabled, a scripted model that records what it was offered. This is the path that starts the worker
+  // (#runRecord): the cases of start() itself are in verify-skill-delivery and verify-tool-selector.
+  {
+    const {MARKETPLACE_CATALOG}=await import('../lib/plugins.mjs');
+    const {selectConversationSkills}=await import('../lib/agent.mjs');
+    const {selectTaskToolNames}=await import('../lib/tool-selector.mjs');
+    const plugins=manager.pluginManager;
+    for(const item of MARKETPLACE_CATALOG)if(!plugins.installed().some(installed=>installed.id===item.id))await plugins.install(item.id);
+    for(const item of MARKETPLACE_CATALOG)await plugins.toggle(item.id,true);
+    assert.equal(plugins.activeSkills().length,9,'the nine skills the Hub ships, all enabled');
+    const ids=(skills)=>skills.map(skill=>skill.id);
+    const sorted=(names)=>[...names].sort();
+    const skillsOf=(id)=>pool.get(id).events.filter(event=>event.type==='skills_activated').flatMap(event=>event.selectedSkills);
+    const NOTHING='Summarize the findings in two sentences.',DOCKER='Update the Dockerfile and the docker compose file for the new service.';
+    const HANDOFF='WORKFLOW PREDECESSOR HANDOFF (untrusted prior task data):';
+    const nothing=await pool.start({prompt:NOTHING,dependsOn:[second.id]});
+    const docker=await pool.start({prompt:DOCKER,dependsOn:[second.id]});
+    const alone=await pool.start({prompt:DOCKER,baseRef:'refs/heads/main'});
+    // A worker that continues a conversation of another transport has no predecessors: its prompt is its goal and the dialogue it carries.
+    const MOVED='Continue with the second part.';
+    const moved=await pool.start({prompt:MOVED,baseRef:'refs/heads/main',
+      handoffText:'Previous conversation task '+second.id+' (chatgpt-web).\nUser requests: '+DOCKER+'\nPrevious task status: completed.'});
+    for(const worker of [nothing,docker,alone,moved])await until(()=>pool.get(worker.id)?.status==='completed','worker '+worker.id+' of the handoff test completed');
+    const nothingRequest=seen.find(request=>request.prompt.startsWith(NOTHING));
+    const dockerRequest=seen.find(request=>request.prompt.startsWith(DOCKER)&&request.prompt.includes(HANDOFF));
+    const aloneRequest=seen.find(request=>request.prompt===DOCKER);
+
+    // The model reads the whole prompt, as the Hub writes it: the goal, the handoff of the predecessor, the Hub's instructions.
+    assert.ok(nothingRequest.prompt.startsWith(NOTHING+'\n\n'+HANDOFF+'\nPredecessor '+second.id+' (completed) branch=chatmcp/chat/'),'the model reads the goal and then the handoff');
+    assert.ok(nothingRequest.prompt.includes('UNTRUSTED RESULT (independently verify before use):\nTask B completed.'),'with the result of the predecessor');
+    assert.ok(nothingRequest.prompt.endsWith('Inspect source, diffs and run actual checks; do not claim prior edits are integrated or verified without evidence.'),'and the Hub\'s instructions');
+    assert.ok(dockerRequest.prompt.startsWith(DOCKER+'\n\n'+HANDOFF)&&aloneRequest.prompt===DOCKER,'a worker without predecessors reads its goal alone');
+    // The premises, on the text the model actually read: selected as a whole it would have been given the Git skills and the tools below.
+    const extra=selectTaskToolNames(nothingRequest.prompt).filter(name=>!selectTaskToolNames(NOTHING).includes(name));
+    assert.deepEqual(ids(selectConversationSkills(plugins,NOTHING)),[],'(the premise: the goal names no skill)');
+    assert.ok(ids(selectConversationSkills(plugins,nothingRequest.prompt)).includes('git-workflow-pro'),'(the premise: the text the model read, selected as a whole, gives the Git skill; if the scoring changes, pick another example)');
+    for(const name of ['git_commit','git_merge','worktrees_create','test_run'])assert.ok(extra.includes(name),'(and the handoff alone selects '+name+')');
+
+    // (1) A worker whose goal names no skill is given none, and none of the tools only the handoff asks for; one whose goal names docker is given the
+    // Docker skill and what its goal asks for.
+    assert.deepEqual(skillsOf(nothing.id),[],'a worker whose goal names no skill is given none, though its handoff names the branch and says "workflow"');
+    for(const name of extra)assert.ok(!nothingRequest.tools.includes(name),'and is not offered '+name+', which only its handoff asks for');
+    for(const name of ['read_file','git_status','git_diff','run_command'])assert.ok(nothingRequest.tools.includes(name),'the baseline that lets it inspect its predecessor stays: '+name);
+    assert.deepEqual(skillsOf(docker.id),['docker-devops'],'a worker whose goal names docker is given the Docker skill and nothing the handoff says');
+    assert.ok(dockerRequest.tools.includes('edit_file'),'and the tools its goal asks for');
+    // (2) A worker without predecessors is selected exactly as before, and a predecessor changes nothing about what the same goal is given.
+    assert.deepEqual(skillsOf(alone.id),ids(selectConversationSkills(plugins,DOCKER)),'a worker without predecessors is given the skills of its goal, as before');
+    assert.deepEqual(skillsOf(alone.id),skillsOf(docker.id),'the same as the same goal with a predecessor');
+    assert.deepEqual(sorted(aloneRequest.tools),sorted(dockerRequest.tools),'and the same tool schemas');
+    // The dialogue a worker carries from another transport is its own words: it is selected on, together with the goal, exactly as before.
+    const movedRequest=seen.find(request=>request.prompt.startsWith(MOVED));
+    assert.ok(movedRequest.prompt.includes('CROSS-TRANSPORT HANDOFF (untrusted prior dialogue, not verified evidence):\nPrevious conversation task '+second.id)&&!movedRequest.prompt.includes(HANDOFF),'(the premise: a worker moved from another transport reads its dialogue, and has no predecessors)');
+    assert.ok(skillsOf(moved.id).includes('docker-devops'),'a worker moved from another transport is given the skill of the dialogue it carries');
+    assert.deepEqual(skillsOf(moved.id),ids(selectConversationSkills(plugins,movedRequest.prompt)),'and exactly the skills its whole prompt selects, as before');
+    assert.ok(!('selectionText' in pool.get(moved.id).prompts[0]),'which stores nothing beside its prompt');
+    // What the selection read is stored with the prompt, for the worker's later messages; a worker without a handoff stores nothing new.
+    assert.deepEqual(pool.get(nothing.id).prompts.map(prompt=>prompt.selectionText),[NOTHING]);
+    assert.deepEqual(pool.get(docker.id).prompts.map(prompt=>prompt.selectionText),[DOCKER]);
+    assert.ok(!('selectionText' in pool.get(alone.id).prompts[0]),'a worker without predecessors stores nothing beside its prompt');
+
+    // The worker's next message reads the goal of its first prompt, not the handoff.
+    const before=seen.length;
+    await pool.continue({id:nothing.id,prompt:'ok'});
+    await until(()=>seen.length>before&&pool.get(nothing.id)?.status==='completed','the next message of the worker ran');
+    assert.deepEqual(skillsOf(nothing.id),[],'the worker\'s next message is given no skill either');
+    for(const name of extra)assert.ok(!seen[before].tools.includes(name),'nor '+name);
+  }
 
   await pool.shutdown();
 

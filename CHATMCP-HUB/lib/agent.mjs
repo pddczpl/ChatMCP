@@ -232,6 +232,9 @@ export function selectConversationSkills(pluginManager, runPrompt, earlierPrompt
   }
   return skills;
 }
+// What a prompt of the conversation is selected on, both for tool schemas and for skills: the part that states the task when the caller that started its run
+// marked one (start()'s selectionPrompt, kept with the prompt), else the prompt. Tasks stored before there was a selectionPrompt have none.
+const selectionTextOf = (entry) => (typeof entry?.selectionText === 'string' ? entry.selectionText : entry.text);
 // Models sometimes wrap an advertised direct local name in mcp_call. Resolve
 // only that explicit alias map; never guess a server or match remote basenames.
 // An exact catalog name always wins if it happens to collide with an alias.
@@ -765,13 +768,17 @@ export class AgentRunner {
     if (config.model !== context.task.model || (config.provider ?? null) !== context.task.provider) throw fault('provider_changed', 'Cấu hình model đã thay đổi trong khi chạy. Hãy gửi yêu cầu mới với cấu hình hiện tại.', 409);
   }
 
-  async start({ prompt, attachments = [], initialId = null, maxSteps = null, maxMinutes = null, resumeId = null,
+  // `selectionPrompt` is the part of `prompt` that states the task, when the caller wrote text around it that must not choose anything: skills and tool schemas are
+  // selected on it, in this run and in the later ones of the conversation, while the model is given the whole `prompt`. Without it they are selected on `prompt`.
+  async start({ prompt, selectionPrompt = null, attachments = [], initialId = null, maxSteps = null, maxMinutes = null, resumeId = null,
     effectiveProfile = null, roleProfiles = null } = {}) {
     if (resumeId && this.activeTaskId === resumeId && this.tasks.get(resumeId)?.status !== 'running' && this.context?.done) await this.context.done.promise;
     if (this.closing) throw fault('shutting_down', 'Hub đang dừng.', 503);
     if (this.activeTaskId) throw fault('task_running', 'Đã có một tác vụ đang chạy. Hãy chờ hoặc dừng tác vụ đó.', 409);
     if(typeof prompt!=='string'||(!prompt.trim()&&!attachments.length)||prompt.length>100000)
       throw fault('invalid_prompt','Nhập tin nhắn hoặc tệp đính kèm hợp lệ.');
+    if(selectionPrompt!==null&&(typeof selectionPrompt!=='string'||selectionPrompt.length>100000))
+      throw fault('invalid_prompt','Văn bản dùng để chọn kỹ năng và công cụ không hợp lệ.');
     const attachmentParts=buildUserAttachmentParts(attachments);
     if(initialId!==null&&(!TASK_ID.test(initialId)||this.tasks.has(initialId)||resumeId!==null))
       throw fault('invalid_task_id','Task ID mới đã tồn tại hoặc không hợp lệ.',409);
@@ -785,6 +792,7 @@ export class AgentRunner {
     const binding = this.#binding();
     if (existing && existing.workspace.path !== binding.path) throw fault('workspace_changed', 'Chọn lại đúng workspace của phiên trước rồi tiếp tục.', 409);
     const cleanPrompt = this.#redact(prompt.trim()||'Hãy phân tích các tệp/ảnh đính kèm.');
+    const selectionText = selectionPrompt?.trim() ? this.#redact(selectionPrompt.trim()) : cleanPrompt;
     // No await before this lock: two HTTP requests cannot both pass preflight.
     if (this.manager.acquireTask(id) === false) throw fault('hub_busy', 'Hub đang bận hoặc chưa thể khóa workspace.', 409);
     const initial = now();
@@ -814,7 +822,8 @@ export class AgentRunner {
     task.maxSteps = maxSteps === null ? null : task.steps + maxSteps; task.maxMinutes = maxMinutes;
     task.progress = createTaskProgress(task.progress, { newRun: true });
     task.goalPlan = decomposeCodingTask(task.prompt,task.goalPlan);
-    task.prompts ??= []; const runPrompt = {at:initial,text:cleanPrompt,attachments:attachmentParts.metadata}; task.prompts.push(runPrompt);
+    // selectionText is stored only when it is not the prompt: a later run of the conversation reads this prompt as an earlier one, and must read the same text.
+    task.prompts ??= []; const runPrompt = {at:initial,text:cleanPrompt,attachments:attachmentParts.metadata,...(selectionText!==cleanPrompt?{selectionText}:{})}; task.prompts.push(runPrompt);
     task.runs ??= []; task.runs.push({id:randomUUID(),conversationId:id,title:cleanPrompt,startedAt:initial,finishedAt:null,status:'running',startStep:task.steps,startToolCalls:task.toolCalls});
     task.dialogue ??= []; task.dialogue.push({role:'user',at:initial,text:cleanPrompt+(attachmentParts.metadata.length?'\n[Đính kèm: '+attachmentParts.metadata.map(x=>x.name).join(', ')+']':''),run:task.runs.length});
     // A previous mutating MCP result can be uncertain after a crash. Do not
@@ -862,9 +871,10 @@ export class AgentRunner {
       const selectionMode=this.toolSelectionMode??taskToolSelectionMode();
       context.toolSelectionMode=selectionMode;
       // Not task.prompt: that is the first prompt of the conversation and never changes. This run's prompt selects, then the conversation's
-      // earlier ones as task.prompts holds them now (a message queued while this run was preparing is among them) fill what is left.
+      // earlier ones as task.prompts holds them now (a message queued while this run was preparing is among them) fill what is left. Each is read as
+      // selectionTextOf says: by the part of it that states the task, when its caller marked one.
       const selection=selectionMode==='auto'
-        ? selectConversationCatalog(context.catalog,cleanPrompt,task.prompts.filter(entry=>entry!==runPrompt).map(entry=>entry.text),{cap:TOOL_SELECTION_CAP})
+        ? selectConversationCatalog(context.catalog,selectionText,task.prompts.filter(entry=>entry!==runPrompt).map(selectionTextOf),{cap:TOOL_SELECTION_CAP})
         : null;
       const offeredCatalog=selection?selection.catalog:context.catalog;
       context.direct = directToolsFor(offeredCatalog);
@@ -913,13 +923,14 @@ export class AgentRunner {
         await this.#event(task,'tool_selection','Dynamic task-specific tool schemas: '+context.direct.functions.length+' direct + 4 internal routers, selected from this run\'s prompt'+(earlier?' and '+earlier+' earlier prompt'+(earlier>1?'s':'')+' of the conversation':'')+'.',{},{
           mode:selectionMode,offered:context.direct.functions.map(tool=>tool.name),
           catalogCount:context.catalog.tools.length,
-          basis:{runPrompt:cleanPrompt.slice(0,300),earlierPromptsRead:earlier,fromRunPrompt:selection.fromRunPrompt,fromEarlierPrompts:selection.fromEarlierPrompts,cap:TOOL_SELECTION_CAP}});
+          basis:{runPrompt:selectionText.slice(0,300),earlierPromptsRead:earlier,fromRunPrompt:selection.fromRunPrompt,fromEarlierPrompts:selection.fromEarlierPrompts,cap:TOOL_SELECTION_CAP}});
       }
 
       // Select task-relevant skills dynamically within token budget. Not on task.prompt, the first prompt of the conversation: this run's prompt selects
       // first and the earlier ones as task.prompts holds them now (a message queued while this run was preparing is among them) fill what is left.
+      // Each is read as selectionTextOf says.
       const selectedSkills = typeof this.manager.pluginManager?.selectSkillsForTask === 'function'
-        ? selectConversationSkills(this.manager.pluginManager, cleanPrompt, task.prompts.filter(entry => entry !== runPrompt).map(entry => entry.text), { workspacePath: task.workspace?.path })
+        ? selectConversationSkills(this.manager.pluginManager, selectionText, task.prompts.filter(entry => entry !== runPrompt).map(selectionTextOf), { workspacePath: task.workspace?.path })
         : (this.manager.pluginManager?.activeSkills?.() || []);
       task.selectedSkills = selectedSkills.map((s) => s.id);
       if (selectedSkills.length) {

@@ -168,15 +168,17 @@ try {
 
   const finalAnswer = (text) => ({ status: 'completed', usage: { input_tokens: 1, output_tokens: 1 }, output: [{ type: 'message', role: 'assistant', phase: 'final', content: [{ type: 'output_text', text }] }] });
   const readFile = (callId) => ({ status: 'completed', usage: { input_tokens: 1, output_tokens: 1 }, output: [{ type: 'function_call', call_id: callId, name: 'read_file', status: 'completed', arguments: JSON.stringify({ path: 'package.json' }) }] });
+  const READ_FILE = { name: 'local.read_file', originalName: 'read_file', server: 'local', inputSchema: { type: 'object' } };
   let chats = 0;
   // script({requests, runner}) answers the model; onSession({runner}) runs while a run is preparing: the task is running and its skills are not selected yet.
-  const chat = async ({ script = () => finalAnswer('Done.'), onSession = null } = {}) => {
+  // pluginManager, tools (the catalog the scripted tool session offers) and toolSelectionMode are the skills above, read_file alone and the runner's default.
+  const chat = async ({ script = () => finalAnswer('Done.'), onSession = null, pluginManager = plugins, tools = [READ_FILE], toolSelectionMode = null } = {}) => {
     const requests = [];
     let locked = false;
     let id = null;
     const manager = {
       backend: 'local', secrets: [], instanceId: 'skill-conversation', generation: 1,
-      pluginManager: plugins,
+      pluginManager,
       state() { return { workspace: { path: conversationRoot }, generation: this.generation, instanceId: this.instanceId }; },
       acquireTask() { if (locked) return false; locked = true; return true; },
       releaseTask() { locked = false; },
@@ -184,7 +186,7 @@ try {
       async createAgentSession() {
         await onSession?.({ runner });
         return {
-          catalog: { tools: [{ name: 'local.read_file', originalName: 'read_file', server: 'local', inputSchema: { type: 'object' } }], prompts: [], resources: [], resourceTemplates: [], servers: {} },
+          catalog: { tools, prompts: [], resources: [], resourceTemplates: [], servers: {} },
           async close() {},
           async callTool() { return { isError: false, content: [{ type: 'text', text: '{"version":"1.0.0"}' }], structuredContent: { notVerified: true } }; },
         };
@@ -193,23 +195,25 @@ try {
     const provider = {
       ready: () => true,
       snapshot: () => ({ provider: 'fixture', model: 'capture' }),
-      async respond({ input, instructions, beforeModelRequest }) {
+      async respond({ input, instructions, tools: offered, beforeModelRequest }) {
         beforeModelRequest?.();
-        requests.push({ input: structuredClone(input), instructions: String(instructions ?? '') });
+        requests.push({ input: structuredClone(input), instructions: String(instructions ?? ''), tools: (offered ?? []).map((tool) => tool.name) });
         return script({ requests, runner });
       },
     };
-    const runner = new AgentRunner({ manager, provider, taskDirectory: path.join(conversationRoot, `tasks-${(chats += 1)}`) });
+    const taskDirectory = path.join(conversationRoot, `tasks-${(chats += 1)}`);
+    const runner = new AgentRunner({ manager, provider, taskDirectory, toolSelectionMode });
     await runner.load();
-    // One message of the conversation: the first starts it, the others continue it. Resolves with the model requests that run made.
-    const say = async (prompt) => {
+    // One message of the conversation: the first starts it, the others continue it. Resolves with the model requests that run made. `options` are
+    // more arguments of runner.start() for the message that starts the conversation.
+    const say = async (prompt, options = {}) => {
       const before = requests.length;
-      id = (id === null ? await runner.start({ prompt, maxSteps: 6 }) : await runner.continue({ id, prompt, maxSteps: 6 })).id;
+      id = (id === null ? await runner.start({ prompt, ...options, maxSteps: 6 }) : await runner.continue({ id, prompt, maxSteps: 6 })).id;
       for (let i = 0; i < 1500 && runner.get(id).status === 'running'; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
       assert.equal(runner.get(id).status, 'completed', runner.get(id).error);
       return requests.slice(before);
     };
-    return { runner, requests, say, get id() { return id; } };
+    return { runner, requests, say, manager, provider, taskDirectory, get id() { return id; } };
   };
   // The skills a request carried, in the order they appear; each exactly once and none of them in the privileged instructions.
   const delivered = (request) => {
@@ -493,6 +497,133 @@ try {
       }
     }
     ok('over the corpus a skill is selected by a word of its id or name or by an explicit trigger, never by the ordinary words around it');
+  }
+
+  // A delegated worker's first prompt is composed by the Hub: the worker's goal, then (when its workflow has predecessors) a handoff of branch names, worktree
+  // paths, the predecessors' results (another model's output) and the Hub's own instructions. The model reads all of it; what selects skills is the goal. The
+  // handoff alone selected git-workflow-pro ("workflow" is a word of its id) and github-actions-ci-cd ("branch=" is a Git trigger) for every worker of a
+  // workflow, whatever its goal, and they took two of the four places. lib/concurrent-api-agent.mjs passes the goal as selectionPrompt, which start() stores
+  // with the prompt, so that the worker's later messages count the goal and not the handoff. Same real AgentRunner and PluginManager, the nine shipped skills
+  // enabled. The handoff is a copy of the Hub's text; verify-concurrent-chat-workspaces runs the code that writes it.
+  {
+    const { MARKETPLACE_CATALOG } = await import('../lib/plugins.mjs');
+    const { selectConversationSkills } = await import('../lib/agent.mjs');
+    const nine = new PluginManager({ stateDir: path.join(conversationRoot, 'handoff-state') });
+    await nine.load();
+    for (const item of MARKETPLACE_CATALOG) {
+      if (!nine.installed().some((installed) => installed.id === item.id)) await nine.install(item.id);
+    }
+    assert.equal(nine.activeSkills().length, 9, 'the nine skills the Hub ships, all enabled');
+    const ids = (skills) => skills.map((skill) => skill.id);
+    // The skills a request carried, as the model reads them: "### Skill: <name> (<id>) [License: ...]".
+    const skillsIn = (request) => [...JSON.stringify(request.input).matchAll(/### Skill: [^\\]*? \(([a-z0-9_-]+)\) \[License:/g)].map((match) => match[1]);
+    const settle = async (runner, id) => {
+      for (let i = 0; i < 1500 && runner.get(id).status === 'running'; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(runner.get(id).status, 'completed', runner.get(id).error);
+    };
+    const GOAL = 'Summarize the findings in two sentences.';
+    const DOCKER = 'Update the Dockerfile and the docker compose file for the new service.';
+    const withHandoff = (goal) => `${goal}\n\nWORKFLOW PREDECESSOR HANDOFF (untrusted prior task data):\n` +
+      'Predecessor 0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d (completed) branch=chatmcp/chat/0b1c2d3e-4f50 worktree=/hub/api-conversations/0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d/worktree\n' +
+      'UNTRUSTED RESULT (independently verify before use):\nThe review found nothing to change.\n' +
+      'Previous workers used independent worktrees. Changes are NOT automatically merged. Inspect source, diffs and run actual checks; do not claim prior edits are integrated or verified without evidence.';
+    assert.deepEqual(ids(selectConversationSkills(nine, GOAL)), [], '(the premise: the goal names no skill)');
+    assert.deepEqual(ids(selectConversationSkills(nine, DOCKER)), ['docker-devops'], '(the premise: the Docker goal selects the Docker skill alone)');
+    assert.ok(ids(selectConversationSkills(nine, withHandoff(GOAL))).includes('git-workflow-pro'), '(the premise: selected as a whole, the handoff alone gives the Git skill; if the scoring changes, pick another example)');
+
+    // A goal that names no skill is given none, and neither is the worker's next message. The model still reads the whole prompt.
+    {
+      const c = await chat({ pluginManager: nine });
+      try {
+        const [one] = await c.say(withHandoff(GOAL), { selectionPrompt: GOAL });
+        assert.deepEqual(skillsIn(one), [], 'a worker whose goal names no skill is given none, though its handoff says "workflow" and "branch="');
+        assert.ok(!JSON.stringify(one.input).includes(HEADER), 'not even the header of a skill context');
+        const text = JSON.stringify(one.input);
+        for (const part of [GOAL, 'WORKFLOW PREDECESSOR HANDOFF (untrusted prior task data):', 'branch=chatmcp/chat/0b1c2d3e-4f50', 'The review found nothing to change.', 'Inspect source, diffs and run actual checks']) {
+          assert.ok(text.includes(part), `the model still reads the whole prompt: "${part}"`);
+        }
+        const task = c.runner.get(c.id);
+        assert.equal(task.prompt, withHandoff(GOAL), 'and the conversation records the whole prompt');
+        assert.deepEqual([task.prompts[0].text, task.prompts[0].selectionText], [withHandoff(GOAL), GOAL], 'with the text its skills and tools are selected on');
+        const [two] = await c.say('ok');
+        assert.deepEqual(skillsIn(two), [], 'the worker\'s next message counts the goal of its first prompt, not its handoff');
+        assert.deepEqual(activations(c), [], 'and no skills_activated event is raised');
+      } finally { await c.runner.shutdown(); }
+    }
+    ok('a delegated worker whose goal names no skill is given none (nor is its next message), and the model still reads the whole handoff');
+
+    // A goal that names docker still is given the Docker skill, and only what the goal asks for.
+    {
+      const c = await chat({ pluginManager: nine });
+      try {
+        const [one] = await c.say(withHandoff(DOCKER), { selectionPrompt: DOCKER });
+        assert.deepEqual(skillsIn(one), ['docker-devops'], 'the Docker skill, and not the two Git skills of the handoff');
+        const [two] = await c.say('ok');
+        assert.deepEqual(skillsIn(two), ['docker-devops'], 'and the worker\'s next message keeps it');
+        assert.deepEqual(activations(c), [['docker-devops'], ['docker-devops']], 'the skills_activated events say the same');
+        assert.ok(JSON.stringify(one.input).includes('WORKFLOW PREDECESSOR HANDOFF (untrusted prior task data):'), 'the handoff reaches the model');
+      } finally { await c.runner.shutdown(); }
+    }
+    ok('a delegated worker whose goal names docker is given the Docker skill and nothing the handoff says');
+
+    // Without selectionPrompt start() selects on the prompt as a whole, as it always did: what a worker without predecessors gets (its prompt is its goal), and
+    // what a caller that composes text of its own gets. A selectionPrompt that is the prompt itself, or none, is no change either, and stores nothing.
+    {
+      const whole = withHandoff(DOCKER);
+      const expected = ids(selectConversationSkills(nine, whole));
+      assert.ok(expected.includes('docker-devops') && expected.includes('git-workflow-pro'), '(the premise: the whole text selects the Docker and the Git skill)');
+      for (const [label, options] of [['no selectionPrompt', {}], ['a selectionPrompt that is the prompt', { selectionPrompt: whole }], ['a null one', { selectionPrompt: null }], ['a blank one', { selectionPrompt: '  \n ' }]]) {
+        const c = await chat({ pluginManager: nine });
+        try {
+          const [one] = await c.say(whole, options);
+          assert.deepEqual(skillsIn(one), expected, `${label}: the skills of the whole prompt, as before`);
+          assert.ok(!('selectionText' in c.runner.get(c.id).prompts[0]), `${label}: nothing is stored beside the prompt`);
+          const [two] = await c.say('ok');
+          assert.deepEqual(skillsIn(two), ids(selectConversationSkills(nine, 'ok', [whole])), `${label}: and the next message reads the first prompt as a whole`);
+        } finally { await c.runner.shutdown(); }
+      }
+      const alone = await chat({ pluginManager: nine });
+      try {
+        const [one] = await alone.say(DOCKER);
+        assert.deepEqual(skillsIn(one), ['docker-devops'], 'a worker without predecessors is given the skills of its goal, as before');
+      } finally { await alone.runner.shutdown(); }
+    }
+    ok('without a selectionPrompt (or with one that is the prompt) start() selects on the whole prompt exactly as before, and stores nothing new');
+
+    // The selection text is part of the stored conversation: after the Hub restarts, the worker continues with the same selection.
+    {
+      const c = await chat({ pluginManager: nine });
+      try {
+        await c.say(withHandoff(GOAL), { selectionPrompt: GOAL });
+      } finally { await c.runner.shutdown(); }
+      const file = JSON.parse(await fs.readFile(path.join(c.taskDirectory, c.id, 'task.json'), 'utf8'));
+      assert.equal(file.prompts[0].selectionText, GOAL, 'the selection text is written to the task file');
+      const restarted = new AgentRunner({ manager: c.manager, provider: c.provider, taskDirectory: c.taskDirectory });
+      await restarted.load();
+      try {
+        assert.equal(restarted.get(c.id).prompts[0].selectionText, GOAL, 'and read back');
+        await restarted.continue({ id: c.id, prompt: 'ok', maxSteps: 6 });
+        await settle(restarted, c.id);
+        assert.deepEqual(skillsIn(c.requests.at(-1)), [], 'the continuation after a restart is selected on it: no Git skill');
+      } finally { await restarted.shutdown(); }
+    }
+    ok('the selection text survives a restart of the Hub');
+
+    // A selectionPrompt that is not text is refused before anything starts. On a runner that has run nothing: one that has just finished a run is still
+    // releasing its workspace, and answers task_running first.
+    {
+      const c = await chat({ pluginManager: nine });
+      try {
+        for (const bad of [42, {}, ['x'], true, 'x'.repeat(100_001)]) {
+          await assert.rejects(c.runner.start({ prompt: GOAL, selectionPrompt: bad }), { code: 'invalid_prompt' }, `a selectionPrompt of ${typeof bad} ${String(JSON.stringify(bad)).slice(0, 12)} is refused`);
+        }
+        assert.equal(c.runner.activeTaskId, null, 'a refused start leaves no run behind');
+        assert.equal(c.runner.state().tasks.length, 0, 'and no task');
+        const [one] = await c.say(withHandoff(GOAL), { selectionPrompt: GOAL });
+        assert.deepEqual(skillsIn(one), [], 'and the runner starts normally afterwards');
+      } finally { await c.runner.shutdown(); }
+    }
+    ok('a selectionPrompt that is not text is refused before anything starts');
   }
 } finally {
   await fs.rm(conversationRoot, { recursive: true, force: true }).catch(() => {});
