@@ -232,6 +232,10 @@ export function selectConversationSkills(pluginManager, runPrompt, earlierPrompt
   }
   return skills;
 }
+// The earlier prompts of a conversation as both selectors read them, oldest first: the user's requests that its task carries from before it began (start()'s
+// carriedPrompts, made in another transport; the model read them in the task's first prompt), then the prompts of the task except the run's own, each as selectionTextOf
+// (below) says. What a task file holds as carriedPrompts that is not a list (edited by hand, or written by another version) counts as none.
+const earlierSelectionTexts = (task, runPrompt) => [...(Array.isArray(task.carriedPrompts) ? task.carriedPrompts : []), ...task.prompts.filter((entry) => entry !== runPrompt).map(selectionTextOf)];
 // What a prompt of the conversation is selected on, both for tool schemas and for skills: the part that states the task when the caller that started its run
 // marked one (start()'s selectionPrompt, kept with the prompt), else the prompt. Tasks stored before there was a selectionPrompt have none.
 const selectionTextOf = (entry) => (typeof entry?.selectionText === 'string' ? entry.selectionText : entry.text);
@@ -771,7 +775,7 @@ export class AgentRunner {
   // `selectionPrompt` is the part of `prompt` that states the task, when the caller wrote text around it that must not choose anything: skills and tool schemas are
   // selected on it, in this run and in the later ones of the conversation, while the model is given the whole `prompt`. Without it they are selected on `prompt`.
   async start({ prompt, selectionPrompt = null, attachments = [], initialId = null, maxSteps = null, maxMinutes = null, resumeId = null,
-    effectiveProfile = null, roleProfiles = null } = {}) {
+    effectiveProfile = null, roleProfiles = null, carriedPrompts = null } = {}) {
     if (resumeId && this.activeTaskId === resumeId && this.tasks.get(resumeId)?.status !== 'running' && this.context?.done) await this.context.done.promise;
     if (this.closing) throw fault('shutting_down', 'Hub đang dừng.', 503);
     if (this.activeTaskId) throw fault('task_running', 'Đã có một tác vụ đang chạy. Hãy chờ hoặc dừng tác vụ đó.', 409);
@@ -779,6 +783,11 @@ export class AgentRunner {
       throw fault('invalid_prompt','Nhập tin nhắn hoặc tệp đính kèm hợp lệ.');
     if(selectionPrompt!==null&&(typeof selectionPrompt!=='string'||selectionPrompt.length>100000))
       throw fault('invalid_prompt','Văn bản dùng để chọn kỹ năng và công cụ không hợp lệ.');
+    // `carriedPrompts` (up to 20 texts) are the user's earlier requests of a conversation that began in another transport, which `prompt` holds among text the caller
+    // wrote: the task keeps them, and its skills and tool schemas are selected on them as on the earlier prompts of a conversation, in this run and in the later ones.
+    // Only a task that starts takes them; one that is resumed keeps what it carries.
+    if(carriedPrompts!==null&&(!Array.isArray(carriedPrompts)||carriedPrompts.length>TOOL_SELECTION_PROMPTS||carriedPrompts.some(text=>typeof text!=='string'||text.length>100000)))
+      throw fault('invalid_prompt','Các yêu cầu cũ dùng để chọn kỹ năng và công cụ không hợp lệ.');
     const attachmentParts=buildUserAttachmentParts(attachments);
     if(initialId!==null&&(!TASK_ID.test(initialId)||this.tasks.has(initialId)||resumeId!==null))
       throw fault('invalid_task_id','Task ID mới đã tồn tại hoặc không hợp lệ.',409);
@@ -793,6 +802,7 @@ export class AgentRunner {
     if (existing && existing.workspace.path !== binding.path) throw fault('workspace_changed', 'Chọn lại đúng workspace của phiên trước rồi tiếp tục.', 409);
     const cleanPrompt = this.#redact(prompt.trim()||'Hãy phân tích các tệp/ảnh đính kèm.');
     const selectionText = selectionPrompt?.trim() ? this.#redact(selectionPrompt.trim()) : cleanPrompt;
+    const carried = (carriedPrompts ?? []).map((text) => text.trim()).filter(Boolean);
     // No await before this lock: two HTTP requests cannot both pass preflight.
     if (this.manager.acquireTask(id) === false) throw fault('hub_busy', 'Hub đang bận hoặc chưa thể khóa workspace.', 409);
     const initial = now();
@@ -807,6 +817,9 @@ export class AgentRunner {
       progress: createTaskProgress(),
       goalPlan: decomposeCodingTask(cleanPrompt),
       prompts: [], runs: [], dialogue: [],
+      // Not prompts of this task: nothing that lists its prompts (the checkpoint the model is shown, the report, the screen) shows them. Only the selectors read them,
+      // and they leave the task only through #clean, which redacts them as it does the prompts.
+      ...(carried.length ? { carriedPrompts: carried } : {}),
       state: 'created', stateReason: 'task_created', stateChangedAt: initial, stateHistory: [{ at: initial, from: null, to: 'created', reason: 'task_created' }],
     };
     const priorContext = existing ? this.#resumeEvidence(task) : null;
@@ -870,11 +883,11 @@ export class AgentRunner {
       this.#check(context);
       const selectionMode=this.toolSelectionMode??taskToolSelectionMode();
       context.toolSelectionMode=selectionMode;
-      // Not task.prompt: that is the first prompt of the conversation and never changes. This run's prompt selects, then the conversation's
-      // earlier ones as task.prompts holds them now (a message queued while this run was preparing is among them) fill what is left. Each is read as
-      // selectionTextOf says: by the part of it that states the task, when its caller marked one.
+      // Not task.prompt: that is the first prompt of the conversation and never changes. This run's prompt selects, then the conversation's earlier ones
+      // (earlierSelectionTexts: what the task carries from another transport, then task.prompts as it holds them now; a message queued while this run was
+      // preparing is among them) fill what is left. Each is read as selectionTextOf says: by the part of it that states the task, when its caller marked one.
       const selection=selectionMode==='auto'
-        ? selectConversationCatalog(context.catalog,selectionText,task.prompts.filter(entry=>entry!==runPrompt).map(selectionTextOf),{cap:TOOL_SELECTION_CAP})
+        ? selectConversationCatalog(context.catalog,selectionText,earlierSelectionTexts(task,runPrompt),{cap:TOOL_SELECTION_CAP})
         : null;
       const offeredCatalog=selection?selection.catalog:context.catalog;
       context.direct = directToolsFor(offeredCatalog);
@@ -927,10 +940,9 @@ export class AgentRunner {
       }
 
       // Select task-relevant skills dynamically within token budget. Not on task.prompt, the first prompt of the conversation: this run's prompt selects
-      // first and the earlier ones as task.prompts holds them now (a message queued while this run was preparing is among them) fill what is left.
-      // Each is read as selectionTextOf says.
+      // first and the earlier ones (earlierSelectionTexts, as for the tool schemas above) fill what is left. Each is read as selectionTextOf says.
       const selectedSkills = typeof this.manager.pluginManager?.selectSkillsForTask === 'function'
-        ? selectConversationSkills(this.manager.pluginManager, selectionText, task.prompts.filter(entry => entry !== runPrompt).map(selectionTextOf), { workspacePath: task.workspace?.path })
+        ? selectConversationSkills(this.manager.pluginManager, selectionText, earlierSelectionTexts(task, runPrompt), { workspacePath: task.workspace?.path })
         : (this.manager.pluginManager?.activeSkills?.() || []);
       task.selectedSkills = selectedSkills.map((s) => s.id);
       if (selectedSkills.length) {

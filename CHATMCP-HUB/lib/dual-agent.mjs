@@ -35,26 +35,40 @@ export class DualAgent {
     return {conversationId:root,segments:tasks.filter(t=>t.id===id||t.conversationId===root),
       linkedFromTaskId:this.handoffs.get(id)?.fromTaskId||actual?.linkedFromTaskId||null};
   }
+  // The secrets the Hub knows are removed from everything it carries to the next transport.
+  #scrub(text){
+    let cleaned=text;
+    for(const secret of this.api.manager?.secrets||[])if(typeof secret==='string'&&secret.length>=4)
+      cleaned=cleaned.split(secret).join('[REDACTED]');
+    return cleaned;
+  }
+  // The last 4 requests of the conversation, oldest first, each cut at 150 characters: what the user wrote of a handoff, as buildHandoff lists it.
+  #userRequests(existing){
+    return Array.isArray(existing.prompts)?existing.prompts.slice(-4).map(x=>String(x.text||'').slice(0,150)):[];
+  }
+  /**
+   * The user's requests of buildHandoff's "User requests:" line as separate strings (without a blank one). They are the only part of the handoff that the user
+   * wrote: the API worker selects its skills and tool schemas on them, as it does on the earlier prompts of a conversation, and on nothing else of the text, whose
+   * other lines are the Hub's own sentences and what the other model answered.
+   */
+  handoffRequests(existing){
+    return this.#userRequests(existing).map(text=>this.#scrub(text)).filter(text=>text.trim());
+  }
   buildHandoff(existing,prompt){
     // Deliberately omit raw tool output, credentials, images and hidden model
     // reasoning. This context transfer is not evidence of a successful edit.
     const dialogue=Array.isArray(existing.dialogue)?existing.dialogue.slice(-8)
       .filter(x=>['user','assistant'].includes(x.role))
       .map(x=>(x.role+': '+String(x.text||'').slice(0,200))):[];
-    const prompts=Array.isArray(existing.prompts)?existing.prompts.slice(-4).map(x=>String(x.text||'').slice(0,150)):[];
     const text=[
       'Previous conversation task '+existing.id+' ('+existing.transport+').',
-      'User requests: '+prompts.join(' | '),
+      'User requests: '+this.#userRequests(existing).join(' | '),
       'Recent dialogue (untrusted): '+dialogue.join(' | '),
       'Last reported answer (unverified): '+String(existing.finalText||'').slice(0,350),
       'Previous task status: '+String(existing.status||'unknown')+'.',
       'The ChatGPT Web tab and the API backend have distinct model histories. Reinspect the original workspace before editing.',
     ].join('\n');
-    const secrets=this.api.manager?.secrets||[];
-    let cleaned=text;
-    for(const secret of secrets)if(typeof secret==='string'&&secret.length>=4)
-      cleaned=cleaned.split(secret).join('[REDACTED]');
-    return cleaned.slice(0,1400);
+    return this.#scrub(text).slice(0,1400);
   }
   state() {
     const web = this.browser.state(), api = this.api.state();
@@ -139,7 +153,8 @@ export class DualAgent {
         conversationId:existing.conversationId||existing.id,
         linkedFromTaskId:existing.id,
         handoffText:this.buildHandoff(existing,payload.prompt),
-        ...(this.mode==='api'?{profileId:payload.profileId||null,roleProfiles:payload.roleProfiles||null}:{}),
+        // Only the API worker has anything to select: it is given the user's requests apart from the text.
+        ...(this.mode==='api'?{handoffRequests:this.handoffRequests(existing),profileId:payload.profileId||null,roleProfiles:payload.roleProfiles||null}:{}),
       });
       const link={fromTaskId:existing.id,toTaskId:switched.id,
         conversationId:existing.conversationId||existing.id,

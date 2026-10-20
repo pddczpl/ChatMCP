@@ -624,6 +624,126 @@ try {
       } finally { await c.runner.shutdown(); }
     }
     ok('a selectionPrompt that is not text is refused before anything starts');
+
+    // A worker that continues a conversation of another transport: its prompt is its goal followed by the handoff the Hub writes (lib/dual-agent.mjs: the user's earlier
+    // requests, the other model's last answer, the Hub's own sentences). The model reads all of it. Skills are selected on the goal and then, as the earlier prompts of the
+    // conversation, on the user's requests, which start() is given apart from the text (carriedPrompts) and keeps with the task. The Hub's sentences select nothing:
+    // "the API backend" and "The ChatGPT Web tab" gave fastapi-backend-developer and web-researcher to every worker that switched transport. The handoff is the Hub's
+    // own (DualAgent.buildHandoff); the sentences around it are copied from lib/concurrent-api-agent.mjs, which verify-concurrent-chat-workspaces runs.
+    const { DualAgent } = await import('../lib/dual-agent.mjs');
+    const MOVED = 'Continue with the second part.';
+    const REQUESTS = ['Explain what calc.js does.', DOCKER];
+    const previous = { id: '5e7a0c11-3b6d-4f08-9a42-6c1d8e2f7b90', transport: 'chatgpt-web', status: 'completed', prompts: REQUESTS.map((text) => ({ text })),
+      dialogue: [{ role: 'user', text: DOCKER }, { role: 'assistant', text: 'I updated the Dockerfile and the compose file.' }], finalText: 'Both files are updated. The second part is next.' };
+    const hub = new DualAgent({ browser: {}, api: { manager: { secrets: [] } }, directory: conversationRoot });
+    const migrated = (goal) => `${goal}\n\nCROSS-TRANSPORT HANDOFF (untrusted prior dialogue, not verified evidence):\n${hub.buildHandoff(previous, goal)}\n` +
+      'Reinspect current project files, check actual diffs/tests and never replay uncertain mutations.';
+    const asWhole = ids(selectConversationSkills(nine, migrated(MOVED)));
+    assert.deepEqual(ids(selectConversationSkills(nine, MOVED)), [], '(the premise: the goal names no skill)');
+    assert.deepEqual(ids(selectConversationSkills(nine, MOVED, REQUESTS)), ['docker-devops'], '(the premise: of the requests only the Docker one names a skill)');
+    assert.ok(asWhole.includes('docker-devops') && asWhole.length > 1, `(the premise: selected as a whole, the Hub's sentences add skills: ${JSON.stringify(asWhole)}; if the scoring changes, pick another example)`);
+    const taskFile = async (c) => JSON.parse(await fs.readFile(path.join(c.taskDirectory, c.id, 'task.json'), 'utf8'));
+
+    {
+      const c = await chat({ pluginManager: nine });
+      try {
+        const [one] = await c.say(migrated(MOVED), { selectionPrompt: MOVED, carriedPrompts: REQUESTS });
+        assert.deepEqual(skillsIn(one), ['docker-devops'], 'a worker whose goal names no skill is given the skill of the user\'s Docker request, and none that only the Hub\'s sentences name');
+        const text = JSON.stringify(one.input);
+        for (const part of [MOVED, 'CROSS-TRANSPORT HANDOFF (untrusted prior dialogue, not verified evidence):', `User requests: ${REQUESTS.join(' | ')}`, 'The ChatGPT Web tab and the API backend have distinct model histories.', 'check actual diffs/tests']) {
+          assert.ok(text.includes(part), `the model still reads the whole handoff: "${part}"`);
+        }
+        const [two] = await c.say('ok');
+        assert.deepEqual(skillsIn(two), ['docker-devops'], 'and its next message is given it too: the requests stay in the conversation');
+        assert.deepEqual(activations(c), [['docker-devops'], ['docker-devops']], 'the skills_activated events say the same');
+      } finally { await c.runner.shutdown(); }
+      const file = await taskFile(c);
+      assert.deepEqual(file.carriedPrompts, REQUESTS, 'the requests are written to the task file ...');
+      assert.deepEqual(file.prompts.map((prompt) => prompt.text), [migrated(MOVED), 'ok'], '... and are no prompts of it: it holds the two messages of the worker only');
+      assert.equal(file.prompts[0].selectionText, MOVED, 'the goal is the text its first prompt is selected on');
+      const restarted = new AgentRunner({ manager: c.manager, provider: c.provider, taskDirectory: c.taskDirectory });
+      await restarted.load();
+      try {
+        await restarted.continue({ id: c.id, prompt: 'ok', maxSteps: 6 });
+        await settle(restarted, c.id);
+        assert.deepEqual(skillsIn(c.requests.at(-1)), ['docker-devops'], 'after a restart of the Hub the next message is still given it');
+      } finally { await restarted.shutdown(); }
+    }
+    ok('a worker moved from another transport is given the skills of the user\'s earlier requests and none of the Hub\'s sentences; the model reads it all; the requests outlast a restart');
+
+    // What a task file holds as carriedPrompts that is not a list (edited by hand, or written by another version of the Hub) counts as none: the conversation goes on.
+    // A list with entries that are not text is read for the texts it has.
+    {
+      const c = await chat({ pluginManager: nine });
+      try { await c.say(migrated(MOVED), { selectionPrompt: MOVED, carriedPrompts: REQUESTS }); } finally { await c.runner.shutdown(); }
+      for (const [label, damaged, expected] of [['a text', DOCKER, []], ['a number', 42, []], ['an object', { 0: DOCKER }, []], ['a list with a number and null in it', [7, null, DOCKER], ['docker-devops']]]) {
+        const file = await taskFile(c);
+        file.carriedPrompts = damaged;
+        await fs.writeFile(path.join(c.taskDirectory, c.id, 'task.json'), JSON.stringify(file));
+        const restarted = new AgentRunner({ manager: c.manager, provider: c.provider, taskDirectory: c.taskDirectory });
+        await restarted.load();
+        try {
+          await restarted.continue({ id: c.id, prompt: 'ok', maxSteps: 6 });
+          await settle(restarted, c.id);
+          assert.deepEqual(skillsIn(c.requests.at(-1)), expected, `carriedPrompts that are ${label}: the conversation goes on with ${expected.length ? 'the texts of the list' : 'none'}`);
+        } finally { await restarted.shutdown(); }
+      }
+    }
+    ok('a carriedPrompts in a task file that is not a list counts as none, and the conversation goes on');
+
+    // The requests are the oldest prompts of the conversation: behind everything the worker is asked itself, and the first to be dropped at 4 skills.
+    {
+      const c = await chat();
+      try {
+        const [one] = await c.say('Use brontide.', { carriedPrompts: ['Use zephyrflux.', 'Use quillmark.'] });
+        assert.deepEqual(delivered(one), ['brontide', 'quillmark', 'zephyrflux'], 'the prompt of the run first, then the requests, newest first');
+        await c.say('Use cobaltreef.');
+        await c.say('Use ambergate.');
+        const [four] = await c.say('ok');
+        assert.deepEqual(delivered(four), ['ambergate', 'cobaltreef', 'brontide', 'quillmark'], 'the requests are older than the prompts of the worker itself: the oldest of them is dropped');
+      } finally { await c.runner.shutdown(); }
+    }
+    ok('the carried requests are the oldest prompts of the conversation, read newest first behind the prompt of the run');
+
+    // Without requests start() selects exactly as it did, and writes nothing to the task.
+    for (const [label, options] of [['no carriedPrompts', {}], ['null', { carriedPrompts: null }], ['an empty list', { carriedPrompts: [] }], ['blank requests', { carriedPrompts: ['', ' \n '] }]]) {
+      const c = await chat({ pluginManager: nine });
+      try {
+        const [one] = await c.say(migrated(MOVED), options);
+        assert.deepEqual(skillsIn(one), asWhole, `${label}: the skills of the whole prompt, as before`);
+        const [two] = await c.say('ok');
+        assert.deepEqual(skillsIn(two), ids(selectConversationSkills(nine, 'ok', [migrated(MOVED)])), `${label}: and the next message reads the first prompt as a whole`);
+      } finally { await c.runner.shutdown(); }
+      assert.ok(!('carriedPrompts' in await taskFile(c)), `${label}: nothing is written beside the prompts`);
+    }
+    ok('without carried requests start() selects on the whole prompt exactly as before, and writes nothing new');
+
+    // Requests that are not up to 20 texts of at most 100,000 characters are refused before anything starts (on a runner that has run nothing, as above).
+    {
+      const c = await chat({ pluginManager: nine });
+      try {
+        for (const bad of ['Use zephyrflux.', {}, 42, true, [42], [null], [['x']], ['x'.repeat(100_001)], Array(21).fill('x')]) {
+          await assert.rejects(c.runner.start({ prompt: MOVED, carriedPrompts: bad }), { code: 'invalid_prompt' }, `carriedPrompts of ${JSON.stringify(bad).slice(0, 20)} are refused`);
+        }
+        assert.equal(c.runner.activeTaskId, null, 'a refused start leaves no run behind');
+        assert.equal(c.runner.state().tasks.length, 0, 'and no task');
+        const [one] = await c.say(MOVED, { carriedPrompts: [...Array(19).fill('ok'), DOCKER] });
+        assert.deepEqual(skillsIn(one), ['docker-devops'], 'and 20 requests are accepted');
+      } finally { await c.runner.shutdown(); }
+    }
+    ok('carried requests that are not up to 20 texts are refused before anything starts');
+
+    // They are written to the task file, which is redacted as a whole, as its prompts are.
+    {
+      const key = 'sk-proj-abcdefghijklmnopqrstuvwx';
+      const c = await chat();
+      try {
+        const [one] = await c.say('ok', { carriedPrompts: [`Use zephyrflux with the key ${key}.`] });
+        assert.deepEqual(delivered(one), ['zephyrflux'], 'a redacted request still selects');
+      } finally { await c.runner.shutdown(); }
+      assert.deepEqual((await taskFile(c)).carriedPrompts, ['Use zephyrflux with the key [REDACTED].'], 'and the key is not stored');
+    }
+    ok('carried requests are redacted when they are written to the task file');
   }
 } finally {
   await fs.rm(conversationRoot, { recursive: true, force: true }).catch(() => {});

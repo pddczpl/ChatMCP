@@ -11,6 +11,7 @@ import { assembleStudio } from '../lib/assemble.mjs';
 import { AgentRunner, buildUserAttachmentParts } from '../lib/agent.mjs';
 import { ConcurrentApiAgent } from '../lib/concurrent-api-agent.mjs';
 import { WorkspaceRegistry } from '../lib/workspace-registry.mjs';
+import { DualAgent } from '../lib/dual-agent.mjs';
 import { compactRollingContext, estimateTokens } from '../lib/context-compaction.mjs';
 
 const bundleRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
@@ -305,11 +306,29 @@ try {
     const nothing=await pool.start({prompt:NOTHING,dependsOn:[second.id]});
     const docker=await pool.start({prompt:DOCKER,dependsOn:[second.id]});
     const alone=await pool.start({prompt:DOCKER,baseRef:'refs/heads/main'});
-    // A worker that continues a conversation of another transport has no predecessors: its prompt is its goal and the dialogue it carries.
-    const MOVED='Continue with the second part.';
-    const moved=await pool.start({prompt:MOVED,baseRef:'refs/heads/main',
+    // A record that has only the text of a handoff (written before the user's requests were kept apart from it, or sent by a caller that has no list): it has no
+    // predecessors, so it is selected on its whole prompt, as it always was.
+    const LEGACY='Go on with the second part.';
+    const legacy=await pool.start({prompt:LEGACY,baseRef:'refs/heads/main',
       handoffText:'Previous conversation task '+second.id+' (chatgpt-web).\nUser requests: '+DOCKER+'\nPrevious task status: completed.'});
-    for(const worker of [nothing,docker,alone,moved])await until(()=>pool.get(worker.id)?.status==='completed','worker '+worker.id+' of the handoff test completed');
+    // A worker that continues a conversation of another transport, started as the Hub starts it: DualAgent.continue() reads the task of that transport (here a
+    // ChatGPT Web task that was asked two things), writes the handoff and the list of the user's requests, and the pool runs the worker.
+    const MOVED='Continue with the second part.',REQUESTS=['Explain what calc.js does.',DOCKER];
+    const webTask={id:'5e7a0c11-3b6d-4f08-9a42-6c1d8e2f7b90',status:'completed',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),
+      workspace:{path:await fs.realpath(repo)},prompts:REQUESTS.map(text=>({text})),
+      dialogue:[{role:'user',text:DOCKER},{role:'assistant',text:'I updated the Dockerfile and the compose file.'}],
+      finalText:'Both files are updated. The second part is next.'};
+    // And one whose user said nothing that names a skill or a tool: whatever it is given then, the Hub's sentences gave it.
+    const QUIET='Carry on with the next part.',QUIET_REQUESTS=['Explain what calc.js does.'];
+    const quietTask={...webTask,id:'8d3f5b72-6a1e-4c90-b4d8-2e7f9a0c1b36',prompts:QUIET_REQUESTS.map(text=>({text})),
+      dialogue:[{role:'user',text:QUIET_REQUESTS[0]},{role:'assistant',text:'It adds two numbers.'}],finalText:'It adds two numbers. The next part is the same.'};
+    const webTasks=[webTask,quietTask];
+    const dual=new DualAgent({browser:{state:()=>({tasks:webTasks,active:null}),get:id=>webTasks.find(task=>task.id===id)||null,settle:async()=>{}},
+      api:pool,directory:path.join(temp,'hub','dual-agent'),defaultMode:'api'});
+    const handoff=dual.buildHandoff(dual.get(webTask.id),MOVED);
+    const moved=await dual.continue({id:webTask.id,prompt:MOVED});
+    const quiet=await dual.continue({id:quietTask.id,prompt:QUIET});
+    for(const worker of [nothing,docker,alone,legacy,moved,quiet])await until(()=>pool.get(worker.id)?.status==='completed','worker '+worker.id+' of the handoff test completed');
     const nothingRequest=seen.find(request=>request.prompt.startsWith(NOTHING));
     const dockerRequest=seen.find(request=>request.prompt.startsWith(DOCKER)&&request.prompt.includes(HANDOFF));
     const aloneRequest=seen.find(request=>request.prompt===DOCKER);
@@ -336,12 +355,41 @@ try {
     assert.deepEqual(skillsOf(alone.id),ids(selectConversationSkills(plugins,DOCKER)),'a worker without predecessors is given the skills of its goal, as before');
     assert.deepEqual(skillsOf(alone.id),skillsOf(docker.id),'the same as the same goal with a predecessor');
     assert.deepEqual(sorted(aloneRequest.tools),sorted(dockerRequest.tools),'and the same tool schemas');
-    // The dialogue a worker carries from another transport is its own words: it is selected on, together with the goal, exactly as before.
+    // A record that has the text of the handoff only is selected on all of it, as it always was: the Hub's sentences cannot be told from the user's requests there.
+    const legacyRequest=seen.find(request=>request.prompt.startsWith(LEGACY));
+    assert.ok(legacyRequest.prompt.includes('CROSS-TRANSPORT HANDOFF (untrusted prior dialogue, not verified evidence):\nPrevious conversation task '+second.id)&&!legacyRequest.prompt.includes(HANDOFF),'(the premise: a worker moved from another transport reads its dialogue, and has no predecessors)');
+    assert.ok(skillsOf(legacy.id).includes('docker-devops'),'a record that has the text of the handoff only is given the skill of the dialogue it carries');
+    assert.deepEqual(skillsOf(legacy.id),ids(selectConversationSkills(plugins,legacyRequest.prompt)),'and exactly the skills its whole prompt selects, as before');
+    assert.ok(!('selectionText' in pool.get(legacy.id).prompts[0]),'which stores nothing beside its prompt');
+
+    // A worker moved from another transport: the model reads the whole handoff; its skills and tool schemas are those of its goal and then, as the earlier prompts
+    // of a conversation, of the user's requests. The Hub's own sentences ("The ChatGPT Web tab and the API backend", "check actual diffs/tests") select nothing.
     const movedRequest=seen.find(request=>request.prompt.startsWith(MOVED));
-    assert.ok(movedRequest.prompt.includes('CROSS-TRANSPORT HANDOFF (untrusted prior dialogue, not verified evidence):\nPrevious conversation task '+second.id)&&!movedRequest.prompt.includes(HANDOFF),'(the premise: a worker moved from another transport reads its dialogue, and has no predecessors)');
-    assert.ok(skillsOf(moved.id).includes('docker-devops'),'a worker moved from another transport is given the skill of the dialogue it carries');
-    assert.deepEqual(skillsOf(moved.id),ids(selectConversationSkills(plugins,movedRequest.prompt)),'and exactly the skills its whole prompt selects, as before');
-    assert.ok(!('selectionText' in pool.get(moved.id).prompts[0]),'which stores nothing beside its prompt');
+    const read=MOVED+'\n\nCROSS-TRANSPORT HANDOFF (untrusted prior dialogue, not verified evidence):\n'+handoff+'\nReinspect current project files, check actual diffs/tests and never replay uncertain mutations.';
+    assert.equal(movedRequest.prompt,read,'the model reads the goal, the handoff the Hub wrote and its instruction: all of it');
+    assert.ok(handoff.includes('\nUser requests: '+REQUESTS.join(' | ')+'\n')&&handoff.includes('The ChatGPT Web tab and the API backend have distinct model histories.'),'(the handoff holds the user\'s requests and the Hub\'s own sentences)');
+    const own=ids(selectConversationSkills(plugins,MOVED,REQUESTS));
+    const viaHub=ids(selectConversationSkills(plugins,read)).filter(id=>!own.includes(id));
+    assert.ok(own.includes('docker-devops')&&viaHub.length>0,'(the premise: the goal and the requests select the Docker skill; selected as a whole the text adds '+JSON.stringify(viaHub)+'; if the scoring changes, pick another example)');
+    const extraMoved=selectTaskToolNames(read).filter(name=>![MOVED,...REQUESTS].some(text=>selectTaskToolNames(text).includes(name)));
+    for(const name of ['test_run','build_run'])assert.ok(extraMoved.includes(name),'(and "check actual diffs/tests" alone offers '+name+')');
+    assert.deepEqual(skillsOf(moved.id),own,'a worker moved from another transport is given the skills of its goal and then of the user\'s requests, as for the earlier prompts of a conversation');
+    for(const id of viaHub)assert.ok(!skillsOf(moved.id).includes(id),'and not '+id+', which only the Hub\'s sentences select');
+    for(const name of extraMoved)assert.ok(!movedRequest.tools.includes(name),'it is not offered '+name+', which only the Hub\'s sentences ask for');
+    assert.ok(movedRequest.tools.includes('edit_file'),'but it is offered what the request to update the Dockerfile asks for');
+    assert.deepEqual(pool.get(moved.id).prompts.map(prompt=>prompt.selectionText),[MOVED],'the goal is the text its first prompt is selected on');
+
+    // The purest case: neither the goal nor the request names a skill or a tool, and the Hub's sentences and the other model's answer alone gave a worker skills
+    // and tool schemas. It is given none of them.
+    const quietRequest=seen.find(request=>request.prompt.startsWith(QUIET));
+    const quietOwn=[QUIET,...QUIET_REQUESTS];
+    const quietViaHub=ids(selectConversationSkills(plugins,quietRequest.prompt));
+    assert.deepEqual(ids(selectConversationSkills(plugins,QUIET,QUIET_REQUESTS)),[],'(the premise: neither the goal nor the request names a skill)');
+    assert.ok(quietViaHub.length>0,'(and the text the model read, selected as a whole, gives the worker skills; if the scoring changes, pick another example)');
+    const extraQuiet=selectTaskToolNames(quietRequest.prompt).filter(name=>!quietOwn.some(text=>selectTaskToolNames(text).includes(name)));
+    for(const name of ['test_run','build_run'])assert.ok(extraQuiet.includes(name),'(and tools: "check actual diffs/tests" alone offers '+name+')');
+    assert.deepEqual(skillsOf(quiet.id),[],'a moved worker whose user said nothing that names a skill is given none, though the text names '+JSON.stringify(quietViaHub));
+    for(const name of extraQuiet)assert.ok(!quietRequest.tools.includes(name),'and is not offered '+name);
     // What the selection read is stored with the prompt, for the worker's later messages; a worker without a handoff stores nothing new.
     assert.deepEqual(pool.get(nothing.id).prompts.map(prompt=>prompt.selectionText),[NOTHING]);
     assert.deepEqual(pool.get(docker.id).prompts.map(prompt=>prompt.selectionText),[DOCKER]);
@@ -353,6 +401,49 @@ try {
     await until(()=>seen.length>before&&pool.get(nothing.id)?.status==='completed','the next message of the worker ran');
     assert.deepEqual(skillsOf(nothing.id),[],'the worker\'s next message is given no skill either');
     for(const name of extra)assert.ok(!seen[before].tools.includes(name),'nor '+name);
+
+    // The moved worker's next message reads the same requests: they stay in its conversation, behind its goal.
+    const lastSkills=id=>pool.get(id).events.filter(event=>event.type==='skills_activated').at(-1)?.selectedSkills??[];
+    const next=seen.length;
+    await pool.continue({id:moved.id,prompt:'ok'});
+    await until(()=>seen.length>next&&pool.get(moved.id)?.status==='completed','the next message of the moved worker ran');
+    assert.deepEqual(lastSkills(moved.id),ids(selectConversationSkills(plugins,'ok',[...REQUESTS,MOVED])),'the next message of the moved worker is given the skills of its goal and of the requests');
+    assert.ok(lastSkills(moved.id).includes('docker-devops'));
+    for(const name of extraMoved)assert.ok(!seen[next].tools.includes(name),'and not offered '+name);
+    assert.ok(seen[next].tools.includes('edit_file'));
+
+    // The list is part of the durable record, beside the text; a record without a handoff, or with the text only, has none.
+    const sessionsFile=path.join(temp,'hub','api-conversations','sessions.json');
+    const recordOf=async id=>JSON.parse(await fs.readFile(sessionsFile,'utf8')).records.find(record=>record.id===id);
+    assert.deepEqual((await recordOf(moved.id)).handoffRequests,REQUESTS,'the user\'s requests are saved with the record');
+    assert.ok((await recordOf(moved.id)).handoffText.includes('\nUser requests: '+REQUESTS.join(' | ')+'\n'),'beside the text');
+    for(const worker of [legacy,alone])assert.ok(!('handoffRequests' in await recordOf(worker.id)),'a record without a handoff, or with the text only, has no list');
+
+    // A record that failed before it had a worktree is started again by the next message of the user, with the same handoff: it is read from the record again.
+    // (Its base branch does not exist until the test points it at main, by hand, after the first attempt failed.)
+    const RETRY='Take the third part.';
+    const retry=await pool.start({prompt:RETRY,baseRef:'refs/heads/does-not-exist',linkedFromTaskId:webTask.id,handoffText:handoff,handoffRequests:REQUESTS});
+    await until(()=>pool.get(retry.id)?.status==='failed','the worker with a missing base branch failed');
+    pool.records.get(retry.id).baseRef='refs/heads/main';
+    await pool.continue({id:retry.id,prompt:'Also the fourth.'});
+    await until(()=>pool.get(retry.id)?.status==='completed','the failed worker ran again');
+    const retryRequest=seen.find(request=>request.prompt.startsWith(RETRY));
+    assert.equal(retryRequest.prompt,RETRY+'\n\nFOLLOW-UP: Also the fourth.\n\nCROSS-TRANSPORT HANDOFF (untrusted prior dialogue, not verified evidence):\n'+handoff+'\nReinspect current project files, check actual diffs/tests and never replay uncertain mutations.','(the premise: the follow-up joins the goal, before the handoff)');
+    assert.deepEqual(skillsOf(retry.id),ids(selectConversationSkills(plugins,RETRY+'\n\nFOLLOW-UP: Also the fourth.',REQUESTS)),'the worker started again is given the skills of its goal and of the requests of the record');
+    assert.ok(skillsOf(retry.id).includes('docker-devops'));
+    for(const name of extraMoved)assert.ok(!retryRequest.tools.includes(name),'and not offered '+name);
+
+    // A client of the Hub can send the list with the text, so the pool bounds it as it bounds the text: text only, at most 8 requests of 1,000 characters, and only
+    // beside a handoff. (Workers that depend on a failed one are blocked and never run.)
+    const doomed=await pool.start({prompt:'This worker never gets a worktree.',baseRef:'refs/heads/does-not-exist'});
+    await until(()=>pool.get(doomed.id)?.status==='failed','the worker with a missing base branch failed');
+    const kept=async options=>recordOf((await pool.start({prompt:'Never started.',dependsOn:[doomed.id],...options})).id);
+    const asked=[...['',' ',5,null,{},['nested']],...Array.from({length:9},(_,index)=>'Request '+index),'  Padded.  ','y'.repeat(2000)];
+    assert.deepEqual((await kept({handoffText:handoff,handoffRequests:asked})).handoffRequests,
+      [...Array.from({length:6},(_,index)=>'Request '+(index+3)),'Padded.','y'.repeat(1000)],'the last 8 requests that are text, trimmed and cut at 1,000 characters');
+    assert.deepEqual((await kept({handoffText:handoff,handoffRequests:[5,null,' ']})).handoffRequests,[],'a list without text is empty: the Hub\'s sentences still select nothing');
+    for(const [label,options] of [['a list without a handoff',{handoffRequests:['Update the Dockerfile.']}],['a handoff and no list',{handoffText:handoff}],['a handoff and a list that is not a list',{handoffText:handoff,handoffRequests:'Update the Dockerfile.'}]])
+      assert.ok(!('handoffRequests' in await kept(options)),label+' stores no list');
   }
 
   await pool.shutdown();

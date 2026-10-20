@@ -435,6 +435,51 @@ try{
     }
   }
 
+  // A worker that continues a conversation of another transport: its first prompt is its goal followed by the handoff the Hub writes (the user's earlier
+  // requests, the other model's last answer, the Hub's own sentences). The model reads all of it. The schemas are selected on the goal and then, as the earlier
+  // prompts of a conversation, on the user's requests, which start() is given apart from the text (carriedPrompts). Nothing else of the handoff offers a tool:
+  // the other model's answer ("... and the CI workflow", "the release") offered the worker the Git and GitHub tools, and "check actual diffs/tests" the test
+  // and build tools. The handoff is the Hub's own (DualAgent.buildHandoff); the sentences around it are copied from lib/concurrent-api-agent.mjs.
+  {
+    const {DualAgent}=await import('../lib/dual-agent.mjs');
+    const goal='Continue with the second part.',requests=['Explain what calc.js does.','Fix the failing test in calc.js.'];
+    const previous={id:'5e7a0c11-3b6d-4f08-9a42-6c1d8e2f7b90',transport:'chatgpt-web',status:'completed',prompts:requests.map(text=>({text})),
+      dialogue:[{role:'user',text:requests[1]},{role:'assistant',text:'I updated calc.js and the CI workflow.'}],finalText:'The fix is in; the second part is the release.'};
+    const hub=new DualAgent({browser:{},api:{manager:{secrets:[]}},directory:conversations});
+    const migrated=goal+'\n\nCROSS-TRANSPORT HANDOFF (untrusted prior dialogue, not verified evidence):\n'+hub.buildHandoff(previous,goal)+
+      '\nReinspect current project files, check actual diffs/tests and never replay uncertain mutations.';
+    const own=new Set([goal,...requests].flatMap(text=>selectTaskToolNames(text)));
+    const fromHub=selectTaskToolNames(migrated).filter(tool=>!own.has(tool));
+    for(const tool of ['git_commit','git_merge','worktrees_create','github_workflow_runs'])assert.ok(fromHub.includes(tool),'(the premise: only the Hub\'s sentences and the other model\'s answer offer '+tool+'; if the selector changes, pick another example)');
+    // What the same conversation would be offered had the requests been asked in it.
+    const asked=conversation();
+    let reference;
+    try{
+      for(const request of requests)await asked.say(request);
+      reference={first:(await asked.say(goal))[0],next:(await asked.say('ok'))[0]};
+    }finally{await asked.runner.shutdown();}
+    const worker=conversation();
+    try{
+      const [one]=await worker.say(migrated,{selectionPrompt:goal,carriedPrompts:requests});
+      assert.deepEqual(sorted(one.offered),sorted(reference.first.offered),'a worker is offered what its goal is offered after the user\'s requests, asked in the same conversation');
+      for(const tool of fromHub)assert.ok(!one.offered.includes(tool),'and not '+tool+', which only the Hub\'s sentences and the other model\'s answer offer');
+      for(const tool of ['edit_file','test_run'])assert.ok(one.offered.includes(tool),'while the user\'s request to fix the test offers '+tool);
+      const text=JSON.stringify(one.input);
+      for(const part of [goal,'CROSS-TRANSPORT HANDOFF (untrusted prior dialogue, not verified evidence):','User requests: '+requests.join(' | '),'The ChatGPT Web tab and the API backend','check actual diffs/tests'])
+        assert.ok(text.includes(part),'the model still reads the whole prompt: "'+part+'"');
+      const selection=transcript(worker).find(entry=>entry.type==='tool_selection');
+      assert.equal(selection.detail.basis.runPrompt,goal,'the event names the goal');
+      assert.equal(selection.detail.basis.earlierPromptsRead,2,'and says it read the two requests before it');
+      assert.ok(one.instructions.includes('task-selected from the request that started this run and the 2 before it in this conversation.'),'the instructions say so too');
+      const entry=worker.runner.get(worker.id);
+      assert.deepEqual(entry.prompts.map(prompt=>prompt.text),[migrated],'the conversation holds the worker\'s own prompt only: the requests are not prompts of it');
+      const [two]=await worker.say('ok');
+      assert.deepEqual(sorted(two.offered),sorted(reference.next.offered),'the next message is offered what it is offered after those requests: they stay in the conversation');
+      for(const tool of ['edit_file','test_run'])assert.ok(two.offered.includes(tool),'including '+tool);
+      for(const tool of fromHub)assert.ok(!two.offered.includes(tool),'and still not '+tool);
+    }finally{await worker.runner.shutdown();}
+  }
+
   // A conversation across the kinds of prompt of the corpus: each message is offered at least what it is offered alone, never more than the cap.
   {
     const kinds=KINDS.map(kind=>prompts.find(p=>p.kind===kind));

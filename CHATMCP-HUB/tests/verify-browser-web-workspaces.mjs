@@ -139,6 +139,12 @@ try{
   assert.equal(apiStarted.workspacePath,second);
   assert.equal(apiStarted.conversationId,task.id);
   assert.equal(apiStarted.linkedFromTaskId,task.id);
+  // The handoff carries the user's requests twice: inside the text the model reads, and apart from it, so that the API worker selects its skills and tool
+  // schemas on them (as it does on the earlier prompts of a conversation) and not on the Hub's own sentences around them.
+  assert.deepEqual(apiStarted.handoffRequests,['Read the README in the currently selected project.'],'the handoff carries the user\'s requests apart from the Hub\'s text');
+  assert.ok(apiStarted.handoffText.startsWith('Previous conversation task '+task.id+' (chatgpt-web).\nUser requests: Read the README in the currently selected project.\nRecent dialogue (untrusted): '),
+    'and the text the model reads is written as before');
+  assert.ok(apiStarted.handoffText.endsWith('\nThe ChatGPT Web tab and the API backend have distinct model histories. Reinspect the original workspace before editing.'),'ending with the Hub\'s own sentence');
   assert.equal(browser.backgroundTasks().filter(r=>r.conversationId===task.id).length,1);
   assert.equal(manager.workspace,first);
 
@@ -146,7 +152,13 @@ try{
   // conversation ID, but cannot impersonate/reuse an API model session or
   // arbitrarily attach to the earlier ChatGPT thread.
   await dual.configure({mode:'chatgpt-web'});
+  // Only the API worker has anything to select: the Web chat is handed the text, and nothing else is new.
+  const startWeb=browser.start.bind(browser);
+  let webStarted=null;
+  browser.start=async payload=>{webStarted=payload;return startWeb(payload);};
   const back=await dual.continue({id:continued.id,prompt:'Switch back to ChatGPT Web.'});
+  delete browser.start;
+  assert.ok(webStarted.handoffText.startsWith('Previous conversation task '+continued.id+' (api).')&&!('handoffRequests' in webStarted),'switching back hands the Web chat the text alone');
   assert.equal(back.transport,'chatgpt-web');
   assert.notEqual(back.id,task.id);
   assert.equal(back.conversationId,task.id);
@@ -175,6 +187,22 @@ try{
   assert.equal(reloaded.get(back.id).conversationId,task.id);
   assert.equal(reloaded.get(back.id).linkedFromTaskId,continued.id);
   assert.equal(manager.workspace,first);
+
+  // The user's requests of a longer conversation: the last 4, in the order they were asked, each cut at 150 characters and without the secrets the Hub knows
+  // (the strings the text lists under "User requests:", but for the blank one, which selects nothing).
+  {
+    const SECRET='hunter2-secret-value',long='Update the Dockerfile and the docker compose file for the new service. '+'x'.repeat(200);
+    const lastFour=[long.slice(0,150),'Fourth request with the key '+SECRET+' in it.','','Sixth request.'];
+    const earlier={id:randomUUID(),status:'completed',finalText:'Done.',workspace:{path:first},dialogue:[],
+      prompts:['An old request that is not carried.','Second request.',long,lastFour[1],lastFour[2],lastFour[3]].map(text=>({text}))};
+    const quiet=new DualAgent({browser:{state:()=>({tasks:[earlier],active:null}),get:id=>id===earlier.id?earlier:null,settle:async()=>{}},
+      api:{...api,manager:{secrets:[SECRET],workspaceRegistry:registered,workspace:first}},directory:path.join(temp,'quiet'),defaultMode:'api'});
+    await quiet.continue({id:earlier.id,prompt:'Go on.'});
+    const scrubbed=lastFour.map(text=>text.replace(SECRET,'[REDACTED]'));
+    assert.deepEqual(apiStarted.handoffRequests,scrubbed.filter(Boolean),'the last 4 requests, in order, cut, scrubbed, without the blank one');
+    assert.equal(apiStarted.handoffText.split('\n')[1],'User requests: '+scrubbed.join(' | '),'the same strings as the text lists');
+    assert.ok(!JSON.stringify(apiStarted).includes(SECRET),'the secret is in neither');
+  }
 
   await registered.remove(other);
   await assert.rejects(dual.continue({id:task.id,prompt:'Detached folder must be refused.'}),
