@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { LocalTools } from '../lib/local-tools.mjs';
 import {selectTaskToolNames,selectTaskCatalog,taskToolSelectionMode,windowToolSelectionMode,followProviderWindow,LARGE_WINDOW_TOKENS} from '../lib/tool-selector.mjs';
-import {directToolsFor,ROUTER_TOOLS,AgentRunner} from '../lib/agent.mjs';
+import {directToolsFor,ROUTER_TOOLS,AgentRunner,selectConversationCatalog} from '../lib/agent.mjs';
 import {estimateTokens} from '../lib/context-compaction.mjs';
 import {createPrimaryAgentRunner} from '../hub.mjs';
 
@@ -196,4 +199,227 @@ const scanStarted=Date.now();
 selectTaskToolNames(pasted);
 assert.ok(Date.now()-scanStarted<5000,'scanning a 390 kB prompt took '+(Date.now()-scanStarted)+' ms');
 
-console.log('PASS task-tool-selector: dynamic intent routing, full catalog untouched, exact router fallback; corpus of '+prompts.length+' prompts: '+summary);
+// The selection follows the conversation, not its first message. The preflight of every run used to select on task.prompt, which is set once,
+// when the task is created, so "Now update the version in package.json and commit it." was offered the tools that "Explain what calc.js does."
+// had selected. Here the real AgentRunner, the real 99-tool catalog and a scripted model: what each model request is offered.
+const conversations=await fsp.mkdtemp(path.join(os.tmpdir(),'chatmcp-tool-selection-'));
+try{
+  let workspaces=0;
+  const routerNames=new Set(ROUTER_TOOLS.map(t=>t.name));
+  const finalAnswer=(text)=>({status:'completed',output:[{type:'message',role:'assistant',phase:'final',content:[{type:'output_text',text}]}]});
+  const readFile=(callId)=>({status:'completed',output:[{type:'function_call',call_id:callId,name:'read_file',status:'completed',arguments:JSON.stringify({path:'package.json'})}]});
+  // script({requests,runner}) answers the model; every request is recorded: the functions it offered, its instructions and its input.
+  // onSession({runner}) runs while a run is preparing (the tool session is opened), which is after the task is running and before tools are selected.
+  const conversation=({mode='auto',script=()=>finalAnswer('Done.'),onSession=null}={})=>{
+    const requests=[],root=path.join(conversations,'workspace-'+(++workspaces));
+    let locked=false,id=null;
+    const manager={secrets:[],workspace:root,generation:1,instanceId:'tool-selection',
+      state(){return {workspace:{path:root},generation:1,instanceId:'tool-selection',services:{}};},
+      acquireTask(){if(locked)return false;locked=true;return true;},releaseTask(){locked=false;},
+      async createAgentSession(){
+        await onSession?.({runner});
+        return {catalog:{tools:fake.definitions(),prompts:[],resources:[],resourceTemplates:[],servers:{}},async close(){},
+          async callTool(){return {isError:false,content:[{type:'text',text:'{"version":"1.0.0"}'}],structuredContent:{notVerified:true}};}};
+      }};
+    const provider={ready:()=>true,snapshot:()=>({provider:'fixture',model:'fixture'}),
+      async respond({input,instructions,tools}) {
+        requests.push({offered:tools.map(t=>t.name).filter(name=>!routerNames.has(name)),instructions,input:structuredClone(input)});
+        return script({requests,runner});
+      }};
+    const runner=new AgentRunner({manager,provider,taskDirectory:path.join(root,'tasks'),toolSelectionMode:mode});
+    // One message of the conversation: the first starts it, the others continue it. Resolves with the model requests that run made.
+    const say=async(prompt)=>{
+      const before=requests.length;
+      id=(id===null?await runner.start({prompt,maxSteps:6}):await runner.continue({id,prompt,maxSteps:6})).id;
+      for(let i=0;i<1500&&runner.get(id).status==='running';i++)await new Promise(resolve=>setTimeout(resolve,10));
+      assert.equal(runner.get(id).status,'completed',runner.get(id).error);
+      return requests.slice(before);
+    };
+    return {runner,requests,say,directory:path.join(root,'tasks'),get id() {return id;}};
+  };
+  const transcript=(chat)=>fs.readFileSync(path.join(chat.directory,chat.id,'transcript.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
+  const offeredAsFirst=(prompt)=>offeredFor(prompt).map(f=>f.name).sort();
+  const sorted=(names)=>[...names].sort();
+
+  // The problem as it was reported: a read-only first message, then a continuation that asks for an edit and a commit.
+  {
+    const first='Explain what calc.js does.',second='Now update the version in package.json and commit it.';
+    const chat=conversation();
+    try{
+      const [one]=await chat.say(first);
+      const [two]=await chat.say(second);
+      assert.deepEqual(sorted(one.offered),offeredAsFirst(first),'the first message of a conversation is offered what it always was');
+      for(const tool of ['edit_file','git_commit'])assert.ok(!one.offered.includes(tool),'a question about calc.js is not offered '+tool);
+      for(const tool of ['edit_file','write_file','git_add','git_commit','read_file'])assert.ok(two.offered.includes(tool),'the continuation is offered '+tool);
+      assert.deepEqual(sorted(two.offered),offeredAsFirst(second),'and what the same message would be offered as the first message of a conversation');
+    }finally{await chat.runner.shutdown();}
+  }
+
+  // A follow-up with no task word keeps what the conversation has been using: "yes, go ahead" after the agent proposed the edit, and the
+  // prompts the Hub writes itself (the auto-resume after a restart, the repair prompt of a coding worker).
+  {
+    const chat=conversation();
+    try{
+      const [one]=await chat.say('Fix the failing test in calc.js');
+      const [two]=await chat.say('yes, go ahead');
+      for(const tool of ['edit_file','test_run'])assert.ok(one.offered.includes(tool)&&two.offered.includes(tool),'"yes, go ahead" is still offered '+tool);
+      assert.deepEqual(sorted(two.offered),sorted(one.offered),'the same tools as the message it answers');
+    }finally{await chat.runner.shutdown();}
+  }
+
+  // The run's own prompt selects first. The cap cuts by group order, not by prompt: these prompts joined would lose git_commit to the cap, so a
+  // follow-up after a long first request would be offered no commit tool. A message is offered at least what it is offered as the first message.
+  {
+    const earlier='Fix the frontend browser UI, run the tests and check the symbol definition.',current='Commit it.';
+    assert.equal(selectTaskToolNames(earlier).length,48,'(the first request fills the cap)');
+    assert.ok(selectTaskToolNames(current).includes('git_commit')&&!selectTaskToolNames(earlier).includes('git_commit'));
+    assert.ok(!selectTaskToolNames(earlier+'\n'+current).includes('git_commit'),'(and the prompts joined lose git_commit; if the selector changes, pick another pair)');
+    const chat=conversation();
+    try{
+      await chat.say(earlier);
+      const [two]=await chat.say(current);
+      for(const tool of offeredAsFirst(current))assert.ok(two.offered.includes(tool),'"'+current+'" after a full-cap request is offered '+tool);
+      for(const tool of ['edit_file','test_run'])assert.ok(two.offered.includes(tool),'and, with the room that is left, '+tool+' of the request before');
+      assert.ok(two.offered.length<=48,'under the cap of 48: '+two.offered.length);
+    }finally{await chat.runner.shutdown();}
+  }
+
+  // The event and the instruction line say which prompt the schemas were selected from.
+  {
+    const first='Explain what calc.js does.',second='Now update the version in package.json and commit it.';
+    const filling='Fix the frontend browser UI, run the tests and check the symbol definition.';
+    const chat=conversation();
+    try{
+      const [one]=await chat.say(first);
+      const [two]=await chat.say(second);
+      const [three]=await chat.say(filling);
+      const selections=transcript(chat).filter(entry=>entry.type==='tool_selection');
+      assert.equal(selections.length,3,'one tool_selection event per run');
+      assert.deepEqual(selections.map(entry=>[entry.detail.basis.runPrompt,entry.detail.basis.earlierPromptsRead]),[[first,0],[second,1],[filling,0]],
+        'the event names the prompt of the run and counts the earlier ones it read (none when the run prompt filled the cap by itself)');
+      assert.deepEqual(selections.map(entry=>entry.detail.basis.fromRunPrompt),[first,second,filling].map(prompt=>selectTaskToolNames(prompt).length),'and how many tools the run prompt selected by itself');
+      assert.deepEqual(selections.map(entry=>entry.detail.basis.cap),[48,48,48]);
+      assert.ok(selections.every(entry=>entry.detail.basis.fromRunPrompt+entry.detail.basis.fromEarlierPrompts<=48),'the two add up to at most the cap');
+      assert.equal(selections[0].detail.basis.fromEarlierPrompts+selections[2].detail.basis.fromEarlierPrompts,0,'the first message has no earlier prompt to read and the third filled the cap alone');
+      assert.deepEqual(selections[1].detail.offered,two.offered,'and lists what the model was offered');
+      assert.ok(/selected from this run's prompt and 1 earlier prompt of the conversation\.$/.test(selections[1].message),selections[1].message);
+      assert.ok(/selected from this run's prompt\.$/.test(selections[0].message)&&/selected from this run's prompt\.$/.test(selections[2].message),selections[0].message+' | '+selections[2].message);
+      assert.ok(one.instructions.includes('task-selected from the request that started this run.')&&!one.instructions.includes('before it'),'the instructions of a first message');
+      assert.ok(two.instructions.includes('task-selected from the request that started this run and the 1 before it in this conversation.'),'and of a continuation');
+      assert.ok(three.instructions.includes('task-selected from the request that started this run.')&&!three.instructions.includes('before it'),'and of a request that fills the cap by itself');
+    }finally{await chat.runner.shutdown();}
+  }
+
+  // A message queued while a run is going is delivered to that run, which keeps the tool list it started with (its context budget was planned on
+  // that list); the next run of the conversation selects on the queued message too, though "ok" names no task.
+  {
+    const queued='Also update the version in package.json and commit it.';
+    const chat=conversation({script:async({requests,runner})=>{
+      if(requests.length>1)return finalAnswer('Done.');
+      await runner.enqueueMessage({id:runner.activeTaskId,prompt:queued});
+      return readFile('call-1');
+    }});
+    try{
+      const [one,two]=await chat.say('Explain what calc.js does.');
+      assert.equal(chat.requests.length,2);
+      assert.deepEqual(two.offered,one.offered,'the run keeps the tool list it started with');
+      for(const tool of ['edit_file','git_commit'])assert.ok(!two.offered.includes(tool),'a queued message does not add '+tool+' to the run');
+      assert.ok(!JSON.stringify(one.input).includes(queued)&&JSON.stringify(two.input).includes(queued),'the message reaches the model, in the same run');
+      assert.equal(two.instructions,one.instructions);
+      assert.ok(one.instructions.includes('The list is fixed for this run: a message that arrives while you work is delivered to you, but it does not add schemas to this list.'),'the model is told so');
+      const note=chat.runner.get(chat.id).events.find(event=>event.type==='user_message_queued');
+      assert.ok(note&&note.message.includes('Danh sách công cụ của lần chạy này giữ nguyên'),'and so is the person who sent it: '+note?.message);
+      const [next]=await chat.say('ok');
+      for(const tool of ['edit_file','git_commit'])assert.ok(next.offered.includes(tool),'the next run is offered '+tool+' because of the queued message');
+    }finally{await chat.runner.shutdown();}
+  }
+
+  // A message queued while the run is still preparing (the task is running, the tools are not selected yet) is part of the conversation when the
+  // tools are selected, and the run's own prompt is not counted twice or mistaken for an earlier one.
+  {
+    const queued='Also commit it.';
+    let queuedYet=false;
+    const chat=conversation({onSession:async({runner})=>{
+      if(queuedYet)return;
+      queuedYet=true;
+      await runner.enqueueMessage({id:runner.activeTaskId,prompt:queued});
+    }});
+    try{
+      const [one]=await chat.say('Explain what calc.js does.');
+      for(const tool of ['git_commit','git_add'])assert.ok(one.offered.includes(tool),'the first request is offered '+tool+' for the message queued during preparation');
+      assert.ok(JSON.stringify(one.input).includes(queued),'which is delivered before that request');
+      const selection=transcript(chat).find(entry=>entry.type==='tool_selection');
+      assert.equal(selection.detail.basis.earlierPromptsRead,1);
+      assert.equal(selection.detail.basis.runPrompt,'Explain what calc.js does.');
+    }finally{await chat.runner.shutdown();}
+  }
+
+  // A conversation across the kinds of prompt of the corpus: each message is offered at least what it is offered alone, never more than the cap.
+  {
+    const kinds=KINDS.map(kind=>prompts.find(p=>p.kind===kind));
+    const chat=conversation();
+    try{
+      for(const p of kinds) {
+        const [request]=await chat.say(p.prompt);
+        for(const tool of offeredAsFirst(p.prompt))assert.ok(request.offered.includes(tool),p.id+' ('+p.kind+') after '+(chat.requests.length-1)+' messages is offered '+tool);
+        assert.ok(request.offered.length<=48,p.id+': under the cap of 48: '+request.offered.length);
+      }
+    }finally{await chat.runner.shutdown();}
+  }
+
+  // The full list is not selected, whatever the conversation says: every local tool in every request, no selection recorded, and a queued message
+  // is not told that a tool list is kept (there is nothing to keep).
+  {
+    const chat=conversation({mode:'full',script:async({requests,runner})=>{
+      if(requests.length!==1)return finalAnswer('Done.');
+      await runner.enqueueMessage({id:runner.activeTaskId,prompt:'Also commit it.'});
+      return readFile('call-1');
+    }});
+    try{
+      const [one,queuedRun]=await chat.say('Explain what calc.js does.');
+      const [two]=await chat.say('Now update the version in package.json and commit it.');
+      for(const request of [one,queuedRun,two]) {
+        assert.equal(request.offered.length,catalog.tools.length,'full mode offers every local tool');
+        assert.ok(!request.instructions.includes('task-selected'));
+      }
+      assert.ok(!transcript(chat).some(entry=>entry.type==='tool_selection'),'and records no selection');
+      const queued=chat.runner.get(chat.id).events.filter(event=>event.type==='user_message_queued');
+      assert.equal(queued.length,1);
+      assert.ok(!queued[0].message.includes('Danh sách công cụ'),queued[0].message);
+    }finally{await chat.runner.shutdown();}
+  }
+
+  // The same selection as a pure function, over many histories: whatever has been said before, a message is offered at least what it is offered as
+  // the first message of a conversation, within the cap, and a conversation of one message is selected exactly as selectTaskCatalog does.
+  {
+    const offeredBy=(selection)=>directToolsFor(selection.catalog).functions.map(f=>f.name);
+    for(const p of prompts) {
+      assert.deepEqual(selectConversationCatalog(catalog,p.prompt).catalog.tools,selectTaskCatalog(catalog,p.prompt).tools,p.id+': a conversation of one message is selected as before');
+      const history=Array.from({length:Math.floor(random()*30)},()=>prompts[Math.floor(random()*prompts.length)].prompt);
+      const selection=selectConversationCatalog(catalog,p.prompt,history);
+      const offered=new Set(offeredBy(selection));
+      for(const tool of offeredAsFirst(p.prompt))assert.ok(offered.has(tool),p.id+' after '+history.length+' messages is no longer offered '+tool);
+      assert.ok(selection.fromRunPrompt+selection.fromEarlierPrompts<=48&&selection.catalog.tools.length<=48,p.id+': the cap of 48');
+      assert.ok(selection.earlierPromptsRead<=Math.min(history.length,20));
+    }
+    // Only the last 20 earlier prompts are read (the window of the conversation checkpoint the model is shown) ...
+    assert.ok(!offeredBy(selectConversationCatalog(catalog,'ok',['Fix the bug',...Array(20).fill('ok')])).includes('edit_file'),'the 21st prompt back is not read');
+    assert.ok(offeredBy(selectConversationCatalog(catalog,'ok',['Fix the bug',...Array(19).fill('ok')])).includes('edit_file'),'the 20th is');
+    // ... and the newest first, when there is room for one of two.
+    const room=(history)=>offeredBy(selectConversationCatalog(catalog,'Hello.',history,{cap:24}));
+    assert.ok(room(['Commit it.','Fix the bug.']).includes('edit_file')&&!room(['Commit it.','Fix the bug.']).includes('git_commit'),'the newest earlier prompt fills the room first');
+    assert.ok(room(['Fix the bug.','Commit it.']).includes('git_commit')&&!room(['Fix the bug.','Commit it.']).includes('edit_file'));
+    assert.throws(()=>selectConversationCatalog(catalog,'x',[],{cap:0}),TypeError);
+    // A run prompt that fills the cap by itself leaves the earlier prompts unread; a tool of another server with a local name is not offered.
+    const filling='Fix the frontend browser UI, run the tests and check the symbol definition.';
+    const full=selectConversationCatalog(catalog,filling,['Commit it.','Fix the bug.']);
+    assert.deepEqual([full.fromRunPrompt,full.earlierPromptsRead,full.fromEarlierPrompts],[48,0,0]);
+    const some=selectConversationCatalog(catalog,'Hello.',['Commit it.','Fix the bug.'],{cap:24});
+    assert.deepEqual([some.fromRunPrompt,some.earlierPromptsRead,some.fromEarlierPrompts],[selectTaskToolNames('Hello.',{cap:24}).length,1,24-selectTaskToolNames('Hello.',{cap:24}).length],'and one that leaves some room reads as many as the room needs');
+    const mixed={tools:[...catalog.tools,{name:'remote.read_file',originalName:'read_file',server:'remote',inputSchema:{type:'object'}}]};
+    assert.deepEqual(selectConversationCatalog(mixed,'Fix the bug.',['Commit it.']).catalog.tools.filter(tool=>tool.server!=='local'),[],'only the local server is offered directly, as selectTaskCatalog does');
+    assert.deepEqual(selectConversationCatalog(mixed,'Fix the bug.').catalog.tools,selectTaskCatalog(mixed,'Fix the bug.').tools);
+  }
+}finally{await fsp.rm(conversations,{recursive:true,force:true,maxRetries:8,retryDelay:150});}
+
+console.log('PASS task-tool-selector: dynamic intent routing, full catalog untouched, exact router fallback, a conversation selects on the prompt of each run and then the earlier ones; corpus of '+prompts.length+' prompts: '+summary);
