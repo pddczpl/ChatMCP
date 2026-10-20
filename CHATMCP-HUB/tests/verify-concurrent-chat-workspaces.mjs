@@ -77,11 +77,11 @@ try {
   await assert.rejects(registry.resolve(rejected),{code:'unregistered_workspace'});
   const provider={
     ready:()=>true,snapshot:()=>({provider:'fake',model:'mock'}),
-    async respond({input,tools=[]}){
+    async respond({input,instructions,tools=[]}){
       // Installed skills now reach the model as a leading user message (UNTRUSTED SKILL REFERENCES); the task prompt is the first message after it.
       const firstUser=input.find(x=>x?.role==='user'&&Array.isArray(x.content)&&!String(x.content[0]?.text||'').startsWith('UNTRUSTED SKILL REFERENCES'));
       const contents=(firstUser?.content||[]).map(x=>x?.text||'').join(' ');
-      seen.push({prompt:String(firstUser?.content?.[0]?.text||''),tools:tools.map(tool=>tool.name)});
+      seen.push({prompt:String(firstUser?.content?.[0]?.text||''),tools:tools.map(tool=>tool.name),instructions:String(instructions||''),map:String(firstUser?.content?.[1]?.text||'')});
       const name=contents.includes('Task A')?'A':contents.includes('Task B')?'B':
         contents.includes('Task E')?'E':
         contents.includes('Workflow Review One')?'R1':
@@ -115,6 +115,9 @@ try {
           arguments:JSON.stringify({goal:'Task D: inspect README as an independent child'})}]};
       }
       if(['A','B','E','R1','R2','RC'].includes(name)&&!arrived.has(name))await hold(name);
+      // The predecessor of the plan and Repo Map test: a result that names two files of the project.
+      if(contents.includes('Task F:'))return {status:'completed',output:[{type:'message',role:'assistant',phase:'final',
+        content:[{type:'output_text',text:'Task F found two problems in src/auth.mjs and src/session.mjs.'}]}]};
       return {status:'completed',output:[{type:'message',role:'assistant',phase:'final',
         content:[{type:'output_text',text:'Task '+name+' completed.'}]}]};
     },
@@ -444,6 +447,80 @@ try {
     assert.deepEqual((await kept({handoffText:handoff,handoffRequests:[5,null,' ']})).handoffRequests,[],'a list without text is empty: the Hub\'s sentences still select nothing');
     for(const [label,options] of [['a list without a handoff',{handoffRequests:['Update the Dockerfile.']}],['a handoff and no list',{handoffText:handoff}],['a handoff and a list that is not a list',{handoffText:handoff,handoffRequests:'Update the Dockerfile.'}]])
       assert.ok(!('handoffRequests' in await kept(options)),label+' stores no list');
+  }
+
+  // The host plan and the Repo Map of that worker are made from the same words as its skills and schemas: its goal. Made from the whole prompt, the Hub's handoff
+  // made every worker of a workflow "multi-part" (a six-objective plan whose units were the Hub's sentences and the predecessor's lines, a Studio plan, and an answer
+  // ending "NOT independently verified full completion", which the next worker then read as part of its predecessor's result), and its header "WORKFLOW" was the
+  // query word of the map. The files a predecessor's result names still focus the map. Real pool, real worktrees, the Hub's own handoff text, the real Repo Map of six
+  // small modules whose scores are hand-derived: base 1; +25 for a focus file; the query word "summarize" +6 for each of the two symbols of summary.mjs, "workflow"
+  // +15 for the path and +6 for each of the three symbols of workflow-engine.mjs.
+  {
+    const SHORT='Summarize the review in two sentences.';
+    const LONG='Read src/auth.mjs and src/session.mjs. Then fix the token expiry check in verifyToken and add a regression test in tests/auth.test.mjs. Run the project checks and report what changed.';
+    const HEADER='\n\nWORKFLOW PREDECESSOR HANDOFF (untrusted prior task data):\nPredecessor ';
+    const PLAN='HOST-PROPOSED TASK DECOMPOSITION',NOTICE='NOT independently verified full completion';
+    await fs.mkdir(path.join(repo,'src'),{recursive:true});
+    for(const [name,text] of Object.entries({
+      'alpha.mjs':'export function loadAlpha() { return 1; }\n',
+      'beta.mjs':'export function loadBeta() { return 2; }\n',
+      'auth.mjs':'export function verifyToken(token) { return token.length > 0; }\n',
+      'session.mjs':'export function openSession(id) { return id; }\n',
+      'summary.mjs':'export function summarizeFindings(list) { return list.join(" "); }\nexport function summarizeText(text) { return text.slice(0, 80); }\n',
+      'workflow-engine.mjs':'export class WorkflowStep { run() { return 1; } }\nexport function runWorkflow(steps) { return steps.map((step) => step.run()); }\nexport function planWorkflow(spec) { return spec; }\n',
+    }))await fs.writeFile(path.join(repo,'src',name),text);
+    execFileSync('git',['add','src'],{cwd:repo});
+    execFileSync('git',['commit','-m','sources for the Repo Map'],{cwd:repo,stdio:'ignore'});
+    const reviewer=await pool.start({prompt:'Task F: review the sources.',baseRef:'refs/heads/main'});
+    await until(()=>pool.get(reviewer.id)?.status==='completed','the predecessor of the plan test completed');
+    assert.equal(pool.get(reviewer.id).finalText,'Task F found two problems in src/auth.mjs and src/session.mjs.');
+    const short=await pool.start({prompt:SHORT,dependsOn:[reviewer.id]});
+    const shortAlone=await pool.start({prompt:SHORT,baseRef:'refs/heads/main'});
+    const long=await pool.start({prompt:LONG,dependsOn:[reviewer.id]});
+    const longAlone=await pool.start({prompt:LONG,baseRef:'refs/heads/main'});
+    for(const worker of [short,shortAlone,long,longAlone])await until(()=>pool.get(worker.id)?.status==='completed','worker '+worker.id+' of the plan test completed');
+    const requestOf=(prompt)=>seen.find(request=>request.prompt===prompt);
+    const withHandoff=(goal)=>seen.find(request=>request.prompt.startsWith(goal+HEADER));
+    const filesOf=(request)=>[...request.map.matchAll(/^## (\S+) \(/gm)].map(match=>match[1]);
+    const mapStats=async(id)=>(await fs.readFile(path.join(temp,'hub','api-conversations',id,'state','tasks',id,'transcript.jsonl'),'utf8'))
+      .split('\n').filter(Boolean).map(line=>JSON.parse(line)).find(entry=>entry.type==='repo_map_injected').detail.stats;
+    const decomposed=(id)=>pool.get(id).events.some(event=>event.type==='goal_decomposed');
+    assert.ok(withHandoff(SHORT).prompt.includes('UNTRUSTED RESULT (independently verify before use):\nTask F found two problems in src/auth.mjs and src/session.mjs.'),'(the premise: the model reads the Hub\'s handoff with the result that names two files)');
+
+    // (1) A worker with a predecessor and a short goal is planned as the same goal alone: not at all. No Studio plan, no decomposition in its instructions, no notice.
+    for(const worker of [short,shortAlone])assert.equal(pool.get(worker.id).goalPlan,null,'a short goal has no plan, whatever the prompt around it');
+    for(const worker of [short,shortAlone])assert.ok(!decomposed(worker.id),'and no plan is saved to the Studio');
+    assert.ok(!withHandoff(SHORT).instructions.includes(PLAN)&&!requestOf(SHORT).instructions.includes(PLAN),'its instructions carry no decomposition');
+    assert.ok(!pool.get(short.id).finalText.includes(NOTICE)&&pool.get(short.id).finalText===pool.get(shortAlone.id).finalText,'its answer ends with no verification notice');
+    // (2) Its Repo Map has the query of its goal, as the same goal alone has; only the focus files differ, since the result of the predecessor names two.
+    const shortStats=await mapStats(short.id),aloneStats=await mapStats(shortAlone.id);
+    assert.equal(shortStats.queryHint,'Summarize','the query is a word of the goal, not the "WORKFLOW" of the handoff');
+    assert.equal(aloneStats.queryHint,shortStats.queryHint,'the query of the same goal alone');
+    assert.deepEqual(shortStats.focusFiles,['src/auth.mjs','src/session.mjs'],'the files the predecessor\'s result names focus the map');
+    assert.deepEqual(aloneStats.focusFiles,[]);
+    assert.deepEqual(filesOf(withHandoff(SHORT)),['src/auth.mjs','src/session.mjs','src/summary.mjs','src/alpha.mjs','src/beta.mjs','src/workflow-engine.mjs'],
+      'the focus files first (26), then summary.mjs by its query (13), then the rest by name');
+    assert.deepEqual(filesOf(requestOf(SHORT)),['src/summary.mjs','src/alpha.mjs','src/auth.mjs','src/beta.mjs','src/session.mjs','src/workflow-engine.mjs'],'the same goal alone: summary.mjs by its query (13), the rest by name');
+    // (3) A long goal is planned as the same goal alone, without the handoff's sentences among its objectives, and has the query of its own identifier.
+    const clauses=['Read src/auth.mjs and src/session.mjs.','fix the token expiry check in verifyToken and add a regression test in tests/auth.test.mjs.','Run the project checks and report what changed.'];
+    assert.deepEqual(pool.get(long.id).goalPlan.objectives.map(objective=>objective.text),clauses,'the objectives are the clauses of the goal');
+    assert.deepEqual(pool.get(long.id).goalPlan,pool.get(longAlone.id).goalPlan,'the plan of the same goal alone');
+    assert.ok(decomposed(long.id)&&decomposed(longAlone.id)&&withHandoff(LONG).instructions.includes(PLAN),'which is saved, and told to the model');
+    assert.equal((await mapStats(long.id)).queryHint,'verifyToken');
+    assert.deepEqual(await mapStats(long.id),await mapStats(longAlone.id),'and its Repo Map is that of the same goal alone: the goal names the same three files');
+    assert.deepEqual((await mapStats(longAlone.id)).focusFiles,['src/auth.mjs','src/session.mjs','tests/auth.test.mjs']);
+    // (4) The next worker is not told what the Hub appended to the last one's answer, and the worker's next message is not decomposed from its stored prompt either.
+    const next=await pool.start({prompt:'List the open questions.',dependsOn:[short.id]});
+    await until(()=>pool.get(next.id)?.status==='completed','the worker after the short one completed');
+    const nextPrompt=withHandoff('List the open questions.').prompt;
+    assert.ok(nextPrompt.includes('UNTRUSTED RESULT (independently verify before use):\n'+pool.get(short.id).finalText),'(the premise: it reads the answer of the short worker)');
+    assert.ok(!nextPrompt.includes('Verification notice'),'which ends with no notice of the Hub\'s');
+    assert.equal(pool.get(next.id).goalPlan,null,'a worker after the short one has no plan either');
+    const before=seen.length;
+    await pool.continue({id:short.id,prompt:'ok'});
+    await until(()=>seen.length>before&&pool.get(short.id)?.status==='completed','the next message of the short worker ran');
+    assert.equal(pool.get(short.id).goalPlan,null,'the next message of the worker does not decompose its stored prompt');
+    assert.ok(!seen[before].instructions.includes(PLAN),'and its instructions carry no decomposition');
   }
 
   await pool.shutdown();

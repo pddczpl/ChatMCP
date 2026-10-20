@@ -96,11 +96,13 @@ export function extractPromptHints(promptText = '') {
 
 /**
  * Generates an automatic, token-budgeted Repo Map section and appends it to agent instructions.
+ * `queryPrompt` is the part of `prompt` the query word is made from, when the caller wrote text around the task that must not choose it (the Hub's handoff around a
+ * delegated worker's goal). The focus files stay those of the whole `prompt`: a file a predecessor's result names still focuses the map. Blank or absent: the prompt's.
  */
 export async function injectRepoMapIntoInstructions(
   baseInstructions,
   workspace,
-  { prompt = '', maxTokens = 1200, engine = null, signal = null } = {}
+  { prompt = '', queryPrompt = null, maxTokens = 1200, engine = null, signal = null } = {}
 ) {
   const instructions = String(baseInstructions || '');
   if (!workspace || typeof workspace.resolve !== 'function') {
@@ -113,11 +115,12 @@ export async function injectRepoMapIntoInstructions(
   try {
     const intel = engine ?? new CodeIntelligenceEngine({ workspace });
     const hints = extractPromptHints(prompt);
+    const query = typeof queryPrompt === 'string' && queryPrompt.trim() ? extractPromptHints(queryPrompt).query : hints.query;
     const repoMap = await intel.generateRepoMap({
       path: '.',
       maxTokens,
       focusFiles: hints.focusFiles,
-      query: hints.query,
+      query,
       // Preflight cannot scan and AST-parse a whole monorepo before the first model request.
       // Keep full precise code intelligence available via explicit agent tools.
       quick: true, maxSourceFiles: 240, maxSourceDirectories: 320,
@@ -146,7 +149,7 @@ export async function injectRepoMapIntoInstructions(
         estimatedTokens: repoMap.structured.estimatedTokens,
         partial: repoMap.structured.partial,
         scannedFiles: repoMap.structured.scannedFiles,
-        queryHint: hints.query,
+        queryHint: query,
         focusFiles: hints.focusFiles,
       },
     };

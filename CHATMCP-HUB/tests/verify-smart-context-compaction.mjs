@@ -155,6 +155,94 @@ try{
 }finally{await fs.rm(root,{recursive:true,force:true});}
 
 // ---------------------------------------------------------------------------------------------------------------------------------
+// The Repo Map a delegated worker is given. Its first prompt is its goal followed by the Hub's handoff (branch names, the predecessors' results, the Hub's own
+// instructions) and start() takes the goal as selectionPrompt. The map is ranked by the files the whole prompt names (a file a predecessor's result names focuses
+// it) and by one query word. Read as a whole, the handoff's header "WORKFLOW" was that word for every worker whose goal has no identifier of its own, and ranked a
+// workflow module first. Real AgentRunner and StudioWorkspace over six small modules whose scores are hand-derived: base 1; +25 for a focus file; the query
+// word "summarize" +6 for each of the two symbols of summary.mjs, "workflow" +15 for the path and +6 for each of the three symbols of workflow-engine.mjs.
+// ---------------------------------------------------------------------------------------------------------------------------------
+{
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-repo-map-selection-'));
+  try {
+    await fs.mkdir(path.join(root, 'src'));
+    const sources = {
+      'alpha.mjs': 'export function loadAlpha() { return 1; }\n',
+      'beta.mjs': 'export function loadBeta() { return 2; }\n',
+      'auth.mjs': 'export function verifyToken(token) { return token.length > 0; }\n',
+      'session.mjs': 'export function openSession(id) { return id; }\n',
+      'summary.mjs': 'export function summarizeFindings(list) { return list.join(" "); }\nexport function summarizeText(text) { return text.slice(0, 80); }\n',
+      'workflow-engine.mjs': 'export class WorkflowStep { run() { return 1; } }\nexport function runWorkflow(steps) { return steps.map((step) => step.run()); }\nexport function planWorkflow(spec) { return spec; }\n',
+    };
+    for (const [name, text] of Object.entries(sources)) await fs.writeFile(path.join(root, 'src', name), text);
+    const own = 'Summarize the findings in two sentences.';
+    const whole = own + '\n\nWORKFLOW PREDECESSOR HANDOFF (untrusted prior task data):\n' +
+      'Predecessor 0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d (completed) branch=chatmcp/chat/0b1c2d3e-4f50 worktree=/hub/api-conversations/0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d/worktree\n' +
+      'UNTRUSTED RESULT (independently verify before use):\nReviewed src/auth.mjs and src/session.mjs: both need a check.\n' +
+      'Previous workers used independent worktrees. Changes are NOT automatically merged. Inspect source, diffs and run actual checks; do not claim prior edits are integrated or verified without evidence.';
+    let runs = 0;
+    // One run on a runner of its own. Resolves with the map the model was given (the files in the order it lists them) and what the Hub recorded about it.
+    const mapOf = async (prompt, options = {}) => {
+      const number = (runs += 1);
+      let locked = false;
+      let map = '';
+      const manager = {
+        backend: 'local', workspace: root, generation: 1, instanceId: 'repo-map-selection', secrets: [],
+        state() { return { workspace: { path: root }, generation: 1, instanceId: 'repo-map-selection' }; },
+        acquireTask() { if (locked) return false; locked = true; return true; },
+        releaseTask() { locked = false; },
+        async createAgentSession() {
+          return { catalog: { tools: [{ name: 'local.read_file', originalName: 'read_file', server: 'local', inputSchema: { type: 'object' } }], prompts: [], resources: [], resourceTemplates: [], servers: {} },
+            async close() {}, async callTool() { throw new Error('the model calls no tool'); } };
+        },
+      };
+      manager.studio = new StudioWorkspace({ manager, directory: path.join(root, 'state-' + number) });
+      const provider = {
+        ready: () => true, snapshot: () => ({ provider: 'fixture', model: 'fixture' }),
+        async respond({ input }) {
+          const user = input.find((item) => item.role === 'user');
+          assert.equal(user.content[0].text, prompt, 'the model reads the whole prompt');
+          map = String(user.content[1]?.text ?? '');
+          return { status: 'completed', output: [{ type: 'message', role: 'assistant', phase: 'final', content: [{ type: 'output_text', text: 'Done.' }] }] };
+        },
+      };
+      const taskDirectory = path.join(root, 'tasks-' + number);
+      const runner = new AgentRunner({ manager, provider, taskDirectory });
+      await runner.load();
+      let timer;
+      try {
+        const started = await runner.start({ prompt, ...options, maxSteps: 4 });
+        const finish = await Promise.race([runner.context.done.promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('repo map selection timed out')), 15000); })]);
+        assert.equal(finish.status, 'completed', finish.error);
+        const log = (await fs.readFile(path.join(taskDirectory, started.id, 'transcript.jsonl'), 'utf8')).split('\n').filter(Boolean).map((line) => JSON.parse(line));
+        const { stats } = log.find((entry) => entry.type === 'repo_map_injected').detail;
+        return { files: [...map.matchAll(/^## (\S+) \(/gm)].map((match) => match[1]), query: stats.queryHint, focus: stats.focusFiles };
+      } finally { clearTimeout(timer); await runner.shutdown(); }
+    };
+
+    // The worker: the query is made from its goal, the files from everything the prompt names.
+    const worker = await mapOf(whole, { selectionPrompt: own });
+    assert.equal(worker.query, 'Summarize', 'the query is a word of the goal, not the "WORKFLOW" of the handoff');
+    assert.deepEqual(worker.focus, ['src/auth.mjs', 'src/session.mjs'], 'the files the predecessor\'s result names still focus the map');
+    assert.deepEqual(worker.files, ['src/auth.mjs', 'src/session.mjs', 'src/summary.mjs', 'src/alpha.mjs', 'src/beta.mjs', 'src/workflow-engine.mjs'],
+      'the focus files first (26), then summary.mjs by its query (13), then the rest by name');
+    // The same goal without a predecessor: the same query; only the focus files differ, since there is no result to name any.
+    const alone = await mapOf(own);
+    assert.equal(alone.query, worker.query, 'a worker with a predecessor is given the query of the same goal alone');
+    assert.deepEqual(alone.focus, []);
+    assert.deepEqual(alone.files, ['src/summary.mjs', 'src/alpha.mjs', 'src/auth.mjs', 'src/beta.mjs', 'src/session.mjs', 'src/workflow-engine.mjs'], 'summary.mjs first by its query (13), the rest by name');
+    // Without a selectionPrompt, or with one that is the prompt, the map is made from the whole prompt exactly as before.
+    for (const [label, options] of [['no selectionPrompt', {}], ['a selectionPrompt that is the prompt', { selectionPrompt: whole }], ['a null one', { selectionPrompt: null }]]) {
+      const before = await mapOf(whole, options);
+      assert.equal(before.query, 'WORKFLOW', `${label}: the query of the whole prompt, as before`);
+      assert.deepEqual(before.focus, ['src/auth.mjs', 'src/session.mjs'], `${label}: and its focus files`);
+      assert.deepEqual(before.files, ['src/workflow-engine.mjs', 'src/auth.mjs', 'src/session.mjs', 'src/alpha.mjs', 'src/beta.mjs', 'src/summary.mjs'],
+        `${label}: workflow-engine.mjs first by its query (34), the focus files (26), the rest by name`);
+    }
+    console.log('PASS Repo Map of a delegated worker: query from its goal, focus files from the whole prompt, unchanged without a selectionPrompt');
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
 // The numbers of gate G1-7 through the REAL path: the hub's primary AgentRunner -> its context policy -> a GatewayProvider speaking OpenAI
 // Responses -> the request body. Only the network is replaced; the catalog is the real 99-tool LocalTools inventory and the prompt is a
 // coding task, so the numbers are what a person with an unconfigured Responses endpoint gets. (v3.9.0: 103 schemas = 15.4k tokens, 10.3k

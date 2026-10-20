@@ -239,6 +239,9 @@ const earlierSelectionTexts = (task, runPrompt) => [...(Array.isArray(task.carri
 // What a prompt of the conversation is selected on, both for tool schemas and for skills: the part that states the task when the caller that started its run
 // marked one (start()'s selectionPrompt, kept with the prompt), else the prompt. Tasks stored before there was a selectionPrompt have none.
 const selectionTextOf = (entry) => (typeof entry?.selectionText === 'string' ? entry.selectionText : entry.text);
+// What the host plan of a conversation is made from: its first prompt (task.prompt, which never changes), read as selectionTextOf says. A task stored before there
+// was a prompts list has none here; load() gives it one made of task.prompt.
+const planTextOf = (task) => selectionTextOf(task.prompts?.[0] ?? { text: task.prompt });
 // Models sometimes wrap an advertised direct local name in mcp_call. Resolve
 // only that explicit alias map; never guess a server or match remote basenames.
 // An exact catalog name always wins if it happens to collide with an alias.
@@ -661,7 +664,7 @@ export class AgentRunner {
         task.prompts ??= [{at:task.startedAt,text:task.prompt}];
         task.runs ??= [{startedAt:task.startedAt,finishedAt:task.finishedAt,status:task.status,startStep:0}];
         task.progress = createTaskProgress(task.progress);
-        task.goalPlan = decomposeCodingTask(task.prompt,task.goalPlan);
+        task.goalPlan = decomposeCodingTask(planTextOf(task),task.goalPlan);
         task.dialogue ??= [];
         this.tasks.set(task.id, task);
         const interrupted = task.status === 'running';
@@ -772,8 +775,9 @@ export class AgentRunner {
     if (config.model !== context.task.model || (config.provider ?? null) !== context.task.provider) throw fault('provider_changed', 'Cấu hình model đã thay đổi trong khi chạy. Hãy gửi yêu cầu mới với cấu hình hiện tại.', 409);
   }
 
-  // `selectionPrompt` is the part of `prompt` that states the task, when the caller wrote text around it that must not choose anything: skills and tool schemas are
-  // selected on it, in this run and in the later ones of the conversation, while the model is given the whole `prompt`. Without it they are selected on `prompt`.
+  // `selectionPrompt` is the part of `prompt` that states the task, when the caller wrote text around it that must not choose anything: skills, tool schemas, the
+  // host plan and the query word of the repo map are made from it, in this run and in the later ones of the conversation, while the model is given the whole
+  // `prompt` (and the repo map still focuses on the files the whole prompt names). Without it they are made from `prompt`.
   async start({ prompt, selectionPrompt = null, attachments = [], initialId = null, maxSteps = null, maxMinutes = null, resumeId = null,
     effectiveProfile = null, roleProfiles = null, carriedPrompts = null } = {}) {
     if (resumeId && this.activeTaskId === resumeId && this.tasks.get(resumeId)?.status !== 'running' && this.context?.done) await this.context.done.promise;
@@ -815,7 +819,7 @@ export class AgentRunner {
       modelCost:createCostLedger(),
       events: [], eventCount: 0, pendingCall: null, cancelRequested: false,
       progress: createTaskProgress(),
-      goalPlan: decomposeCodingTask(cleanPrompt),
+      goalPlan: null,
       prompts: [], runs: [], dialogue: [],
       // Not prompts of this task: nothing that lists its prompts (the checkpoint the model is shown, the report, the screen) shows them. Only the selectors read them,
       // and they leave the task only through #clean, which redacts them as it does the prompts.
@@ -834,9 +838,11 @@ export class AgentRunner {
     task.status = 'running'; task.finishedAt = null; task.finalText = ''; task.error = null; task.errorCode = null; task.cancelRequested = false;
     task.maxSteps = maxSteps === null ? null : task.steps + maxSteps; task.maxMinutes = maxMinutes;
     task.progress = createTaskProgress(task.progress, { newRun: true });
-    task.goalPlan = decomposeCodingTask(task.prompt,task.goalPlan);
     // selectionText is stored only when it is not the prompt: a later run of the conversation reads this prompt as an earlier one, and must read the same text.
     task.prompts ??= []; const runPrompt = {at:initial,text:cleanPrompt,attachments:attachmentParts.metadata,...(selectionText!==cleanPrompt?{selectionText}:{})}; task.prompts.push(runPrompt);
+    // The plan is made from the first prompt of the conversation as it is stored (planTextOf), after this one is: a run that continues the conversation, and load(),
+    // read the same text, not the whole prompt a caller wrote around the task.
+    task.goalPlan = decomposeCodingTask(planTextOf(task),task.goalPlan);
     task.runs ??= []; task.runs.push({id:randomUUID(),conversationId:id,title:cleanPrompt,startedAt:initial,finishedAt:null,status:'running',startStep:task.steps,startToolCalls:task.toolCalls});
     task.dialogue ??= []; task.dialogue.push({role:'user',at:initial,text:cleanPrompt+(attachmentParts.metadata.length?'\n[Đính kèm: '+attachmentParts.metadata.map(x=>x.name).join(', ')+']':''),run:task.runs.length});
     // A previous mutating MCP result can be uncertain after a crash. Do not
@@ -999,7 +1005,7 @@ export class AgentRunner {
           await this.#event(task, 'repo_map_started',
             'Đang lập bản đồ mã nguồn giới hạn để chuẩn bị ngữ cảnh cho agent.', { status:'running' });
           const map = await abortable(injectRepoMapIntoInstructions('', this.manager.studio, {
-            prompt: cleanPrompt, maxTokens: 900, signal: context.controller.signal,
+            prompt: cleanPrompt, queryPrompt: selectionText, maxTokens: 900, signal: context.controller.signal,
           }), context.controller.signal);
           if (map.injected) {
             repoMapPart = {type:'input_text',text:

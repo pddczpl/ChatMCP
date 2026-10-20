@@ -545,9 +545,11 @@ try {
         const task = c.runner.get(c.id);
         assert.equal(task.prompt, withHandoff(GOAL), 'and the conversation records the whole prompt');
         assert.deepEqual([task.prompts[0].text, task.prompts[0].selectionText], [withHandoff(GOAL), GOAL], 'with the text its skills and tools are selected on');
+        assert.ok(task.goalPlan === null && !one.instructions.includes('HOST-PROPOSED TASK DECOMPOSITION'), 'its goal is not decomposed either: the host plan is made from the same text');
         const [two] = await c.say('ok');
         assert.deepEqual(skillsIn(two), [], 'the worker\'s next message counts the goal of its first prompt, not its handoff');
         assert.deepEqual(activations(c), [], 'and no skills_activated event is raised');
+        assert.ok(c.runner.get(c.id).goalPlan === null && !two.instructions.includes('HOST-PROPOSED TASK DECOMPOSITION'), 'nor does its next message decompose the stored prompt');
       } finally { await c.runner.shutdown(); }
     }
     ok('a delegated worker whose goal names no skill is given none (nor is its next message), and the model still reads the whole handoff');
@@ -561,6 +563,7 @@ try {
         const [two] = await c.say('ok');
         assert.deepEqual(skillsIn(two), ['docker-devops'], 'and the worker\'s next message keeps it');
         assert.deepEqual(activations(c), [['docker-devops'], ['docker-devops']], 'the skills_activated events say the same');
+        assert.ok(c.runner.get(c.id).goalPlan === null && !one.instructions.includes('HOST-PROPOSED TASK DECOMPOSITION') && !two.instructions.includes('HOST-PROPOSED TASK DECOMPOSITION'), 'and its short goal is not decomposed, in either message');
         assert.ok(JSON.stringify(one.input).includes('WORKFLOW PREDECESSOR HANDOFF (untrusted prior task data):'), 'the handoff reaches the model');
       } finally { await c.runner.shutdown(); }
     }
@@ -570,6 +573,7 @@ try {
     // what a caller that composes text of its own gets. A selectionPrompt that is the prompt itself, or none, is no change either, and stores nothing.
     {
       const whole = withHandoff(DOCKER);
+      const { decomposeCodingTask } = await import('../lib/agent-autonomy.mjs');
       const expected = ids(selectConversationSkills(nine, whole));
       assert.ok(expected.includes('docker-devops') && expected.includes('git-workflow-pro'), '(the premise: the whole text selects the Docker and the Git skill)');
       for (const [label, options] of [['no selectionPrompt', {}], ['a selectionPrompt that is the prompt', { selectionPrompt: whole }], ['a null one', { selectionPrompt: null }], ['a blank one', { selectionPrompt: '  \n ' }]]) {
@@ -578,6 +582,8 @@ try {
           const [one] = await c.say(whole, options);
           assert.deepEqual(skillsIn(one), expected, `${label}: the skills of the whole prompt, as before`);
           assert.ok(!('selectionText' in c.runner.get(c.id).prompts[0]), `${label}: nothing is stored beside the prompt`);
+          assert.ok(decomposeCodingTask(whole) && one.instructions.includes('HOST-PROPOSED TASK DECOMPOSITION'), `${label}: and the plan is that of the whole prompt, as before`);
+          assert.deepEqual(c.runner.get(c.id).goalPlan, decomposeCodingTask(whole), `${label}: the very plan`);
           const [two] = await c.say('ok');
           assert.deepEqual(skillsIn(two), ids(selectConversationSkills(nine, 'ok', [whole])), `${label}: and the next message reads the first prompt as a whole`);
         } finally { await c.runner.shutdown(); }

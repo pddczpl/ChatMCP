@@ -215,6 +215,125 @@ try{
   assert.equal(turns,11);
   assert.equal(looping.get(startedLoop.id).progress.noProgress,10);
   await looping.shutdown();
+  // A delegated worker's first prompt is its goal followed by text the Hub wrote: a handoff of branch names, the predecessors' results (another model's output) and
+  // the Hub's own instructions. start() takes the goal as selectionPrompt, and the host plan is made from it, as the skills and the tool schemas are. Made from the
+  // whole prompt, the handoff was long enough to decompose every worker of a workflow: the Hub's sentences became "User-requested work units" of a plan with a verify
+  // and a review phase, saved to the Studio plan, and the worker's answer was ended with "NOT independently verified full completion", whatever its goal. The model still
+  // reads the whole prompt. The handoff is a copy of the Hub's text; verify-concurrent-chat-workspaces runs the code that writes it.
+  {
+    const GOAL='Summarize the findings in two sentences.';
+    const handoff='\n\nWORKFLOW PREDECESSOR HANDOFF (untrusted prior task data):\n'+
+      'Predecessor 0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d (completed) branch=chatmcp/chat/0b1c2d3e-4f50 worktree=/hub/api-conversations/0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d/worktree\n'+
+      'UNTRUSTED RESULT (independently verify before use):\nThe review found nothing to change.\n'+
+      'Previous workers used independent worktrees. Changes are NOT automatically merged. Inspect source, diffs and run actual checks; do not claim prior edits are integrated or verified without evidence.';
+    const BLOCK=/HOST-PROPOSED TASK DECOMPOSITION/,NOTICE=/NOT independently verified full completion/;
+    assert.equal(decomposeCodingTask(GOAL),null,'(the premise: the goal alone is not decomposed)');
+    assert.ok(decomposeCodingTask(GOAL+handoff),'(the premise: with the handoff the prompt is decomposed)');
+    assert.ok(decomposeCodingTask(objective+handoff).objectives.some(o=>o.text.includes('WORKFLOW PREDECESSOR HANDOFF')),'(the premise: the handoff is among its objectives)');
+    let conversations=0;
+    // One conversation on a runner of its own: every model request is recorded with its instructions, and so is every plan saved to the Studio.
+    const conversation=()=>{
+      const requests=[],saved=[],taskDirectory=path.join(root,'delegated-'+(++conversations));
+      let locked=false,id=null;
+      const workerManager={...manager,
+        acquireTask(){if(locked)return false;locked=true;return true;},releaseTask(){locked=false;},
+        studio:{async checks(){return {suggested:[]};},read:fakeRead,async plan({operation,items,title}){if(operation==='set')saved.push({title,items});return {title,items};}},
+        async createAgentSession(){return {catalog:{tools:[{name:'local.read_file',originalName:'read_file',server:'local',inputSchema:{type:'object'}}],
+          prompts:[],resources:[],resourceTemplates:[],servers:{}},async close(){},async callTool(){return result('unused');}};},
+      };
+      const answering={ready:provider.ready,snapshot:provider.snapshot,async respond({input,instructions,beforeModelRequest}){
+        beforeModelRequest?.();
+        requests.push({instructions:String(instructions),input:structuredClone(input)});
+        return {status:'completed',usage:{input_tokens:1,output_tokens:1},output:[{type:'message',role:'assistant',phase:'final',content:[{type:'output_text',text:'Done.'}]}]};
+      }};
+      const runner=new AgentRunner({manager:workerManager,provider:answering,taskDirectory});
+      // One message of the conversation: the first starts it, the others continue it. Resolves with the model requests that run made.
+      const say=async(prompt,options={})=>{
+        const before=requests.length;
+        id=(id===null?await runner.start({prompt,...options,maxSteps:6}):await runner.continue({id,prompt,maxSteps:6})).id;
+        // Until the run has released the workspace as well: a runner that starts after a restart takes the lock, and a run that has just finished still holds it.
+        for(let i=0;i<1500&&(runner.get(id).status==='running'||runner.activeTaskId!==null);i++)await new Promise(resolve=>setTimeout(resolve,10));
+        assert.equal(runner.get(id).status,'completed',runner.get(id).error);
+        return requests.slice(before);
+      };
+      return {runner,requests,saved,say,workerManager,answering,taskDirectory,get id(){return id;}};
+    };
+
+    // A worker whose goal is short is not decomposed, nor is its next message, nor a long follow-up (the plan is made from the first prompt of the conversation),
+    // nor after the Hub restarts. Each of these used to re-read the stored whole prompt.
+    {
+      const c=conversation();
+      await c.runner.load();
+      try{
+        const [one]=await c.say(GOAL+handoff,{selectionPrompt:GOAL});
+        const task=c.runner.get(c.id);
+        assert.equal(task.goalPlan,null,'a worker whose goal is short has no plan, though its prompt is long');
+        assert.doesNotMatch(one.instructions,BLOCK,'its instructions carry no decomposition');
+        assert.equal(c.saved.length,0,'none is saved to the Studio plan');
+        assert.ok(!task.events.some(event=>event.type==='goal_decomposed'),'and no goal_decomposed event is raised');
+        assert.equal(task.finalText,'Done.','its answer does not end with a verification notice');
+        assert.equal(task.completionOutcome.verification,'not_applicable','and the completion is assessed as for any short request');
+        assert.equal(one.input.at(-1).content[0].text,GOAL+handoff,'the model still reads the whole prompt');
+        const [two]=await c.say('ok');
+        assert.equal(c.runner.get(c.id).goalPlan,null,'the worker\'s next message does not decompose the stored prompt');
+        assert.doesNotMatch(two.instructions,BLOCK);
+        assert.equal(c.runner.get(c.id).finalText,'Done.');
+        const [three]=await c.say(objective);
+        assert.equal(c.runner.get(c.id).goalPlan,null,'a long follow-up does not either: the plan is the first prompt\'s');
+        assert.doesNotMatch(three.instructions,BLOCK);
+        const restarted=new AgentRunner({manager:c.workerManager,provider:c.answering,taskDirectory:c.taskDirectory});
+        await restarted.load();
+        try{
+          assert.equal(restarted.get(c.id).goalPlan,null,'a Hub that restarts does not decompose the stored prompt');
+          await restarted.continue({id:c.id,prompt:'ok',maxSteps:6});
+          for(let i=0;i<1500&&restarted.get(c.id).status==='running';i++)await new Promise(resolve=>setTimeout(resolve,10));
+          assert.equal(restarted.get(c.id).goalPlan,null);
+          assert.doesNotMatch(c.requests.at(-1).instructions,BLOCK,'nor does the first message after the restart');
+        }finally{await restarted.shutdown();}
+      }finally{await c.runner.shutdown();}
+    }
+
+    // A worker whose goal is long is decomposed as the same goal alone is: the objectives are the clauses of the goal, and the Studio plan is titled by it.
+    {
+      const withHandoff=conversation(),alone=conversation();
+      await withHandoff.runner.load();await alone.runner.load();
+      try{
+        const [one]=await withHandoff.say(objective+handoff,{selectionPrompt:objective});
+        await alone.say(objective);
+        const planned=withHandoff.runner.get(withHandoff.id).goalPlan;
+        assert.deepEqual(planned.objectives.map(o=>o.text),[
+          'Đọc tài liệu và phân tích luồng coding agent trong workspace để xác định chức năng còn thiếu',
+          'sau đó sửa file mã nguồn có liên quan bằng thay đổi nhỏ và có SHA kiểm chứng',
+          'tiếp theo chạy các bài kiểm thử thật, đối chiếu kết quả và báo cáo những hạn chế còn tồn tại.',
+        ],'the objectives are the clauses of the goal, none of the handoff');
+        assert.deepEqual(planned,alone.runner.get(alone.id).goalPlan,'a worker with a predecessor is decomposed as the same goal alone');
+        assert.match(one.instructions,BLOCK);
+        assert.ok(one.instructions.includes(JSON.stringify(planned.goal)),'its instructions name the goal of the plan');
+        assert.ok(!planned.goal.includes('WORKFLOW'),'which is the goal');
+        assert.deepEqual(withHandoff.saved.map(plan=>plan.title),['Agent plan: '+planned.goal.slice(0,150)],'the Studio plan is titled by it');
+        assert.deepEqual(withHandoff.saved[0].items,alone.saved[0].items);
+      }finally{await withHandoff.runner.shutdown();await alone.runner.shutdown();}
+    }
+
+    // Without a selectionPrompt, or with one that is the prompt, null or blank, the plan is made from the whole prompt exactly as before: a worker without
+    // predecessors has no handoff (its prompt is its goal), and a caller that composes text of its own is decomposed on it.
+    {
+      const whole=decomposeCodingTask(GOAL+handoff);
+      for(const [label,options] of [['no selectionPrompt',{}],['a selectionPrompt that is the prompt',{selectionPrompt:GOAL+handoff}],['a null one',{selectionPrompt:null}],['a blank one',{selectionPrompt:'  \n '}]]){
+        const c=conversation();
+        await c.runner.load();
+        try{
+          const [one]=await c.say(GOAL+handoff,options);
+          assert.deepEqual(c.runner.get(c.id).goalPlan,whole,`${label}: the plan of the whole prompt, as before`);
+          assert.match(one.instructions,BLOCK,`${label}: and its instructions`);
+          assert.match(c.runner.get(c.id).finalText,NOTICE,`${label}: and the notice that goes with it`);
+          const [two]=await c.say('ok');
+          assert.deepEqual(c.runner.get(c.id).goalPlan,whole,`${label}: the next message keeps it`);
+          assert.match(two.instructions,BLOCK);
+        }finally{await c.runner.shutdown();}
+      }
+    }
+  }
   console.log('PASS goal decomposition, trust-boundary receipts, semantic cycling, bounded adaptive recovery, durable resume');
 } finally {
   await fs.rm(root,{recursive:true,force:true});

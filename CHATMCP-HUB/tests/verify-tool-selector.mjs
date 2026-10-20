@@ -402,6 +402,7 @@ try{
         assert.equal(selection.detail.basis.fromRunPrompt,selectTaskToolNames(goal).length,'and how many tools it selected');
         assert.deepEqual(selection.detail.offered,one.offered,'and lists what the model was offered');
         assert.equal(worker.runner.get(worker.id).prompts[0].selectionText,goal);
+        assert.ok(worker.runner.get(worker.id).goalPlan===null&&!one.instructions.includes('HOST-PROPOSED TASK DECOMPOSITION'),'its goal is not decomposed either: the host plan is made from the same text');
         const [two]=await worker.say('ok');
         assert.deepEqual(sorted(two.offered),offeredAsFirst('ok'),'the next message reads the goal of the first prompt, not its handoff: the baseline');
       }finally{await worker.runner.shutdown();}
@@ -431,6 +432,7 @@ try{
         const selection=transcript(worker).find(entry=>entry.type==='tool_selection');
         assert.equal(selection.detail.basis.runPrompt,(fix+handoff).slice(0,300),label+': the event names the prompt');
         assert.ok(!('selectionText' in worker.runner.get(worker.id).prompts[0]),label+': nothing is stored beside the prompt');
+        assert.ok(worker.runner.get(worker.id).goalPlan!==null&&one.instructions.includes('HOST-PROPOSED TASK DECOMPOSITION'),label+': and the plan is that of the whole prompt, as before');
       }finally{await worker.runner.shutdown();}
     }
   }
