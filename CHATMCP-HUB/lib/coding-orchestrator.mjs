@@ -36,6 +36,23 @@ const RUNNER_ERROR_MAX=2000;
 // this is kept apart so that a page can label each for what it is. `code` is what a page translates (and the pages know exactly these four); `text` is the
 // English sentence for a reader that does not know the code; `detail` is the part of the sentence that varies.
 const verificationNote=(code,text,detail)=>detail===undefined?{code,text}:{code,text,detail};
+// How much of the AgentRunner's notice on a final answer a worker keeps: its sentence is a few hundred characters at most, and what it appends after it is cut here too.
+const RUNNER_NOTICE_MAX=2000;
+// A final answer that the Hub's evidence does not back ends, in the AgentRunner's text, with this separator and a sentence of the runner's own (lib/agent.mjs). The main
+// chat shows that text whole, on purpose. For a worker the model's words are the `summary` and the sentence is the Hub's, so they are split here and kept as two fields.
+const RUNNER_NOTICE_MARK='\n\n[Verification notice] ';
+/**
+ * The model's words and the AgentRunner's notice, from the final text the runner holds and the outcome it recorded for the run. The sentence is rebuilt from that outcome
+ * exactly as the runner writes it, so only what the runner appended can be taken for it: a model that writes something similar keeps its words, and a run the runner
+ * called ready has no sentence. The runner appends to the end of the text, so the last place the sentence stands is its own, and what follows it is the runner's as well.
+ * The notice is '' when there is none.
+ */
+export function splitRunnerNotice(finalText,outcome){
+  const text=typeof finalText==='string'?finalText:'';
+  if(outcome?.ready!==false||!Array.isArray(outcome.missing))return {answer:text,notice:''};
+  const at=text.lastIndexOf(RUNNER_NOTICE_MARK+'ChatMCP has NOT independently verified full completion: '+outcome.missing.join('; ')+'.');
+  return at<0?{answer:text,notice:''}:{answer:text.slice(0,at),notice:text.slice(at+RUNNER_NOTICE_MARK.length)};
+}
 const cleanGitPath=(p)=>p.replaceAll('\\','/');
 const getError=(result,operation)=>{
   if(result.code!==0||result.truncated||result.timedOut){
@@ -348,20 +365,24 @@ export class CodingWorktreeOrchestrator {
               signal.addEventListener('abort',()=>{clearInterval(timer);reject(signal.reason);},{once:true});
             });
         const initialState=result?.state||result?.status;
-        // What the model said and nothing else: a run that failed before it said anything has an empty summary.
-        const initialSummary=bounded(result?.finalText,12000);
+        // What the model said and nothing else: a run that failed before it said anything has an empty summary. The notice the AgentRunner ends a final answer with when the
+        // Hub's evidence does not back the run's plan is the Hub's sentence, so it is split off and kept as a field of its own, on every way this worker can end below.
+        const {answer,notice}=splitRunnerNotice(result?.finalText,result?.verificationOutcome);
+        const initialSummary=bounded(answer,12000);
+        const runnerNotice=bounded(notice,RUNNER_NOTICE_MAX);
+        const said=runnerNotice?{runnerNotice}:{};
         if (initialState!=='completed' || node.verifyRequired!==true) {
           // Why a run stopped is the AgentRunner's own record (redacted; its sentences are mostly Vietnamese and may quote the provider or a refusal), so it is the
           // Hub's and not the model's: a field of its own, only when the run ended with an error.
           const runnerError=bounded(result?.error,RUNNER_ERROR_MAX);
-          return {state:initialState,summary:initialSummary,taskId:task.id,steps:result?.steps,toolCalls:result?.toolCalls,...(runnerError?{runnerError}:{})};
+          return {state:initialState,summary:initialSummary,taskId:task.id,steps:result?.steps,toolCalls:result?.toolCalls,...(runnerError?{runnerError}:{}),...said};
         }
         // Verified coding is opt-in and can never silently execute on host.
         // Require explicitly granted immutable test IDs and a positive Node TAP
         // result from the authenticated OS-isolated execution backend.
         const checks=await broker.discoverChecks({workerId:node.id});
         if (!checks.length) {
-          return {state:'needs_attention',summary:initialSummary,taskId:task.id,
+          return {state:'needs_attention',summary:initialSummary,taskId:task.id,...said,
             verificationNote:verificationNote('no_checks','No supported pinned Node test definition was discovered.')};
         }
         node.status='awaiting_test_grant';
@@ -385,7 +406,7 @@ export class CodingWorktreeOrchestrator {
         }
         signal.throwIfAborted();
         if(!grantIds) {
-          return {state:'needs_attention',summary:initialSummary,taskId:task.id,
+          return {state:'needs_attention',summary:initialSummary,taskId:task.id,...said,
             verificationNote:verificationNote('grant_timeout','Owner did not approve all isolated test grants in the allotted window.')};
         }
         node.status='testing';await this.#save();
@@ -421,10 +442,10 @@ export class CodingWorktreeOrchestrator {
         node.verificationOutcome=verified;
         if(verified.state!=='ready_for_review') {
           const reason=bounded(verified.reason,500);
-          return {state:'needs_attention',summary:initialSummary,taskId:task.id,
+          return {state:'needs_attention',summary:initialSummary,taskId:task.id,...said,
             verificationNote:verificationNote('blocked','Verified coding blocked: '+reason,reason)};
         }
-        return {state:'completed',summary:initialSummary,taskId:task.id,steps:result?.steps,toolCalls:result?.toolCalls,verified:true,
+        return {state:'completed',summary:initialSummary,taskId:task.id,steps:result?.steps,toolCalls:result?.toolCalls,verified:true,...said,
           verificationNote:verificationNote('verified','All registered pinned Node checks have fresh signed TAP evidence.')};
       }finally{signal.removeEventListener('abort',onAbort);}
     }finally{
@@ -594,6 +615,8 @@ export class CodingWorktreeOrchestrator {
           if(out.verificationNote)node.verificationNote=out.verificationNote;
           // And the AgentRunner's record of why a run stopped, kept apart from what the model said: only a run that ended with an error has one.
           if(out.runnerError)node.runnerError=out.runnerError;
+          // And the sentence the AgentRunner ended the model's answer with when the Hub's evidence did not back the run's plan: the Hub's, not the model's, so not in the summary.
+          if(out.runnerNotice)node.runnerNotice=out.runnerNotice;
           node.steps=out.steps;node.toolCalls=out.toolCalls;
           if(out.state!=='completed'){
             node.status=out.state==='needs_attention'?'needs_attention':'failed';

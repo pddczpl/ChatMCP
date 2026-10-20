@@ -1,6 +1,7 @@
 // The Hub's own sentences about how a worker's verification ended are a field of their own (verificationNote), not text appended to what the model
 // said. The summary of a worker is the model's words and nothing else, so that a page can label the one as the AI's report and the other as the Hub's.
 // The same holds for a worker whose run fails: the AgentRunner's own error is the field `runnerError`, and a model that said nothing leaves the summary empty.
+// And for a worker that completed: the sentence the AgentRunner ends the model's final text with when the Hub's evidence does not back the run's plan is the field `runnerNotice`.
 // Real orchestrator, real AgentRunner and real test broker; the model and the isolated backend are scripted (this is not OS isolation).
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -10,7 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { HubManager } from '../lib/manager.mjs';
 import { assembleStudio } from '../lib/assemble.mjs';
-import { CodingWorktreeOrchestrator } from '../lib/coding-orchestrator.mjs';
+import { CodingWorktreeOrchestrator, splitRunnerNotice } from '../lib/coding-orchestrator.mjs';
 import { ExecutionBackend, validateCapabilityReport, validateExecutionReceipt } from '../lib/execution-contract.mjs';
 import { BLACKBOX_KIND } from '../lib/native-blackbox-contract.mjs';
 
@@ -135,12 +136,46 @@ const REFUSAL_PREFIX = 'Model không thể thực hiện yêu cầu: ';
 const RUNNER_ERROR_MAX = 2000;
 
 const ANSWER = 'Edited the file; checking it is for the Hub.';
+/**
+ * What the AgentRunner puts after the model's final text when the goal plan of the run has evidence the Hub did not record ("[Verification notice]" in lib/agent.mjs).
+ * The scripted model runs no check and reads no diff, so a task that is planned in phases always ends this way.
+ */
+const NOTICE_MARK = '\n\n[Verification notice] ';
+const NOTICE = 'ChatMCP has NOT independently verified full completion: No verified successful project check; No independently recorded Git diff review.';
+/** A task the Hub plans in phases (decomposeCodingTask: 160+ characters and 2+ clauses). The scripted model writes the file named in its "add <file>". */
+const longTask = (file) => `Add the file ${file} to the project root with one line of text. Then update the tests so that the whole suite still passes, and verify that the new file is listed by the README. add ${file}`;
 const NOTES = {
   no_checks: 'No supported pinned Node test definition was discovered.',
   grant_timeout: 'Owner did not approve all isolated test grants in the allotted window.',
   verified: 'All registered pinned Node checks have fresh signed TAP evidence.',
 };
 try {
+  // 0. the split on its own. The runner's sentence is rebuilt from the outcome the runner recorded for the run, so that only what the runner appended can be taken for
+  // it; the model's words are everything before the last place it stands, and what follows it (the runner appends to the end of the text) is the runner's as well
+  {
+    const missing = ['No verified successful project check', 'No independently recorded Git diff review'];
+    const outcome = { ready: false, missing, reason: 'Some required evidence is missing; task completion is not certified' };
+    assert.deepEqual(splitRunnerNotice(ANSWER + NOTICE_MARK + NOTICE, outcome), { answer: ANSWER, notice: NOTICE });
+    assert.deepEqual(splitRunnerNotice(ANSWER + NOTICE_MARK + NOTICE, { ...outcome, missing: [missing[0]] }),
+      { answer: ANSWER + NOTICE_MARK + NOTICE, notice: '' }, 'a record that lists other gaps is not the sentence that stands there');
+    const hooked = NOTICE + '\n\n[Hook notice] A hook objected.';
+    assert.deepEqual(splitRunnerNotice(ANSWER + NOTICE_MARK + hooked, outcome), { answer: ANSWER, notice: hooked }, 'whatever the runner appends after its sentence is not the model\'s either');
+    // the model's trailing white space is its own, and so is a copy of the sentence it wrote: the last one is the runner's
+    assert.deepEqual(splitRunnerNotice(ANSWER + ' \n' + NOTICE_MARK + NOTICE, outcome), { answer: ANSWER + ' \n', notice: NOTICE });
+    const quoted = ANSWER + NOTICE_MARK + NOTICE;
+    assert.deepEqual(splitRunnerNotice(quoted + NOTICE_MARK + NOTICE, outcome), { answer: quoted, notice: NOTICE });
+    assert.deepEqual(splitRunnerNotice(NOTICE_MARK + NOTICE, outcome), { answer: '', notice: NOTICE });
+    // no sentence in the text, or no record that the runner wrote one: every word is the model's
+    assert.deepEqual(splitRunnerNotice(ANSWER, outcome), { answer: ANSWER, notice: '' });
+    assert.deepEqual(splitRunnerNotice(quoted, { ready: true, missing: [], reason: 'No complex task graph required' }), { answer: quoted, notice: '' });
+    assert.deepEqual(splitRunnerNotice(quoted, { ready: true, missing }), { answer: quoted, notice: '' }, 'a run the runner called ready has no sentence of its own');
+    for (const bad of [undefined, null, 'ready', 7, [], { missing }, { ready: 'no', missing }, { ready: false }, { ready: false, missing: 'No check' }]) {
+      assert.deepEqual(splitRunnerNotice(quoted, bad), { answer: quoted, notice: '' }, JSON.stringify(bad));
+    }
+    for (const bad of [undefined, null, 7, {}, ['x']]) assert.deepEqual(splitRunnerNotice(bad, outcome), { answer: '', notice: '' }, String(bad));
+    ok('the runner\'s verification notice is split off the end of a final text only where the runner\'s own record says it wrote one');
+  }
+
   // 1. verification asked for, and the project has no check the Hub supports: the worker needs the owner, the Hub says why in its own field
   {
     const { agent, stop } = await fixture('no-checks', { manifest: false, provider: scriptedModel(ANSWER, []) });
@@ -233,6 +268,7 @@ try {
       assert.equal(quiet.summary, '', 'the model said nothing: the summary is empty, and the runner\'s sentence is not put in its place');
       assert.equal(quiet.runnerError, EMPTY_FINAL, 'the runner\'s own sentence, exactly');
       assert.ok(!('verificationNote' in quiet), 'it is an error of the run, not a note about a verification');
+      assert.ok(!('runnerNotice' in quiet), 'and a run with no final text has no notice appended to it');
       assert.equal(job.workers.length, 1);
       const saved = JSON.parse(await fs.readFile(path.join(agent.directory, 'jobs.json'), 'utf8')).jobs.at(-1).workers[0];
       assert.equal(saved.summary, '');
@@ -256,6 +292,7 @@ try {
       assert.equal(refused.summary, '', 'a refusal is not a report of work');
       assert.equal(refused.runnerError.length, RUNNER_ERROR_MAX, 'cut at the bound');
       assert.equal(refused.runnerError, (REFUSAL_PREFIX + refusal).slice(0, RUNNER_ERROR_MAX), 'the runner\'s sentence and the beginning of the refusal, in that order');
+      assert.ok(!('runnerNotice' in refused));
       ok('a long refusal is the runnerError of the worker, cut at ' + RUNNER_ERROR_MAX + ' characters, and not its summary');
     } finally { await stop(); }
   }
@@ -274,7 +311,62 @@ try {
       assert.equal(slow.status, 'cancelled', JSON.stringify(slow));
       assert.equal(slow.summary, '');
       assert.equal(slow.runnerError, USER_CANCELLED);
+      assert.ok(!('runnerNotice' in slow));
       ok('a worker the owner stopped carries the runner\'s sentence about it as runnerError, with an empty summary');
+    } finally { await stop(); }
+  }
+
+  // 7. a task long enough to be planned in phases: the Hub's evidence cannot back the plan (the scripted model runs no check and reads no diff), so the AgentRunner ends the
+  // model's final text with a sentence of its own. The main chat shows that as one text, on purpose. For a worker the model's words are the summary and the sentence is the
+  // Hub's, a field of its own: a page labels the one as the AI's report and the other as the Hub's. It used to be in the summary, under "AI report".
+  {
+    const { agent, stop } = await fixture('notice', { manifest: false, provider: scriptedModel(ANSWER, []) });
+    try {
+      const job = await withDeadline(agent.run({
+        tasks: [{ id: 'short', prompt: 'SHORT: add short.txt' }, { id: 'long', prompt: longTask('long.txt') }, { id: 'wants', prompt: longTask('wants.txt'), verify: true }],
+        confirmation: 'CREATE WORKTREES', maxConcurrency: 1,
+      }), 120_000, 'the run of the long tasks did not end');
+      const [short, long, wants] = ['short', 'long', 'wants'].map((id) => job.workers.find((worker) => worker.id === id));
+      assert.equal(short.status, 'ready_for_review', JSON.stringify(short));
+      assert.equal(long.status, 'ready_for_review', JSON.stringify(long));
+      assert.equal(short.summary, ANSWER);
+      assert.ok(!('runnerNotice' in short), 'a task too short to be planned has nothing for the runner to say');
+      assert.equal(long.summary, ANSWER, 'the summary is what the model said: the runner\'s sentence is not in it');
+      assert.equal(long.runnerNotice, NOTICE, 'the runner\'s sentence, exactly, as a field of its own');
+      assert.ok(!('runnerError' in long) && !('verificationNote' in long), 'the run ended normally, and nobody was asked to verify it');
+      // the runner keeps what it always kept: its final text is the model's words, the separator and the sentence, which is what the main chat shows
+      const held = JSON.parse(await fs.readFile(path.join(agent.directory, 'runs', job.id, 'state', 'long', 'tasks', long.agentTaskId, 'task.json'), 'utf8'));
+      assert.equal(held.finalText, ANSWER + NOTICE_MARK + NOTICE, 'the text of the runner is unchanged: only the worker\'s record of it is split');
+      assert.equal(held.verificationOutcome.ready, false, '(premise) the runner says the evidence is missing');
+      // a worker that was asked to verify has the same split: the first run's final text is the same text, whatever the Hub did after it
+      assert.equal(wants.status, 'needs_attention', JSON.stringify(wants));
+      assert.equal(wants.summary, ANSWER);
+      assert.equal(wants.runnerNotice, NOTICE);
+      assert.equal(wants.verificationNote.code, 'no_checks', 'and its verification note is still its own');
+      const saved = JSON.parse(await fs.readFile(path.join(agent.directory, 'jobs.json'), 'utf8')).jobs.at(-1);
+      assert.equal(saved.workers.find((worker) => worker.id === 'long').runnerNotice, NOTICE, 'what is saved is what is reported');
+      assert.equal(saved.workers.find((worker) => worker.id === 'long').summary, ANSWER);
+      assert.equal(agent.state().jobs.at(-1).workers.find((worker) => worker.id === 'long').runnerNotice, NOTICE, 'and it is what GET /api/studio/coding sends to a page');
+      ok('a worker whose final text the runner ended with its verification notice has the model\'s words as summary and the sentence as runnerNotice');
+    } finally { await stop(); }
+  }
+
+  // 8. only what the runner appended after the model's words is the runner's. A model that writes the very same sentence keeps it in its summary: when the runner did not
+  // append one (a task too short to be planned) all of the text is the model's, and when it did, the runner's is the last one
+  {
+    const quoting = 'Done.' + NOTICE_MARK + NOTICE;
+    const { agent, stop } = await fixture('quote', { manifest: false, provider: scriptedModel(quoting, []) });
+    try {
+      const job = await withDeadline(agent.run({
+        tasks: [{ id: 'short', prompt: 'SHORT: add short.txt' }, { id: 'long', prompt: longTask('long.txt') }],
+        confirmation: 'CREATE WORKTREES', maxConcurrency: 1,
+      }), 90_000, 'the run of a model that quotes the notice did not end');
+      const [short, long] = ['short', 'long'].map((id) => job.workers.find((worker) => worker.id === id));
+      assert.equal(short.summary, quoting, 'nothing was appended: every word is the model\'s, the sentence included');
+      assert.ok(!('runnerNotice' in short), 'and the Hub said nothing');
+      assert.equal(long.summary, quoting, 'the model\'s sentence stays in its summary');
+      assert.equal(long.runnerNotice, NOTICE, 'and the runner\'s, which comes after it, is the runner\'s');
+      ok('a model that writes the Hub\'s sentence itself keeps it in its summary; the runner\'s own is the one after it');
     } finally { await stop(); }
   }
 
