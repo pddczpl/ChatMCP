@@ -381,6 +381,9 @@ export class ConcurrentApiAgent {
     // agent without the owner's hooks. The project's own file is looked for where the project is, not in the agent's worktree.
     manager.hooks = this.manager.hooks;
     manager.hooksProjectRoot = record.sourceRoot;
+    // Only an agent that another agent started (spawn_agent, a workflow) ends with SubagentStop; a conversation a person started, even one that runs
+    // here because the first was busy, ends with Stop.
+    if (record.parentTaskId) manager.lifecycleAgent = { kind: 'subagent', role: record.role || null, parentTaskId: record.parentTaskId, conversationId: record.conversationId || record.parentTaskId, workflowId: record.workflowId || null, phaseId: record.phaseId || null };
     assembleStudio(manager, { bundleRoot: this.bundleRoot });
     await manager.permissions.load();
     manager.permissions.mode = record.permissionMode || 'review';
