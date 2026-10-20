@@ -8,50 +8,56 @@ export interface ToastProps {
   onClose?: () => void;
 }
 
+const icons = {
+  info: <Info className="h-4 w-4 shrink-0 text-primary" />,
+  success: <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />,
+  warning: <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />,
+  error: <AlertTriangle className="h-4 w-4 shrink-0 text-danger" />,
+};
+
+const accents = {
+  info: 'border-l-primary',
+  success: 'border-l-success',
+  warning: 'border-l-warning',
+  error: 'border-l-danger',
+};
+
 export function Toast({ message, type = 'info', onClose }: ToastProps) {
-  const icons = {
-    info: <Info className="w-4 h-4 text-sky-400 flex-shrink-0" />,
-    success: <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />,
-    warning: <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />,
-    error: <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />,
-  };
-
-  const borderColors = {
-    info: 'border-sky-800 bg-sky-950/90 text-sky-200',
-    success: 'border-emerald-800 bg-emerald-950/90 text-emerald-200',
-    warning: 'border-amber-800 bg-amber-950/90 text-amber-200',
-    error: 'border-rose-800 bg-rose-950/90 text-rose-200',
-  };
-
   return (
     <div
       role="status"
       aria-live="polite"
       className={cn(
-        'fixed bottom-5 right-5 z-50 flex items-center gap-3 px-4 py-3 rounded-lg border shadow-xl backdrop-blur max-w-md text-xs modal-3d-enter',
-        borderColors[type]
+        'anim-rise fixed bottom-10 right-4 z-50 flex max-w-sm items-start gap-3 rounded-xl border border-line border-l-[3px] bg-panel px-4 py-3 text-[13px] leading-5 text-fg shadow-[var(--shadow-pop)] select-text',
+        accents[type]
       )}
     >
-      {icons[type]}
+      <span className="mt-0.5">{icons[type]}</span>
       <span className="flex-1 font-medium">{message}</span>
       {onClose && (
         <button
           onClick={onClose}
-          className="p-1 rounded hover:bg-black/20 text-current opacity-70 hover:opacity-100 transition-opacity"
+          className="-mr-1 rounded-md p-1 text-faint transition-colors hover:bg-hover hover:text-fg"
           aria-label="Đóng thông báo"
         >
-          <X className="w-3.5 h-3.5" />
+          <X className="h-3.5 w-3.5" />
         </button>
       )}
     </div>
   );
 }
 
-export function ToastContainer() {
+/**
+ * Messages. While the Settings dialog is open it covers the page, so the toast is drawn inside it (`scope="settings"`) and the
+ * page's own container stays quiet: exactly one toast exists at any time.
+ */
+export function ToastContainer({ scope = 'app' }: { scope?: 'app' | 'settings' }) {
   const toast = useAppStore((s) => s.toast);
   const clearToast = useAppStore((s) => s.clearToast);
+  const settingsOpen = useAppStore((s) => s.settingsOpen);
 
   if (!toast) return null;
+  if ((scope === 'app') === settingsOpen) return null;
 
   return <Toast message={toast.message} type={toast.type} onClose={clearToast} />;
 }

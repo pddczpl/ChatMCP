@@ -11,7 +11,7 @@ import { GatewayProvider } from '../lib/gateway-provider.mjs';
 import { AiProfiles } from '../lib/ai-profiles.mjs';
 import { createHubServer } from '../hub.mjs';
 import { createProtector } from '../lib/secret-box.mjs';
-import { PRESETS, detectEnvKeys, isLoopbackUrl, presetById, presetForBaseUrl, publicPresets } from '../lib/provider-presets.mjs';
+import { PRESETS, detectEnvKeys, isLoopbackUrl, presetById, presetForBaseUrl, publicPresets, supportsPromptCaching } from '../lib/provider-presets.mjs';
 import { compactHistory, estimateTokens, historyBytes, pairToolCalls, safeToolId } from '../lib/model-history.mjs';
 import { ANTHROPIC_VERSION, anthropicEndpoint, anthropicHeaders, asAnthropicMessages, buildAnthropicBody, normalizeAnthropic, parseAnthropicModels } from '../lib/anthropic-api.mjs';
 import { asChatMessages, buildChatBody, normalizeChatCompletion } from '../lib/openai-chat-api.mjs';
@@ -254,6 +254,25 @@ try {
   check(!JSON.stringify(publicPresets({ ANTHROPIC_API_KEY: 'sk-secret-value' })).includes('sk-secret-value'), 'the preset list carries names, never values');
   same(publicPresets({ ANTHROPIC_API_KEY: 'x' }).find((p) => p.id === 'anthropic').envKey, 'ANTHROPIC_API_KEY');
 
+  // Prompt caching (cache_control on the Messages API) is a property of the ENDPOINT, recorded on the preset. It used to be
+  // `preset === 'anthropic'`, which no profile fork has, so every profile aimed at api.anthropic.com lost it silently.
+  same(presetById('anthropic').promptCaching, true, 'Anthropic accepts cache_control');
+  check(PRESETS.filter((entry) => entry.id.startsWith('custom-')).every((entry) => entry.promptCaching === false), 'a custom gateway may reject the field: off by default');
+  same(PRESETS.filter((entry) => entry.promptCaching).map((entry) => entry.id), ['anthropic'], 'only presets known to accept it carry the flag');
+  for (const later of ['bedrock-mantle', 'vertex-claude', 'foundry']) {
+    const entry = presetById(later);
+    check(entry === null || entry.promptCaching === true, `${later}: when this preset is added it carries the flag (Claude behind another front door still caches)`);
+  }
+  same(presetForBaseUrl('https://api.openai.com/v1', 'openai-responses')?.id, 'openai-responses', 'the protocol picks between presets that share an origin');
+  same(presetForBaseUrl('https://api.openai.com/v1', 'anthropic'), null, 'and no preset matches an origin with another protocol');
+  same(supportsPromptCaching({ apiBaseUrl: 'https://api.anthropic.com', protocol: 'anthropic' }), true, 'a profile has no preset: its origin decides');
+  same(supportsPromptCaching({ apiBaseUrl: 'https://api.anthropic.com/v1/', protocol: 'anthropic', preset: 'custom-anthropic' }), true, 'a custom connection aimed at Anthropic itself still caches');
+  same(supportsPromptCaching({ apiBaseUrl: 'https://gw.example.com', protocol: 'anthropic', preset: 'custom-anthropic' }), false, 'a custom gateway does not');
+  same(supportsPromptCaching({ apiBaseUrl: 'https://api.anthropic.com', protocol: 'openai-chat' }), false, 'cache_control exists only on the Messages API');
+  same(supportsPromptCaching({ apiBaseUrl: '', protocol: 'anthropic', preset: 'anthropic' }), true, 'a named preset answers for itself');
+  same(supportsPromptCaching({}), false);
+  same(publicPresets({}).find((entry) => entry.id === 'anthropic').promptCaching, true, 'Settings can show the capability');
+
   // ---------------------------------------------------------------------------------------------------------------
   // Configuration: presets, and a key never travels to another host
   // ---------------------------------------------------------------------------------------------------------------
@@ -284,6 +303,17 @@ try {
     await rejects(provider.configure({ preset: 'nope' }), { code: 'invalid_preset' });
     await rejects(provider.configure({ contextWindowTokens: 5 }), { code: 'invalid_context_window' });
     await rejects(provider.configure({ contextWindowTokens: 'abc' }), { code: 'invalid_context_window' });
+    // One bound for every validator (lib/context-window.mjs): below 4,096 the agent cannot even hold its tool schemas, so the value is refused
+    // with the range in the message; above 2,000,000 it is clamped, never discarded.
+    await rejects(provider.configure({ contextWindowTokens: 3000 }), { code: 'invalid_context_window', message: /4[.,]096.*2[.,]000[.,]000/ }, '3,000 tokens is refused with the allowed range, not silently dropped');
+    await rejects(provider.configure({ contextWindowTokens: 4095 }), { code: 'invalid_context_window' }, 'the minimum is 4,096');
+    await rejects(provider.configure({ contextWindowTokens: 2000.5 }), { code: 'invalid_context_window' }, 'a fraction of a token is not a window');
+    await provider.configure({ contextWindowTokens: 4096 });
+    same(provider.state().contextWindowTokens, 4096, '4,096 is accepted');
+    await provider.configure({ contextWindowTokens: 5_000_000 });
+    same(provider.state().contextWindowTokens, 2_000_000, 'a window above the cap is clamped to it');
+    same(provider.validateConfiguration({ contextWindowTokens: 9_999_999_999 }).contextWindowTokens, 2_000_000, 'validation reports the clamped value');
+    await provider.configure({ contextWindowTokens: null });
     await rejects(provider.configure({ protocol: 'soap' }), { code: 'invalid_protocol' });
     await rejects(provider.configure({ model: 'has space' }), { code: 'invalid_model' });
     await rejects(provider.configure({ authMode: 'google-key' }), { code: 'invalid_auth_mode' }, 'x-goog-api-key makes no sense for Anthropic');
@@ -339,6 +369,21 @@ try {
     await old.load();
     same([old.state().protocol, old.state().preset, old.state().contextWindowTokens, old.state().authMode], ['openai-chat', '', null, 'bearer'], 'version 1 files still load');
     same(old.ready(), false, 'an OpenAI key in the environment is not sent to an unknown gateway');
+
+    // A window that an older build accepted (2,000..4,095) or that is above the cap must not vanish without a word.
+    const tinyDir = path.join(root, 'legacy-tiny-window');
+    await fs.mkdir(tinyDir, { recursive: true });
+    await fs.writeFile(path.join(tinyDir, 'gateway-config.json'), JSON.stringify({ version: 2, apiBaseUrl: 'https://gw.example.com', protocol: 'openai-chat', model: 'm-old', authMode: 'bearer', customPath: '', contextWindowTokens: 3000 }));
+    const tiny = new GatewayProvider({ directory: tinyDir, bundleRoot: BUNDLE, manager: { secrets: [] }, env: {}, fetchImpl: neverFetch, platform: 'linux' });
+    await tiny.load();
+    same(tiny.state().contextWindowTokens, null, 'a saved window below the minimum is not used');
+    check(/3[.,]000/.test(tiny.state().lastError) && /4[.,]096/.test(tiny.state().lastError), 'and the person is told which value was ignored and what the minimum is');
+    const hugeDir = path.join(root, 'legacy-huge-window');
+    await fs.mkdir(hugeDir, { recursive: true });
+    await fs.writeFile(path.join(hugeDir, 'gateway-config.json'), JSON.stringify({ version: 2, apiBaseUrl: 'https://gw.example.com', protocol: 'openai-chat', model: 'm-old', authMode: 'bearer', customPath: '', contextWindowTokens: 9_000_000 }));
+    const huge = new GatewayProvider({ directory: hugeDir, bundleRoot: BUNDLE, manager: { secrets: [] }, env: {}, fetchImpl: neverFetch, platform: 'linux' });
+    await huge.load();
+    same(huge.state().contextWindowTokens, 2_000_000, 'a saved window above the cap is clamped, as it is when typed');
 
     const gemini = await makeProvider('legacy-gemini', { env: { GOOGLE_API_KEY: 'g-0123456789abcdef' } });
     same([gemini.provider.ready(), gemini.provider.state().keySource], [true, 'environment'], 'GOOGLE_API_KEY keeps working for the default Gemini setup');
@@ -534,6 +579,54 @@ try {
     same(sent, [16384, 8192, 8192], 'the learned cap is used from the start next time');
     await provider.configure({ model: 'claude-other' });
     same(provider.outputLimit, null, 'a new model starts without the old cap');
+  }
+
+  // Gemini: the output cap was a constant 8192. It now follows the caller's output budget (a thinking model spends the cap on thoughts and
+  // ends MAX_TOKENS), keeps 8192 when the caller says nothing, and learns the range of a model that accepts less instead of failing.
+  {
+    const geminiOk = { candidates: [{ content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 1 } };
+    const sent = [];
+    let range = null;
+    const { provider } = await makeProvider('gemini-cap', { configure: { preset: 'gemini', apiKey: KEY }, fetchImpl: async (url, opts) => {
+      const body = JSON.parse(opts.body);
+      sent.push(body.generationConfig?.maxOutputTokens);
+      if (range !== null && body.generationConfig?.maxOutputTokens >= range) {
+        return reply(400, { error: { code: 400, status: 'INVALID_ARGUMENT', message: `Unable to submit request because it has a maxOutputTokens value of ${body.generationConfig.maxOutputTokens} but the supported range is from 1 (inclusive) to ${range} (exclusive). Update the value and try again.` } });
+      }
+      return reply(200, geminiOk);
+    } });
+    const ask = (maxOutputTokens) => provider.respond({ input: [userMsg('hi')], instructions: 'S', ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }) });
+    await ask();
+    await ask(16384);
+    await ask(100);
+    await ask(1_000_000);
+    same(sent, [8192, 16384, 256, 65536], 'default 8,192; the caller\'s budget otherwise, within 256..65,536');
+    sent.length = 0;
+    range = 8193;
+    await ask(16384);
+    same([sent, provider.outputLimit], [[16384, 8192], 8192], 'a model that accepts at most 8,192 is asked again with 8,192 and the limit is remembered');
+    await ask(16384);
+    same(sent, [16384, 8192, 8192], 'the learned cap is used from the start next time');
+    await provider.configure({ model: 'gemini-other' });
+    same(provider.outputLimit, null, 'a new model starts without the old cap');
+
+    // A gateway in front of Gemini words its refusal its own way: no range to parse. A 400 that names the cap is still answered once with
+    // the 8,192 every Gemini model accepts, and remembered, instead of failing every step the way an unrecognised error would.
+    const worded = [];
+    const { provider: custom } = await makeProvider('gemini-cap-worded', { configure: { preset: 'custom-gemini', apiBaseUrl: 'https://gw.example.com', model: 'gemini-gw', apiKey: KEY }, fetchImpl: async (url, opts) => {
+      const body = JSON.parse(opts.body);
+      worded.push(body.generationConfig?.maxOutputTokens);
+      return body.generationConfig?.maxOutputTokens > 8192
+        ? reply(400, { error: { code: 400, status: 'INVALID_ARGUMENT', message: 'generation_config.max_output_tokens: value must be less than or equal to 8192' } })
+        : reply(200, geminiOk);
+    } });
+    await custom.respond({ input: [userMsg('hi')], instructions: 'S', maxOutputTokens: 16384 });
+    same([worded, custom.outputLimit], [[16384, 8192], 8192], 'an error without a parseable range still lowers the cap to 8,192, once');
+    await custom.respond({ input: [userMsg('hi')], instructions: 'S', maxOutputTokens: 16384 });
+    same(worded, [16384, 8192, 8192], 'and the next step starts there');
+    const unrelated = await makeProvider('gemini-cap-unrelated', { configure: { preset: 'custom-gemini', apiBaseUrl: 'https://gw.example.com', model: 'gemini-gw', apiKey: KEY }, fetchImpl: async () => reply(400, { error: { code: 400, status: 'INVALID_ARGUMENT', message: 'Invalid JSON payload received.' } }) });
+    same((await unrelated.provider.respond({ input: [userMsg('hi')], instructions: 'S', maxOutputTokens: 16384 }).catch((error) => error)).code, 'gateway_http_error', 'a 400 that does not name the cap is not retried as one');
+    same(unrelated.provider.outputLimit, null);
   }
 
   // context window: reactive and proactive compaction
@@ -770,6 +863,58 @@ try {
     same((await restored.resolveConfig('coding')).apiKey,KEY,'protected profile credentials survive restart');
   }
 
+  // ---------------------------------------------------------------------------------------------------------------
+  // A profile fork keeps what the global connection of the same endpoint would have: prompt caching, the custom path and
+  // the custom headers of THAT profile; and nothing of the global connection's headers.
+  // ---------------------------------------------------------------------------------------------------------------
+  {
+    const seen = [];
+    const { provider: base } = await makeProvider('fork-parity', { fetchImpl: async (url, opts) => { seen.push({ url, headers: opts.headers, body: JSON.parse(opts.body) }); return reply(200, anthropicOk('ok')); } });
+    await base.configure({ preset: 'custom-anthropic', apiBaseUrl: 'https://global.example', model: 'claude-global', apiKey: KEY, customHeaders: [{ name: 'X-Global-Tenant', value: 'global-secret-value' }] });
+    const profileKey = 'sk-fixture-profile-key-0123456789';
+    const lastRequest = () => seen.at(-1);
+    const forkAnthropic = base.forkForTask({ provider: 'anthropic', protocol: 'anthropic', apiBaseUrl: 'https://api.anthropic.com', model: 'claude-profile', apiKey: profileKey,
+      customHeaders: [{ name: 'X-Profile-Tenant', value: 'profile-secret-value' }], customHeadersOrigin: 'https://api.anthropic.com' });
+    await forkAnthropic.respond({ input: [userMsg('Hi')], instructions: 'SYS', tools: TOOLS });
+    same(lastRequest().url, 'https://api.anthropic.com/v1/messages');
+    same(lastRequest().body.system[0].cache_control, { type: 'ephemeral' }, 'a profile aimed at api.anthropic.com keeps prompt caching');
+    same(lastRequest().body.tools.at(-1).cache_control, { type: 'ephemeral' });
+    same(lastRequest().headers['X-Profile-Tenant'], 'profile-secret-value', 'the header of the profile is sent');
+    check(!('X-Global-Tenant' in lastRequest().headers), 'the header of the global connection is not');
+    same(lastRequest().headers['x-api-key'], profileKey, 'with the credential of the profile');
+    same(forkAnthropic.state().preset, 'anthropic', 'the fork is a connection to a known provider, not the placeholder "profile"');
+    same(forkAnthropic.state().customHeaders, [{ name: 'X-Profile-Tenant', source: 'protected' }], 'names only');
+
+    const forkGateway = base.forkForTask({ provider: 'anthropic', protocol: 'anthropic', apiBaseUrl: 'https://llm-gateway.example', model: 'claude-gw', apiKey: profileKey,
+      customPath: '/proxy/{model}/messages' });
+    await forkGateway.respond({ input: [userMsg('Hi')], instructions: 'SYS', tools: TOOLS });
+    same(lastRequest().url, 'https://llm-gateway.example/proxy/claude-gw/messages', 'the custom path of the profile is used (it was forced to empty)');
+    check(lastRequest().body.system[0].cache_control === undefined && lastRequest().body.tools.at(-1).cache_control === undefined, 'another origin: a gateway may reject cache_control, so it is not sent');
+    check(!('X-Global-Tenant' in lastRequest().headers) && !('X-Profile-Tenant' in lastRequest().headers), 'and no header that belongs to another origin');
+    same(forkGateway.state().preset, 'custom-anthropic');
+
+    const forkChat = base.forkForTask({ provider: 'openai-chat', protocol: 'openai-chat', apiBaseUrl: 'https://api.anthropic.com/v1', model: 'compat', apiKey: profileKey });
+    same(forkChat.state().preset, 'custom-openai', 'same origin, other protocol: not the Anthropic preset');
+
+    // The origin the headers were saved for travels with them; a fork that points elsewhere is refused, never sent.
+    await rejects(Promise.resolve().then(() => base.forkForTask({ provider: 'anthropic', protocol: 'anthropic', apiBaseUrl: 'https://other.example', model: 'm', apiKey: profileKey,
+      customHeaders: [{ name: 'X-Profile-Tenant', value: 'profile-secret-value' }], customHeadersOrigin: 'https://api.anthropic.com' })), { code: 'header_origin_mismatch' });
+    await rejects(Promise.resolve().then(() => base.forkForTask({ provider: 'anthropic', protocol: 'anthropic', apiBaseUrl: 'https://other.example', model: 'm', apiKey: profileKey,
+      customHeaders: [{ name: 'X-Profile-Tenant', value: 'profile-secret-value' }] })), { code: 'header_origin_mismatch' }, 'headers without a recorded origin are not trusted either');
+    await rejects(Promise.resolve().then(() => base.forkForTask({ provider: 'anthropic', protocol: 'anthropic', apiBaseUrl: 'https://other.example', model: 'm', apiKey: profileKey,
+      customPath: '/a/../b' })), { code: 'invalid_api_path' }, 'a custom path is validated again at fork time');
+    await rejects(Promise.resolve().then(() => base.forkForTask({ provider: 'anthropic', protocol: 'anthropic', apiBaseUrl: 'https://other.example', model: 'm', apiKey: profileKey,
+      customHeaders: [{ name: 'Authorization', value: 'x' }], customHeadersOrigin: 'https://other.example' })), { code: 'invalid_custom_headers' }, 'and so are the headers');
+    check(base.manager.secrets.includes('profile-secret-value'), 'a literal header value is registered for redaction');
+    check(!JSON.stringify(base.state()).includes('profile-secret-value') && !JSON.stringify(forkAnthropic.state()).includes('profile-secret-value'), 'and never appears in state');
+    same(base.state().customHeaders, [{ name: 'X-Global-Tenant', source: 'protected' }], 'forking leaves the global connection alone');
+
+    // A window the profile cannot honour fails the fork with the profile's own reason.
+    await rejects(Promise.resolve().then(() => base.forkForTask({ provider: 'anthropic', protocol: 'anthropic', apiBaseUrl: 'https://other.example', model: 'm', apiKey: profileKey, contextWindow: 3000, id: 'old-profile' })),
+      { code: 'invalid_context_window', statusCode: 409, message: /old-profile.*3,000.*4,096.*2,000,000.*Mô hình AI/ }, 'a profile saved by an older build (2,000..4,095) says which window, which range and where to fix it');
+    same(base.forkForTask({ provider: 'anthropic', protocol: 'anthropic', apiBaseUrl: 'https://other.example', model: 'm', apiKey: profileKey, contextWindow: 9_000_000 }).state().contextWindowTokens, 2_000_000, 'and one above the cap is clamped');
+  }
+
   // Editing an existing profile must not silently forward an environment
   // credential to a different origin or ignore an explicit replacement key.
   {
@@ -798,6 +943,69 @@ try {
     same((await profiles.resolveConfig('reviewer')).apiKey,null,'owner can explicitly clear stored credentials');
     await rejects(profiles.upsert({id:'invalid2',provider:'openai-chat',model:'gpt-test'}),
       {code:'missing_profile_endpoint'});
+  }
+
+  // A profile carries the custom path and custom headers a gateway connection can have. Header values are sealed with the same
+  // protector as the key, stay bound to the origin they were saved for, and only their names ever leave the store.
+  {
+    const stateDir=path.join(root,'profile-path-headers');
+    const sealed=[];
+    const keyStore={
+      encrypt:async value=>{sealed.push(value);return 'sealed:'+Buffer.from(value).toString('base64');},
+      decrypt:async value=>Buffer.from(value.slice(7),'base64').toString('utf8'),
+    };
+    const profiles=new AiProfiles({stateDir,keyStore});
+    await profiles.load();
+    const base={id:'tenant',provider:'anthropic',protocol:'anthropic',model:'claude-x',apiBaseUrl:'https://gw.example.com',apiKey:KEY};
+    const first=await profiles.upsert({...base,customPath:'/proxy/{model}/messages',
+      customHeaders:[{name:'X-Tenant',value:'secret-tenant-value'},{name:'X-Region',envKeyName:'CHATMCP_REGION'}]});
+    same(first.customPath,'/proxy/{model}/messages');
+    same(first.customHeaders,[{name:'X-Tenant',source:'protected'},{name:'X-Region',source:'environment',envKeyName:'CHATMCP_REGION'}],'the store reports names and sources only');
+    check(!JSON.stringify(profiles.list()).includes('secret-tenant-value')&&!JSON.stringify(profiles.get('tenant')).includes('secret-tenant-value'),'list and get never carry a value');
+    const onDisk=await fs.readFile(profiles.filePath,'utf8');
+    check(!onDisk.includes('secret-tenant-value'),'ai-profiles.json holds no plaintext header value');
+    check(sealed.some(text=>text.includes('secret-tenant-value')),'the values were sealed by the key store');
+    const config=await profiles.resolveConfig('tenant');
+    same(config.customHeaders,[{name:'X-Tenant',value:'secret-tenant-value'},{name:'X-Region',envKeyName:'CHATMCP_REGION'}],'a task gets the values back, in memory only');
+    same([config.customPath,config.customHeadersOrigin],['/proxy/{model}/messages','https://gw.example.com']);
+    const reloaded=new AiProfiles({stateDir,keyStore});
+    await reloaded.load();
+    same((await reloaded.resolveConfig('tenant')).customHeaders.map(h=>h.name),['X-Tenant','X-Region'],'headers survive a restart');
+
+    // Any save is a new revision; a task bound to the old one must be refused (hub.mjs compares revisions).
+    const retained=await profiles.upsert({...base,model:'claude-y'});
+    check(retained.revision!==first.revision,'saving the profile again is a new revision');
+    same(retained.customHeaders.map(h=>h.name),['X-Tenant','X-Region'],'an omitted header list keeps the saved one');
+    same(retained.customPath,'/proxy/{model}/messages','an omitted path keeps the saved one');
+    const edited=await profiles.upsert({...base,customHeaders:[{name:'X-Tenant',value:'rotated-tenant-value'}]});
+    check(edited.revision!==retained.revision,'editing a header is a new revision');
+    same((await profiles.resolveConfig('tenant')).customHeaders,[{name:'X-Tenant',value:'rotated-tenant-value'}],'an explicit list replaces the saved one');
+    check(!(await fs.readFile(profiles.filePath,'utf8')).includes('rotated-tenant-value'),'also on disk');
+    await profiles.upsert({...base,customHeaders:[]});
+    same((await profiles.resolveConfig('tenant')).customHeaders,[],'an empty list clears them');
+    await profiles.upsert({...base,customHeaders:[{name:'X-Tenant',value:'again-tenant-value'}]});
+    await profiles.upsert({...base,apiBaseUrl:'https://other.example.com',apiKey:KEY});
+    same([(await profiles.resolveConfig('tenant')).customHeaders,profiles.get('tenant').customPath],[[],''],'a new destination drops headers and path of the old one');
+    await profiles.upsert({...base,apiBaseUrl:'https://other.example.com',apiKey:KEY,customPath:'/v9/{model}',customHeaders:[{name:'X-Tenant',value:'again-tenant-value'}]});
+    const {apiKey:_unused,...withoutKey}=base;
+    await profiles.upsert({...withoutKey,apiBaseUrl:'https://other.example.com',clearCredentials:true});
+    const cleared=await profiles.resolveConfig('tenant');
+    same([cleared.apiKey,cleared.customHeaders],[null,[]],'clearing credentials clears the headers too');
+    same(cleared.customPath,'/v9/{model}','the path is not a credential');
+
+    await rejects(profiles.upsert({...base,customHeaders:[{name:'Authorization',value:'attacker'}]}),{code:'invalid_custom_headers'});
+    await rejects(profiles.upsert({...base,customHeaders:[{name:'X-Bad',value:'a\r\nInjected: 1'}]}),{code:'invalid_custom_headers'});
+    await rejects(profiles.upsert({...base,customHeaders:'X-Tenant: nope'}),{code:'invalid_custom_headers'});
+    await rejects(profiles.upsert({...base,customPath:'/a/../b'}),{code:'invalid_api_path'});
+    await rejects(profiles.upsert({...base,customPath:'//evil.example/x'}),{code:'invalid_api_path'});
+    await rejects(profiles.upsert({...base,customPath:'relative/path'}),{code:'invalid_api_path'});
+
+    // The same bound as the global connection (lib/context-window.mjs), enforced when the profile is SAVED, not when a task fails to start.
+    await rejects(profiles.upsert({...base,contextWindow:3000}),{code:'invalid_context_window',message:/4,096.*2,000,000/});
+    same((await profiles.upsert({...base,contextWindow:5_000_000})).contextWindow,2_000_000,'above the cap: clamped');
+    same((await profiles.upsert({...base,contextWindow:64000})).contextWindow,64000);
+    same((await profiles.upsert({...base})).contextWindow,64000,'an omitted window is kept');
+    same((await profiles.upsert({...base,contextWindow:null})).contextWindow,null,'null clears it');
   }
 
   // ---------------------------------------------------------------------------------------------------------------

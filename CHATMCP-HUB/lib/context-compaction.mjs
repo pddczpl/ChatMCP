@@ -4,6 +4,7 @@
 // 2. Compacts conversation & tool call history in-place without breaking call_id pairing.
 
 import { CodeIntelligenceEngine } from './code-intelligence.mjs';
+import { usableContextWindow } from './context-window.mjs';
 
 const STOP_WORDS = new Set([
   'the', 'and', 'for', 'with', 'that', 'this', 'from', 'into', 'your', 'have', 'will',
@@ -20,29 +21,39 @@ export function estimateTokens(text) {
   return Math.ceil(str.length / 3.8);
 }
 
-// Resolve a per-request context envelope, not a usage quota. Source data is
-// provider-owned configuration or trusted model metadata; unknown capacity
-// conservatively uses 32,768 estimated tokens. These are approximate counts,
-// and full evidence stays in the canonical transcript.
+// Resolve a per-request context envelope, not a usage quota. Source data is provider-owned configuration or trusted model metadata;
+// unknown capacity conservatively uses 32,768 estimated tokens. These are approximate counts, and full evidence stays in the canonical
+// transcript.
+//
+// Two numbers describe the output, and they differ only when the window is unknown:
+//   plannedOutputTokens   what the history budget keeps free: min(output limit, capacity / 4), never below 1,024.
+//   reservedOutputTokens  what the request is allowed to generate (the agent passes it as maxOutputTokens). With a KNOWN window it equals
+//                         the planned number: the window is a fact and the answer must fit in it. With an UNKNOWN window the capacity is
+//                         only an estimate, so the cap is not derived from it (v3.9.0 sent 18% of the estimate, 5,898 tokens, which
+//                         ends a reasoning answer as "incomplete"): it is the full output limit, and only the history planning is
+//                         conservative.
+// The window is validated by the same bound as every other place that takes one (context-window.mjs): above the cap it is clamped.
+export const FALLBACK_CAPACITY_TOKENS = 32768;
 export function resolveEffectiveContextBudget({
   contextWindowTokens = null, modelMetadataTokens = null,
   instructions = '', tools = [], maxOutputTokens = 16384,
 } = {}) {
-  const valid = (n) => Number.isSafeInteger(n) && n >= 4096 && n <= 2000000;
-  const source = valid(contextWindowTokens) ? 'provider_configuration'
-    : valid(modelMetadataTokens) ? 'trusted_model_metadata' : 'conservative_fallback';
-  const capacityTokens = source === 'provider_configuration' ? contextWindowTokens
-    : source === 'trusted_model_metadata' ? modelMetadataTokens : 32768;
+  const configuredWindow = usableContextWindow(contextWindowTokens);
+  const metadataWindow = usableContextWindow(modelMetadataTokens);
+  const source = configuredWindow !== null ? 'provider_configuration'
+    : metadataWindow !== null ? 'trusted_model_metadata' : 'conservative_fallback';
+  const capacityTokens = configuredWindow ?? metadataWindow ?? FALLBACK_CAPACITY_TOKENS;
   const outputLimit = Number.isSafeInteger(maxOutputTokens) && maxOutputTokens > 0 ? maxOutputTokens : 16384;
-  const reservedOutputTokens = Math.min(outputLimit, Math.max(1024, Math.floor(capacityTokens * 0.18)));
+  const plannedOutputTokens = Math.min(outputLimit, Math.max(1024, Math.floor(capacityTokens / 4)));
+  const reservedOutputTokens = source === 'conservative_fallback' ? outputLimit : plannedOutputTokens;
   const safetyMarginTokens = Math.max(768, Math.ceil(capacityTokens * 0.035));
   const fixedOverheadTokens = estimateTokens({ instructions, tools }) + 256;
-  const maxHistoryTokens = Math.max(0, capacityTokens - reservedOutputTokens - safetyMarginTokens - fixedOverheadTokens);
+  const maxHistoryTokens = Math.max(0, capacityTokens - plannedOutputTokens - safetyMarginTokens - fixedOverheadTokens);
   return Object.freeze({
     source, capacityTokens, maxHistoryTokens,
     compactAtTokens: Math.floor(maxHistoryTokens * 0.82),
     tailTokens: Math.max(1000, Math.floor(maxHistoryTokens * 0.68)),
-    reservedOutputTokens, safetyMarginTokens, fixedOverheadTokens,
+    reservedOutputTokens, plannedOutputTokens, safetyMarginTokens, fixedOverheadTokens,
     approximate: true,
   });
 }
@@ -85,11 +96,13 @@ export function extractPromptHints(promptText = '') {
 
 /**
  * Generates an automatic, token-budgeted Repo Map section and appends it to agent instructions.
+ * `queryPrompt` is the part of `prompt` the query word is made from, when the caller wrote text around the task that must not choose it (the Hub's handoff around a
+ * delegated worker's goal). The focus files stay those of the whole `prompt`: a file a predecessor's result names still focuses the map. Blank or absent: the prompt's.
  */
 export async function injectRepoMapIntoInstructions(
   baseInstructions,
   workspace,
-  { prompt = '', maxTokens = 1200, engine = null, signal = null } = {}
+  { prompt = '', queryPrompt = null, maxTokens = 1200, engine = null, signal = null } = {}
 ) {
   const instructions = String(baseInstructions || '');
   if (!workspace || typeof workspace.resolve !== 'function') {
@@ -102,11 +115,12 @@ export async function injectRepoMapIntoInstructions(
   try {
     const intel = engine ?? new CodeIntelligenceEngine({ workspace });
     const hints = extractPromptHints(prompt);
+    const query = typeof queryPrompt === 'string' && queryPrompt.trim() ? extractPromptHints(queryPrompt).query : hints.query;
     const repoMap = await intel.generateRepoMap({
       path: '.',
       maxTokens,
       focusFiles: hints.focusFiles,
-      query: hints.query,
+      query,
       // Preflight cannot scan and AST-parse a whole monorepo before the first model request.
       // Keep full precise code intelligence available via explicit agent tools.
       quick: true, maxSourceFiles: 240, maxSourceDirectories: 320,
@@ -135,7 +149,7 @@ export async function injectRepoMapIntoInstructions(
         estimatedTokens: repoMap.structured.estimatedTokens,
         partial: repoMap.structured.partial,
         scannedFiles: repoMap.structured.scannedFiles,
-        queryHint: hints.query,
+        queryHint: query,
         focusFiles: hints.focusFiles,
       },
     };

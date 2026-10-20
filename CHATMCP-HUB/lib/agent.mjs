@@ -10,7 +10,8 @@ import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './
 import { RequestMeter, accumulateReportedUsage } from './request-budget.mjs';
 import { acceptObjectiveCriterion, availableObjectiveReceipts } from './objective-acceptance.mjs';
 import { createCostLedger, updateCostLedger } from './model-cost.mjs';
-import { taskToolSelectionMode, selectTaskCatalog } from './tool-selector.mjs';
+import { taskToolSelectionMode, selectTaskToolNames } from './tool-selector.mjs';
+import { HistoryLedger } from './history-ledger.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
 // from disk or the environment, evaluates model text, or executes a local shell.
@@ -182,6 +183,65 @@ export function directToolsFor(catalog, { limit = resolveDirectToolLimit() } = {
   }
   return {functions,byName};
 }
+
+// Auto mode offers directly only the schemas that the conversation's own words select. The prompt of the run that is starting selects first: the
+// cap cuts by group order, not by prompt, so with the prompts joined an earlier request that filled the cap would push out the group this one asks
+// for ("fix the UI, run the tests, check the symbols" and then "commit it" would lose git_commit). That way a message is offered at least what it
+// would be as the first message of a conversation. The earlier prompts, newest first, then fill what is left under the cap, so a follow-up with no
+// task word ("yes, go ahead") keeps the tools the conversation has been using, and one that names only part of the work (the resume and repair
+// prompts the Hub writes) keeps the rest. Only the last 20 earlier prompts are read, the window #resumeEvidence shows the model; the first prompt
+// of a conversation has no standing of its own.
+const TOOL_SELECTION_CAP = 48;
+const TOOL_SELECTION_PROMPTS = 20;
+export function selectConversationCatalog(catalog, runPrompt, earlierPrompts = [], { cap = TOOL_SELECTION_CAP } = {}) {
+  const names = new Set(selectTaskToolNames(runPrompt, { cap }));
+  const fromRunPrompt = names.size;
+  let promptsRead = 0;
+  for (const text of earlierPrompts.slice(-TOOL_SELECTION_PROMPTS).reverse()) {
+    if (names.size >= cap) break;
+    promptsRead += 1;
+    for (const name of selectTaskToolNames(text, { cap })) { if (names.size >= cap) break; names.add(name); }
+  }
+  return {
+    catalog: { ...catalog, tools: catalog.tools.filter((tool) => tool.server === DIRECT_SERVER && names.has(tool.originalName)) },
+    earlierPromptsRead: promptsRead, fromRunPrompt, fromEarlierPrompts: names.size - fromRunPrompt,
+  };
+}
+// Skills follow the conversation as the tool schemas do (selectConversationCatalog): the prompt of the run that is starting selects first, as it would
+// as the first message of a conversation, and the up to 20 prompts before it, newest first, add the skills there is room for under the same limit of 4
+// and 8,000 characters. One pass per prompt through selectSkillsForTask, never the prompts joined: its score sums over the words of the text and the limit
+// cuts by that sum, so with the prompts joined four skills named earlier push out the one the newest message names, and a skill passes the threshold on
+// words spread over messages none of which selects it. A run starts from the conversation checkpoint (the earlier prompts and events, no skill text), so
+// a skill the conversation has been using is sent again, once.
+const SKILL_LIMIT = 4;
+const SKILL_CHARACTERS = 8000;
+const SKILL_SELECTION_PROMPTS = TOOL_SELECTION_PROMPTS;
+export function selectConversationSkills(pluginManager, runPrompt, earlierPrompts = [], { workspacePath = null, limit = SKILL_LIMIT, tokenBudget = SKILL_CHARACTERS } = {}) {
+  const select = (prompt) => pluginManager.selectSkillsForTask({ prompt, workspacePath, limit, tokenBudget });
+  const size = (skill) => String(skill.systemPrompt ?? '').length;
+  const skills = [...select(runPrompt)];
+  const chosen = new Set(skills.map((skill) => skill.id));
+  let characters = skills.reduce((sum, skill) => sum + size(skill), 0);
+  for (const text of earlierPrompts.slice(-SKILL_SELECTION_PROMPTS).reverse()) {
+    if (skills.length >= limit) break;
+    for (const skill of select(text)) {
+      if (skills.length >= limit) break;
+      if (chosen.has(skill.id) || characters + size(skill) > tokenBudget) continue;
+      chosen.add(skill.id); skills.push(skill); characters += size(skill);
+    }
+  }
+  return skills;
+}
+// The earlier prompts of a conversation as both selectors read them, oldest first: the user's requests that its task carries from before it began (start()'s
+// carriedPrompts, made in another transport; the model read them in the task's first prompt), then the prompts of the task except the run's own, each as selectionTextOf
+// (below) says. What a task file holds as carriedPrompts that is not a list (edited by hand, or written by another version) counts as none.
+const earlierSelectionTexts = (task, runPrompt) => [...(Array.isArray(task.carriedPrompts) ? task.carriedPrompts : []), ...task.prompts.filter((entry) => entry !== runPrompt).map(selectionTextOf)];
+// What a prompt of the conversation is selected on, both for tool schemas and for skills: the part that states the task when the caller that started its run
+// marked one (start()'s selectionPrompt, kept with the prompt), else the prompt. Tasks stored before there was a selectionPrompt have none.
+const selectionTextOf = (entry) => (typeof entry?.selectionText === 'string' ? entry.selectionText : entry.text);
+// What the host plan of a conversation is made from: its first prompt (task.prompt, which never changes), read as selectionTextOf says. A task stored before there
+// was a prompts list has none here; load() gives it one made of task.prompt.
+const planTextOf = (task) => selectionTextOf(task.prompts?.[0] ?? { text: task.prompt });
 // Models sometimes wrap an advertised direct local name in mcp_call. Resolve
 // only that explicit alias map; never guess a server or match remote basenames.
 // An exact catalog name always wins if it happens to collide with an alias.
@@ -604,7 +664,7 @@ export class AgentRunner {
         task.prompts ??= [{at:task.startedAt,text:task.prompt}];
         task.runs ??= [{startedAt:task.startedAt,finishedAt:task.finishedAt,status:task.status,startStep:0}];
         task.progress = createTaskProgress(task.progress);
-        task.goalPlan = decomposeCodingTask(task.prompt,task.goalPlan);
+        task.goalPlan = decomposeCodingTask(planTextOf(task),task.goalPlan);
         task.dialogue ??= [];
         this.tasks.set(task.id, task);
         const interrupted = task.status === 'running';
@@ -681,7 +741,10 @@ export class AgentRunner {
     task.dialogue.push({role:'user',at:now(),text:prompt.trim()+(converted.metadata.length?'\n[Đính kèm: '+converted.metadata.map(m=>m.name).join(', ')+']':''),run:task.runs?.length??1});
     task.prompts??=[];
     task.prompts.push({at:now(),text:prompt.trim(),attachments:converted.metadata});
-    await this.#event(task,'user_message_queued','Đã nhận tin nhắn; sẽ chuyển cho model ở ranh giới an toàn.',{},{attachments:converted.metadata});
+    // The tools of a running request cannot change (its context budget was planned on them): the message is delivered to this run with its tool list
+    // and counts, as part of task.prompts, when the next run of the conversation selects tools.
+    await this.#event(task,'user_message_queued','Đã nhận tin nhắn; sẽ chuyển cho model ở ranh giới an toàn.'+
+      (context.toolSelectionMode==='auto'?' Danh sách công cụ của lần chạy này giữ nguyên; tin nhắn được tính khi chọn công cụ cho lần chạy tiếp theo.':''),{},{attachments:converted.metadata});
     return this.#public(task);
   }
 
@@ -712,13 +775,23 @@ export class AgentRunner {
     if (config.model !== context.task.model || (config.provider ?? null) !== context.task.provider) throw fault('provider_changed', 'Cấu hình model đã thay đổi trong khi chạy. Hãy gửi yêu cầu mới với cấu hình hiện tại.', 409);
   }
 
-  async start({ prompt, attachments = [], initialId = null, maxSteps = null, maxMinutes = null, resumeId = null,
-    effectiveProfile = null, roleProfiles = null } = {}) {
+  // `selectionPrompt` is the part of `prompt` that states the task, when the caller wrote text around it that must not choose anything: skills, tool schemas, the
+  // host plan and the query word of the repo map are made from it, in this run and in the later ones of the conversation, while the model is given the whole
+  // `prompt` (and the repo map still focuses on the files the whole prompt names). Without it they are made from `prompt`.
+  async start({ prompt, selectionPrompt = null, attachments = [], initialId = null, maxSteps = null, maxMinutes = null, resumeId = null,
+    effectiveProfile = null, roleProfiles = null, carriedPrompts = null } = {}) {
     if (resumeId && this.activeTaskId === resumeId && this.tasks.get(resumeId)?.status !== 'running' && this.context?.done) await this.context.done.promise;
     if (this.closing) throw fault('shutting_down', 'Hub đang dừng.', 503);
     if (this.activeTaskId) throw fault('task_running', 'Đã có một tác vụ đang chạy. Hãy chờ hoặc dừng tác vụ đó.', 409);
     if(typeof prompt!=='string'||(!prompt.trim()&&!attachments.length)||prompt.length>100000)
       throw fault('invalid_prompt','Nhập tin nhắn hoặc tệp đính kèm hợp lệ.');
+    if(selectionPrompt!==null&&(typeof selectionPrompt!=='string'||selectionPrompt.length>100000))
+      throw fault('invalid_prompt','Văn bản dùng để chọn kỹ năng và công cụ không hợp lệ.');
+    // `carriedPrompts` (up to 20 texts) are the user's earlier requests of a conversation that began in another transport, which `prompt` holds among text the caller
+    // wrote: the task keeps them, and its skills and tool schemas are selected on them as on the earlier prompts of a conversation, in this run and in the later ones.
+    // Only a task that starts takes them; one that is resumed keeps what it carries.
+    if(carriedPrompts!==null&&(!Array.isArray(carriedPrompts)||carriedPrompts.length>TOOL_SELECTION_PROMPTS||carriedPrompts.some(text=>typeof text!=='string'||text.length>100000)))
+      throw fault('invalid_prompt','Các yêu cầu cũ dùng để chọn kỹ năng và công cụ không hợp lệ.');
     const attachmentParts=buildUserAttachmentParts(attachments);
     if(initialId!==null&&(!TASK_ID.test(initialId)||this.tasks.has(initialId)||resumeId!==null))
       throw fault('invalid_task_id','Task ID mới đã tồn tại hoặc không hợp lệ.',409);
@@ -732,6 +805,8 @@ export class AgentRunner {
     const binding = this.#binding();
     if (existing && existing.workspace.path !== binding.path) throw fault('workspace_changed', 'Chọn lại đúng workspace của phiên trước rồi tiếp tục.', 409);
     const cleanPrompt = this.#redact(prompt.trim()||'Hãy phân tích các tệp/ảnh đính kèm.');
+    const selectionText = selectionPrompt?.trim() ? this.#redact(selectionPrompt.trim()) : cleanPrompt;
+    const carried = (carriedPrompts ?? []).map((text) => text.trim()).filter(Boolean);
     // No await before this lock: two HTTP requests cannot both pass preflight.
     if (this.manager.acquireTask(id) === false) throw fault('hub_busy', 'Hub đang bận hoặc chưa thể khóa workspace.', 409);
     const initial = now();
@@ -744,8 +819,11 @@ export class AgentRunner {
       modelCost:createCostLedger(),
       events: [], eventCount: 0, pendingCall: null, cancelRequested: false,
       progress: createTaskProgress(),
-      goalPlan: decomposeCodingTask(cleanPrompt),
+      goalPlan: null,
       prompts: [], runs: [], dialogue: [],
+      // Not prompts of this task: nothing that lists its prompts (the checkpoint the model is shown, the report, the screen) shows them. Only the selectors read them,
+      // and they leave the task only through #clean, which redacts them as it does the prompts.
+      ...(carried.length ? { carriedPrompts: carried } : {}),
       state: 'created', stateReason: 'task_created', stateChangedAt: initial, stateHistory: [{ at: initial, from: null, to: 'created', reason: 'task_created' }],
     };
     const priorContext = existing ? this.#resumeEvidence(task) : null;
@@ -760,8 +838,11 @@ export class AgentRunner {
     task.status = 'running'; task.finishedAt = null; task.finalText = ''; task.error = null; task.errorCode = null; task.cancelRequested = false;
     task.maxSteps = maxSteps === null ? null : task.steps + maxSteps; task.maxMinutes = maxMinutes;
     task.progress = createTaskProgress(task.progress, { newRun: true });
-    task.goalPlan = decomposeCodingTask(task.prompt,task.goalPlan);
-    task.prompts ??= []; task.prompts.push({at:initial,text:cleanPrompt,attachments:attachmentParts.metadata});
+    // selectionText is stored only when it is not the prompt: a later run of the conversation reads this prompt as an earlier one, and must read the same text.
+    task.prompts ??= []; const runPrompt = {at:initial,text:cleanPrompt,attachments:attachmentParts.metadata,...(selectionText!==cleanPrompt?{selectionText}:{})}; task.prompts.push(runPrompt);
+    // The plan is made from the first prompt of the conversation as it is stored (planTextOf), after this one is: a run that continues the conversation, and load(),
+    // read the same text, not the whole prompt a caller wrote around the task.
+    task.goalPlan = decomposeCodingTask(planTextOf(task),task.goalPlan);
     task.runs ??= []; task.runs.push({id:randomUUID(),conversationId:id,title:cleanPrompt,startedAt:initial,finishedAt:null,status:'running',startStep:task.steps,startToolCalls:task.toolCalls});
     task.dialogue ??= []; task.dialogue.push({role:'user',at:initial,text:cleanPrompt+(attachmentParts.metadata.length?'\n[Đính kèm: '+attachmentParts.metadata.map(x=>x.name).join(', ')+']':''),run:task.runs.length});
     // A previous mutating MCP result can be uncertain after a crash. Do not
@@ -772,7 +853,7 @@ export class AgentRunner {
       task.pendingCall = null;
     }
     const budget = new RequestMeter({used:task.usage});
-    const context = { task, requestBudget: budget, controller: new AbortController(), deadline: maxMinutes === null ? Infinity : Date.now() + maxMinutes * 60000, done: deferred(), session: null, closePromise: null, seenCalls: new Set(), history: [], inFlight: null, resumeEvidence:priorContext };
+    const context = { task, requestBudget: budget, controller: new AbortController(), deadline: maxMinutes === null ? Infinity : Date.now() + maxMinutes * 60000, done: deferred(), session: null, closePromise: null, seenCalls: new Set(), history: new HistoryLedger(), inFlight: null, resumeEvidence:priorContext };
     this.tasks.set(id, task); this.activeTaskId = id; this.context = context;
     // The Hub now holds the workspace lock for this run. A follow-up to a stopped conversation also starts here.
     this.#advance(task, 'queued', existing ? 'continue_requested' : 'start_requested', { force: !!existing });
@@ -807,9 +888,14 @@ export class AgentRunner {
       task.catalogCounts = { tools: context.catalog.tools.length, prompts: context.catalog.prompts.length, resources: context.catalog.resources.length, resourceTemplates: context.catalog.resourceTemplates.length };
       this.#check(context);
       const selectionMode=this.toolSelectionMode??taskToolSelectionMode();
-      const offeredCatalog=selectionMode==='auto'
-        ? selectTaskCatalog(context.catalog,task.prompt,{cap:48})
-        : context.catalog;
+      context.toolSelectionMode=selectionMode;
+      // Not task.prompt: that is the first prompt of the conversation and never changes. This run's prompt selects, then the conversation's earlier ones
+      // (earlierSelectionTexts: what the task carries from another transport, then task.prompts as it holds them now; a message queued while this run was
+      // preparing is among them) fill what is left. Each is read as selectionTextOf says: by the part of it that states the task, when its caller marked one.
+      const selection=selectionMode==='auto'
+        ? selectConversationCatalog(context.catalog,selectionText,earlierSelectionTexts(task,runPrompt),{cap:TOOL_SELECTION_CAP})
+        : null;
+      const offeredCatalog=selection?selection.catalog:context.catalog;
       context.direct = directToolsFor(offeredCatalog);
       context.tools = [...structuredClone(ROUTER_TOOLS), ...context.direct.functions];
       // The spawn tools are offered only to an agent that may still spawn (depth below the cap, room left in the tree). The limit itself
@@ -850,16 +936,19 @@ export class AgentRunner {
         : createAgentInstructions(context.catalog, task.workspace);
       if(context.spawnTool)context.instructions+='\nBACKGROUND SUBAGENTS: Use spawn_agent for a narrow independent job. Worktrees are isolated, never auto-merged.\n';
       if(context.workflowTool)context.instructions+='\nAUTONOMOUS WORKFLOWS: For a user request benefiting from MULTIPLE independent viewpoints, multi-step review/verification, or an explicitly requested team of agents, prefer spawn_workflow. Declare a short workflow title and 1–5 named phases with 1–12 total specialized agents. List exact independent agent goals, evidence to gather, and names of earlier phases in dependsOn; omitted dependsOn means wait for the preceding phase. For example Review (several independent reviewers) then Verify (independent checkers). The host runs genuinely parallel agents subject to Git-worktree/approval/concurrency constraints and persists progress under this chat. The workflow can outlive your chat turn; report only that it was STARTED, never that a review, fix or test passed until confirmed in its actual output. Do not spawn a workflow for a simple request that one agent can complete.\n';
-      if(selectionMode==='auto') {
-        context.instructions += '\nTool schemas are task-selected. Other registered tools remain available through mcp_catalog/mcp_describe/mcp_call with normal approvals.';
-        await this.#event(task,'tool_selection','Dynamic task-specific tool schemas: '+context.direct.functions.length+' direct + 4 internal routers.',{},{
+      if(selection) {
+        const earlier=selection.earlierPromptsRead;
+        context.instructions += '\nTool schemas are task-selected from the request that started this run'+(earlier?' and the '+earlier+' before it in this conversation':'')+'. Other registered tools remain available through mcp_catalog/mcp_describe/mcp_call with normal approvals. The list is fixed for this run: a message that arrives while you work is delivered to you, but it does not add schemas to this list.';
+        await this.#event(task,'tool_selection','Dynamic task-specific tool schemas: '+context.direct.functions.length+' direct + 4 internal routers, selected from this run\'s prompt'+(earlier?' and '+earlier+' earlier prompt'+(earlier>1?'s':'')+' of the conversation':'')+'.',{},{
           mode:selectionMode,offered:context.direct.functions.map(tool=>tool.name),
-          catalogCount:context.catalog.tools.length});
+          catalogCount:context.catalog.tools.length,
+          basis:{runPrompt:selectionText.slice(0,300),earlierPromptsRead:earlier,fromRunPrompt:selection.fromRunPrompt,fromEarlierPrompts:selection.fromEarlierPrompts,cap:TOOL_SELECTION_CAP}});
       }
 
-      // Select task-relevant skills dynamically within token budget
+      // Select task-relevant skills dynamically within token budget. Not on task.prompt, the first prompt of the conversation: this run's prompt selects
+      // first and the earlier ones (earlierSelectionTexts, as for the tool schemas above) fill what is left. Each is read as selectionTextOf says.
       const selectedSkills = typeof this.manager.pluginManager?.selectSkillsForTask === 'function'
-        ? this.manager.pluginManager.selectSkillsForTask({ prompt: task.prompt, workspacePath: task.workspace?.path, limit: 4, tokenBudget: 8000 })
+        ? selectConversationSkills(this.manager.pluginManager, selectionText, earlierSelectionTexts(task, runPrompt), { workspacePath: task.workspace?.path })
         : (this.manager.pluginManager?.activeSkills?.() || []);
       task.selectedSkills = selectedSkills.map((s) => s.id);
       if (selectedSkills.length) {
@@ -916,7 +1005,7 @@ export class AgentRunner {
           await this.#event(task, 'repo_map_started',
             'Đang lập bản đồ mã nguồn giới hạn để chuẩn bị ngữ cảnh cho agent.', { status:'running' });
           const map = await abortable(injectRepoMapIntoInstructions('', this.manager.studio, {
-            prompt: cleanPrompt, maxTokens: 900, signal: context.controller.signal,
+            prompt: cleanPrompt, queryPrompt: selectionText, maxTokens: 900, signal: context.controller.signal,
           }), context.controller.signal);
           if (map.injected) {
             repoMapPart = {type:'input_text',text:
@@ -937,13 +1026,13 @@ export class AgentRunner {
         }
       }
       this.#check(context);
-      if (context.skillContext) context.history.push({ role:'user', content:[{type:'input_text',text:context.skillContext}] });
+      if (context.skillContext) context.history.appendUser([{type:'input_text',text:context.skillContext}], { kind:'skill_context' });
       if (context.skillContext && selectedSkills.length) {
         await this.#event(task, 'skills_activated', `Đã kích hoạt ${selectedSkills.length} kỹ năng agent (${selectedSkills.map((s) => s.name).join(', ')}).`, { status: 'running', selectedSkills: task.selectedSkills });
       }
-      if (context.resumeEvidence) context.history.push({ role:'user', content:[{type:'input_text',text:context.resumeEvidence}] });
-      context.history.push({ role:'user', content:[{type:'input_text',text:cleanPrompt},
-        ...(repoMapPart ? [repoMapPart] : []), ...attachmentParts.parts] });
+      if (context.resumeEvidence) context.history.appendUser([{type:'input_text',text:context.resumeEvidence}], { kind:'resume_evidence' });
+      context.history.appendUser([{type:'input_text',text:cleanPrompt},
+        ...(repoMapPart ? [repoMapPart] : []), ...attachmentParts.parts], { kind:'prompt' });
       this.#advance(task, 'planning', 'preflight_done');
       clearTimeout(context.preflightTimer);
       context.preflightTimer = null;
@@ -1005,7 +1094,7 @@ export class AgentRunner {
         try { this.manager.releaseTask(task.id); } catch (releaseError) { this.log(this.#redact(releaseError.message)); }
         this.activeTaskId = null; this.context = null;
       }
-      context.history = []; context.session = null;
+      context.history.clear(); context.session = null;
       context.done.resolve(this.#public(task));
     }
   }
@@ -1039,23 +1128,29 @@ export class AgentRunner {
     const { task } = context;
     try {
       while (true) {
+        // The previous model turn is complete here (every result is in): host messages that waited for it follow its last result.
+        context.history.endBatch();
         this.#check(context);
         if(task.pendingMessages?.length){
           const queued=task.pendingMessages.splice(0);
           for(const message of queued){
-            context.history.push({role:'user',content:[{type:'input_text',text:message.text||'Inspect attached data.'},...message.parts]});
+            context.history.appendUser([{type:'input_text',text:message.text||'Inspect attached data.'},...message.parts], { kind:'queued_message' });
             await this.#event(task,'user_message_delivered','Đã gửi chỉ dẫn mới tới model.',{},{at:message.at,attachments:message.metadata});
           }
         }
         if (task.maxSteps !== null && task.maxSteps !== undefined && task.steps >= task.maxSteps) throw fault('step_limit', `Đã dùng ${task.maxSteps} lượt model; chưa có phản hồi kết thúc. Bạn có thể kiểm tra kết quả hiện tại rồi gửi yêu cầu tiếp.`);
-        if (Buffer.byteLength(JSON.stringify(context.history)) + Buffer.byteLength(context.instructions) > MAX_CONTEXT_BYTES) throw fault('context_limit', 'Nội dung phiên đã vượt 48 MiB. Bản ghi công cụ đã được lưu; tác vụ dừng thay vì âm thầm bỏ dữ liệu hoặc tự lặp lại thao tác.');
+        if (context.history.byteLength() + Buffer.byteLength(context.instructions) > MAX_CONTEXT_BYTES) throw fault('context_limit', 'Nội dung phiên đã vượt 48 MiB. Bản ghi công cụ đã được lưu; tác vụ dừng thay vì âm thầm bỏ dữ liệu hoặc tự lặp lại thao tác.');
         task.steps += 1;
         await this.#event(task, 'model', `Model đang xử lý lượt ${task.steps}.`, { status: 'running' });
         this.#check(context);
         context.inFlight = 'model';
         // Never compact the canonical in-memory history: transcript evidence
         // and original call/result receipts must survive a follow-up or error.
-        let modelInput = structuredClone(context.history);
+        // The snapshot is a new array over the ledger's own items, not a deep clone: the compaction passes below replace
+        // entries of this array and never write into an item. From here until the top of the loop a host message that
+        // arrives (a notice, a hint) waits, so it cannot land between the results of this model turn.
+        let modelInput = context.history.snapshotForModel();
+        context.history.beginBatch();
         // Freeze the effective policy for this task. Provider settings changed
         // afterwards must not silently change its model context budget.
         if (!context.contextPolicy) {
@@ -1141,7 +1236,7 @@ export class AgentRunner {
         }
         // Preserve all output items in original order, including opaque encrypted
         // reasoning and namespaced calls. Do not use previous_response_id/store.
-        context.history.push(...structuredClone(response.output));
+        context.history.appendModelOutput(response.output);
         const calls = response.output.filter((item) => item?.type === 'function_call');
         const ids = new Set();
         for (const call of calls) {
@@ -1192,10 +1287,10 @@ export class AgentRunner {
           const evidence=observeTaskTool(task.progress,{call,result,step:task.steps,verified});
           task.progress=evidence.progress;
           if(verified)task.goalPlan=updateGoalPlan(task.goalPlan,verified);
-          // Tool call/output must be contiguous and persisted before a recovery
-          // hint is added: adapters require a correctly paired call/result history.
+          // Tool call/output must be contiguous: adapters require a correctly paired
+          // call/result history, and the ledger keeps a recovery hint behind every result of this turn.
           const converted=this.#modelOutput(result,{ taskId: task.id, toolName: actualName });
-          context.history.push({type:'function_call_output',call_id:call.call_id,output:converted.output});
+          context.history.appendToolOutput(call.call_id,converted.output);
           if(verified)await this.#event(task,'goal_evidence',
             'Bằng chứng được host kiểm tra: '+verified.kind+
             (verified.path?' · '+verified.path:''),{}, {kind:verified.kind,step:verified.step});
@@ -1203,8 +1298,9 @@ export class AgentRunner {
             await this.#event(task,evidence.warning?'progress_warning':'progress_recovery',
               'Đang đổi chiến lược ('+evidence.recover+'/2) do kết quả công cụ lặp lại; không tự chạy lại thao tác ghi.',
               {},{progress:task.progress});
-            context.history.push({role:'user',content:[{type:'input_text',
-              text:recoveryInstructions({progress:task.progress,plan:task.goalPlan,attempt:evidence.recover})}]});
+            // Written now, from the progress as it is now, but it waits behind the results of the calls this turn still has to run.
+            context.history.appendUser([{type:'input_text',
+              text:recoveryInstructions({progress:task.progress,plan:task.goalPlan,attempt:evidence.recover})}], { kind:'recovery_hint' });
           }
           if(evidence.stalled){
             await this.#event(task,'progress_stalled','Đã thử hai chiến lược nhưng vẫn lặp bằng chứng; lưu checkpoint và dừng.',{},{

@@ -128,8 +128,17 @@ export async function run(command, args, options = {}) {
   return result.output;
 }
 
-export async function stopOwned(child) {
+/**
+ * Stops a child this process started, and what it started. `group: true` is for a child spawned detached on POSIX, where it leads
+ * a process group of its own: the whole group is killed at once, because a script that ignores SIGTERM would otherwise leave its
+ * descendants behind. On Windows the tree below the child is always killed (taskkill /T).
+ */
+export async function stopOwned(child, { group = false } = {}) {
   if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
+  if (process.platform !== 'win32' && group) {
+    try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* already gone */ } }
+    return;
+  }
   if (process.platform === 'win32') {
     // This PID is a still-live ChildProcess created by this hub, never a PID
     // discovered from a port scan. Its stdio MCP children belong to this proxy.

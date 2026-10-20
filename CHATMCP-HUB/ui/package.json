@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test:unit": "node --experimental-strip-types --test tests/*.test.mjs",
     "test:e2e": "npm run build && playwright test",
-    "test:e2e:built": "playwright test"
+    "test:e2e:built": "playwright test",
+    "gallery": "node scripts/gallery.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.1.0",

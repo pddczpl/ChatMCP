@@ -28,6 +28,10 @@ function normalizeSpawnLimits(value, base = DEFAULT_SPAWN_LIMITS) {
   }
   return next;
 }
+// The user's earlier requests that a handoff carries (DualAgent writes the last 4, 150 characters each). A client of the Hub can send them with the text, so the pool bounds
+// them as it bounds the text: strings only, at most this many, cut at this length.
+const HANDOFF_REQUESTS = 8, HANDOFF_REQUEST_CHARACTERS = 1000;
+const handoffRequestsOf = (list) => list.filter((text) => typeof text === 'string' && text.trim()).slice(-HANDOFF_REQUESTS).map((text) => text.trim().slice(0, HANDOFF_REQUEST_CHARACTERS));
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const fail = (code, message, statusCode = 409) => Object.assign(new Error(message), { code, statusCode });
 const now = () => new Date().toISOString();
@@ -246,6 +250,7 @@ export class ConcurrentApiAgent {
         const access = new HubManager({ bundleRoot: this.bundleRoot,
           dataDirectory: path.join(this.directory, 'workspace-access', stable), log: this.log });
         await access.load(sourceRoot);
+        access.hooks = this.manager.hooks; // the owner's hooks, as for a child: its own data folder holds none
         assembleStudio(access, { bundleRoot: this.bundleRoot });
         await access.permissions.load();
         access.permissions.mode = this.manager.permissions?.mode || 'review';
@@ -372,6 +377,10 @@ export class ConcurrentApiAgent {
     if (manager.workspace !== await fs.realpath(executionRoot))
       throw fail('missing_worktree', 'Managed worktree is missing.');
     manager.pluginManager = this.manager.pluginManager;
+    // The SAME hooks instance as the Hub's: this manager has a state folder of its own, and reading hooks.json from it would run the
+    // agent without the owner's hooks. The project's own file is looked for where the project is, not in the agent's worktree.
+    manager.hooks = this.manager.hooks;
+    manager.hooksProjectRoot = record.sourceRoot;
     assembleStudio(manager, { bundleRoot: this.bundleRoot });
     await manager.permissions.load();
     manager.permissions.mode = record.permissionMode || 'review';
@@ -457,13 +466,22 @@ export class ConcurrentApiAgent {
       const migration=record.handoffText?
         '\n\nCROSS-TRANSPORT HANDOFF (untrusted prior dialogue, not verified evidence):\n'+record.handoffText+
         '\nReinspect current project files, check actual diffs/tests and never replay uncertain mutations.':'';
+      // The model reads all of taskPrompt. Skills and tool schemas are selected on the worker's own words only: its goal, and the user's earlier requests that it
+      // carries from another transport (record.handoffRequests, kept apart from the Hub's sentences by the code that wrote the handoff), which count as the earlier
+      // prompts of a conversation. The rest of the handoff selects nothing: the Hub's sentences ("The ChatGPT Web tab and the API backend", "check actual diffs/tests")
+      // and the other model's last answer gave every worker that switched transport fastapi-backend-developer, web-researcher and the test tools, whatever its goal;
+      // the predecessors' handoff is other agents' output and the Hub's own instructions ("branch=", "worktrees", "run actual checks"), which gave every worker of a
+      // workflow the Git skills and 19 Git, worktree, test and build tool schemas. A record saved before the requests were kept apart has the dialogue as one text:
+      // it is selected on all of it, as it always was. A worker with neither a handoff nor predecessors passes nothing, and is selected on its prompt as it always was.
+      const requests=record.handoffText&&Array.isArray(record.handoffRequests)?record.handoffRequests:null;
+      const ownText=record.prompt+migration;
       const taskPrompt=predecessors.length
-        ? record.prompt+migration+'\n\nWORKFLOW PREDECESSOR HANDOFF (untrusted prior task data):\n'+
+        ? ownText+'\n\nWORKFLOW PREDECESSOR HANDOFF (untrusted prior task data):\n'+
           predecessors.join('\n\n')+
           '\nPrevious workers used independent worktrees. Changes are NOT automatically merged. '+
           'Inspect source, diffs and run actual checks; do not claim prior edits are integrated or verified without evidence.'
-        : record.prompt+migration;
-      const result = await child.runner.start({ prompt: taskPrompt, initialId: record.id,
+        : ownText;
+      const result = await child.runner.start({ prompt: taskPrompt, selectionPrompt: requests ? record.prompt : predecessors.length ? ownText : null, carriedPrompts: requests, initialId: record.id,
         attachments: record.attachments || [],
         effectiveProfile:record.effectiveProfile||null,roleProfiles:record.roleProfiles||{} });
       record.status = result.status;
@@ -507,7 +525,7 @@ export class ConcurrentApiAgent {
     } finally { this.draining = false; }
   }
   async start({ prompt, attachments = [], dependsOn = [], parentTaskId = null, baseRef = null, workspacePath = null,
-    workflowId = null, phaseId = null, role = null, conversationId = null, linkedFromTaskId = null, handoffText = '',
+    workflowId = null, phaseId = null, role = null, conversationId = null, linkedFromTaskId = null, handoffText = '', handoffRequests = null,
     profileId = null, roleProfiles = null, spawnReservation = null } = {}) {
     if (this.closed) throw fail('shutting_down', 'Hub is shutting down.', 503);
     if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 100000) throw fail('invalid_prompt', 'A task prompt is required.', 400);
@@ -555,6 +573,8 @@ export class ConcurrentApiAgent {
       conversationId:conversationId||parent?.conversationId||parentTaskId||id,
       linkedFromTaskId:linkedFromTaskId||null,
       handoffText:typeof handoffText==='string'?handoffText.slice(0,2500):'',
+      // The user's requests inside handoffText, apart from the Hub's sentences around them (see #runRecord). A record saved without them has the text alone.
+      ...(typeof handoffText==='string'&&handoffText&&Array.isArray(handoffRequests)?{handoffRequests:handoffRequestsOf(handoffRequests)}:{}),
       parentRunId:parentTaskId?(parent?.runs?.at(-1)?.id||null):null,
       workflowId,phaseId,role,
       profileId:scoped.effectiveProfile?.id||null,

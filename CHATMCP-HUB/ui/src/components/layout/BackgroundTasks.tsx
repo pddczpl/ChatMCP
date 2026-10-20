@@ -126,92 +126,92 @@ export function BackgroundTasks() {
     const running=active(task.status),open=expanded[task.id]===true,agents=task.subagents||[];
     const usage=task.conversationUsage;
     const tokens=usage?formatTokens((usage.inputTokens||0)+(usage.outputTokens||0)):null;
-    return <article key={task.id} className="rounded-lg border border-[var(--line)] bg-[var(--surface)] p-2.5 space-y-2"
+    return <article key={task.id} className="rounded-lg border border-line bg-surface p-2.5 space-y-2"
       data-testid="background-task" data-workspace={task.workspacePath} data-conversation={task.conversationId} data-run={task.id}>
       <div className="flex items-center gap-2">
-        {running?<Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin text-[var(--primary)]"/>:
-          task.status==='completed'?<CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-[var(--muted)]"/>:
-            <Clock className="h-3.5 w-3.5 flex-shrink-0 text-[var(--muted)]"/>}
+        {running?<Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin text-primary"/>:
+          task.status==='completed'?<CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-muted"/>:
+            <Clock className="h-3.5 w-3.5 flex-shrink-0 text-muted"/>}
         <button type="button" onClick={()=>setExpanded(v=>({...v,[task.id]:!open}))}
           aria-expanded={open} className="flex-1 min-w-0 flex items-center text-left text-xs gap-1">
-          <span className="font-medium text-[var(--text)] truncate" title={task.title}>{compact(task.title,200)}</span>
+          <span className="font-medium text-fg truncate" title={task.title}>{compact(task.title,200)}</span>
           {open?<ChevronDown className="w-3 h-3 flex-shrink-0"/>:<ChevronRight className="w-3 h-3 flex-shrink-0"/>}
         </button>
-        <span className="text-[11px] text-[var(--faint)] whitespace-nowrap">{elapsed(task)}</span>
+        <span className="text-[12px] text-faint whitespace-nowrap">{elapsed(task)}</span>
       </div>
-      <div className="text-[10px] text-[var(--faint)] truncate" title={workspaceName+' › '+chatTitle}>
+      <div className="text-[12px] text-faint truncate" title={workspaceName+' › '+chatTitle}>
         <FolderGit2 className="w-3 h-3 inline align-middle"/> {workspaceName} › <MessageSquare className="w-3 h-3 inline align-middle"/> {chatTitle}
       </div>
-      <div className="flex flex-wrap gap-2 items-center text-[11px] text-[var(--muted)]">
+      <div className="flex flex-wrap gap-2 items-center text-[12px] text-muted">
         <span>{taskStateLabel(task.status)}</span><span>{agents.length} subagent{agents.length===1?'':'s'}</span>
         {tokens&&<span title="Tokens cộng dồn toàn hội thoại, không phải riêng task này">{tokens} tokens (chat)</span>}
       </div>
-      {open&&<div className="space-y-2 border-t border-[var(--line)] pt-2">
-        <p className="text-[11px] text-[var(--faint)] break-words">{task.title}</p>
-        <p className="text-[11px] text-[var(--muted)] break-all">Workspace: {task.workspacePath}</p>
-        <p className="text-[11px] text-[var(--muted)] break-words">Hội thoại: {chatTitle}</p>
+      {open&&<div className="space-y-2 border-t border-line pt-2">
+        <p className="text-[12px] text-faint break-words">{task.title}</p>
+        <p className="text-[12px] text-muted break-all">Workspace: {task.workspacePath}</p>
+        <p className="text-[12px] text-muted break-words">Hội thoại: {chatTitle}</p>
         {agents.length>0&&<div className="space-y-1">
-          <div className="text-[11px] font-medium text-[var(--muted)] flex items-center gap-1">
+          <div className="text-[12px] font-medium text-muted flex items-center gap-1">
             <Network className="w-3 h-3"/> Subagents của task này
           </div>
           {agents.map(agent=><div key={agent.id}
-            className="rounded border border-[var(--line)] bg-[var(--panel)] px-2 py-1.5 text-[11px]">
+            className="rounded border border-line bg-panel px-2 py-1.5 text-[12px]">
             <div className="flex items-center gap-2">
               {active(agent.status)?<Loader2 className="w-3 h-3 animate-spin"/>:<CheckCircle2 className="w-3 h-3"/>}
               <span className="truncate flex-1" title={agent.title}>{agent.title}</span>
-              <span className="text-[var(--faint)]">{taskStateLabel(agent.status)}</span>
+              <span className="text-faint">{taskStateLabel(agent.status)}</span>
               {active(agent.status)&&<button type="button" onClick={()=>void stop(agent.id)}
                 aria-label={'Dừng subagent '+agent.id}><Square className="w-3 h-3"/></button>}
             </div>
-            {agent.branch&&<div className="flex gap-1 items-center text-[var(--faint)] mt-1">
+            {agent.branch&&<div className="flex gap-1 items-center text-faint mt-1">
               <GitBranch className="w-3 h-3"/>{agent.branch}
             </div>}
           </div>)}
         </div>}
         <div className="flex gap-3 items-center">
           <button type="button" onClick={()=>void openChat(task.workspacePath,task.conversationId)}
-            className="text-[11px] underline text-[var(--primary)]">Mở đúng hội thoại</button>
+            className="text-[12px] underline text-primary">Mở đúng hội thoại</button>
           {running&&<button type="button" onClick={()=>void stop(task.taskId)}
-            className="text-[11px] text-rose-400 flex items-center gap-1"><Square className="w-3 h-3"/> Dừng task</button>}
+            className="text-[12px] text-danger flex items-center gap-1"><Square className="w-3 h-3"/> Dừng task</button>}
         </div>
       </div>}
     </article>;
   };
 
-  return <div className="h-full flex flex-col bg-[var(--panel)] min-h-0">
-    <div className="px-3 py-2 border-b border-[var(--line)] text-xs text-[var(--muted)] space-y-2">
+  return <div className="h-full flex flex-col bg-panel min-h-0">
+    <div className="px-3 py-2 border-b border-line text-xs text-muted space-y-2">
       <div>{activeItems.length} đang thực hiện · {tasks.length} tác vụ (không tính hội thoại)</div>
       <div className="flex gap-1 flex-wrap" aria-label="Lọc background tasks">
         <button type="button" aria-pressed={scope==='all'} onClick={()=>setScope('all')}
-          className={'px-2 py-1 rounded-md '+(scope==='all'?'bg-[var(--surface-hover)] text-[var(--text)]':'text-[var(--muted)]')}>Tất cả</button>
+          className={'px-2 py-1 rounded-md '+(scope==='all'?'bg-hover text-fg':'text-muted')}>Tất cả</button>
         <button type="button" disabled={!currentWorkspace} aria-pressed={scope==='workspace'} onClick={()=>setScope('workspace')}
-          className={'px-2 py-1 rounded-md disabled:opacity-30 '+(scope==='workspace'?'bg-[var(--surface-hover)] text-[var(--text)]':'text-[var(--muted)]')}>Workspace này</button>
+          className={'px-2 py-1 rounded-md disabled:opacity-30 '+(scope==='workspace'?'bg-hover text-fg':'text-muted')}>Workspace này</button>
         <button type="button" disabled={!currentConversation} aria-pressed={scope==='conversation'} onClick={()=>setScope('conversation')}
-          className={'px-2 py-1 rounded-md disabled:opacity-30 '+(scope==='conversation'?'bg-[var(--surface-hover)] text-[var(--text)]':'text-[var(--muted)]')}>Hội thoại này</button>
+          className={'px-2 py-1 rounded-md disabled:opacity-30 '+(scope==='conversation'?'bg-hover text-fg':'text-muted')}>Hội thoại này</button>
       </div>
     </div>
     <div className="flex-1 overflow-y-auto p-2 space-y-3">
-      {!tasks.length&&<p className="p-4 text-xs text-[var(--faint)]">
+      {!tasks.length&&<p className="p-4 text-xs text-faint">
         Chưa có công việc nền. Agent có thể giao task cho subagent trong lúc bạn chat hoặc mở workspace khác.
       </p>}
-      {tasks.length>0&&!grouped.length&&<p className="p-4 text-xs text-[var(--faint)]">
+      {tasks.length>0&&!grouped.length&&<p className="p-4 text-xs text-faint">
         Không có background task nào thuộc phạm vi đang chọn.
       </p>}
       {grouped.map(workspace=><section key={workspace.path} data-testid="background-workspace"
         data-workspace={workspace.path} className="space-y-2">
         <button type="button" onClick={()=>void openWorkspace(workspace.path)} title={workspace.path}
-          className="w-full text-left flex gap-2 items-center rounded-md bg-[var(--surface-hover)] px-2 py-2 text-xs text-[var(--text)]">
-          <FolderGit2 className="w-4 h-4 text-[var(--primary)] flex-shrink-0"/>
+          className="w-full text-left flex gap-2 items-center rounded-md bg-hover px-2 py-2 text-xs text-fg">
+          <FolderGit2 className="w-4 h-4 text-primary flex-shrink-0"/>
           <span className="flex-1 truncate font-semibold">{workspace.name}</span>
-          <span className="text-[var(--faint)]">{workspace.conversations.reduce((n,c)=>n+c.runs.length,0)} task</span>
+          <span className="text-faint">{workspace.conversations.reduce((n,c)=>n+c.runs.length,0)} task</span>
         </button>
         {workspace.conversations.map(chat=><div key={chat.id} data-testid="background-conversation"
-          data-conversation={chat.id} className="space-y-1.5 pl-2 border-l-2 border-[var(--line)]">
+          data-conversation={chat.id} className="space-y-1.5 pl-2 border-l-2 border-line">
           <button type="button" onClick={()=>void openChat(workspace.path,chat.id)}
-            title={chat.title} className="w-full flex items-center gap-1.5 p-1 text-xs text-left text-[var(--muted)] hover:text-[var(--text)]">
+            title={chat.title} className="w-full flex items-center gap-1.5 p-1 text-xs text-left text-muted hover:text-fg">
             <MessageSquare className="w-3.5 h-3.5 flex-shrink-0"/>
             <span className="truncate flex-1 font-medium">{chat.title}</span>
-            <span className="text-[var(--faint)]">{chat.runs.length}</span>
+            <span className="text-faint">{chat.runs.length}</span>
           </button>
           {chat.runs.map((run,index)=><div key={run.id} className="space-y-1.5">
             {renderRun(run,workspace.name,chat.title)}

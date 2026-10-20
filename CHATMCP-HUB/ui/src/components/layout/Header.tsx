@@ -1,175 +1,118 @@
 import { useAppStore } from '@/store/useAppStore';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { 
-  Folder, 
-  Search, 
-  Sun, 
-  Moon, 
-  PanelRightClose, 
-  PanelRightOpen, 
-  PanelLeft,
-  ShieldCheck, 
-  ShieldAlert, 
-  Bot, 
-  Eye, 
-  RefreshCw,
-  Cpu
-} from 'lucide-react';
+import { ChevronDown, Folder, PanelLeft, PanelRightClose, PanelRightOpen, Search, Settings, Sun, Moon } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { Kbd } from '@/components/ui/Kbd';
+import { StatusDot } from '@/components/ui/StatusDot';
 import { useTranslation } from '@/lib/i18n';
 import { GitWorkspacePicker } from './GitWorkspacePicker';
 
+/**
+ * The top bar holds only what a person uses all the time: panels, where they are (workspace and branch), search, theme and
+ * settings. Everything that is a state (connection, permission mode, model, context) lives in the status bar below.
+ */
 export function Header() {
-  const queryClient=useQueryClient();
+  const queryClient = useQueryClient();
   const { data: hub, error } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 2500 });
-  const { t, lang } = useTranslation();
-  const { 
-    theme, 
+  const { t } = useTranslation();
+  const {
+    theme,
     sidebarOpen,
     toggleSidebar,
-    setTheme, 
-    inspectorOpen, 
-    toggleInspector, 
+    setTheme,
+    inspectorOpen,
+    toggleInspector,
     setCommandPaletteOpen,
-    setActiveTab,
-    setInspectorOpen,
+    openSettings,
     showToast,
     selectedWorkspacePath,
     setSelectedWorkspacePath,
-    setSelectedTaskId
+    setSelectedTaskId,
   } = useAppStore();
 
-  const registered=hub?.workspaces?.items || [];
-  const workspacePath = (selectedWorkspacePath && registered.some(x=>x.path===selectedWorkspacePath)
+  const registered = hub?.workspaces?.items || [];
+  const workspacePath = (selectedWorkspacePath && registered.some(x => x.path === selectedWorkspacePath)
     ? selectedWorkspacePath : hub?.workspaces
       ? hub.workspaces.activePath
       : hub?.workspace?.path) || 'Chưa chọn workspace';
   const shortWs = workspacePath.split(/[\\/]/).filter(Boolean).pop() || 'Workspace';
-  const mode = hub?.studio?.permissions?.mode || 'review';
-  const isFullAccess = hub?.studio?.permissions?.executionPolicy === 'full-access';
+  const noWorkspace = workspacePath === 'Chưa chọn workspace';
 
   const handleBrowseWorkspace = async () => {
     try {
-      const res = await api.browseWorkspace(workspacePath==='Chưa chọn workspace'?null:workspacePath);
+      const res = await api.browseWorkspace(noWorkspace ? null : workspacePath);
       if (res.path) {
         const added = await api.addWorkspace(res.path);
         await api.activateWorkspace(added.workspace.path);
         setSelectedWorkspacePath(added.workspace.path);
         setSelectedTaskId('');
-        await queryClient.invalidateQueries({queryKey:['hubState']});
+        await queryClient.invalidateQueries({ queryKey: ['hubState'] });
       }
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Không thể chọn workspace.', 'error');
       // A disabled WinForms desktop/session must not block project selection.
       // Settings has a manual absolute-path input that needs no GUI process.
-      setInspectorOpen(true);
-      setActiveTab('settings');
+      openSettings('workspace');
     }
   };
 
-  const getModeInfo = () => {
-    if (isFullAccess) {
-      return { label: 'FULL ACCESS ⚠️', color: 'text-[var(--danger)] border-[var(--danger)] bg-[var(--danger-bg)]', icon: ShieldAlert };
-    }
-    if (mode === 'readonly') return { label: 'Chỉ đọc', color: 'text-[var(--muted)] border-[var(--line)] bg-[var(--surface)]', icon: Eye };
-    if (mode === 'autonomous') return { label: 'Tự động', color: 'text-[var(--primary)] border-[var(--line)] bg-[var(--primary-bg)]', icon: Bot };
-    return { label: 'Review', color: 'text-[var(--primary)] border-[var(--line)] bg-[var(--primary-bg)]', icon: ShieldCheck };
-  };
-
-  const modeInfo = getModeInfo();
-  const ModeIcon = modeInfo.icon;
+  const isLight = theme === 'light';
+  const connectionProblem = error ? t('hub_lost') : !hub ? t('hub_connecting') : '';
 
   return (
-    <header className="h-14 border-b border-[var(--line)] bg-[var(--panel)] px-3 flex items-center justify-between gap-3 select-none z-20 flex-shrink-0">
-      {/* Brand & Workspace */}
-      <div className="flex items-center gap-2 min-w-0">
-        <Button variant="quiet" size="icon" onClick={toggleSidebar} aria-label={sidebarOpen ? 'Thu gọn hội thoại' : 'Mở danh sách hội thoại'} title="Danh sách hội thoại (Ctrl+B)"><PanelLeft className="w-4 h-4" /></Button>
-        <div className="flex items-center gap-2 font-bold text-sm tracking-tight">
-          <div className="w-6 h-6 rounded bg-gradient-to-br from-sky-400 to-teal-400 flex items-center justify-center text-slate-950 font-black text-xs shadow-sm shadow-sky-500/20">
-            C
-          </div>
-          <span className="hidden sm:inline">ChatMCP <span className="font-normal text-[var(--muted)]">Studio</span></span>
+    <header className="z-20 flex h-12 shrink-0 select-none items-center gap-2 border-b border-line bg-panel px-2.5">
+      {/* Where am I */}
+      <div className="flex min-w-0 flex-1 basis-0 items-center gap-2">
+        <Button variant="quiet" size="icon" onClick={toggleSidebar}
+          aria-label={sidebarOpen ? 'Thu gọn hội thoại' : 'Mở danh sách hội thoại'} title="Danh sách hội thoại (Ctrl+B)">
+          <PanelLeft className="h-4 w-4" />
+        </Button>
+        <div className="flex items-center gap-2 text-sm font-semibold tracking-tight">
+          <span aria-hidden="true" className="flex h-6 w-6 items-center justify-center rounded-md bg-gradient-to-br from-primary to-accent text-[13px] font-black text-primary-fg">C</span>
+          <span className="hidden whitespace-nowrap sm:inline">ChatMCP<span className="hidden font-normal text-muted xl:inline"> Studio</span></span>
         </div>
-
+        <span aria-hidden="true" className="hidden h-4 w-px bg-line md:block" />
         <button
           onClick={handleBrowseWorkspace}
-          className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--line)] text-[var(--text)] transition-colors"
+          className="hidden h-8 min-w-0 items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 text-[13px] font-medium transition-colors hover:border-line-strong hover:bg-hover md:flex"
           title={`Thư mục: ${workspacePath} (Nhấp để đổi)`}
         >
-          <Folder className="w-3.5 h-3.5 text-[var(--primary)]" />
-          <span className="max-w-[150px] truncate">{shortWs}</span>
+          <Folder className="h-3.5 w-3.5 shrink-0 text-primary" />
+          <span className="max-w-[160px] truncate">{shortWs}</span>
+          <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
         </button>
-        <GitWorkspacePicker workspace={workspacePath === 'Chưa chọn workspace' ? '' : workspacePath} />
+        <GitWorkspacePicker workspace={noWorkspace ? '' : workspacePath} />
       </div>
 
-      {/* Center Search / Command Palette */}
+      {/* Search / commands */}
       <button
         onClick={() => setCommandPaletteOpen(true)}
         aria-label="Tìm kiếm hoặc lệnh"
-        className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-md text-xs bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--line)] text-[var(--muted)] hover:text-[var(--text)] transition-colors max-w-64 min-w-32 flex-1"
+        className="flex h-8 w-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-line bg-surface text-[13px] text-muted transition-colors hover:border-line-strong hover:bg-hover hover:text-fg lg:w-full lg:max-w-[420px] lg:justify-start lg:px-3"
       >
-        <Search className="w-3.5 h-3.5 text-[var(--faint)]" />
-        <span className="flex-1 text-left">Tìm kiếm hoặc lệnh...</span>
-        <kbd className="font-mono text-xs px-1.5 py-0.5 rounded bg-[var(--panel)] border border-[var(--line)] text-[var(--faint)]">
-          Ctrl K
-        </kbd>
+        <Search className="h-3.5 w-3.5 shrink-0 text-faint" />
+        <span className="hidden flex-1 text-left lg:block">{t('header_search')}</span>
+        <Kbd className="hidden lg:inline-flex">Ctrl K</Kbd>
       </button>
 
-      {/* Right Controls */}
-      <div className="flex items-center gap-2">
-        {/* Hub Connection Badge */}
-        <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-[var(--muted)]">
-          <span className={`w-2 h-2 rounded-full ${error ? 'bg-rose-400' : hub ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-          <span className="hidden sm:inline" title={error?.message}>{error ? (lang === 'en' ? 'Hub disconnected' : 'Mất kết nối Hub') : hub ? t('hub_connected') : (lang === 'en' ? 'Connecting to Hub' : 'Đang kết nối Hub')}</span>
-        </div>
-
-        {/* Mode Pill */}
-        <button
-          onClick={() => {
-            setInspectorOpen(true);
-            setActiveTab('settings');
-          }}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${modeInfo.color}`}
-          title="Quy định quyền của agent (Nhấp để chỉnh trong Cài đặt)"
-        >
-          <ModeIcon className="w-3.5 h-3.5" />
-          <span>{modeInfo.label}</span>
-        </button>
-
-        {/* AI Provider Chip */}
-        <button
-          onClick={() => {
-            setInspectorOpen(true);
-            setActiveTab(hub?.agent?.mode==='chatgpt-web'?'settings':'intelligence');
-          }}
-          className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-[var(--surface)] hover:bg-[var(--surface-hover)] border border-[var(--line)] text-[var(--muted)] hover:text-[var(--text)] transition-colors"
-          title={hub?.agent?.mode==='chatgpt-web'?'ChatGPT Web Companion — xem cài đặt kênh Agent':'Cấu hình mô hình AI'}
-        >
-          <Cpu className="w-3.5 h-3.5 text-teal-400" />
-          <span className="max-w-[120px] truncate">
-            {hub?.agent?.mode==='chatgpt-web'?'ChatGPT Web':(hub?.ai?.model || (lang === 'en' ? 'No AI configured' : 'Chưa kết nối AI'))}
+      {/* Quick controls */}
+      <div className="flex min-w-0 flex-1 basis-0 items-center justify-end gap-1">
+        {connectionProblem && (
+          <span role="status" className={`mr-1 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-medium ${error ? 'border-danger/40 bg-danger/10 text-danger' : 'border-warning/40 bg-warning/10 text-warning'}`}>
+            <StatusDot tone={error ? 'danger' : 'warning'} pulse={!error} />
+            <span title={error?.message}>{connectionProblem}</span>
           </span>
-        </button>
-
-        {/* Theme Switcher */}
-        <Button
-          variant="quiet"
-          size="icon"
-          onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-          title="Chuyển theme sáng / tối"
-        >
-          {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+        )}
+        <Button variant="quiet" size="icon" onClick={() => setTheme(isLight ? 'dark' : 'light')} title={t('header_theme_toggle')} aria-label={t('header_theme_toggle')}>
+          {isLight ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
         </Button>
-
-        {/* Inspector Toggle */}
-        <Button
-          variant="quiet"
-          size="icon"
-          onClick={toggleInspector}
-          title={inspectorOpen ? 'Thu gọn Inspector (Ctrl+J)' : 'Mở Inspector (Ctrl+J)'}
-        >
-          {inspectorOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
+        <Button variant="quiet" size="icon" onClick={() => openSettings()} title={`${t('header_settings')} (Ctrl+,)`} aria-label={t('header_settings')}>
+          <Settings className="h-4 w-4" />
+        </Button>
+        <Button variant="quiet" size="icon" onClick={toggleInspector} aria-label={inspectorOpen ? 'Thu gọn Inspector' : 'Mở Inspector'}
+          title={inspectorOpen ? 'Thu gọn Inspector (Ctrl+J)' : 'Mở Inspector (Ctrl+J)'}>
+          {inspectorOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
         </Button>
       </div>
     </header>

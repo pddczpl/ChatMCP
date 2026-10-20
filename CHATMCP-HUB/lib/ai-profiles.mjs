@@ -11,6 +11,9 @@ import { randomUUID } from 'node:crypto';
 import { readJson, writeJson } from './runtime.mjs';
 import { createProtector } from './secret-box.mjs';
 import { parseModelRates } from './model-cost.mjs';
+import { normalizeCustomHeaders, publicCustomHeaders } from './gateway-custom-headers.mjs';
+import { isValidCustomPath } from './provider-presets.mjs';
+import { contextWindowRangeText, parseContextWindow } from './context-window.mjs';
 
 const PROFILES_FILENAME = 'ai-profiles.json';
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,40}$/i;
@@ -112,6 +115,8 @@ export class AiProfiles {
       contextWindow: p.contextWindow || null,
       protocol: p.protocol || (ALLOWED_PROTOCOLS.includes(p.provider)?p.provider:null),
       authMode: p.authMode || 'auto',
+      customPath: p.customPath || '',
+      customHeaders: p.customHeaders || [],
       revision: p.revision || null,
       ratesUsdPerMillion: p.ratesUsdPerMillion ?? null,
       hasKey: Boolean(p.encryptedKey || p.envKeyName),
@@ -137,6 +142,9 @@ export class AiProfiles {
       contextWindow: p.contextWindow || null,
       protocol: p.protocol || (ALLOWED_PROTOCOLS.includes(p.provider)?p.provider:null),
       authMode: p.authMode || 'auto',
+      // Names and sources of the custom headers, never a value: the values exist only sealed (encryptedHeaders) and in a task's memory.
+      customPath: p.customPath || '',
+      customHeaders: p.customHeaders || [],
       revision: p.revision || null,
       ratesUsdPerMillion: p.ratesUsdPerMillion ?? null,
       hasKey: Boolean(p.encryptedKey || p.envKeyName),
@@ -192,6 +200,23 @@ export class AiProfiles {
       // credential rather than silently ignoring the new secret.
       envReference=null;
     }
+    // The window obeys the bound of the global connection (context-window.mjs), here when the profile is SAVED rather than when a task
+    // fails to start: below the minimum is refused, above the maximum is clamped, null clears, an omitted field keeps what was saved.
+    let contextWindow = existing.contextWindow || null;
+    if (input.contextWindow !== undefined) {
+      contextWindow = parseContextWindow(input.contextWindow);
+      if (contextWindow === undefined)
+        throw error('invalid_context_window', `Context window ${JSON.stringify(input.contextWindow)} is not usable: enter a whole number of tokens from ${contextWindowRangeText()}, or leave it empty if unknown. Larger values are reduced to the maximum.`);
+    }
+    // A route is not a secret and stays with the profile; it belongs to one destination, so a new destination starts without it.
+    let customPath = input.customPath === undefined ? (destinationChanged ? '' : existing.customPath || '') : String(input.customPath ?? '').trim();
+    if (customPath && !isValidCustomPath(customPath))
+      throw error('invalid_api_path', 'The custom API path is invalid. Use an absolute path such as /v1beta/models/{model}:generateContent.');
+    // Custom header values are secrets. They are sealed by the same key store as the API key, are bound to the origin they were saved
+    // for, are dropped with the key when the destination changes or the credentials are cleared, and are replaced as a whole.
+    const headersGiven = input.customHeaders !== undefined;
+    const headerSpecs = headersGiven ? normalizeCustomHeaders(input.customHeaders) : null;
+    const keepHeaders = !headersGiven && !destinationChanged && input.clearCredentials !== true;
     const profile = {
       id,
       name: input.name?.trim() || existing.name || id,
@@ -201,22 +226,31 @@ export class AiProfiles {
         ? (existing.ratesUsdPerMillion??null)
         : parseModelRates(input.ratesUsdPerMillion),
       apiBaseUrl:nextBase,
-      contextWindow: Number.isFinite(input.contextWindow) ? input.contextWindow : existing.contextWindow || null,
+      contextWindow,
+      customPath,
+      customHeaders: keepHeaders ? existing.customHeaders || [] : headerSpecs ? publicCustomHeaders(headerSpecs) : [],
+      encryptedHeaders: keepHeaders ? existing.encryptedHeaders || null : null,
+      customHeadersOrigin: keepHeaders ? existing.customHeadersOrigin || null : null,
       envKeyName: envReference,
       encryptedKey: input.clearCredentials === true ? null
         : destinationChanged ? null : existing.encryptedKey || null,
     };
 
     if (input.clearCredentials === true)profile.envKeyName=null;
+    const seal = async (text) => {
+      const encryptFn = this.keyStore?.encrypt || this.keyStore?.protect;
+      if (typeof encryptFn !== 'function') {
+        throw error('dpapi_required', 'Bắt buộc có bộ mã hóa Windows DPAPI để lưu API key; không cho phép lưu dạng văn bản hoặc Base64.', 500);
+      }
+      return await encryptFn.call(this.keyStore, text);
+    };
+    if (headerSpecs?.length) {
+      profile.encryptedHeaders = await seal(JSON.stringify(headerSpecs));
+      profile.customHeadersOrigin = nextOrigin;
+    }
     if (input.apiKey && typeof input.apiKey === 'string') {
       const key = input.apiKey.trim();
-      if (key) {
-        const encryptFn = this.keyStore?.encrypt || this.keyStore?.protect;
-        if (typeof encryptFn !== 'function') {
-          throw error('dpapi_required', 'Bắt buộc có bộ mã hóa Windows DPAPI để lưu API key; không cho phép lưu dạng văn bản hoặc Base64.', 500);
-        }
-        profile.encryptedKey = await encryptFn.call(this.keyStore, key);
-      }
+      if (key) profile.encryptedKey = await seal(key);
     }
 
     this.profiles.set(id, profile);
@@ -275,6 +309,18 @@ export class AiProfiles {
       apiKey = await decryptFn.call(this.keyStore, p.encryptedKey);
     }
 
+    // A task that cannot have its headers must not start without them: a missing header can send the request to the wrong tenant.
+    let customHeaders = [];
+    if (p.encryptedHeaders) {
+      const decryptFn = this.keyStore?.decrypt || this.keyStore?.unprotect;
+      try {
+        if (typeof decryptFn !== 'function') throw new Error('no key store');
+        customHeaders = normalizeCustomHeaders(JSON.parse(await decryptFn.call(this.keyStore, p.encryptedHeaders)));
+      } catch {
+        throw error('profile_headers_unreadable', 'The protected custom headers of this model profile cannot be read. Save the profile again with its headers.', 409);
+      }
+    }
+
     return {
       id: p.id,
       name: p.name,
@@ -284,6 +330,10 @@ export class AiProfiles {
       model: p.model,
       apiBaseUrl: p.apiBaseUrl,
       contextWindow: p.contextWindow,
+      customPath: p.customPath || '',
+      // Literal values are in memory for this call only; customHeadersOrigin is the origin they were sealed for.
+      customHeaders,
+      customHeadersOrigin: p.customHeadersOrigin || null,
       apiKey,
     };
   }

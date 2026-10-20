@@ -68,8 +68,10 @@ jobs:
       - name: Syntax check
         run: |
           for f in hub.mjs lib/*.mjs tests/*.mjs; do node --check "$f"; done
+      # --retry-failed-once runs a suite that failed a second time. One that passes then is FLAKY: never PASS, a ::warning annotation, a line in
+      # the step summary and a count in summary.json (docs/CI-HEALTH.md). The run is still red for a suite that fails twice.
       - name: Run all suites
-        run: node tests/run-all.mjs --no-skip all --json test-results/summary.json
+        run: node tests/run-all.mjs --no-skip all --retry-failed-once --json test-results/summary.json
       - name: Upload test summary
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -77,6 +79,31 @@ jobs:
           name: hub-test-summary-${{ matrix.os }}-node${{ matrix.node }}
           path: CHATMCP-HUB/test-results/summary.json
           if-no-files-found: ignore
+
+  flaky-gate:
+    # A retry hides one timing accident, not a habit: this fails a run of main when FLAKY suites showed up in this run and in the two runs of main
+    # before it (scripts/ci-flaky-gate.mjs reads the hub-test-summary-* artifacts of those runs; it only reads GitHub). Not for pull requests.
+    name: Flaky suites (3 runs of main in a row fail)
+    if: ${{ !cancelled() && needs.hub-tests.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs: hub-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Download the summaries of this run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'hub-test-summary-*' --dir flaky-current
+      - name: Fail when the last three runs of main each needed a retry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci-flaky-gate.mjs --current flaky-current --repo "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" --workflow CI --branch main --limit 3
 
   frontend-build:
     name: Frontend TypeScript / Vite build

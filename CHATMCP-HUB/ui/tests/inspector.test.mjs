@@ -22,14 +22,15 @@ try {
         import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
         import { useAppStore } from './src/store/useAppStore';
         import { InspectorPanel } from './src/components/inspector/InspectorPanel';
+        import { SkillsTab } from './src/components/inspector/SkillsTab';
         import { PlanTab } from './src/components/inspector/PlanTab';
         import { ActivityTab } from './src/components/inspector/ActivityTab';
         import { FilesTab } from './src/components/inspector/FilesTab';
         import { GitTab } from './src/components/inspector/GitTab';
         import { TerminalTab } from './src/components/inspector/TerminalTab';
-        import { SettingsTab } from './src/components/inspector/SettingsTab';
+        import { PermissionsSection } from './src/components/settings/PermissionsSection';
         import { Header } from './src/components/layout/Header';
-        const components = { InspectorPanel, PlanTab, ActivityTab, FilesTab, GitTab, TerminalTab, Header, SettingsTab };
+        const components = { InspectorPanel, PlanTab, ActivityTab, FilesTab, GitTab, TerminalTab, Header, PermissionsSection, SkillsTab };
         export async function render(name, entries, errors = [], store = {}) {
           const client = new QueryClient({ defaultOptions: { queries: { retry: false, retryOnMount: false, staleTime: Infinity } } });
           Object.assign(useAppStore.getInitialState(), { selectedTaskId: 'task-1', lang: 'en', activeTab: 'activity', ...store });
@@ -83,7 +84,7 @@ try {
       { text: 'Run tests', status: 'done', evidence: '' },
       { text: 'Review change', status: 'done', evidence: '   ' },
     ] }]]);
-    assert.doesNotMatch(html, /100%|text-emerald-400/);
+    assert.doesNotMatch(html, /100%|text-success/);
     assert.match(html, /0%/);
     assert.match(html, /Agent reports done.*no evidence/i);
     assert.match(html, /2.*agent-reported/i);
@@ -158,16 +159,26 @@ try {
       assert.ok(html.includes(message));
     });
   }
-  await test('Skills tab renders the connected registry UI', async () => {
-    const html = await render('InspectorPanel', base, [], { activeTab: 'skills' });
+  await test('Skills section renders the connected registry UI', async () => {
+    const html = await render('SkillsTab', base);
     assert.match(html, /Assistant skills/);
+  });
+  await test('the work panel offers progress, changes, files, terminal and agents, keeps activity and preview under More, and has no settings', async () => {
+    const html = await render('InspectorPanel', base, [], { activeTab: 'plan' });
+    for (const label of ['Progress', 'Changes', 'Files', 'Terminal', 'Agents']) assert.match(html, new RegExp(`role="tab"[^>]*>${label}<`));
+    assert.doesNotMatch(html, /role="tab"[^>]*>(Activity|Preview)</);
+    assert.match(html, /aria-label="More"/);
+    assert.doesNotMatch(html, />(Settings|AI Model|Skills)</);
+    assert.match(html, /aria-selected="true"[^>]*>Progress</);
+    // a tab chosen from More takes its place in the strip while it is open
+    assert.match(await render('InspectorPanel', base, [], { activeTab: 'activity' }), /aria-selected="true"[^>]*>Activity</);
   });
   await test('Header does not claim a disconnected Hub is connected', async () => {
     const html = await render('Header', [], [[['hubState'], 'Connection refused']]);
     assert.match(html, /Hub disconnected/i);
     assert.doesNotMatch(html, />Hub connected</i);
   });
-  await test('SettingsTab renders honest unisolated host backend without false safe badge', async () => {
+  await test('Permissions section renders honest unisolated host backend without false safe badge', async () => {
     const sandboxReport = {
       mode: 'host',
       backend: 'host',
@@ -179,17 +190,17 @@ try {
       unsupportedLimits: ['maxMemoryMb', 'maxCpuCores'],
       reasons: ['Host execution shares the host OS kernel and user account credentials'],
     };
-    const html = await render('SettingsTab', [...base, [['sandboxStatus'], sandboxReport]]);
+    const html = await render('PermissionsSection', [...base, [['sandboxStatus'], sandboxReport]]);
     assert.match(html, /Host Unisolated|Không cách ly OS/);
     assert.match(html, /timeoutSeconds, maxOutputBytes/);
     assert.match(html, /maxMemoryMb, maxCpuCores/);
     assert.doesNotMatch(html, /OS Isolated|Đã cách ly OS/);
   });
-  await test('SettingsTab renders probing state when sandbox status is loading', async () => {
-    const html = await render('SettingsTab', base);
+  await test('Permissions section renders probing state when sandbox status is loading', async () => {
+    const html = await render('PermissionsSection', base);
     assert.match(html, /Probing\.\.\.|Đang kiểm tra\.\.\./);
   });
-  await test('SettingsTab renders unavailable state when backend reports unavailable', async () => {
+  await test('Permissions section renders unavailable state when backend reports unavailable', async () => {
     const unavailableReport = {
       mode: 'windows-sandbox',
       backend: 'windows-sandbox',
@@ -200,11 +211,11 @@ try {
       unsupportedLimits: [],
       reasons: ['Windows Sandbox provider is unavailable'],
     };
-    const html = await render('SettingsTab', [...base, [['sandboxStatus'], unavailableReport]]);
+    const html = await render('PermissionsSection', [...base, [['sandboxStatus'], unavailableReport]]);
     assert.match(html, /Unavailable|Không khả dụng/);
     assert.doesNotMatch(html, /OS Isolated|Đã cách ly OS/);
   });
-  await test('SettingsTab renders verified state only when osIsolated and available are both true', async () => {
+  await test('Permissions section renders verified state only when osIsolated and available are both true', async () => {
     const verifiedReport = {
       mode: 'windows-sandbox',
       backend: 'windows-sandbox',
@@ -215,7 +226,7 @@ try {
       unsupportedLimits: [],
       reasons: [],
     };
-    const html = await render('SettingsTab', [...base, [['sandboxStatus'], verifiedReport]]);
+    const html = await render('PermissionsSection', [...base, [['sandboxStatus'], verifiedReport]]);
     assert.match(html, /OS Isolated|Đã cách ly OS/);
     assert.doesNotMatch(html, /Host Unisolated|Không cách ly OS/);
   });

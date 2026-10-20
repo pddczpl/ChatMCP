@@ -138,7 +138,31 @@ async function runTests() {
     assert(res.stats.savedTokens > 500);
     console.log('  [PASS] 4. In-place history compaction, duplicate read pruning & call_id pairing integrity');
 
-    console.log('\nALL 4 SMART CONTEXT COMPACTION TEST SUITES PASSED!');
+    // Test 5: a caller that wrote text around the task (the Hub's handoff around a delegated worker's goal) says which words the query is made from. The files still
+    // come from the whole prompt: a file the predecessor's result names focuses the map. Read as a whole, the Hub's header "WORKFLOW" was the query of every such worker.
+    {
+      const own = 'Summarize the findings in two sentences.';
+      const whole = own + '\n\nWORKFLOW PREDECESSOR HANDOFF (untrusted prior task data):\n' +
+        'Predecessor 0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d (completed) branch=chatmcp/chat/0b1c2d3e-4f50 worktree=/hub/worktree\n' +
+        'UNTRUSTED RESULT (independently verify before use):\nThe problem is in lib/agent.mjs.\n' +
+        'Previous workers used independent worktrees. Changes are NOT automatically merged. Inspect source, diffs and run actual checks; do not claim prior edits are integrated or verified without evidence.';
+      const statsOf = async (options) => (await injectRepoMapIntoInstructions('', workspace, { prompt: whole, maxTokens: 800, ...options })).stats;
+      assert.equal((await statsOf({})).queryHint, 'WORKFLOW', '(the premise: read as a whole, the handoff\'s header is the query)');
+      const named = await statsOf({ queryPrompt: own });
+      assert.equal(named.queryHint, 'Summarize', 'the query is made from the words queryPrompt names');
+      assert.deepEqual(named.focusFiles, ['lib/agent.mjs'], 'and the focus files from the whole prompt');
+      for (const none of [undefined, null, '', '  \n ', 42]) {
+        const stats = await statsOf({ queryPrompt: none });
+        assert.equal(stats.queryHint, 'WORKFLOW', `${JSON.stringify(none)} names nothing: the query is made from the prompt, as before`);
+        assert.deepEqual(stats.focusFiles, ['lib/agent.mjs']);
+      }
+      const unusable = await statsOf({ queryPrompt: 'Go.' });
+      assert.equal(unusable.queryHint, '', 'words with no usable token give no query, not the header of the handoff');
+      assert.deepEqual(unusable.focusFiles, ['lib/agent.mjs'], 'and the files are still those of the whole prompt');
+      console.log('  [PASS] 5. Repo Map query made from the words the caller names, focus files from the whole prompt');
+    }
+
+    console.log('\nALL 5 SMART CONTEXT COMPACTION TEST SUITES PASSED!');
   } finally {
     await cleanup();
   }

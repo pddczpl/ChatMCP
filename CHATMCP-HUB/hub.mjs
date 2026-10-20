@@ -18,6 +18,7 @@ import { PluginManager } from './lib/plugins.mjs';
 import { CodingWorktreeOrchestrator } from './lib/coding-orchestrator.mjs';
 import { GitHubSkillRegistry } from './lib/skill-registry.mjs';
 import { BEARER_PATTERN, attachToRunningHub, createSecret, createTicketBook, dashboardUrl, hubRequiresBearer, writeSession } from './lib/hub-session.mjs';
+import { followProviderWindow } from './lib/tool-selector.mjs';
 
 const APP_ID = 'chatmcp-local-hub';
 export const UI_BUILD = '3.9.0-react-agent';
@@ -37,7 +38,7 @@ export function assertBearerHub(health, port=3007) {
   return true;
 }
 
-export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/tasks/accept-criterion','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/browser/recover-url/request','/api/browser/outbound/decide','/api/browser/privacy/config','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle']);
+export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/tasks/accept-criterion','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/browser/recover-url/request','/api/browser/outbound/decide','/api/browser/privacy/config','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle','/api/hooks/approve-project']);
 // Every route the Hub answers besides POST_ROUTES (tests/verify-hub-auth.mjs compares these lists with the source).
 export const GET_ROUTES = Object.freeze(['/api/health','/api/capabilities','/api/state','/api/background-tasks','/api/workspaces','/api/catalog','/api/ai/models','/api/ai/presets','/api/ai/profiles','/api/sandbox/status','/api/workspace/lock','/api/plugins/registry','/api/plugins/marketplace','/api/plugins/installed','/api/tasks/events','/api/tasks/:id','/api/tasks/:id/report','/api/tasks/:id/stream','/api/extension-state','/api/instructions','/api/studio/terminal/events','/api/studio/intelligence/status','/api/studio/intelligence/symbols','/api/studio/intelligence/references','/api/studio/intelligence/definitions','/api/studio/intelligence/lsp','/api/studio/sandbox','/api/studio/preview','/api/studio/tree','/api/studio/file','/api/studio/search','/api/studio/git/status','/api/studio/git/refs','/api/studio/git/diff','/api/studio/git/check','/api/studio/checkpoints','/api/studio/review','/api/studio/preview-checkpoint','/api/studio/checks','/api/studio/verifications','/api/studio/skills','/api/studio/terminal','/api/studio/terminal/capabilities','/api/studio/delegates','/api/studio/dynamic-delegates','/api/studio/coding','/api/studio/coding/context','/api/studio/coding/recovery','/api/studio/coding/review','/api/studio/coding/checks','/api/studio/workflow','/api/studio/plan','/auth/chatgpt/callback']);
 // Bootstrap of a dashboard without the long-lived secret in a URL: POST ticket (bearer) -> page opens /#chatmcp-boot=<ticket> -> POST redeem.
@@ -162,6 +163,10 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
       contextWindow:config.contextWindow,
       ratesUsdPerMillion:config.ratesUsdPerMillion??null,
       credentialSource:publicInfo.hasKey?'protected_reference':'none',
+      // What the fork keeps of the profile. Header NAMES only: the values are secrets and live in the task's provider alone.
+      customPath:config.customPath||null,
+      customHeaderNames:config.customHeaders.map(header=>header.name),
+      promptCaching:taskProvider.capabilities().promptCaching,
     }};
   };
   const pluginManager = manager.pluginManager ?? new PluginManager({ stateDir: hubStateDir });
@@ -598,6 +603,9 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/plugins/install': result = { installed: await pluginManager.install(payload.id, payload.custom, payload.url) }; break;
           case '/api/plugins/uninstall': result = await pluginManager.uninstall(payload.id); break;
           case '/api/plugins/toggle': result = await pluginManager.toggle(payload.id, payload.enabled); break;
+          // The owner approves the sha256 of the project's .chatmcp/hooks.json that they reviewed (lib/hooks.mjs). The project is always the
+          // one the Hub has open: a caller cannot name another folder. Behind the bearer like every /api route.
+          case '/api/hooks/approve-project': if (!manager.hooks) throw Object.assign(new Error('Hooks chưa khởi tạo.'), { statusCode: 503 }); result = await manager.hooks.approveProject({ projectRoot: manager.workspace, sha256: payload.sha256 }); break;
           case '/api/hub/shutdown': result = { ok: true }; setTimeout(() => void onShutdown(), 150); break;
           default: return unknownAction();
         }
@@ -658,6 +666,12 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   // For the process that owns this server (it opens its own dashboard): a one-time ticket, never the secret itself.
   server.issueBootstrapTicket = () => tickets.issue().ticket;
   return server;
+}
+
+// The foreground runner. Its tool list follows the context window of the model of the task it starts (see lib/tool-selector.mjs): an unknown
+// or small window gets the task-selected schemas instead of all 103. AgentRunner is passed in because main() loads it lazily.
+export function createPrimaryAgentRunner(AgentRunner, { manager, provider, taskDirectory, log, env = process.env }) {
+  return followProviderWindow(new AgentRunner({ manager, provider, taskDirectory, log }), env);
 }
 
 // `url` is what is logged; `target` (the same address plus a one-time sign-in ticket in the fragment) is what is opened.
@@ -750,7 +764,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   await manager.dynamicDelegates.load();
   manager.codingOrchestrator=new CodingWorktreeOrchestrator({manager,provider,directory:path.join(manager.hubDirectory,'coding-orchestrator'),bundleRoot:BUNDLE_ROOT});
   await manager.codingOrchestrator.load();
-  const primaryAgent = new AgentRunner({ manager, provider, taskDirectory: path.join(manager.hubDirectory, 'api-tasks'), log: (line) => manager.log(line) });
+  const primaryAgent = createPrimaryAgentRunner(AgentRunner, { manager, provider, taskDirectory: path.join(manager.hubDirectory, 'api-tasks'), log: (line) => manager.log(line), env });
   const apiAgent = new ConcurrentApiAgent({ primary: primaryAgent, manager, provider, bundleRoot: BUNDLE_ROOT,
     directory: path.join(manager.hubDirectory, 'api-conversations'), log: line => manager.log(line) });
   manager.spawnBackgroundAgent = (parentTaskId,request) => apiAgent.spawnAgent(parentTaskId,request);

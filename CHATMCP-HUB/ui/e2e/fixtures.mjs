@@ -9,7 +9,10 @@ import { makeCalcProject, gitInit, WRONG_EXPECTATION_TEST } from '../../tests/e2
 
 export const test = base.extend({
   failingProject: [false, { option: true }],
-  app: async ({ failingProject, context, browserErrors }, use, testInfo) => {
+  // Extra environment for the Hub process. The shared harness sets CHATMCP_TOOL_SELECTION=full (tests/e2e/hub-process.mjs) because scripted
+  // models call tools by name; a test of the Hub's own choice sets it to '' so that the context window decides.
+  hubEnv: [{}, { option: true }],
+  app: async ({ failingProject, hubEnv, context, browserErrors }, use, testInfo) => {
     // Windows TEMP may use an 8.3 alias; compare the canonical path the Hub returns.
     const scratch = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-react-e2e-')));
     const project = path.join(scratch, 'workspace');
@@ -41,7 +44,7 @@ export const test = base.extend({
       gitInit(project, scratch);
       mock = await startMockModel();
       // The same real production React build the desktop serves; no API/page routes are stubbed.
-      hub = await startHub({ scratch });
+      hub = await startHub({ scratch, env: hubEnv });
       const html = await (await fetch(hub.origin)).text();
       expect(html).toContain('id="root"');
       expect(html).toMatch(/assets\/index-[^" ]+\.js/);
@@ -183,3 +186,50 @@ export async function send(page, prompt) {
 export async function taskByPrompt(app, prompt) {
   return waitFor(async () => (await app.hub.state()).agent.tasks.find((task) => task.prompt === prompt || task.task === prompt));
 }
+
+/** The work panel on the right: choose a tab by its visible name (Tiến độ, Thay đổi, Tệp, Terminal, Hoạt động, Tác nhân). */
+export async function openWorkTab(page, name) {
+  const tab = page.getByRole('tab', { name, exact: true });
+  if (!(await tab.count())) {
+    // Preview lives under "Thêm" until it is chosen.
+    await page.getByRole('button', { name: 'Thêm', exact: true }).click();
+    await page.getByRole('menuitem', { name, exact: true }).click();
+    return;
+  }
+  await tab.click();
+  await expect(tab).toHaveAttribute('aria-selected', 'true');
+}
+
+/** Settings is a full-page dialog. `section` is the visible name of an entry in its left menu (Mô hình AI, Kỹ năng, ...). */
+export async function openSettings(page, section) {
+  const dialog = page.getByRole('dialog', { name: 'Cài đặt' });
+  if (!(await dialog.isVisible().catch(() => false))) await page.getByRole('button', { name: 'Cài đặt', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  if (section) await dialog.getByRole('navigation', { name: 'Các mục cài đặt' }).getByRole('button', { name: section, exact: true }).click();
+  return dialog;
+}
+
+export async function closeSettings(page) {
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Cài đặt' })).toHaveCount(0);
+}
+
+/** Light or dark, from wherever the person is: the header toggle, or the Appearance section when Settings covers the page. */
+export async function setTheme(page, theme) {
+  if (await page.locator('html').getAttribute('data-theme') === theme) return;
+  const dialog = page.getByRole('dialog', { name: 'Cài đặt' });
+  if (await dialog.isVisible().catch(() => false)) {
+    const menu = dialog.getByRole('navigation', { name: 'Các mục cài đặt' });
+    const current = (await menu.locator('[aria-current="page"]').innerText()).trim();
+    await menu.getByRole('button', { name: 'Giao diện & ngôn ngữ', exact: true }).click();
+    await dialog.getByRole('button', { name: theme === 'light' ? 'Sáng' : 'Tối', exact: true }).click();
+    await menu.getByRole('button', { name: current, exact: true }).click();
+  } else {
+    await page.getByTitle('Chuyển theme sáng / tối').click();
+  }
+  await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+}
+
+/** The tokens of src/index.css as computed colours, so a test does not repeat hex values. */
+export const SURFACE = { light: 'rgb(246, 248, 251)', dark: 'rgb(23, 28, 36)' };
+

@@ -16,16 +16,16 @@ function WorkerChecks({workerId}:{workerId:string}) {
     mutationFn:(checkId:string)=>api.approveIsolatedCheck(workerId,checkId,3),
     onSuccess:()=>{setConfirmation(null);void client.invalidateQueries({queryKey:['worker-checks',workerId]});},
   });
-  return <div className="border border-[var(--line)] rounded-lg p-2 space-y-2">
+  return <div className="border border-line rounded-lg p-2 space-y-2">
     <p className="text-xs font-semibold">Kiểm thử cho công việc {workerId}</p>
     {isLoading && <p role="status">Đang tìm các lệnh kiểm thử của dự án…</p>}
-    {error && <p role="alert" className="text-[var(--danger)]">Không tải được lệnh kiểm thử: {error.message}</p>}
-    {data?.checks?.length===0 && <p className="text-[var(--muted)]">Dự án chưa đăng ký lệnh kiểm thử ngoại tuyến.</p>}
-    {(data?.checks as Check[]|undefined)?.map(check=><div key={check.id} className="p-2 border border-[var(--line-subtle)] rounded">
+    {error && <p role="alert" className="text-danger">Không tải được lệnh kiểm thử: {error.message}</p>}
+    {data?.checks?.length===0 && <p className="text-muted">Dự án chưa đăng ký lệnh kiểm thử ngoại tuyến.</p>}
+    {(data?.checks as Check[]|undefined)?.map(check=><div key={check.id} className="p-2 border border-line-subtle rounded">
       <p className="font-mono break-words">{check.command}</p>
-      <details className="text-xs text-[var(--muted)] break-words"><summary className="cursor-pointer">Nguồn và mã kiểm thử</summary>{check.from} · {check.id}</details>
+      <details className="text-xs text-muted break-words"><summary className="cursor-pointer">Nguồn và mã kiểm thử</summary>{check.from} · {check.id}</details>
       {check.approvedGrantId
-        ? <p className="text-[var(--muted)]">Đã cho phép kiểm thử, còn {check.remainingAttempts} lần. Cần có Windows Sandbox khả dụng.</p>
+        ? <p className="text-muted">Đã cho phép kiểm thử, còn {check.remainingAttempts} lần. Cần có Windows Sandbox khả dụng.</p>
         : confirmation!==check.id
           ? <Button size="sm" className="mt-2" onClick={()=>setConfirmation(check.id)}>Xem và cho phép kiểm thử</Button>
           : <div className="space-y-1 mt-1">
@@ -35,7 +35,7 @@ function WorkerChecks({workerId}:{workerId:string}) {
                 <Button size="sm" disabled={grant.isPending} onClick={()=>setConfirmation(null)}>Hủy</Button>
               </div>
             </div>}
-      {grant.error && confirmation===check.id && <p role="alert" className="text-[var(--danger)]">Chưa thể cấp quyền: {grant.error.message}</p>}
+      {grant.error && confirmation===check.id && <p role="alert" className="text-danger">Chưa thể cấp quyền: {grant.error.message}</p>}
     </div>)}
   </div>;
 }
@@ -47,16 +47,16 @@ export function IsolatedChecksPanel() {
   const prior=(job?.workers??[]).flatMap((w:{id:string;verificationAttempts?:any[]})=>
     (w.verificationAttempts||[]).map(record=>({...record,workerId:w.id})));
   if(!workers.length && !prior.length)return null;
-  return <section data-testid="isolated-checks-panel" className="space-y-2 border-t border-[var(--line-subtle)] pt-3">
+  return <section data-testid="isolated-checks-panel" className="space-y-2 border-t border-line-subtle pt-3">
     <h3 className="font-semibold text-sm">Kiểm thử cần bạn cho phép</h3>
-    <p className="text-xs leading-relaxed text-[var(--muted)]">Quyền chỉ áp dụng cho công việc và lệnh kiểm thử bạn chọn, với số lần chạy giới hạn. Môi trường cách ly phải được xác minh trước khi chạy.</p>
+    <p className="text-xs leading-relaxed text-muted">Quyền chỉ áp dụng cho công việc và lệnh kiểm thử bạn chọn, với số lần chạy giới hạn. Môi trường cách ly phải được xác minh trước khi chạy.</p>
     {workers.map((w:{id:string})=><WorkerChecks key={w.id} workerId={w.id}/>)}
     {prior.length>0 && <div className="space-y-2">
       <p className="font-semibold text-xs">Kết quả kiểm thử đã ghi nhận</p>
-      {prior.slice(-30).map((x:any,index:number)=><div key={String(x.id||index)} className="border border-[var(--line)] p-2 rounded">
+      {prior.slice(-30).map((x:any,index:number)=><div key={String(x.id||index)} className="border border-line p-2 rounded">
         <p>{x.workerId} · {agentStatusLabel(x.status)}</p>
-        <p className="text-[var(--muted)]">{x.testOutcomeVerified===true?'Kết quả kiểm thử đạt đã được xác minh':'Chưa có bằng chứng xác minh kiểm thử đạt'}</p>
-        <details className="text-xs text-[var(--muted)] break-all"><summary className="cursor-pointer">Chi tiết kiểm thử</summary><p>Mã kiểm thử: {x.checkId} · Mã thoát: {x.exitCode??'?'}</p>{x.snapshotHash&&<p>Mã bản lưu: {String(x.snapshotHash).slice(0,16)}…</p>}</details>
+        <p className="text-muted">{x.testOutcomeVerified===true?'Kết quả kiểm thử đạt đã được xác minh':'Chưa có bằng chứng xác minh kiểm thử đạt'}</p>
+        <details className="text-xs text-muted break-all"><summary className="cursor-pointer">Chi tiết kiểm thử</summary><p>Mã kiểm thử: {x.checkId} · Mã thoát: {x.exitCode??'?'}</p>{x.snapshotHash&&<p>Mã bản lưu: {String(x.snapshotHash).slice(0,16)}…</p>}</details>
       </div>)}
     </div>}
   </section>;

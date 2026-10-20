@@ -15,6 +15,7 @@ import { LocalTools } from './local-tools.mjs';
 import { GitRunner } from './git-runner.mjs';
 import { ShellRunner } from './shell-runner.mjs';
 import { PluginManager } from './plugins.mjs';
+import { HookRunner } from './hooks.mjs';
 import { createDefaultExecutionRegistry } from './execution-contract.mjs';
 import { SandboxEngine } from './sandbox-engine.mjs';
 import { WindowsSandboxBackend } from './windows-sandbox-backend.mjs';
@@ -39,6 +40,13 @@ export function assembleStudio(manager, { bundleRoot, exec = null }) {
     manager.pluginManager.load().catch(() => {});
   }
   const secrets = () => manager.secrets || [];
+  // The owner's hooks (lib/hooks.mjs). A manager that works for another one (a spawned agent, a second workspace, a coding worker) has its
+  // own data folder and is given the parent's instance BEFORE it is assembled, so that it runs with the owner's hooks and does not read
+  // an (empty) hooks.json from its own folder. Only the manager that creates the runner closes it.
+  if (!manager.hooks) {
+    manager.hooks = new HookRunner({ hubDirectory: manager.hubDirectory, secrets, log: (line) => manager.log(line) });
+    manager.hooksOwned = true;
+  }
   // Options for every GitRunner of the Hub. With a spawner, Git runs under the agent's account, in a repository that account owns.
   const gitOptions = exec ? {
     ...(exec.spawn ? { spawner: exec.spawn, env: exec.env } : {}),

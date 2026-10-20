@@ -1,4 +1,4 @@
-import { test, expect, onboard, send, taskByPrompt } from './fixtures.mjs';
+import { test, expect, onboard, send, taskByPrompt, setTheme, SURFACE } from './fixtures.mjs';
 import { waitForState } from '../../tests/e2e/hub-process.mjs';
 import { call, say } from '../../tests/e2e/scenarios.mjs';
 
@@ -46,8 +46,8 @@ test('output and code stay readable in both themes and copy exact text', async (
   await expect.poll(() => clipboardText(page)).toBe('const lờiChào = "Xin chào";');
 
   for (const theme of ['light', 'dark']) {
-    if (await page.locator('html').getAttribute('data-theme') !== theme) await page.getByTitle('Chuyển theme sáng / tối').click();
-    await expect(page.locator('header button[title^="Thư mục:"]')).toHaveCSS('background-color', theme === 'light' ? 'rgb(241, 245, 249)' : 'rgb(24, 32, 43)');
+    await setTheme(page, theme);
+    await expect(page.locator('header button[title^="Thư mục:"]')).toHaveCSS('background-color', theme === 'light' ? SURFACE.light : SURFACE.dark);
     expect(await contrast(output.locator('pre'))).toBeGreaterThanOrEqual(4.5);
     expect(await contrast(code.locator('code'))).toBeGreaterThanOrEqual(4.5);
     expect(await message.locator('.conversation-copy').evaluate(el => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(15);
@@ -62,8 +62,8 @@ test('output and code stay readable in both themes and copy exact text', async (
   await page.setViewportSize({ width: 760, height: 850 });
   await expect(page.getByTitle('Mở Inspector (Ctrl+J)')).toBeVisible();
   await page.getByTitle('Mở Inspector (Ctrl+J)').click();
-  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Skills', exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Tiến độ', exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Tác nhân', exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('compact.png'), animations: 'disabled' });
 });
