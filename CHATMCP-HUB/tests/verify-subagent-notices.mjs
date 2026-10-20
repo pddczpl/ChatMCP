@@ -21,7 +21,7 @@ import { assembleStudio } from '../lib/assemble.mjs';
 import { AgentRunner, selectConversationSkills } from '../lib/agent.mjs';
 import { ConcurrentApiAgent } from '../lib/concurrent-api-agent.mjs';
 import { childFacts } from '../lib/agent-results.mjs';
-import { endSummary, subagentNoticeText } from '../lib/subagent-notices.mjs';
+import { SUBAGENT_NOTICE_LIMITS, subagentNoticeText } from '../lib/subagent-notices.mjs';
 import { selectTaskToolNames } from '../lib/tool-selector.mjs';
 import { MARKETPLACE_CATALOG } from '../lib/plugins.mjs';
 
@@ -375,11 +375,12 @@ try {
     const started = await runner.start({ prompt: 'Answer, and answer again.' });
     await settle(runner, started.id, 'the run ends although an agent stops during every answer');
     const task = runner.get(started.id);
-    assert.equal(task.status, 'completed'); assert.equal(requests.length, 65, 'one turn for each of the 64 endings that a task keeps, and the last answer stands');
-    assert.equal(task.finalText, 'answer 65');
+    const bound = SUBAGENT_NOTICE_LIMITS.entries;
+    assert.equal(task.status, 'completed'); assert.equal(requests.length, bound + 1, `one extra turn for each of the ${bound} endings that a task keeps entries for, and the last answer stands`);
+    assert.equal(task.finalText, `answer ${bound + 1}`);
     assert.equal(task.subagentNotices.filter((entry) => entry.notice === 'recorded').length, 1, 'the ending that arrived during the last answer stays recorded for the next run');
-    assert.equal(task.subagentNotices.length, 64);
-    ok('C8b a source of endless endings: each ending held back one final answer, at most as many as a task keeps entries (64), then the answer stands and the last ending waits for the next run');
+    assert.equal(task.subagentNotices.length, bound);
+    ok(`C8b a source of endless endings: each ending held back one final answer, at most as many as a task keeps entries (${bound}), then the answer stands and the last ending waits for the next run`);
   }
 
   // ---- C9 a parent that is not running only records; the next run tells it once, before the prompt
