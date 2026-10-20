@@ -12,3 +12,13 @@ export const agentStatusLabel = (status: string | undefined, t: Translate): stri
   const key = `agent_status_${status}`;
   return hasTranslation(key) ? t(key) : status;
 };
+
+/**
+ * What the state of a task (the Hub's task state machine, as lib/task-view.ts names it) says in the language on screen: the words of
+ * taskStateLabel, from the dictionary, so that the Vietnamese is unchanged. No state reads as unknown; a state with no word is shown as written.
+ */
+export const taskStateText = (status: string | undefined, t: Translate): string => {
+  if (!status) return t('agents_bg_no_state');
+  const key = `agents_bg_state_${status}`;
+  return hasTranslation(key) ? t(key) : status;
+};
