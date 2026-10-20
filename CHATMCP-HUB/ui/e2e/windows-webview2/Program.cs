@@ -224,6 +224,16 @@ internal sealed class SmokeWindow : Form
             await WaitFor("document.querySelector('[aria-label=\"Task plan\"]')?.innerText.includes('Chưa có kế hoạch')", "empty plan reports no plan");
             var fabricated = await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('[aria-label=\"Task plan\"]')?.innerText.includes('100%')");
             if (fabricated == "true") throw new InvalidOperationException("Empty plan claimed 100% completion.");
+            // The Agents tab: its section switch is a tablist, and the sections that hand out work render without a script or CSP error.
+            // Only navigation: no model request is made and no task is created.
+            await SelectWorkTab("Tác nhân");
+            var sections = "document.querySelector('#panel-inspector [role=\"tablist\"][aria-label=\"Các mục của Tác nhân\"]')";
+            await WaitFor($"{sections}?.querySelectorAll('[role=\"tab\"]').length === 3", "Agents section switch offers three sections");
+            foreach (var (name, marker) in new[] { ("Nhóm trợ lý", "agent-groups"), ("Sửa mã", "coding-agents") })
+            {
+                await browser.CoreWebView2.ExecuteScriptAsync($"Array.from({sections}.querySelectorAll('[role=\"tab\"]')).find(item => item.textContent?.trim() === {JsonSerializer.Serialize(name)})?.click()");
+                await WaitFor($"document.querySelector('[data-testid=\"{marker}\"]')?.getClientRects().length > 0", $"{name} section rendered");
+            }
             await CheckNewWindowBridge();
             if (errors.Count > 0) throw new InvalidOperationException(string.Join("; ", errors));
             foreach (var route in new[] { "/api/state", "/api/plugins/marketplace", "/api/plugins/registry" })

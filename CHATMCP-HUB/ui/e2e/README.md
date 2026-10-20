@@ -57,6 +57,6 @@ On Windows with .NET SDK 10 and WebView2 Runtime, run the separate native smoke:
 node e2e/webview2-smoke.mjs
 ```
 
-It uses a real WinForms/WebView2 harness and a temporary Hub/profile. The harness is compiled against the desktop shell's own session, ticket and new-window code (`native-shared/`): it signs in with the Hub's session file and checks that a link holding a backslash, quotes and `</script>` reaches the page as the exact string and runs nothing. Missing
+It uses a real WinForms/WebView2 harness and a temporary Hub/profile. The harness is compiled against the desktop shell's own session, ticket and new-window code (`native-shared/`): it signs in with the Hub's session file and checks that a link holding a backslash, quotes and `</script>` reaches the page as the exact string and runs nothing. It also opens the Agents tab and its two delegation sections (navigation only: no model request, no task), so the sections are rendered in the real WebView2 as well, in the desktop and the compact layout. Missing
 prerequisites fail by default and in CI. `--allow-unavailable` is only for local
 environment surveys; a reported skip is not native verification.

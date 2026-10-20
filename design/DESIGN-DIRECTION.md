@@ -145,6 +145,8 @@ Bốn chế độ (Chỉ đọc, Review, Tự động, FULL ACCESS) chọn ở �
 
 Từ trạng thái của một lượt chạy hay một bản gộp (`completed`, `ready_for_review`, `verified`, `published`...) không bao giờ tô xanh; chỉ `failed` là đỏ và các trạng thái cần bạn là vàng (`statusTone`). Thông báo khi lượt chạy kết thúc là thông tin, không phải "thành công". Xuất bản và gộp bị khóa đến khi bạn đọc diff của chính nhánh đó (token duyệt của Hub), và mỗi lượt chạy chỉ gộp một lần.
 
+Ảnh: `design/screenshots/v3/agents-coding-evidence.png` (worker "AI báo xong · Hub chưa xác minh", vàng, báo cáo của AI tách riêng), `agents-groups-report.png` (nhóm trợ lý: báo cáo trung tính), `agents-narrow-600.png` (cửa sổ 600 px), `agents-english-light.png` (tiếng Anh, giao diện sáng). Chụp lại bằng `npx playwright test e2e/orchestrator.spec.mjs` (ảnh nằm ở `test-results/`) hoặc `npm run gallery`.
+
 **Việc Hub sẽ từ chối được nói trước.** Sửa mã chỉ chạy ở chế độ quyền **Tự động** (Hub trả 403 ở chế độ khác): tab nói rõ chế độ hiện tại và có nút tới Cài đặt → Quyền. Giao việc chỉ làm trên *thư mục chính* của Hub: khi panel đang xem thư mục khác, form của hai mục tắt và nêu hai thư mục (nút **Dừng** vẫn dùng được). Form kiểm tra id, phụ thuộc, vòng lặp và độ dài trước khi bấm bắt đầu (`lib/agent-draft.ts`). Bảng kiểm thử cần cho phép chỉ hỏi worker đã yêu cầu kiểm thử (chỉ các worker đó có test broker). Chữ đang gõ giữ lại khi sang tab khác (`store/useAgentDrafts.ts`, trong bộ nhớ, không ghi đĩa).
 
 ## 6. Lộ trình hạ cánh ở đâu trong giao diện (dự kiến)
