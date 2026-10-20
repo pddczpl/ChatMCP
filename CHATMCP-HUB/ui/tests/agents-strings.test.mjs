@@ -5,13 +5,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // "No new hard-coded strings": every word the Agents tab shows comes from lib/i18n-agents.ts through t(), so it exists in both languages.
-// These read the source of the files that make up the tab and refuse prose that is written into them.
+// These read the source of the files that make up the tab and refuse prose that is written into them. The Background section is made of
+// layout/BackgroundTasks.tsx and the workflow card (conversation/WorkflowCard.tsx, which the chat shows too), so both are read as well.
 
 const src = fileURLToPath(new URL('../src/', import.meta.url));
 const FILES = [
   'AgentsTab.tsx', 'OrchestratorTab.tsx', 'LazySection.tsx', 'AgentGroups.tsx', 'DynamicSubagents.tsx', 'ManualGroup.tsx', 'CodingWorkers.tsx', 'CodingRunView.tsx',
   'CodingWorkerCard.tsx', 'CodingReview.tsx', 'ConfirmDialog.tsx', 'IsolatedChecksPanel.tsx', 'agent-parts.tsx', 'agentLabels.ts', 'useDelegation.ts', 'DiffView.tsx', 'HiddenText.tsx',
-].map((name) => `components/inspector/${name}`).concat(['lib/agent-proof.ts', 'lib/agent-draft.ts', 'lib/agent-errors.ts', 'lib/hidden-chars.ts', 'lib/tab-keys.ts', 'store/useAgentDrafts.ts']);
+].map((name) => `components/inspector/${name}`).concat(['lib/agent-proof.ts', 'lib/agent-draft.ts', 'lib/agent-errors.ts', 'lib/hidden-chars.ts', 'lib/tab-keys.ts', 'store/useAgentDrafts.ts',
+  'components/layout/BackgroundTasks.tsx', 'components/conversation/WorkflowCard.tsx']);
 
 const read = (file) => fs.readFileSync(path.join(src, file), 'utf8');
 /** The source without its comments (a comment may be written in Vietnamese; a string may not). */
@@ -65,8 +67,9 @@ test('every key of the agents dictionary is used somewhere (no strings left behi
   const viBlock = dictionary.slice(0, dictionary.indexOf('export const agentsEn'));
   const keys = [...viBlock.matchAll(/^\s{2}([a-z_0-9]+):/gm)].map((match) => match[1]);
   const code = FILES.map(read).map(withoutComments).join('\n') + read('components/inspector/DynamicSubagents.tsx');
-  // keys built at run time: agent_role_<role>, agent_status_<status>, agent_proof_<kind>_title|note, agent_draft_<field>_<code>, agent_error_<code>
-  const dynamic = /^(agent_role_|agent_status_|agent_proof_|agent_draft_|agent_error_)/;
+  // keys built at run time: agent_role_<role>, agent_status_<status>, agent_proof_<kind>_title|note, agent_draft_<field>_<code>, agent_error_<code>,
+  // agents_bg_state_<task state> (agentLabels.ts; the states are those of lib/task-view.ts, so a test of its own pins the list)
+  const dynamic = /^(agent_role_|agent_status_|agent_proof_|agent_draft_|agent_error_|agents_bg_state_)/;
   const unused = keys.filter((key) => !dynamic.test(key) && !code.includes(`'${key}'`));
   assert.deepEqual(unused, []);
 });

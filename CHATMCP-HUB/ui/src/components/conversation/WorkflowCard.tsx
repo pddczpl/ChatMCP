@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { BackgroundWorkflow, WorkflowPhase } from '@/types';
+import { useTranslation } from '@/lib/i18n';
 import {
   Workflow, ChevronDown, ChevronRight, Loader2, CircleCheck,
   CircleAlert, CirclePause, GitBranch, Square, Bot, ListChecks,
@@ -38,6 +39,7 @@ export function WorkflowCard({
   onCancel?:(workflowId:string)=>void;
   stopPending?:boolean;
 }){
+  const {t}=useTranslation();
   const [expanded,setExpanded]=useState(true);
   const [phaseExpanded,setPhaseExpanded]=useState<Record<string,boolean>>({});
   const tokens=usage((workflow.usage?.inputTokens||0)+(workflow.usage?.outputTokens||0));
@@ -56,8 +58,8 @@ export function WorkflowCard({
       </button>
       <StateIcon status={status}/>
       <span className="text-[12px] text-faint whitespace-nowrap">{duration(workflow.createdAt,workflow.finishedAt)}</span>
-      {canCancel&&onCancel&&<button type="button" title="Dừng workflow và các agent con"
-        aria-label={'Dừng workflow '+workflow.name} disabled={stopPending}
+      {canCancel&&onCancel&&<button type="button" title={t('agents_wf_stop_hint')}
+        aria-label={t('agents_wf_stop_label',{name:workflow.name})} disabled={stopPending}
         onClick={()=>onCancel(workflow.id)}
         className="p-1 rounded-md text-muted hover:text-danger disabled:opacity-40">
         {stopPending?<Loader2 className="w-3.5 h-3.5 animate-spin"/>:<Square className="w-3.5 h-3.5"/>}
@@ -65,21 +67,21 @@ export function WorkflowCard({
     </div>
     {expanded&&<div className="px-3 pb-3 space-y-3">
       <div className="flex gap-3 flex-wrap items-center text-[12px] text-muted">
-        <span>{status==='completed'?'Workflow completed':status==='cancelled'?'Workflow cancelled':
-          status==='blocked'||status==='failed'?'Workflow needs review':
-          status==='paused'?'Workflow paused':'Workflow running'}</span>
-        <span><Bot className="w-3 h-3 inline align-middle"/> {workflow.total} agents</span>
-        <span>{workflow.completed}/{workflow.total} completed</span>
-        {tokens&&<span title="Số token được provider báo cáo từ các agent con">{tokens} tokens</span>}
+        <span>{t(status==='completed'?'agents_wf_completed':status==='cancelled'?'agents_wf_cancelled':
+          status==='blocked'||status==='failed'?'agents_wf_needs_review':
+          status==='paused'?'agents_wf_paused':'agents_wf_running')}</span>
+        <span><Bot className="w-3 h-3 inline align-middle"/> {t(workflow.total===1?'agents_wf_agents_one':'agents_wf_agents_other',{n:workflow.total})}</span>
+        <span>{t('agents_wf_progress',{done:workflow.completed,total:workflow.total})}</span>
+        {tokens&&<span title={t('agents_wf_tokens_hint')}>{t('agents_wf_tokens',{tokens})}</span>}
       </div>
-      <div className="h-1.5 rounded-full bg-hover overflow-hidden" aria-label="Tiến độ workflow">
+      <div className="h-1.5 rounded-full bg-hover overflow-hidden" aria-label={t('agents_wf_progress_label')}>
         <div className="h-full bg-primary transition-all duration-300 rounded-full"
           style={{width:(workflow.total?100*workflow.completed/workflow.total:0)+'%'}}/>
       </div>
       {workflow.error&&<p role="status" className="text-[12px] text-warning break-words">{workflow.error}</p>}
       <div className="space-y-1.5">
         <div className="flex items-center gap-1 text-[12px] font-medium text-muted">
-          <ListChecks className="w-3.5 h-3.5"/> Phases
+          <ListChecks className="w-3.5 h-3.5"/> {t('agents_wf_phases')}
         </div>
         {workflow.phases.map(phase=>{
           const open=showPhase(phase);
@@ -119,14 +121,14 @@ export function WorkflowCard({
                 </div>
               </div>)}
               {!phase.agents.length&&<p className="text-[12px] text-faint py-2">
-                Đang giao việc cho các agent…
+                {t('agents_wf_delegating')}
               </p>}
             </div>}
           </div>;
         })}
       </div>
       <p className="text-[12px] text-faint">
-        Kết quả cần được kiểm chứng bằng mã nguồn, diff và test thực tế. Các Git worktree không được tự động merge.
+        {t('agents_wf_footer')}
       </p>
     </div>}
   </section>;

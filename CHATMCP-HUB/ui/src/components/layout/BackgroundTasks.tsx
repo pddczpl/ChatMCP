@@ -2,7 +2,9 @@ import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
-import { taskStateLabel } from '@/lib/task-view';
+import { useTranslation } from '@/lib/i18n';
+import { agentErrorText } from '@/lib/agent-errors';
+import { taskStateText } from '@/components/inspector/agentLabels';
 import type { BackgroundRun } from '@/types';
 import { WorkflowCard } from '@/components/conversation/WorkflowCard';
 import {
@@ -28,9 +30,11 @@ const formatTokens=(n?:number)=>{
 const compact=(v:string,length=150)=>v.length>length?v.slice(0,length)+'…':v;
 type ConversationGroup={id:string;title:string;runs:BackgroundRun[]};
 type WorkspaceGroup={path:string;name:string;conversations:ConversationGroup[]};
+const runCount=(workspace:WorkspaceGroup)=>workspace.conversations.reduce((n,c)=>n+c.runs.length,0);
 
 export function BackgroundTasks() {
   const queryClient=useQueryClient();
+  const {t}=useTranslation();
   const {setSelectedTaskId,setSelectedWorkspacePath,selectedTaskId,selectedWorkspacePath,showToast}=useAppStore();
   const {data}=useQuery({queryKey:['backgroundRuns'],queryFn:api.getBackgroundRuns,refetchInterval:2000});
   const {data:hub}=useQuery({queryKey:['hubState'],queryFn:api.getState,refetchInterval:3000});
@@ -41,13 +45,15 @@ export function BackgroundTasks() {
   const workflows=data?.workflows||[];
   const workspaceRoots=hub?.workspaces?.items||[];
   const currentWorkspace=workspaceRoots.find(w=>w.path===selectedWorkspacePath)?.path||hub?.workspaces?.activePath||'';
-  const currentConversation=hub?.tasks?.find(t=>t.id===selectedTaskId&&!t.parentTaskId);
-  const activeItems=tasks.filter(t=>active(t.status));
+  const currentConversation=hub?.tasks?.find(item=>item.id===selectedTaskId&&!item.parentTaskId);
+  const activeItems=tasks.filter(item=>active(item.status));
+  // The names made up for a chat or a folder that has none: read here, not inside the memo, so that a change of language re-groups the list.
+  const untitledChat=t('agents_bg_untitled_chat'),unnamedWorkspace=t('agents_bg_workspace_fallback');
 
   const grouped=useMemo(()=>{
     const roots=new Map<string,WorkspaceGroup>();
-    const chats=new Map((hub?.tasks||[]).filter(t=>!t.parentTaskId)
-      .map(t=>[t.id,t.task||t.prompt||'Cuộc hội thoại'] as const));
+    const chats=new Map((hub?.tasks||[]).filter(item=>!item.parentTaskId)
+      .map(item=>[item.id,item.task||item.prompt||untitledChat] as const));
     const registered=new Map(workspaceRoots.map(w=>[w.path,w.name] as const));
     const sorted=[...tasks].sort((a,b)=>String(b.startedAt||'').localeCompare(String(a.startedAt||'')));
     for(const run of sorted){
@@ -58,20 +64,20 @@ export function BackgroundTasks() {
       if(scope==='conversation'&&run.conversationId!==selectedTaskId)continue;
       let workspace=roots.get(run.workspacePath);
       if(!workspace){
-        const name=registered.get(run.workspacePath)||run.workspacePath.split(/[\\/]/).filter(Boolean).pop()||'Workspace';
+        const name=registered.get(run.workspacePath)||run.workspacePath.split(/[\\/]/).filter(Boolean).pop()||unnamedWorkspace;
         workspace={path:run.workspacePath,name,conversations:[]};
         roots.set(run.workspacePath,workspace);
       }
       let conversation=workspace.conversations.find(item=>item.id===run.conversationId);
       if(!conversation){
         conversation={id:run.conversationId,
-          title:chats.get(run.conversationId)||run.title||'Cuộc hội thoại',runs:[]};
+          title:chats.get(run.conversationId)||run.title||untitledChat,runs:[]};
         workspace.conversations.push(conversation);
       }
       conversation.runs.push(run);
     }
     return [...roots.values()];
-  },[tasks,hub?.tasks,hub?.workspaces,workspaceRoots,currentWorkspace,selectedTaskId,scope]);
+  },[tasks,hub?.tasks,hub?.workspaces,workspaceRoots,currentWorkspace,selectedTaskId,scope,untitledChat,unnamedWorkspace]);
 
   const stop=async(taskId:string)=>{
     try{
@@ -80,8 +86,8 @@ export function BackgroundTasks() {
         queryClient.invalidateQueries({queryKey:['backgroundRuns']}),
         queryClient.invalidateQueries({queryKey:['hubState']}),
       ]);
-      showToast('Đã gửi yêu cầu dừng riêng task này.','info');
-    }catch(e){showToast(e instanceof Error?e.message:'Không thể dừng task.','error');}
+      showToast(t('agents_bg_stop_task_toast'),'info');
+    }catch(e){showToast(agentErrorText(e,t,t('agents_bg_stop_task_failed')),'error');}
   };
   const stopWorkflow=async(id:string)=>{
     if(cancellingWorkflow)return;
@@ -92,9 +98,9 @@ export function BackgroundTasks() {
         queryClient.invalidateQueries({queryKey:['backgroundRuns']}),
         queryClient.invalidateQueries({queryKey:['hubState']}),
       ]);
-      showToast('Đã gửi yêu cầu dừng workflow.','info');
+      showToast(t('agents_bg_stop_workflow_toast'),'info');
     }catch(e){
-      showToast(e instanceof Error?e.message:'Không thể dừng workflow.','error');
+      showToast(agentErrorText(e,t,t('agents_bg_stop_workflow_failed')),'error');
     }finally{setCancellingWorkflow(null);}
   };
   const openChat=async(folder:string,conversationId:string)=>{
@@ -103,7 +109,7 @@ export function BackgroundTasks() {
       setSelectedWorkspacePath(folder);
       setSelectedTaskId(conversationId);
       await queryClient.invalidateQueries({queryKey:['hubState']});
-    }catch(e){showToast(e instanceof Error?e.message:'Không thể mở hội thoại.','error');}
+    }catch(e){showToast(agentErrorText(e,t,t('agents_bg_open_chat_failed')),'error');}
   };
   const openAgent=async(folder:string,taskId:string)=>{
     try{
@@ -111,7 +117,7 @@ export function BackgroundTasks() {
       setSelectedWorkspacePath(folder);
       setSelectedTaskId(taskId);
       await queryClient.invalidateQueries({queryKey:['hubState']});
-    }catch(e){showToast(e instanceof Error?e.message:'Không thể mở subagent.','error');}
+    }catch(e){showToast(agentErrorText(e,t,t('agents_bg_open_agent_failed')),'error');}
   };
   const openWorkspace=async(folder:string)=>{
     try{
@@ -119,7 +125,7 @@ export function BackgroundTasks() {
       setSelectedWorkspacePath(folder);
       setSelectedTaskId('');
       await queryClient.invalidateQueries({queryKey:['hubState']});
-    }catch(e){showToast(e instanceof Error?e.message:'Không thể chuyển workspace.','error');}
+    }catch(e){showToast(agentErrorText(e,t,t('agents_bg_open_workspace_failed')),'error');}
   };
 
   const renderRun=(task:BackgroundRun,workspaceName:string,chatTitle:string)=> {
@@ -143,25 +149,26 @@ export function BackgroundTasks() {
         <FolderGit2 className="w-3 h-3 inline align-middle"/> {workspaceName} › <MessageSquare className="w-3 h-3 inline align-middle"/> {chatTitle}
       </div>
       <div className="flex flex-wrap gap-2 items-center text-[12px] text-muted">
-        <span>{taskStateLabel(task.status)}</span><span>{agents.length} subagent{agents.length===1?'':'s'}</span>
-        {tokens&&<span title="Tokens cộng dồn toàn hội thoại, không phải riêng task này">{tokens} tokens (chat)</span>}
+        <span>{taskStateText(task.status,t)}</span>
+        <span>{t(agents.length===1?'agents_bg_subagents_one':'agents_bg_subagents_other',{n:agents.length})}</span>
+        {tokens&&<span title={t('agents_bg_tokens_hint')}>{t('agents_bg_tokens',{tokens})}</span>}
       </div>
       {open&&<div className="space-y-2 border-t border-line pt-2">
         <p className="text-[12px] text-faint break-words">{task.title}</p>
-        <p className="text-[12px] text-muted break-all">Workspace: {task.workspacePath}</p>
-        <p className="text-[12px] text-muted break-words">Hội thoại: {chatTitle}</p>
+        <p className="text-[12px] text-muted break-all">{t('agents_bg_detail_workspace',{path:task.workspacePath})}</p>
+        <p className="text-[12px] text-muted break-words">{t('agents_bg_detail_chat',{title:chatTitle})}</p>
         {agents.length>0&&<div className="space-y-1">
           <div className="text-[12px] font-medium text-muted flex items-center gap-1">
-            <Network className="w-3 h-3"/> Subagents của task này
+            <Network className="w-3 h-3"/> {t('agents_bg_subagents_title')}
           </div>
           {agents.map(agent=><div key={agent.id}
             className="rounded border border-line bg-panel px-2 py-1.5 text-[12px]">
             <div className="flex items-center gap-2">
               {active(agent.status)?<Loader2 className="w-3 h-3 animate-spin"/>:<CheckCircle2 className="w-3 h-3"/>}
               <span className="truncate flex-1" title={agent.title}>{agent.title}</span>
-              <span className="text-faint">{taskStateLabel(agent.status)}</span>
+              <span className="text-faint">{taskStateText(agent.status,t)}</span>
               {active(agent.status)&&<button type="button" onClick={()=>void stop(agent.id)}
-                aria-label={'Dừng subagent '+agent.id}><Square className="w-3 h-3"/></button>}
+                aria-label={t('agents_bg_stop_subagent',{id:agent.id})}><Square className="w-3 h-3"/></button>}
             </div>
             {agent.branch&&<div className="flex gap-1 items-center text-faint mt-1">
               <GitBranch className="w-3 h-3"/>{agent.branch}
@@ -170,9 +177,9 @@ export function BackgroundTasks() {
         </div>}
         <div className="flex gap-3 items-center">
           <button type="button" onClick={()=>void openChat(task.workspacePath,task.conversationId)}
-            className="text-[12px] underline text-primary">Mở đúng hội thoại</button>
+            className="text-[12px] underline text-primary">{t('agents_bg_open_chat')}</button>
           {running&&<button type="button" onClick={()=>void stop(task.taskId)}
-            className="text-[12px] text-danger flex items-center gap-1"><Square className="w-3 h-3"/> Dừng task</button>}
+            className="text-[12px] text-danger flex items-center gap-1"><Square className="w-3 h-3"/> {t('agents_bg_stop_task')}</button>}
         </div>
       </div>}
     </article>;
@@ -180,22 +187,22 @@ export function BackgroundTasks() {
 
   return <div className="h-full flex flex-col bg-panel min-h-0">
     <div className="px-3 py-2 border-b border-line text-xs text-muted space-y-2">
-      <div>{activeItems.length} đang thực hiện · {tasks.length} tác vụ (không tính hội thoại)</div>
-      <div className="flex gap-1 flex-wrap" aria-label="Lọc background tasks">
+      <div>{t('agents_bg_summary',{active:activeItems.length,total:tasks.length})}</div>
+      <div className="flex gap-1 flex-wrap" aria-label={t('agents_bg_filter_label')}>
         <button type="button" aria-pressed={scope==='all'} onClick={()=>setScope('all')}
-          className={'px-2 py-1 rounded-md '+(scope==='all'?'bg-hover text-fg':'text-muted')}>Tất cả</button>
+          className={'px-2 py-1 rounded-md '+(scope==='all'?'bg-hover text-fg':'text-muted')}>{t('agents_bg_filter_all')}</button>
         <button type="button" disabled={!currentWorkspace} aria-pressed={scope==='workspace'} onClick={()=>setScope('workspace')}
-          className={'px-2 py-1 rounded-md disabled:opacity-30 '+(scope==='workspace'?'bg-hover text-fg':'text-muted')}>Workspace này</button>
+          className={'px-2 py-1 rounded-md disabled:opacity-30 '+(scope==='workspace'?'bg-hover text-fg':'text-muted')}>{t('agents_bg_filter_workspace')}</button>
         <button type="button" disabled={!currentConversation} aria-pressed={scope==='conversation'} onClick={()=>setScope('conversation')}
-          className={'px-2 py-1 rounded-md disabled:opacity-30 '+(scope==='conversation'?'bg-hover text-fg':'text-muted')}>Hội thoại này</button>
+          className={'px-2 py-1 rounded-md disabled:opacity-30 '+(scope==='conversation'?'bg-hover text-fg':'text-muted')}>{t('agents_bg_filter_conversation')}</button>
       </div>
     </div>
     <div className="flex-1 overflow-y-auto p-2 space-y-3">
       {!tasks.length&&<p className="p-4 text-xs text-faint">
-        Chưa có công việc nền. Agent có thể giao task cho subagent trong lúc bạn chat hoặc mở workspace khác.
+        {t('agents_bg_empty')}
       </p>}
       {tasks.length>0&&!grouped.length&&<p className="p-4 text-xs text-faint">
-        Không có background task nào thuộc phạm vi đang chọn.
+        {t('agents_bg_empty_scope')}
       </p>}
       {grouped.map(workspace=><section key={workspace.path} data-testid="background-workspace"
         data-workspace={workspace.path} className="space-y-2">
@@ -203,7 +210,7 @@ export function BackgroundTasks() {
           className="w-full text-left flex gap-2 items-center rounded-md bg-hover px-2 py-2 text-xs text-fg">
           <FolderGit2 className="w-4 h-4 text-primary flex-shrink-0"/>
           <span className="flex-1 truncate font-semibold">{workspace.name}</span>
-          <span className="text-faint">{workspace.conversations.reduce((n,c)=>n+c.runs.length,0)} task</span>
+          <span className="text-faint">{t(runCount(workspace)===1?'agents_bg_tasks_one':'agents_bg_tasks_other',{n:runCount(workspace)})}</span>
         </button>
         {workspace.conversations.map(chat=><div key={chat.id} data-testid="background-conversation"
           data-conversation={chat.id} className="space-y-1.5 pl-2 border-l-2 border-line">
