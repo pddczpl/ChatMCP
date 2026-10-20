@@ -778,6 +778,7 @@ test('a worker whose run stopped with an error shows the runner’s record of wh
       assert.doesNotMatch(card.text, /Báo cáo của AI|AI report/, `${status}/${lang}`);
       assert.ok(byRole(card, 'alert').some((node) => node.text === entry.error), `${status}/${lang}: the Hub’s own error line is still there, apart`);
       assert.match(line.attrs.class, /\bbreak-words\b/, 'text from outside has no natural break: it must not widen the card');
+      assert.match(line.attrs.class, /\bwhitespace-pre-wrap\b/, 'and a refusal of several paragraphs keeps its line breaks');
     }
   }
 });
