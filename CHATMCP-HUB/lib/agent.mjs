@@ -207,6 +207,31 @@ export function selectConversationCatalog(catalog, runPrompt, earlierPrompts = [
     earlierPromptsRead: promptsRead, fromRunPrompt, fromEarlierPrompts: names.size - fromRunPrompt,
   };
 }
+// Skills follow the conversation as the tool schemas do (selectConversationCatalog): the prompt of the run that is starting selects first, as it would
+// as the first message of a conversation, and the up to 20 prompts before it, newest first, add the skills there is room for under the same limit of 4
+// and 8,000 characters. One pass per prompt through selectSkillsForTask, never the prompts joined: its score sums over the words of the text and the limit
+// cuts by that sum, so with the prompts joined four skills named earlier push out the one the newest message names, and a skill passes the threshold on
+// words spread over messages none of which selects it. A run starts from the conversation checkpoint (the earlier prompts and events, no skill text), so
+// a skill the conversation has been using is sent again, once.
+const SKILL_LIMIT = 4;
+const SKILL_CHARACTERS = 8000;
+const SKILL_SELECTION_PROMPTS = TOOL_SELECTION_PROMPTS;
+export function selectConversationSkills(pluginManager, runPrompt, earlierPrompts = [], { workspacePath = null, limit = SKILL_LIMIT, tokenBudget = SKILL_CHARACTERS } = {}) {
+  const select = (prompt) => pluginManager.selectSkillsForTask({ prompt, workspacePath, limit, tokenBudget });
+  const size = (skill) => String(skill.systemPrompt ?? '').length;
+  const skills = [...select(runPrompt)];
+  const chosen = new Set(skills.map((skill) => skill.id));
+  let characters = skills.reduce((sum, skill) => sum + size(skill), 0);
+  for (const text of earlierPrompts.slice(-SKILL_SELECTION_PROMPTS).reverse()) {
+    if (skills.length >= limit) break;
+    for (const skill of select(text)) {
+      if (skills.length >= limit) break;
+      if (chosen.has(skill.id) || characters + size(skill) > tokenBudget) continue;
+      chosen.add(skill.id); skills.push(skill); characters += size(skill);
+    }
+  }
+  return skills;
+}
 // Models sometimes wrap an advertised direct local name in mcp_call. Resolve
 // only that explicit alias map; never guess a server or match remote basenames.
 // An exact catalog name always wins if it happens to collide with an alias.
@@ -891,9 +916,10 @@ export class AgentRunner {
           basis:{runPrompt:cleanPrompt.slice(0,300),earlierPromptsRead:earlier,fromRunPrompt:selection.fromRunPrompt,fromEarlierPrompts:selection.fromEarlierPrompts,cap:TOOL_SELECTION_CAP}});
       }
 
-      // Select task-relevant skills dynamically within token budget
+      // Select task-relevant skills dynamically within token budget. Not on task.prompt, the first prompt of the conversation: this run's prompt selects
+      // first and the earlier ones as task.prompts holds them now (a message queued while this run was preparing is among them) fill what is left.
       const selectedSkills = typeof this.manager.pluginManager?.selectSkillsForTask === 'function'
-        ? this.manager.pluginManager.selectSkillsForTask({ prompt: task.prompt, workspacePath: task.workspace?.path, limit: 4, tokenBudget: 8000 })
+        ? selectConversationSkills(this.manager.pluginManager, cleanPrompt, task.prompts.filter(entry => entry !== runPrompt).map(entry => entry.text), { workspacePath: task.workspace?.path })
         : (this.manager.pluginManager?.activeSkills?.() || []);
       task.selectedSkills = selectedSkills.map((s) => s.id);
       if (selectedSkills.length) {
