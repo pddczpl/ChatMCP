@@ -879,6 +879,13 @@ test('where the runner always says the same words the Vietnamese screen shows th
     assert.equal(leadOf(en).text, LEAD[code].en, code);
     assert.equal(runnerLineOf(en).text, `${RUNNER_LABEL.en} ${text}`, code);
   }
+  // a Hub sentence that only quotes the page’s line further on (a provider echoing it, a note before it) does not say it: the line stays
+  for (const [code, text] of [['empty_final', EMPTY_FINAL], ['user_cancelled', USER_CANCELLED]]) {
+    const quoting = `Ghi chú: ${text}`;
+    const card = await cardOf(withCode(quoting, code), 'vi');
+    assert.equal(leadOf(card)?.text, LEAD[code].vi, `${code}: the Hub’s sentence does not begin with it`);
+    assert.equal(runnerLineOf(card).text, `${RUNNER_LABEL.vi} ${quoting}`, code);
+  }
   // the owner stopped a run in the middle of a tool call: the runner adds what it does not know about the last action. A code cannot carry that, so it is the Hub’s sentence that does, whole, in both
   const stopped = `${USER_CANCELLED} ${IN_FLIGHT}`;
   for (const lang of ['en', 'vi']) {

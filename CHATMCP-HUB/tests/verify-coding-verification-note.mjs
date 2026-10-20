@@ -226,7 +226,7 @@ try {
   // a sentence up by it, so the Hub passes on only a short plain code (lowercase letters, digits and underscores, starting with a letter, 64 characters at most)
   {
     for (const good of ['empty_final', 'user_cancelled', 'gateway_rate_limit', 'a', 'a1', 'a_', 'x'.repeat(64)]) assert.equal(runnerCodeOf(good), good, good);
-    const notCodes = [undefined, null, '', 'ECONNRESET', 'Gateway_auth', 'gateway-auth', 'gateway auth', ' gateway_auth', '_leading', '1digit', 'trailing\n', 'x'.repeat(65), 'kém', '../agent_status_failed',
+    const notCodes = [undefined, null, '', 'ECONNRESET', 'Gateway_auth', 'gateway_Auth', 'gatewayAuth', 'gateway-auth', 'gateway auth', ' gateway_auth', '_leading', '1digit', 'trailing\n', 'x'.repeat(65), 'kém', '../agent_status_failed',
       'a.b', 429, 0, true, {}, ['gateway_auth'], { toString: () => 'gateway_auth' }];
     for (const bad of notCodes) assert.equal(runnerCodeOf(bad), '', typeof bad === 'object' ? JSON.stringify(bad) ?? 'object' : String(bad));
     ok('only a short plain code is passed on as the code of a run that ended with an error');
@@ -479,6 +479,7 @@ try {
       ['the longest plain code', failure('edge', 'x'.repeat(64)), 'x'.repeat(64)],
       ['no code at all: the runner calls it task_failed', new Error('plain failure'), 'task_failed'],
       ['a code of the system', failure('read ECONNRESET', 'ECONNRESET'), ''],
+      ['a code with a capital letter in it', failure('mixed', 'gateway_Auth'), ''],
       ['a code one character too long', failure('long', 'x'.repeat(65)), ''],
       ['a code that starts with an underscore', failure('underscore', '_leading'), ''],
       ['a code that starts with a digit', failure('digit', '1digit'), ''],

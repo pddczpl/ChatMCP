@@ -416,7 +416,7 @@ test('the code of the runner’s record is passed on as the short plain code it 
 });
 
 test('a code that is not a short plain code is none: the page looks a sentence up by it, so nothing else may reach the dictionary', () => {
-  const notCodes = [undefined, null, '', ' ', ' empty_final', 'empty_final ', 'empty_final\n', 'ECONNRESET', 'Empty_final', 'empty-final', 'empty final', '_x', '1x', 'x'.repeat(65), 'kém',
+  const notCodes = [undefined, null, '', ' ', ' empty_final', 'empty_final ', 'empty_final\n', 'ECONNRESET', 'Empty_final', 'empty_Final', 'emptyFinal', 'empty-final', 'empty final', '_x', '1x', 'x'.repeat(65), 'kém',
     '../agent_status_failed', 'a.b', '__proto__', 7, 0, true, {}, [], ['empty_final'], { code: 'empty_final' }];
   for (const bad of notCodes) assert.equal(runnerErrorCodeOf(worker({ runnerErrorCode: bad })), null, typeof bad === 'object' ? JSON.stringify(bad) : String(bad));
   assert.equal(runnerErrorCodeOf(null), null);
