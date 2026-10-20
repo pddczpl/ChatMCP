@@ -22,6 +22,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { isProtectedPath } from './protected-paths.mjs';
+import { alignCut, cleanText, trimBlank } from './text-bounds.mjs';
 
 export const PROJECT_INSTRUCTIONS_MAX_BYTES = 8192;
 export const PROJECT_INSTRUCTION_FILES = Object.freeze(['AGENTS.md', 'CLAUDE.md', '.claude/CLAUDE.md']);
@@ -29,8 +30,6 @@ export const PROJECT_INSTRUCTION_FILE_LIMIT_BYTES = 256 * 1024;
 export const PROJECT_INSTRUCTIONS_VARIABLE = 'CHATMCP_PROJECT_INSTRUCTIONS';
 // A file that could keep fewer bytes than this is not worth a header and a marker: it is named as not loaded instead.
 const MIN_USEFUL_BYTES = 64;
-// A cut prefers the end of a line when there is one within this many bytes (or a quarter of what is kept, whichever is less).
-const LINE_WINDOW_BYTES = 1024;
 
 const sha256 = (data) => createHash('sha256').update(data).digest('hex');
 const strictUtf8 = new TextDecoder('utf-8', { fatal: true });
@@ -55,32 +54,6 @@ const emptyRecord = (cap, extra = {}) => ({ enabled: true, maxBytes: cap, blockB
 
 // ---- text -----------------------------------------------------------------------------------------------------------------------------
 
-// What carries a hidden instruction or a terminal trick, as code point ranges (a table and a loop: no pattern, no raw invisible character in this
-// source): control characters except tab and line feed, soft hyphen and other invisible format characters, zero-width and bidi controls, the
-// invisible Hangul and Khmer fillers, the byte order mark, and the tag characters and variation selectors of plane 14.
-const INVISIBLE = Object.freeze([
-  [0x00, 0x08], [0x0b, 0x0c], [0x0e, 0x1f], [0x7f, 0x9f], [0xad, 0xad], [0x34f, 0x34f], [0x61c, 0x61c], [0x115f, 0x1160], [0x17b4, 0x17b5],
-  [0x180b, 0x180e], [0x200b, 0x200f], [0x202a, 0x202e], [0x2060, 0x206f], [0x3164, 0x3164], [0xfeff, 0xfeff], [0xffa0, 0xffa0],
-  [0xfff9, 0xfffb], [0xe0000, 0xe0fff],
-]);
-const invisible = (code) => INVISIBLE.some(([first, last]) => code >= first && code <= last);
-
-/** Line ends become LF (CR LF, a lone CR, U+2028, U+2029 and NEL); the invisible characters are removed and counted. */
-function clean(text) {
-  const out = [];
-  let stripped = 0;
-  let afterCr = false;
-  for (const character of text) {
-    const code = character.codePointAt(0);
-    if (code === 0x0a && afterCr) { afterCr = false; continue; }
-    afterCr = code === 0x0d;
-    if (code === 0x0a || code === 0x0d || code === 0x2028 || code === 0x2029 || code === 0x85) out.push('\n');
-    else if (code === 0x09 || !invisible(code)) out.push(character);
-    else stripped += 1;
-  }
-  return { text: out.join(''), stripped };
-}
-
 /** The text of a file as bytes, or the reason it is refused. UTF-8 (BOM dropped) and UTF-16LE with a BOM; nothing else is guessed. */
 function decode(raw) {
   if (raw.length >= 2 && raw[0] === 0xff && raw[1] === 0xfe) {
@@ -95,35 +68,11 @@ function decode(raw) {
   try { return { text: strictUtf8.decode(body) }; } catch { return { reason: 'not_utf8' }; }
 }
 
-/** Lines that hold only blanks are dropped from the start, whitespace from the end (a loop and trimEnd: no pattern that can backtrack). */
-function trimBlank(text) {
-  let start = 0;
-  for (;;) {
-    let i = start;
-    while (i < text.length && (text[i] === ' ' || text[i] === '\t')) i += 1;
-    if (i < text.length && text[i] === '\n') { start = i + 1; continue; }
-    if (i >= text.length) start = text.length;
-    break;
-  }
-  return text.slice(start).trimEnd();
-}
-
 function normalize(raw) {
   const decoded = decode(raw);
   if (decoded.reason) return decoded;
-  const cleaned = clean(decoded.text);
+  const cleaned = cleanText(decoded.text);
   return { text: trimBlank(cleaned.text), stripped: cleaned.stripped };
-}
-
-/** How many bytes of `buffer` to keep when at most `limit` fit: never the middle of a character, and the end of a line when one is near. */
-function alignCut(buffer, limit) {
-  let cut = Math.max(0, Math.min(limit, buffer.length));
-  if (cut >= buffer.length) return buffer.length;
-  while (cut > 0 && (buffer[cut] & 0xc0) === 0x80) cut -= 1;
-  if (buffer[cut] === 0x0a) return cut;
-  const window = Math.min(LINE_WINDOW_BYTES, Math.floor(cut / 4));
-  const newline = cut > 0 ? buffer.lastIndexOf(0x0a, cut - 1) : -1;
-  return newline > 0 && newline >= cut - window ? newline : cut;
 }
 
 // ---- files ----------------------------------------------------------------------------------------------------------------------------
