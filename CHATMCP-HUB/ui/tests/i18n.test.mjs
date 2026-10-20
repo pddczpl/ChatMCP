@@ -4,9 +4,10 @@ import { bundleTsx } from './support/bundle.mjs';
 
 const { loaded, dispose } = await bundleTsx(`
   export { translations, translate } from './src/lib/i18n';
+  export { assessWorker, assessReport } from './src/lib/agent-proof';
 `, 'chatmcp-i18n-');
 after(dispose);
-const { translations, translate } = loaded;
+const { translations, translate, assessWorker, assessReport } = loaded;
 
 const placeholders = (text) => [...String(text).matchAll(/\{(\w+)\}/g)].map(match => match[1]).sort();
 
@@ -66,4 +67,32 @@ test('the English text is not the Vietnamese text left in place (agents dictiona
   assert.ok(agentKeys.length > 40, `the agents dictionary has ${agentKeys.length} keys`);
   const diacritics = /[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]/i;
   for (const key of agentKeys) assert.doesNotMatch(translations.en[key], diacritics, `en.${key} still reads Vietnamese: ${translations.en[key]}`);
+});
+
+test('every kind of evidence the helpers can report has a title and a note in both languages', () => {
+  const kinds = new Set();
+  for (const status of ['queued', 'running', 'ready_for_review', 'no_changes', 'failed', 'needs_attention', 'blocked', 'cancelled', 'interrupted', 'completed', 'something_new']) {
+    kinds.add(assessWorker({ status }).kind);
+    kinds.add(assessReport(status).kind);
+  }
+  kinds.add(assessWorker({ status: 'ready_for_review', verifyRequired: true, verificationOutcome: { state: 'ready_for_review' }, verificationAttempts: [{ checkId: 'c', testOutcomeVerified: true }] }).kind);
+  kinds.add(assessWorker({ status: 'ready_for_review', verificationAttempts: [{ checkId: 'c', status: 'failed' }] }).kind);
+  assert.deepEqual([...kinds].sort(), ['ai-report', 'attention', 'check-failed', 'failed', 'no-changes', 'stopped', 'unverified', 'verified', 'working']);
+  for (const kind of kinds) {
+    for (const lang of ['vi', 'en']) {
+      for (const part of ['title', 'note']) {
+        const key = `agent_proof_${kind.replace(/-/g, '_')}_${part}`;
+        assert.ok(translations[lang][key]?.trim(), `${lang}.${key} is missing`);
+      }
+    }
+  }
+});
+
+test('every status a worker, a run or a merge can have reads in plain words in both languages', () => {
+  for (const status of ['pending', 'queued', 'preparing', 'planning', 'running', 'completed', 'failed', 'cancelled', 'interrupted', 'needs_attention', 'ready_for_review', 'awaiting_test_grant', 'testing', 'blocked', 'skipped', 'no_changes', 'conflict', 'partial_failure', 'published', 'draft_pr_created', 'verified']) {
+    for (const lang of ['vi', 'en']) assert.ok(translations[lang][`agent_status_${status}`]?.trim(), `${lang}: no word for ${status}`);
+  }
+  for (const role of ['planner', 'researcher', 'tester', 'reviewer', 'security', 'summarizer']) {
+    for (const lang of ['vi', 'en']) assert.ok(translations[lang][`agent_role_${role}`]?.trim(), `${lang}: no word for ${role}`);
+  }
 });

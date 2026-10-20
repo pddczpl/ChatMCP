@@ -1,6 +1,6 @@
 import { test, expect, onboard, openWorkTab, openSettings, closeSettings } from './fixtures.mjs';
 import { say, call } from '../../tests/e2e/scenarios.mjs';
-import { setMode, waitFor } from '../../tests/e2e/hub-process.mjs';
+import { setMode } from '../../tests/e2e/hub-process.mjs';
 import { git } from '../../tests/e2e/fixtures.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -36,7 +36,6 @@ async function shot(page, testInfo, name, target = page) {
   await page.waitForTimeout(250);
   await target.screenshot({ path: testInfo.outputPath(`${name}.png`), animations: 'disabled' });
 }
-const panelOf = (page) => page.getByRole('complementary', { name: 'Công cụ làm việc' });
 
 async function openAgents(page, section) {
   await openWorkTab(page, 'Tác nhân');
@@ -185,6 +184,48 @@ test('a coding worker: plan, start, read the diff, merge on a new branch — and
   expect(branches.some((name) => name.startsWith('chatmcp/coder/'))).toBe(true);
   expect(branches.some((name) => name.startsWith('chatmcp/integration/'))).toBe(true);
   expect(git(app.project, app.scratch, ['branch', '--show-current']).stdout).toBe('main');
+});
+
+test('a run in progress is the Hub’s state, not the page’s: another tab and back keeps start off, and Stop stops it', async ({ page, app }) => {
+  test.setTimeout(180_000);
+  app.mock.define('slow-worker', async (ctx) => {
+    if (!ctx.prompt.startsWith('TASK: ')) return say('Xong.');
+    if (ctx.turn === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 6_000));
+      const args = { path: NOTE, content: '# Agent note\n' };
+      return ctx.tools.includes('write_file') ? call('write_file', args) : call('mcp_call', { name: 'local.write_file', arguments_json: JSON.stringify(args) });
+    }
+    return say(CLAIM);
+  });
+  app.mock.setScenario('slow-worker');
+  await onboard(page, app);
+  await setMode(app.hub, 'autonomous');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const head = git(app.project, app.scratch, ['rev-parse', 'HEAD']).stdout;
+  await openAgents(page, 'Sửa mã');
+  const coding = page.getByTestId('coding-agents');
+  await coding.getByRole('textbox', { name: 'Công việc 1', exact: true }).fill('Add a file named AGENT-NOTE.md');
+  await coding.getByRole('button', { name: 'Bắt đầu sửa mã', exact: true }).click();
+  await page.getByRole('alertdialog', { name: /Cho phép AI sửa tệp/ }).getByRole('button', { name: 'Cho phép và bắt đầu' }).click();
+  await expect(coding.getByRole('button', { name: 'Đang sửa mã…' })).toBeDisabled();
+  await expect(coding.getByRole('button', { name: 'Dừng sửa mã' })).toBeEnabled();
+  await expect.poll(async () => (await app.hub.get('/api/studio/coding')).json.activeRunId).not.toBeNull();
+
+  // leaving the tab drops the page’s own state; what the Hub says is all that is left, and it is enough
+  await openWorkTab(page, 'Thay đổi');
+  await openAgents(page, 'Sửa mã');
+  await expect(coding.getByRole('button', { name: 'Đang sửa mã…' })).toBeDisabled();
+  await expect(coding.getByRole('button', { name: 'Dừng sửa mã' })).toBeEnabled();
+  await expect(coding.getByText('Đang có một lần sửa mã hoặc gộp thay đổi chạy', { exact: false })).toBeVisible();
+  await expect(coding.getByTestId('coding-worker').first()).toHaveAttribute('data-kind', 'working');
+  await expect(coding.getByRole('textbox', { name: 'Chia công việc từ một yêu cầu' })).toBeDisabled();
+
+  await coding.getByRole('button', { name: 'Dừng sửa mã' }).click();
+  await expect.poll(async () => (await app.hub.get('/api/studio/coding')).json.jobs.at(-1)?.status, { timeout: 60_000 }).toBe('cancelled');
+  await expect(coding.getByRole('button', { name: 'Bắt đầu sửa mã', exact: true })).toBeEnabled({ timeout: 30_000 });
+  await expect(coding.getByTestId('coding-result')).toHaveAttribute('data-status', 'cancelled');
+  await expect(coding.getByTestId('coding-worker').first()).not.toHaveAttribute('data-tone', 'success');
+  await expectCheckoutUntouched(app, head);
 });
 
 test('agent groups: the AI’s words are a report, labelled and never green, and what is typed survives a visit to another tab', async ({ page, app }, testInfo) => {
