@@ -63,6 +63,15 @@ export function workerWords(result){
   const {answer,notice}=splitRunnerNotice(result?.finalText,result?.verificationOutcome);
   return {summary:bounded(answer,SUMMARY_MAX),notice:bounded(notice,RUNNER_NOTICE_MAX)};
 }
+// A code is a short plain word: lowercase letters, digits and underscores, starting with a letter, 64 characters at most.
+const RUNNER_CODE=/^[a-z][a-z0-9_]{0,63}$/;
+/**
+ * The code of the error that ended an AgentRunner run, if it is one a page can look a sentence up by. The runner records the `code` of that error exactly as it came: a model
+ * adapter's (`gateway_auth`), the system's (`ECONNRESET`), a bug's, a number, a list. Only a short plain code is passed on; anything else is '' (no code).
+ */
+export function runnerCodeOf(code){
+  return typeof code==='string'&&RUNNER_CODE.test(code)?code:'';
+}
 const cleanGitPath=(p)=>p.replaceAll('\\','/');
 const getError=(result,operation)=>{
   if(result.code!==0||result.truncated||result.timedOut){
@@ -383,7 +392,9 @@ export class CodingWorktreeOrchestrator {
           // Why a run stopped is the AgentRunner's own record (redacted; its sentences are mostly Vietnamese and may quote the provider or a refusal), so it is the
           // Hub's and not the model's: a field of its own, only when the run ended with an error.
           const runnerError=bounded(result?.error,RUNNER_ERROR_MAX);
-          return {state:initialState,summary:initialSummary,taskId:task.id,steps:result?.steps,toolCalls:result?.toolCalls,...(runnerError?{runnerError}:{}),...said};
+          // Its code is what a page translates: passed on only with the sentence it belongs to, and only if it is a short plain code (runnerCodeOf).
+          const runnerErrorCode=runnerError?runnerCodeOf(result?.errorCode):'';
+          return {state:initialState,summary:initialSummary,taskId:task.id,steps:result?.steps,toolCalls:result?.toolCalls,...(runnerError?{runnerError,...(runnerErrorCode?{runnerErrorCode}:{})}:{}),...said};
         }
         // Verified coding is opt-in and can never silently execute on host.
         // Require explicitly granted immutable test IDs and a positive Node TAP
@@ -623,6 +634,7 @@ export class CodingWorktreeOrchestrator {
           if(out.verificationNote)node.verificationNote=out.verificationNote;
           // And the AgentRunner's record of why a run stopped, kept apart from what the model said: only a run that ended with an error has one.
           if(out.runnerError)node.runnerError=out.runnerError;
+          if(out.runnerErrorCode)node.runnerErrorCode=out.runnerErrorCode;
           // And the sentence the AgentRunner ended the model's answer with when the Hub's evidence did not back the run's plan: the Hub's, not the model's, so not in the summary.
           if(out.runnerNotice)node.runnerNotice=out.runnerNotice;
           node.steps=out.steps;node.toolCalls=out.toolCalls;

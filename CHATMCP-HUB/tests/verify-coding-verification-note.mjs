@@ -2,6 +2,7 @@
 // said. The summary of a worker is the model's words and nothing else, so that a page can label the one as the AI's report and the other as the Hub's.
 // The same holds for a worker whose run fails: the AgentRunner's own error is the field `runnerError`, and a model that said nothing leaves the summary empty.
 // And for a worker that completed: the sentence the AgentRunner ends the model's final text with when the Hub's evidence does not back the run's plan is the field `runnerNotice`.
+// The code the AgentRunner ended a failed run with comes with its sentence as `runnerErrorCode`: it is what a page translates, so only a short plain code is passed on.
 // Real orchestrator, real AgentRunner and real test broker; the model and the isolated backend are scripted (this is not OS isolation).
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -11,7 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { HubManager } from '../lib/manager.mjs';
 import { assembleStudio } from '../lib/assemble.mjs';
-import { CodingWorktreeOrchestrator, splitRunnerNotice, workerWords } from '../lib/coding-orchestrator.mjs';
+import { CodingWorktreeOrchestrator, runnerCodeOf, splitRunnerNotice, workerWords } from '../lib/coding-orchestrator.mjs';
 import { ExecutionBackend, validateCapabilityReport, validateExecutionReceipt } from '../lib/execution-contract.mjs';
 import { BLACKBOX_KIND } from '../lib/native-blackbox-contract.mjs';
 
@@ -148,6 +149,12 @@ const refusingModel = (refusal) => ({
   snapshot: () => ({ provider: 'fake', model: 'fixture' }),
   async respond() { return { status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'refusal', refusal }] }] }; },
 });
+/** A model whose request fails: the provider (or the system, or a bug) throws an error that carries whatever `code` it likes. */
+const failingModel = (error) => ({
+  ready: () => true,
+  snapshot: () => ({ provider: 'fake', model: 'fixture' }),
+  async respond() { throw error; },
+});
 /** A model that is still thinking when the owner stops the run: it answers only when it is aborted, and then with the abort. */
 const waitingModel = (onAsked) => ({
   ready: () => true,
@@ -215,6 +222,16 @@ try {
     ok('the runner\'s verification notice is split off the end of a final text only where the runner\'s own record says it wrote one');
   }
 
+  // 0b. the code on its own. The AgentRunner records the `code` of the error that ended a run as it came: a provider's, the system's (`ECONNRESET`), a bug's, a number. A page looks
+  // a sentence up by it, so the Hub passes on only a short plain code (lowercase letters, digits and underscores, starting with a letter, 64 characters at most)
+  {
+    for (const good of ['empty_final', 'user_cancelled', 'gateway_rate_limit', 'a', 'a1', 'a_', 'x'.repeat(64)]) assert.equal(runnerCodeOf(good), good, good);
+    const notCodes = [undefined, null, '', 'ECONNRESET', 'Gateway_auth', 'gateway-auth', 'gateway auth', ' gateway_auth', '_leading', '1digit', 'trailing\n', 'x'.repeat(65), 'kém', '../agent_status_failed',
+      'a.b', 429, 0, true, {}, ['gateway_auth'], { toString: () => 'gateway_auth' }];
+    for (const bad of notCodes) assert.equal(runnerCodeOf(bad), '', typeof bad === 'object' ? JSON.stringify(bad) ?? 'object' : String(bad));
+    ok('only a short plain code is passed on as the code of a run that ended with an error');
+  }
+
   // 1. verification asked for, and the project has no check the Hub supports: the worker needs the owner, the Hub says why in its own field
   {
     const { agent, stop } = await fixture('no-checks', { manifest: false, provider: scriptedModel(ANSWER, []) });
@@ -232,6 +249,7 @@ try {
       assert.equal(wants.summary, ANSWER, 'the summary is what the model said: the Hub\'s sentence is not in it');
       assert.deepEqual(wants.verificationNote, { code: 'no_checks', text: NOTES.no_checks });
       assert.ok(!('runnerError' in plain) && !('runnerError' in wants), 'a run that ended normally has no error of the runner to report');
+      assert.ok(!('runnerErrorCode' in plain) && !('runnerErrorCode' in wants), 'and so no code of one');
       assert.ok(!('runnerNotice' in plain) && !('runnerNotice' in wants), 'and tasks too short to be planned have no sentence of the runner either');
       assert.equal(job.status, 'partial_failure');
       const saved = JSON.parse(await fs.readFile(path.join(agent.directory, 'jobs.json'), 'utf8')).jobs.at(-1);
@@ -252,7 +270,7 @@ try {
       assert.equal(wants.summary, ANSWER);
       assert.equal(wants.runnerNotice, NOTICE, 'a long task: the same first run, the same split, whatever the Hub did after it');
       assert.deepEqual(wants.verificationNote, { code: 'grant_timeout', text: NOTES.grant_timeout });
-      assert.ok(!('runnerError' in wants), 'the run itself ended normally');
+      assert.ok(!('runnerError' in wants) && !('runnerErrorCode' in wants), 'the run itself ended normally');
       assert.equal(wants.verificationOutcome, undefined, 'no verification ran: there is no outcome to report');
       ok('an unanswered request for a test grant ends as needs_attention with a grant_timeout note');
     } finally { await stop(); }
@@ -281,7 +299,7 @@ try {
       assert.equal(wants.runnerNotice, NOTICE, 'the runner\'s sentence on the first run, which the repairs after it do not touch');
       const reason = 'Repair/test retry budget exhausted.';
       assert.deepEqual(wants.verificationNote, { code: 'blocked', text: 'Verified coding blocked: ' + reason, detail: reason });
-      assert.ok(!('runnerError' in wants), 'the Hub\'s reason for stopping the loop is the note\'s, not an error of the runner');
+      assert.ok(!('runnerError' in wants) && !('runnerErrorCode' in wants), 'the Hub\'s reason for stopping the loop is the note\'s, not an error of the runner');
       assert.equal(wants.verificationOutcome.state, 'needs_attention', 'the loop\'s own record agrees with the note');
       assert.equal(wants.verificationOutcome.reason, reason);
       assert.equal(wants.verificationAttempts.length, 3);
@@ -301,14 +319,17 @@ try {
       assert.equal(quiet.status, 'failed', JSON.stringify(quiet));
       assert.equal(quiet.summary, '', 'the model said nothing: the summary is empty, and the runner\'s sentence is not put in its place');
       assert.equal(quiet.runnerError, EMPTY_FINAL, 'the runner\'s own sentence, exactly');
+      assert.equal(quiet.runnerErrorCode, 'empty_final', 'and the code it carries, which is what a page translates');
       assert.ok(!('verificationNote' in quiet), 'it is an error of the run, not a note about a verification');
       assert.ok(!('runnerNotice' in quiet), 'and a run with no final text has no notice appended to it');
       assert.equal(job.workers.length, 1);
       const saved = JSON.parse(await fs.readFile(path.join(agent.directory, 'jobs.json'), 'utf8')).jobs.at(-1).workers[0];
       assert.equal(saved.summary, '');
       assert.equal(saved.runnerError, quiet.runnerError, 'what is saved is what is reported');
+      assert.equal(saved.runnerErrorCode, 'empty_final', 'the code too');
       assert.equal(agent.state().jobs.at(-1).workers[0].runnerError, EMPTY_FINAL, 'and it is what GET /api/studio/coding sends to a page');
-      ok('a worker whose model said nothing fails with an empty summary and the runner\'s sentence as its own runnerError');
+      assert.equal(agent.state().jobs.at(-1).workers[0].runnerErrorCode, 'empty_final', 'with its code');
+      ok('a worker whose model said nothing fails with an empty summary and the runner\'s sentence as its own runnerError, with its code');
     } finally { await stop(); }
   }
 
@@ -326,6 +347,7 @@ try {
       assert.equal(refused.summary, '', 'a refusal is not a report of work');
       assert.equal(refused.runnerError.length, RUNNER_ERROR_MAX, 'cut at the bound');
       assert.equal(refused.runnerError, (REFUSAL_PREFIX + refusal).slice(0, RUNNER_ERROR_MAX), 'the runner\'s sentence and the beginning of the refusal, in that order');
+      assert.equal(refused.runnerErrorCode, 'model_refusal', 'the code says it was a refusal whatever the model wrote and however much of it was kept');
       assert.ok(!('runnerNotice' in refused));
       ok('a long refusal is the runnerError of the worker, cut at ' + RUNNER_ERROR_MAX + ' characters, and not its summary');
     } finally { await stop(); }
@@ -345,6 +367,7 @@ try {
       assert.equal(slow.status, 'cancelled', JSON.stringify(slow));
       assert.equal(slow.summary, '');
       assert.equal(slow.runnerError, USER_CANCELLED);
+      assert.equal(slow.runnerErrorCode, 'user_cancelled', 'a stopped run is told by its code even though its status is cancelled and not failed');
       assert.ok(!('runnerNotice' in slow));
       ok('a worker the owner stopped carries the runner\'s sentence about it as runnerError, with an empty summary');
     } finally { await stop(); }
@@ -367,7 +390,7 @@ try {
       assert.ok(!('runnerNotice' in short), 'a task too short to be planned has nothing for the runner to say');
       assert.equal(long.summary, ANSWER, 'the summary is what the model said: the runner\'s sentence is not in it');
       assert.equal(long.runnerNotice, NOTICE, 'the runner\'s sentence, exactly, as a field of its own');
-      assert.ok(!('runnerError' in long) && !('verificationNote' in long), 'the run ended normally, and nobody was asked to verify it');
+      assert.ok(!('runnerError' in long) && !('runnerErrorCode' in long) && !('verificationNote' in long), 'the run ended normally, and nobody was asked to verify it');
       // the runner keeps what it always kept: its final text is the model's words, the separator and the sentence, which is what the main chat shows
       const held = JSON.parse(await fs.readFile(path.join(agent.directory, 'runs', job.id, 'state', 'long', 'tasks', long.agentTaskId, 'task.json'), 'utf8'));
       assert.equal(held.finalText, ANSWER + NOTICE_MARK + NOTICE, 'the text of the runner is unchanged: only the worker\'s record of it is split');
@@ -444,6 +467,47 @@ try {
       assert.equal(wants.runnerNotice, NOTICE, 'the runner\'s sentence on the first run stays the Hub\'s, beside the note that the checks the Hub ran have evidence');
       ok('a worker the Hub verified keeps the model\'s words as summary and the runner\'s sentence on them as runnerNotice');
     } finally { await stop(); }
+  }
+
+  // 11. the code of a run that ended with an error is whatever `code` the error carried: a model adapter's, the system's, a bug's, a number. The real runner keeps it as it came (checked
+  // here, so this goes through the real runner and not through the function of 0b alone); the Hub passes on only a short plain code, and only with the sentence it belongs to
+  {
+    const failure = (message, code) => Object.assign(new Error(message), { code });
+    const cases = [
+      // [what the error carries, the error, the code the worker reports ('' = none)]
+      ['a code of the model adapters', failure('Gateway HTTP 429: slow down', 'gateway_rate_limit'), 'gateway_rate_limit'],
+      ['the longest plain code', failure('edge', 'x'.repeat(64)), 'x'.repeat(64)],
+      ['no code at all: the runner calls it task_failed', new Error('plain failure'), 'task_failed'],
+      ['a code of the system', failure('read ECONNRESET', 'ECONNRESET'), ''],
+      ['a code one character too long', failure('long', 'x'.repeat(65)), ''],
+      ['a code that starts with an underscore', failure('underscore', '_leading'), ''],
+      ['a code that starts with a digit', failure('digit', '1digit'), ''],
+      ['a code with a space in it', failure('space', 'has space'), ''],
+      ['a number', failure('number', 429), ''],
+      ['a list that reads as a code', failure('list', ['gateway_auth']), ''],
+      ['an empty code', failure('empty code', ''), ''],
+      ['a plain code and no words: the runner has no sentence, so there is nothing for the code to belong to', failure('', 'gateway_auth'), ''],
+    ];
+    for (const [index, [label, error, expected]] of cases.entries()) {
+      const { agent, stop } = await fixture('code-' + index, { manifest: false, provider: failingModel(error) });
+      try {
+        const job = await withDeadline(agent.run({ tasks: [{ id: 'w', prompt: 'W: add w.txt' }], confirmation: 'CREATE WORKTREES', maxConcurrency: 1 }),
+          60_000, `the run of a model that fails (${label}) did not end`);
+        const failed = job.workers[0];
+        assert.equal(failed.status, 'failed', `${label}: ${JSON.stringify(failed).slice(0, 300)}`);
+        assert.equal(failed.summary, '', label);
+        if (error.message) assert.equal(failed.runnerError, error.message, `${label}: the sentence is the error's own`);
+        else assert.ok(!('runnerError' in failed), `${label}: the runner recorded no sentence`);
+        if (expected) assert.equal(failed.runnerErrorCode, expected, label);
+        else assert.ok(!('runnerErrorCode' in failed), `${label}: no code is passed on, and this one is ${JSON.stringify(failed.runnerErrorCode)}`);
+        // (premise) the runner kept the code exactly as the error carried it, so a filter in the Hub is what stands between a page and an odd code
+        const held = JSON.parse(await fs.readFile(path.join(agent.directory, 'runs', job.id, 'state', 'w', 'tasks', failed.agentTaskId, 'task.json'), 'utf8'));
+        assert.deepEqual(held.errorCode, error.code ?? 'task_failed', `(premise) ${label}: the runner's own record of the code`);
+        const saved = JSON.parse(await fs.readFile(path.join(agent.directory, 'jobs.json'), 'utf8')).jobs.at(-1).workers[0];
+        assert.equal(saved.runnerErrorCode, failed.runnerErrorCode, `${label}: what is saved is what is reported`);
+      } finally { await stop(); }
+    }
+    ok('a run that ended with an error reports its code when it is a short plain one with a sentence, and no other, through the real runner');
   }
 
   // The four sentences are the Hub's, in the source of the Hub, and each note code a page can be asked to translate is one the Hub can send.
