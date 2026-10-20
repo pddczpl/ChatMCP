@@ -8,11 +8,15 @@ import { parseHtml, byTag, byRole, all, accessibleName, duplicateIds, unnamedCon
 const { loaded, dispose } = await bundleTsx(`
   ${renderPrelude}
   import { CodingWorkers } from './src/components/inspector/CodingWorkers';
-  import { CodingRunView } from './src/components/inspector/CodingRunView';
-  export { CodingWorkers, CodingRunView };
+  import { CodingRunView, RecoveryStatus } from './src/components/inspector/CodingRunView';
+  import { ContextPanel, ReviewPanel } from './src/components/inspector/CodingReview';
+  import { DiffView } from './src/components/inspector/DiffView';
+  import { AiReport } from './src/components/inspector/agent-parts';
+  import { ConfirmDialog } from './src/components/inspector/ConfirmDialog';
+  export { CodingWorkers, CodingRunView, RecoveryStatus, ContextPanel, ReviewPanel, DiffView, AiReport, ConfirmDialog };
 `, 'chatmcp-coding-');
 after(dispose);
-const { renderWith, CodingWorkers, CodingRunView } = loaded;
+const { renderWith, CodingWorkers, CodingRunView, RecoveryStatus, ContextPanel, ReviewPanel, DiffView, AiReport, ConfirmDialog } = loaded;
 
 const RUN = '11111111-2222-3333-4444-555555555555';
 const hub = (overrides = {}) => ({ workspace: { path: '/project' }, workspaces: { activePath: '/project', items: [] }, studio: { permissions: { mode: 'autonomous', executionPolicy: 'host-review' } }, tasks: [], agent: { tasks: [] }, ...overrides });
@@ -26,12 +30,17 @@ const draftTask = (overrides = {}) => ({ id: 'task-a', prompt: 'Add a note file'
 const page = async (coding, { mode = 'autonomous', store = {}, drafts = {}, errors = [], hubOverrides = {} } = {}) => parseHtml(await renderWith(CodingWorkers, {}, [
   [['hubState'], hub({ studio: { permissions: { mode } }, ...hubOverrides })], ...(coding ? [[['coding-runs'], coding]] : []),
 ], errors, store, drafts));
+const issueTexts = (root) => all(root).filter((node) => node.attrs['data-testid'] === 'field-issue').map((node) => node.text);
 const buttons = (root) => byTag(root, 'button').map((node) => ({ node, name: accessibleName(root, node), disabled: 'disabled' in node.attrs }));
 const buttonNamed = (root, name) => buttons(root).find((item) => item.name === name);
 const within = (root, testId) => all(root).find((node) => node.attrs['data-testid'] === testId);
 const workerCard = (root, id) => all(root).find((node) => node.attrs['data-testid'] === 'coding-worker' && node.attrs['data-worker'] === id);
 const proofOf = (card) => all({ descendants: () => card.descendants() }).find((node) => node.attrs['data-testid'] === 'agent-proof');
 const ready = { drafts: { codingTasks: [draftTask()] } };
+// The run view on its own, told by the page whether the Hub is running this run (`active`), whether the page itself is busy and whether the Hub says a run or merge is going on.
+const view = async (run, { jobs, preselect = null, busy = false, hubBusy = false, active = false, store = { lang: 'en' } } = {}) => parseHtml(await renderWith(CodingRunView, {
+  run, jobs: jobs ?? [run], onPick() {}, busy, setBusy() {}, hubBusy, active, refetch: async () => {}, preselect,
+}, [[['hubState'], hub()]], [], store));
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Whether coding workers can be started, and why not
@@ -61,9 +70,14 @@ test('an empty task cannot be started, and a task the Hub would refuse says why'
   const root = await page(state(), { store: { lang: 'en' }, drafts: { codingTasks: [
     draftTask({ id: 'task-a', dependsOn: ['task-b'] }), draftTask({ id: 'task-b', dependsOn: ['task-a'] }), draftTask({ id: 'Bad Id' }),
   ] } });
-  const alerts = byRole(root, 'alert').map((node) => node.text);
+  const alerts = issueTexts(root);
   assert.ok(alerts.includes('The items wait for each other in a loop, so none of them can run.'), alerts.join(' | '));
   assert.ok(alerts.includes('An ID uses lowercase letters without accents, digits and dashes, and starts with a letter.'));
+  // typing is not an emergency: the problems are read when the field is reached (its description), not shouted as alerts on every key
+  assert.deepEqual(byRole(root, 'alert').filter((node) => alerts.includes(node.text)), []);
+  const marked = byTag(root, 'input', 'textarea').filter((node) => node.attrs['aria-invalid'] === 'true');
+  assert.ok(marked.length >= 2);
+  for (const field of marked) assert.ok(all(root).some((node) => node.attrs.id === field.attrs['aria-describedby'] && node.text.trim()), `${field.attrs.id} points at its problem`);
   assert.ok(buttonNamed(root, 'Start code edits').disabled);
   assert.ok(root.text.includes('Fix the fields marked with a problem before starting.'));
 });
@@ -200,13 +214,32 @@ test('a failed check, a failed worker and one that needs attention are red or am
   }
 });
 
-test('while a worker is checking or waiting for a test grant the card says so and offers no review yet', async () => {
-  for (const status of ['queued', 'running', 'awaiting_test_grant', 'testing']) {
+test('while a worker is working the card says so and offers no review yet; one waiting for the owner says what it waits for', async () => {
+  for (const [status, kind, tone] of [['queued', 'working', 'neutral'], ['running', 'working', 'neutral'], ['awaiting_test_grant', 'awaiting-grant', 'warning'], ['testing', 'working', 'neutral']]) {
     const root = await page(state([job([worker({ status, verifyRequired: true, summary: undefined })], { status: 'running' })], { activeRunId: RUN }), ready);
     const card = workerCard(root, 'task-a');
-    assert.equal(card.attrs['data-kind'], 'working', status);
+    assert.equal(card.attrs['data-kind'], kind, status);
+    assert.equal(card.attrs['data-tone'], tone, status);
     assert.ok(!buttons({ descendants: () => card.descendants() }).some((item) => item.name === 'Xem thay đổi'), status);
   }
+  const waiting = workerCard(await page(state([job([worker({ status: 'awaiting_test_grant', verifyRequired: true, summary: undefined })], { status: 'running' })], { activeRunId: RUN }), { store: { lang: 'en' }, ...ready }), 'task-a');
+  assert.match(proofOf(waiting).text, /Waiting for your permission to run the test/);
+  assert.match(proofOf(waiting).text, /about 90 seconds/, 'and for how long');
+  assert.doesNotMatch(greenClasses(waiting), GREEN);
+});
+
+test('the workers of a run that is not going any more are stopped, whatever status the Hub saved for them', async () => {
+  const workers = [worker({ id: 'a', status: 'running', summary: undefined }), worker({ id: 'b', status: 'queued', summary: undefined }), worker({ id: 'c', status: 'awaiting_test_grant', verifyRequired: true, summary: undefined })];
+  // the Hub has no active run: the run was interrupted (a restart) or stopped, and nothing will finish these
+  const stopped = await page(state([job(workers, { status: 'interrupted' })]), ready);
+  assert.deepEqual(['a', 'b', 'c'].map((id) => workerCard(stopped, id).attrs['data-kind']), ['stopped', 'stopped', 'stopped']);
+  assert.equal(proofOf(workerCard(stopped, 'a')).text.includes('Đang làm việc'), false, 'nothing says it is still working');
+  // the same workers in the run the Hub is running are working
+  const going = await page(state([job(workers, { status: 'running' })], { activeRunId: RUN }), ready);
+  assert.deepEqual(['a', 'b', 'c'].map((id) => workerCard(going, id).attrs['data-kind']), ['working', 'working', 'awaiting-grant']);
+  // and so does the run view on its own, told whether the Hub is running it
+  assert.equal(workerCard(await view(job(workers, { status: 'running' }), { active: false }), 'a').attrs['data-kind'], 'stopped');
+  assert.equal(workerCard(await view(job(workers, { status: 'running' }), { active: true }), 'a').attrs['data-kind'], 'working');
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -318,9 +351,6 @@ test('the English screen has no Vietnamese in it and shows no raw dictionary key
 // ---------------------------------------------------------------------------------------------------------------------
 // The run view on its own: what is ticked, and what the run’s own status looks like
 // ---------------------------------------------------------------------------------------------------------------------
-const view = async (run, { jobs, preselect = null, busy = false, hubBusy = false, store = { lang: 'en' } } = {}) => parseHtml(await renderWith(CodingRunView, {
-  run, jobs: jobs ?? [run], onPick() {}, busy, setBusy() {}, hubBusy, refetch: async () => {}, preselect,
-}, [[['hubState'], hub()]], [], store));
 const boxesOf = (root) => byTag(root, 'input').filter((node) => node.attrs.type === 'checkbox');
 
 test('workers ticked by a run that has just started are ticked, but merging still waits for each diff to be read', async () => {
@@ -367,4 +397,158 @@ test('before the Hub has said which permission mode it is in, start is off but t
   const root = await page(state(), { ...ready, hubOverrides: { studio: undefined } });
   assert.equal(within(root, 'coding-needs-autonomous'), undefined, 'no notice about a mode nobody has reported');
   assert.ok(buttonNamed(root, 'Bắt đầu sửa mã').disabled);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// What the Hub would refuse for another reason: the main agent or a group is running
+// ---------------------------------------------------------------------------------------------------------------------
+test('while the main agent is working the Hub refuses coding workers, so the tab says so and start is off', async () => {
+  for (const overrides of [{ agent: { activeTaskId: 'task-1', tasks: [] } }, { taskId: 'task-1' }]) {
+    const root = await page(state(), { store: { lang: 'en' }, ...ready, hubOverrides: overrides });
+    assert.match(within(root, 'coding-block-agent-busy').text, /main agent is working/, JSON.stringify(overrides));
+    assert.ok(buttonNamed(root, 'Start code edits').disabled, JSON.stringify(overrides));
+  }
+});
+
+test('while a helper group is running the Hub refuses coding workers, so the tab says so and start is off', async () => {
+  const root = await page(state(), { store: { lang: 'en' }, ...ready, hubOverrides: { studio: { permissions: { mode: 'autonomous' }, delegates: { running: true } } } });
+  assert.match(within(root, 'coding-block-group-running').text, /group of helpers is running/);
+  assert.ok(buttonNamed(root, 'Start code edits').disabled);
+  assert.equal(within(root, 'coding-block-agent-busy'), undefined);
+});
+
+test('the reasons are told in order: the mode first, then the main agent, and a quiet Hub says nothing at all', async () => {
+  const both = await page(state(), { store: { lang: 'en' }, mode: 'review', ...ready, hubOverrides: { agent: { activeTaskId: 'task-1', tasks: [] } } });
+  assert.ok(within(both, 'coding-needs-autonomous'));
+  assert.equal(within(both, 'coding-block-agent-busy'), undefined, 'one reason at a time: the one the owner has to fix first');
+  const quiet = await page(state(), { store: { lang: 'en' }, ...ready });
+  assert.equal(within(quiet, 'coding-block-agent-busy'), undefined);
+  assert.equal(within(quiet, 'coding-block-group-running'), undefined);
+  assert.equal(buttonNamed(quiet, 'Start code edits').disabled, false);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// A run the Hub would not merge, and a worker that stopped before it committed
+// ---------------------------------------------------------------------------------------------------------------------
+test('a run the Hub would not merge says so next to the merge button, and the button is off', async () => {
+  for (const status of ['cancelled', 'failed', 'interrupted']) {
+    const root = await view(job([worker()], { status }), { preselect: { runId: RUN, ids: ['task-a'] } });
+    const integration = within(root, 'coding-integration');
+    assert.match(integration.text, new RegExp(`only merges a run that is ready for review or partly failed; this one is`), status);
+    assert.ok(buttonNamed(integration, 'Merge the selected tasks').disabled, status);
+    assert.equal(buttonNamed(integration, 'Merge the selected tasks').node.attrs['aria-describedby'], 'coding-merge-status-hint', status);
+  }
+  for (const status of ['ready_for_review', 'partial_failure']) {
+    const integration = within(await view(job([worker()], { status })), 'coding-integration');
+    assert.doesNotMatch(integration.text, /only merges a run/, status);
+  }
+});
+
+test('a worker that stopped before it committed shows where its working copy is, and says its changes are not committed', async () => {
+  const path = '/state/runs/1111/trees/task-a';
+  for (const status of ['needs_attention', 'failed', 'interrupted', 'cancelled']) {
+    const card = workerCard(await view(job([worker({ status, worktree: path, error: 'Coding worker did not complete', summary: undefined })], { status: 'partial_failure' })), 'task-a');
+    assert.match(card.text, /Anything it changed is not committed/, status);
+    assert.ok(card.text.includes(path), status);
+  }
+  for (const status of ['ready_for_review', 'no_changes', 'blocked', 'queued']) {
+    const card = workerCard(await view(job([worker({ status, worktree: path, summary: undefined })], { status: 'partial_failure' })), 'task-a');
+    assert.doesNotMatch(card.text, /not committed/, status);
+    assert.ok(!card.text.includes(path), status);
+  }
+  const vi = workerCard(await view(job([worker({ status: 'needs_attention', worktree: path })]), { store: { lang: 'vi' } }), 'task-a');
+  assert.ok(vi.text.includes('chưa được lưu thành commit') && vi.text.includes(path));
+  // a record that has no working copy named says nothing about one, and never shows an empty "{path}"
+  for (const record of [{}, { worktree: '' }, { worktree: null }]) {
+    const bare = workerCard(await view(job([worker({ status: 'needs_attention', summary: undefined, ...record })])), 'task-a');
+    assert.doesNotMatch(bare.text, /not committed|\{path\}/, JSON.stringify(record));
+  }
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Reading what a worker changed: the diff, the file contents, the AI’s text
+// ---------------------------------------------------------------------------------------------------------------------
+const rowsOf = (root) => byTag(root, 'pre').flatMap((pre) => byTag(pre, 'div')).map((node) => [node.attrs['data-line'], node.text]);
+const render = async (Component, props, store = { lang: 'en' }) => parseHtml(await renderWith(Component, props, [], [], store));
+
+test('a line of a diff is read by where it is: file headers only before a hunk, and a removed "-- note" stays a removed line', async () => {
+  const diff = ['diff --git a/q.sql b/q.sql', 'index 1111111..2222222 100644', '--- a/q.sql', '+++ b/q.sql', '@@ -1,5 +1,5 @@', ' select 1;',
+    '--- a note that was removed', '+-- a note that was added', '+++ a line that starts with two plus signs', ' end', '\\ No newline at end of file',
+    'diff --git a/b.txt b/b.txt', 'new file mode 100644', '--- /dev/null', '+++ b/b.txt', '@@ -0,0 +1 @@', '+hello'].join('\n');
+  const root = await render(DiffView, { diff, label: 'Diff' });
+  assert.deepEqual(rowsOf(root).map(([kind]) => kind), ['meta', 'meta', 'meta', 'meta', 'hunk', 'ctx', 'del', 'add', 'add', 'ctx', 'ctx', 'meta', 'meta', 'meta', 'meta', 'hunk', 'add']);
+  assert.equal(rowsOf(root)[6][1], '--- a note that was removed', 'and the text of every line is what Git printed');
+});
+
+test('a diff with a hidden or direction-changing character shows it as a marker and says so; a plain one says nothing', async () => {
+  const sneaky = await render(DiffView, { diff: ['diff --git a/a.js b/a.js', '--- a/a.js', '+++ b/a.js', '@@ -1 +1 @@', '-if (ok) {', '+if (isAdmin‮) { // x​'].join('\n'), label: 'Diff' });
+  const rows = rowsOf(sneaky);
+  assert.equal(rows.at(-1)[1], '+if (isAdmin‹U+202E›) { // x‹U+200B›');
+  assert.ok(!sneaky.text.includes('‮') && !sneaky.text.includes('​'), 'the characters themselves are gone from the screen');
+  assert.match(sneaky.text, /hidden or direction-changing characters/);
+  assert.equal(byTag(sneaky, 'span').filter((node) => node.attrs['data-hidden']).map((node) => node.attrs['data-hidden']).join(','), 'U+202E,U+200B');
+  const plain = await render(DiffView, { diff: ['@@ -1 +1 @@', '-a', '+b'].join('\n'), label: 'Diff' });
+  assert.doesNotMatch(plain.text, /hidden or direction-changing/);
+  const vi = await render(DiffView, { diff: '@@ -1 +1 @@\n+a‮b', label: 'Diff' }, { lang: 'vi' });
+  assert.match(vi.text, /ký tự ẩn hoặc ký tự đổi chiều chữ/);
+});
+
+test('the contents of a worker’s files are a named region, and what could not be shown is told in plain words', async () => {
+  const context = { workerId: 'task-a', files: [{ path: 'src/a.js', sha256: 'ab'.repeat(32), lines: [{ line: 1, text: 'let a = 1;' }, { line: 2, text: 'x‮y' }] }],
+    skipped: [{ path: '.env', reason: 'sensitive_path' }, { path: 'logo.png', reason: 'binary' }, { path: 'big.js', reason: 'too_large' }, { path: 'gone.js', reason: 'deleted' },
+      { path: 'many.js', reason: 'file_limit' }, { path: 'odd.txt', reason: 'invalid_utf8' }, { path: 'new.js', reason: 'a_reason_nobody_knew' }] };
+  const root = await render(ContextPanel, { context, onClose() {} });
+  const pre = byTag(root, 'pre')[0];
+  assert.equal(pre.attrs.role, 'region');
+  assert.equal(accessibleName(root, pre), 'src/a.js');
+  assert.ok(pre.text.includes('2: x‹U+202E›y'));
+  assert.match(root.text, /Files not shown: \.env \(may hold secrets\), logo\.png \(binary file\), big\.js \(too large\), gone\.js \(deleted\), many\.js \(over the number of files shown\), odd\.txt \(not UTF-8 text\), new\.js \(a_reason_nobody_knew\)/);
+  assert.match(root.text, /hidden or direction-changing characters/);
+  const vi = await render(ContextPanel, { context, onClose() {} }, { lang: 'vi' });
+  assert.match(vi.text, /\.env \(có thể chứa bí mật\)/);
+});
+
+test('the review of a branch reads its diff with the same care, and the AI’s own text shows hidden characters too', async () => {
+  const review = { branch: 'chatmcp/coder/x/task-a', revision: 'a'.repeat(40), diff: '@@ -1 +1 @@\n-a\n+b‮' };
+  const root = await render(ReviewPanel, { review, onClose() {} });
+  assert.deepEqual(rowsOf(root).map(([kind]) => kind), ['hunk', 'del', 'add']);
+  assert.match(root.text, /hidden or direction-changing/);
+  const report = await render(AiReport, { text: 'Fixed it.‮ All tests pass.' });
+  assert.match(report.text, /Fixed it\.‹U\+202E› All tests pass\./);
+  assert.match(report.text, /hidden or direction-changing/);
+  assert.doesNotMatch((await render(AiReport, { text: 'Fixed it.' })).text, /hidden or direction-changing/);
+});
+
+test('the phrase a question asks for is part of the name of the box it is typed in, and the rule for it is the box’s description', async () => {
+  const props = { open: true, onOpenChange() {}, title: 'Merge?', description: 'It merges.', confirmLabel: 'Confirm', cancelLabel: 'Cancel', onConfirm() {} };
+  for (const [lang, name, hint] of [['en', 'Type the exact phrase to confirm INTEGRATE WORKTREES', /stays off until what you type matches exactly/], ['vi', 'Nhập đúng cụm từ để xác nhận INTEGRATE WORKTREES', /chỉ bật khi những gì bạn nhập khớp hoàn toàn/]]) {
+    const root = await render(ConfirmDialog, { ...props, phrase: 'INTEGRATE WORKTREES' }, { lang });
+    const input = byTag(root, 'input')[0];
+    assert.equal(accessibleName(root, input), name, lang);
+    assert.equal(input.attrs['aria-describedby'], 'confirm-phrase-hint', lang);
+    assert.match(all(root).find((node) => node.attrs.id === 'confirm-phrase-hint').text, hint, lang);
+    assert.deepEqual(brokenReferences(root), [], lang);
+    assert.ok(buttonNamed(root, lang === 'en' ? 'Confirm' : 'Confirm').disabled, `${lang}: off until the phrase is typed`);
+  }
+  assert.equal(byTag(await render(ConfirmDialog, props), 'input').length, 0, 'a question without a phrase has no box');
+  assert.equal(buttonNamed(await render(ConfirmDialog, props), 'Confirm').disabled, false);
+  assert.equal(byTag(await render(ConfirmDialog, { ...props, open: false, phrase: 'X' }), 'input').length, 0, 'and a closed one renders nothing of its body');
+});
+
+test('a recovery log that was not found does not claim a status', async () => {
+  const none = await render(RecoveryStatus, { recovery: { runId: RUN, found: false, entries: 0 } });
+  assert.match(none.text, /Log: none · Status: — · Entries: 0\./);
+  assert.doesNotMatch(none.text, /undefined/);
+  const found = await render(RecoveryStatus, { recovery: { runId: RUN, found: true, status: 'interrupted', entries: 3 } });
+  assert.match(found.text, /Log: found · Status: Interrupted · Entries: 3\./);
+});
+
+test('what the verification option really needs is said where it is chosen', async () => {
+  const en = await page(state(), { store: { lang: 'en' }, ...ready });
+  const note = within(en, 'coding-task').text;
+  for (const part of ['Windows Sandbox', 'registered', 'about 90 seconds', 'Needs your attention', 'not committed']) assert.ok(note.includes(part), `${part}: ${note}`);
+  assert.doesNotMatch(note, /the task is marked as needing your check/, 'the old, softer promise is gone');
+  const vi = await page(state(), ready);
+  const text = within(vi, 'coding-task').text;
+  for (const part of ['Windows Sandbox', '90 giây', 'Cần bạn kiểm tra']) assert.ok(text.includes(part), part);
 });

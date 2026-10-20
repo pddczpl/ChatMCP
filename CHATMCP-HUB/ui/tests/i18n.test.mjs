@@ -71,13 +71,13 @@ test('the English text is not the Vietnamese text left in place (agents dictiona
 
 test('every kind of evidence the helpers can report has a title and a note in both languages', () => {
   const kinds = new Set();
-  for (const status of ['queued', 'running', 'ready_for_review', 'no_changes', 'failed', 'needs_attention', 'blocked', 'cancelled', 'interrupted', 'completed', 'something_new']) {
+  for (const status of ['queued', 'running', 'awaiting_test_grant', 'ready_for_review', 'no_changes', 'failed', 'needs_attention', 'blocked', 'cancelled', 'interrupted', 'completed', 'something_new']) {
     kinds.add(assessWorker({ status }).kind);
     kinds.add(assessReport(status).kind);
   }
   kinds.add(assessWorker({ status: 'ready_for_review', verifyRequired: true, verificationOutcome: { state: 'ready_for_review' }, verificationAttempts: [{ checkId: 'c', testOutcomeVerified: true }] }).kind);
   kinds.add(assessWorker({ status: 'ready_for_review', verificationAttempts: [{ checkId: 'c', status: 'failed' }] }).kind);
-  assert.deepEqual([...kinds].sort(), ['ai-report', 'attention', 'check-failed', 'failed', 'no-changes', 'stopped', 'unverified', 'verified', 'working']);
+  assert.deepEqual([...kinds].sort(), ['ai-report', 'attention', 'awaiting-grant', 'check-failed', 'failed', 'no-changes', 'stopped', 'unverified', 'verified', 'working']);
   for (const kind of kinds) {
     for (const lang of ['vi', 'en']) {
       for (const part of ['title', 'note']) {

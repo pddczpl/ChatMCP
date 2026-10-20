@@ -1,14 +1,15 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { assessReport, outcomeToast } from '@/lib/agent-proof';
+import { agentErrorText } from '@/lib/agent-errors';
+import { analysisBlock, assessReport, effectiveReportStatus, outcomeToast } from '@/lib/agent-proof';
 import { useTranslation } from '@/lib/i18n';
 import { useAppStore } from '@/store/useAppStore';
 import { useAgentDrafts } from '@/store/useAgentDrafts';
 import { Button } from '@/components/ui/Button';
 import { Textarea } from '@/components/ui/Input';
 import { agentRoleLabel, agentStatusLabel } from './agentLabels';
-import { AiReport, EvidenceLine } from './agent-parts';
+import { AiReport, EvidenceLine, NoticeLine } from './agent-parts';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ErrorLine } from './parts';
 import { useDelegation } from './useDelegation';
@@ -16,17 +17,23 @@ import { useDelegation } from './useDelegation';
 /** The read-only analysis the AI plans for itself: a goal in, a few helpers out. Their text is the AI's report, never a verified result. */
 export function DynamicSubagents() {
   const { t } = useTranslation();
-  const { blocked } = useDelegation();
+  const { blocked, agentBusy, codingActive, groupRunning, aiBusy } = useDelegation();
   const showToast = useAppStore((state) => state.showToast);
   const goal = useAgentDrafts((state) => state.goal);
   const setDraft = useAgentDrafts((state) => state.set);
   const [busy, setBusy] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Where focus goes when the button that opened the question has turned into "working".
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const { data, refetch, error } = useQuery({ queryKey: ['dynamic-delegates'], queryFn: api.getDynamicDelegates, refetchInterval: 3000 });
   // Busy comes from the Hub, not only from this page: closing and reopening the tab must not offer a second run.
   const active = Boolean(data?.activeRunId);
+  const running = active || busy;
+  // The Hub keeps the status it saved when it stopped: "running" while nothing runs is a run that was cut off, not one in progress.
+  const lastStatus = data?.last ? effectiveReportStatus(data.last.status, running) : undefined;
   const last = data?.last;
-  const report = last ? assessReport(last.status) : null;
+  const report = last ? assessReport(lastStatus) : null;
+  const block = analysisBlock({ differentRoot: blocked, agentBusy, codingActive, groupRunning, aiBusy });
   const suggestions = [
     { label: t('group_suggest_explore'), goal: t('group_suggest_explore_goal') },
     { label: t('group_suggest_review'), goal: t('group_suggest_review_goal') },
@@ -43,7 +50,7 @@ export function DynamicSubagents() {
       // The run ended; that is not a verdict on what the AI wrote.
       showToast(agentStatusLabel(value.status, t), outcomeToast(value.status));
     } catch (e: any) {
-      showToast(e?.message || t('group_analyze_failed'), 'error');
+      showToast(agentErrorText(e, t, t('group_analyze_failed')), 'error');
     } finally {
       setBusy(false);
     }
@@ -54,14 +61,14 @@ export function DynamicSubagents() {
       await refetch();
       showToast(t('group_analyze_stop_toast'), 'info');
     } catch (e: any) {
-      showToast(e?.message || t('group_analyze_stop_failed'), 'error');
+      showToast(agentErrorText(e, t, t('group_analyze_stop_failed')), 'error');
     }
   };
 
   return (
     <section aria-labelledby="agent-goal-heading" className="space-y-4">
       <div className="space-y-1.5">
-        <h3 id="agent-goal-heading" className="text-[15px] font-semibold text-fg">{t('group_goal_title')}</h3>
+        <h3 id="agent-goal-heading" ref={headingRef} tabIndex={-1} className="text-[15px] font-semibold text-fg">{t('group_goal_title')}</h3>
         <p className="leading-relaxed text-muted">{t('group_goal_intro')}</p>
       </div>
       <fieldset disabled={blocked} className="min-w-0 space-y-2 border-0 p-0">
@@ -75,29 +82,37 @@ export function DynamicSubagents() {
         </div>
         <p id="agent-goal-help" className="text-[12px] leading-4 text-faint">{t('group_goal_help')}</p>
       </fieldset>
+      {block !== null && block !== 'other-workspace' && (
+        <NoticeLine tone="neutral" testId={`analysis-block-${block}`}>
+          {block === 'agent-busy' ? t('group_analysis_block_agent_busy')
+            : block === 'coding-running' ? t('group_analysis_block_coding_running')
+            : block === 'group-running' ? t('group_analysis_block_group_running')
+            : t('group_analysis_block_ai_busy')}
+        </NoticeLine>
+      )}
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="primary" size="lg" disabled={blocked || active || busy || !goal.trim()} onClick={() => setConfirmOpen(true)}>
+        <Button variant="primary" size="lg" disabled={block !== null || active || busy || !goal.trim()} onClick={() => setConfirmOpen(true)}>
           {active || busy ? t('group_analyze_busy') : t('group_analyze_start')}
         </Button>
         {(active || busy) && <Button size="md" variant="danger" onClick={stopAnalysis}>{t('group_analyze_stop')}</Button>}
       </div>
       <ConfirmDialog open={confirmOpen} onOpenChange={setConfirmOpen} title={t('group_confirm_title')} description={t('group_confirm_body')}
-        confirmLabel={t('group_confirm_go')} cancelLabel={t('group_confirm_later')} onConfirm={startAnalysis} busy={active || busy || !goal.trim()}>
+        confirmLabel={t('group_confirm_go')} cancelLabel={t('group_confirm_later')} onConfirm={startAnalysis} busy={block !== null || active || busy || !goal.trim()} focusAfter={headingRef}>
         <p className="mt-3 max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-surface p-3">{goal}</p>
       </ConfirmDialog>
       {(active || busy) && <p role="status" className="text-muted">{t('group_running_note')}</p>}
-      {error && <ErrorLine message={t('group_state_error', { message: error.message })} />}
+      {error && <ErrorLine message={t('group_state_error', { message: agentErrorText(error, t, '') })} />}
       {last && report && (
         <div data-testid="analysis-result" data-tone={report.tone} data-kind={report.kind} className="select-text space-y-3 border-t border-line pt-4">
           <div>
             <h4 className="font-semibold text-fg">{t('group_result_title')}</h4>
-            <p className="mt-1 text-[12px] text-muted">{t('group_result_meta', { status: agentStatusLabel(last.status, t), n: (last.workers || []).length })}</p>
+            <p className="mt-1 text-[12px] text-muted">{t('group_result_meta', { status: agentStatusLabel(lastStatus, t), n: (last.workers || []).length })}</p>
           </div>
           <EvidenceLine tone={report.tone} kind={report.kind} />
           {(last.workers || []).map((worker: any) => (
             <details key={worker.id} className="rounded-lg border border-line p-3" open={worker.status === 'failed'}>
               <summary className="cursor-pointer rounded font-medium">
-                {agentRoleLabel(worker.role, t)} <span className="font-normal text-muted">· {agentStatusLabel(worker.status, t)}</span>
+                {agentRoleLabel(worker.role, t)} <span className="font-normal text-muted">· {agentStatusLabel(effectiveReportStatus(worker.status, running), t)}</span>
               </summary>
               <div className="mt-3 space-y-2">
                 {worker.summary ? <AiReport text={worker.summary} /> : worker.error ? <ErrorLine message={worker.error} /> : <p className="text-muted">{t('group_no_result')}</p>}

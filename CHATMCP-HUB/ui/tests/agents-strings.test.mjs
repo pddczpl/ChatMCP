@@ -10,8 +10,8 @@ import { fileURLToPath } from 'node:url';
 const src = fileURLToPath(new URL('../src/', import.meta.url));
 const FILES = [
   'AgentsTab.tsx', 'OrchestratorTab.tsx', 'AgentGroups.tsx', 'DynamicSubagents.tsx', 'ManualGroup.tsx', 'CodingWorkers.tsx', 'CodingRunView.tsx',
-  'CodingWorkerCard.tsx', 'CodingReview.tsx', 'ConfirmDialog.tsx', 'IsolatedChecksPanel.tsx', 'agent-parts.tsx', 'agentLabels.ts', 'useDelegation.ts', 'DiffView.tsx',
-].map((name) => `components/inspector/${name}`).concat(['lib/agent-proof.ts', 'lib/agent-draft.ts', 'lib/tab-keys.ts', 'store/useAgentDrafts.ts']);
+  'CodingWorkerCard.tsx', 'CodingReview.tsx', 'ConfirmDialog.tsx', 'IsolatedChecksPanel.tsx', 'agent-parts.tsx', 'agentLabels.ts', 'useDelegation.ts', 'DiffView.tsx', 'HiddenText.tsx',
+].map((name) => `components/inspector/${name}`).concat(['lib/agent-proof.ts', 'lib/agent-draft.ts', 'lib/agent-errors.ts', 'lib/hidden-chars.ts', 'lib/tab-keys.ts', 'store/useAgentDrafts.ts']);
 
 const read = (file) => fs.readFileSync(path.join(src, file), 'utf8');
 /** The source without its comments (a comment may be written in Vietnamese; a string may not). */
@@ -52,13 +52,21 @@ test('every dictionary key a component asks for exists', () => {
   assert.deepEqual(missing, []);
 });
 
+test('an error from the Hub is told through its code, not by printing the Hub’s own text in whatever language it came in', () => {
+  for (const file of FILES) {
+    const code = withoutComments(read(file));
+    assert.doesNotMatch(code, /\be\??\.message\s*\|\|/, `${file} prints an error's message directly: use agentErrorText(e, t, fallback)`);
+    assert.doesNotMatch(code, /\.error\.message\b(?!\s*\})/, `${file} prints a mutation error's message directly`);
+  }
+});
+
 test('every key of the agents dictionary is used somewhere (no strings left behind)', () => {
   const dictionary = read('lib/i18n-agents.ts');
   const viBlock = dictionary.slice(0, dictionary.indexOf('export const agentsEn'));
   const keys = [...viBlock.matchAll(/^\s{2}([a-z_0-9]+):/gm)].map((match) => match[1]);
   const code = FILES.map(read).map(withoutComments).join('\n') + read('components/inspector/DynamicSubagents.tsx');
-  // keys built at run time: agent_role_<role>, agent_status_<status>, agent_proof_<kind>_title|note, agent_draft_<field>_<code>
-  const dynamic = /^(agent_role_|agent_status_|agent_proof_|agent_draft_)/;
+  // keys built at run time: agent_role_<role>, agent_status_<status>, agent_proof_<kind>_title|note, agent_draft_<field>_<code>, agent_error_<code>
+  const dynamic = /^(agent_role_|agent_status_|agent_proof_|agent_draft_|agent_error_)/;
   const unused = keys.filter((key) => !dynamic.test(key) && !code.includes(`'${key}'`));
   assert.deepEqual(unused, []);
 });

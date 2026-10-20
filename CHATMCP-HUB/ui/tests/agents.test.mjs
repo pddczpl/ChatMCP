@@ -17,6 +17,7 @@ const hub = (overrides = {}) => ({ workspace: { path: '/project' }, workspaces: 
 const quiet = [[['hubState'], hub()], [['dynamic-delegates'], { activeRunId: null, last: null }], [['delegates'], { running: false, last: null, events: [] }]];
 const withEntries = (...replace) => quiet.map(([key, data]) => replace.find(([other]) => other[0] === key[0]) ?? [key, data]).concat(replace.filter(([other]) => !quiet.some(([key]) => key[0] === other[0])));
 const page = async (entries, store = {}, drafts = {}, errors = []) => parseHtml(await renderWith(AgentGroups, {}, entries, errors, store, drafts));
+const issueTexts = (root) => all(root).filter((node) => node.attrs['data-testid'] === 'field-issue').map((node) => node.text);
 const buttons = (root) => byTag(root, 'button').map((node) => ({ node, name: accessibleName(root, node), disabled: 'disabled' in node.attrs }));
 const buttonNamed = (root, name) => buttons(root).find((item) => item.name === name);
 const within = (root, testId) => all(root).find((node) => node.attrs['data-testid'] === testId);
@@ -95,9 +96,10 @@ test('a helper group the Hub would refuse says why next to the field and cannot 
   ] };
   const root = await page(quiet, { lang: 'en' }, drafts);
   const manual = within(root, 'manual-agents');
-  const alerts = byRole(manual, 'alert').map((node) => node.text);
+  const alerts = issueTexts(manual);
   assert.ok(alerts.includes('This ID is already used by another item.'), alerts.join(' | '));
   assert.ok(alerts.includes('No item has the ID “ghost”.'));
+  assert.deepEqual(byRole(manual, 'alert').filter((node) => alerts.includes(node.text)), [], 'the problems are descriptions of their fields, not alerts');
   assert.ok(buttonNamed(manual, 'Start with this group').disabled);
   assert.ok(manual.text.includes('Fix the fields marked with a problem before starting.'));
   const marked = byTag(manual, 'input', 'textarea').filter((node) => node.attrs['aria-invalid'] === 'true');
@@ -123,7 +125,55 @@ test('a finished group shows the Hub’s workers and its combined text as the AI
   assert.ok(result.text.includes('Planner · Finished') && result.text.includes('Reviewer · Did not finish'));
   assert.ok(byRole(result, 'alert').some((node) => node.text === 'Timed out'));
   const combined = all(subtree(result)).filter((node) => node.attrs['data-testid'] === 'ai-report').at(-1);
-  assert.ok(combined.text.startsWith('Combined findings') && combined.text.includes('Plan: do A then B.'));
+  assert.ok(combined.text.startsWith('AI report · Combined findings') && combined.text.includes('Plan: do A then B.'), 'the combined text is still the AI’s, and says so');
+  const vi = await page(withEntries([['delegates'], { running: false, last, events: [] }]));
+  assert.ok(all(subtree(within(vi, 'group-result'))).filter((node) => node.attrs['data-testid'] === 'ai-report').at(-1).text.startsWith('Báo cáo của AI · Tổng hợp kết quả'));
+});
+
+test('a group or an analysis the Hub saved as "running" while nothing is running was cut off, and is not shown as working', async () => {
+  const group = { id: 'g1', status: 'running', workers: [{ id: 'plan', role: 'planner', status: 'running' }, { id: 'review', role: 'reviewer', status: 'queued' }], conclusion: '' };
+  const cut = await page(withEntries([['delegates'], { running: false, last: group, events: [] }]), { lang: 'en' });
+  const result = within(cut, 'group-result');
+  assert.equal(result.attrs['data-kind'], 'attention');
+  assert.equal(result.attrs['data-tone'], 'warning');
+  assert.ok(result.text.includes('Planner · Interrupted'), result.text);
+  assert.ok(!result.text.includes('Working'), 'nothing in it still says it is working');
+  const going = await page(withEntries([['delegates'], { running: true, last: group, events: [] }]), { lang: 'en' });
+  assert.equal(within(going, 'group-result').attrs['data-kind'], 'working');
+  const analysisCut = await page(withEntries([['dynamic-delegates'], { activeRunId: null, last: analysis({ status: 'running', workers: [{ id: 's', role: 'researcher', status: 'running' }] }) }]), { lang: 'en' });
+  assert.equal(within(analysisCut, 'analysis-result').attrs['data-kind'], 'attention');
+  assert.ok(within(analysisCut, 'analysis-result').text.includes('Researcher · Interrupted'));
+});
+
+// ---- what the Hub would refuse because something else is running ----
+const busyHub = (overrides) => withEntries([['hubState'], hub(overrides)]);
+
+test('an analysis is not offered while the main agent, a coding run, a group or a model change is going on, and the tab says which', async () => {
+  const cases = [
+    ['analysis-block-agent-busy', busyHub({ agent: { activeTaskId: 't1', tasks: [] } }), /main agent is working/],
+    ['analysis-block-agent-busy', busyHub({ taskId: 't1' }), /main agent is working/],
+    ['analysis-block-coding-running', withEntries([['coding-runs'], { activeRunId: 'run-9', integrating: false, jobs: [] }]), /code edit is running/],
+    ['analysis-block-group-running', busyHub({ studio: { permissions: { mode: 'review' }, delegates: { running: true } } }), /group of helpers is running/],
+    ['analysis-block-ai-busy', busyHub({ ai: { busy: true } }), /AI connection is being changed/],
+  ];
+  for (const [testId, entries, words] of cases) {
+    const root = await page(entries, { lang: 'en' }, { goal: 'Why is it slow?' });
+    assert.match(within(root, testId).text, words, testId);
+    assert.ok(buttonNamed(root, 'Start analysis').disabled, `${testId}: start is off`);
+    assert.equal(byRole(root, 'alert').filter((node) => node.attrs['data-testid'] === testId).length, 0, 'it is information, not an error');
+  }
+  const idle = await page(quiet, { lang: 'en' }, { goal: 'Why is it slow?' });
+  assert.equal(buttonNamed(idle, 'Start analysis').disabled, false);
+  assert.equal(byTag(idle, 'div').filter((node) => node.attrs['data-testid']?.startsWith('analysis-block-')).length, 0, 'a quiet Hub says nothing');
+});
+
+test('a hand-made group is refused only while the main agent works, and says so; a running coding run does not stop it', async () => {
+  const busy = await page(busyHub({ agent: { activeTaskId: 't1', tasks: [] } }), { lang: 'en' });
+  assert.match(within(busy, 'group-block-agent-busy').text, /main agent is working/);
+  assert.ok(buttonNamed(within(busy, 'manual-agents'), 'Start with this group').disabled);
+  const coding = await page(withEntries([['coding-runs'], { activeRunId: 'run-9', integrating: false, jobs: [] }]), { lang: 'en' });
+  assert.equal(within(coding, 'group-block-agent-busy'), undefined);
+  assert.equal(buttonNamed(within(coding, 'manual-agents'), 'Start with this group').disabled, false, 'the Hub only checks the main agent for this');
 });
 
 test('a status that cannot be loaded is shown as an error, not as an empty tab', async () => {
@@ -205,6 +255,63 @@ test('a recorded result says "verified" only when the Hub verified it', async ()
   assert.ok(rows[0].text.includes('The Hub verified that this test passed'));
   assert.ok(rows[1].text.includes('No verified evidence that the test passed'));
   assert.ok(!rows[1].text.includes('Hub verified that this test passed'));
+});
+
+test('the panel is about the run on screen, not the newest one: another run’s workers are not asked about', async () => {
+  // the older run still has a worker the Hub saved as running (the Hub that ran it is gone): nobody is asked about it, there is no broker to ask
+  const older = { id: 'run-0', status: 'interrupted', workers: [{ id: 'old', status: 'ready_for_review', verifyRequired: true, verificationAttempts: [{ id: 'o1', checkId: 'c9', status: 'completed', exitCode: 0, testOutcomeVerified: true }] },
+    { id: 'ghost', status: 'running', verifyRequired: true }] };
+  const newer = { id: 'run-1', status: 'running', workers: [{ id: 'wants', status: 'awaiting_test_grant', verifyRequired: true }] };
+  const data = { activeRunId: 'run-1', jobs: [older, newer] };
+  const entries = [[['worker-checks', 'wants'], { workerId: 'wants', checks: [{ id: 'c1', from: 'x', command: 'node --test' }] }],
+    [['worker-checks', 'ghost'], { workerId: 'ghost', checks: [{ id: 'c2', from: 'y', command: 'node --test ghost' }] }]];
+  const shown = parseHtml(await renderWith(IsolatedChecksPanel, { run: older }, [[['coding-runs'], data], ...entries], [], { lang: 'en' }));
+  const panel = within(shown, 'isolated-checks-panel');
+  assert.ok(panel.text.includes('old') && panel.text.includes('The Hub verified that this test passed'), 'the recorded checks are the shown run’s');
+  assert.ok(!panel.text.includes('Tests for task wants'), 'and the live run is not on screen, so nobody is asked about its workers');
+  assert.ok(!panel.text.includes('Tests for task ghost'), 'nor about a worker that only the saved record says is still running');
+  // without a run to follow (the Progress tab) it keeps following the active run
+  const followed = await checks(data, { lang: 'en' }, entries);
+  assert.ok(within(followed, 'isolated-checks-panel').text.includes('Tests for task wants'));
+  assert.ok(!within(followed, 'isolated-checks-panel').text.includes('The Hub verified that this test passed'));
+});
+
+test('while the Hub waits for the owner’s permission the panel says for how long and what happens otherwise', async () => {
+  const root = await checks(jobWith([{ id: 'wants', status: 'awaiting_test_grant', verifyRequired: true }]), { lang: 'en' }, [[['worker-checks', 'wants'], { workerId: 'wants', checks: [{ id: 'c1', from: 'x', command: 'node --test' }] }]]);
+  const panel = within(root, 'isolated-checks-panel');
+  assert.match(panel.text, /about 90 seconds/);
+  assert.match(panel.text, /Needs your attention/);
+  assert.match(panel.text, /not committed/);
+  // only while a worker is waiting: the recorded results of a finished run are not a countdown
+  const finished = await checks({ activeRunId: null, jobs: [{ id: 'run-1', status: 'ready_for_review', workers: [{ id: 'w', status: 'ready_for_review', verificationAttempts: [{ id: 'a1', checkId: 'c1', status: 'completed', testOutcomeVerified: true }] }] }] }, { lang: 'en' });
+  assert.doesNotMatch(within(finished, 'isolated-checks-panel').text, /90 seconds/);
+});
+
+test('an allowed check is shown as allowed with the Hub’s own numbers, and cannot be allowed again until that runs out', async () => {
+  const data = jobWith([{ id: 'wants', status: 'awaiting_test_grant', verifyRequired: true }]);
+  const entries = [[['worker-checks', 'wants'], { workerId: 'wants', checks: [{ id: 'c1', from: 'x', command: 'node --test' }, { id: 'c2', from: 'y', command: 'node --test b' }] }]];
+  const soon = Date.now() + 20 * 60 * 1000;
+  const root = parseHtml(await renderWith(IsolatedChecksPanel, {}, [[['coding-runs'], data], ...entries], [], { lang: 'en' }, { checkGrants: { 'wants:c1': { expiresAt: soon, maxAttempts: 3 } } }));
+  const rows = byTag(within(root, 'isolated-checks-panel'), 'div').filter((node) => node.attrs['data-check']);
+  assert.deepEqual(rows.map((row) => [row.attrs['data-check'], row.attrs['data-grant']]), [['c1', 'active'], ['c2', 'none']]);
+  assert.match(rows[0].text, /Allowed: up to 3 runs in the Windows Sandbox, until \d{1,2}:\d{2}/);
+  assert.match(rows[0].text, /result appears below when the Hub has run it/i, 'allowed is not passed');
+  assert.equal(buttonNamed(rows[0], 'Review and allow the test'), undefined, 'no second grant for the same check');
+  assert.ok(buttonNamed(rows[1], 'Review and allow the test'), 'the other check is still waiting for the owner');
+  const expired = parseHtml(await renderWith(IsolatedChecksPanel, {}, [[['coding-runs'], data], ...entries], [], { lang: 'en' }, { checkGrants: { 'wants:c1': { expiresAt: Date.now() - 1000, maxAttempts: 3 } } }));
+  const old = byTag(within(expired, 'isolated-checks-panel'), 'div').find((node) => node.attrs['data-check'] === 'c1');
+  assert.equal(old.attrs['data-grant'], 'expired');
+  assert.match(old.text, /earlier permission has run out/);
+  assert.ok(buttonNamed(old, 'Review and allow the test'), 'and it can be asked again');
+});
+
+test('with another folder in view nobody can be allowed to run a test from here', async () => {
+  const data = jobWith([{ id: 'wants', status: 'awaiting_test_grant', verifyRequired: true }]);
+  const listed = [['worker-checks', 'wants'], { workerId: 'wants', checks: [{ id: 'c1', from: 'x', command: 'node --test' }] }];
+  const other = await checks(data, { lang: 'en', selectedWorkspacePath: '/elsewhere' }, [listed, [['hubState'], hub({ workspaces: { activePath: '/elsewhere', items: [] } })]]);
+  assert.ok(buttonNamed(within(other, 'isolated-checks-panel'), 'Review and allow the test').disabled);
+  const here = await checks(data, { lang: 'en' }, [listed, [['hubState'], hub()]]);
+  assert.equal(buttonNamed(within(here, 'isolated-checks-panel'), 'Review and allow the test').disabled, false);
 });
 
 test('the checks panel is silent when there is nothing to show or the list cannot be read', async () => {

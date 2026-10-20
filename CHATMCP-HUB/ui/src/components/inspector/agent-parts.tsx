@@ -1,9 +1,11 @@
-import { AlertTriangle, Bot, CircleDashed, CircleSlash, Loader2, ShieldCheck, XCircle, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, Bot, CircleDashed, CircleSlash, Hourglass, Loader2, ShieldCheck, XCircle, type LucideIcon } from 'lucide-react';
 import { useTranslation, type TranslationKey, type Translate } from '@/lib/i18n';
 import type { AgentTone, ReportKind, WorkerProofKind } from '@/lib/agent-proof';
 import type { DraftIssue } from '@/lib/agent-draft';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/Badge';
+import { hasHidden } from '@/lib/hidden-chars';
+import { HiddenNote, HiddenText } from './HiddenText';
 
 type ProofKind = WorkerProofKind | ReportKind;
 
@@ -22,6 +24,7 @@ const icons: Record<ProofKind, LucideIcon> = {
   failed: XCircle,
   stopped: CircleSlash,
   working: Loader2,
+  'awaiting-grant': Hourglass,
   'no-changes': CircleDashed,
   'ai-report': Bot,
 };
@@ -68,7 +71,8 @@ export function AiReport({ text, label, className }: { text: string; label?: str
   return (
     <div data-testid="ai-report" className={cn('space-y-1', className)}>
       <p className="text-[12px] font-medium text-muted">{label ?? t('agent_report_label')}</p>
-      <p className="max-h-52 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-line-subtle bg-panel px-3 py-2 text-[13px] leading-5 text-fg select-text">{text}</p>
+      <HiddenNote show={hasHidden(text)} />
+      <p className="max-h-52 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-line-subtle bg-panel px-3 py-2 text-[13px] leading-5 text-fg select-text"><HiddenText text={text} /></p>
     </div>
   );
 }
@@ -79,9 +83,36 @@ export function NoticeLine({ tone = 'warning', role = 'status', testId, children
   return <div role={role} data-tone={tone} data-testid={testId} className={cn('rounded-lg border px-3 py-2 text-[13px] leading-5', style.box, tone === 'neutral' ? 'text-muted' : 'text-fg', className)}>{children}</div>;
 }
 
+/** Why the Hub left a file out of a preview, in the language on screen; a reason this page does not know is shown as the Hub wrote it. */
+export function skipReasonText(reason: string, t: Translate): string {
+  switch (reason) {
+    case 'sensitive_path': return t('coding_skip_sensitive_path');
+    case 'file_limit': return t('coding_skip_file_limit');
+    case 'deleted': return t('coding_skip_deleted');
+    case 'too_large': return t('coding_skip_too_large');
+    case 'binary': return t('coding_skip_binary');
+    case 'invalid_utf8': return t('coding_skip_invalid_utf8');
+    default: return reason;
+  }
+}
+
 /** The sentence for one thing a form found wrong (lib/agent-draft.ts), in the language on screen. */
 export function issueMessage(issue: DraftIssue, t: Translate): string {
   return t(`agent_draft_${issue.field}_${issue.code}` as TranslationKey, { max: issue.max ?? '', id: issue.detail ?? '' });
+}
+
+/**
+ * What a form found wrong with one field. It is the field's description (the field points at it with aria-describedby), read when the field
+ * is reached; it is not an alert, which would be announced again on every key typed.
+ */
+export function FieldIssues({ id, issues }: { id: string; issues: DraftIssue[] }) {
+  const { t } = useTranslation();
+  if (issues.length === 0) return null;
+  return (
+    <div id={id} className="space-y-0.5">
+      {issues.map((issue) => <p key={`${issue.field}-${issue.code}-${issue.detail ?? ''}`} data-testid="field-issue" className="text-[12px] text-danger">{issueMessage(issue, t)}</p>)}
+    </div>
+  );
 }
 
 /** Which folder delegated work acts on; when the work panel shows another one, the reason the controls below are off. */

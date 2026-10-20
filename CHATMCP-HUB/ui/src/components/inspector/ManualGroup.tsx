@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { api } from '@/lib/api';
-import { assessReport, outcomeToast } from '@/lib/agent-proof';
+import { agentErrorText } from '@/lib/agent-errors';
+import { assessReport, effectiveReportStatus, groupBlock, outcomeToast } from '@/lib/agent-proof';
 import { draftIssues, parseDeps, GROUP_LIMITS } from '@/lib/agent-draft';
 import { useTranslation, type Translate } from '@/lib/i18n';
 import { useAppStore } from '@/store/useAppStore';
@@ -10,7 +11,7 @@ import { useAgentDrafts, clampConcurrency, type GroupNode } from '@/store/useAge
 import { Button } from '@/components/ui/Button';
 import { Input, Select, Textarea } from '@/components/ui/Input';
 import { agentRoleLabel, agentStatusLabel } from './agentLabels';
-import { AiReport, EvidenceLine, issueMessage } from './agent-parts';
+import { AiReport, EvidenceLine, FieldIssues, NoticeLine } from './agent-parts';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ErrorLine } from './parts';
 import { useDelegation } from './useDelegation';
@@ -27,19 +28,24 @@ const startingGroup = (t: Translate): GroupNode[] => [
 /** The owner picks the roles, the jobs and the order. The helpers are read-only: they search the project and report in words. */
 export function ManualGroup() {
   const { t } = useTranslation();
-  const { blocked } = useDelegation();
+  const { blocked, agentBusy } = useDelegation();
   const showToast = useAppStore((state) => state.showToast);
   const stored = useAgentDrafts((state) => state.groupNodes);
   const concurrency = useAgentDrafts((state) => state.groupConcurrency);
   const setDraft = useAgentDrafts((state) => state.set);
   const [busy, setBusy] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Where focus goes when a button it was on goes away: the summary after a start, the Add button after a helper is removed.
+  const summaryRef = useRef<HTMLElement>(null);
+  const addRef = useRef<HTMLButtonElement>(null);
   const { data: latest, refetch, error } = useQuery({ queryKey: ['delegates'], queryFn: api.getOrchestrator, refetchInterval: 4000 });
   const nodes = stored ?? startingGroup(t);
   // Busy comes from the Hub as well as from this page, so a reopened tab does not offer a second run.
   const running = busy || latest?.running === true;
   const last = latest?.last;
-  const report = last ? assessReport(last.status) : null;
+  // The Hub keeps the status it saved when it stopped: "running" while nothing runs is a group that was cut off, not one in progress.
+  const report = last ? assessReport(effectiveReportStatus(last.status, running)) : null;
+  const block = groupBlock({ differentRoot: blocked, agentBusy });
   const issues = draftIssues(nodes, GROUP_LIMITS);
   const issuesOf = (index: number) => issues.filter((issue) => issue.index === index);
 
@@ -52,7 +58,7 @@ export function ManualGroup() {
       await refetch();
       showToast(agentStatusLabel(answer.status, t), outcomeToast(answer.status));
     } catch (e: any) {
-      showToast(e?.message || t('group_start_failed'), 'error');
+      showToast(agentErrorText(e, t, t('group_start_failed')), 'error');
     } finally {
       setBusy(false);
     }
@@ -62,13 +68,13 @@ export function ManualGroup() {
       await api.cancelOrchestrator();
       showToast(t('group_stop_toast'), 'info');
     } catch (e: any) {
-      showToast(e?.message || t('group_stop_failed'), 'error');
+      showToast(agentErrorText(e, t, t('group_stop_failed')), 'error');
     }
   };
 
   return (
     <details data-testid="manual-agents" className="border-t border-line pt-4">
-      <summary className="cursor-pointer rounded font-semibold text-fg">{t('group_manual_title')}</summary>
+      <summary ref={summaryRef} className="cursor-pointer rounded font-semibold text-fg">{t('group_manual_title')}</summary>
       <div className="mt-3 space-y-3">
         <p className="text-muted">{t('group_manual_intro')}</p>
         <fieldset disabled={blocked} className="min-w-0 space-y-3 border-0 p-0">
@@ -92,13 +98,14 @@ export function ManualGroup() {
                     {ROLES.map((role) => <option key={role} value={role}>{agentRoleLabel(role, t)}</option>)}
                   </Select>
                   <Button size="sm" variant="danger" aria-label={t('group_node_remove_label', { n: i + 1 })} disabled={nodes.length === 1 || running}
-                    onClick={() => setDraft({ groupNodes: nodes.filter((_, j) => j !== i) })}>{t('group_node_remove')}</Button>
+                    onClick={() => { setDraft({ groupNodes: nodes.filter((_, j) => j !== i) }); requestAnimationFrame(() => addRef.current?.focus()); }}>{t('group_node_remove')}</Button>
                 </div>
                 <div className="space-y-1">
                   <label htmlFor={`group-task-${i}`} className="block text-[12px] font-medium text-muted">{t('group_node_task', { n: i + 1 })}</label>
                   <Textarea id={`group-task-${i}`} rows={3} className="min-w-0" value={node.question} disabled={running}
-                    aria-invalid={textProblems.length > 0 || undefined} onChange={(event) => update(i, { question: event.target.value })} />
-                  {textProblems.map((issue) => <p key={issue.code} role="alert" className="text-[12px] text-danger">{issueMessage(issue, t)}</p>)}
+                    aria-invalid={textProblems.length > 0 || undefined} aria-describedby={textProblems.length > 0 ? `group-task-${i}-issues` : undefined}
+                    onChange={(event) => update(i, { question: event.target.value })} />
+                  <FieldIssues id={`group-task-${i}-issues`} issues={textProblems} />
                 </div>
                 <details className="text-[12px] text-muted">
                   <summary className="cursor-pointer rounded">{t('group_node_order')}</summary>
@@ -106,15 +113,15 @@ export function ManualGroup() {
                     <div className="space-y-1">
                       <label htmlFor={`group-id-${i}`} className="block">{t('group_node_id')}</label>
                       <Input id={`group-id-${i}`} value={node.id} disabled={running} aria-invalid={idProblems.length > 0 || undefined}
-                        onChange={(event) => update(i, { id: event.target.value })} />
-                      {idProblems.map((issue) => <p key={issue.code} role="alert" className="text-danger">{issueMessage(issue, t)}</p>)}
+                        aria-describedby={idProblems.length > 0 ? `group-id-${i}-issues` : undefined} onChange={(event) => update(i, { id: event.target.value })} />
+                      <FieldIssues id={`group-id-${i}-issues`} issues={idProblems} />
                     </div>
                     <div className="space-y-1">
                       <label htmlFor={`group-waits-${i}`} className="block">{t('group_node_waits')}</label>
                       <Input id={`group-waits-${i}`} value={node.dependsText ?? node.dependsOn.join(', ')} disabled={running} placeholder={t('group_node_waits_placeholder')}
-                        aria-invalid={depProblems.length > 0 || undefined}
+                        aria-invalid={depProblems.length > 0 || undefined} aria-describedby={depProblems.length > 0 ? `group-waits-${i}-issues` : undefined}
                         onChange={(event) => update(i, { dependsText: event.target.value, dependsOn: parseDeps(event.target.value) })} />
-                      {depProblems.map((issue) => <p key={`${issue.code}-${issue.detail}`} role="alert" className="text-danger">{issueMessage(issue, t)}</p>)}
+                      <FieldIssues id={`group-waits-${i}-issues`} issues={depProblems} />
                     </div>
                   </div>
                 </details>
@@ -123,26 +130,27 @@ export function ManualGroup() {
           })}
         </fieldset>
         {issues.some((issue) => issue.code !== 'empty' || issue.field !== 'text') && <p id="group-fix" className="text-[12px] text-warning">{t('agent_draft_fix')}</p>}
+        {block === 'agent-busy' && <NoticeLine tone="neutral" testId="group-block-agent-busy">{t('group_block_agent_busy')}</NoticeLine>}
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" disabled={blocked || nodes.length >= GROUP_LIMITS.maxItems || running}
+          <Button ref={addRef} size="sm" variant="outline" disabled={blocked || nodes.length >= GROUP_LIMITS.maxItems || running}
             onClick={() => setDraft({ groupNodes: [...nodes, { id: `worker${nodes.length + 1}`, role: 'researcher', question: '', dependsOn: [] }] })}>
             <Plus className="h-3.5 w-3.5" aria-hidden="true" />{t('group_add')}
           </Button>
           {running && <Button size="sm" variant="danger" onClick={stop}>{t('group_stop')}</Button>}
-          <Button size="sm" variant="primary" disabled={blocked || running || issues.length > 0} onClick={() => setConfirmOpen(true)}>
+          <Button size="sm" variant="primary" disabled={block !== null || running || issues.length > 0} onClick={() => setConfirmOpen(true)}>
             {running ? t('group_analyze_busy') : t('group_start')}
           </Button>
         </div>
         <ConfirmDialog open={confirmOpen} onOpenChange={setConfirmOpen} title={t('group_confirm_title')} description={t('group_confirm_body')}
-          confirmLabel={t('group_confirm_go')} cancelLabel={t('group_confirm_later')} onConfirm={run} busy={running || issues.length > 0} />
-        {error && <ErrorLine message={t('group_state_error', { message: error.message })} />}
+          confirmLabel={t('group_confirm_go')} cancelLabel={t('group_confirm_later')} onConfirm={run} busy={block !== null || running || issues.length > 0} focusAfter={summaryRef} />
+        {error && <ErrorLine message={t('group_state_error', { message: agentErrorText(error, t, '') })} />}
         {last && report && (
           <section aria-labelledby="group-result-title" data-testid="group-result" data-tone={report.tone} data-kind={report.kind} className="select-text space-y-2">
             <h4 id="group-result-title" className="font-semibold text-fg">{t('group_manual_result_title')}</h4>
             <EvidenceLine tone={report.tone} kind={report.kind} />
             {(last.workers || []).map((worker: any) => (
               <div key={worker.id} className="space-y-2 rounded-lg border border-line p-3">
-                <div className="font-medium text-fg">{agentRoleLabel(worker.role || 'researcher', t)} · {agentStatusLabel(worker.status, t)}</div>
+                <div className="font-medium text-fg">{agentRoleLabel(worker.role || 'researcher', t)} · {agentStatusLabel(effectiveReportStatus(worker.status, running), t)}</div>
                 {worker.summary ? <AiReport text={worker.summary} /> : worker.error ? <ErrorLine message={worker.error} /> : <p className="text-muted">{t('group_waiting_result')}</p>}
               </div>
             ))}

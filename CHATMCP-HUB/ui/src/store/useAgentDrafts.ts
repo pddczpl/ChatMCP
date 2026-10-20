@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { GrantNote } from '@/lib/agent-proof';
 
 // What the owner has typed in the Agents tab, kept while they look at another tab of the work panel (the panel unmounts the tab it leaves).
 // Nothing here is saved to disk and nothing is sent anywhere: it is the text of forms that have not been submitted yet.
@@ -20,10 +21,13 @@ export interface AgentDrafts {
   codingConcurrency: number;
   /** How many tasks the last proposed split had, for the note under the form. null when none was proposed. */
   codingPlanCount: number | null;
+  /** What the Hub answered when the owner allowed a check, by "worker:check". The Hub's list of checks does not show grants, so this is how the page knows. */
+  checkGrants: Record<string, GrantNote>;
 }
 
 interface AgentDraftsStore extends AgentDrafts {
   set: (patch: Partial<AgentDrafts>) => void;
+  rememberGrant: (key: string, note: GrantNote) => void;
   /** A fresh set of empty drafts (new arrays every time). */
   defaults: () => AgentDrafts;
 }
@@ -40,10 +44,12 @@ const defaults = (): AgentDrafts => ({
   codingTasks: null,
   codingConcurrency: 2,
   codingPlanCount: null,
+  checkGrants: {},
 });
 
 export const useAgentDrafts = create<AgentDraftsStore>((set) => ({
   ...defaults(),
   set: (patch) => set(patch),
+  rememberGrant: (key, note) => set((state) => ({ checkGrants: { ...state.checkGrants, [key]: note } })),
   defaults,
 }));

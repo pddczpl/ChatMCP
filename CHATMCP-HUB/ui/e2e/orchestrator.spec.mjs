@@ -22,7 +22,7 @@ function defineNoteWorker(mock, { onTools = () => {} } = {}) {
     if (!ctx.prompt.startsWith('TASK: ')) return say('Xong.');
     if (ctx.turn === 0) {
       onTools(ctx.tools);
-      const args = { path: NOTE, content: '# Agent note\n\nWritten by a scripted worker.\n' };
+      const args = { path: NOTE, content: '# Agent note\n\nWritten by a scripted worker.\u200B\n' };
       // the worker is offered the tools its goal selects; whatever it is offered, the file is written through a tool the Hub runs
       return ctx.tools.includes('write_file') ? call('write_file', args) : call('mcp_call', { name: 'local.write_file', arguments_json: JSON.stringify(args) });
     }
@@ -94,6 +94,9 @@ test('a coding worker: plan, start, read the diff, merge on a new branch — and
   await expect(ask.getByRole('button', { name: 'Để sau' })).toBeFocused();
   await shot(page, testInfo, 'coding-2-confirm');
   await ask.getByRole('button', { name: 'Cho phép và bắt đầu' }).click();
+  // the button that asked has turned into "working": focus goes to the section's heading and not to nowhere
+  await expect(ask).toBeHidden();
+  await expect(coding.getByRole('heading', { name: 'Nhờ AI sửa mã nguồn' })).toBeFocused();
 
   // the end of a run is announced as plain information ("waiting for your review"), never as a success: it is not a verdict on the work
   const ended = page.getByRole('status').filter({ hasText: 'Chờ bạn duyệt' });
@@ -134,12 +137,25 @@ test('a coding worker: plan, start, read the diff, merge on a new branch — and
   const diff = card.getByRole('region', { name: /^Thay đổi của chatmcp\/coder\// });
   await expect(diff).toContainText(`+++ b/${NOTE}`);
   await expect(diff).toContainText('+# Agent note');
+  await expect(diff, 'opening the review moves the reader into it').toBeFocused();
+  // a character nobody can see is made visible, and the diff says so
+  await expect(diff).toContainText('Written by a scripted worker.‹U+200B›');
+  await expect(diff).toContainText('ký tự ẩn hoặc ký tự đổi chiều chữ');
   await expect(publish).toBeEnabled();
+  // closing the review hands focus back to the button that opened it, and what was read stays read
+  await diff.getByRole('button', { name: 'Đóng', exact: true }).click();
+  await expect(diff).toBeHidden();
+  await expect(card.getByRole('button', { name: 'Xem thay đổi', exact: true })).toBeFocused();
+  await expect(publish).toBeEnabled();
+  await card.getByRole('button', { name: 'Xem thay đổi', exact: true }).click();
+  await expect(diff).toContainText(`+++ b/${NOTE}`);
   await card.getByRole('button', { name: 'Xem nội dung tệp' }).click();
   const files = card.getByTestId('coding-context-preview');
   await expect(files).toContainText(NOTE);
   await expect(files).toContainText('Written by a scripted worker.');
+  await expect(files).toContainText('‹U+200B›');
   await expect(files).toContainText('không tự gửi tới AI');
+  await expect(files).toBeFocused();
   await diff.scrollIntoViewIfNeeded();
   await shot(page, testInfo, 'coding-4-diff');
 
@@ -157,6 +173,8 @@ test('a coding worker: plan, start, read the diff, merge on a new branch — and
   await box.fill('INTEGRATE WORKTREES');
   await expect(confirm).toBeEnabled();
   await confirm.click();
+  // "merge" is off once there is a merge: focus goes to the heading of the result, not to nowhere
+  await expect(coding.locator('#coding-result-title')).toBeFocused();
   const integration = coding.getByTestId('coding-integration');
   await expect(integration).toContainText('Bản gộp: Chờ bạn duyệt', { timeout: 60_000 });
   await expect(integration).toContainText('chatmcp/integration/');
@@ -220,12 +238,117 @@ test('a run in progress is the Hub’s state, not the page’s: another tab and 
   await expect(coding.getByTestId('coding-worker').first()).toHaveAttribute('data-kind', 'working');
   await expect(coding.getByRole('textbox', { name: 'Chia công việc từ một yêu cầu' })).toBeDisabled();
 
+  // the other section knows too: the Hub would refuse an analysis while a code edit is running, so the tab says so
+  await page.getByRole('tab', { name: 'Nhóm trợ lý', exact: true }).click();
+  const groups = page.getByTestId('agent-groups');
+  await groups.getByRole('textbox', { name: 'Yêu cầu của bạn' }).fill('Why is the page slow?');
+  await expect(groups.getByTestId('analysis-block-coding-running')).toContainText('Đang có một lần sửa mã chạy');
+  await expect(groups.getByRole('button', { name: 'Bắt đầu phân tích', exact: true })).toBeDisabled();
+  await page.getByRole('tab', { name: 'Sửa mã', exact: true }).click();
+
   await coding.getByRole('button', { name: 'Dừng sửa mã' }).click();
   await expect.poll(async () => (await app.hub.get('/api/studio/coding')).json.jobs.at(-1)?.status, { timeout: 60_000 }).toBe('cancelled');
   await expect(coding.getByRole('button', { name: 'Bắt đầu sửa mã', exact: true })).toBeEnabled({ timeout: 30_000 });
   await expect(coding.getByTestId('coding-result')).toHaveAttribute('data-status', 'cancelled');
   await expect(coding.getByTestId('coding-worker').first()).not.toHaveAttribute('data-tone', 'success');
+  // a worker of a run that was stopped is stopped; nothing keeps spinning for work that will never finish
+  await expect(coding.getByTestId('coding-worker').first()).toHaveAttribute('data-kind', 'stopped');
+  await expect(coding.getByTestId('coding-worker').first().getByTestId('agent-proof')).toContainText('Đã dừng');
+  // and the analysis can be started again now that nothing else is running
+  await page.getByRole('tab', { name: 'Nhóm trợ lý', exact: true }).click();
+  await expect(groups.getByTestId('analysis-block-coding-running')).toHaveCount(0);
+  await expect(groups.getByRole('button', { name: 'Bắt đầu phân tích', exact: true })).toBeEnabled();
   await expectCheckoutUntouched(app, head);
+});
+
+test('a stopped run keeps the worker that had finished, but the Hub merges only a finished run: the tab says so beside the button, and the Hub agrees', async ({ page, app }) => {
+  test.setTimeout(180_000);
+  app.mock.define('mixed-worker', async (ctx) => {
+    if (!ctx.prompt.startsWith('TASK: ')) return say('Xong.');
+    const slow = ctx.prompt.includes('SLOW-ONE');
+    if (ctx.turn === 0) {
+      if (slow) await new Promise((resolve) => setTimeout(resolve, 15_000));
+      const args = { path: slow ? 'SLOW.md' : 'FAST.md', content: '# A note\n' };
+      return ctx.tools.includes('write_file') ? call('write_file', args) : call('mcp_call', { name: 'local.write_file', arguments_json: JSON.stringify(args) });
+    }
+    return say(CLAIM);
+  });
+  app.mock.setScenario('mixed-worker');
+  await onboard(page, app);
+  await setMode(app.hub, 'autonomous');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  // two tasks at once: one is quick and commits, the other is slow and is still working when the owner stops the run
+  const running = app.hub.request('POST', '/api/studio/coding/run', { tasks: [{ id: 'fast', prompt: 'Add FAST.md' }, { id: 'slow', prompt: 'SLOW-ONE: add SLOW.md' }], maxConcurrency: 2, confirmation: 'CREATE WORKTREES' }).catch(() => null);
+  await expect.poll(async () => (await app.hub.get('/api/studio/coding')).json.jobs.at(-1)?.workers.find((worker) => worker.id === 'fast')?.status, { timeout: 60_000 }).toBe('ready_for_review');
+  await openAgents(page, 'Sửa mã');
+  const coding = page.getByTestId('coding-agents');
+  await coding.getByRole('button', { name: 'Dừng sửa mã' }).click();
+  await running;
+  await expect(coding.getByTestId('coding-result')).toHaveAttribute('data-status', 'cancelled', { timeout: 60_000 });
+
+  // the worker that committed is waiting for the owner; the one that was cut off is stopped, not "working"
+  const fast = coding.locator('[data-testid="coding-worker"][data-worker="fast"]');
+  const slow = coding.locator('[data-testid="coding-worker"][data-worker="slow"]');
+  await expect(fast).toHaveAttribute('data-kind', 'unverified');
+  await expect(slow).toHaveAttribute('data-kind', 'stopped');
+  await expect(slow.getByTestId('agent-proof')).toContainText('Đã dừng');
+
+  // read what it committed and tick it: the merge stays off, and the tab says why next to the button
+  await fast.getByRole('checkbox', { name: /Chọn công việc fast/ }).check();
+  await fast.getByRole('button', { name: 'Xem thay đổi', exact: true }).click();
+  await expect(fast.getByRole('region', { name: /^Thay đổi của chatmcp\/coder\// })).toContainText('+++ b/FAST.md');
+  const merge = coding.getByRole('button', { name: 'Gộp các công việc đã chọn', exact: true });
+  await expect(merge).toBeDisabled();
+  await expect(merge).toHaveAttribute('aria-describedby', 'coding-merge-status-hint');
+  await expect(coding.getByTestId('coding-integration')).toContainText('Hub chỉ gộp lần chạy đã sẵn sàng để duyệt hoặc chạy hỏng một phần; lần này đang ở trạng thái “Đã dừng”');
+
+  // the Hub would have refused it as well: the tab is not stricter than the Hub, it is saying what the Hub says
+  const record = (await app.hub.get('/api/studio/coding')).json.jobs.at(-1);
+  const review = (await app.hub.get(`/api/studio/coding/review?runId=${record.id}&workerId=fast`)).json;
+  const integrate = await app.hub.request('POST', '/api/studio/coding/integrate', { runId: record.id, workerIds: ['fast'], reviewTokens: { fast: review.reviewToken }, confirmation: 'INTEGRATE WORKTREES' });
+  expect(integrate.status).toBe(409);
+  expect(integrate.json.code).toBe('run_not_ready');
+  expect(git(app.project, app.scratch, ['status', '--porcelain']).stdout).toBe('');
+});
+
+test('the task list: a problem is described by its field and not shouted, the plan note goes when the list changes, and removing a task keeps focus', async ({ page, app }) => {
+  await onboard(page, app);
+  await setMode(app.hub, 'autonomous');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await openAgents(page, 'Sửa mã');
+  const coding = page.getByTestId('coding-agents');
+  await coding.getByRole('textbox', { name: 'Chia công việc từ một yêu cầu' }).fill('Add a file named AGENT-NOTE.md');
+  await coding.getByRole('button', { name: 'Đề xuất chia công việc', exact: true }).click();
+  const note = coding.getByRole('status').filter({ hasText: 'Bản xem trước gồm 1 công việc' });
+  await expect(note).toBeVisible();
+
+  // adding a task makes "the preview has 1 task" wrong, so the note goes
+  const add = coding.getByRole('button', { name: 'Thêm công việc', exact: true });
+  await add.click();
+  await expect(coding.getByTestId('coding-task')).toHaveCount(2);
+  await expect(note).toHaveCount(0);
+
+  // a problem with a field is the field's description: read when the field is reached, never an alert announced on every key
+  const second = coding.getByTestId('coding-task').nth(1);
+  await second.getByRole('textbox', { name: 'Công việc 2', exact: true }).fill('Another note');
+  await second.locator('summary').click();
+  const id = second.locator('#coding-id-1');
+  await id.fill('Bad Id');
+  await expect(id).toHaveAttribute('aria-invalid', 'true');
+  await expect(id).toHaveAccessibleDescription(/Mã gồm chữ thường không dấu/);
+  await expect(second.locator('#coding-id-1-issues')).toContainText('Mã gồm chữ thường không dấu');
+  await expect(second.getByRole('alert')).toHaveCount(0);
+  await expect(coding.getByRole('button', { name: 'Bắt đầu sửa mã', exact: true })).toBeDisabled();
+  await id.fill('task-2');
+  await expect(id).not.toHaveAttribute('aria-invalid', 'true');
+  await expect(second.locator('#coding-id-1-issues')).toHaveCount(0);
+  await expect(coding.getByRole('button', { name: 'Bắt đầu sửa mã', exact: true })).toBeEnabled();
+
+  // removing a task takes the focused button away: focus goes to "add a task" and not to nowhere
+  await second.getByRole('button', { name: 'Xóa công việc 2' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(coding.getByTestId('coding-task')).toHaveCount(1);
+  await expect(add).toBeFocused();
 });
 
 test('agent groups: the AI’s words are a report, labelled and never green, and what is typed survives a visit to another tab', async ({ page, app }, testInfo) => {
@@ -247,6 +370,8 @@ test('agent groups: the AI’s words are a report, labelled and never green, and
   const ask = page.getByRole('alertdialog', { name: 'Cho phép AI phân tích dự án?' });
   await expect(ask).toContainText('Why is the page slow?');
   await ask.getByRole('button', { name: 'Cho phép và bắt đầu' }).click();
+  await expect(ask).toBeHidden();
+  await expect(page.locator('#agent-goal-heading'), 'the start button turned into "working"; focus goes to the heading').toBeFocused();
   // a run that needs the owner is announced as a warning
   const needs = page.getByRole('status').filter({ hasText: 'Cần bạn kiểm tra' });
   await expect(needs).toBeVisible({ timeout: 60_000 });
@@ -264,6 +389,8 @@ test('agent groups: the AI’s words are a report, labelled and never green, and
   await manual.getByRole('button', { name: 'Bắt đầu với nhóm này' }).click();
   const confirm = page.getByRole('alertdialog', { name: 'Cho phép AI phân tích dự án?' });
   await confirm.getByRole('button', { name: 'Cho phép và bắt đầu' }).click();
+  await expect(confirm).toBeHidden();
+  await expect(groups.getByText('Tự chia việc cho từng trợ lý', { exact: true }), 'focus stays in the group form').toBeFocused();
   // a group that finished is announced as information, not as a success: what it wrote has not been checked
   const finished = page.getByRole('status').filter({ hasText: 'Đã hoàn tất' });
   await expect(finished).toBeVisible({ timeout: 90_000 });
@@ -273,7 +400,7 @@ test('agent groups: the AI’s words are a report, labelled and never green, and
   await expect(result).toHaveAttribute('data-kind', 'ai-report', { timeout: 90_000 });
   await expect(result.getByTestId('ai-report')).toHaveCount(4);
   await expect(result.getByTestId('ai-report').first()).toContainText('Báo cáo của AI');
-  await expect(result.getByTestId('ai-report').last()).toContainText('Tổng hợp kết quả');
+  await expect(result.getByTestId('ai-report').last()).toContainText('Báo cáo của AI · Tổng hợp kết quả');
   await expect(result.getByTestId('agent-proof')).toContainText('AI báo cáo · Hub chưa kiểm chứng');
   await expect(result.getByTestId('agent-proof')).toHaveAttribute('data-tone', 'neutral');
   await expect(result.locator('[data-tone="success"]')).toHaveCount(0);
@@ -347,10 +474,14 @@ test('narrow windows (600 and 900 px): the Agents tab fits its panel in every se
   expect(run.status).toBe('ready_for_review');
   for (const [width, height] of [[600, 900], [900, 800]]) {
     await page.setViewportSize({ width, height });
-    // compact windows start with the work panel closed; the header button opens it
-    if (!(await page.locator('#panel-inspector').count())) await page.locator('header button[title="Mở Inspector (Ctrl+J)"]').click();
-    await openAgents(page, 'Sửa mã');
-    await expect(page.getByTestId('coding-worker')).toBeVisible();
+    // compact windows close the work panel, a moment after the size changes; the header button opens it. The block is retried as a whole
+    // because for that moment the panel of the old layout is still on screen and is about to go.
+    await expect(async () => {
+      const opener = page.locator('header button[title="Mở Inspector (Ctrl+J)"]');
+      if (await opener.isVisible()) await opener.click();
+      await openAgents(page, 'Sửa mã');
+      await expect(page.getByTestId('coding-worker')).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
     for (const [section, id] of [['Công việc nền', null], ['Nhóm trợ lý', 'agent-groups'], ['Sửa mã', 'coding-agents']]) {
       await page.getByRole('tab', { name: section, exact: true }).click();
       if (id) {
@@ -371,7 +502,13 @@ test('narrow windows (600 and 900 px): the Agents tab fits its panel in every se
 });
 
 test('with another folder in view the delegation forms are off and the notice names both folders; background tasks stay usable', async ({ page, app }) => {
+  test.setTimeout(180_000);
+  defineNoteWorker(app.mock);
   await onboard(page, app);
+  await setMode(app.hub, 'autonomous');
+  // a finished run of the project folder, so that what is done to it from the other folder can be tried
+  const run = await app.hub.post('/api/studio/coding/run', { tasks: [{ id: 'task-a', prompt: 'Add a file named AGENT-NOTE.md that explains this project' }], maxConcurrency: 1, confirmation: 'CREATE WORKTREES' });
+  expect(run.status).toBe('ready_for_review');
   await page.setViewportSize({ width: 1440, height: 1000 });
   const other = path.join(app.scratch, 'second-workspace');
   await fs.mkdir(other, { recursive: true });
@@ -388,12 +525,24 @@ test('with another folder in view the delegation forms are off and the notice na
   await expect(coding.getByRole('status').filter({ hasText: app.project })).toBeVisible();
   await expect(coding.getByRole('textbox', { name: 'Chia công việc từ một yêu cầu' })).toBeDisabled();
   await expect(coding.getByRole('button', { name: 'Bắt đầu sửa mã', exact: true })).toBeDisabled();
+  // the run of the project folder can be read from here, but nothing is changed from here: not a merge, not a draft on GitHub
+  const card = coding.getByTestId('coding-worker');
+  await card.getByRole('checkbox', { name: /Chọn công việc task-a/ }).check();
+  await card.getByRole('button', { name: 'Xem thay đổi', exact: true }).click();
+  await expect(card.getByRole('region', { name: /^Thay đổi của chatmcp\/coder\// })).toContainText(`+++ b/${NOTE}`);
+  await expect(coding.getByRole('button', { name: 'Gộp các công việc đã chọn', exact: true })).toBeDisabled();
+  await expect(card.getByRole('button', { name: 'Tạo bản nháp trên GitHub' })).toBeDisabled();
   await page.getByRole('tab', { name: 'Công việc nền', exact: true }).click();
   await expect(page.getByText('Chưa có công việc nền.', { exact: false })).toBeVisible();
-  // back on the project folder the forms work again
+  // back on the project folder the forms work again, and so does the merge once the changes have been read
   await page.getByRole('button', { name: path.basename(app.project), exact: true }).click();
   await openAgents(page, 'Nhóm trợ lý');
   await expect(groups.getByRole('textbox', { name: 'Yêu cầu của bạn' })).toBeEnabled();
+  await page.getByRole('tab', { name: 'Sửa mã', exact: true }).click();
+  await card.getByRole('checkbox', { name: /Chọn công việc task-a/ }).check();
+  await card.getByRole('button', { name: 'Xem thay đổi', exact: true }).click();
+  await expect(card.getByRole('region', { name: /^Thay đổi của chatmcp\/coder\// })).toContainText(`+++ b/${NOTE}`);
+  await expect(coding.getByRole('button', { name: 'Gộp các công việc đã chọn', exact: true })).toBeEnabled();
 });
 
 test('in English, and in the light theme, the tab reads in one language and keeps the evidence colours', async ({ page, app }, testInfo) => {

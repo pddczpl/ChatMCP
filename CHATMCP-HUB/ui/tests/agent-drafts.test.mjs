@@ -42,3 +42,14 @@ test('the number of helpers or tasks at once is kept inside what the Hub accepts
   assert.equal(clampConcurrency(Number.NaN, 2), 2);
   assert.equal(clampConcurrency(1.7, 3), 1);
 });
+
+test('what the Hub answered when a check was allowed is kept by worker and check, and fresh drafts remember none', () => {
+  useAgentDrafts.setState(useAgentDrafts.getInitialState().defaults());
+  assert.deepEqual(useAgentDrafts.getState().checkGrants, {});
+  useAgentDrafts.getState().rememberGrant('w1:c1', { expiresAt: 5, maxAttempts: 3 });
+  useAgentDrafts.getState().rememberGrant('w1:c2', { expiresAt: 9, maxAttempts: 2 });
+  useAgentDrafts.getState().rememberGrant('w1:c1', { expiresAt: 7, maxAttempts: 3 });
+  assert.deepEqual(useAgentDrafts.getState().checkGrants, { 'w1:c1': { expiresAt: 7, maxAttempts: 3 }, 'w1:c2': { expiresAt: 9, maxAttempts: 2 } });
+  assert.deepEqual(useAgentDrafts.getInitialState().defaults().checkGrants, {});
+  assert.notEqual(useAgentDrafts.getInitialState().defaults().checkGrants, useAgentDrafts.getInitialState().defaults().checkGrants);
+});
