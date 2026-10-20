@@ -17,12 +17,23 @@ export interface RecordedAttempt {
   snapshotHash?: string;
 }
 
+/**
+ * What the Hub says in its own words about how a worker's verification ended (lib/coding-orchestrator.mjs). `code` is what this page translates; `text` is
+ * the Hub's English sentence, for a code this page does not know; `detail` is the part of the sentence that varies (the reason the loop gave up).
+ */
+export interface VerificationNote {
+  code: string;
+  text?: string;
+  detail?: string;
+}
+
 export interface WorkerRecord {
   id?: string;
   status?: string;
   verifyRequired?: boolean;
   verificationOutcome?: { state?: string } | null;
   verificationAttempts?: RecordedAttempt[] | null;
+  verificationNote?: VerificationNote | null;
 }
 
 export interface WorkerProof {
@@ -66,6 +77,21 @@ export function assessWorker(worker: WorkerRecord | null | undefined, options: {
   const loopEnded = worker?.verifyRequired === true && worker.verificationOutcome?.state === 'ready_for_review';
   if (loopEnded && current.length > 0 && current.every(attempt => attempt.testOutcomeVerified === true)) return { ...facts, tone: 'success', kind: 'verified' };
   return { ...facts, tone: 'warning', kind: 'unverified' };
+}
+
+/**
+ * The Hub's own sentence about how a worker's verification ended, which is a field of its own: the worker's summary is what its model said and nothing
+ * else. It is shown beside the evidence line, labelled as the Hub's, and is never green. A code the page does not know is passed on with the Hub's text.
+ * The note that every check has fresh evidence repeats what the evidence line says, so it is shown only where `assessWorker` agrees: after a commit that
+ * failed, a restart, a later attempt that failed or one the Hub did not verify, repeating it would read as proof that the record does not back.
+ */
+export function hubNoteOf(worker: WorkerRecord | null | undefined, proof: WorkerProof): VerificationNote | null {
+  const raw: unknown = worker?.verificationNote;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const { code, text, detail } = raw as Record<string, unknown>;
+  if (typeof code !== 'string' || code === '') return null;
+  if (code === 'verified' && proof.kind !== 'verified') return null;
+  return { code, ...(typeof text === 'string' ? { text } : {}), ...(typeof detail === 'string' ? { detail } : {}) };
 }
 
 /** A read-only group or analysis: text an AI wrote from excerpts of the project. The Hub does not check it, so it is never green. */
@@ -121,6 +147,17 @@ export function delegationTarget(input: { selectedWorkspacePath?: string; active
   const viewing = input.selectedWorkspacePath || input.activePath || '';
   const primary = input.primaryPath || '';
   return { blocked: Boolean(viewing && primary && viewing !== primary), primary, viewing };
+}
+
+/**
+ * The runs of the folder in view. The Hub keeps one list of runs for every folder it has worked on and says which folder each belongs to; a run is shown
+ * only when that is exactly the folder in view (the Hub compares the same way before it reads or changes a run, so a run of another folder could not be
+ * read from here anyway), and the others are counted so that the page can say they exist. A run with no recorded folder belongs to none.
+ */
+export function runsOfFolder<T extends { workspace?: unknown }>(jobs: unknown, folder: string | null | undefined): { shown: T[]; hidden: number } {
+  const list = Array.isArray(jobs) ? (jobs as T[]) : [];
+  const shown = typeof folder === 'string' && folder !== '' ? list.filter((job) => Boolean(job) && job.workspace === folder) : [];
+  return { shown, hidden: list.length - shown.length };
 }
 
 export type CodingBlock = 'other-workspace' | 'recovery' | 'needs-autonomous' | 'agent-busy' | 'group-running' | 'busy';

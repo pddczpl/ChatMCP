@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analysisBlock, assessWorker, assessReport, awaitingCheckWorkers, canMerge, canPublishMerge, codingBlock, delegationTarget, effectiveReportStatus, grantState, groupBlock, outcomeToast, preselectIds, reviewKey, statusTone } from '../src/lib/agent-proof.ts';
+import { analysisBlock, assessWorker, assessReport, awaitingCheckWorkers, canMerge, canPublishMerge, codingBlock, delegationTarget, effectiveReportStatus, grantState, groupBlock, hubNoteOf, outcomeToast, preselectIds, reviewKey, runsOfFolder, statusTone } from '../src/lib/agent-proof.ts';
 
 // "Reported done" is not "proven done" (see proof.test.mjs for a conversation turn). A coding worker is a model: what it says about itself is its
 // own claim. The only thing that turns a worker green is a check the Hub itself ran and verified; every other path must stay below success.
@@ -283,6 +283,96 @@ test('the key a review is kept under tells the merge from a worker, whatever the
   assert.equal(reviewKey(undefined), 'merge');
   const names = ['merge', 'integration', 'worker:merge', 'a'];
   assert.equal(new Set([...names.map(reviewKey), reviewKey(null)]).size, names.length + 1, 'no worker name collides with the merge or with another worker');
+});
+
+test('the runs of a folder are those the Hub recorded for exactly that folder: the others are counted, never shown', () => {
+  const a = { id: 'a', workspace: '/project' };
+  const b = { id: 'b', workspace: '/other' };
+  const c = { id: 'c', workspace: '/project' };
+  assert.deepEqual(runsOfFolder([a, b, c], '/project'), { shown: [a, c], hidden: 1 });
+  assert.deepEqual(runsOfFolder([a, b, c], '/other'), { shown: [b], hidden: 2 });
+  assert.deepEqual(runsOfFolder([a, b, c], '/nowhere'), { shown: [], hidden: 3 });
+  assert.equal(runsOfFolder([a, b, c], '/project').shown[0], a, 'the very runs of the Hub, in the order the Hub gave them');
+  assert.deepEqual(runsOfFolder([], '/project'), { shown: [], hidden: 0 });
+});
+
+test('a run whose folder the Hub did not record belongs to no folder: it is counted, as the Hub would not read it either', () => {
+  for (const workspace of [null, undefined, '', 42, {}, ['/project']]) {
+    assert.deepEqual(runsOfFolder([{ id: 'x', workspace }], '/project'), { shown: [], hidden: 1 }, String(workspace));
+  }
+  assert.deepEqual(runsOfFolder([{ id: 'x' }, { id: 'y', workspace: '/project' }], '/project'), { shown: [{ id: 'y', workspace: '/project' }], hidden: 1 });
+});
+
+test('with no folder in view no run is shown, and a list that is not a list has no runs', () => {
+  const run = { id: 'a', workspace: '/project' };
+  for (const folder of ['', undefined, null]) assert.deepEqual(runsOfFolder([run], folder), { shown: [], hidden: 1 }, String(folder));
+  assert.deepEqual(runsOfFolder([{ id: 'x', workspace: '' }], ''), { shown: [], hidden: 1 }, 'an empty string is no folder, on either side');
+  for (const jobs of [undefined, null, {}, 'runs', 7]) assert.deepEqual(runsOfFolder(jobs, '/project'), { shown: [], hidden: 0 }, String(jobs));
+  assert.deepEqual(runsOfFolder([null, undefined, run], '/project'), { shown: [run], hidden: 2 }, 'an entry that is not a run is not a run of the folder');
+});
+
+test('folders are compared as the Hub compares them, exactly: another spelling is another folder', () => {
+  const run = { id: 'a', workspace: 'C:\\Projects\\App' };
+  assert.deepEqual(runsOfFolder([run], 'C:\\Projects\\App').shown, [run]);
+  for (const folder of ['c:\\projects\\app', 'C:\\Projects\\App\\', 'C:/Projects/App', ' C:\\Projects\\App']) assert.deepEqual(runsOfFolder([run], folder), { shown: [], hidden: 1 }, folder);
+});
+
+const note = (overrides = {}) => ({ code: 'blocked', text: 'Verified coding blocked: Repair/test retry budget exhausted.', detail: 'Repair/test retry budget exhausted.', ...overrides });
+const proofOf = (record, options) => assessWorker(record, options);
+
+test('the Hub’s note about a verification that did not finish is shown beside the card, whatever the card says', () => {
+  for (const [code, status] of [['no_checks', 'needs_attention'], ['grant_timeout', 'needs_attention'], ['blocked', 'needs_attention'], ['blocked', 'interrupted'], ['no_checks', 'failed']]) {
+    const record = worker({ status, verifyRequired: true, verificationNote: note({ code }) });
+    assert.equal(hubNoteOf(record, proofOf(record))?.code, code, `${code} on ${status}`);
+  }
+  const shown = hubNoteOf(worker({ status: 'needs_attention', verificationNote: note() }), proofOf(worker({ status: 'needs_attention' })));
+  assert.deepEqual(shown, { code: 'blocked', text: 'Verified coding blocked: Repair/test retry budget exhausted.', detail: 'Repair/test retry budget exhausted.' });
+});
+
+test('the note that every check has fresh evidence is shown only where the card’s own evidence says the same', () => {
+  const verifiedNote = { code: 'verified', text: 'All registered pinned Node checks have fresh signed TAP evidence.' };
+  const ok = verifiedWorker({ verificationNote: verifiedNote });
+  assert.equal(proofOf(ok).kind, 'verified');
+  assert.deepEqual(hubNoteOf(ok, proofOf(ok)), verifiedNote, 'the Hub’s record agrees: the note is shown');
+  // the realistic ways a worker carries that note without being verified: the commit or file check failed after the loop, a restart, a later attempt that failed,
+  // an attempt the Hub did not verify, a loop that did not end as ready, a worker that was not asked to verify, nothing changed, the run was stopped
+  const mismatches = {
+    'the commit failed after the verification': verifiedWorker({ status: 'failed', verificationNote: verifiedNote }),
+    'the Hub restarted': verifiedWorker({ status: 'interrupted', verificationNote: verifiedNote }),
+    'the run was cancelled': verifiedWorker({ status: 'cancelled', verificationNote: verifiedNote }),
+    'nothing was changed': verifiedWorker({ status: 'no_changes', verificationNote: verifiedNote }),
+    'it needs attention': verifiedWorker({ status: 'needs_attention', verificationNote: verifiedNote }),
+    'a later attempt failed': verifiedWorker({ verificationAttempts: [attempt(), attempt({ id: 'a2', status: 'failed', exitCode: 1, testOutcomeVerified: false })], verificationNote: verifiedNote }),
+    'an attempt was not verified by the Hub': verifiedWorker({ verificationAttempts: [attempt({ testOutcomeVerified: false })], verificationNote: verifiedNote }),
+    'no attempt is on record': verifiedWorker({ verificationAttempts: [], verificationNote: verifiedNote }),
+    'the loop did not end as ready': verifiedWorker({ verificationOutcome: { state: 'needs_attention' }, verificationNote: verifiedNote }),
+    'verification was not asked for': verifiedWorker({ verifyRequired: false, verificationNote: verifiedNote }),
+  };
+  for (const [label, record] of Object.entries(mismatches)) {
+    assert.notEqual(proofOf(record).kind, 'verified', `(premise) ${label}`);
+    assert.equal(hubNoteOf(record, proofOf(record)), null, `${label}: the note is not shown as proof`);
+  }
+  // a worker still working in a run that is not going any more is stopped, and a stopped worker has no proof to repeat
+  const stopped = verifiedWorker({ status: 'running', verificationNote: verifiedNote });
+  assert.equal(hubNoteOf(stopped, proofOf(stopped, { runActive: false })), null);
+});
+
+test('the model’s words are not the Hub’s: a summary that says the Hub verified everything shows no Hub note', () => {
+  const record = worker({ summary: 'All registered pinned Node checks have fresh signed TAP evidence.' });
+  assert.equal(hubNoteOf(record, proofOf(record)), null);
+});
+
+test('a note that is not a note is not shown, and only text that is text is passed on', () => {
+  const record = (verificationNote) => worker({ status: 'needs_attention', verificationNote });
+  for (const bad of [undefined, null, 'blocked', 7, [], [note()], {}, { code: '' }, { code: 7 }, { code: null }, { text: 'Verified coding blocked' }]) {
+    assert.equal(hubNoteOf(record(bad), proofOf(record(bad))), null, JSON.stringify(bad));
+  }
+  const clean = hubNoteOf(record({ code: 'blocked', text: 5, detail: { reason: 'x' }, extra: 'dropped' }), proofOf(record()));
+  assert.deepEqual(clean, { code: 'blocked' }, 'a text or a detail that is not a string is dropped, and so is anything else');
+  assert.equal(hubNoteOf(null, proofOf(null)), null);
+  assert.equal(hubNoteOf(undefined, proofOf(undefined)), null);
+  // a code this page does not know is passed on with the Hub’s own text; it is not made up into proof
+  assert.deepEqual(hubNoteOf(record({ code: 'something_new', text: 'The Hub says so.' }), proofOf(record())), { code: 'something_new', text: 'The Hub says so.' });
 });
 
 test('an allowed check counts until the Hub’s grant runs out; one that was never allowed, or whose time has passed, does not', () => {

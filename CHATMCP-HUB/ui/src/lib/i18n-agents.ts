@@ -76,6 +76,12 @@ export const agentsVi = {
   agent_proof_ai_report_note: 'Nội dung do AI viết từ các đoạn mã nó đọc được. Hãy mở các tệp được trích dẫn để đối chiếu.',
   agent_proof_facts: 'Hub ghi nhận {checks} lần chạy kiểm tra, trong đó {verified} lần do Hub xác minh.',
   agent_report_label: 'Báo cáo của AI',
+  // The Hub's own words about how a worker's verification ended (a field of its own, apart from the AI's summary): the note's code picks the line
+  agent_hub_note_label: 'Ghi chú của Hub:',
+  agent_hub_note_no_checks: 'Hub không tìm thấy lệnh kiểm thử Node nào được hỗ trợ trong dự án này, nên không chạy kiểm thử cách ly nào.',
+  agent_hub_note_grant_timeout: 'Hub chờ bạn cho phép các lệnh kiểm thử cách ly nhưng đã hết thời gian chờ, nên không chạy kiểm thử nào.',
+  agent_hub_note_blocked: 'Hub đã dừng vòng kiểm thử. Lý do Hub ghi, nguyên văn: {reason}',
+  agent_hub_note_verified: 'Mọi lệnh kiểm thử Node đã đăng ký đều có bằng chứng TAP có chữ ký còn mới.',
   agent_hidden_chars_note: 'Văn bản này có ký tự ẩn hoặc ký tự đổi chiều chữ; chúng hiện thành ‹U+…› để bạn thấy.',
 
   // Isolated checks the owner may allow (also shown in the Progress tab)
@@ -244,6 +250,11 @@ export const agentsVi = {
   coding_load_error: 'Không tải được các lần sửa mã: {message}',
   coding_run_pick: 'Lần chạy',
   coding_result_title: 'Kết quả sửa mã',
+  // Which folder's runs are on screen: the Hub keeps the runs of every folder it has worked on in one list, and each says which folder it belongs to
+  coding_runs_hidden: 'Chỉ hiện các lần sửa mã của thư mục đang xem. {n} lần sửa mã thuộc thư mục khác nên không hiện ở đây.',
+  coding_runs_main_hidden: 'Chỉ hiện các lần sửa mã của thư mục đang xem. {n} lần sửa mã của thư mục chính của Hub ({primary}) không hiện ở đây, vì bạn đang xem thư mục khác.',
+  coding_empty_hint_other_folder: 'Hub chỉ sửa mã ở thư mục chính của nó, nên thư mục đang xem chưa có lần sửa mã nào.',
+  coding_run_foreign: 'Lần chạy này thuộc thư mục đang xem, không phải thư mục chính của Hub ({primary}). Hub chỉ đọc và gộp các lần chạy của thư mục chính, nên xem thay đổi, xem tệp và mọi thao tác thay đổi đều tắt ở đây.',
   coding_run_details: 'Kiểm tra lần chạy và khôi phục',
   coding_run_id: 'Mã lần chạy: {id}',
   coding_recovery_view: 'Xem nhật ký khôi phục',
@@ -458,6 +469,11 @@ export const agentsEn: Record<keyof typeof agentsVi, string> = {
   agent_proof_ai_report_note: 'Written by the AI from the excerpts of the project it could read. Open the files it cites to compare.',
   agent_proof_facts: 'The Hub recorded {checks} check run(s), {verified} of them verified by the Hub.',
   agent_report_label: 'AI report',
+  agent_hub_note_label: 'Hub note:',
+  agent_hub_note_no_checks: 'The Hub found no supported pinned Node test in this project, so it ran no isolated check.',
+  agent_hub_note_grant_timeout: 'The Hub waited for you to allow the isolated checks and the time ran out, so it ran none.',
+  agent_hub_note_blocked: 'The Hub stopped the verification loop. The reason it gave, as written: {reason}',
+  agent_hub_note_verified: 'Every registered pinned Node check has fresh signed TAP evidence.',
   agent_hidden_chars_note: 'This text has hidden or direction-changing characters; they are shown as ‹U+…› so you can see them.',
 
   // Isolated checks the owner may allow (also shown in the Progress tab)
@@ -626,6 +642,10 @@ export const agentsEn: Record<keyof typeof agentsVi, string> = {
   coding_load_error: 'Could not load the code edits: {message}',
   coding_run_pick: 'Run',
   coding_result_title: 'Code edit results',
+  coding_runs_hidden: 'Only the code edits of the folder in view are shown. {n} run(s) belong to other folders and are not shown here.',
+  coding_runs_main_hidden: 'Only the code edits of the folder in view are shown. {n} run(s) of the Hub’s main folder ({primary}) are not shown here, because you are looking at a different folder.',
+  coding_empty_hint_other_folder: 'The Hub edits code only in its main folder, so the folder in view has no code edits.',
+  coding_run_foreign: 'This run belongs to the folder in view, not to the Hub’s main folder ({primary}). The Hub reads and merges only the runs of its main folder, so reading the changes and the files and everything that changes something are off here.',
   coding_run_details: 'Run details and recovery',
   coding_run_id: 'Run ID: {id}',
   coding_recovery_view: 'View the recovery log',

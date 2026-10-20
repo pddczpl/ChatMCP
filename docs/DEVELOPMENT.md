@@ -112,7 +112,7 @@ node tests/run-all.mjs --fail-on-flaky           # một bộ FLAKY làm cả l�
 npm run test:ui                                  # bộ giao diện Python/Playwright (tùy chọn)
 ```
 
-Hiện có **138 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
+Hiện có **139 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
 
 Runner in một dòng cho mỗi bộ (`PASS`/`FAIL`/`TIMEOUT`/`SKIP`, thời gian, mã thoát thật) và thoát khác 0 nếu có bộ nào fail hoặc quá hạn (mặc định 180 giây/bộ, đổi bằng `--timeout`). Bộ kiểm thử in một dòng `CHATMCP_TEST_SKIP: <lý do>` rồi thoát 0 để được báo là **SKIP — không bao giờ được tính là PASS**. `--no-skip all` (hoặc `--no-skip tên1,tên2`) biến SKIP thành FAIL. Workflow hiện tại cài Python 3.11 và các gói ghim trong `tests/requirements-e2e.txt`, rồi chạy **`--no-skip all`** trên cả Windows và Linux, Node 22 và 24. Một bộ bắt buộc bị bỏ qua vì thiếu môi trường vì thế làm CI thất bại. Một phần không thể kiểm chứng trong bản này được in `BLOCKED: <gì> - <vì sao>`.
 
@@ -160,7 +160,7 @@ Tổng thời gian cả bộ Node: khoảng 3 phút (Linux, 180 s đã đo) đ�
 | **Long-task autonomy** | `verify-agent-progress`, `verify-agent-autonomy` | Durable, host-proposed task phases, semantically equivalent read/search cycle detection, real local file hashes, approved test receipts, two strategy pivots and bounded stop; mock models are not live-provider proof |
 | **React hiện tại** | `ui/tests/*.test.mjs` | typed Hub adapter, task/approval/history, trạng thái thật, SSE event mapping, inspector và lỗi API |
 | | `ui/e2e/studio.spec.mjs` | Playwright Chromium với build React/Vite hiện tại, Local Hub thật và nhà cung cấp mô hình theo kịch bản |
-| | `ui/e2e/orchestrator.spec.mjs` | tab Tác nhân với Hub thật và mô hình giả: lập kế hoạch, chạy một worker sửa mã, đọc diff, gộp nhánh; báo cáo của AI không bao giờ thành bằng chứng xanh; nhóm trợ lý chỉ đọc; lượt đã dừng (worker đã commit vẫn chờ duyệt nhưng Hub không gộp, và tab nói trước); focus sau hộp thoại, sau khi đóng bản xem diff và khi xóa dòng công việc; ký tự ẩn trong diff; lượt đang chạy ở mục khác; bàn phím, 600/900 px, thư mục thứ hai (gộp và bản nháp bị khóa), tiếng Anh và giao diện sáng |
+| | `ui/e2e/orchestrator.spec.mjs` | tab Tác nhân với Hub thật và mô hình giả: lập kế hoạch, chạy một worker sửa mã, đọc diff, gộp nhánh; báo cáo của AI không bao giờ thành bằng chứng xanh; nhóm trợ lý chỉ đọc; lượt đã dừng (worker đã commit vẫn chờ duyệt nhưng Hub không gộp, và tab nói trước); focus sau hộp thoại, sau khi đóng bản xem diff và khi xóa dòng công việc; ký tự ẩn trong diff; lượt đang chạy ở mục khác; bàn phím, 600/900 px, thư mục thứ hai (lượt của thư mục chính không hiện, form tắt), lượt của hai thư mục (mỗi thư mục chỉ hiện lượt của mình; lượt của thư mục Hub đã rời đi chỉ là bản ghi), ghi chú của Hub cạnh dòng bằng chứng khi worker không kiểm chứng được, tiếng Anh và giao diện sáng |
 | **Windows native** | `ui/e2e/webview2-smoke.mjs` | WinForms + WebView2 thật tải React từ Hub tạm, lỗi JavaScript/API và điều hướng cơ bản |
 | **E2E** | `verify-e2e-bugfix` (34) | sửa một lỗi trong dự án có sẵn và chứng minh bằng test của dự án |
 | | `verify-e2e-fastapi` (24) | dựng dịch vụ FastAPI test-first, rồi tác vụ thứ hai ở chế độ Tự động |

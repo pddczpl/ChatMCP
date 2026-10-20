@@ -16,6 +16,8 @@ export function useDelegation() {
   const permissions = hub?.studio?.permissions;
   return {
     ...target,
+    /** The Hub has said which folder it works on: before that, whose runs are whose cannot be told. */
+    ready: Boolean(hub),
     /** The Hub's permission mode ('readonly' | 'review' | 'autonomous'); full access is a policy on top of Autonomous. */
     mode: permissions?.mode as string | undefined,
     fullAccess: permissions?.executionPolicy === 'full-access',

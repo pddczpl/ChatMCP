@@ -23,7 +23,8 @@ const hub = (overrides = {}) => ({ workspace: { path: '/project' }, workspaces: 
 const attempt = (overrides = {}) => ({ id: 'a1', checkId: 'c1', status: 'completed', exitCode: 0, testOutcomeVerified: true, snapshotHash: 'ab'.repeat(32), ...overrides });
 const worker = (overrides = {}) => ({ id: 'task-a', status: 'ready_for_review', branch: 'chatmcp/coder/111111111111/task-a', changedFiles: ['calc.js'], commitSha: 'c'.repeat(40), dependsOn: [], verifyRequired: false, summary: 'Fixed add(). All tests pass and the task is complete.', ...overrides });
 const verified = (overrides = {}) => worker({ verifyRequired: true, verificationOutcome: { state: 'ready_for_review', repairs: 0 }, verificationAttempts: [attempt()], ...overrides });
-const job = (workers, overrides = {}) => ({ id: RUN, status: 'ready_for_review', baseSha: 'b'.repeat(40), baseBranch: 'main', createdAt: '2026-10-20T10:00:00Z', workers, integration: null, error: null, ...overrides });
+// A run belongs to the folder it was made in, which is the folder the Hub works on in these pages unless a test says otherwise (hub() below).
+const job = (workers, overrides = {}) => ({ id: RUN, status: 'ready_for_review', workspace: '/project', baseSha: 'b'.repeat(40), baseBranch: 'main', createdAt: '2026-10-20T10:00:00Z', workers, integration: null, error: null, ...overrides });
 const state = (jobs = [], overrides = {}) => ({ activeRunId: null, integrating: false, recoveryFault: null, jobs, ...overrides });
 const draftTask = (overrides = {}) => ({ id: 'task-a', prompt: 'Add a note file', verify: false, dependsOn: [], ...overrides });
 
@@ -38,8 +39,8 @@ const workerCard = (root, id) => all(root).find((node) => node.attrs['data-testi
 const proofOf = (card) => all({ descendants: () => card.descendants() }).find((node) => node.attrs['data-testid'] === 'agent-proof');
 const ready = { drafts: { codingTasks: [draftTask()] } };
 // The run view on its own, told by the page whether the Hub is running this run (`active`), whether the page itself is busy and whether the Hub says a run or merge is going on.
-const view = async (run, { jobs, preselect = null, busy = false, hubBusy = false, active = false, store = { lang: 'en' } } = {}) => parseHtml(await renderWith(CodingRunView, {
-  run, jobs: jobs ?? [run], onPick() {}, busy, setBusy() {}, hubBusy, active, refetch: async () => {}, preselect,
+const view = async (run, { jobs, preselect = null, busy = false, hubBusy = false, active = false, blocked = false, primary = '/project', store = { lang: 'en' } } = {}) => parseHtml(await renderWith(CodingRunView, {
+  run, jobs: jobs ?? [run], onPick() {}, busy, setBusy() {}, hubBusy, active, blocked, primary, refetch: async () => {}, preselect,
 }, [[['hubState'], hub()]], [], store));
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -321,6 +322,125 @@ test('with another folder in view the coding forms are off and the notice names 
   assert.equal(within(root, 'coding-needs-autonomous'), undefined, 'the folder is the reason; permissions are not mentioned on top of it');
 });
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Whose runs are on screen: the runs of the folder in view, and a line that says so when others exist
+// ---------------------------------------------------------------------------------------------------------------------
+const OTHER_FOLDERS = {
+  en: 'Only the code edits of the folder in view are shown. 3 run(s) belong to other folders and are not shown here.',
+  vi: 'Chỉ hiện các lần sửa mã của thư mục đang xem. 3 lần sửa mã thuộc thư mục khác nên không hiện ở đây.',
+};
+
+test('only the runs of the folder in view are shown, and the page says how many belong to other folders', async () => {
+  const mine = job([worker({ id: 'mine' })], { id: 'aaaaaaaa-0000-0000-0000-000000000000', createdAt: '2026-10-19T09:00:00Z' });
+  const theirs = job([worker({ id: 'theirs' })], { id: 'bbbbbbbb-0000-0000-0000-000000000000', createdAt: '2026-10-20T09:00:00Z', workspace: '/elsewhere' });
+  const unplaced = job([worker({ id: 'unplaced' })], { id: 'cccccccc-0000-0000-0000-000000000000', createdAt: '2026-10-20T10:00:00Z', workspace: null });
+  const noField = job([worker({ id: 'nofield' })], { id: 'dddddddd-0000-0000-0000-000000000000', createdAt: '2026-10-20T11:00:00Z' });
+  delete noField.workspace;
+  for (const lang of ['en', 'vi']) {
+    const root = await page(state([mine, theirs, unplaced, noField]), { store: { lang }, ...ready });
+    // the newest runs overall are not this folder's: the page opens on the folder's own run
+    assert.ok(workerCard(root, 'mine'), lang);
+    for (const id of ['theirs', 'unplaced', 'nofield']) assert.equal(workerCard(root, id), undefined, `${lang}: ${id} belongs to no folder in view`);
+    assert.equal(within(root, 'coding-result').attrs['data-run'], mine.id);
+    assert.equal(byTag(root, 'select').filter((node) => node.attrs.id === 'coding-run-pick').length, 0, `${lang}: one run of this folder needs no picker`);
+    const note = within(root, 'coding-other-folders');
+    assert.equal(note.text, OTHER_FOLDERS[lang], lang);
+    assert.equal(note.attrs.role, 'status');
+    assert.equal(note.attrs['data-tone'], 'neutral', 'information, not an error');
+    assert.ok(!root.text.includes(lang === 'en' ? 'No code edits yet' : 'Chưa có lần sửa mã nào'), `${lang}: the folder has a run, so it is not called empty`);
+  }
+});
+
+test('the picker lists the runs of the folder in view and no other; the active run is shown first when it is this folder’s', async () => {
+  const older = job([worker({ id: 'old-one' })], { id: 'aaaaaaaa-0000-0000-0000-000000000000', createdAt: '2026-10-19T09:00:00Z' });
+  const other = job([worker({ id: 'other-one' })], { id: 'bbbbbbbb-0000-0000-0000-000000000000', createdAt: '2026-10-19T12:00:00Z', workspace: '/elsewhere' });
+  const newer = job([worker({ id: 'new-one' })], { id: 'cccccccc-0000-0000-0000-000000000000', createdAt: '2026-10-20T09:00:00Z' });
+  const root = await page(state([older, other, newer]), ready);
+  const pick = byTag(root, 'select').find((node) => node.attrs.id === 'coding-run-pick');
+  assert.equal(byTag(pick, 'option').length, 2, 'two runs of this folder, the third is somebody else’s');
+  assert.deepEqual(byTag(pick, 'option').map((node) => node.attrs.value), [newer.id, older.id]);
+  assert.ok(workerCard(root, 'new-one') && !workerCard(root, 'other-one'));
+  // the Hub is running a run of another folder (it cannot be, but the page does not take it on faith): it is not this folder’s to show
+  const odd = await page(state([older, other, newer], { activeRunId: other.id }), ready);
+  assert.ok(workerCard(odd, 'new-one') && !workerCard(odd, 'other-one'));
+  const active = await page(state([older, other, newer], { activeRunId: older.id }), ready);
+  assert.ok(workerCard(active, 'old-one') && !workerCard(active, 'new-one'));
+});
+
+test('when every run is of the folder in view nothing is said about other folders', async () => {
+  const root = await page(state([job([worker({ id: 'task-b' })], { id: 'aaaaaaaa-0000-0000-0000-000000000000' }), job([worker()])]), ready);
+  assert.equal(within(root, 'coding-other-folders'), undefined);
+  assert.ok(workerCard(root, 'task-a'));
+  assert.equal(within(await page(state(), ready), 'coding-other-folders'), undefined, 'and with no run at all');
+});
+
+test('with another folder in view the runs of the Hub’s folder are not shown: the page says how many there are and why, and has nothing of them to read', async () => {
+  // (the Hub lists runs oldest first: the Hub’s newest run, with a check on record, is the last of the list)
+  const main = job([worker({ id: 'main-worker', verifyRequired: true, verificationAttempts: [attempt()], verificationOutcome: { state: 'ready_for_review' } })]);
+  const earlier = job([worker({ id: 'main-earlier' })], { id: 'aaaaaaaa-0000-0000-0000-000000000000', createdAt: '2026-10-19T09:00:00Z' });
+  const third = job([worker({ id: 'third-worker' })], { id: 'bbbbbbbb-0000-0000-0000-000000000000', workspace: '/third', createdAt: '2026-10-19T12:00:00Z' });
+  for (const [lang, sentence, hint] of [
+    ['en', 'Only the code edits of the folder in view are shown. 2 run(s) of the Hub’s main folder (/project) are not shown here, because you are looking at a different folder.', 'The Hub edits code only in its main folder, so the folder in view has no code edits.'],
+    ['vi', 'Chỉ hiện các lần sửa mã của thư mục đang xem. 2 lần sửa mã của thư mục chính của Hub (/project) không hiện ở đây, vì bạn đang xem thư mục khác.', 'Hub chỉ sửa mã ở thư mục chính của nó, nên thư mục đang xem chưa có lần sửa mã nào.'],
+  ]) {
+    const root = await page(state([earlier, third, main]), { store: { lang, selectedWorkspacePath: '/elsewhere' }, ...ready });
+    for (const id of ['main-worker', 'main-earlier', 'third-worker']) assert.equal(workerCard(root, id), undefined, `${lang}: ${id} is not of the folder in view`);
+    assert.equal(within(root, 'coding-result'), undefined, lang);
+    assert.equal(within(root, 'coding-other-folders').text, sentence, lang);
+    assert.ok(root.text.includes(hint), `${lang}: the empty block does not send the owner to a form that is off`);
+    assert.doesNotMatch(root.text, lang === 'en' ? /Describe the work above/ : /Mô tả việc cần làm ở trên/, lang);
+    // the recorded checks of the main folder’s run are not shown under another folder either
+    assert.equal(within(root, 'isolated-checks-panel'), undefined, `${lang}: the checks panel would otherwise fall back to the newest run of any folder`);
+    assert.ok(buttonNamed(root, lang === 'en' ? 'Start code edits' : 'Bắt đầu sửa mã').disabled, lang);
+  }
+  // the same runs with the Hub’s own folder in view: its two runs are there and the third folder’s is the one counted
+  const home = await page(state([earlier, third, main]), { store: { lang: 'en' }, ...ready });
+  assert.ok(workerCard(home, 'main-worker') && !workerCard(home, 'third-worker'));
+  assert.equal(within(home, 'coding-other-folders').text, 'Only the code edits of the folder in view are shown. 1 run(s) belong to other folders and are not shown here.');
+  assert.ok(within(home, 'isolated-checks-panel'), 'the recorded check of the run on screen is shown, as before');
+});
+
+test('a folder with runs of other folders only, in view while the Hub works elsewhere, is told so without naming the Hub’s folder as having runs it has not', async () => {
+  const third = job([worker({ id: 'third-worker' })], { workspace: '/third' });
+  const root = await page(state([third]), { store: { lang: 'en', selectedWorkspacePath: '/elsewhere' }, ...ready });
+  assert.equal(within(root, 'coding-other-folders').text, 'Only the code edits of the folder in view are shown. 1 run(s) belong to other folders and are not shown here.');
+});
+
+test('until the Hub has said which folder it works on the page does not guess whose runs are whose', async () => {
+  // (no hubState in the cache at all: the answer the page needs to place the runs has not come)
+  const root = parseHtml(await renderWith(CodingWorkers, {}, [[['coding-runs'], state([job([worker()])])]], [], { lang: 'en' }, ready.drafts));
+  assert.ok(root.text.includes('Loading code edits…'));
+  assert.equal(workerCard(root, 'task-a'), undefined);
+  assert.equal(within(root, 'coding-other-folders'), undefined);
+  assert.ok(!root.text.includes('No code edits yet'), 'an empty list would be a claim');
+});
+
+test('a run of the folder in view, while the Hub works on another folder, is a record to read and nothing to act on: the Hub would refuse every call', async () => {
+  const merged = { branch: 'chatmcp/integration/111111111111', status: 'ready_for_review', merged: ['task-a'], sha: 'd'.repeat(40) };
+  const old = job([worker({ summary: 'Fixed add().' })], { workspace: '/elsewhere', integration: merged });
+  const calls = ['Read the changes', 'View file contents', 'Create a draft on GitHub', 'Merge the selected tasks', 'Read the merged changes', 'Push the merge to GitHub', 'View the recovery log'];
+  const root = await page(state([old]), { store: { lang: 'en', selectedWorkspacePath: '/elsewhere' }, ...ready });
+  assert.ok(workerCard(root, 'task-a'), 'the record is there');
+  assert.equal(within(root, 'coding-run-foreign').text, 'This run belongs to the folder in view, not to the Hub’s main folder (/project). The Hub reads and merges only the runs of its main folder, so reading the changes and the files and everything that changes something are off here.');
+  for (const name of calls) assert.ok(buttonNamed(root, name)?.disabled, `${name} is off`);
+  assert.equal(within(root, 'coding-other-folders'), undefined, 'and nothing is hidden');
+  // the control: the Hub’s own folder in view, with the same run, reads and changes as usual and says nothing of the kind
+  const own = await page(state([{ ...old, workspace: '/project' }]), { store: { lang: 'en' }, ...ready });
+  assert.equal(within(own, 'coding-run-foreign'), undefined);
+  for (const name of ['Read the changes', 'View file contents', 'Read the merged changes', 'View the recovery log']) assert.equal(buttonNamed(own, name)?.disabled, false, `${name} works in the Hub’s own folder`);
+});
+
+test('the run view told that another folder is in view switches off reading as well as changing, and says why', async () => {
+  const run = job([worker()]);
+  const names = ['Read the changes', 'View file contents', 'Create a draft on GitHub', 'Merge the selected tasks', 'View the recovery log'];
+  const blocked = await view(run, { blocked: true, preselect: { runId: RUN, ids: ['task-a'] } });
+  for (const name of names) assert.ok(buttonNamed(blocked, name)?.disabled, name);
+  assert.match(within(blocked, 'coding-run-foreign').text, /\(\/project\)/, 'it names the Hub’s folder');
+  const free = await view(run, { preselect: { runId: RUN, ids: ['task-a'] } });
+  assert.equal(within(free, 'coding-run-foreign'), undefined);
+  assert.equal(buttonNamed(free, 'Read the changes').disabled, false);
+});
+
 test('every control has a name, every id is used once, every reference points somewhere, in both languages and in every state', async () => {
   const states = {
     empty: state(),
@@ -541,6 +661,101 @@ test('a recovery log that was not found does not claim a status', async () => {
   assert.doesNotMatch(none.text, /undefined/);
   const found = await render(RecoveryStatus, { recovery: { runId: RUN, found: true, status: 'interrupted', entries: 3 } });
   assert.match(found.text, /Log: found · Status: Interrupted · Entries: 3\./);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The Hub’s own words about how a worker’s verification ended, apart from the AI’s
+// ---------------------------------------------------------------------------------------------------------------------
+const inside = (card) => all({ descendants: () => card.descendants() });
+const noteOf = (card) => inside(card).find((node) => node.attrs['data-testid'] === 'hub-note');
+const reportOf = (card) => inside(card).find((node) => node.attrs['data-testid'] === 'ai-report');
+const BLOCKED = { code: 'blocked', text: 'Verified coding blocked: Repair/test retry budget exhausted.', detail: 'Repair/test retry budget exhausted.' };
+const VERIFIED_NOTE = { code: 'verified', text: 'All registered pinned Node checks have fresh signed TAP evidence.' };
+
+test('the Hub’s note stands beside the evidence line, labelled as the Hub’s, and the AI’s report keeps only the AI’s words', async () => {
+  const entry = worker({ status: 'needs_attention', verifyRequired: true, summary: 'I fixed add() and ran the tests.', verificationNote: BLOCKED });
+  for (const [lang, text, label] of [
+    ['en', 'Hub note: The Hub stopped the verification loop. The reason it gave, as written: Repair/test retry budget exhausted.', 'Hub note'],
+    ['vi', 'Ghi chú của Hub: Hub đã dừng vòng kiểm thử. Lý do Hub ghi, nguyên văn: Repair/test retry budget exhausted.', 'Ghi chú của Hub'],
+  ]) {
+    const card = workerCard(await page(state([job([entry])]), { store: { lang }, ...ready }), 'task-a');
+    const note = noteOf(card);
+    assert.equal(note.text, text, lang);
+    assert.equal(note.attrs['data-code'], 'blocked');
+    const report = reportOf(card);
+    assert.ok(report.text.includes('I fixed add() and ran the tests.'), lang);
+    assert.ok(!report.text.includes('Repair/test') && !report.text.includes(label), `${lang}: the Hub’s words are not in the AI’s report`);
+    // the order on the card: what the Hub recorded first (the evidence line, then its note), what the AI said after
+    const order = inside(card).map((node) => node.attrs['data-testid']).filter(Boolean);
+    assert.ok(order.indexOf('agent-proof') < order.indexOf('hub-note') && order.indexOf('hub-note') < order.indexOf('ai-report'), `${lang}: ${order.join(' > ')}`);
+    assert.equal(card.attrs['data-tone'], 'warning', 'the note changes no colour');
+    assert.doesNotMatch(greenClasses(card), GREEN, lang);
+  }
+});
+
+test('every note the Hub sends is told in both languages, and none of them is drawn as proof', async () => {
+  const cases = [
+    [worker({ status: 'needs_attention', verifyRequired: true, verificationNote: { code: 'no_checks', text: 'No supported pinned Node test definition was discovered.' } }),
+      'Hub note: The Hub found no supported pinned Node test in this project, so it ran no isolated check.', 'Ghi chú của Hub: Hub không tìm thấy lệnh kiểm thử Node nào được hỗ trợ trong dự án này, nên không chạy kiểm thử cách ly nào.'],
+    [worker({ status: 'needs_attention', verifyRequired: true, verificationNote: { code: 'grant_timeout', text: 'Owner did not approve all isolated test grants in the allotted window.' } }),
+      'Hub note: The Hub waited for you to allow the isolated checks and the time ran out, so it ran none.', 'Ghi chú của Hub: Hub chờ bạn cho phép các lệnh kiểm thử cách ly nhưng đã hết thời gian chờ, nên không chạy kiểm thử nào.'],
+    [verified({ verificationNote: VERIFIED_NOTE }),
+      'Hub note: Every registered pinned Node check has fresh signed TAP evidence.', 'Ghi chú của Hub: Mọi lệnh kiểm thử Node đã đăng ký đều có bằng chứng TAP có chữ ký còn mới.'],
+  ];
+  for (const [entry, en, vi] of cases) {
+    for (const [lang, text] of [['en', en], ['vi', vi]]) {
+      const card = workerCard(await page(state([job([entry])]), { store: { lang }, ...ready }), 'task-a');
+      const note = noteOf(card);
+      assert.equal(note.text, text, `${entry.verificationNote.code}/${lang}`);
+      assert.doesNotMatch(note.attrs.class ?? '', GREEN, 'the note itself is never green, even beside a green evidence line');
+      assert.doesNotMatch(greenClasses(note), GREEN);
+    }
+  }
+});
+
+test('the note that every check has evidence is not repeated where the Hub’s own record does not say so', async () => {
+  const mismatches = {
+    'the commit failed after the verification': verified({ status: 'failed', error: 'git commit failed', verificationNote: VERIFIED_NOTE }),
+    'a later attempt failed': verified({ verificationAttempts: [attempt(), attempt({ id: 'a2', status: 'failed', exitCode: 1, testOutcomeVerified: false })], verificationNote: VERIFIED_NOTE }),
+    'an attempt the Hub did not verify': verified({ verificationAttempts: [attempt({ testOutcomeVerified: false })], verificationNote: VERIFIED_NOTE }),
+    'no attempt on record': verified({ verificationAttempts: [], verificationNote: VERIFIED_NOTE }),
+    'the Hub restarted': verified({ status: 'interrupted', verificationNote: VERIFIED_NOTE }),
+    'the loop did not end as ready': verified({ verificationOutcome: { state: 'needs_attention' }, verificationNote: VERIFIED_NOTE }),
+    'verification was not asked for': verified({ verifyRequired: false, verificationNote: VERIFIED_NOTE }),
+  };
+  for (const lang of ['en', 'vi']) {
+    for (const [name, entry] of Object.entries(mismatches)) {
+      const card = workerCard(await page(state([job([entry])]), { store: { lang }, ...ready }), 'task-a');
+      assert.notEqual(card.attrs['data-kind'], 'verified', `(premise) ${name}`);
+      assert.equal(noteOf(card), undefined, `${lang}: ${name}: the note is not shown as proof`);
+      assert.doesNotMatch(card.text, /fresh signed TAP evidence|bằng chứng TAP/, `${lang}: ${name}`);
+    }
+  }
+  // the AI saying the same thing in its own report is still the AI’s: shown as its report, with no Hub note beside it
+  const said = workerCard(await page(state([job([worker({ summary: VERIFIED_NOTE.text })])]), ready), 'task-a');
+  assert.equal(noteOf(said), undefined);
+  assert.ok(reportOf(said).text.includes(VERIFIED_NOTE.text));
+});
+
+test('a note that is not understood is shown as the Hub wrote it, and what could make it misleading is not shown at all', async () => {
+  const card = async (note) => workerCard(await page(state([job([worker({ status: 'needs_attention', verificationNote: note })])]), { store: { lang: 'en' }, ...ready }), 'task-a');
+  assert.equal(noteOf(await card({ code: 'something_new', text: 'The Hub says so.' })).text, 'Hub note: The Hub says so.', 'a code the page has no line for');
+  assert.equal(noteOf(await card({ code: 'something_new' })), undefined, 'and nothing at all when there is no text either');
+  assert.equal(noteOf(await card({ code: 'blocked', text: 'Verified coding blocked: Check result is blocked.' })).text, 'Hub note: Verified coding blocked: Check result is blocked.', 'a blocked note without its detail falls back to the Hub’s sentence');
+  for (const bad of [undefined, null, 'blocked', [], {}, { code: 5 }]) assert.equal(noteOf(await card(bad)), undefined, JSON.stringify(bad));
+  // text the Hub wrote is read like any other text from outside: what cannot be seen is shown as a marker
+  const hidden = noteOf(await card({ code: 'blocked', text: 'x', detail: 'Stopped‮ by the loop' }));
+  assert.ok(hidden.text.includes('Stopped‹U+202E› by the loop') && !hidden.text.includes('‮'));
+  assert.match((await card({ code: 'blocked', text: 'x', detail: 'Stopped‮ by the loop' })).text, /hidden or direction-changing/);
+});
+
+test('a worker with no note shows none, and a note on a worker the page shows as stopped or working is the Hub’s all the same', async () => {
+  const plain = workerCard(await page(state([job([worker()])]), ready), 'task-a');
+  assert.equal(noteOf(plain), undefined);
+  for (const status of ['running', 'failed', 'cancelled']) {
+    const card = workerCard(await page(state([job([worker({ status, summary: undefined, verificationNote: { code: 'no_checks', text: 'x' } })], { status: 'partial_failure' })]), { store: { lang: 'en' }, ...ready }), 'task-a');
+    assert.ok(noteOf(card).text.startsWith('Hub note: The Hub found no supported pinned Node test'), status);
+  }
 });
 
 test('what the verification option really needs is said where it is chosen', async () => {
