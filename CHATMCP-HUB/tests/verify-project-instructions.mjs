@@ -887,6 +887,23 @@ try {
   }
   ok('a block cut at its cap keeps its bytes while the budget moves by a tool or two, and follows it when it moves by several');
 
+  // ---- a conversation: the follow-up message gets the block of the first one ----------------------------------------------------------------------------------
+  // The case that matters most for a provider's cache is a continuation: one conversation, the full tool list, a block that is cut at its cap. The follow-up message runs
+  // again (the files are read again, the budget is planned again) and must give the same bytes, up to the end of the block and in it.
+  {
+    const s = await session({ files: { 'AGENTS.md': `# Rules\n${'Name tests after the behaviour they pin and keep functions small. '.repeat(300)}\n` }, busy: 3, tools: heavyTools(10), contextWindowTokens: 30000 });
+    try {
+      const [first] = await s.say(PLAN_PROMPT);
+      const [second] = await s.say('And the tests?');
+      assert.ok(s.task().projectInstructions.maxBytes < 8192 && blockOf(first.instructions).includes('AGENTS.md truncated:'), '(the premise: the block is cut at its cap)');
+      assert.equal(blockOf(second.instructions), blockOf(first.instructions), 'the follow-up message gets the same block, byte for byte');
+      const upToBlockEnd = (text) => text.slice(0, text.indexOf(blockOf(text)) + blockOf(text).length);
+      assert.equal(upToBlockEnd(second.instructions), upToBlockEnd(first.instructions), 'and the same bytes before it');
+      assert.ok(upToBlockEnd(first.instructions).length > 3000, '(a prefix that is not a short one)');
+    } finally { await s.runner.shutdown(); }
+  }
+  ok('in one conversation with the full tool list, a block cut at its cap is the same bytes for the follow-up message');
+
   // ---- what the task records ------------------------------------------------------------------------------------------------------------------
   {
     const raw = Buffer.from(GUIDED['AGENTS.md']);
