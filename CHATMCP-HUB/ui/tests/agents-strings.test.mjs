@@ -6,14 +6,16 @@ import { fileURLToPath } from 'node:url';
 
 // "No new hard-coded strings": every word the Agents tab shows comes from lib/i18n-agents.ts through t(), so it exists in both languages.
 // These read the source of the files that make up the tab and refuse prose that is written into them. The Background section is made of
-// layout/BackgroundTasks.tsx and the workflow card (conversation/WorkflowCard.tsx, which the chat shows too), so both are read as well.
+// layout/BackgroundTasks.tsx and the workflow card (conversation/WorkflowCard.tsx, which the chat shows too), so both are read as well, and so
+// are the two components that name the state of a conversation with the same words: its ribbon (layout/PhaseRibbon.tsx) and its banner
+// (conversation/StateBanner.tsx).
 
 const src = fileURLToPath(new URL('../src/', import.meta.url));
 const FILES = [
   'AgentsTab.tsx', 'OrchestratorTab.tsx', 'AgentGroups.tsx', 'DynamicSubagents.tsx', 'ManualGroup.tsx', 'CodingWorkers.tsx', 'CodingRunView.tsx',
   'CodingWorkerCard.tsx', 'CodingReview.tsx', 'ConfirmDialog.tsx', 'IsolatedChecksPanel.tsx', 'agent-parts.tsx', 'agentLabels.ts', 'useDelegation.ts', 'DiffView.tsx', 'HiddenText.tsx',
 ].map((name) => `components/inspector/${name}`).concat(['lib/agent-proof.ts', 'lib/agent-draft.ts', 'lib/agent-errors.ts', 'lib/hidden-chars.ts', 'lib/tab-keys.ts', 'store/useAgentDrafts.ts',
-  'components/layout/BackgroundTasks.tsx', 'components/conversation/WorkflowCard.tsx']);
+  'components/layout/BackgroundTasks.tsx', 'components/conversation/WorkflowCard.tsx', 'components/layout/PhaseRibbon.tsx', 'components/conversation/StateBanner.tsx']);
 
 const read = (file) => fs.readFileSync(path.join(src, file), 'utf8');
 /** The source without its comments (a comment may be written in Vietnamese; a string may not). */

@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { AlertTriangle, Ban, CheckCircle2, ChevronDown, Loader2, PauseCircle, Square } from 'lucide-react';
 import type { Task } from '@/types';
-import { isTaskActive, taskStateLabel } from '@/lib/task-view';
-import { useTranslation } from '@/lib/i18n';
-import { formatDuration, formatNumber, formatTime, formatTokens } from '@/lib/format';
+import { isTaskActive } from '@/lib/task-view';
+import { useTranslation, type Translate } from '@/lib/i18n';
+import { formatDuration, formatNumber, formatTime, formatTokens, type FormatLang } from '@/lib/format';
+import { taskStateText } from '@/components/inspector/agentLabels';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
@@ -11,14 +12,50 @@ import { cn } from '@/lib/utils';
 const unavailable = (missing?: number, reported?: number) => !!missing && !reported;
 
 /**
+ * What the Hub counted for a conversation, one row per fact: [label, value, a note on what the fact does not mean]. The words are the language on
+ * screen's, the numbers are the Hub's; a figure the provider did not report is "unavailable" or "+ unknown", never zero.
+ */
+export function ribbonRows(task: Task, t: Translate, lang: FormatLang): Array<[string, string, string?]> {
+  const rows: Array<[string, string, string?]> = [];
+  const usage = task.usage;
+  const unknownMore = ` ${t('agents_ribbon_plus_unknown')}`;
+  if (usage) {
+    rows.push([t('agents_ribbon_http_requests'), String(usage.httpRequests ?? 0)]);
+    rows.push([t('agents_ribbon_input_tokens'), unavailable(usage.inputUsageMissing, usage.inputUsageReported) ? t('agents_ribbon_unavailable') : formatNumber(usage.inputTokens ?? 0, lang) + (usage.inputUsageMissing ? unknownMore : ''), t('agents_ribbon_input_hint')]);
+    rows.push([t('agents_ribbon_output_tokens'), unavailable(usage.outputUsageMissing, usage.outputUsageReported) ? t('agents_ribbon_unavailable') : formatNumber(usage.outputTokens ?? 0, lang) + (usage.outputUsageMissing ? unknownMore : '')]);
+    if ((usage.cachedInputTokens ?? 0) > 0) rows.push([t('agents_ribbon_cache_hit'), formatNumber(usage.cachedInputTokens, lang)]);
+    if ((usage.cacheWriteTokens ?? 0) > 0) rows.push([t('agents_ribbon_cache_write'), formatNumber(usage.cacheWriteTokens, lang)]);
+    if ((usage.reasoningTokens ?? 0) > 0) rows.push([t('agents_ribbon_reasoning'), formatNumber(usage.reasoningTokens, lang)]);
+  }
+  if (task.contextPolicy) {
+    // A window the Hub does not know is "unknown", not a quiet "estimated" (the notice under the header says what to do about it).
+    const policy = task.contextPolicy;
+    const planned = policy.plannedOutputTokens ?? policy.reservedOutputTokens;
+    rows.push([t('agents_ribbon_window'),
+      `${formatNumber(policy.capacityTokens, lang)} (${t(policy.source === 'conservative_fallback' ? 'agents_ribbon_window_unknown' : 'agents_ribbon_window_configured')})`,
+      t('agents_ribbon_window_hint', { history: formatNumber(policy.maxHistoryTokens, lang), reserved: formatNumber(policy.reservedOutputTokens, lang), planned: formatNumber(planned, lang) })]);
+  }
+  if (task.modelCost) {
+    rows.push([t('agents_ribbon_cost'), task.modelCost.complete && task.modelCost.totalUsd !== null ? 'USD ' + task.modelCost.totalUsd.toFixed(6) : 'USD ' + task.modelCost.knownSubtotalUsd.toFixed(6) + ` ${t('agents_ribbon_cost_partial')}`,
+      t('agents_ribbon_cost_hint')]);
+  }
+  if (task.completionOutcome?.requirements === 'unverified') {
+    rows.push([t('agents_ribbon_unverified'), String(task.completionOutcome.unresolvedObjectiveIds.length), task.completionOutcome.note]);
+  }
+  if (task.verificationOutcome?.ready === false) {
+    rows.push([t('agents_ribbon_missing'), String(task.verificationOutcome.missing.length), task.verificationOutcome.missing.join('; ')]);
+  }
+  return rows;
+}
+
+/**
  * The header of a conversation: which request this is, what state it is in, how long it ran, and Stop while it runs.
  * The numbers the Hub reports (requests, tokens, context, cost) are one click away, not always on screen.
  */
 export function PhaseRibbon({ task, onCancel }: { task?: Task; onCancel?: () => void }) {
-  const { lang } = useTranslation();
+  const { t, lang } = useTranslation();
   const [open, setOpen] = useState(false);
   if (!task) return null;
-  const vi = lang === 'vi';
   const active = isTaskActive(task);
   const hasToolErrors = task.toolCalls?.some(tool => tool.status === 'error');
   const failed = task.status === 'failed' || hasToolErrors;
@@ -29,45 +66,19 @@ export function PhaseRibbon({ task, onCancel }: { task?: Task; onCancel?: () => 
   const duration = task.finishedAt && started ? new Date(task.finishedAt).getTime() - new Date(started).getTime() : null;
   const usage = task.usage;
 
-  const input = unavailable(usage?.inputUsageMissing, usage?.inputUsageReported) ? (vi ? 'không có' : 'unavailable')
+  const input = unavailable(usage?.inputUsageMissing, usage?.inputUsageReported) ? t('agents_ribbon_unavailable')
     : formatTokens(usage?.inputTokens ?? 0) + (usage?.inputUsageMissing ? '+' : '');
-  const output = unavailable(usage?.outputUsageMissing, usage?.outputUsageReported) ? (vi ? 'không có' : 'unavailable')
+  const output = unavailable(usage?.outputUsageMissing, usage?.outputUsageReported) ? t('agents_ribbon_unavailable')
     : formatTokens(usage?.outputTokens ?? 0) + (usage?.outputUsageMissing ? '+' : '');
+  const requests = usage?.httpRequests ?? 0;
   const meta = [
-    started && (vi ? `Bắt đầu ${formatTime(started, lang)}` : `Started ${formatTime(started, lang)}`),
+    started && t('agents_ribbon_started', { time: formatTime(started, lang) }),
     duration !== null && formatDuration(duration),
-    usage && (vi ? `${usage.httpRequests ?? 0} yêu cầu model` : `${usage.httpRequests ?? 0} model requests`),
-    usage && (vi ? `vào ${input} · ra ${output} token` : `in ${input} · out ${output} tokens`),
+    usage && t(requests === 1 ? 'agents_ribbon_requests_one' : 'agents_ribbon_requests_other', { n: requests }),
+    usage && t('agents_ribbon_tokens', { input, output }),
   ].filter(Boolean).join(' · ');
 
-  const rows: Array<[string, string, string?]> = [];
-  if (usage) {
-    rows.push([vi ? 'Yêu cầu HTTP tới model' : 'Model HTTP requests', String(usage.httpRequests ?? 0)]);
-    rows.push([vi ? 'Token đầu vào (nhà cung cấp báo)' : 'Input tokens (provider-reported)', unavailable(usage.inputUsageMissing, usage.inputUsageReported) ? (vi ? 'không có' : 'unavailable') : formatNumber(usage.inputTokens ?? 0, lang) + (usage.inputUsageMissing ? (vi ? ' (+ chưa rõ)' : ' (+ unknown)') : ''), vi ? 'Chỉ tính token do nhà cung cấp báo. Thiếu báo cáo là chưa rõ, không phải bằng 0.' : 'Only provider-reported tokens. A missing report is unknown, not zero.']);
-    rows.push([vi ? 'Token đầu ra (nhà cung cấp báo)' : 'Output tokens (provider-reported)', unavailable(usage.outputUsageMissing, usage.outputUsageReported) ? (vi ? 'không có' : 'unavailable') : formatNumber(usage.outputTokens ?? 0, lang) + (usage.outputUsageMissing ? (vi ? ' (+ chưa rõ)' : ' (+ unknown)') : '')]);
-    if ((usage.cachedInputTokens ?? 0) > 0) rows.push([vi ? 'Cache đã dùng' : 'Cache hit', formatNumber(usage.cachedInputTokens, lang)]);
-    if ((usage.cacheWriteTokens ?? 0) > 0) rows.push([vi ? 'Cache đã ghi' : 'Cache write', formatNumber(usage.cacheWriteTokens, lang)]);
-    if ((usage.reasoningTokens ?? 0) > 0) rows.push([vi ? 'Token suy luận' : 'Reasoning tokens', formatNumber(usage.reasoningTokens, lang)]);
-  }
-  if (task.contextPolicy) {
-    // A window the Hub does not know is "unknown", not a quiet "estimated" (the notice under the header says what to do about it).
-    const policy = task.contextPolicy;
-    const planned = policy.plannedOutputTokens ?? policy.reservedOutputTokens;
-    rows.push([vi ? 'Cửa sổ ngữ cảnh' : 'Context window',
-      `${formatNumber(policy.capacityTokens, lang)} (${policy.source === 'conservative_fallback' ? (vi ? 'chưa rõ, ước lượng thận trọng' : 'unknown, conservative estimate') : (vi ? 'đã cấu hình' : 'configured')})`,
-      vi ? `Lịch sử tối đa ${formatNumber(policy.maxHistoryTokens, lang)} token. Đầu ra: yêu cầu có thể dùng tới ${formatNumber(policy.reservedOutputTokens, lang)} token; lịch sử được lập cho ${formatNumber(planned, lang)}. Không phải số token đã tính phí.`
-        : `History up to ${formatNumber(policy.maxHistoryTokens, lang)} tokens. Output: the request may use up to ${formatNumber(policy.reservedOutputTokens, lang)} tokens; history is planned for ${formatNumber(planned, lang)}. Not billed usage.`]);
-  }
-  if (task.modelCost) {
-    rows.push([vi ? 'Chi phí ghi nhận' : 'Recorded cost', task.modelCost.complete && task.modelCost.totalUsd !== null ? 'USD ' + task.modelCost.totalUsd.toFixed(6) : 'USD ' + task.modelCost.knownSubtotalUsd.toFixed(6) + (vi ? ' (tạm tính, tổng chưa rõ)' : ' (known subtotal, total unknown)'),
-      vi ? 'Chỉ gồm giá do chủ máy nhập và số liệu nhà cung cấp báo. Retry và lỗi có thể phát sinh phí chưa rõ.' : 'Owner-supplied prices and provider-reported usage only. Retries and errors can produce unknown charges.']);
-  }
-  if (task.completionOutcome?.requirements === 'unverified') {
-    rows.push([vi ? 'Yêu cầu chưa xác minh' : 'Requirements unverified', String(task.completionOutcome.unresolvedObjectiveIds.length), task.completionOutcome.note]);
-  }
-  if (task.verificationOutcome?.ready === false) {
-    rows.push([vi ? 'Kiểm tra còn thiếu' : 'Checks missing', String(task.verificationOutcome.missing.length), task.verificationOutcome.missing.join('; ')]);
-  }
+  const rows = ribbonRows(task, t, lang);
 
   return (
     <div className="shrink-0 border-b border-line bg-panel" data-testid="task-status" data-status={task.status}>
@@ -75,22 +86,22 @@ export function PhaseRibbon({ task, onCancel }: { task?: Task; onCancel?: () => 
         <Icon className={cn('h-[18px] w-[18px] shrink-0', iconTone)} />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-[14px] font-semibold leading-5" title={title}>{title || (vi ? 'Cuộc hội thoại' : 'Conversation')}</span>
-            <Badge variant={active ? 'primary' : failed ? 'warning' : 'neutral'} className="shrink-0">{taskStateLabel(task.status)}</Badge>
+            <span className="truncate text-[14px] font-semibold leading-5" title={title}>{title || t('agents_bg_untitled_chat')}</span>
+            <Badge variant={active ? 'primary' : failed ? 'warning' : 'neutral'} className="shrink-0">{taskStateText(task.status, t)}</Badge>
           </div>
           {meta && <p className="truncate text-[12px] leading-4 text-muted">{meta}</p>}
         </div>
         {rows.length > 0 && (
           <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}
             className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-muted transition-colors hover:bg-hover hover:text-fg">
-            {vi ? 'Chi tiết' : 'Details'}
+            {t('agents_ribbon_details')}
             <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-180')} />
           </button>
         )}
         {active && onCancel && (
           <Button variant="danger" size="sm" onClick={onCancel} className="shrink-0 gap-1.5">
             <Square className="h-3 w-3 fill-current" />
-            <span>Dừng agent</span>
+            <span>{t('agents_ribbon_stop')}</span>
           </Button>
         )}
       </div>
