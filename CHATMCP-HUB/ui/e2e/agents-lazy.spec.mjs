@@ -22,6 +22,13 @@ const watchPolicy = (page) => page.addInitScript(() => {
 
 const section = (page, name) => page.getByRole('tab', { name, exact: true });
 
+/** The strings only the sections ask for arrive with their script: once a section is on screen it speaks in words, never in dictionary keys. */
+const RAW_KEY = /\b(?:agent|agents|group|coding)_[a-z_]+\b/;
+async function expectWords(page, name) {
+  const html = await page.getByRole('tabpanel', { name }).evaluate((panel) => panel.outerHTML);
+  expect(html, `${name}: a dictionary key is shown instead of its words`).not.toMatch(RAW_KEY);
+}
+
 test('the sections are fetched when their tab is opened and not before, each only once, and the Content-Security-Policy refuses nothing', async ({ page, app }) => {
   const scripts = watchScripts(page);
   await watchPolicy(page);
@@ -33,15 +40,20 @@ test('the sections are fetched when their tab is opened and not before, each onl
   const first = fetched();
   expect(first.length, 'the first screen needed scripts').toBeGreaterThan(0);
   expect(first.filter((file) => /^(AgentGroups|CodingWorkers)-/.test(file)), 'neither section is fetched for the first screen or for the Agents tab itself').toEqual([]);
+  // the script the two sections share also holds the strings only they ask for (src/lib/i18n-agents-sections.ts), whatever it is called: up to
+  // here the page has fetched the entry script and the two libraries it imports, and nothing else
+  expect(first.filter((file) => !/^(index|radix|icons)-/.test(file)), 'the first screen fetches a script that belongs to the sections').toEqual([]);
 
   await section(page, 'Nhóm trợ lý').click();
   await expect(page.getByTestId('agent-groups')).toBeVisible();
+  await expectWords(page, 'Nhóm trợ lý');
   const afterGroups = fetched();
   expect(afterGroups.slice(first.length).some((file) => file.startsWith('AgentGroups-')), 'opening the groups fetches their script').toBe(true);
   expect(afterGroups.some((file) => file.startsWith('CodingWorkers-')), 'and not the other section’s').toBe(false);
 
   await section(page, 'Sửa mã').click();
   await expect(page.getByTestId('coding-agents')).toBeVisible();
+  await expectWords(page, 'Sửa mã');
   const afterCoding = fetched();
   expect(afterCoding.slice(afterGroups.length).some((file) => file.startsWith('CodingWorkers-')), 'opening the code edits fetches theirs').toBe(true);
 

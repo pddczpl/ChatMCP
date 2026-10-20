@@ -14,6 +14,8 @@ const CLAIM = 'I created AGENT-NOTE.md. All tests pass and the task is complete.
 /** The tone colours of src/index.css as the browser computes them, so that a test does not repeat hex values. */
 const WARNING = { dark: 'rgb(243, 185, 77)', light: 'rgb(154, 90, 0)' };
 const SUCCESS = { dark: 'rgb(63, 217, 155)', light: 'rgb(11, 122, 82)' };
+/** What a missing dictionary string would look like on screen: its key (the unit tests use the same pattern on server-rendered HTML). */
+const RAW_KEY = /\b(?:agent|agents|group|coding)_[a-z_]+\b/;
 const VIETNAMESE = /[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]/i;
 
 /** A coding worker that writes one new file and then says it is done, claiming tests it never ran. */
@@ -566,6 +568,9 @@ test('in English, and in the light theme, the tab reads in one language and keep
     await expect(page.getByTestId(marker)).toBeVisible();
     const text = await page.getByRole('tabpanel', { name: section }).innerText();
     expect(text, `${section} still holds Vietnamese`).not.toMatch(VIETNAMESE);
+    // the English words of a section arrive with its script (src/lib/i18n-agents-sections.ts): none may be missing, and none may show as its key
+    const html = await page.getByRole('tabpanel', { name: section }).evaluate((panel) => panel.outerHTML);
+    expect(html, `${section} shows a dictionary key instead of its words`).not.toMatch(RAW_KEY);
   }
   const card = page.getByTestId('coding-worker');
   await expect(card.getByTestId('agent-proof')).toContainText('Reported done by the AI · not verified by the Hub');
