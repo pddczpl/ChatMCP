@@ -254,6 +254,9 @@ test('a run in progress is the Hub’s state, not the page’s: another tab and 
   // a worker of a run that was stopped is stopped; nothing keeps spinning for work that will never finish
   await expect(coding.getByTestId('coding-worker').first()).toHaveAttribute('data-kind', 'stopped');
   await expect(coding.getByTestId('coding-worker').first().getByTestId('agent-proof')).toContainText('Đã dừng');
+  // the model had said nothing when it was stopped: the runner's sentence about the stop is the Hub's, and there is no AI report to hold it
+  await expect(coding.getByTestId('coding-worker').first().getByTestId('runner-error')).toContainText('Đã dừng theo yêu cầu');
+  await expect(coding.getByTestId('coding-worker').first().getByTestId('ai-report')).toHaveCount(0);
   // and the analysis can be started again now that nothing else is running
   await page.getByRole('tab', { name: 'Nhóm trợ lý', exact: true }).click();
   await expect(groups.getByTestId('analysis-block-coding-running')).toHaveCount(0);
@@ -648,6 +651,49 @@ test('a worker that was asked to verify and could not be: the Hub’s note says 
   await expect(card.getByTestId('ai-report')).toContainText('AI report');
   await expect(card.getByTestId('hub-note')).not.toHaveText(VIETNAMESE);
   await shot(page, testInfo, 'coding-hub-note-english');
+});
+
+test('a worker whose model said nothing: the card has no AI report, and the Hub’s record of why it stopped is shown as the Hub’s', async ({ page, app }, testInfo) => {
+  test.setTimeout(240_000);
+  // every request of the coding worker is answered with an empty message: no text and no tool call, so the Hub's own AgentRunner ends the run with an error of its own
+  app.mock.define('silent-worker', (ctx) => (ctx.prompt.startsWith('TASK: ') ? say('') : say('Xong.')));
+  app.mock.setScenario('silent-worker');
+  await onboard(page, app);
+  await setMode(app.hub, 'autonomous');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const run = await app.hub.post('/api/studio/coding/run', { tasks: [{ id: 'task-1', prompt: 'Add a file named AGENT-NOTE.md that explains this project' }], maxConcurrency: 1, confirmation: 'CREATE WORKTREES' });
+  const [record] = run.workers;
+  expect(record).toMatchObject({ id: 'task-1', status: 'failed', summary: '' });
+  expect(typeof record.runnerError, 'the runner’s sentence is a field of its own').toBe('string');
+  expect(record.runnerError.trim().length).toBeGreaterThan(0);
+  expect((await app.hub.get('/api/studio/coding')).json.jobs.at(-1).workers[0].runnerError, 'and it is what the page is sent').toBe(record.runnerError);
+
+  await openAgents(page, 'Sửa mã');
+  const coding = page.getByTestId('coding-agents');
+  const card = coding.getByTestId('coding-worker').filter({ hasText: 'task-1' });
+  await expect(card).toHaveAttribute('data-kind', 'failed');
+  const reason = card.getByTestId('runner-error');
+  await expect(reason).toHaveText(`Lý do công việc dừng, Hub ghi nguyên văn: ${record.runnerError}`);
+  await expect(reason).not.toHaveClass(/success|danger|warning/);
+  // the model said nothing, so there is no AI report; before this the runner's sentence sat under that label
+  await expect(card.getByTestId('ai-report')).toHaveCount(0);
+  await expect(card.getByText('Báo cáo của AI')).toHaveCount(0);
+  const parts = await card.locator('[data-testid="agent-proof"], [data-testid="runner-error"], [data-testid="ai-report"]').evaluateAll((nodes) => nodes.map((node) => node.dataset.testid));
+  expect(parts).toEqual(['agent-proof', 'runner-error']);
+  await expect(coding.locator('[data-tone="success"]')).toHaveCount(0);
+  await card.scrollIntoViewIfNeeded();
+  await shot(page, testInfo, 'coding-runner-error');
+
+  // in English the label follows the language on screen; the Hub's sentence stays as the Hub wrote it
+  const dialog = await openSettings(page, 'Giao diện & ngôn ngữ');
+  await dialog.getByRole('button', { name: 'English' }).click();
+  await closeSettings(page);
+  await openWorkTab(page, 'Agents');
+  await page.getByRole('tab', { name: 'Code edits', exact: true }).click();
+  await expect(card.getByTestId('runner-error')).toHaveText(`Why the task stopped, as the Hub recorded it: ${record.runnerError}`);
+  await expect(card.getByTestId('ai-report')).toHaveCount(0);
+  await expect(card.getByText('AI report')).toHaveCount(0);
+  await shot(page, testInfo, 'coding-runner-error-english');
 });
 
 test('in English, and in the light theme, the tab reads in one language and keeps the evidence colours', async ({ page, app }, testInfo) => {
