@@ -114,7 +114,7 @@ Các nguồn Cloud Harness proxy và Render/Docker public-hosting không còn l�
 
 ## 16. Độ lệch so với thiết kế và hạng mục chưa làm
 
-Không hỗ trợ public SaaS, public multi-tenant hoặc Cloud Harness backend. MCP client tích hợp một cách chính thức cho local server khác, sandbox Windows cấp hệ điều hành, benchmark model thật, cập nhật tự động và clean-VM installer E2E là các hướng tương lai. Các tài liệu thiết kế Phase 1–4 là lịch sử, không phải mô tả hiện tại.
+Không hỗ trợ public SaaS, public multi-tenant hoặc Cloud Harness backend. MCP client tích hợp một cách chính thức cho local server khác, Windows Sandbox cấp hệ điều hành, benchmark model thật, cập nhật tự động và clean-VM installer E2E là các hướng tương lai. Các tài liệu thiết kế Phase 1–4 là lịch sử, không phải mô tả hiện tại.
 
 ## 17. Parallel Coding Workers và Skills Registry nâng cao (nhánh phát triển)
 

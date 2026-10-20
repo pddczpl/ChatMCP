@@ -7,6 +7,7 @@
 //
 // The scripted model proves the Hub, its tools and its permission gate work together. It does not prove that any real model
 // plans well (docs/TESTING-WITH-REAL-MODELS.md says how to try one).
+// CLAIM: checkpoints
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';

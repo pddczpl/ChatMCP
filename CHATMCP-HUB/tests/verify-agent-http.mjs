@@ -12,13 +12,16 @@ const manager={secrets:[],log:()=>{},catalog:{ready:true,tools:[]},state:()=>({v
 const apiAgent={state:()=>({mode,activeTaskId:active?.id || null,active,tasks:active?[active]:[]}),get:(id)=>id===taskId?active:null,report:async()=> 'mock report',subscribe:()=>()=> {},configure:async({mode:next})=>{if(active)throw Object.assign(new Error('Running'),{statusCode:409}); mode=next; return {mode}},start:async()=>{active={id:taskId,status:'running',provider:mode,steps:0,toolCalls:0,events:[]};return active},continue:async({id,prompt})=>{assert.equal(id,taskId);assert.equal(prompt,'Continue lab');resumes++;active={id,status:'running',provider:mode,prompt,steps:3,toolCalls:1,events:[]};return active},delete:async(id)=>{assert.equal(id,taskId);deletes++;active=null;return {ok:true,deletedId:id}},cancel:async()=>{active=null;return {id:taskId,status:'cancelled'}}};
 const browser={browserState:()=>({paired:false,mode:'chatgpt-web'}),createPairCode:async()=>({code:'12345678'}),unpair:async()=>{},shutdown:async()=>{}};
 const provider={state:()=>({provider:'gateway',model:'gemini-3.8-flash',apiBaseUrl:'https://gw.example',protocol:'gemini',configured:Boolean(key),keySource:key?'session':'none'}),ready:()=>Boolean(key),snapshot:()=>({model:'gemini-3.8-flash'}),configure:async(data)=>{key=data.apiKey;return {}},clearKey:async()=>{key='';return {}},respond:async()=>{requests++;return {status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:'OK'}]}]}}};
-const server=createHubServer(manager,{port,browser,agent:apiAgent,provider});
+const secret='agent-http-test-secret-0123456789abcdef';
+const auth={Authorization:`Bearer ${secret}`};
+const server=createHubServer(manager,{port,secret,browser,agent:apiAgent,provider});
 await new Promise(r=>server.listen(port,'127.0.0.1',r));
 let assertions=0;
 const check=(bool,label)=>{assert.ok(bool,label);assertions++};
-const post=(route,body={},csrf=null)=>fetch(origin+route,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json','X-ChatMCP-Request':'local-dashboard',...(csrf?{'X-ChatMCP-CSRF':csrf}:{})},body:JSON.stringify(body)});
+const post=(route,body={},csrf=null)=>fetch(origin+route,{method:'POST',headers:{...auth,Origin:origin,'Content-Type':'application/json','X-ChatMCP-Request':'local-dashboard',...(csrf?{'X-ChatMCP-CSRF':csrf}:{})},body:JSON.stringify(body)});
 try {
-  const state=await fetch(origin+'/api/state').then(r=>r.json());
+  check((await fetch(origin+'/api/state')).status===401,'state needs the bearer');
+  const state=await fetch(origin+'/api/state',{headers:auth}).then(r=>r.json());
   check(state.agent.mode==='chatgpt-web','default web');
   check(state.ai?.configured===false,'api key not configured');
   check(JSON.stringify(state).indexOf('mock-secret-token')===-1,'state clean');
@@ -43,7 +46,8 @@ try {
   check(resumes===1,'resume executed once');
 
   // Verify SSE stream connection
-  const streamRes = await fetch(origin + `/api/tasks/${taskId}/stream`);
+  check((await fetch(origin + `/api/tasks/${taskId}/stream`)).status===401,'task stream needs the bearer');
+  const streamRes = await fetch(origin + `/api/tasks/${taskId}/stream`,{headers:auth});
   check(streamRes.status === 200 && streamRes.headers.get('content-type')?.includes('text/event-stream'), 'task SSE stream route');
   const streamReader = streamRes.body.getReader();
   const firstChunk = await streamReader.read();

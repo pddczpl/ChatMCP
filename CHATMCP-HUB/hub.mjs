@@ -17,6 +17,7 @@ import { PermissionGate } from './lib/permissions.mjs';
 import { PluginManager } from './lib/plugins.mjs';
 import { CodingWorktreeOrchestrator } from './lib/coding-orchestrator.mjs';
 import { GitHubSkillRegistry } from './lib/skill-registry.mjs';
+import { BEARER_PATTERN, attachToRunningHub, createSecret, createTicketBook, dashboardUrl, hubRequiresBearer, writeSession } from './lib/hub-session.mjs';
 
 const APP_ID = 'chatmcp-local-hub';
 export const UI_BUILD = '3.9.0-react-agent';
@@ -29,7 +30,24 @@ export function assertCompatibleRunningHub(health, port=3007) {
   return true;
 }
 
-export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/browser/recover-url/request','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle']);
+// A Hub from before the per-launch secret (v3.9.0 and older) answers /api/health without `auth`. This build cannot
+// authenticate to it, so it must be stopped, never reused: it hands its CSRF token to any local process.
+export function assertBearerHub(health, port=3007) {
+  if (!hubRequiresBearer(health)) throw new Error(`Cổng ${port} đang chạy Hub ${health?.version ?? 'không rõ'} chưa có xác thực phiên (bản cũ). Hãy chạy STOP-CHATMCP-HUB.cmd, đợi cổng ${port} tắt rồi START-CHATMCP-HUB.cmd; không dùng tiến trình cũ.`);
+  return true;
+}
+
+export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/tasks/accept-criterion','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/browser/recover-url/request','/api/browser/outbound/decide','/api/browser/privacy/config','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle']);
+// Every route the Hub answers besides POST_ROUTES (tests/verify-hub-auth.mjs compares these lists with the source).
+export const GET_ROUTES = Object.freeze(['/api/health','/api/capabilities','/api/state','/api/background-tasks','/api/workspaces','/api/catalog','/api/ai/models','/api/ai/presets','/api/ai/profiles','/api/sandbox/status','/api/workspace/lock','/api/plugins/registry','/api/plugins/marketplace','/api/plugins/installed','/api/tasks/events','/api/tasks/:id','/api/tasks/:id/report','/api/tasks/:id/stream','/api/extension-state','/api/instructions','/api/studio/terminal/events','/api/studio/intelligence/status','/api/studio/intelligence/symbols','/api/studio/intelligence/references','/api/studio/intelligence/definitions','/api/studio/intelligence/lsp','/api/studio/sandbox','/api/studio/preview','/api/studio/tree','/api/studio/file','/api/studio/search','/api/studio/git/status','/api/studio/git/refs','/api/studio/git/diff','/api/studio/git/check','/api/studio/checkpoints','/api/studio/review','/api/studio/preview-checkpoint','/api/studio/checks','/api/studio/verifications','/api/studio/skills','/api/studio/terminal','/api/studio/terminal/capabilities','/api/studio/delegates','/api/studio/dynamic-delegates','/api/studio/coding','/api/studio/coding/context','/api/studio/coding/recovery','/api/studio/coding/review','/api/studio/coding/checks','/api/studio/workflow','/api/studio/plan','/auth/chatgpt/callback']);
+// Bootstrap of a dashboard without the long-lived secret in a URL: POST ticket (bearer) -> page opens /#chatmcp-boot=<ticket> -> POST redeem.
+export const SESSION_ROUTES = Object.freeze(['/api/session/ticket','/api/session/redeem']);
+// Everything under /api/ and /auth/ needs `Authorization: Bearer <per-launch secret>` except these named exceptions:
+// the two unauthenticated probes, the Companion's pairing routes (their own bearer) and the two read-only routes the
+// Companion polls from its chrome-extension:// origin (it has no secret; tests/verify-hub-auth.mjs pins this list).
+export const PUBLIC_API_ROUTES = Object.freeze(['/api/health','/api/capabilities']);
+export const EXTENSION_READ_ROUTES = Object.freeze(['/api/extension-state','/api/instructions']);
+export const EXTENSION_PAIRED_ROUTE = /^\/api\/browser\/clients\/(pair|poll|claim|sent|reply|fail|recover-url)$/;
 const BUNDLE_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MIME = Object.freeze({
   '.html': 'text/html; charset=utf-8',
@@ -63,7 +81,8 @@ const STATIC_FILES = Object.freeze({
   '/react.css': 'web/react.css',
   '/vendor/react.production.min.js': 'web/vendor/react.production.min.js',
   '/vendor/react-dom.production.min.js': 'web/vendor/react-dom.production.min.js',
-  '/chat-route.js': 'extension/chat-route.js'
+  '/chat-route.js': 'extension/chat-route.js',
+  '/hub-session.js': 'web/hub-session.js'
 });
 function equalToken(a, b) {
   if (typeof a !== 'string' || a.length !== b.length) return false;
@@ -89,8 +108,12 @@ async function bodyJson(req, limit = 65536) {
 }
 
 /** Local-only HTTP Hub: localhost and 127.0.0.1 only. */
-export function createHubServer(manager, {port=3007,token=randomBytes(32).toString('hex'),bundleRoot=BUNDLE_ROOT,provider=null,agent=null,browser=null,workspaceRegistry=null,onShutdown=()=>{},isInitialized=()=>true}={}) {
+export function createHubServer(manager, {port=3007,token=randomBytes(32).toString('hex'),secret=randomBytes(32).toString('hex'),bundleRoot=BUNDLE_ROOT,provider=null,agent=null,browser=null,workspaceRegistry=null,onShutdown=()=>{},isInitialized=()=>true}={}) {
+  // `token` is the CSRF token of the dashboard; `secret` is the bearer every API caller must present. There is no way to
+  // build a server without one: a caller that does not pass a secret gets a random one nobody knows.
   const hosts=new Set([`127.0.0.1:${port}`,`localhost:${port}`]);
+  const tickets=createTicketBook();
+  const hasBearer=(request)=>{const match=BEARER_PATTERN.exec(request.headers.authorization??'');return Boolean(match)&&equalToken(match[1],secret);};
   const origins=new Set([...hosts].map(host=>`http://${host}`));
   const staticFiles=STATIC_FILES;
   let aiBusy = false;
@@ -181,7 +204,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
       const csrfNow = token;
       const stateNow = () => state(csrfNow);
       const extensionRead = ['/api/extension-state', '/api/instructions'].includes(url.pathname);
-      const browserRoute = /^\/api\/browser\/clients\/(pair|poll|claim|sent|reply|fail|recover-url)$/.exec(url.pathname);
+      const browserRoute = EXTENSION_PAIRED_ROUTE.exec(url.pathname);
       const extensionOrigin = typeof origin === 'string' && /^chrome-extension:\/\/[a-p]{32}$/.test(origin);
       if (origin && !origins.has(origin) && !((extensionRead && ['GET', 'OPTIONS'].includes(req.method) || browserRoute && ['POST', 'OPTIONS'].includes(req.method)) && extensionOrigin)) {
         return json(403, { error: 'Origin không được phép.' });
@@ -198,9 +221,27 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
         }
         return json(405, { error: 'Phương thức không được hỗ trợ.' });
       }
-      if (req.method === 'GET' && url.pathname === '/api/health') return json(200, { app: APP_ID, version: VERSION, uiBuild: UI_BUILD, initialized: isInitialized(), backend: manager.backend });
-      if (req.method === 'GET' && url.pathname === '/api/capabilities') return json(200, { app: APP_ID, version: VERSION, uiBuild: UI_BUILD, postRoutes: POST_ROUTES, frontend: 'React', offlineAssets: true });
+      // One default-deny gate for the whole API surface. Static dashboard files carry no secret and stay open so the page
+      // can load and bootstrap; every /api/ and /auth/ request needs the bearer unless it is one of the named exceptions.
+      const publicProbe = req.method === 'GET' && PUBLIC_API_ROUTES.includes(url.pathname);
+      const companionRead = req.method === 'GET' && extensionRead && extensionOrigin;
+      const companionPaired = req.method === 'POST' && Boolean(browserRoute);
+      const ticketRedeem = req.method === 'POST' && url.pathname === '/api/session/redeem';
+      if ((url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/')) && !publicProbe && !companionRead && !companionPaired && !ticketRedeem && !hasBearer(req)) {
+        res.setHeader('WWW-Authenticate', 'Bearer realm="chatmcp-hub"');
+        return json(401, { error: 'Cần phiên Hub hợp lệ. Mở lại ChatMCP từ launcher.', code: 'hub_auth_required' });
+      }
+      if (req.method === 'GET' && url.pathname === '/api/health') return json(200, { app: APP_ID, version: VERSION, uiBuild: UI_BUILD, initialized: isInitialized(), backend: manager.backend, auth: 'bearer' });
+      if (req.method === 'GET' && url.pathname === '/api/capabilities') return json(200, { app: APP_ID, version: VERSION, uiBuild: UI_BUILD, postRoutes: POST_ROUTES, frontend: 'React', offlineAssets: true, auth: 'bearer' });
       if (req.method === 'GET' && url.pathname === '/api/state') return json(200, state(csrfNow));
+      if (req.method === 'POST' && url.pathname === '/api/session/ticket') return json(200, tickets.issue());
+      if (ticketRedeem) {
+        // The ticket is the credential; the page proves it is ours with the same Origin and marker a dashboard POST carries.
+        if (!origins.has(origin) || req.headers['x-chatmcp-request'] !== 'local-dashboard') return json(403, { error: 'Phiên trang localhost không hợp lệ. Tải lại trang.', code: 'csrf' });
+        const payload = await bodyJson(req, 4096);
+        if (!tickets.redeem(payload?.ticket)) return json(401, { error: 'Mã mở phiên đã hết hạn hoặc đã dùng. Mở lại ChatMCP từ launcher.', code: 'hub_ticket_invalid' });
+        return json(200, { secret });
+      }
       if (!isInitialized() && (req.method === 'POST' || url.pathname === '/auth/chatgpt/callback')) return json(503, { error: 'Hub đang nạp cấu hình. Chờ vài giây rồi thử lại.' });
       if (req.method === 'POST' && browserRoute) {
         if (!browser) return json(503, { error: 'Browser runner chưa khởi tạo.' });
@@ -502,6 +543,8 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/services/stop': if(coding?.active||coding?.integrating||dynamic?.activeRunId)throw Object.assign(new Error('Stop coding/dynamic workers before stopping services.'),{statusCode:409});await manager.stop(); result = stateNow(); break;
           case '/api/browser/pair-code': if (!browser) throw new Error('Browser runner chưa khởi tạo.'); result = await browser.createPairCode(); break;
           case '/api/browser/recover-url/request': if(!browser)throw new Error('Browser runner chưa khởi tạo.'); result=browser.requestUrlRecovery(payload);break;
+          case '/api/browser/outbound/decide': if (!browser) throw new Error('Browser runner chưa khởi tạo.'); result = await browser.decideOutbound(payload); break;
+          case '/api/browser/privacy/config': if (!browser) throw new Error('Browser runner chưa khởi tạo.'); await browser.configurePrivacy(payload); result = stateNow(); break;
           case '/api/browser/unpair': if (!browser) throw new Error('Browser runner chưa khởi tạo.'); await browser.unpair(); result = stateNow(); break;
           case '/api/ai/config': if (!provider) throw new Error('Kết nối AI chưa khởi tạo.'); await changeAi(() => provider.configure(payload)); result = stateNow(); break;
           case '/api/ai/clear-key': if (!provider) throw new Error('Kết nối AI chưa khởi tạo.'); await changeAi(() => provider.clearKey()); result = stateNow(); break;
@@ -612,15 +655,23 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   server.requestTimeout = 0; // A user can leave the native folder picker open.
   server.headersTimeout = 15000;
   server.keepAliveTimeout = 5000;
+  // For the process that owns this server (it opens its own dashboard): a one-time ticket, never the secret itself.
+  server.issueBootstrapTicket = () => tickets.issue().ticket;
   return server;
 }
 
-async function openDashboard(url, manager) {
-  if (process.platform !== 'win32') { manager.log(`Mở ${url}`); return; }
-  // This URL is constructed from a validated numeric port, never shell input.
+// `url` is what is logged; `target` (the same address plus a one-time sign-in ticket in the fragment) is what is opened.
+async function openDashboard(url, manager, target = url) {
+  if (process.platform !== 'win32') {
+    manager.log(`Mở ${url}`);
+    // The sign-in link is single-use and short-lived; show it on a terminal only, never in hub.log.
+    if (process.stdout.isTTY && target !== url) console.log(`Sign-in link (single use, 60 s): ${target}`);
+    return;
+  }
+  // This URL is constructed from a validated numeric port and a base64url ticket, never shell input.
   const rundll = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'rundll32.exe');
   await new Promise((resolve) => {
-    const opener = spawn(rundll, ['url.dll,FileProtocolHandler', url], { detached: true, stdio: 'ignore', shell: false });
+    const opener = spawn(rundll, ['url.dll,FileProtocolHandler', target], { detached: true, stdio: 'ignore', shell: false });
     opener.once('error', () => { manager.log(`Mở trình duyệt tại ${url}`); resolve(); });
     opener.once('spawn', () => { opener.unref(); resolve(); });
   });
@@ -664,6 +715,11 @@ function logFileOf(args) {
 
 export async function main(args = process.argv.slice(2), env = process.env) {
   const options = parseArguments(args, env);
+  // The secret belongs to this process alone: take it, then remove it from the environment every child (agent tools,
+  // terminals, the language servers) would otherwise inherit.
+  const secret = createSecret(env);
+  delete process.env.CHATMCP_HUB_SECRET;
+  if (env !== process.env) { env = { ...env }; delete env.CHATMCP_HUB_SECRET; }
   if(options.logFile){
     const fatal=error=>{appendToLog(options.logFile,`[CHATMCP-HUB] Fatal: ${redact(error?.stack??error?.message??error)}`);process.exit(1);};
     process.once('uncaughtException',fatal);
@@ -681,6 +737,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   const { StudioDelegates } = await import('./lib/studio-delegates.mjs');
   const { DynamicDelegates } = await import('./lib/dynamic-delegates.mjs');
   const { RecoveryScheduler } = await import('./lib/studio-resumer.mjs');
+  manager.registerSecret(secret);
   assembleStudio(manager,{bundleRoot:BUNDLE_ROOT});
   const workspaceRegistry=new WorkspaceRegistry({manager,directory:manager.hubDirectory});
   await workspaceRegistry.load();
@@ -703,7 +760,8 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   await manager.permissions.load();
   let initialized=false,closing=false;
   let releaseInstance=async()=>{};
-  const server=createHubServer(manager,{port:options.port,browser,agent,provider,workspaceRegistry,onShutdown:close,
+  let session=null;
+  const server=createHubServer(manager,{port:options.port,secret,browser,agent,provider,workspaceRegistry,onShutdown:close,
     isInitialized:()=>initialized});
   const url=`http://127.0.0.1:${options.port}`;
   try {
@@ -712,20 +770,17 @@ export async function main(args = process.argv.slice(2), env = process.env) {
     if(error.code!=='EADDRINUSE') throw error;
     const health = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(2000) }).then((r) => r.json()).catch(() => null);
     assertCompatibleRunningHub(health, options.port);
-    if (options.project) {
-      const state = await fetch(`${url}/api/state`).then((r) => r.json());
-      const response = await fetch(`${url}/api/workspace/select`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Origin: url, 'X-ChatMCP-Request': 'local-dashboard', 'X-ChatMCP-CSRF': state.csrfToken },
-        body: JSON.stringify({ path: options.project }),
-      });
-      if (!response.ok) manager.log((await response.json()).error ?? 'Hub đang xử lý một thao tác.');
-    }
-    if (options.open) await openDashboard(url, manager);
+    assertBearerHub(health, options.port);
+    const running = await attachToRunningHub({ origin: url, stateDirectory: options.stateDir, project: options.project });
+    if (running.selectError) manager.log(running.selectError);
+    if (options.open) await openDashboard(url, manager, dashboardUrl(url, await running.ticket()));
     manager.log(`Hub đã chạy sẵn tại ${url}.`);
     return;
   }
   try {
     releaseInstance = await acquireInstanceLock(manager.hubDirectory, options.port);
+    // Published only once this process holds the instance lock, and before /api/health reports "initialized".
+    session = await writeSession(manager.hubDirectory, { port: options.port, secret });
     await browser.load();
     await provider.load();
     await apiAgent.load();
@@ -734,12 +789,13 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   } catch (error) {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
+    await session?.remove().catch(() => {});
     await releaseInstance().catch(() => {});
     throw error;
   }
   manager.log(`Dashboard: ${url}`);
   manager.log(`Local-only Hub: 127.0.0.1 · Data: ${manager.hubDirectory}`);
-  if (options.open) await openDashboard(url, manager);
+  if (options.open) await openDashboard(url, manager, dashboardUrl(url, server.issueBootstrapTicket()));
   if (manager.workspace) void manager.start().catch(() => {});
   else manager.log('Chọn thư mục workspace trên trang localhost để bắt đầu.');
   resumer.start();
@@ -756,6 +812,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
     await manager.shutdown().catch(() => {});
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
+    await session?.remove().catch(() => {});
     await releaseInstance().catch(() => {});
     clearTimeout(deadline);
     process.exit(0);

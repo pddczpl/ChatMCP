@@ -59,6 +59,12 @@ const CODE_EXTENSIONS = new Map([
 
 const RESOLVE_EXTENSIONS = ['.mjs', '.js', '.ts', '.tsx', '.jsx', '.cjs', '.mts', '.cts', '.json'];
 
+// find_definition ranking. A language server answer that is a declaration outranks every heuristic candidate (the best of those scores 90).
+// A cold typescript-language-server first answers with the import binding in the queried file itself; that location is an alias of the
+// symbol, not its definition, so it ranks behind every heuristic declaration (the lowest of those scores 10) but stays in the list.
+const LSP_DEFINITION_SCORE = 120;
+const LSP_IMPORT_BINDING_SCORE = 5;
+
 const JS_KEYWORDS = new Set([
   'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default', 'break', 'continue',
   'return', 'try', 'catch', 'finally', 'throw', 'new', 'delete', 'typeof', 'instanceof',
@@ -73,6 +79,15 @@ function toPosix(p) {
 
 function escapeRegExp(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Extra lines that an import or re-export statement occupies below its first line. The patterns of parseJsTsStructure run lazily up to
+ * the first `from '...'`, so `import './a'; ...code...; export { b } from './b'` is one match over everything in between. Only a clause that
+ * can really be one (words, commas, braces, `*`) counts as a multi-line statement; anything else is a match that ran past its statement.
+ */
+function statementLines(clause, matched) {
+  return /^[\w$\s,{}*]*$/.test(clause) ? (String(matched).match(/\n/g) || []).length : 0;
 }
 
 function hashContent(text) {
@@ -359,7 +374,7 @@ function parseJsTsStructure(rawLines, maskedLines, symbols, imports, exportedNam
     const specifier = m[2].trim();
     const line = fullText.slice(0, m.index).split('\n').length;
     const names = parseJsImportClause(clause);
-    imports.push({ specifier, names, kind: 'import', line });
+    imports.push({ specifier, names, kind: 'import', line, endLine: line + statementLines(clause, m[0]) });
   }
 
   // Side-effect imports: import 'specifier'
@@ -384,6 +399,7 @@ function parseJsTsStructure(rawLines, maskedLines, symbols, imports, exportedNam
       names: names.map((n) => n.imported),
       kind: 're-export',
       line,
+      endLine: line + statementLines(clause, m[0]),
     });
   }
 
@@ -827,6 +843,13 @@ function parseGenericStructure(rawLines, maskedLines, symbols, imports, exported
  * Core Code Intelligence Engine with SHA-256 content-addressed caching.
  */
 export class CodeIntelligenceEngine {
+  /**
+   * @param {object} options
+   * @param {object} options.workspace  needs resolve()
+   * @param {object} [options.studioIntelligence]  Tier 1: the Studio CodeIntelligence; the engine only calls its lspRequest(), which keeps
+   *                                               the sandbox-only policy for host language servers (there is no separate LSP client option)
+   * @param {object} [options.treeSitterAdapter]   Tier 2a: { getParser(language) } or a parser with parse(source, previousTree, { language, relPath })
+   */
   constructor({
     workspace,
     ignoredDirs = DEFAULT_IGNORED_DIRS,
@@ -850,7 +873,6 @@ export class CodeIntelligenceEngine {
     this._treeSitterInitPromise = null;
     this._treeSitterParsers = new Map();
     this._pythonAstAvailable = null;
-    this._lspClients = new Map();
   }
 
   get rootPath() {
@@ -858,7 +880,8 @@ export class CodeIntelligenceEngine {
     // Windows runner workspaces may be reparse points whose displayed path
     // differs from fs.realpath() (drive letters, junctions and long paths).
     if (this._resolvedRoot) return this._resolvedRoot;
-    const root = this.workspace.root || this.workspace.path;
+    // StudioWorkspace exposes root; a double that only carries another property must fail loudly, not pass silently.
+    const root = this.workspace.root;
     if (typeof root !== 'string' || !root) throw new TypeError('Workspace root is unavailable');
     return path.resolve(root);
   }
@@ -867,7 +890,7 @@ export class CodeIntelligenceEngine {
     // StudioWorkspace.resolve is async and returns {root,absolute,relative};
     // test doubles may return a path string. Never compare a canonical target
     // against a non-canonical Windows/Junction root: that gives false escapes.
-    const declaredRoot = this.workspace.root || this.workspace.path;
+    const declaredRoot = this.workspace.root;
     if (typeof declaredRoot !== 'string' || !declaredRoot) throw new TypeError('Workspace root is unavailable');
     const resolved = await this.workspace.resolve(targetPath);
     const inputPath = typeof resolved === 'string' ? resolved : resolved?.absolute;
@@ -1276,7 +1299,7 @@ export class CodeIntelligenceEngine {
       const normalizedRel = toPosix(relPath);
       const payload = await new Promise((resolve, reject) => {
         const proc = spawn(pythonExe, ['-I', '-X', 'utf8', workerScript], {
-          cwd: this.workspace.path,
+          cwd: this.rootPath,
           stdio: ['pipe', 'pipe', 'pipe'],
           windowsHide: true,
         });
@@ -1480,11 +1503,6 @@ export class CodeIntelligenceEngine {
         return null;
       }
 
-      health.failures = 0;
-      health.cooldownUntil = 0;
-      health.lastErrorReason = null;
-      health.lastSuccessAt = Date.now();
-
       const raw = response?.result == null ? [] : Array.isArray(response.result) ? response.result : [response.result];
       const locations = [];
       for (const location of raw) {
@@ -1494,8 +1512,16 @@ export class CodeIntelligenceEngine {
         if (!uri || !range || !Number.isInteger(range.start?.line)) continue;
         const url = new URL(uri);
         if (url.protocol !== 'file:') continue;
-        const relative = toPosix(path.relative(this.workspace.path, fileURLToPath(url)));
-        if (!relative || relative === '..' || relative.startsWith('../') || path.isAbsolute(relative)) continue;
+        // StudioWorkspace has root, not path; getParsedFile above already pinned the canonical root.
+        const locationPath = fileURLToPath(url);
+        const outside = (rel) => !rel || rel === '..' || rel.startsWith('../') || path.isAbsolute(rel);
+        let relative = toPosix(path.relative(this.rootPath, locationPath));
+        if (outside(relative)) {
+          // A server may spell the same file through a Windows 8.3 alias or a junction; judge the canonical target instead.
+          const canonical = await fs.realpath(locationPath).catch(() => null);
+          relative = canonical ? toPosix(path.relative(this.rootPath, canonical)) : '';
+        }
+        if (outside(relative)) continue;
         // getParsedFile enforces canonical workspace boundaries before exposing locations.
         if (!await this.getParsedFile(relative)) continue;
         locations.push({
@@ -1507,6 +1533,12 @@ export class CodeIntelligenceEngine {
           engine: this._getEngineForTier('lsp', language),
         });
       }
+      // Success is recorded only after the response was translated. Anything that throws above lands in the catch
+      // block as a failure; resetting earlier let a repeatedly failing translation keep the breaker closed forever.
+      health.failures = 0;
+      health.cooldownUntil = 0;
+      health.lastErrorReason = null;
+      health.lastSuccessAt = Date.now();
       if (locations.length === 0) {
         this._lastLspFallbackReason = 'lsp_empty_result';
       } else {
@@ -1524,6 +1556,22 @@ export class CodeIntelligenceEngine {
       }
     }
     return null;
+  }
+
+  /**
+   * True when `line` of the parsed file lies inside an import or re-export statement that names `symbol`, under its own name or as an
+   * alias: such a location binds the symbol in this file, it does not define it. Statements are the ones parseJsTsStructure and
+   * parsePythonStructure recognise (a parenthesised Python import over several lines is not).
+   */
+  _isImportBinding(rec, line, symbol) {
+    // A declaration is never a binding, whatever statement span the import patterns reported around it.
+    if (rec.parsed.symbols.some((sym) => sym.name === symbol && sym.line === line)) return false;
+    const word = new RegExp(`(?<![\\w$])${escapeRegExp(symbol)}(?![\\w$])`);
+    return rec.parsed.imports.some((imp) => {
+      if (imp.kind !== 'import' && imp.kind !== 're-export') return false;
+      const endLine = imp.endLine ?? imp.line;
+      return line >= imp.line && line <= endLine && word.test(rec.rawLines.slice(imp.line - 1, endLine).join('\n'));
+    });
   }
 
   /**
@@ -1812,11 +1860,16 @@ export class CodeIntelligenceEngine {
 
     // Tier 1: Query LSP if studioIntelligence is attached
     const lspLocations = await this._queryLsp('textDocument/definition', normalizedContext, null, shortTarget);
+    let lspDeclarations = 0;
+    let lspImportBindings = 0;
     if (Array.isArray(lspLocations)) {
       for (const loc of lspLocations) {
         const locFile = toPosix(loc.file || loc.path || '');
         const rec = locFile ? await this.getParsedFile(locFile) : null;
         const lineNum = Number(loc.line) || 1;
+        // The queried file's own import statement is where a cold server puts its first answer; it is an alias, not the definition.
+        const isImportBinding = Boolean(rec && locFile === normalizedContext && this._isImportBinding(rec, lineNum, shortTarget));
+        if (isImportBinding) lspImportBindings += 1; else lspDeclarations += 1;
         const endLineNum = Number(loc.endLine) || lineNum;
         let snippet = '';
         if (rec && rec.rawLines) {
@@ -1828,12 +1881,12 @@ export class CodeIntelligenceEngine {
             .join('\n');
         }
         candidates.push({
-          score: 120,
+          score: isImportBinding ? LSP_IMPORT_BINDING_SCORE : LSP_DEFINITION_SCORE,
           file: locFile,
           sha256: rec?.sha256 || '',
           name: shortTarget,
           qualifiedName: target,
-          kind: loc.kind || 'definition',
+          kind: loc.kind || (isImportBinding ? 'import-binding' : 'definition'),
           line: lineNum,
           endLine: endLineNum,
           signature: loc.signature || shortTarget,
@@ -1876,7 +1929,7 @@ export class CodeIntelligenceEngine {
           tier: defTier,
           engine: this._getEngineForTier(defTier, defLang),
           language: defLang,
-          fallbackUsed: Boolean(!Array.isArray(lspLocations) || lspLocations.length === 0),
+          fallbackUsed: lspDeclarations === 0,
           snippet,
         });
       }
@@ -1905,6 +1958,9 @@ export class CodeIntelligenceEngine {
     const bestLang = best.language || this._getLanguageForPath(best.file);
     const bestEngine = best.engine || this._getEngineForTier(bestTier, bestLang);
     const usedFallback = bestTier !== 'lsp';
+    const fallbackReason = usedFallback
+      ? (this._lastLspFallbackReason || (lspImportBindings > 0 && lspDeclarations === 0 ? 'lsp_import_binding_only' : 'lsp_not_used'))
+      : null;
     const lines = [`Tìm thấy ${candidates.length} định nghĩa cho "${target}":`];
     for (const def of slicedDefs) {
       lines.push(`\n### ${def.file}:${def.line}-${def.endLine} (${def.kind} ${def.qualifiedName})`);
@@ -1921,13 +1977,13 @@ export class CodeIntelligenceEngine {
         engine: bestEngine,
         language: bestLang,
         fallbackUsed: usedFallback,
-        fallbackReason: usedFallback ? (this._lastLspFallbackReason || 'lsp_not_used') : null,
+        fallbackReason,
         provenance: {
           tier: bestTier,
           engine: bestEngine,
           language: bestLang,
           fallbackUsed: usedFallback,
-          fallbackReason: usedFallback ? (this._lastLspFallbackReason || 'lsp_not_used') : null,
+          fallbackReason,
         },
         definitions: slicedDefs,
       },
@@ -2411,12 +2467,12 @@ function formatSuccess(text, structuredContent) {
 /**
  * Registers the 6 Code Intelligence tools directly into LocalTools.#register() via `define`.
  */
-export function registerCodeIntelligenceTools(define, workspace, { engine: existingEngine, studioIntelligence = null, lspClient = null, treeSitterParser = null } = {}) {
-  const engine = existingEngine ?? new CodeIntelligenceEngine({ workspace, studioIntelligence, lspClient, treeSitterParser });
+export function registerCodeIntelligenceTools(define, workspace, { engine: existingEngine, studioIntelligence = null, treeSitterAdapter = null } = {}) {
+  const engine = existingEngine ?? new CodeIntelligenceEngine({ workspace, studioIntelligence, treeSitterAdapter });
 
   define('repo_map', {
     description:
-      'Generate a PageRank-style repository map of source files and exported symbol signatures within a token budget. Use this first on large codebases to locate relevant modules and line ranges without reading full files.',
+      'Generate a repository map of source files and exported symbol signatures within a token budget, ranked by how many other files import each file (import-graph in/out degree, boosted by focus files and the query; this is not PageRank). Use this first on large codebases to locate relevant modules and line ranges without reading full files.',
     schema: {
       type: 'object',
       additionalProperties: false,

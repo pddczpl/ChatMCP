@@ -5,6 +5,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../../native-shared/HubLifecycle.cs" Link="HubLifecycle.cs" />
+    <Compile Include="../../../native-shared/HubSession.cs" Link="HubSession.cs" />
+    <Compile Include="../../../native-shared/OpenLink.cs" Link="OpenLink.cs" />
     <Compile Include="../../../installer/InstallerEngine.cs" Link="InstallerEngine.cs" />
     <Compile Include="../../../installer/InstallTransaction.cs" Link="InstallTransaction.cs" />
   </ItemGroup>

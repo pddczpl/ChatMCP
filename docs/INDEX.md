@@ -11,10 +11,17 @@ Comprehensive documentation across all architecture, implementation, and verific
 - [Upgrade implementation checkpoint](UPGRADE-IMPLEMENTATION-STATUS.md) — shipped-source changes, outstanding acceptance work and restart handoff
 - [Bundled Code Intelligence Runtime](CODE-INTELLIGENCE-RUNTIME.md) — Offline LSP, WASM, embedded Python staging, verification and limitations
 - [Architecture](ARCHITECTURE.md) — System components, security model, and task state machine
+- [Hub authentication](HUB-AUTH.md) — Per-launch bearer secret, session file, dashboard sign-in ticket, and what it does not protect
+- [Claims map](CLAIMS.md) — Which claim of the README and release notes is exercised by which test on the production path, and which is not (the unmapped ratchet)
+- [CI health](CI-HEALTH.md) — Workflow triggers (one run per push), documentation gates, `scripts/ci-health.mjs` definitions and the 2026-10-19 baseline
+- [Threat model](THREAT-MODEL.md) — Hub credential, Companion outbound filter and Read Only classifier: assets, actors, mitigations with code references, residual risks
+- [ChatGPT Web Companion privacy](COMPANION-PRIVACY.md) — Terms-of-Use risk, outbound secret scanner, protected-file deny-list, review before send, and what they do not do
 - [Windows Setup](WINDOWS-SETUP.md) — Prerequisites, environment variables, and Windows configuration
 - [Desktop Application](DESKTOP-APP.md) — WinForms + WebView2 architecture, packaging, and releases
 - [User Guide](USER-GUIDE.md) — Workflow instructions, tool definitions, and dashboard navigation
 - [Development](DEVELOPMENT.md) — Contributing guidelines, testing workflows, and codebase conventions
+- [Contributing](../CONTRIBUTING.md) — Apache-2.0 inbound = outbound, Developer Certificate of Origin sign-off, commit conventions, AI-assistance policy
+- [License and dependency scan](LICENSE-SCAN.md) — Apache-2.0 compatibility of every redistributed component, findings and open notice gaps
 - [Testing with Real Models](TESTING-WITH-REAL-MODELS.md) — Integration testing with live AI provider endpoints
 - [Agent Tools & Token Optimization](AGENT-TOOL-CAPABILITIES.md) — Updated internal tool inventory, security contracts, deployment dependencies, and acceptance gaps
 - [Troubleshooting](TROUBLESHOOTING.md) — Diagnosing common startup, permission, and runtime issues
@@ -27,7 +34,7 @@ Comprehensive documentation across all architecture, implementation, and verific
 - [Phase 0 Execution Report](PHASE0-EXECUTION-REPORT.md) — Test receipts and reconnection milestone verification
 
 ### Phase 1: Windows Sandbox & Hardware Security
-- [Phase 1 Design](PHASE1-DESIGN.md) — Sandbox isolation architecture and security requirements
+- [Phase 1 Design](PHASE1-DESIGN.md) — Windows Sandbox isolation design and security requirements (historical)
 - [Phase 1 Implementation Plan](PHASE1-IMPLEMENTATION-PLAN.md) — Step-by-step development roadmap for execution drivers
 - [Phase 1 Report](PHASE1-REPORT.md) — Verification receipts and security gate assessment
 - [Phase 1 Blackbox Checks](PHASE1-BLACKBOX-CHECKS.md) — Native test suite for guest execution boundaries

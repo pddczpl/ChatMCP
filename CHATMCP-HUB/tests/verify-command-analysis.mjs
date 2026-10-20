@@ -53,6 +53,14 @@ table('bash', 'dangerous', [
   'shutdown now', 'ls && rm -rf /', 'git status; rm x', 'echo a | python', 'cat x | node', ':(){ :|:& };:', 'npm test; git push',
 ]);
 
+// Remote mutations are dangerous (Full Access still stops for them); remote reads stay "exec" (an unknown network call).
+table('bash', 'dangerous', [
+  'gh release delete v1.0.0 --yes', 'gh release create v2 --notes x', 'gh repo delete owner/repo --yes', 'gh -R owner/repo repo archive', 'gh pr merge 3 --squash',
+  'gh issue delete 4', 'gh secret set TOKEN', 'gh api -X DELETE repos/o/r/git/refs/heads/x', 'gh api --method=PUT repos/o/r/topics', 'gh api repos/o/r/issues -f title=x',
+  'npm publish', 'pnpm publish --access public', 'yarn npm publish', 'docker push registry.example/app:1', 'kubectl delete pod web', 'terraform destroy', 'aws s3 rm s3://bucket/key',
+]);
+table('bash', 'exec', ['gh release list', 'gh pr view 3', 'gh pr create --fill', 'gh api repos/o/r', 'gh --version', 'docker ps', 'kubectl get pods', 'terraform plan']);
+
 // ------------------------------------------------------------------ PowerShell
 table('powershell', 'read', [
   'Get-ChildItem', 'Get-ChildItem -Recurse -Filter *.py', 'ls', 'dir', 'Get-Content README.md', 'gc src\\app.py', 'Select-String -Path src\\app.py -Pattern TODO',

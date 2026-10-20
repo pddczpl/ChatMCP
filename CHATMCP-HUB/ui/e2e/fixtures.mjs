@@ -19,6 +19,14 @@ export const test = base.extend({
       scratch, project,
       get mock() { return mock; },
       get hub() { return hub; },
+      /**
+       * The address a person (or the desktop shell) opens: the dashboard plus a one-time ticket in the fragment, which the page
+       * trades for the Hub's per-launch secret. A Hub restart makes a new secret, so open a page again afterwards.
+       */
+      async signInUrl() {
+        const { ticket } = await hub.post('/api/session/ticket', {});
+        return `${hub.origin}/#chatmcp-boot=${ticket}`;
+      },
       async restart() {
         const port = hub.port;
         await hub.stop();
@@ -144,7 +152,7 @@ export const test = base.extend({
 export { expect };
 
 export async function onboard(page, app) {
-  await page.goto(app.hub.origin);
+  await page.goto(await app.signInUrl());
   await expect(page.getByRole('heading', { name: 'Chào mừng đến với ChatMCP Studio' })).toBeVisible();
   await page.getByLabel('Đường dẫn workspace', { exact: true }).fill(app.project);
   await page.getByRole('button', { name: 'Áp dụng workspace', exact: true }).click();

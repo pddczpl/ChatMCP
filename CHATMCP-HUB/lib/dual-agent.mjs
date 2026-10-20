@@ -101,6 +101,8 @@ export class DualAgent {
       ? (await registry.resolve(payload?.workspacePath)).path
       : this.api.manager?.workspace;
     if(!selected)throw Object.assign(new Error('Chọn workspace trước khi giao task.'),{statusCode:409});
+    // The previous web task shows 'completed' a moment before it releases the Companion: wait for that, do not answer 409.
+    await this.browser.settle?.();
     if(this.mode==='api'){
       const active=this.browser.state().active;
       if(active?.workspace?.path===selected)

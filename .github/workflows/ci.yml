@@ -1,16 +1,37 @@
 name: CI
 
+# One run per push (docs/CI-HEALTH.md): a branch with an open pull request is built by the pull_request event only, so `push` is
+# limited to main (the merge) and a branch without a pull request is not built until the person opens one or starts this workflow by hand.
+# A documentation-only change skips this workflow; docs-gates.yml runs exactly then (its `paths` list equals the `paths-ignore` list
+# below, tests/verify-ci-triggers.mjs checks that) so the suites that read the documents still run.
 on:
   push:
-    branches: [main, 'dev/**', 'fix/**', 'feat/**', 'refactor/**']
+    branches: [main]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'NOTICE'
+      - 'HUONG-DAN.txt'
+      - 'VALIDATION.txt'
   pull_request:
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'NOTICE'
+      - 'HUONG-DAN.txt'
+      - 'VALIDATION.txt'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# Keyed on the pull request number, so every push to one pull request replaces the run of the previous push; a push to main keys on
+# its ref. Only pull request runs are cancelled: a run on main always finishes, so a red main is never hidden by a newer commit.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   hub-tests:
@@ -137,6 +158,24 @@ jobs:
       - name: Required installer payload and cleanup regression tests
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Test-InstallerPayload.ps1
+      - name: Stage the locked intelligence runtime (the files the installer ships) for the real language-server test
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd scripts/intelligence-runtime
+          npm ci --ignore-scripts --no-audit --no-fund
+          node stage.mjs "$RUNNER_TEMP/chatmcp-intelligence-runtime"
+          node verify.mjs "$RUNNER_TEMP/chatmcp-intelligence-runtime"
+      # Without this step CI only ever ran the stub language server. CHATMCP_REQUIRE_REAL_LSP=1 makes a missing real server a failure
+      # (the test would otherwise print a skip line and still pass); CHATMCP_LSP_NODE_MODULES makes the staged runtime the only place it looks.
+      - name: Real TypeScript and Pyright language servers through the production seam (a skipped server fails)
+        shell: bash
+        env:
+          CHATMCP_REQUIRE_REAL_LSP: '1'
+        run: |
+          set -euo pipefail
+          export CHATMCP_LSP_NODE_MODULES="$RUNNER_TEMP/chatmcp-intelligence-runtime/runtimes/lsp/node_modules"
+          node CHATMCP-HUB/tests/verify-lsp-tier.mjs
       - name: Build fresh UI and Windows installer
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Installer.ps1
@@ -169,6 +208,76 @@ jobs:
             dist/ChatMCP-Browser-Companion.zip
             dist/ChatMCP-Browser-Companion.zip.sha256
           if-no-files-found: error
+
+  windows-upgrade-from-secretless-hub:
+    # Releases up to v3.9.0 run a Hub without the per-launch secret. The installer preflight must still stop that Hub, then the
+    # new Hub and the new shell must attach with the secret. Disposable hosted runner only (the lifecycle script refuses others).
+    name: Windows upgrade from the published v3.9.0 (secretless Hub)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: '10.0.x'
+      - name: Installer preflight against the real v3.9.0 Hub from git
+        run: node scripts/tests/legacy-hub-upgrade/run.mjs --baseline-ref 7f2551720fc65e95d1c2043adba7fde0dfececda
+      - name: Build fresh UI and Windows installer
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Installer.ps1
+      - name: Retrieve published hash-pinned upgrade baseline (v3.9.0)
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh release download v3.9.0 --repo $env:GITHUB_REPOSITORY --pattern ChatMCPSetup.exe --dir "$env:RUNNER_TEMP/native-baseline"
+          if ($LASTEXITCODE -ne 0) { throw 'Baseline download failed' }
+          if ((Get-FileHash "$env:RUNNER_TEMP/native-baseline/ChatMCPSetup.exe" -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'ef75e9a3721c5ba94a510de1ff00c1449031a4ac797570cb0d901861b509786e') { throw 'Baseline checksum mismatch' }
+      - name: Real setup upgrade with the secretless v3.9.0 Hub running, then installed EXE lifecycle and uninstall
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/Test-NativeLifecycle.ps1 -BaselineInstaller "$env:RUNNER_TEMP/native-baseline/ChatMCPSetup.exe" -CandidateInstaller dist/ChatMCPSetup.exe -ExpectedBaselineVersion 3.9.0 -ExpectedCandidateVersion 3.9.0 -OutputDirectory "$env:RUNNER_TEMP/native-lifecycle-evidence"
+          if ($LASTEXITCODE -ne 0) { throw 'Installed EXE acceptance failed' }
+      - name: Native WebView2 smoke (shell attaches with the secret; new-window payload runs no script)
+        run: node CHATMCP-HUB/ui/e2e/webview2-smoke.mjs
+      - name: Upload lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-lifecycle-evidence
+          path: ${{ runner.temp }}/native-lifecycle-evidence
+          if-no-files-found: ignore
+
+  claims-map:
+    # Claims-test rule (docs/CLAIMS.md): every headline claim is bound to a test that exercises the production path, or listed as unmapped,
+    # and the number of unmapped claims may not grow. On a pull request the ratchet is also compared with the base branch.
+    name: Claims map (unmapped count may not grow)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Claims map against the base branch
+        if: github.event_name == 'pull_request'
+        working-directory: CHATMCP-HUB
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: node tests/verify-claims-map.mjs --base "origin/$BASE_REF"
+      - name: Claims map
+        if: github.event_name != 'pull_request'
+        working-directory: CHATMCP-HUB
+        run: node tests/verify-claims-map.mjs
 
   hygiene:
     name: Repository hygiene

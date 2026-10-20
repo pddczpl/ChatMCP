@@ -72,20 +72,23 @@ try {
   console.log('PASS bounded automatic Repo Map on 180 files with cancellation and partial evidence');
 
   // Windows junction/8.3 aliases can differ from fs.realpath(root).
-  // The legacy string-resolver contract must still work, while symlink
+  // The alias must resolve through the production workspace, while symlink
   // traversal out of the real workspace must remain forbidden.
   const alias=path.join(dir,'project-alias');
   await fs.symlink(project,alias,process.platform==='win32'?'junction':'dir');
-  const engine=new CodeIntelligenceEngine({workspace:{
-    path:alias,resolve:(relative='.')=>path.resolve(alias,relative),
-  }});
+  // The real StudioWorkspace over the junction: no hand-written double.
+  const engine=new CodeIntelligenceEngine({workspace:new StudioWorkspace({
+    manager:{workspace:alias,secrets:[]},directory:path.join(dir,'alias-state'),
+  })});
   const mappedAlias=await engine.generateRepoMap({path:'.',maxTokens:850});
   assert.ok(mappedAlias.structured.totalFiles>=2,'canonical alias source files are visible');
   const external=path.join(dir,'external');
   await fs.mkdir(external);
   const escape=path.join(project,'escape');
   await fs.symlink(external,escape,process.platform==='win32'?'junction':'dir');
-  await assert.rejects(engine.querySymbols({path:'escape',query:'anything'}),/outside_workspace/,
+  // The production workspace refuses the escape itself (symlink_escape) before the engine's own boundary check is reached.
+  await assert.rejects(engine.querySymbols({path:'escape',query:'anything'}),
+    (error)=>error?.code==='symlink_escape'||/outside_workspace/.test(String(error?.message)),
     'canonical symlink target outside workspace must be rejected');
   console.log('PASS realpath alias/junction compatibility without symlink escapes');
   console.log('PASS real async StudioWorkspace/LocalTools Code Intelligence and protected-path integration');

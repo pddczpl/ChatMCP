@@ -1,0 +1,36 @@
+name: DCO
+
+# Every non-merge commit of a pull request needs a "Signed-off-by: Name <email>" trailer (git commit -s).
+# The check is scripts/check-dco.mjs (no third-party action); CHATMCP-HUB/tests/verify-dco-check.mjs runs the same script against
+# temporary repositories. Merge commits and commits authored by github-actions[bot], dependabot[bot] and semantic-release-bot are exempt.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dco-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  dco:
+    name: DCO sign-off
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # The whole history: the check needs the merge base of the PR and its base branch.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Require a Signed-off-by trailer on every commit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/check-dco.mjs --base "$BASE_SHA" --head "$HEAD_SHA"

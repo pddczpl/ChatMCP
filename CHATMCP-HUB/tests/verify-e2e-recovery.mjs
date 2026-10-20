@@ -12,6 +12,7 @@
 //
 // The command that is "running" is a script that appends a line to runs.txt when it starts and then lingers for a while, so
 // the number of lines in runs.txt says how many times the Hub started it, whatever anybody claims.
+// CLAIM: no-replay-after-kill
 import fs from 'node:fs';
 import path from 'node:path';
 import { eventually, runScenario } from './e2e/harness.mjs';

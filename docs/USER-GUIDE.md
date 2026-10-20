@@ -135,7 +135,7 @@ Mỗi thẻ cho bạn thấy *chính xác* điều sẽ xảy ra:
 
 Bấm **Cho phép** hoặc **Từ chối** (có thêm **Từ chối tất cả** khi có nhiều yêu cầu). Mỗi yêu cầu có đồng hồ đếm ngược; hết **10 phút** mà bạn chưa quyết định thì bị **từ chối tự động**. Khi bị từ chối (do bạn hoặc do hết hạn), agent nhận thông báo "Người dùng từ chối hoặc hết hạn phê duyệt" và thường thử cách khác hoặc hỏi lại bạn.
 
-> **Full Access** (Cài đặt → "Windows host & sandbox" → "Quyền chạy MCP"; phải gõ đúng `FULL ACCESS` để bật) **bỏ toàn bộ khung duyệt** cho mọi công cụ, kể cả `run_command` và `delete_path`, và cho phép lỗi sao lưu checkpoint đi qua. Chỉ còn hai ngoại lệ: file nhạy cảm vẫn bị chặn, và chế độ **Chỉ đọc vẫn thắng**. Giao diện hiện cảnh báo đỏ "FULL ACCESS đang bật" và khóa công tắc quyền. Mặc định là *Host review*; đừng bật Full Access cho dự án lạ.
+> **Full Access** (Cài đặt → "Môi trường thực thi & Cách ly OS" → "Quyền chạy MCP"; phải gõ đúng `FULL ACCESS` để bật) **bỏ khung duyệt** cho các công cụ thường ngày (kể cả `run_command`) và cho phép lỗi sao lưu checkpoint đi qua. Ngoại lệ: những thao tác không thể hoàn tác (xóa dữ liệu bằng `delete_path`/`rm`, `git push`, merge pull request, tạo hoặc xóa release/repo GitHub, `npm publish`, `docker push`...) **vẫn xin phê duyệt như bình thường**; agent chạy nền (worker, agent con ở chế độ Tự động/Full Access) không có ai để hỏi nên các thao tác đó bị từ chối ngay. File nhạy cảm vẫn bị chặn và chế độ **Chỉ đọc vẫn thắng**. Giao diện hiện cảnh báo đỏ "FULL ACCESS đang bật" và khóa công tắc quyền. Mặc định là *Host review*; đừng bật Full Access cho dự án lạ.
 
 ## 7. Theo dõi một tác vụ
 
@@ -250,6 +250,6 @@ Danh sách đầy đủ ở [SECURITY.md](../SECURITY.md). Các điểm người
 - Bí mật đã bị commit vào lịch sử Git vẫn đọc được bằng `git log -p`.
 - Nội dung file/README/issue trong dự án có thể chứa **chỉ dẫn độc hại nhắm vào agent** (prompt injection). Lớp phòng thủ là khung duyệt: hãy đọc kỹ lệnh trước khi cho phép, đặc biệt với repo lạ.
 - Hub chỉ dành cho **một người dùng trên máy của chính bạn**, nghe ở `127.0.0.1`. Đừng mở cổng này ra Internet hay mạng chung. Xem [DEPLOYMENT.md](DEPLOYMENT.md).
-- Chế độ ChatGPT Web là đường **cũ, thử nghiệm cục bộ**; bạn tự đăng nhập, Hub không đọc cookie hay phiên của bạn.
+- Chế độ ChatGPT Web là đường **cũ, thử nghiệm cục bộ**; bạn tự đăng nhập, Hub không đọc cookie hay phiên của bạn. Chế độ này tự động hóa trang ChatGPT dành cho người dùng cuối: đó không phải kênh do OpenAI cung cấp hay cho phép, có thể vi phạm Điều khoản sử dụng của OpenAI (tài khoản có thể bị cảnh báo hoặc đình chỉ) và đưa nội dung workspace vào lịch sử ChatGPT của bạn. ChatMCP che chuỗi giống bí mật theo cách nỗ lực tối đa, giữ lại nội dung file `.env`/khóa riêng khi lời gọi hoặc kết quả nêu tên chúng, và có tùy chọn **Xem lại trước khi gửi**; xem [ChatGPT Web Companion privacy](COMPANION-PRIVACY.md).
 
 Gặp sự cố: [TROUBLESHOOTING.md](TROUBLESHOOTING.md).

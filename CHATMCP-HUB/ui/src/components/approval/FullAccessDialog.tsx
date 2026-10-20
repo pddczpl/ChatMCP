@@ -49,7 +49,7 @@ export function FullAccessDialog() {
                 Xác nhận quyền FULL ACCESS
               </h2>
               <p className="text-[11px] text-[var(--muted)]">
-                Quyền thực thi tối đa không qua bước phê duyệt
+                Bỏ qua phê duyệt cho việc thường ngày — thao tác nguy hiểm vẫn hỏi lại
               </p>
             </div>
           </div>
@@ -68,7 +68,10 @@ export function FullAccessDialog() {
             <span>CẢNH BÁO BẢO MẬT QUAN TRỌNG</span>
           </div>
           <p className="text-[11px]">
-            Ở chế độ này, AI Agent có thể <strong>sửa file</strong>, <strong>xóa file</strong> và <strong>chạy lệnh shell terminal</strong> trực tiếp mà <strong>không hỏi ý kiến bạn</strong>.
+            Ở chế độ này, AI Agent có thể <strong>sửa file</strong>, <strong>chạy lệnh shell terminal</strong>, cài gói và truy cập mạng trực tiếp mà <strong>không hỏi ý kiến bạn</strong>.
+          </p>
+          <p className="text-[11px]">
+            Những thao tác <strong>không thể hoàn tác</strong> vẫn luôn xin phê duyệt: <strong>xóa file/dữ liệu</strong>, <strong>git push</strong>, <strong>merge pull request</strong>, <strong>tạo hoặc xóa release/repo GitHub</strong>, xuất bản gói (npm publish, docker push) và các lệnh nguy hiểm khác. Agent chạy nền (worker, agent con) không có ai để hỏi nên các thao tác này bị từ chối ngay.
           </p>
           <p className="text-[11px]">
             Chỉ bật chế độ này nếu bạn hoàn toàn tin tưởng prompt hoặc đang chạy trong môi trường sandbox / container an toàn.

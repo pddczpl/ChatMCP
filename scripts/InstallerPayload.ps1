@@ -53,7 +53,7 @@ function Get-InstallerPayloadFiles {
         throw 'Installer source must be the root of its Git checkout.'
     }
     # NUL records preserve spaces and Unicode without relying on Git quotePath.
-    $raw = Invoke-InstallerGitRead -Git $git.Path -Root $root -Arguments 'ls-files --stage -z -- assets CHATMCP-HUB scripts START-CHATMCP-DESKTOP.cmd'
+    $raw = Invoke-InstallerGitRead -Git $git.Path -Root $root -Arguments 'ls-files --stage -z -- assets CHATMCP-HUB scripts START-CHATMCP-DESKTOP.cmd LICENSE NOTICE THIRD-PARTY-NOTICES.md'
     $files = New-Object 'System.Collections.Generic.List[object]'
     foreach ($record in $raw.Split([char]0)) {
         if (-not $record) { continue }
@@ -64,6 +64,7 @@ function Get-InstallerPayloadFiles {
         $include = $relative -match '^assets/' -or
             $relative -match '^scripts/(Start-DesktopApp|install-desktop|uninstall-desktop)\.ps1$' -or
             $relative -eq 'START-CHATMCP-DESKTOP.cmd' -or
+            $relative -match '^(LICENSE|NOTICE|THIRD-PARTY-NOTICES\.md)$' -or
             $relative -match '^CHATMCP-HUB/(lib|workers|extension|windows)/' -or
             ($relative -match '^CHATMCP-HUB/web/' -and $relative -notmatch '^CHATMCP-HUB/web/dist/') -or
             $relative -match '^CHATMCP-HUB/(hub\.mjs|package\.json|README\.md|THIRD-PARTY-NOTICES\.txt|Start-ChatMcpHub\.ps1|Stop-ChatMcpHub\.ps1|START-CHATMCP-HUB\.cmd|STOP-CHATMCP-HUB\.cmd)$'
@@ -101,7 +102,9 @@ function Get-InstallerPayloadFiles {
             $files.Add([pscustomobject]@{ RelativePath = 'CHATMCP-HUB/web/dist/' + $relativeUi; Source = $item.FullName })
         }
     }
-    foreach ($required in @('CHATMCP-HUB/hub.mjs', 'CHATMCP-HUB/package.json', 'START-CHATMCP-DESKTOP.cmd', 'scripts/Start-DesktopApp.ps1')) {
+    # Apache-2.0 section 4(a): recipients of a redistributed copy must receive the license (and NOTICE). The third-party notices
+    # travel with them: the components that ChatMCP redistributes are not covered by that license.
+    foreach ($required in @('CHATMCP-HUB/hub.mjs', 'CHATMCP-HUB/package.json', 'START-CHATMCP-DESKTOP.cmd', 'scripts/Start-DesktopApp.ps1', 'LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md')) {
         if (-not ($files | Where-Object { $_.RelativePath -eq $required })) { throw "Required runtime source is not tracked: $required" }
     }
     return $files.ToArray()
@@ -123,6 +126,34 @@ function Copy-InstallerSourcePayload {
         New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($target)) -Force | Out-Null
         Copy-Item -LiteralPath $file.Source -Destination $target -Force
     }
+}
+
+function Copy-InstallerNodeLicense {
+    # node.exe is redistributed. Node.js is MIT, but the binary contains V8, OpenSSL, ICU, zlib and others whose notices Node.js
+    # collects in the LICENSE file of each official release archive. That file must travel with node.exe (docs/LICENSE-SCAN.md, finding 1).
+    # A Node.js installed by the MSI has no LICENSE beside node.exe; the official ZIP of the same version does (setup-node uses it).
+    # Override: CHATMCP_NODE_LICENSE_FILE names a LICENSE file taken from the ZIP archive of the Node.js version being packaged.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$NodeExecutable,
+        [Parameter(Mandatory = $true)][string]$Destination,
+        [string]$SuppliedLicense = $env:CHATMCP_NODE_LICENSE_FILE
+    )
+    if ($SuppliedLicense) {
+        if (-not (Test-Path -LiteralPath $SuppliedLicense -PathType Leaf)) { throw 'CHATMCP_NODE_LICENSE_FILE does not name an existing file.' }
+        $source = $SuppliedLicense
+    } else {
+        $source = Join-Path (Split-Path -Parent $NodeExecutable) 'LICENSE'
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            throw 'No Node.js LICENSE file beside node.exe. Build with the Node.js ZIP distribution (it carries LICENSE), or set CHATMCP_NODE_LICENSE_FILE to the LICENSE of the same Node.js version; the bundled node.exe may not be redistributed without it.'
+        }
+    }
+    $text = [IO.File]::ReadAllText($source)
+    if ($text.Length -lt 1024 -or $text -notmatch 'Node\.js' -or $text -notmatch 'Permission is hereby granted') {
+        throw 'The Node.js LICENSE file is empty or is not the Node.js licence text; refusing to package node.exe without it.'
+    }
+    New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    Copy-Item -LiteralPath $source -Destination (Join-Path $Destination 'LICENSE') -Force
 }
 
 function Copy-InstallerDesktopPayload {

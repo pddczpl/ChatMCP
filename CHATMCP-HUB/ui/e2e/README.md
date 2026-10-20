@@ -14,6 +14,8 @@ loopback Local Hub serves that build. Tests do not intercept Hub requests or
 replace React components. `test:e2e:built` is for debugging an already built UI;
 CI always uses the build-and-test command.
 
+Every page signs in the way the desktop app does: the fixture asks the Hub for a one-time ticket (`app.signInUrl()`) and the page trades it for the Hub's per-launch secret, which it then sends as a bearer on every request, event stream included. `session.spec.mjs` covers the sign-in itself (fragment removed, secret only in sessionStorage, ticket usable once, the "reopen ChatMCP" screen for a tab without a session or after a Hub restart, and that `/api/tasks/events` streams with the bearer).
+
 Every test creates a temporary Git workspace and isolated Hub state, uses a
 credential-scrubbed child environment, and starts a scripted OpenAI-compatible
 provider on loopback. Workspace selection, model save/tool check, permissions,
@@ -53,6 +55,6 @@ On Windows with .NET SDK 10 and WebView2 Runtime, run the separate native smoke:
 node e2e/webview2-smoke.mjs
 ```
 
-It uses a real WinForms/WebView2 harness and a temporary Hub/profile. Missing
+It uses a real WinForms/WebView2 harness and a temporary Hub/profile. The harness is compiled against the desktop shell's own session, ticket and new-window code (`native-shared/`): it signs in with the Hub's session file and checks that a link holding a backslash, quotes and `</script>` reaches the page as the exact string and runs nothing. Missing
 prerequisites fail by default and in CI. `--allow-unavailable` is only for local
 environment surveys; a reported skip is not native verification.

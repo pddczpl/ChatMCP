@@ -160,7 +160,7 @@ export function SkillsTab() {
         </div>
         <div className="flex items-center gap-2">
           <select aria-label={copy('Lọc theo loại kỹ năng', 'Filter skill category')} value={category} onChange={(event) => { setCategory(event.target.value); setVisibleCount(30); }} className={`${fieldClass} min-w-0 flex-1`}>
-            <option value="all">{t('cat_all')}</option><option value="coding">{t('cat_coding')}</option><option value="devops">{t('cat_devops')}</option><option value="research">{t('cat_research')}</option><option value="governance">{t('cat_governance')}</option><option value="mcp-servers">{t('cat_mcp')}</option><option value="skills">GitHub Skills</option><option value="custom">{copy('Tự thêm', 'Custom')}</option>
+            <option value="all">{t('cat_all')}</option><option value="coding">{t('cat_coding')}</option><option value="devops">{t('cat_devops')}</option><option value="research">{t('cat_research')}</option><option value="governance">{t('cat_governance')}</option><option value="data">{t('cat_data')}</option><option value="skills">GitHub Skills</option><option value="custom">{copy('Tự thêm', 'Custom')}</option>
           </select>
           <Button disabled={registryBusy || Boolean(pending)} onClick={refreshRegistry} className="h-10 shrink-0 text-[13px]"><RefreshCw className={`h-4 w-4 ${registryBusy ? 'animate-spin' : ''}`} />{registryBusy ? copy('Đang tải…', 'Loading…') : copy('Làm mới', 'Refresh')}</Button>
         </div>

@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 
 // Support running both inside CHATMCP-HUB/tests/ (../lib/code-intelligence.mjs)
 // and in the same directory (./code-intelligence.mjs)
@@ -116,25 +117,24 @@ public class MainForm : Form {
     'utf8'
   );
 
-  const workspace = {
-    path: root,
-    resolve(rel = '.') {
-      return path.resolve(root, rel);
-    },
-  };
+  // The production workspace: StudioWorkspace exposes get root() and an async resolve(); it has no path property. A hand-written
+  // double that carried one hid the v3.9.0 defect where the LSP tier read the wrong property and silently fell back.
+  const stateDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-code-intel-state-'));
+  const workspace = new StudioWorkspace({ manager: { workspace: root, secrets: [] }, directory: stateDirectory });
 
   return {
     root,
     workspace,
     async cleanup() {
       await fs.rm(root, { recursive: true, force: true });
+      await fs.rm(stateDirectory, { recursive: true, force: true });
     },
   };
 }
 
 async function runTests() {
   console.log('Running ChatMCP Code Intelligence test suite...');
-  const { workspace, cleanup } = await createMockWorkspace();
+  const { workspace, root, cleanup } = await createMockWorkspace();
 
   try {
     // Test 1: Comment and string masking preserves exact line numbers
@@ -162,7 +162,7 @@ async function runTests() {
     assert(names.includes('MainForm.InitializeWebView'), 'Should find C# method MainForm.InitializeWebView');
     console.log('  [PASS] 2. Multi-language symbol extraction (ESM, #private methods, C#)');
 
-    // Test 3: PageRank-style Repo Map prioritizes highly imported modules (tool-schema.mjs)
+    // Test 3: import-degree ranked Repo Map prioritizes highly imported modules (tool-schema.mjs)
     const repoMap = await engine.generateRepoMap({ maxTokens: 1500 });
     assert(repoMap.structured.totalFiles >= 6);
     const topFile = repoMap.structured.topFiles[0];
@@ -277,7 +277,7 @@ async function runTests() {
         const { pathToFileURL } = await import('node:url');
         return {
           result: [{
-            uri: pathToFileURL(path.join(workspace.path, 'lib/tool-schema.mjs')).href,
+            uri: pathToFileURL(path.join(root, 'lib/tool-schema.mjs')).href,
             range: { start: { line: 2, character: 16 }, end: { line: 2, character: 33 } },
           }],
         };
@@ -303,7 +303,7 @@ async function runTests() {
 
     // Test 10: Python AST contract (Phase 5) & Router health/provenance (Phase 6)
     await fs.writeFile(
-      path.join(workspace.path, 'lib', 'sample_unicode.py'),
+      path.join(root, 'lib', 'sample_unicode.py'),
       `# -*- coding: utf-8 -*-
 import os
 from math import sqrt

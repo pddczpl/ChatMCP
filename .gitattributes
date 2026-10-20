@@ -9,6 +9,11 @@
 *.cmd  eol=crlf
 *.bat  eol=crlf
 *.ps1  eol=crlf
+# The license text is distributed byte for byte (it is compared with the canonical Apache-2.0 text).
+LICENSE eol=lf
+NOTICE  eol=lf
+# Vendored third-party license texts are kept byte for byte (stage.mjs copies them into the installer).
+scripts/intelligence-runtime/licenses/*.LICENSE eol=lf
 
 # Binary files
 *.png   binary

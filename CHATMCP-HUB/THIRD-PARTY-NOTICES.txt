@@ -1,93 +1,69 @@
-ARCHIVED 1.x/2.x INTEGRATION NOTES — NOT CURRENT LOCAL-ONLY RUNTIME.
-Legacy references below to Cloud Harness, Desktop Commander and MCP proxy describe historical releases. Read THIRD-PARTY-NOTICES.md and SECURITY.md for current behavior.
+ChatMCP - third-party notices (plain-text companion of THIRD-PARTY-NOTICES.md)
 
-ChatMCP Hub 1.1.5 — integration notes
-Prepared 2026-10-09 for the user's existing Windows installation.
+ChatMCP's own code is licensed under the Apache License, Version 2.0: see the files LICENSE and NOTICE in the installation folder.
+The components listed below are NOT covered by that license. ChatMCP redistributes them; they stay under their own licenses and
+copyright notices. This file is an inventory kept by the maintainers, not legal advice, and it does not replace the license texts.
+Paths are relative to the installation folder (the folder that holds LICENSE and NOTICE). THIRD-PARTY-NOTICES.md in the same folder
+has the same inventory plus the full list of UI libraries; docs/LICENSE-SCAN.md in the source repository explains the audit.
 
-This bundle contains Hub integration source and ChatMCP Hub Companion 1.3.5.
-The primary workflow sends user-requested tasks through an ordinary ChatGPT
-web conversation. The local Hub executes MCP tools; Companion transports
-messages through the browser interface. No OpenAI API key, Sign in with
-ChatGPT application integration, or Codex/Work provider is required or started
-by the version 1.1.5 main launcher. Legacy provider source may remain in the
-bundle for reference; the main workflow does not load its credentials.
+STATUS "pending" = the license text is not shipped yet. The build says so (see "Pending notices" at the end).
 
-The bundle does not include Docker Desktop, Node.js, the Cloud Harness
-repository, node_modules, user credentials, a ChatGPT subscription, or the
-MCP SuperAssistant browser extension itself. ChatGPT usage remains subject
-to the signed-in account's ordinary web allowance, available features and
-service terms. Pairing credentials connect Companion to this local Hub;
-they are not ChatGPT credentials and do not grant extra model quota.
+RUNTIME COMPONENTS
 
-Runtime dependencies installed or reused by Hub:
+ 1. Node.js (runtimes/node/node.exe) - MIT, with bundled V8 (BSD-3-Clause), OpenSSL (Apache-2.0), ICU (Unicode license), zlib, c-ares,
+    nghttp2, undici and others. Version: the Node.js that built the installer (release workflow: 24.x).
+    License text: runtimes/node/LICENSE (the LICENSE file of the Node.js archive). Status: shipped; the build fails without it.
+ 2. CPython embeddable 3.11.9 (CHATMCP-HUB/runtimes/python) - PSF-2.0, plus the libraries its archive bundles (OpenSSL, SQLite, libffi,
+    expat, zlib, bzip2, liblzma, mpdecimal) as named in its license file.
+    License text: CHATMCP-HUB/runtimes/python/LICENSE.txt. Status: shipped; the build fails without it.
+ 3. Microsoft Visual C++ runtime (vcruntime140.dll, vcruntime140_1.dll inside the CPython archive) - Microsoft proprietary
+    redistributable terms (not OSI-approved, not Apache-2.0): "Redistributing Visual C++ Files",
+    learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files. Status: pending (the terms are not reproduced here; their text
+    was not available offline).
+ 4. pyright 1.1.407 - MIT. CHATMCP-HUB/runtimes/lsp/node_modules/pyright/LICENSE.txt; typeshed stubs: dist/typeshed-fallback/LICENSE.
+ 5. typescript 5.9.3 - Apache-2.0. CHATMCP-HUB/runtimes/lsp/node_modules/typescript/LICENSE.txt and ThirdPartyNoticeText.txt.
+ 6. typescript-language-server 4.3.4 - Apache-2.0 with portions from VS Code (MIT). CHATMCP-HUB/runtimes/lsp/node_modules/typescript-language-server/LICENSE.
+ 7. web-tree-sitter 0.25.10 - MIT. CHATMCP-HUB/runtimes/lsp/node_modules/web-tree-sitter/LICENSE.
+ 8. tree-sitter-wasms 0.1.13 (the four compiled grammars in CHATMCP-HUB/grammars) - Unlicense, which covers the packaging only.
+    CHATMCP-HUB/licenses/tree-sitter-wasms/LICENSE. Status: shipped; staging fails without it.
+ 9. Tree-sitter grammars compiled into those files, each MIT, built from the version range tree-sitter-wasms 0.1.13 declares:
+      tree-sitter-javascript (MIT, ^0.20.3)  -> CHATMCP-HUB/grammars/tree-sitter-javascript.wasm, text: CHATMCP-HUB/licenses/tree-sitter-javascript/LICENSE
+      tree-sitter-typescript (MIT, ^0.20.5)  -> tree-sitter-typescript.wasm and tree-sitter-tsx.wasm, text: CHATMCP-HUB/licenses/tree-sitter-typescript/LICENSE
+      tree-sitter-python (MIT, ^0.21.0)      -> tree-sitter-python.wasm, text: CHATMCP-HUB/licenses/tree-sitter-python/LICENSE
+    Status: pending (the upstream texts are not in the repository yet; a release build refuses to go on without them).
+10. playwright and playwright-core 1.64.0 (JavaScript only, CHATMCP-HUB/runtimes/browser/node_modules) - Apache-2.0. LICENSE and NOTICE in each
+    package folder, ThirdPartyNotices.txt in playwright-core. The browser executable is not bundled.
+11. Microsoft.Web.WebView2 1.0.4258.31 (managed assemblies and WebView2Loader.dll beside ChatMCP.exe) - Microsoft BSD-3-Clause-style license;
+    its NOTICE adds Antlr3.Runtime and StringTemplate4 (BSD-3-Clause). Status: pending.
+12. .NET 10 runtime inside ChatMCP.exe, ChatMCPSetup.exe, Uninstall.exe and GuestSupervisor.exe - MIT. Status: pending (the runtime's own
+    third-party notice file is not shipped).
+13. Inter variable and JetBrains Mono 400 web fonts (@fontsource-variable/inter, @fontsource/jetbrains-mono 5.3.0) - SIL Open Font License 1.1.
+    Status: pending.
+14. React 16.0.0 and ReactDOM 16.0.1 UMD files (CHATMCP-HUB/web/vendor, legacy dashboards; ReactDOM includes Modernizr) - MIT. The files keep
+    their upstream headers; the permission text is at the end of this file. Status: shipped.
+15. UI libraries compiled into CHATMCP-HUB/web/dist (167 packages: MIT 161, ISC 2, OFL-1.1 2, 0BSD 1, BSD-3-Clause 1; the complete list is in
+    THIRD-PARTY-NOTICES.md). Status: pending (the bundle keeps the license comments of React and lucide-react only).
 
-1. @wonderwhy-er/desktop-commander 0.2.52
-   https://github.com/wonderwhy-er/DesktopCommanderMCP
-   Runtime: deploy/.generated/desktop-commander-local.
-   The upstream package retains its installation and runtime behavior,
-   including telemetry/feature-flag checks. The user has accepted that
-   behavior for this setup. Hub does not present it as an offline runtime.
+PENDING NOTICES
 
-2. @srbhptl39/mcp-superassistant-proxy 0.1.8
-   https://github.com/srbhptl39/MCP-SuperAssistant
-   Runtime: deploy/.generated/browser-proxy-compat.
-   Hub loads this package through a compatibility adapter without overwriting
-   the installed upstream package source. The proxy package is distinct
-   from the MCP SuperAssistant browser extension. Turn that browser extension
-   off in the browser used by the primary Hub workflow to avoid duplicate
-   execution; it is only needed for the separate legacy manual workflow.
+ - Items 3, 9, 11, 12, 13 and 15 above. A build that lacks the Tree-sitter grammar notices carries licenses/PENDING-NOTICES.txt and lists them in
+   runtime-manifest.json ("pendingNotices"); only builds that are not releases may be made that way.
+ - The Browser Companion archive ChatMCP-Browser-Companion.zip does not contain LICENSE or NOTICE yet.
 
-3. @modelcontextprotocol/sdk
-   https://github.com/modelcontextprotocol/typescript-sdk
-   Resolved from the installed Desktop Commander dependency tree. The exact
-   transitive SDK version is determined by the installed package lock.
+NOT REDISTRIBUTED
 
-4. Existing bestagentkits/cloud-harness-mcp deployment
-   https://github.com/bestagentkits/cloud-harness-mcp
-   Its version, configuration and permissions remain those installed by the
-   user. Hub discovers the complete current tool catalog instead of assuming
-   a fixed count. Windows Desktop Commander files and Docker Cloud Harness
-   clones remain separate workspaces.
+ - Git for Windows (GPL-2.0), Microsoft Edge or Chromium, the Microsoft Edge WebView2 Runtime, Ollama, LM Studio and model-provider services are
+   separate installations that the user provides.
+ - node-pty (MIT) is optional and installed by the user from npm on request.
+ - Build-time and test-only dependencies (Vite, Tailwind CSS, type packages, the Playwright test runner, lightningcss, caniuse-lite) are not in the installer.
+ - Agent Skills that the user imports keep their own licenses; a public repository does not by itself grant redistribution permission.
 
-All third-party packages and transitive dependencies retain their respective
-licenses, notices and terms. npm installs their distributed license files;
-consult those files and the upstream repositories before redistribution.
-Pinned top-level versions do not pin every transitive dependency on a new
-installation. Keep the generated package-lock files to reproduce a working
-dependency tree.
+EARLIER RELEASES
 
-Companion 1.3.5 uses Manifest V3 storage/alarms and host permissions for
-https://chatgpt.com/* and http://127.0.0.1:3007/*. It stores a local Hub pairing
-token in extension storage. It does not read ChatGPT cookies or use an
-internal ChatGPT API, and it does not bypass sign-in, approval or quota
-requirements. Browser/UI changes can require compatibility updates.
+ The Cloud Harness server, the Desktop Commander runtime and the MCP SuperAssistant proxy of the 1.x and 2.x releases are not installed,
+ started or included by the current local-only Hub. Their notes remain in Git history.
 
-The new browser bridge currently transports text/JSON messages. It does not
-automatically attach image, audio or file outputs to ChatGPT. Retaining all
-MCP tools in the catalog does not guarantee every output format can be used
-fully through the browser bridge.
-
-The retained manual MCP SuperAssistant compatibility flow was checked
-against upstream source at:
-https://github.com/srbhptl39/MCP-SuperAssistant/tree/c26168ee2c5708a3a65ef5afd88cda1a97c81734
-See extension/HUONG-DAN.txt for the current primary setup and the separate
-legacy workflow. Do not run their automatic executors together.
-
-OpenAI, ChatGPT, Codex, Docker, Microsoft, VS Code and upstream project names
-identify their respective products. This user-specific integration is not
-presented as an official product or supported distribution of those projects.
-
-=== New in ChatMCP Studio 2.1.0: offline React UI assets ===
-
-React 16.0.0 and ReactDOM 16.0.1 (including bundled Modernizr in ReactDOM)
-Copyright (c) 2013-present, Facebook, Inc. and their contributors.
-Licensed under the MIT License. The original unmodified minified files in
-web/vendor contain their upstream copyright/license header. These versions
-were supplied by a locally installed nbclassic/Jupyter distribution rather
-than fetched from an untrusted endpoint at runtime. They are older releases
-and should be upgraded for production use.
-
-MIT License text for React and ReactDOM:
+React and ReactDOM 16.x - MIT License (Copyright (c) 2013-present, Facebook, Inc. and their contributors; ReactDOM also bundles Modernizr)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

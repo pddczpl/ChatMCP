@@ -12,6 +12,7 @@
 //   dangerous  deletion, push, history rewrite, system changes, pipe into interpreter
 
 import { isProtectedPath, mayExpandToProtected } from './protected-paths.mjs';
+import { analyzeReadProgram } from './read-programs.mjs';
 
 export const KINDS = Object.freeze(['read', 'verify', 'edit', 'exec', 'dangerous']);
 const RANK = Object.freeze(Object.fromEntries(KINDS.map((kind, index) => [kind, index])));
@@ -199,7 +200,7 @@ const LIST_PROGRAMS = new Set(['ls', 'dir', 'tree', 'pwd', 'where', 'which', 'wh
 const CONTENT_PROGRAMS = new Set(['cat', 'type', 'head', 'tail', 'more', 'less', 'wc', 'get-content', 'gc', 'select-string', 'sls', 'grep', 'egrep', 'fgrep', 'rg', 'findstr', 'sort', 'uniq', 'diff', 'fc', 'comm', 'nl', 'tac', 'md5sum', 'sha1sum', 'sha256sum', 'get-filehash', 'file', 'stat', 'du', 'df', 'measure-object', 'jq', 'cut', 'tr']);
 const PRINT_PROGRAMS = new Set(['echo', 'write-output', 'write-host', 'printf', 'true', 'false', 'cd', 'chdir', 'pushd', 'popd', 'set-location', 'sl', 'sleep', 'start-sleep', 'clear', 'cls']);
 const CD_PROGRAMS = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl']);
-const FILE_EDIT_PROGRAMS = new Set(['mkdir', 'md', 'new-item', 'ni', 'touch', 'cp', 'copy', 'copy-item', 'cpi', 'mv', 'move', 'move-item', 'mi', 'ren', 'rename', 'rename-item', 'rni', 'set-content', 'add-content', 'out-file', 'tee', 'tee-object', 'sed', 'dos2unix', 'unix2dos']);
+const FILE_EDIT_PROGRAMS = new Set(['mkdir', 'md', 'new-item', 'ni', 'touch', 'cp', 'copy', 'copy-item', 'cpi', 'mv', 'move', 'move-item', 'mi', 'ren', 'rename', 'rename-item', 'rni', 'set-content', 'add-content', 'out-file', 'tee', 'tee-object', 'dos2unix', 'unix2dos']);
 const VERSION_PROGRAMS = new Set(['node', 'npm', 'npx', 'pnpm', 'yarn', 'bun', 'deno', 'python', 'python3', 'py', 'pip', 'pip3', 'git', 'cargo', 'rustc', 'rustup', 'go', 'dotnet', 'java', 'javac', 'mvn', 'gradle', 'tsc', 'ruby', 'gem', 'php', 'composer', 'gcc', 'g++', 'clang', 'cmake', 'make', 'docker', 'gh', 'pwsh', 'powershell']);
 const CHECK_TOOLS = new Set(['pytest', 'ruff', 'mypy', 'flake8', 'pylint', 'black', 'isort', 'pyright', 'tox', 'nox', 'coverage', 'tsc', 'eslint', 'prettier', 'vitest', 'jest', 'mocha', 'ava', 'tap', 'rspec', 'rubocop', 'phpunit', 'ctest', 'shellcheck', 'hadolint', 'golangci-lint', 'staticcheck', 'biome']);
 const PYTHON_MODULES = new Set(['pytest', 'unittest', 'mypy', 'pyright', 'ruff', 'black', 'flake8', 'pylint', 'isort', 'coverage', 'compileall', 'doctest', 'py_compile', 'tox', 'nox', 'json.tool', 'timeit', 'cProfile', 'trace']);
@@ -218,6 +219,21 @@ const GIT_DISCARD = new Set(['clean', 'filter-branch', 'filter-repo', 'gc', 'pru
 const GIT_NETWORK = new Set(['clone', 'fetch', 'pull', 'remote', 'ls-remote', 'lfs', 'archive', 'bundle', 'request-pull']);
 const GIT_HISTORY = new Set(['merge', 'rebase', 'cherry-pick', 'revert', 'apply', 'am', 'bisect', 'notes', 'sparse-checkout']);
 const GIT_PREFIX_FLAGS = new Set(['--no-pager', '--no-optional-locks', '--literal-pathspecs', '--no-replace-objects']);
+// git parses options with unambiguous-prefix matching (--out=f is --output=f) and accepts attached short values (-Ocalc is
+// --open-files-in-pager=calc), so whole-word comparison misses them. Any long option that is a prefix of one of these, and any short
+// cluster containing -O, is refused for the "read" subcommands.
+const GIT_UNSAFE_LONG = ['--output', '--ext-diff', '--textconv', '--exec', '--open-files-in-pager'];
+function gitUnsafeOption(tail) {
+  for (const arg of tail) {
+    const word = String(arg);
+    if (word === '--') return null;
+    if (word.startsWith('--')) {
+      const name = word.split('=')[0];
+      if (name.length >= 3 && GIT_UNSAFE_LONG.some((full) => full.startsWith(name))) return word;
+    } else if (/^-[A-Za-z0-9]*O/.test(word)) return word;
+  }
+  return null;
+}
 
 function classifyGit(args) {
   let rest = [...args];
@@ -246,7 +262,7 @@ function classifyGit(args) {
   if (GIT_NETWORK.has(sub)) return exec(`git ${sub} truy cập mạng`);
   if (GIT_HISTORY.has(sub)) return exec(`git ${sub} thay đổi cây làm việc/lịch sử`);
   if (GIT_READ.has(sub)) {
-    if (hasFlag(tail, '--output', '--ext-diff', '--textconv', '-o', '--exec', '--open-files-in-pager', '-O') || tail.some((arg) => /^--output=/.test(String(arg)))) return exec(`git ${sub} với tùy chọn ghi file/chạy chương trình`);
+    if (hasFlag(tail, '--output', '--ext-diff', '--textconv', '-o', '--exec', '--open-files-in-pager', '-O') || tail.some((arg) => /^--output=/.test(String(arg))) || gitUnsafeOption(tail)) return exec(`git ${sub} với tùy chọn ghi file/chạy chương trình`);
     return problem ? exec(`git ${sub}: tham số không an toàn (${problem})`) : read(`git ${sub}`);
   }
   if (problem) return exec(`git ${sub}: tham số không an toàn (${problem})`);
@@ -289,12 +305,66 @@ function classifyGit(args) {
   }
 }
 
+// ---------------------------------------------------------------- remote mutations
+
+// Commands that merge, publish, release or delete something on a remote system. They are "dangerous", not just "exec" (an unknown
+// network call), because Full Access still stops for them: they outlive the session and usually cannot be taken back.
+const GH_DANGEROUS = {
+  repo: ['delete', 'archive', 'unarchive', 'rename', 'edit', 'create', 'transfer'],
+  release: ['create', 'delete', 'upload', 'edit', 'delete-asset'],
+  pr: ['merge'],
+  issue: ['delete', 'transfer'],
+  gist: ['delete'],
+  secret: ['set', 'delete', 'remove'],
+  variable: ['set', 'delete', 'remove'],
+  'ssh-key': ['add', 'delete'],
+  'gpg-key': ['add', 'delete'],
+  workflow: ['disable'],
+  cache: ['delete'],
+  run: ['delete'],
+  label: ['delete'],
+  auth: ['logout'],
+};
+const GH_VALUE_FLAGS = new Set(['-R', '--repo', '--hostname']);
+
+function classifyGh(args) {
+  const words = [];
+  const list = args.map(String);
+  for (let i = 0; i < list.length; i += 1) {
+    const word = list[i];
+    if (GH_VALUE_FLAGS.has(word)) { i += 1; continue; }
+    if (word.startsWith('-')) continue;
+    words.push(word.toLowerCase());
+  }
+  const [group, action] = words;
+  if (group === 'api') {
+    const method = list.findIndex((word, index) => /^(?:-X|--method)$/i.test(word) && index + 1 < list.length);
+    const named = method !== -1 ? list[method + 1].toUpperCase() : (list.find((word) => /^(?:-X|--method)=/i.test(word)) ?? '').split('=')[1]?.toUpperCase();
+    const writes = (named && named !== 'GET') || list.some((word) => /^(?:-[fF]|--field|--raw-field|--input)(?:=|$)/.test(word) || /^-[fF].+/.test(word));
+    return writes ? danger('gh api ghi dữ liệu lên GitHub (phương thức không phải GET hoặc có trường dữ liệu)') : null;
+  }
+  if (group && action && GH_DANGEROUS[group]?.includes(action)) return danger(`gh ${group} ${action} thay đổi hoặc xóa dữ liệu trên GitHub`);
+  return null;
+}
+
+function classifyRemoteMutation(name, args) {
+  if (name === 'gh') return classifyGh(args);
+  const first = String(operands(args)[0] ?? '').toLowerCase();
+  if (['docker', 'podman'].includes(name) && ['push', 'login', 'logout'].includes(first)) return danger(`${name} ${first} gửi image hoặc thông tin đăng nhập ra registry`);
+  if (name === 'kubectl' && ['delete', 'apply', 'replace', 'patch', 'drain', 'scale', 'rollout'].includes(first)) return danger(`kubectl ${first} thay đổi cluster`);
+  if (name === 'terraform' && ['apply', 'destroy', 'import', 'taint', 'untaint', 'force-unlock', 'state'].includes(first)) return danger(`terraform ${first} thay đổi hạ tầng`);
+  if (['aws', 'gcloud', 'az'].includes(name) && operands(args).some((word) => /^(?:delete|remove|rm|terminate|destroy|purge|deprovision)(?:-|$)/i.test(String(word)))) return danger(`${name} xóa tài nguyên đám mây`);
+  return null;
+}
+
 // ---------------------------------------------------------------- project tools
 
 function classifyPackageManager(name, args) {
   const sub = String(operands(args)[0] ?? '').toLowerCase();
   const argsAfter = operands(args).slice(1);
   if (!sub) return hasFlag(args, '-v', '--version') ? read('Phiên bản') : exec(`${name} không đối số`);
+  const registryVerb = /^(?:publish|unpublish|deprecate|dist-tag|owner|access|token|login|logout|adduser|team|org|tag)$/;
+  if (registryVerb.test(sub) || (name === 'yarn' && sub === 'npm' && registryVerb.test(String(argsAfter[0] ?? '').toLowerCase()))) return danger(`${name} ${sub} xuất bản hoặc thay đổi gói/tài khoản trên registry`);
   if (['test', 't', 'tst'].includes(sub)) return plain(args) ? verify(`${name} test`) : exec(`${name} test với tham số không an toàn`);
   if (['run', 'run-script', 'rum', 'urn'].includes(sub)) {
     const script = String(argsAfter[0] ?? '');
@@ -377,6 +447,8 @@ function classifyBuildTool(name, args) {
 function classifyProgram(name, args, { ps = false } = {}) {
   if (DANGEROUS_PROGRAMS.has(name)) return danger(`Lệnh có thể xóa dữ liệu hoặc thay đổi hệ thống: ${name}`);
   if (INTERPRETERS.has(name) && !['node', 'python', 'python3', 'py'].includes(name)) return exec(`Trình thông dịch/shell lồng nhau — không thể kiểm tra nội dung: ${name}`);
+  const remote = classifyRemoteMutation(name, args);
+  if (remote) return remote;
   if (NETWORK_PROGRAMS.has(name)) return exec(`Truy cập mạng hoặc dịch vụ ngoài: ${name}`);
   if (name === 'git') return classifyGit(args);
   if (['npm', 'pnpm', 'yarn'].includes(name)) return classifyPackageManager(name, args);
@@ -386,14 +458,23 @@ function classifyProgram(name, args, { ps = false } = {}) {
   if (['cargo', 'go', 'dotnet', 'deno', 'bun', 'mvn', 'mvnw', 'gradle', 'gradlew', 'make', 'cmake', 'ctest'].includes(name)) return classifyBuildTool(name, args);
   if (CHECK_TOOLS.has(name)) return plain(args) ? verify(`Công cụ kiểm tra: ${name}`) : exec(`${name} với tham số không an toàn (${firstProblem(args)})`);
 
+  // `fc` is the history editor of bash/sh (it starts $FCEDIT); the file-compare program of the same name belongs to Windows.
+  if (name === 'fc' && !ps) return exec('fc của bash là trình sửa lịch sử lệnh (chạy trình soạn thảo)');
+  // Programs with a per-program flag ALLOWLIST (lib/read-programs.mjs): "read" only when every flag is known to be harmless.
+  const listed = analyzeReadProgram(name, args, { ps });
+  if (listed) {
+    if (listed.dangerous) return danger(listed.dangerous);
+    if (listed.refused) return exec(listed.refused);
+    const problem = firstProblem(listed.files, { glob: listed.glob ?? 'extension' });
+    if (problem) return exec(`${name}: tham số không an toàn (${problem})`);
+    return { ...(listed.edit ? edit(`Sửa file tại chỗ: ${name}`) : read(`Chỉ đọc (cờ nằm trong danh sách an toàn): ${name}`)), files: listed.files };
+  }
+
   if (PRINT_PROGRAMS.has(name)) {
     const problem = firstProblem(args, { glob: 'any' });
     return problem && CD_PROGRAMS.has(name) ? exec(`Chuyển thư mục ngoài workspace (${problem})`) : read(`Lệnh nội bộ: ${name}`);
   }
   if (LIST_PROGRAMS.has(name)) {
-    if (['find', 'fd'].includes(name) && (hasFlag(args, '-delete', '-exec', '-execdir', '-ok', '-okdir', '-fprint', '-fprintf', '-fls', '-x', '--exec', '-X', '--exec-batch') || (name === 'fd' && clusterHas(args, 'xX')))) {
-      return exec(`${name} với tùy chọn xóa/chạy lệnh/ghi file`);
-    }
     // BSD-style `ps e`, `ps auxe`, `ps eww` print the environment of every process: the same API keys `env` would show.
     if (name === 'ps' && !ps && args.some((arg) => /^[a-z]*e[a-z]*$/i.test(String(arg)))) return exec('ps với tùy chọn in biến môi trường của tiến trình (ps e)');
     const problem = firstProblem(args, { glob: 'any' });
@@ -407,7 +488,6 @@ function classifyProgram(name, args, { ps = false } = {}) {
     return problem ? exec(`${name}: tham số không an toàn (${problem})`) : read(`Đọc nội dung: ${name}`);
   }
   if (FILE_EDIT_PROGRAMS.has(name)) {
-    if (name === 'sed' && !hasFlag(args, '-i', '--in-place') && !(!ps && clusterHas(args, 'i'))) return plain(args) ? read('sed (đọc, in kết quả)') : exec('sed với tham số không an toàn');
     if (hasFlag(args, '-itemtype') && /symbolic|junction|hardlink/i.test(args.join(' '))) return exec('Tạo liên kết/junction');
     const problem = firstProblem(args, { glob: 'extension' });
     return problem ? exec(`${name}: tham số không an toàn (${problem})`) : edit(`Sửa file: ${name}`);
@@ -477,6 +557,8 @@ export function analyzeCommand(command, { shell = process.platform === 'win32' ?
       const upstream = previous.tokens.length ? programName(previous.tokens[0]) : null;
       if (upstream && LIST_PROGRAMS.has(upstream)) verdict = exec(`${name} nhận đối tượng file từ ${upstream} và sẽ đọc nội dung mọi file được liệt kê`);
     }
+    // A redirect changes the verdict but not which words are files; keep that list for the real-path check.
+    const files = verdict.files;
     for (const { op, target } of segment.redirects) {
       if (NULL_DEVICES.test(target)) continue;
       const protectedTarget = target && (isProtectedPath(target) || mayExpandToProtected(target));
@@ -488,13 +570,14 @@ export function analyzeCommand(command, { shell = process.platform === 'win32' ?
         verdict = result(maxKind(verdict.kind, 'exec'), `Chuyển hướng tới đường dẫn không an toàn: ${target.slice(0, 60)}`);
       } else verdict = result(maxKind(verdict.kind, 'edit'), `Chuyển hướng ghi vào file: ${target.slice(0, 60)}`);
     }
+    if (files) verdict = { ...verdict, files };
     const next = raw[index + 1];
     if (segment.operatorAfter === '|' && next?.tokens.length) {
       const target = programName(next.tokens[0]);
       if (target !== null && INTERPRETERS.has(target)) verdict = danger(`Đường ống (pipe) vào trình thông dịch: ${target}`);
     }
     raise(verdict.kind, `${name ?? 'đường dẫn'}: ${verdict.reason}`);
-    segments.push({ program: name, args: args.map((arg) => String(arg).slice(0, 120)), redirects: segment.redirects.map(({ op, target }) => ({ op, target: String(target).slice(0, 240) })), kind: verdict.kind, reason: verdict.reason });
+    segments.push({ program: name, args: args.map((arg) => String(arg).slice(0, 120)), ...(verdict.files ? { files: verdict.files.map((file) => String(file).slice(0, 240)) } : {}), redirects: segment.redirects.map(({ op, target }) => ({ op, target: String(target).slice(0, 240) })), kind: verdict.kind, reason: verdict.reason });
   });
   return { kind, reasons: reasons.slice(0, 8), segments, flags };
 }

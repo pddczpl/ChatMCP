@@ -46,7 +46,10 @@ if (process.platform !== 'win32') {
       const source = fileURLToPath(new URL('./windows-webview2/', import.meta.url));
       const harness = path.join(scratch, 'harness');
       await fs.cp(source, harness, { recursive: true });
-      const built = await run('dotnet', ['build', path.join(harness, 'Smoke.csproj'), '--configuration', 'Release', '--nologo', '--output', path.join(scratch, 'bin')]);
+      // The harness runs the desktop shell's own session / ticket / new-window code, not a copy of it.
+      const shared = path.join(scratch, 'native-shared');
+      await fs.cp(fileURLToPath(new URL('../../../native-shared/', import.meta.url)), shared, { recursive: true });
+      const built = await run('dotnet', ['build', path.join(harness, 'Smoke.csproj'), '--configuration', 'Release', '--nologo', '--output', path.join(scratch, 'bin'), `-p:NativeShared=${shared}`]);
       assert.equal(built.code, 0, `WebView2 harness build failed:\n${built.output}`);
       const project = path.join(scratch, 'workspace');
       makeCalcProject(project);
@@ -60,7 +63,7 @@ if (process.platform !== 'win32') {
       ];
       for (const viewport of viewports) {
         const result = await run(path.join(scratch, 'bin', 'Smoke.exe'), [
-          hub.origin, path.join(scratch, `webview-profile-${viewport.name}`), String(viewport.width), String(viewport.height),
+          hub.origin, path.join(scratch, `webview-profile-${viewport.name}`), hub.stateDir, String(viewport.width), String(viewport.height),
         ], { timeoutMs: 120_000 });
         if (result.code === 77) { unavailable(result.output.trim()); break; }
         assert.equal(result.code, 0, `${viewport.name} viewport:\n${result.output}`);

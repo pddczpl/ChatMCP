@@ -11,6 +11,8 @@
 </head>
 <body>
   <div id="root"><div class="loading-screen"><div class="spin"></div>Đang mở ChatMCP Studio…</div></div>
+  <!-- Signs this older dashboard in with the Hub's per-launch secret (see hub-session.js); must run before the app scripts. -->
+  <script src="/hub-session.js"></script>
   <!-- React and ReactDOM are vendored and served locally: no CDN or npm required at runtime. -->
   <script src="/vendor/react.production.min.js" defer></script>
   <script src="/vendor/react-dom.production.min.js" defer></script>

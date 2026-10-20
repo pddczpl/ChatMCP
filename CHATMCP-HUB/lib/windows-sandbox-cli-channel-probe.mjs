@@ -16,7 +16,7 @@ const response=(status,hasStdout=false,echoObserved=false,exitCodeObserved=false
 export async function probeOwnedSandboxCliStdout({owned,runCli}={}) {
   if(!UUID.test(owned?.instanceId||'') || !UUID.test(owned?.generation||'') ||
       typeof runCli!=='function') {
-    const err=new Error('Trusted, already-owned Sandbox UUID/generation and CLI function required.');
+    const err=new Error('Trusted, already-owned Windows Sandbox UUID/generation and CLI function required.');
     err.code='cli_probe_owner_required';
     throw err;
   }

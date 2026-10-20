@@ -149,6 +149,8 @@ if ($sysNode -and (Test-Path -LiteralPath $sysNode -PathType Leaf)) {
     Copy-Item -LiteralPath $sysNode -Destination $nodeDestination -Force
     $nodeSha = (Get-FileHash -LiteralPath $nodeDestination -Algorithm SHA256).Hash.ToLowerInvariant()
     [IO.File]::WriteAllText((Join-Path $stagingNode 'node.exe.sha256'), $nodeSha + '  node.exe' + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    Copy-InstallerNodeLicense -NodeExecutable $sysNode -Destination $stagingNode
+    Write-Host "  [OK] Node.js LICENSE staged beside node.exe." -ForegroundColor Green
     Write-Host "  [OK] Bundled portable Node.js runtime with SHA-256 manifest." -ForegroundColor Green
 }
 

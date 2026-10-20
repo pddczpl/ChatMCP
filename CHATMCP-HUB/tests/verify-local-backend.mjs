@@ -445,20 +445,22 @@ try {
     const dir = await project('launch');
     const free = await new Promise((resolve) => { const server = net.createServer(); server.listen(0, '127.0.0.1', () => { const { port } = server.address(); server.close(() => resolve(port)); }); });
     const state = path.join(root, 'launch-data');
-    const child = spawn(process.execPath, [path.join(bundleRoot, 'hub.mjs'), '--state-dir', state, '--port', String(free), '--no-open', '--project', dir], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CHATMCP_BACKEND: '', OPENAI_API_KEY: '' } });
+    const secret = 'local-backend-test-secret-0123456789abcdef';
+    const child = spawn(process.execPath, [path.join(bundleRoot, 'hub.mjs'), '--state-dir', state, '--port', String(free), '--no-open', '--project', dir], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CHATMCP_BACKEND: '', OPENAI_API_KEY: '', CHATMCP_HUB_SECRET: secret } });
     cleanups.push(child);
     let output = '';
     child.stdout.on('data', (chunk) => { output += chunk; });
     child.stderr.on('data', (chunk) => { output += chunk; });
     const exited = new Promise((resolve) => child.once('exit', (code) => resolve(code)));
     const base = `http://127.0.0.1:${free}`;
+    const auth = { Authorization: `Bearer ${secret}` };
     let snapshot = null;
     const until = Date.now() + 30_000;
     while (Date.now() < until) {
       try {
         const health = await fetch(`${base}/api/health`).then((response) => response.json());
         if (health.initialized) {
-          snapshot = await fetch(`${base}/api/state`).then((response) => response.json());
+          snapshot = await fetch(`${base}/api/state`, { headers: auth }).then((response) => response.json());
           if (snapshot.services?.local?.state === 'ready') break;
         }
       } catch { /* not listening yet */ }
@@ -468,9 +470,10 @@ try {
     equal([snapshot.backend, snapshot.agent.mode, snapshot.workspace.path], ['local', 'api', dir], 'local backend, API mode, project opened');
     equal(snapshot.dataDirectory, state, 'data goes where --state-dir says');
     check(snapshot.toolCounts.local === 99, 'tools registered');
-    const text = await fetch(`${base}/api/instructions`).then((response) => response.status);
+    equal((await fetch(`${base}/api/state`)).status, 401, 'no state without the session secret');
+    const text = await fetch(`${base}/api/instructions`, { headers: auth }).then((response) => response.status);
     equal(text, 410, 'removed legacy MCP instructions explicitly return Gone');
-    const response = await fetch(`${base}/api/hub/shutdown`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base, 'X-ChatMCP-Request': 'local-dashboard', 'X-ChatMCP-CSRF': snapshot.csrfToken }, body: '{}' });
+    const response = await fetch(`${base}/api/hub/shutdown`, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json', Origin: base, 'X-ChatMCP-Request': 'local-dashboard', 'X-ChatMCP-CSRF': snapshot.csrfToken }, body: '{}' });
     equal(response.status, 200, 'shutdown accepted');
     const code = await Promise.race([exited, sleep(20_000).then(() => 'timeout')]);
     equal(code, 0, `clean exit\n${output}`);
