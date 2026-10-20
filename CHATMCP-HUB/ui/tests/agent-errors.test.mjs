@@ -73,7 +73,7 @@ test('every sentence written for a code is for a code the Hub really sends, and 
   const root = fileURLToPath(new URL('../../', import.meta.url));
   // the codes of the routes, and the codes an AgentRunner run ends with (the runner itself and the model adapters: tests/runner-error-codes.test.mjs keeps those exactly)
   const source = ['hub.mjs', 'lib/coding-orchestrator.mjs', 'lib/worker-test-broker.mjs', 'lib/agent.mjs', 'lib/model-http.mjs', 'lib/gateway-provider.mjs', 'lib/standard-adapter.mjs',
-    'lib/openai-chat-api.mjs', 'lib/anthropic-api.mjs'].map((file) => fs.readFileSync(root + file, 'utf8')).join('\n');
+    'lib/openai-chat-api.mjs', 'lib/openai-responses-api.mjs', 'lib/anthropic-api.mjs'].map((file) => fs.readFileSync(root + file, 'utf8')).join('\n');
   const codes = Object.keys(translations.vi).filter((key) => key.startsWith('agent_error_')).map((key) => key.slice('agent_error_'.length));
   assert.ok(codes.length >= 15, `there are ${codes.length} sentences`);
   for (const code of codes) {

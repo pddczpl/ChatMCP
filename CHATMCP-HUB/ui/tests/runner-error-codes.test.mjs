@@ -50,9 +50,16 @@ const TOLD = {
   gateway_network: ['lib/standard-adapter.mjs'],
   gateway_timeout: ['lib/standard-adapter.mjs'],
   gateway_http_error: ['lib/model-http.mjs', 'lib/gateway-provider.mjs'],
+  // the OpenAI Responses protocol: the same two failures as above, which are the ones a worker meets (a model that says nothing, a stream that is cut)
+  empty_responses_output: ['lib/openai-responses-api.mjs'],
+  responses_stream_interrupted: ['lib/openai-responses-api.mjs'],
 };
 
-/** Codes that can end a worker's run and that the page deliberately shows as the Hub wrote them: rare faults of the protocol, said once, in full, in the record. */
+/**
+ * Codes that can end a worker's run and that the page deliberately shows as the Hub wrote them: rare faults of a protocol (said once, in full, in the record), checks of a
+ * request that a worker's request does not trip (an attachment an adapter cannot carry: a worker has none), and the Gemini text dialect, which few workers use. The Responses
+ * adapter words its own in English, which an English reader needs no line for.
+ */
 const SHOWN_AS_WRITTEN = {
   invalid_response: ['lib/agent.mjs'],
   invalid_response_role: ['lib/agent.mjs'],
@@ -62,6 +69,27 @@ const SHOWN_AS_WRITTEN = {
   gateway_invalid_json: ['lib/standard-adapter.mjs', 'lib/gateway-provider.mjs'],
   gateway_too_large: ['lib/model-http.mjs', 'lib/gateway-provider.mjs'],
   gateway_context_budget: ['lib/gateway-provider.mjs', 'lib/gemini-compat.mjs'],
+  unsupported_image: ['lib/openai-chat-api.mjs', 'lib/anthropic-api.mjs'],
+  unsupported_media: ['lib/openai-chat-api.mjs', 'lib/anthropic-api.mjs'],
+  invalid_responses_history: ['lib/openai-responses-api.mjs'],
+  duplicate_responses_call: ['lib/openai-responses-api.mjs'],
+  unbound_responses_tool_result: ['lib/openai-responses-api.mjs'],
+  unsupported_responses_media: ['lib/openai-responses-api.mjs'],
+  invalid_responses_call: ['lib/openai-responses-api.mjs'],
+  invalid_responses_arguments: ['lib/openai-responses-api.mjs'],
+  invalid_responses_model: ['lib/openai-responses-api.mjs'],
+  invalid_responses_tool: ['lib/openai-responses-api.mjs'],
+  invalid_responses_json: ['lib/openai-responses-api.mjs'],
+  incomplete_responses_tool: ['lib/openai-responses-api.mjs'],
+  unsupported_responses_tool: ['lib/openai-responses-api.mjs'],
+  invalid_responses_stream: ['lib/openai-responses-api.mjs'],
+  duplicate_responses_terminal: ['lib/openai-responses-api.mjs'],
+  responses_stream_too_large: ['lib/openai-responses-api.mjs'],
+  gateway_text_no_candidate: ['lib/gemini-compat.mjs'],
+  gateway_text_incomplete: ['lib/gemini-compat.mjs'],
+  gateway_text_malformed_function: ['lib/gemini-compat.mjs'],
+  gateway_text_finish_reason: ['lib/gemini-compat.mjs'],
+  gateway_text_protocol_invalid: ['lib/gemini-compat.mjs'],
 };
 
 /**
@@ -74,6 +102,20 @@ const NEVER_A_RUN_RECORD = [
   'shutting_down', 'invalid_limits', 'hub_busy', 'preflight_timeout', 'workspace_missing', 'provider_not_ready',
   'invalid_arguments', 'unknown_function', 'unknown_tool', 'unknown_capability',
 ];
+
+/**
+ * Where the model adapters raise the errors a worker's run can end with, and how each file writes its codes: a local `fail('code'` helper, or (model-http, which names an HTTP
+ * answer) the `gateway_*` literals, or (the Gemini text protocol) `gateway_text_*`. gateway-provider.mjs is not read this way: most of its `bad('code'` are about the settings
+ * (a bad URL, a missing key) and end no run; the codes of it that do are the ones above, which these files raise as well.
+ */
+const ADAPTERS = {
+  'lib/openai-chat-api.mjs': /\bfail\(\s*'([a-z][a-z0-9_]*)'/g,
+  'lib/openai-responses-api.mjs': /\bfail\(\s*'([a-z][a-z0-9_]*)'/g,
+  'lib/anthropic-api.mjs': /\bfail\(\s*'([a-z][a-z0-9_]*)'/g,
+  'lib/standard-adapter.mjs': /\bfail\(\s*'([a-z][a-z0-9_]*)'/g,
+  'lib/model-http.mjs': /'(gateway_[a-z_]+)'/g,
+  'lib/gemini-compat.mjs': /'(gateway_text_[a-z_]+)'/g,
+};
 
 const agentSource = read('lib/agent.mjs');
 const faultsOfAgent = () => [...new Set([...agentSource.matchAll(/\bfault\(\s*'([a-z][a-z0-9_]*)'/g)].map((match) => match[1]))];
@@ -118,6 +160,17 @@ test('every code lib/agent.mjs raises with fault() is told, shown as written, or
   ];
   assert.deepEqual(found.filter((code) => !known.includes(code)), [], 'a code the runner raises that nobody has decided about: tell it (agent_error_<code> in both languages, then TOLD) or list it');
   assert.deepEqual(known.filter((code) => !found.includes(code) && !others.includes(code)), [], 'a code that lib/agent.mjs no longer raises with fault()');
+});
+
+test('every code the model adapters raise is told or shown as written on purpose: a new one, or one nobody has looked at, has to be put in one of the two', () => {
+  const decided = new Set([...Object.keys(TOLD), ...Object.keys(SHOWN_AS_WRITTEN)]);
+  const undecided = [];
+  for (const [file, pattern] of Object.entries(ADAPTERS)) {
+    const found = [...new Set([...read(file).matchAll(pattern)].map((match) => match[1]))];
+    assert.ok(found.length >= 3, `${file}: ${found.length} codes found, so the pattern no longer reads this file`);
+    for (const code of found) if (!decided.has(code)) undecided.push(`${code} (${file})`);
+  }
+  assert.deepEqual(undecided, [], 'a code that ends a worker’s run and that nobody has decided about: tell it (agent_error_<code> in both languages, then TOLD) or list it in SHOWN_AS_WRITTEN');
 });
 
 test('the Vietnamese sentence of a code the runner always says in the same words is the runner’s own sentence', () => {

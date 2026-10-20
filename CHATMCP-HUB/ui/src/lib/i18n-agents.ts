@@ -155,6 +155,8 @@ export const agentsVi = {
   agent_error_gateway_network: 'Hub không kết nối được tới nhà cung cấp model. Kiểm tra mạng, URL và proxy.',
   agent_error_gateway_timeout: 'Nhà cung cấp model không trả lời kịp.',
   agent_error_gateway_http_error: 'Nhà cung cấp model trả về lỗi. Nội dung lỗi nằm trong bản ghi bên dưới.',
+  agent_error_empty_responses_output: 'Model trả về phản hồi rỗng hoặc không dùng được.',
+  agent_error_responses_stream_interrupted: 'Luồng phản hồi của nhà cung cấp model kết thúc trước khi xong. Không có lời gọi công cụ nào được chạy.',
 
   // What a form says about a field before the Hub would refuse it (lib/agent-draft.ts)
   agent_draft_id_invalid: 'Mã gồm chữ thường không dấu, số và dấu gạch ngang, bắt đầu bằng chữ cái.',
@@ -506,6 +508,8 @@ export const agentsEn: Record<keyof typeof agentsVi, string> = {
   agent_error_gateway_network: 'The Hub could not reach the model provider. Check the network, the URL and any proxy.',
   agent_error_gateway_timeout: 'The model provider did not answer in time.',
   agent_error_gateway_http_error: 'The model provider answered with an error. Its message is in the record below.',
+  agent_error_empty_responses_output: 'The model sent back an empty or unusable reply.',
+  agent_error_responses_stream_interrupted: 'The model provider’s reply stream ended before it was finished. No tool call was run.',
 
   // What a form says about a field before the Hub would refuse it (lib/agent-draft.ts)
   agent_draft_id_invalid: 'An ID uses lowercase letters without accents, digits and dashes, and starts with a letter.',
