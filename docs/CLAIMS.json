@@ -42,6 +42,23 @@
       ]
     },
     {
+      "id": "guidance-share-of-room",
+      "claim": "The project instructions and the skill index (with the definition of skill_load) take at most 10% and 5% of the history budget the model's window leaves, and together at most half of what is left above the 1,000-token floor, whatever the window (an unknown one included), so they do not take the history of a run under the floor on which a known window is refused.",
+      "source": {
+        "file": "docs/USER-GUIDE.md",
+        "line": 229,
+        "quote": "tối đa **10% lịch sử dự toán**"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-project-instructions.mjs",
+      "seamNote": "The allowance is checked by hand and over every history from 0 to 60,000 tokens; then the real AgentRunner runs a busy project (spawn tools, check suggestions, a plan) on windows of 11,000 to 200,000 tokens and an unknown one, only the model and a minimal tool session scripted: the cap of every window is the allowance of the policy the SAME run has with the guidance switched off, the history budget never goes under the floor, and the text of the run with the guidance is the text without it plus the block and one sentence of the rules. verify-skill-on-demand does it again with 130 KB of project files, four skills and the real PluginManager, recomputing the budget from what the provider received, and verify-e2e-prompt-budgets through a real Hub process at 16,384 tokens.",
+      "forbiddenDoubles": [
+        "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Agent|Runner|Budget|Allowance)",
+        "\\b(?:AgentRunner|promptAllowance)\\s*=\\s*(?:class|function|\\{)"
+      ]
+    },
+    {
       "id": "skills-on-demand",
       "claim": "A skill too big for the index is read through skill_load: bounded, once per load, with the Hub's redaction, and without any effect on permissions.",
       "source": {

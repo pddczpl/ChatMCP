@@ -12,8 +12,9 @@ import { acceptObjectiveCriterion, availableObjectiveReceipts } from './objectiv
 import { createCostLedger, updateCostLedger } from './model-cost.mjs';
 import { taskToolSelectionMode, selectTaskToolNames } from './tool-selector.mjs';
 import { HistoryLedger } from './history-ledger.mjs';
-import { loadProjectInstructions, projectInstructionsCapFor, projectInstructionsMessage, projectInstructionsSetting } from './project-instructions.mjs';
-import { SKILL_LOAD_TOOL_NAME, buildSkillIndex, createSkillLoader, skillLoadPreview, skillLoadReceipt, skillLoadTool } from './skill-index.mjs';
+import { loadProjectInstructions, projectInstructionsMessage, projectInstructionsSetting } from './project-instructions.mjs';
+import { cleanBudget, promptAllowance } from './prompt-allowance.mjs';
+import { SKILL_LOAD_TOOL_BYTES, SKILL_LOAD_TOOL_NAME, createSkillLoader, fitSkillIndex, skillIndexMessage, skillLoadPreview, skillLoadReceipt, skillLoadTool } from './skill-index.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
 // from disk or the environment, evaluates model text, or executes a local shell.
@@ -951,19 +952,15 @@ export class AgentRunner {
           },
         });
       }
-      // AGENTS.md / CLAUDE.md of the workspace root, read now (every run reads them again) as one bounded block of untrusted project guidance (at most 8,192 bytes).
-      // It goes into the instructions, so the context budget counts it as fixed overhead and no history compaction can drop it; it is never put in the conversation.
-      // How much of it a run can afford depends on the window of its model: see projectInstructionsCapFor.
-      context.preflightStage = 'project instructions';
+      // The instructions are put together here without the project guidance; the guidance goes in last (see "project instructions" below), once everything else is in place.
+      const environment = this.manager.state().environment ?? null;
       const instructionsFor = (projectGuidance) => (context.direct.functions.length
-        ? createLocalAgentInstructions(offeredCatalog, task.workspace, this.manager.state().environment ?? null, { projectGuidance })
+        ? createLocalAgentInstructions(offeredCatalog, task.workspace, environment, { projectGuidance })
         : createAgentInstructions(context.catalog, task.workspace, { projectGuidance }));
-      const room = projectInstructionsCapFor(plannedBudget(this.provider, instructionsFor(''), context.tools));
-      const guidance = await abortable(loadProjectInstructions({ workspacePath: task.workspace.path, enabled: this.projectInstructions.enabled, maxBytes: room, redact: (text) => this.#redact(text) }), context.controller.signal);
-      task.projectInstructions = guidance.record;
-      const projectGuidance = guidance.block;
-      context.instructions = instructionsFor(projectGuidance);
-      await this.#event(task, 'instructions_loaded', projectInstructionsMessage(guidance.record), { projectInstructions: guidance.record });
+      const baseInstructions = instructionsFor('');
+      context.instructions = baseInstructions;
+      // With a block the rules of the instructions say a little more (that the files are in it); that sentence is part of what the guidance costs.
+      const rulesBytes = Buffer.byteLength(instructionsFor('x')) - Buffer.byteLength(baseInstructions) - Buffer.byteLength('x\n\n');
       if(context.spawnTool)context.instructions+='\nBACKGROUND SUBAGENTS: Use spawn_agent for a narrow independent job. Worktrees are isolated, never auto-merged.\n';
       if(context.workflowTool)context.instructions+='\nAUTONOMOUS WORKFLOWS: For a user request benefiting from MULTIPLE independent viewpoints, multi-step review/verification, or an explicitly requested team of agents, prefer spawn_workflow. Declare a short workflow title and 1–5 named phases with 1–12 total specialized agents. List exact independent agent goals, evidence to gather, and names of earlier phases in dependsOn; omitted dependsOn means wait for the preceding phase. For example Review (several independent reviewers) then Verify (independent checkers). The host runs genuinely parallel agents subject to Git-worktree/approval/concurrency constraints and persists progress under this chat. The workflow can outlive your chat turn; report only that it was STARTED, never that a review, fix or test passed until confirmed in its actual output. Do not spawn a workflow for a simple request that one agent can complete.\n';
       if(selection) {
@@ -982,19 +979,6 @@ export class AgentRunner {
         ? selectConversationSkills(this.manager.pluginManager, selectionText, earlierSelectionTexts(task, runPrompt), { workspacePath: task.workspace?.path, tokenBudget: Infinity })
         : (this.manager.pluginManager?.activeSkills?.() || []);
       task.selectedSkills = selectedSkills.map((s) => s.id);
-      if (selectedSkills.length) {
-        // What looks like a credential in a skill is masked like in a tool result, in the index and in what skill_load returns.
-        const redact = (text) => this.#redact(text);
-        const skillIndex = buildSkillIndex(selectedSkills, { redact });
-        // External skills are untrusted task material, not the agent's privileged policy.
-        // Keep their content out of context.instructions. Only real host tools can
-        // execute actions, and all tool calls still pass the permission gate.
-        context.skillContext = skillIndex.text;
-        context.skillIndex = skillIndex;
-        // A skill too big to be carried in the index is read with skill_load, offered last in the tool list (in every tool-selection mode, and to workers: they
-        // start through here too). With nothing to read the tool is not offered: it would only cost tokens.
-        if (skillIndex.onDemand.length || skillIndex.omitted.length) { context.skillLoader = createSkillLoader(selectedSkills, skillIndex, { redact }); context.tools.push(skillLoadTool()); }
-      }
       // Discover likely project test tools without requiring the user to pick
       // a command in Settings. Discovery itself is strictly read-only. The
       // agent must still inspect project instructions and obtain permission
@@ -1027,6 +1011,32 @@ export class AgentRunner {
       }
       if (task.goalPlan) context.instructions += '\n'+planInstructions(task.goalPlan);
       context.instructions += '\n' + TOKEN_AGENT_INSTRUCTIONS;
+      // AGENTS.md / CLAUDE.md of the workspace root, read now (every run reads them again) as one bounded block of untrusted project guidance (at most 8,192 bytes). It goes
+      // into the instructions, between the Hub's rules and the text appended above, so the context budget counts it as fixed overhead and no history compaction can drop it; it
+      // is never put in the conversation. How much of it the run can afford is a share of the history budget the run is planned on, and that is known only now, with the
+      // spawn text, the check discovery, the plan and the token rules in place: the block is sized on exactly what the run has (lib/prompt-allowance.mjs).
+      context.preflightStage = 'project instructions';
+      const appended = context.instructions.slice(baseInstructions.length);
+      const allowance = promptAllowance(plannedBudget(this.provider, context.instructions, context.tools), { toolBytes: SKILL_LOAD_TOOL_BYTES, rulesBytes });
+      const guidance = await abortable(loadProjectInstructions({ workspacePath: task.workspace.path, enabled: this.projectInstructions.enabled, maxBytes: allowance.instructions.bytes, budget: allowance.instructions, redact: (text) => this.#redact(text) }), context.controller.signal);
+      task.projectInstructions = guidance.record;
+      const projectGuidance = guidance.block;
+      context.instructions = instructionsFor(projectGuidance) + appended;
+      await this.#event(task, 'instructions_loaded', projectInstructionsMessage(guidance.record), { projectInstructions: guidance.record });
+      if (selectedSkills.length) {
+        // What looks like a credential in a skill is masked like in a tool result, in the index and in what skill_load returns.
+        const redact = (text) => this.#redact(text);
+        // The index has the rest of the share of the room (a twentieth of the history budget, with skill_load paid out of it): see lib/prompt-allowance.mjs.
+        const skillIndex = fitSkillIndex(selectedSkills, { maxBytes: allowance.index.bytes, withToolBytes: allowance.index.withToolBytes, redact });
+        // External skills are untrusted task material, not the agent's privileged policy.
+        // Keep their content out of context.instructions. Only real host tools can
+        // execute actions, and all tool calls still pass the permission gate.
+        context.skillContext = skillIndex.text;
+        context.skillIndex = skillIndex;
+        // A skill too big to be carried in the index is read with skill_load, offered last in the tool list (in every tool-selection mode, and to workers: they
+        // start through here too), when the share of the room can pay for the tool. With nothing to read the tool is not offered: it would only cost tokens.
+        if (skillIndex.tool) { context.skillLoader = createSkillLoader(selectedSkills, skillIndex, { redact }); context.tools.push(skillLoadTool()); }
+      }
       // Repo source is untrusted. Attach its bounded map as DATA beside the
       // user's prompt, NEVER as privileged system instructions. Preserve the
       // first input_text part to keep API adapters and model contracts stable.
@@ -1059,9 +1069,9 @@ export class AgentRunner {
       }
       this.#check(context);
       if (context.skillContext) context.history.appendUser([{type:'input_text',text:context.skillContext}], { kind:'skill_context' });
-      if (context.skillContext && selectedSkills.length) {
-        const { bytes, inline, onDemand, omitted } = context.skillIndex;
-        await this.#event(task, 'skills_activated', `Đã kích hoạt ${selectedSkills.length} kỹ năng agent (${selectedSkills.map((s) => s.name).join(', ')}): chỉ mục ${bytes} byte${onDemand.length ? `, ${onDemand.length} kỹ năng đọc bằng ${SKILL_LOAD_TOOL_NAME} khi cần` : ''}.`, { status: 'running', selectedSkills: task.selectedSkills, skillIndex: { bytes, inline, onDemand, omitted } });
+      if (context.skillIndex && selectedSkills.length) {
+        const { bytes, maxBytes, inline, onDemand, omitted, dropped, tool } = context.skillIndex;
+        await this.#event(task, 'skills_activated', skillIndexMessage(selectedSkills.map((s) => s.name), context.skillIndex, allowance.index), { status: 'running', selectedSkills: task.selectedSkills, skillIndex: { bytes, maxBytes, inline, onDemand, omitted, dropped, tool, budget: cleanBudget(allowance.index) } });
       }
       if (context.resumeEvidence) context.history.appendUser([{type:'input_text',text:context.resumeEvidence}], { kind:'resume_evidence' });
       context.history.appendUser([{type:'input_text',text:cleanPrompt},

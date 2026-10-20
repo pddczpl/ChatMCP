@@ -1,7 +1,9 @@
 // Bounded project-instruction loading (P1-D).
 //
 // The Hub reads AGENTS.md, CLAUDE.md and .claude/CLAUDE.md from the root of the workspace when a task starts and puts them into the agent's
-// instructions as one block of untrusted project guidance, whose size has a hard cap of 8,192 bytes. This suite has two halves:
+// instructions as one block of untrusted project guidance, whose size has a hard cap of 8,192 bytes and, for a model whose window leaves little room, a share of
+// the history budget the run is planned on (10%; with the skill index 15% together, never more than half of what is left above the floor under which a run is
+// refused): the allowance is checked by hand and over every history, and the real runner shows it on windows from 11,000 to 200,000 tokens. This suite has two halves:
 //   1. the loader on its own, over real files in temporary workspaces: order, the cap, truncation on a UTF-8 boundary, BOM and line endings,
 //      what is never read (outside the workspace through a link or `..`, protected files, huge or binary files), a forged fence, the owner switch;
 //   2. the real AgentRunner: the block reaches the provider exactly once (and a build that drops it, or sends it twice, fails this suite), counts
@@ -11,6 +13,7 @@
 // The model is the only scripted part of the second half (the hostile-text block runs the real manager, gate and tools; the others put a minimal tool
 // session in front of the real runner).
 // CLAIM: project-instructions-bounded
+// CLAIM: guidance-share-of-room
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -24,8 +27,9 @@ import { resolveEffectiveContextBudget } from '../lib/context-compaction.mjs';
 import { HubManager } from '../lib/manager.mjs';
 import {
   PROJECT_INSTRUCTIONS_MAX_BYTES, PROJECT_INSTRUCTION_FILES, PROJECT_INSTRUCTION_FILE_LIMIT_BYTES,
-  loadProjectInstructions, projectInstructionsCapFor, projectInstructionsSetting,
+  loadProjectInstructions, projectInstructionsMessage, projectInstructionsSetting,
 } from '../lib/project-instructions.mjs';
+import { HISTORY_FLOOR_TOKENS, PROMPT_SHARE_PERCENT, promptAllowance } from '../lib/prompt-allowance.mjs';
 
 const hubRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MUTANT_ENV = 'CHATMCP_PI_MUTANT_LIB';
@@ -85,7 +89,7 @@ let sessions = 0;
  * A conversation with the production AgentRunner in a workspace holding `files`; only the model is scripted (and the tool session, which answers every
  * call with a small fixed result). `lib` is the folder to take agent.mjs from, so that a mutated copy can be put through the same conversation.
  */
-async function session({ files = {}, dir: existing = null, runnerOptions = {}, tools = [tool('read_file')], toolSelectionMode = null, script = null, lib = null, contextWindowTokens = null } = {}) {
+async function session({ files = {}, dir: existing = null, runnerOptions = {}, tools = [tool('read_file')], toolSelectionMode = null, script = null, lib = null, contextWindowTokens = null, busy = 0 } = {}) {
   sessions += 1;
   const { AgentRunner: Runner } = lib ? await import(pathToFileURL(path.join(lib, 'agent.mjs')).href) : { AgentRunner };
   const dir = existing ?? await workspace(files);
@@ -97,7 +101,11 @@ async function session({ files = {}, dir: existing = null, runnerOptions = {}, t
     state() { return { workspace: { path: dir }, generation: this.generation, instanceId: this.instanceId }; },
     acquireTask() { if (locked) return false; locked = true; return true; },
     releaseTask() { locked = false; },
-    studio: { async checks() { return { suggested: [] }; } },
+    // A `busy` manager (a number: how many check suggestions it makes) is a production one in what it adds to the instructions after the guidance: the spawn tools (two
+    // paragraphs and two schemas), and check suggestions of the longest kind (the run keeps 20: 100 characters of origin and 300 of command, with the backslashes of a
+    // Windows path that JSON doubles).
+    ...(busy ? { spawnAllowed: () => true, async spawnBackgroundAgent() { return { id: 'child' }; }, async spawnWorkflow() { return { id: 'flow' }; } } : {}),
+    studio: { async checks() { return { suggested: Array.from({ length: busy }, (_, n) => ({ from: `scripts\\windows\\check-${n}`.padEnd(100, 'p'), command: `node scripts\\windows\\run-check-${n}.mjs `.padEnd(300, 'c') })) }; } },
     async createAgentSession() {
       return {
         catalog: { tools, prompts: [], resources: [], resourceTemplates: [], servers: {} }, async close() {},
@@ -133,6 +141,11 @@ async function session({ files = {}, dir: existing = null, runnerOptions = {}, t
 
 const MARK = 'ZEPHYR-GUIDANCE-MARK-5c1d';
 const GUIDED = { 'AGENTS.md': `# Rules\n${MARK}\nRun \`npm test\` before you finish.\n` };
+// A multi-part request: the Hub proposes a plan for it (decomposeCodingTask), and the plan goes into the instructions after the guidance.
+const PLAN_PROMPT = 'Inspect the project instructions and the relevant code first. Then implement the requested change in the source files; after that, run the tests and the linter and report exactly what failed and what passed, without guessing.';
+// A long tool list (a coding conversation that has used many groups of tools): each tool has a description of about 500 characters.
+const HEAVY_TOOLS = 22;
+const heavyTools = (count, from = 0) => Array.from({ length: count }, (_, n) => ({ ...tool(`heavy_${from + n}`), description: `Heavy tool ${from + n}. ${'It does one thing and does it well. '.repeat(14)}` }));
 
 /**
  * The delivery check, against the lib folder given: the guidance reaches the provider once on each of the two requests of a message, in the
@@ -262,6 +275,34 @@ try {
     for (const unset of [undefined, null, '', 'many', -1, NaN]) assert.equal((await load(dir, { maxBytes: unset })).record.maxBytes, 8192, `${String(unset)} is no cap: the default`);
   }
   ok('the cap is honoured at 100, 1,500, 2,000, 4,096 and 8,192 bytes, and nothing asks it above 8,192');
+
+  // The cap the caller works out (lib/prompt-allowance.mjs) comes with the numbers it was made from: the record keeps them, and the activity log says why the limit is lower.
+  {
+    const dir = await workspace({ 'AGENTS.md': `${'x'.repeat(5000)}\n`, 'CLAUDE.md': 'second file\n' });
+    const budget = (extra = {}) => ({ reason: 'window', source: 'provider_configuration', capacityTokens: 16384, historyTokens: 6144, tokens: 614, percent: 10, ...extra });
+    const lowered = await load(dir, { maxBytes: 2304, budget: budget() });
+    assert.deepEqual(lowered.record.budget, budget(), 'the record keeps the numbers the cap was made from ...');
+    assert.match(projectInstructionsMessage(lowered.record), /Giới hạn giảm còn 2304 byte vì cửa sổ ngữ cảnh của model nhỏ \(tối đa 10% của 6144 token lịch sử dự toán, cửa sổ 16384 token\)/, '... and the log says why, in numbers');
+    const unknown = await load(dir, { maxBytes: 6656, budget: budget({ reason: 'unknown_window', source: 'conservative_fallback', capacityTokens: 32768, historyTokens: 18053, tokens: 1804 }) });
+    assert.match(projectInstructionsMessage(unknown.record), /Giới hạn giảm còn 6656 byte vì chưa biết cửa sổ ngữ cảnh của model, nên tính theo 32768 token \(tối đa 10% của 18053 token lịch sử dự toán\)/);
+    assert.ok(!/model nhỏ/.test(projectInstructionsMessage(unknown.record)), 'an unknown window is not called a small one');
+    const maximum = await load(dir, { maxBytes: 8192, budget: budget({ reason: 'maximum' }) });
+    assert.ok(!/Giới hạn giảm/.test(projectInstructionsMessage(maximum.record)), 'at the maximum there is nothing to explain');
+    assert.equal(maximum.record.budget.reason, 'maximum');
+    // The record is data the Hub shows: what is not a number or a known reason is not kept (a caller cannot put text into the log through it).
+    for (const bad of [null, undefined, 'window', 5, [], Object.assign([], budget()), budget({ reason: '<b>x</b>' }), budget({ source: 'elsewhere' }), budget({ capacityTokens: 'many' }), budget({ historyTokens: -1 }), budget({ percent: NaN })]) {
+      const record = (await load(dir, { maxBytes: 2304, budget: bad })).record;
+      assert.equal(record.budget, null, `a budget that is not understood is not kept: ${JSON.stringify(bad)}`);
+      assert.match(projectInstructionsMessage(record), /Giới hạn giảm còn 2304 byte\./, 'and the log still says that the limit was lowered, without a reason it cannot vouch for');
+    }
+    assert.equal((await load(dir)).record.budget, null, 'no budget given, none recorded');
+    // A file that finds no room is named as not loaded, and the model is told how to read it.
+    assert.match((await load(dir, { maxBytes: 2304 })).block, /Not loaded: CLAUDE\.md \(no room left in the byte limit; read_file CLAUDE\.md for it\)/, 'a file left out for lack of room can be read with read_file');
+    const refused = await load(await workspace({ 'AGENTS.md': 'ok\n', 'CLAUDE.md': Buffer.from([0, 1, 2, 3]) }));
+    assert.match(refused.block, /Not loaded: CLAUDE\.md \(binary file\)/);
+    assert.ok(!refused.block.includes('read_file CLAUDE.md'), 'but a file that was refused (binary, protected, too large) is not recommended');
+  }
+  ok('the record keeps the numbers a lowered cap was made from, the log names the reason (small window, unknown window), and a file left out for lack of room can be read with read_file');
 
   // ---- truncation lands on a boundary --------------------------------------------------------------------------------------------------------
   {
@@ -580,7 +621,7 @@ try {
     const off = await load(dir, { enabled: false });
     assert.equal(off.enabled, false);
     assert.equal(off.block, '');
-    assert.deepEqual(off.record, { enabled: false, maxBytes: 8192, blockBytes: 0, blockSha256: null, truncated: false, files: [], error: null });
+    assert.deepEqual(off.record, { enabled: false, maxBytes: 8192, blockBytes: 0, blockSha256: null, truncated: false, files: [], error: null, budget: null });
     const reads = [];
     const original = { open: fs.open, lstat: fs.lstat, realpath: fs.realpath, stat: fs.stat };
     for (const name of Object.keys(original)) fs[name] = async (...args) => { reads.push(name); return original[name].apply(fs, args); };
@@ -684,60 +725,124 @@ try {
   }
   ok('the block is part of the fixed overhead the context budget is planned on: the history budget shrinks by its size in tokens');
 
-  // ---- a model with a small known window: the block takes at most half of the room there is -------------------------------------------------------------
-  // The block is fixed overhead, and a run whose known window leaves its history less than 1,000 tokens is refused (context_limit). A block of 8,192 bytes turned a
-  // run that worked on a window of 10,000 or 12,288 tokens into a refused one (history 1,356 -> 0 and 3,072 -> 916 tokens, measured with the real budget function
-  // on the instructions of a real run), so the cap follows the room: half of the history that is left above the floor and a reserve for the text a run appends
-  // to the instructions later. An unknown window (planned as 32,768 tokens, never refused for lack of room) keeps the whole 8,192 bytes.
+  // ---- the allowance: what the guidance may take of the room a run has ----------------------------------------------------------------------------------
+  // What the instructions say is sent again with every request of the loop, and it takes room from the history of the run. So the project instructions (10%) and the
+  // skill index together with its tool (5%) may take at most 15% of the history budget the run is planned on, at most half of what is left above the 1,000 tokens under
+  // which a known window is refused (context_limit), and never more than 8,192 and 4,096 bytes. That holds for every window, an unknown one included (it is planned as
+  // 32,768 tokens, so it gets a share of that plan, not the maxima).
   {
-    const policy = (maxHistoryTokens, source = 'provider_configuration') => ({ maxHistoryTokens, source });
-    assert.equal(projectInstructionsCapFor(policy(18053, 'conservative_fallback')), 8192, 'an unknown window: the whole cap');
-    assert.equal(projectInstructionsCapFor(policy(0, 'conservative_fallback')), 8192, 'whatever the fallback leaves');
-    assert.equal(projectInstructionsCapFor(policy(12195)), 8192, 'a window with room to spare: the whole cap');
-    assert.equal(projectInstructionsCapFor(policy(6144)), Math.floor((6144 - 2500) * 3.8 * 0.5), '16,384 tokens: 6,923 bytes');
-    assert.equal(projectInstructionsCapFor(policy(3072)), Math.floor((3072 - 2500) * 3.8 * 0.5), '12,288 tokens: 1,086 bytes, which is not even the frame of a block');
-    assert.equal(projectInstructionsCapFor(policy(2500)), 0, 'the room used up: nothing');
-    assert.equal(projectInstructionsCapFor(policy(1356)), 0, '10,000 tokens: nothing (that run is refused already, with or without the block, once the reserve is counted)');
-    for (const bad of [undefined, null, {}, policy(NaN), policy(-5), policy('x'), policy(undefined)]) assert.equal(projectInstructionsCapFor(bad), 0, 'a policy that is not understood is no room (the block is not sent) ...');
-    const sizes = [0, 500, 1000, 2500, 3000, 4000, 6000, 9000, 12000, 20000].map((room) => projectInstructionsCapFor(policy(room)));
-    assert.deepEqual(sizes, [...sizes].sort((a, b) => a - b), '... and the cap never shrinks as the room grows');
-    assert.ok(sizes.every((bytes) => Number.isInteger(bytes) && bytes >= 0 && bytes <= 8192));
+    const policy = (maxHistoryTokens, source = 'provider_configuration', capacityTokens = 16384) => ({ maxHistoryTokens, source, capacityTokens });
+    assert.equal(HISTORY_FLOOR_TOKENS, 1000, 'the floor under which a known window is refused');
+    assert.deepEqual({ ...PROMPT_SHARE_PERCENT }, { instructions: 10, index: 5 }, 'the share: 10% of the planned history for the project instructions, 5% for the skill index with its tool');
+    // Anchors worked out by hand: total = min(15% of the history, half of the room above the floor), two thirds of it to the block and the rest to the index, 3.8 bytes
+    // to a token (the estimate the budget is planned with), cut down to a multiple of 256 bytes.
+    const anchors = [
+      [18053, 'conservative_fallback', 6656, 3328, 32768], [6144, 'provider_configuration', 2304, 1024, 16384], [3072, 'provider_configuration', 1024, 512, 12288],
+      [2000, 'provider_configuration', 512, 256, 14000], [1100, 'provider_configuration', 0, 0, 13000], [1000, 'provider_configuration', 0, 0, 12000], [40000, 'trusted_model_metadata', 8192, 4096, 65536],
+      // (Where the room above the floor is what binds, and not the 15%: under about 1,430 tokens of history. 420 above the floor leave 210 tokens, 140 for the block.)
+      [1420, 'provider_configuration', 512, 256, 12500],
+    ];
+    for (const [history, source, block, index, capacity] of anchors) {
+      const allowance = promptAllowance(policy(history, source, capacity));
+      assert.deepEqual([allowance.instructions.bytes, allowance.index.bytes], [block, index], `history ${history}: ${JSON.stringify(allowance)}`);
+      assert.deepEqual([allowance.historyTokens, allowance.capacityTokens, allowance.source], [history, capacity, source], 'and it says what it was planned on');
+    }
+    // The rules of the instructions say a little more when there is a block (that the files are in it, and not to read them again): that sentence is part of what the guidance
+    // costs, so it is taken off the block's cap before the cap is cut down to a multiple of 256.
+    assert.deepEqual([promptAllowance(policy(6144), { rulesBytes: 76 }).instructions.bytes, promptAllowance(policy(6144), { rulesBytes: 5000 }).instructions.bytes, promptAllowance(policy(40000), { rulesBytes: 76 }).instructions.bytes], [2048, 0, 8192], 'a sentence of 76 bytes takes the cap of 2,304 to 2,048; more than the share, nothing; a large window does not feel it');
+    assert.equal(promptAllowance(policy(6144), { rulesBytes: 76 }).index.bytes, promptAllowance(policy(6144)).index.bytes, 'and the index is not charged for it');
+    // The tool: its definition (801 bytes of JSON) is charged to the index's share, so that the index and skill_load together stay inside the 5%.
+    const withTool = (p) => promptAllowance(p, { toolBytes: 801 }).index.withToolBytes;
+    assert.deepEqual([withTool(policy(18053, 'conservative_fallback', 32768)), withTool(policy(6144)), withTool(policy(40000))], [2527, 223, 4096], 'skill_load costs 801 bytes of the index share, and a large window does not feel it');
+    assert.equal(promptAllowance(policy(6144)).index.withToolBytes, promptAllowance(policy(6144)).index.bytes, 'with no tool to pay for the cap is the same');
+    // The three reasons, for each part: the maximum, a known window that limits, an unknown window (planned as 32,768 tokens) that limits.
+    const reasons = (p) => { const a = promptAllowance(p); return [a.instructions.reason, a.index.reason]; };
+    assert.deepEqual(reasons(policy(40000, 'provider_configuration', 65536)), ['maximum', 'maximum']);
+    assert.deepEqual(reasons(policy(6144)), ['window', 'window']);
+    assert.deepEqual(reasons(policy(18053, 'conservative_fallback', 32768)), ['unknown_window', 'unknown_window']);
+    assert.deepEqual(reasons(policy(21600, 'conservative_fallback', 32768)), ['maximum', 'maximum'], 'a plan with room for the maxima gives them, whatever the window is called');
+    for (const bad of [undefined, null, {}, policy(NaN), policy(-5), policy('x'), policy(undefined), policy(Infinity), 'text', 7]) {
+      const allowance = promptAllowance(bad, { toolBytes: 801 });
+      assert.deepEqual([allowance.instructions.bytes, allowance.index.bytes, allowance.index.withToolBytes, allowance.historyTokens, allowance.shareTokens], [0, 0, 0, 0, 0], 'a policy that is not understood is no room (nothing is sent) ...');
+    }
+    assert.equal(promptAllowance({ maxHistoryTokens: 5000, source: 'elsewhere', capacityTokens: 16384 }).source, null, 'a source it does not know is not believed');
+    // ... and the properties, over every history from 0 to 60,000 tokens.
+    let last = { instructions: -1, index: -1 };
+    for (let history = 0; history <= 60000; history += 37) {
+      const a = promptAllowance(policy(history), { toolBytes: 801 });
+      assert.ok(a.shareTokens <= Math.floor(history * 0.15), `history ${history}: ${a.shareTokens} tokens are more than 15%`);
+      assert.ok(2 * a.shareTokens <= Math.max(0, history - HISTORY_FLOOR_TOKENS), `history ${history}: ${a.shareTokens} tokens are more than half of the room above the floor`);
+      assert.equal(a.instructions.tokens + a.index.tokens, a.shareTokens, 'the two parts add up to the share');
+      assert.ok(a.instructions.bytes % 256 === 0 && a.index.bytes % 256 === 0 && a.instructions.bytes <= 8192 && a.index.bytes <= 4096, `history ${history}: steps of 256 bytes, within the maxima`);
+      assert.ok(a.instructions.bytes <= a.instructions.tokens * 3.8 && a.index.shareBytes <= a.index.tokens * 3.8, `history ${history}: the bytes never cost more than the tokens`);
+      assert.ok(a.instructions.bytes >= last.instructions && a.index.bytes >= last.index, `history ${history}: it never shrinks as the room grows`);
+      assert.ok(history - 2 * a.shareTokens >= Math.min(history, HISTORY_FLOOR_TOKENS), `history ${history}: even if JSON doubled what the guidance costs, the history budget would stay above the floor`);
+      assert.equal(a.index.withToolBytes, Math.min(4096, Math.max(0, a.index.shareBytes - 801)), `history ${history}: the tool is paid out of the index share`);
+      if (history <= HISTORY_FLOOR_TOKENS) assert.deepEqual([a.instructions.bytes, a.index.bytes], [0, 0], `history ${history}: no room above the floor, nothing`);
+      last = { instructions: a.instructions.bytes, index: a.index.bytes };
+    }
 
-    // Through the real runner: a 20 KB AGENTS.md on windows from 9,000 tokens up. Whatever the window, the file never turns a run that worked into one that is refused.
+    // Through the real runner. A run's instructions are not only the Hub's rules: the text for spawn_agent and spawn_workflow, the note on the selected schemas, the check
+    // discovery, the plan of a multi-part request and the token rules all follow the guidance, and the budget a run is refused on is planned on all of them. So the guidance
+    // is sized last, on exactly that (a reserve for "the text that comes later" is a guess, and a busy project exceeds it): the cap of every run is promptAllowance of the
+    // policy that SAME run has with the guidance switched off, and a 21 KB AGENTS.md never costs the history more than its 10%.
     const text = `# Rules\n${'Name tests after the behaviour they pin and keep functions small. '.repeat(300)}\n`;
+    // The sentence of the rules that changes when there is a block (the instructions without a block say to read AGENTS.md and CLAUDE.md), as the provider receives it.
+    const READ_WITH = 'Read the README and other project rules when they exist (the AGENTS.md and CLAUDE.md files the Hub could read are already in PROJECT GUIDANCE below)';
+    const READ_WITHOUT = 'Read README, AGENTS.md, CLAUDE.md and other project rules when they exist';
+    // What the rules say differently when there is a block, measured on the real instructions.
+    const catalogOfRun = { tools: heavyTools(HEAVY_TOOLS) };
+    const rulesBytes = bytes(createLocalAgentInstructions(catalogOfRun, { path: '/w' }, null, { projectGuidance: 'x' })) - bytes(createLocalAgentInstructions(catalogOfRun, { path: '/w' }, null)) - bytes('x\n\n');
+    assert.ok(rulesBytes > 40 && rulesBytes < 200, `(the premise: with a block the rules are ${rulesBytes} bytes longer)`);
     const rows = [];
-    for (const window of [9000, 11000, 13000, 16384, 24576, null]) {
+    for (const window of [11000, 13000, 16384, 24576, 65536, 200000, null]) {
+      const dir = await workspace({ 'AGENTS.md': text });
       const outcome = {};
       for (const label of ['without', 'with']) {
-        const s = await session({ files: label === 'with' ? { 'AGENTS.md': text } : {}, contextWindowTokens: window });
+        const s = await session({ dir, busy: 8, tools: heavyTools(HEAVY_TOOLS), contextWindowTokens: window, runnerOptions: label === 'without' ? { projectInstructions: { enabled: false } } : {} });
         try {
-          try { await s.say('Explain the layout of this project.'); outcome[label] = 'completed'; } catch (error) { outcome[label] = String(s.task?.().errorCode ?? error.message).slice(0, 60); }
-          outcome[`${label}History`] = s.task().contextPolicy?.maxHistoryTokens ?? null;
-          if (label === 'with') outcome.cap = s.task().projectInstructions.maxBytes;
-          if (label === 'with') outcome.block = s.task().projectInstructions.blockBytes;
-          if (label === 'with') outcome.message = s.task().events.find((event) => event.type === 'instructions_loaded').message;
-          if (label === 'with') outcome.directory = s.dir;
+          try { await s.say(PLAN_PROMPT); outcome[label] = 'completed'; } catch (error) { outcome[label] = String(s.task?.().errorCode ?? error.message).slice(0, 60); }
+          const task = s.task();
+          outcome[`${label}History`] = task.contextPolicy?.maxHistoryTokens ?? null;
+          if (label === 'without') Object.assign(outcome, { policy: task.contextPolicy, instructionsWithout: s.requests[0]?.instructions ?? '' });
+          else Object.assign(outcome, { record: task.projectInstructions, message: task.events.find((event) => event.type === 'instructions_loaded').message, instructions: s.requests[0]?.instructions ?? '' });
         } finally { await s.runner.shutdown(); }
       }
       rows.push({ window, ...outcome });
-      // The cap is what the budget function says of the instructions and tools the run had before the block went in: the same call, with the same arguments.
-      {
-        const catalog = { tools: [tool('read_file')] };
-        const before = resolveEffectiveContextBudget({ contextWindowTokens: window, instructions: createLocalAgentInstructions(catalog, { path: outcome.directory }, null), tools: [...structuredClone(ROUTER_TOOLS), ...directToolsFor(catalog).functions], maxOutputTokens: 16384 });
-        assert.equal(outcome.cap, projectInstructionsCapFor(before), `window ${window}: the cap is projectInstructionsCapFor of the policy of the instructions without the block`);
+      const record = outcome.record;
+      assert.equal(record.maxBytes, promptAllowance(outcome.policy, { rulesBytes }).instructions.bytes, `window ${window}: the cap is promptAllowance of the policy the same run has without the guidance`);
+      assert.ok(record.blockBytes <= record.maxBytes && record.maxBytes <= 8192, `window ${window}: the block (${record.blockBytes} bytes) is within its cap (${record.maxBytes})`);
+      if (outcome.instructions) for (const part of ['BACKGROUND SUBAGENTS', 'AUTONOMOUS WORKFLOWS', 'AUTOMATIC PROJECT CHECK DISCOVERY', 'HOST-PROPOSED TASK DECOMPOSITION']) assert.ok(outcome.instructions.includes(part), `(the premise: this run has ${part} after the guidance)`);
+      // The guidance adds the block and one sentence of the rules, and nothing else is lost or added: the instructions of the run with it are the instructions of the run without it.
+      if (outcome.instructions) {
+        const guidanceBlock = blockOf(outcome.instructions);
+        assert.equal(guidanceBlock.length > 0 ? outcome.instructions.replace(`${guidanceBlock}\n\n`, '').replace(READ_WITH, READ_WITHOUT) : outcome.instructions, outcome.instructionsWithout, `window ${window}: the text of the run with the guidance, less the block and the sentence that goes with it, is the text of the run without it`);
       }
-      if (outcome.without === 'completed') assert.equal(outcome.with, 'completed', `window ${window}: the run worked without the file and must work with it (${JSON.stringify({ ...outcome, message: undefined })})`);
-      if (outcome.without === 'completed' && window !== null) assert.ok(outcome.withHistory >= 1000, `window ${window}: the history budget stays above the floor (${outcome.withHistory} tokens)`);
-      assert.ok(outcome.block <= outcome.cap && outcome.cap <= 8192, `window ${window}: the block (${outcome.block} bytes) is within its cap (${outcome.cap})`);
-      assert.equal(/Giới hạn giảm còn \d+ byte vì cửa sổ ngữ cảnh của model nhỏ/.test(outcome.message), outcome.cap < 8192, `window ${window}: the activity log says so when, and only when, the limit was lowered: ${outcome.message}`);
+      if (outcome.without === 'completed') {
+        assert.equal(outcome.with, 'completed', `window ${window}: the run worked without the file and must work with it (${JSON.stringify({ ...outcome, message: undefined, policy: undefined, instructions: undefined, record: undefined })})`);
+        assert.ok(outcome.withHistory >= HISTORY_FLOOR_TOKENS, `window ${window}: the history budget stays above the floor (${outcome.withHistory} tokens)`);
+      }
+      assert.ok(outcome.withoutHistory - outcome.withHistory >= 0 && outcome.withoutHistory - outcome.withHistory <= 0.11 * outcome.withoutHistory + 8, `window ${window}: the guidance took ${outcome.withoutHistory - outcome.withHistory} of ${outcome.withoutHistory} tokens of history (the block and the sentence of the rules that goes with it), at most its 10%`);
+      // The activity log says when the limit was lowered, and why: a window that is small, or one that is not known.
+      const reduced = record.maxBytes < 8192;
+      assert.equal(/Giới hạn giảm còn \d+ byte/.test(outcome.message), reduced, `window ${window}: the log says so when, and only when, the limit was lowered: ${outcome.message}`);
+      if (reduced) {
+        assert.equal(record.budget.reason, window === null ? 'unknown_window' : 'window', `window ${window}`);
+        assert.match(outcome.message, window === null ? /chưa biết cửa sổ ngữ cảnh của model/ : /vì cửa sổ ngữ cảnh của model nhỏ/, `window ${window}: ${outcome.message}`);
+        assert.ok(outcome.message.includes(`${outcome.withoutHistory} token lịch sử`) && outcome.message.includes('10%'), `window ${window}: and by how much it was planned: ${outcome.message}`);
+      } else assert.equal(record.budget.reason, 'maximum', `window ${window}`);
+      assert.deepEqual([record.budget.historyTokens, record.budget.capacityTokens], [outcome.withoutHistory, outcome.policy.capacityTokens], `window ${window}: the record keeps the numbers the cap was made from`);
     }
-    assert.deepEqual(rows.map((row) => row.cap), [...rows.map((row) => row.cap)].sort((a, b) => a - b), 'the cap grows with the window');
-    assert.equal(rows.at(-1).cap, 8192, 'an unknown window gets the whole 8,192 bytes');
-    assert.equal(rows.at(-2).cap, 8192, 'and so does a window of 24,576 tokens');
-    assert.ok(rows[0].cap < 8192 && rows[0].cap < rows[3].cap, 'a small window gets less');
-    for (const row of rows) console.log(`  note - window ${String(row.window).padStart(5)}: cap ${String(row.cap).padStart(4)} bytes, block ${String(row.block).padStart(4)} bytes, history ${row.withHistory} tokens (${row.withoutHistory} without the file), ${row.with}`);
+    const caps = rows.filter((row) => row.window !== null).map((row) => row.record.maxBytes);
+    assert.deepEqual(caps, [...caps].sort((a, b) => a - b), 'the cap grows with the window');
+    assert.equal(rows.find((row) => row.window === 200000).record.maxBytes, 8192, 'a large window gets the whole 8,192 bytes');
+    assert.equal(rows.find((row) => row.window === 65536).record.maxBytes, 8192, 'and so does 65,536 tokens');
+    const unknown = rows.find((row) => row.window === null).record;
+    assert.ok(unknown.maxBytes < 8192 && unknown.maxBytes > rows.find((row) => row.window === 16384).record.maxBytes, `an unknown window loads less than the maximum (it is planned as 32,768 tokens): ${unknown.maxBytes} bytes`);
+    assert.ok(rows.find((row) => row.window === 16384).record.maxBytes < unknown.maxBytes && rows[0].record.maxBytes <= rows[2].record.maxBytes, 'a small window gets less');
+    for (const row of rows) console.log(`  note - window ${String(row.window).padStart(6)}: cap ${String(row.record.maxBytes).padStart(4)} bytes, block ${String(row.record.blockBytes).padStart(4)} bytes, history ${row.withHistory} tokens (${row.withoutHistory} without the file), ${row.with}`);
   }
-  ok('the cap follows the room a known window leaves: at most half of the history above the floor, so an AGENTS.md never turns a run that worked into a refused one; an unknown or large window keeps 8,192 bytes');
+  ok('the guidance is sized last, on the instructions and tools the run really has: at most 10% of the planned history (15% with the skill index), never under the floor, for a small, an unknown and a large window');
 
   // ---- the prefix of the instructions does not move -------------------------------------------------------------------------------------------
   {
@@ -761,6 +866,26 @@ try {
     } finally { await one.runner.shutdown(); await two.runner.shutdown(); await other.runner.shutdown(); }
   }
   ok('the instructions up to the end of the guidance are the same bytes whatever the tool selection, and change when a file does');
+
+  // ---- a block that is cut does not move while the budget moves a little ------------------------------------------------------------------------------------
+  // The cap follows the budget, and the budget follows the tool list. A block cut at its cap would change the prefix a provider caches whenever a tool more or less moved the
+  // cap by a few bytes. The cap is a multiple of 256 bytes: a small move of the budget (one small tool) leaves the block as it was, and a large one (six more) moves it.
+  {
+    const dir = await workspace({ 'AGENTS.md': `# Rules\n${'Name tests after the behaviour they pin and keep functions small. '.repeat(300)}\n` });
+    const run = async (tools) => {
+      const s = await session({ dir, busy: 3, tools, contextWindowTokens: 30000 });
+      try { const [first] = await s.say(PLAN_PROMPT); return { instructions: first.instructions, cap: s.task().projectInstructions.maxBytes, history: s.task().contextPolicy.maxHistoryTokens }; } finally { await s.runner.shutdown(); }
+    };
+    const a = await run(heavyTools(10));
+    const b = await run([...heavyTools(10), { ...tool('extra_small'), description: 'A small tool.' }]);
+    const c = await run(heavyTools(16));
+    assert.ok(a.history > b.history && a.history - b.history < 60, `(the premise: one more small tool takes ${a.history - b.history} tokens of the history budget)`);
+    assert.ok(a.cap < 8192 && blockOf(a.instructions).length > 0, `(the premise: the block is cut at its cap of ${a.cap} bytes)`);
+    assert.equal(b.cap, a.cap, 'a small move of the budget leaves the cap where it was ...');
+    assert.equal(blockOf(b.instructions), blockOf(a.instructions), '... and the block is the same bytes');
+    assert.ok(a.history - c.history > 800 && c.cap < a.cap, `a large one moves it (${a.cap} -> ${c.cap} bytes)`);
+  }
+  ok('a block cut at its cap keeps its bytes while the budget moves by a tool or two, and follows it when it moves by several');
 
   // ---- what the task records ------------------------------------------------------------------------------------------------------------------
   {
@@ -837,10 +962,11 @@ try {
     fs.realpath = (target, ...rest) => (String(target) === s.dir ? new Promise(() => {}) : realpath.call(fs, target, ...rest));
     try {
       const outcome = await Promise.race([
-        s.runner.start({ prompt: 'Explain the layout of this project.' }).then(() => 'started', (error) => error.code),
+        s.runner.start({ prompt: 'Explain the layout of this project.' }).then(() => 'started', (error) => `${error.code}: ${error.message}`),
         settle(8000).then(() => 'hung'),
       ]);
-      assert.equal(outcome, 'preflight_timeout', 'a loader that never answers ends the start with the preflight timeout');
+      assert.match(outcome, /^preflight_timeout: /, 'a loader that never answers ends the start with the preflight timeout');
+      assert.match(outcome, /\(project instructions\)/, 'and the message names the step that did not answer');
       assert.equal(s.runner.state().activeTaskId, null, 'and releases the workspace');
     } finally { fs.realpath = realpath; await s.runner.shutdown(); }
   }
