@@ -64,3 +64,27 @@ test('a Hub that refuses the session reports it once instead of reloading the pa
     assert.equal(getHubSecret(), '', 'the stale secret is forgotten');
   } finally { stop(); globalThis.fetch = original; setHubSecret(''); }
 });
+
+test('the project-instructions switch is one POST of {enabled}, with the page headers, and a refusal keeps its code', async () => {
+  const original = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (route, init) => {
+    seen.push({ route, method: init.method, body: init.body, headers: init.headers });
+    const enabled = JSON.parse(init.body).enabled;
+    if (seen.length === 3) return Response.json({ error: 'Biến môi trường CHATMCP_PROJECT_INSTRUCTIONS đang quyết định.', code: 'project_instructions_env' }, { status: 409 });
+    return Response.json({ csrfToken: 'fresh-token', projectInstructions: { enabled, source: 'config', saved: enabled, variable: 'CHATMCP_PROJECT_INSTRUCTIONS', maxBytes: 8192, files: [] } });
+  };
+  setHubSecret('p'.repeat(40));
+  try {
+    const off = await api.setProjectInstructions(false);
+    assert.deepEqual([seen[0].route, seen[0].method, seen[0].body], ['/api/agent/project-instructions', 'POST', '{"enabled":false}']);
+    assert.equal(seen[0].headers['Content-Type'], 'application/json');
+    assert.equal(seen[0].headers.Authorization, 'Bearer ' + 'p'.repeat(40), 'behind the bearer like every route');
+    assert.equal(seen[0].headers['X-ChatMCP-Request'], 'local-dashboard', 'with the marker of the page');
+    assert.equal(off.projectInstructions.enabled, false, 'it answers with the state that now applies');
+    await api.setProjectInstructions(true);
+    assert.equal(seen[1].body, '{"enabled":true}');
+    assert.equal(seen[1].headers['X-ChatMCP-CSRF'], 'fresh-token', 'the token of the first answer is sent with the second call');
+    await assert.rejects(api.setProjectInstructions(false), { status: 409, code: 'project_instructions_env', message: /CHATMCP_PROJECT_INSTRUCTIONS/ });
+  } finally { globalThis.fetch = original; setHubSecret(''); }
+});

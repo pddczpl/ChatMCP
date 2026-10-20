@@ -59,11 +59,29 @@
       ]
     },
     {
+      "id": "project-instructions-switch",
+      "claim": "The owner can switch the loading of AGENTS.md and CLAUDE.md off in Settings: the choice is saved, applies from the next run of every runner, and the environment variable CHATMCP_PROJECT_INSTRUCTIONS decides over it.",
+      "source": {
+        "file": "docs/USER-GUIDE.md",
+        "line": 232,
+        "quote": "lưu cùng dữ liệu Hub, áp dụng từ lượt chạy kế tiếp"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-e2e-project-instructions-switch.mjs",
+      "seamNote": "A real Hub process (real routes with the bearer, CSRF and Origin layers, the saved store, the real runner and permission gate) and a scripted model server: what the model server is sent after the choice changes, a change while an approval is pending, a restart, the environment variable on and off, a damaged file. verify-project-instructions-setting runs the real AgentRunner, a pooled chat in its own worktree and a coding worker whose runners exist before the choice changes, and ui/e2e/project-instructions.spec.mjs flips it from the real page.",
+      "forbiddenDoubles": [
+        "createHubServer\\(",
+        "\\bnew\\s+AgentRunner\\(",
+        "\\bpermissions\\s*[:=]\\s*\\{"
+      ]
+    },
+    {
       "id": "skills-on-demand",
       "claim": "A skill too big for the index is read through skill_load: bounded, once per load, with the Hub's redaction, and without any effect on permissions.",
       "source": {
         "file": "docs/USER-GUIDE.md",
-        "line": 232,
+        "line": 233,
         "quote": "mỗi lần nạp tối đa 16 KiB, một lần cho mỗi lần gọi"
       },
       "kind": "claim",

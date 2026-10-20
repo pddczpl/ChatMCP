@@ -257,6 +257,8 @@ export const api = {
   saveAiConfig: (config: any) => request<any>('/api/ai/config', { method: 'POST', body: JSON.stringify(config) }),
   clearAiKey: () => request<any>('/api/ai/clear-key', { method: 'POST' }),
   setAgentMode: (mode: 'api'|'chatgpt-web') => request<any>('/api/agent/mode', { method: 'POST', body: JSON.stringify({ mode }) }),
+  // The owner's switch for the project's AGENTS.md / CLAUDE.md. Applies from the next run; the Hub refuses (409) while CHATMCP_PROJECT_INSTRUCTIONS decides.
+  setProjectInstructions: (enabled: boolean) => request<HubState>('/api/agent/project-instructions', { method: 'POST', body: JSON.stringify({ enabled }) }),
   createBrowserPairCode: () => request<{code:string;expiresAt:string}>('/api/browser/pair-code',{method:'POST'}),
   unpairBrowser: () => request<any>('/api/browser/unpair',{method:'POST'}),
   // ChatGPT Web privacy: "review before send" (global or for one workspace) and the decision about a held tool result.

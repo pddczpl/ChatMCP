@@ -415,10 +415,13 @@ function plannedBudget(provider, instructions, tools) {
 export class AgentRunner {
   constructor({ manager, provider, taskDirectory, log = () => {}, onBeforeModelRequest = null, toolSelectionMode = null, preflightTimeoutMs = PREFLIGHT_TIMEOUT_MS, projectInstructions = null }) {
     if (!manager || !provider || typeof taskDirectory !== 'string' || !taskDirectory) throw new TypeError('AgentRunner cần manager, provider và taskDirectory.');
-    // The owner's switch for loading AGENTS.md / CLAUDE.md (lib/project-instructions.mjs): CHATMCP_PROJECT_INSTRUCTIONS=off in the environment of the Hub, read once here,
-    // or a setting handed in by the caller. Anything else is refused: a switch that silently means "on" is not one.
-    if (projectInstructions !== null && (typeof projectInstructions !== 'object' || typeof projectInstructions.enabled !== 'boolean')) throw new TypeError('Invalid project instructions setting.');
-    this.projectInstructions = Object.freeze({ ...projectInstructionsSetting({}), ...(projectInstructions ?? projectInstructionsSetting()), ...(projectInstructions && !projectInstructions.source ? { source: 'option' } : {}) });
+    // The owner's switch for loading AGENTS.md / CLAUDE.md (lib/project-instructions.mjs). Handed in: nothing (CHATMCP_PROJECT_INSTRUCTIONS in the environment of the Hub, read once
+    // here), a fixed setting ({ enabled }), or the Hub's ProjectInstructionsStore, which is asked again at the start of every run so that a runner that exists when the owner changes
+    // the choice (the foreground one, a pooled chat, a coding worker) follows it from its next run. Anything else is refused: a switch that silently means "on" is not one.
+    const live = projectInstructions !== null && typeof projectInstructions === 'object' && typeof projectInstructions.current === 'function';
+    if (projectInstructions !== null && !live && (typeof projectInstructions !== 'object' || typeof projectInstructions.enabled !== 'boolean')) throw new TypeError('Invalid project instructions setting.');
+    this.projectInstructionsSource = live ? projectInstructions : null;
+    this.fixedProjectInstructions = live ? null : Object.freeze({ ...projectInstructionsSetting({}), ...(projectInstructions ?? projectInstructionsSetting()), ...(projectInstructions && !projectInstructions.source ? { source: 'option' } : {}) });
     this.manager = manager;
     this.provider = provider;
     this.taskDirectory = path.resolve(taskDirectory);
@@ -437,6 +440,11 @@ export class AgentRunner {
     this.listeners = new Set();
     // Stop / SubagentStop / TaskCompleted hooks: asked about every final answer before the task can complete (lib/lifecycle-hooks.mjs).
     this.finalHooks = new FinalAnswerHooks({ manager, log: (line) => this.log(this.#redact(line)) });
+  }
+
+  /** What the owner's switch says now: a store is asked each time (start() asks it once per run), a fixed setting never changes. */
+  get projectInstructions() {
+    return this.projectInstructionsSource ? Object.freeze({ ...projectInstructionsSetting({}), ...this.projectInstructionsSource.current() }) : this.fixedProjectInstructions;
   }
 
   subscribe(listener) {

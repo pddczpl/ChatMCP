@@ -7,6 +7,7 @@ import { useTranslation } from '@/lib/i18n';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { SettingsCard } from './SettingsCard';
+import { ProjectInstructionsCard } from './ProjectInstructionsCard';
 
 /** The folder the agent works in. */
 export function WorkspaceSection() {
@@ -87,6 +88,8 @@ export function WorkspaceSection() {
           File nhạy cảm (.env, khóa riêng, thư mục .git) luôn được bảo vệ khỏi agent, kể cả ở chế độ Tự động.
         </p>
       </SettingsCard>
+
+      <ProjectInstructionsCard />
 
       <SettingsCard icon={Sparkles} title="Hướng dẫn khởi động" description="Chạy lại các bước chọn thư mục, kết nối AI và chọn quyền.">
         <Button variant="secondary" onClick={() => { closeSettings(); setOnboardingOpen(true); }} title={t('workspace_reopen_onboarding')}>
