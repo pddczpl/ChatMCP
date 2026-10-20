@@ -35,6 +35,7 @@ export interface WorkerRecord {
   verificationAttempts?: RecordedAttempt[] | null;
   verificationNote?: VerificationNote | null;
   runnerError?: string | null;
+  runnerNotice?: string | null;
 }
 
 export interface WorkerProof {
@@ -104,6 +105,19 @@ export function hubNoteOf(worker: WorkerRecord | null | undefined, proof: Worker
 export function runnerErrorOf(worker: WorkerRecord | null | undefined): string | null {
   const raw: unknown = worker?.runnerError;
   return typeof raw === 'string' && raw.trim() !== '' ? raw : null;
+}
+
+/**
+ * The sentence the Hub's AgentRunner ends an AI's answer with when the Hub's evidence does not back the run's plan (lib/coding-orchestrator.mjs, `runnerNotice`): a field of
+ * its own, because it is the Hub's and not what the model said, which is the worker's summary alone. The text is passed on exactly as it came (what cannot be seen in it is for
+ * the page to show as a marker); text that says nothing is none. It says the Hub could not verify the work, so it is not shown beside a worker the Hub did verify with its
+ * own checks: those have backed the work since, and two Hub sentences that disagree would read as proof the record does not give. It is neither evidence nor a verdict, so
+ * `assessWorker` never reads it.
+ */
+export function runnerNoticeOf(worker: WorkerRecord | null | undefined, proof?: WorkerProof): string | null {
+  const raw: unknown = worker?.runnerNotice;
+  if (typeof raw !== 'string' || raw.trim() === '') return null;
+  return proof?.kind === 'verified' ? null : raw;
 }
 
 /** A read-only group or analysis: text an AI wrote from excerpts of the project. The Hub does not check it, so it is never green. */

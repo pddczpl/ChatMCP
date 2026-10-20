@@ -297,6 +297,8 @@ export const agentsVi = {
   coding_worktree: 'Mọi thay đổi nó đã làm chưa được lưu thành commit. Bản làm việc: {path}',
   // The AgentRunner's record of why a run stopped, quoted as it wrote it (a field of its own, apart from what the AI said)
   coding_runner_error_label: 'Lý do công việc dừng, Hub ghi nguyên văn:',
+  // The sentence the AgentRunner ended the AI's answer with when the Hub's evidence did not back the run's plan, quoted as it wrote it (also apart from what the AI said)
+  coding_runner_notice_label: 'Ghi chú của Hub về báo cáo của AI, nguyên văn:',
   coding_view_integration: 'Xem thay đổi của bản gộp',
   coding_publish_integration: 'Đưa bản gộp lên GitHub',
   coding_publish_integration_title: 'Đưa bản gộp lên GitHub?',
@@ -619,6 +621,7 @@ export const agentsEn: Record<keyof typeof agentsVi, string> = {
   coding_integration_line: 'Merge: {status} · {branch}',
   coding_worktree: 'Anything it changed is not committed. Working copy: {path}',
   coding_runner_error_label: 'Why the task stopped, as the Hub recorded it:',
+  coding_runner_notice_label: 'The Hub’s note on the AI’s report, as it wrote it:',
   coding_view_integration: 'Read the merged changes',
   coding_publish_integration: 'Push the merge to GitHub',
   coding_publish_integration_title: 'Push the merge to GitHub?',

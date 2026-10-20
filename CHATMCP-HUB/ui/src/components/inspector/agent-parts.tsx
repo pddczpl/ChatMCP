@@ -129,6 +129,24 @@ export function RunnerError({ text }: { text: string | null }) {
   );
 }
 
+/**
+ * The sentence the AgentRunner ended the AI's answer with when the Hub's evidence did not back the run's plan, kept apart from the AI's report and labelled as the Hub's note
+ * on it, as the Hub wrote it. Plain text before the report, in no colour of proof, with what cannot be seen shown as markers like in any text from outside. Whether it may
+ * be shown at all is decided by `runnerNoticeOf` (lib/agent-proof.ts).
+ */
+export function RunnerNotice({ text }: { text: string | null }) {
+  const { t } = useTranslation();
+  if (!text) return null;
+  return (
+    <div className="space-y-0.5">
+      <HiddenNote show={hasHidden(text)} />
+      <p data-testid="runner-notice" className="whitespace-pre-wrap break-words text-[12px] leading-4 text-muted select-text">
+        <span className="font-medium text-fg">{t('coding_runner_notice_label')}</span>{' '}<HiddenText text={text} />
+      </p>
+    </div>
+  );
+}
+
 /** A line under a heading that is information, not an error: the folder delegated work acts on, or why it cannot run. */
 export function NoticeLine({ tone = 'warning', role = 'status', testId, children, className }: { tone?: 'warning' | 'danger' | 'neutral'; role?: 'status' | 'alert'; testId?: string; children: React.ReactNode; className?: string }) {
   const style = boxes[tone];

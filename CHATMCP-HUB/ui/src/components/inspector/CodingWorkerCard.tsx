@@ -1,9 +1,9 @@
 import { useRef } from 'react';
-import { assessWorker, hubNoteOf, runnerErrorOf } from '@/lib/agent-proof';
+import { assessWorker, hubNoteOf, runnerErrorOf, runnerNoticeOf } from '@/lib/agent-proof';
 import { useTranslation } from '@/lib/i18n';
 import { Button } from '@/components/ui/Button';
 import { agentStatusLabel } from './agentLabels';
-import { AiReport, EvidenceLine, HubNote, RunnerError, StatusBadge } from './agent-parts';
+import { AiReport, EvidenceLine, HubNote, RunnerError, RunnerNotice, StatusBadge } from './agent-parts';
 import { ContextPanel, ReviewPanel } from './CodingReview';
 import { ErrorLine } from './parts';
 
@@ -42,6 +42,7 @@ export function CodingWorkerCard({ worker, selected, onSelect, reviewed, busy, r
   const proof = assessWorker(worker, { runActive });
   const hubNote = hubNoteOf(worker, proof);
   const runnerError = runnerErrorOf(worker);
+  const runnerNotice = runnerNoticeOf(worker, proof);
   const ready = worker.status === 'ready_for_review';
   // A worker that stopped before it committed leaves its edits, if any, in its own working copy: the owner is told where.
   const leftBehind = UNCOMMITTED.has(worker.status) && typeof worker.worktree === 'string' && worker.worktree !== '';
@@ -72,6 +73,7 @@ export function CodingWorkerCard({ worker, selected, onSelect, reviewed, busy, r
       <EvidenceLine tone={proof.tone} kind={proof.kind} facts={proof.checks > 0 ? t('agent_proof_facts', { checks: proof.checks, verified: proof.verifiedChecks }) : undefined} />
       <HubNote note={hubNote} />
       <RunnerError text={runnerError} />
+      <RunnerNotice text={runnerNotice} />
       {worker.summary && <AiReport text={worker.summary} />}
       {worker.error && <ErrorLine message={worker.error} />}
       {leftBehind && <p data-testid="coding-worktree" className="break-all text-[12px] leading-4 text-muted select-text">{t('coding_worktree', { path: worker.worktree })}</p>}

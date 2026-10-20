@@ -833,6 +833,84 @@ test('a worker with no record of why its run stopped shows none; what is not tex
   assert.ok(reportOf(said).text.includes(EMPTY_FINAL));
 });
 
+// ---------------------------------------------------------------------------------------------------------------------
+// The Hub’s notice on the AI’s report (the AgentRunner’s sentence at the end of a final answer the Hub could not back with evidence), apart from the report
+// ---------------------------------------------------------------------------------------------------------------------
+const noticeLineOf = (card) => inside(card).find((node) => node.attrs['data-testid'] === 'runner-notice');
+const NOTICE = 'ChatMCP has NOT independently verified full completion: No verified successful project check; No independently recorded Git diff review.';
+const NOTICE_LABEL = { en: 'The Hub’s note on the AI’s report, as it wrote it:', vi: 'Ghi chú của Hub về báo cáo của AI, nguyên văn:' };
+const REPORT = 'I created calc.js and ran the tests by hand.';
+
+test('the Hub’s notice on the AI’s report is shown as the Hub’s, with its label in the language on screen, and the report holds only what the AI said', async () => {
+  const entry = worker({ summary: REPORT, runnerNotice: NOTICE });
+  for (const lang of ['en', 'vi']) {
+    const card = await cardOf(entry, lang);
+    const line = noticeLineOf(card);
+    assert.equal(line.text, `${NOTICE_LABEL[lang]} ${NOTICE}`, `${lang}: the label in the language on screen, then the Hub’s words as written`);
+    assert.ok(reportOf(card).text.includes(REPORT), lang);
+    assert.ok(!reportOf(card).text.includes('NOT independently') && !reportOf(card).text.includes(NOTICE_LABEL[lang]), `${lang}: the Hub’s words are not in the AI’s report`);
+    assert.ok(!line.text.includes(REPORT), `${lang}: and the AI’s words are not in the Hub’s note`);
+    assert.match(line.attrs.class, /\bbreak-words\b/, 'text from outside has no natural break: it must not widen the card');
+    assert.match(line.attrs.class, /\bwhitespace-pre-wrap\b/, 'and what the Hub appends after its sentence keeps its line breaks');
+  }
+});
+
+test('the notice stands after the evidence line, the Hub’s note and the runner’s record, and before the AI’s report; none is inside another', async () => {
+  const entry = worker({ status: 'needs_attention', verifyRequired: true, summary: REPORT, verificationNote: BLOCKED, runnerError: EMPTY_FINAL, runnerNotice: NOTICE });
+  for (const lang of ['en', 'vi']) {
+    const card = await cardOf(entry, lang);
+    const order = inside(card).map((node) => node.attrs['data-testid']).filter(Boolean);
+    const at = (id) => order.indexOf(id);
+    assert.ok(at('agent-proof') >= 0 && at('agent-proof') < at('hub-note') && at('hub-note') < at('runner-error') && at('runner-error') < at('runner-notice') && at('runner-notice') < at('ai-report'), `${lang}: ${order.join(' > ')}`);
+    assert.ok(!noticeLineOf(card).text.includes(EMPTY_FINAL) && !runnerLineOf(card).text.includes('NOT independently') && !noteOf(card).text.includes('NOT independently'), `${lang}: the three lines of the Hub are three`);
+  }
+});
+
+test('the notice is plain text: no colour of proof, and it changes no colour of the card', async () => {
+  for (const status of ['ready_for_review', 'failed', 'needs_attention', 'cancelled', 'no_changes']) {
+    const without = await cardOf(worker({ status, summary: REPORT }));
+    const card = await cardOf(worker({ status, summary: REPORT, runnerNotice: NOTICE }));
+    assert.doesNotMatch(noticeLineOf(card).attrs.class ?? '', /\b(?:text|bg|border)-(?:success|warning|danger)\b/, `${status}: the line wears no tone`);
+    assert.doesNotMatch(greenClasses(card), GREEN, status);
+    assert.equal(card.attrs['data-tone'], without.attrs['data-tone'], `${status}: the card keeps the colour the Hub’s record gives it`);
+    assert.equal(card.attrs['data-kind'], without.attrs['data-kind'], status);
+  }
+});
+
+test('beside a worker the Hub verified itself the notice is not shown, and it takes nothing away from what the Hub verified', async () => {
+  const green = await cardOf(verified({ summary: REPORT, runnerNotice: NOTICE, verificationNote: VERIFIED_NOTE }));
+  assert.equal(green.attrs['data-kind'], 'verified', '(premise)');
+  assert.equal(noticeLineOf(green), undefined, 'the Hub’s own checks have backed the work since: two Hub sentences that disagree are not shown');
+  assert.doesNotMatch(green.text, /NOT independently verified/);
+  assert.ok(reportOf(green).text.includes(REPORT));
+  // where the Hub did not verify it, the same sentence is shown
+  const open = await cardOf(verified({ verificationAttempts: [attempt({ testOutcomeVerified: false })], summary: REPORT, runnerNotice: NOTICE }));
+  assert.notEqual(open.attrs['data-kind'], 'verified', '(premise)');
+  assert.equal(noticeLineOf(open).text, `${NOTICE_LABEL.en} ${NOTICE}`);
+});
+
+test('the notice is read like any text from outside: what cannot be seen is shown as a marker, with the line that says so', async () => {
+  const hidden = `ChatMCP has NOT verified${String.fromCharCode(0x202E)} it`;
+  const card = await cardOf(worker({ runnerNotice: hidden }));
+  const line = noticeLineOf(card);
+  assert.ok(line.text.includes('ChatMCP has NOT verified‹U+202E› it') && !line.text.includes(String.fromCharCode(0x202E)), line.text);
+  assert.match(card.text, /hidden or direction-changing/);
+  assert.doesNotMatch((await cardOf(worker({ runnerNotice: NOTICE }))).text, /hidden or direction-changing/, 'plain text has no such line');
+});
+
+test('a worker with no notice shows none; what is not text, or says nothing, is not shown; the AI’s words are never taken for one', async () => {
+  for (const bad of [undefined, null, '', '   ', '\n', 7, true, {}, [], ['x'], { text: NOTICE }]) {
+    assert.equal(noticeLineOf(await cardOf(worker({ runnerNotice: bad }))), undefined, JSON.stringify(bad));
+  }
+  assert.equal(noticeLineOf(await cardOf(worker())), undefined, 'a worker the Hub had nothing to say about');
+  // a model that wrote the sentence itself, and a record saved before the field existed: that is its report, and it stays in it
+  const said = await cardOf(worker({ summary: `Done.\n\n[Verification notice] ${NOTICE}` }));
+  assert.equal(noticeLineOf(said), undefined);
+  assert.ok(reportOf(said).text.includes(NOTICE));
+  // the runner’s record of why a run stopped is not a notice either
+  assert.equal(noticeLineOf(await cardOf(worker({ status: 'failed', summary: '', runnerError: EMPTY_FINAL }))), undefined);
+});
+
 test('what the verification option really needs is said where it is chosen', async () => {
   const en = await page(state(), { store: { lang: 'en' }, ...ready });
   const note = within(en, 'coding-task').text;

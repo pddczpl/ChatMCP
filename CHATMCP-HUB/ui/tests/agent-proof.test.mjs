@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analysisBlock, assessWorker, assessReport, awaitingCheckWorkers, canMerge, canPublishMerge, codingBlock, delegationTarget, effectiveReportStatus, grantState, groupBlock, hubNoteOf, outcomeToast, preselectIds, reviewKey, runnerErrorOf, runsOfFolder, statusTone } from '../src/lib/agent-proof.ts';
+import { analysisBlock, assessWorker, assessReport, awaitingCheckWorkers, canMerge, canPublishMerge, codingBlock, delegationTarget, effectiveReportStatus, grantState, groupBlock, hubNoteOf, outcomeToast, preselectIds, reviewKey, runnerErrorOf, runnerNoticeOf, runsOfFolder, statusTone } from '../src/lib/agent-proof.ts';
 
 // "Reported done" is not "proven done" (see proof.test.mjs for a conversation turn). A coding worker is a model: what it says about itself is its
 // own claim. The only thing that turns a worker green is a check the Hub itself ran and verified; every other path must stay below success.
@@ -406,6 +406,69 @@ test('what the runner recorded changes nothing about how a worker is read: the c
   const claim = verifiedWorker({ runnerError: RUNNER_SENTENCE });
   assert.equal(proofOf(claim).kind, 'verified', 'and it cannot take away what the Hub verified either');
   assert.equal(hubNoteOf(worker({ status: 'failed', runnerError: RUNNER_SENTENCE }), proofOf(worker({ status: 'failed' }))), null, 'nor is it a verification note');
+});
+
+const NOTICE_SENTENCE = 'ChatMCP has NOT independently verified full completion: No verified successful project check; No independently recorded Git diff review.';
+
+test('the Hub’s notice on the AI’s report is passed on as the text it is, for a worker in any state the Hub did not verify', () => {
+  for (const status of ['ready_for_review', 'failed', 'needs_attention', 'interrupted', 'cancelled', 'no_changes', 'running']) {
+    const record = worker({ status, runnerNotice: NOTICE_SENTENCE });
+    assert.notEqual(proofOf(record).kind, 'verified', `(premise) ${status}`);
+    assert.equal(runnerNoticeOf(record, proofOf(record)), NOTICE_SENTENCE, status);
+  }
+  // exactly as the Hub sent it: not trimmed, not translated, not cut. What cannot be seen at either end is for the page to show as a marker
+  const marked = String.fromCharCode(0x202E) + ' ChatMCP has NOT verified it\n';
+  const record = worker({ runnerNotice: marked });
+  assert.equal(runnerNoticeOf(record, proofOf(record)), marked);
+});
+
+test('a notice that is not text, or says nothing, is none; the model’s summary is never taken for one', () => {
+  for (const bad of [undefined, null, '', ' ', '\n\t  ', 7, true, {}, [], ['x'], { text: NOTICE_SENTENCE }]) {
+    const record = worker({ runnerNotice: bad });
+    assert.equal(runnerNoticeOf(record, proofOf(record)), null, JSON.stringify(bad));
+  }
+  assert.equal(runnerNoticeOf(null, proofOf(null)), null);
+  assert.equal(runnerNoticeOf(undefined, proofOf(undefined)), null);
+  assert.equal(runnerNoticeOf(worker(), proofOf(worker())), null, 'a worker that has none');
+  // a record saved before the field existed has the sentence inside its summary, or a model wrote the very sentence: that is its summary, which stays the model’s
+  const said = worker({ summary: `Done.\n\n[Verification notice] ${NOTICE_SENTENCE}` });
+  assert.equal(runnerNoticeOf(said, proofOf(said)), null);
+  // and a worker the page is not given a proof for is not one the Hub verified
+  assert.equal(runnerNoticeOf(worker({ runnerNotice: NOTICE_SENTENCE })), NOTICE_SENTENCE);
+});
+
+test('beside a worker the Hub verified itself the notice is not shown: it speaks of the answer as the AI gave it, and the Hub’s own checks have backed the work since', () => {
+  const green = verifiedWorker({ runnerNotice: NOTICE_SENTENCE });
+  assert.equal(proofOf(green).kind, 'verified', '(premise)');
+  assert.equal(runnerNoticeOf(green, proofOf(green)), null);
+  // wherever the Hub did not verify it, the same sentence is shown: a check that failed, one the Hub did not verify, no check on record, a loop that did not end as ready
+  const open = {
+    'a later attempt failed': verifiedWorker({ verificationAttempts: [attempt(), attempt({ id: 'a2', status: 'failed', exitCode: 1, testOutcomeVerified: false })] }),
+    'an attempt the Hub did not verify': verifiedWorker({ verificationAttempts: [attempt({ testOutcomeVerified: false })] }),
+    'no attempt on record': verifiedWorker({ verificationAttempts: [] }),
+    'the loop did not end as ready': verifiedWorker({ verificationOutcome: { state: 'needs_attention' } }),
+    'verification was not asked for': verifiedWorker({ verifyRequired: false }),
+  };
+  for (const [label, record] of Object.entries(open)) {
+    const given = { ...record, runnerNotice: NOTICE_SENTENCE };
+    assert.notEqual(proofOf(given).kind, 'verified', `(premise) ${label}`);
+    assert.equal(runnerNoticeOf(given, proofOf(given)), NOTICE_SENTENCE, label);
+  }
+});
+
+test('what the Hub says on the AI’s report changes nothing about how a worker is read: the colour is the evidence rule’s, and it is no verification note', () => {
+  for (const status of ['queued', 'running', 'awaiting_test_grant', 'ready_for_review', 'no_changes', 'failed', 'needs_attention', 'cancelled', 'interrupted']) {
+    for (const options of [{}, { runActive: false }]) {
+      assert.deepEqual(assessWorker(worker({ status, runnerNotice: NOTICE_SENTENCE }), options), assessWorker(worker({ status }), options), `${status} ${JSON.stringify(options)}`);
+    }
+  }
+  const claim = verifiedWorker({ runnerNotice: NOTICE_SENTENCE });
+  assert.equal(proofOf(claim).kind, 'verified', 'and it cannot take away what the Hub verified either');
+  const other = worker({ status: 'needs_attention', runnerNotice: NOTICE_SENTENCE });
+  assert.equal(hubNoteOf(other, proofOf(other)), null, 'nor is it a verification note');
+  assert.equal(runnerErrorOf(other), null, 'nor the runner’s record of why a run stopped');
+  const stopped = worker({ status: 'failed', runnerError: 'x' });
+  assert.equal(runnerNoticeOf(stopped, proofOf(stopped)), null, 'and that record is not a notice');
 });
 
 test('an allowed check counts until the Hub’s grant runs out; one that was never allowed, or whose time has passed, does not', () => {
