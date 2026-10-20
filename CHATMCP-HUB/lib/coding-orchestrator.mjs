@@ -271,6 +271,8 @@ export class CodingWorktreeOrchestrator {
       // The owner's hooks run for the worker too; its worktree is not the project, so the project's own hooks file is read from there.
       manager.hooks=this.manager.hooks;
       manager.hooksProjectRoot=this.manager.workspace;
+      // The worker's run ends with SubagentStop, not Stop (lib/lifecycle-hooks.mjs).
+      manager.lifecycleAgent={kind:'subagent',role:'coding_worker',workerId:node.id,runId:job.id};
       assembleStudio(manager,{bundleRoot:this.bundleRoot});
       // The test broker only resolves worker identity, paths and commands from
       // managed Hub/worktree records, never from agent request arguments.

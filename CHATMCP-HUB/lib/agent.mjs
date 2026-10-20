@@ -12,6 +12,7 @@ import { acceptObjectiveCriterion, availableObjectiveReceipts } from './objectiv
 import { createCostLedger, updateCostLedger } from './model-cost.mjs';
 import { taskToolSelectionMode, selectTaskToolNames } from './tool-selector.mjs';
 import { HistoryLedger } from './history-ledger.mjs';
+import { FinalAnswerHooks } from './lifecycle-hooks.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
 // from disk or the environment, evaluates model text, or executes a local shell.
@@ -412,6 +413,8 @@ export class AgentRunner {
     this.writes = new Map();
     this.closing = false;
     this.listeners = new Set();
+    // Stop / SubagentStop / TaskCompleted hooks: asked about every final answer before the task can complete (lib/lifecycle-hooks.mjs).
+    this.finalHooks = new FinalAnswerHooks({ manager, log: (line) => this.log(this.#redact(line)) });
   }
 
   subscribe(listener) {
@@ -1265,14 +1268,31 @@ export class AgentRunner {
             continue;
           }
           if (!finalTexts.some((text) => text.trim())) throw fault('empty_final', 'Model kết thúc nhưng không đưa ra kết quả văn bản cuối cùng. Thông báo tiến độ không được coi là kết quả hoàn tất.', 502);
-          task.finalText = this.#redact(finalTexts.join('\n\n'));
-          task.verificationOutcome=assessCompletionEvidence(task.goalPlan,task.progress);
-          task.completionOutcome=classifyTaskCompletion(task.goalPlan,task.progress);
+          const answer = this.#redact(finalTexts.join('\n\n'));
+          // The owner's Stop (SubagentStop) and TaskCompleted hooks judge the answer before the task can complete. Their verdict, the final text and the
+          // outcomes below are put on the task only when it completes: a refused answer leaves a running task that holds none of it.
+          context.finalRun ??= this.finalHooks.begin();
+          const verdict = await this.finalHooks.review({
+            run: context.finalRun, task, finalText: answer, signal: context.controller.signal,
+            assess: () => ({ verification: assessCompletionEvidence(task.goalPlan, task.progress), completion: classifyTaskCompletion(task.goalPlan, task.progress) }),
+            emit: (type, message, detail) => this.#event(task, type, message, { status: 'running' }, detail),
+          });
+          this.#check(context);
+          if (verdict.action === 'continue' || task.pendingMessages?.length) {
+            // A hook's text is a host message: it waits in the ledger's open batch and is flushed at the top of the loop, in front of any message a person queued meanwhile.
+            if (verdict.feedback) context.history.appendUser([{ type: 'input_text', text: verdict.feedback }], { kind: verdict.feedbackKind });
+            else task.dialogue.push({ role: 'assistant', at: now(), text: answer, run: task.runs?.length ?? 1 });
+            continue;
+          }
+          task.finalText = answer;
+          task.verificationOutcome = verdict.verification;
+          task.completionOutcome = verdict.completion;
           if(!task.verificationOutcome.ready) {
             const warning='ChatMCP has NOT independently verified full completion: '+task.verificationOutcome.missing.join('; ')+'.';
             task.finalText += '\n\n[Verification notice] '+warning;
             await this.#event(task,'verification_unverified',warning,{status:'running'},{missing:task.verificationOutcome.missing});
           }
+          if (verdict.notice) task.finalText += '\n\n[Hook notice] '+verdict.notice;
           task.status = 'completed';
           this.#advance(task, 'completed', 'final_answer');
           break;
