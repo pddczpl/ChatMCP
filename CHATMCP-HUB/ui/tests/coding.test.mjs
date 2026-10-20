@@ -362,3 +362,9 @@ test('a run with nothing to merge has no merge block', async () => {
   assert.equal(within(await view(job([worker({ status: 'no_changes', changedFiles: [] })])), 'coding-integration'), undefined);
   assert.ok(within(await view(job([worker()])), 'coding-integration'));
 });
+
+test('before the Hub has said which permission mode it is in, start is off but the tab does not claim a mode it does not know', async () => {
+  const root = await page(state(), { ...ready, hubOverrides: { studio: undefined } });
+  assert.equal(within(root, 'coding-needs-autonomous'), undefined, 'no notice about a mode nobody has reported');
+  assert.ok(buttonNamed(root, 'Bắt đầu sửa mã').disabled);
+});

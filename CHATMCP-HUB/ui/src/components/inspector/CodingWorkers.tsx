@@ -103,7 +103,8 @@ export function CodingWorkers() {
       </div>
       <DelegationNotice blocked={delegation.blocked} primary={delegation.primary} viewing={delegation.viewing} />
       {block === 'recovery' && <NoticeLine tone="danger" role="alert">{t('coding_block_recovery', { fault: recoveryFault ?? '' })}</NoticeLine>}
-      {block === 'needs-autonomous' && (
+      {/* Start stays off until the mode is known, but nothing is said about a mode that has not been reported yet. */}
+      {block === 'needs-autonomous' && delegation.mode !== undefined && (
         <NoticeLine testId="coding-needs-autonomous">
           <p>{t('coding_block_needs_autonomous', { mode: modeLabel })}</p>
           <Button size="sm" variant="outline" className="mt-2" onClick={() => openSettings('permissions')}>{t('coding_open_permissions')}</Button>

@@ -72,55 +72,55 @@ export function ManualGroup() {
       <div className="mt-3 space-y-3">
         <p className="text-muted">{t('group_manual_intro')}</p>
         <fieldset disabled={blocked} className="min-w-0 space-y-3 border-0 p-0">
-        <div className="flex items-center justify-between gap-3">
-          <label htmlFor="group-concurrency" className="font-medium text-fg">{t('group_concurrency_label')}</label>
-          <Select id="group-concurrency" className="w-20" value={clampConcurrency(concurrency, 3)} disabled={running}
-            onChange={(event) => setDraft({ groupConcurrency: Number(event.target.value) })}>
-            {[1, 2, 3].map((n) => <option key={n} value={n}>{n}</option>)}
-          </Select>
-        </div>
-        {nodes.map((node, i) => {
-          const problems = issuesOf(i);
-          const textProblems = problems.filter((issue) => issue.field === 'text' && issue.code !== 'empty');
-          const idProblems = problems.filter((issue) => issue.field === 'id');
-          const depProblems = problems.filter((issue) => issue.field === 'deps');
-          return (
-            <div key={i} data-testid="group-node" className="space-y-2 rounded-xl border border-line bg-surface p-3">
-              <div className="flex items-center gap-2">
-                <Select aria-label={t('group_node_role', { n: i + 1 })} className="min-w-0 flex-1" value={node.role} disabled={running}
-                  onChange={(event) => update(i, { role: event.target.value })}>
-                  {ROLES.map((role) => <option key={role} value={role}>{agentRoleLabel(role, t)}</option>)}
-                </Select>
-                <Button size="sm" variant="danger" aria-label={t('group_node_remove_label', { n: i + 1 })} disabled={nodes.length === 1 || running}
-                  onClick={() => setDraft({ groupNodes: nodes.filter((_, j) => j !== i) })}>{t('group_node_remove')}</Button>
-              </div>
-              <div className="space-y-1">
-                <label htmlFor={`group-task-${i}`} className="block text-[12px] font-medium text-muted">{t('group_node_task', { n: i + 1 })}</label>
-                <Textarea id={`group-task-${i}`} rows={3} className="min-w-0" value={node.question} disabled={running}
-                  aria-invalid={textProblems.length > 0 || undefined} onChange={(event) => update(i, { question: event.target.value })} />
-                {textProblems.map((issue) => <p key={issue.code} role="alert" className="text-[12px] text-danger">{issueMessage(issue, t)}</p>)}
-              </div>
-              <details className="text-[12px] text-muted">
-                <summary className="cursor-pointer rounded">{t('group_node_order')}</summary>
-                <div className="mt-2 space-y-2">
-                  <div className="space-y-1">
-                    <label htmlFor={`group-id-${i}`} className="block">{t('group_node_id')}</label>
-                    <Input id={`group-id-${i}`} value={node.id} disabled={running} aria-invalid={idProblems.length > 0 || undefined}
-                      onChange={(event) => update(i, { id: event.target.value })} />
-                    {idProblems.map((issue) => <p key={issue.code} role="alert" className="text-danger">{issueMessage(issue, t)}</p>)}
-                  </div>
-                  <div className="space-y-1">
-                    <label htmlFor={`group-waits-${i}`} className="block">{t('group_node_waits')}</label>
-                    <Input id={`group-waits-${i}`} value={node.dependsText ?? node.dependsOn.join(', ')} disabled={running} placeholder={t('group_node_waits_placeholder')}
-                      aria-invalid={depProblems.length > 0 || undefined}
-                      onChange={(event) => update(i, { dependsText: event.target.value, dependsOn: parseDeps(event.target.value) })} />
-                    {depProblems.map((issue) => <p key={`${issue.code}-${issue.detail}`} role="alert" className="text-danger">{issueMessage(issue, t)}</p>)}
-                  </div>
+          <div className="flex items-center justify-between gap-3">
+            <label htmlFor="group-concurrency" className="font-medium text-fg">{t('group_concurrency_label')}</label>
+            <Select id="group-concurrency" className="w-20" value={clampConcurrency(concurrency, 3)} disabled={running}
+              onChange={(event) => setDraft({ groupConcurrency: Number(event.target.value) })}>
+              {[1, 2, 3].map((n) => <option key={n} value={n}>{n}</option>)}
+            </Select>
+          </div>
+          {nodes.map((node, i) => {
+            const problems = issuesOf(i);
+            const textProblems = problems.filter((issue) => issue.field === 'text' && issue.code !== 'empty');
+            const idProblems = problems.filter((issue) => issue.field === 'id');
+            const depProblems = problems.filter((issue) => issue.field === 'deps');
+            return (
+              <div key={i} data-testid="group-node" className="space-y-2 rounded-xl border border-line bg-surface p-3">
+                <div className="flex items-center gap-2">
+                  <Select aria-label={t('group_node_role', { n: i + 1 })} className="min-w-0 flex-1" value={node.role} disabled={running}
+                    onChange={(event) => update(i, { role: event.target.value })}>
+                    {ROLES.map((role) => <option key={role} value={role}>{agentRoleLabel(role, t)}</option>)}
+                  </Select>
+                  <Button size="sm" variant="danger" aria-label={t('group_node_remove_label', { n: i + 1 })} disabled={nodes.length === 1 || running}
+                    onClick={() => setDraft({ groupNodes: nodes.filter((_, j) => j !== i) })}>{t('group_node_remove')}</Button>
                 </div>
-              </details>
-            </div>
-          );
-        })}
+                <div className="space-y-1">
+                  <label htmlFor={`group-task-${i}`} className="block text-[12px] font-medium text-muted">{t('group_node_task', { n: i + 1 })}</label>
+                  <Textarea id={`group-task-${i}`} rows={3} className="min-w-0" value={node.question} disabled={running}
+                    aria-invalid={textProblems.length > 0 || undefined} onChange={(event) => update(i, { question: event.target.value })} />
+                  {textProblems.map((issue) => <p key={issue.code} role="alert" className="text-[12px] text-danger">{issueMessage(issue, t)}</p>)}
+                </div>
+                <details className="text-[12px] text-muted">
+                  <summary className="cursor-pointer rounded">{t('group_node_order')}</summary>
+                  <div className="mt-2 space-y-2">
+                    <div className="space-y-1">
+                      <label htmlFor={`group-id-${i}`} className="block">{t('group_node_id')}</label>
+                      <Input id={`group-id-${i}`} value={node.id} disabled={running} aria-invalid={idProblems.length > 0 || undefined}
+                        onChange={(event) => update(i, { id: event.target.value })} />
+                      {idProblems.map((issue) => <p key={issue.code} role="alert" className="text-danger">{issueMessage(issue, t)}</p>)}
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor={`group-waits-${i}`} className="block">{t('group_node_waits')}</label>
+                      <Input id={`group-waits-${i}`} value={node.dependsText ?? node.dependsOn.join(', ')} disabled={running} placeholder={t('group_node_waits_placeholder')}
+                        aria-invalid={depProblems.length > 0 || undefined}
+                        onChange={(event) => update(i, { dependsText: event.target.value, dependsOn: parseDeps(event.target.value) })} />
+                      {depProblems.map((issue) => <p key={`${issue.code}-${issue.detail}`} role="alert" className="text-danger">{issueMessage(issue, t)}</p>)}
+                    </div>
+                  </div>
+                </details>
+              </div>
+            );
+          })}
         </fieldset>
         {issues.some((issue) => issue.code !== 'empty' || issue.field !== 'text') && <p id="group-fix" className="text-[12px] text-warning">{t('agent_draft_fix')}</p>}
         <div className="flex flex-wrap gap-2">
