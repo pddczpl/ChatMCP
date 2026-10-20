@@ -31,6 +31,14 @@ export async function fetchPinnedSkillResponse(url, { ip, timeoutMs = 8000, maxB
       clearTimeout(timer);
       if (err) reject(err); else resolve(result);
     };
+    // Refuse an oversized response by settling FIRST, then destroying the request. Destroying drains the response, and when the whole body
+    // had already arrived its 'end' can fire before the request's 'error': with the rejection left to that 'error', the 'end' handler
+    // resolved an empty body as a success (a body sent in one write, or in two chunks on a fast loopback, was never refused).
+    const tooLarge = (message) => {
+      const error = failure('response_too_large', message, 413);
+      finish(error);
+      request.destroy(error);
+    };
     const transport = target.protocol === 'https:' ? https : http;
     const request = transport.request(target, {
       method: 'GET',
@@ -48,7 +56,7 @@ export async function fetchPinnedSkillResponse(url, { ip, timeoutMs = 8000, maxB
     }, (res) => {
       const announced = Number(res.headers['content-length']);
       if (Number.isFinite(announced) && announced > maxBytes) {
-        request.destroy(failure('response_too_large', 'Content-Length exceeds download limit.', 413));
+        tooLarge('Content-Length exceeds download limit.');
         return;
       }
       const chunks = [];
@@ -56,7 +64,7 @@ export async function fetchPinnedSkillResponse(url, { ip, timeoutMs = 8000, maxB
       res.on('data', (chunk) => {
         count += chunk.length;
         if (count > maxBytes) {
-          request.destroy(failure('response_too_large', 'Streaming response exceeds download limit.', 413));
+          tooLarge('Streaming response exceeds download limit.');
           return;
         }
         chunks.push(chunk);

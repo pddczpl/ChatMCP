@@ -222,26 +222,40 @@ OSI prompt body.`);
     { code: 'ssrf_blocked' }
   );
   ok('safeFetchSkillManifest stops DNS rebinding and redirect SSRF to private/metadata IPs');
-  // Verify the production, DNS-pinned HTTP transport enforces size limits
-  // before buffering a complete chunked response.
+  // Verify the production, DNS-pinned HTTP transport enforces size limits before buffering a complete response, however the body arrives.
+  // The whole body may already be there when the limit trips (a body sent in one write, or two chunks on a fast loopback); the response
+  // 'end' then used to win over the rejection and resolve an empty body as a success (CI: Ubuntu, Node 24.22). The one-write shapes failed
+  // every time, on every platform, so they are the regression check; each shape is repeated to catch a race that lets one attempt through.
   const { fetchPinnedSkillResponse } = await import('../lib/skill-http.mjs');
-  const chunkServer = http.createServer((_req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.write(Buffer.alloc(8192, 'a'));
-    res.end(Buffer.alloc(8192, 'b'));
-  });
-  await new Promise(resolve => chunkServer.listen(0, '127.0.0.1', resolve));
-  try {
-    await assert.rejects(
-      () => fetchPinnedSkillResponse('http://localhost:' + chunkServer.address().port + '/manifest', {
-        ip: '127.0.0.1', maxBytes: 4096, timeoutMs: 4000,
-      }),
-      { code: 'response_too_large' }
-    );
-  } finally {
-    await new Promise(resolve => chunkServer.close(resolve));
+  const oversized = {
+    'chunked in two parts': (_req, res) => { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.write(Buffer.alloc(8192, 'a')); res.end(Buffer.alloc(8192, 'b')); },
+    'one write, no length': (_req, res) => { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end(Buffer.alloc(16384, 'a')); },
+    'one write, one byte over the limit': (_req, res) => { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end(Buffer.alloc(4097, 'a')); },
+    'announced by Content-Length': (_req, res) => { res.writeHead(200, { 'Content-Type': 'text/plain', 'Content-Length': 16384 }); res.end(Buffer.alloc(16384, 'a')); },
+  };
+  const pinned = (server) => fetchPinnedSkillResponse('http://localhost:' + server.address().port + '/manifest', { ip: '127.0.0.1', maxBytes: 4096, timeoutMs: 4000 });
+  for (const [shape, handler] of Object.entries(oversized)) {
+    const chunkServer = http.createServer(handler);
+    await new Promise(resolve => chunkServer.listen(0, '127.0.0.1', resolve));
+    try {
+      for (let attempt = 1; attempt <= 25; attempt += 1) {
+        await assert.rejects(() => pinned(chunkServer), { code: 'response_too_large' }, `an oversized response (${shape}) is refused, attempt ${attempt}`);
+      }
+    } finally {
+      await new Promise(resolve => chunkServer.close(resolve));
+    }
   }
-  ok('Real pinned HTTP transport refuses oversized chunked responses');
+  // A body exactly at the limit still arrives whole.
+  const exactServer = http.createServer((_req, res) => { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end(Buffer.alloc(4096, 'c')); });
+  await new Promise(resolve => exactServer.listen(0, '127.0.0.1', resolve));
+  try {
+    const response = await pinned(exactServer);
+    assert.equal(response.ok, true);
+    assert.equal(response.buffer.length, 4096, 'a body at the limit is delivered in full');
+  } finally {
+    await new Promise(resolve => exactServer.close(resolve));
+  }
+  ok('Real pinned HTTP transport refuses oversized responses however the body arrives, and delivers one at the limit');
 
 
   // Multi-file directory installation & skills-lock.json
