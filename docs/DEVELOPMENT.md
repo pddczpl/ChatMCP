@@ -42,6 +42,29 @@ through task resume. Worker orchestration sums HTTP sends for reporting,
 not to block tasks. Provider-reported tokens may exclude timed-out or
 unbilled requests and should not be treated as exact charges.
 
+## Background agents: results and completion notices (P1-F)
+
+An agent that starts others (`spawn_agent`, `spawn_workflow`) can read what they produced and is told when one stops, without polling. The logic is in two modules that do no I/O, `lib/agent-results.mjs` and `lib/subagent-notices.mjs`; `AgentRunner` and `ConcurrentApiAgent` only hold the hooks. The threat model is Surface 5 of [THREAT-MODEL.md](THREAT-MODEL.md); what the person sees is in [USER-GUIDE.md](USER-GUIDE.md).
+
+**`agent_results`** is read-only. It answers from the pool's records of the calling task's own children (`ConcurrentApiAgent#listSubagents`, reached through `manager.listSubagents`, which the pool sets on its own manager and on every child's), and it is offered where the spawn tools are and to a task that already has agents (a full tree still has to read them). Arguments: `ids` (optional; any id that is not a child of the caller answers `found: false` and nothing else) and `offset` (with exactly one id: reads on in a cut final message). The answer is JSON. For each agent: `id`, `goal` (the parent's own words: the prompt that the child's runner stores also carries the Hub's predecessor handoff), `role`, `workflow`, `status`, `createdAt`, `startedAt`, `finishedAt`, `durationMs`, `claim` and `hubRecord`.
+
+- `claim` is the child's final message: model output, `verifiedByHub: false`, redacted before it is cut, one page of at most 8,000 characters, with a marker in the text and `claim.next.offset` when it is cut. The Hub's own "[Verification notice]" sentence is not part of it.
+- `hubRecord` is what the Hub recorded: steps, tool calls, the receipts it made itself (`shaCheckedEdits`, `shaCheckedReads`, `passingChecks`, `diffReviews`: tool activity it saw, not proof the work is right), unverified operations, the error code and message, the branch. `verificationOutcome.ready` is never shown: it is also true when nothing needed checking.
+- Bounds, guaranteed and not a target: 16 agents per call (the newest, oldest first, `omitted` counts the rest) and 24,000 characters in all; the answer is rebuilt with less text, then less detail, then fewer agents until it fits. There is no clock in it, so a parent that polls an unchanged child gets the same bytes and the no-progress detector stops it (a recovery hint after 4 repeats, a stop after 10).
+
+**Notices.** The pool sees a child stop (the END event of its runner, plus the endings no runner reports: blocked by a failed dependency, cancelled while queued, failed before it started) and calls `AgentRunner#recordSubagentFinished` on the runner that holds the parent task. That keeps one entry per child in `task.subagentNotices` (at most 64, in `task.json`, validated again by `load()`; `recorded` then `delivered`) and adds the event `subagent_finished`. The model is told by `#tellAboutAgents`: one host message of kind `completion_notice`, added only where no model turn is open, so it follows every result of the turn before it and is never between two:
+
+| the parent is | what happens |
+|---|---|
+| running, or waiting for an approval | the entry is recorded at once; at the next boundary (the top of the loop, behind `HistoryLedger.endBatch`) the message is added, in front of a message the person queued; event `subagent_notice` |
+| writing its final answer when the child stops | the run goes on instead of finishing (the ledger drops what waits when a run ends), the message is added and the model answers again; not when a step limit, the deadline, a stop or the size of the context would end the run at the top of the loop (the answer stands, the entry stays `recorded`), and at most 64 times |
+| finished | the entry is only recorded (`subagentNotices[].notice` in its state, the event, nothing started, no request); the next run adds the message before its prompt, once |
+| restarted | `load()` restores the entries; nothing is sent or recorded; a delivered entry is never told again, an unread one is told by the next run |
+
+The message is the Hub's: ids, role, how each agent stopped (the word for `completed` is "sent its final answer", which is all it means here), when, the goal the parent wrote (quoted on one line) and a pointer to `agent_results`; nothing an agent wrote. It is never put in `task.prompts`, `task.dialogue` or `task.carriedPrompts`, which are what tool and skill selection and the conversation read, so it selects nothing and does not count as something the person asked.
+
+Not covered. The coding orchestrator's workers (`lib/coding-orchestrator.mjs` builds each a plain `HubManager`, which has no `listSubagents` and no spawn function) and the dynamic delegates (`lib/dynamic-delegates.mjs`, `lib/studio-delegates.mjs`: the Hub itself collects their results) have no parent model to tell. A child's own task files keep its final message as it wrote it (RR-6, RR-13). The `agent_results` call is not hooked, like the spawn calls (RR-11); `SubagentStop` is a separate matter. With `CHATMCP_DIRECT_TOOL_LIMIT=124` the three host functions (`spawn_agent`, `spawn_workflow`, `agent_results`) take the advertised functions past 128, as the two spawn tools already did.
+
 ## Trạng thái Windows Sandbox (Phase 1 experimental)
 
 **Chưa có bằng chứng cách ly Windows Sandbox guest thật.** Việc build .NET GuestSupervisor

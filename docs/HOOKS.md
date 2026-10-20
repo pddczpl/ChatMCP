@@ -97,7 +97,7 @@ The permission gate decides first. The hooks are asked next, **for every call th
 * A hook **cannot** change the arguments of a call or the result of a tool (`updatedInput`, `updatedToolOutput`: not implemented, ignored), and nothing in its output touches a permission setting: the output is read through a fixed list of fields.
 * If the hooks runner itself fails before the tool runs, the call is refused (`hook_denied`); after the tool ran, the result is returned as it is.
 
-Covered: every call that goes through the guarded session, that is the dashboard agent, a spawned agent (`spawn_agent`) and its own tools, a coding worker and the ChatGPT Web Companion, on the primary workspace and on a second one. With the Companion the hook's context is part of the tool result that goes to chatgpt.com, so it passes the same outbound filter as any other result. **Not covered**: the `spawn_agent` / `spawn_workflow` calls themselves (the agent loop runs them outside the guard), what the Hub runs on its own account (checkpoints, the verification run of a worker's checks).
+Covered: every call that goes through the guarded session, that is the dashboard agent, a spawned agent (`spawn_agent`) and its own tools, a coding worker and the ChatGPT Web Companion, on the primary workspace and on a second one. With the Companion the hook's context is part of the tool result that goes to chatgpt.com, so it passes the same outbound filter as any other result. **Not covered**: the `spawn_agent`, `spawn_workflow` and `agent_results` calls themselves (the agent loop runs them outside the guard), what the Hub runs on its own account (checkpoints, the verification run of a worker's checks).
 
 ## Project hooks and their approval
 
