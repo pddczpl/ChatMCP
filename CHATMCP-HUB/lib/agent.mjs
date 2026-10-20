@@ -12,7 +12,7 @@ import { acceptObjectiveCriterion, availableObjectiveReceipts } from './objectiv
 import { createCostLedger, updateCostLedger } from './model-cost.mjs';
 import { taskToolSelectionMode, selectTaskToolNames } from './tool-selector.mjs';
 import { HistoryLedger } from './history-ledger.mjs';
-import { loadProjectInstructions, projectInstructionsMessage, projectInstructionsSetting } from './project-instructions.mjs';
+import { loadProjectInstructions, projectInstructionsCapFor, projectInstructionsMessage, projectInstructionsSetting } from './project-instructions.mjs';
 import { SKILL_LOAD_TOOL_NAME, buildSkillIndex, createSkillLoader, skillLoadPreview, skillLoadReceipt, skillLoadTool } from './skill-index.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
@@ -398,6 +398,14 @@ async function boundedClose(close) {
 }
 async function atomicWrite(file, data) {
   await writeFileAtomic(file, data, { mode: 0o600 });
+}
+
+// The context budget a run is planned on for these instructions and tools, asked of the provider the way #run asks it (a provider that cannot say counts as unknown).
+function plannedBudget(provider, instructions, tools) {
+  let configured = null, metadata = null;
+  try { configured = provider.state?.()?.contextWindowTokens ?? null; } catch { /* unknown */ }
+  try { metadata = provider.snapshot?.()?.metadataContextTokens ?? null; } catch { /* unknown */ }
+  return resolveEffectiveContextBudget({ contextWindowTokens: configured, modelMetadataTokens: metadata, instructions, tools, maxOutputTokens: MAX_OUTPUT_TOKENS });
 }
 
 export class AgentRunner {
@@ -945,13 +953,16 @@ export class AgentRunner {
       }
       // AGENTS.md / CLAUDE.md of the workspace root, read now (every run reads them again) as one bounded block of untrusted project guidance (at most 8,192 bytes).
       // It goes into the instructions, so the context budget counts it as fixed overhead and no history compaction can drop it; it is never put in the conversation.
+      // How much of it a run can afford depends on the window of its model: see projectInstructionsCapFor.
       context.preflightStage = 'project instructions';
-      const guidance = await abortable(loadProjectInstructions({ workspacePath: task.workspace.path, enabled: this.projectInstructions.enabled, redact: (text) => this.#redact(text) }), context.controller.signal);
+      const instructionsFor = (projectGuidance) => (context.direct.functions.length
+        ? createLocalAgentInstructions(offeredCatalog, task.workspace, this.manager.state().environment ?? null, { projectGuidance })
+        : createAgentInstructions(context.catalog, task.workspace, { projectGuidance }));
+      const room = projectInstructionsCapFor(plannedBudget(this.provider, instructionsFor(''), context.tools));
+      const guidance = await abortable(loadProjectInstructions({ workspacePath: task.workspace.path, enabled: this.projectInstructions.enabled, maxBytes: room, redact: (text) => this.#redact(text) }), context.controller.signal);
       task.projectInstructions = guidance.record;
       const projectGuidance = guidance.block;
-      context.instructions = context.direct.functions.length
-        ? createLocalAgentInstructions(offeredCatalog, task.workspace, this.manager.state().environment ?? null, { projectGuidance })
-        : createAgentInstructions(context.catalog, task.workspace, { projectGuidance });
+      context.instructions = instructionsFor(projectGuidance);
       await this.#event(task, 'instructions_loaded', projectInstructionsMessage(guidance.record), { projectInstructions: guidance.record });
       if(context.spawnTool)context.instructions+='\nBACKGROUND SUBAGENTS: Use spawn_agent for a narrow independent job. Worktrees are isolated, never auto-merged.\n';
       if(context.workflowTool)context.instructions+='\nAUTONOMOUS WORKFLOWS: For a user request benefiting from MULTIPLE independent viewpoints, multi-step review/verification, or an explicitly requested team of agents, prefer spawn_workflow. Declare a short workflow title and 1–5 named phases with 1–12 total specialized agents. List exact independent agent goals, evidence to gather, and names of earlier phases in dependsOn; omitted dependsOn means wait for the preceding phase. For example Review (several independent reviewers) then Verify (independent checkers). The host runs genuinely parallel agents subject to Git-worktree/approval/concurrency constraints and persists progress under this chat. The workflow can outlive your chat turn; report only that it was STARTED, never that a review, fix or test passed until confirmed in its actual output. Do not spawn a workflow for a simple request that one agent can complete.\n';

@@ -46,10 +46,27 @@ export function projectInstructionsSetting(env = process.env) {
   });
 }
 
+// (0 is a cap: nothing fits. What is not a number at all, or negative, is no cap and gets the default.)
 const capOf = (value) => {
+  if (value === null || value === undefined || value === '') return PROJECT_INSTRUCTIONS_MAX_BYTES;
   const number = Math.floor(Number(value));
-  return Number.isFinite(number) && number > 0 ? Math.min(number, PROJECT_INSTRUCTIONS_MAX_BYTES) : PROJECT_INSTRUCTIONS_MAX_BYTES;
+  return Number.isFinite(number) && number >= 0 ? Math.min(number, PROJECT_INSTRUCTIONS_MAX_BYTES) : PROJECT_INSTRUCTIONS_MAX_BYTES;
 };
+
+// How much of a run's room the project guidance may take. The block is fixed overhead of the context budget, and a run whose KNOWN window leaves its history less than
+// HISTORY_FLOOR_TOKENS is refused (context_limit, see AgentRunner). A block of 8,192 bytes did that to runs that worked on a window of 10,000 or 12,288 tokens (history
+// 1,356 -> 0 and 3,072 -> 916 tokens, measured with the real budget function on the instructions of a real run), so the block may take at most half of what is left above
+// that floor once a reserve is kept for the text a run appends to its instructions later (the plan, the check discovery, the token discipline). `policy` is what
+// resolveEffectiveContextBudget made of the instructions WITHOUT the block. An unknown window is planned as 32,768 tokens and never refuses a run for lack of room: the whole cap.
+const HISTORY_FLOOR_TOKENS = 1000;
+const LATER_INSTRUCTIONS_TOKENS = 1500;
+const CHARACTERS_PER_TOKEN = 3.8; // the estimate lib/context-compaction.mjs plans with
+export function projectInstructionsCapFor(policy) {
+  if (policy?.source === 'conservative_fallback') return PROJECT_INSTRUCTIONS_MAX_BYTES;
+  const room = Number(policy?.maxHistoryTokens) - HISTORY_FLOOR_TOKENS - LATER_INSTRUCTIONS_TOKENS;
+  if (!(room > 0)) return 0;
+  return Math.min(PROJECT_INSTRUCTIONS_MAX_BYTES, Math.floor(room * CHARACTERS_PER_TOKEN * 0.5));
+}
 const emptyRecord = (cap, extra = {}) => ({ enabled: true, maxBytes: cap, blockBytes: 0, blockSha256: null, truncated: false, files: [], error: null, ...extra });
 
 // ---- text -----------------------------------------------------------------------------------------------------------------------------
@@ -251,5 +268,6 @@ export function projectInstructionsMessage(record) {
   const parts = used.map((file) => file.status === 'alias' ? `${file.path} (giống ${file.aliasOf})`
     : `${file.path} (${file.loadedBytes}/${file.textBytes} byte${file.status === 'truncated' ? `, cắt ${file.cutBytes}` : ''})`);
   const refused = left.map((file) => `${file.path}: ${file.reason}`);
-  return `Đã nạp hướng dẫn dự án (dữ liệu không tin cậy, ${record.blockBytes}/${record.maxBytes} byte): ${parts.join(', ') || 'không có tệp nào'}${refused.length ? `; không nạp: ${refused.join(', ')}` : ''}.`;
+  const small = record.maxBytes < PROJECT_INSTRUCTIONS_MAX_BYTES ? ` Giới hạn giảm còn ${record.maxBytes} byte vì cửa sổ ngữ cảnh của model nhỏ.` : '';
+  return `Đã nạp hướng dẫn dự án (dữ liệu không tin cậy, ${record.blockBytes}/${record.maxBytes} byte): ${parts.join(', ') || 'không có tệp nào'}${refused.length ? `; không nạp: ${refused.join(', ')}` : ''}.${small}`;
 }
