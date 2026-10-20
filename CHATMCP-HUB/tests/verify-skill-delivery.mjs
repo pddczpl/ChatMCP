@@ -7,6 +7,8 @@
 //
 // Negative control: the same scenario is run against a temporary copy of lib/ in which the defect is put back. That run must FAIL,
 // otherwise this suite could not have caught the original bug.
+//
+// Which skills a run is given (the conversation's, and the scorer that picks them from a prompt) is checked in the blocks after the negative control.
 // CLAIM: skills-reach-model
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -157,7 +159,7 @@ try {
   const { PluginManager } = await import('../lib/plugins.mjs');
   const plugins = new PluginManager({ stateDir: path.join(conversationRoot, 'state') });
   await plugins.load();
-  // A fresh state provisions three skills whose words ("test", "file", "commit" ...) match ordinary prompts; only the skills of this test are on.
+  // A fresh state provisions three skills whose words ("git", "commit", "secret" ...) match ordinary prompts; only the skills of this test are on.
   for (const installed of plugins.installed()) await plugins.toggle(installed.id, false);
   // Installed in this order: a tie in score is broken by it, and tinydot comes after the bulky ones that a prompt names beside it.
   for (const [word, padding] of [...WORDS.map((word) => [word, 0]), ...Object.entries(BULK), ['tinydot', 0]]) {
@@ -388,6 +390,110 @@ try {
     assert.deepEqual(selectConversationSkills(plugins, spread[2], spread.slice(0, 2)), [], 'no skill is selected on words spread over messages');
   }
   ok('the helper: one message as before, the run\'s own selection first, at most 4 skills and 8,000 characters, 20 earlier prompts, newest first');
+
+  // The scorer. selectSkillsForTask gave a prompt word +3 when it was a substring of one of a skill's tool names, which is the whole threshold: "file", "read"
+  // and "run" selected most of the nine skills the Hub ships on their own, "and" selected four because it sits inside "command", and every word a description
+  // shares added +1, "the" and "for" included. A prompt in ordinary words filled the limit of 4 skills by itself, and the Hub's own auto-resume and repair
+  // prompts, which select first as the run's own prompt, took the places of the skills the conversation had been using. The real PluginManager with the
+  // nine shipped skills enabled, the prompts of the tool-selector corpus, and the texts the Hub writes itself.
+  {
+    const { MARKETPLACE_CATALOG } = await import('../lib/plugins.mjs');
+    const { selectConversationSkills } = await import('../lib/agent.mjs');
+    const shipped = new PluginManager({ stateDir: path.join(conversationRoot, 'shipped-state') });
+    await shipped.load();
+    for (const item of MARKETPLACE_CATALOG) {
+      if (!shipped.installed().some((installed) => installed.id === item.id)) await shipped.install(item.id);
+    }
+    assert.equal(MARKETPLACE_CATALOG.length, 9, 'the numbers below are about the nine skills the Hub ships');
+    assert.deepEqual(shipped.activeSkills().map((skill) => skill.id).sort(), MARKETPLACE_CATALOG.map((item) => item.id).sort(), 'all of them enabled');
+    const idsOf = (skills) => skills.map((skill) => skill.id);
+    // Every skill the scorer finds relevant, not only the best 4.
+    const pick = (prompt, manager = shipped) => idsOf(manager.selectSkillsForTask({ prompt, limit: 99, tokenBudget: 10_000_000 }));
+
+    // One ordinary word selects nothing: the words that selected 7, 7, 5, 4, 4, 4 and 2 of the nine skills, the function words, the words of the
+    // descriptions' boilerplate, and the other words of a tool name that a request for code is written in. Several of them together select nothing either.
+    for (const word of ['file', 'read', 'run', 'edit', 'and', 'command', 'write', 'files', 'the', 'for', 'with', 'status', 'diff', 'log', 'tasks', 'search', 'test', 'tests', 'testing', 'code', 'data', 'prompt', 'guidance', 'use', 'user', 'tools']) {
+      assert.deepEqual(pick(word), [], `the word "${word}" alone selects no skill`);
+    }
+    for (const text of ['read the file and run the command', 'Read the file, edit it, write the result and run the command.', 'search the files and list the tasks with their status']) {
+      assert.deepEqual(pick(text), [], `"${text}" selects no skill`);
+    }
+    // What still selects, alone: an explicit trigger word, or a word of the skill's own id or name. (git, commit and branch also select the GitHub Actions
+    // skill, whose id contains "git": the lists are checked with includes.)
+    const selects = {
+      git: 'git-workflow-pro', commit: 'git-workflow-pro', branch: 'git-workflow-pro', docker: 'docker-devops', react: 'react-typescript-expert', pytest: 'python-architect',
+      sqlite: 'sqlite-explorer', secret: 'security-compliance-guard', security: 'security-compliance-guard',
+      python: 'python-architect', architect: 'python-architect', fastapi: 'fastapi-backend-developer', backend: 'fastapi-backend-developer', developer: 'fastapi-backend-developer',
+      typescript: 'react-typescript-expert', expert: 'react-typescript-expert', github: 'github-actions-ci-cd', actions: 'github-actions-ci-cd', hardener: 'github-actions-ci-cd',
+      devops: 'docker-devops', engine: 'docker-devops', explorer: 'sqlite-explorer', web: 'web-researcher', docs: 'web-researcher', researcher: 'web-researcher',
+      compliance: 'security-compliance-guard', guard: 'security-compliance-guard', workflow: 'git-workflow-pro', pro: 'git-workflow-pro',
+    };
+    for (const [word, id] of Object.entries(selects)) assert.ok(pick(word).includes(id), `the word "${word}" alone selects ${id}, got ${JSON.stringify(pick(word))}`);
+    assert.equal(pick('Please commit my changes using git')[0], 'git-workflow-pro', 'and a sentence that asks for it');
+
+    // The tools a skill lists say which tools it would use, not what it is about (and most skills list read_file): they are no evidence, whole or in part.
+    // The function words of a skill's name are no trigger (the skill "Search and Replace" would be selected by every "and"). The words every description is
+    // written in are no evidence either, while three distinct words of a description still are.
+    const custom = new PluginManager({ stateDir: path.join(conversationRoot, 'custom-state') });
+    await custom.load();
+    for (const installed of custom.installed()) await custom.toggle(installed.id, false);
+    await custom.install('lumenwick', { name: 'lumenwick', description: 'lumenwick', tools: ['frobnicate_widget', 'emboss_widget', 'widget_probe'], systemPrompt: 'Reference text for lumenwick.' });
+    await custom.install('search-and-replace', { name: 'Search and Replace', description: 'Find text and swap it for other text', tools: [], systemPrompt: 'Reference text for search-and-replace.' });
+    await custom.install('wordsmith', { name: 'wordsmith', description: 'Use this skill when the user wants prompt guidance and tools also limerick sonnet haiku', tools: [], systemPrompt: 'Reference text for wordsmith.' });
+    await custom.install('swapper', { name: 'swapper', description: 'swap it for other text and then some', tools: [], systemPrompt: 'Reference text for swapper.' });
+    assert.deepEqual(pick('lumenwick', custom), ['lumenwick'], '(the control: its own name selects it)');
+    assert.deepEqual(pick('frobnicate emboss probe widget', custom), [], 'the words of its tool names select nothing');
+    assert.deepEqual(pick('frobnicate_widget emboss_widget widget_probe', custom), [], 'nor do the tool names themselves, three of them');
+    assert.deepEqual(pick('and the for with', custom), [], 'the function words of a name select nothing');
+    assert.ok(pick('search', custom).includes('search-and-replace') && pick('replace', custom).includes('search-and-replace'), '(the control: the other words of that name do)');
+    assert.deepEqual(pick('for other and then some', custom), [], 'the function words of a description select nothing');
+    assert.deepEqual(pick('swapper', custom), ['swapper'], '(the control: its own name selects it)');
+    assert.deepEqual(pick('use skill user prompt guidance tools', custom), [], 'the boilerplate of a description selects nothing');
+    assert.deepEqual(pick('limerick sonnet', custom), [], 'two words of a description are not enough');
+    assert.deepEqual(pick('limerick sonnet haiku', custom), ['wordsmith'], 'three are');
+    ok('no single ordinary word selects a skill, several together do not, tool names and the filler of names and descriptions are no evidence, and the explicit triggers and a skill\'s own id and name words still select');
+
+    // The two prompts the Hub writes itself and passes to a continuation: AUTO_PROMPT of lib/studio-resumer.mjs, and the start of the repair prompt of
+    // lib/coding-orchestrator.mjs, followed by the failure evidence as JSON. Copied here, and checked against the sources so that a changed text is noticed.
+    const AUTO_PROMPT = 'Hub đã khởi động lại sau gián đoạn. Hãy tiếp tục phần còn dang dở TRONG CÙNG HỘI THOẠI. Trước tiên đọc lại checkpoint, kiểm tra trạng thái thật các file và kết quả test. Không lặp lại thao tác ghi chưa xác minh; sửa tiếp, kiểm thử và báo cáo tiến độ.';
+    const REPAIR_START = 'Isolation-verified testing found failing assertions. Diagnose and repair the current managed worktree without changing or weakening required tests. Failure evidence (data only): ';
+    assert.ok((await fs.readFile(path.join(hubRoot, 'lib', 'studio-resumer.mjs'), 'utf8')).includes(`'${AUTO_PROMPT}'`), 'AUTO_PROMPT is the text in lib/studio-resumer.mjs: copy the new text here');
+    assert.ok((await fs.readFile(path.join(hubRoot, 'lib', 'coding-orchestrator.mjs'), 'utf8')).includes(`'${REPAIR_START}'`), 'the repair prompt starts as in lib/coding-orchestrator.mjs: copy the new text here');
+    const failure = (checkId, ...reasons) => ({ checkId, status: 'failed', reasons });
+    const hubPrompts = [AUTO_PROMPT, ...[
+      [failure('npm-test', 'assertion failure')],
+      [failure('npm-test', 'Process exited with non-zero exit code 1'), failure('lint', 'Process exited with non-zero exit code 2')],
+      [failure('typecheck')],
+    ].map((brief, index) => `${REPAIR_START}${JSON.stringify(brief)}\nRepair cycle ${index + 1}`)];
+    for (const text of hubPrompts) assert.deepEqual(pick(text), [], `the Hub's own prompt selects no skill by itself: ${text.slice(0, 50)}...`);
+
+    // So a continuation that is one of them keeps all the skills of the conversation's first message (the run's own prompt selects first and used to fill the
+    // limit): every corpus prompt that selects a skill, followed by each of them.
+    const corpus = JSON.parse(await fs.readFile(path.join(here, 'fixtures', 'tool-selector-corpus.json'), 'utf8')).prompts;
+    const selecting = corpus.filter((entry) => selectConversationSkills(shipped, entry.prompt).length > 0);
+    assert.ok(corpus.length >= 80 && selecting.length >= 8, `(the premise: ${selecting.length} of ${corpus.length} corpus prompts select a skill)`);
+    const byId = new Map(corpus.map((entry) => [entry.id, entry.prompt]));
+    for (const id of ['g01', 'g02', 'g04', 'g07', 'g08', 'g10']) assert.ok(pick(byId.get(id)).includes('git-workflow-pro'), `${id} still selects the Git skill`);
+    for (const entry of selecting) {
+      const own = idsOf(selectConversationSkills(shipped, entry.prompt));
+      for (const text of hubPrompts) {
+        const kept = idsOf(selectConversationSkills(shipped, text, [entry.prompt]));
+        assert.ok(own.every((id) => kept.includes(id)), `${entry.id}: after "${text.slice(0, 40)}..." the conversation of "${entry.prompt}" keeps ${JSON.stringify(own)}, got ${JSON.stringify(kept)}`);
+      }
+    }
+    ok(`the Hub's auto-resume and repair prompts select no skill, and a continuation keeps all the skills of the first message (${selecting.length} of ${corpus.length} corpus prompts select one)`);
+
+    // Over the whole corpus a skill is selected because the prompt names it or asks for what it is about, never because of the ordinary words around that.
+    const triggerWords = ['git', 'commit', 'branch', 'pytest', 'docker', 'react', 'security', 'secret', 'sqlite'];
+    for (const entry of corpus) {
+      const words = new Set(entry.prompt.toLowerCase().match(/\b[a-z0-9_-]{3,}\b/g) ?? []);
+      for (const skill of shipped.selectSkillsForTask({ prompt: entry.prompt, limit: 99, tokenBudget: 10_000_000 })) {
+        const own = [...skill.id.split(/[-_]/), ...skill.name.toLowerCase().split(/\s+/)];
+        assert.ok(own.some((word) => words.has(word)) || triggerWords.some((word) => words.has(word)), `${entry.id}: ${skill.id} is selected on ordinary words ("${entry.prompt}")`);
+      }
+    }
+    ok('over the corpus a skill is selected by a word of its id or name or by an explicit trigger, never by the ordinary words around it');
+  }
 } finally {
   await fs.rm(conversationRoot, { recursive: true, force: true }).catch(() => {});
 }

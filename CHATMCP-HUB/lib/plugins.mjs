@@ -662,6 +662,18 @@ export const MARKETPLACE_CATALOG = Object.freeze([
 // Built-ins that earlier releases installed under a name that claimed more than they are (an "MCP explorer" that is prompt-only guidance).
 const RENAMED_BUILTINS = Object.freeze({ 'sqlite-mcp-explorer': 'sqlite-explorer' });
 
+// Words that cannot say what a request or a skill is about. A function word is no evidence anywhere: "and" used to select four skills because it sits inside
+// "command", and "the" and "for" were a point for every description that has them. The filler is the vocabulary every description is written in
+// ("Use this skill when the user wants ...", "Prompt guidance for ..."): no evidence in a description, though a skill may still be called "Skill Creator".
+const FUNCTION_WORDS = new Set((
+  'about above after again against all also although always among and another any are because been before being below between both but can could did does ' +
+  'down during each either else even ever every few for from further had has have having her here hers him his how however into its itself just many may ' +
+  'might more most much must neither never nor not now off once only onto other our ours out over per shall she several should since some still such than ' +
+  'that the their theirs them then there these they this those though through too under unless until upon very via was were what whatever when whenever ' +
+  'where whether which while who whom whose why will with within without would yet you your yours'
+).split(' '));
+const DESCRIPTION_FILLER = new Set('guidance need needs prompt prompts skill skills tool tools trigger triggers use used user users uses using want wants'.split(' '));
+
 export class PluginManager {
   #loadPromise = null;
 
@@ -1141,7 +1153,11 @@ export class PluginManager {
 
   /**
    * Selects and ranks active skills for a specific task prompt within a token budget.
-   * Enforces a relevance threshold: if no skill is meaningfully relevant (score < 3), selects nothing.
+   * A skill is relevant when the prompt names it (a word of its id, +5, or of its name, +4), asks for what it is about (an explicit trigger word, +8 to +10) or
+   * shares distinct words with its description (+1 each). Enforces a relevance threshold: if no skill is meaningfully relevant (score < 3), selects nothing.
+   * Any other word is worth at most 1 to a skill, so one ordinary word ("file", "read", "and", "test") cannot reach the threshold by itself: function words and
+   * the filler of descriptions count for nothing, and so do the tools a skill lists (they say which tools it would use, not what it is about, and most skills
+   * list read_file).
    * Guarantees that injected prompt instructions never exceed tokenBudget, even if the first skill is oversized.
    *
    * @param {object} options
@@ -1162,27 +1178,30 @@ export class PluginManager {
       promptText.match(/\b[a-z0-9_-]{3,}\b/g) || []
     );
 
+    // Function words are no evidence for anything, whichever field they would match.
+    const words = [...promptTokens].filter((tok) => !FUNCTION_WORDS.has(tok));
+
     const scored = [];
 
     for (const skill of active) {
       let score = 0;
       const idTokens = skill.id.toLowerCase().split(/[-_]/);
       const nameTokens = skill.name.toLowerCase().split(/\s+/);
-      const descTokens = (skill.description || '').toLowerCase().split(/\s+/);
-      const toolTokens = (skill.tools || []).map((t) => t.toLowerCase());
+      const descTokens = new Set((skill.description || '').toLowerCase().split(/\s+/));
 
-      for (const tok of promptTokens) {
+      // What a skill is called is evidence on its own (5 and 4); what it says about itself is weak and needs company: a description word is 1 and the
+      // threshold is 3. The tools it lists are no evidence at all: a word that is part of "read_file" or "run_command" is in the request of nearly every task.
+      for (const tok of words) {
         if (idTokens.includes(tok)) score += 5;
         if (nameTokens.includes(tok)) score += 4;
-        if (toolTokens.some((t) => t.includes(tok))) score += 3;
-        if (descTokens.includes(tok)) score += 1;
+        if (descTokens.has(tok) && !DESCRIPTION_FILLER.has(tok)) score += 1;
       }
 
-      // Context heuristics
+      // Context heuristics: explicit triggers, each enough on its own. Not "test": it is the most ordinary word of a request for code (the Hub's own
+      // auto-resume prompt says it), and selecting the Python skill on it was a guess about the language of the project.
       if (promptTokens.has('git') && skill.id.includes('git')) score += 10;
       if (promptTokens.has('commit') && skill.id.includes('git')) score += 8;
       if (promptTokens.has('branch') && skill.id.includes('git')) score += 8;
-      if (promptTokens.has('test') && (skill.id.includes('python') || skill.id.includes('test'))) score += 8;
       if (promptTokens.has('pytest') && skill.id.includes('python')) score += 10;
       if (promptTokens.has('docker') && skill.id.includes('docker')) score += 10;
       if (promptTokens.has('react') && skill.id.includes('react')) score += 10;
