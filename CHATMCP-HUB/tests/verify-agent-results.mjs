@@ -220,10 +220,14 @@ function fact(n, extra = {}) {
   assert.match(hugeView.text, /12345 further characters are not available through this tool/);
   assert.equal(hugeView.truncated, true);
   // surrogate pairs are never split by a cut or by an offset in the middle of one
-  const emoji = '😀'.repeat(6000);
+  const emoji = `x${'😀'.repeat(6000)}`; // the page ends at 8000, which is the middle of the pair that starts at 7999
   const first = shapeAgentResults([fact(3, { detail: { finalText: emoji } })], { ids: [uuid(3)], offset: 0 }).structuredContent.children[0].claim;
   const body = first.text.slice(0, first.shown);
-  assert.equal(body.length % 2, 0); assert.doesNotMatch(body, /[\ud800-\udbff](?![\udc00-\udfff])/); assert.doesNotMatch(body, /(?<![\ud800-\udbff])[\udc00-\udfff]/);
+  assert.equal(first.shown, AGENT_RESULTS_LIMITS.claimChars - 1, 'the page was shortened by one so as not to cut a pair in two');
+  assert.doesNotMatch(body, /[\ud800-\udbff](?![\udc00-\udfff])/); assert.doesNotMatch(body, /(?<![\ud800-\udbff])[\udc00-\udfff]/);
+  assert.equal(first.next.offset, first.shown, 'and the next page starts where this one stopped');
+  const nextPage = shapeAgentResults([fact(3, { detail: { finalText: emoji } })], { ids: [uuid(3)], offset: first.next.offset }).structuredContent.children[0].claim;
+  assert.equal(body + nextPage.text.slice(0, nextPage.shown), emoji.slice(0, body.length + nextPage.shown), 'the two pages join without losing or doubling a character');
   const middle = shapeAgentResults([fact(3, { detail: { finalText: emoji } })], { ids: [uuid(3)], offset: 3 }).structuredContent.children[0].claim;
   assert.doesNotMatch(middle.text.slice(0, middle.shown), /^[\udc00-\udfff]/, 'an offset in the middle of a pair skips the stray half');
   JSON.parse(JSON.stringify(first)); JSON.parse(JSON.stringify(middle));
@@ -504,6 +508,14 @@ const stopped = (n, extra = {}) => endSummary(fact(n, { detail: { status: 'compl
   assert.equal(dupes.length, 1); assert.equal(dupes[0].key, 'later|completed', 'the newer entry of an agent wins');
   const flood = normalizeSubagentNotices(Array.from({ length: 1000 }, (_, n) => ({ ...good, id: uuid(n + 1), recordedAt: iso(n) })));
   assert.ok(flood.length <= SUBAGENT_NOTICE_LIMITS.entries);
+  // an unread entry that is OLDER than 60 delivered ones (a file the Hub did not write in order): the cap drops delivered entries, never news
+  const odd = normalizeSubagentNotices([
+    ...Array.from({ length: 10 }, (_, n) => ({ ...good, id: uuid(500 + n), recordedAt: iso(n), delivery: 'recorded', deliveredAt: null, deliveredRun: null })),
+    ...Array.from({ length: 60 }, (_, n) => ({ ...good, id: uuid(600 + n), recordedAt: iso(100 + n) })),
+  ]);
+  assert.equal(odd.length, SUBAGENT_NOTICE_LIMITS.entries);
+  assert.equal(odd.filter((entry) => entry.delivery === 'recorded').length, 10, 'all ten unread entries were kept although they are the oldest');
+  assert.equal(odd.filter((entry) => entry.delivery === 'delivered').length, 54);
   ok('B5 load: whatever the file held becomes a bounded list of plain objects with clipped strings; unusable entries go, an unknown state means "not told yet", a newer entry of an agent wins');
 }
 {

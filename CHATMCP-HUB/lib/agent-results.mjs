@@ -256,7 +256,8 @@ function describe(fact, safe, { claimMode, claim, claimChars, offset, compact })
 export function shapeAgentResults(facts, request = { ids: null, offset: 0 }, { redact: known = null } = {}) {
   const redact = makeRedactor(known);
   const everyone = (Array.isArray(facts) ? facts : []).filter((fact) => fact?.id)
-    .sort((a, b) => String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? '')) || a.id.localeCompare(b.id));
+    // Oldest first. The sort is stable and the pool lists agents in the order it made them, so agents made in the same millisecond keep that order.
+    .sort((a, b) => String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? '')));
   const byId = new Map(everyone.map((fact) => [fact.id, fact]));
   const offset = request.offset ?? 0;
 
