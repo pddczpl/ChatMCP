@@ -1,7 +1,7 @@
 import { test, expect, onboard, openWorkTab, openSettings, closeSettings } from './fixtures.mjs';
 import { say, call } from '../../tests/e2e/scenarios.mjs';
 import { setMode } from '../../tests/e2e/hub-process.mjs';
-import { git } from '../../tests/e2e/fixtures.mjs';
+import { git, gitInit, makeCalcProject } from '../../tests/e2e/fixtures.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -501,14 +501,18 @@ test('narrow windows (600 and 900 px): the Agents tab fits its panel in every se
   }
 });
 
-test('with another folder in view the delegation forms are off and the notice names both folders; background tasks stay usable', async ({ page, app }) => {
+test('with another folder in view the delegation forms are off, the Hub’s runs are not shown (and the page says so), and background tasks stay usable', async ({ page, app }) => {
   test.setTimeout(180_000);
   defineNoteWorker(app.mock);
   await onboard(page, app);
   await setMode(app.hub, 'autonomous');
-  // a finished run of the project folder, so that what is done to it from the other folder can be tried
+  // a finished run of the project folder, so that what the other folder shows of it can be tried
   const run = await app.hub.post('/api/studio/coding/run', { tasks: [{ id: 'task-a', prompt: 'Add a file named AGENT-NOTE.md that explains this project' }], maxConcurrency: 1, confirmation: 'CREATE WORKTREES' });
   expect(run.status).toBe('ready_for_review');
+  // the Hub names the folder a run belongs to: the very string it reports for its own folder, which is what the page compares
+  const listed = (await app.hub.get('/api/studio/coding')).json.jobs.at(-1);
+  expect(listed.workspace).toBe((await app.hub.state()).workspace.path);
+  expect(listed.workspace).toBe(app.project);
   await page.setViewportSize({ width: 1440, height: 1000 });
   const other = path.join(app.scratch, 'second-workspace');
   await fs.mkdir(other, { recursive: true });
@@ -522,27 +526,128 @@ test('with another folder in view the delegation forms are off and the notice na
   await expect(groups.getByRole('button', { name: 'Bắt đầu phân tích', exact: true })).toBeDisabled();
   await page.getByRole('tab', { name: 'Sửa mã', exact: true }).click();
   const coding = page.getByTestId('coding-agents');
-  await expect(coding.getByRole('status').filter({ hasText: app.project })).toBeVisible();
+  await expect(coding.getByRole('status').filter({ hasText: 'khác với thư mục chính của Hub' })).toContainText(app.project);
   await expect(coding.getByRole('textbox', { name: 'Chia công việc từ một yêu cầu' })).toBeDisabled();
   await expect(coding.getByRole('button', { name: 'Bắt đầu sửa mã', exact: true })).toBeDisabled();
-  // the run of the project folder can be read from here, but nothing is changed from here: not a merge, not a draft on GitHub
-  const card = coding.getByTestId('coding-worker');
-  await card.getByRole('checkbox', { name: /Chọn công việc task-a/ }).check();
-  await card.getByRole('button', { name: 'Xem thay đổi', exact: true }).click();
-  await expect(card.getByRole('region', { name: /^Thay đổi của chatmcp\/coder\// })).toContainText(`+++ b/${NOTE}`);
-  await expect(coding.getByRole('button', { name: 'Gộp các công việc đã chọn', exact: true })).toBeDisabled();
-  await expect(card.getByRole('button', { name: 'Tạo bản nháp trên GitHub' })).toBeDisabled();
+  // the run of the project folder is the Hub’s folder’s and not the one in view: it is not shown, and the page says that it exists and why it is not
+  await expect(coding.getByTestId('coding-worker')).toHaveCount(0);
+  await expect(coding.getByTestId('coding-result')).toHaveCount(0);
+  await expect(coding.getByTestId('isolated-checks-panel')).toHaveCount(0);
+  await expect(coding.getByTestId('coding-other-folders')).toHaveText(`Chỉ hiện các lần sửa mã của thư mục đang xem. 1 lần sửa mã của thư mục chính của Hub (${app.project}) không hiện ở đây, vì bạn đang xem thư mục khác.`);
+  await expect(coding.getByText('Hub chỉ sửa mã ở thư mục chính của nó, nên thư mục đang xem chưa có lần sửa mã nào.')).toBeVisible();
+  await expect(coding.getByText('Mô tả việc cần làm ở trên')).toHaveCount(0);
   await page.getByRole('tab', { name: 'Công việc nền', exact: true }).click();
   await expect(page.getByText('Chưa có công việc nền.', { exact: false })).toBeVisible();
-  // back on the project folder the forms work again, and so does the merge once the changes have been read
+  // back on the project folder the forms work again, its run is shown (nothing is left out), and so does the merge once the changes have been read
   await page.getByRole('button', { name: path.basename(app.project), exact: true }).click();
   await openAgents(page, 'Nhóm trợ lý');
   await expect(groups.getByRole('textbox', { name: 'Yêu cầu của bạn' })).toBeEnabled();
   await page.getByRole('tab', { name: 'Sửa mã', exact: true }).click();
+  const card = coding.getByTestId('coding-worker');
+  await expect(card).toHaveCount(1);
+  await expect(coding.getByTestId('coding-other-folders')).toHaveCount(0);
+  await expect(coding.getByTestId('coding-run-foreign')).toHaveCount(0);
   await card.getByRole('checkbox', { name: /Chọn công việc task-a/ }).check();
   await card.getByRole('button', { name: 'Xem thay đổi', exact: true }).click();
   await expect(card.getByRole('region', { name: /^Thay đổi của chatmcp\/coder\// })).toContainText(`+++ b/${NOTE}`);
   await expect(coding.getByRole('button', { name: 'Gộp các công việc đã chọn', exact: true })).toBeEnabled();
+});
+
+test('runs of two folders: each folder shows its own, and the run of the folder the Hub has left is a record that the Hub itself would not read', async ({ page, app }, testInfo) => {
+  test.setTimeout(240_000);
+  defineNoteWorker(app.mock);
+  await onboard(page, app);
+  await setMode(app.hub, 'autonomous');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const start = (id) => ({ tasks: [{ id, prompt: 'Add a file named AGENT-NOTE.md that explains this project' }], maxConcurrency: 1, confirmation: 'CREATE WORKTREES' });
+  // a run in the project folder; then the Hub is pointed at a second project and makes a run there: one list holds both, and says whose each is
+  const first = await app.hub.post('/api/studio/coding/run', start('task-a'));
+  expect(first.status).toBe('ready_for_review');
+  const second = path.join(app.scratch, 'second-project');
+  makeCalcProject(second);
+  gitInit(second, app.scratch);
+  await app.hub.post('/api/workspace/select', { path: second });
+  expect((await app.hub.state()).workspace.path).toBe(second);
+  const next = await app.hub.post('/api/studio/coding/run', start('task-b'));
+  expect(next.status).toBe('ready_for_review');
+  expect((await app.hub.get('/api/studio/coding')).json.jobs.map((job) => [job.id, job.workspace])).toEqual([[first.id, app.project], [next.id, second]]);
+
+  // the page still looks at the project folder, which the Hub has left: its run is a record, and the page says what the Hub says about it
+  await openAgents(page, 'Sửa mã');
+  const coding = page.getByTestId('coding-agents');
+  const card = coding.getByTestId('coding-worker');
+  await expect(card).toHaveCount(1);
+  await expect(card).toHaveAttribute('data-worker', 'task-a');
+  await expect(coding.getByTestId('coding-result')).toHaveAttribute('data-run', first.id);
+  await expect(coding.getByTestId('coding-run-foreign')).toContainText(`(${second})`);
+  await expect(coding.getByTestId('coding-other-folders')).toHaveText(`Chỉ hiện các lần sửa mã của thư mục đang xem. 1 lần sửa mã của thư mục chính của Hub (${second}) không hiện ở đây, vì bạn đang xem thư mục khác.`);
+  for (const name of ['Xem thay đổi', 'Xem nội dung tệp', 'Tạo bản nháp trên GitHub']) await expect(card.getByRole('button', { name, exact: true }), name).toBeDisabled();
+  await expect(coding.getByRole('button', { name: 'Gộp các công việc đã chọn', exact: true })).toBeDisabled();
+  await coding.getByTestId('coding-result').evaluate((element) => element.scrollIntoView({ block: 'center' }));
+  await shot(page, testInfo, 'coding-two-folders-record');
+  // the tab is not stricter than the Hub: the Hub answers a read of that run with "not in the selected workspace", and reads the run of the folder it works on
+  const refused = await app.hub.get(`/api/studio/coding/review?runId=${first.id}&workerId=task-a`);
+  expect([refused.status, refused.json.code]).toEqual([404, 'run_not_found']);
+  expect((await app.hub.get(`/api/studio/coding/review?runId=${next.id}&workerId=task-b`)).status).toBe(200);
+
+  // the folder the Hub works on: its own run is shown and read as usual, and the other folder’s is counted
+  await page.getByRole('button', { name: 'second-project', exact: true }).click();
+  await expect(card).toHaveCount(1);
+  await expect(card).toHaveAttribute('data-worker', 'task-b');
+  await expect(coding.getByTestId('coding-run-foreign')).toHaveCount(0);
+  await expect(coding.getByTestId('coding-other-folders')).toHaveText('Chỉ hiện các lần sửa mã của thư mục đang xem. 1 lần sửa mã thuộc thư mục khác nên không hiện ở đây.');
+  await card.getByRole('button', { name: 'Xem thay đổi', exact: true }).click();
+  await expect(card.getByRole('region', { name: /^Thay đổi của chatmcp\/coder\// })).toContainText(`+++ b/${NOTE}`);
+  // and back to the first folder
+  await page.getByRole('button', { name: path.basename(app.project), exact: true }).click();
+  await expect(card).toHaveAttribute('data-worker', 'task-a');
+  await expect(coding.getByTestId('coding-run-foreign')).toBeVisible();
+});
+
+test('a worker that was asked to verify and could not be: the Hub’s note says why in the Hub’s name, and the AI’s report keeps only the AI’s words', async ({ page, app }, testInfo) => {
+  test.setTimeout(240_000);
+  defineNoteWorker(app.mock);
+  await onboard(page, app);
+  await setMode(app.hub, 'autonomous');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  // The project has a Node test file and no `node --test` script: the Hub finds no check it could run in isolation, so the worker needs the owner.
+  const run = await app.hub.post('/api/studio/coding/run', { tasks: [{ id: 'task-1', prompt: 'Add a file named AGENT-NOTE.md that explains this project', verify: true }], maxConcurrency: 1, confirmation: 'CREATE WORKTREES' });
+  expect(run.status).toBe('partial_failure');
+  const [record] = run.workers;
+  expect(record).toMatchObject({ id: 'task-1', status: 'needs_attention', verifyRequired: true });
+  expect(record.summary, 'the summary is what the model said and nothing else').toBe(CLAIM);
+  expect(record.verificationNote).toEqual({ code: 'no_checks', text: 'No supported pinned Node test definition was discovered.' });
+
+  await openAgents(page, 'Sửa mã');
+  const coding = page.getByTestId('coding-agents');
+  const card = coding.getByTestId('coding-worker').filter({ hasText: 'task-1' });
+  await expect(card).toHaveAttribute('data-kind', 'attention');
+  await expect(card.getByTestId('agent-proof')).toHaveAttribute('data-tone', 'warning');
+  const note = card.getByTestId('hub-note');
+  await expect(note).toHaveText('Ghi chú của Hub: Hub không tìm thấy lệnh kiểm thử Node nào được hỗ trợ trong dự án này, nên không chạy kiểm thử cách ly nào.');
+  await expect(note).toHaveAttribute('data-code', 'no_checks');
+  await expect(note).not.toHaveClass(/success|danger|warning/);
+  // beside the evidence line, before the AI's report, which holds the model’s words and none of the Hub’s
+  const parts = await card.locator('[data-testid="agent-proof"], [data-testid="hub-note"], [data-testid="ai-report"]').evaluateAll((nodes) => nodes.map((node) => node.dataset.testid));
+  expect(parts).toEqual(['agent-proof', 'hub-note', 'ai-report']);
+  const report = card.getByTestId('ai-report');
+  await expect(report).toContainText('All tests pass and the task is complete.');
+  await expect(report).not.toContainText('Hub');
+  await expect(report).not.toContainText('Ghi chú');
+  await expect(coding.locator('[data-tone="success"]')).toHaveCount(0);
+  await card.scrollIntoViewIfNeeded();
+  await shot(page, testInfo, 'coding-hub-note');
+
+  // the same in English
+  const dialog = await openSettings(page, 'Giao diện & ngôn ngữ');
+  await dialog.getByRole('button', { name: 'English' }).click();
+  await closeSettings(page);
+  await openWorkTab(page, 'Agents');
+  await page.getByRole('tab', { name: 'Code edits', exact: true }).click();
+  await expect(card.getByTestId('hub-note')).toHaveText('Hub note: The Hub found no supported pinned Node test in this project, so it ran no isolated check.');
+  await expect(card.getByTestId('ai-report')).toContainText('AI report');
+  await expect(card.getByTestId('hub-note')).not.toHaveText(VIETNAMESE);
+  await shot(page, testInfo, 'coding-hub-note-english');
 });
 
 test('in English, and in the light theme, the tab reads in one language and keeps the evidence colours', async ({ page, app }, testInfo) => {
