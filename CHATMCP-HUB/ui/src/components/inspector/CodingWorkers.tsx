@@ -6,6 +6,7 @@ import { agentErrorText } from '@/lib/agent-errors';
 import { codingBlock, outcomeToast, preselectIds } from '@/lib/agent-proof';
 import { draftIssues, parseDeps, CODING_LIMITS } from '@/lib/agent-draft';
 import { useTranslation, hasTranslation, type TranslationKey } from '@/lib/i18n';
+import '@/lib/i18n-agents-sections'; // the strings only the sections ask for load with them
 import { useAppStore } from '@/store/useAppStore';
 import { useAgentDrafts, clampConcurrency, type CodingTaskDraft } from '@/store/useAgentDrafts';
 import { Button } from '@/components/ui/Button';
