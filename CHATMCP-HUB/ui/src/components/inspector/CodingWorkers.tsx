@@ -172,7 +172,7 @@ export function CodingWorkers() {
           </Button>
           <div className="ml-auto flex items-center gap-2">
             <label htmlFor="coding-concurrency" className="text-[12px] text-muted">{t('coding_concurrency_label')}</label>
-            <Select id="coding-concurrency" className="w-16" value={clampConcurrency(concurrency, 2)} disabled={working} onChange={(event) => setDraft({ codingConcurrency: Number(event.target.value) })}>
+            <Select id="coding-concurrency" className="w-20" value={clampConcurrency(concurrency, 2)} disabled={working} onChange={(event) => setDraft({ codingConcurrency: Number(event.target.value) })}>
               {[1, 2].map((n) => <option key={n} value={n}>{n}</option>)}
             </Select>
           </div>
