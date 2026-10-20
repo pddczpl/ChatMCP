@@ -410,38 +410,31 @@ test('what the runner recorded changes nothing about how a worker is read: the c
 
 const NOTICE_SENTENCE = 'ChatMCP has NOT independently verified full completion: No verified successful project check; No independently recorded Git diff review.';
 
-test('the Hub’s notice on the AI’s report is passed on as the text it is, for a worker in any state the Hub did not verify', () => {
+test('the Hub’s notice on the AI’s report is passed on as the text it is, for a worker in any state', () => {
   for (const status of ['ready_for_review', 'failed', 'needs_attention', 'interrupted', 'cancelled', 'no_changes', 'running']) {
-    const record = worker({ status, runnerNotice: NOTICE_SENTENCE });
-    assert.notEqual(proofOf(record).kind, 'verified', `(premise) ${status}`);
-    assert.equal(runnerNoticeOf(record, proofOf(record)), NOTICE_SENTENCE, status);
+    assert.equal(runnerNoticeOf(worker({ status, runnerNotice: NOTICE_SENTENCE })), NOTICE_SENTENCE, status);
   }
   // exactly as the Hub sent it: not trimmed, not translated, not cut. What cannot be seen at either end is for the page to show as a marker
   const marked = String.fromCharCode(0x202E) + ' ChatMCP has NOT verified it\n';
-  const record = worker({ runnerNotice: marked });
-  assert.equal(runnerNoticeOf(record, proofOf(record)), marked);
+  assert.equal(runnerNoticeOf(worker({ runnerNotice: marked })), marked);
 });
 
 test('a notice that is not text, or says nothing, is none; the model’s summary is never taken for one', () => {
   for (const bad of [undefined, null, '', ' ', '\n\t  ', 7, true, {}, [], ['x'], { text: NOTICE_SENTENCE }]) {
-    const record = worker({ runnerNotice: bad });
-    assert.equal(runnerNoticeOf(record, proofOf(record)), null, JSON.stringify(bad));
+    assert.equal(runnerNoticeOf(worker({ runnerNotice: bad })), null, JSON.stringify(bad));
   }
-  assert.equal(runnerNoticeOf(null, proofOf(null)), null);
-  assert.equal(runnerNoticeOf(undefined, proofOf(undefined)), null);
-  assert.equal(runnerNoticeOf(worker(), proofOf(worker())), null, 'a worker that has none');
+  assert.equal(runnerNoticeOf(null), null);
+  assert.equal(runnerNoticeOf(undefined), null);
+  assert.equal(runnerNoticeOf(worker()), null, 'a worker that has none');
   // a record saved before the field existed has the sentence inside its summary, or a model wrote the very sentence: that is its summary, which stays the model’s
-  const said = worker({ summary: `Done.\n\n[Verification notice] ${NOTICE_SENTENCE}` });
-  assert.equal(runnerNoticeOf(said, proofOf(said)), null);
-  // and a worker the page is not given a proof for is not one the Hub verified
-  assert.equal(runnerNoticeOf(worker({ runnerNotice: NOTICE_SENTENCE })), NOTICE_SENTENCE);
+  assert.equal(runnerNoticeOf(worker({ summary: `Done.\n\n[Verification notice] ${NOTICE_SENTENCE}` })), null);
 });
 
-test('beside a worker the Hub verified itself the notice is not shown: it speaks of the answer as the AI gave it, and the Hub’s own checks have backed the work since', () => {
+test('a caution is not withdrawn by a green card: the notice is passed on beside a worker the Hub verified itself, and wherever it did not', () => {
+  // the Hub wrote it when the AI reported done, before it ran any check of its own; what the checks proved afterwards does not make it untrue (the Git diff was still not read)
   const green = verifiedWorker({ runnerNotice: NOTICE_SENTENCE });
   assert.equal(proofOf(green).kind, 'verified', '(premise)');
-  assert.equal(runnerNoticeOf(green, proofOf(green)), null);
-  // wherever the Hub did not verify it, the same sentence is shown: a check that failed, one the Hub did not verify, no check on record, a loop that did not end as ready
+  assert.equal(runnerNoticeOf(green), NOTICE_SENTENCE);
   const open = {
     'a later attempt failed': verifiedWorker({ verificationAttempts: [attempt(), attempt({ id: 'a2', status: 'failed', exitCode: 1, testOutcomeVerified: false })] }),
     'an attempt the Hub did not verify': verifiedWorker({ verificationAttempts: [attempt({ testOutcomeVerified: false })] }),
@@ -452,7 +445,7 @@ test('beside a worker the Hub verified itself the notice is not shown: it speaks
   for (const [label, record] of Object.entries(open)) {
     const given = { ...record, runnerNotice: NOTICE_SENTENCE };
     assert.notEqual(proofOf(given).kind, 'verified', `(premise) ${label}`);
-    assert.equal(runnerNoticeOf(given, proofOf(given)), NOTICE_SENTENCE, label);
+    assert.equal(runnerNoticeOf(given), NOTICE_SENTENCE, label);
   }
 });
 
@@ -468,7 +461,7 @@ test('what the Hub says on the AI’s report changes nothing about how a worker 
   assert.equal(hubNoteOf(other, proofOf(other)), null, 'nor is it a verification note');
   assert.equal(runnerErrorOf(other), null, 'nor the runner’s record of why a run stopped');
   const stopped = worker({ status: 'failed', runnerError: 'x' });
-  assert.equal(runnerNoticeOf(stopped, proofOf(stopped)), null, 'and that record is not a notice');
+  assert.equal(runnerNoticeOf(stopped), null, 'and that record is not a notice');
 });
 
 test('an allowed check counts until the Hub’s grant runs out; one that was never allowed, or whose time has passed, does not', () => {

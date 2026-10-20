@@ -42,7 +42,7 @@ export function CodingWorkerCard({ worker, selected, onSelect, reviewed, busy, r
   const proof = assessWorker(worker, { runActive });
   const hubNote = hubNoteOf(worker, proof);
   const runnerError = runnerErrorOf(worker);
-  const runnerNotice = runnerNoticeOf(worker, proof);
+  const runnerNotice = runnerNoticeOf(worker);
   const ready = worker.status === 'ready_for_review';
   // A worker that stopped before it committed leaves its edits, if any, in its own working copy: the owner is told where.
   const leftBehind = UNCOMMITTED.has(worker.status) && typeof worker.worktree === 'string' && worker.worktree !== '';

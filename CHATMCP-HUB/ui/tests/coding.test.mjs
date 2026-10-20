@@ -838,7 +838,7 @@ test('a worker with no record of why its run stopped shows none; what is not tex
 // ---------------------------------------------------------------------------------------------------------------------
 const noticeLineOf = (card) => inside(card).find((node) => node.attrs['data-testid'] === 'runner-notice');
 const NOTICE = 'ChatMCP has NOT independently verified full completion: No verified successful project check; No independently recorded Git diff review.';
-const NOTICE_LABEL = { en: 'The Hub’s note on the AI’s report, as it wrote it:', vi: 'Ghi chú của Hub về báo cáo của AI, nguyên văn:' };
+const NOTICE_LABEL = { en: 'The Hub’s note when the AI reported done, as it wrote it:', vi: 'Ghi chú của Hub lúc AI báo xong, nguyên văn:' };
 const REPORT = 'I created calc.js and ran the tests by hand.';
 
 test('the Hub’s notice on the AI’s report is shown as the Hub’s, with its label in the language on screen, and the report holds only what the AI said', async () => {
@@ -877,13 +877,17 @@ test('the notice is plain text: no colour of proof, and it changes no colour of 
   }
 });
 
-test('beside a worker the Hub verified itself the notice is not shown, and it takes nothing away from what the Hub verified', async () => {
-  const green = await cardOf(verified({ summary: REPORT, runnerNotice: NOTICE, verificationNote: VERIFIED_NOTE }));
-  assert.equal(green.attrs['data-kind'], 'verified', '(premise)');
-  assert.equal(noticeLineOf(green), undefined, 'the Hub’s own checks have backed the work since: two Hub sentences that disagree are not shown');
-  assert.doesNotMatch(green.text, /NOT independently verified/);
-  assert.ok(reportOf(green).text.includes(REPORT));
-  // where the Hub did not verify it, the same sentence is shown
+test('a caution is not withdrawn by a green card: the notice stands beside a worker the Hub verified itself, says when the Hub wrote it, and takes nothing away', async () => {
+  const entry = verified({ summary: REPORT, runnerNotice: NOTICE, verificationNote: VERIFIED_NOTE });
+  for (const lang of ['en', 'vi']) {
+    const card = await cardOf(entry, lang);
+    assert.equal(card.attrs['data-kind'], 'verified', `(premise) ${lang}`);
+    assert.equal(card.attrs['data-tone'], 'success', `${lang}: the card keeps the colour the Hub’s own evidence gives it`);
+    assert.equal(noticeLineOf(card).text, `${NOTICE_LABEL[lang]} ${NOTICE}`, `${lang}: the label says it is from when the AI reported done, before the Hub’s checks`);
+    assert.doesNotMatch(noticeLineOf(card).attrs.class ?? '', GREEN, lang);
+    assert.ok(reportOf(card).text.includes(REPORT), lang);
+  }
+  // and where the Hub did not verify it, the same sentence is shown
   const open = await cardOf(verified({ verificationAttempts: [attempt({ testOutcomeVerified: false })], summary: REPORT, runnerNotice: NOTICE }));
   assert.notEqual(open.attrs['data-kind'], 'verified', '(premise)');
   assert.equal(noticeLineOf(open).text, `${NOTICE_LABEL.en} ${NOTICE}`);
