@@ -1,6 +1,6 @@
-import { test, expect, onboard, openWorkTab, openSettings, closeSettings } from './fixtures.mjs';
+import { test, expect, onboard, send, taskByPrompt, openWorkTab, openSettings, closeSettings } from './fixtures.mjs';
 import { say, call } from '../../tests/e2e/scenarios.mjs';
-import { setMode } from '../../tests/e2e/hub-process.mjs';
+import { setMode, waitForState } from '../../tests/e2e/hub-process.mjs';
 import { git } from '../../tests/e2e/fixtures.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -35,6 +35,17 @@ function defineNoteWorker(mock, { onTools = () => {} } = {}) {
 async function shot(page, testInfo, name, target = page) {
   await page.waitForTimeout(250);
   await target.screenshot({ path: testInfo.outputPath(`${name}.png`), animations: 'disabled' });
+}
+
+/**
+ * A panel of the English screen holds no Vietnamese: not in its text, and not in a title, an accessible label or a placeholder either (those
+ * never show up in the text of a panel, and they are where a string that was forgotten is most likely to hide).
+ */
+async function expectEnglishOnly(panel, label) {
+  expect(await panel.innerText(), `${label} still holds Vietnamese`).not.toMatch(VIETNAMESE);
+  const attributes = await panel.evaluate((root) => [...root.querySelectorAll('[title],[aria-label],[placeholder]')]
+    .map((element) => ['title', 'aria-label', 'placeholder'].map((name) => element.getAttribute(name)).filter(Boolean).join(' | ')));
+  expect(attributes.filter((text) => VIETNAMESE.test(text)), `${label}: a title, a label or a placeholder still holds Vietnamese`).toEqual([]);
 }
 
 async function openAgents(page, section) {
@@ -553,17 +564,39 @@ test('in English, and in the light theme, the tab reads in one language and keep
   const run = await app.hub.post('/api/studio/coding/run', { tasks: [{ id: 'task-a', prompt: 'Add a file named AGENT-NOTE.md that explains this project' }], maxConcurrency: 1, confirmation: 'CREATE WORKTREES' });
   expect(run.status).toBe('ready_for_review');
   await page.setViewportSize({ width: 1440, height: 1000 });
+  // something for the Background section to list: an ordinary chat, sent while the screen is still Vietnamese (the send button is named there)
+  const prompt = 'Please say hello in one short line.';
+  await send(page, prompt);
+  await waitForState(app.hub, (await taskByPrompt(app, prompt)).id, 'completed');
   const dialog = await openSettings(page, 'Giao diện & ngôn ngữ');
   await dialog.getByRole('button', { name: 'English' }).click();
   await closeSettings(page);
 
   await openWorkTab(page, 'Agents');
   await expect(page.getByRole('tablist', { name: 'Agent sections' }).getByRole('tab')).toHaveText(['Background', 'Agent groups', 'Code edits']);
+
+  // Background: the list first, then a card opened (its detail holds the longest sentences), all of it in one language
+  const background = page.getByRole('tabpanel', { name: 'Background' });
+  await expect(background.getByTestId('background-task')).toHaveCount(1);
+  await expect(background).toContainText('In progress: 0 · Tasks: 1 (conversations not counted)');
+  await expect(background.getByLabel('Filter background tasks').getByRole('button')).toHaveText(['All', 'This workspace', 'This conversation']);
+  const task = background.getByTestId('background-task');
+  await expect(task).toContainText('Final reply received');
+  await expect(task).toContainText('0 subagents');
+  await expect(background.getByTestId('background-workspace')).toContainText('1 task');
+  await expectEnglishOnly(background, 'Background (list)');
+  await task.getByRole('button', { name: prompt }).click();
+  await expect(task.getByRole('button', { name: prompt })).toHaveAttribute('aria-expanded', 'true');
+  await expect(task).toContainText('Workspace: ');
+  await expect(task).toContainText(`Conversation: ${prompt}`);
+  await expect(task.getByRole('button', { name: 'Open this conversation', exact: true })).toBeVisible();
+  await expectEnglishOnly(background, 'Background (a card opened)');
+  await shot(page, testInfo, 'english-background', background);
+
   for (const section of ['Agent groups', 'Code edits']) {
     await page.getByRole('tab', { name: section, exact: true }).click();
     await expect(page.getByRole('tabpanel', { name: section })).toBeVisible();
-    const text = await page.getByRole('tabpanel', { name: section }).innerText();
-    expect(text, `${section} still holds Vietnamese`).not.toMatch(VIETNAMESE);
+    await expectEnglishOnly(page.getByRole('tabpanel', { name: section }), section);
   }
   const card = page.getByTestId('coding-worker');
   await expect(card.getByTestId('agent-proof')).toContainText('Reported done by the AI · not verified by the Hub');
