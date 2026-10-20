@@ -11,6 +11,7 @@ import { RequestMeter, accumulateReportedUsage } from './request-budget.mjs';
 import { acceptObjectiveCriterion, availableObjectiveReceipts } from './objective-acceptance.mjs';
 import { createCostLedger, updateCostLedger } from './model-cost.mjs';
 import { taskToolSelectionMode, selectTaskCatalog } from './tool-selector.mjs';
+import { HistoryLedger } from './history-ledger.mjs';
 
 // Only the provider owns HTTP/authentication. This runner never reads credentials
 // from disk or the environment, evaluates model text, or executes a local shell.
@@ -772,7 +773,7 @@ export class AgentRunner {
       task.pendingCall = null;
     }
     const budget = new RequestMeter({used:task.usage});
-    const context = { task, requestBudget: budget, controller: new AbortController(), deadline: maxMinutes === null ? Infinity : Date.now() + maxMinutes * 60000, done: deferred(), session: null, closePromise: null, seenCalls: new Set(), history: [], inFlight: null, resumeEvidence:priorContext };
+    const context = { task, requestBudget: budget, controller: new AbortController(), deadline: maxMinutes === null ? Infinity : Date.now() + maxMinutes * 60000, done: deferred(), session: null, closePromise: null, seenCalls: new Set(), history: new HistoryLedger(), inFlight: null, resumeEvidence:priorContext };
     this.tasks.set(id, task); this.activeTaskId = id; this.context = context;
     // The Hub now holds the workspace lock for this run. A follow-up to a stopped conversation also starts here.
     this.#advance(task, 'queued', existing ? 'continue_requested' : 'start_requested', { force: !!existing });
@@ -937,13 +938,13 @@ export class AgentRunner {
         }
       }
       this.#check(context);
-      if (context.skillContext) context.history.push({ role:'user', content:[{type:'input_text',text:context.skillContext}] });
+      if (context.skillContext) context.history.appendUser([{type:'input_text',text:context.skillContext}], { kind:'skill_context' });
       if (context.skillContext && selectedSkills.length) {
         await this.#event(task, 'skills_activated', `Đã kích hoạt ${selectedSkills.length} kỹ năng agent (${selectedSkills.map((s) => s.name).join(', ')}).`, { status: 'running', selectedSkills: task.selectedSkills });
       }
-      if (context.resumeEvidence) context.history.push({ role:'user', content:[{type:'input_text',text:context.resumeEvidence}] });
-      context.history.push({ role:'user', content:[{type:'input_text',text:cleanPrompt},
-        ...(repoMapPart ? [repoMapPart] : []), ...attachmentParts.parts] });
+      if (context.resumeEvidence) context.history.appendUser([{type:'input_text',text:context.resumeEvidence}], { kind:'resume_evidence' });
+      context.history.appendUser([{type:'input_text',text:cleanPrompt},
+        ...(repoMapPart ? [repoMapPart] : []), ...attachmentParts.parts], { kind:'prompt' });
       this.#advance(task, 'planning', 'preflight_done');
       clearTimeout(context.preflightTimer);
       context.preflightTimer = null;
@@ -1005,7 +1006,7 @@ export class AgentRunner {
         try { this.manager.releaseTask(task.id); } catch (releaseError) { this.log(this.#redact(releaseError.message)); }
         this.activeTaskId = null; this.context = null;
       }
-      context.history = []; context.session = null;
+      context.history.clear(); context.session = null;
       context.done.resolve(this.#public(task));
     }
   }
@@ -1039,23 +1040,29 @@ export class AgentRunner {
     const { task } = context;
     try {
       while (true) {
+        // The previous model turn is complete here (every result is in): host messages that waited for it follow its last result.
+        context.history.endBatch();
         this.#check(context);
         if(task.pendingMessages?.length){
           const queued=task.pendingMessages.splice(0);
           for(const message of queued){
-            context.history.push({role:'user',content:[{type:'input_text',text:message.text||'Inspect attached data.'},...message.parts]});
+            context.history.appendUser([{type:'input_text',text:message.text||'Inspect attached data.'},...message.parts], { kind:'queued_message' });
             await this.#event(task,'user_message_delivered','Đã gửi chỉ dẫn mới tới model.',{},{at:message.at,attachments:message.metadata});
           }
         }
         if (task.maxSteps !== null && task.maxSteps !== undefined && task.steps >= task.maxSteps) throw fault('step_limit', `Đã dùng ${task.maxSteps} lượt model; chưa có phản hồi kết thúc. Bạn có thể kiểm tra kết quả hiện tại rồi gửi yêu cầu tiếp.`);
-        if (Buffer.byteLength(JSON.stringify(context.history)) + Buffer.byteLength(context.instructions) > MAX_CONTEXT_BYTES) throw fault('context_limit', 'Nội dung phiên đã vượt 48 MiB. Bản ghi công cụ đã được lưu; tác vụ dừng thay vì âm thầm bỏ dữ liệu hoặc tự lặp lại thao tác.');
+        if (context.history.byteLength() + Buffer.byteLength(context.instructions) > MAX_CONTEXT_BYTES) throw fault('context_limit', 'Nội dung phiên đã vượt 48 MiB. Bản ghi công cụ đã được lưu; tác vụ dừng thay vì âm thầm bỏ dữ liệu hoặc tự lặp lại thao tác.');
         task.steps += 1;
         await this.#event(task, 'model', `Model đang xử lý lượt ${task.steps}.`, { status: 'running' });
         this.#check(context);
         context.inFlight = 'model';
         // Never compact the canonical in-memory history: transcript evidence
         // and original call/result receipts must survive a follow-up or error.
-        let modelInput = structuredClone(context.history);
+        // The snapshot is a new array over the ledger's own items, not a deep clone: the compaction passes below replace
+        // entries of this array and never write into an item. From here until the top of the loop a host message that
+        // arrives (a notice, a hint) waits, so it cannot land between the results of this model turn.
+        let modelInput = context.history.snapshotForModel();
+        context.history.beginBatch();
         // Freeze the effective policy for this task. Provider settings changed
         // afterwards must not silently change its model context budget.
         if (!context.contextPolicy) {
@@ -1141,7 +1148,7 @@ export class AgentRunner {
         }
         // Preserve all output items in original order, including opaque encrypted
         // reasoning and namespaced calls. Do not use previous_response_id/store.
-        context.history.push(...structuredClone(response.output));
+        context.history.appendModelOutput(response.output);
         const calls = response.output.filter((item) => item?.type === 'function_call');
         const ids = new Set();
         for (const call of calls) {
@@ -1192,10 +1199,10 @@ export class AgentRunner {
           const evidence=observeTaskTool(task.progress,{call,result,step:task.steps,verified});
           task.progress=evidence.progress;
           if(verified)task.goalPlan=updateGoalPlan(task.goalPlan,verified);
-          // Tool call/output must be contiguous and persisted before a recovery
-          // hint is added: adapters require a correctly paired call/result history.
+          // Tool call/output must be contiguous: adapters require a correctly paired
+          // call/result history, and the ledger keeps a recovery hint behind every result of this turn.
           const converted=this.#modelOutput(result,{ taskId: task.id, toolName: actualName });
-          context.history.push({type:'function_call_output',call_id:call.call_id,output:converted.output});
+          context.history.appendToolOutput(call.call_id,converted.output);
           if(verified)await this.#event(task,'goal_evidence',
             'Bằng chứng được host kiểm tra: '+verified.kind+
             (verified.path?' · '+verified.path:''),{}, {kind:verified.kind,step:verified.step});
@@ -1203,8 +1210,9 @@ export class AgentRunner {
             await this.#event(task,evidence.warning?'progress_warning':'progress_recovery',
               'Đang đổi chiến lược ('+evidence.recover+'/2) do kết quả công cụ lặp lại; không tự chạy lại thao tác ghi.',
               {},{progress:task.progress});
-            context.history.push({role:'user',content:[{type:'input_text',
-              text:recoveryInstructions({progress:task.progress,plan:task.goalPlan,attempt:evidence.recover})}]});
+            // Written now, from the progress as it is now, but it waits behind the results of the calls this turn still has to run.
+            context.history.appendUser([{type:'input_text',
+              text:recoveryInstructions({progress:task.progress,plan:task.goalPlan,attempt:evidence.recover})}], { kind:'recovery_hint' });
           }
           if(evidence.stalled){
             await this.#event(task,'progress_stalled','Đã thử hai chiến lược nhưng vẫn lặp bằng chứng; lưu checkpoint và dừng.',{},{

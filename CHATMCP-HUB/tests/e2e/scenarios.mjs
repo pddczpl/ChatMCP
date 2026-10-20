@@ -18,6 +18,18 @@
 export const call = (name, args = {}) => ({ calls: [{ name, args }] });
 export const say = (text) => ({ text });
 
+// A step can carry more than a call or a text. The mock server turns each field into what the protocol in use really sends:
+//   calls              several tool calls in ONE model turn: calls(['read_file', {path: 'a'}], ['read_file', {path: 'b'}])
+//   thinking           the model's reasoning: an Anthropic thinking block with its signature, a Responses reasoning item with a summary
+//   redactedThinking   an Anthropic redacted_thinking block (opaque, signed)
+//   usage              { input, output, cacheRead, cacheWrite, reasoning }: what the answer reports (input = tokens that were not cached)
+//   stop               'max_tokens': the answer is cut off (stop_reason max_tokens, finish_reason length, status incomplete)
+export const calls = (...list) => ({ calls: list.map(([name, args = {}]) => ({ name, args })) });
+export const thinking = (text, step = {}) => ({ ...step, thinking: text });
+export const redacted = (step = {}) => ({ ...step, redactedThinking: true });
+export const withUsage = (usage, step = {}) => ({ ...step, usage });
+export const truncated = (step = {}) => ({ ...step, stop: 'max_tokens' });
+
 /**
  * The Hub hands a tool result to the model as the MCP result object serialised to JSON
  * ({"isError":false,"content":[{"type":"text","text":"..."}],"structuredContent":{...}}). A model reads the text inside it,
@@ -81,3 +93,25 @@ export const SCENARIOS = {
       : 'Đã sửa calc.js nhưng node test.js vẫn thất bại. Xem đầu ra của lệnh để biết lý do.');
   },
 };
+
+// Six conversations for the contract tests (tests/verify-mock-protocols.mjs). Every protocol answers them the same way, so a real
+// adapter is checked against each wire format with the same expectations. They need the request to offer a tool (a request with no
+// tools is a connectivity check and is answered with "OK").
+export const CANNED_CONVERSATIONS = Object.freeze(['canned-answer', 'canned-one-tool', 'canned-parallel', 'canned-thinking', 'canned-truncated', 'canned-cache-usage']);
+Object.assign(SCENARIOS, {
+  // One text answer.
+  'canned-answer': () => say('Hello from the mock.'),
+  // One tool call, then an answer that quotes the result (proves the result made the round trip through the wire format).
+  'canned-one-tool': sequence([call('read_file', { path: 'README.md' })], { final: ({ last }) => `README says: ${toolText(last)}` }),
+  // Two calls in one model turn, then an answer that lists both results in order.
+  'canned-parallel': sequence([calls(['read_file', { path: 'a.txt' }], ['read_file', { path: 'b.txt' }])], { final: ({ results }) => `both: ${results.map(toolText).join(' | ')}` }),
+  // Reasoning with a tool call, then reasoning with the answer.
+  'canned-thinking': sequence([
+    thinking('I should read c.txt first.', call('read_file', { path: 'c.txt' })),
+    () => thinking('Now I can answer.', say('Done thinking.')),
+  ]),
+  // An answer that hits the output limit, with a tool call that is cut off.
+  'canned-truncated': sequence([truncated({ text: 'The answer is cut o', calls: [{ name: 'read_file', args: { path: 'cut.txt' } }] })]),
+  // An answer that reports cached input tokens.
+  'canned-cache-usage': sequence([withUsage({ input: 100, output: 20, cacheRead: 300, cacheWrite: 50 }, say('cached'))]),
+});

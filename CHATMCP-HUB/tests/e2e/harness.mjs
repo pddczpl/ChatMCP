@@ -93,8 +93,12 @@ export async function runScenario({ name, summary, budgetMs = 150_000 }, body) {
     scratch,
     /** A folder inside the scratch area (created if needed). */
     dir(...parts) { const target = path.join(scratch, ...parts); fs.mkdirSync(target, { recursive: true }); return target; },
-    /** A scripted model server that is closed at the end. See mock-model-server.mjs for the options. */
-    async mock(options = {}) { const mock = await startMockModel(options); closers.push(() => mock.close()); return mock; },
+    /**
+     * A scripted model server that is closed at the end. See mock-model-server.mjs for the options. It refuses what the real APIs refuse
+     * (a tool result in the wrong place, an unknown parameter, ...) on every protocol, Chat Completions included: the Hub talks Chat
+     * Completions to the mock in these suites, so a request that OpenAI would answer with HTTP 400 fails the scenario here too.
+     */
+    async mock(options = {}) { const mock = await startMockModel({ strict: true, ...options }); closers.push(() => mock.close()); return mock; },
     /** A real Hub. Same `stateDir` as an earlier Hub models a restart. Stopped (and its children killed) at the end. */
     async hub(options = {}) {
       const hub = await startHub({ scratch, logName: `hub-${hubs.length + 1}.log`, ...options });
