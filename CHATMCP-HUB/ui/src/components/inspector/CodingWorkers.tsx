@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { GitBranch, Plus } from 'lucide-react';
 import { api } from '@/lib/api';
-import { codingBlock } from '@/lib/agent-proof';
+import { codingBlock, outcomeToast } from '@/lib/agent-proof';
 import { draftIssues, parseDeps, CODING_LIMITS } from '@/lib/agent-draft';
 import { useTranslation, hasTranslation, type TranslationKey } from '@/lib/i18n';
 import { useAppStore } from '@/store/useAppStore';
@@ -76,7 +76,7 @@ export function CodingWorkers() {
       setPreselect({ runId: job.id, ids: (job.workers || []).filter((worker: any) => worker.status === 'ready_for_review').map((worker: any) => worker.id) });
       await refetch();
       // The run ended; whether its work holds up is for the evidence under each worker to say.
-      showToast(agentStatusLabel(job.status, t), 'info');
+      showToast(agentStatusLabel(job.status, t), outcomeToast(job.status));
     } catch (e: any) {
       showToast(e?.message || t('coding_start_failed'), 'error');
     } finally {

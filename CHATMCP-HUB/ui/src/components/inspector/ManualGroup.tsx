@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { api } from '@/lib/api';
-import { assessReport } from '@/lib/agent-proof';
+import { assessReport, outcomeToast } from '@/lib/agent-proof';
 import { draftIssues, parseDeps, GROUP_LIMITS } from '@/lib/agent-draft';
 import { useTranslation, type Translate } from '@/lib/i18n';
 import { useAppStore } from '@/store/useAppStore';
@@ -50,7 +50,7 @@ export function ManualGroup() {
     try {
       const answer = await api.orchestrateAgents(nodes.map(({ id, role, question, dependsOn }) => ({ id: id.trim(), role, question, dependsOn })), clampConcurrency(concurrency, 3));
       await refetch();
-      showToast(agentStatusLabel(answer.status, t), answer.status === 'completed' ? 'info' : 'warning');
+      showToast(agentStatusLabel(answer.status, t), outcomeToast(answer.status));
     } catch (e: any) {
       showToast(e?.message || t('group_start_failed'), 'error');
     } finally {

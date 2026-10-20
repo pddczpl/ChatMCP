@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assessWorker, assessReport, awaitingCheckWorkers, canMerge, canPublishMerge, codingBlock, delegationTarget, statusTone } from '../src/lib/agent-proof.ts';
+import { assessWorker, assessReport, awaitingCheckWorkers, canMerge, canPublishMerge, codingBlock, delegationTarget, outcomeToast, statusTone } from '../src/lib/agent-proof.ts';
 
 // "Reported done" is not "proven done" (see proof.test.mjs for a conversation turn). A coding worker is a model: what it says about itself is its
 // own claim. The only thing that turns a worker green is a check the Hub itself ran and verified; every other path must stay below success.
@@ -192,4 +192,16 @@ test('the merge is published only when it exists, is ready for review, its own d
   for (const status of [undefined, 'conflict', 'draft_pr_created', 'failed']) assert.equal(canPublishMerge({ ...ok, status }), false, String(status));
   assert.equal(canPublishMerge({ ...ok, reviewed: false }), false);
   assert.equal(canPublishMerge({ ...ok, locked: true }), false);
+});
+
+test('the end of a run is announced as information or a warning, never as a success', () => {
+  for (const status of ['completed', 'ready_for_review', 'no_changes', 'cancelled', 'running', 'verified', 'published', undefined]) {
+    assert.equal(outcomeToast(status), 'info', String(status));
+  }
+  for (const status of ['failed', 'needs_attention', 'partial_failure', 'interrupted', 'conflict', 'blocked']) {
+    assert.equal(outcomeToast(status), 'warning', status);
+  }
+  for (const status of ['completed', 'ready_for_review', 'verified', 'published', 'draft_pr_created', 'failed', 'whatever', undefined]) {
+    assert.notEqual(outcomeToast(status), 'success', String(status));
+  }
 });

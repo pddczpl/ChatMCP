@@ -94,7 +94,7 @@ export function GitTab() {
             } />
             {diffQuery.error ? <ErrorLine message={diffQuery.error.message} />
               : diffQuery.isLoading ? <LoadingLine text={lang === 'vi' ? 'Đang tải diff…' : 'Loading diff…'} />
-              : diffQuery.data?.diff ? <DiffView diff={diffQuery.data.diff} />
+              : diffQuery.data?.diff ? <DiffView diff={diffQuery.data.diff} label="Git diff" />
               : <p className="text-muted">{lang === 'vi' ? 'Không có diff được Git theo dõi trong phạm vi này. Tệp mới chưa được stage không có trong diff.' : 'No tracked diff in this scope. Untracked files appear after staging.'}</p>}
             {diffQuery.data?.truncated && <p className="text-warning">{lang === 'vi' ? 'Diff bị cắt do giới hạn dung lượng.' : 'Diff truncated at the output limit.'}</p>}
           </div>

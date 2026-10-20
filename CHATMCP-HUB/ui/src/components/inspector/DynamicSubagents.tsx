@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { assessReport } from '@/lib/agent-proof';
+import { assessReport, outcomeToast } from '@/lib/agent-proof';
 import { useTranslation } from '@/lib/i18n';
 import { useAppStore } from '@/store/useAppStore';
 import { useAgentDrafts } from '@/store/useAgentDrafts';
@@ -41,7 +41,7 @@ export function DynamicSubagents() {
       const value = await api.runDynamicDelegates(goal);
       await refetch();
       // The run ended; that is not a verdict on what the AI wrote.
-      showToast(agentStatusLabel(value.status, t), value.status === 'completed' ? 'info' : 'warning');
+      showToast(agentStatusLabel(value.status, t), outcomeToast(value.status));
     } catch (e: any) {
       showToast(e?.message || t('group_analyze_failed'), 'error');
     } finally {

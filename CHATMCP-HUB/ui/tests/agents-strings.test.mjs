@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const src = fileURLToPath(new URL('../src/', import.meta.url));
 const FILES = [
   'AgentsTab.tsx', 'OrchestratorTab.tsx', 'AgentGroups.tsx', 'DynamicSubagents.tsx', 'ManualGroup.tsx', 'CodingWorkers.tsx', 'CodingRunView.tsx',
-  'CodingWorkerCard.tsx', 'CodingReview.tsx', 'ConfirmDialog.tsx', 'IsolatedChecksPanel.tsx', 'agent-parts.tsx', 'agentLabels.ts',
+  'CodingWorkerCard.tsx', 'CodingReview.tsx', 'ConfirmDialog.tsx', 'IsolatedChecksPanel.tsx', 'agent-parts.tsx', 'agentLabels.ts', 'useDelegation.ts', 'DiffView.tsx',
 ].map((name) => `components/inspector/${name}`).concat(['lib/agent-proof.ts', 'lib/agent-draft.ts', 'lib/tab-keys.ts', 'store/useAgentDrafts.ts']);
 
 const read = (file) => fs.readFileSync(path.join(src, file), 'utf8');

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '@/lib/api';
-import { canMerge, canPublishMerge, statusTone } from '@/lib/agent-proof';
+import { canMerge, canPublishMerge, outcomeToast, statusTone } from '@/lib/agent-proof';
 import { formatDateTime } from '@/lib/format';
 import { useTranslation } from '@/lib/i18n';
 import { useAppStore } from '@/store/useAppStore';
@@ -82,7 +82,7 @@ export function CodingRunView({ run, jobs, onPick, busy, setBusy, hubBusy, refet
     if (current.kind === 'integrate') {
       void attempt(async () => {
         const result = await api.integrateCodingAgents(run.id, selected, Object.fromEntries(selected.map((id) => [id, tokens[slot(id)]])));
-        showToast(t('coding_integrate_toast', { status: agentStatusLabel(result.status, t) }), statusTone(result.status) === 'neutral' ? 'info' : 'warning');
+        showToast(t('coding_integrate_toast', { status: agentStatusLabel(result.status, t) }), outcomeToast(result.status));
         await refetch();
       }, t('coding_integrate_failed'));
     } else if (current.kind === 'publish') {

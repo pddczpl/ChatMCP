@@ -96,13 +96,17 @@ test('a coding worker: plan, start, read the diff, merge on a new branch — and
   await shot(page, testInfo, 'coding-2-confirm');
   await ask.getByRole('button', { name: 'Cho phép và bắt đầu' }).click();
 
+  // the end of a run is announced as plain information ("waiting for your review"), never as a success: it is not a verdict on the work
+  const ended = page.getByRole('status').filter({ hasText: 'Chờ bạn duyệt' });
+  await expect(ended).toBeVisible({ timeout: 120_000 });
+  await expect(ended).toHaveClass(/border-l-primary/);
+  await expect(ended).not.toHaveClass(/border-l-success/);
+
   // the worker's card appears while it works, and ends waiting for review
   const card = coding.getByTestId('coding-worker').filter({ hasText: 'task-1' });
   await expect(card).toBeVisible({ timeout: 90_000 });
   await expect(card).toHaveAttribute('data-kind', 'unverified', { timeout: 120_000 });
   expect(offered.length, 'the scripted worker was asked to act').toBeGreaterThan(0);
-  const toast = page.getByRole('status').filter({ hasText: 'Chờ bạn duyệt' }).last();
-  if (await toast.count()) await expect(toast).not.toHaveClass(/border-l-success/);
 
   // what the Hub recorded versus what the AI said
   const record = (await app.hub.get('/api/studio/coding')).json.jobs.at(-1);
@@ -202,6 +206,10 @@ test('agent groups: the AI’s words are a report, labelled and never green, and
   const ask = page.getByRole('alertdialog', { name: 'Cho phép AI phân tích dự án?' });
   await expect(ask).toContainText('Why is the page slow?');
   await ask.getByRole('button', { name: 'Cho phép và bắt đầu' }).click();
+  // a run that needs the owner is announced as a warning
+  const needs = page.getByRole('status').filter({ hasText: 'Cần bạn kiểm tra' });
+  await expect(needs).toBeVisible({ timeout: 60_000 });
+  await expect(needs).toHaveClass(/border-l-warning/);
   const analysis = groups.getByTestId('analysis-result');
   await expect(analysis).toHaveAttribute('data-kind', 'attention', { timeout: 60_000 });
   await expect(analysis.getByRole('alert')).toContainText('Model did not return a valid JSON worker plan');
@@ -215,6 +223,11 @@ test('agent groups: the AI’s words are a report, labelled and never green, and
   await manual.getByRole('button', { name: 'Bắt đầu với nhóm này' }).click();
   const confirm = page.getByRole('alertdialog', { name: 'Cho phép AI phân tích dự án?' });
   await confirm.getByRole('button', { name: 'Cho phép và bắt đầu' }).click();
+  // a group that finished is announced as information, not as a success: what it wrote has not been checked
+  const finished = page.getByRole('status').filter({ hasText: 'Đã hoàn tất' });
+  await expect(finished).toBeVisible({ timeout: 90_000 });
+  await expect(finished).toHaveClass(/border-l-primary/);
+  await expect(finished).not.toHaveClass(/border-l-success/);
   const result = manual.getByTestId('group-result');
   await expect(result).toHaveAttribute('data-kind', 'ai-report', { timeout: 90_000 });
   await expect(result.getByTestId('ai-report')).toHaveCount(4);
@@ -223,8 +236,6 @@ test('agent groups: the AI’s words are a report, labelled and never green, and
   await expect(result.getByTestId('agent-proof')).toContainText('AI báo cáo · Hub chưa kiểm chứng');
   await expect(result.getByTestId('agent-proof')).toHaveAttribute('data-tone', 'neutral');
   await expect(result.locator('[data-tone="success"]')).toHaveCount(0);
-  const toast = page.getByRole('status').filter({ hasText: 'Đã hoàn tất' }).last();
-  if (await toast.count()) await expect(toast).not.toHaveClass(/border-l-success/);
   await result.scrollIntoViewIfNeeded();
   await shot(page, testInfo, 'groups-2-report');
 

@@ -13,7 +13,7 @@ export function ReviewPanel({ review, onClose }: { review: { branch: string; rev
         <Button size="sm" variant="quiet" onClick={onClose}>{t('coding_review_close')}</Button>
       </div>
       <p className="break-all text-[12px] leading-4 text-muted">{t('coding_review_meta', { revision: review.revision })}</p>
-      {review.diff ? <DiffView diff={review.diff} label={label} /> : <p className="text-muted">{t('coding_review_empty')}</p>}
+      {review.diff ? <DiffView diff={review.diff} label={t('coding_review_diff')} /> : <p className="text-muted">{t('coding_review_empty')}</p>}
     </section>
   );
 }

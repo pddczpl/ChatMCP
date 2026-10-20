@@ -81,6 +81,14 @@ export function statusTone(status: string | undefined): AgentTone {
   return 'neutral';
 }
 
+/**
+ * The kind of notice shown when a run ends: information, or a warning when the status needs the owner. Never a success: that a run ended is
+ * not a verdict on what the AI produced, which only the evidence of a worker can give.
+ */
+export function outcomeToast(status: string | undefined): 'info' | 'warning' {
+  return statusTone(status) === 'neutral' ? 'info' : 'warning';
+}
+
 /** The workers of a run that may need the owner to allow a check right now: only those that asked for verification. Nobody else has a test broker. */
 export function awaitingCheckWorkers<T extends WorkerRecord>(job: { workers?: T[] } | null | undefined): T[] {
   return (job?.workers ?? []).filter(worker => worker.verifyRequired === true && ['running', 'awaiting_test_grant', 'testing'].includes(String(worker.status)));
