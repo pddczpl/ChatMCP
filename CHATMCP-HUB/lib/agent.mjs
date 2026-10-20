@@ -776,6 +776,19 @@ export class AgentRunner {
     await this.#event(task, 'subagent_notice', `Đã báo cho model: ${notice.count} tác nhân nền đã dừng.`, {}, { ids: notice.ids });
   }
 
+  // A final answer was given while an agent stopped (an entry is recorded and the model was not told): the run goes on instead of finishing, and the top of the loop tells the model. The
+  // notice cannot be added behind the answer, because the ledger drops what waits when a run ends. True when the run should `continue`; the answer that was given stays in the conversation.
+  // Not when another turn is not possible (#canTakeAnotherStep): the entry then stays recorded for the next run. Each turn held back consumes at least one entry, so their number is
+  // bounded by the entries a task keeps: a source of endless new endings, or a defect that failed to consume an entry, cannot keep the model answering for ever. A check that must
+  // also hold after something slow that ran behind the answer (a Stop hook) is one more call to this.
+  #goOnForNotices(context, finalTexts) {
+    const { task } = context;
+    if (!unreadSubagentNotices(task).length || !this.#canTakeAnotherStep(context)) return false;
+    if ((context.noticeTurns = (context.noticeTurns ?? 0) + 1) > SUBAGENT_NOTICE_LIMITS.entries) return false;
+    if (finalTexts.some((text) => text.trim())) task.dialogue.push({ role: 'assistant', at: now(), text: finalTexts.join('\n\n'), run: task.runs?.length ?? 1 });
+    return true;
+  }
+
   // Whether the loop could take another model turn now. A step limit, the deadline, a stop or the size of the context would end the run at the top of the loop instead, and a
   // final answer that was already given would be lost.
   #canTakeAnotherStep(context) {
@@ -1310,14 +1323,8 @@ export class AgentRunner {
             if(finalTexts.some(text=>text.trim()))task.dialogue.push({role:'assistant',at:now(),text:finalTexts.join('\n\n'),run:task.runs?.length??1});
             continue;
           }
-          // A background agent stopped while this request was in flight: the final answer is not the last thing the model should say. The notice cannot be added behind it (the ledger
-          // drops what waits when a run ends), so the run goes on; the top of the loop tells the model. When no further turn is possible the entry stays recorded for the next run.
-          // Each turn held back this way consumes at least one entry, so the count of them is bounded by the entries a task keeps: a source of endless new endings, or a defect that
-          // failed to consume an entry, cannot keep the model answering for ever.
-          if(unreadSubagentNotices(task).length&&this.#canTakeAnotherStep(context)&&(context.noticeTurns=(context.noticeTurns??0)+1)<=SUBAGENT_NOTICE_LIMITS.entries){
-            if(finalTexts.some(text=>text.trim()))task.dialogue.push({role:'assistant',at:now(),text:finalTexts.join('\n\n'),run:task.runs?.length??1});
-            continue;
-          }
+          // A background agent stopped while this request was in flight: the final answer is not the last thing the model should say (see #goOnForNotices).
+          if(this.#goOnForNotices(context,finalTexts))continue;
           if (!finalTexts.some((text) => text.trim())) throw fault('empty_final', 'Model kết thúc nhưng không đưa ra kết quả văn bản cuối cùng. Thông báo tiến độ không được coi là kết quả hoàn tất.', 502);
           task.finalText = this.#redact(finalTexts.join('\n\n'));
           task.verificationOutcome=assessCompletionEvidence(task.goalPlan,task.progress);
