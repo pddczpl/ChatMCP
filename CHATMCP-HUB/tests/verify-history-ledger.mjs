@@ -390,12 +390,31 @@ function anthropicViolations(messages) {
   return found;
 }
 
+/**
+ * Gemini writes the calls of a turn as one model content and everything the user side says after it as one user content (consecutive messages of a role are merged),
+ * so a host message that was put between the calls and a result stands as a text part before a functionResponse part of that content. The results must lead it.
+ * (A call that never got a result is not an ordering defect: the results it does have still lead.)
+ */
+function geminiViolations(contents) {
+  const found = [];
+  contents.forEach((content, index) => {
+    if (content.role !== 'user') return;
+    const last = content.parts.findLastIndex((part) => part.functionResponse);
+    if (last < 0) return;
+    const before = content.parts.slice(0, last).filter((part) => !part.functionResponse);
+    if (before.length || contents[index - 1]?.role !== 'model') found.push({ at: index, parts: content.parts.map((part) => Object.keys(part)[0]) });
+  });
+  return found;
+}
+
 // The pipelines are what the adapters really do: respondStandard pairs the calls and then builds the body; asResponsesInput pairs
 // them itself. An adapter that refuses the history counts as a violation too.
 const PIPELINES = {
   chat: (history) => chatViolations(buildChatBody({ model: 'mock', input: pairToolCalls(history), instructions: 'system', tools: [] }).messages),
   responses: (history) => responsesViolations(asResponsesInput(history)),
   anthropic: (history) => anthropicViolations(buildAnthropicBody({ model: 'mock', input: pairToolCalls(history), instructions: 'system', tools: [] }).messages),
+  // the Gemini adapter (gateway-provider.mjs respond) writes the history as it is: nothing is paired or moved for it
+  gemini: (history) => geminiViolations(asGeminiContents(history)),
 };
 const violationsOf = (protocol, history) => {
   try { return PIPELINES[protocol](history); } catch (error) { return [{ refused: error.code ?? error.message }]; }
@@ -449,7 +468,8 @@ for (const [index, protocol] of Object.keys(PIPELINES).entries()) {
 }
 assert.ok(G11.chat.raw > 0, 'the control must show the defect on Chat Completions or the checker is blind');
 assert.ok(G11.responses.raw > 0, 'the control must show the defect on Responses or the checker is blind');
-ok(`G1-1: 0 tool>user>tool violations in ${G11.chat.batches}/${G11.responses.batches}/${G11.anthropic.batches} randomized batches (Chat/Responses/Anthropic) with a recovery hint, a Stop-hook continue message and a completion notice injected; the plain-array control shows ${G11.chat.raw}/${G11.responses.raw}/${G11.anthropic.raw}`);
+assert.ok(G11.gemini.raw > 0, 'the control must show the defect on Gemini or the checker is blind');
+ok(`G1-1: 0 tool>user>tool violations in ${G11.chat.batches}/${G11.responses.batches}/${G11.anthropic.batches}/${G11.gemini.batches} randomized batches (Chat/Responses/Anthropic/Gemini, at least 200 each) with a recovery hint, a Stop-hook continue message and a completion notice injected; the plain-array control shows ${G11.chat.raw}/${G11.responses.raw}/${G11.anthropic.raw}/${G11.gemini.raw}`);
 note('Anthropic does not discriminate: its adapter merges consecutive user messages and moves tool_result blocks first, so the raw-array control cannot split the results there either');
 
 // ---------------------------------------------------------------------------------------------------------------------
