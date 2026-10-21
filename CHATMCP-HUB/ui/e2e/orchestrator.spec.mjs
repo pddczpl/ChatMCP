@@ -932,6 +932,20 @@ test('in English, and in the light theme, the tab reads in one language and keep
   const sidebar = page.locator('aside').filter({ has: page.getByRole('button', { name: 'New Session', exact: true }) });
   await expect(sidebar).toHaveCount(1);
   await expectEnglishOnly(sidebar, 'Sidebar');
+  // The bar above the conversation, the one below it and the Git branch picker the first one holds are English too (they were Vietnamese on this screen)
+  const picker = page.getByRole('button', { name: 'Choose a Git branch and worktree', exact: true });
+  const header = page.locator('header').filter({ has: picker });
+  await expect(header).toHaveCount(1);
+  await expectEnglishOnly(header, 'Header');
+  await expect(header.getByRole('button', { name: 'Collapse conversations', exact: true })).toHaveAttribute('title', 'Conversation list (Ctrl+B)');
+  await expect(header.getByRole('button', { name: 'Search or command', exact: true })).toBeVisible();
+  await expectEnglishOnly(page.getByTestId('status-bar'), 'Status bar');
+  await expect(page.getByTestId('status-bar')).toHaveAttribute('aria-label', 'Status');
+  await picker.click();
+  await expect(page.getByLabel('Git source branch', { exact: true })).toContainText('Current HEAD');
+  await expect(page.getByText('Existing Git worktrees', { exact: true })).toBeVisible();
+  await expectEnglishOnly(header, 'Header (the Git picker open)');
+  await picker.click();
   const folder = path.basename(app.project);
   await expect(sidebar.getByLabel('Search conversations', { exact: true })).toBeVisible();
   await expect(sidebar.getByRole('button', { name: 'Add workspace', exact: true })).toHaveAttribute('title', 'Choose a folder with Windows Explorer');
@@ -978,7 +992,7 @@ test('in English, and in the light theme, the tab reads in one language and keep
   await sendHere('Please write the second file.');
   await expect(pending).toHaveCount(1);
   await page.getByRole('button', { name: 'Deny', exact: true }).click();
-  await page.getByRole('button', { name: 'Xác nhận từ chối', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm denial', exact: true }).click();
   await expect(page.getByText('Action denied', { exact: true })).toBeVisible();
   await waitForState(app.hub, chat.id, 'completed');
   await expect(page.getByText('Approval history (2)', { exact: true })).toBeVisible();
