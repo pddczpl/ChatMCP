@@ -93,3 +93,48 @@ test('every key this pass added has both languages, and the English one holds no
     if (translations.en[key] !== translations.vi[key]) assert.doesNotMatch(translations.en[key], DIACRITICS, `en.${key} reads Vietnamese`);
   }
 });
+
+// What a click does, which a server render never shows: the sentence of a copy that failed, and the prompt each starter hands over.
+const clickable = await bundleTsx(`
+  ${renderPrelude}
+  import { CopyButton } from './src/components/ui/CopyButton';
+  import { EmptyState } from './src/components/conversation/EmptyState';
+  export { CopyButton, EmptyState };
+`, 'chatmcp-conversation-rest-click-', { recordJsx: true });
+after(clickable.dispose);
+const toasts = [];
+const showToast = (message, type) => { toasts.push([message, type]); };
+async function elementsOf(Component, props, lang) {
+  globalThis.__chatmcpJsx = [];
+  await clickable.loaded.renderWith(Component, props, [], [], { lang, showToast });
+  return globalThis.__chatmcpJsx.slice();
+}
+
+test('a copy that fails says so in the language on screen', async () => {
+  assert.equal(translations.vi.agents_copy_failed, 'Không thể sao chép. Hãy chọn văn bản và nhấn Ctrl+C.', 'the Vietnamese sentence is the one the readability spec waits for');
+  assert.equal(translations.en.agents_copy_failed, 'Cannot copy. Select the text and press Ctrl+C.');
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async () => { throw new Error('denied'); } } }, configurable: true });
+  try {
+    for (const lang of ['vi', 'en']) {
+      toasts.length = 0;
+      const button = (await elementsOf(clickable.loaded.CopyButton, { text: 'x' }, lang)).find((element) => element.type === 'button');
+      await button.props.onClick();
+      assert.deepEqual(toasts, [[translations[lang].agents_copy_failed, 'error']], `${lang}: the toast of a copy that failed`);
+    }
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'navigator', original); else delete globalThis.navigator;
+  }
+});
+
+test('each starter of the first screen hands over the prompt of its own, in the language on screen', async () => {
+  const hub = { agent: { mode: 'api' }, ai: { configured: true }, workspace: { path: '/w' }, workspaces: { activePath: '/w' } };
+  for (const lang of ['vi', 'en']) {
+    const picked = [];
+    const elements = await elementsOf(clickable.loaded.EmptyState, { hub, sending: false, onPick: (prompt) => picked.push(prompt) }, lang);
+    const starters = elements.filter((element) => element.type === 'button' && typeof element.props.onClick === 'function');
+    assert.equal(starters.length, 4, `${lang}: four starters`);
+    for (const starter of starters) starter.props.onClick();
+    assert.deepEqual(picked, [1, 2, 3, 4].map((n) => translations[lang][`agents_empty_prompt_${n}`]), `${lang}: the starters, in order, hand over their own prompts`);
+  }
+});
