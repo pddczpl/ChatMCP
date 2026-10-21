@@ -14,19 +14,19 @@ export function EmptyState({ hub, sending, onPick }: { hub?: HubState; sending: 
   const starters: Starter[] = [
     {
       title: t('starter_1_title'), desc: t('starter_1_desc'), icon: FolderSearch, tone: 'text-primary',
-      prompt: 'Hãy quét cấu trúc thư mục hiện tại của workspace, phân tích kiến trúc dự án và chỉ ra các module chính.',
+      prompt: t('agents_empty_prompt_1'),
     },
     {
       title: t('starter_2_title'), desc: t('starter_2_desc'), icon: CheckCircle2, tone: 'text-success',
-      prompt: 'Hãy tìm các file logic hoặc module quan trọng chưa có test và viết unit test bao phủ đầy đủ.',
+      prompt: t('agents_empty_prompt_2'),
     },
     {
       title: t('starter_3_title'), desc: t('starter_3_desc'), icon: ShieldAlert, tone: 'text-danger',
-      prompt: 'Hãy rà soát toàn bộ cấu hình CSP, các endpoint API và sanitize input để phát hiện rủi ro bảo mật.',
+      prompt: t('agents_empty_prompt_3'),
     },
     {
       title: t('starter_4_title'), desc: t('starter_4_desc'), icon: Zap, tone: 'text-warning',
-      prompt: 'Hãy phân tích các file code có kích thước lớn hoặc nợ kỹ thuật để thực hiện refactor tối ưu.',
+      prompt: t('agents_empty_prompt_4'),
     },
   ];
 
@@ -46,11 +46,11 @@ export function EmptyState({ hub, sending, onPick }: { hub?: HubState; sending: 
         <div role="status" className="mb-6 flex w-full items-center gap-3 rounded-xl border border-warning/40 bg-warning/[0.08] px-4 py-3 text-[13px]">
           <ShieldAlert className="h-4 w-4 shrink-0 text-warning" />
           <span className="min-w-0 flex-1 text-fg">
-            {workspaceMissing ? 'Chưa chọn thư mục dự án cho agent.' : 'Chưa kết nối mô hình AI nên agent chưa thể trả lời.'}
+            {workspaceMissing ? t('agents_empty_no_workspace') : t('agents_empty_no_model')}
           </span>
           <Button size="sm" variant="secondary" onClick={() => openSettings(workspaceMissing ? 'workspace' : 'model')} className="shrink-0 gap-1.5">
             <Settings className="h-3.5 w-3.5" />
-            {workspaceMissing ? 'Chọn thư mục' : 'Kết nối mô hình'}
+            {workspaceMissing ? t('agents_empty_pick_folder') : t('agents_empty_connect')}
           </Button>
         </div>
       )}

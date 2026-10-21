@@ -18,7 +18,10 @@ const FILES = [
   'CodingWorkerCard.tsx', 'CodingReview.tsx', 'ConfirmDialog.tsx', 'IsolatedChecksPanel.tsx', 'agent-parts.tsx', 'agentLabels.ts', 'useDelegation.ts', 'DiffView.tsx', 'HiddenText.tsx',
 ].map((name) => `components/inspector/${name}`).concat(['lib/agent-proof.ts', 'lib/agent-draft.ts', 'lib/agent-errors.ts', 'lib/hidden-chars.ts', 'lib/tab-keys.ts', 'store/useAgentDrafts.ts',
   'components/layout/BackgroundTasks.tsx', 'components/conversation/WorkflowCard.tsx', 'components/layout/PhaseRibbon.tsx', 'components/conversation/StateBanner.tsx',
-  'components/conversation/ConversationView.tsx', 'components/sessions/SessionSidebar.tsx']);
+  'components/conversation/ConversationView.tsx', 'components/sessions/SessionSidebar.tsx',
+  'components/approval/OutboundReviewCard.tsx', 'components/approval/ApprovalStack.tsx', 'components/conversation/Composer.tsx', 'components/conversation/MessageItem.tsx',
+  'components/ui/CopyButton.tsx', 'components/conversation/ModelProfilePicker.tsx', 'components/conversation/ToolActivityGroup.tsx', 'components/conversation/ToolReceipt.tsx',
+  'components/ui/Toast.tsx', 'components/conversation/EmptyState.tsx']);
 
 const read = (file) => fs.readFileSync(path.join(src, file), 'utf8');
 /** The source without its comments (a comment may be written in Vietnamese; a string may not). */
