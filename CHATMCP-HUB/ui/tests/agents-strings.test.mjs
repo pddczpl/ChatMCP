@@ -21,7 +21,8 @@ const FILES = [
   'components/conversation/ConversationView.tsx', 'components/sessions/SessionSidebar.tsx',
   'components/approval/OutboundReviewCard.tsx', 'components/approval/ApprovalStack.tsx', 'components/conversation/Composer.tsx', 'components/conversation/MessageItem.tsx',
   'components/ui/CopyButton.tsx', 'components/conversation/ModelProfilePicker.tsx', 'components/conversation/ToolActivityGroup.tsx', 'components/conversation/ToolReceipt.tsx',
-  'components/ui/Toast.tsx', 'components/conversation/EmptyState.tsx']);
+  'components/ui/Toast.tsx', 'components/conversation/EmptyState.tsx',
+  'components/layout/Header.tsx', 'components/layout/StatusBar.tsx', 'components/layout/FullAccessBanner.tsx', 'components/layout/GitWorkspacePicker.tsx']);
 
 const read = (file) => fs.readFileSync(path.join(src, file), 'utf8');
 /** The source without its comments (a comment may be written in Vietnamese; a string may not). */
@@ -39,6 +40,14 @@ function prose(text) {
 
 test('no Vietnamese is written into a component of the Agents tab', () => {
   for (const file of FILES) assert.doesNotMatch(withoutComments(read(file)), VIETNAMESE, `${file} holds Vietnamese text outside the dictionary`);
+});
+
+// A Vietnamese word that has no diacritic is invisible to the scan above. The tool rows said "Xong" on the English screen for that reason, so the words the
+// screens had in that form are named here (a negative control proves the pattern sees one).
+const PLAIN_VIETNAMESE = /\bXong\b/;
+test('no Vietnamese word without a diacritic is written into a component either', () => {
+  assert.match('<span>Xong</span>', PLAIN_VIETNAMESE);
+  for (const file of FILES) assert.doesNotMatch(withoutComments(read(file)), PLAIN_VIETNAMESE, `${file} holds the Vietnamese word "Xong" outside the dictionary`);
 });
 
 test('no English sentence is written into a component of the Agents tab either', () => {

@@ -21,9 +21,9 @@ export function FullAccessBanner() {
     try {
       await api.configurePermissions({ mode: 'review', executionPolicy: 'host-review' });
       await queryClient.invalidateQueries({ queryKey: ['hubState'] });
-      showToast('Đã quay về chế độ Review.', 'info');
+      showToast(t('agents_fab_back_to_review'), 'info');
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Không thể đổi chế độ quyền', 'error');
+      showToast(err instanceof Error ? err.message : t('agents_conv_mode_failed'), 'error');
     } finally { setBusy(false); }
   };
 

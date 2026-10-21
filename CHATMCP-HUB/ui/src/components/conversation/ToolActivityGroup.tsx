@@ -22,7 +22,7 @@ export function ToolActivityGroup({ items }: { items: ToolCall[] }) {
         <span className="flex-1 truncate font-medium text-fg">{title}</span>
         {running ? <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" aria-label={t('agents_tool_running')} />
           : failed ? <AlertCircle className="h-3.5 w-3.5 text-danger" aria-label={t('agents_tool_failed')} />
-            : <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-label="Xong" />}
+            : <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-label={t('agents_tool_done')} />}
       </button>
       {expanded && (
         <div className="divide-y divide-line-subtle border-t border-line">

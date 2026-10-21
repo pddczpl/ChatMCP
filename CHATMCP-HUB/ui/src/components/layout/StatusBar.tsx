@@ -45,7 +45,7 @@ export function StatusBar() {
   const button = cn(item, 'hover:bg-hover hover:text-fg');
 
   return (
-    <footer role="contentinfo" aria-label="Trạng thái" data-testid="status-bar"
+    <footer role="contentinfo" aria-label={t('agents_sbar_label')} data-testid="status-bar"
       className="flex h-7 shrink-0 select-none items-center justify-between border-t border-line bg-panel px-1 text-[12px] text-muted">
       <div className="flex h-full min-w-0 items-center">
         <span className={item} role="status" title={error?.message}>
@@ -53,15 +53,15 @@ export function StatusBar() {
           <span>{hubLabel}</span>
         </span>
         {branch && (
-          <span className={cn(item, 'hidden sm:inline-flex')} title={dirty ? 'Có thay đổi chưa commit' : 'Workspace sạch'}>
+          <span className={cn(item, 'hidden sm:inline-flex')} title={dirty ? t('git_dirty') : t('git_clean')}>
             <GitBranch className="h-3 w-3" />
             <span className="max-w-40 truncate">{branch}</span>
-            {dirty && <span aria-label="Có thay đổi chưa commit" className="h-1.5 w-1.5 rounded-full bg-warning" />}
+            {dirty && <span aria-label={t('git_dirty')} className="h-1.5 w-1.5 rounded-full bg-warning" />}
           </span>
         )}
         {webChannel && (
           <button type="button" className={button} onClick={() => openSettings('agent-channel')}
-            title="ChatGPT Web Companion: mở cài đặt kênh agent">
+            title={t('agents_sbar_companion_title')}>
             <Link2 className="h-3 w-3" />
             <span className="hidden md:inline">{companion?.connected ? t('status_companion_connected') : companion?.paired ? t('status_companion_paired') : t('status_companion_missing')}</span>
             <StatusDot tone={companion?.connected ? 'success' : companion?.paired ? 'warning' : 'danger'} />
@@ -72,8 +72,8 @@ export function StatusBar() {
         {context && (
           <button type="button" className={cn(button, 'hidden md:inline-flex')} onClick={() => { setInspectorOpen(true); setActiveTab('activity'); }}
             title={context.source === 'conservative_fallback'
-              ? `Chưa biết cửa sổ ngữ cảnh của model: đang lập kế hoạch với ${formatNumber(context.capacityTokens, lang)} token. Đặt kích thước thật trong Cài đặt → Mô hình AI.`
-              : `Cửa sổ ngữ cảnh đã cấu hình: ${formatNumber(context.capacityTokens, lang)} token. Lịch sử tối đa ${formatNumber(context.maxHistoryTokens, lang)} token; dành ${formatNumber(context.reservedOutputTokens, lang)} cho đầu ra.`}>
+              ? t('agents_sbar_ctx_unknown', { tokens: formatNumber(context.capacityTokens, lang) })
+              : t('agents_sbar_ctx_known', { capacity: formatNumber(context.capacityTokens, lang), history: formatNumber(context.maxHistoryTokens, lang), output: formatNumber(context.reservedOutputTokens, lang) })}>
             <span>{t('status_context')}</span>
             <span className="tabular-nums text-fg">{formatNumber(context.capacityTokens, lang)}</span>
             {context.source === 'conservative_fallback' && <span className="text-warning">~</span>}

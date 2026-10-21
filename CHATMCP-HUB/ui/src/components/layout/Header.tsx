@@ -32,12 +32,13 @@ export function Header() {
   } = useAppStore();
 
   const registered = hub?.workspaces?.items || [];
-  const workspacePath = (selectedWorkspacePath && registered.some(x => x.path === selectedWorkspacePath)
+  const chosenPath = (selectedWorkspacePath && registered.some(x => x.path === selectedWorkspacePath)
     ? selectedWorkspacePath : hub?.workspaces
       ? hub.workspaces.activePath
-      : hub?.workspace?.path) || 'Chưa chọn workspace';
+      : hub?.workspace?.path) || '';
+  const noWorkspace = !chosenPath;
+  const workspacePath = chosenPath || t('agents_hdr_no_workspace');
   const shortWs = workspacePath.split(/[\\/]/).filter(Boolean).pop() || 'Workspace';
-  const noWorkspace = workspacePath === 'Chưa chọn workspace';
 
   const handleBrowseWorkspace = async () => {
     try {
@@ -50,7 +51,7 @@ export function Header() {
         await queryClient.invalidateQueries({ queryKey: ['hubState'] });
       }
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Không thể chọn workspace.', 'error');
+      showToast(err instanceof Error ? err.message : t('agents_side_pick_failed'), 'error');
       // A disabled WinForms desktop/session must not block project selection.
       // Settings has a manual absolute-path input that needs no GUI process.
       openSettings('workspace');
@@ -65,7 +66,7 @@ export function Header() {
       {/* Where am I */}
       <div className="flex min-w-0 flex-1 basis-0 items-center gap-2">
         <Button variant="quiet" size="icon" onClick={toggleSidebar}
-          aria-label={sidebarOpen ? 'Thu gọn hội thoại' : 'Mở danh sách hội thoại'} title="Danh sách hội thoại (Ctrl+B)">
+          aria-label={sidebarOpen ? t('agents_hdr_sidebar_close') : t('agents_hdr_sidebar_open')} title={`${t('agents_hdr_sidebar_list')} (Ctrl+B)`}>
           <PanelLeft className="h-4 w-4" />
         </Button>
         <div className="flex items-center gap-2 text-sm font-semibold tracking-tight">
@@ -76,7 +77,7 @@ export function Header() {
         <button
           onClick={handleBrowseWorkspace}
           className="hidden h-8 min-w-0 items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 text-[13px] font-medium transition-colors hover:border-line-strong hover:bg-hover md:flex"
-          title={`Thư mục: ${workspacePath} (Nhấp để đổi)`}
+          title={t('agents_hdr_folder_title', { path: workspacePath })}
         >
           <Folder className="h-3.5 w-3.5 shrink-0 text-primary" />
           <span className="max-w-[160px] truncate">{shortWs}</span>
@@ -88,7 +89,7 @@ export function Header() {
       {/* Search / commands */}
       <button
         onClick={() => setCommandPaletteOpen(true)}
-        aria-label="Tìm kiếm hoặc lệnh"
+        aria-label={t('agents_hdr_search_label')}
         className="flex h-8 w-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-line bg-surface text-[13px] text-muted transition-colors hover:border-line-strong hover:bg-hover hover:text-fg lg:w-full lg:max-w-[420px] lg:justify-start lg:px-3"
       >
         <Search className="h-3.5 w-3.5 shrink-0 text-faint" />
@@ -110,8 +111,8 @@ export function Header() {
         <Button variant="quiet" size="icon" onClick={() => openSettings()} title={`${t('header_settings')} (Ctrl+,)`} aria-label={t('header_settings')}>
           <Settings className="h-4 w-4" />
         </Button>
-        <Button variant="quiet" size="icon" onClick={toggleInspector} aria-label={inspectorOpen ? 'Thu gọn Inspector' : 'Mở Inspector'}
-          title={inspectorOpen ? 'Thu gọn Inspector (Ctrl+J)' : 'Mở Inspector (Ctrl+J)'}>
+        <Button variant="quiet" size="icon" onClick={toggleInspector} aria-label={inspectorOpen ? t('agents_hdr_inspector_close') : t('agents_hdr_inspector_open')}
+          title={`${inspectorOpen ? t('agents_hdr_inspector_close') : t('agents_hdr_inspector_open')} (Ctrl+J)`}>
           {inspectorOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
         </Button>
       </div>

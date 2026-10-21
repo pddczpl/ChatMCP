@@ -59,7 +59,7 @@ export function ToolReceipt({ tool }: ToolReceiptProps) {
           ) : isError ? (
             <span className="flex items-center gap-1 text-[12px] text-danger"><AlertCircle className="h-3 w-3" />{t('agents_tool_error')}</span>
           ) : isSuccess ? (
-            <span className="flex items-center gap-1 text-[12px] text-success"><CheckCircle2 className="h-3 w-3" />Xong</span>
+            <span className="flex items-center gap-1 text-[12px] text-success"><CheckCircle2 className="h-3 w-3" />{t('agents_tool_done')}</span>
           ) : <span className="text-[12px] text-warning">{t('agents_tool_unknown')}</span>}
         </span>
       </div>
