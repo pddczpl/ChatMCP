@@ -34,6 +34,9 @@ export interface WorkerRecord {
   verificationOutcome?: { state?: string } | null;
   verificationAttempts?: RecordedAttempt[] | null;
   verificationNote?: VerificationNote | null;
+  runnerError?: string | null;
+  runnerErrorCode?: string | null;
+  runnerNotice?: string | null;
 }
 
 export interface WorkerProof {
@@ -92,6 +95,39 @@ export function hubNoteOf(worker: WorkerRecord | null | undefined, proof: Worker
   if (typeof code !== 'string' || code === '') return null;
   if (code === 'verified' && proof.kind !== 'verified') return null;
   return { code, ...(typeof text === 'string' ? { text } : {}), ...(typeof detail === 'string' ? { detail } : {}) };
+}
+
+/**
+ * Why the Hub's AgentRunner stopped a worker's run, in its own words (lib/coding-orchestrator.mjs, `runnerError`): a field of its own, because it is the Hub's
+ * record and not what the model said. The worker's summary is the model's alone, and is empty when the model said nothing. The text is passed on exactly as
+ * it came (what cannot be seen in it is for the page to show as a marker); text that says nothing is none. It is neither evidence nor a verdict, so
+ * `assessWorker` never reads it.
+ */
+export function runnerErrorOf(worker: WorkerRecord | null | undefined): string | null {
+  const raw: unknown = worker?.runnerError;
+  return typeof raw === 'string' && raw.trim() !== '' ? raw : null;
+}
+
+/**
+ * The code the Hub's AgentRunner ended a worker's run with (lib/coding-orchestrator.mjs, `runnerErrorCode`), which the page looks a sentence up by. The Hub passes on only a short
+ * plain code and so does this: lowercase letters, digits and underscores, starting with a letter, 64 characters at most. Anything else is none, whatever the worker says, because
+ * a code is used to build a dictionary key. It is neither evidence nor a verdict, so `assessWorker` never reads it.
+ */
+export function runnerErrorCodeOf(worker: WorkerRecord | null | undefined): string | null {
+  const raw: unknown = worker?.runnerErrorCode;
+  return typeof raw === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(raw) ? raw : null;
+}
+
+/**
+ * The sentence the Hub's AgentRunner ends an AI's answer with when the Hub's evidence does not back the run's plan (lib/coding-orchestrator.mjs, `runnerNotice`): a field of
+ * its own, because it is the Hub's and not what the model said, which is the worker's summary alone. The text is passed on exactly as it came (what cannot be seen in it is for
+ * the page to show as a marker); text that says nothing is none. It is a caution, so no state of the card holds it back, a verified one included: the Hub wrote it when the AI
+ * reported done and what its own checks proved afterwards does not withdraw it (the page says when it was written). It is neither evidence nor a verdict, so `assessWorker`
+ * never reads it.
+ */
+export function runnerNoticeOf(worker: WorkerRecord | null | undefined): string | null {
+  const raw: unknown = worker?.runnerNotice;
+  return typeof raw === 'string' && raw.trim() !== '' ? raw : null;
 }
 
 /** A read-only group or analysis: text an AI wrote from excerpts of the project. The Hub does not check it, so it is never green. */

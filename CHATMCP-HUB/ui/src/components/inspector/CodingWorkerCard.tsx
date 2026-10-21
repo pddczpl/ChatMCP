@@ -1,10 +1,10 @@
 import { useRef } from 'react';
-import { assessWorker, hubNoteOf } from '@/lib/agent-proof';
+import { assessWorker, hubNoteOf, runnerErrorCodeOf, runnerErrorOf, runnerNoticeOf } from '@/lib/agent-proof';
 import { useTranslation } from '@/lib/i18n';
 import '@/lib/i18n-agents-sections'; // the strings only the sections ask for load with them
 import { Button } from '@/components/ui/Button';
 import { agentStatusLabel } from './agentLabels';
-import { AiReport, EvidenceLine, HubNote, StatusBadge } from './agent-parts';
+import { AiReport, EvidenceLine, HubNote, RunnerError, RunnerNotice, StatusBadge } from './agent-parts';
 import { ContextPanel, ReviewPanel } from './CodingReview';
 import { ErrorLine } from './parts';
 
@@ -33,14 +33,17 @@ interface Props {
 }
 
 /**
- * One coding worker. Three things are kept apart on purpose: what the Hub recorded (the status, the evidence line, the checks it ran), what the
- * Hub said in its own words about the verification (its note, beside the evidence line) and what the AI said about itself (its summary, under
- * "AI report"). Only the evidence line can be green.
+ * One coding worker. Four things are kept apart on purpose: what the Hub recorded (the status, the evidence line, the checks it ran), what the
+ * Hub said in its own words about the verification (its note, beside the evidence line), why the run stopped when it stopped with an error (the
+ * runner's record, which is the Hub's as well) and what the AI said about itself (its summary, under "AI report", which is empty when the AI said
+ * nothing). Only the evidence line can be green.
  */
 export function CodingWorkerCard({ worker, selected, onSelect, reviewed, busy, runActive, blocked = false, review, context, onViewDiff, onViewFiles, onPublish, onCloseReview, onCloseContext }: Props) {
   const { t } = useTranslation();
   const proof = assessWorker(worker, { runActive });
   const hubNote = hubNoteOf(worker, proof);
+  const runnerError = runnerErrorOf(worker);
+  const runnerNotice = runnerNoticeOf(worker);
   const ready = worker.status === 'ready_for_review';
   // A worker that stopped before it committed leaves its edits, if any, in its own working copy: the owner is told where.
   const leftBehind = UNCOMMITTED.has(worker.status) && typeof worker.worktree === 'string' && worker.worktree !== '';
@@ -70,6 +73,8 @@ export function CodingWorkerCard({ worker, selected, onSelect, reviewed, busy, r
       <p className="break-words text-muted">{t('coding_changed_files', { files: (worker.changedFiles || []).join(', ') || t('coding_changed_none') })}</p>
       <EvidenceLine tone={proof.tone} kind={proof.kind} facts={proof.checks > 0 ? t('agent_proof_facts', { checks: proof.checks, verified: proof.verifiedChecks }) : undefined} />
       <HubNote note={hubNote} />
+      <RunnerError text={runnerError} code={runnerErrorCodeOf(worker)} />
+      <RunnerNotice text={runnerNotice} />
       {worker.summary && <AiReport text={worker.summary} />}
       {worker.error && <ErrorLine message={worker.error} />}
       {leftBehind && <p data-testid="coding-worktree" className="break-all text-[12px] leading-4 text-muted select-text">{t('coding_worktree', { path: worker.worktree })}</p>}

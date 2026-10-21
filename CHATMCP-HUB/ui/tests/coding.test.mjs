@@ -758,6 +758,279 @@ test('a worker with no note shows none, and a note on a worker the page shows as
   }
 });
 
+// ---------------------------------------------------------------------------------------------------------------------
+// The Hub’s record of why a run stopped (the AgentRunner’s own error), apart from the AI’s report
+// ---------------------------------------------------------------------------------------------------------------------
+const runnerLineOf = (card) => inside(card).find((node) => node.attrs['data-testid'] === 'runner-error');
+const EMPTY_FINAL = 'Model kết thúc nhưng không đưa ra kết quả văn bản cuối cùng. Thông báo tiến độ không được coi là kết quả hoàn tất.';
+const USER_CANCELLED = 'Đã dừng theo yêu cầu. Tác vụ chưa được xác nhận hoàn tất.';
+const RUNNER_LABEL = { en: 'Why the task stopped, as the Hub recorded it:', vi: 'Lý do công việc dừng, Hub ghi nguyên văn:' };
+const cardOf = async (entry, lang = 'en') => workerCard(await page(state([job([entry], { status: entry.status === 'ready_for_review' ? 'ready_for_review' : 'partial_failure' })]), { store: { lang }, ...ready }), 'task-a');
+
+test('a worker whose run stopped with an error shows the runner’s record of why as the Hub’s, and there is no AI report for it to sit in', async () => {
+  for (const [status, text] of [['failed', EMPTY_FINAL], ['cancelled', USER_CANCELLED], ['needs_attention', 'Model chưa hoàn tất phản hồi (max_output_tokens).']]) {
+    const entry = worker({ status, summary: '', runnerError: text, error: `Coding worker did not complete: ${status}` });
+    for (const lang of ['en', 'vi']) {
+      const card = await cardOf(entry, lang);
+      const line = runnerLineOf(card);
+      assert.equal(line.text, `${RUNNER_LABEL[lang]} ${text}`, `${status}/${lang}: the label in the language on screen, then the Hub’s words as written`);
+      assert.equal(reportOf(card), undefined, `${status}/${lang}: the model said nothing, so nothing is labelled as its report`);
+      assert.doesNotMatch(card.text, /Báo cáo của AI|AI report/, `${status}/${lang}`);
+      assert.ok(byRole(card, 'alert').some((node) => node.text === entry.error), `${status}/${lang}: the Hub’s own error line is still there, apart`);
+      assert.match(line.attrs.class, /\bbreak-words\b/, 'text from outside has no natural break: it must not widen the card');
+      assert.match(line.attrs.class, /\bwhitespace-pre-wrap\b/, 'and a refusal of several paragraphs keeps its line breaks');
+    }
+  }
+});
+
+test('the runner’s record stands after the evidence line and the Hub’s note and before the AI’s report; neither is inside the other', async () => {
+  const entry = worker({ status: 'needs_attention', verifyRequired: true, summary: 'I fixed add() and ran the tests.', verificationNote: BLOCKED, runnerError: EMPTY_FINAL });
+  for (const lang of ['en', 'vi']) {
+    const card = await cardOf(entry, lang);
+    const order = inside(card).map((node) => node.attrs['data-testid']).filter(Boolean);
+    const at = (id) => order.indexOf(id);
+    assert.ok(at('agent-proof') >= 0 && at('agent-proof') < at('hub-note') && at('hub-note') < at('runner-error') && at('runner-error') < at('ai-report'), `${lang}: ${order.join(' > ')}`);
+    assert.ok(reportOf(card).text.includes('I fixed add() and ran the tests.'), lang);
+    assert.ok(!reportOf(card).text.includes(EMPTY_FINAL) && !reportOf(card).text.includes(RUNNER_LABEL[lang]), `${lang}: the Hub’s words are not in the AI’s report`);
+    assert.ok(!runnerLineOf(card).text.includes('I fixed add()'), `${lang}: and the AI’s words are not in the Hub’s record`);
+    assert.ok(!noteOf(card).text.includes(EMPTY_FINAL) && !runnerLineOf(card).text.includes('Repair/test'), `${lang}: nor are the two lines of the Hub one`);
+  }
+});
+
+test('the record of why a run stopped is plain text: no colour of proof, and it changes no colour of the card', async () => {
+  for (const status of ['failed', 'cancelled', 'needs_attention', 'ready_for_review']) {
+    const without = await cardOf(worker({ status, summary: '' }));
+    const card = await cardOf(worker({ status, summary: '', runnerError: EMPTY_FINAL }));
+    const line = runnerLineOf(card);
+    assert.doesNotMatch(line.attrs.class ?? '', /\b(?:text|bg|border)-(?:success|warning|danger)\b/, `${status}: the line wears no tone`);
+    assert.doesNotMatch(greenClasses(card), GREEN, status);
+    assert.equal(card.attrs['data-tone'], without.attrs['data-tone'], `${status}: the card keeps the colour the Hub’s record gives it`);
+    assert.equal(card.attrs['data-kind'], without.attrs['data-kind'], status);
+  }
+  // beside a green evidence line it is still no proof of anything, and takes none away
+  const green = await cardOf(verified({ runnerError: EMPTY_FINAL }));
+  assert.equal(green.attrs['data-kind'], 'verified');
+  assert.doesNotMatch(runnerLineOf(green).attrs.class ?? '', GREEN);
+});
+
+test('a runner error is read like any text from outside: what cannot be seen is shown as a marker, with the line that says so', async () => {
+  const hidden = `Provider said:${String.fromCharCode(0x202E)} stop`;
+  const card = await cardOf(worker({ status: 'failed', summary: '', runnerError: hidden }));
+  const line = runnerLineOf(card);
+  assert.ok(line.text.includes('Provider said:‹U+202E› stop') && !line.text.includes(String.fromCharCode(0x202E)), line.text);
+  assert.match(card.text, /hidden or direction-changing/);
+  assert.doesNotMatch((await cardOf(worker({ status: 'failed', summary: '', runnerError: EMPTY_FINAL }))).text, /hidden or direction-changing/, 'plain text has no such line');
+});
+
+test('a worker with no record of why its run stopped shows none; what is not text, or says nothing, is not shown', async () => {
+  for (const bad of [undefined, null, '', '   ', '\n', 7, true, {}, [], ['x'], { text: EMPTY_FINAL }]) {
+    assert.equal(runnerLineOf(await cardOf(worker({ status: 'failed', summary: '', runnerError: bad }))), undefined, JSON.stringify(bad));
+  }
+  assert.equal(runnerLineOf(await cardOf(worker())), undefined, 'a worker that ended normally');
+  // what the model wrote is its report and nothing else, even when it reads like the runner’s sentence
+  const said = await cardOf(worker({ status: 'failed', summary: EMPTY_FINAL }));
+  assert.equal(runnerLineOf(said), undefined);
+  assert.ok(reportOf(said).text.includes(EMPTY_FINAL));
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The runner’s record told by its code: a line in the language on screen above the Hub’s sentence, which stays whole
+// ---------------------------------------------------------------------------------------------------------------------
+const leadOf = (card) => inside(card).find((node) => node.attrs['data-testid'] === 'runner-error-lead');
+const DIACRITICS = /[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]/i;
+const EMPTY_REPLY = 'Gateway trả phản hồi rỗng.';
+const AUTH_TEXT = 'Model từ chối khóa API (HTTP 401): Invalid API key. Kiểm tra API key, quyền của key và kiểu header xác thực.';
+const REFUSAL = 'Model không thể thực hiện yêu cầu: I will not do that, because it is not a good idea.';
+/** What the runner appends when a tool call was in flight: it is about the last action, and no code can carry it. */
+const IN_FLIGHT = 'Công cụ có thể đã nhận thao tác cuối; việc dừng không hoàn tác nó. Không tự chạy lại thao tác này.';
+const LEAD = {
+  model_empty: { en: 'The model sent back an empty or unusable reply.', vi: 'Model trả về phản hồi rỗng hoặc không dùng được.' },
+  gateway_auth: { en: 'The model provider rejected the API key. Check the key and its permissions in the AI settings.', vi: 'Nhà cung cấp model từ chối API key. Kiểm tra key và quyền của nó trong cấu hình AI.' },
+  empty_final: { en: 'The model finished without writing a final answer. Progress notes do not count as a result.', vi: EMPTY_FINAL },
+  user_cancelled: { en: 'Stopped at your request. The task was not confirmed complete.', vi: USER_CANCELLED },
+  model_refusal: { en: 'The model declined the request. The record below quotes its own words.', vi: 'Model từ chối yêu cầu. Bản ghi bên dưới trích nguyên lời của model.' },
+};
+const withCode = (runnerError, runnerErrorCode, more = {}) => worker({ status: 'failed', summary: '', runnerError, runnerErrorCode, ...more });
+
+test('a run that ended with a code the page tells is told in the language on screen, above the Hub’s sentence, which stays whole', async () => {
+  for (const [code, text] of [['model_empty', EMPTY_REPLY], ['gateway_auth', AUTH_TEXT]]) {
+    for (const lang of ['en', 'vi']) {
+      const card = await cardOf(withCode(text, code), lang);
+      const lead = leadOf(card);
+      assert.equal(lead.text, LEAD[code][lang], `${code}/${lang}: the page’s sentence for the code, in the language on screen`);
+      assert.equal(lead.attrs['data-code'], code);
+      assert.equal(runnerLineOf(card).text, `${RUNNER_LABEL[lang]} ${text}`, `${code}/${lang}: and the Hub’s sentence is below it, under its label, as it was written`);
+      const order = inside(card).map((node) => node.attrs['data-testid']).filter(Boolean);
+      assert.ok(order.indexOf('runner-error-lead') >= 0 && order.indexOf('runner-error-lead') < order.indexOf('runner-error'), `${code}/${lang}: ${order.join(' > ')}`);
+      assert.ok(!runnerLineOf(card).text.includes(lead.text) && !lead.text.includes(text), `${code}/${lang}: neither is inside the other`);
+      assert.equal(reportOf(card), undefined, `${code}/${lang}: the model said nothing, and the page’s sentence is not its report`);
+    }
+    assert.doesNotMatch(LEAD[code].en, DIACRITICS);
+    assert.doesNotMatch(leadOf(await cardOf(withCode(text, code), 'en')).text, DIACRITICS, `${code}: the English screen reads English in the page’s own line`);
+  }
+});
+
+test('where the runner always says the same words the Vietnamese screen shows them once, and the English screen tells them; what the runner adds after them stays in view in both', async () => {
+  for (const [code, text] of [['empty_final', EMPTY_FINAL], ['user_cancelled', USER_CANCELLED]]) {
+    const vi = await cardOf(withCode(text, code), 'vi');
+    assert.equal(leadOf(vi), undefined, `${code}: the Hub’s sentence is the page’s, so it is not said twice`);
+    assert.equal(runnerLineOf(vi).text, `${RUNNER_LABEL.vi} ${text}`, code);
+    const en = await cardOf(withCode(text, code), 'en');
+    assert.equal(leadOf(en).text, LEAD[code].en, code);
+    assert.equal(runnerLineOf(en).text, `${RUNNER_LABEL.en} ${text}`, code);
+  }
+  // a Hub sentence that only quotes the page’s line further on (a provider echoing it, a note before it) does not say it: the line stays
+  for (const [code, text] of [['empty_final', EMPTY_FINAL], ['user_cancelled', USER_CANCELLED]]) {
+    const quoting = `Ghi chú: ${text}`;
+    const card = await cardOf(withCode(quoting, code), 'vi');
+    assert.equal(leadOf(card)?.text, LEAD[code].vi, `${code}: the Hub’s sentence does not begin with it`);
+    assert.equal(runnerLineOf(card).text, `${RUNNER_LABEL.vi} ${quoting}`, code);
+  }
+  // the owner stopped a run in the middle of a tool call: the runner adds what it does not know about the last action. A code cannot carry that, so it is the Hub’s sentence that does, whole, in both
+  const stopped = `${USER_CANCELLED} ${IN_FLIGHT}`;
+  for (const lang of ['en', 'vi']) {
+    const card = await cardOf(withCode(stopped, 'user_cancelled', { status: 'cancelled' }), lang);
+    assert.equal(runnerLineOf(card).text, `${RUNNER_LABEL[lang]} ${stopped}`, `${lang}: the caution about the last action is in view`);
+    assert.equal(leadOf(card)?.text, lang === 'en' ? LEAD.user_cancelled.en : undefined, `${lang}: the page’s line is only the beginning of it, and in Vietnamese the Hub’s sentence already says it`);
+  }
+});
+
+test('a code the page has no sentence for, or that is not a code, shows the Hub’s sentence alone, as it did before codes', async () => {
+  const notTold = ['something_the_hub_adds_later', 'invalid_response', 'constructor', '__proto__', 'toString', 'ECONNRESET', 'Model_empty', 'model-empty', 'has space', '../agent_status_failed', 'x'.repeat(65), '', 7, true, null, undefined, {}, ['model_empty']];
+  for (const code of notTold) {
+    for (const lang of ['en', 'vi']) {
+      const card = await cardOf(withCode(EMPTY_REPLY, code), lang);
+      assert.equal(leadOf(card), undefined, `${typeof code === 'object' ? JSON.stringify(code) : String(code)}/${lang}: nothing is made up for it`);
+      assert.equal(runnerLineOf(card).text, `${RUNNER_LABEL[lang]} ${EMPTY_REPLY}`, `${String(code)}/${lang}: the Hub’s sentence, as written`);
+    }
+  }
+  // a worker that has no record at all shows neither the page’s line nor the Hub’s, whatever code it carries
+  for (const text of [undefined, null, '', '   ']) assert.equal(leadOf(await cardOf(withCode(text, 'model_empty'))), undefined, JSON.stringify(text));
+  assert.equal(leadOf(await cardOf(worker({ runnerErrorCode: 'model_empty' }))), undefined, 'a worker that ended normally');
+});
+
+test('a refusal is told as one, and the model’s own words are in the Hub’s record, whole: the page does not cut them out of it or put them in its own line', async () => {
+  for (const lang of ['en', 'vi']) {
+    const card = await cardOf(withCode(REFUSAL, 'model_refusal'), lang);
+    assert.equal(leadOf(card).text, LEAD.model_refusal[lang], lang);
+    assert.ok(!leadOf(card).text.includes('I will not do that'), `${lang}: the model’s words are not in the page’s line`);
+    assert.equal(runnerLineOf(card).text, `${RUNNER_LABEL[lang]} ${REFUSAL}`, `${lang}: they are in the Hub’s record, exactly, with the sentence they were put in`);
+    assert.equal(reportOf(card), undefined, `${lang}: and they are not an AI report of work either`);
+  }
+});
+
+test('the page’s line is plain text, after the evidence line and the Hub’s note and before the record, the notice and the AI’s report; it changes no colour of the card', async () => {
+  const entry = worker({ status: 'needs_attention', verifyRequired: true, summary: 'I fixed add() and ran the tests.', verificationNote: BLOCKED, runnerError: EMPTY_REPLY, runnerErrorCode: 'model_empty', runnerNotice: 'ChatMCP has NOT verified it.' });
+  for (const lang of ['en', 'vi']) {
+    const card = await cardOf(entry, lang);
+    const order = inside(card).map((node) => node.attrs['data-testid']).filter(Boolean);
+    const at = (id) => order.indexOf(id);
+    assert.ok(at('agent-proof') >= 0 && at('agent-proof') < at('hub-note') && at('hub-note') < at('runner-error-lead') && at('runner-error-lead') < at('runner-error') && at('runner-error') < at('runner-notice') && at('runner-notice') < at('ai-report'), `${lang}: ${order.join(' > ')}`);
+    assert.ok(!reportOf(card).text.includes(leadOf(card).text), `${lang}: the page’s line is not in the AI’s report`);
+  }
+  for (const status of ['failed', 'cancelled', 'needs_attention', 'ready_for_review']) {
+    const without = await cardOf(worker({ status, summary: '' }));
+    const card = await cardOf(worker({ status, summary: '', runnerError: EMPTY_REPLY, runnerErrorCode: 'model_empty' }));
+    assert.doesNotMatch(leadOf(card).attrs.class ?? '', /\b(?:text|bg|border)-(?:success|warning|danger)\b/, `${status}: the line wears no tone`);
+    assert.doesNotMatch(greenClasses(card), GREEN, status);
+    assert.equal(card.attrs['data-tone'], without.attrs['data-tone'], `${status}: the card keeps the colour the Hub’s record gives it`);
+    assert.equal(card.attrs['data-kind'], without.attrs['data-kind'], status);
+  }
+  const green = await cardOf(verified({ runnerError: EMPTY_REPLY, runnerErrorCode: 'model_empty' }));
+  assert.equal(green.attrs['data-kind'], 'verified');
+  assert.doesNotMatch(leadOf(green).attrs.class ?? '', GREEN, 'beside a green evidence line it is still no proof of anything');
+});
+
+test('text the Hub quotes that cannot be seen is still marked in its record when the page tells the code', async () => {
+  const hidden = `Provider said:${String.fromCharCode(0x202E)} stop`;
+  const card = await cardOf(withCode(hidden, 'gateway_http_error'));
+  assert.ok(runnerLineOf(card).text.includes('Provider said:‹U+202E› stop') && !card.text.includes(String.fromCharCode(0x202E)));
+  assert.match(card.text, /hidden or direction-changing/);
+  assert.ok(!leadOf(card).text.includes('‹U+'), 'the page’s own line is not marked: it holds nothing from outside');
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The Hub’s notice on the AI’s report (the AgentRunner’s sentence at the end of a final answer the Hub could not back with evidence), apart from the report
+// ---------------------------------------------------------------------------------------------------------------------
+const noticeLineOf = (card) => inside(card).find((node) => node.attrs['data-testid'] === 'runner-notice');
+const NOTICE = 'ChatMCP has NOT independently verified full completion: No verified successful project check; No independently recorded Git diff review.';
+const NOTICE_LABEL = { en: 'The Hub’s note when the AI reported done, as it wrote it:', vi: 'Ghi chú của Hub lúc AI báo xong, nguyên văn:' };
+const REPORT = 'I created calc.js and ran the tests by hand.';
+
+test('the Hub’s notice on the AI’s report is shown as the Hub’s, with its label in the language on screen, and the report holds only what the AI said', async () => {
+  const entry = worker({ summary: REPORT, runnerNotice: NOTICE });
+  for (const lang of ['en', 'vi']) {
+    const card = await cardOf(entry, lang);
+    const line = noticeLineOf(card);
+    assert.equal(line.text, `${NOTICE_LABEL[lang]} ${NOTICE}`, `${lang}: the label in the language on screen, then the Hub’s words as written`);
+    assert.ok(reportOf(card).text.includes(REPORT), lang);
+    assert.ok(!reportOf(card).text.includes('NOT independently') && !reportOf(card).text.includes(NOTICE_LABEL[lang]), `${lang}: the Hub’s words are not in the AI’s report`);
+    assert.ok(!line.text.includes(REPORT), `${lang}: and the AI’s words are not in the Hub’s note`);
+    assert.match(line.attrs.class, /\bbreak-words\b/, 'text from outside has no natural break: it must not widen the card');
+    assert.match(line.attrs.class, /\bwhitespace-pre-wrap\b/, 'and what the Hub appends after its sentence keeps its line breaks');
+  }
+});
+
+test('the notice stands after the evidence line, the Hub’s note and the runner’s record, and before the AI’s report; none is inside another', async () => {
+  const entry = worker({ status: 'needs_attention', verifyRequired: true, summary: REPORT, verificationNote: BLOCKED, runnerError: EMPTY_FINAL, runnerNotice: NOTICE });
+  for (const lang of ['en', 'vi']) {
+    const card = await cardOf(entry, lang);
+    const order = inside(card).map((node) => node.attrs['data-testid']).filter(Boolean);
+    const at = (id) => order.indexOf(id);
+    assert.ok(at('agent-proof') >= 0 && at('agent-proof') < at('hub-note') && at('hub-note') < at('runner-error') && at('runner-error') < at('runner-notice') && at('runner-notice') < at('ai-report'), `${lang}: ${order.join(' > ')}`);
+    assert.ok(!noticeLineOf(card).text.includes(EMPTY_FINAL) && !runnerLineOf(card).text.includes('NOT independently') && !noteOf(card).text.includes('NOT independently'), `${lang}: the three lines of the Hub are three`);
+  }
+});
+
+test('the notice is plain text: no colour of proof, and it changes no colour of the card', async () => {
+  for (const status of ['ready_for_review', 'failed', 'needs_attention', 'cancelled', 'no_changes']) {
+    const without = await cardOf(worker({ status, summary: REPORT }));
+    const card = await cardOf(worker({ status, summary: REPORT, runnerNotice: NOTICE }));
+    assert.doesNotMatch(noticeLineOf(card).attrs.class ?? '', /\b(?:text|bg|border)-(?:success|warning|danger)\b/, `${status}: the line wears no tone`);
+    assert.doesNotMatch(greenClasses(card), GREEN, status);
+    assert.equal(card.attrs['data-tone'], without.attrs['data-tone'], `${status}: the card keeps the colour the Hub’s record gives it`);
+    assert.equal(card.attrs['data-kind'], without.attrs['data-kind'], status);
+  }
+});
+
+test('a caution is not withdrawn by a green card: the notice stands beside a worker the Hub verified itself, says when the Hub wrote it, and takes nothing away', async () => {
+  const entry = verified({ summary: REPORT, runnerNotice: NOTICE, verificationNote: VERIFIED_NOTE });
+  for (const lang of ['en', 'vi']) {
+    const card = await cardOf(entry, lang);
+    assert.equal(card.attrs['data-kind'], 'verified', `(premise) ${lang}`);
+    assert.equal(card.attrs['data-tone'], 'success', `${lang}: the card keeps the colour the Hub’s own evidence gives it`);
+    assert.equal(noticeLineOf(card).text, `${NOTICE_LABEL[lang]} ${NOTICE}`, `${lang}: the label says it is from when the AI reported done, before the Hub’s checks`);
+    assert.doesNotMatch(noticeLineOf(card).attrs.class ?? '', GREEN, lang);
+    assert.ok(reportOf(card).text.includes(REPORT), lang);
+  }
+  // and where the Hub did not verify it, the same sentence is shown
+  const open = await cardOf(verified({ verificationAttempts: [attempt({ testOutcomeVerified: false })], summary: REPORT, runnerNotice: NOTICE }));
+  assert.notEqual(open.attrs['data-kind'], 'verified', '(premise)');
+  assert.equal(noticeLineOf(open).text, `${NOTICE_LABEL.en} ${NOTICE}`);
+});
+
+test('the notice is read like any text from outside: what cannot be seen is shown as a marker, with the line that says so', async () => {
+  const hidden = `ChatMCP has NOT verified${String.fromCharCode(0x202E)} it`;
+  const card = await cardOf(worker({ runnerNotice: hidden }));
+  const line = noticeLineOf(card);
+  assert.ok(line.text.includes('ChatMCP has NOT verified‹U+202E› it') && !line.text.includes(String.fromCharCode(0x202E)), line.text);
+  assert.match(card.text, /hidden or direction-changing/);
+  assert.doesNotMatch((await cardOf(worker({ runnerNotice: NOTICE }))).text, /hidden or direction-changing/, 'plain text has no such line');
+});
+
+test('a worker with no notice shows none; what is not text, or says nothing, is not shown; the AI’s words are never taken for one', async () => {
+  for (const bad of [undefined, null, '', '   ', '\n', 7, true, {}, [], ['x'], { text: NOTICE }]) {
+    assert.equal(noticeLineOf(await cardOf(worker({ runnerNotice: bad }))), undefined, JSON.stringify(bad));
+  }
+  assert.equal(noticeLineOf(await cardOf(worker())), undefined, 'a worker the Hub had nothing to say about');
+  // a model that wrote the sentence itself, and a record saved before the field existed: that is its report, and it stays in it
+  const said = await cardOf(worker({ summary: `Done.\n\n[Verification notice] ${NOTICE}` }));
+  assert.equal(noticeLineOf(said), undefined);
+  assert.ok(reportOf(said).text.includes(NOTICE));
+  // the runner’s record of why a run stopped is not a notice either
+  assert.equal(noticeLineOf(await cardOf(worker({ status: 'failed', summary: '', runnerError: EMPTY_FINAL }))), undefined);
+});
+
 test('what the verification option really needs is said where it is chosen', async () => {
   const en = await page(state(), { store: { lang: 'en' }, ...ready });
   const note = within(en, 'coding-task').text;
