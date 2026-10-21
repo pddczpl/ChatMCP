@@ -209,7 +209,12 @@ export const sectionsVi = {
   coding_worktree: 'Mọi thay đổi nó đã làm chưa được lưu thành commit. Bản làm việc: {path}',
   // The AgentRunner's record of why a run stopped, quoted as it wrote it (a field of its own, apart from what the AI said)
   coding_runner_error_label: 'Lý do công việc dừng, Hub ghi nguyên văn:',
+  // The sentence the AgentRunner ended the AI's answer with when the Hub's evidence did not back the run's plan, quoted as it wrote it (also apart from what the AI said).
+  // It was written when the AI reported done, before any check of the Hub's own: the label says when, so that it can stand beside a line that says the Hub verified a check.
   coding_runner_notice_label: 'Ghi chú của Hub lúc AI báo xong, nguyên văn:',
+  // The note the Hub wrote when a Stop / SubagentStop / TaskCompleted hook still objected after its eight blocks and the task completed anyway, quoted as it wrote it (apart from what
+  // the AI said and from the sentence above). It is written when the run ends, and the label says so.
+  coding_runner_hook_notice_label: 'Ghi chú của Hub về hook vẫn phản đối, ghi lúc lượt chạy kết thúc, nguyên văn:',
   coding_view_integration: 'Xem thay đổi của bản gộp',
   coding_publish_integration: 'Đưa bản gộp lên GitHub',
   coding_publish_integration_title: 'Đưa bản gộp lên GitHub?',
@@ -443,6 +448,7 @@ export const sectionsEn: Record<keyof typeof sectionsVi, string> = {
   coding_worktree: 'Anything it changed is not committed. Working copy: {path}',
   coding_runner_error_label: 'Why the task stopped, as the Hub recorded it:',
   coding_runner_notice_label: 'The Hub’s note when the AI reported done, as it wrote it:',
+  coding_runner_hook_notice_label: 'The Hub’s note about a hook that still objected, written when the run ended, as it wrote it:',
   coding_view_integration: 'Read the merged changes',
   coding_publish_integration: 'Push the merge to GitHub',
   coding_publish_integration_title: 'Push the merge to GitHub?',

@@ -1031,6 +1031,76 @@ test('a worker with no notice shows none; what is not text, or says nothing, is 
   assert.equal(noticeLineOf(await cardOf(worker({ status: 'failed', summary: '', runnerError: EMPTY_FINAL }))), undefined);
 });
 
+// ---------------------------------------------------------------------------------------------------------------------
+// The Hub’s note about a hook that still objected after its eight blocks (the "[Hook notice]" the AgentRunner ends the final text with), apart from the report and from the
+// other sentence of the Hub’s, with a label that says when the Hub wrote it
+// ---------------------------------------------------------------------------------------------------------------------
+const hookLineOf = (card) => inside(card).find((node) => node.attrs['data-testid'] === 'runner-hook-notice');
+const HOOK_NOTICE = 'The SubagentStop hook blocked 8 times; that is the limit for one run, so ChatMCP completed the task although a hook still objected (SubagentStop: Mention the file you created.). What that hook checks may not hold.';
+const HOOK_LABEL = { en: 'The Hub’s note about a hook that still objected, written when the run ended, as it wrote it:', vi: 'Ghi chú của Hub về hook vẫn phản đối, ghi lúc lượt chạy kết thúc, nguyên văn:' };
+
+test('the Hub’s note about a hook is shown as the Hub’s, with a label in the language on screen that says when it was written, and the report holds only what the AI said', async () => {
+  const entry = worker({ summary: REPORT, runnerHookNotice: HOOK_NOTICE });
+  for (const lang of ['en', 'vi']) {
+    const card = await cardOf(entry, lang);
+    const line = hookLineOf(card);
+    assert.equal(line.text, `${HOOK_LABEL[lang]} ${HOOK_NOTICE}`, `${lang}: the label in the language on screen, then the Hub’s words as written`);
+    assert.ok(reportOf(card).text.includes(REPORT), lang);
+    assert.ok(!reportOf(card).text.includes('hook') && !reportOf(card).text.includes(HOOK_LABEL[lang]), `${lang}: the Hub’s words are not in the AI’s report`);
+    assert.ok(!line.text.includes(REPORT), `${lang}: and the AI’s words are not in the Hub’s note`);
+    assert.match(line.attrs.class, /\bbreak-words\b/, 'text from outside has no natural break: it must not widen the card');
+    assert.match(line.attrs.class, /\bwhitespace-pre-wrap\b/);
+    assert.equal(noticeLineOf(card), undefined, `${lang}: the other sentence of the Hub’s is not there when the Hub did not write it`);
+  }
+});
+
+test('the hook note stands after the Hub’s verification notice and before the AI’s report; the two sentences of the Hub’s are two lines', async () => {
+  const entry = worker({ status: 'needs_attention', verifyRequired: true, summary: REPORT, verificationNote: BLOCKED, runnerError: EMPTY_FINAL, runnerNotice: NOTICE, runnerHookNotice: HOOK_NOTICE });
+  for (const lang of ['en', 'vi']) {
+    const card = await cardOf(entry, lang);
+    const order = inside(card).map((node) => node.attrs['data-testid']).filter(Boolean);
+    const at = (id) => order.indexOf(id);
+    assert.ok(at('agent-proof') >= 0 && at('agent-proof') < at('hub-note') && at('hub-note') < at('runner-error') && at('runner-error') < at('runner-notice') && at('runner-notice') < at('runner-hook-notice') && at('runner-hook-notice') < at('ai-report'), `${lang}: ${order.join(' > ')}`);
+    assert.ok(!hookLineOf(card).text.includes('NOT independently') && !noticeLineOf(card).text.includes('hook still objected'), `${lang}: the Hub’s two sentences are not in one line`);
+  }
+});
+
+test('the hook note is plain text: no colour of proof, it changes no colour of the card, and it stands beside a green card too', async () => {
+  for (const status of ['ready_for_review', 'failed', 'needs_attention', 'cancelled', 'no_changes']) {
+    const without = await cardOf(worker({ status, summary: REPORT }));
+    const card = await cardOf(worker({ status, summary: REPORT, runnerHookNotice: HOOK_NOTICE }));
+    assert.doesNotMatch(hookLineOf(card).attrs.class ?? '', /\b(?:text|bg|border)-(?:success|warning|danger)\b/, `${status}: the line wears no tone`);
+    assert.doesNotMatch(greenClasses(card), GREEN, status);
+    assert.equal(card.attrs['data-tone'], without.attrs['data-tone'], `${status}: the card keeps the colour the Hub’s record gives it`);
+    assert.equal(card.attrs['data-kind'], without.attrs['data-kind'], status);
+  }
+  const green = await cardOf(verified({ summary: REPORT, runnerHookNotice: HOOK_NOTICE, verificationNote: VERIFIED_NOTE }));
+  assert.equal(green.attrs['data-kind'], 'verified', '(premise)');
+  assert.equal(hookLineOf(green).text, `${HOOK_LABEL.en} ${HOOK_NOTICE}`, 'a caution is not withdrawn by a green card');
+  assert.doesNotMatch(hookLineOf(green).attrs.class ?? '', GREEN);
+});
+
+test('the hook note is read like any text from outside: what cannot be seen is shown as a marker, with the line that says so', async () => {
+  const hidden = `A hook says it all holds${String.fromCharCode(0x202E)} yes`;
+  const card = await cardOf(worker({ runnerHookNotice: hidden }));
+  const line = hookLineOf(card);
+  assert.ok(line.text.includes('A hook says it all holds‹U+202E› yes') && !line.text.includes(String.fromCharCode(0x202E)), line.text);
+  assert.match(card.text, /hidden or direction-changing/);
+  assert.doesNotMatch((await cardOf(worker({ runnerHookNotice: HOOK_NOTICE }))).text, /hidden or direction-changing/, 'plain text has no such line');
+});
+
+test('a worker with no hook note shows none; what is not text, or says nothing, is not shown; the AI’s own “[Hook notice]” stays in its report', async () => {
+  for (const bad of [undefined, null, '', '   ', '\n', 7, true, {}, [], ['x'], { text: HOOK_NOTICE }]) {
+    assert.equal(hookLineOf(await cardOf(worker({ runnerHookNotice: bad }))), undefined, JSON.stringify(bad));
+  }
+  assert.equal(hookLineOf(await cardOf(worker())), undefined, 'a worker the Hub had nothing to say about');
+  const said = await cardOf(worker({ summary: `Done.\n\n[Hook notice] ${HOOK_NOTICE}` }));
+  assert.equal(hookLineOf(said), undefined);
+  assert.ok(reportOf(said).text.includes(HOOK_NOTICE), 'a model that wrote the sentence itself, or a record saved before the field existed: that is its report');
+  assert.equal(hookLineOf(await cardOf(worker({ runnerNotice: NOTICE }))), undefined, 'the verification notice is the other line');
+  assert.equal(noticeLineOf(await cardOf(worker({ runnerHookNotice: HOOK_NOTICE }))), undefined, 'and the hook note is not that one');
+});
+
 test('what the verification option really needs is said where it is chosen', async () => {
   const en = await page(state(), { store: { lang: 'en' }, ...ready });
   const note = within(en, 'coding-task').text;

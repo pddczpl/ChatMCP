@@ -37,6 +37,7 @@ export interface WorkerRecord {
   runnerError?: string | null;
   runnerErrorCode?: string | null;
   runnerNotice?: string | null;
+  runnerHookNotice?: string | null;
 }
 
 export interface WorkerProof {
@@ -127,6 +128,16 @@ export function runnerErrorCodeOf(worker: WorkerRecord | null | undefined): stri
  */
 export function runnerNoticeOf(worker: WorkerRecord | null | undefined): string | null {
   const raw: unknown = worker?.runnerNotice;
+  return typeof raw === 'string' && raw.trim() !== '' ? raw : null;
+}
+
+/**
+ * The note the Hub wrote when a Stop-type hook (SubagentStop for a worker) still objected after its eight blocks, so that the task completed anyway (lib/coding-orchestrator.mjs,
+ * `runnerHookNotice`): a field of its own, because it is the Hub's, naming the owner's hook, and not what the model said. Passed on exactly as it came, like `runnerNoticeOf`; text that
+ * says nothing is none. It is a caution about a hook, so no state of the card holds it back and it is neither evidence nor a verdict: `assessWorker` never reads it.
+ */
+export function runnerHookNoticeOf(worker: WorkerRecord | null | undefined): string | null {
+  const raw: unknown = worker?.runnerHookNotice;
   return typeof raw === 'string' && raw.trim() !== '' ? raw : null;
 }
 

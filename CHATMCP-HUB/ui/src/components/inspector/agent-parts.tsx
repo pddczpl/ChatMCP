@@ -146,12 +146,25 @@ export function RunnerError({ text, code }: { text: string | null; code?: string
  */
 export function RunnerNotice({ text }: { text: string | null }) {
   const { t } = useTranslation();
-  if (!text) return null;
+  return text ? <HubSentence testId="runner-notice" label={t('coding_runner_notice_label')} text={text} /> : null;
+}
+
+/**
+ * The note the Hub wrote when a hook still objected after its eight blocks and the task completed anyway: the Hub's, apart from the AI's report and from the sentence above, with a label
+ * that says it was written when the run ended. Same plain text, same markers. Whether it may be shown at all is decided by `runnerHookNoticeOf` (lib/agent-proof.ts).
+ */
+export function RunnerHookNotice({ text }: { text: string | null }) {
+  const { t } = useTranslation();
+  return text ? <HubSentence testId="runner-hook-notice" label={t('coding_runner_hook_notice_label')} text={text} /> : null;
+}
+
+/** One sentence of the Hub's, quoted as it wrote it under a label that says whose it is and when it was written: plain muted text, in no colour of proof, hidden characters shown as markers. */
+function HubSentence({ testId, label, text }: { testId: string; label: string; text: string }) {
   return (
     <div className="space-y-0.5">
       <HiddenNote show={hasHidden(text)} />
-      <p data-testid="runner-notice" className="whitespace-pre-wrap break-words text-[12px] leading-4 text-muted select-text">
-        <span className="font-medium text-fg">{t('coding_runner_notice_label')}</span>{' '}<HiddenText text={text} />
+      <p data-testid={testId} className="whitespace-pre-wrap break-words text-[12px] leading-4 text-muted select-text">
+        <span className="font-medium text-fg">{label}</span>{' '}<HiddenText text={text} />
       </p>
     </div>
   );
