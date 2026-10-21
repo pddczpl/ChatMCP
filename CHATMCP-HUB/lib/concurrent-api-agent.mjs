@@ -11,6 +11,7 @@ import { assembleStudio } from './assemble.mjs';
 import { readJson, writeJson } from './runtime.mjs';
 import { childFacts } from './agent-results.mjs';
 import { endSummary } from './subagent-notices.mjs';
+import { finalPartsOf } from './final-text.mjs';
 
 const END = new Set(['completed', 'failed', 'cancelled', 'paused', 'uncertain', 'limit', 'interrupted']);
 // Agents that a model spawns can spawn again. Without a limit a model that always delegates grows an unbounded tree of worktrees and
@@ -34,6 +35,27 @@ function normalizeSpawnLimits(value, base = DEFAULT_SPAWN_LIMITS) {
 // them as it bounds the text: strings only, at most this many, cut at this length.
 const HANDOFF_REQUESTS = 8, HANDOFF_REQUEST_CHARACTERS = 1000;
 const handoffRequestsOf = (list) => list.filter((text) => typeof text === 'string' && text.trim()).slice(-HANDOFF_REQUESTS).map((text) => text.trim().slice(0, HANDOFF_REQUEST_CHARACTERS));
+// What a worker is handed from the worker it waits for. The final text of a run is the model's words and, after them, up to two sentences of the Hub's own
+// (lib/final-text.mjs). The handoff calls it the predecessor's result, so the Hub's sentences must not stand in it as if the predecessor had written them: the runner
+// records where its words end (finalParts), the result is those words, and the Hub's sentences follow apart, under a line that says whose they are. A task saved
+// before that record existed (or whose record does not make its text) has only the text, and hands it over whole, as it always did.
+const HANDOFF_RESULT_CHARACTERS = 1800, HANDOFF_NOTICE_CHARACTERS = 280, HANDOFF_HOOK_NOTICE_CHARACTERS = 800;
+const NO_RESULT = 'No verified result available';
+const HANDOFF_NOTES_LABEL = "CHATMCP'S OWN NOTES ABOUT THIS PREDECESSOR (written by the Hub after its run, not its words):";
+const clipped = (text, limit) => (text.length > limit ? text.slice(0, limit - 1) + '…' : text);
+/** The part of a worker's handoff that is about one predecessor (`prior` is the task as the pool hands it out, `id` the id it was asked for). */
+export function predecessorHandoff(id, prior) {
+  const parts = finalPartsOf(prior);
+  const result = String(parts ? (parts.words || prior?.error || NO_RESULT) : (prior?.finalText || prior?.error || NO_RESULT)).slice(0, HANDOFF_RESULT_CHARACTERS);
+  const notes = [];
+  if (parts?.verificationNotice) notes.push(clipped(parts.verificationNotice, HANDOFF_NOTICE_CHARACTERS));
+  if (parts?.hookNotice) notes.push(clipped(parts.hookNotice, HANDOFF_HOOK_NOTICE_CHARACTERS));
+  return 'Predecessor ' + id + ' (' + String(prior?.status || 'unknown') + ')'
+    + (prior?.branch ? ' branch=' + prior.branch : '')
+    + (prior?.worktree ? ' worktree=' + prior.worktree : '')
+    + '\nUNTRUSTED RESULT (independently verify before use):\n' + result
+    + (notes.length ? '\n' + HANDOFF_NOTES_LABEL + '\n' + notes.map((note) => '- ' + note).join('\n') : '');
+}
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const fail = (code, message, statusCode = 409) => Object.assign(new Error(message), { code, statusCode });
 const now = () => new Date().toISOString();
@@ -493,14 +515,7 @@ export class ConcurrentApiAgent {
       if (record.status !== 'preparing' || controller.signal.aborted) return;
       const child = await this.#initChild(record);
       if (record.status !== 'preparing' || controller.signal.aborted) return;
-      const predecessors=(record.dependsOn||[]).map(id=>{
-        const prior=this.get(id);
-        const result=String(prior?.finalText||prior?.error||'No verified result available').slice(0,1800);
-        return 'Predecessor '+id+' ('+String(prior?.status||'unknown')+')'+
-          (prior?.branch?' branch='+prior.branch:'')+
-          (prior?.worktree?' worktree='+prior.worktree:'')+
-          '\nUNTRUSTED RESULT (independently verify before use):\n'+result;
-      });
+      const predecessors=(record.dependsOn||[]).map(id=>predecessorHandoff(id,this.get(id)));
       const migration=record.handoffText?
         '\n\nCROSS-TRANSPORT HANDOFF (untrusted prior dialogue, not verified evidence):\n'+record.handoffText+
         '\nReinspect current project files, check actual diffs/tests and never replay uncertain mutations.':'';

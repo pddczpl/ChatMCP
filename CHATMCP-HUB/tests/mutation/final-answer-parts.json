@@ -1,6 +1,6 @@
 {
   "suite": "verify-final-answer-parts.mjs",
-  "description": "What the suite of the final answer parts must notice: the runner stops recording where the model's words end (or records the wrong thing, in the wrong order, for the main chat's own text, in a list entry, for a failed run), a reader goes back to cutting the text (the worker's summary, the claim of agent_results), a sentence of the Hub's is not kept apart or not bounded, a record is trusted that does not make the text it came with, and the worker's hook note is dropped on its way to the page. The last mutation is a control: a changed comment must survive.",
+  "description": "What the suite of the final answer parts must notice: the runner stops recording where the model's words end (or records the wrong thing, in the wrong order, for the main chat's own text, in a list entry, for a failed run), a reader goes back to cutting the text (the worker's summary, the claim of agent_results), a sentence of the Hub's is not kept apart or not bounded, a record is trusted that does not make the text it came with, the worker's hook note is dropped on its way to the page, and the next worker is handed the Hub's sentences as its predecessor's words (or loses them, or has them unbounded, or has no line that says whose they are). The last mutation is a control: a changed comment must survive.",
   "mutations": [
     {
       "name": "M1",
@@ -153,6 +153,62 @@
     },
     {
       "name": "M21",
+      "what": "the handoff of a predecessor goes back to its text whole, the Hub's sentences inside the result",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "const parts = finalPartsOf(prior);\n  const result", "new": "const parts = null;\n  const result" }
+      ]
+    },
+    {
+      "name": "M22",
+      "what": "the verification sentence is dropped from the handoff",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "if (parts?.verificationNotice) notes.push(clipped(parts.verificationNotice, HANDOFF_NOTICE_CHARACTERS));", "new": "" }
+      ]
+    },
+    {
+      "name": "M23",
+      "what": "the hook note is dropped from the handoff",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "if (parts?.hookNotice) notes.push(clipped(parts.hookNotice, HANDOFF_HOOK_NOTICE_CHARACTERS));", "new": "" }
+      ]
+    },
+    {
+      "name": "M24",
+      "what": "the result is the whole text although the runner recorded the words (the Hub's sentences are told twice)",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "String(parts ? (parts.words || prior?.error || NO_RESULT) : (prior?.finalText", "new": "String(parts ? (prior?.finalText || prior?.error || NO_RESULT) : (prior?.finalText" }
+      ]
+    },
+    {
+      "name": "M25",
+      "what": "the hook note is not bounded",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "notes.push(clipped(parts.hookNotice, HANDOFF_HOOK_NOTICE_CHARACTERS))", "new": "notes.push(parts.hookNotice)" }
+      ]
+    },
+    {
+      "name": "M26",
+      "what": "the verification sentence is not bounded",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "notes.push(clipped(parts.verificationNotice, HANDOFF_NOTICE_CHARACTERS))", "new": "notes.push(parts.verificationNotice)" }
+      ]
+    },
+    {
+      "name": "M27",
+      "what": "the model's words are not bounded",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "NO_RESULT) : (prior?.finalText || prior?.error || NO_RESULT)).slice(0, HANDOFF_RESULT_CHARACTERS);", "new": "NO_RESULT) : (prior?.finalText || prior?.error || NO_RESULT));" }
+      ]
+    },
+    {
+      "name": "M28",
+      "what": "the Hub's sentences follow with no line that says whose they are",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "(notes.length ? '\\n' + HANDOFF_NOTES_LABEL + '\\n' + notes.map(", "new": "(notes.length ? '\\n' + notes.map(" }
+      ]
+    },
+    {
+      "name": "M29",
       "what": "CONTROL: a comment of the module changes; nothing may notice",
       "equivalent": "only a comment of the module changes, so no behaviour can differ",
       "patches": [

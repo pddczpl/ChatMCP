@@ -521,6 +521,27 @@ try {
     await until(()=>seen.length>before&&pool.get(short.id)?.status==='completed','the next message of the short worker ran');
     assert.equal(pool.get(short.id).goalPlan,null,'the next message of the worker does not decompose its stored prompt');
     assert.ok(!seen[before].instructions.includes(PLAN),'and its instructions carry no decomposition');
+    // (5) A predecessor that did end with sentences of the Hub's (the runner records where its words end): the next worker reads the words as its result, and the Hub's
+    // sentences apart, under a line that says whose they are. A predecessor with no such record (a task saved before it existed) hands over its text whole, as it always did.
+    {
+      const WORDS='The fix is in src/auth.mjs.',VERIFICATION='ChatMCP has NOT independently verified full completion: no check was run.',HOOK='The Stop hook blocked 8 times; the last said Not yet. What that hook checks may not hold.';
+      const RECORDED='11111111-1111-4111-8111-111111111111',OLDER='22222222-2222-4222-8222-222222222222';
+      const text=WORDS+'\n\n[Verification notice] '+VERIFICATION+'\n\n[Hook notice] '+HOOK;
+      const real=pool.get.bind(pool);
+      pool.get=(id)=>id===RECORDED?{id:RECORDED,status:'completed',branch:'chatmcp/recorded',worktree:'/w/recorded',finalText:text,finalParts:{words:WORDS,verificationNotice:VERIFICATION,hookNotice:HOOK}}
+        :id===OLDER?{id:OLDER,status:'completed',branch:'chatmcp/older',worktree:'/w/older',finalText:text}:real(id);
+      let after,older;
+      try{
+        after=await pool.start({prompt:'List what is left.',dependsOn:[RECORDED]});
+        older=await pool.start({prompt:'List what is next.',dependsOn:[OLDER]});
+        for(const worker of [after,older])await until(()=>real(worker.id)?.status==='completed','worker '+worker.id+' after a predecessor with sentences of the Hub\'s completed');
+      }finally{delete pool.get;}
+      const RESULT='UNTRUSTED RESULT (independently verify before use):\n';
+      const read=(goal)=>seen.find(request=>request.prompt.startsWith(goal+HEADER)).prompt;
+      assert.ok(read('List what is left.').includes('Predecessor '+RECORDED+' (completed) branch=chatmcp/recorded worktree=/w/recorded\n'+RESULT+WORDS+'\nCHATMCP\'S OWN NOTES ABOUT THIS PREDECESSOR (written by the Hub after its run, not its words):\n- '+VERIFICATION+'\n- '+HOOK+'\nPrevious workers used independent worktrees.'),'the result is the predecessor\'s words, and the Hub\'s sentences follow under a line that says whose they are');
+      assert.ok(!read('List what is left.').includes('[Verification notice]')&&!read('List what is left.').includes('[Hook notice]'),'the marks the runner joins the sentences with are not in what the worker reads');
+      assert.ok(read('List what is next.').includes('Predecessor '+OLDER+' (completed) branch=chatmcp/older worktree=/w/older\n'+RESULT+text+'\nPrevious workers used independent worktrees.'),'a predecessor with no record hands over its text whole, as it always did');
+    }
   }
 
   await pool.shutdown();
