@@ -72,7 +72,7 @@ export function SessionSidebar() {
       setSelectedTaskId('');
       await queryClient.invalidateQueries({queryKey:['hubState']});
     }catch(error){
-      showToast(error instanceof Error?error.message:'Không thể chọn workspace.','error');
+      showToast(error instanceof Error?error.message:t('agents_side_pick_failed'),'error');
       setManualFolderOpen(true);
     }finally{setChoosing(false);}
   };
@@ -87,8 +87,8 @@ export function SessionSidebar() {
       setManualFolder('');
       setManualFolderOpen(false);
       await queryClient.invalidateQueries({queryKey:['hubState']});
-      showToast('Đã chọn workspace '+added.workspace.path,'success');
-    }catch(e){showToast(e instanceof Error?e.message:'Đường dẫn workspace không hợp lệ.','error');}
+      showToast(t('agents_side_picked',{path:added.workspace.path}),'success');
+    }catch(e){showToast(e instanceof Error?e.message:t('agents_side_path_invalid'),'error');}
     finally{setChoosing(false);}
   };
   const selectWorkspace=async(folder:string)=>{
@@ -97,7 +97,7 @@ export function SessionSidebar() {
       setSelectedWorkspacePath(folder);
       setSelectedTaskId('');
       await queryClient.invalidateQueries({queryKey:['hubState']});
-    }catch(error){showToast(error instanceof Error?error.message:'Không thể chuyển workspace.','error');}
+    }catch(error){showToast(error instanceof Error?error.message:t('agents_bg_open_workspace_failed'),'error');}
   };
   const selectConversation=async(id:string,folder:string)=>{
     if(folder!==activeWorkspace){
@@ -109,10 +109,7 @@ export function SessionSidebar() {
   const removeWorkspace=async(folder:string,name:string)=>{
     if(removingWorkspace)return;
     const count=perWorkspace(folder).length;
-    if(!window.confirm('Gỡ workspace "'+name+'" khỏi ChatMCP?\n\n'
-      +count+' hội thoại và các background tasks của workspace sẽ được ẩn khỏi giao diện. '
-      +'Lịch sử vẫn được lưu và hiện lại khi thêm đúng thư mục.\n\n'
-      +'KHÔNG xoá thư mục, file, nhánh Git hay worktree trên máy.'))return;
+    if(!window.confirm(t(count===1?'agents_side_remove_confirm_one':'agents_side_remove_confirm_other',{name,n:count})))return;
     setRemovingWorkspace(folder);
     try{
       const result=await api.removeWorkspace(folder);
@@ -124,17 +121,14 @@ export function SessionSidebar() {
         queryClient.invalidateQueries({queryKey:['hubState']}),
         queryClient.invalidateQueries({queryKey:['backgroundRuns']}),
       ]);
-      showToast('Đã gỡ workspace khỏi danh sách. Tệp trên ổ đĩa vẫn được giữ nguyên.','success');
-    }catch(error){showToast(error instanceof Error?error.message:'Không thể gỡ workspace.','error');}
+      showToast(t('agents_side_removed'),'success');
+    }catch(error){showToast(error instanceof Error?error.message:t('agents_side_remove_failed'),'error');}
     finally{setRemovingWorkspace(null);}
   };
   const removeConversation=async(id:string,title:string)=>{
     if(removingConversation)return;
     const related=allTasks.filter(task=>task.id!==id&&task.conversationId===id).length;
-    if(!window.confirm('Xóa hội thoại "'+title+'"?\n\n'
-      +'Lịch sử các lượt task'+(related?' và '+related+' subagent':'')+' sẽ bị xóa khỏi ChatMCP. '
-      +'Không thể hoàn tác việc xóa lịch sử.\n\n'
-      +'KHÔNG xóa file dự án, nhánh Git hay worktree.'))return;
+    if(!window.confirm(t(!related?'agents_side_delete_confirm':related===1?'agents_side_delete_confirm_one':'agents_side_delete_confirm_other',{title,n:related})))return;
     setRemovingConversation(id);
     try{
       await api.deleteTask(id);
@@ -144,8 +138,8 @@ export function SessionSidebar() {
         queryClient.invalidateQueries({queryKey:['hubState']}),
         queryClient.invalidateQueries({queryKey:['backgroundRuns']}),
       ]);
-      showToast('Đã xóa hội thoại và các tác vụ con. Các tệp dự án được giữ nguyên.','success');
-    }catch(error){showToast(error instanceof Error?error.message:'Không thể xóa hội thoại.','error');}
+      showToast(t('agents_side_deleted'),'success');
+    }catch(error){showToast(error instanceof Error?error.message:t('agents_side_delete_failed'),'error');}
     finally{setRemovingConversation(null);}
   };
 
@@ -157,7 +151,7 @@ export function SessionSidebar() {
       </Button>
       <div className="relative">
         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint"/>
-        <input aria-label="Tìm hội thoại" type="text" value={search}
+        <input aria-label={t('agents_side_search')} type="text" value={search}
           onChange={e=>setSearch(e.target.value)} placeholder={t('search_sessions')}
           className="h-9 w-full rounded-lg border border-line bg-surface pl-8 pr-2.5 text-[13px] text-fg placeholder:text-faint transition-colors hover:border-line-strong focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25"/>
       </div>
@@ -165,7 +159,7 @@ export function SessionSidebar() {
     <div className="min-h-0 flex-1 overflow-y-auto p-2">
       <div className="flex items-center justify-between px-2 pb-1 pt-2">
         <span className="text-[12px] font-medium text-faint">{t('sidebar_workspaces')}</span>
-        <button type="button" aria-label="Thêm workspace" title="Chọn thư mục bằng Windows Explorer"
+        <button type="button" aria-label={t('sidebar_add_workspace')} title={t('agents_side_add_hint')}
           onClick={()=>void pickWorkspace()} disabled={choosing}
           className="flex h-7 w-7 items-center justify-center rounded-lg text-muted transition-colors hover:bg-hover hover:text-fg">
           {choosing?<Loader2 className="h-4 w-4 animate-spin"/>:<Plus className="h-4 w-4"/>}
@@ -173,15 +167,15 @@ export function SessionSidebar() {
       </div>
       {manualFolderOpen&&<form onSubmit={e=>{e.preventDefault();void addManualWorkspace();}}
         className="mx-1 mb-2 space-y-2 rounded-xl border border-line bg-surface p-3">
-        <label className="block text-[12px] leading-4 text-muted">Nhập đường dẫn thư mục nếu hộp chọn Windows không mở</label>
-        <input aria-label="Nhập đường dẫn workspace thủ công" value={manualFolder}
+        <label className="block text-[12px] leading-4 text-muted">{t('agents_side_manual')}</label>
+        <input aria-label={t('agents_side_manual_label')} value={manualFolder}
           onChange={e=>setManualFolder(e.target.value)} placeholder="F:\\Personal_Project\\Vin\\ChatMCP"
           className="h-8 w-full rounded-lg border border-line bg-panel px-2.5 font-mono text-[12px] text-fg focus:border-primary focus:outline-none"/>
         <div className="flex gap-2">
           <button type="submit" disabled={!manualFolder.trim()||choosing}
-            className="h-8 rounded-lg bg-primary px-3 text-[13px] font-semibold text-primary-fg disabled:opacity-50">Thêm workspace</button>
+            className="h-8 rounded-lg bg-primary px-3 text-[13px] font-semibold text-primary-fg disabled:opacity-50">{t('sidebar_add_workspace')}</button>
           <button type="button" onClick={()=>setManualFolderOpen(false)}
-            className="h-8 px-2 text-[13px] text-muted hover:text-fg">Hủy</button>
+            className="h-8 px-2 text-[13px] text-muted hover:text-fg">{t('agents_side_cancel')}</button>
         </div>
       </form>}
       {!workspaceEntries.length&&<div className="p-3 text-[13px] leading-5 text-faint">
@@ -192,7 +186,7 @@ export function SessionSidebar() {
         const items=perWorkspace(folder);
         return <div key={folder} className="mb-1">
           <div className={'group flex items-center gap-0.5 rounded-lg px-1 '+(current?'bg-hover':'hover:bg-hover')}>
-            <button type="button" aria-label={shut?'Mở nhóm '+entry.name:'Thu gọn nhóm '+entry.name}
+            <button type="button" aria-label={shut?t('agents_side_open',{name:entry.name}):t('agents_side_shut',{name:entry.name})}
               onClick={()=>setCollapsed(v=>({...v,[folder]:!shut}))} className="flex h-7 w-6 items-center justify-center text-faint hover:text-fg">
               <ChevronRight className={'h-3.5 w-3.5 transition-transform '+(shut?'':'rotate-90')}/>
             </button>
@@ -203,8 +197,8 @@ export function SessionSidebar() {
               <span className="truncate text-[13px] font-semibold text-fg">{entry.name}</span>
             </button>
             <span className="px-1 text-[12px] tabular-nums text-faint">{items.length}</span>
-            <button type="button" aria-label={'Gỡ workspace '+entry.name}
-              title="Gỡ khỏi ChatMCP — không xóa thư mục trên ổ đĩa"
+            <button type="button" aria-label={t('agents_side_remove_label',{name:entry.name})}
+              title={t('agents_side_remove_hint')}
               disabled={removingWorkspace!==null}
               onClick={()=>void removeWorkspace(folder,entry.name)}
               className="flex h-7 w-7 items-center justify-center rounded-lg text-faint opacity-0 transition-opacity hover:bg-danger/10 hover:text-danger focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-30">
@@ -225,15 +219,15 @@ export function SessionSidebar() {
                     : <MessageSquare className={'h-3.5 w-3.5 shrink-0 '+(selected?'text-primary':'text-faint')}/>}
                   <span className="min-w-0 flex-1">
                     <span className={'block truncate text-[13px] leading-5 '+(selected?'font-medium text-primary':'text-fg')}>
-                      {chat.task||chat.prompt||'Cuộc hội thoại'}
+                      {chat.task||chat.prompt||t('agents_bg_untitled_chat')}
                     </span>
                     {when&&<span className="block truncate text-[12px] leading-4 text-faint">{formatRelative(when,lang)}</span>}
                   </span>
                 </button>
                 <button type="button"
-                  onClick={()=>void removeConversation(chat.id,chat.task||chat.prompt||'Cuộc hội thoại')}
-                  aria-label={'Xóa hội thoại: '+(chat.task||chat.prompt||chat.id)}
-                  title={busy?'Dừng task và subagent trước khi xóa':'Xóa hội thoại và lịch sử task (không xóa file)'}
+                  onClick={()=>void removeConversation(chat.id,chat.task||chat.prompt||t('agents_bg_untitled_chat'))}
+                  aria-label={t('agents_side_delete_label',{title:chat.task||chat.prompt||chat.id})}
+                  title={busy?t('agents_side_delete_busy'):t('agents_side_delete_hint')}
                   disabled={busy||removingConversation!==null}
                   className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-faint opacity-0 transition-opacity hover:bg-danger/10 hover:text-danger focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-0">
                   {removingConversation===chat.id?<Loader2 className="h-3.5 w-3.5 animate-spin"/>:<Trash2 className="h-3.5 w-3.5"/>}

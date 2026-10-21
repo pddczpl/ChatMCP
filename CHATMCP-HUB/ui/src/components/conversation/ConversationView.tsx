@@ -22,12 +22,14 @@ import { ChatGptWebRiskNote } from '@/components/approval/ChatGptWebRiskNote';
 import { isTaskActive, normalizeApproval, taskTimeline } from '@/lib/task-view';
 import type { ChatAttachment } from '@/types';
 import { parseRoleProfileOverrides } from '@/lib/model-profile-selection';
+import { useTranslation } from '@/lib/i18n';
 
 /** The reading column: wide enough for code, narrow enough to read. */
 const column = 'mx-auto w-full max-w-[820px] px-5';
 
 export function ConversationView() {
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
   const { selectedTaskId, setSelectedTaskId, showToast, streamingToken, streamingTaskId, selectedBaseRef, selectedWorkspacePath,
     openSettings } = useAppStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -71,16 +73,18 @@ export function ConversationView() {
     setDecidingReview(true);
     try {
       const result = await api.decideOutboundReview(outboundReview.id, action, redact);
-      if (action === 'redact_more' && result.matched === 0) showToast('Không tìm thấy chuỗi đó trong gói đang chờ.', 'info');
-      else showToast(action === 'approve' ? 'Đã duyệt: gói được chuyển cho Companion để gửi.' : action === 'withhold' ? 'Đã giữ lại: ChatGPT chỉ nhận một thông báo.' : 'Đã che thêm; gói vẫn đang chờ bạn quyết định.', 'success');
+      if (action === 'redact_more' && result.matched === 0) showToast(t('agents_conv_review_missing'), 'info');
+      else showToast(action === 'approve' ? t('agents_conv_review_approved') : action === 'withhold' ? t('agents_conv_review_withheld') : t('agents_conv_review_redacted'), 'success');
       refreshTask();
     } catch (error: any) {
-      showToast(error.message || 'Không thể gửi quyết định xem lại.', 'error');
+      showToast(error.message || t('agents_conv_review_failed'), 'error');
       refreshTask();
     } finally { setDecidingReview(false); }
   };
   const desiredTransport=hub?.agent?.mode||'api';
   const willSwitch=Boolean(selectedTaskId&&task?.transport&&task.transport!==desiredTransport);
+  // the sentence is cut where the new channel's name goes (in bold)
+  const [switchBefore, switchAfter] = t('agents_conv_switch').split('{transport}');
   const permissions = hub?.studio?.permissions;
   const mode = permissions?.executionPolicy === 'full-access' ? 'full-access' : permissions?.mode || 'review';
   const visibleToken = isWorking && streamingTaskId === selectedTaskId ? streamingToken : '';
@@ -111,9 +115,9 @@ export function ConversationView() {
         const knownProfiles=hub?.ai?.profiles||[];
         if(apiMode && selectedProfileId && selectedProfileId!=='__global__' &&
            !knownProfiles.some(p=>p.id===selectedProfileId))
-          throw new Error('Model profile đã chọn không còn tồn tại.');
+          throw new Error(t('agents_conv_profile_gone'));
         const roleProfiles=apiMode?parseRoleProfileOverrides(roleProfilesDraft,knownProfiles):{};
-        const res = await api.startTask(text || 'Hãy phân tích tệp/ảnh đính kèm.', attachments, selectedBaseRef || null, dependsOn,
+        const res = await api.startTask(text || t('agents_conv_files_prompt'), attachments, selectedBaseRef || null, dependsOn,
           selectedWorkspacePath || hub?.workspaces?.activePath || hub?.workspace?.path || null,
           apiMode ? selectedProfileId || null : null, roleProfiles);
         if (res?.task?.id) {
@@ -121,19 +125,19 @@ export function ConversationView() {
           setSelectedTaskId(res.task.id);
         }
       } else {
-        const res = await api.continueTask(selectedTaskId, text || 'Hãy phân tích tệp/ảnh đính kèm.', attachments);
+        const res = await api.continueTask(selectedTaskId, text || t('agents_conv_files_prompt'), attachments);
         if(res.task.id!==selectedTaskId){
           // A user-requested mode switch creates a linked task in the chosen
           // transport rather than silently using the old model runner.
           queryClient.setQueryData(['task',res.task.id],res.task);
           setSelectedTaskId(res.task.id);
-          showToast(res.task.handoff?.note||'Đã chuyển sang kênh agent đã chọn.','info');
+          showToast(res.task.handoff?.note||t('agents_conv_handoff'),'info');
         }else queryClient.setQueryData(['task',selectedTaskId],res.task);
       }
       refreshTask();
       return true;
     } catch (err: any) {
-      showToast(err.message || 'Không thể gửi tin nhắn', 'error');
+      showToast(err.message || t('agents_conv_send_failed'), 'error');
       return false;
     } finally {
       requestPending.current = false;
@@ -147,9 +151,9 @@ export function ConversationView() {
     try{
       await api.cancelWorkflow(id);
       await queryClient.invalidateQueries({queryKey:['backgroundRuns']});
-      showToast('Đã gửi yêu cầu dừng các subagent trong workflow.','info');
+      showToast(t('agents_conv_workflow_stop'),'info');
     }catch(err:any){
-      showToast(err.message||'Không thể dừng workflow','error');
+      showToast(err.message||t('agents_conv_workflow_stop_failed'),'error');
     }finally{setCancellingWorkflow(null);}
   };
   const recoverUrl=async()=>{
@@ -157,12 +161,12 @@ export function ConversationView() {
     setRecoveringChatUrl(true);
     try{
       const result=await api.recoverBrowserChatUrl(task.id);
-      showToast(result.alreadyBound?'URL chính thức đã có.':
-        'Đang yêu cầu Companion kiểm tra tab ChatGPT cũ. Giữ tab đó mở, chờ kết quả rồi nhấn Tiếp tục.',
+      showToast(result.alreadyBound?t('agents_conv_url_known'):
+        t('agents_conv_url_asking'),
         'info');
       void queryClient.invalidateQueries({queryKey:['task',task.id]});
     }catch(err:any){
-      showToast(err.message||'Không thể khôi phục URL chat.','error');
+      showToast(err.message||t('agents_conv_url_failed'),'error');
     }finally{setRecoveringChatUrl(false);}
   };
   const handleStopTask = async () => {
@@ -170,20 +174,20 @@ export function ConversationView() {
     try {
       const res = await api.cancelTask(task.id);
       queryClient.setQueryData(['task', task.id], res.task);
-      showToast('Đã gửi yêu cầu dừng tác vụ', 'info');
+      showToast(t('agents_conv_stop_sent'), 'info');
       refreshTask();
     } catch (err: any) {
-      showToast(err.message || 'Không thể dừng tác vụ', 'error');
+      showToast(err.message || t('agents_conv_stop_failed'), 'error');
     }
   };
 
   const handleModeChange = async (newMode: string) => {
     try {
       await api.configurePermissions({ mode: newMode, ...(mode === 'full-access' ? { executionPolicy: 'host-review' } : {}) });
-      showToast(`Đã chuyển sang chế độ ${newMode}`, 'info');
+      showToast(t('agents_conv_mode_set', { mode: newMode }), 'info');
       queryClient.invalidateQueries({ queryKey: ['hubState'] });
     } catch (err: any) {
-      showToast(err.message || 'Không thể đổi chế độ quyền', 'error');
+      showToast(err.message || t('agents_conv_mode_failed'), 'error');
     }
   };
 
@@ -195,9 +199,9 @@ export function ConversationView() {
     setApproving(true);
     try {
       await api.decidePermission(id, true);
-      showToast('Đã phê duyệt hành động', 'success');
+      showToast(t('agents_conv_approved'), 'success');
     } catch (err: any) {
-      showToast(err.message || 'Lỗi phê duyệt', 'error');
+      showToast(err.message || t('agents_conv_approve_failed'), 'error');
     } finally {
       setApproving(false);
       refreshTask();
@@ -208,9 +212,9 @@ export function ConversationView() {
     setApproving(true);
     try {
       await api.decidePermission(id, false);
-      showToast('Đã từ chối hành động', 'info');
+      showToast(t('agents_conv_denied'), 'info');
     } catch (err: any) {
-      showToast(err.message || 'Lỗi từ chối', 'error');
+      showToast(err.message || t('agents_conv_deny_failed'), 'error');
     } finally {
       setApproving(false);
       refreshTask();
@@ -226,7 +230,7 @@ export function ConversationView() {
       else timelineGroups.push({kind:'tools',items:[item.value]});
     } else timelineGroups.push({kind:'message',value:item.value});
   }
-  const continueTask = () => handleSendMessage('Tiếp tục tác vụ trong cùng cuộc hội thoại. Kiểm tra trạng thái hiện tại trước khi thao tác; không tự chạy lại thao tác có kết quả chưa rõ.');
+  const continueTask = () => handleSendMessage(t('agents_conv_continue_prompt'));
 
   const chatGptWeb = task?.transport === 'chatgpt-web';
   const newTaskPicker = !selectedTaskId && desiredTransport === 'api';
@@ -239,10 +243,10 @@ export function ConversationView() {
       {(chatGptWeb && (!task.chatUrl || task.chatUrl.includes('local-chatgpt%3A')) && !isWorking) && (
         <div className={`${column} pt-3`}>
           <div className="space-y-2 rounded-xl border border-warning/40 bg-warning/[0.08] p-3 text-[13px] leading-5">
-            <p>Chưa có URL ChatGPT chính thức cho task này. Mở tab ChatGPT đã gửi nhiệm vụ, rồi yêu cầu Extension xác nhận URL. ChatMCP sẽ không tự tạo chat mới hoặc gửi lại prompt.</p>
+            <p>{t('agents_conv_url_missing')}</p>
             <button type="button" onClick={() => void recoverUrl()} disabled={recoveringChatUrl}
               className="h-8 rounded-lg border border-line bg-panel px-3 text-[13px] font-medium text-fg transition-colors hover:bg-hover disabled:opacity-40">
-              {recoveringChatUrl ? 'Đang yêu cầu…' : 'Khôi phục URL ChatGPT từ tab đã gửi'}
+              {recoveringChatUrl ? t('agents_conv_url_busy') : t('agents_conv_url_recover')}
             </button>
           </div>
         </div>
@@ -250,9 +254,7 @@ export function ConversationView() {
       {willSwitch && (
         <div className={`${column} pt-3`}>
           <div role="status" data-testid="transport-switch-notice" className="rounded-xl border border-primary/30 bg-primary/[0.06] p-3 text-[13px] leading-5 text-muted">
-            Lượt tiếp theo sử dụng <strong className="text-fg">{desiredTransport === 'chatgpt-web' ? 'ChatGPT Web Companion' : 'Model API'}</strong>.
-            ChatMCP giữ liên kết với các lượt trước và chuyển tóm tắt ngữ cảnh, nhưng không giả định hai model dùng chung lịch sử.
-            Các thao tác ghi file chưa xác minh sẽ không được tự động phát lại.
+            {switchBefore}<strong className="text-fg">{desiredTransport === 'chatgpt-web' ? 'ChatGPT Web Companion' : 'Model API'}</strong>{switchAfter}
           </div>
         </div>
       )}
@@ -261,11 +263,11 @@ export function ConversationView() {
           <div data-testid="chatgpt-web-mode-banner" role="status"
             className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-[13px]">
             <Bot className="h-4 w-4 shrink-0 text-primary" />
-            <span className="flex-1 text-muted" title="Kênh Web Companion hiện chỉ gửi văn bản qua tab ChatGPT; dùng Model API để gửi ảnh/tệp đính kèm.">
-              ChatGPT Web (text-only) · {hub.browser?.connected ? 'Companion đã kết nối' :
-                hub.browser?.paired ? 'Companion đã ghép; mở tab ChatGPT' : 'Cần ghép ChatMCP Hub Companion trước khi gửi task'}
+            <span className="flex-1 text-muted" title={t('agents_conv_web_hint')}>
+              ChatGPT Web (text-only) · {hub.browser?.connected ? t('status_companion_connected') :
+                hub.browser?.paired ? t('agents_conv_web_paired') : t('agents_conv_web_unpaired')}
             </span>
-            <button type="button" onClick={() => openSettings('agent-channel')} className="font-medium text-primary hover:underline">Thiết lập</button>
+            <button type="button" onClick={() => openSettings('agent-channel')} className="font-medium text-primary hover:underline">{t('agents_conv_setup')}</button>
           </div>
         </div>
       )}
@@ -289,7 +291,7 @@ export function ConversationView() {
         followOutput.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
         setShowLatest(!followOutput.current);
       }}>
-        {isLoading && selectedTaskId ? <p className={`${column} py-6 text-[13px] text-muted`}>Đang tải hội thoại…</p>
+        {isLoading && selectedTaskId ? <p className={`${column} py-6 text-[13px] text-muted`}>{t('agents_conv_loading')}</p>
           : taskError ? <p role="alert" className={`${column} py-6 text-[13px] text-danger`}>{taskError.message}</p>
           : !selectedTaskId ? (
             <EmptyState hub={hub} sending={sending} onPick={prompt => { if (!sending) void handleSendMessage(prompt); }} />
@@ -298,7 +300,7 @@ export function ConversationView() {
               {timelineGroups.map((item,index)=> item.kind==='message'
                 ? <MessageItem key={`message:${item.value.id||index}`} message={item.value}/>
                 : <ToolActivityGroup key={`tools:${index}`} items={item.items}/>)}
-              {task && timeline.length === 0 && <p className="py-4 text-[13px] text-muted">Chưa có nội dung hội thoại được lưu.</p>}
+              {task && timeline.length === 0 && <p className="py-4 text-[13px] text-muted">{t('agents_conv_empty')}</p>}
 
               {/* The very same persisted workflow displayed in Background Tasks,
                   not another chat or a mock progress widget. It remains live even
@@ -314,8 +316,8 @@ export function ConversationView() {
                 <div className="group py-3" data-testid="streaming-message">
                   <div className="mb-1 flex items-center gap-2 text-[12px] text-muted">
                     <span className="font-semibold text-primary">ChatMCP</span>
-                    <span className="pulse-dot">Đang trả lời…</span>
-                    <span className="ml-auto"><CopyButton text={visibleToken} label="Sao chép nội dung đang trả lời" /></span>
+                    <span className="pulse-dot">{t('agents_conv_replying')}</span>
+                    <span className="ml-auto"><CopyButton text={visibleToken} label={t('agents_conv_copy_reply')} /></span>
                   </div>
                   <div className="conversation-copy whitespace-pre-wrap text-fg">{visibleToken}</div>
                 </div>
@@ -337,7 +339,7 @@ export function ConversationView() {
               />}
               {approvalHistory.length > 0 && (
                 <details className="my-3 text-[13px]">
-                  <summary className="cursor-pointer text-muted hover:text-fg">Lịch sử phê duyệt ({approvalHistory.length})</summary>
+                  <summary className="cursor-pointer text-muted hover:text-fg">{t('agents_conv_approvals', { n: approvalHistory.length })}</summary>
                   <ApprovalStack approvals={approvalHistory} onApprove={handleApprove} onDeny={handleDeny} />
                 </details>
               )}
@@ -356,7 +358,7 @@ export function ConversationView() {
             followOutput.current = true;
             setShowLatest(false);
             messagesEndRef.current?.scrollIntoView({ behavior: 'instant', block: 'end' });
-          }}>Về nội dung mới nhất ↓</button>
+          }}>{t('agents_conv_latest')}</button>
         </div>
       )}
 
@@ -377,7 +379,7 @@ export function ConversationView() {
                 rolesOpen={showRoleProfiles} onToggleRoles={() => setShowRoleProfiles(x => !x)} />}
               {!!selectedTaskId && !!task?.effectiveProfile && (
                 <span data-testid="active-model-profile" className="inline-flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-2.5 text-[13px] text-muted"
-                  title={`Model profile: ${task.effectiveProfile.name} · ${task.effectiveProfile.model} · revision ${task.effectiveProfile.revision?.slice(0, 8)}`}>
+                  title={t('agents_conv_profile_title', { name: task.effectiveProfile.name, model: task.effectiveProfile.model, revision: String(task.effectiveProfile.revision?.slice(0, 8)) })}>
                   <Cpu className="h-3.5 w-3.5 shrink-0" />
                   <span className="truncate">{task.effectiveProfile.name} · {task.effectiveProfile.model}</span>
                 </span>

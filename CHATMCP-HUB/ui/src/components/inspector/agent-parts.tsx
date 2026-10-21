@@ -1,5 +1,6 @@
 import { AlertTriangle, Bot, CircleDashed, CircleSlash, Hourglass, Loader2, ShieldCheck, XCircle, type LucideIcon } from 'lucide-react';
 import { useTranslation, type TranslationKey, type Translate } from '@/lib/i18n';
+import '@/lib/i18n-agents-sections'; // the strings only the sections ask for load with them
 import type { AgentTone, ReportKind, VerificationNote, WorkerProofKind } from '@/lib/agent-proof';
 import type { DraftIssue } from '@/lib/agent-draft';
 import { cn } from '@/lib/utils';

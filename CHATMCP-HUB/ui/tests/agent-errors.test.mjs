@@ -7,6 +7,7 @@ import { bundleTsx } from './support/bundle.mjs';
 // The Hub names why it refused something with a code; the owner reads the sentence for that code in the language on screen, not the Hub's own
 // text (which may be in the other language) and not a bare "HTTP 409".
 const { loaded, dispose } = await bundleTsx(`
+  import './src/lib/i18n-agents-sections';
   export { translations, translate } from './src/lib/i18n';
   export { agentErrorText } from './src/lib/agent-errors';
 `, 'chatmcp-errors-');

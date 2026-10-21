@@ -2,9 +2,12 @@ import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { bundleTsx } from './support/bundle.mjs';
 
+// The strings only the Agents sections ask for join the dictionary when their module is evaluated (as they do when a section loads); the
+// import below puts them in, so that these tests cover the whole dictionary and not just the part that loads with the first screen.
 const { loaded, dispose } = await bundleTsx(`
   export { translations, translate } from './src/lib/i18n';
   export { assessWorker, assessReport } from './src/lib/agent-proof';
+  import './src/lib/i18n-agents-sections';
 `, 'chatmcp-i18n-');
 after(dispose);
 const { translations, translate, assessWorker, assessReport } = loaded;

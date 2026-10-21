@@ -4,6 +4,7 @@ import { agentErrorText } from '@/lib/agent-errors';
 import { canMerge, canPublishMerge, MERGEABLE_RUN_STATUSES, outcomeToast, reviewKey, statusTone } from '@/lib/agent-proof';
 import { formatDateTime } from '@/lib/format';
 import { useTranslation } from '@/lib/i18n';
+import '@/lib/i18n-agents-sections'; // the strings only the sections ask for load with them
 import { useAppStore } from '@/store/useAppStore';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Input';

@@ -19,7 +19,7 @@ export function ProjectInstructionsPanel({ setting, busy = false, running = fals
 }) {
   const { lang: current } = useTranslation();
   const lang = pinned ?? current;
-  const t = (key: TranslationKey): string => (translations[lang] as Record<string, string>)[key] ?? translations.vi[key];
+  const t = (key: TranslationKey): string => (translations[lang] as Record<string, string>)[key] ?? (translations.vi as Record<string, string>)[key];
   const view = describeSwitch(setting);
   return (
     <div className="space-y-3 rounded-xl border border-line bg-surface p-4" data-testid="project-instructions-settings">

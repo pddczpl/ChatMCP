@@ -4,6 +4,7 @@ import { api } from '@/lib/api';
 import { agentErrorText } from '@/lib/agent-errors';
 import { analysisBlock, assessReport, effectiveReportStatus, outcomeToast } from '@/lib/agent-proof';
 import { useTranslation } from '@/lib/i18n';
+import '@/lib/i18n-agents-sections'; // the strings only the sections ask for load with them
 import { useAppStore } from '@/store/useAppStore';
 import { useAgentDrafts } from '@/store/useAgentDrafts';
 import { Button } from '@/components/ui/Button';

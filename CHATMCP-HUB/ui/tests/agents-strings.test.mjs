@@ -4,16 +4,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// "No new hard-coded strings": every word the Agents tab shows comes from lib/i18n-agents.ts through t(), so it exists in both languages.
+// "No new hard-coded strings": every word the Agents tab shows comes from lib/i18n-agents.ts or lib/i18n-agents-sections.ts through t(), so it exists in both languages.
 // These read the source of the files that make up the tab and refuse prose that is written into them. The Background section is made of
-// layout/BackgroundTasks.tsx and the workflow card (conversation/WorkflowCard.tsx, which the chat shows too), so both are read as well.
+// layout/BackgroundTasks.tsx and the workflow card (conversation/WorkflowCard.tsx, which the chat shows too), so both are read as well, and so
+// are the two components that name the state of a conversation with the same words: its ribbon (layout/PhaseRibbon.tsx) and its banner
+// (conversation/StateBanner.tsx). The conversation screen (conversation/ConversationView.tsx) and the sidebar (sessions/SessionSidebar.tsx) are read
+// too. They show the Hub's refusals as the Hub wrote them (the Hub's message, else the screen's own sentence), which the rule about error codes below
+// does not match: the sentences of the codes in the dictionary are worded for the Agents tab (workspace_missing speaks of a Git project folder).
 
 const src = fileURLToPath(new URL('../src/', import.meta.url));
 const FILES = [
   'AgentsTab.tsx', 'OrchestratorTab.tsx', 'LazySection.tsx', 'AgentGroups.tsx', 'DynamicSubagents.tsx', 'ManualGroup.tsx', 'CodingWorkers.tsx', 'CodingRunView.tsx',
   'CodingWorkerCard.tsx', 'CodingReview.tsx', 'ConfirmDialog.tsx', 'IsolatedChecksPanel.tsx', 'agent-parts.tsx', 'agentLabels.ts', 'useDelegation.ts', 'DiffView.tsx', 'HiddenText.tsx',
 ].map((name) => `components/inspector/${name}`).concat(['lib/agent-proof.ts', 'lib/agent-draft.ts', 'lib/agent-errors.ts', 'lib/hidden-chars.ts', 'lib/tab-keys.ts', 'store/useAgentDrafts.ts',
-  'components/layout/BackgroundTasks.tsx', 'components/conversation/WorkflowCard.tsx']);
+  'components/layout/BackgroundTasks.tsx', 'components/conversation/WorkflowCard.tsx', 'components/layout/PhaseRibbon.tsx', 'components/conversation/StateBanner.tsx',
+  'components/conversation/ConversationView.tsx', 'components/sessions/SessionSidebar.tsx']);
 
 const read = (file) => fs.readFileSync(path.join(src, file), 'utf8');
 /** The source without its comments (a comment may be written in Vietnamese; a string may not). */
@@ -43,7 +48,7 @@ test('the sentence detector knows a sentence from a class list (a negative contr
 });
 
 test('every dictionary key a component asks for exists', () => {
-  const dictionary = read('lib/i18n-agents.ts');
+  const dictionary = read('lib/i18n-agents.ts') + read('lib/i18n-agents-sections.ts');
   const known = new Set([...dictionary.matchAll(/^\s{2}([a-z_0-9]+):/gm)].map((match) => match[1]));
   const base = read('lib/i18n.ts');
   for (const match of base.matchAll(/^\s{4}([a-z_0-9]+):/gm)) known.add(match[1]);
@@ -63,9 +68,13 @@ test('an error from the Hub is told through its code, not by printing the Hub’
 });
 
 test('every key of the agents dictionary is used somewhere (no strings left behind)', () => {
-  const dictionary = read('lib/i18n-agents.ts');
-  const viBlock = dictionary.slice(0, dictionary.indexOf('export const agentsEn'));
-  const keys = [...viBlock.matchAll(/^\s{2}([a-z_0-9]+):/gm)].map((match) => match[1]);
+  // both parts of it: the strings the first screen asks for and the ones only the sections ask for (each file lists Vietnamese first, English second)
+  const keys = [['lib/i18n-agents.ts', 'agentsEn'], ['lib/i18n-agents-sections.ts', 'sectionsEn']].flatMap(([file, english]) => {
+    const dictionary = read(file);
+    const found = [...dictionary.slice(0, dictionary.indexOf(`export const ${english}`)).matchAll(/^\s{2}([a-z_0-9]+):/gm)].map((match) => match[1]);
+    assert.ok(found.length > 0, `${file} has no Vietnamese keys to check`);
+    return found;
+  });
   const code = FILES.map(read).map(withoutComments).join('\n') + read('components/inspector/DynamicSubagents.tsx');
   // keys built at run time: agent_role_<role>, agent_status_<status>, agent_proof_<kind>_title|note, agent_draft_<field>_<code>, agent_error_<code>,
   // agents_bg_state_<task state> (agentLabels.ts; the states are those of lib/task-view.ts, so a test of its own pins the list)

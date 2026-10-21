@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { assessWorker, hubNoteOf } from '@/lib/agent-proof';
 import { useTranslation } from '@/lib/i18n';
+import '@/lib/i18n-agents-sections'; // the strings only the sections ask for load with them
 import { Button } from '@/components/ui/Button';
 import { agentStatusLabel } from './agentLabels';
 import { AiReport, EvidenceLine, HubNote, StatusBadge } from './agent-parts';
