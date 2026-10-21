@@ -151,7 +151,7 @@
    "patches": [
     {
      "file": "lib/agent.mjs",
-     "old": "if (verdict.notice) task.finalText += '\\n\\n[Hook notice] '+verdict.notice;",
+     "old": "if (verdict.notice) { parts.hookNotice = verdict.notice; this.#setFinalText(task, parts); }",
      "new": ""
     }
    ]

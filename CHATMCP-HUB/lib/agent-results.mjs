@@ -9,8 +9,9 @@
 //
 //  * A child's final message is the CHILD'S CLAIM. It is model output, untrusted like a web page, and the Hub did not check it. It is
 //    put under `claim` with `verifiedByHub: false`, apart from `hubRecord`, which holds what the Hub itself recorded (state, counts of
-//    tool activity, the receipts it made itself, errors). The suffix the runner appends to a final message that the Hub could not back
-//    ("[Verification notice] ...") is the Hub's text, not the model's: it is cut off the claim and reported under `hubRecord`.
+//    tool activity, the receipts it made itself, errors). What the runner appends to a final message, the "[Verification notice] ..." when the Hub
+//    could not back it and the "[Hook notice] ..." when a Stop hook still objected, is the Hub's text, not the model's: the claim is the model's words
+//    alone (the runner records where they end, lib/final-text.mjs) and the two sentences are reported under `hubRecord`.
 //    `verificationOutcome.ready` is never shown as a pass: it is also true when nothing needed checking.
 //  * The result is JSON, and the claim is a JSON string. A prose layout with delimiters would let a child's text close the claim
 //    itself and write "hub record" lines of its own; inside a JSON string it cannot.
@@ -23,6 +24,7 @@
 //  * Nothing in the result changes while a child is only waiting: no elapsed time, no clock. The no-progress detector fingerprints
 //    tool results, and an agent that polls this tool for an unchanged answer must look like what it is.
 import { redactText } from './outbound-redaction.mjs';
+import { VERIFICATION_NOTICE_MARK, finalPartsOf, verificationWarning } from './final-text.mjs';
 
 export const AGENT_RESULTS_LIMITS = Object.freeze({
   agents: 16,
@@ -37,6 +39,7 @@ export const AGENT_RESULTS_LIMITS = Object.freeze({
   errorChars: 240,
   compactErrorChars: 100,
   noticeChars: 280,
+  hookNoticeChars: 800,
   pathChars: 120,
   paths: 4,
   missing: 3,
@@ -89,17 +92,17 @@ export function parseAgentResultsArguments(args) {
   return { ids, offset };
 }
 
-const VERIFICATION_PREFIX = '\n\n[Verification notice] ';
 /**
- * The runner ends a final message that the Hub could not back with a sentence of its own (AgentRunner, "[Verification notice]").
- * That sentence is the Hub's, so it leaves the claim. Only the exact suffix the Hub would have written from the recorded outcome
- * is removed; a model that writes something similar keeps its words.
+ * For a task saved before the runner recorded where the model's words end (the task has a final text and no usable `finalParts`): the runner ends a final message that
+ * the Hub could not back with a sentence of its own (AgentRunner, "[Verification notice]"), and that sentence is the Hub's, so it leaves the claim. Only the exact suffix the
+ * Hub would have written from the recorded outcome is removed; a model that writes something similar keeps its words. A "[Hook notice]" after it cannot be told from the
+ * model's words here, so such a task keeps the whole text (the record exists so that no new task needs this).
  */
 function splitVerificationNotice(finalText, outcome) {
   const given = plain(outcome);
   if (given.ready !== false || !Array.isArray(given.missing)) return { text: finalText, notice: null };
-  const warning = `ChatMCP has NOT independently verified full completion: ${given.missing.join('; ')}.`;
-  const suffix = VERIFICATION_PREFIX + warning;
+  const warning = verificationWarning(given.missing);
+  const suffix = VERIFICATION_NOTICE_MARK + warning;
   return { text: finalText.endsWith(suffix) ? finalText.slice(0, -suffix.length) : finalText, notice: warning };
 }
 
@@ -119,7 +122,12 @@ export function childFacts({ record = null, detail = null, workflow = null } = {
   const list = (value) => (Array.isArray(value) ? value : []);
   const paths = [...new Set(list(progress.verifiedFiles).map((item) => (isText(item?.path) ? item.path : null)).filter(Boolean))];
   const raw = isText(d.finalText) && d.finalText ? d.finalText : null;
-  const split = raw === null ? { text: null, notice: null } : splitVerificationNotice(raw, outcome);
+  // What the runner recorded when it made the text (the model's words and each sentence of the Hub's, apart) is read as it is; the text is cut by guesswork only
+  // for a task that has no such record.
+  const parts = raw === null ? null : finalPartsOf(d);
+  const split = raw === null ? { text: null, notice: null, hook: null }
+    : parts ? { text: parts.words, notice: parts.verificationNotice, hook: parts.hookNotice }
+      : { ...splitVerificationNotice(raw, outcome), hook: null };
   const first = (...values) => values.find((value) => isText(value) && value) ?? null;
   return {
     id: first(r.id, d.id) ?? '',
@@ -135,6 +143,7 @@ export function childFacts({ record = null, detail = null, workflow = null } = {
     updatedAt: when(d.updatedAt) ?? when(r.updatedAt),
     finalText: split.text,
     verificationNotice: split.notice,
+    hookNotice: split.hook,
     error: first(d.error, r.error),
     errorCode: isText(d.errorCode) && /^[a-z0-9_]{1,60}$/i.test(d.errorCode) ? d.errorCode : null,
     steps: whole(d.steps), toolCalls: whole(d.toolCalls), httpRequests: whole(usage.httpRequests),
@@ -192,6 +201,7 @@ function prepare(fact, redact) {
     branch: text(fact.branch, 120),
     worktree: text(fact.worktree, 200),
     verificationNotice: text(fact.verificationNotice, AGENT_RESULTS_LIMITS.noticeChars),
+    hookNotice: text(fact.hookNotice, AGENT_RESULTS_LIMITS.hookNoticeChars),
     editedPaths: fact.editedPaths.slice(0, AGENT_RESULTS_LIMITS.paths).map((item) => clip(redact(item), AGENT_RESULTS_LIMITS.pathChars)),
     missingChecks: fact.missingChecks.slice(0, AGENT_RESULTS_LIMITS.missing).map((item) => clip(redact(item), 120)),
   };
@@ -239,6 +249,7 @@ function describe(fact, safe, { claimMode, claim, claimChars, offset, compact })
     if (safe.editedPaths.length) record.editedPaths = safe.editedPaths;
     if (safe.missingChecks.length) record.missingChecks = safe.missingChecks;
     if (safe.verificationNotice) record.verificationNotice = safe.verificationNotice;
+    if (safe.hookNotice) record.hookNotice = safe.hookNotice;
     if (safe.worktree) record.worktree = safe.worktree;
     if (fact.dependsOn.length) record.dependsOn = fact.dependsOn;
   }

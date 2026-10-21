@@ -15,6 +15,7 @@ import { HistoryLedger } from './history-ledger.mjs';
 import { FinalAnswerHooks } from './lifecycle-hooks.mjs';
 import { AGENT_RESULTS_INSTRUCTIONS, AGENT_RESULTS_TOOL, parseAgentResultsArguments, shapeAgentResults } from './agent-results.mjs';
 import { SUBAGENT_NOTICE_LIMITS, normalizeSubagentNotices, publicSubagentNotices, recordSubagentEnd, takeSubagentNotice, unreadSubagentNotices } from './subagent-notices.mjs';
+import { composeFinalText, verificationWarning } from './final-text.mjs';
 import { loadProjectInstructions, projectInstructionsMessage, projectInstructionsSetting } from './project-instructions.mjs';
 import { cleanBudget, promptAllowance } from './prompt-allowance.mjs';
 import { SKILL_LOAD_TOOL_BYTES, SKILL_LOAD_TOOL_NAME, createSkillLoader, fitSkillIndex, skillIndexMessage, skillLoadPreview, skillLoadReceipt, skillLoadTool } from './skill-index.mjs';
@@ -593,6 +594,7 @@ export class AgentRunner {
       goalPlan: task.goalPlan ?? null,
       verifiedSummary: evidenceReport(task.progress,task.goalPlan),
       verificationOutcome:task.verificationOutcome??null,
+      finalParts:!summary&&task.finalText?(task.finalParts??null):null,
       completionOutcome:task.completionOutcome??(task.status==='completed'?classifyTaskCompletion(task.goalPlan,task.progress):null),
       effectiveProfile:task.effectiveProfile??null,
       roleProfiles:task.roleProfiles??{},
@@ -707,7 +709,7 @@ export class AgentRunner {
         if (interrupted) {
           // The Hub that was running this task is gone. A call that was only waiting for approval never started.
           const settled = this.#settlePendingCall(task);
-          task.status = 'paused'; task.finishedAt = now(); task.finalText = '';
+          task.status = 'paused'; task.finishedAt = now(); task.finalText = ''; task.finalParts = null;
           task.errorCode = 'process_interrupted';
           task.error = 'Hub đã khởi động lại giữa phiên. Bản ghi vẫn còn; dùng Tiếp tục ngay trong hội thoại này. Nếu có pendingCall, kiểm tra kết quả công cụ trước khi chạy lại.'
             + (settled?.kind === 'not_started' ? ` Thao tác ${settled.toolName} chưa được chạy: nó đang chờ phê duyệt khi Hub dừng.` : '');
@@ -813,6 +815,12 @@ export class AgentRunner {
   // Not when another turn is not possible (#canTakeAnotherStep): the entry then stays recorded for the next run. Each turn held back consumes at least one entry, so their number is
   // bounded by the entries a task keeps: a source of endless new endings, or a defect that failed to consume an entry, cannot keep the model answering for ever. A check that must
   // also hold after something slow that ran behind the answer (a Stop hook) is one more call to this.
+  /** The text of a finished run and the record of whose words it holds, made together (lib/final-text.mjs): the text the page shows is unchanged, and the record cannot disagree with it. */
+  #setFinalText(task, parts) {
+    task.finalText = composeFinalText(parts);
+    task.finalParts = { words: parts.words, verificationNotice: parts.verificationNotice ?? null, hookNotice: parts.hookNotice ?? null };
+  }
+
   #goOnForNotices(context, finalTexts) {
     const { task } = context;
     if (!unreadSubagentNotices(task).length || !this.#canTakeAnotherStep(context)) return false;
@@ -918,7 +926,7 @@ export class AgentRunner {
       ? Object.fromEntries(Object.entries(roleProfiles).filter(([role,id])=>
           /^[a-z][a-z0-9_-]{0,40}$/i.test(role) && typeof id==='string' &&
           /^[a-z0-9][a-z0-9._-]{0,40}$/i.test(id))) : {};
-    task.status = 'running'; task.finishedAt = null; task.finalText = ''; task.error = null; task.errorCode = null; task.cancelRequested = false;
+    task.status = 'running'; task.finishedAt = null; task.finalText = ''; task.finalParts = null; task.error = null; task.errorCode = null; task.cancelRequested = false;
     task.maxSteps = maxSteps === null ? null : task.steps + maxSteps; task.maxMinutes = maxMinutes;
     task.progress = createTaskProgress(task.progress, { newRun: true });
     // selectionText is stored only when it is not the prompt: a later run of the conversation reads this prompt as an earlier one, and must read the same text.
@@ -1182,7 +1190,7 @@ export class AgentRunner {
       const settled = this.#settlePendingCall(task);
       if (settled?.kind === 'unknown') task.error += ' Công cụ có thể đã nhận thao tác cuối; việc dừng không hoàn tác nó. Không tự chạy lại thao tác này.';
       else if (settled?.kind === 'not_started') task.error += ` Thao tác ${settled.toolName} chưa được chạy: nó đang chờ phê duyệt hoặc đã bị từ chối khi tác vụ dừng.`;
-      task.finalText = '';
+      task.finalText = ''; task.finalParts = null;
     }
     // The canonical state follows from the final status and from whether a call may have changed something.
     const reasonForState = error ? (task.errorCode ?? 'task_failed') : 'final_answer';
@@ -1194,7 +1202,7 @@ export class AgentRunner {
       await this.#close(context);
       await this.#event(task, task.status, task.status === 'completed' ? 'Đã nhận phản hồi kết thúc của model. Xem kết quả và bằng chứng kiểm tra bên dưới.' : task.error || 'Tác vụ đã dừng.', { status: task.status });
     } catch (saveError) {
-      task.status = 'failed'; task.errorCode = 'persistence_failed'; task.finalText = '';
+      task.status = 'failed'; task.errorCode = 'persistence_failed'; task.finalText = ''; task.finalParts = null;
       this.#advance(task, 'uncertain', 'persistence_failed', { force: true });
       task.error = this.#redact(`Không lưu được đầy đủ bản ghi tác vụ: ${saveError.message}. Các thao tác đã gửi có thể đã có hiệu lực.`);
       this.log(task.error);
@@ -1399,15 +1407,19 @@ export class AgentRunner {
           // A background agent can stop while a hook runs behind the answer: the answer is then not the last thing the model should say. The same check as above, once more
           // behind the slow part (see #goOnForNotices); the next final answer is reviewed again.
           if (this.#goOnForNotices(context, finalTexts)) continue;
-          task.finalText = answer;
+          // The text the main chat shows is the model's words with the Hub's own sentences after them. It is made here, so it is recorded here which part is whose
+          // (finalParts, lib/final-text.mjs): what reads the model's words alone (a worker's summary, agent_results) reads that record and never looks for the boundary in the text.
+          const parts = { words: answer, verificationNotice: null, hookNotice: null };
+          this.#setFinalText(task, parts);
           task.verificationOutcome = verdict.verification;
           task.completionOutcome = verdict.completion;
           if(!task.verificationOutcome.ready) {
-            const warning='ChatMCP has NOT independently verified full completion: '+task.verificationOutcome.missing.join('; ')+'.';
-            task.finalText += '\n\n[Verification notice] '+warning;
+            const warning = verificationWarning(task.verificationOutcome.missing);
+            parts.verificationNotice = warning;
+            this.#setFinalText(task, parts);
             await this.#event(task,'verification_unverified',warning,{status:'running'},{missing:task.verificationOutcome.missing});
           }
-          if (verdict.notice) task.finalText += '\n\n[Hook notice] '+verdict.notice;
+          if (verdict.notice) { parts.hookNotice = verdict.notice; this.#setFinalText(task, parts); }
           task.status = 'completed';
           this.#advance(task, 'completed', 'final_answer');
           break;
