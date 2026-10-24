@@ -461,8 +461,8 @@
       "patches": [
         {
           "file": "lib/sse.mjs",
-          "old": "await onEvent(queue.shift());",
-          "new": "await onEvent(queue.pop());"
+          "old": "if (await onEvent(queue.shift()) === SSE_STOP) { halted = true; return; }",
+          "new": "if (await onEvent(queue.pop()) === SSE_STOP) { halted = true; return; }"
         }
       ]
     },
@@ -472,8 +472,8 @@
       "patches": [
         {
           "file": "lib/sse.mjs",
-          "old": "await onEvent(queue.shift());",
-          "new": "try { await onEvent(queue.shift()); } catch { /* swallowed */ }"
+          "old": "if (await onEvent(queue.shift()) === SSE_STOP) { halted = true; return; }",
+          "new": "try { if (await onEvent(queue.shift()) === SSE_STOP) { halted = true; return; } } catch { /* swallowed */ }"
         }
       ]
     },
@@ -512,8 +512,7 @@
     },
     {
       "name": "SR29",
-      "what": "the stream is not cancelled when the read is over",
-      "equivalent": "every way the read can end early has already cancelled the stream (stop); after a normal end there is nothing to cancel",
+      "what": "the stream is not cancelled when the read is over (a handler ended it with SSE_STOP and the server keeps the connection open)",
       "patches": [
         {
           "file": "lib/sse.mjs",
@@ -641,6 +640,61 @@
           "file": "lib/openai-responses-api.mjs",
           "old": "if(!body||typeof body.getReader!=='function')throw fail('invalid_responses_stream','Provider returned no SSE stream.');",
           "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SH1",
+      "what": "a handler cannot end the read: SSE_STOP is ignored",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (await onEvent(queue.shift()) === SSE_STOP) { halted = true; return; }",
+          "new": "if (await onEvent(queue.shift()) === Symbol('never')) { halted = true; return; }"
+        }
+      ]
+    },
+    {
+      "name": "SH2",
+      "what": "any value a handler returns ends the read",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (await onEvent(queue.shift()) === SSE_STOP) { halted = true; return; }",
+          "new": "if (await onEvent(queue.shift()) !== undefined) { halted = true; return; }"
+        }
+      ]
+    },
+    {
+      "name": "SH3",
+      "what": "the read goes on after a handler ended it",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (halted) break; // a handler said the stream is over",
+          "new": "// a handler said the stream is over"
+        }
+      ]
+    },
+    {
+      "name": "SH4",
+      "what": "the events made by the end of the stream are delivered after a handler ended the read",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "    if (!halted) {",
+          "new": "    if (true) {"
+        }
+      ]
+    },
+    {
+      "name": "SH5",
+      "what": "the result does not say that a handler ended the read",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "return { bytes: total, halted };",
+          "new": "return { bytes: total, halted: false };"
         }
       ]
     }

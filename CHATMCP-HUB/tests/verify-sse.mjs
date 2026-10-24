@@ -9,7 +9,7 @@
 //   4. The OpenAI Responses stream is read by this reader too (readResponsesStream keeps its name, its terminal rule and its error codes).
 import assert from 'node:assert/strict';
 import { getEventListeners } from 'node:events';
-import { createSseParser, readSse as readSseUnbounded } from '../lib/sse.mjs';
+import { SSE_STOP, createSseParser, readSse as readSseUnbounded } from '../lib/sse.mjs';
 
 let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
@@ -231,6 +231,27 @@ const simple = (events) => events.map((event) => [event.event, event.data]);
   await readSse(streamOf(['data: a\n\n']).body, { idleTimeoutMs: 60000, idleError: () => new Error('too slow'), onEvent() {} });
   assert.equal(timers(), baseline, 'and so is the idle timer');
   ok('SSE limits: the byte cap, an abort, the idle clock (restarted by every byte), a stream that breaks, a body that is not a stream, keep-alives as life, an error in the handler');
+}
+
+// ------------------------------------------------------------------ 4b. a protocol that knows its stream is over can say so
+{
+  // The Chat stream ends with [DONE], the Messages stream with message_stop: after that nothing is read, whether the server closes the connection or keeps it open.
+  const open = streamOf(['data: a\n\ndata: [DONE]\n\ndata: late\n\ndata: later'], { hangAfter: 1 });
+  const seen = [];
+  const outcome = await readSse(open.body, { onEvent: (event) => { seen.push(event.data); return event.data === '[DONE]' ? SSE_STOP : undefined; } });
+  assert.deepEqual(seen, ['a', '[DONE]'], 'events after the one that ended the stream are not delivered, even when they came in the same chunk');
+  assert.equal(outcome.halted, true);
+  assert.equal(open.state.cancelled, true, 'and the connection is closed');
+  // an event produced by the end of the stream can end it too
+  const last = [];
+  const ended = await readSse(streamOf(['data: a\n\ndata: b']).body, { onEvent: (event) => { last.push(event.data); return event.data === 'b' ? SSE_STOP : undefined; } });
+  assert.deepEqual(last, ['a', 'b']);
+  assert.equal(ended.halted, true);
+  // a stream that is read to its end says it was not halted
+  assert.equal((await readSse(streamOf(['data: a\n\n']).body, { onEvent() {} })).halted, false);
+  // what a handler returns is otherwise not looked at
+  assert.equal((await readSse(streamOf(['data: a\n\ndata: b\n\n']).body, { onEvent: () => 'stop' })).halted, false, 'only the exported marker ends a stream');
+  ok('SSE: a handler ends the read with SSE_STOP (nothing after it is delivered, the connection is closed)');
 }
 
 // ------------------------------------------------------------------ 5. the Responses stream is read by the same reader, with the codes its callers know

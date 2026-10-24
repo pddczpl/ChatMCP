@@ -10,6 +10,9 @@
 import { MAX_RESPONSE_BYTES } from './model-http.mjs';
 
 const BYTE_ORDER_MARK = String.fromCharCode(0xfeff);
+
+/** What a handler returns to say that the stream is over (the Chat stream's [DONE], the Messages stream's message_stop): nothing after it is delivered and the connection is closed. */
+export const SSE_STOP = Symbol('sse-stop');
 const fail = (code, message, statusCode = 502) => Object.assign(new Error(message), { code, statusCode });
 
 /**
@@ -72,13 +75,13 @@ export function createSseParser(onEvent) {
  * Reads a stream (the `body` of a fetch response) to its end and calls `onEvent` for each event, one after the other (an async handler is waited for).
  * @param {ReadableStream} body
  * @param {object} options
- * @param {(event: {event: string, data: string, id?: string}) => void|Promise<void>} options.onEvent
+ * @param {(event: {event: string, data: string, id?: string}) => void|typeof SSE_STOP|Promise<void|typeof SSE_STOP>} options.onEvent returns SSE_STOP to end the read
  * @param {() => void} [options.onChunk] called for every chunk of bytes, a comment included: it is how a caller knows that the stream is alive
  * @param {AbortSignal} [options.signal] an abort cancels the stream and rejects with the reason of the signal
  * @param {number} [options.maxBytes] more than this is refused (`sse_too_large`)
  * @param {number} [options.idleTimeoutMs] no byte for this long cancels the stream; every byte starts the clock again
  * @param {() => Error} [options.idleError] the error for that silence
- * @returns {Promise<{bytes: number}>}
+ * @returns {Promise<{bytes: number, halted: boolean}>} halted: a handler ended the read with SSE_STOP
  */
 export async function readSse(body, { onEvent, onChunk = () => {}, signal = null, maxBytes = MAX_RESPONSE_BYTES, idleTimeoutMs = 0, idleError = null } = {}) {
   if (!body || typeof body.getReader !== 'function') throw fail('sse_no_stream', 'Nhà cung cấp không trả một luồng sự kiện (SSE).');
@@ -89,6 +92,7 @@ export async function readSse(body, { onEvent, onChunk = () => {}, signal = null
   const parser = createSseParser((event) => { queue.push(event); });
   let total = 0;
   let stopped = null;
+  let halted = false;
   let idleTimer = null;
   const stop = (error) => {
     if (stopped) return; // the first reason stands
@@ -105,7 +109,7 @@ export async function readSse(body, { onEvent, onChunk = () => {}, signal = null
   const deliver = async () => {
     while (queue.length) {
       if (stopped) return;
-      await onEvent(queue.shift());
+      if (await onEvent(queue.shift()) === SSE_STOP) { halted = true; return; }
     }
   };
   try {
@@ -119,12 +123,15 @@ export async function readSse(body, { onEvent, onChunk = () => {}, signal = null
       if (total > maxBytes) throw fail('sse_too_large', `Luồng phản hồi vượt giới hạn ${maxBytes >= 1024 * 1024 ? Math.round(maxBytes / 1024 / 1024) + ' MiB' : Math.round(maxBytes / 1024) + ' KiB'}.`);
       parser.push(decoder.decode(value, { stream: true }));
       await deliver(); // the events of this chunk, before the next chunk is read
+      if (halted) break; // a handler said the stream is over
     }
-    parser.push(decoder.decode());
-    parser.end();
-    await deliver(); // the events of the end of the stream
+    if (!halted) {
+      parser.push(decoder.decode());
+      parser.end();
+      await deliver(); // the events of the end of the stream
+    }
     if (stopped) throw stopped; // a stop, from wherever it came, is an error and not an end
-    return { bytes: total };
+    return { bytes: total, halted };
   } catch (error) {
     stop(error);
     throw stopped ?? error;
