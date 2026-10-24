@@ -383,7 +383,8 @@ const storeFor = (options = {}) => {
     assert.equal((await get('/api/ai/catalog/models?preset=openai&limit=99999')).status, 400);
     // model-info says more about a model than the levels of thinking
     answer = await get('/api/ai/model-info?preset=openai&model=gpt-5.4');
-    assert.deepEqual([answer.value.maxInput, answer.value.rates.input, answer.value.tiers.length, answer.value.status, answer.value.trusted, answer.value.capacity], [922000, 2.5, 1, null, true, 922000 + 16384]);
+    assert.deepEqual([answer.value.maxInput, answer.value.rates.input, answer.value.tiers.length, answer.value.status, answer.value.trusted, answer.value.modelCapacity, answer.value.capacity, answer.value.priceCap?.aboveTokens],
+      [922000, 2.5, 1, null, true, 922000 + 16384, 272000, 272000], 'what the model allows, and the plan that stops at the first price rise (272,000: 2.5 / 15 becomes 5 / 22.5)');
     answer = await get('/api/ai/model-info?preset=custom-openai&apiBaseUrl=https%3A%2F%2Fproxy.example.com&model=gpt-5-mini');
     assert.deepEqual([answer.value.found, answer.value.confidence, answer.value.trusted, answer.value.capacity], [true, 'alias', false, null], 'an alias is shown, but not relied on');
     assert.equal(answer.value.catalogModel, 'gpt-5-mini', 'and it says which model of the catalog it looks like');

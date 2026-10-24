@@ -36,7 +36,8 @@ export function modelInfoQuery(params) {
 
 /**
  * The answer for a checked query. `trusted` says whether the Hub plans and prices from this answer (the catalog is sure of the model: lib/model-facts.mjs); `capacity` is the window it
- * would plan a conversation on, `outputCap` the most it would ask the model to write. An alias of a gateway is shown with its facts, but is not trusted.
+ * would plan a conversation on when the owner typed none, `modelCapacity` what the model itself allows and `priceCap` the price rise that stopped it short of that (null when none did),
+ * `outputCap` the most it would ask the model to write. An alias of a gateway is shown with its facts, but is not trusted.
  */
 export function modelInfo({ presetId, protocol, apiBaseUrl, model }) {
   const info = lookup({ presetId, protocol, apiBaseUrl, model });
@@ -48,7 +49,7 @@ export function modelInfo({ presetId, protocol, apiBaseUrl, model }) {
     found: info.found, confidence: info.confidence, source: info.source, provider: info.provider, catalogModel: info.modelId, local: info.local,
     contextWindow: info.contextWindow, maxInput: info.maxInput, maxOutput: info.maxOutput, rates: info.rates, tiers: info.tiers, status: info.status,
     toolCall: info.toolCall, vision: info.vision, openWeights: info.openWeights,
-    trusted: facts !== null, capacity: facts?.capacity ?? null, outputCap: facts?.outputCap ?? null,
+    trusted: facts !== null, capacity: facts?.capacity ?? null, modelCapacity: facts?.modelCapacity ?? null, priceCap: facts?.priceCap ?? null, outputCap: facts?.outputCap ?? null,
     reasoning: { supported: info.reasoning.supported, toggle: info.reasoning.toggle, budget: info.reasoning.budget, efforts: info.reasoning.efforts, levels: levels.levels, known: levels.known, why: levels.why },
     catalog: { generatedAt, ageDays },
   };

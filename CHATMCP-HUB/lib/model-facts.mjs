@@ -12,6 +12,8 @@ import { plannedOutputFor, safetyMarginFor } from './context-reserve.mjs';
 export const AGENT_OUTPUT_TOKENS = 16384;
 /** A cap below this cannot hold an answer worth asking for: it is taken for a gap in the catalog, not for a limit. */
 const MIN_USABLE_OUTPUT_CAP = 1024;
+/** The Hub never plans a conversation on less than this because of a price rise: below it the agent has little room beside its tool list, its instructions and the files it reads. */
+export const PRICE_CAP_FLOOR_TOKENS = 128000;
 
 /**
  * The largest capacity, not above `ceiling`, whose planned prompt is not longer than the model takes in. The prompt a run plans is the capacity less the output it reserves and the margin it keeps
@@ -32,11 +34,33 @@ function capacityWithinInput(maxInput, outputLimit, ceiling) {
 }
 
 /**
+ * The first point at which the price of this model rises with the length of the prompt: the lowest `aboveTokens` among the catalog's price tiers that cost more than the base price (a tier that is
+ * cheaper is no cliff, and neither is a tier when the model has no base price to compare it with). A prompt over that size is priced at the tier's rates for the WHOLE request, so it is where the
+ * Hub stops planning of its own accord. The tiers are those of the exact provider's row of the exact model, so the point differs from one model and one provider to the next.
+ * @returns {{aboveTokens: number, from: {input: number, output: number}, to: {input: number, output: number}}|null}
+ */
+function firstPriceRise(info) {
+  const base = info.rates;
+  if (!base || !Number.isFinite(base.input) || !Number.isFinite(base.output)) return null;
+  let first = null;
+  for (const tier of info.tiers ?? []) {
+    const rates = tier?.rates;
+    if (!Number.isInteger(tier?.aboveTokens) || tier.aboveTokens < 1 || !rates || !Number.isFinite(rates.input) || !Number.isFinite(rates.output)) continue;
+    if (!(rates.input > base.input || rates.output > base.output)) continue;
+    if (first === null || tier.aboveTokens < first.aboveTokens) first = { aboveTokens: tier.aboveTokens, from: { input: base.input, output: base.output }, to: { input: rates.input, output: rates.output } };
+  }
+  return first;
+}
+
+/**
  * The facts of one catalog answer, or null when the Hub does not rely on it.
  * @returns {{source: string, confidence: string, provider: string, modelId: string, contextWindow: number|null, maxInput: number|null, maxOutput: number|null,
- *   outputCap: number|null, capacity: number|null, pricing: {source: string, confidence: string, rates: object, tiers: object[]}|null}|null}
- *   `capacity` is the number a conversation is planned against: the window, unless the model lists an input limit below it, in which case the largest capacity, at most the input limit plus the output
- *   the agent reserves, whose planned prompt is not longer than the model takes in (`capacityWithinInput`). `outputCap` is what the agent may ask the model to write. `pricing` is what the cost estimate is made from.
+ *   outputCap: number|null, capacity: number|null, modelCapacity: number|null, priceCap: {aboveTokens: number, tokens: number, floored: boolean, from: object, to: object}|null,
+ *   pricing: {source: string, confidence: string, rates: object, tiers: object[]}|null}|null}
+ *   `modelCapacity` is what the model itself allows a conversation: the window, unless the model lists an input limit below it, in which case the largest capacity, at most the input limit plus the
+ *   output the agent reserves, whose planned prompt is not longer than the model takes in (`capacityWithinInput`). `capacity` is the number a conversation is planned against when the owner typed no
+ *   window: `modelCapacity`, but not beyond the first point at which the price rises with the length of the prompt (`firstPriceRise`) and not below `PRICE_CAP_FLOOR_TOKENS`; `priceCap` says which
+ *   rise stopped it (null when nothing did) and whether the floor lifted the stop. `outputCap` is what the agent may ask the model to write. `pricing` is what the cost estimate is made from.
  */
 export function factsFromInfo(info) {
   if (!isTrusted(info)) return null;
@@ -45,11 +69,16 @@ export function factsFromInfo(info) {
   const limited = window !== null && Number.isInteger(info.maxInput) && info.maxInput > 0 && info.maxInput < window;
   const outputLimit = outputCap ?? AGENT_OUTPUT_TOKENS;
   const ceiling = limited ? usableContextWindow(Math.min(window, info.maxInput + outputLimit)) : window;
-  const capacity = limited && ceiling !== null ? capacityWithinInput(info.maxInput, outputLimit, ceiling) : ceiling;
+  const modelCapacity = limited && ceiling !== null ? capacityWithinInput(info.maxInput, outputLimit, ceiling) : ceiling;
+  const rise = modelCapacity === null ? null : firstPriceRise(info);
+  const stop = rise === null ? null : Math.max(PRICE_CAP_FLOOR_TOKENS, rise.aboveTokens);
+  const stopped = stop !== null && stop < modelCapacity;
+  const capacity = stopped ? stop : modelCapacity;
+  const priceCap = stopped ? { aboveTokens: rise.aboveTokens, tokens: stop, floored: stop > rise.aboveTokens, from: rise.from, to: rise.to } : null;
   const priced = info.rates && Number.isFinite(info.rates.input) && Number.isFinite(info.rates.output);
   return {
     source: info.source, confidence: info.confidence, provider: info.provider, modelId: info.modelId,
-    contextWindow: window, maxInput: info.maxInput ?? null, maxOutput: info.maxOutput ?? null, outputCap, capacity,
+    contextWindow: window, maxInput: info.maxInput ?? null, maxOutput: info.maxOutput ?? null, outputCap, capacity, modelCapacity, priceCap,
     pricing: priced ? { source: info.source, confidence: info.confidence, rates: info.rates, tiers: info.tiers ?? [] } : null,
   };
 }

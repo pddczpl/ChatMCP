@@ -1,7 +1,9 @@
 // The model catalog feeds the Hub's plans (prov-4): the context window a conversation is planned against, the most the model is asked to write, and the price a task is estimated at.
 // What this suite holds the Hub to:
 //   1. model-facts.mjs: only a model the catalog is SURE of is relied on (exact or the same id spelled another way, never a gateway's alias, a local runtime or a miss); the capacity respects
-//      an input limit below the window; the output cap never exceeds what the agent asks for and is ignored when too small to write in; every model of the bundled snapshot is plannable.
+//      an input limit below the window; it also stops at the first point where the model's price rises with the length of the prompt (its first price tier, never below 128,000), which is
+//      the row of the exact provider and model, so it differs from one model and one provider to the next; the output cap never exceeds what the agent asks for and is ignored when too small
+//      to write in; every model of the bundled snapshot is plannable.
 //   2. GatewayProvider: state() says where the window comes from (configured, catalog, fallback), snapshot() carries the facts the agent reads, the owner's own window still wins, a saved
 //      window is still the owner's, a task profile is a connection like the global one, and the facts follow the configuration.
 //   3. The presets: a window is hard-coded only for a default model the catalog does not know.
@@ -17,9 +19,10 @@ import { createPrimaryAgentRunner } from '../hub.mjs';
 import { GatewayProvider } from '../lib/gateway-provider.mjs';
 import { LocalTools } from '../lib/local-tools.mjs';
 import { resolveEffectiveContextBudget } from '../lib/context-compaction.mjs';
-import { AGENT_OUTPUT_TOKENS, factsFromInfo, modelFacts } from '../lib/model-facts.mjs';
+import { AGENT_OUTPUT_TOKENS, PRICE_CAP_FLOOR_TOKENS, factsFromInfo, modelFacts } from '../lib/model-facts.mjs';
+import { modelInfo, modelInfoQuery } from '../lib/model-info.mjs';
 import { PRESETS, publicPresets } from '../lib/provider-presets.mjs';
-import { catalogInfo, createCatalog, lookup } from '../lib/model-catalog.mjs';
+import { catalogInfo, createCatalog, lookup, resetCatalog, useCatalog } from '../lib/model-catalog.mjs';
 import { followProviderWindow } from '../lib/tool-selector.mjs';
 
 const BUNDLE = path.resolve(import.meta.dirname, '..');
@@ -29,7 +32,7 @@ const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
 const KEY = 'sk-catalog-budget-key-0123456789';
 
 // A small catalog of made-up models, so that the rules are tested without depending on the numbers of the real snapshot.
-const synthetic = createCatalog({
+const SYNTHETIC = {
   version: 2, generatedAt: '2026-01-01', source: 'test', canon: ['openai/limited'], hosts: {},
   rows: [
     [1000000, 128000, null, [2, 10, 0.1, 2.5], 5, 0], //            0 big: a large window, no input limit
@@ -40,9 +43,23 @@ const synthetic = createCatalog({
     [1050000, 128000, 922000, [2.5, 15, 0.25, null], 5, 0, null, [[272000, 5, 22.5, 0.5, null]]], // 5 tiered: price tiers
     [400000, 128000, 272000, [0.25, 2, 0.025, null], 5, 0, 0], //   6 aliased: only reachable through the canonical id
     [128000, 16384, 30000, [1, 2, null, null], 1, 0], //            7 narrow: an input limit so small that reserving the output beside it would let a longer prompt through
+    [1000000, 128000, null, [2, 10, 0.1, 2.5], 5, 0, null, [[200000, 4, 15, 0.2, 5]]], //   8 cliff: the price doubles above 200,000
+    [1000000, 128000, null, [1, 5, null, null], 5, 0, null, [[32000, 2, 10, null, null]]], // 9 cliffLow: the price rises above 32,000, which is less than the Hub plans on
+    [128000, 16384, null, [1, 5, null, null], 5, 0, null, [[200000, 2, 10, null, null]]], //  10 cliffHigh: the price rises above a size the model cannot take anyway
+    [1000000, 128000, null, [4, 20, null, null], 5, 0, null, [[200000, 2, 10, null, null]]], // 11 cheaper: a tier that is cheaper is no cliff
+    [1000000, 128000, null, [2, 10, null, null], 5, 0, null, [[150000, 2, 15, null, null]]], // 12 outputCliff: only the output price rises
+    [1000000, 128000, null, [2, 10, null, null], 5, 0, null, [[300000, 6, 30, null, null], [150000, 4, 20, null, null]]], // 13 twoTiers: the lowest boundary counts, in whatever order they are listed
+    [1000000, 128000, null, [2, 10, null, null], 5, 0, null, [[128000, 4, 20, null, null]]], //  14 edge: the price rises exactly where the floor is
+    [200000, 128000, null, [2, 10, null, null], 5, 0, null, [[200000, 4, 20, null, null]]], //   15 atTheWindow: the price rises where the window ends
+    [1000000, 128000, null, null, 5, 0, null, [[200000, 4, 15, null, null]]], //                16 unpriced: tiers but no base price to compare with
+    [1000000, 128000, null, [2, 10, null, null], 5, 0, null, [[0, 4, 20, null, null]]], //      17 oddTier: a tier of no size is no boundary
+    [1000000, 128000, null, [2, 10, null, null], 5, 0, null, [[150000.5, 4, 20, null, null]]], // 18 fractionTier: nor is a size that is not a whole number
+    [1000000, 128000, null, [2, 10, null, null], 5, 0, null, [[220000, 4, 10, null, null]]], //  19 inputCliff: only the input price rises
+    [1050000, 128000, 400000, [2, 10, null, null], 5, 0, null, [[500000, 4, 20, null, null]]], //  20 beyondTheInput: the price rises at a size the model does not take in anyway
   ],
-  providers: { anthropic: { big: 0 }, openai: { limited: 1, turbo: 2, small: 3, tinyout: 4, tiered: 5, narrow: 7 }, openrouter: {}, otherlab: { aliased: 6 } },
-});
+  providers: { anthropic: { big: 0 }, openai: { limited: 1, turbo: 2, small: 3, tinyout: 4, tiered: 5, narrow: 7, cliff: 8, cliffLow: 9, cliffHigh: 10, cheaper: 11, outputCliff: 12, twoTiers: 13, edge: 14, atTheWindow: 15, unpriced: 16, oddTier: 17, fractionTier: 18, inputCliff: 19, beyondTheInput: 20 }, openrouter: {}, otherlab: { aliased: 6 } },
+};
+const synthetic = createCatalog(SYNTHETIC);
 const OPENAI = { presetId: 'openai', apiBaseUrl: 'https://api.openai.com/v1' };
 
 // ------------------------------------------------------------------------------------------------------------------------------- 1. model facts
@@ -56,7 +73,15 @@ const OPENAI = { presetId: 'openai', apiBaseUrl: 'https://api.openai.com/v1' };
   const limited = of({ ...OPENAI, model: 'limited' });
   assert.deepEqual([limited.contextWindow, limited.maxInput, limited.capacity], [400000, 272000, 272000 + AGENT_OUTPUT_TOKENS]);
   assert.ok(resolveEffectiveContextBudget({ modelMetadataTokens: limited.capacity }).maxHistoryTokens < 272000, 'the history planned for it fits under the input limit');
-  assert.equal(of({ ...OPENAI, model: 'tiered' }).capacity, 922000 + AGENT_OUTPUT_TOKENS, 'a window of 1,050,000 with an input limit of 922,000');
+  // What the model itself allows (modelCapacity) and what the Hub plans on (capacity) are two numbers: a window of 1,050,000 with an input limit of 922,000 allows 922,000 + 16,384, and the price
+  // of this model rises above 272,000 (2.5 / 15 to 5 / 22.5), so the Hub plans on 272,000 of its own accord.
+  const tiered = of({ ...OPENAI, model: 'tiered' });
+  assert.deepEqual([tiered.modelCapacity, tiered.capacity], [922000 + AGENT_OUTPUT_TOKENS, 272000]);
+  assert.deepEqual(tiered.priceCap, { aboveTokens: 272000, tokens: 272000, floored: false, from: { input: 2.5, output: 15 }, to: { input: 5, output: 22.5 } });
+  for (const model of ['big', 'limited', 'turbo', 'small']) {
+    const plain = of(model === 'big' ? { presetId: 'anthropic', model } : { ...OPENAI, model });
+    assert.deepEqual([plain.priceCap, plain.capacity === plain.modelCapacity], [null, true], `${model}: no price tier, no cap, and the Hub plans on all the model allows`);
+  }
   // The budget keeps a quarter of a small capacity for the output and a margin of 3.5% (lib/context-compaction.mjs): for an input limit that is not far above the output, adding the whole output to
   // the limit would plan a prompt longer than the model takes in. The capacity is the largest one whose planned prompt is not.
   const promptOf = (capacity, outputCap) => {
@@ -67,6 +92,34 @@ const OPENAI = { presetId: 'openai', apiBaseUrl: 'https://api.openai.com/v1' };
   assert.deepEqual([narrow.contextWindow, narrow.maxInput, narrow.outputCap], [128000, 30000, AGENT_OUTPUT_TOKENS]);
   assert.ok(narrow.capacity < 30000 + AGENT_OUTPUT_TOKENS, 'less than the input limit and the whole output');
   assert.ok(promptOf(narrow.capacity, narrow.outputCap) <= 30000 && promptOf(narrow.capacity + 1, narrow.outputCap) > 30000, `the prompt planned on ${narrow.capacity} is ${promptOf(narrow.capacity, narrow.outputCap)}: the largest that is not above 30,000`);
+  // A price cliff: the first point at which the price of THIS provider's row of THIS model rises with the length of the prompt. The Hub does not plan beyond it of its own accord (the owner
+  // can type a larger window), and does not plan on less than 128,000 for it (a smaller window leaves the agent too little room), nor on more than the model allows.
+  const cliff = of({ ...OPENAI, model: 'cliff' });
+  assert.deepEqual([cliff.contextWindow, cliff.modelCapacity, cliff.capacity], [1000000, 1000000, 200000], 'a price that doubles above 200,000: planned on 200,000');
+  assert.deepEqual(cliff.priceCap, { aboveTokens: 200000, tokens: 200000, floored: false, from: { input: 2, output: 10 }, to: { input: 4, output: 15 } });
+  const low = of({ ...OPENAI, model: 'cliffLow' });
+  assert.deepEqual([low.modelCapacity, low.capacity], [1000000, 128000], 'a price that rises above 32,000: the floor, not 32,000');
+  assert.deepEqual(low.priceCap, { aboveTokens: 32000, tokens: 128000, floored: true, from: { input: 1, output: 5 }, to: { input: 2, output: 10 } });
+  const edge = of({ ...OPENAI, model: 'edge' });
+  assert.deepEqual([edge.capacity, edge.priceCap?.aboveTokens, edge.priceCap?.tokens, edge.priceCap?.floored], [128000, 128000, 128000, false], 'the price rises exactly at the floor: the floor is not what stopped it');
+  const output = of({ ...OPENAI, model: 'outputCliff' });
+  assert.deepEqual([output.capacity, output.priceCap?.from, output.priceCap?.to], [150000, { input: 2, output: 10 }, { input: 2, output: 15 }], 'a rise of the output price alone is a cliff too');
+  // The window is 1,050,000 but the model takes in 400,000: a price that rises at 500,000 is beyond what the Hub would plan on anyway, and must not RAISE the plan to 500,000.
+  const beyond = of({ ...OPENAI, model: 'beyondTheInput' });
+  assert.deepEqual([beyond.modelCapacity, beyond.capacity, beyond.priceCap], [400000 + AGENT_OUTPUT_TOKENS, 400000 + AGENT_OUTPUT_TOKENS, null], 'a price rise past the input limit changes nothing');
+  const input = of({ ...OPENAI, model: 'inputCliff' });
+  assert.deepEqual([input.capacity, input.priceCap?.from, input.priceCap?.to], [220000, { input: 2, output: 10 }, { input: 4, output: 10 }], 'a rise of the input price alone is a cliff too');
+  const two = of({ ...OPENAI, model: 'twoTiers' });
+  assert.deepEqual([two.capacity, two.priceCap?.aboveTokens, two.priceCap?.to], [150000, 150000, { input: 4, output: 20 }], 'the lowest boundary counts, whatever the order of the tiers');
+  for (const [model, allowed, why] of [['cliffHigh', 128000, 'the price rises above what the model takes anyway'], ['atTheWindow', 200000, 'the price rises where the window ends'],
+    ['cheaper', 1000000, 'a tier that is cheaper is no cliff'], ['unpriced', 1000000, 'tiers with no base price to compare with'],
+    ['oddTier', 1000000, 'a tier of no size is no boundary'], ['fractionTier', 1000000, 'nor is a size that is not a whole number']]) {
+    const free = of({ ...OPENAI, model });
+    assert.deepEqual([free.modelCapacity, free.capacity, free.priceCap], [allowed, allowed, null], `${model}: ${why}`);
+  }
+  assert.equal(PRICE_CAP_FLOOR_TOKENS, 128000);
+  ok('model facts: the Hub plans only up to the first point where the price rises (never below 128,000, never above what the model allows), for the row of the exact provider and model');
+
   // The output cap: the model's own when it is below what the agent asks for, never above; too small to write an answer in (below 1,024): not used.
   assert.equal(of({ ...OPENAI, model: 'turbo' }).outputCap, 4096);
   assert.equal(of({ ...OPENAI, model: 'small' }).outputCap, 8192);
@@ -85,7 +138,7 @@ const OPENAI = { presetId: 'openai', apiBaseUrl: 'https://api.openai.com/v1' };
 
   // Every model of the bundled snapshot is plannable: a usable window gives a source that is not the fallback, the capacity never passes the input limit, the cap stays in bounds.
   const real = createCatalog(JSON.parse(await fs.readFile(path.join(BUNDLE, 'lib', 'model-catalog.data.json'), 'utf8')));
-  let planned = 0, limitedByInput = 0, capped = 0;
+  let planned = 0, limitedByInput = 0, capped = 0, stoppedByPrice = 0, liftedByFloor = 0;
   for (const provider of real.providerIds()) {
     for (const model of real.modelIds(provider)) {
       const info = real.lookup({ provider, model });
@@ -102,13 +155,26 @@ const OPENAI = { presetId: 'openai', apiBaseUrl: 'https://api.openai.com/v1' };
           assert.ok(prompt <= Math.max(info.maxInput, 4096), `${provider}/${model}: the prompt planned (${prompt}) is longer than the model takes in (${info.maxInput})`);
           limitedByInput += 1;
         }
+        // The price cliff, worked out again from the raw tiers of this row: the lowest point at which the price rises, not below 128,000 and not above what the model itself allows.
+        const rises = info.rates ? info.tiers.filter((tier) => tier.rates.input > info.rates.input || tier.rates.output > info.rates.output).map((tier) => tier.aboveTokens) : [];
+        const expected = rises.length ? Math.min(found.modelCapacity, Math.max(128000, Math.min(...rises))) : found.modelCapacity;
+        assert.equal(found.capacity, expected, `${provider}/${model}: planned on ${found.capacity}, the first price rise (${rises.length ? Math.min(...rises) : 'none'}) and the floor say ${expected}`);
+        assert.equal(found.priceCap === null, found.capacity === found.modelCapacity, `${provider}/${model}: a cap is reported exactly when it lowered the capacity`);
+        assert.ok(found.modelCapacity <= info.contextWindow, `${provider}/${model}: the model allows no more than its window`);
+        if (found.priceCap !== null) {
+          stoppedByPrice += 1;
+          if (found.priceCap.floored) liftedByFloor += 1;
+          assert.equal(found.priceCap.tokens, found.capacity, `${provider}/${model}`);
+          assert.equal(found.priceCap.floored, found.priceCap.aboveTokens < 128000, `${provider}/${model}: floored exactly when the price rises below the floor`);
+        }
         planned += 1;
       } else assert.equal(found.capacity, null, `${provider}/${model}: no window, no capacity`);
       if (found.outputCap !== null) { assert.ok(found.outputCap >= 1024 && found.outputCap <= AGENT_OUTPUT_TOKENS, `${provider}/${model}: ${found.outputCap}`); if (found.outputCap < AGENT_OUTPUT_TOKENS) capped += 1; }
     }
   }
   assert.ok(planned >= 8700 && limitedByInput >= 100 && capped >= 100,`${planned} models plannable, ${limitedByInput} with an input limit below the window, ${capped} with an output cap below the agent's`);
-  ok(`all ${planned} models with a window in the bundled snapshot plan on it (${limitedByInput} under an input limit, ${capped} with a smaller output cap)`);
+  assert.ok(stoppedByPrice >= 300 && liftedByFloor >= 20 && liftedByFloor < stoppedByPrice, `${stoppedByPrice} models stopped at a price rise, ${liftedByFloor} of them lifted to the floor`);
+  ok(`all ${planned} models with a window in the bundled snapshot plan on it (${limitedByInput} under an input limit, ${capped} with a smaller output cap, ${stoppedByPrice} stopped at the first price rise, ${liftedByFloor} of those lifted to the 128,000 floor)`);
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------- 2. the provider
@@ -151,6 +217,11 @@ async function provider({ preset, apiBaseUrl, model, contextWindowTokens, catalo
   assert.deepEqual([limited.state().contextWindowSource, limited.state().effectiveContextWindowTokens, limited.snapshot().metadataContextTokens], ['catalog', 272000 + 16384, 272000 + 16384]);
   const turbo = await provider({ preset: 'openai', model: 'turbo' });
   assert.deepEqual([turbo.snapshot().maxOutputTokens, turbo.snapshot().metadataContextTokens], [4096, 128000]);
+  // A price rise reaches what the Hub plans with, and a window the owner types still goes past it.
+  const cliffy = await provider({ preset: 'openai', model: 'cliff' });
+  assert.deepEqual([cliffy.state().contextWindowSource, cliffy.state().effectiveContextWindowTokens, cliffy.snapshot().metadataContextTokens], ['catalog', 200000, 200000], 'planned up to the price rise');
+  const past = await provider({ preset: 'openai', model: 'cliff', contextWindowTokens: 600000 });
+  assert.deepEqual([past.state().contextWindowSource, past.state().effectiveContextWindowTokens], ['configured', 600000], 'the owner can plan past the price rise');
   // A model the catalog is not sure of: the alias of a gateway, an endpoint nobody knows, a local runtime.
   for (const [label, options] of [['an endpoint nobody knows', { preset: 'custom-openai', apiBaseUrl: 'https://proxy.example.com/v1', model: 'turbo' }], ['a local runtime', { preset: 'ollama', model: 'big' }]]) {
     const unsure = await provider(options);
@@ -276,6 +347,14 @@ async function provider({ preset, apiBaseUrl, model, contextWindowTokens, catalo
   const short = await runTask({ model: 'gpt-5.4', usage: { input_tokens: 100000, output_tokens: 1000 } });
   assert.equal(short.task.modelCost.totalUsd, 0.265, 'below the tier: the base rates');
 
+  // gpt-5.4 takes 1,050,000 tokens (922,000 in) but its price doubles above 272,000 prompt tokens: the plan stops there of its own accord, and a window the owner types goes past it.
+  const priced = await runTask({ model: 'gpt-5.4' });
+  assert.equal(priced.task.contextPolicy.source, 'trusted_model_metadata');
+  assert.equal(priced.task.contextPolicy.capacityTokens, 272000, 'planned up to the first price rise, not up to what the model takes in');
+  assert.ok(priced.task.contextPolicy.maxHistoryTokens > 200000 && priced.task.contextPolicy.maxHistoryTokens < 272000, `history ${priced.task.contextPolicy.maxHistoryTokens} stays under the price rise`);
+  const beyond = await runTask({ model: 'gpt-5.4', window: 500000 });
+  assert.deepEqual([beyond.task.contextPolicy.source, beyond.task.contextPolicy.capacityTokens], ['provider_configuration', 500000], 'the owner\'s window is planned on, past the price rise');
+
   // A model nobody knows is unchanged: no window, no price.
   const unknown = await runTask({ model: 'my-own-finetune' });
   assert.deepEqual([unknown.task.contextPolicy.source, unknown.task.modelCost.estimatedResponses, unknown.task.modelCost.totalUsd, unknown.task.modelCost.unpricedResponses], ['conservative_fallback', 0, null, 1]);
@@ -349,6 +428,24 @@ async function provider({ preset, apiBaseUrl, model, contextWindowTokens, catalo
   for (const odd of ['big', null, undefined, 4096.5, -1, Number.NaN]) assert.equal(await askedFor({ metadataContextTokens: 400000, maxOutputTokens: odd }), 16384, `${String(odd)} is not a cap`);
   assert.equal(await askedFor({}), 16384, 'a provider that says nothing: unchanged');
   ok('the agent clamps a reported output cap into 1,024..16,384 and ignores anything that is not an integer');
+}
+
+// ------------------------------------------------------------------------------------------------------------------------------- 8. the route says what the Hub plans on, and why it is not more
+{
+  useCatalog(SYNTHETIC);
+  try {
+    const answer = (model, preset = 'openai') => modelInfo(modelInfoQuery(new URLSearchParams({ preset, model })));
+    const cliff = answer('cliff');
+    assert.deepEqual([cliff.trusted, cliff.contextWindow, cliff.modelCapacity, cliff.capacity], [true, 1000000, 1000000, 200000]);
+    assert.deepEqual(cliff.priceCap, { aboveTokens: 200000, tokens: 200000, floored: false, from: { input: 2, output: 10 }, to: { input: 4, output: 15 } });
+    const plain = answer('big', 'anthropic');
+    assert.deepEqual([plain.capacity, plain.modelCapacity, plain.priceCap], [1000000, 1000000, null], 'no price rise, no cap');
+    const unknown = answer('nope');
+    assert.deepEqual([unknown.trusted, unknown.capacity, unknown.modelCapacity, unknown.priceCap], [false, null, null, null], 'a model the catalog does not know: nothing to plan on, nothing to cap');
+  } finally {
+    resetCatalog();
+  }
+  ok('the model-info route says what the Hub plans on, what the model itself allows and the price rise that stopped it');
 }
 
 await fs.rm(base, { recursive: true, force: true, maxRetries: 8, retryDelay: 150 });

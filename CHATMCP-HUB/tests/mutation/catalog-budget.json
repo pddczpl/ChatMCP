@@ -132,7 +132,7 @@
       "name": "B19",
       "what": "the capacity of a model with a small input limit adds the whole output to the limit, and plans a prompt the model refuses",
       "patches": [
-        { "file": "lib/model-facts.mjs", "old": "const capacity = limited && ceiling !== null ? capacityWithinInput(info.maxInput, outputLimit, ceiling) : ceiling;", "new": "const capacity = ceiling;" }
+        { "file": "lib/model-facts.mjs", "old": "const modelCapacity = limited && ceiling !== null ? capacityWithinInput(info.maxInput, outputLimit, ceiling) : ceiling;", "new": "const modelCapacity = ceiling;" }
       ]
     },
     {
@@ -154,6 +154,97 @@
       "what": "the budget of a run keeps another margin than the capacity was fitted for (the two definitions drift apart)",
       "patches": [
         { "file": "lib/context-compaction.mjs", "old": "const safetyMarginTokens = safetyMarginFor(capacityTokens);", "new": "const safetyMarginTokens = Math.max(768, Math.ceil(capacityTokens * 0.05));" }
+      ]
+    },
+    {
+      "name": "B23",
+      "what": "the floor is forgotten: a price that rises above 32,000 tokens stops the plan at 32,000, too little for the agent",
+      "patches": [
+        { "file": "lib/model-facts.mjs", "old": "const stop = rise === null ? null : Math.max(PRICE_CAP_FLOOR_TOKENS, rise.aboveTokens);", "new": "const stop = rise === null ? null : rise.aboveTokens;" }
+      ]
+    },
+    {
+      "name": "B24",
+      "what": "the highest price rise is taken instead of the first one (the plan crosses the first cliff)",
+      "patches": [
+        { "file": "lib/model-facts.mjs", "old": "if (first === null || tier.aboveTokens < first.aboveTokens) first =", "new": "if (first === null || tier.aboveTokens > first.aboveTokens) first =" }
+      ]
+    },
+    {
+      "name": "B25",
+      "what": "a tier that is cheaper than the base price is taken for a price rise",
+      "patches": [
+        { "file": "lib/model-facts.mjs", "old": "if (!(rates.input > base.input || rates.output > base.output)) continue;", "new": "if (false) continue;" }
+      ]
+    },
+    {
+      "name": "B26",
+      "what": "a rise of the output price alone is not a price rise",
+      "patches": [
+        { "file": "lib/model-facts.mjs", "old": "if (!(rates.input > base.input || rates.output > base.output)) continue;", "new": "if (!(rates.input > base.input)) continue;" }
+      ]
+    },
+    {
+      "name": "B27",
+      "what": "a rise of the input price alone is not a price rise",
+      "patches": [
+        { "file": "lib/model-facts.mjs", "old": "if (!(rates.input > base.input || rates.output > base.output)) continue;", "new": "if (!(rates.output > base.output)) continue;" }
+      ]
+    },
+    {
+      "name": "B28",
+      "what": "the price rise is found but the plan is not stopped at it",
+      "patches": [
+        { "file": "lib/model-facts.mjs", "old": "const capacity = stopped ? stop : modelCapacity;", "new": "const capacity = modelCapacity;" }
+      ]
+    },
+    {
+      "name": "B29",
+      "what": "a stop that lowers nothing (the price rises where the window ends) is reported as one",
+      "patches": [
+        { "file": "lib/model-facts.mjs", "old": "const stopped = stop !== null && stop < modelCapacity;", "new": "const stopped = stop !== null && stop <= modelCapacity;" }
+      ]
+    },
+    {
+      "name": "B30",
+      "what": "the floor is lower than the Hub says (64,000)",
+      "patches": [
+        { "file": "lib/model-facts.mjs", "old": "export const PRICE_CAP_FLOOR_TOKENS = 128000;", "new": "export const PRICE_CAP_FLOOR_TOKENS = 64000;" }
+      ]
+    },
+    {
+      "name": "B31",
+      "what": "the answer does not say that the floor lifted the stop",
+      "patches": [
+        { "file": "lib/model-facts.mjs", "old": "floored: stop > rise.aboveTokens,", "new": "floored: false," }
+      ]
+    },
+    {
+      "name": "B32",
+      "what": "the stop is worked out from the window instead of from what the model allows (an input limit is forgotten)",
+      "patches": [
+        { "file": "lib/model-facts.mjs", "old": "const stopped = stop !== null && stop < modelCapacity;", "new": "const stopped = stop !== null && stop < (window ?? modelCapacity);" }
+      ]
+    },
+    {
+      "name": "B33",
+      "what": "the model-info route does not say what the model itself allows",
+      "patches": [
+        { "file": "lib/model-info.mjs", "old": "modelCapacity: facts?.modelCapacity ?? null,", "new": "modelCapacity: null," }
+      ]
+    },
+    {
+      "name": "B34",
+      "what": "the model-info route does not say which price rise stopped the plan",
+      "patches": [
+        { "file": "lib/model-info.mjs", "old": "priceCap: facts?.priceCap ?? null,", "new": "priceCap: null," }
+      ]
+    },
+    {
+      "name": "B35",
+      "what": "a price tier whose size is not a whole positive number is taken for a boundary",
+      "patches": [
+        { "file": "lib/model-facts.mjs", "old": "if (!Number.isInteger(tier?.aboveTokens) || tier.aboveTokens < 1 || !rates ||", "new": "if (!rates ||" }
       ]
     }
   ]
