@@ -30,3 +30,6 @@ docs/agent-handoffs/evidence/** -text whitespace=blank-at-eol,blank-at-eof,space
 # Vendored third-party browser code: keep out of language statistics
 **/web/vendor/** linguist-vendored
 *.min.js -diff linguist-vendored
+
+# Generated data: the models.dev snapshot that scripts/update-model-catalog.mjs rebuilds (one line, hash-checked).
+CHATMCP-HUB/lib/model-catalog.data.json -diff linguist-generated

@@ -1,0 +1,69 @@
+{
+  "suite": "verify-model-catalog.mjs",
+  "description": "What the model catalog suite must notice: the resolver loses its exactness, stops clamping a context window, guesses between makers, ignores the endpoint, forgets that a local runtime is local, spells one model two ways, offers a level the Hub has no setting for, or reads a snapshot of another format.",
+  "mutations": [
+    {
+      "name": "M1",
+      "what": "an id that is in the catalog as written is no longer reported as exact",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "if (Object.hasOwn(providers[providerId], id)) return answer(providerId, id, providers[providerId][id], 'exact');", "new": "if (false) return answer(providerId, id, providers[providerId][id], 'exact');" }
+      ]
+    },
+    {
+      "name": "M2",
+      "what": "a context window above the bound the Hub accepts is passed on as it is",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "contextWindow: usableContextWindow(row[0]),", "new": "contextWindow: row[0] ?? null," }
+      ]
+    },
+    {
+      "name": "M3",
+      "what": "an unknown endpoint and an id that two makers list is answered by the first maker (a guess)",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "if (hits.length === 1) return answer(", "new": "if (hits.length >= 1) return answer(" }
+      ]
+    },
+    {
+      "name": "M4",
+      "what": "the endpoint no longer says which provider a custom connection is",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "add(FIRST_PARTY_HOSTS[host] ?? hosts[host]);", "new": "add(undefined);" }
+      ]
+    },
+    {
+      "name": "M5",
+      "what": "a local runtime is looked up in the catalog like any other endpoint",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "if (LOCAL_PRESETS.has(presetId) || (host && LOOPBACK.has(host.replace(/:\\d+$/, '')) && !provider)) return nothing(LOCAL_RESULT);", "new": "if (false) return nothing(LOCAL_RESULT);" }
+      ]
+    },
+    {
+      "name": "M6",
+      "what": "dots are no longer written as dashes, so \"4.5\" and \"4-5\" are two models",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": ".replace(/\\./g, '-');", "new": ";" }
+      ]
+    },
+    {
+      "name": "M7",
+      "what": "a level the Hub has no setting for (\"default\") is offered",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "efforts: effort ? effort.slice(1).filter((level) => EFFORT_LEVELS.includes(level)) : [],", "new": "efforts: effort ? effort.slice(1) : []," }
+      ]
+    },
+    {
+      "name": "M8",
+      "what": "a snapshot of another format is read as version 1",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "snapshot.version !== 1 || ", "new": "" }
+      ]
+    },
+    {
+      "name": "M9",
+      "what": "a gateway's spelling of another maker's model is no longer found through the canonical id",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "if (viaCanonical && (ofProviders.length > 0 || /\\//.test(id))) return answer(", "new": "if (false) return answer(" }
+      ]
+    }
+  ]
+}
