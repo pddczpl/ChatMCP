@@ -6,24 +6,14 @@ export const translations = {
   vi: {
     // Header
     hub_connected: 'Hub kết nối',
-    hub_disconnected: 'Mất kết nối',
-    search_cmd: 'Tìm kiếm hoặc lệnh... Ctrl K',
     refresh: 'Làm mới',
     theme_dark: 'Tối',
     theme_light: 'Sáng',
     theme_system: 'Hệ thống',
-    tools_toggle: 'Công cụ',
-    settings_btn: 'Cài đặt',
     new_conversation_btn: 'Hội thoại mới',
-    start_conversation: 'Bắt đầu ngay',
 
     // Sessions Sidebar
-    sessions_title: 'Hội thoại',
     search_sessions: 'Tìm kiếm phiên...',
-    no_sessions: 'Chưa có phiên làm việc nào',
-    current_workspace: 'Workspace hiện tại',
-    select_workspace: 'Chọn workspace',
-    rename: 'Đổi tên',
     delete: 'Xóa phiên',
 
     // Welcome Screen
@@ -55,20 +45,13 @@ export const translations = {
     // Inspector Tabs
     tab_activity: 'Hoạt động',
     tab_files: 'Tệp',
-    tab_git: 'Git',
     tab_terminal: 'Terminal',
-    tab_plan: 'Kế hoạch',
     tab_preview: 'Xem trước',
-    tab_ai_model: 'AI Model',
-    tab_skills: 'Skills',
-    tab_settings: 'Cài đặt',
 
     // Agents tab: the strings the first screen asks for (the sections' own are in i18n-agents-sections.ts and join these when the sections load)
     ...agentsVi,
 
     // Settings Tab
-    rbac_title: 'Vai trò người dùng (RBAC)',
-    rbac_full: 'ĐẦY ĐỦ QUYỀN',
     agent_exec_mode: 'Chế độ quyền thực thi của Agent',
     theme_label: 'Giao diện (Theme)',
     lang_label: 'Ngôn ngữ (Language)',
@@ -76,9 +59,6 @@ export const translations = {
     lang_en: 'English',
     export_data: 'Xuất dữ liệu',
     backend_status: 'ChatMCP Hub Backend',
-    backend_host: 'Host: 127.0.0.1 (Loopback)',
-    backend_csp: 'CSP: Strict Self + No Unsafe-Inline',
-    backend_ok: 'Status: Hoạt động bình thường',
     workspace_setting_title: 'Thư mục dự án (Workspace)',
     workspace_setting_desc: 'Thư mục mã nguồn mà Agent thao tác và kiểm tra trực tiếp.',
     workspace_browse_btn: 'Duyệt...',
@@ -115,42 +95,18 @@ export const translations = {
     ai_save_success: 'Đã lưu cấu hình AI',
 
     // Skills Marketplace Tab
-    skills_title: 'Chợ kỹ năng (Skills Marketplace)',
-    skills_subtitle: 'Mở rộng sức mạnh agent với kỹ năng online & local',
-    skills_search_placeholder: 'Tìm kiếm kỹ năng...',
     cat_all: 'Tất cả',
     cat_coding: 'Lập trình',
     cat_devops: 'DevOps',
     cat_research: 'Nghiên cứu & Web',
     cat_governance: 'Bảo mật & Quản trị',
     cat_data: 'Dữ liệu',
-    skill_installed: 'Đã cài đặt',
-    skill_install: 'Cài đặt',
-    skill_uninstall: 'Gỡ cài đặt',
-    skill_enable: 'Bật',
-    skill_disable: 'Tắt',
-    skill_by: 'bởi',
-    skill_tools_included: 'Công cụ tích hợp:',
-    skill_add_online: 'Cài đặt Skill Online',
-    skill_add_online_desc: 'Cài đặt kỹ năng từ URL / Manifest trực tuyến hoặc tự định nghĩa',
-    skill_install_url_tab: 'Từ URL trực tuyến (Online)',
-    skill_manual_tab: 'Tự định nghĩa (Custom)',
-    skill_url_label: 'URL Manifest trực tuyến (.json)',
-    skill_url_placeholder: 'vd: https://raw.githubusercontent.com/.../skill-manifest.json',
-    skill_fetch_btn: 'Tải & Cài đặt trực tuyến',
-    skill_manifest_id: 'Mã Skill (ID)',
-    skill_manifest_name: 'Tên Skill',
-    skill_manifest_desc: 'Mô tả tính năng',
-    skill_manifest_prompt: 'System Prompt / Hướng dẫn Agent',
-    skill_btn_install: 'Xác nhận cài đặt',
 
     // Preview Tab
     preview_url_placeholder: 'http://localhost:3000 hoặc http://localhost:5173...',
     preview_reload: 'Làm mới xem trước',
     preview_new_tab: 'Tab mới trong App',
-    preview_tab_new: 'Tab mới',
     preview_tab_close: 'Đóng tab',
-    preview_notice_loopback: 'Xem trước ứng dụng web chạy trên local server (cổng 3000, 5173, 8000...)',
     preview_external_note: 'Các trang bên ngoài (như Google) gửi header X-Frame-Options cấm nhúng iframe. Ứng dụng dev cục bộ (localhost) hoạt động 100% không bị chặn.',
     preview_quick_ports: 'Cổng nhanh:',
 
@@ -161,8 +117,6 @@ export const translations = {
     files_search: 'Lọc tệp tin...',
     files_modified: 'Tệp đã sửa đổi',
     files_count: 'tệp',
-    files_empty: 'Chưa có tệp nào được sửa đổi trong phiên',
-    files_copy_path: 'Sao chép đường dẫn',
     git_clean: 'Workspace sạch',
     git_dirty: 'Có thay đổi chưa commit',
     git_checkpoint_create: 'Tạo điểm an toàn (Checkpoint)',
@@ -174,9 +128,7 @@ export const translations = {
     terminal_title: 'Terminal Output',
     terminal_autoscroll: 'Tự động cuộn',
     terminal_empty: 'Không có nhật ký terminal nào đang chạy',
-    plan_progress: 'Tiến độ kế hoạch',
     plan_steps: 'Các bước thực thi',
-    plan_step_completed: 'bước hoàn thành',
 
     // UI refresh
     header_search: 'Tìm kiếm hoặc chạy lệnh…',
@@ -193,7 +145,6 @@ export const translations = {
     tab_agents: 'Tác nhân',
     tab_more: 'Thêm',
     inspector_nav: 'Công cụ làm việc',
-    inspector_close: 'Đóng bảng bên phải (Ctrl+J)',
     settings_title: 'Cài đặt',
     settings_close: 'Đóng cài đặt',
     settings_nav: 'Các mục cài đặt',
@@ -244,24 +195,14 @@ export const translations = {
   en: {
     // Header
     hub_connected: 'Hub Connected',
-    hub_disconnected: 'Disconnected',
-    search_cmd: 'Search or command... Ctrl K',
     refresh: 'Refresh',
     theme_dark: 'Dark',
     theme_light: 'Light',
     theme_system: 'System',
-    tools_toggle: 'Tools',
-    settings_btn: 'Settings',
     new_conversation_btn: 'New Session',
-    start_conversation: 'Start now',
 
     // Sessions Sidebar
-    sessions_title: 'Conversations',
     search_sessions: 'Search sessions...',
-    no_sessions: 'No sessions yet',
-    current_workspace: 'Current Workspace',
-    select_workspace: 'Select workspace',
-    rename: 'Rename',
     delete: 'Delete session',
 
     // Welcome Screen
@@ -293,20 +234,13 @@ export const translations = {
     // Inspector Tabs
     tab_activity: 'Activity',
     tab_files: 'Files',
-    tab_git: 'Git',
     tab_terminal: 'Terminal',
-    tab_plan: 'Plan',
     tab_preview: 'Preview',
-    tab_ai_model: 'AI Model',
-    tab_skills: 'Skills',
-    tab_settings: 'Settings',
 
     // Agents tab: the strings the first screen asks for (the sections' own are in i18n-agents-sections.ts and join these when the sections load)
     ...agentsEn,
 
     // Settings Tab
-    rbac_title: 'User Role (RBAC)',
-    rbac_full: 'FULL ACCESS',
     agent_exec_mode: 'Agent Execution Mode',
     theme_label: 'Theme',
     lang_label: 'Language',
@@ -314,9 +248,6 @@ export const translations = {
     lang_en: 'English (Current)',
     export_data: 'Export Data',
     backend_status: 'ChatMCP Hub Backend',
-    backend_host: 'Host: 127.0.0.1 (Loopback)',
-    backend_csp: 'CSP: Strict Self + No Unsafe-Inline',
-    backend_ok: 'Status: Operational',
     workspace_setting_title: 'Project Workspace Directory',
     workspace_setting_desc: 'Source code folder that Agent directly edits and tests on.',
     workspace_browse_btn: 'Browse...',
@@ -353,42 +284,18 @@ export const translations = {
     ai_save_success: 'AI configuration saved successfully',
 
     // Skills Marketplace Tab
-    skills_title: 'Skills Marketplace',
-    skills_subtitle: 'Extend autonomous agent capabilities with online & local skills',
-    skills_search_placeholder: 'Search skills...',
     cat_all: 'All',
     cat_coding: 'Coding',
     cat_devops: 'DevOps',
     cat_research: 'Research & Web',
     cat_governance: 'Security & Governance',
     cat_data: 'Data',
-    skill_installed: 'Installed',
-    skill_install: 'Install',
-    skill_uninstall: 'Uninstall',
-    skill_enable: 'Enable',
-    skill_disable: 'Disable',
-    skill_by: 'by',
-    skill_tools_included: 'Included tools:',
-    skill_add_online: 'Install Online Skill',
-    skill_add_online_desc: 'Install skill from an online URL / manifest or custom definition',
-    skill_install_url_tab: 'From Online URL',
-    skill_manual_tab: 'Custom Definition',
-    skill_url_label: 'Online Manifest URL (.json)',
-    skill_url_placeholder: 'e.g. https://raw.githubusercontent.com/.../skill-manifest.json',
-    skill_fetch_btn: 'Fetch & Install Online',
-    skill_manifest_id: 'Skill ID',
-    skill_manifest_name: 'Skill Name',
-    skill_manifest_desc: 'Description',
-    skill_manifest_prompt: 'System Prompt / Instructions',
-    skill_btn_install: 'Confirm Install',
 
     // Preview Tab
     preview_url_placeholder: 'http://localhost:3000 or http://localhost:5173...',
     preview_reload: 'Reload Preview',
     preview_new_tab: 'New In-App Tab',
-    preview_tab_new: 'New Tab',
     preview_tab_close: 'Close tab',
-    preview_notice_loopback: 'Preview web apps running on local server (ports 3000, 5173, 8000...)',
     preview_external_note: 'External secured websites (like Google) send X-Frame-Options headers blocking iframes. Localhost dev apps run 100% unrestricted.',
     preview_quick_ports: 'Quick ports:',
 
@@ -399,8 +306,6 @@ export const translations = {
     files_search: 'Filter files...',
     files_modified: 'Modified files',
     files_count: 'files',
-    files_empty: 'No files modified in this session',
-    files_copy_path: 'Copy path',
     git_clean: 'Working tree clean',
     git_dirty: 'Uncommitted changes',
     git_checkpoint_create: 'Create Safe Checkpoint',
@@ -412,9 +317,7 @@ export const translations = {
     terminal_title: 'Terminal Output',
     terminal_autoscroll: 'Auto-scroll',
     terminal_empty: 'No active terminal output',
-    plan_progress: 'Plan Progress',
     plan_steps: 'Execution Steps',
-    plan_step_completed: 'steps completed',
 
     // UI refresh
     header_search: 'Search or run a command…',
@@ -431,7 +334,6 @@ export const translations = {
     tab_agents: 'Agents',
     tab_more: 'More',
     inspector_nav: 'Work tools',
-    inspector_close: 'Close the right panel (Ctrl+J)',
     settings_title: 'Settings',
     settings_close: 'Close settings',
     settings_nav: 'Settings sections',
