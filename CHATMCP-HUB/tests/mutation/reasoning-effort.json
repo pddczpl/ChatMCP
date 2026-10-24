@@ -1,0 +1,132 @@
+{
+  "suite": "verify-reasoning-effort.mjs",
+  "description": "What the thinking effort suite must notice: the setting stops reaching a protocol, a refusal of it is no longer repeated without it (or is taken from an error that is about something else, or is forgotten at once, or kept after a change of configuration), the decision offers a level the model or the protocol does not take, a task profile or the saved configuration loses it, or a heavy level leaves a Claude model no room to answer.",
+  "mutations": [
+    {
+      "name": "R1",
+      "what": "Chat Completions and Messages requests no longer carry the setting",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "    if (reasoning) applyReasoning(body, reasoning);", "new": "    if (false) applyReasoning(body, reasoning);" }
+      ]
+    },
+    {
+      "name": "R2",
+      "what": "Responses requests no longer carry the setting",
+      "patches": [
+        { "file": "lib/openai-responses-api.mjs", "old": "    if(reasoning)applyReasoning(body,reasoning);", "new": "    if(false)applyReasoning(body,reasoning);" }
+      ]
+    },
+    {
+      "name": "R3",
+      "what": "a Chat or Messages provider that refuses the setting ends the task instead of being asked once more without it",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "if (reasoning && refusesReasoning({ status, data: parsed, info, sent: true })) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "R4",
+      "what": "a Responses provider that refuses the setting ends the task instead of being asked once more without it",
+      "patches": [
+        { "file": "lib/openai-responses-api.mjs", "old": "if(reasoning&&refusesReasoning({status:response.status,data,info,sent:true})){", "new": "if(false){" }
+      ]
+    },
+    {
+      "name": "R5",
+      "what": "a Claude model asked to think hard keeps the small output cap it was given",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "if (reasoning && ctx.protocol === 'anthropic' && HEAVY_THINKING.has(reasoning.value?.effort)) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "R6",
+      "what": "a refusal that was confirmed is not remembered, so every later request is refused and repeated again",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "if (reasoningDropped) ctx.onReasoningRefused?.();", "new": "if (false) ctx.onReasoningRefused?.();" }
+      ]
+    },
+    {
+      "name": "R7",
+      "what": "any error that names the setting counts as its refusal, a rate limit or a server error included",
+      "patches": [
+        { "file": "lib/reasoning-effort.mjs", "old": "if (!sent || (status !== 400 && status !== 422) || info?.kind !== 'request') return false;", "new": "if (!sent) return false;" }
+      ]
+    },
+    {
+      "name": "R8",
+      "what": "a level the catalog does not list for the model is sent anyway",
+      "patches": [
+        { "file": "lib/reasoning-effort.mjs", "old": "if (reasoning && reasoning.efforts.length > 0 && !reasoning.efforts.includes(effort)) return { send: null, why: 'value_not_offered' };", "new": "" }
+      ]
+    },
+    {
+      "name": "R9",
+      "what": "a level that Claude has no setting for (minimal, none) is sent to the Messages API",
+      "patches": [
+        { "file": "lib/reasoning-effort.mjs", "old": "return ANTHROPIC_LEVELS.includes(effort) ? {", "new": "return true ? {" }
+      ]
+    },
+    {
+      "name": "R10",
+      "what": "OpenRouter gets reasoning_effort instead of its own reasoning.effort",
+      "patches": [
+        { "file": "lib/reasoning-effort.mjs", "old": "new URL(apiBaseUrl).hostname === 'openrouter.ai'", "new": "new URL(apiBaseUrl).hostname === 'openrouter.example'" }
+      ]
+    },
+    {
+      "name": "R11",
+      "what": "a task profile's setting does not reach the connection the task runs on",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "child.reasoningEffort=parseReasoningEffort(profile.reasoningEffort) ?? AUTO;", "new": "child.reasoningEffort=AUTO;" }
+      ]
+    },
+    {
+      "name": "R12",
+      "what": "choosing another provider keeps the level that was chosen for the first one",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "let nextEffort = switching ? AUTO : this.reasoningEffort;", "new": "let nextEffort = this.reasoningEffort;" }
+      ]
+    },
+    {
+      "name": "R13",
+      "what": "the saved connection does not keep the setting",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "contextWindowTokens: plan.contextWindowTokens, reasoningEffort: plan.reasoningEffort });", "new": "contextWindowTokens: plan.contextWindowTokens });" }
+      ]
+    },
+    {
+      "name": "R14",
+      "what": "a restart forgets the setting",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "this.reasoningEffort = parseReasoningEffort(data?.reasoningEffort) ?? AUTO;", "new": "this.reasoningEffort = AUTO;" }
+      ]
+    },
+    {
+      "name": "R15",
+      "what": "saving the configuration again does not forget a remembered refusal",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "this.reasoningEffort = plan.reasoningEffort; this.#reasoningRefused = null;", "new": "this.reasoningEffort = plan.reasoningEffort;" }
+      ]
+    },
+    {
+      "name": "R16",
+      "what": "a word that is not a level is accepted into the configuration",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (nextEffort === undefined) throw bad('invalid_reasoning_effort',", "new": "if (nextEffort === undefined && false) throw bad('invalid_reasoning_effort'," }
+      ]
+    },
+    {
+      "name": "R17",
+      "what": "a model profile does not give the setting to the task that uses it",
+      "patches": [
+        { "file": "lib/ai-profiles.mjs", "old": "      contextWindow: p.contextWindow,\n      reasoningEffort: p.reasoningEffort || AUTO,\n", "new": "      contextWindow: p.contextWindow,\n" }
+      ]
+    },
+    {
+      "name": "R18",
+      "what": "a model profile forgets the setting when it is saved",
+      "patches": [
+        { "file": "lib/ai-profiles.mjs", "old": "      contextWindow,\n      reasoningEffort,\n", "new": "      contextWindow,\n" }
+      ]
+    }
+  ]
+}

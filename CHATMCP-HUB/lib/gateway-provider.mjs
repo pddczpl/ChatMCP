@@ -16,6 +16,8 @@ import { probeToolCalling } from './tool-probe.mjs';
 import { reportedTokenCount } from './request-budget.mjs';
 import { normalizeCustomHeaders, publicCustomHeaders, applyCustomHeaders } from './gateway-custom-headers.mjs';
 import { CONTEXT_WINDOW_MAX, CONTEXT_WINDOW_MIN, contextWindowRangeText, parseContextWindow } from './context-window.mjs';
+import { lookup as catalogLookup } from './model-catalog.mjs';
+import { AUTO, EFFORT_LEVELS, parseReasoningEffort, reasoningDecision } from './reasoning-effort.mjs';
 
 // These stay importable from here: other modules and the tests have always taken them from this file.
 export { asChatMessages, normalizeChatCompletion };
@@ -236,6 +238,7 @@ export class GatewayProvider {
     this.customPath = '';
     this.model = 'gemini-2.5-flash';
     this.contextWindowTokens = null;
+    this.reasoningEffort = AUTO; // how much the model is asked to think: 'auto' (send nothing) or a level, see reasoning-effort.mjs
     this.apiKey = '';
     this.keySource = 'none';
     this.lastError = '';
@@ -263,6 +266,7 @@ export class GatewayProvider {
     if (typeof data?.preset === 'string' && presetById(data.preset)) this.preset = data.preset;
     const savedWindow = parseContextWindow(data?.contextWindowTokens);
     this.contextWindowTokens = savedWindow ?? null;
+    this.reasoningEffort = parseReasoningEffort(data?.reasoningEffort) ?? AUTO; // a word that is not a level (a hand-edited file) is read as auto
     // An older build accepted 2,000..4,095 tokens. Ignoring such a value is allowed; ignoring it without saying so is not.
     if (savedWindow === undefined) this.lastError = `Ngữ cảnh model đã lưu (${shownWindow(data.contextWindowTokens)}) nằm ngoài khoảng ${contextWindowRangeText()} nên chưa được dùng; Hub coi như chưa biết ngữ cảnh. Nhập lại giá trị hợp lệ ở phần Model.`;
     if (typeof data?.customPath === 'string') { try { buildEndpoint(this.apiBaseUrl, this.protocol, this.model, data.customPath); this.customPath = data.customPath; } catch { this.lastError = 'Đường dẫn endpoint lưu trước đây không hợp lệ.'; } }
@@ -295,7 +299,7 @@ export class GatewayProvider {
   state() {
     return {
       provider: 'gateway', preset: this.preset, protocol: this.protocol, model: this.model, apiBaseUrl: this.apiBaseUrl, authMode: this.authMode, customPath: this.customPath,
-      contextWindowTokens: this.contextWindowTokens, configured: this.ready(), keyRequired: this.keyRequired(), keySource: this.keySource,
+      contextWindowTokens: this.contextWindowTokens, reasoningEffort: this.reasoningEffort, reasoning: this.#reasoningState(), configured: this.ready(), keyRequired: this.keyRequired(), keySource: this.keySource,
       customHeaders: publicCustomHeaders(this.customHeaders),
       secretStorage: this.protector.describe(), lastError: this.lastError, toolCalling: this.toolCalling, toolCallingNote: this.toolCallingNote,
       agentRequestMode: this.protocol === 'gemini' ? (this.dialectConfirmed ? this.geminiDialect : 'chưa kiểm tra tool calling') : this.protocol === 'anthropic' ? 'anthropic-tool-use' : this.protocol === 'openai-responses' ? 'openai-responses-functions' : 'openai-tool-calls',
@@ -332,6 +336,7 @@ export class GatewayProvider {
     });
     child.apiBaseUrl=base;child.protocol=protocol;child.authMode=authMode;
     child.model=profile.model;child.contextWindowTokens=context;
+    child.reasoningEffort=parseReasoningEffort(profile.reasoningEffort) ?? AUTO;
     child.customPath=customPath;child.apiKey=key;
     // Which known provider this endpoint is (or the "something else" of its protocol): capabilities such as prompt caching follow it.
     child.preset=presetIdFor(base,protocol);
@@ -357,7 +362,7 @@ export class GatewayProvider {
 
   /** Everything configure() decides, without changing anything. Throws on any invalid input. */
   #plan(input = {}) {
-    const { preset: requested, apiBaseUrl, protocol, model, authMode, customPath, contextWindowTokens, apiKey, remember = false, useEnvKey = false, customHeaders } = input ?? {};
+    const { preset: requested, apiBaseUrl, protocol, model, authMode, customPath, contextWindowTokens, reasoningEffort, apiKey, remember = false, useEnvKey = false, customHeaders } = input ?? {};
     let entry = null;
     if (requested !== undefined && requested !== null && requested !== '') {
       entry = presetById(String(requested));
@@ -379,6 +384,13 @@ export class GatewayProvider {
     buildEndpoint(base, nextProtocol, nextModel, nextPath);
     const window = contextWindowTokens === undefined ? defaults.contextWindowTokens : parseContextWindow(contextWindowTokens);
     if (window === undefined) throw invalidContextWindow(contextWindowTokens);
+    // Another provider starts at auto; the same one keeps its level unless the request names one. A level the model does not offer is not refused here (the catalog may be
+    // stale): nothing is sent for it and the settings page says why (reasoning-effort.mjs).
+    let nextEffort = switching ? AUTO : this.reasoningEffort;
+    if (reasoningEffort !== undefined) {
+      nextEffort = parseReasoningEffort(reasoningEffort);
+      if (nextEffort === undefined) throw bad('invalid_reasoning_effort', `Mức suy luận (thinking effort) không hợp lệ: chọn auto hoặc một trong ${EFFORT_LEVELS.join(', ')}.`);
+    }
 
     // A preset describes one provider. If the endpoint or protocol no longer matches, it is a custom connection now.
     let nextPreset = entry ? entry.id : this.preset;
@@ -418,13 +430,13 @@ export class GatewayProvider {
     const headerSpecs=customHeaders===undefined
       ? (retainHeaders?this.customHeaders:[])
       : normalizeCustomHeaders(customHeaders);
-    return { base, protocol: nextProtocol, model: nextModel, authMode: nextAuth, customPath: nextPath, contextWindowTokens: window, preset: nextPreset, key, fromEnv, persist: Boolean(remember && key && !fromEnv), keyRequired,
+    return { base, protocol: nextProtocol, model: nextModel, authMode: nextAuth, customPath: nextPath, contextWindowTokens: window, reasoningEffort: nextEffort, preset: nextPreset, key, fromEnv, persist: Boolean(remember && key && !fromEnv), keyRequired,
       headerSpecs, persistHeaders:Boolean(remember && headerSpecs.length) };
   }
   /** Check a configuration without applying it. Never returns or logs the key. */
   validateConfiguration(input) {
     const plan = this.#plan(input);
-    return { ok: true, preset: plan.preset, protocol: plan.protocol, apiBaseUrl: plan.base, model: plan.model, authMode: plan.authMode, customPath: plan.customPath, contextWindowTokens: plan.contextWindowTokens, keyRequired: plan.keyRequired, keyProvided: Boolean(plan.key), keyFromEnvironment: plan.fromEnv,
+    return { ok: true, preset: plan.preset, protocol: plan.protocol, apiBaseUrl: plan.base, model: plan.model, authMode: plan.authMode, customPath: plan.customPath, contextWindowTokens: plan.contextWindowTokens, reasoningEffort: plan.reasoningEffort, keyRequired: plan.keyRequired, keyProvided: Boolean(plan.key), keyFromEnvironment: plan.fromEnv,
       customHeaderNames: plan.headerSpecs.map(x=>x.name) };
   }
   async configure(input = {}) {
@@ -440,7 +452,7 @@ export class GatewayProvider {
     const protectedHeaders=plan.persistHeaders
       ? await this.protect(JSON.stringify(plan.headerSpecs)) : null;
     // Persist the public configuration first; never write plaintext credentials.
-    await writeJson(this.configFile, { version: 2, preset: plan.preset, apiBaseUrl: plan.base, protocol: plan.protocol, model: plan.model, authMode: plan.authMode, customPath: plan.customPath, contextWindowTokens: plan.contextWindowTokens });
+    await writeJson(this.configFile, { version: 2, preset: plan.preset, apiBaseUrl: plan.base, protocol: plan.protocol, model: plan.model, authMode: plan.authMode, customPath: plan.customPath, contextWindowTokens: plan.contextWindowTokens, reasoningEffort: plan.reasoningEffort });
     if (ciphertext) await writeJson(this.keyFile, { protected: ciphertext, scheme: this.protector.kind });
     else await fs.unlink(this.keyFile).catch(e => { if (e.code !== 'ENOENT') throw e; });
     if(protectedHeaders)await writeJson(this.headersFile,{origin:originOf(plan.base),protected:protectedHeaders,scheme:this.protector.kind});
@@ -454,6 +466,7 @@ export class GatewayProvider {
     this.customHeadersOrigin=originOf(plan.base);
     for(const h of this.customHeaders)if(h.value)this.registerKey(h.value);
     this.preset = plan.preset; this.contextWindowTokens = plan.contextWindowTokens; this.outputLimit = null;
+    this.reasoningEffort = plan.reasoningEffort; this.#reasoningRefused = null;
     this.toolCalling = 'unchecked'; this.toolCallingNote = '';
     this.lastError = ''; this.geminiDialect = 'native'; this.dialectConfirmed = false;
     return this.state();
@@ -746,6 +759,29 @@ export class GatewayProvider {
     return normalized;
   }
 
+  // The endpoint, model and level of a provider that answered 400 to the thinking setting and then accepted the same request without it. Later calls do not send it.
+  // A call for another endpoint, model or level asks again: the refusal is about that triple only. A change of configuration forgets it.
+  #reasoningRefused = null;
+  /** The model's entry in the catalog (lib/model-catalog.mjs) for this connection: what it can be told about thinking, or none. */
+  #catalogInfo() {
+    return catalogLookup({ presetId: this.preset, protocol: this.protocol, apiBaseUrl: this.apiBaseUrl, model: this.model });
+  }
+  /** What to send for the setting now, the key of that decision (endpoint, model, level) and whether this provider is known to refuse it. */
+  #reasoningRequest() {
+    const decision = reasoningDecision({ effort: this.reasoningEffort, protocol: this.protocol, apiBaseUrl: this.apiBaseUrl, info: this.#catalogInfo() });
+    let endpoint = null;
+    try { endpoint = buildEndpoint(this.apiBaseUrl, this.protocol, this.model, this.customPath); } catch { /* an unusable route is reported when a request is made */ }
+    const key = decision.send ? { endpoint, model: this.model, effort: this.reasoningEffort } : null;
+    const held = this.#reasoningRefused;
+    const refused = key !== null && held !== null && held.endpoint === key.endpoint && held.model === key.model && held.effort === key.effort;
+    return { decision, key, refused };
+  }
+  /** For the settings page: the level, whether it is sent, why not, and whether the provider refused it. */
+  #reasoningState() {
+    const { decision, refused } = this.#reasoningRequest();
+    return { effort: this.reasoningEffort, sent: decision.send !== null && !refused, why: decision.send === null ? decision.why : null, refused };
+  }
+
   // The endpoint and model of a gateway that answered 400 to stream: true, and then accepted the same request without it. Its later
   // calls do not ask for a stream. A call for another endpoint or model forgets it: the refusal is about that pair only.
   #streamRefused = null;
@@ -756,8 +792,11 @@ export class GatewayProvider {
     const endpoint=buildEndpoint(this.apiBaseUrl,protocol,model,this.customPath);
     const headers=this.#headers(protocol,authMode,apiKey);
     if(this.#streamRefused&&(this.#streamRefused.endpoint!==endpoint||this.#streamRefused.model!==model))this.#streamRefused=null;
+    const thinking=this.#reasoningRequest();
     const result=await respondOpenAIResponses({
       model,endpoint,headers,fetch:this.fetch,
+      reasoning:thinking.decision.send,reasoningRefused:thinking.refused,
+      onReasoningRefused:()=>{ if(thinking.key&&this.model===model)this.#reasoningRefused=thinking.key; },
       timeoutMs:this.limits?.requestTimeoutMs || 240000,
       idleTimeoutMs:this.limits?.idleTimeoutMs,
       stream:typeof onToken==='function',
@@ -772,8 +811,11 @@ export class GatewayProvider {
   /** OpenAI-style Chat Completions and Anthropic Messages. See standard-adapter.mjs for what it guarantees. */
   async #respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens, beforeModelRequest }) {
     const { protocol, model, authMode, apiKey, contextWindowTokens } = this;
+    const thinking = this.#reasoningRequest();
     const ctx = {
       protocol, model, fetch: this.fetch, sleep: this.sleep, limits: this.limits,
+      reasoning: thinking.decision.send, reasoningRefused: thinking.refused,
+      onReasoningRefused: () => { if (thinking.key && this.model === model) this.#reasoningRefused = thinking.key; },
       endpoint: buildEndpoint(this.apiBaseUrl, protocol, model, this.customPath),
       headers: this.#headers(protocol, authMode, apiKey),
       redact: (text) => noSecrets(String(text), (value) => this.redact(value)),

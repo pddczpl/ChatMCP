@@ -28,6 +28,7 @@ export const RULES = Object.freeze({
   'chat.tool_choice_needs_tools': { api: 'chat', provenance: 'recalled', source: 'the Hub sends tool_choice only with tools for this reason (buildChatBody)', summary: 'tool_choice only together with tools' },
   'chat.stream_options_need_stream': { api: 'chat', provenance: 'recalled', source: 'OpenAI API reference: stream_options is for stream: true', summary: 'stream_options only on a stream' },
   'chat.tool_definition': { api: 'chat', provenance: 'recalled', source: 'OpenAI API reference: tools', summary: 'type function, a function with a name of letters, digits, _ and -' },
+  'chat.reasoning_effort': { api: 'chat', provenance: 'doc', source: 'https://platform.openai.com/docs/api-reference/chat/create (reasoning_effort: none, minimal, low, medium, high, xhigh; a model without reasoning refuses the field, which the mock cannot know)', summary: 'reasoning_effort is one of the documented levels' },
   'anthropic.unknown_param': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/api/messages and the SDK type message_create_params.py', summary: 'a top-level parameter the API does not know is refused ("Extra inputs are not permitted")' },
   'anthropic.required': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/api/messages: max_tokens, messages and model are required', summary: 'model, max_tokens >= 1 and a non-empty messages list' },
   'anthropic.content_blocks': { api: 'anthropic', provenance: 'recalled', source: 'https://platform.claude.com/docs/en/api/messages (block types); empty text blocks are refused by the real API, which is why anthropicUserBlocks drops blank text', summary: 'roles user/assistant, known block types, no empty or white-space text blocks' },
@@ -36,7 +37,9 @@ export const RULES = Object.freeze({
   'anthropic.thinking_signature': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/build-with-claude/thinking ("Preserving thinking blocks") and /thinking-troubleshooting (the two error texts); thinking blocks of EARLIER turns are accepted and filtered by the API', summary: 'thinking and redacted_thinking blocks carry what the server issued, unmodified' },
   'anthropic.thinking_first': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/build-with-claude/thinking ("Thinking with tool use": in extended (manual) mode the final assistant turn begins with a thinking block); the error text is the older wording of the same rule', summary: 'with extended thinking on, the assistant turn of a tool loop starts with its thinking block' },
   'anthropic.thinking_config': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/build-with-claude/extended-thinking ("Budget rules": at least 1024, below max_tokens) and /thinking ("Tool choice limitation")', summary: 'budget_tokens >= 1024 and < max_tokens; no forced tool use while extended thinking is on' },
+  'anthropic.output_config': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/build-with-claude/effort (output_config.effort: low, medium, high, xhigh, max; other keys of output_config, such as format, are not this rule\'s business)', summary: 'output_config is an object and its effort is one of the documented levels' },
   'responses.unknown_param': { api: 'responses', provenance: 'sdk', source: 'https://github.com/openai/openai-python (src/openai/types/responses/response_create_params.py); "Unknown parameter" is quoted in community reports', summary: 'a top-level parameter the API does not know is refused' },
+  'responses.reasoning': { api: 'responses', provenance: 'doc', source: 'https://platform.openai.com/docs/api-reference/responses/create (reasoning: { effort: none, minimal, low, medium, high, xhigh; summary: auto, concise, detailed })', summary: 'reasoning is an object; its effort and summary are among the documented values' },
   'responses.input': { api: 'responses', provenance: 'recalled', source: 'OpenAI API reference: input items', summary: 'input is a string or a list of known items with their required fields' },
   'responses.tool_result_pairing': { api: 'responses', provenance: 'report', source: 'https://community.openai.com/t/issue-with-new-responses-api-400-no-tool-call-found-for-function-call-output-with-call-id/1142327 (first text); the second text is recalled', summary: 'every function_call_output follows a function_call with its call_id, and every function_call is answered' },
   'responses.tool_definition': { api: 'responses', provenance: 'recalled', source: 'OpenAI API reference: tools (a function tool has type, name and parameters at the top level)', summary: 'known tool types; a function tool has a name' },
@@ -96,6 +99,11 @@ export function createThinkingSigner(secret = crypto.randomBytes(16).toString('h
 // ---------------------------------------------------------------------------------------------------------------------
 // OpenAI Chat Completions
 // ---------------------------------------------------------------------------------------------------------------------
+// Thinking effort: the levels the vendors document for the field (a model refuses the ones it does not offer, which the mock cannot know).
+const OPENAI_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'];
+const ANTHROPIC_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+const REASONING_SUMMARIES = ['auto', 'concise', 'detailed'];
+const quoted = (values) => list(values.map((value) => `'${value}'`));
 const CHAT_PARAMS = new Set(['messages', 'model', 'audio', 'frequency_penalty', 'function_call', 'functions', 'logit_bias', 'logprobs', 'max_completion_tokens', 'max_tokens', 'metadata', 'modalities', 'moderation', 'n', 'parallel_tool_calls', 'prediction', 'presence_penalty', 'prompt_cache_key', 'prompt_cache_options', 'prompt_cache_retention', 'reasoning_effort', 'response_format', 'safety_identifier', 'seed', 'service_tier', 'stop', 'store', 'stream', 'stream_options', 'temperature', 'tool_choice', 'tools', 'top_logprobs', 'top_p', 'user', 'verbosity', 'web_search_options']);
 const CHAT_MESSAGE_FIELDS = {
   system: ['role', 'content', 'name'],
@@ -129,6 +137,9 @@ export function validateChatRequest(body, { dialect = 'openai' } = {}) {
   }
   if (body.stream_options !== undefined && body.stream !== true) {
     c.add('chat.stream_options_need_stream', "The 'stream_options' parameter is only allowed when 'stream' is enabled.", { param: 'stream_options' });
+  }
+  if (body.reasoning_effort !== undefined && body.reasoning_effort !== null && !OPENAI_EFFORTS.includes(body.reasoning_effort)) {
+    c.add('chat.reasoning_effort', `Invalid value: '${body.reasoning_effort}'. Supported values are: ${quoted(OPENAI_EFFORTS)}.`, { param: 'reasoning_effort', code: 'invalid_value' });
   }
   if (body.tools !== undefined) {
     if (!Array.isArray(body.tools)) c.add('chat.tool_definition', "Invalid type for 'tools': expected an array of objects.", { param: 'tools' });
@@ -315,6 +326,10 @@ export function validateAnthropicRequest(body, { signer = null } = {}) {
     });
   });
 
+  if (body.output_config !== undefined) {
+    if (!isObject(body.output_config)) c.add('anthropic.output_config', 'output_config: Input should be a valid dictionary or object to extract fields from', { param: 'output_config' });
+    else if (body.output_config.effort !== undefined && !ANTHROPIC_EFFORTS.includes(body.output_config.effort)) c.add('anthropic.output_config', `output_config.effort: Input should be ${quoted(ANTHROPIC_EFFORTS)}`, { param: 'output_config.effort' });
+  }
   const thinking = body.thinking;
   if (isObject(thinking) && thinking.type === 'enabled') {
     // extended (manual) thinking: a tool loop continues an assistant turn that began with its thinking block
@@ -352,6 +367,14 @@ export function validateResponsesRequest(body) {
   if (body.input === undefined && !stored) c.add('responses.input', "Missing required parameter: 'input'.", { param: 'input', code: 'missing_required_parameter' });
   if (body.stream_options !== undefined && body.stream !== true) c.add('responses.stream_options_need_stream', "The 'stream_options' parameter is only allowed when 'stream' is enabled.", { param: 'stream_options' });
 
+  if (body.reasoning !== undefined && body.reasoning !== null) {
+    if (!isObject(body.reasoning)) c.add('responses.reasoning', "Invalid type for 'reasoning': expected an object, but got a different type instead.", { param: 'reasoning' });
+    else {
+      const { effort, summary } = body.reasoning;
+      if (effort !== undefined && effort !== null && !OPENAI_EFFORTS.includes(effort)) c.add('responses.reasoning', `Invalid value: '${effort}'. Supported values are: ${quoted(OPENAI_EFFORTS)}.`, { param: 'reasoning.effort', code: 'invalid_value' });
+      if (summary !== undefined && summary !== null && !REASONING_SUMMARIES.includes(summary)) c.add('responses.reasoning', `Invalid value: '${summary}'. Supported values are: ${quoted(REASONING_SUMMARIES)}.`, { param: 'reasoning.summary', code: 'invalid_value' });
+    }
+  }
   if (body.tools !== undefined) {
     if (!Array.isArray(body.tools)) c.add('responses.tool_definition', "Invalid type for 'tools': expected an array of objects.", { param: 'tools' });
     else body.tools.forEach((tool, i) => {

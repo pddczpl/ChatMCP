@@ -1,0 +1,20 @@
+{
+  "suite": "verify-v2-http.mjs",
+  "description": "What the HTTP integration suite must notice about GET /api/ai/model-info: the route is gone, or it answers without checking the query.",
+  "mutations": [
+    {
+      "name": "M1",
+      "what": "the route is not answered",
+      "patches": [
+        { "file": "hub.mjs", "old": "if (req.method === 'GET' && url.pathname === '/api/ai/model-info') return json(200, modelInfo(modelInfoQuery(url.searchParams)));", "new": "if (false) return json(200, modelInfo(modelInfoQuery(url.searchParams)));" }
+      ]
+    },
+    {
+      "name": "M2",
+      "what": "the route answers a query without a model instead of refusing it",
+      "patches": [
+        { "file": "lib/model-info.mjs", "old": "if (!MODEL_ID.test(model)) throw invalid(", "new": "if (false) throw invalid(" }
+      ]
+    }
+  ]
+}
