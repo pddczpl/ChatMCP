@@ -28,7 +28,7 @@ export function PermissionsSection() {
       return;
     }
     try {
-      await api.setPermissions({ mode, ...(isFullAccess ? { executionPolicy: 'host-review' } : {}) });
+      await api.setPermissions({ mode, leaveFullAccess: true });
       showToast(t('perm_changed', { mode }), 'info');
       refetch();
     } catch (err: any) {

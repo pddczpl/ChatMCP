@@ -164,7 +164,9 @@ export const api = {
   }),
   
   // Permissions & Approvals
-  configurePermissions: (payload: { mode?: string; executionPolicy?: string; confirmation?: string }) =>
+  // `leaveFullAccess: true` with a mode: the Hub lowers Full Access to host-review in the same call if it is on (a page that decided from its own
+  // copy of the state could be a few seconds behind the Hub); it never touches sandbox-only or host-review.
+  configurePermissions: (payload: { mode?: string; executionPolicy?: string; confirmation?: string; leaveFullAccess?: boolean }) =>
     request<any>('/api/studio/permissions/config', { method: 'POST', body: JSON.stringify(payload) }),
   decidePermission: (id: string, approved: boolean) =>
     request<any>('/api/studio/permissions/decide', { method: 'POST', body: JSON.stringify({ id, approved }) }),
@@ -288,7 +290,7 @@ export const api = {
   // Convenience Aliases for UI Components
   createTask: (opts: { task: string }) => api.startTask(opts.task),
   sendMessage: (id: string, text: string) => api.continueTask(id, text),
-  setPermissions: (payload: { mode?: string; executionPolicy?: string; confirmation?: string }) =>
+  setPermissions: (payload: { mode?: string; executionPolicy?: string; confirmation?: string; leaveFullAccess?: boolean }) =>
     api.configurePermissions(payload),
   approveAction: (id: string) => api.decidePermission(id, true),
   denyAction: (id: string, reason?: string) => api.decidePermission(id, false),

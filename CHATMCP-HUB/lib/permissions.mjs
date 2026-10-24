@@ -102,7 +102,7 @@ export class PermissionGate {
   }
   #save(){if(!this.file)return;this.writes=this.writes.catch(()=>{}).then(()=>writeJson(this.file,{mode:this.mode,executionPolicy:this.executionPolicy,history:this.history.slice(-100)}));this.writes.catch(()=>{});}
   state(){return {mode:this.mode,modes:[...PERMISSION_MODES],executionPolicy:this.executionPolicy,fullAccess:this.executionPolicy==='full-access',canAsk:this.canAsk(),approvalTimeoutMs:this.timeout,pending:[...this.requests.values()].map(({id,taskId,toolName,category,reason,summary,preview,detail,at,expiresAt})=>({id,taskId,toolName,category,reason,summary,preview,detail,at,expiresAt})),recent:this.history.slice(-60)};}
-  configure({mode,executionPolicy,confirmation}={}){
+  configure({mode,executionPolicy,confirmation,leaveFullAccess}={}){
     let nextMode;
     if(mode==='full-access'){
       executionPolicy='full-access';
@@ -111,6 +111,10 @@ export class PermissionGate {
       nextMode=normalizeMode(mode);
       if(!nextMode)throw error('bad_mode','Chế độ phải là readonly (chỉ đọc), review hoặc autonomous.',400);
     }
+    // A page that means "any mode but Full Access" says so here instead of reading the state first: what it read can be older than this call
+    // (Full Access was turned on a moment ago), and a mode sent alone leaves the policy where it is. Only a policy that is full-access is lowered,
+    // sandbox-only and host-review stay as they are, and a policy named in the same request is the person's word and wins.
+    if(leaveFullAccess===true&&executionPolicy===undefined&&this.executionPolicy==='full-access')executionPolicy='host-review';
     if(executionPolicy!==undefined&&!EXECUTION_POLICIES.includes(executionPolicy))throw error('bad_policy','Chính sách sandbox không hợp lệ.',400);
     if(executionPolicy==='full-access' && this.executionPolicy!=='full-access' && confirmation!=='FULL ACCESS') throw error('full_access_confirmation_required','Nhập chính xác FULL ACCESS để cho phép agent đọc/sửa file ngoài workspace, sử dụng Internet và chạy công cụ nguy hiểm với quyền Windows hiện tại.',403);
     if(nextMode!==undefined)this.mode=nextMode;

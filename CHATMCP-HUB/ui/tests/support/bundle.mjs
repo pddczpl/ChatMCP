@@ -51,6 +51,10 @@ export const renderPrelude = `
   const appDefaults = { selectedTaskId: '', selectedWorkspacePath: '', lang: 'vi', activeTab: 'plan' };
   export async function renderWith(Component, props = {}, entries = [], errors = [], store = {}, drafts = {}) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, retryOnMount: false, staleTime: Infinity } } });
+    // What the handlers of this render ask the cache to refresh (the filters they pass), for a test that wants to know: globalThis.__chatmcpInvalidated.
+    globalThis.__chatmcpInvalidated = [];
+    const invalidate = client.invalidateQueries.bind(client);
+    client.invalidateQueries = (...args) => { globalThis.__chatmcpInvalidated.push(args[0]); return invalidate(...args); };
     Object.assign(useAppStore.getInitialState(), appDefaults, store);
     Object.assign(useAgentDrafts.getInitialState(), useAgentDrafts.getInitialState().defaults(), drafts);
     for (const [key, data] of entries) client.setQueryData(key, data);

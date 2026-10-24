@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 import { Command } from 'cmdk';
-import { useQuery } from '@tanstack/react-query';
 import {
   Activity, Bot, Code2, Cpu, Eye, FileCode, Folder, GitBranch, Globe, Link2, ListTodo, Monitor, Moon, Palette, Plus, Puzzle,
   Search, Settings, ShieldAlert, ShieldCheck, Sun, Terminal, Users, type LucideIcon,
@@ -45,8 +44,6 @@ export function CommandPalette() {
   } = useAppStore();
   const { t } = useTranslation();
 
-  const { data: hub } = useQuery({ queryKey: ['hubState'], queryFn: api.getState });
-
   // Escape closes the palette (Ctrl+K toggles it from the shell).
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -69,7 +66,7 @@ export function CommandPalette() {
       return;
     }
     try {
-      await api.configurePermissions({ mode, ...(hub?.studio?.permissions?.executionPolicy === 'full-access' ? { executionPolicy: 'host-review' } : {}) });
+      await api.configurePermissions({ mode, leaveFullAccess: true });
       showToast(t('cmd_mode_changed', { mode }), 'info');
     } catch (err: any) {
       showToast(err.message || t('cmd_mode_failed'), 'error');

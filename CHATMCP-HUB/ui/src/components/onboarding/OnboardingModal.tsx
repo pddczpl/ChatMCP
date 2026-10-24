@@ -59,9 +59,8 @@ export function OnboardingModal() {
   const handleFinish = async () => {
     setBusy(true); setError('');
     try {
-      // Choosing a permission mode does not grant permission to lower sandbox-only.
-      const current = await api.getState();
-      await api.configurePermissions({ mode: permMode, ...(current.studio?.permissions?.executionPolicy === 'full-access' ? { executionPolicy: 'host-review' } : {}) });
+      // Choosing a permission mode leaves Full Access if it is on, and never relaxes sandbox-only: the Hub settles that (leaveFullAccess), not a read of its state.
+      await api.configurePermissions({ mode: permMode, leaveFullAccess: true });
       await queryClient.invalidateQueries({ queryKey: ['hubState'] });
       localStorage.setItem('chatmcp:onboarding-completed', 'true');
       setOnboardingOpen(false);
