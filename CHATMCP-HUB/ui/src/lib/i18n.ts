@@ -1,6 +1,7 @@
 import { useAppStore } from '@/store/useAppStore';
 import { agentsVi, agentsEn } from './i18n-agents.ts';
 import type { sectionsVi } from './i18n-agents-sections.ts';
+import type { modelsVi } from './i18n-models.ts';
 
 export const translations = {
   vi: {
@@ -393,6 +394,8 @@ export const translations = {
     ai_reasoning_why_model_does_not_reason: 'Danh mục ghi model này không suy luận: không có gì để chọn.',
     ai_reasoning_why_no_effort_control: 'Model này suy luận theo ngân sách token hoặc công tắc, chưa chỉnh được bằng mức ở đây. Để Tự động.',
     ai_reasoning_why_protocol_not_supported: 'Giao thức này (Gemini) chưa có mức suy luận trong Hub.',
+    ai_window_catalog: 'Lấy từ danh mục model: {tokens} token ({source}). Chưa ghi gì vào ô này. Nhập một số để dùng giá trị khác: cửa sổ nhỏ hơn giữ hội thoại ngắn hơn và rẻ hơn.',
+    ai_window_catalog_limited: 'Lấy từ danh mục model: cửa sổ {window} token nhưng đầu vào tối đa {input}, nên Hub lập kế hoạch trên {tokens} token ({source}). Nhập một số để dùng giá trị khác.',
     sandbox_unavailable: 'Không khả dụng',
     insp_blocked_a: 'Agent đang xử lý thư mục đã chọn độc lập. Inspector file/Git/terminal cũ chỉ gắn với workspace chính.',
     insp_blocked_b: 'Để tránh sửa nhầm một dự án khác, các thao tác Inspector bị ẩn ở workspace thứ hai. Bạn vẫn có thể giao nhiều task, xem kết quả và dừng subagent ở tab {tab}.',
@@ -797,6 +800,8 @@ export const translations = {
     ai_reasoning_why_model_does_not_reason: 'The catalog says this model does not think: there is nothing to set.',
     ai_reasoning_why_no_effort_control: 'This model is controlled by a token budget or a switch, which this setting does not drive yet. Leave it on Auto.',
     ai_reasoning_why_protocol_not_supported: 'This protocol (Gemini) has no thinking level in the Hub yet.',
+    ai_window_catalog: 'From the model catalog: {tokens} tokens ({source}). Nothing is written into this field. Type a number to use another: a smaller window keeps conversations shorter and cheaper.',
+    ai_window_catalog_limited: 'From the model catalog: a window of {window} tokens but at most {input} of input, so the Hub plans on {tokens} tokens ({source}). Type a number to use another.',
     sandbox_unavailable: 'Unavailable',
     insp_blocked_a: 'The agent is working on the selected folder independently. The older file / Git / terminal inspector is tied to the main workspace only.',
     insp_blocked_b: 'To avoid editing the wrong project by mistake, Inspector actions are hidden in the second workspace. You can still assign several tasks, see the results and stop subagents in the {tab} tab.',
@@ -813,7 +818,7 @@ export const translations = {
   },
 };
 
-export type TranslationKey = keyof typeof translations.vi | keyof typeof sectionsVi;
+export type TranslationKey = keyof typeof translations.vi | keyof typeof sectionsVi | keyof typeof modelsVi;
 /** Values for the {name} placeholders of a string: t('agents_works_on', { folder }). */
 export type TranslationParams = Record<string, string | number>;
 export type Translate = (key: TranslationKey, params?: TranslationParams) => string;

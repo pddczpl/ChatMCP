@@ -16,8 +16,10 @@ import {
 import { Button } from '@/components/ui/Button';
 import { aiDraftHasChanges, aiProtocolForPreset, reconcileSavedAiConfig, selectAiProviderDraft, type AiConfigForm } from '@/lib/ai-config-form';
 import { ModelProfilesPanel } from './ModelProfilesPanel';
+import { ModelField } from './ModelField';
 import { ReasoningEffortField } from './ReasoningEffortField';
-import { contextWindowField, contextWindowRangeText } from '@/lib/context-window';
+import { contextWindowField, contextWindowHint, contextWindowRangeText } from '@/lib/context-window';
+import { useModelInfo } from '@/lib/useModelInfo';
 
 export function IntelligenceTab() {
   const { showToast } = useAppStore();
@@ -50,6 +52,10 @@ export function IntelligenceTab() {
     apiKey: '',
   });
   const { provider, model, apiBaseUrl, apiKey } = form;
+  // What to ask the Hub about the model in the form: a real preset (a Hub with no connection yet calls its provider "gateway", which is not one, and refuses it), and the protocol.
+  const askPreset = providers.some((choice) => choice.id === form.provider) ? form.provider : undefined;
+  const askProtocol = aiProtocolForPreset(form.provider) ?? ((ai as any).protocol || undefined);
+  const { data: modelInfo } = useModelInfo({ preset: askPreset, protocol: askProtocol, apiBaseUrl, model });
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -58,7 +64,10 @@ export function IntelligenceTab() {
   // Only an edited window is sent; an untouched form leaves the saved one (or the preset default) alone.
   const [contextWindowDraft,setContextWindowDraft] = useState('');
   const [contextWindowDirty,setContextWindowDirty] = useState(false);
+  // How many times the form was saved: a new key for the same address is another account, so what the provider answered about the account's models (the picker keeps it) is for one save only.
+  const [accountRevision, setAccountRevision] = useState(0);
   const savedWindow = (ai as any).contextWindowTokens as number | null | undefined;
+  const windowHint = contextWindowHint(contextWindowDirty ? contextWindowDraft : savedWindow, modelInfo);
   // 'auto' or a level. Only an edited level is sent; an untouched form leaves the saved one alone, and choosing another provider starts at auto (as the Hub does).
   const [reasoningDraft, setReasoningDraft] = useState<string | null>(null);
   const savedEffort: string = (ai as any).reasoningEffort || 'auto';
@@ -138,6 +147,7 @@ export function IntelligenceTab() {
     setContextWindowDraft('');
     setContextWindowDirty(false);
     setReasoningDraft(null);
+    setAccountRevision((count) => count + 1);
     return reconcileSavedAiConfig(submitted, submitted, saved);
   };
 
@@ -262,27 +272,33 @@ export function IntelligenceTab() {
         </div>
       </div>
 
-      {/* Model Name */}
+      {/* Model Name: the input, with a list of the provider's models and what the Hub knows of the one typed (a script of its own: the plain input until it is there) */}
       <div className="space-y-1.5">
         <label className="text-[12px] font-semibold text-muted block">
           {t('ai_model_id')}
         </label>
-        <input
-          type="text"
-          aria-label="Model"
+        <ModelField
+          id="datgold-model"
+          ariaLabel="Model"
           value={model}
-          onChange={(e) => setForm(current => ({ ...current, model: e.target.value }))}
+          onChange={(next) => setForm(current => ({ ...current, model: next }))}
           placeholder={t('ai_model_placeholder')}
-          className="w-full bg-surface text-fg font-mono text-xs rounded-md px-3 py-1.5 border border-line focus:outline-none focus:border-primary"
+          inputClassName="w-full bg-surface text-fg font-mono text-xs rounded-md px-3 py-1.5 border border-line focus:outline-none focus:border-primary"
+          preset={askPreset}
+          protocol={askProtocol}
+          apiBaseUrl={apiBaseUrl}
+          // The account's own models can be asked of the provider only for the connection the Hub holds, with its saved key.
+          canListAccount={Boolean(ai.configured) && provider === ((ai as any).preset || ai.provider) && apiBaseUrl.trim() === (ai.apiBaseUrl || '').trim()}
+          showCatalog
+          accountRevision={accountRevision}
         />
       </div>
 
       {/* Thinking effort: how much the model is asked to think, from what the Hub knows about this model */}
       <ReasoningEffortField
         id="datgold-reasoning-effort"
-        // A Hub that has no connection yet calls its provider "gateway", which is not a preset: the protocol it reports is then all there is to ask about.
-        preset={providers.some((choice) => choice.id === form.provider) ? form.provider : undefined}
-        protocol={aiProtocolForPreset(form.provider) ?? ((ai as any).protocol || undefined)}
+        preset={askPreset}
+        protocol={askProtocol}
         apiBaseUrl={apiBaseUrl}
         model={model}
         value={effortValue}
@@ -304,8 +320,10 @@ export function IntelligenceTab() {
           placeholder="unknown"
           className="w-full bg-surface text-fg font-mono text-xs rounded-md px-3 py-1.5 border border-line focus:outline-none focus:border-primary"
         />
-        <p data-testid="context-window-hint" className={`text-xs ${savedWindow ? 'text-faint' : 'text-warning'}`}>
-          {savedWindow ? '' : 'Unknown: the agent plans with a conservative estimate and shows a warning on every task. '}
+        <p data-testid="context-window-hint" className={`text-xs ${windowHint.kind === 'unknown' ? 'text-warning' : 'text-faint'}`}>
+          {windowHint.kind === 'unknown' ? 'Unknown: the agent plans with a conservative estimate and shows a warning on every task. ' : ''}
+          {windowHint.kind === 'catalog' ? `${t('ai_window_catalog', { tokens: windowHint.tokens, source: windowHint.source })} ` : ''}
+          {windowHint.kind === 'catalog_limited' ? `${t('ai_window_catalog_limited', { tokens: windowHint.tokens, window: windowHint.window, input: windowHint.input, source: windowHint.source })} ` : ''}
           {`Allowed: ${contextWindowRangeText()} tokens (larger values are reduced to the maximum, smaller ones are refused). Leave empty if you do not know it.`}
         </p>
       </div>

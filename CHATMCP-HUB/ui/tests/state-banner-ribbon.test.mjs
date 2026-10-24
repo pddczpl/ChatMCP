@@ -125,6 +125,21 @@ test('in Vietnamese the details say what they said before', () => {
     ['Chi phí ghi nhận', 'USD 0.001230', 'Chỉ gồm giá do chủ máy nhập và số liệu nhà cung cấp báo. Retry và lỗi có thể phát sinh phí chưa rõ.'],
   ]);
   assert.deepEqual(ribbonRows(task('completed', { usage: undefined }), t('vi'), 'vi'), [], 'a task the Hub counted nothing for has no details');
+  // a window the model catalog gave, and a cost made from the catalog's prices: both say so, the cost as an estimate with the snapshot it comes from
+  const fromCatalog = ribbonRows(task('completed', {
+    usage: { httpRequests: 1, inputTokens: 20000, outputTokens: 5, inputUsageReported: 1, outputUsageReported: 1 },
+    contextPolicy: { source: 'trusted_model_metadata', capacityTokens: 288384, maxHistoryTokens: 245000, compactAtTokens: 200000, reservedOutputTokens: 16384, plannedOutputTokens: 16384, approximate: true },
+    modelCost: { schema: 1, knownSubtotalUsd: 0.00501, pricedResponses: 1, unpricedResponses: 0, unknownResponses: 0, totalUsd: 0.00501, complete: true, estimatedResponses: 1, estimateSource: 'catalog@2026-10-19', approximate: true },
+  }), t('vi'), 'vi');
+  assert.deepEqual(fromCatalog.filter(([label]) => ['Cửa sổ ngữ cảnh', 'Chi phí ghi nhận'].includes(label)).map(([label, value, hint]) => [label, value, hint.slice(0, 40)]), [
+    ['Cửa sổ ngữ cảnh', `${n(288384)} (từ danh mục model)`, `Lịch sử tối đa ${n(245000)} token. Đầu ra: yê`],
+    ['Chi phí ghi nhận', 'USD 0.005010 (ước tính)', 'Ước tính từ giá trong danh mục model (ca'],
+  ]);
+  assert.match(fromCatalog.find(([label]) => label === 'Chi phí ghi nhận')[2], /\(catalog@2026-10-19\), không phải hóa đơn/);
+  const partialEstimate = ribbonRows(task('completed', { modelCost: { schema: 1, knownSubtotalUsd: 0.0123, pricedResponses: 2, unpricedResponses: 1, unknownResponses: 0, totalUsd: null, complete: false, estimatedResponses: 2, estimateSource: 'catalog@2026-10-19', approximate: true } }), t('vi'), 'vi');
+  assert.equal(partialEstimate.find(([label]) => label === 'Chi phí ghi nhận')[1], 'USD 0.012300 (tạm tính, tổng chưa rõ) (ước tính)', 'a partial estimate is both');
+  const exact = ribbonRows(task('completed', { modelCost: { schema: 1, knownSubtotalUsd: 0.5, pricedResponses: 1, unpricedResponses: 0, unknownResponses: 0, totalUsd: 0.5, complete: true, estimatedResponses: 0, estimateSource: null, approximate: false } }), t('vi'), 'vi');
+  assert.deepEqual(exact.find(([label]) => label === 'Chi phí ghi nhận'), ['Chi phí ghi nhận', 'USD 0.500000', 'Chỉ gồm giá do chủ máy nhập và số liệu nhà cung cấp báo. Retry và lỗi có thể phát sinh phí chưa rõ.'], 'the owner\'s rates: not an estimate, the old hint');
 });
 
 // ---- English: the same screen with nothing left in Vietnamese ----
@@ -216,6 +231,14 @@ test('the English details say what the Vietnamese ones say, in the old English w
     `Context window: ${n(128000)} (configured)`, 'Recorded cost: USD 0.001230',
   ]);
   for (const row of ribbonRows(everything(), t('en'), 'en')) for (const text of row) assert.doesNotMatch(text, DIACRITICS, `Vietnamese in an English row: ${text}`);
+  const fromCatalog = ribbonRows(task('completed', {
+    usage: { httpRequests: 1, inputTokens: 20000, outputTokens: 5, inputUsageReported: 1, outputUsageReported: 1 },
+    contextPolicy: { source: 'trusted_model_metadata', capacityTokens: 288384, maxHistoryTokens: 245000, compactAtTokens: 200000, reservedOutputTokens: 16384, plannedOutputTokens: 16384, approximate: true },
+    modelCost: { schema: 1, knownSubtotalUsd: 0.00501, pricedResponses: 1, unpricedResponses: 0, unknownResponses: 0, totalUsd: 0.00501, complete: true, estimatedResponses: 1, estimateSource: 'catalog@2026-10-19', approximate: true },
+  }), t('en'), 'en');
+  assert.deepEqual(fromCatalog.filter(([label]) => ['Context window', 'Recorded cost'].includes(label)).map(([label, value]) => `${label}: ${value}`), [`Context window: ${n(288384)} (from the model catalog)`, 'Recorded cost: USD 0.005010 (estimate)']);
+  assert.equal(fromCatalog.find(([label]) => label === 'Recorded cost')[2], 'An estimate from the prices in the model catalog (catalog@2026-10-19), not a bill. Prices you enter replace it. Retries and errors can produce unknown charges.');
+  for (const row of fromCatalog) for (const text of row) assert.doesNotMatch(text, DIACRITICS, `Vietnamese in an English row: ${text}`);
 });
 
 // ---- the dictionary behind it ----

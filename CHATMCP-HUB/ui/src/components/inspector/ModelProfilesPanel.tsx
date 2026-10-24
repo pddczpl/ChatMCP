@@ -2,9 +2,12 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
-import { contextWindowRangeText } from '@/lib/context-window';
+import { contextWindowHint, contextWindowRangeText } from '@/lib/context-window';
+import { useTranslation } from '@/lib/i18n';
 import { PROFILE_PROTOCOLS, buildProfilePayload, draftFromProfile, emptyProfileDraft, type ProfileDraft } from '@/lib/model-profile-form';
+import { useModelInfo } from '@/lib/useModelInfo';
 import type { AiProfile } from '@/types';
+import { ModelField } from './ModelField';
 import { ReasoningEffortField } from './ReasoningEffortField';
 
 const choices = PROFILE_PROTOCOLS;
@@ -22,6 +25,11 @@ export function ModelProfilesPanel(){
   const [editing,setEditing]=useState(false);
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState('');
+  const {t}=useTranslation();
+  // What the Hub knows about the model in the form (the catalog's window and prices): the empty fields below say what the Hub uses then. A profile has a protocol and an endpoint, no preset.
+  const {data:modelInfo}=useModelInfo({protocol:draft.protocol,apiBaseUrl:draft.apiBaseUrl,model:draft.model});
+  const windowHint=contextWindowHint(draft.contextWindow,modelInfo);
+  const catalogRate=(rate:'input'|'output'|'cacheRead'|'cacheWrite')=>modelInfo?.trusted===true&&modelInfo.rates&&typeof modelInfo.rates[rate]==='number'?String(modelInfo.rates[rate]):undefined;
   const change=(key:keyof ProfileDraft,value:string|boolean)=>setDraft(current=>({...current,[key]:value}));
   const refresh=async()=>{
     await Promise.all([
@@ -122,9 +130,8 @@ export function ModelProfilesPanel(){
           <span className="block text-faint">Only for a gateway whose route differs from the standard one. {'{model}'} is replaced by the model ID. Empty uses the standard route.</span>
         </label>
         <label className="space-y-1">Model ID
-          <input aria-label="Model profile model" type="text" value={draft.model}
-            onChange={e=>change('model',e.target.value)}
-            className="w-full p-1.5 rounded border border-line bg-panel"/>
+          <ModelField id="datgold-profile-model" ariaLabel="Model profile model" value={draft.model} onChange={value=>change('model',value)}
+            inputClassName="w-full p-1.5 rounded border border-line bg-panel" protocol={draft.protocol} apiBaseUrl={draft.apiBaseUrl}/>
         </label>
         <ReasoningEffortField id="datgold-profile-reasoning" protocol={draft.protocol} apiBaseUrl={draft.apiBaseUrl} model={draft.model}
           value={draft.reasoningEffort} onChange={value=>change('reasoningEffort',value)}/>
@@ -165,18 +172,18 @@ export function ModelProfilesPanel(){
             placeholder="unknown"
             onChange={e=>change('contextWindow',e.target.value)}
             className="w-full p-1.5 rounded border border-line bg-panel"/>
-          <span className="block text-faint">{contextWindowRangeText()} tokens. Empty = unknown: the agent then plans with a conservative estimate and shows a warning. Larger values are reduced to the maximum.</span>
+          <span className="block text-faint">{contextWindowRangeText()} tokens. {windowHint.kind==='catalog'?`${t('ai_window_catalog',{tokens:windowHint.tokens,source:windowHint.source})} `:windowHint.kind==='catalog_limited'?`${t('ai_window_catalog_limited',{tokens:windowHint.tokens,window:windowHint.window,input:windowHint.input,source:windowHint.source})} `:'Empty = unknown: the agent then plans with a conservative estimate and shows a warning. '}Larger values are reduced to the maximum.</span>
         </label>
         <fieldset className="space-y-1 border border-line rounded-md p-2">
           <legend className="text-muted">Optional owner-supplied rates (USD / 1M tokens)</legend>
-          <p className="text-faint">Prices are never assumed. Cache tokens are included in input; reasoning is included in output. Usage may be incomplete.</p>
+          <p className="text-faint">Leave a rate empty to use the model catalog's price as an estimate (shown as an estimate, never as a bill); when the catalog does not know the model, no cost is shown. Cache tokens are included in input; reasoning is included in output. Usage may be incomplete.</p>
           {([
-            ['rateInput','Input'],['rateOutput','Output'],
-            ['rateCacheRead','Cache read'],['rateCacheWrite','Cache write'],
-          ] as const).map(([field,label])=><label key={field} className="flex gap-2 items-center">
+            ['rateInput','Input','input'],['rateOutput','Output','output'],
+            ['rateCacheRead','Cache read','cacheRead'],['rateCacheWrite','Cache write','cacheWrite'],
+          ] as const).map(([field,label,rate])=><label key={field} className="flex gap-2 items-center">
             <span className="w-24">{label}</span>
             <input type="number" step="any" min="0" max="10000"
-              aria-label={'Model rate '+label} value={draft[field]}
+              aria-label={'Model rate '+label} value={draft[field]} placeholder={catalogRate(rate)}
               onChange={e=>change(field,e.target.value)}
               className="flex-1 min-w-0 p-1.5 rounded border border-line bg-panel"/>
           </label>)}

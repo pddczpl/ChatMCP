@@ -1,8 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
 import { hasTranslation, useTranslation } from '@/lib/i18n';
-import { modelInfoKey, reasoningChoices, reasoningHint, reasoningLabelKey } from '@/lib/reasoning-effort';
-import { useDebouncedValue } from '@/lib/useDebouncedValue';
+import { reasoningChoices, reasoningHint, reasoningLabelKey } from '@/lib/reasoning-effort';
+import { useModelInfo } from '@/lib/useModelInfo';
 
 interface Props {
   id: string;
@@ -25,14 +23,7 @@ interface Props {
  */
 export function ReasoningEffortField({ id, preset, protocol, apiBaseUrl, model, value, onChange, refused = false, disabled = false }: Props) {
   const { t } = useTranslation();
-  const asked = useDebouncedValue(model.trim(), 400);
-  const { data: info } = useQuery({
-    queryKey: modelInfoKey(preset, protocol, apiBaseUrl, asked),
-    queryFn: () => api.getModelInfo({ preset, protocol, apiBaseUrl, model: asked }),
-    enabled: asked !== '' && Boolean(preset || protocol),
-    staleTime: 5 * 60_000,
-    retry: false,
-  });
+  const { data: info } = useModelInfo({ preset, protocol, apiBaseUrl, model });
   const choices = reasoningChoices(info, value);
   const hint = reasoningHint(info, value, refused);
   const name = (key: string) => (hasTranslation(key) ? t(key) : key);
