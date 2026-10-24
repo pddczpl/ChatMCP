@@ -16,7 +16,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  RULES, accumulateAnthropicStream, accumulateChatStream, accumulateGeminiStream, accumulateResponsesStream, createThinkingSigner, errorBody, parseSse,
+  RULES, accumulateAnthropicStream, accumulateChatStream, accumulateGeminiStream, accumulateResponsesStream, createThinkingSigner, errorBody, parseSse, thinkingBinding,
   validateAnthropicRequest, validateAnthropicStream, validateChatRequest, validateChatStream, validateGeminiRequest, validateGeminiStream, validateResponsesRequest, validateResponsesStream,
 } from './e2e/protocol-validators.mjs';
 import { startMockModel } from './e2e/mock-model-server.mjs';
@@ -60,6 +60,12 @@ const use = (id, name = 'read_file', input = { path: 'a' }) => ({ type: 'tool_us
 const result = (id, content = 'result') => ({ type: 'tool_result', tool_use_id: id, content });
 const anthWith = (...messages) => ({ ...anthBase(), messages: [...anthBase().messages, ...messages] });
 const thinkingBlock = (text = 'I should read the file.') => ({ type: 'thinking', thinking: text, signature: signer.signThinking(text) });
+// A thinking block signed for the conversation `body` carries up to message `index` (the system prompt, the tools and the messages before it), as the real API signs it.
+const boundBlock = (body, index, text = 'I should read the file.') => ({ type: 'thinking', thinking: text, signature: signer.signThinking(text, thinkingBinding({ system: body.system, tools: body.tools, messages: body.messages.slice(0, index) })) });
+const boundRedacted = (body, index, label = 'r1') => ({ type: 'redacted_thinking', data: signer.redacted(label, thinkingBinding({ system: body.system, tools: body.tools, messages: body.messages.slice(0, index) })) });
+// The request a block was issued in, and the request that replays it: the same conversation, plus the assistant message that holds the block and the tool result that follows it.
+const issuedIn = () => ({ ...anthBase(), system: [{ type: 'text', text: 'You are a test.' }], tools: [anthTool, { ...anthTool, name: 'list_files', description: 'List files' }] });
+const replayed = (body, changes = {}, block = boundBlock(body, body.messages.length)) => ({ ...body, ...changes, messages: [...(changes.messages ?? body.messages), { role: 'assistant', content: [block, use('toolu_a')] }, { role: 'user', content: [result('toolu_a')] }] });
 
 // ---- Responses
 const respBase = () => ({ model: 'mock', input: [{ role: 'user', content: 'Hi' }], store: false });
@@ -235,6 +241,32 @@ const FIXTURES = {
       ['a signature nobody issued', anthWith({ role: 'assistant', content: [{ type: 'thinking', thinking: 'x', signature: 'forged' }, use('toolu_a')] }, { role: 'user', content: [result('toolu_a')] }), 'Invalid `signature` in `thinking` block'],
       ['thinking text edited after it was signed (latest assistant message)', anthWith({ role: 'assistant', content: [{ type: 'thinking', thinking: 'edited text', signature: signer.signThinking('the text that was signed') }, use('toolu_a')] }, { role: 'user', content: [result('toolu_a')] }), '`thinking` or `redacted_thinking` blocks in the latest assistant message cannot be modified'],
       ['a redacted_thinking block the server did not issue', anthWith({ role: 'assistant', content: [{ type: 'redacted_thinking', data: 'not-issued' }, use('toolu_a')] }, { role: 'user', content: [result('toolu_a')] }), 'Invalid `data` in `redacted_thinking` block'],
+    ],
+  },
+  'anthropic.thinking_binding': {
+    api: 'anthropic',
+    accept: [
+      ['a block replayed in the conversation it was issued in', replayed(issuedIn())],
+      ['what the API ignores does not unbind it: cache_control, the order of the tools, the white space around a text block, a string where a text block was', replayed(issuedIn(), { system: [{ type: 'text', text: 'You are a test.', cache_control: { type: 'ephemeral' } }], tools: [{ ...issuedIn().tools[1], cache_control: { type: 'ephemeral' } }, issuedIn().tools[0]], messages: [{ role: 'user', content: [{ type: 'text', text: ' Hi\n' }] }] }, boundBlock(issuedIn(), 1))],
+      ['an earlier thinking block taken out (from the front is allowed): the block after it is still good', (() => {
+        const first = issuedIn();
+        const afterOne = { ...first, messages: [...first.messages, { role: 'assistant', content: [boundBlock(first, 1), use('toolu_a')] }, { role: 'user', content: [result('toolu_a')] }] };
+        const second = boundBlock(afterOne, 3, 'second thoughts');
+        return { ...afterOne, messages: [first.messages[0], { role: 'assistant', content: [use('toolu_a')] }, { role: 'user', content: [result('toolu_a')] }, { role: 'assistant', content: [second, use('toolu_b')] }, { role: 'user', content: [result('toolu_b')] }] };
+      })()],
+      ['a block issued without a binding is good anywhere (the hand-written fixtures of this file)', { ...anthWith({ role: 'assistant', content: [thinkingBlock(), use('toolu_a')] }, { role: 'user', content: [result('toolu_a')] }), system: 'another system prompt' }],
+    ],
+    reject: [
+      ['the first message was edited after the block was issued', replayed(issuedIn(), { messages: [{ role: 'user', content: 'Hello' }] }, boundBlock(issuedIn(), 1)), 'bound to a different conversation'],
+      ['the system prompt was re-rendered', replayed(issuedIn(), { system: [{ type: 'text', text: 'You are a test. Now it is 12:01.' }] }, boundBlock(issuedIn(), 1)), 'messages.1.content.0: Invalid `signature` in `thinking` block. The block is bound to a different conversation'],
+      ['a tool was added', replayed(issuedIn(), { tools: [...issuedIn().tools, { ...anthTool, name: 'write_file' }] }, boundBlock(issuedIn(), 1)), 'bound to a different conversation'],
+      ['a tool description changed', replayed(issuedIn(), { tools: [{ ...anthTool, description: 'Read a file (today is Tuesday)' }, issuedIn().tools[1]] }, boundBlock(issuedIn(), 1)), 'bound to a different conversation'],
+      ['a tool result before the block was shortened after the block was issued', (() => {
+        const first = { ...issuedIn(), messages: [...issuedIn().messages, { role: 'assistant', content: [use('toolu_a')] }, { role: 'user', content: [result('toolu_a', 'the whole file, many lines')] }] };
+        const block = boundBlock(first, 3, 'second thoughts');
+        return { ...first, messages: [first.messages[0], first.messages[1], { role: 'user', content: [result('toolu_a', '[shortened]')] }, { role: 'assistant', content: [block, use('toolu_b')] }, { role: 'user', content: [result('toolu_b')] }] };
+      })(), 'messages.3.content.0: Invalid `signature` in `thinking` block. The block is bound to a different conversation'],
+      ['a redacted_thinking block replayed in another conversation', replayed(issuedIn(), { system: [{ type: 'text', text: 'You are another test.' }] }, boundRedacted(issuedIn(), 1)), 'Invalid `data` in `redacted_thinking` block. The block is bound to a different conversation'],
     ],
   },
   'anthropic.thinking_first': {
@@ -689,6 +721,37 @@ mock.setScenario('rich');
   assert.equal(anthropic.json.stop_reason, 'tool_use');
   assert.deepEqual(anthropic.json.usage, { input_tokens: 100, output_tokens: 20, cache_creation_input_tokens: 50, cache_read_input_tokens: 300 });
   ok('Anthropic Messages as JSON: a signed thinking block, text, two tool_use blocks, stop_reason, the cache usage fields');
+
+  // With bindThinking the signature is good only in the conversation it was issued in (the preserved thinking check): the same block comes back to its own conversation, not to another.
+  {
+    const bound = await server({ scenario: 'canned-thinking', strict: true, bindThinking: true });
+    const endpoint = `${bound.url}/messages`;
+    const readTool = { name: 'read_file', description: 'Read a file', input_schema: { type: 'object', properties: { path: { type: 'string' } } } };
+    const opening = { model: 'mock', max_tokens: 1024, system: 'You are a test.', tools: [readTool], messages: [{ role: 'user', content: 'Read c.txt' }] };
+    const turn = await post(endpoint, opening);
+    assert.equal(turn.status, 200);
+    const [thought, toolUse] = turn.json.content;
+    assert.equal(bound.signer.verifyThinking(thought), 'ok');
+    assert.notEqual(bound.signer.tagOf(thought.signature), null, 'the signature carries the conversation it was issued in');
+    const next = (changes = {}) => ({ ...opening, ...changes, messages: [...(changes.messages ?? opening.messages), { role: 'assistant', content: [thought, toolUse] }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUse.id, content: 'c' }] }] });
+    assert.equal((await post(endpoint, next())).status, 200, 'replayed in its own conversation');
+    const moved = await post(endpoint, next({ messages: [{ role: 'user', content: 'Read d.txt' }] }));
+    assert.equal(moved.status, 400);
+    assert.match(moved.json.error.message, /messages\.1\.content\.0: Invalid `signature` in `thinking` block\. The block is bound to a different conversation/);
+    assert.equal((await post(endpoint, next({ system: 'You are a test. It is Tuesday.' }))).status, 400, 'a system prompt that changed');
+    assert.equal((await post(endpoint, next({ tools: [{ ...readTool, description: 'Read a file (changed)' }] }))).status, 400, 'a tool that changed');
+    assert.equal((await post(endpoint, { ...next(), system: [{ type: 'text', text: 'You are a test.', cache_control: { type: 'ephemeral' } }], tools: [{ ...readTool, cache_control: { type: 'ephemeral' } }] })).status, 200, 'cache_control is not part of the conversation');
+    assert.equal(bound.state.rejections.length, 3, 'three requests were refused, with the rule recorded');
+    assert.equal(bound.state.rejections.every((entry) => entry.errors[0].rule === 'anthropic.thinking_binding'), true);
+    // a server that does not bind (the default) accepts the same block anywhere, as the older checks do
+    const loose = await server({ scenario: 'canned-thinking', strict: true });
+    const looseTurn = (await post(`${loose.url}/messages`, opening)).json;
+    const [looseThought, looseUse] = looseTurn.content;
+    assert.equal(loose.signer.tagOf(looseThought.signature), null, 'no binding is in the signature');
+    const elsewhere = { ...opening, system: 'Another conversation.', messages: [{ role: 'user', content: 'Something else' }, { role: 'assistant', content: [looseThought, looseUse] }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: looseUse.id, content: 'c' }] }] };
+    assert.equal((await post(`${loose.url}/messages`, elsewhere)).status, 200, 'an unbound signature is good anywhere');
+    ok('Anthropic bindThinking: a thinking block comes back to the conversation it was issued in and is refused (400 "bound to a different conversation", rule anthropic.thinking_binding) after the first message, the system prompt or a tool changed; cache_control does not matter');
+  }
 
   const responses = await post(URL.responses, bodies.responses());
   assert.equal(responses.status, 200);

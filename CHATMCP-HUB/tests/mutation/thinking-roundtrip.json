@@ -1,0 +1,974 @@
+{
+  "suite": "verify-thinking-roundtrip.mjs",
+  "description": "Anthropic thinking blocks kept and sent back (prov-18): the capture, the binding to the conversation they were made in, the replay (only where nothing before them changed), the view the agent measures, the refusal of a server that does not take them, the room for the thoughts, the transcript on disk and the fault of an answer cut while thinking.",
+  "mutations": [
+    {
+      "name": "TH1",
+      "what": "redacted_thinking is not a thinking block",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "const KINDS = new Set(['thinking', 'redacted_thinking']);",
+          "new": "const KINDS = new Set(['thinking']);"
+        }
+      ]
+    },
+    {
+      "name": "TH2",
+      "what": "a thinking block with no signature is kept",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  ? typeof block.thinking === 'string' && typeof block.signature === 'string' && block.signature !== ''",
+          "new": "  ? typeof block.thinking === 'string' && typeof block.signature === 'string'"
+        }
+      ]
+    },
+    {
+      "name": "TH3",
+      "what": "a thinking block with no text field is kept",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  ? typeof block.thinking === 'string' && typeof block.signature === 'string' && block.signature !== ''",
+          "new": "  ? typeof block.signature === 'string' && block.signature !== ''"
+        }
+      ]
+    },
+    {
+      "name": "TH4",
+      "what": "a redacted block with no data is kept",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  : typeof block.data === 'string' && block.data !== '');",
+          "new": "  : typeof block.data === 'string');"
+        }
+      ]
+    },
+    {
+      "name": "TH5",
+      "what": "a thinking block after the text is kept",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "    if (other || !wellFormed(block)) return null;",
+          "new": "    if (!wellFormed(block)) return null;"
+        }
+      ]
+    },
+    {
+      "name": "TH6",
+      "what": "a block that cannot go back is skipped and the rest kept",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "    if (other || !wellFormed(block)) return null;",
+          "new": "    if (other || !wellFormed(block)) continue;"
+        }
+      ]
+    },
+    {
+      "name": "TH7",
+      "what": "the kept blocks are the answer's own objects",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  return leading.length ? structuredClone(leading) : null;",
+          "new": "  return leading.length ? leading : null;"
+        }
+      ]
+    },
+    {
+      "name": "TH8",
+      "what": "a call counts as nothing written when an answer is cut",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  return !content.some((block) => block?.type === 'tool_use' || (block?.type === 'text' && typeof block.text === 'string' && block.text.trim() !== ''));",
+          "new": "  return !content.some((block) => (block?.type === 'text' && typeof block.text === 'string' && block.text.trim() !== ''));"
+        }
+      ]
+    },
+    {
+      "name": "TH9",
+      "what": "white space counts as an answer written",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  return !content.some((block) => block?.type === 'tool_use' || (block?.type === 'text' && typeof block.text === 'string' && block.text.trim() !== ''));",
+          "new": "  return !content.some((block) => block?.type === 'tool_use' || (block?.type === 'text' && typeof block.text === 'string' && block.text !== ''));"
+        }
+      ]
+    },
+    {
+      "name": "TH10",
+      "what": "an answer that did not think is said to have been cut while thinking",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  if (!Array.isArray(content) || !content.some(isThinkingBlock)) return null;",
+          "new": "  if (!Array.isArray(content)) return null;"
+        }
+      ]
+    },
+    {
+      "name": "TH11",
+      "what": "the digest depends on the order of keys",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  : isObject(value) ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortedKeys(value[key])])) : value);",
+          "new": "  : isObject(value) ? Object.fromEntries(Object.keys(value).map((key) => [key, sortedKeys(value[key])])) : value);"
+        }
+      ]
+    },
+    {
+      "name": "TH12",
+      "what": "a cache_control marker on the system prompt changes the digest",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "    system: withoutCacheControl(system ?? null),",
+          "new": "    system: system ?? null,"
+        }
+      ]
+    },
+    {
+      "name": "TH13",
+      "what": "a cache_control marker on a tool changes the digest",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "    tools: (Array.isArray(tools) ? withoutCacheControl(tools) : []).sort((a, b) => (a?.name < b?.name ? -1 : a?.name > b?.name ? 1 : 0)),",
+          "new": "    tools: (Array.isArray(tools) ? [...tools] : []).sort((a, b) => (a?.name < b?.name ? -1 : a?.name > b?.name ? 1 : 0)),"
+        }
+      ]
+    },
+    {
+      "name": "TH14",
+      "what": "the order of the tools changes the digest",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "    tools: (Array.isArray(tools) ? withoutCacheControl(tools) : []).sort((a, b) => (a?.name < b?.name ? -1 : a?.name > b?.name ? 1 : 0)),",
+          "new": "    tools: (Array.isArray(tools) ? withoutCacheControl(tools) : []),"
+        }
+      ]
+    },
+    {
+      "name": "TH15",
+      "what": "the tools are not in the digest",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "    tools: (Array.isArray(tools) ? withoutCacheControl(tools) : []).sort((a, b) => (a?.name < b?.name ? -1 : a?.name > b?.name ? 1 : 0)),",
+          "new": "    tools: [],"
+        }
+      ]
+    },
+    {
+      "name": "TH16",
+      "what": "the system prompt is not in the digest",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "    system: withoutCacheControl(system ?? null),",
+          "new": "    system: null,"
+        }
+      ]
+    },
+    {
+      "name": "TH17",
+      "what": "the messages are not in the digest",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "    messages: (Array.isArray(messages) ? messages : []).map((entry) => withoutCacheControl({",
+          "new": "    messages: [].map((entry) => withoutCacheControl({"
+        }
+      ]
+    },
+    {
+      "name": "TH18",
+      "what": "the role of a message is not in the digest",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "      role: entry?.role,",
+          "new": "      role: 'user',"
+        }
+      ]
+    },
+    {
+      "name": "TH19",
+      "what": "the thinking blocks of earlier messages are in the digest",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "      content: Array.isArray(entry?.content) ? entry.content.filter((block) => !isThinkingBlock(block)) : entry?.content,",
+          "new": "      content: Array.isArray(entry?.content) ? entry.content : entry?.content,"
+        }
+      ]
+    },
+    {
+      "name": "TH20",
+      "what": "a cache_control marker inside a message changes the digest",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "    messages: (Array.isArray(messages) ? messages : []).map((entry) => withoutCacheControl({",
+          "new": "    messages: (Array.isArray(messages) ? messages : []).map((entry) => ({"
+        }
+      ]
+    },
+    {
+      "name": "TH21",
+      "what": "an answer with no blocks gets a binding",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  if (!Array.isArray(first?.providerBlocks) || first.providerBlocks.length === 0) return result;",
+          "new": "  if (!first) return result;"
+        }
+      ]
+    },
+    {
+      "name": "TH22",
+      "what": "the binding forgets the model",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  first.providerBinding = { model, origin, blocks: blocksDigest(first.providerBlocks), digest: conversationDigest({ system: body.system, tools: body.tools, messages: body.messages }) };",
+          "new": "  first.providerBinding = { model: undefined, origin, blocks: blocksDigest(first.providerBlocks), digest: conversationDigest({ system: body.system, tools: body.tools, messages: body.messages }) };"
+        }
+      ]
+    },
+    {
+      "name": "TH23",
+      "what": "the binding digests an empty conversation",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  first.providerBinding = { model, origin, blocks: blocksDigest(first.providerBlocks), digest: conversationDigest({ system: body.system, tools: body.tools, messages: body.messages }) };",
+          "new": "  first.providerBinding = { model, origin, blocks: blocksDigest(first.providerBlocks), digest: conversationDigest({ system: body.system, tools: body.tools, messages: [] }) };"
+        }
+      ]
+    },
+    {
+      "name": "TH24",
+      "what": "the binding does not say which blocks it is for",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  first.providerBinding = { model, origin, blocks: blocksDigest(first.providerBlocks), digest: conversationDigest({ system: body.system, tools: body.tools, messages: body.messages }) };",
+          "new": "  first.providerBinding = { model, origin, blocks: blocksDigest([]), digest: conversationDigest({ system: body.system, tools: body.tools, messages: body.messages }) };"
+        }
+      ]
+    },
+    {
+      "name": "TH25",
+      "what": "blocks with no binding are replayed",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  if (!Array.isArray(item?.providerBlocks) || item.providerBlocks.length === 0 || !isObject(binding)) return null;",
+          "new": "  if (!Array.isArray(item?.providerBlocks) || item.providerBlocks.length === 0) return null;"
+        }
+      ]
+    },
+    {
+      "name": "TH26",
+      "what": "another model gets the blocks",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  if (binding.model !== model || binding.origin !== origin) return null;",
+          "new": "  if (binding.origin !== origin) return null;"
+        }
+      ]
+    },
+    {
+      "name": "TH27",
+      "what": "another origin gets the blocks",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  if (binding.model !== model || binding.origin !== origin) return null;",
+          "new": "  if (binding.model !== model) return null;"
+        }
+      ]
+    },
+    {
+      "name": "TH28",
+      "what": "blocks that are not the bound ones are replayed",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  if (typeof binding.blocks !== 'string' || binding.blocks !== blocksDigest(item.providerBlocks)) return null;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "TH29",
+      "what": "blocks that are malformed are replayed",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  if (captureThinkingBlocks(item.providerBlocks) === null) return null;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "TH30",
+      "what": "blocks are replayed whatever the conversation before them is",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  if (typeof binding.digest !== 'string' || binding.digest !== conversationDigest({ system, tools, messages: messages.slice(0, index) })) return null;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "TH31",
+      "what": "the digest of the replay includes the message that holds the blocks",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  if (typeof binding.digest !== 'string' || binding.digest !== conversationDigest({ system, tools, messages: messages.slice(0, index) })) return null;",
+          "new": "  if (typeof binding.digest !== 'string' || binding.digest !== conversationDigest({ system, tools, messages: messages.slice(0, index + 1) })) return null;"
+        }
+      ]
+    },
+    {
+      "name": "TH32",
+      "what": "the replayed blocks are the item's own objects",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  return structuredClone(item.providerBlocks);",
+          "new": "  return item.providerBlocks;"
+        }
+      ]
+    },
+    {
+      "name": "TH33",
+      "what": "a host message ends the round that waits",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "const isAnswerItem = (item) => item?.type === 'function_call_output' || item?.role === 'user';",
+          "new": "const isAnswerItem = (item) => item?.type === 'function_call_output';"
+        }
+      ]
+    },
+    {
+      "name": "TH34",
+      "what": "a result does not end the assistant items of a round",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "const isAnswerItem = (item) => item?.type === 'function_call_output' || item?.role === 'user';",
+          "new": "const isAnswerItem = (item) => item?.role === 'user';"
+        }
+      ]
+    },
+    {
+      "name": "TH35",
+      "what": "a call with no result waits for one",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "  const waits = first < answers && history.slice(answers).some((item) => item?.type === 'function_call_output');",
+          "new": "  const waits = first < answers;"
+        }
+      ]
+    },
+    {
+      "name": "TH36",
+      "what": "the first item of the waiting round loses its blocks",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "    if (waits && index >= first && index < answers) return item;",
+          "new": "    if (waits && index > first && index < answers) return item;"
+        }
+      ]
+    },
+    {
+      "name": "TH37",
+      "what": "the last item of the waiting round loses its blocks",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "    if (waits && index >= first && index < answers) return item;",
+          "new": "    if (waits && index >= first && index < answers - 1) return item;"
+        }
+      ]
+    },
+    {
+      "name": "TH38",
+      "what": "a stale item keeps its binding",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "    const { providerBlocks, providerBinding, ...rest } = item;",
+          "new": "    const { providerBlocks, ...rest } = item;"
+        }
+      ]
+    },
+    {
+      "name": "TH39",
+      "what": "a status other than 400 is a refusal of the blocks",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "export const refusesThinkingReplay = (status, detail) => status === 400 && /thinking|signature|bound to a different conversation/i.test(String(detail ?? ''));",
+          "new": "export const refusesThinkingReplay = (status, detail) => /thinking|signature|bound to a different conversation/i.test(String(detail ?? ''));"
+        }
+      ]
+    },
+    {
+      "name": "TH40",
+      "what": "a 400 that talks about the conversation is not a refusal of the blocks",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "export const refusesThinkingReplay = (status, detail) => status === 400 && /thinking|signature|bound to a different conversation/i.test(String(detail ?? ''));",
+          "new": "export const refusesThinkingReplay = (status, detail) => status === 400 && /thinking|signature/i.test(String(detail ?? ''));"
+        }
+      ]
+    },
+    {
+      "name": "TH41",
+      "what": "a 400 that talks about a signature is not a refusal of the blocks",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "export const refusesThinkingReplay = (status, detail) => status === 400 && /thinking|signature|bound to a different conversation/i.test(String(detail ?? ''));",
+          "new": "export const refusesThinkingReplay = (status, detail) => status === 400 && /thinking|bound to a different conversation/i.test(String(detail ?? ''));"
+        }
+      ]
+    },
+    {
+      "name": "TH42",
+      "what": "a 400 that talks about thinking is not a refusal of the blocks",
+      "patches": [
+        {
+          "file": "lib/thinking-blocks.mjs",
+          "old": "export const refusesThinkingReplay = (status, detail) => status === 400 && /thinking|signature|bound to a different conversation/i.test(String(detail ?? ''));",
+          "new": "export const refusesThinkingReplay = (status, detail) => status === 400 && /signature|bound to a different conversation/i.test(String(detail ?? ''));"
+        }
+      ]
+    },
+    {
+      "name": "AA1",
+      "what": "no history item is remembered as the one that began a message",
+      "patches": [
+        {
+          "file": "lib/anthropic-api.mjs",
+          "old": "    else { messages.push({ role, content: [block] }); began.push(item); }",
+          "new": "    else { messages.push({ role, content: [block] }); began.push(undefined); }"
+        }
+      ]
+    },
+    {
+      "name": "AA2",
+      "what": "the blocks are put in the last message instead of the one before it",
+      "patches": [
+        {
+          "file": "lib/anthropic-api.mjs",
+          "old": "  const index = body.messages.length - 2;",
+          "new": "  const index = body.messages.length - 1;"
+        }
+      ]
+    },
+    {
+      "name": "AA3",
+      "what": "blocks go to a message with no call",
+      "patches": [
+        {
+          "file": "lib/anthropic-api.mjs",
+          "old": "  if (!waiting.content.some((block) => block.type === 'tool_use') || answer.content[0]?.type !== 'tool_result') return;",
+          "new": "  if (answer.content[0]?.type !== 'tool_result') return;"
+        }
+      ]
+    },
+    {
+      "name": "AA4",
+      "what": "blocks go to a call that no result follows",
+      "patches": [
+        {
+          "file": "lib/anthropic-api.mjs",
+          "old": "  if (!waiting.content.some((block) => block.type === 'tool_use') || answer.content[0]?.type !== 'tool_result') return;",
+          "new": "  if (!waiting.content.some((block) => block.type === 'tool_use')) return;"
+        }
+      ]
+    },
+    {
+      "name": "AA5",
+      "what": "the blocks go after the text and the call",
+      "patches": [
+        {
+          "file": "lib/anthropic-api.mjs",
+          "old": "  if (blocks) waiting.content = [...blocks, ...waiting.content];",
+          "new": "  if (blocks) waiting.content = [...waiting.content, ...blocks];"
+        }
+      ]
+    },
+    {
+      "name": "AA6",
+      "what": "the blocks of an answer go with its last item",
+      "patches": [
+        {
+          "file": "lib/anthropic-api.mjs",
+          "old": "  if (thinking) output[0].providerBlocks = thinking;",
+          "new": "  if (thinking) output.at(-1).providerBlocks = thinking;"
+        }
+      ]
+    },
+    {
+      "name": "AA7",
+      "what": "a pause is said to have been cut while thinking",
+      "patches": [
+        {
+          "file": "lib/anthropic-api.mjs",
+          "old": "    const thinking = stop === 'max_tokens' ? endedWhileThinking(result.content) : null;",
+          "new": "    const thinking = endedWhileThinking(result.content);"
+        }
+      ]
+    },
+    {
+      "name": "AA8",
+      "what": "an answer that did not think says that it was not cut while thinking",
+      "patches": [
+        {
+          "file": "lib/anthropic-api.mjs",
+          "old": "    return { status: 'incomplete', incomplete_details: { reason: stop === 'max_tokens' ? 'max_output_tokens' : 'pause_turn', ...(thinking === null ? {} : { during_thinking: thinking }) }, output, usage };",
+          "new": "    return { status: 'incomplete', incomplete_details: { reason: stop === 'max_tokens' ? 'max_output_tokens' : 'pause_turn', during_thinking: thinking === true }, output, usage };"
+        }
+      ]
+    },
+    {
+      "name": "ST1",
+      "what": "a thinking block that starts without its text field keeps none",
+      "patches": [
+        {
+          "file": "lib/anthropic-stream.mjs",
+          "old": "        if (entry.type === 'thinking' && typeof entry.thinking !== 'string') entry.thinking = ''; // a thinking block always has its text field, empty when the thoughts are not shown",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "ST2",
+      "what": "only the last piece of the thoughts is kept",
+      "patches": [
+        {
+          "file": "lib/anthropic-stream.mjs",
+          "old": "        else if (piece.type === 'thinking_delta' && entry.type === 'thinking' && typeof piece.thinking === 'string') entry.thinking = (entry.thinking ?? '') + piece.thinking;",
+          "new": "        else if (piece.type === 'thinking_delta' && entry.type === 'thinking' && typeof piece.thinking === 'string') entry.thinking = piece.thinking;"
+        }
+      ]
+    },
+    {
+      "name": "ST3",
+      "what": "the signature of a streamed thinking block is not kept",
+      "patches": [
+        {
+          "file": "lib/anthropic-stream.mjs",
+          "old": "        else if (piece.type === 'signature_delta' && entry.type === 'thinking' && typeof piece.signature === 'string') entry.signature = piece.signature;",
+          "new": "        else if (piece.type === 'signature_delta' && entry.type === 'thinking' && typeof piece.signature === 'string') entry.signature = entry.signature;"
+        }
+      ]
+    },
+    {
+      "name": "ST4",
+      "what": "a closed block keeps the pieces the reader collected",
+      "patches": [
+        {
+          "file": "lib/anthropic-stream.mjs",
+          "old": "        delete entry.partial;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SA1",
+      "what": "the adapter keeps the blocks of old rounds in the history it measures",
+      "patches": [
+        {
+          "file": "lib/standard-adapter.mjs",
+          "old": "  const history = withoutStaleThinking(pairToolCalls(input));",
+          "new": "  const history = pairToolCalls(input);"
+        }
+      ]
+    },
+    {
+      "name": "SA2",
+      "what": "the origin of a request is not told apart",
+      "patches": [
+        {
+          "file": "lib/standard-adapter.mjs",
+          "old": "  const origin = originOf(ctx.endpoint);",
+          "new": "  const origin = '';"
+        }
+      ]
+    },
+    {
+      "name": "SA3",
+      "what": "every Claude model is given room for thoughts",
+      "patches": [
+        {
+          "file": "lib/standard-adapter.mjs",
+          "old": "  if (ctx.protocol === 'anthropic' && ctx.thinks === true) outputTokens = Math.min(Math.max(outputTokens, thinkingRoom(ctx, limits)), ctx.outputLimit || Infinity);",
+          "new": "  if (ctx.protocol === 'anthropic') outputTokens = Math.min(Math.max(outputTokens, thinkingRoom(ctx, limits)), ctx.outputLimit || Infinity);"
+        }
+      ]
+    },
+    {
+      "name": "SA4",
+      "what": "room for thoughts replaces what was asked for",
+      "patches": [
+        {
+          "file": "lib/standard-adapter.mjs",
+          "old": "  if (ctx.protocol === 'anthropic' && ctx.thinks === true) outputTokens = Math.min(Math.max(outputTokens, thinkingRoom(ctx, limits)), ctx.outputLimit || Infinity);",
+          "new": "  if (ctx.protocol === 'anthropic' && ctx.thinks === true) outputTokens = Math.min(thinkingRoom(ctx, limits), ctx.outputLimit || Infinity);"
+        }
+      ]
+    },
+    {
+      "name": "SA5",
+      "what": "room for thoughts goes beyond a cap the provider named",
+      "patches": [
+        {
+          "file": "lib/standard-adapter.mjs",
+          "old": "  if (ctx.protocol === 'anthropic' && ctx.thinks === true) outputTokens = Math.min(Math.max(outputTokens, thinkingRoom(ctx, limits)), ctx.outputLimit || Infinity);",
+          "new": "  if (ctx.protocol === 'anthropic' && ctx.thinks === true) outputTokens = Math.max(outputTokens, thinkingRoom(ctx, limits));"
+        }
+      ]
+    },
+    {
+      "name": "SA6",
+      "what": "room for thoughts is half of what the model can write",
+      "patches": [
+        {
+          "file": "lib/standard-adapter.mjs",
+          "old": "  return Math.min(Math.max(limits.defaultOutputTokens, Number.isFinite(model) ? Math.floor(model / 4) : 0), model, quarterOfWindow);",
+          "new": "  return Math.min(Math.max(limits.defaultOutputTokens, Number.isFinite(model) ? Math.floor(model / 2) : 0), model, quarterOfWindow);"
+        }
+      ]
+    },
+    {
+      "name": "SA7",
+      "what": "room for thoughts goes beyond what the model can write",
+      "patches": [
+        {
+          "file": "lib/standard-adapter.mjs",
+          "old": "  return Math.min(Math.max(limits.defaultOutputTokens, Number.isFinite(model) ? Math.floor(model / 4) : 0), model, quarterOfWindow);",
+          "new": "  return Math.min(Math.max(limits.defaultOutputTokens, Number.isFinite(model) ? Math.floor(model / 4) : 0), quarterOfWindow);"
+        }
+      ]
+    },
+    {
+      "name": "SA8",
+      "what": "room for thoughts goes beyond a quarter of the window",
+      "patches": [
+        {
+          "file": "lib/standard-adapter.mjs",
+          "old": "  return Math.min(Math.max(limits.defaultOutputTokens, Number.isFinite(model) ? Math.floor(model / 4) : 0), model, quarterOfWindow);",
+          "new": "  return Math.min(Math.max(limits.defaultOutputTokens, Number.isFinite(model) ? Math.floor(model / 4) : 0), model);"
+        }
+      ]
+    },
+    {
+      "name": "SA9",
+      "what": "room for thoughts has no default",
+      "patches": [
+        {
+          "file": "lib/standard-adapter.mjs",
+          "old": "  return Math.min(Math.max(limits.defaultOutputTokens, Number.isFinite(model) ? Math.floor(model / 4) : 0), model, quarterOfWindow);",
+          "new": "  return Math.min(Math.max(0, Number.isFinite(model) ? Math.floor(model / 4) : 0), model, quarterOfWindow);"
+        }
+      ]
+    },
+    {
+      "name": "SA10",
+      "what": "a quarter of the window is half of it",
+      "patches": [
+        {
+          "file": "lib/standard-adapter.mjs",
+          "old": "  const quarterOfWindow = Number.isFinite(ctx.contextWindowTokens) && ctx.contextWindowTokens > 0 ? Math.max(1024, Math.floor(ctx.contextWindowTokens / 4)) : Infinity;",
+          "new": "  const quarterOfWindow = Number.isFinite(ctx.contextWindowTokens) && ctx.contextWindowTokens > 0 ? Math.max(1024, Math.floor(ctx.contextWindowTokens / 2)) : Infinity;"
+        }
+      ]
+    },
+    {
+      "name": "SA11",
+      "what": "a known refusal of the blocks is forgotten",
+      "patches": [
+        {
+          "file": "lib/standard-adapter.mjs",
+          "old": "  let replaying = ctx.protocol === 'anthropic' && ctx.thinkingReplayRefused !== true; // whether the thinking blocks of the waiting round go back (lib/thinking-blocks.mjs)",
+          "new": "  let replaying = ctx.protocol === 'anthropic'; // whether the thinking blocks of the waiting round go back (lib/thinking-blocks.mjs)"
+        }
+      ]
+    },
+    {
+      "name": "SA12",
+      "what": "a confirmed refusal of the blocks is not reported to the caller",
+      "patches": [
+        {
+          "file": "lib/standard-adapter.mjs",
+          "old": "    if (replayDropped) { replayDropped = false; ctx.onThinkingReplayRefused?.(); }",
+          "new": "    if (replayDropped) { replayDropped = false; }"
+        }
+      ]
+    },
+    {
+      "name": "SA13",
+      "what": "the repeat after a refusal of the blocks has them again",
+      "patches": [
+        {
+          "file": "lib/standard-adapter.mjs",
+          "old": "stream: streaming, replay: replaying ? { origin } : null })",
+          "new": "stream: streaming, replay: { origin } })"
+        }
+      ]
+    },
+    {
+      "name": "SA14",
+      "what": "the blocks of a stream are not bound",
+      "patches": [
+        {
+          "file": "lib/standard-adapter.mjs",
+          "old": "      return ctx.protocol === 'anthropic' ? bindThinking(streamed, { model: ctx.model, origin, body }) : streamed;",
+          "new": "      return streamed;"
+        }
+      ]
+    },
+    {
+      "name": "SA15",
+      "what": "the blocks of a plain answer are not bound",
+      "patches": [
+        {
+          "file": "lib/standard-adapter.mjs",
+          "old": "        const result = ctx.protocol === 'anthropic' ? bindThinking(normalizeAnthropic(parsed), { model: ctx.model, origin, body }) : normalizeChatCompletion(parsed, { usedCallIds });",
+          "new": "        const result = ctx.protocol === 'anthropic' ? normalizeAnthropic(parsed) : normalizeChatCompletion(parsed, { usedCallIds });"
+        }
+      ]
+    },
+    {
+      "name": "SA16",
+      "what": "a request that carried no blocks is repeated without them",
+      "patches": [
+        {
+          "file": "lib/standard-adapter.mjs",
+          "old": "    if (hasThinkingBlocks(body) && refusesThinkingReplay(status, errorDetail(parsed))) {",
+          "new": "    if (refusesThinkingReplay(status, errorDetail(parsed))) {"
+        }
+      ]
+    },
+    {
+      "name": "SA17",
+      "what": "any 400 is taken for a refusal of the blocks",
+      "patches": [
+        {
+          "file": "lib/standard-adapter.mjs",
+          "old": "    if (hasThinkingBlocks(body) && refusesThinkingReplay(status, errorDetail(parsed))) {",
+          "new": "    if (hasThinkingBlocks(body)) {"
+        }
+      ]
+    },
+    {
+      "name": "SA18",
+      "what": "the blocks are kept in the repeat after a refusal",
+      "patches": [
+        {
+          "file": "lib/standard-adapter.mjs",
+          "old": "      replaying = false;",
+          "new": "      replaying = true;"
+        }
+      ]
+    },
+    {
+      "name": "SA19",
+      "what": "a refusal of the blocks is not remembered",
+      "patches": [
+        {
+          "file": "lib/standard-adapter.mjs",
+          "old": "      replayDropped = true;",
+          "new": "      replayDropped = false;"
+        }
+      ]
+    },
+    {
+      "name": "GP1",
+      "what": "every trusted model is said to think",
+      "patches": [
+        {
+          "file": "lib/gateway-provider.mjs",
+          "old": "      thinks: isTrusted(info) && info.reasoning?.supported === true,",
+          "new": "      thinks: isTrusted(info),"
+        }
+      ]
+    },
+    {
+      "name": "GP2",
+      "what": "no model is said to think",
+      "patches": [
+        {
+          "file": "lib/gateway-provider.mjs",
+          "old": "      thinks: isTrusted(info) && info.reasoning?.supported === true,",
+          "new": "      thinks: false,"
+        }
+      ]
+    },
+    {
+      "name": "GP3",
+      "what": "the output limit of the model is not told to the adapter",
+      "patches": [
+        {
+          "file": "lib/gateway-provider.mjs",
+          "old": "      modelOutputLimit: isTrusted(info) && Number.isInteger(info.maxOutput) && info.maxOutput > 0 ? info.maxOutput : null,",
+          "new": "      modelOutputLimit: null,"
+        }
+      ]
+    },
+    {
+      "name": "GP4",
+      "what": "a model the catalog is not sure of is believed",
+      "patches": [
+        {
+          "file": "lib/gateway-provider.mjs",
+          "old": "      thinks: isTrusted(info) && info.reasoning?.supported === true,",
+          "new": "      thinks: info?.found === true && info.reasoning?.supported === true,"
+        }
+      ]
+    },
+    {
+      "name": "GP5",
+      "what": "a known refusal of the blocks is not passed on",
+      "patches": [
+        {
+          "file": "lib/gateway-provider.mjs",
+          "old": "      thinkingReplayRefused: protocol === 'anthropic' && this.#knowsNoThinkingReplay(endpoint, model),",
+          "new": "      thinkingReplayRefused: false,"
+        }
+      ]
+    },
+    {
+      "name": "GP6",
+      "what": "a refusal is remembered even when the connection changed meanwhile",
+      "patches": [
+        {
+          "file": "lib/gateway-provider.mjs",
+          "old": "      onThinkingReplayRefused: () => { if (this.model === model) this.#thinkingReplayRefused = { endpoint, model }; },",
+          "new": "      onThinkingReplayRefused: () => { this.#thinkingReplayRefused = { endpoint, model }; },"
+        }
+      ]
+    },
+    {
+      "name": "GP7",
+      "what": "a refusal is remembered for the wrong model",
+      "patches": [
+        {
+          "file": "lib/gateway-provider.mjs",
+          "old": "      onThinkingReplayRefused: () => { if (this.model === model) this.#thinkingReplayRefused = { endpoint, model }; },",
+          "new": "      onThinkingReplayRefused: () => { if (this.model === model) this.#thinkingReplayRefused = { endpoint, model: 'other' }; },"
+        }
+      ]
+    },
+    {
+      "name": "GP8",
+      "what": "a refusal of one endpoint holds for another",
+      "patches": [
+        {
+          "file": "lib/gateway-provider.mjs",
+          "old": "    if (this.#thinkingReplayRefused && (this.#thinkingReplayRefused.endpoint !== endpoint || this.#thinkingReplayRefused.model !== model)) this.#thinkingReplayRefused = null;",
+          "new": "    if (this.#thinkingReplayRefused && this.#thinkingReplayRefused.model !== model) this.#thinkingReplayRefused = null;"
+        }
+      ]
+    },
+    {
+      "name": "GP9",
+      "what": "a refusal of one model holds for another",
+      "patches": [
+        {
+          "file": "lib/gateway-provider.mjs",
+          "old": "    if (this.#thinkingReplayRefused && (this.#thinkingReplayRefused.endpoint !== endpoint || this.#thinkingReplayRefused.model !== model)) this.#thinkingReplayRefused = null;",
+          "new": "    if (this.#thinkingReplayRefused && this.#thinkingReplayRefused.endpoint !== endpoint) this.#thinkingReplayRefused = null;"
+        }
+      ]
+    },
+    {
+      "name": "AG1",
+      "what": "the agent measures the signatures of old rounds as conversation",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "        let modelInput = withoutStaleThinking(context.history.snapshotForModel());",
+          "new": "        let modelInput = context.history.snapshotForModel();"
+        }
+      ]
+    },
+    {
+      "name": "AG2",
+      "what": "the signature of a thinking block reaches the transcript",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "          if (transcript && (item.type === 'thinking' || item.type === 'redacted_thinking') && (name === 'signature' || name === 'data')) {",
+          "new": "          if (transcript && (item.type === 'redacted_thinking') && (name === 'signature' || name === 'data')) {"
+        }
+      ]
+    },
+    {
+      "name": "AG3",
+      "what": "the payload of a redacted block reaches the transcript",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "          if (transcript && (item.type === 'thinking' || item.type === 'redacted_thinking') && (name === 'signature' || name === 'data')) {",
+          "new": "          if (transcript && (item.type === 'thinking' || item.type === 'redacted_thinking') && (name === 'signature')) {"
+        }
+      ]
+    },
+    {
+      "name": "AG4",
+      "what": "the text of the thoughts reaches the transcript",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "          if (transcript && item.type === 'thinking' && name === 'thinking') {",
+          "new": "          if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "AG5",
+      "what": "an answer cut while thinking is reported as any cut answer",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "          if (reason === 'max_output_tokens' && response.incomplete_details?.during_thinking === true) {",
+          "new": "          if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "AG6",
+      "what": "every cut answer is reported as cut while thinking",
+      "patches": [
+        {
+          "file": "lib/agent.mjs",
+          "old": "          if (reason === 'max_output_tokens' && response.incomplete_details?.during_thinking === true) {",
+          "new": "          if (reason === 'max_output_tokens') {"
+        }
+      ]
+    }
+  ]
+}

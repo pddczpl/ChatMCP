@@ -71,7 +71,7 @@ try {
   };
   let requestNumber = 0, seenResult = false;
   const dummyFetcher = async (url, opts) => {
-    equal(url, 'https://gateway.example.net/v1beta/models/gemini-3.8-flash:generateContent');
+    equal(url.replace(':streamGenerateContent?alt=sse', ':generateContent'), 'https://gateway.example.net/v1beta/models/gemini-3.8-flash:generateContent');
     equal(opts.headers['x-goog-api-key'], key);
     const body = JSON.parse(opts.body);
     requestNumber++;

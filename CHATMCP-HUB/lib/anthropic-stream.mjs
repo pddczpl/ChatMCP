@@ -69,6 +69,7 @@ export function createAnthropicStreamReader({ onToken = () => {} } = {}) {
         const begun = json.content_block;
         if (!isObject(begun) || typeof begun.type !== 'string') throw streamInvalid('content_block_start không mang content_block.');
         const entry = { ...begun, partial: [] };
+        if (entry.type === 'thinking' && typeof entry.thinking !== 'string') entry.thinking = ''; // a thinking block always has its text field, empty when the thoughts are not shown
         if (entry.type === 'text') {
           entry.text = typeof entry.text === 'string' ? entry.text : '';
           // The plain answer joins its text blocks with a line break; the text shown while it streams is the same text.

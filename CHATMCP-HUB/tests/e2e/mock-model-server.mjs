@@ -24,6 +24,9 @@
 //   chatDialect  'openai' | 'compat'                                   'compat' accepts and sends reasoning_content (DeepSeek and kin)
 //   streamUsage  'on-request' | 'always'                               when a Chat stream carries its usage chunk
 //   keepBodies   true | false                                          keep the whole body in each recorded request (state.requests[n].body); default false
+//   bindThinking true | false                                          sign Anthropic thinking blocks for the conversation they were issued in: a request that replays one after the
+//                                                                      system prompt, the tools or an earlier message changed is answered 400 "bound to a different conversation"
+//                                                                      (the preserved thinking check); default false (a signature is then good anywhere)
 // A field the server does not accept (library: mock.refuseParam(name, { message, on })): every request with that field is answered HTTP 400 naming it,
 // until mock.clearRefusals(). The name is a top-level field or a dotted path ("generationConfig.thinkingConfig"). It is what a provider that has no "thinking effort"
 // does with `reasoning_effort`, `output_config` or `generationConfig.thinkingConfig`.
@@ -47,7 +50,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { SCENARIOS, call } from './scenarios.mjs';
-import { createThinkingSigner, errorBody, validateAnthropicRequest, validateChatRequest, validateGeminiRequest, validateResponsesRequest } from './protocol-validators.mjs';
+import { createThinkingSigner, errorBody, thinkingBinding, validateAnthropicRequest, validateChatRequest, validateGeminiRequest, validateResponsesRequest } from './protocol-validators.mjs';
 
 export const MODEL_IDS = Object.freeze(['mock-coder', 'mock-coder-small']);
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
@@ -167,7 +170,7 @@ const pieces = (text, size = PIECE) => { const out = []; for (let i = 0; i < tex
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const protocolOf = (route) => (route.endsWith('/chat/completions') ? 'chat' : route.endsWith('/messages') ? 'anthropic' : route.endsWith('/responses') ? 'responses' : route.endsWith(':generateContent') || route.endsWith(':streamGenerateContent') ? 'gemini' : null);
 
-export async function startMockModel({ scenario = 'repair-add', scenarios: extra = {}, host = '127.0.0.1', port = 0, models = MODEL_IDS, strict = undefined, chatDialect = 'openai', streamUsage = 'on-request', keepBodies = false } = {}) {
+export async function startMockModel({ scenario = 'repair-add', scenarios: extra = {}, host = '127.0.0.1', port = 0, models = MODEL_IDS, strict = undefined, chatDialect = 'openai', streamUsage = 'on-request', keepBodies = false, bindThinking = false } = {}) {
   // `scenarios` lets a test bring its own scripted behaviour (a closure over the paths it created) next to the shared ones.
   const registry = { ...SCENARIOS, ...extra };
   if (!registry[scenario]) throw new Error(`unknown scenario "${scenario}"`);
@@ -255,11 +258,14 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
   };
 
   // ---- Anthropic Messages
-  const anthropicMessage = (plan, model) => {
+  // With `bindThinking` the thinking blocks are signed for the conversation the request carried (the system prompt, the tools and every message of it): a later request that
+  // replays them after any of those changed is refused, as the real API refuses it (see createThinkingSigner).
+  const anthropicMessage = (plan, model, body) => {
     state.itemCounter += 1;
     const content = [];
-    if (plan.thinking !== null) content.push({ type: 'thinking', thinking: plan.thinking, signature: signer.signThinking(plan.thinking) });
-    if (plan.redacted) content.push({ type: 'redacted_thinking', data: signer.redacted(`r${state.itemCounter}`) });
+    const binding = bindThinking ? thinkingBinding({ system: body?.system, tools: body?.tools, messages: body?.messages }) : null;
+    if (plan.thinking !== null) content.push({ type: 'thinking', thinking: plan.thinking, signature: signer.signThinking(plan.thinking, binding) });
+    if (plan.redacted) content.push({ type: 'redacted_thinking', data: signer.redacted(`r${state.itemCounter}`, binding) });
     if (plan.text) content.push({ type: 'text', text: plan.text });
     for (const entry of plan.calls) content.push({ type: 'tool_use', id: entry.id, name: entry.name, input: plan.truncated ? {} : entry.args });
     return {
@@ -268,8 +274,8 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
       usage: { input_tokens: plan.usage.input, output_tokens: plan.usage.output, cache_creation_input_tokens: plan.usage.cacheWrite, cache_read_input_tokens: plan.usage.cacheRead },
     };
   };
-  const anthropicFrames = (plan, model) => {
-    const message = anthropicMessage(plan, model);
+  const anthropicFrames = (plan, model, body) => {
+    const message = anthropicMessage(plan, model, body);
     const frames = [];
     const emit = (event, data) => frames.push(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     emit('message_start', { type: 'message_start', message: { ...message, content: [], stop_reason: null, usage: { ...message.usage, output_tokens: 1 } } });
@@ -413,8 +419,8 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
     },
     anthropic: {
       validate: (body) => validateAnthropicRequest(body, { signer }),
-      json: (plan, model) => anthropicMessage(plan, model),
-      stream: (plan, model) => anthropicFrames(plan, model),
+      json: (plan, model, body) => anthropicMessage(plan, model, body),
+      stream: (plan, model, body) => anthropicFrames(plan, model, body),
       count: (body) => (Array.isArray(body?.messages) ? body.messages.length : 0),
     },
     responses: {

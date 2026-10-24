@@ -14,6 +14,7 @@ import { AGENT_OUTPUT_TOKENS as MAX_OUTPUT_TOKENS } from './model-facts.mjs';
 import { EFFORT_LEVELS, parseReasoningEffort } from './reasoning-effort.mjs';
 import { taskToolSelectionMode, selectTaskToolNames } from './tool-selector.mjs';
 import { HistoryLedger } from './history-ledger.mjs';
+import { withoutStaleThinking } from './thinking-blocks.mjs';
 import { FinalAnswerHooks } from './lifecycle-hooks.mjs';
 import { AGENT_RESULTS_INSTRUCTIONS, AGENT_RESULTS_TOOL, parseAgentResultsArguments, shapeAgentResults } from './agent-results.mjs';
 import { SUBAGENT_NOTICE_LIMITS, normalizeSubagentNotices, publicSubagentNotices, recordSubagentEnd, takeSubagentNotice, unreadSubagentNotices } from './subagent-notices.mjs';
@@ -506,6 +507,16 @@ export class AgentRunner {
         const output = Object.create(null);
         for (const [name, child] of Object.entries(item)) {
           if (transcript && item.type === 'reasoning' && name === 'content') {
+            output[name] = '[Private reasoning content is not part of the task transcript]';
+            continue;
+          }
+          // The thinking of an Anthropic answer is the model's private context, like Responses reasoning: the signature (or the redacted payload) is kept only in memory for the next request,
+          // and the text of the thoughts (a summary, when one was asked for) is not part of the transcript.
+          if (transcript && (item.type === 'thinking' || item.type === 'redacted_thinking') && (name === 'signature' || name === 'data')) {
+            output[name] = '[Opaque model context retained only in memory for the next model request]';
+            continue;
+          }
+          if (transcript && item.type === 'thinking' && name === 'thinking') {
             output[name] = '[Private reasoning content is not part of the task transcript]';
             continue;
           }
@@ -1302,7 +1313,9 @@ export class AgentRunner {
         // The snapshot is a new array over the ledger's own items, not a deep clone: the compaction passes below replace
         // entries of this array and never write into an item. From here until the top of the loop a host message that
         // arrives (a notice, a hint) waits, so it cannot land between the results of this model turn.
-        let modelInput = context.history.snapshotForModel();
+        // Anthropic thinking blocks stay on the round that waits for a tool result only (lib/thinking-blocks.mjs): the signatures of older rounds are never sent again, and counting them
+        // would make the conversation look longer than it is and the passes below shorten it sooner (which changes the conversation before the blocks that do go back).
+        let modelInput = withoutStaleThinking(context.history.snapshotForModel());
         context.history.beginBatch();
         // Freeze the effective policy for this task. Provider settings changed
         // afterwards must not silently change its model context budget.
@@ -1391,6 +1404,10 @@ export class AgentRunner {
         await this.#persist(task, { at: now(), type: 'model_response', step: task.steps, response });
         if (response.status !== 'completed') {
           const reason = response.incomplete_details?.reason ?? response.error?.message ?? response.status ?? 'unknown';
+          // The output limit counts the thoughts: a model that spent all of it on them has written nothing. Say so, since the remedy is another one (less thinking, or a larger output limit).
+          if (reason === 'max_output_tokens' && response.incomplete_details?.during_thinking === true) {
+            throw fault('output_limit', `Model đã dùng hết giới hạn token đầu ra${Number.isFinite(response.usage?.output_tokens) ? ` (${response.usage.output_tokens})` : ''} cho phần suy luận (thinking) nên chưa viết được câu trả lời hay lời gọi công cụ nào. Hạ mức suy luận của model này hoặc chọn model cho phép đầu ra lớn hơn rồi gửi lại. Không tự gửi lại yêu cầu tính phí hoặc thực thi phần gọi công cụ chưa hoàn chỉnh.`, 502);
+          }
           throw fault(reason === 'max_output_tokens' ? 'output_limit' : 'model_response_failed', `Model chưa hoàn tất phản hồi (${reason}). Không tự gửi lại yêu cầu tính phí hoặc thực thi phần gọi công cụ chưa hoàn chỉnh.`, 502);
         }
         // Preserve all output items in original order, including opaque encrypted

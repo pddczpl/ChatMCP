@@ -35,6 +35,7 @@ export const RULES = Object.freeze({
   'anthropic.tool_result_placement': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls ("Important formatting requirements"); consecutive turns of one role are combined: https://platform.claude.com/docs/en/api/messages', summary: 'tool_result blocks are the leading blocks of the user message right after the assistant message with their tool_use, one per call' },
   'anthropic.tool_use_id': { api: 'anthropic', provenance: 'recalled', source: 'the pattern ^[a-zA-Z0-9_-]{1,64}$ that safeToolId() in lib/model-history.mjs maps ids to', summary: 'tool_use ids of letters, digits, _ and - (at most 64)' },
   'anthropic.thinking_signature': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/build-with-claude/thinking ("Preserving thinking blocks") and /thinking-troubleshooting (the two error texts); thinking blocks of EARLIER turns are accepted and filtered by the API', summary: 'thinking and redacted_thinking blocks carry what the server issued, unmodified' },
+  'anthropic.thinking_binding': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/build-with-claude/preserved-thinking (a thinking block is bound to the system prompt, the set of tools and every message before it, and to the model; enforced by default for accounts created on or after 2026-08-31; the 400 text is the one quoted there)', summary: 'a thinking block replayed after the system prompt, the tools or an earlier message changed is refused ("bound to a different conversation")' },
   'anthropic.thinking_first': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/build-with-claude/thinking ("Thinking with tool use": in extended (manual) mode the final assistant turn begins with a thinking block); the error text is the older wording of the same rule', summary: 'with extended thinking on, the assistant turn of a tool loop starts with its thinking block' },
   'anthropic.thinking_config': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/build-with-claude/extended-thinking ("Budget rules": at least 1024, below max_tokens) and /thinking ("Tool choice limitation")', summary: 'budget_tokens >= 1024 and < max_tokens; no forced tool use while extended thinking is on' },
   'anthropic.output_config': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/build-with-claude/effort (output_config.effort: low, medium, high, xhigh, max; other keys of output_config, such as format, are not this rule\'s business)', summary: 'output_config is an object and its effort is one of the documented levels' },
@@ -75,27 +76,64 @@ export function errorBody(api, { message, param = null, code = null, type = 'inv
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Thinking signatures. The server signs what it emits; a request that echoes a thinking block back is checked against it.
+//
+// Two kinds of signature. One without a binding is good anywhere (the hand-written fixtures of the validators use it). One WITH a binding is
+// good only in the conversation it was issued in, as on the real API from Claude Opus 5.5 / Sonnet 5.5 on (the preserved thinking check, enforced
+// by default for accounts created on or after 2026-08-31): the signature records the system prompt, the set of tools and every message before the
+// block, and a request that replays the block after any of them changed is answered 400 "bound to a different conversation". The mock issues bound
+// signatures when it is started with `bindThinking`. thinkingBinding() below is this file's own reading of what the check compares, written
+// from the page's list of what it ignores and NOT shared with the Hub's code, so that the Hub is tested against a second opinion.
 // ---------------------------------------------------------------------------------------------------------------------
 export function createThinkingSigner(secret = crypto.randomBytes(16).toString('hex')) {
   const mac = (label, text) => crypto.createHmac('sha256', secret).update(`${label}\0${text}`).digest('base64url');
-  const SIGNATURE = /^mock-sig\.[A-Za-z0-9_-]{43}$/;
+  const SIGNATURE = /^mock-sig\.([A-Za-z0-9_-]{43})(?:\.([A-Za-z0-9_-]{43}))?$/;
+  const REDACTED = /^mock-redacted\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{43})(?:\.([A-Za-z0-9_-]{43}))?$/;
+  /** What ties a signature to a conversation: a MAC of the binding digest (thinkingBinding). */
+  const tagFor = (binding) => mac('binding', String(binding));
   return {
-    signThinking: (text) => `mock-sig.${mac('thinking', String(text))}`,
+    tagFor,
+    signThinking: (text, binding = null) => `mock-sig.${mac('thinking', String(text))}${binding === null ? '' : `.${tagFor(binding)}`}`,
     /** The opaque payload of a redacted_thinking block. */
-    redacted: (label = 'redacted') => `mock-redacted.${Buffer.from(String(label)).toString('base64url')}.${mac('redacted', String(label))}`,
-    /** 'ok', 'modified' (a signature of this server that belongs to another text) or 'invalid' (not a signature of this server). */
+    redacted: (label = 'redacted', binding = null) => `mock-redacted.${Buffer.from(String(label)).toString('base64url')}.${mac('redacted', String(label))}${binding === null ? '' : `.${tagFor(binding)}`}`,
+    /** 'ok', 'modified' (a signature of this server that belongs to another text) or 'invalid' (not a signature of this server). The binding is judged apart (tagOf). */
     verifyThinking({ thinking, signature }) {
-      if (!isNonEmptyText(signature) || !SIGNATURE.test(signature)) return 'invalid';
-      return signature === `mock-sig.${mac('thinking', String(thinking ?? ''))}` ? 'ok' : 'modified';
+      const match = isNonEmptyText(signature) ? SIGNATURE.exec(signature) : null;
+      if (!match) return 'invalid';
+      return match[1] === mac('thinking', String(thinking ?? '')) ? 'ok' : 'modified';
     },
     verifyRedacted(data) {
-      const match = /^mock-redacted\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{43})$/.exec(String(data));
+      const match = REDACTED.exec(String(data));
       return Boolean(match) && match[2] === mac('redacted', Buffer.from(match[1], 'base64url').toString());
+    },
+    /** The conversation tag a thinking signature or a redacted payload carries, or null when it was issued without a binding. */
+    tagOf(signatureOrData) {
+      const text = String(signatureOrData ?? '');
+      return (SIGNATURE.exec(text) ?? REDACTED.exec(text))?.at(-1) ?? null;
     },
     /** The thoughtSignature Gemini puts on a function call: bound to the call it belongs to. */
     signGemini: (functionCall) => `mock-gsig.${mac('gemini', JSON.stringify(functionCall))}`,
     verifyGemini: (functionCall, signature) => isNonEmptyText(signature) && signature === `mock-gsig.${mac('gemini', JSON.stringify(functionCall))}`,
   };
+}
+
+const sortedKeys = (value) => (Array.isArray(value) ? value.map(sortedKeys) : isObject(value) ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortedKeys(value[key])])) : value);
+const withoutCacheControl = (value) => (Array.isArray(value) ? value.map(withoutCacheControl) : isObject(value) ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'cache_control').map(([key, entry]) => [key, withoutCacheControl(entry)])) : value);
+const asBlocks = (content) => (isText(content) ? [{ type: 'text', text: content }] : Array.isArray(content) ? content : []);
+const countsForBinding = (block) => block?.type !== 'thinking' && block?.type !== 'redacted_thinking' && !(block?.type === 'text' && isText(block.text) && block.text.trim() === '');
+const trimmedText = (block) => (block?.type === 'text' && isText(block.text) ? { ...block, text: block.text.trim() } : block);
+
+/**
+ * The digest of what the preserved thinking check compares for a block: the system prompt, the tools (compared as a set, by name, with their whole definition) and the messages
+ * before the block. It leaves out what the API leaves out: cache_control, the thinking blocks themselves, string content versus one text block, the white space around a text
+ * block, white-space-only text blocks, key order and the order of the tools.
+ */
+export function thinkingBinding({ system, tools, messages }) {
+  const toolSet = (Array.isArray(tools) ? tools : []).map((tool) => withoutCacheControl(tool)).sort((a, b) => String(a?.name).localeCompare(String(b?.name)));
+  const turns = (Array.isArray(messages) ? messages : [])
+    .map((message) => ({ role: message?.role, content: asBlocks(message?.content).filter(countsForBinding).map(trimmedText) }))
+    .filter((turn) => turn.content.length > 0);
+  const record = { system: asBlocks(system).filter(countsForBinding).map(trimmedText), tools: toolSet, messages: turns };
+  return crypto.createHash('sha256').update(JSON.stringify(sortedKeys(withoutCacheControl(record)))).digest('hex');
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -327,6 +365,21 @@ export function validateAnthropicRequest(body, { signer = null } = {}) {
       }
     });
   });
+
+  // The conversation a bound signature was issued in (createThinkingSigner): the block is good only where the system prompt, the tools and the messages before it are the same.
+  if (signer) {
+    body.messages.forEach((message, i) => {
+      if (message.role !== 'assistant' || !Array.isArray(message.content)) return;
+      message.content.forEach((block, j) => {
+        if (block?.type !== 'thinking' && block?.type !== 'redacted_thinking') return;
+        const issuedIn = signer.tagOf(block.type === 'thinking' ? block.signature : block.data);
+        if (issuedIn === null) return;
+        if (issuedIn === signer.tagFor(thinkingBinding({ system: body.system, tools: body.tools, messages: body.messages.slice(0, i) }))) return;
+        const at = `messages.${i}.content.${j}`;
+        c.add('anthropic.thinking_binding', `${at}: Invalid \`${block.type === 'thinking' ? 'signature' : 'data'}\` in \`${block.type}\` block. The block is bound to a different conversation. Remove the block, or set \`thinking.block_binding.prefix_mismatch_behavior\` to "drop_block" (beta: thinking-binding-controls-2026-08-01).`, { param: at });
+      });
+    });
+  }
 
   if (body.output_config !== undefined) {
     if (!isObject(body.output_config)) c.add('anthropic.output_config', 'output_config: Input should be a valid dictionary or object to extract fields from', { param: 'output_config' });

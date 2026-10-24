@@ -18,6 +18,7 @@ import { backoffMs, classifyHttpError, errorDetail, readBodyText } from './model
 import { createStreamClock, deliverText, isEventStream, isStreamFallback } from './model-stream.mjs';
 import { applyReasoning, refusesReasoning } from './reasoning-effort.mjs';
 import { readSse } from './sse.mjs';
+import { bindThinking, isThinkingBlock, refusesThinkingReplay, withoutStaleThinking } from './thinking-blocks.mjs';
 
 const isObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
 const fail = (code, message, statusCode = 502) => Object.assign(new Error(message), { code, statusCode });
@@ -84,6 +85,14 @@ const refusesStreamOptions = (status, data, info) => status === 400 && info.kind
 // must be verified to stream this model"). A plain refusal only: a 400 about the context, the output cap, the quota or the model is not about the stream; nor is one about stream_options,
 // which is answered once (above) and, when it comes again, is an error like any other.
 const refusesStream = (status, data, info) => status === 400 && info.kind === 'request' && (data?.error?.param === 'stream' || /\bstream(?!_options)/i.test(errorDetail(data)));
+const hasThinkingBlocks = (body) => Array.isArray(body?.messages) && body.messages.some((entry) => Array.isArray(entry?.content) && entry.content.some(isThinkingBlock));
+/** The output a model that thinks is given room for: the default, or a quarter of what it can write when that is more; within what it can write and a quarter of the window (the history needs the rest). */
+function thinkingRoom(ctx, limits) {
+  const model = Number.isInteger(ctx.modelOutputLimit) && ctx.modelOutputLimit > 0 ? ctx.modelOutputLimit : Infinity;
+  const quarterOfWindow = Number.isFinite(ctx.contextWindowTokens) && ctx.contextWindowTokens > 0 ? Math.max(1024, Math.floor(ctx.contextWindowTokens / 4)) : Infinity;
+  return Math.min(Math.max(limits.defaultOutputTokens, Number.isFinite(model) ? Math.floor(model / 4) : 0), model, quarterOfWindow);
+}
+const originOf = (endpoint) => { try { return new URL(endpoint).origin; } catch { return ''; } };
 const waited = (ms) => (ms >= 60000 ? `${Math.round(ms / 60000)} phút` : `${Math.max(1, Math.round(ms / 1000))} giây`);
 
 /**
@@ -107,6 +116,10 @@ const waited = (ms) => (ms >= 60000 ? `${Math.round(ms / 60000)} phút` : `${Mat
  * @param {() => void} [ctx.onStreamRefused] a refusal is confirmed: the repeat without a stream was accepted
  * @param {boolean} [ctx.streamOptionsRefused] (Chat Completions) this endpoint does not take `stream_options`: stream without asking for the usage chunk
  * @param {() => void} [ctx.onStreamOptionsRefused] the repeat without `stream_options` was accepted
+ * @param {boolean} [ctx.thinks] (Anthropic) the catalog is sure that the model thinks, whatever it is asked: max_tokens counts the thoughts, so it is given room for them
+ * @param {number|null} [ctx.modelOutputLimit] (Anthropic) the most the catalog says the model can write in one answer
+ * @param {boolean} [ctx.thinkingReplayRefused] (Anthropic) this endpoint and model are known to refuse the thinking blocks they are sent back, so do not send them
+ * @param {() => void} [ctx.onThinkingReplayRefused] a refusal is confirmed: the repeat without the blocks was accepted
  * @param {object} [ctx.limits] overrides of LIMITS (tests)
  *
  * What a stream adds (lib/model-stream.mjs says what the failures are): a stream is read to its terminal event and the answer is made from the whole of it, never from a part.
@@ -115,7 +128,9 @@ const waited = (ms) => (ms >= 60000 ? `${Math.round(ms / 60000)} phút` : `${Mat
  */
 export async function respondStandard(ctx, { input, instructions, tools = [], signal, onStatus = async () => {}, onToken = () => {}, onStreamReset = () => {}, maxOutputTokens, beforeModelRequest = () => {} } = {}) {
   const limits = { ...LIMITS, ...ctx.limits };
-  const history = pairToolCalls(input);
+  // Thinking blocks (Anthropic): only the round that waits for a tool result keeps its own; the signatures of older rounds are never sent again and must not count as conversation.
+  const history = withoutStaleThinking(pairToolCalls(input));
+  const origin = originOf(ctx.endpoint);
   const usedCallIds = new Set(history.filter((item) => item?.type === 'function_call').map((item) => item.call_id));
   let outputTokens = Math.floor(Number.isFinite(maxOutputTokens) && maxOutputTokens > 0 ? maxOutputTokens : limits.defaultOutputTokens);
   if (ctx.outputLimit) outputTokens = Math.min(outputTokens, ctx.outputLimit);
@@ -125,11 +140,15 @@ export async function respondStandard(ctx, { input, instructions, tools = [], si
     outputTokens = Math.max(outputTokens, limits.defaultOutputTokens);
     if (ctx.outputLimit) outputTokens = Math.min(outputTokens, ctx.outputLimit);
   }
+  // ... and a model that thinks whatever it is asked (the catalog says so) needs room for the thoughts and the answer, since max_tokens counts both.
+  if (ctx.protocol === 'anthropic' && ctx.thinks === true) outputTokens = Math.min(Math.max(outputTokens, thinkingRoom(ctx, limits)), ctx.outputLimit || Infinity);
   const fixedBytes = Buffer.byteLength(String(instructions)) + Buffer.byteLength(JSON.stringify(tools));
   let maxBytes = historyBudgetBytes({ contextWindowTokens: ctx.contextWindowTokens, outputTokens, fixedBytes, limits });
   const counters = { network: 0, http: 0, timeouts: 0, compactions: 0 };
   let limitRetried = false;
   let reasoningDropped = false;
+  let replaying = ctx.protocol === 'anthropic' && ctx.thinkingReplayRefused !== true; // whether the thinking blocks of the waiting round go back (lib/thinking-blocks.mjs)
+  let replayDropped = false; // the server refused them and the attempts from here on have none: the caller remembers once one of them is accepted
   let announcedBytes = null;
   let rejectedBytes = Infinity;
   // Streaming. `streaming` is whether THIS attempt asks for a stream; `wantsStream` is whether the caller gets its text through onToken at all (it does, at the end, when no stream could be had).
@@ -148,6 +167,7 @@ export async function respondStandard(ctx, { input, instructions, tools = [], si
   /** The request was accepted: whatever it took to be accepted (a setting, stream_options or the stream itself left out) is confirmed to the caller, once. */
   const accepted = () => {
     if (reasoningDropped) ctx.onReasoningRefused?.();
+    if (replayDropped) { replayDropped = false; ctx.onThinkingReplayRefused?.(); }
     if (usageDropped) { usageDropped = false; ctx.onStreamOptionsRefused?.(); }
     if (streamGaveUp) { streamGaveUp = false; ctx.onStreamRefused?.(); }
   };
@@ -166,7 +186,7 @@ export async function respondStandard(ctx, { input, instructions, tools = [], si
       await onStatus(`Đã rút gọn ngữ cảnh gửi tới model: ${kib(view.before)} KiB → ${kib(view.after)} KiB (kết quả công cụ cũ được thay bằng bản tóm tắt). Lịch sử đầy đủ vẫn ở trên máy và không công cụ nào bị chạy lại.`, 'context_compaction');
     }
     const body = ctx.protocol === 'anthropic'
-      ? buildAnthropicBody({ model: ctx.model, input: view.history, instructions, tools, maxOutputTokens: outputTokens, promptCaching: ctx.promptCaching === true, stream: streaming })
+      ? buildAnthropicBody({ model: ctx.model, input: view.history, instructions, tools, maxOutputTokens: outputTokens, promptCaching: ctx.promptCaching === true, stream: streaming, replay: replaying ? { origin } : null })
       : buildChatBody({ model: ctx.model, input: view.history, instructions, tools, stream: streaming, includeUsage });
     if (reasoning) applyReasoning(body, reasoning);
 
@@ -214,7 +234,7 @@ export async function respondStandard(ctx, { input, instructions, tools = [], si
 
     if (streamed) {
       accepted(); // a stream that was read to its end
-      return streamed;
+      return ctx.protocol === 'anthropic' ? bindThinking(streamed, { model: ctx.model, origin, body }) : streamed;
     }
     let parsed, status;
     if (streamError) {
@@ -228,7 +248,7 @@ export async function respondStandard(ctx, { input, instructions, tools = [], si
         if (!parsed) throw fail('gateway_invalid_json', 'Nhà cung cấp không trả JSON hợp lệ; không tự gửi lại.');
         // The provider refused the thinking setting, stream_options or the stream, and accepted the same request without it.
         accepted(); // a plain answer
-        const result = ctx.protocol === 'anthropic' ? normalizeAnthropic(parsed) : normalizeChatCompletion(parsed, { usedCallIds });
+        const result = ctx.protocol === 'anthropic' ? bindThinking(normalizeAnthropic(parsed), { model: ctx.model, origin, body }) : normalizeChatCompletion(parsed, { usedCallIds });
         if (wantsStream) await deliverText(result, onToken);
         return result;
       }
@@ -261,6 +281,17 @@ export async function respondStandard(ctx, { input, instructions, tools = [], si
       reasoningDropped = true;
       const detail = ctx.redact(errorDetail(parsed)).slice(0, 200);
       await onStatus(`Nhà cung cấp từ chối thiết lập mức suy luận (thinking effort) cho model này (HTTP ${status}${detail ? `: ${detail}` : ''}). Gửi lại đúng yêu cầu model này một lần, không kèm thiết lập đó; không chạy lại công cụ. Các yêu cầu sau không gửi nó cho model này nữa.`);
+      continue;
+    }
+
+    // The server does not take the thinking blocks it was sent back (a gateway that is not Anthropic's, or a check that reads "the same conversation" otherwise than the Hub does): the same
+    // model request once more without them. Never a tool call, so nothing can be replayed; the caller remembers the refusal for this endpoint and model.
+    if (hasThinkingBlocks(body) && refusesThinkingReplay(status, errorDetail(parsed))) {
+      replaying = false;
+      replayDropped = true;
+      await takeBack();
+      const detail = ctx.redact(errorDetail(parsed)).slice(0, 200);
+      await onStatus(`Nhà cung cấp từ chối các khối thinking được gửi lại (HTTP ${status}${detail ? `: ${detail}` : ''}). Gửi lại đúng yêu cầu model này một lần, không kèm các khối đó; không chạy lại công cụ. Các yêu cầu sau không gửi lại khối thinking cho model này nữa.`);
       continue;
     }
 

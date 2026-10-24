@@ -19,7 +19,7 @@ import { probeToolCalling } from './tool-probe.mjs';
 import { reportedTokenCount } from './request-budget.mjs';
 import { normalizeCustomHeaders, publicCustomHeaders, applyCustomHeaders } from './gateway-custom-headers.mjs';
 import { CONTEXT_WINDOW_MAX, CONTEXT_WINDOW_MIN, contextWindowRangeText, parseContextWindow } from './context-window.mjs';
-import { lookup as catalogLookup } from './model-catalog.mjs';
+import { isTrusted, lookup as catalogLookup } from './model-catalog.mjs';
 import { modelFacts } from './model-facts.mjs';
 import { AUTO, EFFORT_LEVELS, applyReasoning, parseReasoningEffort, reasoningDecision, refusesReasoning } from './reasoning-effort.mjs';
 
@@ -905,6 +905,13 @@ export class GatewayProvider {
   // The endpoint of a Chat Completions server that answered 400 to stream_options and then accepted the same stream without them. It is the server that does not know the option, so
   // the refusal holds for every model of that endpoint; a call for another endpoint forgets it.
   #streamOptionsRefused = null;
+  // The endpoint and model of a server that answered 400 to the thinking blocks it was sent back (Anthropic Messages) and then accepted the same request without them. Its later calls do not
+  // send them; a call for another endpoint or model forgets it: the refusal is about that pair only.
+  #thinkingReplayRefused = null;
+  #knowsNoThinkingReplay(endpoint, model) {
+    if (this.#thinkingReplayRefused && (this.#thinkingReplayRefused.endpoint !== endpoint || this.#thinkingReplayRefused.model !== model)) this.#thinkingReplayRefused = null;
+    return this.#thinkingReplayRefused !== null;
+  }
   /** Whether this endpoint and model are known to refuse a stream (Chat Completions, Messages and Gemini). A call for another endpoint or model forgets the refusal: it was about that pair only. */
   #knowsNoStream(endpoint, model) {
     if (this.#streamRefused && (this.#streamRefused.endpoint !== endpoint || this.#streamRefused.model !== model)) this.#streamRefused = null;
@@ -940,6 +947,8 @@ export class GatewayProvider {
     const thinking = this.#reasoningRequest(effort);
     const endpoint = buildEndpoint(this.apiBaseUrl, protocol, model, this.customPath);
     if (this.#streamOptionsRefused && this.#streamOptionsRefused.endpoint !== endpoint) this.#streamOptionsRefused = null;
+    // What the catalog says about the model, when it is sure: whether it thinks whatever it is asked, and how much it can write in one answer (Anthropic Messages counts the thoughts in max_tokens).
+    const info = protocol === 'anthropic' ? this.#catalogInfo() : null;
     const ctx = {
       protocol, model, fetch: this.fetch, sleep: this.sleep, limits: this.limits,
       reasoning: thinking.decision.send, reasoningRefused: thinking.refused,
@@ -948,6 +957,10 @@ export class GatewayProvider {
       stream: typeof onToken === 'function',
       streamRefused: this.#knowsNoStream(endpoint, model),
       onStreamRefused: () => { if (this.model === model) this.#streamRefused = { endpoint, model }; },
+      thinks: isTrusted(info) && info.reasoning?.supported === true,
+      modelOutputLimit: isTrusted(info) && Number.isInteger(info.maxOutput) && info.maxOutput > 0 ? info.maxOutput : null,
+      thinkingReplayRefused: protocol === 'anthropic' && this.#knowsNoThinkingReplay(endpoint, model),
+      onThinkingReplayRefused: () => { if (this.model === model) this.#thinkingReplayRefused = { endpoint, model }; },
       streamOptionsRefused: this.#streamOptionsRefused !== null,
       onStreamOptionsRefused: () => { this.#streamOptionsRefused = { endpoint }; },
       endpoint,

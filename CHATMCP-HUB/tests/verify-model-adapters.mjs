@@ -19,6 +19,7 @@ import { asChatMessages, buildChatBody, normalizeChatCompletion } from '../lib/o
 import { backoffMs, classifyHttpError, errorDetail, outputTokenLimit, readBodyText, retryAfterMs, sleep } from '../lib/model-http.mjs';
 import { finishModelList, modelsUrl, parseGeminiModels, parseOpenAiModels } from '../lib/model-list.mjs';
 import { probeToolCalling } from '../lib/tool-probe.mjs';
+import { isTrusted, lookup as catalogLookup } from '../lib/model-catalog.mjs';
 
 const BUNDLE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-adapters-'));
@@ -525,13 +526,18 @@ try {
     const first = await provider.respond({ input: [userMsg('Read a.txt')], instructions: 'SYS', tools: TOOLS, maxOutputTokens: 8000 });
     same(requests[0].url, 'https://api.anthropic.com/v1/messages');
     same([requests[0].headers['x-api-key'], requests[0].headers['anthropic-version'], 'Authorization' in requests[0].headers, requests[0].redirect], [KEY, '2023-06-01', false, 'error']);
-    same(requests[0].body.max_tokens, 8000, 'the agent\'s output budget is used');
+    // The default model of the preset is one the catalog is sure thinks whatever it is asked, and max_tokens counts the thoughts: the agent's budget is the least it is given
+    // (prov-18: the most of the budget, the default 16,384 and a quarter of what the model can write). A model that does not think keeps the budget as it is.
+    const claude = catalogLookup({ presetId: 'anthropic', protocol: 'anthropic', apiBaseUrl: 'https://api.anthropic.com', model: provider.state().model });
+    check(isTrusted(claude) && claude.reasoning.supported === true && claude.maxOutput >= 64000, '(premise) the catalog knows the default Claude model and says that it thinks');
+    const room = Math.max(16384, Math.floor(claude.maxOutput / 4));
+    same(requests[0].body.max_tokens, Math.max(8000, room), 'the agent\'s output budget is used, with room for the thoughts');
     check(requests[0].body.system[0].cache_control, 'prompt caching is requested from Anthropic itself');
     same(first.output.map((item) => item.type), ['message', 'function_call']);
     const second = await provider.respond({ input: [userMsg('Read a.txt'), ...first.output, out('toolu_01', 'hello')], instructions: 'SYS', tools: TOOLS });
     const result = requests[1].body.messages.at(-1).content[0];
     same([result.type, result.tool_use_id, result.content], ['tool_result', 'toolu_01', 'hello']);
-    same([second.output[0].content[0].text, requests[1].body.max_tokens], ['It says hello.', 16384]);
+    same([second.output[0].content[0].text, requests[1].body.max_tokens], ['It says hello.', Math.max(16384, room)]);
 
     // gateways that speak the Anthropic protocol: no cache markers, optional Bearer auth
     const gateway = [];
@@ -617,10 +623,13 @@ try {
         ? reply(400, { type: 'error', error: { type: 'invalid_request_error', message: `max_tokens: ${body.max_tokens} > 8192, which is the maximum allowed number of output tokens for claude-test` } })
         : reply(200, anthropicOk('done'));
     } });
+    // The default Claude model thinks whatever it is asked, so it is given room for the thoughts (a quarter of what the catalog says it can write) before the provider names its cap.
+    const claude = catalogLookup({ presetId: 'anthropic', protocol: 'anthropic', apiBaseUrl: 'https://api.anthropic.com', model: presetById('anthropic').defaultModel });
+    const asked = Math.max(16384, Math.floor(claude.maxOutput / 4));
     await provider.respond({ input: [userMsg('x')], instructions: 'S', maxOutputTokens: 16384 });
-    same([sent, provider.outputLimit], [[16384, 8192], 8192]);
+    same([sent, provider.outputLimit], [[asked, 8192], 8192]);
     await provider.respond({ input: [userMsg('x')], instructions: 'S', maxOutputTokens: 16384 });
-    same(sent, [16384, 8192, 8192], 'the learned cap is used from the start next time');
+    same(sent, [asked, 8192, 8192], 'the learned cap is used from the start next time');
     await provider.configure({ model: 'claude-other' });
     same(provider.outputLimit, null, 'a new model starts without the old cap');
   }

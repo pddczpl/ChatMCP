@@ -426,7 +426,7 @@
       "name": "AD2",
       "what": "a Messages request does not say stream: true",
       "patches": [
-        { "file": "lib/standard-adapter.mjs", "old": "promptCaching: ctx.promptCaching === true, stream: streaming })", "new": "promptCaching: ctx.promptCaching === true })" }
+        { "file": "lib/standard-adapter.mjs", "old": "promptCaching: ctx.promptCaching === true, stream: streaming, replay", "new": "promptCaching: ctx.promptCaching === true, replay" }
       ]
     },
     {
@@ -448,6 +448,27 @@
       "what": "stream_options are taken out of the repeat of a Messages request that names them",
       "patches": [
         { "file": "lib/standard-adapter.mjs", "old": "if (streaming && includeUsage && ctx.protocol === 'openai-chat' && refusesStreamOptions(status, parsed, info)) {", "new": "if (streaming && includeUsage && refusesStreamOptions(status, parsed, info)) {" }
+      ]
+    },
+    {
+      "name": "AS60",
+      "what": "only the last piece of the thoughts of a streamed thinking block is kept",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "        else if (piece.type === 'thinking_delta' && entry.type === 'thinking' && typeof piece.thinking === 'string') entry.thinking = (entry.thinking ?? '') + piece.thinking;", "new": "        else if (piece.type === 'thinking_delta' && entry.type === 'thinking' && typeof piece.thinking === 'string') entry.thinking = piece.thinking;" }
+      ]
+    },
+    {
+      "name": "AS61",
+      "what": "the signature of a streamed thinking block is not kept",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "        else if (piece.type === 'signature_delta' && entry.type === 'thinking' && typeof piece.signature === 'string') entry.signature = piece.signature;", "new": "        else if (piece.type === 'signature_delta' && entry.type === 'thinking' && typeof piece.signature === 'string') entry.signature = entry.signature;" }
+      ]
+    },
+    {
+      "name": "AS62",
+      "what": "a closed block keeps the pieces the reader collected for it",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "        delete entry.partial;", "new": "" }
       ]
     }
   ]
