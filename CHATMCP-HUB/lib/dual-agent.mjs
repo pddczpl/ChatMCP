@@ -134,6 +134,9 @@ export class DualAgent {
       throw Object.assign(new Error('Chế độ ChatGPT Web Companion hiện hỗ trợ prompt văn bản; không tự bỏ qua file/ảnh đính kèm. Hãy chuyển sang Model API để phân tích ảnh/file.'),{statusCode:415});
     if(payload?.profileId||Object.keys(payload?.roleProfiles||{}).length)
       throw Object.assign(new Error('Model API profiles are not available through the ChatGPT Web Companion transport.'),{statusCode:400});
+    // The thinking effort of a task is a Model API setting: refused here, not dropped without a word.
+    if(payload?.reasoningEffort!==undefined&&payload.reasoningEffort!==null&&String(payload.reasoningEffort).trim()!=='')
+      throw Object.assign(new Error('The thinking effort is a Model API setting; it is not available through the ChatGPT Web Companion transport.'),{statusCode:400});
     if(this.browser.state().activeTaskId)
       throw Object.assign(new Error('ChatGPT Web Companion đang xử lý một task khác. Dừng hoặc chờ task này trước khi giao tác vụ web mới.'),{statusCode:409});
     const apiWorkers=this.api.state().activeTaskIds||[];

@@ -607,13 +607,18 @@ export class GatewayProvider {
     throw err;
   }
 
-  /** One model step. `maxOutputTokens` is the output budget: Anthropic requires it, Responses and Gemini send it, Chat Completions leaves the provider's own cap. */
-  async respond({ input, instructions, tools = [], signal, onStatus = async () => {}, onToken = null, maxOutputTokens, beforeModelRequest = () => {} } = {}) {
+  /**
+   * One model step. `maxOutputTokens` is the output budget: Anthropic requires it, Responses and Gemini send it, Chat Completions leaves the provider's own cap.
+   * `reasoningEffort` is the thinking setting of the TASK this step belongs to: a level or 'auto' wins over the connection's own for this step, nothing named leaves the
+   * connection's, and a word that is not a level is not obeyed (a run is not stopped for it; the task was refused when it was started).
+   */
+  async respond({ input, instructions, tools = [], signal, onStatus = async () => {}, onToken = null, maxOutputTokens, beforeModelRequest = () => {}, reasoningEffort } = {}) {
     if (!this.ready()) throw bad('gateway_not_ready', 'Hãy cấu hình API Base URL, model và API key.', 409);
     if (!Array.isArray(input)) throw bad('invalid_input', 'Ngữ cảnh Agent không hợp lệ.');
+    const effort = reasoningEffort === undefined || reasoningEffort === null ? null : parseReasoningEffort(reasoningEffort) ?? null;
     if (this.protocol === 'openai-responses')
-      return await this.#respondResponses({ input, instructions, tools, signal, onToken, onStatus, maxOutputTokens, beforeModelRequest });
-    if (this.protocol !== 'gemini') return await this.#respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens, beforeModelRequest });
+      return await this.#respondResponses({ input, instructions, tools, signal, onToken, onStatus, maxOutputTokens, beforeModelRequest, effort });
+    if (this.protocol !== 'gemini') return await this.#respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens, beforeModelRequest, effort });
     // Gemini keeps its own compatibility loop: gateways in front of it differ a lot (see gemini-compat.mjs).
     const protocol = 'gemini';
     const sourceContextBytes = Buffer.byteLength(JSON.stringify(input),'utf8') + Buffer.byteLength(instructions,'utf8');
@@ -627,7 +632,7 @@ export class GatewayProvider {
     };
     // The thinking setting (lib/reasoning-effort.mjs) goes into generationConfig with the output cap, which is raised to leave room for the answer after the thoughts.
     // Only the native request has it; the compatibility dialects below drop generationConfig (or build a request of their own) and with it the setting.
-    const thinking = this.#reasoningRequest();
+    const thinking = this.#reasoningRequest(effort);
     let thinkingSent = thinking.decision.send !== null && !thinking.refused;
     let thinkingDropped = false;
     if (thinkingSent) {
@@ -809,12 +814,16 @@ export class GatewayProvider {
   #catalogInfo() {
     return (this.catalog ? (query) => this.catalog.lookup(query) : catalogLookup)({ presetId: this.preset, protocol: this.protocol, apiBaseUrl: this.apiBaseUrl, model: this.model });
   }
-  /** What to send for the setting now, the key of that decision (endpoint, model, level) and whether this provider is known to refuse it. */
-  #reasoningRequest() {
-    const decision = reasoningDecision({ effort: this.reasoningEffort, protocol: this.protocol, apiBaseUrl: this.apiBaseUrl, info: this.#catalogInfo() });
+  /**
+   * What to send for the setting now, the key of that decision (endpoint, model, level) and whether this provider is known to refuse it. `override` is the setting of the
+   * task being served: when there is one it is the level, else the connection's.
+   */
+  #reasoningRequest(override = null) {
+    const effort = override ?? this.reasoningEffort;
+    const decision = reasoningDecision({ effort, protocol: this.protocol, apiBaseUrl: this.apiBaseUrl, info: this.#catalogInfo() });
     let endpoint = null;
     try { endpoint = buildEndpoint(this.apiBaseUrl, this.protocol, this.model, this.customPath); } catch { /* an unusable route is reported when a request is made */ }
-    const key = decision.send ? { endpoint, model: this.model, effort: this.reasoningEffort } : null;
+    const key = decision.send ? { endpoint, model: this.model, effort } : null;
     const held = this.#reasoningRefused;
     const refused = key !== null && held !== null && held.endpoint === key.endpoint && held.model === key.model && held.effort === key.effort;
     return { decision, key, refused };
@@ -830,12 +839,12 @@ export class GatewayProvider {
   #streamRefused = null;
   // Full Responses request path. Fixed endpoint and credential snapshot; never
   // turn a failed model request into an uncertain tool mutation or cross-provider retry.
-  async #respondResponses({input,instructions,tools,signal,onToken,onStatus,maxOutputTokens,beforeModelRequest}) {
+  async #respondResponses({input,instructions,tools,signal,onToken,onStatus,maxOutputTokens,beforeModelRequest,effort}) {
     const model=this.model, protocol=this.protocol, authMode=this.authMode, apiKey=this.apiKey;
     const endpoint=buildEndpoint(this.apiBaseUrl,protocol,model,this.customPath);
     const headers=this.#headers(protocol,authMode,apiKey);
     if(this.#streamRefused&&(this.#streamRefused.endpoint!==endpoint||this.#streamRefused.model!==model))this.#streamRefused=null;
-    const thinking=this.#reasoningRequest();
+    const thinking=this.#reasoningRequest(effort);
     const result=await respondOpenAIResponses({
       model,endpoint,headers,fetch:this.fetch,
       reasoning:thinking.decision.send,reasoningRefused:thinking.refused,
@@ -852,10 +861,10 @@ export class GatewayProvider {
   }
 
   /** OpenAI-style Chat Completions and Anthropic Messages. See standard-adapter.mjs for what it guarantees. */
-  async #respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens, beforeModelRequest }) {
+  async #respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens, beforeModelRequest, effort }) {
     const { protocol, model, authMode, apiKey } = this;
     const contextWindowTokens = this.effectiveContextWindow(); // what the adapter trims what it sends to: the owner's window, else the catalog's
-    const thinking = this.#reasoningRequest();
+    const thinking = this.#reasoningRequest(effort);
     const ctx = {
       protocol, model, fetch: this.fetch, sleep: this.sleep, limits: this.limits,
       reasoning: thinking.decision.send, reasoningRefused: thinking.refused,

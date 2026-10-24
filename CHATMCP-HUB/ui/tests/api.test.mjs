@@ -50,6 +50,23 @@ test('every API call carries the Hub session secret as a bearer', async () => {
   } finally { globalThis.fetch = original; setHubSecret(''); }
 });
 
+test('a task starts and continues with the thinking effort the person chose, and with none of it when nothing was chosen', async () => {
+  const original = globalThis.fetch;
+  const bodies = [];
+  globalThis.fetch = async (route, init) => { bodies.push({ route, body: JSON.parse(init.body) }); return Response.json({ task: { id: 'one', status: 'running' } }); };
+  try {
+    await api.startTask('Say hello', [], null, [], '/work', null, {}, 'high');
+    await api.startTask('Say hello', [], null, [], '/work');
+    await api.startTask('Say hello', [], null, [], '/work', null, {}, '');
+    await api.continueTask('one', 'More', [], 'auto');
+    await api.continueTask('one', 'More');
+    assert.deepEqual(bodies.map((call) => [call.route, call.body.reasoningEffort]), [
+      ['/api/tasks/start', 'high'], ['/api/tasks/start', undefined], ['/api/tasks/start', undefined], ['/api/tasks/continue', 'auto'], ['/api/tasks/continue', undefined],
+    ], 'the field is there when a level (or auto) was chosen and absent otherwise');
+    assert.deepEqual(Object.keys(bodies[1].body).sort(), ['attachments', 'baseRef', 'dependsOn', 'profileId', 'prompt', 'roleProfiles', 'workspacePath'], 'the rest of the body is as it was');
+  } finally { globalThis.fetch = original; }
+});
+
 test('a Hub that refuses the session reports it once instead of reloading the page', async () => {
   const original = globalThis.fetch;
   globalThis.fetch = async () => Response.json({ error: 'Cần phiên Hub hợp lệ.', code: 'hub_auth_required' }, { status: 401 });

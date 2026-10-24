@@ -11,6 +11,7 @@ import { RequestMeter, accumulateReportedUsage } from './request-budget.mjs';
 import { acceptObjectiveCriterion, availableObjectiveReceipts } from './objective-acceptance.mjs';
 import { createCostLedger, updateCostLedger } from './model-cost.mjs';
 import { AGENT_OUTPUT_TOKENS as MAX_OUTPUT_TOKENS } from './model-facts.mjs';
+import { EFFORT_LEVELS, parseReasoningEffort } from './reasoning-effort.mjs';
 import { taskToolSelectionMode, selectTaskToolNames } from './tool-selector.mjs';
 import { HistoryLedger } from './history-ledger.mjs';
 import { FinalAnswerHooks } from './lifecycle-hooks.mjs';
@@ -64,6 +65,17 @@ export function buildUserAttachmentParts(attachments = []) {
 const object = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const now = () => new Date().toISOString();
 const clip = (s, limit = EVENT_TEXT_LIMIT) => s.length <= limit ? s : `${s.slice(0, limit)}\n[Phần còn lại được lưu trong bản ghi trên máy.]`;
+
+/**
+ * The thinking effort a caller names for a task: null when it names none (the task follows its connection, or keeps what it had), 'auto' or a level otherwise. A word that is not
+ * a level is refused, with a 400, before anything starts.
+ */
+export function taskReasoningEffort(value) {
+  if (value === undefined || value === null || (typeof value === 'string' && !value.trim())) return null;
+  const effort = parseReasoningEffort(value);
+  if (effort === undefined) throw fault('invalid_reasoning_effort', `Mức suy luận ${JSON.stringify(value)} không hợp lệ: dùng auto hoặc một trong ${EFFORT_LEVELS.join(', ')}.`);
+  return effort;
+}
 
 function fault(code, message, statusCode = 400) {
   return Object.assign(new Error(message), { code, statusCode });
@@ -612,6 +624,7 @@ export class AgentRunner {
       completionOutcome:task.completionOutcome??(task.status==='completed'?classifyTaskCompletion(task.goalPlan,task.progress):null),
       effectiveProfile:task.effectiveProfile??null,
       roleProfiles:task.roleProfiles??{},
+      reasoningEffort:task.reasoningEffort??null,
       objectiveReceipts:availableObjectiveReceipts(task.progress),
       contextPolicy:task.contextPolicy??null,
       modelCost:task.modelCost??createCostLedger(),
@@ -776,8 +789,8 @@ export class AgentRunner {
     return this.#public(task);
   }
 
-  async continue({id,prompt,attachments=[],maxSteps=null,maxMinutes=null,effectiveProfile=null,roleProfiles=null}={}) {
-    return this.start({prompt,attachments,maxSteps,maxMinutes,resumeId:id,effectiveProfile,roleProfiles});
+  async continue({id,prompt,attachments=[],maxSteps=null,maxMinutes=null,effectiveProfile=null,roleProfiles=null,reasoningEffort=null}={}) {
+    return this.start({prompt,attachments,maxSteps,maxMinutes,resumeId:id,effectiveProfile,roleProfiles,reasoningEffort});
   }
   async enqueueMessage({id,prompt,attachments=[]}={}) {
     const context=this.context;
@@ -884,7 +897,7 @@ export class AgentRunner {
   // host plan and the query word of the repo map are made from it, in this run and in the later ones of the conversation, while the model is given the whole
   // `prompt` (and the repo map still focuses on the files the whole prompt names). Without it they are made from `prompt`.
   async start({ prompt, selectionPrompt = null, attachments = [], initialId = null, maxSteps = null, maxMinutes = null, resumeId = null,
-    effectiveProfile = null, roleProfiles = null, carriedPrompts = null } = {}) {
+    effectiveProfile = null, roleProfiles = null, carriedPrompts = null, reasoningEffort = null } = {}) {
     if (resumeId && this.activeTaskId === resumeId && this.tasks.get(resumeId)?.status !== 'running' && this.context?.done) await this.context.done.promise;
     if (this.closing) throw fault('shutting_down', 'Hub đang dừng.', 503);
     if (this.activeTaskId) throw fault('task_running', 'Đã có một tác vụ đang chạy. Hãy chờ hoặc dừng tác vụ đó.', 409);
@@ -902,6 +915,8 @@ export class AgentRunner {
       throw fault('invalid_task_id','Task ID mới đã tồn tại hoặc không hợp lệ.',409);
     if (maxSteps !== null && (!Number.isSafeInteger(maxSteps) || maxSteps < 1)) throw fault('invalid_limits', 'Lượt tối đa phải là số nguyên dương hoặc null (không giới hạn).');
     if (maxMinutes !== null && (!Number.isFinite(maxMinutes) || maxMinutes <= 0)) throw fault('invalid_limits', 'Giới hạn phút phải lớn hơn 0 hoặc null (không giới hạn).');
+    // The thinking effort of this task, over the connection's: null names none (a new task follows its connection, a resumed one keeps what it had).
+    const taskEffort = taskReasoningEffort(reasoningEffort);
     const existing = resumeId == null ? null : this.tasks.get(resumeId);
     if (resumeId != null && (!TASK_ID.test(resumeId) || !existing)) throw fault('task_not_found', 'Không tìm thấy phiên hội thoại cũ.', 404);
     if (existing && existing.status === 'running') throw fault('task_running', 'Phiên này vẫn đang chạy.', 409);
@@ -940,6 +955,7 @@ export class AgentRunner {
       ? Object.fromEntries(Object.entries(roleProfiles).filter(([role,id])=>
           /^[a-z][a-z0-9_-]{0,40}$/i.test(role) && typeof id==='string' &&
           /^[a-z0-9][a-z0-9._-]{0,40}$/i.test(id))) : {};
+    if (taskEffort !== null) task.reasoningEffort = taskEffort;
     task.status = 'running'; task.finishedAt = null; task.finalText = ''; task.finalParts = null; task.error = null; task.errorCode = null; task.cancelRequested = false;
     task.maxSteps = maxSteps === null ? null : task.steps + maxSteps; task.maxMinutes = maxMinutes;
     task.progress = createTaskProgress(task.progress, { newRun: true });
@@ -1354,6 +1370,8 @@ export class AgentRunner {
           input: modelInput, instructions: context.instructions, tools: structuredClone(context.tools),
           signal: context.controller.signal, maxOutputTokens: context.contextPolicy?.reservedOutputTokens ?? MAX_OUTPUT_TOKENS,
           store: false, parallel_tool_calls: false, include: ['reasoning.encrypted_content'],
+          // The thinking effort chosen for this task, over the connection's (undefined: the task follows its connection).
+          reasoningEffort: task.reasoningEffort,
           onStatus: async (message, kind) => { await this.#event(task, kind === 'model_repair' ? 'model_repair' : kind === 'context_compaction' ? 'context_compaction' : 'network_wait', String(message).slice(0,1000), { status:'running' }); },
           onToken: (token) => { this.#emit({ type: 'token', taskId: task.id, token }); },
         }), context.controller.signal);

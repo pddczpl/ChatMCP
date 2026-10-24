@@ -1,0 +1,69 @@
+{
+  "suite": "verify-task-reasoning.mjs",
+  "description": "What the task thinking-effort suite must notice: the provider ignores the setting of a task or takes auto for nothing, decides on the level of the connection, remembers a refusal under the wrong level; the runner neither keeps the setting nor hands it to the provider, accepts a word that is not a level, or forgets it in a follow-up; the task does not show it.",
+  "mutations": [
+    {
+      "name": "T1",
+      "what": "the provider ignores the setting of the task",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "const effort = reasoningEffort === undefined || reasoningEffort === null ? null : parseReasoningEffort(reasoningEffort) ?? null;", "new": "const effort = null;" }
+      ]
+    },
+    {
+      "name": "T2",
+      "what": "auto, asked by a task, is taken for \"follow the connection\"",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": ": parseReasoningEffort(reasoningEffort) ?? null;", "new": ": (parseReasoningEffort(reasoningEffort) === 'auto' ? null : parseReasoningEffort(reasoningEffort)) ?? null;" }
+      ]
+    },
+    {
+      "name": "T3",
+      "what": "the request is decided on the level of the connection, whoever asked",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "const effort = override ?? this.reasoningEffort;", "new": "const effort = this.reasoningEffort;" }
+      ]
+    },
+    {
+      "name": "T4",
+      "what": "a refusal is remembered under the level of the connection, not the level that was refused",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "const key = decision.send ? { endpoint, model: this.model, effort } : null;", "new": "const key = decision.send ? { endpoint, model: this.model, effort: this.reasoningEffort } : null;" }
+      ]
+    },
+    {
+      "name": "T5",
+      "what": "the task does not keep the setting it was given",
+      "patches": [
+        { "file": "lib/agent.mjs", "old": "if (taskEffort !== null) task.reasoningEffort = taskEffort;", "new": "" }
+      ]
+    },
+    {
+      "name": "T6",
+      "what": "the runner does not hand the setting of the task to the provider",
+      "patches": [
+        { "file": "lib/agent.mjs", "old": "reasoningEffort: task.reasoningEffort,", "new": "reasoningEffort: undefined," }
+      ]
+    },
+    {
+      "name": "T7",
+      "what": "a word that is not a level is accepted",
+      "patches": [
+        { "file": "lib/agent.mjs", "old": "if (effort === undefined) throw fault('invalid_reasoning_effort',", "new": "if (false) throw fault('invalid_reasoning_effort'," }
+      ]
+    },
+    {
+      "name": "T8",
+      "what": "a follow-up forgets the setting it is given",
+      "patches": [
+        { "file": "lib/agent.mjs", "old": "return this.start({prompt,attachments,maxSteps,maxMinutes,resumeId:id,effectiveProfile,roleProfiles,reasoningEffort});", "new": "return this.start({prompt,attachments,maxSteps,maxMinutes,resumeId:id,effectiveProfile,roleProfiles});" }
+      ]
+    },
+    {
+      "name": "T9",
+      "what": "the task does not show its setting",
+      "patches": [
+        { "file": "lib/agent.mjs", "old": "reasoningEffort:task.reasoningEffort??null,", "new": "reasoningEffort:null," }
+      ]
+    }
+  ]
+}

@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { HubManager } from './manager.mjs';
-import { AgentRunner } from './agent.mjs';
+import { AgentRunner, taskReasoningEffort } from './agent.mjs';
 import { WorkflowOrchestrator } from './workflow-orchestrator.mjs';
 import { summarizeCostLedgers } from './model-cost.mjs';
 import { assembleStudio } from './assemble.mjs';
@@ -154,7 +154,7 @@ export class ConcurrentApiAgent {
       id: r.id, conversationId:r.conversationId||r.parentTaskId||r.id, linkedFromTaskId:r.linkedFromTaskId||null, workspacePath:r.sourceRoot, prompt: r.prompt, workflowId:r.workflowId||null,phaseId:r.phaseId||null,role:r.role||null, status: r.status === 'preparing' ? 'running' : r.status,
       state, createdAt: r.createdAt, updatedAt: r.updatedAt, workspace: { path: r.worktree || r.executionRoot || r.sourceRoot },
       branch: r.branch, dependsOn: r.dependsOn || [], parentTaskId: r.parentTaskId || null,
-      effectiveProfile:r.effectiveProfile||null,roleProfiles:r.roleProfiles||{},
+      effectiveProfile:r.effectiveProfile||null,roleProfiles:r.roleProfiles||{},reasoningEffort:r.reasoningEffort??null,
       parentRunId: r.parentRunId || null,
       events: [], toolCalls: 0, steps: 0, prompts: [{ at: r.createdAt, text: r.prompt }],
       dialogue: [{ role: 'user', at: r.createdAt, text: r.prompt }],
@@ -536,7 +536,8 @@ export class ConcurrentApiAgent {
         : ownText;
       const result = await child.runner.start({ prompt: taskPrompt, selectionPrompt: requests ? record.prompt : predecessors.length ? ownText : null, carriedPrompts: requests, initialId: record.id,
         attachments: record.attachments || [],
-        effectiveProfile:record.effectiveProfile||null,roleProfiles:record.roleProfiles||{} });
+        effectiveProfile:record.effectiveProfile||null,roleProfiles:record.roleProfiles||{},
+        ...(record.reasoningEffort?{reasoningEffort:record.reasoningEffort}:{}) });
       record.status = result.status;
       record.updatedAt = now();
       delete record.attachments;
@@ -581,8 +582,10 @@ export class ConcurrentApiAgent {
   }
   async start({ prompt, attachments = [], dependsOn = [], parentTaskId = null, baseRef = null, workspacePath = null,
     workflowId = null, phaseId = null, role = null, conversationId = null, linkedFromTaskId = null, handoffText = '', handoffRequests = null,
-    profileId = null, roleProfiles = null, spawnReservation = null } = {}) {
+    profileId = null, roleProfiles = null, spawnReservation = null, reasoningEffort = null } = {}) {
     if (this.closed) throw fail('shutting_down', 'Hub is shutting down.', 503);
+    // The thinking effort of this task (null: it names none and follows its connection). A word that is not a level is refused here, before a record or a worktree exists.
+    const effort = taskReasoningEffort(reasoningEffort);
     if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 100000) throw fail('invalid_prompt', 'A task prompt is required.', 400);
     if (!Array.isArray(dependsOn) || dependsOn.length > 12 || dependsOn.some(id => !UUID.test(id) || !this.get(id)))
       throw fail('invalid_dependencies', 'Dependencies must reference existing DatGold tasks.', 400);
@@ -621,7 +624,7 @@ export class ConcurrentApiAgent {
       {
         this.primary.provider=scoped.provider;
         return this.primary.start({prompt,attachments,effectiveProfile:scoped.effectiveProfile,
-          roleProfiles:selectedRoleProfiles});
+          roleProfiles:selectedRoleProfiles,...(effort!==null?{reasoningEffort:effort}:{})});
       }
     const id = randomUUID();
     const record = { id, prompt: prompt.trim(), attachments, attachmentCount: attachments.length,
@@ -634,6 +637,7 @@ export class ConcurrentApiAgent {
       workflowId,phaseId,role,
       profileId:scoped.effectiveProfile?.id||null,
       effectiveProfile:scoped.effectiveProfile||null,roleProfiles:selectedRoleProfiles,
+      ...(effort!==null?{reasoningEffort:effort}:{}),
       sourceRoot: root, createdAt: now(), updatedAt: now(),
       depth: parentTaskId ? this.#depthOf(parentTaskId) + 1 : 0,
       status: 'queued', dependsOn: [...new Set(dependsOn)], parentTaskId, baseRef,
@@ -660,6 +664,8 @@ export class ConcurrentApiAgent {
       return await this.start({ prompt: goal, dependsOn, parentTaskId,
         workflowId,phaseId,role,roleProfiles:parent?.roleProfiles||{},
         profileId:(role?parent?.roleProfiles?.[roleKey(role)]:null)||parent?.effectiveProfile?.id||null,
+        // An agent a task starts thinks as the task does.
+        reasoningEffort:parent?.reasoningEffort??null,
         workspacePath: parent?.workspacePath || null, spawnReservation: reservation });
     } finally { reservation.release(); }
   }
@@ -674,7 +680,10 @@ export class ConcurrentApiAgent {
       await this.manager.workspaceRegistry.resolve(root);
     return this.workflows.create(parentTaskId,request);
   }
-  async continue({ id, prompt, attachments = [], ...limits } = {}) {
+  async continue({ id, prompt, attachments = [], reasoningEffort = null, ...limits } = {}) {
+    // The thinking effort a follow-up names (a level, or auto); none named leaves the task as it was. Refused before anything else when it is not a level.
+    const effort = taskReasoningEffort(reasoningEffort);
+    const named = effort !== null ? { reasoningEffort: effort } : {};
     const original=this.get(id);
     if(!original)throw fail('task_not_found','Conversation does not exist.',404);
     const root=original.workspacePath||original.workspace?.path;
@@ -694,7 +703,7 @@ export class ConcurrentApiAgent {
       const scoped=await this.#scopedProvider(original.effectiveProfile?.id||'__global__',
         original.effectiveProfile?.revision||null);
       this.primary.provider=scoped.provider;
-      return this.primary.continue({ id, prompt, attachments, ...limits,
+      return this.primary.continue({ id, prompt, attachments, ...limits, ...named,
         effectiveProfile:scoped.effectiveProfile,roleProfiles:original.roleProfiles||{} });
     }
     const record = this.records.get(id);
@@ -714,6 +723,7 @@ export class ConcurrentApiAgent {
         record.prompt += '\n\nFOLLOW-UP: ' + String(prompt || '');
         record.attachments = attachments;
         record.attachmentCount = attachments.length;
+        if (effort !== null) record.reasoningEffort = effort;
         record.status = 'queued'; record.error = null;
         await this.#save();
         void this.#drain();
@@ -724,7 +734,7 @@ export class ConcurrentApiAgent {
     const scoped=await this.#scopedProvider(record.effectiveProfile?.id||'__global__',
       record.effectiveProfile?.revision||null);
     child.runner.provider=scoped.provider;
-    return child.runner.continue({id,prompt,attachments,...limits,
+    return child.runner.continue({id,prompt,attachments,...limits,...named,
       effectiveProfile:scoped.effectiveProfile,roleProfiles:record.roleProfiles||{} });
   }
   async cancel(id) {

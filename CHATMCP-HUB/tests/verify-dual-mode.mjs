@@ -144,6 +144,14 @@ try {
   const driver = new DualAgent({ browser: {state:()=>({tasks:[{id:'web-historic',startedAt:'2000-01-01',status:'completed',prompt:'past'}],active:null}),get:(id)=> id==='web-historic'?{id,status:'completed'}:null, report:async()=> 'web report',start:async()=>({id:'web-task'}),cancel:async()=>({}),shutdown:async()=>{}}, api:engine,directory:base });
   await driver.load();
   equal(driver.mode,'chatgpt-web');
+  // The thinking effort of a task is a Model API setting: through the ChatGPT Web Companion it is refused, not dropped without a word.
+  {
+    const manager=engine.manager, kept=manager.workspace;
+    manager.workspace=base;
+    try {
+      await assert.rejects(() => driver.start({prompt:'p',reasoningEffort:'high'}),error=>error.statusCode===400&&/thinking effort/i.test(error.message)&&/Companion/.test(error.message)); passes++;
+    } finally { manager.workspace=kept; }
+  }
   await driver.configure({mode:'api'});
   equal(driver.state().mode,'api');
   ok(driver.state().tasks.some(t=>t.transport==='api'),'merged task history');

@@ -262,7 +262,7 @@ async function provider({ preset, apiBaseUrl, model, contextWindowTokens, catalo
   }
   const fresh = await provider({ preset: 'anthropic', model: 'claude-sonnet-5-5', catalog: createCatalog(JSON.parse(await fs.readFile(path.join(BUNDLE, 'lib', 'model-catalog.data.json'), 'utf8'))) });
   assert.deepEqual([fresh.state().contextWindowTokens, fresh.state().contextWindowSource], [null, 'catalog'], 'a new connection to Anthropic plans on the catalog\'s window, not on the 200,000 that used to be written for it');
-  ok('presets: the catalog\'s window replaces the hard-coded one wherever the catalog knows the default model (only DeepSeek keeps its own)');
+  ok('presets: the catalog\'s window replaces the hard-coded one wherever the catalog knows the default model (all of them do now: no preset keeps its own)');
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------- 4. what reads "the window"
