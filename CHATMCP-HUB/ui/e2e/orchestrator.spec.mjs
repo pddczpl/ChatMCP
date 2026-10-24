@@ -4,6 +4,7 @@ import { setMode, waitForState, continueTask } from '../../tests/e2e/hub-process
 import { git, gitInit, makeCalcProject } from '../../tests/e2e/fixtures.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // The Agents tab against the real Hub and the scripted model: the owner hands work out and reads what comes back.
 // The scripted model answers "OK" to a request that offers no tools, and writes one file when it is a coding worker; that is enough to see
@@ -11,6 +12,8 @@ import path from 'node:path';
 
 const NOTE = 'AGENT-NOTE.md';
 const CLAIM = 'I created AGENT-NOTE.md. All tests pass and the task is complete.';
+/** The program the hook suites start as a hook (tests/fixtures/hook-program.mjs): it answers as the JSON it is given says. */
+const HOOK_PROGRAM = fileURLToPath(new URL('../../tests/fixtures/hook-program.mjs', import.meta.url));
 /** The tone colours of src/index.css as the browser computes them, so that a test does not repeat hex values. */
 const WARNING = { dark: 'rgb(243, 185, 77)', light: 'rgb(154, 90, 0)' };
 const SUCCESS = { dark: 'rgb(63, 217, 155)', light: 'rgb(11, 122, 82)' };
@@ -807,6 +810,58 @@ test('a worker whose task the Hub planned in phases: the AI report keeps the AI�
   await expect(card.getByTestId('ai-report')).toContainText('AI report');
   await expect(card.getByTestId('ai-report')).not.toContainText('NOT independently verified');
   await shot(page, testInfo, 'coding-runner-notice-english');
+});
+
+test('a worker whose SubagentStop hook never gives way: the AI report keeps the AI’s words, and the Hub’s note about the hook is shown as the Hub’s', async ({ page, app }, testInfo) => {
+  test.setTimeout(240_000);
+  // The scripted worker writes its file, then says the same thing every time it is asked, however the Hub's host messages (a hook's objection) change the last message it sees.
+  app.mock.define('hook-worker', (ctx) => {
+    if (ctx.turn > 0 || !ctx.prompt.startsWith('TASK: ')) return say(CLAIM);
+    const args = { path: NOTE, content: '# Agent note\n\nWritten by a scripted worker.\n' };
+    return ctx.tools.includes('write_file') ? call('write_file', args) : call('mcp_call', { name: 'local.write_file', arguments_json: JSON.stringify(args) });
+  });
+  app.mock.setScenario('hook-worker');
+  // The owner's hooks file, where the owner keeps it (the Hub's data folder): a hook that objects to every answer, so that after eight blocks the Hub lets the worker finish and says so.
+  const objection = { plan: { file: path.join(app.scratch, 'hook-plan.txt'), steps: [{ exit: 2, stderr: 'Mention the file you created.' }] } };
+  await fs.writeFile(path.join(app.scratch, 'state', 'hooks.json'), JSON.stringify({ hooks: { SubagentStop: [{ hooks: [{ type: 'command', command: process.execPath, args: [HOOK_PROGRAM, JSON.stringify(objection)] }] }] } }));
+  await onboard(page, app);
+  await setMode(app.hub, 'autonomous');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const run = await app.hub.post('/api/studio/coding/run', { tasks: [{ id: 'task-1', prompt: 'Add a file named AGENT-NOTE.md that explains this project' }], maxConcurrency: 1, confirmation: 'CREATE WORKTREES' });
+  expect(run.status).toBe('ready_for_review');
+  const [record] = run.workers;
+  expect(record.summary, 'the summary is what the model said and nothing else').toBe(CLAIM);
+  expect(record.runnerHookNotice).toMatch(/^The SubagentStop hook blocked 8 times; that is the limit for one run, so ChatMCP completed the task although a hook still objected \(SubagentStop: Mention the file you created\.\)/);
+  expect(Object.hasOwn(record, 'runnerNotice'), 'a task this short has no verification notice, so the hook’s note is the only sentence of the Hub’s').toBe(false);
+  expect((await app.hub.get('/api/studio/coding')).json.jobs.at(-1).workers[0].runnerHookNotice, 'which is what the page is sent').toBe(record.runnerHookNotice);
+
+  await openAgents(page, 'Sửa mã');
+  const coding = page.getByTestId('coding-agents');
+  const card = coding.getByTestId('coding-worker').filter({ hasText: 'task-1' });
+  const note = card.getByTestId('runner-hook-notice');
+  await expect(note).toHaveText(`Ghi chú của Hub về hook vẫn phản đối, ghi lúc lượt chạy kết thúc, nguyên văn: ${record.runnerHookNotice}`);
+  await expect(note).not.toHaveClass(/success|danger|warning/);
+  // beside the evidence line, before the AI's report, which holds the AI's words and none of the Hub's
+  const parts = await card.locator('[data-testid="agent-proof"], [data-testid="runner-notice"], [data-testid="runner-hook-notice"], [data-testid="ai-report"]').evaluateAll((nodes) => nodes.map((node) => node.dataset.testid));
+  expect(parts).toEqual(['agent-proof', 'runner-hook-notice', 'ai-report']);
+  const report = card.getByTestId('ai-report');
+  await expect(report).toContainText('All tests pass and the task is complete.');
+  await expect(report).not.toContainText('Hook notice');
+  await expect(report).not.toContainText('blocked 8 times');
+  await expect(coding.locator('[data-tone="success"]')).toHaveCount(0);
+  await card.scrollIntoViewIfNeeded();
+  await shot(page, testInfo, 'coding-runner-hook-notice');
+
+  // in English the label follows the language on screen; the Hub's sentence stays as the Hub wrote it
+  const dialog = await openSettings(page, 'Giao diện & ngôn ngữ');
+  await dialog.getByRole('button', { name: 'English' }).click();
+  await closeSettings(page);
+  await openWorkTab(page, 'Agents');
+  await page.getByRole('tab', { name: 'Code edits', exact: true }).click();
+  await expect(card.getByTestId('runner-hook-notice')).toHaveText(`The Hub’s note about a hook that still objected, written when the run ended, as it wrote it: ${record.runnerHookNotice}`);
+  await expect(card.getByTestId('ai-report')).toContainText('AI report');
+  await expect(card.getByTestId('ai-report')).not.toContainText('blocked 8 times');
+  await shot(page, testInfo, 'coding-runner-hook-notice-english');
 });
 
 test('in English, and in the light theme, the tab reads in one language and keeps the evidence colours', async ({ page, app }, testInfo) => {

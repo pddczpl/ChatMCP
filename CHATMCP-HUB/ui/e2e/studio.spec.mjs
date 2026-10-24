@@ -153,6 +153,26 @@ test('FULL ACCESS needs the typed words, shows a permanent banner, and one click
   await expect(page.getByTestId('status-bar')).not.toContainText('FULL ACCESS');
 });
 
+test('the FULL ACCESS banner and the way back to Review read in English, with no Vietnamese in them', async ({ page, app }) => {
+  await onboard(page, app);
+  const settings = await openSettings(page, 'Giao diện & ngôn ngữ');
+  await settings.getByRole('button', { name: 'English' }).click();
+  await closeSettings(page);
+  // FULL ACCESS is turned on through the Hub the way the dialog does it (the dialog and its typed words are tested above)
+  await app.hub.post('/api/studio/permissions/config', { mode: 'autonomous', executionPolicy: 'full-access', confirmation: 'FULL ACCESS' });
+  await expect.poll(async () => (await app.hub.state()).studio.permissions.executionPolicy).toBe('full-access');
+  const banner = page.getByTestId('full-access-banner');
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText('FULL ACCESS is on: the agent can act outside the workspace. Dangerous actions (deleting data, push, merge, release) still ask.');
+  expect(await banner.innerText(), 'the banner reads English').not.toMatch(/[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]/i);
+  await expect(page.getByTestId('status-bar')).toContainText('FULL ACCESS');
+  await banner.getByRole('button', { name: 'Back to Review', exact: true }).click();
+  await expect(page.getByText('Switched back to Review mode.')).toBeVisible();
+  await expect(banner).toHaveCount(0);
+  await expect.poll(async () => (await app.hub.state()).studio.permissions).toMatchObject({ mode: 'review', executionPolicy: 'host-review' });
+  await expect(page.getByTestId('status-bar')).not.toContainText('FULL ACCESS');
+});
+
 test('AI config clears a typed fixture key after save and destination changes', async ({ page, app }) => {
   await onboard(page, app);
   await openSettings(page, 'Mô hình AI');
