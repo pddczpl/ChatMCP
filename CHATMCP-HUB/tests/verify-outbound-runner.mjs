@@ -90,7 +90,7 @@ try {
   for (const [name, args] of [[FILE, { path: 'C:\\workspace\\demo\\.env' }], [FILE, { path: 'deploy/server.pem' }], [FILE, { path: '.env.production' }],
     [SHELL, { command: 'cat .env' }], [FILE, { path: '~/.ssh/id_rsa' }], [FILE, { path: 'config/credentials.json' }]]) {
     const result = await readThrough(name, args, harmless);
-    check(/WITHHELD by ChatMCP/.test(result.text), 'the notice replaces the content', JSON.stringify(args));
+    check(/WITHHELD by DatGold/.test(result.text), 'the notice replaces the content', JSON.stringify(args));
     check(!result.text.includes('blue-green-rollout') && !result.text.includes('CACHE_TTL'), 'no line of a protected file is delivered, secret-shaped or not', JSON.stringify(args));
   }
   check(flow.calls.some((call) => call.args.path === '.env.production'), 'the tool did run (only its output was withheld)');
@@ -98,7 +98,7 @@ try {
     // a "file name" is a string the model wrote: one that holds a credential shape must not be echoed in the notice or the ledger
     const leakyName = `AKIA${body('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 16)}`;
     const named = await readThrough(SHELL, { command: `cat .env.${leakyName}` }, harmless);
-    check(/WITHHELD by ChatMCP/.test(named.text) && !named.text.includes(leakyName), 'a file name that holds a secret-shaped string is not echoed in the notice');
+    check(/WITHHELD by DatGold/.test(named.text) && !named.text.includes(leakyName), 'a file name that holds a secret-shaped string is not echoed in the notice');
     const ledger = JSON.stringify(flow.task.events.filter((event) => event.type === 'outbound_filtered'));
     check(!ledger.includes(leakyName), 'nor in the ledger of what was filtered');
   }

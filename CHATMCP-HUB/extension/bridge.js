@@ -270,7 +270,7 @@
     incomplete: 'Khối lệnh chưa hoàn tất. Đợi câu trả lời chạy xong.',
     multiple_calls: 'Chỉ chuyển một lời gọi hoàn chỉnh trong mỗi khối mã.',
     unsupported_null_parameter: 'Bộ đọc MCP hiện tại làm đổi tham số null; khối này chưa được chuyển.',
-    native_pre: 'Khối này đã có phần tử mã mà MCP quét trực tiếp. Nếu chưa có thẻ, hãy gửi phần kiểm tra từ ChatMCP Hub Companion.',
+    native_pre: 'Khối này đã có phần tử mã mà MCP quét trực tiếp. Nếu chưa có thẻ, hãy gửi phần kiểm tra từ DatGold Hub Companion.',
     call_id_mismatch: 'Mã call_id ở đầu và cuối lời gọi phải trùng nhau.'
   };
 
@@ -316,7 +316,7 @@
       ? 'Thẻ cũ đã bị trang gỡ. Tải lại trang để thử lại; không tạo thêm bản chạy trong tab này.'
       : card
         ? 'MCP SuperAssistant đã tạo thẻ bên dưới. Khi Auto Execute tắt, bấm Run trên thẻ để chạy.'
-        : 'Đã chuyển. Đang chờ MCP SuperAssistant tạo thẻ. Nếu chưa có, mở ChatMCP Hub Companion và sao chép phần kiểm tra.');
+        : 'Đã chuyển. Đang chờ MCP SuperAssistant tạo thẻ. Nếu chưa có, mở DatGold Hub Companion và sao chép phần kiểm tra.');
   }
 
   function transfer(state, auto = false) {
@@ -384,7 +384,7 @@
         counts.blockedReasons[reason] = (counts.blockedReasons[reason] || 0) + 1;
         state.button.disabled = true;
         setText(state.button, 'Khối MCP chưa chuyển được');
-        setText(state.note, reasonText[reason] || 'Khối lệnh chưa đúng định dạng được hỗ trợ. Mở ChatMCP Hub Companion và bấm Sao chép kiểm tra.');
+        setText(state.note, reasonText[reason] || 'Khối lệnh chưa đúng định dạng được hỗ trợ. Mở DatGold Hub Companion và bấm Sao chép kiểm tra.');
         continue;
       }
       counts.readyCalls += 1;
@@ -398,10 +398,10 @@
         setText(state.button, 'Chuyển lời gọi này sang MCP');
         const autoReason = considerAutomatic(state, parsed, counts);
         const autoNotes = {
-          workspace_not_prepared: 'Bấm Chuẩn bị chat trong ChatMCP Hub để gắn phiên này với workspace đang chọn.',
+          workspace_not_prepared: 'Bấm Chuẩn bị chat trong DatGold Hub để gắn phiên này với workspace đang chọn.',
           existing_block: 'Khối đã có trước khi bật Tự động; bạn vẫn có thể chọn chuyển thủ công.',
           unverified_author: 'Chưa xác minh được đây là khối của assistant. Chọn chuyển thủ công nếu đây là lời gọi bạn muốn chạy.',
-          session_call_id_required: 'Khối chưa dùng mã của phiên Tự động này. Chèn hướng dẫn workspace từ ChatMCP Hub rồi gửi yêu cầu mới.',
+          session_call_id_required: 'Khối chưa dùng mã của phiên Tự động này. Chèn hướng dẫn workspace từ DatGold Hub rồi gửi yêu cầu mới.',
           reply_not_known_idle: 'Đang chờ câu trả lời kết thúc và dấu hiệu trạng thái nghỉ. Nếu giao diện chưa được nhận diện, có thể chuyển thủ công.'
         };
         setText(state.note, automatic.enabled

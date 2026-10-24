@@ -1,4 +1,4 @@
-# ChatMCP Documentation Library
+# DatGold Documentation Library
 
 The documents below cover detailed setup, development, architecture, historical phase reports, and release verification. Historical reports describe the state at the time they were written; use the latest release notes for current behavior.
 
@@ -7,6 +7,7 @@ Current provider catalog: **14 preset** choices (including OpenAI Responses API 
 Comprehensive documentation across all architecture, implementation, and verification phases:
 
 ### System Architecture and Guides
+- [Naming: DatGold, formerly ChatMCP](NAMING.md) — what the new name covers, what still has the old name and why, and the step that changes each
 - [Reproducible evaluation harness](EVALUATION.md) — deterministic external-process evaluation and explicit live-model limits
 - [Upgrade implementation checkpoint](UPGRADE-IMPLEMENTATION-STATUS.md) — shipped-source changes, outstanding acceptance work and restart handoff
 - [Bundled Code Intelligence Runtime](CODE-INTELLIGENCE-RUNTIME.md) — Offline LSP, WASM, embedded Python staging, verification and limitations

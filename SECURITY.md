@@ -1,4 +1,4 @@
-# ChatMCP Security Policy
+# DatGold Security Policy
 
 This policy describes the current single-owner, local-first Windows product. It does not claim a security audit, fully isolated host command execution, or live-browser acceptance of every website revision.
 
@@ -8,7 +8,7 @@ Use GitHub's private **Report a vulnerability / Security Advisory** option for t
 
 ## Supported deployment boundary
 
-ChatMCP is designed for a single local Windows account with a Hub listening on **127.0.0.1:3007**. The desktop client and the browser dashboard communicate with the loopback Hub. Public port binding, reverse-proxy publication, cloud-hosted Cloud Harness infrastructure, public multi-tenant use, and mandatory cloud accounts are not supported deployment modes.
+DatGold is designed for a single local Windows account with a Hub listening on **127.0.0.1:3007**. The desktop client and the browser dashboard communicate with the loopback Hub. Public port binding, reverse-proxy publication, cloud-hosted Cloud Harness infrastructure, public multi-tenant use, and mandatory cloud accounts are not supported deployment modes.
 
 Every `/api/*` and `/auth/*` request to the local HTTP interface must carry a per-launch secret as `Authorization: Bearer`. The Hub makes a new secret at every start, keeps it out of URLs, command lines and the environment of child processes, and publishes it in `run/hub-session.json` inside its data folder, a folder whose access list grants only the owner's Windows account (the Hub does not start when that list cannot be set). Host, Origin and CSRF checks remain on top of it. **The secret protects against other Windows accounts, sandboxed processes that cannot read the owner's files, and web pages in the browser. It does not protect against malware or any other program running as the same Windows user, which can read the same file; loopback binding is not protection against such a program either.** Open exceptions to the first sentence: the Companion's two read-only status routes (`/api/extension-state` and `/api/instructions`) answer any request whose `Origin` header looks like a browser-extension origin, without the secret, so a local program can send that header and read the Hub version and the workspace path; and the Companion's pairing routes use a pairing code and their own token instead of the Hub secret. The file with the secret outlives a crash, so every client that reads it (the desktop app, the Node launcher and the PowerShell helper scripts `Stop-ChatMcpHub.ps1`, `Run-StudioSmoke.ps1` and `Test-Gateway-ViaHub.ps1`) presents the secret only to the process that listens on the port and is the one the file names, and sends nothing otherwise. Browser Companion pairing grants separately authenticated access for the user's own ChatGPT tab; it is not a public remote-control interface. [THREAT-MODEL.md](docs/THREAT-MODEL.md) lists these and the other residual risks of the credential, the Companion filter and the Read Only classifier.
 
@@ -21,7 +21,7 @@ Every `/api/*` and `/auth/*` request to the local HTTP interface must carry a pe
 
 Repository text, instructions in third-party skills, search results, agent replies, and tool outputs are untrusted inputs and may contain prompt injection. Path normalization, protected paths, permission checks, review tokens, checkpoints, and rollback guards reduce risk but do not make arbitrary shell commands safe. Git worktrees isolate branch checkouts, **not** host processes or filesystem permissions. Host command results must not be described as Windows Sandbox or independent attestation. Where supported, Windows Sandbox execution and sealed verification receipts have their own provenance requirements; experimental support does not prove every test runner is isolated or independently certified.
 
-An interrupted or timed-out mutation can have uncertain effects. ChatMCP must preserve evidence and require inspection instead of blindly repeating file writes, Git operations, shell commands, or browser submissions.
+An interrupted or timed-out mutation can have uncertain effects. DatGold must preserve evidence and require inspection instead of blindly repeating file writes, Git operations, shell commands, or browser submissions.
 
 ## Credentials, providers, and diagnostics
 

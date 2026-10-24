@@ -18,7 +18,7 @@ export function MessageItem({ message }: MessageItemProps) {
   const { lang, t } = useTranslation();
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
-  const author = isUser ? t('agents_msg_you') : isSystem ? t('agents_msg_system') : 'ChatMCP';
+  const author = isUser ? t('agents_msg_you') : isSystem ? t('agents_msg_system') : 'DatGold';
 
   return (
     <article

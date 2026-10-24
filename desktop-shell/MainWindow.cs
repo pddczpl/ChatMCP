@@ -32,7 +32,7 @@ namespace ChatMCP.Desktop
             _repoRoot = repoRoot;
 
             // Form properties
-            Text = "ChatMCP Studio " + HubLifecycle.Version + " - AI Coding Agent";
+            Text = "DatGold Studio " + HubLifecycle.Version + " - AI Coding Agent";
             Size = new Size(1366, 850);
             MinimumSize = new Size(960, 600);
             StartPosition = FormStartPosition.CenterScreen;
@@ -56,7 +56,7 @@ namespace ChatMCP.Desktop
             // Status label during boot
             _statusLabel = new Label
             {
-                Text = "Starting ChatMCP Studio Engine...",
+                Text = "Starting DatGold Studio Engine...",
                 Font = new Font("Segoe UI", 12, FontStyle.Regular),
                 ForeColor = Color.FromArgb(0, 242, 254), // Neon cyan
                 AutoSize = false,
@@ -88,7 +88,7 @@ namespace ChatMCP.Desktop
                         throw new InvalidOperationException("The installed desktop and Hub files have different versions. Run the matching installer again; no Hub was started.");
                 if (File.Exists(Path.Combine(_repoRoot, ".chatmcp-update-pending.json")))
                     throw new InvalidOperationException("An interrupted installation needs recovery. Keep the installation backup and inspect the installer log before reopening.");
-                _statusLabel.Text = "Connecting to ChatMCP Hub " + HubLifecycle.Version + "...";
+                _statusLabel.Text = "Connecting to DatGold Hub " + HubLifecycle.Version + "...";
                 var isRunning = await CheckHubHealthAsync();
                 if (!isRunning)
                 {
@@ -220,7 +220,7 @@ namespace ChatMCP.Desktop
             {
                 using var dialog = new FolderBrowserDialog
                 {
-                    Description = "ChatMCP - Select a workspace folder",
+                    Description = "DatGold - Select a workspace folder",
                     ShowNewFolderButton = true,
                     AutoUpgradeEnabled = true,
                 };
@@ -258,7 +258,7 @@ namespace ChatMCP.Desktop
                 if (session != null) return session;
                 await Task.Delay(250);
             }
-            throw new InvalidOperationException("The Hub did not publish a readable session file (run\\hub-session.json in its data folder). Close this window, stop the Hub with STOP-CHATMCP-HUB.cmd and reopen ChatMCP; no task was replayed.");
+            throw new InvalidOperationException("The Hub did not publish a readable session file (run\\hub-session.json in its data folder). Close this window, stop the Hub with STOP-CHATMCP-HUB.cmd and reopen DatGold; no task was replayed.");
         }
 
         private async Task MonitorHubAsync()
@@ -281,7 +281,7 @@ namespace ChatMCP.Desktop
             {
                 if (IsDisposed || Disposing) return;
                 _webView.Visible = false;
-                _statusLabel.Text = "Hub disconnected or version changed. Close and reopen ChatMCP to reconnect.\nNo task or prompt was automatically restarted.";
+                _statusLabel.Text = "Hub disconnected or version changed. Close and reopen DatGold to reconnect.\nNo task or prompt was automatically restarted.";
                 _statusLabel.ForeColor = Color.FromArgb(239, 68, 68);
                 _statusLabel.Visible = true;
                 _statusLabel.BringToFront();

@@ -105,7 +105,7 @@ async function updateStatus() {
 
     if (!bridge) {
       summary.textContent = 'Phần hỗ trợ khối lệnh chưa được nạp.';
-      nextStep.textContent = 'Tải lại ChatGPT bằng Ctrl + R sau khi Reload ChatMCP Hub Companion 1.5.2 trong trang quản lý tiện ích.';
+      nextStep.textContent = 'Tải lại ChatGPT bằng Ctrl + R sau khi Reload DatGold Hub Companion 1.5.2 trong trang quản lý tiện ích.';
     } else if (bridge.importedCards > 0) {
       summary.textContent = 'MCP SuperAssistant đã tạo thẻ từ khối bạn chuyển.';
       nextStep.textContent = 'Đóng bảng này và bấm Run trên thẻ khi Auto Execute đang tắt. Có thẻ chưa có nghĩa là công cụ đã chạy thành công.';
@@ -151,7 +151,7 @@ async function updateStatus() {
     details.hidden = true;
     diagnostics.value = '';
     summary.textContent = 'Chưa đọc được trạng thái trong tab này.';
-    nextStep.textContent = 'Mở tab https://chatgpt.com, nhấn Ctrl + R sau khi cài bản hỗ trợ, rồi bấm biểu tượng ChatMCP Hub Companion lần nữa.';
+    nextStep.textContent = 'Mở tab https://chatgpt.com, nhấn Ctrl + R sau khi cài bản hỗ trợ, rồi bấm biểu tượng DatGold Hub Companion lần nữa.';
   } finally {
     refresh.disabled = false;
     instructionButtons();
@@ -196,7 +196,7 @@ async function getInstructions() {
   const before = getBinding(await readHub('/api/extension-state', true));
   let text = await readHub('/api/instructions');
   text = text.replaceAll('{{CALL_ID_PREFIX}}', prefix).replaceAll('CALL_ID_PLACEHOLDER', prefix + '1');
-  if (session.enabled) text += '\n\n## Mã lời gọi cho phiên ChatMCP Hub hiện tại\n'
+  if (session.enabled) text += '\n\n## Mã lời gọi cho phiên DatGold Hub hiện tại\n'
     + 'Mỗi lời gọi công cụ thật phải dùng call_id kiểu chuỗi: "' + prefix + '1", "' + prefix + '2", ... tăng số cho từng lời gọi mới; start và end phải trùng nhau.\n'
     + 'Chỉ dùng tiền tố này cho lời gọi bạn thực sự cần thực hiện theo yêu cầu của người dùng. Không dùng nó trong ví dụ, trích dẫn hoặc nội dung sao chép từ kết quả công cụ.\n'
     + 'Mỗi khối jsonl chứa đúng một lời gọi hoàn chỉnh. Kết thúc khối bằng function_call_end, dừng trả lời và đợi kết quả công cụ rồi mới quyết định bước tiếp theo.\n';

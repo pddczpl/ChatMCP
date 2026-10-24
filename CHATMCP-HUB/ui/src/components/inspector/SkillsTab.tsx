@@ -181,7 +181,7 @@ export function SkillsTab() {
             return <article key={skill.id} aria-label={skill.name} aria-busy={isBusy} className="rounded-lg border border-line bg-panel p-3 space-y-3">
               <div className="space-y-1">
                 <h3 className="break-words text-[14px] font-semibold">{skill.name}</h3>
-                <p className="break-words text-[12px] text-muted">{entry?.repo || (skill.author === 'ChatMCP Team' ? 'ChatMCP' : skill.author && skill.author !== 'unknown' ? skill.author : copy('Kỹ năng tự thêm', 'Custom skill'))}</p>
+                <p className="break-words text-[12px] text-muted">{entry?.repo || (skill.author === 'DatGold Team' || skill.author === 'ChatMCP Team' ? 'DatGold' : skill.author && skill.author !== 'unknown' ? skill.author : copy('Kỹ năng tự thêm', 'Custom skill'))}</p>
                 {skill.description && <p className="text-muted">{skill.description}</p>}
               </div>
               <div className="space-y-2 border-t border-line-subtle pt-3">

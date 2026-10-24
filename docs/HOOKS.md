@@ -34,9 +34,9 @@ If the owner file exists and is not valid (broken JSON, an unknown field, a wron
 ```
 
 * **Events.** `PreToolUse`, `PostToolUse`, `PostToolUseFailure` fire for every tool call. `Stop`, `SubagentStop` and `TaskCompleted` fire when an agent run ends with a final answer, before the task is completed ([below](#stop-subagentstop-and-taskcompleted); the ChatGPT Web transport has no such loop and fires none of them). Any other Claude Code event name is accepted and ignored with a warning, so a settings file can be pasted in; a name that is not a Claude Code event (a typo) is an error.
-* **`matcher`** (tool events only). Empty, `*` or absent: every tool. Only letters, digits, `_ - , |` and spaces: an exact name or a list (`Edit|Write`). Anything else: an unanchored JavaScript regular expression. A tool answers to its ChatMCP name (`local.run_command`) **and** to its Claude Code name:
+* **`matcher`** (tool events only). Empty, `*` or absent: every tool. Only letters, digits, `_ - , |` and spaces: an exact name or a list (`Edit|Write`). Anything else: an unanchored JavaScript regular expression. A tool answers to its DatGold name (`local.run_command`) **and** to its Claude Code name:
 
-  | Claude Code | ChatMCP tools |
+  | Claude Code | DatGold tools |
   |---|---|
   | `Bash` | `local.run_command` |
   | `Edit` | `local.edit_file`, `local.files_apply_patch` |
@@ -45,7 +45,7 @@ If the owner file exists and is not valid (broken JSON, an unknown field, a wron
   | `Glob` / `Grep` | `local.find_files` / `local.search_files` |
   | `mcp__server__tool` | the tool `tool` of an external server `server` |
 
-  A ChatMCP tool with no row (`local.move_path`, `local.delete_path`, `local.git_*`, `local.tasks_run`, `studio.*` ...) is matched by its ChatMCP name only: a matcher of `Edit|Write` does **not** see them.
+  A DatGold tool with no row (`local.move_path`, `local.delete_path`, `local.git_*`, `local.tasks_run`, `studio.*` ...) is matched by its DatGold name only: a matcher of `Edit|Write` does **not** see them.
 * **Handler** (`type: "command"`, the only type this build runs). With `args` the hook is started directly (exec form): `command` is the program, nothing interprets the arguments. Without `args`, `command` is a script for `shell` (`bash`, `powershell` or `cmd`; default: Git Bash if installed, else PowerShell on Windows, `bash` or `sh` elsewhere). `${CLAUDE_PROJECT_DIR}` is replaced in `command` and `args` of the exec form; in shell form the same name is an environment variable (a PowerShell script gets `${env:CLAUDE_PROJECT_DIR}`). In exec form the program `node` is the Node that runs the Hub, so such a hook works on a machine with no Node on `PATH`; in shell form `node` is whatever `PATH` finds, and where there is none the hook fails to start, which does not block the call unless `onFailure` is `"block"` (use exec form for a Node script, or an absolute path). A `.cmd` or `.bat` file cannot be started in exec form (Node refuses); use `"shell": "cmd"`.
 * **`timeout`** is in seconds, 1 to 3600, default 600 (Claude Code's default). When it is up the program **and everything it started** are killed.
 * **`onFailure`**: `"continue"` (default) or `"block"`. See the exit codes.
@@ -62,11 +62,11 @@ JSON on stdin, one object:
 | `cwd` | the workspace the tool works in (for a spawned agent: its worktree) |
 | `permission_mode` | `default` (Review), `plan` (Read Only), `acceptEdits` (Autonomous), `bypassPermissions` (Full Access); Read Only wins over Full Access, as in the gate |
 | `hook_event_name` | the event |
-| `tool_name` | the **ChatMCP** name, e.g. `local.run_command` (the Claude Code name is in `tool_aliases`) |
+| `tool_name` | the **DatGold** name, e.g. `local.run_command` (the Claude Code name is in `tool_aliases`) |
 | `tool_input` | the arguments of the call; for `local.write_file`, `local.edit_file`, `local.read_file` also `file_path`, absolute, as Claude Code scripts expect |
 | `tool_use_id` | one id for the `Pre` and the `Post` hook of a call |
 | `tool_response` | (`PostToolUse`) the result of the tool; `error` (`PostToolUseFailure`) its message |
-| `tool_aliases`, `chatmcp_permission_mode`, `chatmcp_execution_policy` | ChatMCP additions |
+| `tool_aliases`, `chatmcp_permission_mode`, `chatmcp_execution_policy` | DatGold additions |
 
 The three lifecycle events send other fields ([below](#stop-subagentstop-and-taskcompleted)). Not sent: `transcript_path`, `prompt_id`, `effort`, and on the tool events `agent_id` and `agent_type`. The JSON is cut to about 1 MiB (long strings are shortened and `chatmcp_truncated` is `true`). The environment is the Hub's **after `scrubEnv`**: variables whose name says key, token, secret, password or credential, URLs with a password and values equal to a registered secret are gone (the Hub's own `OPENAI_API_KEY` is not visible to a hook), and `CLAUDE_PROJECT_DIR` and `CHATMCP_PROJECT_DIR` are added. The stdin JSON is **not** masked: a hook sees exactly what the tool receives.
 
@@ -138,7 +138,7 @@ Not asked: a run that fails, is cancelled or reaches a limit (nothing was finish
 
 **What a block does.** The message reaches the model as a **host message**, `[Hook feedback · Stop · block 1 of 8]`, followed by a line that says it is data from the owner's hook and not from the user (it changes no permission and does not replace the request) and by the hook's text (escape and control characters removed, registered secrets masked, at most 4,000 characters per hook). It is written through the model history ledger, which holds it until the model's turn is over: it lands right behind the answer it is about and in front of a message the person queued while the hook ran. It is never a prompt of the conversation: it selects no skill and no tool schema, and it is not in the dialogue the person reads. It survives the run only as recorded task data, the `hook_blocked` event (the first 300 characters of the reason) and the `[Hook notice]` in the result, which a resume checkpoint or a handoff carries as data about what happened and never as something the person asked. The refused answer is not the result of the task: while the agent works again, the task has no final text and no outcome.
 
-**The loop guard.** At most **8** blocks are honored per **run** (one `start` or `continue` of the conversation), and the three events draw on the same budget (`HookRunner.retryLimit`, 8 like Claude Code's `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`; not a setting of the hooks file). The next objection is not honored: the hook is still asked, the task completes, its result ends with `[Hook notice] The Stop hook blocked 8 times; that is the limit for one run, so ChatMCP completed the task although a hook still objected (...)` and the task log has a `hook_limit` event. That note is the Hub's own words, not the model's. The runner records where the model's words end when it makes the final text (`finalParts` on the task, `lib/final-text.mjs`), and what shows the model's words alone leaves the note out: the summary of a coding worker (the note is the worker's `runnerHookNotice`, a line of its own on its card in the Agents tab, labelled as the Hub's) and the `claim` of `agent_results` (the note is `hookNotice` under `hubRecord`), the last answer in the handoff a conversation takes to the other transport (the note follows in a line of its own, labelled as the Hub's) and the preview of an agent on the card of a background workflow (the note is `resultNotice`, beside the preview). The main chat shows the text whole, on purpose. A task saved before that record keeps the note inside what it shows. A hook that gives way on the ninth answer leaves no note. The next run of the conversation has a budget of its own. Per run and in total, not "in a row": Claude Code's count resets when the model calls a tool, this one does not, so two hooks that block in turn cannot keep an agent going either.
+**The loop guard.** At most **8** blocks are honored per **run** (one `start` or `continue` of the conversation), and the three events draw on the same budget (`HookRunner.retryLimit`, 8 like Claude Code's `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`; not a setting of the hooks file). The next objection is not honored: the hook is still asked, the task completes, its result ends with `[Hook notice] The Stop hook blocked 8 times; that is the limit for one run, so DatGold completed the task although a hook still objected (...)` and the task log has a `hook_limit` event. That note is the Hub's own words, not the model's. The runner records where the model's words end when it makes the final text (`finalParts` on the task, `lib/final-text.mjs`), and what shows the model's words alone leaves the note out: the summary of a coding worker (the note is the worker's `runnerHookNotice`, a line of its own on its card in the Agents tab, labelled as the Hub's) and the `claim` of `agent_results` (the note is `hookNotice` under `hubRecord`), the last answer in the handoff a conversation takes to the other transport (the note follows in a line of its own, labelled as the Hub's) and the preview of an agent on the card of a background workflow (the note is `resultNotice`, beside the preview). The main chat shows the text whole, on purpose. A task saved before that record keeps the note inside what it shows. A hook that gives way on the ninth answer leaves no note. The next run of the conversation has a budget of its own. Per run and in total, not "in a row": Claude Code's count resets when the model calls a tool, this one does not, so two hooks that block in turn cannot keep an agent going either.
 
 **While a hook runs.** A cancel, a time limit or a Hub shutdown kills the hook and the process tree it started, and the task ends as cancelled, limit or failed: it does not complete. A hook that hangs is bounded by its `timeout` (default 600 s: give a Stop hook a short one, the task shows as running meanwhile). A message the person queues while a hook runs is delivered, and the task goes on instead of completing. A closed hooks runner (the Hub shutting down) ends the run as failed; any other failure of the runner is a `hook_error`.
 
@@ -165,7 +165,7 @@ Per task, in `<Hub data folder>/hooks/tasks/<task id>.json` (read it with `HookR
 
 ## Differences from Claude Code
 
-| | Claude Code | ChatMCP |
+| | Claude Code | DatGold |
 |---|---|---|
 | Order | the hook is asked before the permission prompt | permission gate first, then the hook (a hook asks you after the gate has) |
 | `allow` from a hook | skips the permission prompt | no objection; skips nothing |
@@ -173,7 +173,7 @@ Per task, in `<Hub data folder>/hooks/tasks/<task id>.json` (read it with `HookR
 | Handler types | command, http, mcp_tool, prompt, agent | command |
 | `updatedInput`, `updatedToolOutput` | applied | not implemented |
 | `async` | background | runs synchronously |
-| `tool_name` in the payload | `Bash`, `Edit` ... | the ChatMCP name, with `tool_aliases` |
+| `tool_name` in the payload | `Bash`, `Edit` ... | the DatGold name, with `tool_aliases` |
 | `continue: false` | stops the run | on `PreToolUse` a deny |
 | `defer` | pauses the call for a later resume | read as `ask` |
 | Project hooks | after the workspace trust dialog | after you approve the sha256 of the file |

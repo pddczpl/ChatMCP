@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "ChatMCP Hub Companion",
+  "name": "DatGold Hub Companion",
   "version": "1.5.2",
   "minimum_chrome_version": "120",
   "description": "Paired localhost tasks through ordinary ChatGPT chat, plus the existing manual MCP SuperAssistant compatibility bridge.",
@@ -8,7 +8,7 @@
   "host_permissions": ["http://127.0.0.1:3007/*", "https://chatgpt.com/*"],
   "background": { "service_worker": "background.js" },
   "action": {
-    "default_title": "ChatMCP Hub Companion",
+    "default_title": "DatGold Hub Companion",
     "default_popup": "popup.html"
   },
   "content_scripts": [

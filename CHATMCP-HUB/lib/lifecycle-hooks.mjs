@@ -120,7 +120,7 @@ function noticeText(run, objections) {
   const used = EVENTS.map((event) => [event, run.byEvent[event]]).filter(([, count]) => count > 0);
   const what = used.length <= 1 ? `The ${used[0]?.[0] ?? objections[0].event} hook blocked ${run.used} times` : `Hooks blocked ${run.used} times (${used.map(([event, count]) => `${event} ${count}`).join(', ')})`;
   const still = objections.map((item) => `${item.event}: ${oneLine(item.reasons.join(' / '), SUMMARY_CHARS)}`).join('; ');
-  return `${what}; that is the limit for one run, so ChatMCP completed the task although a hook still objected (${still}). What that hook checks may not hold.`;
+  return `${what}; that is the limit for one run, so DatGold completed the task although a hook still objected (${still}). What that hook checks may not hold.`;
 }
 
 const summaryOf = (record) => ({

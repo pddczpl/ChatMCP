@@ -18,7 +18,7 @@ import { previewManagedCodingContext } from './coding-context-preview.mjs';
 import { CodingRecoveryJournal } from './coding-recovery-journal.mjs';
 import { validateCodingTaskGraph, chooseReadyCodingBatch, detectCodingFileConflicts, proposeCodingTaskGraph } from './coding-task-dag.mjs';
 import { attachWorkerTestTools } from './worker-tools.mjs';
-import { VERIFICATION_NOTICE_MARK, finalPartsOf, verificationWarning } from './final-text.mjs';
+import { VERIFICATION_NOTICE_MARK, finalPartsOf, verificationWarnings } from './final-text.mjs';
 
 const fail = (code, msg, statusCode=400)=>Object.assign(new Error(msg),{code,statusCode});
 const allowedTools = new Set([
@@ -51,7 +51,8 @@ const RUNNER_NOTICE_MAX=2000;
 export function splitRunnerNotice(finalText,outcome){
   const text=typeof finalText==='string'?finalText:'';
   if(outcome?.ready!==false||!Array.isArray(outcome.missing))return {answer:text,notice:''};
-  const at=text.lastIndexOf(VERIFICATION_NOTICE_MARK+verificationWarning(outcome.missing));
+  // The Hub says "DatGold ..." now; a task saved before the product was renamed ends with the sentence as that Hub wrote it ("ChatMCP ..."): the last of either is the runner's.
+  const at=Math.max(...verificationWarnings(outcome.missing).map((warning)=>text.lastIndexOf(VERIFICATION_NOTICE_MARK+warning)));
   return at<0?{answer:text,notice:''}:{answer:text.slice(0,at),notice:text.slice(at+VERIFICATION_NOTICE_MARK.length)};
 }
 /**

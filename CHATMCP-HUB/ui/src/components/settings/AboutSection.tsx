@@ -31,7 +31,7 @@ export function AboutSection() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `chatmcp-audit-${Date.now()}.json`;
+    a.download = `datgold-audit-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
     showToast(t('about_exported'), 'success');

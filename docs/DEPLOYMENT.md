@@ -1,6 +1,6 @@
 # Triển khai — Cloud Hosting Retired
 
-**ChatMCP từ nhánh local-only không còn hỗ trợ Render, Docker/VPS server, public login, public workspace REST API, Cloud Harness MCP backend hay shared multi-tenant execution.** Những phần mã và cấu hình tương ứng đã được loại khỏi runtime. Tài liệu này giữ tên/heading cũ để những liên kết lịch sử không bị hỏng; các lệnh cloud trước đây **không còn được sử dụng**.
+**DatGold từ nhánh local-only không còn hỗ trợ Render, Docker/VPS server, public login, public workspace REST API, Cloud Harness MCP backend hay shared multi-tenant execution.** Những phần mã và cấu hình tương ứng đã được loại khỏi runtime. Tài liệu này giữ tên/heading cũ để những liên kết lịch sử không bị hỏng; các lệnh cloud trước đây **không còn được sử dụng**.
 
 ## 1. Chạy trên máy cá nhân (chế độ cục bộ)
 
@@ -28,7 +28,7 @@ Không áp dụng.
 
 ### Đặc điểm gói miễn phí của Render:
 
-Thông tin này chỉ là lưu trữ lịch sử, không còn liên quan ChatMCP local-only.
+Thông tin này chỉ là lưu trữ lịch sử, không còn liên quan DatGold local-only.
 
 ### Các bước triển khai Render:
 

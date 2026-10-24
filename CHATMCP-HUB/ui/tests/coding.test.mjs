@@ -920,7 +920,7 @@ test('a refusal is told as one, and the model’s own words are in the Hub’s r
 });
 
 test('the page’s line is plain text, after the evidence line and the Hub’s note and before the record, the notice and the AI’s report; it changes no colour of the card', async () => {
-  const entry = worker({ status: 'needs_attention', verifyRequired: true, summary: 'I fixed add() and ran the tests.', verificationNote: BLOCKED, runnerError: EMPTY_REPLY, runnerErrorCode: 'model_empty', runnerNotice: 'ChatMCP has NOT verified it.' });
+  const entry = worker({ status: 'needs_attention', verifyRequired: true, summary: 'I fixed add() and ran the tests.', verificationNote: BLOCKED, runnerError: EMPTY_REPLY, runnerErrorCode: 'model_empty', runnerNotice: 'DatGold has NOT verified it.' });
   for (const lang of ['en', 'vi']) {
     const card = await cardOf(entry, lang);
     const order = inside(card).map((node) => node.attrs['data-testid']).filter(Boolean);
@@ -953,7 +953,7 @@ test('text the Hub quotes that cannot be seen is still marked in its record when
 // The Hub’s notice on the AI’s report (the AgentRunner’s sentence at the end of a final answer the Hub could not back with evidence), apart from the report
 // ---------------------------------------------------------------------------------------------------------------------
 const noticeLineOf = (card) => inside(card).find((node) => node.attrs['data-testid'] === 'runner-notice');
-const NOTICE = 'ChatMCP has NOT independently verified full completion: No verified successful project check; No independently recorded Git diff review.';
+const NOTICE = 'DatGold has NOT independently verified full completion: No verified successful project check; No independently recorded Git diff review.';
 const NOTICE_LABEL = { en: 'The Hub’s note when the AI reported done, as it wrote it:', vi: 'Ghi chú của Hub lúc AI báo xong, nguyên văn:' };
 const REPORT = 'I created calc.js and ran the tests by hand.';
 
@@ -1010,10 +1010,10 @@ test('a caution is not withdrawn by a green card: the notice stands beside a wor
 });
 
 test('the notice is read like any text from outside: what cannot be seen is shown as a marker, with the line that says so', async () => {
-  const hidden = `ChatMCP has NOT verified${String.fromCharCode(0x202E)} it`;
+  const hidden = `DatGold has NOT verified${String.fromCharCode(0x202E)} it`;
   const card = await cardOf(worker({ runnerNotice: hidden }));
   const line = noticeLineOf(card);
-  assert.ok(line.text.includes('ChatMCP has NOT verified‹U+202E› it') && !line.text.includes(String.fromCharCode(0x202E)), line.text);
+  assert.ok(line.text.includes('DatGold has NOT verified‹U+202E› it') && !line.text.includes(String.fromCharCode(0x202E)), line.text);
   assert.match(card.text, /hidden or direction-changing/);
   assert.doesNotMatch((await cardOf(worker({ runnerNotice: NOTICE }))).text, /hidden or direction-changing/, 'plain text has no such line');
 });
@@ -1036,7 +1036,7 @@ test('a worker with no notice shows none; what is not text, or says nothing, is 
 // other sentence of the Hub’s, with a label that says when the Hub wrote it
 // ---------------------------------------------------------------------------------------------------------------------
 const hookLineOf = (card) => inside(card).find((node) => node.attrs['data-testid'] === 'runner-hook-notice');
-const HOOK_NOTICE = 'The SubagentStop hook blocked 8 times; that is the limit for one run, so ChatMCP completed the task although a hook still objected (SubagentStop: Mention the file you created.). What that hook checks may not hold.';
+const HOOK_NOTICE = 'The SubagentStop hook blocked 8 times; that is the limit for one run, so DatGold completed the task although a hook still objected (SubagentStop: Mention the file you created.). What that hook checks may not hold.';
 const HOOK_LABEL = { en: 'The Hub’s note about a hook that still objected, written when the run ended, as it wrote it:', vi: 'Ghi chú của Hub về hook vẫn phản đối, ghi lúc lượt chạy kết thúc, nguyên văn:' };
 
 test('the Hub’s note about a hook is shown as the Hub’s, with a label in the language on screen that says when it was written, and the report holds only what the AI said', async () => {

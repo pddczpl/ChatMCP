@@ -19,7 +19,7 @@ const bundleRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..')
 const companionRoot=path.join(bundleRoot,'extension');
 const companionManifest=JSON.parse(await fs.readFile(path.join(companionRoot,'manifest.json'),'utf8'));
 assert.equal(companionManifest.manifest_version,3);
-assert.equal(companionManifest.name,'ChatMCP Hub Companion');
+assert.equal(companionManifest.name,'DatGold Hub Companion');
 assert.ok(/^\d+\.\d+\.\d+$/.test(companionManifest.version));
 assert.deepEqual(companionManifest.host_permissions.slice().sort(),
   ['http://127.0.0.1:3007/*','https://chatgpt.com/*'].sort());

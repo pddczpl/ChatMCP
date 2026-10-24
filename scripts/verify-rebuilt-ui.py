@@ -56,7 +56,7 @@ def main():
 
             title = page.title()
             print("Page Title:", title)
-            assert "ChatMCP Studio" in title, f"Unexpected title: {title}"
+            assert "DatGold Studio" in title, f"Unexpected title: {title}"
 
             shots_dir = ROOT / "design/screenshots"
             shots_dir.mkdir(parents=True, exist_ok=True)

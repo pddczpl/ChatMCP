@@ -78,7 +78,7 @@ internal static class HubSession
         request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
         using var response = await client.SendAsync(request);
         if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException("The Hub refused a session ticket (HTTP " + (int)response.StatusCode + "). Close and reopen ChatMCP.");
+            throw new InvalidOperationException("The Hub refused a session ticket (HTTP " + (int)response.StatusCode + "). Close and reopen DatGold.");
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         if (!body.RootElement.TryGetProperty("ticket", out var ticket) || ticket.ValueKind != JsonValueKind.String ||
             !Regex.IsMatch(ticket.GetString() ?? "", "^[A-Za-z0-9_-]{16,256}$"))

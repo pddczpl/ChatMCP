@@ -1,6 +1,6 @@
-# Third-party notices — ChatMCP
+# Third-party notices — DatGold
 
-ChatMCP's own code is licensed under the [Apache License, Version 2.0](LICENSE) (see [NOTICE](NOTICE)); contributions are accepted under the Developer Certificate of Origin ([CONTRIBUTING.md](CONTRIBUTING.md)). This file covers the **third-party components that ChatMCP redistributes**. They are not covered by Apache-2.0 and stay under their own licenses and copyright notices.
+DatGold's own code is licensed under the [Apache License, Version 2.0](LICENSE) (see [NOTICE](NOTICE)); contributions are accepted under the Developer Certificate of Origin ([CONTRIBUTING.md](CONTRIBUTING.md)). This file covers the **third-party components that DatGold redistributes**. They are not covered by Apache-2.0 and stay under their own licenses and copyright notices.
 
 It is an inventory kept by the maintainers, **not legal advice**, and it does not replace the license texts: the column "License text in the installed copy" says where each text is. "Pending" means the text is not shipped yet and the build says so (see [Pending notices](#pending-notices)). The audit behind this file, with the findings it answers, is [docs/LICENSE-SCAN.md](docs/LICENSE-SCAN.md). `tests/verify-notices.mjs` fails when a component below loses its entry here or in `CHATMCP-HUB/THIRD-PARTY-NOTICES.txt`, when this list stops matching the lockfiles, or when a staging script stops copying or asserting a license file.
 
@@ -214,7 +214,7 @@ These are the gaps that remain after this change. None of them is hidden by the 
 
 ## Not redistributed
 
-- Git for Windows (GPL-2.0), Microsoft Edge or Chromium, the Microsoft Edge WebView2 Runtime, Ollama, LM Studio and the model providers' services are separate installations that the user provides; ChatMCP does not bundle them. If a release ever bundles Git or another GPL or LGPL component, the license scan has to be redone first.
+- Git for Windows (GPL-2.0), Microsoft Edge or Chromium, the Microsoft Edge WebView2 Runtime, Ollama, LM Studio and the model providers' services are separate installations that the user provides; DatGold does not bundle them. If a release ever bundles Git or another GPL or LGPL component, the license scan has to be redone first.
 - `node-pty` (MIT) is optional and installed by the user from npm on request.
 - Build-time and test-only dependencies stay out of the installer, among them Vite, Tailwind CSS, the UI type packages, the Playwright test runner, `lightningcss` (MPL-2.0, file-level copyleft) and `caniuse-lite` (CC-BY-4.0 data). Shipping `node_modules` would add duties for those two.
 

@@ -1,0 +1,34 @@
+{
+  "suite": "verify-coding-verification-note.mjs",
+  "description": "What the coding-worker suite must notice about the rename: the reader of a task saved without a record (lib/coding-orchestrator.mjs splitRunnerNotice) stops finding the sentence an earlier Hub wrote (\"ChatMCP has NOT ...\"), or the one the Hub writes now (\"DatGold has NOT ...\"), or takes the wrong one when both stand in the text.",
+  "mutations": [
+    {
+      "name": "R1",
+      "what": "the reader looks only for the current wording (a worker saved before the rename keeps the Hub's sentence in its summary)",
+      "patches": [
+        { "file": "lib/coding-orchestrator.mjs", "old": "verificationWarnings(outcome.missing).map((warning)=>", "new": "verificationWarnings(outcome.missing).slice(0,1).map((warning)=>" }
+      ]
+    },
+    {
+      "name": "R2",
+      "what": "the reader looks only for the wording before the rename (a worker saved by this Hub keeps the Hub's sentence in its summary)",
+      "patches": [
+        { "file": "lib/coding-orchestrator.mjs", "old": "verificationWarnings(outcome.missing).map((warning)=>", "new": "verificationWarnings(outcome.missing).slice(1).map((warning)=>" }
+      ]
+    },
+    {
+      "name": "R3",
+      "what": "the reader takes the first place a sentence stands instead of the last (a copy of it in the model's words ends the summary early)",
+      "patches": [
+        { "file": "lib/coding-orchestrator.mjs", "old": "const at=Math.max(...verificationWarnings(outcome.missing).map((warning)=>text.lastIndexOf(VERIFICATION_NOTICE_MARK+warning)));", "new": "const at=Math.max(...verificationWarnings(outcome.missing).map((warning)=>text.indexOf(VERIFICATION_NOTICE_MARK+warning)));" }
+      ]
+    },
+    {
+      "name": "R4",
+      "what": "the reader takes the earliest of the two wordings instead of the latest when both stand in the text",
+      "patches": [
+        { "file": "lib/coding-orchestrator.mjs", "old": "const at=Math.max(...verificationWarnings(outcome.missing).map((warning)=>text.lastIndexOf(VERIFICATION_NOTICE_MARK+warning)));", "new": "const at=Math.min(...verificationWarnings(outcome.missing).map((warning)=>text.lastIndexOf(VERIFICATION_NOTICE_MARK+warning)));" }
+      ]
+    }
+  ]
+}

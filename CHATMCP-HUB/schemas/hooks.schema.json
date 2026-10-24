@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/pddczpl/ChatMCP/blob/main/CHATMCP-HUB/schemas/hooks.schema.json",
-  "title": "ChatMCP hooks.json",
-  "description": "Lifecycle hooks for the ChatMCP Hub: the documented subset of the Claude Code hooks schema. The owner's file is <Hub data folder>/hooks.json; a project may ship .chatmcp/hooks.json, which is ignored until the owner approves its sha256. The Hub validates in code (lib/hooks.mjs); tests/verify-hooks-core.mjs checks that this file and the loader accept and refuse the same configurations.",
+  "title": "DatGold hooks.json",
+  "description": "Lifecycle hooks for the DatGold Hub: the documented subset of the Claude Code hooks schema. The owner's file is <Hub data folder>/hooks.json; a project may ship .chatmcp/hooks.json, which is ignored until the owner approves its sha256. The Hub validates in code (lib/hooks.mjs); tests/verify-hooks-core.mjs checks that this file and the loader accept and refuse the same configurations.",
   "type": "object",
   "properties": {
     "$schema": { "type": "string" },
@@ -40,7 +40,7 @@
       "required": ["hooks"],
       "properties": {
         "matcher": {
-          "description": "Tested against the tool name of the tool events. Empty, \"*\" or absent: every tool. Only letters, digits, _ - space , and |: an exact name or a list of exact names. Anything else is an unanchored JavaScript regular expression. A ChatMCP name (local.run_command) and the Claude Code name (Bash) both match; an external tool answers to mcp__server__tool. Ignored by Stop, TaskCompleted and SubagentStop.",
+          "description": "Tested against the tool name of the tool events. Empty, \"*\" or absent: every tool. Only letters, digits, _ - space , and |: an exact name or a list of exact names. Anything else is an unanchored JavaScript regular expression. A DatGold name (local.run_command) and the Claude Code name (Bash) both match; an external tool answers to mcp__server__tool. Ignored by Stop, TaskCompleted and SubagentStop.",
           "type": "string",
           "maxLength": 512
         },

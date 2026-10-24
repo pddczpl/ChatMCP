@@ -26,7 +26,7 @@ try {
     Add-Type -AssemblyName System.Drawing -ErrorAction Stop
     [System.Windows.Forms.Application]::EnableVisualStyles()
     $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-    $dialog.Description = 'ChatMCP - Select the folder to use as your local workspace'
+    $dialog.Description = 'DatGold - Select the folder to use as your local workspace'
     $dialog.ShowNewFolderButton = $true
     if ($dialog.PSObject.Properties.Name -contains 'AutoUpgradeEnabled') {
         $dialog.AutoUpgradeEnabled = $true

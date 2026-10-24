@@ -1,6 +1,6 @@
-# Contributing to ChatMCP
+# Contributing to DatGold
 
-Thank you for helping with ChatMCP, a local-first AI coding agent for Windows 10/11 x64. This page explains how contributions are licensed, how to build and test, and what a pull request has to contain.
+Thank you for helping with DatGold, a local-first AI coding agent for Windows 10/11 x64. This page explains how contributions are licensed, how to build and test, and what a pull request has to contain.
 
 - [License of contributions](#license-of-contributions)
 - [Developer Certificate of Origin (DCO)](#developer-certificate-of-origin-dco)
@@ -13,7 +13,7 @@ Thank you for helping with ChatMCP, a local-first AI coding agent for Windows 10
 
 ## License of contributions
 
-ChatMCP is licensed under the [Apache License, Version 2.0](LICENSE); see also [NOTICE](NOTICE). There is **no Contributor License Agreement (CLA)**. Instead, contributions are accepted on an *inbound = outbound* basis: as provided by section 5 of the Apache License 2.0, unless you explicitly state otherwise in the pull request, any contribution you intentionally submit for inclusion in ChatMCP is licensed under the Apache License 2.0, without any additional terms or conditions. You keep the copyright in your contribution.
+DatGold is licensed under the [Apache License, Version 2.0](LICENSE); see also [NOTICE](NOTICE). There is **no Contributor License Agreement (CLA)**. Instead, contributions are accepted on an *inbound = outbound* basis: as provided by section 5 of the Apache License 2.0, unless you explicitly state otherwise in the pull request, any contribution you intentionally submit for inclusion in DatGold is licensed under the Apache License 2.0, without any additional terms or conditions. You keep the copyright in your contribution.
 
 Only submit code, text and assets you have the right to license this way. If you copy or adapt third-party material:
 
@@ -147,7 +147,7 @@ chore: align React, native lifecycle and changelog with v3.9.0
 
 ## AI-assisted contributions
 
-ChatMCP itself is developed with AI coding agents, and AI-assisted pull requests are welcome under these rules:
+DatGold itself is developed with AI coding agents, and AI-assisted pull requests are welcome under these rules:
 
 - **You are responsible for what you submit.** Read and understand every line, and run the tests yourself. "The agent said it works" is not a review.
 - **Disclose it.** Say in the pull request that an AI tool helped, which one, and roughly what it did (the template has a field for it).
@@ -161,4 +161,4 @@ Do not open a public issue for a vulnerability. Follow [SECURITY.md](SECURITY.md
 
 ## ChatGPT Web Companion
 
-ChatMCP has two modes. *Model API* mode talks to a model endpoint with your own credentials. The *ChatGPT Web Companion* drives a consumer web page (chatgpt.com) through a browser extension. That kind of automation can conflict with the website's Terms of Use, may be restricted or blocked by the provider at any time, and can break whenever the page changes. This risk belongs to the Web Companion only. Take it into account before you rely on, extend or recommend it; see the [README](README.md) for the user-facing description.
+DatGold has two modes. *Model API* mode talks to a model endpoint with your own credentials. The *ChatGPT Web Companion* drives a consumer web page (chatgpt.com) through a browser extension. That kind of automation can conflict with the website's Terms of Use, may be restricted or blocked by the provider at any time, and can break whenever the page changes. This risk belongs to the Web Companion only. Take it into account before you rely on, extend or recommend it; see the [README](README.md) for the user-facing description.

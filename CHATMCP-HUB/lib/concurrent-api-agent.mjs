@@ -585,7 +585,7 @@ export class ConcurrentApiAgent {
     if (this.closed) throw fail('shutting_down', 'Hub is shutting down.', 503);
     if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 100000) throw fail('invalid_prompt', 'A task prompt is required.', 400);
     if (!Array.isArray(dependsOn) || dependsOn.length > 12 || dependsOn.some(id => !UUID.test(id) || !this.get(id)))
-      throw fail('invalid_dependencies', 'Dependencies must reference existing ChatMCP tasks.', 400);
+      throw fail('invalid_dependencies', 'Dependencies must reference existing DatGold tasks.', 400);
     if (parentTaskId && (!UUID.test(parentTaskId) || !this.get(parentTaskId)))
       throw fail('invalid_parent', 'Parent task was not found.', 400);
     const parent = parentTaskId ? this.get(parentTaskId) : null;

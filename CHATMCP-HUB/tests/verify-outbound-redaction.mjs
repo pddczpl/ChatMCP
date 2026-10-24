@@ -217,7 +217,7 @@ console.log(`PASS false positives: ${altered.length} of ${clean.length} benign s
     const { result, withheld } = ok(call);
     assert.ok(withheld.length > 0, `not withheld: ${JSON.stringify(call)}`);
     assert.equal(result.content.length, 1);
-    assert.match(result.content[0].text, /^\[WITHHELD by ChatMCP/);
+    assert.match(result.content[0].text, /^\[WITHHELD by DatGold/);
     assert.ok(!JSON.stringify(result).includes('DB_PASSWORD'), 'content leaked');
     assert.equal(result.structuredContent.withheld, true);
   }

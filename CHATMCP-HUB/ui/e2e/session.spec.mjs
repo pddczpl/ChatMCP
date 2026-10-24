@@ -2,7 +2,7 @@
 import { test, expect } from './fixtures.mjs';
 
 const STORAGE_KEY = 'chatmcp.hub-session';
-const welcome = (page) => page.getByRole('heading', { name: 'Chào mừng đến với ChatMCP Studio' });
+const welcome = (page) => page.getByRole('heading', { name: 'Chào mừng đến với DatGold Studio' });
 const reopenScreen = (page) => page.getByRole('alert').filter({ hasText: 'Session required' });
 
 test('a one-time ticket signs the tab in, leaves no trace in the address, and the task stream carries the bearer', async ({ page, app }) => {
@@ -24,7 +24,7 @@ test('a one-time ticket signs the tab in, leaves no trace in the address, and th
   expect(stored.local, 'never in localStorage').not.toContain(app.hub.secret);
 });
 
-test('a tab opened without ChatMCP asks to reopen it and calls no API', async ({ page, app, browserErrors }) => {
+test('a tab opened without DatGold asks to reopen it and calls no API', async ({ page, app, browserErrors }) => {
   await page.goto(app.hub.origin);
   await expect(reopenScreen(page)).toBeVisible();
   expect([...browserErrors.requests], 'no API route was called').toEqual([]);

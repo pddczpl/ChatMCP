@@ -84,7 +84,7 @@ export async function request<T>(route: string, options: RequestInit = {}): Prom
   if (res.status === 401 && data?.code === 'hub_auth_required') {
     // The Hub restarted (new secret) or this tab never had one. A reload cannot fix that: show the "reopen ChatMCP" screen.
     reportHubSessionLost();
-    const err = new Error(data?.error || 'Cần mở lại ChatMCP từ launcher.') as Error & { status: number; code?: string };
+    const err = new Error(data?.error || 'Cần mở lại DatGold từ launcher.') as Error & { status: number; code?: string };
     err.status = 401;
     err.code = 'hub_auth_required';
     throw err;

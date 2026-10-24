@@ -91,7 +91,7 @@ test('onboarding, blank conversation, real approvals/edit/test/diff/plan and Ski
   const callsAfterCompletion = app.mock.state.requests.length;
   await closeSettings(page);
   await page.getByRole('button', { name: 'Hội thoại mới', exact: true }).click();
-  await expect(page.locator('#panel-conversation').getByRole('heading', { name: 'ChatMCP Studio', exact: true })).toBeVisible();
+  await expect(page.locator('#panel-conversation').getByRole('heading', { name: 'DatGold Studio', exact: true })).toBeVisible();
   await expect(page.locator('#panel-conversation').getByText('Verified addition: node test.js passed with exit code 0.', { exact: true })).toHaveCount(0);
   await openWorkTab(page, 'Tiến độ');
   await expect(page.getByText('Chưa có kế hoạch', { exact: true })).toBeVisible();
@@ -180,8 +180,8 @@ const inEnglish = (text) => text.replace('Tiếng Việt (Vietnamese)', '');
 test('the first-run setup reads English from the first screen and sets up the same things', async ({ page, app }) => {
   await page.addInitScript(() => localStorage.setItem('chatmcp:language', 'en'));
   await page.goto(await app.signInUrl());
-  const setup = page.getByRole('dialog', { name: 'ChatMCP setup' });
-  await expect(setup.getByRole('heading', { name: 'Welcome to ChatMCP Studio' })).toBeVisible();
+  const setup = page.getByRole('dialog', { name: 'DatGold setup' });
+  await expect(setup.getByRole('heading', { name: 'Welcome to DatGold Studio' })).toBeVisible();
   expect(await setup.innerText(), 'step 1 reads English').not.toMatch(VIETNAMESE);
   await page.getByLabel('Workspace path', { exact: true }).fill(app.project);
   await page.getByRole('button', { name: 'Apply workspace', exact: true }).click();
@@ -199,7 +199,7 @@ test('the first-run setup reads English from the first screen and sets up the sa
   expect(await setup.innerText(), 'step 3 reads English').not.toMatch(VIETNAMESE);
   await page.getByRole('button', { name: /^Read-only/ }).click();
   await page.getByRole('button', { name: 'Start working now', exact: true }).click();
-  await expect(page.getByText('Welcome to ChatMCP Studio!')).toBeVisible();
+  await expect(page.getByText('Welcome to DatGold Studio!')).toBeVisible();
   await expect(setup).toHaveCount(0);
   await expect.poll(async () => (await app.hub.state()).studio.permissions.mode).toBe('readonly');
   expect((await app.hub.state()).ai.model).toBe('mock-coder');

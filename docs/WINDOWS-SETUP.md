@@ -1,4 +1,4 @@
-# Cài đặt ChatMCP trên Windows 10/11 (local-only)
+# Cài đặt DatGold trên Windows 10/11 (local-only)
 
 Hub mặc định chạy trên **127.0.0.1:3007** dưới tài khoản Windows hiện tại. Docker, Cloud Harness, proxy MCP cũ, Render và public authentication **không còn là thành phần ứng dụng**.
 

@@ -1,19 +1,19 @@
 # ChatGPT Web Companion: risks and privacy safeguards
 
-This page describes what the ChatGPT Web Companion does with your workspace content, the risk that comes with it, and the safeguards ChatMCP adds to reduce accidental exposure. The safeguards are **best effort**. They lower the chance of a leak; they do not make the mode safe for material you must not share.
+This page describes what the ChatGPT Web Companion does with your workspace content, the risk that comes with it, and the safeguards DatGold adds to reduce accidental exposure. The safeguards are **best effort**. They lower the chance of a leak; they do not make the mode safe for material you must not share.
 
 ## What the mode is, and the risk
 
 The Companion is a paired Chrome/Edge extension (Manifest V3). It types the Hub's messages into the chat box of the **chatgpt.com tab you are signed in to**, and reads the model's reply back as a fenced JSON block. In other words, it **automates the consumer ChatGPT page**.
 
-- It is not an API, and it is not a channel that OpenAI provides, supports or permits. ChatMCP is not affiliated with OpenAI.
-- Automating that page **may conflict with OpenAI's Terms of Use**. Your ChatGPT account could be warned or suspended. ChatMCP cannot assess or remove that risk; read the current terms yourself.
-- The Companion sends **workspace content into your ChatGPT chat**: your prompt, the output of every tool the model calls (file contents, search hits, command output, Git output) and any handoff summary. That content is stored in your ChatGPT history and handled under OpenAI's policies, outside ChatMCP's control. Deleting a chat in ChatGPT is not something ChatMCP can do or verify.
+- It is not an API, and it is not a channel that OpenAI provides, supports or permits. DatGold is not affiliated with OpenAI.
+- Automating that page **may conflict with OpenAI's Terms of Use**. Your ChatGPT account could be warned or suspended. DatGold cannot assess or remove that risk; read the current terms yourself.
+- The Companion sends **workspace content into your ChatGPT chat**: your prompt, the output of every tool the model calls (file contents, search hits, command output, Git output) and any handoff summary. That content is stored in your ChatGPT history and handled under OpenAI's policies, outside DatGold's control. Deleting a chat in ChatGPT is not something DatGold can do or verify.
 - Use the Model API when you need a channel with clear terms, or when the workspace holds material that belongs to a client.
 
 The same wording is shown in Settings (next to the channel selector, before you switch to the mode) and in the task view of every ChatGPT Web task.
 
-## What ChatMCP does to limit accidental exposure
+## What DatGold does to limit accidental exposure
 
 Three safeguards sit between the Hub and the extension. The scanner covers everything the Hub hands over: the first message, a continuation prompt, handoff text, every tool result, every `result_page` and what `poll()` returns. The protected-file filter and the optional review apply to tool results. Nothing here hides the automation from the page or from OpenAI, and nothing here changes how the extension is paired or how it talks to the Hub.
 
@@ -67,7 +67,7 @@ The preview and the decision routes (`POST /api/browser/outbound/decide`, `POST 
 
 - It does not find a secret that has no recognisable shape (a random string in prose, a password in a sentence, a key split over two lines) and does not read images or other binary data. It cannot know which text is confidential for a client. Review before send is the safeguard for that.
 - Task history and transcripts stored on your own computer (`tasks/<id>/transcript.jsonl` in the Hub's data folder) keep the raw tool results, masked only for secrets the Hub knows by exact value. Only what is sent to chatgpt.com is filtered.
-- It does not change the Terms-of-Use risk, and nothing in ChatMCP hides or disguises the browser automation.
+- It does not change the Terms-of-Use risk, and nothing in DatGold hides or disguises the browser automation.
 - Withholding is by path and by recognisable output. A tool that returns a protected file's content under no file name, in a command that never names it, is only covered by the scanner.
 
 ## How it was tested

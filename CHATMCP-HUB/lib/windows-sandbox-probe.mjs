@@ -111,7 +111,7 @@ export async function probeWindowsSandboxPreflight() {
 
   // This experimental CLI backend initially targets Windows 11 24H2+ x64.
   if (osArch !== 'x64') {
-    blockers.push(`Initial ChatMCP Windows Sandbox backend requires x64 (detected '${osArch}').`);
+    blockers.push(`Initial DatGold Windows Sandbox backend requires x64 (detected '${osArch}').`);
     remediations.push('Use a supported Windows 11 x64 host.');
   }
   if (osBuild < 26100) {
@@ -170,7 +170,7 @@ export async function probeWindowsSandboxPreflight() {
 
   if (featureState && /Pending/i.test(featureState)) {
     blockers.push(`Windows Sandbox optional feature is '${featureState}' and a user-controlled restart is pending.`);
-    remediations.push('Restart when convenient; ChatMCP must never reboot automatically.');
+    remediations.push('Restart when convenient; DatGold must never reboot automatically.');
   } else if (featureState !== 'Enabled') {
     blockers.push('Windows Sandbox optional-feature state is not confirmed Enabled.');
     remediations.push('Check Get-WindowsOptionalFeature after any pending restart.');

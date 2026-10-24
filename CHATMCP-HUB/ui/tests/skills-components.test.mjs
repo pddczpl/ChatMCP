@@ -77,3 +77,16 @@ test('missing installed state disables install instead of inviting duplicate ins
   assert.match(card(html), /Chưa xác định trạng thái cài đặt/);
   assert.match(card(html), /<button[^>]*disabled=""[^>]*>[\s\S]*Cài đặt<\/button>/);
 });
+
+// The product was renamed from ChatMCP to DatGold. The built-in skills are now by "DatGold Team"; an installation made by an earlier Hub saved "ChatMCP Team" in its
+// installed list, and the card must say DatGold for both. Any other author is shown as it is.
+test('the author of a built-in skill reads DatGold whether the Hub that saved it wrote DatGold Team or ChatMCP Team, and any other author is shown as it is', async () => {
+  const source = (html) => card(html).match(/<p class="break-words text-\[12px\] text-muted">([^<]*)<\/p>/)?.[1];
+  for (const author of ['DatGold Team', 'ChatMCP Team']) {
+    assert.equal(source(await render({ installed: [{ id: 'built-in', name: 'Built in', author, enabled: true }] })), 'DatGold', author);
+  }
+  for (const author of ['Ada Lovelace', 'DatGold Security Team', 'ChatMCP Security Team']) {
+    assert.equal(source(await render({ installed: [{ id: 'other', name: 'Other', author, enabled: true }] })), author, author);
+  }
+  assert.equal(source(await render({ installed: [{ id: 'unknown', name: 'Unknown', author: 'unknown', enabled: true }] })), 'Kỹ năng tự thêm');
+});

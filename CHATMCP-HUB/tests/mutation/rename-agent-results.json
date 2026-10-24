@@ -1,0 +1,27 @@
+{
+  "suite": "verify-agent-results.mjs",
+  "description": "What the agent_results suite must notice about the rename: the reader of a task saved without a record (lib/agent-results.mjs splitVerificationNotice) stops finding the sentence an earlier Hub wrote (\"ChatMCP has NOT ...\"), or the one the Hub writes now (\"DatGold has NOT ...\").",
+  "mutations": [
+    {
+      "name": "R1",
+      "what": "the reader looks only for the current wording (a task saved before the rename keeps the Hub's sentence inside the model's claim)",
+      "patches": [
+        { "file": "lib/agent-results.mjs", "old": "const standing = wordings.find((warning) =>", "new": "const standing = wordings.slice(0, 1).find((warning) =>" }
+      ]
+    },
+    {
+      "name": "R2",
+      "what": "the reader looks only for the wording before the rename (a task saved by this Hub keeps the Hub's sentence inside the model's claim)",
+      "patches": [
+        { "file": "lib/agent-results.mjs", "old": "const standing = wordings.find((warning) =>", "new": "const standing = wordings.slice(1).find((warning) =>" }
+      ]
+    },
+    {
+      "name": "R3",
+      "what": "the notice that is reported is always the current wording, even when the text ends with the earlier one",
+      "patches": [
+        { "file": "lib/agent-results.mjs", "old": "return { text: finalText.slice(0, -(VERIFICATION_NOTICE_MARK + standing).length), notice: standing };", "new": "return { text: finalText.slice(0, -(VERIFICATION_NOTICE_MARK + standing).length), notice: wordings[0] };" }
+      ]
+    }
+  ]
+}

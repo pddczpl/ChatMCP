@@ -439,14 +439,14 @@ test('the code changes nothing about how a worker is read: the colour is the evi
   assert.equal(runnerNoticeOf(failed), null, 'nor a notice on the AI’s report');
 });
 
-const NOTICE_SENTENCE = 'ChatMCP has NOT independently verified full completion: No verified successful project check; No independently recorded Git diff review.';
+const NOTICE_SENTENCE = 'DatGold has NOT independently verified full completion: No verified successful project check; No independently recorded Git diff review.';
 
 test('the Hub’s notice on the AI’s report is passed on as the text it is, for a worker in any state', () => {
   for (const status of ['ready_for_review', 'failed', 'needs_attention', 'interrupted', 'cancelled', 'no_changes', 'running']) {
     assert.equal(runnerNoticeOf(worker({ status, runnerNotice: NOTICE_SENTENCE })), NOTICE_SENTENCE, status);
   }
   // exactly as the Hub sent it: not trimmed, not translated, not cut. What cannot be seen at either end is for the page to show as a marker
-  const marked = String.fromCharCode(0x202E) + ' ChatMCP has NOT verified it\n';
+  const marked = String.fromCharCode(0x202E) + ' DatGold has NOT verified it\n';
   assert.equal(runnerNoticeOf(worker({ runnerNotice: marked })), marked);
 });
 
@@ -495,7 +495,7 @@ test('what the Hub says on the AI’s report changes nothing about how a worker 
   assert.equal(runnerNoticeOf(stopped), null, 'and that record is not a notice');
 });
 
-const HOOK_SENTENCE = 'The SubagentStop hook blocked 8 times; that is the limit for one run, so ChatMCP completed the task although a hook still objected (SubagentStop: Mention the file you created.). What that hook checks may not hold.';
+const HOOK_SENTENCE = 'The SubagentStop hook blocked 8 times; that is the limit for one run, so DatGold completed the task although a hook still objected (SubagentStop: Mention the file you created.). What that hook checks may not hold.';
 
 test('the Hub’s note about a hook that still objected is passed on as the text it is, for a worker in any state', () => {
   for (const status of ['ready_for_review', 'failed', 'needs_attention', 'interrupted', 'cancelled', 'no_changes', 'running']) {

@@ -24,7 +24,7 @@
 //  * Nothing in the result changes while a child is only waiting: no elapsed time, no clock. The no-progress detector fingerprints
 //    tool results, and an agent that polls this tool for an unchanged answer must look like what it is.
 import { redactText } from './outbound-redaction.mjs';
-import { VERIFICATION_NOTICE_MARK, finalPartsOf, verificationWarning } from './final-text.mjs';
+import { VERIFICATION_NOTICE_MARK, finalPartsOf, verificationWarnings } from './final-text.mjs';
 
 export const AGENT_RESULTS_LIMITS = Object.freeze({
   agents: 16,
@@ -101,9 +101,11 @@ export function parseAgentResultsArguments(args) {
 function splitVerificationNotice(finalText, outcome) {
   const given = plain(outcome);
   if (given.ready !== false || !Array.isArray(given.missing)) return { text: finalText, notice: null };
-  const warning = verificationWarning(given.missing);
-  const suffix = VERIFICATION_NOTICE_MARK + warning;
-  return { text: finalText.endsWith(suffix) ? finalText.slice(0, -suffix.length) : finalText, notice: warning };
+  // The Hub says "DatGold ..." now; a task saved before the product was renamed ends with the sentence as that Hub wrote it ("ChatMCP ..."), and it is reported as it stands.
+  const wordings = verificationWarnings(given.missing);
+  const standing = wordings.find((warning) => finalText.endsWith(VERIFICATION_NOTICE_MARK + warning));
+  if (standing === undefined) return { text: finalText, notice: wordings[0] };
+  return { text: finalText.slice(0, -(VERIFICATION_NOTICE_MARK + standing).length), notice: standing };
 }
 
 /**

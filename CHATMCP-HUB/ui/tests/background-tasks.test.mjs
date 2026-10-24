@@ -192,7 +192,7 @@ test('the workflow card on the English screen is English, with a correct plural'
 
 test('the workflow card shows the Hub\'s note on an agent\'s answer apart from the answer, in both languages, and only for an agent that has finished', async () => {
   // The preview of an agent is the words its model said; the sentences the Hub's runner put after them (lib/final-text.mjs) arrive as resultNotice and are told as the Hub's.
-  const NOTE = 'ChatMCP has NOT independently verified full completion: no check was run.';
+  const NOTE = 'DatGold has NOT independently verified full completion: no check was run.';
   const agent = (id, status, extra = {}) => ({ id, taskId: `sub-${id}`, role: `Role ${id}`, goal: `Inspect ${id}`, status, model: 'mock-coder', startedAt: '2026-10-20T10:00:00Z', finishedAt: status === 'running' ? null : '2026-10-20T10:01:00Z', ...extra });
   const noted = workflow({ phases: [{ id: 'ph-1', name: 'Review', dependsOn: [], status: 'running', completed: 2, total: 4, agents: [
     agent('a1', 'completed', { resultPreview: 'Nothing found', resultNotice: NOTE }),
@@ -200,7 +200,7 @@ test('the workflow card shows the Hub\'s note on an agent\'s answer apart from t
     agent('a3', 'running', { resultPreview: null, resultNotice: NOTE }),
     agent('a4', 'completed', { resultPreview: 'Fine' }),
   ] }] });
-  for (const [lang, label] of [['vi', 'Ghi chú của ChatMCP về câu trả lời này:'], ['en', 'ChatMCP\'s note on this answer:']]) {
+  for (const [lang, label] of [['vi', 'Ghi chú của DatGold về câu trả lời này:'], ['en', 'DatGold\'s note on this answer:']]) {
     const markup = await renderWith(WorkflowCard, { workflow: noted }, [], [], lang === 'en' ? { lang } : {});
     const root = parseHtml(markup);
     const agents = testId(root, 'workflow-subagent');
@@ -218,8 +218,8 @@ test('the workflow card shows the Hub\'s note on an agent\'s answer apart from t
       assert.doesNotMatch(markup, RAW_KEY, 'no dictionary key shown as text');
     }
   }
-  assert.equal(translations.vi.agents_wf_hub_note, 'Ghi chú của ChatMCP về câu trả lời này:');
-  assert.equal(translations.en.agents_wf_hub_note, 'ChatMCP\'s note on this answer:');
+  assert.equal(translations.vi.agents_wf_hub_note, 'Ghi chú của DatGold về câu trả lời này:');
+  assert.equal(translations.en.agents_wf_hub_note, 'DatGold\'s note on this answer:');
 });
 
 // ---- the dictionary behind it ----

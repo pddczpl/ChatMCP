@@ -1,4 +1,4 @@
-# ADR-001: Hiện đại hóa Frontend Stack và Kiến trúc Triển khai ChatMCP Studio
+# ADR-001: Hiện đại hóa Frontend Stack và Kiến trúc Triển khai DatGold Studio
 
 * **Trạng thái:** Đề xuất (Chờ phê duyệt Giai đoạn 1)
 * **Ngày:** 2026-10-12
@@ -9,7 +9,7 @@
 
 ## 1. Bối cảnh & Vấn đề
 
-ChatMCP Studio hiện tại:
+DatGold Studio hiện tại:
 1. `react-app.js` được viết bằng `React.createElement` thủ công không có JSX hay bước build, khó bảo trì, dễ sai sót khi logic mở rộng.
 2. `react.css` gồm nhiều lớp override chồng lên các phiên bản 2.0, 2.1, 2.2; nhiều màu bị hardcode hex code dẫn đến lỗi hiển thị ở light theme và độ tương phản kém.
 3. Không có type-safety, không có linting chuẩn, và khó mở rộng các tính năng hiện đại như virtualized message list, code diff viewer chuyên nghiệp, autocomplete `@` mention, v.v.

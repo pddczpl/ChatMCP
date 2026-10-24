@@ -28,7 +28,7 @@ internal static class HubLifecycle
         {
             bool acquired;
             try { acquired = mutex.WaitOne(0); } catch (AbandonedMutexException) { acquired = true; }
-            if (!acquired) throw new InvalidOperationException("Another ChatMCP installation/update is in progress. Wait for it to finish.");
+            if (!acquired) throw new InvalidOperationException("Another DatGold installation/update is in progress. Wait for it to finish.");
             return mutex;
         }
         catch { mutex.Dispose(); throw; }
@@ -51,7 +51,7 @@ internal static class HubLifecycle
     {
         if (health.ValueKind != JsonValueKind.Object || !health.TryGetProperty("app", out var app) ||
             app.ValueKind != JsonValueKind.String || app.GetString() != "chatmcp-local-hub")
-            throw new InvalidOperationException("Port 3007 is not a verified ChatMCP Hub. No process was stopped.");
+            throw new InvalidOperationException("Port 3007 is not a verified DatGold Hub. No process was stopped.");
         if (expectedVersion != null)
         {
             var actual = health.TryGetProperty("version", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : "unknown";
@@ -188,15 +188,15 @@ internal static class HubLifecycle
         // No secret and a Hub that says it needs one: it is a current build whose session cannot be read, so refuse. Only a
         // Hub that predates the secret (v3.9.0 and older, no "auth" in its health) is stopped with the older session-token flow.
         if (secret == null && RequiresBearer(health.RootElement))
-            throw new InvalidOperationException("The running Hub requires its session file, which is missing or unreadable. Nothing was stopped; close ChatMCP, run STOP-CHATMCP-HUB.cmd and retry.");
+            throw new InvalidOperationException("The running Hub requires its session file, which is missing or unreadable. Nothing was stopped; close DatGold, run STOP-CHATMCP-HUB.cmd and retry.");
         using var state = await GetJson(client, "/api/state", secret);
         var data = state.RootElement;
         if (!data.TryGetProperty("agent", out var agent) || HasWork(agent))
-            throw new InvalidOperationException("Stop active ChatMCP tasks before installing or uninstalling. Nothing was cancelled.");
+            throw new InvalidOperationException("Stop active DatGold tasks before installing or uninstalling. Nothing was cancelled.");
         if (data.TryGetProperty("studio", out var studio) && studio.ValueKind == JsonValueKind.Object)
             foreach (var name in new[] { "terminals", "delegates", "dynamicDelegates" })
                 if (studio.TryGetProperty(name, out var work) && HasWork(work))
-                    throw new InvalidOperationException("Stop ChatMCP terminals and background workers before upgrading.");
+                    throw new InvalidOperationException("Stop DatGold terminals and background workers before upgrading.");
         using var coding = await GetJson(client, "/api/studio/coding", secret);
         if (HasWork(coding.RootElement)) throw new InvalidOperationException("Stop background coding jobs before upgrading.");
         if (!data.TryGetProperty("csrfToken", out var token) || token.ValueKind != JsonValueKind.String ||
