@@ -26,6 +26,7 @@ Paths are relative to the installation folder, the folder that holds `LICENSE` a
 | .NET 10 runtime inside `ChatMCP.exe`, `ChatMCPSetup.exe`, `Uninstall.exe` and `GuestSupervisor.exe` | 10.0.x | MIT | none | Pending: the runtime's own third-party notice file is not shipped |
 | Inter variable and JetBrains Mono 400 web fonts (`@fontsource-variable/inter`, `@fontsource/jetbrains-mono` 5.3.0) | 5.3.0 | SIL Open Font License 1.1 | none | Pending (finding 3) |
 | React 16.0.0 and ReactDOM 16.0.1 UMD files (`CHATMCP-HUB/web/vendor`, legacy dashboards; ReactDOM includes Modernizr) | 16.0.x | MIT | the permission text in `CHATMCP-HUB/THIRD-PARTY-NOTICES.txt`; the files keep their upstream headers | Shipped |
+| Model catalog data from models.dev (`CHATMCP-HUB/lib/model-catalog.data.json`: a compact extract of https://models.dev/api.json, which names the model limits, prices and thinking options of about 9,000 models) | the snapshot is dated inside the file (`generatedAt`); `scripts/update-model-catalog.mjs` rebuilds it | MIT (Copyright (c) 2025 models.dev) | the permission text in `CHATMCP-HUB/THIRD-PARTY-NOTICES.txt` | Shipped; data only, nothing is downloaded when the Hub runs |
 | UI libraries compiled into `CHATMCP-HUB/web/dist` | see [the generated list](#ui-libraries-compiled-into-the-dashboard) | MIT, ISC, BSD-3-Clause, 0BSD (and the two font packages above) | none | Pending (finding 4): the Vite bundle keeps the license comments of React and lucide-react only |
 
 ## Pending notices

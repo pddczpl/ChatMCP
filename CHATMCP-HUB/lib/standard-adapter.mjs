@@ -12,11 +12,14 @@
 import { buildAnthropicBody, normalizeAnthropic } from './anthropic-api.mjs';
 import { buildChatBody, normalizeChatCompletion } from './openai-chat-api.mjs';
 import { compactHistory, historyBytes, pairToolCalls } from './model-history.mjs';
-import { backoffMs, classifyHttpError, readBodyText } from './model-http.mjs';
+import { backoffMs, classifyHttpError, errorDetail, readBodyText } from './model-http.mjs';
+import { applyReasoning, refusesReasoning } from './reasoning-effort.mjs';
 
 const isObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
 const fail = (code, message, statusCode = 502) => Object.assign(new Error(message), { code, statusCode });
 const kib = (bytes) => Math.round(bytes / 1024);
+
+const HEAVY_THINKING = new Set(['high', 'xhigh', 'max']);
 
 export const LIMITS = Object.freeze({
   requestTimeoutMs: 240000,
@@ -76,6 +79,9 @@ function embeddedErrorStatus(body) {
  * @param {boolean} [ctx.promptCaching]
  * @param {number|null} [ctx.outputLimit] a cap learned earlier from the provider
  * @param {(limit: number) => void} [ctx.onOutputLimit]
+ * @param {{field: string, value: unknown}|null} [ctx.reasoning] the thinking setting to put in the request (lib/reasoning-effort.mjs), or nothing
+ * @param {boolean} [ctx.reasoningRefused] this endpoint and model are known to refuse it, so do not send it
+ * @param {() => void} [ctx.onReasoningRefused] a refusal is confirmed: the repeat without the setting was accepted
  * @param {object} [ctx.limits] overrides of LIMITS (tests)
  */
 export async function respondStandard(ctx, { input, instructions, tools = [], signal, onStatus = async () => {}, maxOutputTokens, beforeModelRequest = () => {} } = {}) {
@@ -84,10 +90,17 @@ export async function respondStandard(ctx, { input, instructions, tools = [], si
   const usedCallIds = new Set(history.filter((item) => item?.type === 'function_call').map((item) => item.call_id));
   let outputTokens = Math.floor(Number.isFinite(maxOutputTokens) && maxOutputTokens > 0 ? maxOutputTokens : limits.defaultOutputTokens);
   if (ctx.outputLimit) outputTokens = Math.min(outputTokens, ctx.outputLimit);
+  let reasoning = ctx.reasoning && ctx.reasoningRefused !== true ? ctx.reasoning : null;
+  // A Claude model asked to think hard spends output tokens on it before it writes the answer: under a small cap the answer is cut off by the limit.
+  if (reasoning && ctx.protocol === 'anthropic' && HEAVY_THINKING.has(reasoning.value?.effort)) {
+    outputTokens = Math.max(outputTokens, limits.defaultOutputTokens);
+    if (ctx.outputLimit) outputTokens = Math.min(outputTokens, ctx.outputLimit);
+  }
   const fixedBytes = Buffer.byteLength(String(instructions)) + Buffer.byteLength(JSON.stringify(tools));
   let maxBytes = historyBudgetBytes({ contextWindowTokens: ctx.contextWindowTokens, outputTokens, fixedBytes, limits });
   const counters = { network: 0, http: 0, timeouts: 0, compactions: 0 };
   let limitRetried = false;
+  let reasoningDropped = false;
   let announcedBytes = null;
   let rejectedBytes = Infinity;
 
@@ -108,6 +121,7 @@ export async function respondStandard(ctx, { input, instructions, tools = [], si
     const body = ctx.protocol === 'anthropic'
       ? buildAnthropicBody({ model: ctx.model, input: view.history, instructions, tools, maxOutputTokens: outputTokens, promptCaching: ctx.promptCaching === true })
       : buildChatBody({ model: ctx.model, input: view.history, instructions, tools });
+    if (reasoning) applyReasoning(body, reasoning);
 
     let response, raw;
     try {
@@ -134,10 +148,21 @@ export async function respondStandard(ctx, { input, instructions, tools = [], si
     const status = response.ok ? embeddedErrorStatus(parsed) : response.status;
     if (status === null) {
       if (!parsed) throw fail('gateway_invalid_json', 'Nhà cung cấp không trả JSON hợp lệ; không tự gửi lại.');
+      // The provider refused the thinking setting and accepted the same request without it.
+      if (reasoningDropped) ctx.onReasoningRefused?.();
       return ctx.protocol === 'anthropic' ? normalizeAnthropic(parsed) : normalizeChatCompletion(parsed, { usedCallIds });
     }
 
     const info = classifyHttpError({ status, data: parsed ?? { error: { message: plainDetail(raw) } }, headers: response.headers, redact: ctx.redact });
+
+    // The provider does not take the thinking setting (for this model): the same model request once more without it. Never a tool call, so nothing can be replayed.
+    if (reasoning && refusesReasoning({ status, data: parsed, info, sent: true })) {
+      reasoning = null;
+      reasoningDropped = true;
+      const detail = ctx.redact(errorDetail(parsed)).slice(0, 200);
+      await onStatus(`Nhà cung cấp từ chối thiết lập mức suy luận (thinking effort) cho model này (HTTP ${status}${detail ? `: ${detail}` : ''}). Gửi lại đúng yêu cầu model này một lần, không kèm thiết lập đó; không chạy lại công cụ. Các yêu cầu sau không gửi nó cho model này nữa.`);
+      continue;
+    }
 
     if (info.kind === 'context') {
       counters.compactions += 1;

@@ -75,6 +75,7 @@ Mở ở Cài đặt → **Nhà cung cấp AI** (cùng một form với bước 
 | **API key** | Chỉ gửi tới Base URL ở trên. Để trống = giữ key đang lưu. Máy chủ cục bộ (Ollama, LM Studio) không cần key |
 | **Ghi nhớ key trên máy này** | Bật: key được mã hóa và lưu (Windows DPAPI). Tắt: key chỉ ở trong bộ nhớ Hub và **mất khi Hub dừng** |
 | **Dùng key từ biến môi trường …** | Dùng `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`… nếu Hub thấy; không lưu vào file |
+| **Mức suy luận (thinking effort)** | **Tự động** (mặc định): Hub không gửi gì, model tự quyết định. Hoặc một mức: mức cao nghĩ lâu hơn, làm tốt hơn việc khó nhưng chậm hơn và tốn nhiều token hơn. Danh sách mức lấy từ danh mục model đi kèm bản cài (ngày ghi ở dưới ô): ví dụ Claude Sonnet 5.5 có Thấp, Vừa, Cao, Rất cao, Tối đa; GPT-5 mini có Tối thiểu đến Cao. Model không có trong danh mục (tên tự đặt, Ollama, LM Studio) hiện ba mức thông dụng và ô nói đó là phỏng đoán: nếu nhà cung cấp từ chối, Hub gửi lại đúng yêu cầu đó một lần không kèm thiết lập, báo trong tác vụ và nhớ cho model này đến khi bạn lưu lại cấu hình. Model điều khiển bằng ngân sách token hoặc công tắc (Gemini 2.5, Claude đời cũ) và model không suy luận chỉ có Tự động, kèm lý do. Hồ sơ model có ô riêng cùng cách chọn |
 | **Nâng cao** | Kiểu xác thực (`auto`, `bearer`, `google-key`), đường dẫn endpoint tùy chỉnh, **Context window (tokens)** (4.096 đến 2.000.000; để trống là chưa biết: Hub tính theo ước lượng 32.768 và hiện cảnh báo trên mỗi tác vụ) |
 
 Các nút:

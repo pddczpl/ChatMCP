@@ -22,6 +22,9 @@
 //   strict       true | false | { chat, anthropic, responses, gemini }  which protocols refuse invalid requests (default: not chat)
 //   chatDialect  'openai' | 'compat'                                   'compat' accepts and sends reasoning_content (DeepSeek and kin)
 //   streamUsage  'on-request' | 'always'                               when a Chat stream carries its usage chunk
+//   keepBodies   true | false                                          keep the whole body in each recorded request (state.requests[n].body); default false
+// A field the server does not accept (library: mock.refuseParam(name, { message, on })): every request with that top-level field is answered HTTP 400 naming it,
+// until mock.clearRefusals(). It is what a provider that has no "thinking effort" does with `reasoning_effort` or `output_config`.
 // Faults, for the failures that only happen on a real network (library: mock.inject(spec); a scenario step may carry `fault: spec`):
 //   { kind: 'stall', afterEvents }      the stream (or the body) stops after N events and nothing more is sent until the client gives up
 //   { kind: 'cut', afterEvents, reset } the stream ends before its terminal event (reset: the connection is torn down instead)
@@ -153,13 +156,15 @@ const pieces = (text, size = PIECE) => { const out = []; for (let i = 0; i < tex
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const protocolOf = (route) => (route.endsWith('/chat/completions') ? 'chat' : route.endsWith('/messages') ? 'anthropic' : route.endsWith('/responses') ? 'responses' : route.endsWith(':generateContent') ? 'gemini' : null);
 
-export async function startMockModel({ scenario = 'repair-add', scenarios: extra = {}, host = '127.0.0.1', port = 0, models = MODEL_IDS, strict = undefined, chatDialect = 'openai', streamUsage = 'on-request' } = {}) {
+export async function startMockModel({ scenario = 'repair-add', scenarios: extra = {}, host = '127.0.0.1', port = 0, models = MODEL_IDS, strict = undefined, chatDialect = 'openai', streamUsage = 'on-request', keepBodies = false } = {}) {
   // `scenarios` lets a test bring its own scripted behaviour (a closure over the paths it created) next to the shared ones.
   const registry = { ...SCENARIOS, ...extra };
   if (!registry[scenario]) throw new Error(`unknown scenario "${scenario}"`);
   const state = { scenario, requests: [], lastBody: null, callCounter: 0, itemCounter: 0, needles: [], hits: [], scanned: 0, rejections: [], faultLog: [] };
   const strictness = typeof strict === 'boolean' ? { chat: strict, anthropic: strict, responses: strict } : { ...DEFAULT_STRICT, ...(strict ?? {}) };
   const faults = [];
+  // Parameters this server does not accept, until cleared (mock.refuseParam): a provider that refuses a field refuses it every time, not once.
+  const refusals = [];
   const signer = createThinkingSigner();
 
   /** A short needle would match ordinary text and make a clean report meaningless in the other direction, so it is refused. */
@@ -486,6 +491,8 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
           at: new Date().toISOString(), model, probe, turn: info.turn, tools: info.tools, messages: adapter.count(body),
           hasAuthorization: Boolean(req.headers.authorization || req.headers['x-api-key'] || req.headers['x-goog-api-key']), promptStart: info.prompt.slice(0, 160),
           protocol, stream, bytes: Buffer.byteLength(rawBody), rejected: null, fault: null,
+          // The whole body, for a test that looks at one field of every request (keepBodies: true); never by default, a long run would hold them all.
+          ...(keepBodies ? { body } : {}),
         };
         state.requests.push(record);
         const number = state.requests.length;
@@ -497,6 +504,14 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
         if (fault && ['payload-too-large', 'stream-unsupported', 'status'].includes(fault.kind)) {
           const { status, body: errorJson, headers } = statusBody(protocol, fault);
           return reply(status, errorJson, headers);
+        }
+        // A provider that does not accept a field says so before it reads the rest, in the protocol's own error format, naming the field.
+        const refusal = body && typeof body === 'object' ? refusals.find((entry) => Object.hasOwn(body, entry.param) && (!entry.on || entry.on === protocol)) : undefined;
+        if (refusal) {
+          refusal.used += 1;
+          record.fault = 'refuse-param';
+          state.faultLog.push({ kind: 'refuse-param', protocol, request: number });
+          return reply(400, errorBody(protocol, { message: refusal.message, param: refusal.param }));
         }
         if (strictness[protocol] === true) {
           const outcome = adapter.validate(body);
@@ -552,6 +567,18 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
       return fault;
     },
     clearFaults() { faults.length = 0; },
+    /**
+     * From now on a request that has this top-level field is answered HTTP 400 naming it, whatever else it holds ("Unsupported parameter",
+     * "Extra inputs are not permitted"), until clearRefusals(). `on` limits it to one protocol ('chat' | 'anthropic' | 'responses' | 'gemini').
+     * Returns the entry: `used` says how many requests it has refused.
+     */
+    refuseParam(param, { message = `Unsupported parameter: '${param}'.`, on = null } = {}) {
+      if (typeof param !== 'string' || !param) throw new TypeError('a refused parameter needs a name');
+      const entry = { param, message, on, used: 0 };
+      refusals.push(entry);
+      return entry;
+    },
+    clearRefusals() { refusals.length = 0; },
     /** Starts watching request bodies for these strings (see /__watch). */
     watch: setNeedles,
     watchReport: () => ({ watching: state.needles.length, scanned: state.scanned, hits: state.hits.map((hit) => ({ ...hit })) }),

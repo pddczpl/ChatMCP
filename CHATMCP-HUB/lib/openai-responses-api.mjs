@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { reportedTokenCount } from './request-budget.mjs';
 import { pairToolCalls } from './model-history.mjs';
 import { classifyHttpError, errorDetail, readBodyText } from './model-http.mjs';
+import { applyReasoning, refusesReasoning } from './reasoning-effort.mjs';
 
 const object = x => x !== null && typeof x === 'object' && !Array.isArray(x);
 const fail = (code,message) => Object.assign(new Error(message),{code,statusCode:502});
@@ -212,14 +213,19 @@ async function deliverText(result,onToken){
  * @param {number} [ctx.idleTimeoutMs] a stream that sends no byte for this long is closed (default 120 s)
  * @param {boolean} [ctx.streamRefused] this gateway is known to refuse stream: true, so do not ask; onToken still gets the text, at the end
  * @param {() => void} [ctx.onStreamRefused] a refusal is confirmed: the repeat without a stream was accepted
+ * @param {{field: string, value: unknown}|null} [ctx.reasoning] the thinking setting to put in the request (lib/reasoning-effort.mjs), or nothing
+ * @param {boolean} [ctx.reasoningRefused] this endpoint and model are known to refuse it, so do not send it
+ * @param {() => void} [ctx.onReasoningRefused] a refusal is confirmed: the repeat without the setting was accepted
  * @param {(text: string) => string} [ctx.redact] removes keys and other secrets from provider text
  */
 export async function respondOpenAIResponses(ctx,{input,instructions,tools=[],signal,onToken=()=>{},onStatus=async()=>{},beforeModelRequest=()=>{},maxOutputTokens=16384}={}){
   const wantsStream=ctx.stream===true,redact=ctx.redact||(s=>s);
   let streaming=wantsStream&&ctx.streamRefused!==true,repeated=false;
+  let reasoning=ctx.reasoning&&ctx.reasoningRefused!==true?ctx.reasoning:null,reasoningDropped=false;
   const usedCallIds=new Set((input||[]).filter(x=>x?.type==='function_call').map(x=>x.call_id));
   for(;;){
     const body=buildResponsesBody({model:ctx.model,input,instructions,tools,maxOutputTokens,stream:streaming});
+    if(reasoning)applyReasoning(body,reasoning);
     const wholeMs=ctx.timeoutMs||240000,idleMs=ctx.idleTimeoutMs||IDLE_TIMEOUT_MS;
     const timeout=AbortSignal.timeout(wholeMs),idle=new AbortController();
     const effectiveSignal=AbortSignal.any(signal?[signal,timeout,idle.signal]:[timeout,idle.signal]);
@@ -254,10 +260,20 @@ export async function respondOpenAIResponses(ctx,{input,instructions,tools=[],si
         signal?.throwIfAborted();
         continue;
       }
+      // The provider does not take the thinking setting (for this model): the same model request once more without it, never a tool call.
+      if(reasoning&&refusesReasoning({status:response.status,data,info,sent:true})){
+        reasoning=null;reasoningDropped=true;
+        const detail=redact(errorDetail(data)).slice(0,200);
+        await onStatus(`Nhà cung cấp từ chối thiết lập mức suy luận (thinking effort) cho model này (HTTP ${response.status}${detail?`: ${detail}`:''}). Gửi lại đúng yêu cầu model này một lần, không kèm thiết lập đó; không chạy lại công cụ. Các yêu cầu sau không gửi nó cho model này nữa.`);
+        signal?.throwIfAborted();
+        continue;
+      }
       throw Object.assign(fail(info.code,info.message),{kind:info.kind,upstreamStatus:response.status});
     }
     // The gateway refused a stream and accepted the same request without one.
     if(repeated)ctx.onStreamRefused?.();
+    // ... or the thinking setting.
+    if(reasoningDropped)ctx.onReasoningRefused?.();
     let data;
     try{
       if(streaming){

@@ -133,6 +133,14 @@ const FIXTURES = {
     accept: [['tool_choice with tools', { ...chatBase(), tools: [readTool], tool_choice: 'auto' }], ['neither', chatBase()]],
     reject: [['tool_choice without tools', { ...chatBase(), tool_choice: 'auto' }, "'tool_choice' is only allowed when 'tools' are specified"]],
   },
+  'chat.reasoning_effort': {
+    api: 'chat',
+    accept: [['a documented level', { ...chatBase(), reasoning_effort: 'high' }], ['none, where the model allows no thinking', { ...chatBase(), reasoning_effort: 'none' }], ['no field', chatBase()]],
+    reject: [
+      ['a level that does not exist', { ...chatBase(), reasoning_effort: 'extreme' }, "Invalid value: 'extreme'"],
+      ['max, which is not a level of the OpenAI API', { ...chatBase(), reasoning_effort: 'max' }, "Invalid value: 'max'"],
+    ],
+  },
   'chat.stream_options_need_stream': {
     api: 'chat',
     accept: [['stream_options on a stream', { ...chatBase(), stream: true, stream_options: { include_usage: true } }]],
@@ -149,6 +157,19 @@ const FIXTURES = {
   },
 
   // Anthropic Messages --------------------------------------------------------------------------------------------------
+  'anthropic.output_config': {
+    api: 'anthropic',
+    accept: [
+      ['effort high', { ...anthBase(), output_config: { effort: 'high' } }],
+      ['effort max', { ...anthBase(), output_config: { effort: 'max' } }],
+      ['output_config with another key and no effort', { ...anthBase(), output_config: { format: { type: 'json_schema', schema: { type: 'object' } } } }],
+    ],
+    reject: [
+      ['an effort that Claude does not have', { ...anthBase(), output_config: { effort: 'minimal' } }, 'output_config.effort'],
+      ['none, which is not a Claude level either', { ...anthBase(), output_config: { effort: 'none' } }, 'output_config.effort'],
+      ['output_config that is not an object', { ...anthBase(), output_config: 'high' }, 'output_config'],
+    ],
+  },
   'anthropic.unknown_param': {
     api: 'anthropic',
     accept: [['the parameters the Hub sends', { ...anthBase(), system: [{ type: 'text', text: 'sys', cache_control: { type: 'ephemeral' } }], tools: [anthTool], tool_choice: { type: 'auto', disable_parallel_tool_use: true }, stream: true }]],
@@ -280,6 +301,19 @@ const FIXTURES = {
       ['a function tool without a name', { ...respBase(), tools: [{ type: 'function', parameters: { type: 'object' } }] }, 'name'],
       ['a tool of an unknown type', { ...respBase(), tools: [{ type: 'gadget', name: 'x' }] }, "Invalid value: 'gadget'"],
       ['a Chat-style tool (the function nested under function)', { ...respBase(), tools: [readTool] }, "Missing required parameter: 'tools[0].name'"],
+    ],
+  },
+  'responses.reasoning': {
+    api: 'responses',
+    accept: [
+      ['effort low', { ...respBase(), reasoning: { effort: 'low' } }],
+      ['effort and a summary', { ...respBase(), reasoning: { effort: 'medium', summary: 'auto' } }],
+      ['none', { ...respBase(), reasoning: { effort: 'none' } }],
+    ],
+    reject: [
+      ['an effort that does not exist', { ...respBase(), reasoning: { effort: 'extreme' } }, "Invalid value: 'extreme'"],
+      ['a summary that does not exist', { ...respBase(), reasoning: { effort: 'low', summary: 'long' } }, "Invalid value: 'long'"],
+      ['reasoning that is not an object', { ...respBase(), reasoning: 'high' }, "Invalid type for 'reasoning'"],
     ],
   },
   'responses.stream_options_need_stream': {

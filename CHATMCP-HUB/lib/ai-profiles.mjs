@@ -14,6 +14,7 @@ import { parseModelRates } from './model-cost.mjs';
 import { normalizeCustomHeaders, publicCustomHeaders } from './gateway-custom-headers.mjs';
 import { isValidCustomPath } from './provider-presets.mjs';
 import { contextWindowRangeText, parseContextWindow } from './context-window.mjs';
+import { AUTO, EFFORT_LEVELS, parseReasoningEffort } from './reasoning-effort.mjs';
 
 const PROFILES_FILENAME = 'ai-profiles.json';
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,40}$/i;
@@ -113,6 +114,7 @@ export class AiProfiles {
       model: p.model,
       apiBaseUrl: p.apiBaseUrl || null,
       contextWindow: p.contextWindow || null,
+      reasoningEffort: p.reasoningEffort || AUTO,
       protocol: p.protocol || (ALLOWED_PROTOCOLS.includes(p.provider)?p.provider:null),
       authMode: p.authMode || 'auto',
       customPath: p.customPath || '',
@@ -140,6 +142,7 @@ export class AiProfiles {
       model: p.model,
       apiBaseUrl: p.apiBaseUrl || null,
       contextWindow: p.contextWindow || null,
+      reasoningEffort: p.reasoningEffort || AUTO,
       protocol: p.protocol || (ALLOWED_PROTOCOLS.includes(p.provider)?p.provider:null),
       authMode: p.authMode || 'auto',
       // Names and sources of the custom headers, never a value: the values exist only sealed (encryptedHeaders) and in a task's memory.
@@ -202,6 +205,12 @@ export class AiProfiles {
     }
     // The window obeys the bound of the global connection (context-window.mjs), here when the profile is SAVED rather than when a task
     // fails to start: below the minimum is refused, above the maximum is clamped, null clears, an omitted field keeps what was saved.
+    let reasoningEffort = existing.reasoningEffort || AUTO;
+    if (input.reasoningEffort !== undefined) {
+      reasoningEffort = parseReasoningEffort(input.reasoningEffort);
+      if (reasoningEffort === undefined)
+        throw error('invalid_reasoning_effort', `Thinking effort ${JSON.stringify(input.reasoningEffort)} is not a level: use auto or one of ${EFFORT_LEVELS.join(', ')}.`);
+    }
     let contextWindow = existing.contextWindow || null;
     if (input.contextWindow !== undefined) {
       contextWindow = parseContextWindow(input.contextWindow);
@@ -227,6 +236,7 @@ export class AiProfiles {
         : parseModelRates(input.ratesUsdPerMillion),
       apiBaseUrl:nextBase,
       contextWindow,
+      reasoningEffort,
       customPath,
       customHeaders: keepHeaders ? existing.customHeaders || [] : headerSpecs ? publicCustomHeaders(headerSpecs) : [],
       encryptedHeaders: keepHeaders ? existing.encryptedHeaders || null : null,
@@ -330,6 +340,7 @@ export class AiProfiles {
       model: p.model,
       apiBaseUrl: p.apiBaseUrl,
       contextWindow: p.contextWindow,
+      reasoningEffort: p.reasoningEffort || AUTO,
       customPath: p.customPath || '',
       // Literal values are in memory for this call only; customHeadersOrigin is the origin they were sealed for.
       customHeaders,

@@ -16,6 +16,7 @@ import {
 import { Button } from '@/components/ui/Button';
 import { aiDraftHasChanges, aiProtocolForPreset, reconcileSavedAiConfig, selectAiProviderDraft, type AiConfigForm } from '@/lib/ai-config-form';
 import { ModelProfilesPanel } from './ModelProfilesPanel';
+import { ReasoningEffortField } from './ReasoningEffortField';
 import { contextWindowField, contextWindowRangeText } from '@/lib/context-window';
 
 export function IntelligenceTab() {
@@ -58,6 +59,11 @@ export function IntelligenceTab() {
   const [contextWindowDraft,setContextWindowDraft] = useState('');
   const [contextWindowDirty,setContextWindowDirty] = useState(false);
   const savedWindow = (ai as any).contextWindowTokens as number | null | undefined;
+  // 'auto' or a level. Only an edited level is sent; an untouched form leaves the saved one alone, and choosing another provider starts at auto (as the Hub does).
+  const [reasoningDraft, setReasoningDraft] = useState<string | null>(null);
+  const savedEffort: string = (ai as any).reasoningEffort || 'auto';
+  const effortValue = reasoningDraft ?? savedEffort;
+  const effortChanged = reasoningDraft !== null && reasoningDraft !== savedEffort;
   const draftChanged = aiDraftHasChanges(form, ai as any) || customHeadersDirty || contextWindowDirty;
   const expectedProtocol = aiProtocolForPreset(form.provider);
   const oldOrigin = (() => { try { return new URL(ai.apiBaseUrl || '').origin; } catch { return ''; } })();
@@ -88,6 +94,7 @@ export function IntelligenceTab() {
     setCustomHeadersDirty(false);
     setContextWindowDraft('');
     setContextWindowDirty(false);
+    setReasoningDraft('auto');
   };
 
   const handleEndpointChange = (nextUrl: string) => {
@@ -119,6 +126,7 @@ export function IntelligenceTab() {
       remember: true,
       ...(customHeadersDirty?{customHeaders:parsedHeaders}:{}),
       ...windowField,
+      ...(reasoningDraft !== null ? { reasoningEffort: reasoningDraft } : {}),
     });
     const saved = result.ai;
     if (!saved || (aiProtocolForPreset(submitted.provider) && saved.protocol !== aiProtocolForPreset(submitted.provider))) {
@@ -129,6 +137,7 @@ export function IntelligenceTab() {
     setCustomHeadersDirty(false);
     setContextWindowDraft('');
     setContextWindowDirty(false);
+    setReasoningDraft(null);
     return reconcileSavedAiConfig(submitted, submitted, saved);
   };
 
@@ -204,7 +213,7 @@ export function IntelligenceTab() {
         </span>
       </div>
 
-      {draftChanged && (
+      {(draftChanged || effortChanged) && (
         <div role="status" className="rounded-md border border-warning/40 bg-warning/10 text-warning p-2.5">
           {t('ai_pending_a')}<strong>{ai.preset || t('ai_unknown')} / {ai.protocol || t('ai_unknown')}</strong>{t('ai_pending_b')}{form.provider}{expectedProtocol ? ` / ${expectedProtocol}` : ''}.
           {retainsExistingKey && !form.apiKey.trim() ? t('ai_keeps_key') : ''}
@@ -267,6 +276,19 @@ export function IntelligenceTab() {
           className="w-full bg-surface text-fg font-mono text-xs rounded-md px-3 py-1.5 border border-line focus:outline-none focus:border-primary"
         />
       </div>
+
+      {/* Thinking effort: how much the model is asked to think, from what the Hub knows about this model */}
+      <ReasoningEffortField
+        id="datgold-reasoning-effort"
+        // A Hub that has no connection yet calls its provider "gateway", which is not a preset: the protocol it reports is then all there is to ask about.
+        preset={providers.some((choice) => choice.id === form.provider) ? form.provider : undefined}
+        protocol={aiProtocolForPreset(form.provider) ?? ((ai as any).protocol || undefined)}
+        apiBaseUrl={apiBaseUrl}
+        model={model}
+        value={effortValue}
+        onChange={setReasoningDraft}
+        refused={reasoningDraft === null && (ai as any).reasoning?.refused === true}
+      />
 
       {/* Context window: what the agent plans its history and tool list against */}
       <div className="space-y-1.5">

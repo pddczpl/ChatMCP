@@ -33,6 +33,13 @@ async function post(route,body={},headers={}){const res=await fetch(origin+route
 try{
   let a=await get('/api/health');check(a.value.version===VERSION&&a.value.uiBuild===UI_BUILD,'version handshake');
   a=await get('/api/state');csrf=a.value.csrfToken;check(csrf?.length===64,'csrf exists');
+  // The settings page asks what the catalog knows about a model: a file read behind the same bearer as every other call.
+  a=await get('/api/ai/model-info?preset=anthropic&model=claude-sonnet-5-5');
+  check(a.status===200&&a.value.found===true&&a.value.reasoning.levels.join()==='low,medium,high,xhigh,max'&&a.value.contextWindow===1000000,'HTTP model-info: the catalog answer for a Claude model, with the levels its settings page offers');
+  a=await get('/api/ai/model-info?preset=custom-openai&apiBaseUrl=https%3A%2F%2Flitellm.example.com&model=my-alias');
+  check(a.status===200&&a.value.found===false&&a.value.reasoning.known===false&&a.value.reasoning.levels.length===3,'HTTP model-info: an alias is not found, and the answer says its levels are a guess');
+  a=await get('/api/ai/model-info?preset=anthropic');check(a.status===400&&a.value.code==='invalid_model_info_query','HTTP model-info: a query without a model is refused');
+  a=await fetch(origin+'/api/ai/model-info?preset=anthropic&model=claude-sonnet-5-5');check(a.status===401,'HTTP model-info: needs the Hub secret');
   a=await get('/api/studio/intelligence/status');check(a.status===200&&!a.value.indexedAt,'index initially empty');
   a=await post('/api/studio/intelligence/index');
   // On loaded Windows CI hosts, the isolated Python AST worker can fall back

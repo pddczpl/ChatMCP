@@ -18,6 +18,8 @@ export type ProfileDraft = {
   customHeadersDirty: boolean;
   isDefault: boolean; clearCredentials: boolean; rateInput: string; rateOutput: string;
   rateCacheRead: string; rateCacheWrite: string;
+  /** 'auto' (send nothing) or a level of thinking effort. Always sent: 'auto' is how a saved level is cleared. */
+  reasoningEffort: string;
 };
 
 export const emptyProfileDraft = (): ProfileDraft => ({
@@ -26,6 +28,7 @@ export const emptyProfileDraft = (): ProfileDraft => ({
   customPath: '', customHeadersText: '', customHeadersDirty: false,
   isDefault: false, clearCredentials: false,
   rateInput: '', rateOutput: '', rateCacheRead: '', rateCacheWrite: '',
+  reasoningEffort: 'auto',
 });
 
 export function draftFromProfile(profile: AiProfile): ProfileDraft {
@@ -41,6 +44,7 @@ export function draftFromProfile(profile: AiProfile): ProfileDraft {
     rateOutput: profile.ratesUsdPerMillion?.output?.toString() || '',
     rateCacheRead: profile.ratesUsdPerMillion?.cacheRead?.toString() || '',
     rateCacheWrite: profile.ratesUsdPerMillion?.cacheWrite?.toString() || '',
+    reasoningEffort: profile.reasoningEffort || 'auto',
   };
 }
 
@@ -81,6 +85,7 @@ export function buildProfilePayload(draft: ProfileDraft): Record<string, unknown
     apiBaseUrl: draft.apiBaseUrl.trim(), authMode: draft.authMode,
     // null clears a saved window; the Hub clamps one above the maximum, so the clamped value is what is sent.
     contextWindow: window.value,
+    reasoningEffort: draft.reasoningEffort || 'auto',
     customPath: draft.customPath.trim(),
     ...(headers !== undefined ? { customHeaders: headers } : {}),
     ratesUsdPerMillion: Object.keys(rates).length ? rates : null,

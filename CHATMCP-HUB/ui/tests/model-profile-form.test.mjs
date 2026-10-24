@@ -71,3 +71,14 @@ test('the global connection form sends a window only when the person edited it',
   assert.deepEqual(contextWindowField('9999999', true), { contextWindowTokens: 2_000_000 }, 'clamped, as the Hub would');
   assert.throws(() => contextWindowField('3000', true), /4,096/);
 });
+
+test('a profile carries its thinking effort: auto for a new one, the saved level for an edited one, and always in the request so that auto can clear a level', () => {
+  assert.equal(emptyProfileDraft().reasoningEffort, 'auto');
+  assert.equal(buildProfilePayload(filled()).reasoningEffort, 'auto', 'a new profile says auto');
+  assert.equal(buildProfilePayload({ ...filled(), reasoningEffort: 'high' }).reasoningEffort, 'high');
+  assert.equal(buildProfilePayload({ ...filled(), reasoningEffort: '' }).reasoningEffort, 'auto', 'an empty field is auto');
+  const saved = { id: 'work', name: 'Work', provider: 'anthropic', protocol: 'anthropic', model: 'claude-sonnet-5-5', apiBaseUrl: 'https://api.anthropic.com' };
+  assert.equal(draftFromProfile({ ...saved, reasoningEffort: 'medium' }).reasoningEffort, 'medium', 'the saved level fills the form');
+  assert.equal(draftFromProfile(saved).reasoningEffort, 'auto', 'a profile saved before the setting existed reads auto');
+  assert.equal(buildProfilePayload(draftFromProfile({ ...saved, reasoningEffort: 'medium' })).reasoningEffort, 'medium', 'and saves it back');
+});
