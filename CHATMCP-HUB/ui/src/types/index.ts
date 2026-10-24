@@ -210,8 +210,12 @@ export interface ModelInfo {
   openWeights?: boolean | null;
   /** The Hub plans and prices from this answer (the catalog is sure of the model); false for an alias, a miss and a local runtime. */
   trusted?: boolean;
-  /** The window a conversation is planned on (the context window, or, for a model that takes in less, the largest one whose planned prompt fits its input limit), when trusted. */
+  /** The window a conversation is planned on when none is typed: what the model allows (`modelCapacity`), but not beyond the first rise of its price with the length of the prompt (`priceCap`), when trusted. */
   capacity?: number | null;
+  /** What the model itself allows: the context window, or, for a model that takes in less, the largest one whose planned prompt fits its input limit. */
+  modelCapacity?: number | null;
+  /** The first rise of the price with the length of the prompt, when it is what stopped `capacity` short of `modelCapacity`; `floored`: the Hub does not plan on less than `tokens`, though the price rises sooner. */
+  priceCap?: { aboveTokens: number; tokens: number; floored: boolean; from: { input: number; output: number }; to: { input: number; output: number } } | null;
   outputCap?: number | null;
   toolCall: boolean | null;
   vision: boolean | null;

@@ -63,6 +63,13 @@ const withTestId = (root, id) => root.descendants().find((node) => node.attrs['d
 const hintOf = (html) => { const node = withTestId(parseHtml(html), 'context-window-hint'); return { text: normalise(node.text), cls: node.attrs.class }; };
 const ALLOWED = 'Allowed: 4,096 - 2,000,000 tokens (larger values are reduced to the maximum, smaller ones are refused). Leave empty if you do not know it.';
 const sentence = (lang, key, params) => Object.entries(params).reduce((text, [name, value]) => text.replace(`{${name}}`, value), translations[lang][key]);
+// A model whose price rises with the length of the prompt (2.5 / 15 becomes 5 / 22.5 above 272,000 tokens): the Hub plans up to the rise, and the note under the window says why.
+const RISE = { aboveTokens: 272000, tokens: 272000, floored: false, from: { input: 2.5, output: 15 }, to: { input: 5, output: 22.5 } };
+const STOPPED = { contextWindow: 1050000, maxInput: 922000, capacity: 272000, modelCapacity: 938384, priceCap: RISE };
+const PRICE_WORDS = { tokens: '272,000', window: '1,050,000', above: '272,000', from: '$2.5 / $15', to: '$5 / $22.5', source: SOURCE };
+// ... and a rise below the floor of 128,000 tokens, which the Hub does not plan under.
+const FLOORED = { contextWindow: 1000000, maxInput: null, capacity: 128000, modelCapacity: 1000000, priceCap: { aboveTokens: 32000, tokens: 128000, floored: true, from: { input: 1, output: 5 }, to: { input: 2, output: 10 } } };
+const FLOOR_WORDS = { tokens: '128,000', window: '1,000,000', above: '32,000', from: '$1 / $5', to: '$2 / $10', source: SOURCE };
 
 // ---- the connection of the Hub ----
 
@@ -89,6 +96,15 @@ test('the note under the context window says where the window comes from: the ow
   // a model that takes in less than its window
   const limited = hintOf(await show(tab, 'IntelligenceTab', given({ contextWindow: 400000, maxInput: 272000, capacity: 288384 })));
   assert.equal(limited.text, `${sentence('vi', 'ai_window_catalog_limited', { tokens: '288,384', window: '400,000', input: '272,000', source: SOURCE })} ${ALLOWED}`);
+  // the price of the model rises at a size: the Hub plans up to it and the note says why (it is the rise, not the input limit, that stopped the plan), in both languages
+  const stopped = hintOf(await show(tab, 'IntelligenceTab', given(STOPPED)));
+  assert.equal(stopped.text, `${sentence('vi', 'ai_window_catalog_price', PRICE_WORDS)} ${ALLOWED}`);
+  assert.match(stopped.cls, /text-faint/);
+  assert.equal(hintOf(await show(tab, 'IntelligenceTab', given(STOPPED), { lang: 'en' })).text, `${sentence('en', 'ai_window_catalog_price', PRICE_WORDS)} ${ALLOWED}`);
+  const floored = hintOf(await show(tab, 'IntelligenceTab', given(FLOORED)));
+  assert.equal(floored.text, `${sentence('vi', 'ai_window_catalog_price_floor', FLOOR_WORDS)} ${ALLOWED}`, 'a rise below the floor has its own sentence');
+  assert.equal(hintOf(await show(tab, 'IntelligenceTab', given(FLOORED), { lang: 'en' })).text, `${sentence('en', 'ai_window_catalog_price_floor', FLOOR_WORDS)} ${ALLOWED}`);
+  assert.equal(hintOf(await show(tab, 'IntelligenceTab', given(STOPPED, saved({ contextWindowTokens: 500000 })))).text, ALLOWED, 'a window the owner set goes past the rise, and the note does not talk about the catalog');
   // the owner's window, saved
   const owner = hintOf(await show(tab, 'IntelligenceTab', given({}, saved({ contextWindowTokens: 64000 }))));
   assert.equal(owner.text, ALLOWED, 'the owner set one: the note does not talk about the catalog or about unknown');
@@ -181,6 +197,12 @@ test('a model profile: the note under the window says what the Hub uses when the
   assert.ok(!catalog.includes('Empty = unknown'), 'the Hub does have a window to plan on');
   const limited = note(await show(profile, 'ModelProfilesPanel', entries(rateInfo({ contextWindow: 400000, maxInput: 272000, capacity: 288384 })), { initial: PROFILE_DRAFT }));
   assert.ok(limited.includes(sentence('vi', 'ai_window_catalog_limited', { tokens: '288,384', window: '400,000', input: '272,000', source: SOURCE })), limited);
+  const stopped = note(await show(profile, 'ModelProfilesPanel', entries(rateInfo(STOPPED)), { initial: PROFILE_DRAFT }));
+  assert.ok(stopped.includes(sentence('vi', 'ai_window_catalog_price', PRICE_WORDS)), stopped);
+  assert.ok(!stopped.includes('Empty = unknown'), 'the Hub does have a window to plan on');
+  const floored = note(await show(profile, 'ModelProfilesPanel', entries(rateInfo(FLOORED)), { initial: PROFILE_DRAFT }));
+  assert.ok(floored.includes(sentence('vi', 'ai_window_catalog_price_floor', FLOOR_WORDS)), floored);
+  assert.ok(note(await show(profile, 'ModelProfilesPanel', entries(rateInfo(STOPPED)), { initial: { ...PROFILE_DRAFT, contextWindow: '500000' } })).includes('Empty = unknown'), 'a window typed: the note is about the field, not about the catalog');
   for (const [label, data, initial] of [['the Hub has not answered', undefined, PROFILE_DRAFT], ['a window typed', rateInfo(), { ...PROFILE_DRAFT, contextWindow: '64000' }], ['an alias', rateInfo({ confidence: 'alias', trusted: false, capacity: null }), PROFILE_DRAFT]]) {
     const text = note(await show(profile, 'ModelProfilesPanel', entries(data), { initial }));
     assert.ok(text.includes('Empty = unknown: the agent then plans with a conservative estimate and shows a warning.'), label);

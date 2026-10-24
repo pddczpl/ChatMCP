@@ -18,7 +18,7 @@ import { aiDraftHasChanges, aiProtocolForPreset, reconcileSavedAiConfig, selectA
 import { ModelProfilesPanel } from './ModelProfilesPanel';
 import { ModelField } from './ModelField';
 import { ReasoningEffortField } from './ReasoningEffortField';
-import { contextWindowField, contextWindowHint, contextWindowRangeText } from '@/lib/context-window';
+import { contextWindowField, contextWindowHint, contextWindowRangeText, windowHintSentence } from '@/lib/context-window';
 import { useModelInfo } from '@/lib/useModelInfo';
 
 export function IntelligenceTab() {
@@ -68,6 +68,7 @@ export function IntelligenceTab() {
   const [accountRevision, setAccountRevision] = useState(0);
   const savedWindow = (ai as any).contextWindowTokens as number | null | undefined;
   const windowHint = contextWindowHint(contextWindowDirty ? contextWindowDraft : savedWindow, modelInfo);
+  const windowSentence = windowHintSentence(t, windowHint);
   // 'auto' or a level. Only an edited level is sent; an untouched form leaves the saved one alone, and choosing another provider starts at auto (as the Hub does).
   const [reasoningDraft, setReasoningDraft] = useState<string | null>(null);
   const savedEffort: string = (ai as any).reasoningEffort || 'auto';
@@ -322,8 +323,7 @@ export function IntelligenceTab() {
         />
         <p data-testid="context-window-hint" className={`text-xs ${windowHint.kind === 'unknown' ? 'text-warning' : 'text-faint'}`}>
           {windowHint.kind === 'unknown' ? 'Unknown: the agent plans with a conservative estimate and shows a warning on every task. ' : ''}
-          {windowHint.kind === 'catalog' ? `${t('ai_window_catalog', { tokens: windowHint.tokens, source: windowHint.source })} ` : ''}
-          {windowHint.kind === 'catalog_limited' ? `${t('ai_window_catalog_limited', { tokens: windowHint.tokens, window: windowHint.window, input: windowHint.input, source: windowHint.source })} ` : ''}
+          {windowSentence ? `${windowSentence} ` : ''}
           {`Allowed: ${contextWindowRangeText()} tokens (larger values are reduced to the maximum, smaller ones are refused). Leave empty if you do not know it.`}
         </p>
       </div>

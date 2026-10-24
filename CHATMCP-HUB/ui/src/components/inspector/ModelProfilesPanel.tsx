@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
-import { contextWindowHint, contextWindowRangeText } from '@/lib/context-window';
+import { contextWindowHint, contextWindowRangeText, windowHintSentence } from '@/lib/context-window';
 import { useTranslation } from '@/lib/i18n';
 import { PROFILE_PROTOCOLS, buildProfilePayload, draftFromProfile, emptyProfileDraft, type ProfileDraft } from '@/lib/model-profile-form';
 import { useModelInfo } from '@/lib/useModelInfo';
@@ -29,6 +29,7 @@ export function ModelProfilesPanel(){
   // What the Hub knows about the model in the form (the catalog's window and prices): the empty fields below say what the Hub uses then. A profile has a protocol and an endpoint, no preset.
   const {data:modelInfo}=useModelInfo({protocol:draft.protocol,apiBaseUrl:draft.apiBaseUrl,model:draft.model});
   const windowHint=contextWindowHint(draft.contextWindow,modelInfo);
+  const windowSentence=windowHintSentence(t,windowHint);
   const catalogRate=(rate:'input'|'output'|'cacheRead'|'cacheWrite')=>modelInfo?.trusted===true&&modelInfo.rates&&typeof modelInfo.rates[rate]==='number'?String(modelInfo.rates[rate]):undefined;
   const change=(key:keyof ProfileDraft,value:string|boolean)=>setDraft(current=>({...current,[key]:value}));
   const refresh=async()=>{
@@ -172,7 +173,7 @@ export function ModelProfilesPanel(){
             placeholder="unknown"
             onChange={e=>change('contextWindow',e.target.value)}
             className="w-full p-1.5 rounded border border-line bg-panel"/>
-          <span className="block text-faint">{contextWindowRangeText()} tokens. {windowHint.kind==='catalog'?`${t('ai_window_catalog',{tokens:windowHint.tokens,source:windowHint.source})} `:windowHint.kind==='catalog_limited'?`${t('ai_window_catalog_limited',{tokens:windowHint.tokens,window:windowHint.window,input:windowHint.input,source:windowHint.source})} `:'Empty = unknown: the agent then plans with a conservative estimate and shows a warning. '}Larger values are reduced to the maximum.</span>
+          <span className="block text-faint">{contextWindowRangeText()} tokens. {windowSentence?`${windowSentence} `:'Empty = unknown: the agent then plans with a conservative estimate and shows a warning. '}Larger values are reduced to the maximum.</span>
         </label>
         <fieldset className="space-y-1 border border-line rounded-md p-2">
           <legend className="text-muted">Optional owner-supplied rates (USD / 1M tokens)</legend>

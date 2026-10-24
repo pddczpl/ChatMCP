@@ -6,11 +6,11 @@ import { bundleTsx, renderPrelude } from './support/bundle.mjs';
 // of (the Hub uses it without anything being written into the field), or none (then the Hub plans with a conservative estimate and says so on every task). These tests pin the rule.
 const { loaded, dispose } = await bundleTsx(`
   ${renderPrelude}
-  import { contextWindowHint } from './src/lib/context-window';
-  export { contextWindowHint };
+  import { contextWindowHint, windowHintSentence } from './src/lib/context-window';
+  export { contextWindowHint, windowHintSentence };
 `, 'chatmcp-window-hint-');
 after(dispose);
-const { contextWindowHint } = loaded;
+const { contextWindowHint, windowHintSentence } = loaded;
 
 const info = (extra = {}) => ({
   model: 'm', protocol: 'anthropic', preset: 'anthropic', found: true, confidence: 'exact', source: 'catalog@2026-10-19', provider: 'anthropic', local: false,
@@ -39,4 +39,36 @@ test('no window typed and nothing the Hub relies on: unknown', () => {
   assert.deepEqual(contextWindowHint('', info({ trusted: true, capacity: null })), { kind: 'unknown' }, 'trusted but with no window to plan on');
   assert.deepEqual(contextWindowHint('', info({ local: true, found: false, confidence: 'none', trusted: false, capacity: null })), { kind: 'unknown' }, 'a local runtime');
   assert.deepEqual(contextWindowHint('', info({ source: null })), { kind: 'catalog', tokens: '1,000,000', source: 'catalog' }, 'no label: the word catalog');
+});
+
+// The model's price can rise with the length of the prompt (the Hub's catalog lists the point): the Hub plans up to it of its own accord, and the note says so, with the prices on either side.
+const rise = (extra = {}) => ({ aboveTokens: 272000, tokens: 272000, floored: false, from: { input: 2.5, output: 15 }, to: { input: 5, output: 22.5 }, ...extra });
+
+test('no window typed and the price of the model rises at a size: the Hub plans up to it, and the note has the reason', () => {
+  const stopped = info({ contextWindow: 1050000, maxInput: 922000, capacity: 272000, modelCapacity: 938384, priceCap: rise() });
+  assert.deepEqual(contextWindowHint('', stopped),
+    { kind: 'catalog_price', tokens: '272,000', window: '1,050,000', above: '272,000', from: '$2.5 / $15', to: '$5 / $22.5', floored: false, source: 'catalog@2026-10-19' },
+    'the price rise comes before the input limit: it is what stopped the plan');
+  assert.deepEqual(contextWindowHint('', info({ capacity: 128000, priceCap: rise({ aboveTokens: 32000, tokens: 128000, floored: true, from: { input: 1, output: 5 }, to: { input: 2, output: 10 } }) })),
+    { kind: 'catalog_price', tokens: '128,000', window: '1,000,000', above: '32,000', from: '$1 / $5', to: '$2 / $10', floored: true, source: 'catalog@2026-10-19' }, 'a rise below the floor: the floor is said');
+  assert.equal(contextWindowHint('', info({ capacity: 200000, priceCap: rise({ aboveTokens: 200000, tokens: 200000, from: { input: 0.3, output: 2.5 }, to: { input: 0.60001, output: 1.23456789 } }) })).from, '$0.3 / $2.5', 'prices are written without the zeros that mean nothing');
+  assert.equal(contextWindowHint('', info({ capacity: 200000, priceCap: rise({ aboveTokens: 200000, tokens: 200000, to: { input: 0.60001, output: 1.23456789 } }) })).to, '$0.6 / $1.2346', 'and with at most four decimals');
+  assert.equal(contextWindowHint('', info({ contextWindow: null, capacity: 200000, priceCap: rise({ aboveTokens: 150000, tokens: 200000 }) })).window, '200,000', 'with no window of the model\'s to name, the plan is named');
+  // the owner's number is the owner's, whatever stopped the plan
+  assert.deepEqual(contextWindowHint(500000, info({ capacity: 272000, priceCap: rise() })), { kind: 'owner' });
+  // nothing the Hub relies on carries no reason with it, and no cap is the note as before
+  assert.deepEqual(contextWindowHint('', info({ trusted: false, capacity: null, priceCap: rise() })), { kind: 'unknown' });
+  assert.deepEqual(contextWindowHint('', info({ priceCap: null })), { kind: 'catalog', tokens: '1,000,000', source: 'catalog@2026-10-19' });
+  assert.deepEqual(contextWindowHint('', info({ contextWindow: 400000, maxInput: 272000, capacity: 288384, priceCap: null })).kind, 'catalog_limited');
+});
+
+test('the sentence of each note: which string, with which numbers; none for the owner\'s window or for nothing to rely on', () => {
+  const said = (hint) => { const calls = []; const text = windowHintSentence((key, params) => { calls.push([key, params]); return `<${key}>`; }, hint); return { text, calls }; };
+  assert.deepEqual(said({ kind: 'owner' }), { text: '', calls: [] });
+  assert.deepEqual(said({ kind: 'unknown' }), { text: '', calls: [] });
+  assert.deepEqual(said({ kind: 'catalog', tokens: '1,000,000', source: 'S' }), { text: '<ai_window_catalog>', calls: [['ai_window_catalog', { tokens: '1,000,000', source: 'S' }]] });
+  assert.deepEqual(said({ kind: 'catalog_limited', tokens: '288,384', window: '400,000', input: '272,000', source: 'S' }).calls, [['ai_window_catalog_limited', { tokens: '288,384', window: '400,000', input: '272,000', source: 'S' }]]);
+  const price = { kind: 'catalog_price', tokens: '272,000', window: '1,050,000', above: '272,000', from: '$2.5 / $15', to: '$5 / $22.5', floored: false, source: 'S' };
+  assert.deepEqual(said(price).calls, [['ai_window_catalog_price', { tokens: '272,000', window: '1,050,000', above: '272,000', from: '$2.5 / $15', to: '$5 / $22.5', source: 'S' }]]);
+  assert.deepEqual(said({ ...price, floored: true }).calls.map((call) => call[0]), ['ai_window_catalog_price_floor'], 'the floor has a sentence of its own');
 });

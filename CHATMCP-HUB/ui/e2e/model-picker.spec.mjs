@@ -189,3 +189,38 @@ test('the Model field lists the provider\'s models with what the Hub knows of ea
   expect((await app.hub.get('/api/ai/catalog')).json).toMatchObject({ source: 'bundled', lastRefresh: null, refreshing: false });
   expect((await app.hub.state()).ai.model, 'choosing and typing are not saving').toBe('mock-coder');
 });
+
+test('a model whose price rises with the length of the prompt is planned only up to the rise, and the note under the window says why; a window the owner types goes past it', async ({ page, app }) => {
+  await onboard(page, app);
+  const dialog = await openSettings(page, 'Mô hình AI');
+  await dialog.getByRole('button', { name: 'Google Gemini', exact: true }).click();
+  const model = dialog.getByRole('combobox', { name: 'Model', exact: true });
+  const ask = async (name) => (await app.hub.get(`/api/ai/model-info?preset=gemini&protocol=gemini&apiBaseUrl=${encodeURIComponent('https://generativelanguage.googleapis.com')}&model=${encodeURIComponent(name)}`)).json;
+  const grouped = (value) => value.toLocaleString('en-US');
+  const rates = (pair) => `$${money(pair.input)} / $${money(pair.output)}`;
+
+  // gemini-2.5-pro: its price rises above 200,000 tokens, so the Hub plans on 200,000 although the model takes about a million
+  await model.fill('gemini-2.5-pro');
+  const pro = await ask('gemini-2.5-pro');
+  expect(pro).toMatchObject({ found: true, confidence: 'exact', trusted: true });
+  expect(pro.priceCap, 'the Hub says which price rise stopped the plan').toMatchObject({ aboveTokens: 200000, tokens: 200000, floored: false });
+  expect([pro.capacity, pro.modelCapacity]).toEqual([200000, pro.contextWindow]);
+  const hint = dialog.getByTestId('context-window-hint');
+  await expect(hint).toContainText(`Hub lập kế hoạch trên 200,000 token (${pro.source}) dù cửa sổ của model là ${grouped(pro.contextWindow)}`);
+  await expect(hint).toContainText(`vì khi lời nhắc dài hơn 200,000 token giá tăng từ ${rates(pro.priceCap.from)} lên ${rates(pro.priceCap.to)} mỗi 1M token (vào / ra)`);
+  await expect(dialog.getByLabel('Context window tokens', { exact: true }), 'nothing is written into the owner\'s field').toHaveValue('');
+
+  // a model whose price does not rise keeps the plain note, with all the window the model allows
+  await model.fill('gemini-2.5-flash');
+  const flash = await ask('gemini-2.5-flash');
+  expect(flash.priceCap).toBeNull();
+  await expect(hint).toContainText(`Lấy từ danh mục model: ${grouped(flash.capacity)} token (${flash.source})`);
+  await expect(hint).not.toContainText('giá tăng');
+
+  // the owner's own window is planned on whatever the catalog says: the note stops talking about the catalog
+  await model.fill('gemini-2.5-pro');
+  await expect(hint).toContainText('vì khi lời nhắc dài hơn 200,000 token');
+  await dialog.getByLabel('Context window tokens', { exact: true }).fill('500000');
+  await expect(hint).not.toContainText('Hub lập kế hoạch');
+  await expect(hint).toContainText('Allowed: 4,096 - 2,000,000 tokens');
+});
