@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isProtectedPath } from './protected-paths.mjs';
 import { LspProcess } from './studio-intelligence.mjs';
-import { listFilesWithGit } from './git-file-list.mjs';
+import { createPlainFileChecker, listFilesWithGit } from './git-file-list.mjs';
 import { pagerank } from './pagerank.mjs';
 
 const DEFAULT_IGNORED_DIRS = new Set([
@@ -1089,11 +1089,12 @@ export class CodeIntelligenceEngine {
 
   /**
    * The source files of a folder as Git lists them (tracked, and untracked that .gitignore does not exclude), in the order a walk would give them, each a regular file that
-   * exists now (a link, or a file Git still lists after it was deleted, is not one). Null when there is no Git runner or Git cannot answer.
+   * exists now (a link, anything behind a link, or a file Git still lists after it was deleted, is not one). Null when there is no Git runner or Git cannot answer.
    */
   async _listSourceFilesViaGit(startDir, { maxFiles = Infinity, signal = null, deadline = Infinity } = {}) {
     if (!this.git) return null;
     const root = this.rootPath;
+    const isPlainFile = createPlainFileChecker(root);
     const listed = await listFilesWithGit(this.git, { directory: toPosix(path.relative(root, startDir)), signal });
     if (!listed) return null;
     const relPaths = listed.filter((relPath) => this._isListableSource(relPath)).sort(compareInWalkOrder);
@@ -1103,9 +1104,9 @@ export class CodeIntelligenceEngine {
       signal?.throwIfAborted();
       if (Date.now() > deadline) throw Object.assign(new Error('Automatic Repo Map time budget exceeded.'), { code: 'repo_map_budget_exceeded' });
       const batch = relPaths.slice(from, from + 64);
-      const stats = await Promise.all(batch.map((relPath) => fs.lstat(path.join(root, relPath)).catch(() => null)));
+      const plain = await Promise.all(batch.map((relPath) => isPlainFile(relPath)));
       for (let at = 0; at < batch.length; at += 1) {
-        if (!stats[at]?.isFile()) continue;
+        if (!plain[at]) continue;
         if (files.length >= maxFiles) { truncated = true; break; }
         files.push({ fullPath: path.join(root, batch[at]), relPath: batch[at], ext: path.extname(batch[at]).toLowerCase() });
       }

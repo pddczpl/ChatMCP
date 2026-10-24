@@ -5,7 +5,40 @@
 // environment and refuses a repository whose own configuration names such a program), and asks for nothing that writes. When Git cannot answer, the answer is `null` and the
 // caller walks the tree as it always did: no Git runner, a folder that is not a repository, a refusal, a time-out, or more output than a map of files should ever need.
 
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
 /** @typedef {{text: (args: string[], options?: object) => Promise<{code: number, stdout: string, truncated?: boolean, timedOut?: boolean}>}} GitLike */
+
+/**
+ * A check for the paths Git lists: true for a regular file that can be reached from `root` without crossing a link. Git for Windows lists what a junction points to as if it were a
+ * folder of the workspace (so a folder outside it, or a second copy of one inside it, would be listed), and lstat of `link/file` follows the link; so every folder on the way is
+ * lstat'ed too (once each) and must be a real folder. A file that Git still lists after it was deleted, a link and anything that is not a regular file are false.
+ * @returns {(relPath: string) => Promise<boolean>}
+ */
+export function createPlainFileChecker(root) {
+  const folders = new Map();
+  const plainFolder = (relative) => {
+    if (relative === '') return Promise.resolve(true);
+    let known = folders.get(relative);
+    if (!known) {
+      const parent = relative.includes('/') ? relative.slice(0, relative.lastIndexOf('/')) : '';
+      known = plainFolder(parent).then(async (parentIsPlain) => {
+        if (!parentIsPlain) return false;
+        const stats = await fs.lstat(path.join(root, relative)).catch(() => null);
+        return Boolean(stats?.isDirectory() && !stats.isSymbolicLink());
+      });
+      folders.set(relative, known);
+    }
+    return known;
+  };
+  return async (relPath) => {
+    const slash = relPath.lastIndexOf('/');
+    if (!(await plainFolder(slash < 0 ? '' : relPath.slice(0, slash)))) return false;
+    const stats = await fs.lstat(path.join(root, relPath)).catch(() => null);
+    return Boolean(stats?.isFile());
+  };
+}
 
 /**
  * @param {GitLike|null|undefined} git

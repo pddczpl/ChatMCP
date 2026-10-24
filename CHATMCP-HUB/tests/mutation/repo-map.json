@@ -132,7 +132,7 @@
       "name": "RM19",
       "what": "a file Git still lists after it was deleted is listed",
       "patches": [
-        { "file": "lib/code-intelligence.mjs", "old": "if (!stats[at]?.isFile()) continue;", "new": "" }
+        { "file": "lib/code-intelligence.mjs", "old": "if (!plain[at]) continue;", "new": "" }
       ]
     },
     {
@@ -182,6 +182,28 @@
       "what": "a Python module that is not in the workspace is not counted as an external package",
       "patches": [
         { "file": "lib/code-intelligence.mjs", "old": "const pkgName = imp.specifier.split('.')[0];", "new": "const pkgName = '';" }
+      ]
+    },
+    {
+      "name": "RM27",
+      "what": "a folder on the way to a file may be a link",
+      "patches": [
+        { "file": "lib/git-file-list.mjs", "old": "return Boolean(stats?.isDirectory() && !stats.isSymbolicLink());", "new": "return true;" }
+      ]
+    },
+    {
+      "name": "RM28",
+      "what": "a folder behind a link is judged by itself, not by the folders above it",
+      "patches": [
+        { "file": "lib/git-file-list.mjs", "old": "if (!parentIsPlain) return false;", "new": "" }
+      ]
+    },
+    {
+      "name": "RM29",
+      "what": "the list of the map is checked file by file, without looking at the folders on the way",
+      "platforms": ["win32"],
+      "patches": [
+        { "file": "lib/code-intelligence.mjs", "old": "const plain = await Promise.all(batch.map((relPath) => isPlainFile(relPath)));", "new": "const plain = await Promise.all(batch.map((relPath) => fs.lstat(path.join(root, relPath)).then((stats) => stats.isFile(), () => false)));" }
       ]
     }
   ]

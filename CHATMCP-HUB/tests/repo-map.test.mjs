@@ -152,6 +152,39 @@ try {
     ok('repo_map: a Python module imported three ways (absolute, relative, import pkg.core) has three importers and comes first');
   }
 
+  // ----------------------------------------------------------------------------------------------------------------------- 2b. a path that crosses a link
+  {
+    const { createPlainFileChecker } = await import('../lib/git-file-list.mjs');
+    const { directory } = await project({ 'real/a.js': 'x\n', 'real/deeper/more.js': 'x\n', 'top.js': 'x\n' });
+    const outside = path.join(root, 'outside-of-the-checker');
+    await fs.mkdir(outside, { recursive: true });
+    await fs.writeFile(path.join(outside, 'b.js'), 'x\n');
+    let linkable = true;
+    let fileLinkable = true;
+    try {
+      await fs.symlink(path.join(directory, 'real'), path.join(directory, 'alias'), 'junction');
+      await fs.symlink(outside, path.join(directory, 'escape'), 'junction');
+    } catch { linkable = false; }
+    try { await fs.symlink(path.join(directory, 'top.js'), path.join(directory, 'link.js'), 'file'); } catch { fileLinkable = false; }
+    const plain = createPlainFileChecker(directory);
+    assert.equal(await plain('top.js'), true);
+    assert.equal(await plain('real/a.js'), true);
+    assert.equal(await plain('real/deeper/more.js'), true);
+    assert.equal(await plain('real'), false, 'a folder is not a file');
+    assert.equal(await plain('missing.js'), false);
+    assert.equal(await plain('real/missing.js'), false, 'a file that Git still lists after it was deleted');
+    assert.equal(await plain('nowhere/at/all.js'), false);
+    if (linkable) {
+      assert.equal(await plain('alias/a.js'), false, 'a file behind a link to a folder of the workspace');
+      assert.equal(await plain('alias/deeper/more.js'), false, 'two levels behind it');
+      assert.equal(await plain('escape/b.js'), false, 'a file behind a link that leads out of the workspace');
+      assert.equal(await plain('alias'), false);
+      assert.equal(await plain('real/a.js'), true, 'and the real one is still a file once its link was looked at');
+    } else console.log('  skip - this account cannot make a link: the link checks were not run');
+    if (fileLinkable) assert.equal(await plain('link.js'), false, 'a link to a file is not a file');
+    ok('a listed path is a regular file reachable without crossing a link (Git for Windows lists the inside of a junction)');
+  }
+
   // ----------------------------------------------------------------------------------------------------------------------- 3. .gitignore
   if (haveGit) {
     const files = { '.gitignore': 'generated/\n*.min.js\n', 'src/app.js': 'export const a = 1;\n', 'src/lib.min.js': 'export const m = 1;\n', 'generated/out.js': 'export const g = 1;\n',
@@ -189,6 +222,23 @@ try {
     const bracket = await project({ 'a[1].js/x.js': 'export const x = 1;\n', 'a1.js': 'export const y = 1;\n' }, { git: true, initGit: true });
     assert.deepEqual((await bracket.engine.listSourceFiles('a[1].js')).map((file) => file.relPath), ['a[1].js/x.js'], 'the folder is a literal path for Git');
     assert.deepEqual((await bracket.engine.listSourceFiles('.')).map((file) => file.relPath).sort(), ['a1.js', 'a[1].js/x.js'].sort(), '(premise) both files are listed from the root');
+    // a link is a leaf, not a folder to list: Git for Windows lists what a junction points to as if it were here, and a link can lead out of the workspace
+    const linked = await project({ 'real/inside.js': 'export const i = 1;\n', 'real/deeper/more.js': 'export const m = 1;\n' }, { git: true, initGit: true });
+    const outside = path.join(root, 'outside-of-the-project');
+    await fs.mkdir(outside, { recursive: true });
+    await fs.writeFile(path.join(outside, 'secret.js'), 'export const s = 1;\n');
+    let linkable = true;
+    try {
+      await fs.symlink(path.join(linked.directory, 'real'), path.join(linked.directory, 'alias'), 'junction');
+      await fs.symlink(outside, path.join(linked.directory, 'escape'), 'junction');
+    } catch { linkable = false; }
+    if (linkable) {
+      assert.deepEqual((await linked.engine.listSourceFiles('.')).map((file) => file.relPath).sort(), ['real/deeper/more.js', 'real/inside.js'],
+        'nothing behind a link is listed: not a second copy of a folder of the workspace, not a folder outside it');
+      assert.deepEqual((await linked.engine.listSourceFiles('real')).map((file) => file.relPath).sort(), ['real/deeper/more.js', 'real/inside.js']);
+      const linkedMap = await linked.engine.generateRepoMap({ maxTokens: 4000 });
+      assert.equal(linkedMap.structured.totalFiles, 2, 'and so the map counts each file once');
+    } else console.log('  skip - this account cannot make a link: the link checks were not run');
     // the bound still holds, and a limited list says it is limited
     const bounded = await engine.listSourceFiles('.', { maxFiles: 2 });
     assert.equal(bounded.length, 2);
