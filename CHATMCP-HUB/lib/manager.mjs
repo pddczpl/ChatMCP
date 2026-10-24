@@ -7,7 +7,7 @@ import { readJson, writeJson, redact, resolveProgram, spawnLogged, stopOwned } f
 import { buildInternalCatalog } from './catalog.mjs';
 import { hookTextParts } from './hooks.mjs';
 
-export const VERSION = '3.9.0';
+export const VERSION = '3.10.0';
 const baseService = () => ({ state:'unknown', detail:'Chưa kiểm tra' });
 export const BACKENDS = Object.freeze(['local']);
 // The local backend has its own file, search, Git and shell tools. Of the older Studio tools only those that add
