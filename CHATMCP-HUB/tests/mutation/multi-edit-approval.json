@@ -1,0 +1,41 @@
+{
+  "suite": "verify-permissions-modes.mjs",
+  "description": "What the permissions suite must notice about the approval of edit_file with several edits: the owner must be shown every edit in order, told how many there are and how many are not shown, and a call of several edits must not be approved as one.",
+  "mutations": [
+    {
+      "name": "A1",
+      "what": "the approval lists every edit, not only the first 20, and the combined view does not say how many are left out",
+      "patches": [
+        { "file": "lib/permissions.mjs", "old": "const shown = edits.slice(0, EDITS_LISTED);", "new": "const shown = edits;" }
+      ]
+    },
+    {
+      "name": "A2",
+      "what": "the combined view does not number the edits",
+      "patches": [
+        { "file": "lib/permissions.mjs", "old": "[${index + 1}/${edits.length}]${edit.replace_all ? ' (replace_all)' : ''}", "new": "" }
+      ]
+    },
+    {
+      "name": "A3",
+      "what": "the approval does not say how many edits there are",
+      "patches": [
+        { "file": "lib/permissions.mjs", "old": "kind: 'edit', path: input.path, replace_all: false, edit_count: edits.length,", "new": "kind: 'edit', path: input.path, replace_all: false," }
+      ]
+    },
+    {
+      "name": "A4",
+      "what": "a call with several edits is approved as one edit (only old_string and new_string of a single edit are shown)",
+      "patches": [
+        { "file": "lib/permissions.mjs", "old": "}else if(op==='edit_file'&&Array.isArray(input.edits)){", "new": "}else if(false){" }
+      ]
+    },
+    {
+      "name": "A5",
+      "what": "the summary of a call with several edits does not say how many",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "summary: (a) => (Array.isArray(a.edits) ? `Sửa ${a.path} (${a.edits.length} chỉnh sửa)` : `Sửa ${a.path}`), run: (a) => this.#editFile(a),", "new": "summary: (a) => `Sửa ${a.path}`, run: (a) => this.#editFile(a)," }
+      ]
+    }
+  ]
+}

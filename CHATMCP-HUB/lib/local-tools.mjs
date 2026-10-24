@@ -66,6 +66,51 @@ function describeError(error, subject = '') {
 }
 
 const renderLine = (line, number) => `${String(number).padStart(6)}\t${line.length > LIMITS.lineChars ? `${line.slice(0, LIMITS.lineChars)} …[dòng quá dài, đã cắt]` : line}`;
+
+/** The most edits one edit_file call may carry (its schema says so too). */
+const MAX_EDITS = 50;
+
+/**
+ * The form of an edit_file call: old_string + new_string (one edit) OR edits (a list), never both and never neither. Shared by the check made before an approval is asked
+ * (an invalid call must not bother the owner) and by the tool itself.
+ * @returns {string[]} what is wrong, empty when the form is right
+ */
+export function editFormErrors({ old_string: oldString, new_string: newString, replace_all: replaceAll, edits } = {}) {
+  if (edits !== undefined) {
+    return oldString !== undefined || newString !== undefined || replaceAll !== undefined
+      ? ['chỉ dùng một trong hai cách: hoặc old_string + new_string, hoặc edits; không dùng cả hai'] : [];
+  }
+  return oldString === undefined || newString === undefined ? ['cần old_string + new_string hoặc edits (danh sách chỉnh sửa)'] : [];
+}
+
+/**
+ * One edit applied to LF text: the unique occurrence of `oldString` (every occurrence with `replaceAll`) becomes `newString`. Pure: it reads nothing and writes nothing, so a list of
+ * edits can be applied one after the other to the text the one before left, and thrown away whole when one of them does not fit.
+ * @returns {{text: string, count: number, firstLine: number, replacedLines: number}}
+ */
+export function applyEditToText(hay, { oldString, newString, replaceAll = false }, relative) {
+  if (!oldString) throw fault('bad_edit', 'old_string không được rỗng. Để tạo file mới dùng write_file.');
+  if (oldString === newString) throw fault('bad_edit', 'old_string và new_string giống nhau; không có gì để sửa.');
+  const positions = [];
+  for (let at = hay.indexOf(oldString); at !== -1 && positions.length < 5000; at = hay.indexOf(oldString, at + oldString.length)) positions.push(at);
+  const lineAt = (position) => hay.slice(0, position).split('\n').length;
+  if (!positions.length) {
+    const trimmed = oldString.split('\n').map((line) => line.trim()).filter(Boolean);
+    const lines = hay.split('\n');
+    let hint = '';
+    if (trimmed.length) {
+      const probe = trimmed[0];
+      const near = lines.findIndex((line) => line.trim() === probe);
+      if (near !== -1) hint = ` Dòng đầu của old_string xuất hiện ở dòng ${near + 1} nhưng khác khoảng trắng/thụt lề hoặc các dòng sau; dùng read_file để lấy đoạn chính xác.`;
+    }
+    throw fault('not_found', `Không tìm thấy old_string trong "${relative}".${hint || ' Kiểm tra khoảng trắng, thụt lề và dấu xuống dòng; dùng read_file để lấy đoạn chính xác.'}`, 404);
+  }
+  if (positions.length > 1 && !replaceAll) {
+    throw fault('ambiguous_match', `old_string xuất hiện ${positions.length} lần (dòng ${positions.slice(0, 10).map(lineAt).join(', ')}${positions.length > 10 ? ', ...' : ''}). Thêm vài dòng ngữ cảnh xung quanh để duy nhất, hoặc đặt replace_all=true.`, 409);
+  }
+  const text = replaceAll ? hay.split(oldString).join(newString) : hay.slice(0, positions[0]) + newString + hay.slice(positions[0] + oldString.length);
+  return { text, count: replaceAll ? positions.length : 1, firstLine: lineAt(positions[0]), replacedLines: newString ? newString.split('\n').length : 1 };
+}
 const encodingLabel = (encoding) => ({ utf8: 'UTF-8', 'utf8-bom': 'UTF-8 BOM', utf16le: 'UTF-16LE' })[encoding] ?? encoding;
 const eolLabel = (eol) => ({ lf: 'LF', crlf: 'CRLF', mixed: 'hỗn hợp', none: 'không có xuống dòng' })[eol] ?? eol;
 
@@ -149,7 +194,16 @@ export class LocalTools {
     const tool = this.#lookup(name);
     if (!tool) return { ok: false, code: 'unknown_tool', errors: [`Không có công cụ ${name}`] };
     const checked = validateArguments(tool.schema, args ?? {});
-    return checked.ok ? { ok: true, errors: [] } : { ok: false, code: 'invalid_arguments', errors: checked.errors };
+    const errors = checked.ok ? this.#crossFieldErrors(tool, checked.value) : checked.errors;
+    return errors.length === 0 ? { ok: true, errors: [] } : { ok: false, code: 'invalid_arguments', errors };
+  }
+
+  /**
+   * What the schema of a tool cannot say: a rule across its fields (edit_file takes old_string + new_string OR edits, never both and never neither). The schema offered to
+   * the providers stays plain (Anthropic refuses oneOf/anyOf at the top level), and the rule is applied here, with the schema, before any approval is asked.
+   */
+  #crossFieldErrors(tool, value) {
+    return typeof tool.check === 'function' ? tool.check(value) : [];
   }
 
   /** Existing files a call is about to change or delete, for a targeted pre-change checkpoint. */
@@ -197,7 +251,8 @@ export class LocalTools {
     const tool = this.#lookup(name);
     if (!tool) return failure('unknown_tool', `Không có công cụ ${name}.`, { executed: false });
     const checked = validateArguments(tool.schema, args ?? {});
-    if (!checked.ok) return failure('invalid_arguments', `Tham số không hợp lệ cho ${tool.name}: ${checked.errors.join('; ')}.`, { executed: false, details: checked.errors });
+    const errors = checked.ok ? this.#crossFieldErrors(tool, checked.value) : checked.errors;
+    if (errors.length) return failure('invalid_arguments', `Tham số không hợp lệ cho ${tool.name}: ${errors.join('; ')}.`, { executed: false, details: errors });
     try {
       return await tool.run(checked.value, { taskId, signal });
     } catch (error) {
@@ -377,9 +432,20 @@ export class LocalTools {
       summary: (a) => `Ghi ${a.path} (${formatBytes(Buffer.byteLength(String(a.content ?? '')))})`, run: (a) => this.#writeFile(a),
     });
     define('edit_file', {
-      description: 'Replace an exact piece of text in a file. old_string must match exactly (including indentation) and be unique unless replace_all is true; include enough surrounding lines to make it unique. Line endings are handled for you. Read the file first.',
-      schema: obj({ path: str('File path relative to the workspace.'), old_string: str('Exact text to replace.'), new_string: str('Replacement text (may be empty to delete).'), replace_all: bool('Replace every occurrence.'), expected_sha256: EXPECTED_SHA }, ['path', 'old_string', 'new_string']),
-      annotations: WRITE, category: 'workspace_edit', reason: 'Sửa file', pathArgs: ['path'], summary: (a) => `Sửa ${a.path}`, run: (a) => this.#editFile(a),
+      description: 'Replace an exact piece of text in a file. old_string must match exactly (including indentation) and be unique unless replace_all is true; include enough surrounding lines to make it unique. Line endings are handled for you. Read the file first. '
+        + 'For several changes to ONE file in one step, pass edits (a list of {old_string, new_string, replace_all}) instead of old_string/new_string, never both: the edits apply in order, each to the text the one before left, every one must match uniquely (unless its replace_all), and if any fails nothing is written (all or nothing).',
+      schema: obj({
+        path: str('File path relative to the workspace.'),
+        old_string: str('Exact text to replace (single edit; leave out when you pass edits).'), new_string: str('Replacement text, may be empty to delete (single edit; leave out when you pass edits).'),
+        replace_all: bool('Replace every occurrence (single edit).'),
+        edits: { type: 'array', description: 'Several edits to this file, applied in order to the evolving text, all or nothing. Use instead of old_string/new_string.', minItems: 1, maxItems: MAX_EDITS, items: obj({
+          old_string: str('Exact text to replace.'), new_string: str('Replacement text (may be empty to delete).'), replace_all: bool('Replace every occurrence of this old_string.'),
+        }, ['old_string', 'new_string']) },
+        expected_sha256: EXPECTED_SHA,
+      }, ['path']),
+      annotations: WRITE, category: 'workspace_edit', reason: 'Sửa file', pathArgs: ['path'],
+      check: (a) => editFormErrors(a),
+      summary: (a) => (Array.isArray(a.edits) ? `Sửa ${a.path} (${a.edits.length} chỉnh sửa)` : `Sửa ${a.path}`), run: (a) => this.#editFile(a),
     });
     define('make_directory', {
       description: 'Create a directory (and missing parents) inside the workspace.',
@@ -766,9 +832,37 @@ export class LocalTools {
       { path: target.relative, created: !existing, bytes: data.length, sha256: digest, previousSha: existing ? sha256(existing) : null });
   }
 
-  async #editFile({ path: p, old_string: oldString, new_string: newString, replace_all: replaceAll = false, expected_sha256: expectedSha }) {
-    if (!oldString) throw fault('bad_edit', 'old_string không được rỗng. Để tạo file mới dùng write_file.');
-    if (oldString === newString) throw fault('bad_edit', 'old_string và new_string giống nhau; không có gì để sửa.');
+  /**
+   * What an edit_file call asks for, as a list of {old_string, new_string, replace_all}: either one edit (old_string + new_string) or `edits`, never both. A call that
+   * could not do anything is refused here, before the file is opened, with the position of the edit that is wrong when there are several.
+   * @returns {{list: {old_string: string, new_string: string, replace_all: boolean}[], many: boolean}}
+   */
+  #editList({ old_string: oldString, new_string: newString, replace_all: replaceAll, edits }) {
+    const many = edits !== undefined;
+    // call() and validate() have refused a wrong form already, before any approval; this is for a caller that reaches the tool another way.
+    const wrongForm = editFormErrors({ old_string: oldString, new_string: newString, replace_all: replaceAll, edits })[0];
+    if (wrongForm) throw fault('bad_edit', `${wrongForm[0].toUpperCase()}${wrongForm.slice(1)}.`);
+    const list = many ? edits : [{ old_string: oldString, new_string: newString, replace_all: replaceAll === true }];
+    if (!Array.isArray(list) || !list.length) throw fault('bad_edit', 'edits không được rỗng.');
+    if (list.length > MAX_EDITS) throw fault('bad_edit', `Tối đa ${MAX_EDITS} chỉnh sửa trong một lần gọi; chia nhỏ.`);
+    list.forEach((edit, index) => {
+      try {
+        if (typeof edit?.old_string !== 'string' || typeof edit?.new_string !== 'string') throw fault('bad_edit', 'Mỗi chỉnh sửa cần old_string và new_string (chuỗi).');
+        if (!edit.old_string) throw fault('bad_edit', 'old_string không được rỗng. Để tạo file mới dùng write_file.');
+        if (edit.old_string === edit.new_string) throw fault('bad_edit', 'old_string và new_string giống nhau; không có gì để sửa.');
+      } catch (error) { throw many ? this.#editFailure(error, index, list.length) : error; }
+    });
+    return { list: list.map((edit) => ({ old_string: edit.old_string, new_string: edit.new_string, replace_all: edit.replace_all === true })), many };
+  }
+
+  /** The same fault, with the position of the edit that failed in front of its message (a call with several edits writes nothing when one of them fails). */
+  #editFailure(error, index, total) {
+    if (!error?.code || !error?.message) return error;
+    return Object.assign(new Error(`Chỉnh sửa ${index + 1}/${total} thất bại, chưa ghi gì: ${error.message}`), { code: error.code, statusCode: error.statusCode });
+  }
+
+  async #editFile({ path: p, old_string: oldString, new_string: newString, replace_all: replaceAll, edits, expected_sha256: expectedSha }) {
+    const { list, many } = this.#editList({ old_string: oldString, new_string: newString, replace_all: replaceAll, edits });
     const target = await this.#target(p, { write: true });
     const stat = await fs.lstat(target.absolute);
     if (stat.isSymbolicLink()) throw fault('symlink', `"${target.relative}" là symlink; không sửa qua symlink.`, 403);
@@ -781,39 +875,37 @@ export class LocalTools {
     if (!decoded.ok) throw this.#decodeError(target.relative, decoded.reason);
     const crlf = decoded.eol === 'crlf';
     const hay = crlf ? toLf(decoded.text) : decoded.text;
-    const needle = crlf ? toLf(oldString) : oldString;
-    const replacement = crlf ? toLf(newString) : newString;
-    const positions = [];
-    for (let at = hay.indexOf(needle); at !== -1 && positions.length < 5000; at = hay.indexOf(needle, at + needle.length)) positions.push(at);
-    const lineAt = (position) => hay.slice(0, position).split('\n').length;
-    if (!positions.length) {
-      const trimmed = needle.split('\n').map((line) => line.trim()).filter(Boolean);
-      const lines = hay.split('\n');
-      let hint = '';
-      if (trimmed.length) {
-        const probe = trimmed[0];
-        const near = lines.findIndex((line) => line.trim() === probe);
-        if (near !== -1) hint = ` Dòng đầu của old_string xuất hiện ở dòng ${near + 1} nhưng khác khoảng trắng/thụt lề hoặc các dòng sau; dùng read_file để lấy đoạn chính xác.`;
-      }
-      throw fault('not_found', `Không tìm thấy old_string trong "${target.relative}".${hint || ' Kiểm tra khoảng trắng, thụt lề và dấu xuống dòng; dùng read_file để lấy đoạn chính xác.'}`, 404);
+    // The edits apply in order, each to the text the one before left, in memory: the file is written once, after all of them fit, or not at all.
+    let updatedLf = hay;
+    const steps = [];
+    list.forEach((edit, index) => {
+      try {
+        const step = applyEditToText(updatedLf, { oldString: crlf ? toLf(edit.old_string) : edit.old_string, newString: crlf ? toLf(edit.new_string) : edit.new_string, replaceAll: edit.replace_all }, target.relative);
+        updatedLf = step.text;
+        steps.push(step);
+      } catch (failure) { throw many ? this.#editFailure(failure, index, list.length) : failure; }
+    });
+    const count = steps.reduce((sum, step) => sum + step.count, 0);
+    if (updatedLf === hay) {
+      return ok(`${target.relative}: các chỉnh sửa triệt tiêu nhau, nội dung không đổi, không ghi.`, { path: target.relative, unchanged: true, edits: list.length, replacements: count, sha256: before, previousSha: before });
     }
-    if (positions.length > 1 && !replaceAll) {
-      throw fault('ambiguous_match', `old_string xuất hiện ${positions.length} lần (dòng ${positions.slice(0, 10).map(lineAt).join(', ')}${positions.length > 10 ? ', ...' : ''}). Thêm vài dòng ngữ cảnh xung quanh để duy nhất, hoặc đặt replace_all=true.`, 409);
-    }
-    const updatedLf = replaceAll ? hay.split(needle).join(replacement) : hay.slice(0, positions[0]) + replacement + hay.slice(positions[0] + needle.length);
     const updated = crlf ? updatedLf.replace(/\n/g, '\r\n') : updatedLf;
     const data = encodeText(updated, decoded.encoding);
     await writeFileAtomic(target.absolute, data, { mode: this.#fileMode(stat.mode), expectedSha: before });
     const digest = sha256(data);
-    const firstLine = lineAt(positions[0]);
-    const replacedLines = replacement ? replacement.split('\n').length : 1;
+    const [{ firstLine, replacedLines }] = steps;
     const outLines = updatedLf.split('\n');
     const from = Math.max(1, firstLine - 3);
     const to = Math.min(outLines.length, firstLine + replacedLines - 1 + 3);
     const snippet = outLines.slice(from - 1, to).map((line, i) => renderLine(line, from + i)).join('\n');
-    const count = replaceAll ? positions.length : 1;
-    return ok(`Đã sửa ${target.relative}: thay ${count} chỗ${count === 1 ? ` (dòng ${firstLine})` : ''}.\nsha256: ${digest}\n${snippet}`,
-      { path: target.relative, replacements: count, firstLine, sha256: digest, previousSha: before });
+    if (!many) {
+      return ok(`Đã sửa ${target.relative}: thay ${count} chỗ${count === 1 ? ` (dòng ${firstLine})` : ''}.\nsha256: ${digest}\n${snippet}`,
+        { path: target.relative, replacements: count, firstLine, sha256: digest, previousSha: before });
+    }
+    // The line of an edit is the line it found its text on at its turn, after the edits before it.
+    const account = steps.map((step, index) => `  ${index + 1}. dòng ${step.firstLine}: ${step.count} chỗ`).join('\n');
+    return ok(`Đã sửa ${target.relative}: ${list.length} chỉnh sửa, ${count} chỗ thay (một lần ghi).\n${account}\nsha256: ${digest}\n${snippet}`,
+      { path: target.relative, edits: list.length, replacements: count, firstLine, sha256: digest, previousSha: before });
   }
 
   async #makeDirectory({ path: p }) {

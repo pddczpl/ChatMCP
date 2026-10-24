@@ -63,7 +63,7 @@ JSON on stdin, one object:
 | `permission_mode` | `default` (Review), `plan` (Read Only), `acceptEdits` (Autonomous), `bypassPermissions` (Full Access); Read Only wins over Full Access, as in the gate |
 | `hook_event_name` | the event |
 | `tool_name` | the **DatGold** name, e.g. `local.run_command` (the Claude Code name is in `tool_aliases`) |
-| `tool_input` | the arguments of the call; for `local.write_file`, `local.edit_file`, `local.read_file` also `file_path`, absolute, as Claude Code scripts expect |
+| `tool_input` | the arguments of the call; for `local.write_file`, `local.edit_file`, `local.read_file` also `file_path`, absolute, as Claude Code scripts expect. `local.edit_file` carries either `old_string` + `new_string` or `edits`, a list of up to 50 of them for one file that are applied in order or not at all |
 | `tool_use_id` | one id for the `Pre` and the `Post` hook of a call |
 | `tool_response` | (`PostToolUse`) the result of the tool; `error` (`PostToolUseFailure`) its message |
 | `tool_aliases`, `chatmcp_permission_mode`, `chatmcp_execution_policy` | DatGold additions |
