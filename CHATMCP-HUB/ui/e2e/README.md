@@ -33,6 +33,10 @@ or changing destinations. Saving a custom loopback endpoint twice retains its
 canonical provider and saved dummy key without submitting a model request.
 Stop/Resume uses a read-only task and verifies the same conversation ID and
 restored history; it does not establish mutation replay behavior.
+With the language saved as English before the page loads, the first-run setup is
+walked from its first screen to its last, every section of Settings is read, the
+FULL ACCESS dialog is used with its typed phrase, and the command palette switches
+the mode; each is read for Vietnamese letters, against the same Hub.
 Console exceptions, failed requests, HTTP failures, malformed API JSON,
 unexpected API content types and API error envelopes fail the test; task SSE
 and plain-text report endpoints retain their explicit response formats, and a
