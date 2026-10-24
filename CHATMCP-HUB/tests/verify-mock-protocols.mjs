@@ -16,8 +16,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  RULES, accumulateAnthropicStream, accumulateChatStream, accumulateResponsesStream, createThinkingSigner, errorBody, parseSse,
-  validateAnthropicRequest, validateAnthropicStream, validateChatRequest, validateChatStream, validateGeminiRequest, validateResponsesRequest, validateResponsesStream,
+  RULES, accumulateAnthropicStream, accumulateChatStream, accumulateGeminiStream, accumulateResponsesStream, createThinkingSigner, errorBody, parseSse,
+  validateAnthropicRequest, validateAnthropicStream, validateChatRequest, validateChatStream, validateGeminiRequest, validateGeminiStream, validateResponsesRequest, validateResponsesStream,
 } from './e2e/protocol-validators.mjs';
 import { startMockModel } from './e2e/mock-model-server.mjs';
 import { CANNED_CONVERSATIONS, SCENARIOS, call, redacted as withRedacted, say, thinking as withThinking, truncated } from './e2e/scenarios.mjs';
@@ -541,6 +541,43 @@ const STREAM_FIXTURES = {
         ['response.completed', { type: 'response.completed', sequence_number: 4, response: { id: 'resp_1', status: 'completed', output: [{ type: 'message', id: 'msg_1', status: 'completed', role: 'assistant', content: [{ type: 'output_text', text: 'Goodbye', annotations: [] }] }] } }]), undefined, 'differs from the streamed'],
     ],
   },
+  gemini: {
+    validate: (events) => validateGeminiStream(events),
+    accept: [
+      ['text in pieces, usage in every event, finishReason in the last', sse(
+        [null, { candidates: [{ content: { parts: [{ text: 'Hel' }], role: 'model' }, index: 0 }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 1, totalTokenCount: 6 } }],
+        [null, { candidates: [{ content: { parts: [{ text: 'lo' }], role: 'model' }, finishReason: 'STOP', index: 0 }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 2, totalTokenCount: 7 } }])],
+      ['thought parts, then a signed functionCall in the last chunk, and an empty text part with the finishReason', sse(
+        [null, { candidates: [{ content: { parts: [{ text: 'thinking', thought: true }], role: 'model' }, index: 0 }], usageMetadata: { promptTokenCount: 9, totalTokenCount: 9 } }],
+        [null, { candidates: [{ content: { parts: [{ functionCall: { name: 'read_file', args: { path: 'a' } }, thoughtSignature: 'sig' }], role: 'model' }, index: 0 }], usageMetadata: { promptTokenCount: 9, candidatesTokenCount: 4, totalTokenCount: 13 } }],
+        [null, { candidates: [{ content: { parts: [{ text: '' }], role: 'model' }, finishReason: 'STOP', index: 0 }], usageMetadata: { promptTokenCount: 9, candidatesTokenCount: 4, totalTokenCount: 13 } }])],
+      ['a blocked prompt: no candidate at all', sse([null, { promptFeedback: { blockReason: 'SAFETY' }, usageMetadata: { promptTokenCount: 3, totalTokenCount: 3 } }])],
+    ],
+    reject: [
+      ['no finishReason: the stream was cut', sse([null, { candidates: [{ content: { parts: [{ text: 'x' }], role: 'model' }, index: 0 }] }]), undefined, 'finishReason'],
+      ['text after the chunk that has the finishReason', sse(
+        [null, { candidates: [{ content: { parts: [{ text: 'x' }], role: 'model' }, finishReason: 'STOP', index: 0 }] }],
+        [null, { candidates: [{ content: { parts: [{ text: 'late' }], role: 'model' }, index: 0 }] }]), undefined, 'after the chunk with finishReason'],
+      ['a [DONE] marker (Gemini streams have none)', sse([null, { candidates: [{ content: { parts: [{ text: 'x' }], role: 'model' }, finishReason: 'STOP', index: 0 }] }], [null, '[DONE]']), undefined, '[DONE]'],
+      ['an event that is not an object', sse([null, '[1]']), undefined, 'not a GenerateContentResponse'],
+      ['a functionCall with no name', sse([null, { candidates: [{ content: { parts: [{ functionCall: { args: {} } }], role: 'model' }, finishReason: 'STOP', index: 0 }] }]), undefined, 'needs a name'],
+      ['a functionCall whose args are not an object', sse([null, { candidates: [{ content: { parts: [{ functionCall: { name: 'f', args: 'x' } }], role: 'model' }, finishReason: 'STOP', index: 0 }] }]), undefined, 'args must be an object'],
+      ['a part that carries two kinds of data', sse([null, { candidates: [{ content: { parts: [{ text: 'x', functionCall: { name: 'f' } }], role: 'model' }, finishReason: 'STOP', index: 0 }] }]), undefined, 'exactly one kind'],
+      ['a promptTokenCount that changes between events', sse(
+        [null, { candidates: [{ content: { parts: [{ text: 'a' }], role: 'model' }, index: 0 }], usageMetadata: { promptTokenCount: 5, totalTokenCount: 5 } }],
+        [null, { candidates: [{ content: { parts: [{ text: 'b' }], role: 'model' }, finishReason: 'STOP', index: 0 }], usageMetadata: { promptTokenCount: 6, totalTokenCount: 6 } }]), undefined, 'promptTokenCount'],
+      ['a candidate token count that goes down', sse(
+        [null, { candidates: [{ content: { parts: [{ text: 'a' }], role: 'model' }, index: 0 }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 4, totalTokenCount: 9 } }],
+        [null, { candidates: [{ content: { parts: [{ text: 'b' }], role: 'model' }, finishReason: 'STOP', index: 0 }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 2, totalTokenCount: 7 } }]), undefined, 'candidatesTokenCount decreases'],
+      ['a role other than model', sse([null, { candidates: [{ content: { parts: [{ text: 'x' }], role: 'user' }, finishReason: 'STOP', index: 0 }] }]), undefined, 'role "model"'],
+      ['a blocked prompt that also has a candidate', sse([null, { promptFeedback: { blockReason: 'SAFETY' }, candidates: [{ content: { parts: [{ text: 'x' }], role: 'model' }, finishReason: 'STOP', index: 0 }] }]), undefined, 'blocked prompt has no candidate'],
+      ['an error object inside the stream', sse([null, { error: { code: 503, message: 'down', status: 'UNAVAILABLE' } }]), undefined, 'error object'],
+      ['two events with a finishReason', sse(
+        [null, { candidates: [{ content: { parts: [{ text: 'a' }], role: 'model' }, finishReason: 'STOP', index: 0 }] }],
+        [null, { candidates: [{ content: { parts: [], role: 'model' }, finishReason: 'STOP', index: 0 }] }]), undefined, 'second finishReason'],
+      ['candidates that are not a list', sse([null, { candidates: 'x' }]), undefined, 'non-empty list'],
+    ],
+  },
 };
 
 {
@@ -562,7 +599,7 @@ const STREAM_FIXTURES = {
       rejected += 1;
     }
   }
-  ok(`stream validators: 3 rules, ${accepted} accept and ${rejected} reject fixtures`);
+  ok(`stream validators: ${Object.keys(STREAM_FIXTURES).length} rules, ${accepted} accept and ${rejected} reject fixtures`);
 }
 
 {
@@ -734,7 +771,21 @@ mock.setScenario('rich');
   for (const name of ['response.created', 'response.in_progress', 'response.output_item.added', 'response.reasoning_summary_text.delta', 'response.output_text.delta', 'response.function_call_arguments.delta', 'response.function_call_arguments.done', 'response.output_item.done', 'response.completed']) assert.ok(names.has(name), `the Responses stream has ${name}`);
   assert.deepEqual(summary.responses(accumulateResponsesStream(responsesEvents)), jsonSummary.responses, 'Responses: the stream says what the JSON answer says');
   assert.equal(accumulateResponsesStream(responsesEvents).output.filter((item) => item.type === 'function_call').length, 2, 'response.completed carries the parallel function_call items');
-  ok('SSE: Chat (fragments and a usage chunk on request), Anthropic (signature_delta, ping) and Responses (reasoning summary and text deltas, completed with parallel calls) are valid streams that carry what the JSON answer carries');
+  const geminiRoute = `${mock.origin}/v1beta/models/mock-gemini:streamGenerateContent?alt=sse`;
+  const geminiStream = await fetch(geminiRoute, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(bodies.gemini()) });
+  assert.equal(geminiStream.status, 200);
+  assert.match(geminiStream.headers.get('content-type'), /^text\/event-stream/);
+  const geminiEvents = parseSse(await geminiStream.text());
+  assert.deepEqual(validateGeminiStream(geminiEvents).errors, []);
+  const geminiDone = accumulateGeminiStream(geminiEvents);
+  const geminiJson = (await post(URL.gemini, bodies.gemini())).json;
+  const geminiParts = (response) => response.candidates[0].content.parts;
+  assert.deepEqual(geminiParts(geminiDone), geminiParts(geminiJson), 'Gemini: the stream says what the JSON answer says (thought, text, two calls, the first one signed)');
+  assert.deepEqual([geminiDone.candidates[0].finishReason, geminiDone.usageMetadata], [geminiJson.candidates[0].finishReason, geminiJson.usageMetadata]);
+  assert.ok(geminiEvents.filter((event) => event.json?.candidates?.[0]?.content?.parts?.some((part) => part.text !== undefined && part.thought !== true)).length > 1, 'the text arrives in pieces');
+  assert.equal(geminiEvents.filter((event) => event.json?.candidates?.[0]?.finishReason).length, 1, 'only the last event has the finishReason');
+  assert.equal((await fetch(geminiRoute.replace('?alt=sse', ''), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(bodies.gemini()) })).status, 400, 'a stream without alt=sse is refused: the Hub reads the SSE form only');
+  ok('SSE: Chat (fragments and a usage chunk on request), Anthropic (signature_delta, ping), Responses (reasoning summary and text deltas, completed with parallel calls) and Gemini (alt=sse chunks, usage that grows, the finishReason in the last) are valid streams that carry what the JSON answer carries');
 }
 
 {
@@ -1032,7 +1083,9 @@ const rows = (m, { limits, timeoutMs = 5000, idleTimeoutMs } = {}) => {
     'anthropic-sse': { label: 'respondStandard / Anthropic Messages / SSE', api: 'anthropic', run: standard('anthropic', 'messages', anthropicHeaders('test-key'), true) },
     responses: { label: 'respondOpenAIResponses / JSON', api: 'responses', run: responses(false) },
     'responses-sse': { label: 'respondOpenAIResponses / SSE', api: 'responses', run: responses(true) },
-    gemini: { label: 'GatewayProvider / Gemini generateContent', api: 'gemini', run: (input, options = {}) => gemini.respond({ input, instructions: 'system', tools: TOOLS, maxOutputTokens: 1024, signal: AbortSignal.timeout(8000), ...options }) },
+    // The plain Gemini row never gets onToken (a caller that shows the text gets the stream route); the SSE row does.
+    gemini: { label: 'GatewayProvider / Gemini generateContent', api: 'gemini', run: (input, options = {}) => gemini.respond({ input, instructions: 'system', tools: TOOLS, maxOutputTokens: 1024, signal: AbortSignal.timeout(8000), ...options, onToken: undefined, onStreamReset: undefined }) },
+    'gemini-sse': { label: 'GatewayProvider / Gemini streamGenerateContent', api: 'gemini', run: (input, options = {}) => gemini.respond({ input, instructions: 'system', tools: TOOLS, maxOutputTokens: 1024, signal: AbortSignal.timeout(8000), ...options }) },
   };
 };
 
@@ -1070,8 +1123,9 @@ for (const [name, row] of Object.entries(ROWS)) {
   assert.equal(finalText(answer.turns[0]), 'Hello from the mock.');
   assert.deepEqual([answer.turns[0].usage.input_tokens, answer.turns[0].usage.output_tokens], [120, 24], `${label}: usage`);
   accepted(answer);
-  if (name === 'responses-sse' || name === 'chat-sse' || name === 'anthropic-sse') assert.equal(answer.tokens.join(''), 'Hello from the mock.', 'the SSE row delivers the text as tokens');
-  if (name === 'chat-sse' || name === 'anthropic-sse') assert.deepEqual(answer.requests.map((request) => request.stream), [true], 'and the request really was a stream');
+  if (name === 'responses-sse' || name === 'chat-sse' || name === 'anthropic-sse' || name === 'gemini-sse') assert.equal(answer.tokens.join(''), 'Hello from the mock.', 'the SSE row delivers the text as tokens');
+  if (name === 'chat-sse' || name === 'anthropic-sse' || name === 'gemini-sse') assert.deepEqual(answer.requests.map((request) => request.stream), [true], 'and the request really was a stream');
+  if (name === 'gemini') assert.deepEqual(answer.requests.map((request) => request.stream), [false], 'the plain row asks for the plain route');
 
   const one = await converse(row, contract, 'canned-one-tool');
   assert.equal(one.turns.length, 2, `${label}: a call, then the answer`);

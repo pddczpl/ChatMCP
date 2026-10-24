@@ -644,7 +644,7 @@ try {
     await ask(16384);
     await ask(100);
     await ask(1_000_000);
-    same(sent, [8192, 16384, 256, 65536], 'default 8,192; the caller\'s budget otherwise, within 256..65,536');
+    same(sent, [16384, 16384, 256, 65536], 'no budget: the cap the catalog allows the agent for this model (16,384; it was a fixed 8,192); the caller\'s budget otherwise, within 256..65,536');
     sent.length = 0;
     range = 8193;
     await ask(16384);

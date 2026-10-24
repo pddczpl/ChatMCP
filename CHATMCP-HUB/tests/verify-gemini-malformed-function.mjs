@@ -25,7 +25,8 @@ const makeProvider = (dir, impl) => new GatewayProvider({directory:path.join(roo
 const poll = async (engine,id) => {for(let i=0;i<500;i++){const t=engine.get(id);if(t.status!=='running')return t;await new Promise(r=>setTimeout(r,15));}throw Error('timed out');};
 try {
   const p=makeProvider('success',async (url,opts)=>{
-    assert.equal(url,'https://example.invalid/v1beta/models/gemini-fixture:generateContent');
+    // AgentRunner shows the text, so the first request of a run goes to the stream twin of the route (:streamGenerateContent?alt=sse): the same gateway and model.
+    assert.equal(url.replace(':streamGenerateContent?alt=sse',':generateContent'),'https://example.invalid/v1beta/models/gemini-fixture:generateContent');
     assert.equal(opts.headers['x-goog-api-key'],secret);
     const body=JSON.parse(opts.body);
     if (Object.keys(body).join(',')!=='contents') {nativeRejects++; return res(400,{error:{message:'Unsupported request fields'}});}

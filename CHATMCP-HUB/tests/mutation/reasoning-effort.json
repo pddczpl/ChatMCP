@@ -237,7 +237,7 @@
       "name": "R34",
       "what": "the room made for the thoughts ignores the cap the model is known to take",
       "patches": [
-        { "file": "lib/gateway-provider.mjs", "old": "geminiThinkingRoom(nativeBody.generationConfig.thinkingConfig)), this.outputLimit);", "new": "geminiThinkingRoom(nativeBody.generationConfig.thinkingConfig)), null);" }
+        { "file": "lib/gateway-provider.mjs", "old": "geminiThinkingRoom(nativeBody.generationConfig.thinkingConfig)), this.outputLimit, facts);", "new": "geminiThinkingRoom(nativeBody.generationConfig.thinkingConfig)), null, facts);" }
       ]
     },
     {

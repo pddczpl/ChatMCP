@@ -52,6 +52,7 @@ export const RULES = Object.freeze({
   'gemini.thinking_config': { api: 'gemini', provenance: 'doc', source: 'https://ai.google.dev/gemini-api/docs/generate-content/thinking (generationConfig.thinkingConfig: thinkingLevel minimal, low, medium or high; thinkingBudget a whole number, 0 for off and -1 for dynamic; "sending thinkingBudget and thinkingLevel together returns a 400"; includeThoughts); the wording of the messages is ours', summary: 'generationConfig is an object; its thinkingConfig names a documented level or a budget, never both' },
   'chat.stream_shape': { api: 'chat', provenance: 'sdk', source: 'openai-python chat_completion_chunk.py: chunks, tool call fragments, a usage chunk with no choices, [DONE]', summary: 'what a Chat Completions SSE stream looks like' },
   'anthropic.stream_shape': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/build-with-claude/streaming', summary: 'message_start, blocks with start/delta/stop, message_delta, message_stop' },
+  'gemini.stream_shape': { api: 'gemini', provenance: 'doc', source: 'https://ai.google.dev/api/generate-content#method:-models.streamgeneratecontent (a stream of GenerateContentResponse; with alt=sse each one is an event, and the stream ends with the connection, there is no [DONE])', summary: 'each event a GenerateContentResponse, parts of one kind of data, one finishReason in the last event that has a candidate, usage that only grows' },
   'responses.stream_shape': { api: 'responses', provenance: 'sdk', source: 'openai-python src/openai/types/responses/response_*_event.py', summary: 'response.created ... response.completed with increasing sequence_number and items that match their deltas' },
 });
 
@@ -429,7 +430,7 @@ export function validateResponsesRequest(body) {
 // ---------------------------------------------------------------------------------------------------------------------
 // Gemini generateContent (the native request, as GatewayProvider sends it first)
 // ---------------------------------------------------------------------------------------------------------------------
-// https://ai.google.dev/api/generate-content: the request fields. The model is in the URL; streaming is another method.
+// https://ai.google.dev/api/generate-content: the request fields. The model is in the URL; streaming is another method, with the same request body (validateGeminiStream reads what it answers).
 const GEMINI_FIELDS = new Set(['contents', 'tools', 'toolConfig', 'safetySettings', 'systemInstruction', 'generationConfig', 'cachedContent', 'continuationToken', 'labels', 'serviceTier', 'store']);
 const GEMINI_DATA = ['text', 'inlineData', 'fileData', 'functionCall', 'functionResponse', 'executableCode', 'codeExecutionResult'];
 const GEMINI_FUNCTION_NAME = /^[a-zA-Z_][a-zA-Z0-9_.:-]{0,63}$/;
@@ -744,5 +745,91 @@ export function validateResponsesStream(events) {
   });
   if (!terminal) c.add(rule, 'the stream has no terminal event (response.completed, response.incomplete or response.failed)');
   else if (terminal !== events.at(-1)) c.add(rule, 'the terminal event is not the last event');
+  return c.result();
+}
+
+/**
+ * Reference reader of a Gemini stream: what a client that follows the documentation builds. Consecutive pieces of plain text (of the same thought flag) are one part, a piece with a
+ * thoughtSignature ends its part, every other part stays as it came, the last usageMetadata and the finishReason are kept.
+ */
+export function accumulateGeminiStream(events) {
+  const parts = [];
+  let open = null;
+  let finishReason;
+  let usageMetadata;
+  let promptFeedback;
+  let sawCandidate = false;
+  for (const { json } of events) {
+    if (!isObject(json)) continue;
+    if (isObject(json.usageMetadata)) usageMetadata = json.usageMetadata;
+    if (isObject(json.promptFeedback)) promptFeedback = json.promptFeedback;
+    const candidate = Array.isArray(json.candidates) ? json.candidates[0] : undefined;
+    if (!isObject(candidate)) continue;
+    sawCandidate = true;
+    for (const part of candidate.content?.parts ?? []) {
+      const plain = isText(part.text) && part.functionCall === undefined;
+      if (plain && open && (open.thought === true) === (part.thought === true)) open.text += part.text;
+      else { open = plain ? { ...part } : null; parts.push(open ?? structuredClone(part)); }
+      if (plain && part.thoughtSignature) { open.thoughtSignature = part.thoughtSignature; open = null; }
+    }
+    if (isNonEmptyText(candidate.finishReason)) finishReason = candidate.finishReason;
+  }
+  const response = {};
+  if (sawCandidate) response.candidates = [{ content: { role: 'model', parts }, ...(finishReason ? { finishReason } : {}), index: 0 }];
+  if (usageMetadata) response.usageMetadata = usageMetadata;
+  if (promptFeedback) response.promptFeedback = promptFeedback;
+  return response;
+}
+
+export function validateGeminiStream(events) {
+  const c = collector();
+  const rule = 'gemini.stream_shape';
+  if (events.length === 0) c.add(rule, 'the stream has no event');
+  let finishedAt = -1;
+  let promptTokens = null;
+  let candidateTokens = -1;
+  let blocked = false;
+  events.forEach((event, i) => {
+    if (event.data === '[DONE]') { c.add(rule, `event ${i} is [DONE]: a Gemini stream ends with the connection, it has no such marker`); return; }
+    const chunk = event.json;
+    if (!isObject(chunk)) { c.add(rule, `event ${i} is not a GenerateContentResponse (an object)`); return; }
+    if (chunk.error !== undefined) { c.add(rule, `event ${i} carries an error object: the stream failed`); return; }
+    if (isObject(chunk.usageMetadata)) {
+      const usage = chunk.usageMetadata;
+      if (!Number.isInteger(usage.promptTokenCount)) c.add(rule, `event ${i}: usageMetadata without promptTokenCount`);
+      else if (promptTokens !== null && usage.promptTokenCount !== promptTokens) c.add(rule, `event ${i}: promptTokenCount ${usage.promptTokenCount} differs from the ${promptTokens} of the events before`);
+      else promptTokens = usage.promptTokenCount;
+      if (Number.isInteger(usage.candidatesTokenCount)) {
+        if (usage.candidatesTokenCount < candidateTokens) c.add(rule, `event ${i}: candidatesTokenCount decreases (${candidateTokens} -> ${usage.candidatesTokenCount}); usage is cumulative`);
+        candidateTokens = usage.candidatesTokenCount;
+      }
+    }
+    if (isObject(chunk.promptFeedback) && isNonEmptyText(chunk.promptFeedback.blockReason)) {
+      blocked = true;
+      if (chunk.candidates !== undefined) c.add(rule, `event ${i}: a blocked prompt has no candidate`);
+    }
+    if (chunk.candidates === undefined) return;
+    if (!Array.isArray(chunk.candidates) || chunk.candidates.length === 0 || !chunk.candidates.every(isObject)) { c.add(rule, `event ${i}: candidates must be a non-empty list of objects`); return; }
+    const candidate = chunk.candidates[0];
+    const parts = candidate.content?.parts;
+    if (finishedAt >= 0 && Array.isArray(parts) && parts.some((part) => (isObject(part) && (part.functionCall !== undefined || (isText(part.text) && part.text !== ''))))) {
+      c.add(rule, `event ${i}: parts after the chunk with finishReason (event ${finishedAt})`);
+    }
+    if (candidate.content !== undefined) {
+      if (!isObject(candidate.content) || (candidate.content.role !== undefined && candidate.content.role !== 'model')) c.add(rule, `event ${i}: the content of a candidate must have role "model"`);
+      if (candidate.content.parts !== undefined && !Array.isArray(candidate.content.parts)) c.add(rule, `event ${i}: parts must be a list`);
+      for (const part of Array.isArray(candidate.content?.parts) ? candidate.content.parts : []) {
+        const kinds = GEMINI_DATA.filter((kind) => isObject(part) && part[kind] !== undefined);
+        if (kinds.length !== 1) c.add(rule, `event ${i}: a part must carry exactly one kind of data (found ${kinds.length ? list(kinds) : 'none'})`);
+        if (hasCall(part) && !(isObject(part.functionCall) && isNonEmptyText(part.functionCall.name))) c.add(rule, `event ${i}: a functionCall needs a name`);
+        if (hasCall(part) && part.functionCall.args !== undefined && !isObject(part.functionCall.args)) c.add(rule, `event ${i}: functionCall args must be an object`);
+      }
+    }
+    if (isNonEmptyText(candidate.finishReason)) {
+      if (finishedAt >= 0) c.add(rule, `event ${i}: a second finishReason (the first is in event ${finishedAt})`);
+      finishedAt = i;
+    }
+  });
+  if (events.length > 0 && !blocked && finishedAt < 0) c.add(rule, 'no event carries a finishReason: the stream was cut, or the model did not finish');
   return c.result();
 }

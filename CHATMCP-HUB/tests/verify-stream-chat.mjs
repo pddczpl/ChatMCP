@@ -641,12 +641,6 @@ const fixtureByName = byName;
     const child = parent.gateway.forkForTask({ protocol: 'openai-chat', apiBaseUrl: 'http://127.0.0.1:7333/v1', model: 'm', authMode: 'bearer', apiKey: '' });
     assert.ok(child);
 
-    // Messages and Gemini do not stream yet in this slice of the work: nothing changes for them
-    const anthropic = await provider([jsonResponse(200, { id: 'msg_1', type: 'message', role: 'assistant', model: 'm', content: [{ type: 'text', text: 'Hi' }], stop_reason: 'end_turn', usage: { input_tokens: 3, output_tokens: 1 } })], { protocol: 'anthropic', baseUrl: 'http://127.0.0.1:7333' });
-    const anthropicTokens = [];
-    await ask(anthropic.gateway, { onToken: (token) => anthropicTokens.push(token) });
-    assert.equal(anthropic.sent[0].stream, undefined, 'the Messages request has no stream field');
-    assert.deepEqual(anthropicTokens, [], 'and no text is delivered as tokens');
   } finally {
     for (const directory of made) fs.rmSync(directory, { recursive: true, force: true });
   }

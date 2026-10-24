@@ -1,0 +1,735 @@
+{
+  "suite": "verify-stream-gemini.mjs",
+  "description": "Gemini streaming: the reader (lib/gemini-stream.mjs), the stream URL, the loop of GatewayProvider.respond (stream route, give-ups, clocks, delivery) and the output cap from the catalog.",
+  "mutations": [
+    {
+      "name": "GS1",
+      "what": "an event with no data is read as JSON",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (raw === '') return undefined;", "new": "" }
+      ]
+    },
+    {
+      "name": "GS2",
+      "what": "an event that is not JSON escapes without the code of an invalid stream",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "try { chunk = JSON.parse(raw); } catch { throw streamInvalid('Một sự kiện của luồng Gemini không phải JSON.'); }", "new": "chunk = JSON.parse(raw);" }
+      ]
+    },
+    {
+      "name": "GS3",
+      "what": "an event that is JSON but not an object is read",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (!isObject(chunk)) throw streamInvalid('Một sự kiện của luồng Gemini không phải một đối tượng.');", "new": "" }
+      ]
+    },
+    {
+      "name": "GS4",
+      "what": "an error object inside the stream is ignored",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (chunk.error) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "GS5",
+      "what": "an error given as a string loses its words",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "const error = isObject(chunk.error) ? chunk.error : { message: String(chunk.error) };", "new": "const error = isObject(chunk.error) ? chunk.error : {};" }
+      ]
+    },
+    {
+      "name": "GS6",
+      "what": "an error inside the stream has no HTTP status of its own",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "throw streamProviderError(error, streamErrorStatus(error));", "new": "throw streamProviderError(error, 502);" }
+      ]
+    },
+    {
+      "name": "GS7",
+      "what": "the usage is not read",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (isObject(chunk.usageMetadata)) usageMetadata = chunk.usageMetadata;", "new": "" }
+      ]
+    },
+    {
+      "name": "GS8",
+      "what": "the model version is not kept",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (typeof chunk.modelVersion === 'string') modelVersion = chunk.modelVersion;", "new": "" }
+      ]
+    },
+    {
+      "name": "GS9",
+      "what": "the response id is not kept",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (typeof chunk.responseId === 'string') responseId = chunk.responseId;", "new": "" }
+      ]
+    },
+    {
+      "name": "GS10",
+      "what": "the prompt feedback is not read",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (isObject(chunk.promptFeedback)) promptFeedback = chunk.promptFeedback;", "new": "" }
+      ]
+    },
+    {
+      "name": "GS11",
+      "what": "any candidate is read, not the first",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "chunk.candidates.find((entry) => (entry?.index ?? 0) === 0)", "new": "chunk.candidates.find((entry) => true)" }
+      ]
+    },
+    {
+      "name": "GS12",
+      "what": "an event with no candidate is read as if it had one",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (!isObject(candidate)) return undefined;", "new": "" }
+      ]
+    },
+    {
+      "name": "GS13",
+      "what": "a candidate is not remembered, so the answer has none",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "      sawCandidate = true;", "new": "" }
+      ]
+    },
+    {
+      "name": "GS14",
+      "what": "parts that are not a list are accepted",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (incoming !== undefined && !Array.isArray(incoming)) throw streamInvalid('Một mảnh của luồng Gemini có content.parts không phải danh sách.');", "new": "" }
+      ]
+    },
+    {
+      "name": "GS15",
+      "what": "a part that is not an object is accepted",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (!isObject(part)) throw streamInvalid('Một part của luồng Gemini không phải đối tượng.');", "new": "" }
+      ]
+    },
+    {
+      "name": "GS16",
+      "what": "a function call is read as text",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "const isTextPart = (part) => typeof part.text === 'string' && part.functionCall === undefined;", "new": "const isTextPart = (part) => typeof part.text === 'string';" }
+      ]
+    },
+    {
+      "name": "GS17",
+      "what": "thoughts and visible text are merged into one part",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (run && run.thought === thought && !run.sealed) run.part.text += part.text;", "new": "if (run && !run.sealed) run.part.text += part.text;" }
+      ]
+    },
+    {
+      "name": "GS18",
+      "what": "text after a signed part is merged into it",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (run && run.thought === thought && !run.sealed) run.part.text += part.text;", "new": "if (run && run.thought === thought) run.part.text += part.text;" }
+      ]
+    },
+    {
+      "name": "GS19",
+      "what": "consecutive pieces of text are never merged",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (run && run.thought === thought && !run.sealed) run.part.text += part.text;", "new": "if (false) run.part.text += part.text;" }
+      ]
+    },
+    {
+      "name": "GS20",
+      "what": "the runs of visible text are not separated by a line break while they stream",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (!thought && parts.some((earlier) => earlier.thought !== true && typeof earlier.text === 'string')) await onToken('\\n');", "new": "" }
+      ]
+    },
+    {
+      "name": "GS21",
+      "what": "a line break is shown before the first run of text too",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (!thought && parts.some((earlier) => earlier.thought !== true && typeof earlier.text === 'string')) await onToken('\\n');", "new": "if (!thought) await onToken('\\n');" }
+      ]
+    },
+    {
+      "name": "GS22",
+      "what": "a signature does not close its part",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "{ run.part.thoughtSignature = part.thoughtSignature; run.sealed = true; }", "new": "{ run.part.thoughtSignature = part.thoughtSignature; }" }
+      ]
+    },
+    {
+      "name": "GS23",
+      "what": "a signature is lost",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "{ run.part.thoughtSignature = part.thoughtSignature; run.sealed = true; }", "new": "{ run.sealed = true; }" }
+      ]
+    },
+    {
+      "name": "GS24",
+      "what": "the thoughts are shown as text",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (!thought && part.text) await onToken(part.text);", "new": "if (part.text) await onToken(part.text);" }
+      ]
+    },
+    {
+      "name": "GS25",
+      "what": "the text is not shown as it comes",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (!thought && part.text) await onToken(part.text);", "new": "" }
+      ]
+    },
+    {
+      "name": "GS26",
+      "what": "the handler of the text is not waited for",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (!thought && part.text) await onToken(part.text);", "new": "if (!thought && part.text) onToken(part.text);" }
+      ]
+    },
+    {
+      "name": "GS27",
+      "what": "text after a function call is merged into the text before it",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "run = null; // and the text that follows it is a part of its own", "new": "// and the text that follows it is a part of its own" }
+      ]
+    },
+    {
+      "name": "GS28",
+      "what": "a part that is not text is dropped",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "parts.push(part); // a part that is not text stays as it came", "new": "// a part that is not text stays as it came" }
+      ]
+    },
+    {
+      "name": "GS29",
+      "what": "the finishReason is not read",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (typeof candidate.finishReason === 'string' && candidate.finishReason) finishReason = candidate.finishReason;", "new": "" }
+      ]
+    },
+    {
+      "name": "GS30",
+      "what": "an empty finishReason completes the answer",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (typeof candidate.finishReason === 'string' && candidate.finishReason) finishReason = candidate.finishReason;", "new": "if (typeof candidate.finishReason === 'string') finishReason = candidate.finishReason;" }
+      ]
+    },
+    {
+      "name": "GS31",
+      "what": "prompt feedback that blocks nothing completes a stream",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "const blocked = typeof promptFeedback?.blockReason === 'string' && promptFeedback.blockReason !== '';", "new": "const blocked = Boolean(promptFeedback);" }
+      ]
+    },
+    {
+      "name": "GS32",
+      "what": "an empty block reason blocks",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "const blocked = typeof promptFeedback?.blockReason === 'string' && promptFeedback.blockReason !== '';", "new": "const blocked = typeof promptFeedback?.blockReason === 'string';" }
+      ]
+    },
+    {
+      "name": "GS33",
+      "what": "a blocked prompt does not complete a stream",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (finishReason === undefined && !(blocked && !sawCandidate)) {", "new": "if (finishReason === undefined) {" }
+      ]
+    },
+    {
+      "name": "GS34",
+      "what": "a block reason completes a stream that has a candidate with no finishReason",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (finishReason === undefined && !(blocked && !sawCandidate)) {", "new": "if (finishReason === undefined && !blocked) {" }
+      ]
+    },
+    {
+      "name": "GS35",
+      "what": "a stream with no finishReason is an answer",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (finishReason === undefined && !(blocked && !sawCandidate)) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "GS36",
+      "what": "an answer that completes with nothing in it is accepted",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (finishReason !== undefined && ENDS_NORMALLY.has(finishReason) && !parts.some(", "new": "if (false && !parts.some(" }
+      ]
+    },
+    {
+      "name": "GS37",
+      "what": "an empty answer that the plain path refuses for its own reason is refused here as empty",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (finishReason !== undefined && ENDS_NORMALLY.has(finishReason) && !parts.some(", "new": "if (finishReason !== undefined && !parts.some(" }
+      ]
+    },
+    {
+      "name": "GS38",
+      "what": "a finish reason that says nothing does not count as normal",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "const ENDS_NORMALLY = new Set(['STOP', 'FINISH_REASON_UNSPECIFIED']);", "new": "const ENDS_NORMALLY = new Set(['STOP']);" }
+      ]
+    },
+    {
+      "name": "GS39",
+      "what": "a function call does not count as an answer",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "!parts.some((part) => part.functionCall || (part.thought !== true && typeof part.text === 'string' && part.text.trim()))", "new": "!parts.some((part) => (part.thought !== true && typeof part.text === 'string' && part.text.trim()))" }
+      ]
+    },
+    {
+      "name": "GS40",
+      "what": "thoughts count as an answer",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "!parts.some((part) => part.functionCall || (part.thought !== true && typeof part.text === 'string' && part.text.trim()))", "new": "!parts.some((part) => part.functionCall || (typeof part.text === 'string' && part.text.trim()))" }
+      ]
+    },
+    {
+      "name": "GS41",
+      "what": "white space counts as an answer",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "!parts.some((part) => part.functionCall || (part.thought !== true && typeof part.text === 'string' && part.text.trim()))", "new": "!parts.some((part) => part.functionCall || (part.thought !== true && typeof part.text === 'string' && part.text))" }
+      ]
+    },
+    {
+      "name": "GS42",
+      "what": "the finishReason does not reach the response",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "...(finishReason !== undefined ? { finishReason } : {}),", "new": "" }
+      ]
+    },
+    {
+      "name": "GS43",
+      "what": "the prompt feedback does not reach the response",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (promptFeedback) response.promptFeedback = promptFeedback;", "new": "" }
+      ]
+    },
+    {
+      "name": "GS44",
+      "what": "the usage does not reach the response",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (usageMetadata) response.usageMetadata = usageMetadata;", "new": "" }
+      ]
+    },
+    {
+      "name": "GS45",
+      "what": "the model version does not reach the response",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (modelVersion) response.modelVersion = modelVersion;", "new": "" }
+      ]
+    },
+    {
+      "name": "GS46",
+      "what": "the response id does not reach the response",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (responseId) response.responseId = responseId;", "new": "" }
+      ]
+    },
+    {
+      "name": "GS47",
+      "what": "a response with no candidate has one",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (sawCandidate) response.candidates = [", "new": "if (true) response.candidates = [" }
+      ]
+    },
+    {
+      "name": "GU1",
+      "what": "a route that is not a generateContent route has a streaming twin",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "if (!url.pathname.endsWith(':generateContent')) return null;", "new": "" }
+      ]
+    },
+    {
+      "name": "GU2",
+      "what": "the twin does not say alt=sse",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": "url.searchParams.set('alt', 'sse');", "new": "" }
+      ]
+    },
+    {
+      "name": "GU3",
+      "what": "the twin is another method",
+      "patches": [
+        { "file": "lib/gemini-stream.mjs", "old": ":streamGenerateContent`;", "new": ":streamGenerate`;" }
+      ]
+    },
+    {
+      "name": "GV1",
+      "what": "the provider streams for a caller that does not show the text",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "const wantsStream = typeof onToken === 'function';", "new": "const wantsStream = true;" }
+      ]
+    },
+    {
+      "name": "GV2",
+      "what": "a route is asked for its stream twin whether or not the caller shows the text",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "const streamEndpoint = wantsStream ? geminiStreamEndpoint(endpoint) : null;", "new": "const streamEndpoint = geminiStreamEndpoint(endpoint);" }
+      ]
+    },
+    {
+      "name": "GV3",
+      "what": "a refusal the provider remembers is ignored",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "let streaming = streamEndpoint !== null && !this.#knowsNoStream(endpoint, model);", "new": "let streaming = streamEndpoint !== null;" }
+      ]
+    },
+    {
+      "name": "GV4",
+      "what": "a route that has no streaming twin is asked to stream",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "let streaming = streamEndpoint !== null && !this.#knowsNoStream(endpoint, model);", "new": "let streaming = !this.#knowsNoStream(endpoint, model);" }
+      ]
+    },
+    {
+      "name": "GV5",
+      "what": "the text shown is not taken back when the stream is replaced",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (shown > 0) { shown = 0; await onStreamReset?.(); }", "new": "if (shown > 0) { shown = 0; }" }
+      ]
+    },
+    {
+      "name": "GV6",
+      "what": "the text shown is taken back twice",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (shown > 0) { shown = 0; await onStreamReset?.(); }", "new": "if (shown > 0) { await onStreamReset?.(); }" }
+      ]
+    },
+    {
+      "name": "GV7",
+      "what": "the dialects that are not native stream too",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "const useStream = streaming && dialects[dialectIndex] === 'native';", "new": "const useStream = streaming;" }
+      ]
+    },
+    {
+      "name": "GV8",
+      "what": "the native dialect never streams",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "const useStream = streaming && dialects[dialectIndex] === 'native';", "new": "const useStream = false;" }
+      ]
+    },
+    {
+      "name": "GV9",
+      "what": "the stream is asked for on the plain route",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "response = await this.fetch(useStream ? streamEndpoint : endpoint,", "new": "response = await this.fetch(endpoint," }
+      ]
+    },
+    {
+      "name": "GV10",
+      "what": "the idle clock is the request timeout",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "idleMs: limits.idleTimeoutMs, totalMs: limits.streamTotalMs })", "new": "idleMs: limits.requestTimeoutMs, totalMs: limits.streamTotalMs })" }
+      ]
+    },
+    {
+      "name": "GV11",
+      "what": "a stream has no total cap",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "idleMs: limits.idleTimeoutMs, totalMs: limits.streamTotalMs })", "new": "idleMs: limits.idleTimeoutMs, totalMs: 2 ** 30 })" }
+      ]
+    },
+    {
+      "name": "GV12",
+      "what": "the wait for a response to begin is the idle limit",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "createStreamClock({ signal, headersMs: limits.requestTimeoutMs,", "new": "createStreamClock({ signal, headersMs: limits.idleTimeoutMs," }
+      ]
+    },
+    {
+      "name": "GV13",
+      "what": "the person's stop does not reach the stream",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "createStreamClock({ signal, headersMs:", "new": "createStreamClock({ headersMs:" }
+      ]
+    },
+    {
+      "name": "GV14",
+      "what": "the clocks are not told that the response began",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "        clock?.started();", "new": "" }
+      ]
+    },
+    {
+      "name": "GV15",
+      "what": "a stream response is read as the JSON body of a plain one",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (useStream && response.ok && isEventStream(response)) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "GV16",
+      "what": "the text shown is not counted, so it is never taken back",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "onToken: async (piece) => { shown += piece.length; await onToken(piece); } });", "new": "onToken: async (piece) => { await onToken(piece); } });" }
+      ]
+    },
+    {
+      "name": "GV17",
+      "what": "a stream is read with the cap of a plain response",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "maxBytes: limits.streamMaxBytes, onChunk: () => clock.touch(),", "new": "onChunk: () => clock.touch()," }
+      ]
+    },
+    {
+      "name": "GV18",
+      "what": "bytes of a stream do not start the idle clock again",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "onChunk: () => clock.touch(), onEvent: (parsed) => reader.event(parsed)", "new": "onChunk: () => {}, onEvent: (parsed) => reader.event(parsed)" }
+      ]
+    },
+    {
+      "name": "GV19",
+      "what": "the stream is read without the signal of the clocks and the person",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "await readSse(response.body, { signal: clock.signal, maxBytes: limits.streamMaxBytes,", "new": "await readSse(response.body, { maxBytes: limits.streamMaxBytes," }
+      ]
+    },
+    {
+      "name": "GV20",
+      "what": "a stream that was read to its end is not told apart from one that was not",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "            streamedOk = true;", "new": "" }
+      ]
+    },
+    {
+      "name": "GV21",
+      "what": "an error inside the stream is thrown as it is, not handled as the HTTP error it stands for",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (streamFailure?.kind !== 'stream_error') throw streamFailure;", "new": "throw streamFailure;" }
+      ]
+    },
+    {
+      "name": "GV22",
+      "what": "an error inside the stream loses its status",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "response = { ok: false, status: streamFailure.upstreamStatus, headers: response.headers };", "new": "response = { ok: false, status: 502, headers: response.headers };" }
+      ]
+    },
+    {
+      "name": "GV23",
+      "what": "an error inside the stream loses its words",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "            data = streamFailure.data;", "new": "            data = {};" }
+      ]
+    },
+    {
+      "name": "GV24",
+      "what": "a JSON array from the stream route is accepted",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (useStream && response.ok && Array.isArray(data)) throw streamInvalid(", "new": "if (false) throw streamInvalid(" }
+      ]
+    },
+    {
+      "name": "GV25",
+      "what": "a plain route that answers 404 is asked again for ever",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (useStream && !response.ok && refusesGeminiStream(response.status, data)) {", "new": "if (!response.ok && refusesGeminiStream(response.status, data)) {" }
+      ]
+    },
+    {
+      "name": "GV26",
+      "what": "a refusal of the stream is not told by the route",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (useStream && !response.ok && refusesGeminiStream(response.status, data)) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "GV27",
+      "what": "a refused stream is asked for again",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "streaming = false; // refused: the repeat is on the plain route", "new": "// refused: the repeat is on the plain route" }
+      ]
+    },
+    {
+      "name": "GV28",
+      "what": "a refused stream is not remembered",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "streamGaveUp = true; // ... and it is remembered once the repeat is accepted", "new": "// ... and it is remembered once the repeat is accepted" }
+      ]
+    },
+    {
+      "name": "GV29",
+      "what": "a stream that was cut is asked for again",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "streaming = false; // cut or damaged: the repeat is on the plain route", "new": "// cut or damaged: the repeat is on the plain route" }
+      ]
+    },
+    {
+      "name": "GV30",
+      "what": "a stream that was cut is not remembered",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "streamGaveUp = true; // ... and it is remembered, as a refusal is", "new": "// ... and it is remembered, as a refusal is" }
+      ]
+    },
+    {
+      "name": "GV31",
+      "what": "the text shown before a cut stream is not taken back",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "await takeBack(); // what was shown is taken back before anything is said or repeated", "new": "// what was shown is taken back before anything is said or repeated" }
+      ]
+    },
+    {
+      "name": "GV32",
+      "what": "a stream with no body is not repeated on the plain route",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (useStream && (isStreamFallback(error) || error?.code === 'sse_no_stream')) {", "new": "if (useStream && isStreamFallback(error)) {" }
+      ]
+    },
+    {
+      "name": "GV33",
+      "what": "a cut or damaged stream is not repeated on the plain route",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (useStream && (isStreamFallback(error) || error?.code === 'sse_no_stream')) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "GV34",
+      "what": "a stream over the byte cap is not reported",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (error?.code === 'sse_too_large') throw bad(", "new": "if (false) throw bad(" }
+      ]
+    },
+    {
+      "name": "GV35",
+      "what": "the text shown before a lost connection is taken back only after the wait",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "await takeBack(); // a lost connection: what was shown is taken back before the wait", "new": "// a lost connection: what was shown is taken back before the wait" }
+      ]
+    },
+    {
+      "name": "GV36",
+      "what": "the text of an attempt that is replaced is not taken back by the loop",
+      "equivalent": "every branch that repeats a request after text was shown takes the text back itself, before it says or waits; the one at the top of the loop is for a branch that does not (none today)",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "await takeBack(); // text of an attempt that is being replaced, when a branch below did not take it back before", "new": "// text of an attempt that is being replaced, when a branch below did not take it back before" }
+      ]
+    },
+    {
+      "name": "GV37",
+      "what": "a refusal is remembered for a model that is no longer the configured one",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (streamGaveUp && this.model === model) this.#streamRefused = { endpoint, model };", "new": "if (streamGaveUp) this.#streamRefused = { endpoint, model };" }
+      ]
+    },
+    {
+      "name": "GV38",
+      "what": "a refusal is never remembered",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (streamGaveUp && this.model === model) this.#streamRefused = { endpoint, model };", "new": "" }
+      ]
+    },
+    {
+      "name": "GV39",
+      "what": "the text of an answer that did not stream is not delivered",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (wantsStream && !streamedOk) await deliverText(normalized, onToken);", "new": "" }
+      ]
+    },
+    {
+      "name": "GV40",
+      "what": "the text of a stream is delivered a second time at the end",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (wantsStream && !streamedOk) await deliverText(normalized, onToken);", "new": "if (wantsStream) await deliverText(normalized, onToken);" }
+      ]
+    },
+    {
+      "name": "GV41",
+      "what": "a call that cannot stream is not given its text at the end",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (wantsStream && !streamedOk) await deliverText(normalized, onToken);", "new": "if (streaming && !streamedOk) await deliverText(normalized, onToken);" }
+      ]
+    },
+    {
+      "name": "GC1",
+      "what": "the output cap has no ceiling from the catalog",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "const ceiling = Math.min(GEMINI_MAX_OUTPUT_TOKENS, facts?.maxOutput ?? GEMINI_MAX_OUTPUT_TOKENS);", "new": "const ceiling = GEMINI_MAX_OUTPUT_TOKENS;" }
+      ]
+    },
+    {
+      "name": "GC2",
+      "what": "the catalog's limit replaces the ceiling of 65,536 even when it is higher",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "const ceiling = Math.min(GEMINI_MAX_OUTPUT_TOKENS, facts?.maxOutput ?? GEMINI_MAX_OUTPUT_TOKENS);", "new": "const ceiling = facts?.maxOutput ?? GEMINI_MAX_OUTPUT_TOKENS;" }
+      ]
+    },
+    {
+      "name": "GC3",
+      "what": "a budget is not kept within the ceiling",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "? Math.min(Math.max(256, Math.floor(requested)), ceiling) :", "new": "? Math.max(256, Math.floor(requested)) :" }
+      ]
+    },
+    {
+      "name": "GC4",
+      "what": "with no budget the cap is the old fixed 8,192",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": ": Math.min(facts?.outputCap ?? GEMINI_DEFAULT_OUTPUT_TOKENS, ceiling);", "new": ": Math.min(GEMINI_DEFAULT_OUTPUT_TOKENS, ceiling);" }
+      ]
+    },
+    {
+      "name": "GC5",
+      "what": "with no budget the cap is the model's whole limit, not what the agent may ask",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": ": Math.min(facts?.outputCap ?? GEMINI_DEFAULT_OUTPUT_TOKENS, ceiling);", "new": ": Math.min(facts?.maxOutput ?? GEMINI_DEFAULT_OUTPUT_TOKENS, ceiling);" }
+      ]
+    },
+    {
+      "name": "GC6",
+      "what": "the room for the thoughts is worked out without the catalog",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "geminiThinkingRoom(nativeBody.generationConfig.thinkingConfig)), this.outputLimit, facts);", "new": "geminiThinkingRoom(nativeBody.generationConfig.thinkingConfig)), this.outputLimit);" }
+      ]
+    },
+    {
+      "name": "GC7",
+      "what": "the catalog is not asked for the output cap",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "generationConfig: { maxOutputTokens: geminiOutputCap(maxOutputTokens, this.outputLimit, facts) },", "new": "generationConfig: { maxOutputTokens: geminiOutputCap(maxOutputTokens, this.outputLimit) }," }
+      ]
+    },
+    {
+      "name": "GR1",
+      "what": "a missing route is not a refusal of the stream",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "const refusesGeminiStream = (status, data) => [404, 405, 501].includes(status) ||", "new": "const refusesGeminiStream = (status, data) => [405, 501].includes(status) ||" }
+      ]
+    },
+    {
+      "name": "GR2",
+      "what": "HTTP 405 is not a refusal of the stream",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "const refusesGeminiStream = (status, data) => [404, 405, 501].includes(status) ||", "new": "const refusesGeminiStream = (status, data) => [404, 501].includes(status) ||" }
+      ]
+    },
+    {
+      "name": "GR3",
+      "what": "HTTP 501 is not a refusal of the stream",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "const refusesGeminiStream = (status, data) => [404, 405, 501].includes(status) ||", "new": "const refusesGeminiStream = (status, data) => [404, 405].includes(status) ||" }
+      ]
+    },
+    {
+      "name": "GR4",
+      "what": "a 400 that talks about the stream is not a refusal",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "(status === 400 && /\\bstream/i.test(gatewayErrorDetail(data)));", "new": "false;" }
+      ]
+    },
+    {
+      "name": "GR5",
+      "what": "any 400 is a refusal of the stream",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "(status === 400 && /\\bstream/i.test(gatewayErrorDetail(data)));", "new": "status === 400;" }
+      ]
+    },
+    {
+      "name": "GR6",
+      "what": "any error status is a refusal of the stream",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "[404, 405, 501].includes(status) ||", "new": "status >= 400 ||" }
+      ]
+    }
+  ]
+}

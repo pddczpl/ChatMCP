@@ -1,0 +1,466 @@
+{
+  "about": "Gemini streams and the plain response of the same answer. Written from one plan by a generator (shape per the Gemini API reference), not captured from a live account.",
+  "fixtures": [
+    {
+      "name": "text",
+      "file": "gemini/text.sse",
+      "source": "Gemini streamGenerateContent: a plain answer in chunks, usageMetadata in every chunk (cumulative), finishReason in the last",
+      "strict": true,
+      "response": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Xin chào! Đây là một câu trả lời được truyền theo từng mảnh. 😀"
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 12,
+          "candidatesTokenCount": 18,
+          "totalTokenCount": 30
+        },
+        "modelVersion": "gemini-2.5-flash",
+        "responseId": "r-text-0001"
+      },
+      "summary": {
+        "finish": "STOP",
+        "text": "Xin chào! Đây là một câu trả lời được truyền theo từng mảnh. 😀",
+        "calls": [],
+        "error": false
+      }
+    },
+    {
+      "name": "function-call",
+      "file": "gemini/function-call.sse",
+      "source": "Gemini: a functionCall part in the last chunk, with its finishReason",
+      "strict": true,
+      "response": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Để tôi đọc tệp. "
+                },
+                {
+                  "functionCall": {
+                    "name": "read_file",
+                    "args": {
+                      "path": "README.md",
+                      "max_lines": 40
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 140,
+          "candidatesTokenCount": 22,
+          "totalTokenCount": 162
+        },
+        "modelVersion": "gemini-2.5-flash",
+        "responseId": "r-call-0001"
+      },
+      "summary": {
+        "finish": "STOP",
+        "text": "Để tôi đọc tệp. ",
+        "calls": [
+          {
+            "name": "read_file",
+            "arguments": "{\"path\":\"README.md\",\"max_lines\":40}"
+          }
+        ],
+        "error": false
+      }
+    },
+    {
+      "name": "thought-signature-call",
+      "file": "gemini/thought-signature-call.sse",
+      "source": "Gemini 3: thought summaries (thought: true) then a signed functionCall (the signature is passed back with the call, byte for byte)",
+      "strict": true,
+      "response": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "**Đọc README**\n\nCần mở tệp README.md trước. Sau đó tóm tắt.",
+                  "thought": true
+                },
+                {
+                  "functionCall": {
+                    "name": "read_file",
+                    "args": {
+                      "path": "README.md"
+                    }
+                  },
+                  "thoughtSignature": "CiQBjz1rX6hYq5uV0Zk8Wc3oN9mAeLpTsRdGfHjKlQwErTyUiOpAsDfGhJkLzXcVbNm1234567890=="
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 310,
+          "candidatesTokenCount": 30,
+          "thoughtsTokenCount": 120,
+          "totalTokenCount": 460
+        },
+        "modelVersion": "gemini-3-pro-preview",
+        "responseId": "r-sig-0001"
+      },
+      "summary": {
+        "finish": "STOP",
+        "text": "",
+        "calls": [
+          {
+            "name": "read_file",
+            "arguments": "{\"path\":\"README.md\"}"
+          }
+        ],
+        "error": false
+      }
+    },
+    {
+      "name": "signature-on-text",
+      "file": "gemini/signature-on-text.sse",
+      "source": "Gemini 3: the thoughtSignature arrives on a chunk with empty text after the answer (it belongs to the text before it)",
+      "strict": true,
+      "response": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Kết quả là 42.",
+                  "thoughtSignature": "CiQBjz1rX6hYq5uV0Zk8Wc3oN9mAeLpTsRdGfHjKlQwErTyUiOpAsDfGhJkLzXcVbNm1234567890=="
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 50,
+          "candidatesTokenCount": 14,
+          "thoughtsTokenCount": 40,
+          "totalTokenCount": 104
+        },
+        "modelVersion": "gemini-3-flash-preview",
+        "responseId": "r-sigtext-0001"
+      },
+      "summary": {
+        "finish": "STOP",
+        "text": "Kết quả là 42.",
+        "calls": [],
+        "error": false
+      }
+    },
+    {
+      "name": "two-calls",
+      "file": "gemini/two-calls.sse",
+      "source": "Gemini: two functionCall parts in one chunk (parallel calls); the first carries the signature",
+      "strict": true,
+      "response": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "read_file",
+                    "args": {
+                      "path": "a.txt"
+                    }
+                  },
+                  "thoughtSignature": "CiQBjz1rX6hYq5uV0Zk8Wc3oN9mAeLpTsRdGfHjKlQwErTyUiOpAsDfGhJkLzXcVbNm1234567890=="
+                },
+                {
+                  "functionCall": {
+                    "name": "read_file",
+                    "args": {
+                      "path": "b.txt"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 200,
+          "candidatesTokenCount": 40,
+          "totalTokenCount": 240
+        },
+        "modelVersion": "gemini-3-pro-preview",
+        "responseId": "r-two-0001"
+      },
+      "summary": {
+        "finish": "STOP",
+        "text": "",
+        "calls": [
+          {
+            "name": "read_file",
+            "arguments": "{\"path\":\"a.txt\"}"
+          },
+          {
+            "name": "read_file",
+            "arguments": "{\"path\":\"b.txt\"}"
+          }
+        ],
+        "error": false
+      }
+    },
+    {
+      "name": "text-call-text",
+      "file": "gemini/text-call-text.sse",
+      "source": "Gemini: text, a functionCall, then more text: the two runs of text stay two parts",
+      "strict": true,
+      "response": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Trước: đọc tệp."
+                },
+                {
+                  "functionCall": {
+                    "name": "read_file",
+                    "args": {
+                      "path": "x.md"
+                    }
+                  }
+                },
+                {
+                  "text": "Sau: báo cáo."
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 77,
+          "candidatesTokenCount": 25,
+          "totalTokenCount": 102
+        },
+        "modelVersion": "gemini-2.5-flash",
+        "responseId": "r-mixed-0001"
+      },
+      "summary": {
+        "finish": "STOP",
+        "text": "Trước: đọc tệp.\nSau: báo cáo.",
+        "calls": [
+          {
+            "name": "read_file",
+            "arguments": "{\"path\":\"x.md\"}"
+          }
+        ],
+        "error": false
+      }
+    },
+    {
+      "name": "signed-text-then-text",
+      "file": "gemini/signed-text-then-text.sse",
+      "source": "Gemini: a signature closes its part: text that follows it is a part of its own",
+      "strict": true,
+      "response": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Một. ",
+                  "thoughtSignature": "CiQBjz1rX6hYq5uV0Zk8Wc3oN9mAeLpTsRdGfHjKlQwErTyUiOpAsDfGhJkLzXcVbNm1234567890=="
+                },
+                {
+                  "text": "Hai."
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 33,
+          "candidatesTokenCount": 9,
+          "totalTokenCount": 42
+        },
+        "modelVersion": "gemini-3-pro-preview",
+        "responseId": "r-sealed-0001"
+      },
+      "summary": {
+        "finish": "STOP",
+        "text": "Một. \nHai.",
+        "calls": [],
+        "error": false
+      }
+    },
+    {
+      "name": "no-args-call",
+      "file": "gemini/no-args-call.sse",
+      "source": "Gemini: a functionCall with no args",
+      "strict": true,
+      "response": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "git_status"
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 44,
+          "candidatesTokenCount": 6,
+          "totalTokenCount": 50
+        },
+        "modelVersion": "gemini-2.5-flash",
+        "responseId": "r-noargs-0001"
+      },
+      "summary": {
+        "finish": "STOP",
+        "text": "",
+        "calls": [
+          {
+            "name": "git_status",
+            "arguments": "{}"
+          }
+        ],
+        "error": false
+      }
+    },
+    {
+      "name": "max-tokens",
+      "file": "gemini/max-tokens.sse",
+      "source": "Gemini: finishReason MAX_TOKENS: the plain path refuses it (model_incomplete) and so does the stream",
+      "strict": true,
+      "response": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Một câu trả lời rất dài bị cắt giữa chừng"
+                }
+              ]
+            },
+            "finishReason": "MAX_TOKENS",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 60,
+          "candidatesTokenCount": 8192,
+          "totalTokenCount": 8252
+        },
+        "modelVersion": "gemini-2.5-flash",
+        "responseId": "r-max-0001"
+      },
+      "summary": {
+        "finish": "MAX_TOKENS",
+        "text": "Một câu trả lời rất dài bị cắt giữa chừng",
+        "calls": [],
+        "error": true
+      }
+    },
+    {
+      "name": "safety",
+      "file": "gemini/safety.sse",
+      "source": "Gemini: finishReason SAFETY",
+      "strict": true,
+      "response": {
+        "candidates": [
+          {
+            "content": {
+              "role": "model",
+              "parts": [
+                {
+                  "text": "Tôi"
+                }
+              ]
+            },
+            "finishReason": "SAFETY",
+            "index": 0
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 20,
+          "candidatesTokenCount": 1,
+          "totalTokenCount": 21
+        },
+        "modelVersion": "gemini-2.5-flash",
+        "responseId": "r-safety-0001"
+      },
+      "summary": {
+        "finish": "SAFETY",
+        "text": "Tôi",
+        "calls": [],
+        "error": true
+      }
+    },
+    {
+      "name": "blocked-prompt",
+      "file": "gemini/blocked-prompt.sse",
+      "source": "Gemini: the prompt was blocked (promptFeedback.blockReason, no candidate)",
+      "strict": false,
+      "response": {
+        "promptFeedback": {
+          "blockReason": "SAFETY",
+          "safetyRatings": [
+            {
+              "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+              "probability": "HIGH"
+            }
+          ]
+        },
+        "usageMetadata": {
+          "promptTokenCount": 15,
+          "totalTokenCount": 15
+        },
+        "modelVersion": "gemini-2.5-flash",
+        "responseId": "r-block-0001"
+      },
+      "summary": {
+        "finish": "STOP",
+        "text": "",
+        "calls": [],
+        "error": true
+      }
+    }
+  ]
+}

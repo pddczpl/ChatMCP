@@ -869,7 +869,7 @@
       "name": "GP3",
       "what": "the provider forgets that a stream was refused",
       "patches": [
-        { "file": "lib/gateway-provider.mjs", "old": "      streamRefused: this.#streamRefused !== null,", "new": "      streamRefused: false," }
+        { "file": "lib/gateway-provider.mjs", "old": "      streamRefused: this.#knowsNoStream(endpoint, model),", "new": "      streamRefused: false," }
       ]
     },
     {

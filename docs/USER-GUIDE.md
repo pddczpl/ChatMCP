@@ -264,7 +264,7 @@ Quy tắc: **chỉ tin "đạt" khi bạn thấy exit code 0 do Hub ghi**, khôn
 
 Danh sách đầy đủ ở [SECURITY.md](../SECURITY.md). Các điểm người dùng hay gặp:
 
-- Chữ của câu trả lời hiện **dần theo từng mảnh** với Chat Completions (OpenAI và các máy chủ tương thích), Anthropic Messages và Responses; Gemini hiện khi model trả xong từng lượt. Một luồng bị cắt giữa chừng không bao giờ được dùng: Hub bỏ phần dở, gửi lại đúng yêu cầu đó một lần không có luồng (không công cụ nào chạy từ phần dở) và nhớ rằng endpoint đó không stream được. Chữ hiện dần chưa qua bước che bí mật; chỉ bản lưu vào lịch sử được che.
+- Chữ của câu trả lời hiện **dần theo từng mảnh** với Chat Completions (OpenAI và các máy chủ tương thích), Anthropic Messages, Responses và Gemini (đường `streamGenerateContent`; một gateway Gemini tự đặt đường dẫn, hoặc đã phải chuyển sang kiểu yêu cầu tương thích, thì chữ hiện khi model trả xong từng lượt). Một luồng bị cắt giữa chừng không bao giờ được dùng: Hub bỏ phần dở, gửi lại đúng yêu cầu đó một lần không có luồng (không công cụ nào chạy từ phần dở) và nhớ rằng endpoint đó không stream được. Chữ hiện dần chưa qua bước che bí mật; chỉ bản lưu vào lịch sử được che.
 - Che bí mật trong đầu ra là theo **mẫu** (đoán dạng key, `Bearer …`, `sk-…`…), không phải đảm bảo tuyệt đối.
 - Bí mật đã bị commit vào lịch sử Git vẫn đọc được bằng `git log -p`.
 - Nội dung file/README/issue trong dự án có thể chứa **chỉ dẫn độc hại nhắm vào agent** (prompt injection). Lớp phòng thủ là khung duyệt: hãy đọc kỹ lệnh trước khi cho phép, đặc biệt với repo lạ.

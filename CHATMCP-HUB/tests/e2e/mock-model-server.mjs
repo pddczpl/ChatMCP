@@ -6,6 +6,7 @@
 //   POST /v1/responses          OpenAI Responses, as JSON or as SSE (output_text and reasoning-summary deltas, response.completed
 //                               with parallel function_call items)
 //   POST /v1beta/models/<model>:generateContent   Gemini (JSON; functionCall parts, thought parts, thoughtSignature, usageMetadata)
+//   POST /v1beta/models/<model>:streamGenerateContent?alt=sse   the same answer as SSE (chunks of text, whole calls, usage that grows, finishReason in the last)
 //
 // It is NOT a model. It answers with the next step of a fixed scenario (see scenarios.mjs), decided only by what the conversation
 // already contains. A run is therefore repeatable and needs no API key, no network and no GPU. It listens on loopback only. It
@@ -32,7 +33,7 @@
 //   { kind: 'payload-too-large' }       HTTP 413 in the protocol's own error format
 //   { kind: 'stream-unsupported' }      HTTP 400 to a request with stream: true, "stream not supported" (a request without it passes)
 //   { kind: 'status', status, message, headers }   any other HTTP status
-//   common: on ('chat'|'anthropic'|'responses', default any), stream (true|false, default any), times (default 1)
+//   common: on ('chat'|'anthropic'|'responses'|'gemini', default any), stream (true|false, default any), times (default 1)
 // Control (loopback test traffic only):
 //   GET  /__ping       {ok:true}
 //   GET  /__requests   what the Hub has sent so far
@@ -164,7 +165,7 @@ const hasPath = (value, dotted) => {
 
 const pieces = (text, size = PIECE) => { const out = []; for (let i = 0; i < text.length; i += size) out.push(text.slice(i, i + size)); return out; };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
-const protocolOf = (route) => (route.endsWith('/chat/completions') ? 'chat' : route.endsWith('/messages') ? 'anthropic' : route.endsWith('/responses') ? 'responses' : route.endsWith(':generateContent') ? 'gemini' : null);
+const protocolOf = (route) => (route.endsWith('/chat/completions') ? 'chat' : route.endsWith('/messages') ? 'anthropic' : route.endsWith('/responses') ? 'responses' : route.endsWith(':generateContent') || route.endsWith(':streamGenerateContent') ? 'gemini' : null);
 
 export async function startMockModel({ scenario = 'repair-add', scenarios: extra = {}, host = '127.0.0.1', port = 0, models = MODEL_IDS, strict = undefined, chatDialect = 'openai', streamUsage = 'on-request', keepBodies = false } = {}) {
   // `scenarios` lets a test bring its own scripted behaviour (a closure over the paths it created) next to the shared ones.
@@ -354,7 +355,7 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
     return { frames, terminal: 1 };
   };
 
-  // ---- Gemini generateContent (JSON only: the Hub's Gemini loop does not stream)
+  // ---- Gemini generateContent (JSON) and streamGenerateContent (SSE)
   const geminiResponse = (plan, model) => {
     const parts = [];
     if (plan.thinking !== null) parts.push({ text: plan.thinking, thought: true });
@@ -375,12 +376,33 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
       usageMetadata, modelVersion: model ?? 'mock-gemini', responseId: `resp_mock_${state.callCounter}_${state.requests.length}`,
     };
   };
+  // The stream of the same answer: the text in pieces (a signature goes with the last piece of its part), a call whole, the usage growing and complete in the last event, which has the finishReason.
+  const geminiFrames = (plan, model) => {
+    const response = geminiResponse(plan, model);
+    const candidate = response.candidates[0];
+    const chunks = [];
+    for (const part of candidate.content.parts) {
+      if (typeof part.text === 'string' && part.functionCall === undefined) {
+        const { thoughtSignature, ...rest } = part;
+        const list = pieces(part.text);
+        list.forEach((piece, index) => chunks.push([{ ...rest, text: piece, ...(index === list.length - 1 && thoughtSignature ? { thoughtSignature } : {}) }]));
+      } else chunks.push([part]);
+    }
+    if (!chunks.length) chunks.push([{ text: '' }]);
+    const usage = response.usageMetadata;
+    const frames = chunks.map((parts, index) => {
+      const last = index === chunks.length - 1;
+      const grown = last ? usage : { ...usage, candidatesTokenCount: Math.max(1, Math.floor((usage.candidatesTokenCount * (index + 1)) / chunks.length)), totalTokenCount: usage.promptTokenCount };
+      return `data: ${JSON.stringify({ candidates: [{ content: { role: 'model', parts }, ...(last ? { finishReason: candidate.finishReason } : {}), index: 0 }], usageMetadata: grown, modelVersion: response.modelVersion, responseId: response.responseId })}\r\n\r\n`;
+    });
+    return { frames, terminal: 1 };
+  };
 
   const PROTOCOLS = {
     gemini: {
       validate: (body) => validateGeminiRequest(body, { signer }),
       json: (plan, model) => geminiResponse(plan, model),
-      stream: null,
+      stream: (plan, model) => geminiFrames(plan, model),
       count: (body) => (Array.isArray(body?.contents) ? body.contents.length : 0),
     },
     chat: {
@@ -491,9 +513,10 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
       if (protocol) {
         const adapter = PROTOCOLS[protocol];
         const { text: rawBody, json: body } = await readJsonWithText(req);
-        // generateContent is never a stream (streaming is another method) and carries its model in the URL, not in the body.
-        const stream = protocol !== 'gemini' && body?.stream === true;
-        const model = body?.model ?? (protocol === 'gemini' ? decodeURIComponent(/\/models\/([^/:]+):generateContent$/.exec(route)?.[1] ?? '') || null : null);
+        // Gemini carries its model in the URL, not in the body, and streaming is another method (:streamGenerateContent), not a field.
+        const stream = protocol === 'gemini' ? route.endsWith(':streamGenerateContent') : body?.stream === true;
+        const model = body?.model ?? (protocol === 'gemini' ? decodeURIComponent(/\/models\/([^/:]+):(?:stream)?[Gg]enerateContent$/.exec(route)?.[1] ?? '') || null : null);
+        if (protocol === 'gemini' && stream && url.searchParams.get('alt') !== 'sse') return reply(400, errorBody('gemini', { message: 'This server streams server-sent events only: add alt=sse to the URL.' }));
         const info = describeProtocolConversation(protocol, body);
         const probe = info.tools.includes('record_probe');
         state.lastBody = body;
