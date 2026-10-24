@@ -3,11 +3,15 @@
 // IDs. Its execution still belongs to ConcurrentApiAgent, including its Git
 // worktree/approval/dependency scheduler. This module never executes tools.
 import { randomUUID } from 'node:crypto';
+import { wordsAndNotes } from './final-text.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const FAILURE=new Set(['failed','cancelled','uncertain','blocked','limit','interrupted']);
 const LIVE=new Set(['queued','preparing','planning','running','waiting_approval','verifying']);
 const fault=(code,message,statusCode=400)=>Object.assign(new Error(message),{code,statusCode});
+// The preview of an agent's answer, and each sentence of the Hub's own that the runner put after it (lib/final-text.mjs), are cut on their own.
+const PREVIEW_CHARACTERS=360,NOTE_CHARACTERS=240;
+const clipped=(text,limit)=>text.length>limit?text.slice(0,limit-1)+'…':text;
 const now=()=>new Date().toISOString();
 const text=(value,max)=>typeof value==='string'?value.trim().slice(0,max):'';
 const title=(value,max,what)=>{
@@ -84,6 +88,7 @@ export class WorkflowOrchestrator {
     const phases=raw.phases.map(p=>{
       const agents=p.agents.map(a=>{
         const task=this.getTask(a.taskId);
+        const {words,notes,recorded}=wordsAndNotes(task);
         return {...a,status:statusOf(task),branch:task?.branch||null,
           worktree:task?.worktree||null,startedAt:task?.startedAt||task?.createdAt||null,
           finishedAt:task?.finishedAt||null,model:task?.model||null,
@@ -93,8 +98,10 @@ export class WorkflowOrchestrator {
             httpRequests:Number(task.usage.httpRequests||0),
           }:null,
           // The verified result remains in each actual child conversation.
-          // We only expose a concise, untrusted preview in workflow UI.
-          resultPreview:typeof task?.finalText==='string'?task.finalText.slice(0,360):null};
+          // We only expose a concise, untrusted preview in workflow UI. It is the model's words; the sentences of the Hub's own that the runner put after them are the note
+          // beside it (resultNotice), which the card shows as the Hub's. A task with no record of where the words end keeps its text whole, as it always did.
+          resultPreview:typeof task?.finalText==='string'?words.slice(0,PREVIEW_CHARACTERS):null,
+          resultNotice:recorded&&notes.length?notes.map(note=>clipped(note,NOTE_CHARACTERS)).join(' '):null};
       });
       const complete=agents.filter(a=>a.status==='completed').length;
       const failed=agents.filter(a=>FAILURE.has(a.status));

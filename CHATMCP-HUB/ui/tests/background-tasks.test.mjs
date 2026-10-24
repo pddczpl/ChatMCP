@@ -188,6 +188,40 @@ test('the workflow card on the English screen is English, with a correct plural'
   assert.doesNotMatch(await renderWith(WorkflowCard, { workflow: workflow() }, [], [], { lang: 'en' }), DIACRITICS);
 });
 
+// ---- the Hub's note beside an agent's answer ----
+
+test('the workflow card shows the Hub\'s note on an agent\'s answer apart from the answer, in both languages, and only for an agent that has finished', async () => {
+  // The preview of an agent is the words its model said; the sentences the Hub's runner put after them (lib/final-text.mjs) arrive as resultNotice and are told as the Hub's.
+  const NOTE = 'ChatMCP has NOT independently verified full completion: no check was run.';
+  const agent = (id, status, extra = {}) => ({ id, taskId: `sub-${id}`, role: `Role ${id}`, goal: `Inspect ${id}`, status, model: 'mock-coder', startedAt: '2026-10-20T10:00:00Z', finishedAt: status === 'running' ? null : '2026-10-20T10:01:00Z', ...extra });
+  const noted = workflow({ phases: [{ id: 'ph-1', name: 'Review', dependsOn: [], status: 'running', completed: 2, total: 4, agents: [
+    agent('a1', 'completed', { resultPreview: 'Nothing found', resultNotice: NOTE }),
+    agent('a2', 'completed', { resultPreview: 'All good', resultNotice: null }),
+    agent('a3', 'running', { resultPreview: null, resultNotice: NOTE }),
+    agent('a4', 'completed', { resultPreview: 'Fine' }),
+  ] }] });
+  for (const [lang, label] of [['vi', 'Ghi chú của ChatMCP về câu trả lời này:'], ['en', 'ChatMCP\'s note on this answer:']]) {
+    const markup = await renderWith(WorkflowCard, { workflow: noted }, [], [], lang === 'en' ? { lang } : {});
+    const root = parseHtml(markup);
+    const agents = testId(root, 'workflow-subagent');
+    assert.equal(agents.length, 4, `${lang}: every agent is on the card`);
+    const notes = testId(root, 'workflow-subagent-notice');
+    assert.equal(notes.length, 1, `${lang}: the note is shown once: for the finished agent that has one, not for a running one and not for one with none`);
+    assert.ok(agents[0].text.includes('Nothing found') && agents[0].text.includes(label) && agents[0].text.includes(NOTE), `${lang}: the note stands in the card of its agent`);
+    assert.ok(notes[0].text.includes(label) && notes[0].text.includes(NOTE) && notes[0].text.indexOf(label) < notes[0].text.indexOf(NOTE), `${lang}: the label says whose it is, then the sentence`);
+    assert.ok(!all(agents[0]).some((node) => node.attrs['data-testid'] !== 'workflow-subagent-notice' && node.text === `Nothing found${NOTE}`), `${lang}: the preview and the note are separate`);
+    assert.equal(byTag(agents[0], 'p').filter((node) => node.text === 'Nothing found').length, 1, `${lang}: the preview is the words alone`);
+    for (const index of [1, 2, 3]) assert.ok(!agents[index].text.includes(label) && !agents[index].text.includes('NOT independently'), `${lang}: agent ${index} has no note`);
+    assert.deepEqual(unnamedControls(root), [], `${lang}: unnamed controls`);
+    if (lang === 'en') {
+      assert.doesNotMatch(markup, DIACRITICS, 'no Vietnamese on the English screen');
+      assert.doesNotMatch(markup, RAW_KEY, 'no dictionary key shown as text');
+    }
+  }
+  assert.equal(translations.vi.agents_wf_hub_note, 'Ghi chú của ChatMCP về câu trả lời này:');
+  assert.equal(translations.en.agents_wf_hub_note, 'ChatMCP\'s note on this answer:');
+});
+
 // ---- the dictionary behind it ----
 
 /** The states lib/task-view.ts has a word for: read from its source, so that a state added there without a dictionary entry fails here. */

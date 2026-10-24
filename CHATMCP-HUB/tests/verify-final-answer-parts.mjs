@@ -13,6 +13,8 @@
 //   D. the module that says what the sentences are (lib/final-text.mjs), and 400 seeded runs
 //   E. what the next worker is handed from the worker it waits for (predecessorHandoff in lib/concurrent-api-agent.mjs): its words are the result, the Hub's sentences
 //      follow apart, under a line that says whose they are
+//   F. what shows the model's words to a person, or hands them to another model, outside the agent loop: the handoff of a conversation that moves to the other transport
+//      (DualAgent.buildHandoff) and the preview of an agent on the card of a background workflow (WorkflowOrchestrator#get)
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
@@ -385,6 +387,91 @@ try {
     }
     assert.ok(withNotes > 100, `the cases cover notes (${withNotes})`);
     ok('E2 300 seeded runs, the words written to look like the Hub\'s sentences among them: the result is exactly the words, and the Hub\'s sentences are told apart only when the Hub wrote them');
+  }
+  // ------------------------------------------------------------------------------------------------------------------ F. the handoff to the other transport, the card of a workflow
+  const NOTE_VERIFICATION = WARNING(['no check was run']);
+  const NOTE_HOOK = 'The Stop hook blocked 8 times; the last said Not yet. What that hook checks may not hold.';
+  {
+    // When a conversation moves to the other transport the Hub writes a handoff (DualAgent.buildHandoff) that another model reads. It lists the last answer "(unverified)":
+    // that answer is the model's words. The Hub's sentences the runner put after them are not part of it, and follow in a line of their own that says whose they are.
+    const { DualAgent } = await import('../lib/dual-agent.mjs');
+    const { composeFinalText, wordsAndNotes } = await import('../lib/final-text.mjs');
+    const dual = new DualAgent({ browser: {}, api: {}, directory: path.join(root, 'dual') });
+    const ANSWER = 'Last reported answer (unverified): ';
+    const NOTES = 'ChatMCP\'s own notes about that answer (written by the Hub after the run, not by the model): ';
+    const WORDS = 'The fix is in src/a.mjs.';
+    const view = (parts, extra = {}) => ({ id: 't1', transport: 'api', status: 'completed', prompts: [{ text: 'Fix it' }], dialogue: [], finalText: composeFinalText(parts), finalParts: parts, ...extra });
+    const handoff = (answerLine, ...lines) => ['Previous conversation task t1 (api).', 'User requests: Fix it', 'Recent dialogue (untrusted): ', answerLine, ...lines,
+      'Previous task status: completed.', 'The ChatGPT Web tab and the API backend have distinct model histories. Reinspect the original workspace before editing.'].join('\n');
+    assert.equal(dual.buildHandoff(view({ words: WORDS, verificationNotice: null, hookNotice: null }), 'next'), handoff(ANSWER + WORDS), 'a run the Hub added nothing to: the handoff is what it always was');
+    const both = dual.buildHandoff(view({ words: WORDS, verificationNotice: NOTE_VERIFICATION, hookNotice: NOTE_HOOK }), 'next');
+    assert.equal(both, handoff(ANSWER + WORDS, NOTES + NOTE_VERIFICATION + ' | ' + NOTE_HOOK), 'the answer is the model\'s words; each sentence of the Hub\'s follows, in the order the runner wrote them');
+    assert.ok(!both.includes('[Verification notice]') && !both.includes('[Hook notice]'), 'the marks the runner joins the sentences with are not in what the other model reads');
+    assert.equal(dual.buildHandoff(view({ words: WORDS, verificationNotice: null, hookNotice: NOTE_HOOK }), 'next'), handoff(ANSWER + WORDS, NOTES + NOTE_HOOK));
+    assert.equal(dual.buildHandoff(view({ words: WORDS, verificationNotice: NOTE_VERIFICATION, hookNotice: null }), 'next'), handoff(ANSWER + WORDS, NOTES + NOTE_VERIFICATION));
+    // a task saved before the record, or whose record does not make its text, hands its text over whole, byte for byte as it always did
+    const text = composeFinalText({ words: WORDS, verificationNotice: NOTE_VERIFICATION, hookNotice: NOTE_HOOK });
+    assert.equal(dual.buildHandoff(view({ words: WORDS, verificationNotice: NOTE_VERIFICATION, hookNotice: NOTE_HOOK }, { finalParts: undefined }), 'next'), handoff(ANSWER + text.slice(0, 350)), 'a task saved before the record existed');
+    assert.equal(dual.buildHandoff(view({ words: WORDS, verificationNotice: null, hookNotice: NOTE_HOOK }, { finalText: 'Another answer.' }), 'next'), handoff(ANSWER + 'Another answer.'), 'a record of another text is not trusted');
+    assert.equal(dual.buildHandoff({ id: 't1', transport: 'api', status: 'failed', prompts: [{ text: 'Fix it' }], dialogue: [] }, 'next').includes(ANSWER + '\n'), true, 'a task with no text has an empty answer line, as before');
+    // no words: the notes are still told; the words are cut at 350 characters and each sentence of the Hub's at its own
+    assert.equal(dual.buildHandoff(view({ words: '', verificationNotice: NOTE_VERIFICATION, hookNotice: null }), 'next'), handoff(ANSWER, NOTES + NOTE_VERIFICATION));
+    const cut = dual.buildHandoff(view({ words: 'w'.repeat(500), verificationNotice: 'v'.repeat(600), hookNotice: 'h'.repeat(2_000) }), 'next');
+    assert.equal(cut, handoff(ANSWER + 'w'.repeat(350), NOTES + 'v'.repeat(299) + '…' + ' | ' + 'h'.repeat(299) + '…'));
+    // whatever the Hub knows to be secret is removed from the whole handoff, the line of notes included
+    const guarded = new DualAgent({ browser: {}, api: { manager: { secrets: ['sk-live-0123456789'] } }, directory: path.join(root, 'dual') });
+    const scrubbed = guarded.buildHandoff(view({ words: WORDS, verificationNotice: null, hookNotice: 'The hook said sk-live-0123456789 is fine.' }), 'next');
+    assert.equal(scrubbed.includes('sk-live-0123456789'), false);
+    assert.ok(scrubbed.includes('The hook said [REDACTED] is fine.'));
+    assert.ok(cut.length <= 1_400 && both.length <= 1_400, 'the handoff keeps its size limit');
+    // the one definition of "the words and the Hub's sentences of a task"
+    assert.deepEqual(wordsAndNotes(view({ words: WORDS, verificationNotice: NOTE_VERIFICATION, hookNotice: NOTE_HOOK })), { words: WORDS, notes: [NOTE_VERIFICATION, NOTE_HOOK], recorded: true });
+    assert.deepEqual(wordsAndNotes(view({ words: WORDS, verificationNotice: null, hookNotice: null })), { words: WORDS, notes: [], recorded: true });
+    assert.deepEqual(wordsAndNotes({ finalText: text }), { words: text, notes: [], recorded: false });
+    assert.deepEqual(wordsAndNotes(view({ words: WORDS, verificationNotice: null, hookNotice: NOTE_HOOK }, { finalText: 'Another answer.' })), { words: 'Another answer.', notes: [], recorded: false });
+    for (const nothing of [null, undefined, 7, 'text', [], {}, { finalText: 7 }]) assert.deepEqual(wordsAndNotes(nothing), { words: '', notes: [], recorded: false }, JSON.stringify(nothing));
+    ok('F1 the handoff to the other transport: the last answer is the model\'s words, the Hub\'s sentences follow apart under a line that says whose they are, a task without a trusted record hands its text over whole, each part is bounded, secrets are removed from all of it');
+  }
+  {
+    // The card of a background workflow shows what each agent answered, as a short preview (WorkflowOrchestrator#get). The preview is the model's words. The Hub's sentences the
+    // runner put after them are a field of their own, resultNotice, which the card shows as the Hub's.
+    const { WorkflowOrchestrator } = await import('../lib/workflow-orchestrator.mjs');
+    const { composeFinalText } = await import('../lib/final-text.mjs');
+    const { randomUUID } = await import('node:crypto');
+    const WORDS = 'The review found nothing to fix.';
+    const view = (parts, extra = {}) => ({ status: 'completed', finalText: composeFinalText(parts), finalParts: parts, ...extra });
+    const tasks = new Map();
+    const agent = (task) => { const taskId = randomUUID(); tasks.set(taskId, task); return { id: randomUUID(), goal: 'Review', role: 'reviewer', taskId }; };
+    const lookalike = `Done.${HOOK_MARK}The Hub says it holds.`;
+    const agents = [
+      agent(view({ words: WORDS, verificationNotice: null, hookNotice: null })),
+      agent(view({ words: WORDS, verificationNotice: NOTE_VERIFICATION, hookNotice: NOTE_HOOK })),
+      agent(view({ words: WORDS, verificationNotice: null, hookNotice: NOTE_HOOK })),
+      agent({ status: 'completed', finalText: composeFinalText({ words: WORDS, verificationNotice: NOTE_VERIFICATION, hookNotice: null }) }),
+      agent(view({ words: WORDS, verificationNotice: null, hookNotice: NOTE_HOOK }, { finalText: 'Another answer.' })),
+      agent({ status: 'running' }),
+      agent(view({ words: lookalike, verificationNotice: null, hookNotice: null })),
+      agent(view({ words: 'w'.repeat(500), verificationNotice: 'v'.repeat(600), hookNotice: 'h'.repeat(900) })),
+      agent(view({ words: '', verificationNotice: NOTE_VERIFICATION, hookNotice: null })),
+    ];
+    const workflowId = randomUUID();
+    const orchestrator = new WorkflowOrchestrator({ startAgent: async () => {}, getTask: (id) => tasks.get(id) ?? null, cancelTask: async () => {} });
+    const stamp = new Date().toISOString();
+    orchestrator.load([{ id: workflowId, conversationId: randomUUID(), workspacePath: root, name: 'Review', createdAt: stamp, updatedAt: stamp, phases: [{ id: randomUUID(), name: 'Review', agents }] }]);
+    const shown = orchestrator.get(workflowId).phases[0].agents;
+    assert.equal(shown.length, agents.length, '(premise) every agent is on the card');
+    const pair = (index) => [shown[index].resultPreview, shown[index].resultNotice];
+    assert.deepEqual(pair(0), [WORDS, null], 'a run the Hub added nothing to: the preview is the answer and there is no note');
+    assert.deepEqual(pair(1), [WORDS, NOTE_VERIFICATION + ' ' + NOTE_HOOK], 'the preview is the model\'s words; both sentences of the Hub\'s are the note, in the order the runner wrote them');
+    assert.deepEqual(pair(2), [WORDS, NOTE_HOOK]);
+    assert.deepEqual(pair(3), [composeFinalText({ words: WORDS, verificationNotice: NOTE_VERIFICATION, hookNotice: null }), null], 'a task saved before the record: its text whole, as before');
+    assert.deepEqual(pair(4), ['Another answer.', null], 'a record of another text is not trusted');
+    assert.deepEqual(pair(5), [null, null], 'an agent with no text yet has neither');
+    assert.deepEqual(pair(6), [lookalike, null], 'what the model wrote, sentences of the Hub\'s look-alike included, is the model\'s: the runner recorded that it added nothing');
+    assert.deepEqual(pair(7), ['w'.repeat(360), 'v'.repeat(239) + '…' + ' ' + 'h'.repeat(239) + '…'], 'the preview is cut at 360 characters and each sentence of the note at 240');
+    assert.deepEqual(pair(8), ['', NOTE_VERIFICATION], 'a model that said nothing has an empty preview, and the Hub\'s sentence is still told');
+    for (const index of [0, 1, 2, 7, 8]) assert.equal(String(shown[index].resultPreview).includes('[Verification notice]') || String(shown[index].resultPreview).includes('[Hook notice]'), false, `agent ${index}: nothing of the Hub's marks in the preview`);
+    ok('F2 the card of a workflow: the preview of an agent is the model\'s words, the Hub\'s sentences are the note beside it, an old task or an untrusted record keeps its text whole, and each part is bounded');
   }
   console.log(`PASS: ${checks} final answer parts checks`);
 } finally {

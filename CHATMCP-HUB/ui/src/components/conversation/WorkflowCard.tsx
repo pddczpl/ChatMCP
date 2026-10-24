@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { BackgroundWorkflow, WorkflowPhase } from '@/types';
 import { useTranslation } from '@/lib/i18n';
+import { hasHidden } from '@/lib/hidden-chars';
+import { HiddenNote, HiddenText } from '@/components/inspector/HiddenText';
 import {
   Workflow, ChevronDown, ChevronRight, Loader2, CircleCheck,
   CircleAlert, CirclePause, GitBranch, Square, Bot, ListChecks,
@@ -114,6 +116,13 @@ export function WorkflowCard({
                   </div>}
                   {agent.status==='completed'&&agent.resultPreview&&
                     <p className="text-muted line-clamp-2 break-words">{agent.resultPreview}</p>}
+                  {agent.status==='completed'&&agent.resultNotice&&
+                    <div className="space-y-0.5">
+                      <HiddenNote show={hasHidden(agent.resultNotice)}/>
+                      <p data-testid="workflow-subagent-notice" title={agent.resultNotice} className="text-faint line-clamp-4 break-words select-text">
+                        <span className="font-medium text-muted">{t('agents_wf_hub_note')}</span>{' '}<HiddenText text={agent.resultNotice}/>
+                      </p>
+                    </div>}
                 </div>
                 <div className="text-right flex-shrink-0 text-faint space-y-0.5">
                   <div>{agent.model||agent.status}</div>

@@ -43,3 +43,14 @@ export function finalPartsOf(view) {
   const record = { words, verificationNotice: verificationNotice ?? null, hookNotice: hookNotice ?? null };
   return typeof view.finalText === 'string' && composeFinalText(record) === view.finalText ? record : null;
 }
+
+/**
+ * What a reader that shows the model's words to a person, or hands them to another model, needs from a finished task: the words, and the Hub's own sentences apart from them, in the
+ * order the runner wrote them (the verification notice, then the hook note). `recorded` says that they come from the runner's record. A task saved before the record, or one whose
+ * record does not make its text, has only the text: the words are all of it, there is no sentence to tell apart, and the reader does what it always did with the text.
+ */
+export function wordsAndNotes(view) {
+  const parts = finalPartsOf(view);
+  if (parts) return { words: parts.words, notes: [parts.verificationNotice, parts.hookNotice].filter(Boolean), recorded: true };
+  return { words: typeof view?.finalText === 'string' ? view.finalText : '', notes: [], recorded: false };
+}

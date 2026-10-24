@@ -217,6 +217,8 @@ export interface WorkflowAgent {
   finishedAt?:string|null;
   model?:string|null;
   resultPreview?:string|null;
+  /** The sentences of the Hub's own that the runner put after the agent's words (lib/final-text.mjs), apart from `resultPreview`, which is the agent's words alone. */
+  resultNotice?:string|null;
   usage?: {inputTokens:number;outputTokens:number;httpRequests:number}|null;
 }
 export interface WorkflowPhase {

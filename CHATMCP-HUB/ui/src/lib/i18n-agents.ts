@@ -202,6 +202,7 @@ export const agentsVi = {
   agents_wf_phases: 'Phases',
   agents_wf_delegating: 'Đang giao việc cho các agent…',
   agents_wf_footer: 'Kết quả cần được kiểm chứng bằng mã nguồn, diff và test thực tế. Các Git worktree không được tự động merge.',
+  agents_wf_hub_note: 'Ghi chú của ChatMCP về câu trả lời này:',
 
   // The banner that names a conversation which stopped without a normal answer (components/conversation/StateBanner.tsx) and the ribbon above every
   // conversation (components/layout/PhaseRibbon.tsx). This is the text they always showed, letter for letter (ui/tests/conversation-components.test.mjs
@@ -607,6 +608,7 @@ export const agentsEn: Record<keyof typeof agentsVi, string> = {
   agents_wf_phases: 'Phases',
   agents_wf_delegating: 'Handing out the work to the agents…',
   agents_wf_footer: 'Results need to be checked against the source code, the diff and real tests. Git worktrees are not merged automatically.',
+  agents_wf_hub_note: 'ChatMCP\'s note on this answer:',
 
   agents_banner_uncertain: 'Check the changes before continuing: an action may have run but has no result yet.',
   agents_banner_cancelled: 'Stopping does not undo the changes already made.',
