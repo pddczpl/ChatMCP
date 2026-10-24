@@ -1,0 +1,22 @@
+data: {"id":"chatcmpl-Bq3VtM2kUhN0WgPzXyEoA1sD","object":"chat.completion.chunk","created":1760000000,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"role":"assistant","content":"","refusal":null},"logprobs":null,"finish_reason":null}],"obfuscation":"Q1"}
+
+data: {"id":"chatcmpl-Bq3VtM2kUhN0WgPzXyEoA1sD","object":"chat.completion.chunk","created":1760000000,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"content":"Xin chào!"},"logprobs":null,"finish_reason":null}],"obfuscation":"Q1"}
+
+data: {"id":"chatcmpl-Bq3VtM2kUhN0WgPzXyEoA1sD","object":"chat.completion.chunk","created":1760000000,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"content":" Đây là m"},"logprobs":null,"finish_reason":null}],"obfuscation":"Q1"}
+
+data: {"id":"chatcmpl-Bq3VtM2kUhN0WgPzXyEoA1sD","object":"chat.completion.chunk","created":1760000000,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"content":"ột câu tr"},"logprobs":null,"finish_reason":null}],"obfuscation":"Q1"}
+
+data: {"id":"chatcmpl-Bq3VtM2kUhN0WgPzXyEoA1sD","object":"chat.completion.chunk","created":1760000000,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"content":"ả lời đượ"},"logprobs":null,"finish_reason":null}],"obfuscation":"Q1"}
+
+data: {"id":"chatcmpl-Bq3VtM2kUhN0WgPzXyEoA1sD","object":"chat.completion.chunk","created":1760000000,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"content":"c truyền "},"logprobs":null,"finish_reason":null}],"obfuscation":"Q1"}
+
+data: {"id":"chatcmpl-Bq3VtM2kUhN0WgPzXyEoA1sD","object":"chat.completion.chunk","created":1760000000,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"content":"theo từng"},"logprobs":null,"finish_reason":null}],"obfuscation":"Q1"}
+
+data: {"id":"chatcmpl-Bq3VtM2kUhN0WgPzXyEoA1sD","object":"chat.completion.chunk","created":1760000000,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"content":" mảnh. 😀"},"logprobs":null,"finish_reason":null}],"obfuscation":"Q1"}
+
+data: {"id":"chatcmpl-Bq3VtM2kUhN0WgPzXyEoA1sD","object":"chat.completion.chunk","created":1760000000,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{},"logprobs":null,"finish_reason":"stop"}],"obfuscation":"Q1"}
+
+data: {"id":"chatcmpl-Bq3VtM2kUhN0WgPzXyEoA1sD","object":"chat.completion.chunk","created":1760000000,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[],"usage":{"prompt_tokens":24,"completion_tokens":17,"total_tokens":41,"prompt_tokens_details":{"cached_tokens":0,"audio_tokens":0},"completion_tokens_details":{"reasoning_tokens":0,"audio_tokens":0,"accepted_prediction_tokens":0,"rejected_prediction_tokens":0}}}
+
+data: [DONE]
+

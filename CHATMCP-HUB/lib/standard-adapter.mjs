@@ -11,9 +11,12 @@
 //     in flight cannot redirect a key to another host.
 import { buildAnthropicBody, normalizeAnthropic } from './anthropic-api.mjs';
 import { buildChatBody, normalizeChatCompletion } from './openai-chat-api.mjs';
+import { createChatStreamReader } from './openai-chat-stream.mjs';
 import { compactHistory, historyBytes, pairToolCalls } from './model-history.mjs';
 import { backoffMs, classifyHttpError, errorDetail, readBodyText } from './model-http.mjs';
+import { createStreamClock, deliverText, isEventStream, isStreamFallback } from './model-stream.mjs';
 import { applyReasoning, refusesReasoning } from './reasoning-effort.mjs';
+import { readSse } from './sse.mjs';
 
 const isObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
 const fail = (code, message, statusCode = 502) => Object.assign(new Error(message), { code, statusCode });
@@ -34,7 +37,16 @@ export const LIMITS = Object.freeze({
   defaultOutputTokens: 16384,
   bytesPerToken: 3.5,
   contextFill: 0.85,
+  /** A stream that sends no byte for this long is given up; every byte (a keep-alive comment too) starts the clock again. Reasoning models can be silent for a while, so it is well above a healthy pause. */
+  idleTimeoutMs: 120000,
+  /** A stream is cut at this age, however alive it looks: a model that writes for ten minutes is not an error, one that never finishes is. */
+  streamTotalMs: 1800000,
+  /** The cap on the bytes of one stream. The events of a stream are many times the size of the answer they carry (a Chat chunk is a few hundred bytes for a word or two), so a long answer is far above the 12 MiB a plain response is held to; only the answer itself is kept in memory. */
+  streamMaxBytes: 64 * 1024 * 1024,
 });
+
+/** The protocols whose answers can be read as a stream, and the reader of each (lib/*-stream.mjs). */
+const STREAM_READERS = Object.freeze({ 'openai-chat': createChatStreamReader });
 
 const NETWORK_CODES = ['ECONNRESET', 'ENETUNREACH', 'EHOSTUNREACH', 'ETIMEDOUT', 'EAI_AGAIN', 'ECONNREFUSED', 'EPIPE', 'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT'];
 export function isNetworkFailure(error) {
@@ -65,6 +77,13 @@ function embeddedErrorStatus(body) {
   const code = Number(body.error?.code ?? body.error?.status);
   return Number.isInteger(code) && code >= 400 && code <= 599 ? code : 502;
 }
+// The 400 of a server that does not take `stream_options` (it streams, but does not know the option): it names the field or says "include_usage".
+const refusesStreamOptions = (status, data, info) => status === 400 && info.kind === 'request' && (data?.error?.param === 'stream_options' || /stream_options|include_usage/i.test(errorDetail(data)));
+// The 400 of a server that cannot stream this model. It says so in the field it names or in its words ("Unsupported value: 'stream' does not support true with this model", "Your organization
+// must be verified to stream this model"). A plain refusal only: a 400 about the context, the output cap, the quota or the model is not about the stream; nor is one about stream_options,
+// which is answered once (above) and, when it comes again, is an error like any other.
+const refusesStream = (status, data, info) => status === 400 && info.kind === 'request' && (data?.error?.param === 'stream' || /\bstream(?!_options)/i.test(errorDetail(data)));
+const waited = (ms) => (ms >= 60000 ? `${Math.round(ms / 60000)} phút` : `${Math.max(1, Math.round(ms / 1000))} giây`);
 
 /**
  * @param {object} ctx fixed for the whole call
@@ -82,9 +101,18 @@ function embeddedErrorStatus(body) {
  * @param {{field: string, value: unknown}|null} [ctx.reasoning] the thinking setting to put in the request (lib/reasoning-effort.mjs), or nothing
  * @param {boolean} [ctx.reasoningRefused] this endpoint and model are known to refuse it, so do not send it
  * @param {() => void} [ctx.onReasoningRefused] a refusal is confirmed: the repeat without the setting was accepted
+ * @param {boolean} [ctx.stream] the caller wants the text as it arrives (onToken). Only a protocol that has a stream reader streams; for the others the text is not delivered at all
+ * @param {boolean} [ctx.streamRefused] this endpoint and model are known not to stream (they refused it, or their stream was cut): do not ask; onToken still gets the text, at the end
+ * @param {() => void} [ctx.onStreamRefused] a refusal is confirmed: the repeat without a stream was accepted
+ * @param {boolean} [ctx.streamOptionsRefused] (Chat Completions) this endpoint does not take `stream_options`: stream without asking for the usage chunk
+ * @param {() => void} [ctx.onStreamOptionsRefused] the repeat without `stream_options` was accepted
  * @param {object} [ctx.limits] overrides of LIMITS (tests)
+ *
+ * What a stream adds (lib/model-stream.mjs says what the failures are): a stream is read to its terminal event and the answer is made from the whole of it, never from a part.
+ * A stream that is cut or damaged is NOT an answer; the same model request is made once more without a stream (no tool has run, so nothing can be replayed), and the caller is told
+ * to remember. What had been shown is taken back (`onStreamReset`) before anything is repeated. An error inside the stream is handled as the HTTP error it would have been.
  */
-export async function respondStandard(ctx, { input, instructions, tools = [], signal, onStatus = async () => {}, maxOutputTokens, beforeModelRequest = () => {} } = {}) {
+export async function respondStandard(ctx, { input, instructions, tools = [], signal, onStatus = async () => {}, onToken = () => {}, onStreamReset = () => {}, maxOutputTokens, beforeModelRequest = () => {} } = {}) {
   const limits = { ...LIMITS, ...ctx.limits };
   const history = pairToolCalls(input);
   const usedCallIds = new Set(history.filter((item) => item?.type === 'function_call').map((item) => item.call_id));
@@ -103,11 +131,29 @@ export async function respondStandard(ctx, { input, instructions, tools = [], si
   let reasoningDropped = false;
   let announcedBytes = null;
   let rejectedBytes = Infinity;
+  // Streaming. `streaming` is whether THIS attempt asks for a stream; `wantsStream` is whether the caller gets its text through onToken at all (it does, at the end, when no stream could be had).
+  const makeReader = STREAM_READERS[ctx.protocol];
+  const wantsStream = ctx.stream === true && makeReader !== undefined;
+  let streaming = wantsStream && ctx.streamRefused !== true;
+  let includeUsage = ctx.streamOptionsRefused !== true;
+  let streamGaveUp = false; // the stream was refused or cut, and the attempts from here on have none: the caller remembers once one of them is accepted
+  let usageDropped = false; // the same for stream_options
+  let shown = 0; // the characters of text the attempt in progress has handed to onToken
+  const takeBack = async () => {
+    if (shown > 0) { shown = 0; await onStreamReset(); }
+  };
 
   const upstreamError = (info, extra = '') => Object.assign(fail(info.code, `${info.message}${extra}`, 502), { kind: info.kind, upstreamStatus: info.status, retryAfterMs: info.retryAfterMs });
+  /** The request was accepted: whatever it took to be accepted (a setting, stream_options or the stream itself left out) is confirmed to the caller, once. */
+  const accepted = () => {
+    if (reasoningDropped) ctx.onReasoningRefused?.();
+    if (usageDropped) { usageDropped = false; ctx.onStreamOptionsRefused?.(); }
+    if (streamGaveUp) { streamGaveUp = false; ctx.onStreamRefused?.(); }
+  };
 
   while (true) {
     signal?.throwIfAborted();
+    await takeBack(); // text of an attempt that is being replaced, when a branch below did not take it back before
     const view = maxBytes === null
       ? { history, changed: false, after: null }
       : compactHistory(history, { maxBytes, keepRecent: limits.keepRecent[Math.min(counters.compactions, limits.keepRecent.length - 1)] });
@@ -120,40 +166,93 @@ export async function respondStandard(ctx, { input, instructions, tools = [], si
     }
     const body = ctx.protocol === 'anthropic'
       ? buildAnthropicBody({ model: ctx.model, input: view.history, instructions, tools, maxOutputTokens: outputTokens, promptCaching: ctx.promptCaching === true })
-      : buildChatBody({ model: ctx.model, input: view.history, instructions, tools });
+      : buildChatBody({ model: ctx.model, input: view.history, instructions, tools, stream: streaming, includeUsage });
     if (reasoning) applyReasoning(body, reasoning);
 
-    let response, raw;
+    let response, raw, streamed = null, streamError = null;
+    // A request that streams is bounded by clocks of its own (see createStreamClock); one that does not, by the request timeout alone.
+    const clock = streaming ? createStreamClock({ signal, headersMs: limits.requestTimeoutMs, idleMs: limits.idleTimeoutMs, totalMs: limits.streamTotalMs }) : null;
     try {
-      const timeout = AbortSignal.timeout(limits.requestTimeoutMs);
+      const guard = clock ? clock.signal : (signal ? AbortSignal.any([signal, AbortSignal.timeout(limits.requestTimeoutMs)]) : AbortSignal.timeout(limits.requestTimeoutMs));
       beforeModelRequest();
-      response = await ctx.fetch(ctx.endpoint, { method: 'POST', headers: ctx.headers, body: JSON.stringify(body), signal: signal ? AbortSignal.any([signal, timeout]) : timeout, redirect: 'error' });
-      raw = await readBodyText(response);
+      response = await ctx.fetch(ctx.endpoint, { method: 'POST', headers: ctx.headers, body: JSON.stringify(body), signal: guard, redirect: 'error' });
+      clock?.started();
+      if (streaming && response.ok && isEventStream(response)) {
+        const reader = makeReader({ onToken: async (piece) => { shown += piece.length; await onToken(piece); }, usedCallIds });
+        await readSse(response.body, { signal: clock.signal, maxBytes: limits.streamMaxBytes, onChunk: () => clock.touch(), onEvent: (event) => reader.event(event) });
+        streamed = reader.finish();
+      } else raw = await readBodyText(response);
     } catch (error) {
       if (signal?.aborted) throw signal.reason;
-      if (error?.code?.startsWith?.('gateway_') || !isNetworkFailure(error)) throw error;
-      if (error?.name === 'TimeoutError') {
-        counters.timeouts += 1;
-        if (counters.timeouts > limits.maxTimeouts) throw fail('gateway_timeout', `Model không phản hồi sau ${counters.timeouts} lần chờ ${Math.round(limits.requestTimeoutMs / 60000)} phút. Có thể yêu cầu quá lớn hoặc nhà cung cấp đang nghẽn; thử lại sau hoặc chọn model nhanh hơn.`);
+      // An aborted fetch does not always pass the reason on: when a clock of ours ended the request, the failure is the one it names.
+      const failure = clock?.reason() ?? error;
+      if (failure?.code === 'sse_too_large') throw fail('gateway_too_large', 'Phản hồi model vượt giới hạn dung lượng; không tự lặp lại.');
+      if (failure?.kind === 'stream_error') streamError = failure;
+      else if (streaming && (isStreamFallback(failure) || failure?.code === 'sse_no_stream')) {
+        // Cut or damaged: nothing of it is used. The same model request without a stream, once; no tool can have run.
+        streaming = false; // cut or damaged: the repeat has no stream
+        streamGaveUp = true; // ... and the caller is told to remember it, once the repeat is accepted
+        await takeBack(); // what was shown is taken back before anything is said or repeated
+        await onStatus(`Luồng trả lời của nhà cung cấp kết thúc hoặc hỏng trước khi hoàn tất (${ctx.redact(String(failure.message)).slice(0, 200)}). Không dùng phần dở và không chạy công cụ nào từ nó. Gửi lại đúng yêu cầu model này một lần với stream: false; các bước sau không dùng stream cho model này nữa, văn bản trả lời hiện khi model trả xong. Yêu cầu trước có thể vẫn bị tính phí.`);
+        continue;
+      } else {
+        if (failure?.code?.startsWith?.('gateway_') || !isNetworkFailure(failure)) throw failure;
+        if (failure?.name === 'TimeoutError') {
+          counters.timeouts += 1;
+          if (counters.timeouts > limits.maxTimeouts) throw fail('gateway_timeout', `Model không phản hồi sau ${counters.timeouts} lần chờ ${waited(failure.waitedMs ?? limits.requestTimeoutMs)}. Có thể yêu cầu quá lớn hoặc nhà cung cấp đang nghẽn; thử lại sau hoặc chọn model nhanh hơn.`);
+        }
+        counters.network += 1;
+        if (counters.network > limits.maxNetworkRetries) throw fail('gateway_network', 'Không kết nối được tới nhà cung cấp model sau nhiều lần thử. Kiểm tra mạng, URL và proxy rồi gửi lại.');
+        const wait = backoffMs(counters.network, { base: 3000, cap: 30000 });
+        await takeBack(); // a lost connection: what was shown is taken back before the wait
+        await onStatus(`Mất kết nối tới nhà cung cấp hoặc chưa nhận được phản hồi (lần thử ${counters.network}/${limits.maxNetworkRetries}). Chờ ${Math.ceil(wait / 1000)} giây rồi thử lại model; không chạy lại công cụ. Yêu cầu trước có thể vẫn bị tính phí.`);
+        await ctx.sleep(wait, signal);
+        continue;
       }
-      counters.network += 1;
-      if (counters.network > limits.maxNetworkRetries) throw fail('gateway_network', 'Không kết nối được tới nhà cung cấp model sau nhiều lần thử. Kiểm tra mạng, URL và proxy rồi gửi lại.');
-      const wait = backoffMs(counters.network, { base: 3000, cap: 30000 });
-      await onStatus(`Mất kết nối tới nhà cung cấp hoặc chưa nhận được phản hồi (lần thử ${counters.network}/${limits.maxNetworkRetries}). Chờ ${Math.ceil(wait / 1000)} giây rồi thử lại model; không chạy lại công cụ. Yêu cầu trước có thể vẫn bị tính phí.`);
-      await ctx.sleep(wait, signal);
+    } finally { clock?.stop(); }
+
+    if (streamed) {
+      accepted(); // a stream that was read to its end
+      return streamed;
+    }
+    let parsed, status;
+    if (streamError) {
+      // The provider said, inside a stream that began with HTTP 200, what an HTTP answer would have said: it is handled as that answer.
+      parsed = streamError.data;
+      status = streamError.upstreamStatus;
+    } else {
+      parsed = parseJson(raw);
+      status = response.ok ? embeddedErrorStatus(parsed) : response.status;
+      if (status === null) {
+        if (!parsed) throw fail('gateway_invalid_json', 'Nhà cung cấp không trả JSON hợp lệ; không tự gửi lại.');
+        // The provider refused the thinking setting, stream_options or the stream, and accepted the same request without it.
+        accepted(); // a plain answer
+        const result = ctx.protocol === 'anthropic' ? normalizeAnthropic(parsed) : normalizeChatCompletion(parsed, { usedCallIds });
+        if (wantsStream) await deliverText(result, onToken);
+        return result;
+      }
+    }
+
+    const info = classifyHttpError({ status, data: parsed ?? { error: { message: plainDetail(raw) } }, headers: response?.headers, redact: ctx.redact });
+
+    // The server streams but does not know `stream_options`: the same request once more without them.
+    if (streaming && includeUsage && ctx.protocol === 'openai-chat' && refusesStreamOptions(status, parsed, info)) {
+      includeUsage = false; // stream_options refused: the repeat has none
+      usageDropped = true; // ... and the caller is told to remember it, once the repeat is accepted
+      await takeBack();
+      const detail = ctx.redact(errorDetail(parsed)).slice(0, 200);
+      await onStatus(`Nhà cung cấp không nhận stream_options (HTTP ${status}${detail ? `: ${detail}` : ''}). Gửi lại đúng yêu cầu model này một lần, không kèm stream_options (stream vẫn bật, nhưng không có số token trong luồng); không chạy lại công cụ. Các yêu cầu sau không gửi nó tới endpoint này nữa.`);
       continue;
     }
-
-    const parsed = parseJson(raw);
-    const status = response.ok ? embeddedErrorStatus(parsed) : response.status;
-    if (status === null) {
-      if (!parsed) throw fail('gateway_invalid_json', 'Nhà cung cấp không trả JSON hợp lệ; không tự gửi lại.');
-      // The provider refused the thinking setting and accepted the same request without it.
-      if (reasoningDropped) ctx.onReasoningRefused?.();
-      return ctx.protocol === 'anthropic' ? normalizeAnthropic(parsed) : normalizeChatCompletion(parsed, { usedCallIds });
+    // The server cannot stream this model: the same request once more without a stream.
+    if (streaming && refusesStream(status, parsed, info)) {
+      streaming = false; // refused: the repeat has no stream
+      streamGaveUp = true; // the refusal is remembered once the repeat is accepted
+      await takeBack(); // a refusal that came inside a stream: what was shown before it
+      const detail = ctx.redact(errorDetail(parsed)).slice(0, 200);
+      await onStatus(`Nhà cung cấp từ chối stream: true (HTTP ${status}${detail ? `: ${detail}` : ''}). Gửi lại đúng yêu cầu model này một lần với stream: false; không chạy lại công cụ. Các bước sau không thử stream nữa, văn bản trả lời hiện khi model trả xong.`);
+      continue;
     }
-
-    const info = classifyHttpError({ status, data: parsed ?? { error: { message: plainDetail(raw) } }, headers: response.headers, redact: ctx.redact });
 
     // The provider does not take the thinking setting (for this model): the same model request once more without it. Never a tool call, so nothing can be replayed.
     if (reasoning && refusesReasoning({ status, data: parsed, info, sent: true })) {
@@ -188,6 +287,7 @@ export async function respondStandard(ctx, { input, instructions, tools = [], si
         throw upstreamError(info, info.retryAfterMs ? ` Nhà cung cấp yêu cầu chờ khoảng ${Math.ceil(info.retryAfterMs / 1000)} giây; Hub không chờ lâu như vậy. Thử lại sau.` : ` Đã thử ${counters.http - 1} lần; dừng thay vì chờ vô hạn.`);
       }
       const wait = Math.min(limits.maxWaitMs, Math.max(info.retryAfterMs ?? 0, backoffMs(counters.http)));
+      await takeBack(); // a retried HTTP error: what was shown is taken back before the wait
       await onStatus(`${info.message} Chờ ${Math.ceil(wait / 1000)} giây rồi thử lại (${counters.http}/${limits.maxHttpRetries}); không chạy lại công cụ.`);
       await ctx.sleep(wait, signal);
       continue;

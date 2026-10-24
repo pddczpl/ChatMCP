@@ -612,13 +612,13 @@ export class GatewayProvider {
    * `reasoningEffort` is the thinking setting of the TASK this step belongs to: a level or 'auto' wins over the connection's own for this step, nothing named leaves the
    * connection's, and a word that is not a level is not obeyed (a run is not stopped for it; the task was refused when it was started).
    */
-  async respond({ input, instructions, tools = [], signal, onStatus = async () => {}, onToken = null, maxOutputTokens, beforeModelRequest = () => {}, reasoningEffort } = {}) {
+  async respond({ input, instructions, tools = [], signal, onStatus = async () => {}, onToken = null, onStreamReset = null, maxOutputTokens, beforeModelRequest = () => {}, reasoningEffort } = {}) {
     if (!this.ready()) throw bad('gateway_not_ready', 'Hãy cấu hình API Base URL, model và API key.', 409);
     if (!Array.isArray(input)) throw bad('invalid_input', 'Ngữ cảnh Agent không hợp lệ.');
     const effort = reasoningEffort === undefined || reasoningEffort === null ? null : parseReasoningEffort(reasoningEffort) ?? null;
     if (this.protocol === 'openai-responses')
       return await this.#respondResponses({ input, instructions, tools, signal, onToken, onStatus, maxOutputTokens, beforeModelRequest, effort });
-    if (this.protocol !== 'gemini') return await this.#respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens, beforeModelRequest, effort });
+    if (this.protocol !== 'gemini') return await this.#respondStandard({ input, instructions, tools, signal, onStatus, onToken, onStreamReset, maxOutputTokens, beforeModelRequest, effort });
     // Gemini keeps its own compatibility loop: gateways in front of it differ a lot (see gemini-compat.mjs).
     const protocol = 'gemini';
     const sourceContextBytes = Buffer.byteLength(JSON.stringify(input),'utf8') + Buffer.byteLength(instructions,'utf8');
@@ -834,9 +834,13 @@ export class GatewayProvider {
     return { effort: this.reasoningEffort, sent: decision.send !== null && !refused, why: decision.send === null ? decision.why : null, refused };
   }
 
-  // The endpoint and model of a gateway that answered 400 to stream: true, and then accepted the same request without it. Its later
-  // calls do not ask for a stream. A call for another endpoint or model forgets it: the refusal is about that pair only.
+  // The endpoint and model of a gateway that answered 400 to stream: true, and then accepted the same request without it (Responses and Chat Completions), or whose stream was cut and
+  // whose repeat without a stream was accepted (Chat Completions). Its later calls do not ask for a stream. A call for another endpoint or model forgets it: the refusal is about
+  // that pair only.
   #streamRefused = null;
+  // The endpoint of a Chat Completions server that answered 400 to stream_options and then accepted the same stream without them. It is the server that does not know the option, so
+  // the refusal holds for every model of that endpoint; a call for another endpoint forgets it.
+  #streamOptionsRefused = null;
   // Full Responses request path. Fixed endpoint and credential snapshot; never
   // turn a failed model request into an uncertain tool mutation or cross-provider retry.
   async #respondResponses({input,instructions,tools,signal,onToken,onStatus,maxOutputTokens,beforeModelRequest,effort}) {
@@ -861,15 +865,24 @@ export class GatewayProvider {
   }
 
   /** OpenAI-style Chat Completions and Anthropic Messages. See standard-adapter.mjs for what it guarantees. */
-  async #respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens, beforeModelRequest, effort }) {
+  async #respondStandard({ input, instructions, tools, signal, onStatus, onToken, onStreamReset, maxOutputTokens, beforeModelRequest, effort }) {
     const { protocol, model, authMode, apiKey } = this;
     const contextWindowTokens = this.effectiveContextWindow(); // what the adapter trims what it sends to: the owner's window, else the catalog's
     const thinking = this.#reasoningRequest(effort);
+    const endpoint = buildEndpoint(this.apiBaseUrl, protocol, model, this.customPath);
+    if (this.#streamRefused && (this.#streamRefused.endpoint !== endpoint || this.#streamRefused.model !== model)) this.#streamRefused = null;
+    if (this.#streamOptionsRefused && this.#streamOptionsRefused.endpoint !== endpoint) this.#streamOptionsRefused = null;
     const ctx = {
       protocol, model, fetch: this.fetch, sleep: this.sleep, limits: this.limits,
       reasoning: thinking.decision.send, reasoningRefused: thinking.refused,
       onReasoningRefused: () => { if (thinking.key && this.model === model) this.#reasoningRefused = thinking.key; },
-      endpoint: buildEndpoint(this.apiBaseUrl, protocol, model, this.customPath),
+      // The text is streamed to a caller that shows it (the agent does); one that does not (a connection test) gets the plain answer.
+      stream: typeof onToken === 'function',
+      streamRefused: this.#streamRefused !== null,
+      onStreamRefused: () => { if (this.model === model) this.#streamRefused = { endpoint, model }; },
+      streamOptionsRefused: this.#streamOptionsRefused !== null,
+      onStreamOptionsRefused: () => { this.#streamOptionsRefused = { endpoint }; },
+      endpoint,
       headers: this.#headers(protocol, authMode, apiKey),
       redact: (text) => noSecrets(String(text), (value) => this.redact(value)),
       contextWindowTokens,
@@ -879,7 +892,7 @@ export class GatewayProvider {
       outputLimit: this.outputLimit,
       onOutputLimit: (limit) => { if (this.model === model) this.outputLimit = limit; },
     };
-    const result = await respondStandard(ctx, { input, instructions, tools, signal, onStatus, maxOutputTokens, beforeModelRequest });
+    const result = await respondStandard(ctx, { input, instructions, tools, signal, onStatus, onToken: onToken || undefined, onStreamReset: onStreamReset || undefined, maxOutputTokens, beforeModelRequest });
     this.lastError = '';
     return result;
   }

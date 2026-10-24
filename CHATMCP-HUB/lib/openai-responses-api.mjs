@@ -6,6 +6,7 @@ import { reportedTokenCount } from './request-budget.mjs';
 import { pairToolCalls } from './model-history.mjs';
 import { classifyHttpError, errorDetail, readBodyText } from './model-http.mjs';
 import { applyReasoning, refusesReasoning } from './reasoning-effort.mjs';
+import { deliverText } from './model-stream.mjs';
 import { readSse } from './sse.mjs';
 
 const object = x => x !== null && typeof x === 'object' && !Array.isArray(x);
@@ -178,13 +179,6 @@ export async function readResponsesStream(body,{signal,onToken=()=>{},onChunk=()
 // does not support true with this model", "Your organization must be verified to stream this model"). A plain refusal only: a 400
 // about the context, the output cap, the quota or the model is not about the stream.
 const refusesStream=(status,data,info)=>status===400&&info.kind==='request'&&(data?.error?.param==='stream'||/\bstream/i.test(errorDetail(data)));
-
-// The stream was refused, so the text did not arrive in pieces: hand it to onToken now, as the stream would have.
-async function deliverText(result,onToken){
-  if(result.status!=='completed')return;
-  for(const item of result.output)
-    if(item.type==='message')for(const part of item.content)if(part.type==='output_text')await onToken(part.text);
-}
 
 /**
  * One model request. At most two network attempts, each announced to the caller through beforeModelRequest, which counts them: a

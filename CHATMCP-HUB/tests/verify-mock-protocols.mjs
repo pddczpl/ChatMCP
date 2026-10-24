@@ -1015,8 +1015,8 @@ const functionCalls = (turn) => turn.output.filter((item) => item.type === 'func
 
 /** The adapters under test, pointed at one mock server. */
 const rows = (m, { limits, timeoutMs = 5000, idleTimeoutMs } = {}) => {
-  const standard = (protocol, path, headers) => (input, options = {}) => respondStandard(
-    { protocol, endpoint: `${m.url}/${path}`, headers, model: 'mock-coder', fetch, sleep: async () => {}, redact: (value) => value, limits: { requestTimeoutMs: 5000, ...limits } },
+  const standard = (protocol, path, headers, stream = false) => (input, options = {}) => respondStandard(
+    { protocol, endpoint: `${m.url}/${path}`, headers, model: 'mock-coder', fetch, sleep: async () => {}, redact: (value) => value, stream, limits: { requestTimeoutMs: 5000, ...limits } },
     { input, instructions: 'system', tools: TOOLS, maxOutputTokens: 1024, ...options });
   const responses = (stream) => (input, options = {}) => respondOpenAIResponses(
     { model: 'mock-coder', endpoint: `${m.url}/responses`, headers: { 'content-type': 'application/json' }, fetch, timeoutMs, idleTimeoutMs, redact: (value) => value, stream },
@@ -1027,6 +1027,7 @@ const rows = (m, { limits, timeoutMs = 5000, idleTimeoutMs } = {}) => {
     .forkForTask({ protocol: 'gemini', apiBaseUrl: m.origin, model: 'mock-gemini' });
   return {
     chat: { label: 'respondStandard / Chat Completions', api: 'chat', run: standard('openai-chat', 'chat/completions', { 'content-type': 'application/json' }) },
+    'chat-sse': { label: 'respondStandard / Chat Completions / SSE', api: 'chat', run: standard('openai-chat', 'chat/completions', { 'content-type': 'application/json' }, true) },
     anthropic: { label: 'respondStandard / Anthropic Messages', api: 'anthropic', run: standard('anthropic', 'messages', anthropicHeaders('test-key')) },
     responses: { label: 'respondOpenAIResponses / JSON', api: 'responses', run: responses(false) },
     'responses-sse': { label: 'respondOpenAIResponses / SSE', api: 'responses', run: responses(true) },
@@ -1068,7 +1069,8 @@ for (const [name, row] of Object.entries(ROWS)) {
   assert.equal(finalText(answer.turns[0]), 'Hello from the mock.');
   assert.deepEqual([answer.turns[0].usage.input_tokens, answer.turns[0].usage.output_tokens], [120, 24], `${label}: usage`);
   accepted(answer);
-  if (name === 'responses-sse') assert.equal(answer.tokens.join(''), 'Hello from the mock.', 'the SSE row delivers the text as tokens');
+  if (name === 'responses-sse' || name === 'chat-sse') assert.equal(answer.tokens.join(''), 'Hello from the mock.', 'the SSE row delivers the text as tokens');
+  if (name === 'chat-sse') assert.deepEqual(answer.requests.map((request) => request.stream), [true], 'and the request really was a stream');
 
   const one = await converse(row, contract, 'canned-one-tool');
   assert.equal(one.turns.length, 2, `${label}: a call, then the answer`);
@@ -1097,8 +1099,8 @@ for (const [name, row] of Object.entries(ROWS)) {
   if (row.api === 'gemini') assert.deepEqual(lastParallel.contents.slice(-2).map((content) => content.parts.map((part) => Object.keys(part)[0])), [['functionCall', 'functionCall'], ['functionResponse', 'functionResponse']], 'one model turn with two calls, one user turn with two responses');
 
   // Chat reasoning exists only in the compat dialect (reasoning_content, as DeepSeek sends it), so that row talks to the compat server.
-  const thinkingServer = name === 'chat' ? compat : contract;
-  const thought = await converse(name === 'chat' ? rows(compat).chat : row, thinkingServer, 'canned-thinking');
+  const thinkingServer = name === 'chat' || name === 'chat-sse' ? compat : contract;
+  const thought = await converse(name === 'chat' || name === 'chat-sse' ? rows(compat)[name] : row, thinkingServer, 'canned-thinking');
   assert.equal(finalText(thought.turns.at(-1)), 'Done thinking.');
   assert.equal(thought.turns.length, 2);
   accepted(thought);

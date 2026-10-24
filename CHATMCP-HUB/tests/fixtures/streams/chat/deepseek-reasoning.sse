@@ -1,0 +1,28 @@
+data: {"id":"5b0d7e9c-6f1a-4c2e-8d3b-9a4f2e1c7b60","object":"chat.completion.chunk","created":1760000300,"model":"deepseek-v4-flash","system_fingerprint":"fp_deepseek_v4","choices":[{"index":0,"delta":{"role":"assistant","content":null,"reasoning_content":""},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"5b0d7e9c-6f1a-4c2e-8d3b-9a4f2e1c7b60","object":"chat.completion.chunk","created":1760000300,"model":"deepseek-v4-flash","system_fingerprint":"fp_deepseek_v4","choices":[{"index":0,"delta":{"content":null,"reasoning_content":"Người dùng h"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"5b0d7e9c-6f1a-4c2e-8d3b-9a4f2e1c7b60","object":"chat.completion.chunk","created":1760000300,"model":"deepseek-v4-flash","system_fingerprint":"fp_deepseek_v4","choices":[{"index":0,"delta":{"content":null,"reasoning_content":"ỏi về tệp cấ"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"5b0d7e9c-6f1a-4c2e-8d3b-9a4f2e1c7b60","object":"chat.completion.chunk","created":1760000300,"model":"deepseek-v4-flash","system_fingerprint":"fp_deepseek_v4","choices":[{"index":0,"delta":{"content":null,"reasoning_content":"u hình. Cần "},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"5b0d7e9c-6f1a-4c2e-8d3b-9a4f2e1c7b60","object":"chat.completion.chunk","created":1760000300,"model":"deepseek-v4-flash","system_fingerprint":"fp_deepseek_v4","choices":[{"index":0,"delta":{"content":null,"reasoning_content":"đọc package."},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"5b0d7e9c-6f1a-4c2e-8d3b-9a4f2e1c7b60","object":"chat.completion.chunk","created":1760000300,"model":"deepseek-v4-flash","system_fingerprint":"fp_deepseek_v4","choices":[{"index":0,"delta":{"content":null,"reasoning_content":"json trước k"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"5b0d7e9c-6f1a-4c2e-8d3b-9a4f2e1c7b60","object":"chat.completion.chunk","created":1760000300,"model":"deepseek-v4-flash","system_fingerprint":"fp_deepseek_v4","choices":[{"index":0,"delta":{"content":null,"reasoning_content":"hi trả lời."},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"5b0d7e9c-6f1a-4c2e-8d3b-9a4f2e1c7b60","object":"chat.completion.chunk","created":1760000300,"model":"deepseek-v4-flash","system_fingerprint":"fp_deepseek_v4","choices":[{"index":0,"delta":{"content":"Tệp package","reasoning_content":null},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"5b0d7e9c-6f1a-4c2e-8d3b-9a4f2e1c7b60","object":"chat.completion.chunk","created":1760000300,"model":"deepseek-v4-flash","system_fingerprint":"fp_deepseek_v4","choices":[{"index":0,"delta":{"content":".json khai ","reasoning_content":null},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"5b0d7e9c-6f1a-4c2e-8d3b-9a4f2e1c7b60","object":"chat.completion.chunk","created":1760000300,"model":"deepseek-v4-flash","system_fingerprint":"fp_deepseek_v4","choices":[{"index":0,"delta":{"content":"báo hai scr","reasoning_content":null},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"5b0d7e9c-6f1a-4c2e-8d3b-9a4f2e1c7b60","object":"chat.completion.chunk","created":1760000300,"model":"deepseek-v4-flash","system_fingerprint":"fp_deepseek_v4","choices":[{"index":0,"delta":{"content":"ipt: build ","reasoning_content":null},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"5b0d7e9c-6f1a-4c2e-8d3b-9a4f2e1c7b60","object":"chat.completion.chunk","created":1760000300,"model":"deepseek-v4-flash","system_fingerprint":"fp_deepseek_v4","choices":[{"index":0,"delta":{"content":"và test.","reasoning_content":null},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"5b0d7e9c-6f1a-4c2e-8d3b-9a4f2e1c7b60","object":"chat.completion.chunk","created":1760000300,"model":"deepseek-v4-flash","system_fingerprint":"fp_deepseek_v4","choices":[{"index":0,"delta":{"content":"","reasoning_content":null},"logprobs":null,"finish_reason":"stop"}],"usage":{"prompt_tokens":40,"completion_tokens":61,"total_tokens":101,"prompt_tokens_details":{"cached_tokens":0},"completion_tokens_details":{"reasoning_tokens":29},"prompt_cache_hit_tokens":0,"prompt_cache_miss_tokens":40}}
+
+data: [DONE]
+

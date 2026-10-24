@@ -14,6 +14,11 @@ export function handleTaskStreamEvent(value: unknown, sink: StreamSink): void {
     if (selected && typeof event.token === 'string') sink.append(event.taskId, event.token);
     return;
   }
+  // The stream the text came from was cut and the request is made again: the text shown so far is dropped, the answer that follows is shown from its start.
+  if (event.type === 'token_reset') {
+    if (selected) sink.clear();
+    return;
+  }
   if (event.type !== 'state' && event.type !== 'event') return;
   const resting = ['paused', 'completed', 'failed', 'cancelled', 'uncertain'].includes(event.state ?? '');
   // Persisted assistant events replace deltas. A new model turn starts a new stream.

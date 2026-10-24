@@ -114,7 +114,7 @@ node tests/run-all.mjs --fail-on-flaky           # một bộ FLAKY làm cả l�
 npm run test:ui                                  # bộ giao diện Python/Playwright (tùy chọn)
 ```
 
-Hiện có **149 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
+Hiện có **151 bộ Node** (`tests/verify-*.mjs`) và **5 bộ giao diện** (`tests/verify-*.py`, cần Python + Playwright). Hai con số này được bộ `verify-docs` đối chiếu với thư mục `tests/`, nên không thể lỗi thời mà không bị phát hiện.
 
 Runner in một dòng cho mỗi bộ (`PASS`/`FAIL`/`TIMEOUT`/`SKIP`, thời gian, mã thoát thật) và thoát khác 0 nếu có bộ nào fail hoặc quá hạn (mặc định 180 giây/bộ, đổi bằng `--timeout`). Bộ kiểm thử in một dòng `CHATMCP_TEST_SKIP: <lý do>` rồi thoát 0 để được báo là **SKIP — không bao giờ được tính là PASS**. `--no-skip all` (hoặc `--no-skip tên1,tên2`) biến SKIP thành FAIL. Workflow hiện tại cài Python 3.11 và các gói ghim trong `tests/requirements-e2e.txt`, rồi chạy **`--no-skip all`** trên cả Windows và Linux, Node 22 và 24. Một bộ bắt buộc bị bỏ qua vì thiếu môi trường vì thế làm CI thất bại. Một phần không thể kiểm chứng trong bản này được in `BLOCKED: <gì> - <vì sao>`.
 

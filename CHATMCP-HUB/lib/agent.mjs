@@ -1376,6 +1376,8 @@ export class AgentRunner {
           reasoningEffort: task.reasoningEffort,
           onStatus: async (message, kind) => { await this.#event(task, kind === 'model_repair' ? 'model_repair' : kind === 'context_compaction' ? 'context_compaction' : 'network_wait', String(message).slice(0,1000), { status:'running' }); },
           onToken: (token) => { this.#emit({ type: 'token', taskId: task.id, token }); },
+          // The stream the pieces came from was cut and the request is made again: whoever shows the pieces drops them (the answer that comes next is shown from its start).
+          onStreamReset: () => { this.#emit({ type: 'token_reset', taskId: task.id }); },
         }), context.controller.signal);
         context.inFlight = null;
         this.#check(context);
