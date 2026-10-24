@@ -34,6 +34,13 @@
       "name": "M5",
       "what": "the wording of the verification sentence changes (a reader that looks for the old one, and every page, would disagree with the runner)",
       "patches": [
+        { "file": "lib/final-text.mjs", "old": "`DatGold has NOT independently verified full completion: ${missing.join('; ')}.`", "new": "`DatGold has not independently verified full completion: ${missing.join('; ')}.`" }
+      ]
+    },
+    {
+      "name": "M5b",
+      "what": "the wording a task saved before the product was renamed ends with changes (a task saved by an earlier Hub would no longer be found)",
+      "patches": [
         { "file": "lib/final-text.mjs", "old": "`ChatMCP has NOT independently verified full completion: ${missing.join('; ')}.`", "new": "`ChatMCP has not independently verified full completion: ${missing.join('; ')}.`" }
       ]
     },

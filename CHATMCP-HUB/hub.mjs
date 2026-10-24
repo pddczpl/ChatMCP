@@ -235,7 +235,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
       const ticketRedeem = req.method === 'POST' && url.pathname === '/api/session/redeem';
       if ((url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/')) && !publicProbe && !companionRead && !companionPaired && !ticketRedeem && !hasBearer(req)) {
         res.setHeader('WWW-Authenticate', 'Bearer realm="chatmcp-hub"');
-        return json(401, { error: 'Cần phiên Hub hợp lệ. Mở lại ChatMCP từ launcher.', code: 'hub_auth_required' });
+        return json(401, { error: 'Cần phiên Hub hợp lệ. Mở lại DatGold từ launcher.', code: 'hub_auth_required' });
       }
       if (req.method === 'GET' && url.pathname === '/api/health') return json(200, { app: APP_ID, version: VERSION, uiBuild: UI_BUILD, initialized: isInitialized(), backend: manager.backend, auth: 'bearer' });
       if (req.method === 'GET' && url.pathname === '/api/capabilities') return json(200, { app: APP_ID, version: VERSION, uiBuild: UI_BUILD, postRoutes: POST_ROUTES, frontend: 'React', offlineAssets: true, auth: 'bearer' });
@@ -245,7 +245,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
         // The ticket is the credential; the page proves it is ours with the same Origin and marker a dashboard POST carries.
         if (!origins.has(origin) || req.headers['x-chatmcp-request'] !== 'local-dashboard') return json(403, { error: 'Phiên trang localhost không hợp lệ. Tải lại trang.', code: 'csrf' });
         const payload = await bodyJson(req, 4096);
-        if (!tickets.redeem(payload?.ticket)) return json(401, { error: 'Mã mở phiên đã hết hạn hoặc đã dùng. Mở lại ChatMCP từ launcher.', code: 'hub_ticket_invalid' });
+        if (!tickets.redeem(payload?.ticket)) return json(401, { error: 'Mã mở phiên đã hết hạn hoặc đã dùng. Mở lại DatGold từ launcher.', code: 'hub_ticket_invalid' });
         return json(200, { secret });
       }
       if (!isInitialized() && (req.method === 'POST' || url.pathname === '/auth/chatgpt/callback')) return json(503, { error: 'Hub đang nạp cấu hình. Chờ vài giây rồi thử lại.' });
@@ -429,7 +429,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
         if (value === null || value === undefined) return json(404, { error: 'Không tìm thấy nhiệm vụ.' });
         if (!taskRoute[2]) return json(200, value);
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        res.setHeader('Content-Disposition', `attachment; filename="CHATMCP-${taskRoute[1]}.txt"`);
+        res.setHeader('Content-Disposition', `attachment; filename="DATGOLD-${taskRoute[1]}.txt"`);
         return res.end(value);
       }
       if (req.method === 'GET' && url.pathname === '/api/extension-state') {
@@ -439,7 +439,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
       if (req.method === 'GET' && url.pathname === '/api/instructions') {
         const text = manager.instructions();
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        if (url.searchParams.get('download') === '1') res.setHeader('Content-Disposition', 'attachment; filename="CHATMCP-WORKSPACE-INSTRUCTIONS.txt"');
+        if (url.searchParams.get('download') === '1') res.setHeader('Content-Disposition', 'attachment; filename="DATGOLD-WORKSPACE-INSTRUCTIONS.txt"');
         return res.end(text);
       }
       if (req.method === 'POST') {
@@ -827,7 +827,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
     if (closing) return;
     closing = true;
     resumer.stop();
-    manager.log('Đang dừng ChatMCP local Hub...');
+    manager.log('Đang dừng DatGold local Hub...');
     const deadline = setTimeout(() => process.exit(1), 12000);
     manager.codingOrchestrator?.cancel();
     manager.dynamicDelegates?.cancel();

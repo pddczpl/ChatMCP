@@ -315,7 +315,7 @@ export function ConversationView() {
               {visibleToken && (
                 <div className="group py-3" data-testid="streaming-message">
                   <div className="mb-1 flex items-center gap-2 text-[12px] text-muted">
-                    <span className="font-semibold text-primary">ChatMCP</span>
+                    <span className="font-semibold text-primary">DatGold</span>
                     <span className="pulse-dot">{t('agents_conv_replying')}</span>
                     <span className="ml-auto"><CopyButton text={visibleToken} label={t('agents_conv_copy_reply')} /></span>
                   </div>

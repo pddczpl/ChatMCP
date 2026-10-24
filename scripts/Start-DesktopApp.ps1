@@ -1,10 +1,10 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-  Launches ChatMCP Studio as a native desktop window application on Windows.
+  Launches DatGold Studio as a native desktop window application on Windows.
 
 .DESCRIPTION
-  Starts the background ChatMCP Hub daemon (if not already running) and opens
+  Starts the background DatGold Hub daemon (if not already running) and opens
   the Studio interface in a standalone, dedicated desktop application window
   using Microsoft Edge or Chrome App Mode (no browser URL bars, tabs, or address bars).
   
@@ -44,12 +44,12 @@ if (Test-Path -LiteralPath $nativeExe -PathType Leaf) {
 $nodeCmd = Get-Command node.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($null -eq $nodeCmd) {
     [System.Windows.Forms.MessageBox]::Show(
-        "Node.js 22+ is required to run ChatMCP.`nPlease install Node.js from https://nodejs.org",
-        "ChatMCP Desktop",
+        "Node.js 22+ is required to run DatGold.`nPlease install Node.js from https://nodejs.org",
+        "DatGold Desktop",
         [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Error
     ) 2>$null
-    Write-Error "ChatMCP requires Node.js 22+. Download from https://nodejs.org"
+    Write-Error "DatGold requires Node.js 22+. Download from https://nodejs.org"
     exit 1
 }
 
@@ -70,7 +70,7 @@ catch {
 
 # 3. Start Hub in background if not already running
 if (-not $hubRunning) {
-    Write-Host "[ChatMCP Desktop] Starting Hub daemon at port $Port..."
+    Write-Host "[DatGold Desktop] Starting Hub daemon at port $Port..."
     $hubArgs = @($hubScript, "--port", ([string]$Port), "--no-open")
     if (-not [string]::IsNullOrWhiteSpace($ProjectPath)) {
         $hubArgs += @("--project", $ProjectPath)
@@ -106,7 +106,7 @@ if (-not $hubRunning) {
     }
 
     if (-not $hubRunning) {
-        Write-Warning "[ChatMCP Desktop] Hub took longer than expected to start. Opening dashboard anyway..."
+        Write-Warning "[DatGold Desktop] Hub took longer than expected to start. Opening dashboard anyway..."
     }
 }
 
@@ -146,5 +146,5 @@ else {
     Start-Process $appUrl
 }
 
-Write-Host "[ChatMCP Desktop] Launched successfully."
+Write-Host "[DatGold Desktop] Launched successfully."
 exit 0

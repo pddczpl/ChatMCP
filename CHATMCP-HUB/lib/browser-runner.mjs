@@ -310,7 +310,7 @@ export class BrowserRunner {
     if(!desired)throw fault('workspace_missing','Select a registered workspace before starting ChatGPT Web.',409);
     if(desired===mainWorkspace)return {manager:this.manager,owned:false};
     if(!this.manager.workspaceRegistry)
-      throw fault('unregistered_workspace','Select the project through ChatMCP before creating an independent Browser context.',403);
+      throw fault('unregistered_workspace','Select the project through DatGold before creating an independent Browser context.',403);
     // A separate local HubManager pins a secondary project for the whole
     // browser task without switching or replacing the primary workspace.
     const key=hash(desired).slice(0,24);
@@ -331,7 +331,7 @@ export class BrowserRunner {
   async report(id) {
     const task = this.tasks.get(id);
     if (!task) return null;
-    return this.clean(`ChatMCP Hub — ChatGPT web\nConversation: ${task.id}\nWorkspace: ${task.workspace.path}\nStatus: ${task.status}\nStarted: ${task.startedAt}\nFinished: ${task.finishedAt ?? '(running)'}\nChat: ${task.chatUrl ?? '(not recorded)'}\nAI replies: ${task.steps}\nProtocol messages issued: ${task.lastIssuedTurn ?? task.steps}\nMCP calls: ${task.toolCalls}\n\nALL USER PROMPTS\n${(task.prompts ?? [{text:task.prompt}]).map((p,i)=>`${i+1}. ${p.text}`).join('\n')}\n\nLATEST RESULT\n${task.finalText || task.error || '(No final result yet)'}\n\nEVENTS\n${task.events.map((e) => `${e.at} ${e.type}: ${e.message}`).join('\n')}\n\nCompleted means a final assistant result was received. Assess file changes and actual test output; it is not an independent guarantee of the model's claims. ChatGPT web does not provide token usage to this bridge.\n`);
+    return this.clean(`DatGold Hub — ChatGPT web\nConversation: ${task.id}\nWorkspace: ${task.workspace.path}\nStatus: ${task.status}\nStarted: ${task.startedAt}\nFinished: ${task.finishedAt ?? '(running)'}\nChat: ${task.chatUrl ?? '(not recorded)'}\nAI replies: ${task.steps}\nProtocol messages issued: ${task.lastIssuedTurn ?? task.steps}\nMCP calls: ${task.toolCalls}\n\nALL USER PROMPTS\n${(task.prompts ?? [{text:task.prompt}]).map((p,i)=>`${i+1}. ${p.text}`).join('\n')}\n\nLATEST RESULT\n${task.finalText || task.error || '(No final result yet)'}\n\nEVENTS\n${task.events.map((e) => `${e.at} ${e.type}: ${e.message}`).join('\n')}\n\nCompleted means a final assistant result was received. Assess file changes and actual test output; it is not an independent guarantee of the model's claims. ChatGPT web does not provide token usage to this bridge.\n`);
   }
 
   async createPairCode() {
@@ -438,7 +438,7 @@ export class BrowserRunner {
   }
   async start({ prompt, workspacePath = null, conversationId = null, linkedFromTaskId = null, handoffText = '' } = {}) {
     if (this.stopped) throw fault('hub_stopped', 'Hub đang dừng.', 409);
-    if (!this.client) throw fault('browser_not_paired', 'Ghép tiện ích ChatMCP Hub trước khi giao nhiệm vụ.', 409);
+    if (!this.client) throw fault('browser_not_paired', 'Ghép tiện ích DatGold Hub trước khi giao nhiệm vụ.', 409);
     // A task that has just reported 'completed' is still closing its session: wait for it instead of answering 409.
     await this.settle();
     if (this.context || this.pairBusy) throw fault('task_active', 'Một nhiệm vụ hoặc thao tác ghép đang chạy.', 409);

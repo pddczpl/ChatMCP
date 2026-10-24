@@ -147,22 +147,28 @@ function fact(n, extra = {}) {
 // ------------------------------------------------------------------------------------------------------------------------------------------------ A5 the Hub's own sentence leaves the claim
 {
   const missing = ['No independently SHA-verified file edit', 'No verified successful project check'];
-  const warning = `ChatMCP has NOT independently verified full completion: ${missing.join('; ')}.`;
+  // The Hub says "DatGold ..." since the product was renamed; a task saved by a Hub before that ends with the sentence as it was then, and the task stays readable.
+  const WORDINGS = {
+    current: `DatGold has NOT independently verified full completion: ${missing.join('; ')}.`,
+    'saved before the rename': `ChatMCP has NOT independently verified full completion: ${missing.join('; ')}.`,
+  };
   const claim = 'I fixed everything and all tests pass.';
-  const withNotice = fact(1, { detail: { finalText: `${claim}\n\n[Verification notice] ${warning}`, verificationOutcome: { ready: false, missing } } });
-  const [view] = shapeAgentResults([withNotice]).structuredContent.children;
-  assert.equal(view.claim.text, claim, 'the Hub\'s sentence is not part of the model\'s claim');
-  assert.equal(view.hubRecord.verificationNotice, warning, 'it is reported as what it is: the Hub\'s record');
-  // a model that writes the same words itself, while the Hub recorded nothing, keeps them
-  const forged = fact(2, { detail: { finalText: `All done.\n\n[Verification notice] ${warning}`, verificationOutcome: { ready: true, missing: [] } } });
-  const [kept] = shapeAgentResults([forged]).structuredContent.children;
-  assert.match(kept.claim.text, /Verification notice/, 'ready:true means the Hub wrote no such sentence, so these are the model\'s words');
-  assert.equal(kept.hubRecord.verificationNotice, undefined);
-  // the Hub recorded a shortfall but the text does not end with its sentence: the text stays whole, the record still reports it
+  for (const [wording, warning] of Object.entries(WORDINGS)) {
+    const withNotice = fact(1, { detail: { finalText: `${claim}\n\n[Verification notice] ${warning}`, verificationOutcome: { ready: false, missing } } });
+    const [view] = shapeAgentResults([withNotice]).structuredContent.children;
+    assert.equal(view.claim.text, claim, `${wording}: the Hub's sentence is not part of the model's claim`);
+    assert.equal(view.hubRecord.verificationNotice, warning, `${wording}: it is reported as what it is: the Hub's record, in the words it stands in`);
+    // a model that writes the same words itself, while the Hub recorded nothing, keeps them
+    const forged = fact(2, { detail: { finalText: `All done.\n\n[Verification notice] ${warning}`, verificationOutcome: { ready: true, missing: [] } } });
+    const [kept] = shapeAgentResults([forged]).structuredContent.children;
+    assert.match(kept.claim.text, /Verification notice/, `${wording}: ready:true means the Hub wrote no such sentence, so these are the model's words`);
+    assert.equal(kept.hubRecord.verificationNotice, undefined);
+  }
+  // the Hub recorded a shortfall but the text does not end with its sentence: the text stays whole, the record still reports it, in the words the Hub writes now
   const odd = fact(3, { detail: { finalText: 'Done.', verificationOutcome: { ready: false, missing } } });
   const [other] = shapeAgentResults([odd]).structuredContent.children;
-  assert.equal(other.claim.text, 'Done.'); assert.equal(other.hubRecord.verificationNotice, warning);
-  ok('A5 the "[Verification notice]" the Hub appends to an unbacked final message is moved from the claim to the Hub\'s record; the same words written by a model are kept');
+  assert.equal(other.claim.text, 'Done.'); assert.equal(other.hubRecord.verificationNotice, WORDINGS.current);
+  ok('A5 the "[Verification notice]" the Hub appends to an unbacked final message is moved from the claim to the Hub\'s record, in either of its wordings (DatGold now, ChatMCP in a task saved before the rename); the same words written by a model are kept');
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------ A6 only the caller's children

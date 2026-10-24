@@ -201,9 +201,9 @@ internal sealed class SmokeWindow : Form
             browser.CoreWebView2.Navigate(await SignInUrl());
             await WaitFor("location.hash === '' && Boolean(sessionStorage.getItem('chatmcp.hub-session'))", "page traded the ticket for the session and removed it from the address");
             await WaitFor("document.querySelector('#root header')", "current React root rendered");
-            await WaitFor("document.querySelector('[role=dialog][aria-label=\"Thiết lập ChatMCP\"]')", "fresh onboarding rendered");
+            await WaitFor("document.querySelector('[role=dialog][aria-label=\"Thiết lập DatGold\"]')", "fresh onboarding rendered");
             await browser.CoreWebView2.ExecuteScriptAsync("document.querySelector('[aria-label=\"Đóng thiết lập\"]').click()");
-            await WaitFor("!document.querySelector('[role=dialog][aria-label=\"Thiết lập ChatMCP\"]')", "onboarding dismiss works");
+            await WaitFor("!document.querySelector('[role=dialog][aria-label=\"Thiết lập DatGold\"]')", "onboarding dismiss works");
             await OpenSettingsSection("Kỹ năng");
             await WaitFor("document.querySelector('dialog[open][aria-label=\"Cài đặt\"]')?.innerText.includes('Kỹ năng cho trợ lý')", "Skills settings rendered");
             await WaitFor("performance.getEntriesByType('resource').some(entry => entry.name.includes('/api/plugins/marketplace')) && performance.getEntriesByType('resource').some(entry => entry.name.includes('/api/plugins/registry'))", "Skills API requests completed");

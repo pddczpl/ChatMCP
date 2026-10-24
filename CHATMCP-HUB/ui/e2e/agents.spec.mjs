@@ -203,7 +203,7 @@ test('ChatGPT Web mode can be selected and safely paired from Settings', async (
   await expect(card.getByRole('button',{name:'Kênh agent: Model API'})).toHaveAttribute('aria-pressed','true');
   await card.getByRole('button',{name:'Kênh agent: ChatGPT Web'}).click();
   await expect.poll(async()=>(await app.hub.state()).agent.mode).toBe('chatgpt-web');
-  await expect(card.getByText('Chưa ghép ChatMCP Hub Companion')).toBeVisible();
+  await expect(card.getByText('Chưa ghép DatGold Hub Companion')).toBeVisible();
   await card.getByRole('button',{name:'Tạo mã ghép 5 phút'}).click();
   await expect(card.getByTestId('chatgpt-pair-code')).toHaveText(/^\d{8}$/);
   await expect(page.getByTestId('chatgpt-web-mode-banner')).toBeVisible();

@@ -169,7 +169,7 @@ try {
     assert.ok(done.chatmcp_verification.missing.length >= 2 && done.chatmcp_verification.missing.every((line) => typeof line === 'string'));
     assert.equal(done.chatmcp_completion.verification, 'missing_evidence');
     assert.equal(task.verificationOutcome.ready, false);
-    assert.match(task.finalText, /\[Verification notice\] ChatMCP has NOT independently verified full completion/);
+    assert.match(task.finalText, /\[Verification notice\] DatGold has NOT independently verified full completion/);
     ok('TaskCompleted gets the Hub\'s own assessment (chatmcp_verification, chatmcp_completion) next to the model\'s claim: a claim without receipts is not ready, and the finished task still carries the verification notice');
   }
 

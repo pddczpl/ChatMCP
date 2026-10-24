@@ -62,7 +62,7 @@ try {
 
   const { ticket } = await hub.post('/api/session/ticket', {});
   await page.goto(`${hub.origin}/#chatmcp-boot=${ticket}`);
-  await page.getByRole('heading', { name: 'Chào mừng đến với ChatMCP Studio' }).waitFor();
+  await page.getByRole('heading', { name: 'Chào mừng đến với DatGold Studio' }).waitFor();
   await shot(page, '01-onboarding-workspace');
   await page.getByLabel('Đường dẫn workspace', { exact: true }).fill(project);
   await page.getByRole('button', { name: 'Áp dụng workspace', exact: true }).click();

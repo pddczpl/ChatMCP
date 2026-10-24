@@ -1,6 +1,6 @@
 @echo off
 rem ============================================================================
-rem  ChatMCP Studio - Native Desktop Application Launcher
+rem  DatGold Studio - Native Desktop Application Launcher
 rem ============================================================================
 if exist "%~dp0ChatMCP.exe" (
     start "" "%~dp0ChatMCP.exe" %*
@@ -14,6 +14,6 @@ if exist "%DIST_EXE%" (
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\Start-DesktopApp.ps1" %*
 if errorlevel 1 (
     echo.
-    echo [ChatMCP Desktop] Could not start. Check that Node.js 22+ is installed.
+    echo [DatGold Desktop] Could not start. Check that Node.js 22+ is installed.
     pause
 )

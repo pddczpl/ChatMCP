@@ -376,7 +376,7 @@ function withholdStructure(value, names) {
   return value;
 }
 
-export const WITHHELD_NOTICE = (names) => `[WITHHELD by ChatMCP: this result involves a protected file (${names.slice(0, 5).join(', ') || '.env, private key, credentials'}). `
+export const WITHHELD_NOTICE = (names) => `[WITHHELD by DatGold: this result involves a protected file (${names.slice(0, 5).join(', ') || '.env, private key, credentials'}). `
   + 'Its content was not sent to ChatGPT. Ask the user to describe what you need instead of reading secret files.]';
 
 /**

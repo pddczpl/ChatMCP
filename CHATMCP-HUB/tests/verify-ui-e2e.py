@@ -253,7 +253,7 @@ def main():
                 # ------------------------------------------------------------------------------------------------------
                 step('0. first run: wizard, folder, AI connection, permission, first read-only task')
                 page.goto(hub_url + '/')
-                wizard = page.get_by_role('dialog', name='Thiết lập ChatMCP')
+                wizard = page.get_by_role('dialog', name='Thiết lập DatGold')
                 vis(wizard, 40000)
                 check(not page_errors, f'no page error while loading the app: {page_errors}')
                 shot('0-wizard-folder')

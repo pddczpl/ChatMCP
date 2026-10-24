@@ -44,7 +44,7 @@ const hooksFile = path.join(hubDirectory, 'hooks.json');
 // What the runner writes between the model's words and its own sentences, written out here on purpose: the suite pins the text a person sees from the outside.
 const VERIFICATION_MARK = '\n\n[Verification notice] ';
 const HOOK_MARK = '\n\n[Hook notice] ';
-const WARNING = (missing) => `ChatMCP has NOT independently verified full completion: ${missing.join('; ')}.`;
+const WARNING = (missing) => `DatGold has NOT independently verified full completion: ${missing.join('; ')}.`;
 const SHORT = 'What does this project do?';
 // A task the Hub plans in phases (160+ characters, 2+ clauses): a model that only says it is done leaves the Hub without evidence, so the runner adds its notice.
 const LONG = 'Fix the add() bug in calc.js. Then run the unit tests to prove that the fix works. After that, review the diff and write a short report of what changed for the team.';
@@ -267,7 +267,7 @@ try {
       const worker = job.workers[0];
       assert.equal(worker.summary, ANSWER, 'the summary of the worker is exactly what its model said');
       assert.equal(Object.hasOwn(worker, 'runnerNotice'), false, 'a task this short has no verification notice');
-      assert.match(worker.runnerHookNotice, /^The SubagentStop hook blocked 8 times; that is the limit for one run, so ChatMCP completed the task although a hook still objected \(SubagentStop: Mention the file you created\.\)/, 'the hook\'s note is a field of its own');
+      assert.match(worker.runnerHookNotice, /^The SubagentStop hook blocked 8 times; that is the limit for one run, so DatGold completed the task although a hook still objected \(SubagentStop: Mention the file you created\.\)/, 'the hook\'s note is a field of its own');
       assert.equal(worker.summary.includes('[Hook notice]') || worker.summary.includes('hook'), false);
       const held = JSON.parse(await fs.readFile(path.join(orchestrator.directory, 'runs', job.id, 'state', 'coder', 'tasks', worker.agentTaskId, 'task.json'), 'utf8'));
       assert.equal(held.finalText, ANSWER + HOOK_MARK + worker.runnerHookNotice, 'the text of the runner is unchanged: only the worker\'s record of it is split');
@@ -286,6 +286,10 @@ try {
     const final = await import('../lib/final-text.mjs');
     assert.equal(final.VERIFICATION_NOTICE_MARK, VERIFICATION_MARK); assert.equal(final.HOOK_NOTICE_MARK, HOOK_MARK);
     assert.equal(final.verificationWarning(['a', 'b']), WARNING(['a', 'b']));
+    // the sentence as the Hub wrote it before the product was renamed, which a task saved by that Hub still ends with: the readers of a task without a record look for both
+    assert.equal(final.verificationWarningBeforeRename(['a', 'b']), 'ChatMCP has NOT independently verified full completion: a; b.');
+    assert.deepEqual(final.verificationWarnings(['a', 'b']), [WARNING(['a', 'b']), 'ChatMCP has NOT independently verified full completion: a; b.'], 'the current wording first');
+    assert.notEqual(WARNING(['a']), final.verificationWarningBeforeRename(['a']));
     assert.equal(final.composeFinalText({ words: 'w' }), 'w');
     assert.equal(final.composeFinalText({ words: 'w', verificationNotice: 'v' }), 'w' + VERIFICATION_MARK + 'v');
     assert.equal(final.composeFinalText({ words: 'w', hookNotice: 'h' }), 'w' + HOOK_MARK + 'h');

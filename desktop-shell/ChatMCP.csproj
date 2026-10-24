@@ -11,9 +11,9 @@
     <RootNamespace>ChatMCP.Desktop</RootNamespace>
     <Version>3.9.0</Version>
     <Authors>Phan Danh Đạt</Authors>
-    <Company>ChatMCP Project</Company>
-    <Product>ChatMCP Studio</Product>
-    <Description>ChatMCP - Autonomous AI Coding Agent Desktop Studio</Description>
+    <Company>DatGold Project</Company>
+    <Product>DatGold Studio</Product>
+    <Description>DatGold - Autonomous AI Coding Agent Desktop Studio</Description>
   </PropertyGroup>
 
   <ItemGroup>

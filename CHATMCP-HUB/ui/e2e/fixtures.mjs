@@ -156,7 +156,7 @@ export { expect };
 
 export async function onboard(page, app) {
   await page.goto(await app.signInUrl());
-  await expect(page.getByRole('heading', { name: 'Chào mừng đến với ChatMCP Studio' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Chào mừng đến với DatGold Studio' })).toBeVisible();
   await page.getByLabel('Đường dẫn workspace', { exact: true }).fill(app.project);
   await page.getByRole('button', { name: 'Áp dụng workspace', exact: true }).click();
   await expect.poll(async () => (await app.hub.state()).workspace?.path).toBe(app.project);
@@ -170,7 +170,7 @@ export async function onboard(page, app) {
   await page.getByRole('button', { name: 'Tiếp tục', exact: true }).click();
   await page.getByRole('button', { name: /Review \(Khuyên dùng\)/ }).click();
   await page.getByRole('button', { name: 'Bắt đầu làm việc ngay', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Chào mừng đến với ChatMCP Studio' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Chào mừng đến với DatGold Studio' })).toHaveCount(0);
   await waitFor(async () => { const state = await app.hub.state(); return state.catalogReady && !state.busy; });
   const state = await app.hub.state();
   expect(state.ai.model).toBe('mock-coder');

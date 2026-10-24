@@ -88,8 +88,8 @@ test('the composer: the menu of permission modes, the wait-for-tasks menu and th
 test('a message: its author, its copy button and the copy button of a code block', async () => {
   const answer = { id: 'm2', role: 'assistant', content: 'Here is **the** fix:\n\n```js\nconst a = 1;\n```\n\nand `inline` code.', timestamp: '2026-10-20T10:00:05Z' };
   const reply = await both(plain, 'MessageItem', { message: answer }, {
-    vi: ['ChatMCP', 'aria-label="Sao chép tin nhắn"', 'aria-label="Sao chép mã"', 'const a = 1;'],
-    en: ['ChatMCP', 'aria-label="Copy message"', 'aria-label="Copy code"', 'const a = 1;'],
+    vi: ['DatGold', 'aria-label="Sao chép tin nhắn"', 'aria-label="Sao chép mã"', 'const a = 1;'],
+    en: ['DatGold', 'aria-label="Copy message"', 'aria-label="Copy code"', 'const a = 1;'],
   }, 'assistant message');
   assert.ok(reply.vi.includes('data-testid="message-code"') && reply.en.includes('<code>const a = 1;</code>'), 'the code block is rendered, and its text is not touched');
   await both(plain, 'MessageItem', { message: { id: 'm1', role: 'user', content: 'Please fix it', timestamp: '2026-10-20T10:00:00Z' } }, {

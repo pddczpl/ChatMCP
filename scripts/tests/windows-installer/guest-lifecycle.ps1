@@ -28,7 +28,7 @@ public class InstallerWindow {
  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int n);
  [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h,int x,int y,int w,int z,bool b);
  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h,uint msg,IntPtr w,IntPtr l);
- public static IntPtr Find(uint pid) {IntPtr found=IntPtr.Zero;EnumWindows((h,p)=>{uint owner;GetWindowThreadProcessId(h,out owner);var s=new StringBuilder(1024);GetWindowText(h,s,1024);if(owner==pid && s.ToString().StartsWith("ChatMCP"))found=h;return true;},IntPtr.Zero);return found;}
+ public static IntPtr Find(uint pid) {IntPtr found=IntPtr.Zero;EnumWindows((h,p)=>{uint owner;GetWindowThreadProcessId(h,out owner);var s=new StringBuilder(1024);GetWindowText(h,s,1024);if(owner==pid && (s.ToString().StartsWith("DatGold") || s.ToString().StartsWith("ChatMCP")))found=h;return true;},IntPtr.Zero);return found;}
 }
 "@
 function Find-Control($window, [string]$name, $type) {

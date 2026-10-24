@@ -51,7 +51,7 @@ CÀI VÀ GHÉP MỘT LẦN
    Nếu đã nạp cùng thư mục trước đây, bấm Reload. Cần Chrome/Edge 120 trở lên.
 3. Chạy launcher theo README của Hub. Mở http://127.0.0.1:3007/, chọn workspace
    và tạo mã ghép trên Hub. Mã có 8 chữ số, hết hạn sau 5 phút.
-4. Mở popup ChatMCP Hub Companion. Dán mã vào “Mã ghép lấy trên Hub” rồi bấm
+4. Mở popup DatGold Hub Companion. Dán mã vào “Mã ghép lấy trên Hub” rồi bấm
    “Ghép và bật”. Đây là bước cho phép các yêu cầu bạn gửi trên localhost
    được tự đưa qua ô chat ChatGPT.
 5. Tab ChatGPT mở ra để bạn kiểm tra đăng nhập và chọn CHAT THÔNG THƯỜNG.

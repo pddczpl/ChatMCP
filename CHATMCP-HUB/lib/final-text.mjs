@@ -2,7 +2,7 @@
 //
 // The AgentRunner (lib/agent.mjs) makes the final text of a completed run from the model's last answer and, after it, up to two sentences of the Hub's own:
 //
-//   * "[Verification notice] ChatMCP has NOT independently verified full completion: <gaps>."   when the Hub's evidence does not back the run's plan
+//   * "[Verification notice] DatGold has NOT independently verified full completion: <gaps>."   when the Hub's evidence does not back the run's plan
 //   * "[Hook notice] The Stop hook blocked 8 times; ..."                                       when a Stop / SubagentStop / TaskCompleted hook still objected after its blocks
 //
 // The main chat shows that text whole, on purpose. What shows the model's words alone (the summary of a coding worker, the claim of agent_results) must not take the
@@ -10,14 +10,25 @@
 // it makes the text (`finalParts`: the model's words and each sentence of the Hub's, apart) and the readers read that record.
 //
 // This module is the one place that says what the sentences are, how they are joined to the words and when a record can be trusted. The wording of the verification
-// sentence is also used by the legacy readers (a task saved before the record existed has only the text, and they find the sentence again by it).
+// sentence is also used by the legacy readers (a task saved before the record existed has only the text, and they find the sentence again by it). The Hub wrote
+// "ChatMCP has NOT ..." until the product was renamed DatGold, so those readers look for both wordings (verificationWarnings).
 
 export const VERIFICATION_NOTICE_MARK = '\n\n[Verification notice] ';
 export const HOOK_NOTICE_MARK = '\n\n[Hook notice] ';
 
 /** The sentence of the Hub's about a run its evidence does not back, from the gaps its own record lists (`verificationOutcome.missing`). */
 export function verificationWarning(missing) {
+  return `DatGold has NOT independently verified full completion: ${missing.join('; ')}.`;
+}
+
+/** The same sentence as a Hub wrote it before the product was renamed DatGold (3.9.0 and earlier): a task saved by that Hub still ends with it. */
+export function verificationWarningBeforeRename(missing) {
   return `ChatMCP has NOT independently verified full completion: ${missing.join('; ')}.`;
+}
+
+/** Every wording a saved final text can end with, the current one first: what the readers of a task saved without a record look for (`finalParts`). */
+export function verificationWarnings(missing) {
+  return [verificationWarning(missing), verificationWarningBeforeRename(missing)];
 }
 
 /**

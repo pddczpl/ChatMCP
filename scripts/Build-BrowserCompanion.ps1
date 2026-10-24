@@ -1,6 +1,6 @@
 #requires -Version 5.1
 <#
-Builds the CANONICAL ChatMCP Hub Companion MV3 extension as a standalone ZIP
+Builds the CANONICAL DatGold Hub Companion MV3 extension as a standalone ZIP
 and verifies exact-source parity with the Windows installer payload.
 Never zip the repository root: its legacy manifest.json is a different helper.
 Users must extract and manually choose "Load unpacked" in Chrome / Edge.
@@ -38,9 +38,9 @@ $files = @(
     'INSTALL-EXTENSION.txt'
 )
 $manifest = Get-Content -LiteralPath (Join-Path $extension 'manifest.json') -Raw | ConvertFrom-Json
-if ($manifest.manifest_version -ne 3 -or $manifest.name -ne 'ChatMCP Hub Companion' -or
+if ($manifest.manifest_version -ne 3 -or $manifest.name -ne 'DatGold Hub Companion' -or
     $manifest.version -notmatch '^\d+\.\d+\.\d+$') {
-    throw 'Not the canonical ChatMCP Hub Companion Manifest V3 source.'
+    throw 'Not the canonical DatGold Hub Companion Manifest V3 source.'
 }
 if ($manifest.background.service_worker -ne 'background.js' -or
     $manifest.action.default_popup -ne 'popup.html') {

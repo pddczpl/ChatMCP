@@ -524,7 +524,7 @@ try {
     // (5) A predecessor that did end with sentences of the Hub's (the runner records where its words end): the next worker reads the words as its result, and the Hub's
     // sentences apart, under a line that says whose they are. A predecessor with no such record (a task saved before it existed) hands over its text whole, as it always did.
     {
-      const WORDS='The fix is in src/auth.mjs.',VERIFICATION='ChatMCP has NOT independently verified full completion: no check was run.',HOOK='The Stop hook blocked 8 times; the last said Not yet. What that hook checks may not hold.';
+      const WORDS='The fix is in src/auth.mjs.',VERIFICATION='DatGold has NOT independently verified full completion: no check was run.',HOOK='The Stop hook blocked 8 times; the last said Not yet. What that hook checks may not hold.';
       const RECORDED='11111111-1111-4111-8111-111111111111',OLDER='22222222-2222-4222-8222-222222222222';
       const text=WORDS+'\n\n[Verification notice] '+VERIFICATION+'\n\n[Hook notice] '+HOOK;
       const real=pool.get.bind(pool);

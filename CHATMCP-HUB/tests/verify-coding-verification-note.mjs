@@ -176,7 +176,9 @@ const ANSWER = 'Edited the file; checking it is for the Hub.';
  * The scripted model runs no check and reads no diff, so a task that is planned in phases always ends this way.
  */
 const NOTICE_MARK = '\n\n[Verification notice] ';
-const NOTICE = 'ChatMCP has NOT independently verified full completion: No verified successful project check; No independently recorded Git diff review.';
+const NOTICE = 'DatGold has NOT independently verified full completion: No verified successful project check; No independently recorded Git diff review.';
+/** The same sentence as a Hub wrote it before the product was renamed: a task saved by that Hub still ends with it. */
+const SAVED_NOTICE = 'ChatMCP has NOT independently verified full completion: No verified successful project check; No independently recorded Git diff review.';
 /** A task the Hub plans in phases (decomposeCodingTask: 160+ characters and 2+ clauses). The scripted model writes the file named in its "add <file>". */
 const longTask = (file) => `Add the file ${file} to the project root with one line of text. Then update the tests so that the whole suite still passes, and verify that the new file is listed by the README. add ${file}`;
 /** A task of the repair scenario: long enough to be planned, with no "add <file>" in it, so the scripted model takes the next file of its script. */
@@ -220,6 +222,17 @@ try {
     assert.deepEqual(workerWords({ finalText: ANSWER + NOTICE_MARK + tail, verificationOutcome: outcome }), { summary: ANSWER, notice: tail.slice(0, 2000) }, 'and what the Hub says is cut at 2,000');
     for (const bad of [undefined, null, {}, { finalText: 7 }, 'text']) assert.deepEqual(workerWords(bad), { summary: '', notice: '' }, JSON.stringify(bad));
     ok('the runner\'s verification notice is split off the end of a final text only where the runner\'s own record says it wrote one');
+    // a task saved before the product was renamed ends with the sentence as that Hub wrote it ("ChatMCP ..."): the same split, and the notice is the sentence as it stands
+    assert.deepEqual(splitRunnerNotice(ANSWER + NOTICE_MARK + SAVED_NOTICE, outcome), { answer: ANSWER, notice: SAVED_NOTICE });
+    assert.deepEqual(workerWords({ finalText: ANSWER + NOTICE_MARK + SAVED_NOTICE, verificationOutcome: outcome }), { summary: ANSWER, notice: SAVED_NOTICE });
+    assert.deepEqual(splitRunnerNotice(ANSWER + NOTICE_MARK + SAVED_NOTICE + '\n\n[Hook notice] A hook objected.', outcome),
+      { answer: ANSWER, notice: SAVED_NOTICE + '\n\n[Hook notice] A hook objected.' }, 'and what that runner appended after its sentence is its own');
+    // whichever wording stands last is the runner's; a copy of the other one before it is the model's
+    assert.deepEqual(splitRunnerNotice(ANSWER + NOTICE_MARK + SAVED_NOTICE + NOTICE_MARK + NOTICE, outcome), { answer: ANSWER + NOTICE_MARK + SAVED_NOTICE, notice: NOTICE });
+    assert.deepEqual(splitRunnerNotice(ANSWER + NOTICE_MARK + NOTICE + NOTICE_MARK + SAVED_NOTICE, outcome), { answer: ANSWER + NOTICE_MARK + NOTICE, notice: SAVED_NOTICE });
+    // the record lists other gaps: neither wording is the sentence that stands there
+    assert.deepEqual(splitRunnerNotice(ANSWER + NOTICE_MARK + SAVED_NOTICE, { ...outcome, missing: [missing[0]] }), { answer: ANSWER + NOTICE_MARK + SAVED_NOTICE, notice: '' });
+    ok('a task saved before the rename is split the same way: its sentence says ChatMCP, and it is still the Hub\'s');
   }
 
   // 0b. the code on its own. The AgentRunner records the `code` of the error that ended a run as it came: a provider's, the system's (`ECONNRESET`), a bug's, a number. A page looks

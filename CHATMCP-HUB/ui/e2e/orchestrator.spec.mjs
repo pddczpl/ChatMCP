@@ -778,7 +778,7 @@ test('a worker whose task the Hub planned in phases: the AI report keeps the AI�
   const [record] = run.workers;
   expect(record.summary, 'the summary is what the model said and nothing else').toBe(CLAIM);
   expect(typeof record.runnerNotice, 'and the Hub’s sentence is a field of its own').toBe('string');
-  expect(record.runnerNotice).toMatch(/^ChatMCP has NOT independently verified full completion: .+\.$/);
+  expect(record.runnerNotice).toMatch(/^DatGold has NOT independently verified full completion: .+\.$/);
   expect((await app.hub.get('/api/studio/coding')).json.jobs.at(-1).workers[0].runnerNotice, 'which is what the page is sent').toBe(record.runnerNotice);
 
   await openAgents(page, 'Sửa mã');
@@ -831,7 +831,7 @@ test('a worker whose SubagentStop hook never gives way: the AI report keeps the 
   expect(run.status).toBe('ready_for_review');
   const [record] = run.workers;
   expect(record.summary, 'the summary is what the model said and nothing else').toBe(CLAIM);
-  expect(record.runnerHookNotice).toMatch(/^The SubagentStop hook blocked 8 times; that is the limit for one run, so ChatMCP completed the task although a hook still objected \(SubagentStop: Mention the file you created\.\)/);
+  expect(record.runnerHookNotice).toMatch(/^The SubagentStop hook blocked 8 times; that is the limit for one run, so DatGold completed the task although a hook still objected \(SubagentStop: Mention the file you created\.\)/);
   expect(Object.hasOwn(record, 'runnerNotice'), 'a task this short has no verification notice, so the hook’s note is the only sentence of the Hub’s').toBe(false);
   expect((await app.hub.get('/api/studio/coding')).json.jobs.at(-1).workers[0].runnerHookNotice, 'which is what the page is sent').toBe(record.runnerHookNotice);
 
@@ -1009,16 +1009,16 @@ test('in English, and in the light theme, the tab reads in one language and keep
   await sidebar.getByRole('button', { name: `Expand group ${folder}`, exact: true }).click();
   await expect(sidebar.getByRole('button', { name: `Delete conversation: ${prompt}`, exact: true })).toHaveAttribute('title', 'Delete the conversation and its task history (files are not deleted)');
   const removeFolder = sidebar.getByRole('button', { name: `Remove workspace ${folder}`, exact: true });
-  await expect(removeFolder).toHaveAttribute('title', 'Remove from ChatMCP — the folder on disk is not deleted');
+  await expect(removeFolder).toHaveAttribute('title', 'Remove from DatGold — the folder on disk is not deleted');
   const question = async (target) => {
     const seen = new Promise((resolve) => page.once('dialog', (dialog) => { resolve(dialog.message()); void dialog.dismiss(); }));
     await target.click();
     return seen;
   };
   const conversations = await sidebar.getByRole('button', { name: /^Delete conversation: / }).count();
-  expect(await question(removeFolder)).toBe(`Remove the workspace "${folder}" from ChatMCP?\n\n${conversations} conversation${conversations === 1 ? '' : 's'} and the workspace’s background tasks will be hidden from the interface. The history stays saved and comes back when you add the same folder again.\n\nThis does NOT delete the folder, files, Git branches or worktrees on this computer.`);
+  expect(await question(removeFolder)).toBe(`Remove the workspace "${folder}" from DatGold?\n\n${conversations} conversation${conversations === 1 ? '' : 's'} and the workspace’s background tasks will be hidden from the interface. The history stays saved and comes back when you add the same folder again.\n\nThis does NOT delete the folder, files, Git branches or worktrees on this computer.`);
   expect(await question(sidebar.getByRole('button', { name: `Delete conversation: ${prompt}`, exact: true })))
-    .toBe(`Delete the conversation "${prompt}"?\n\nThe history of its task turns will be removed from ChatMCP. This cannot be undone.\n\nThis does NOT delete project files, Git branches or worktrees.`);
+    .toBe(`Delete the conversation "${prompt}"?\n\nThe history of its task turns will be removed from DatGold. This cannot be undone.\n\nThis does NOT delete project files, Git branches or worktrees.`);
   await expect(sidebar.getByRole('button', { name: `Delete conversation: ${prompt}`, exact: true })).toHaveCount(1);
   expect((await app.hub.task(chat.id)).id).toBe(chat.id);
 
@@ -1059,13 +1059,13 @@ test('in English, and in the light theme, the tab reads in one language and keep
   await app.hub.post('/api/agent/mode', { mode: 'chatgpt-web' });
   const notice = page.getByTestId('transport-switch-notice');
   await expect(notice).toBeVisible();
-  expect(await notice.innerText()).toBe('The next turn uses ChatGPT Web Companion. ChatMCP keeps the link to the earlier turns and passes on a summary of the context, but it does not assume the two models share a history. File writes that were not verified are not replayed automatically.');
+  expect(await notice.innerText()).toBe('The next turn uses ChatGPT Web Companion. DatGold keeps the link to the earlier turns and passes on a summary of the context, but it does not assume the two models share a history. File writes that were not verified are not replayed automatically.');
   await expect(notice.locator('strong')).toHaveText('ChatGPT Web Companion');
   await expectEnglishOnly(notice, 'Channel notice');
   await sidebar.getByRole('button', { name: 'New Session', exact: true }).click();
   const web = page.getByTestId('chatgpt-web-mode-banner');
   await expect(web).toBeVisible();
-  await expect(web.locator('span').first()).toHaveText('ChatGPT Web (text-only) · Pair the ChatMCP Hub Companion before sending a task');
+  await expect(web.locator('span').first()).toHaveText('ChatGPT Web (text-only) · Pair the DatGold Hub Companion before sending a task');
   await expect(web.locator('span').first()).toHaveAttribute('title', 'The Web Companion channel only sends text through the ChatGPT tab for now; use the Model API to send images or attached files.');
   await expect(web.getByRole('button', { name: 'Set up', exact: true })).toBeVisible();
   await expectEnglishOnly(web, 'ChatGPT Web banner');

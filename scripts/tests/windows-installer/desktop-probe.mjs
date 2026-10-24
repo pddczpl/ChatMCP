@@ -58,7 +58,7 @@ try {
   const state = await evaluate(`fetch('/api/state', { headers: ${AUTH} }).then(r => r.json())`);
   assert.equal(state.agent.tasks.length, 0, 'clean startup creates no AI task');
   if (phase === 'baseline') {
-    assert.equal(await evaluate("Boolean(document.querySelector('[role=dialog][aria-label=\"Thiết lập ChatMCP\"]'))"), true, 'fresh onboarding rendered');
+    assert.equal(await evaluate("Boolean(document.querySelector('[role=dialog][aria-label=\"Thiết lập DatGold\"]'))"), true, 'fresh onboarding rendered');
     await evaluate("document.querySelector('[aria-label=\"Đóng thiết lập\"]').click()");
     const profile = await evaluate(`(async () => {
       const state = await (await fetch('/api/state', { headers: ${AUTH} })).json();

@@ -14,7 +14,7 @@ loopback Local Hub serves that build. Tests do not intercept Hub requests or
 replace React components. `test:e2e:built` is for debugging an already built UI;
 CI always uses the build-and-test command.
 
-Every page signs in the way the desktop app does: the fixture asks the Hub for a one-time ticket (`app.signInUrl()`) and the page trades it for the Hub's per-launch secret, which it then sends as a bearer on every request, event stream included. `session.spec.mjs` covers the sign-in itself (fragment removed, secret only in sessionStorage, ticket usable once, the "reopen ChatMCP" screen for a tab without a session or after a Hub restart, and that `/api/tasks/events` streams with the bearer).
+Every page signs in the way the desktop app does: the fixture asks the Hub for a one-time ticket (`app.signInUrl()`) and the page trades it for the Hub's per-launch secret, which it then sends as a bearer on every request, event stream included. `session.spec.mjs` covers the sign-in itself (fragment removed, secret only in sessionStorage, ticket usable once, the "reopen DatGold" screen for a tab without a session or after a Hub restart, and that `/api/tasks/events` streams with the bearer).
 
 Every test creates a temporary Git workspace and isolated Hub state, uses a
 credential-scrubbed child environment, and starts a scripted OpenAI-compatible
