@@ -1,0 +1,188 @@
+{
+  "suite": "verify-code-intelligence.mjs",
+  "description": "repo_map: PageRank ranking, Python import resolution and the Git-based file listing (multi-agent-tools-18)",
+  "mutations": [
+    {
+      "name": "RM1",
+      "what": "the damping of PageRank is not 0.85",
+      "patches": [
+        { "file": "lib/pagerank.mjs", "old": "{ damping = 0.85, maxIterations = 200, tolerance = 1e-10 } = {}", "new": "{ damping = 0.5, maxIterations = 200, tolerance = 1e-10 } = {}" }
+      ]
+    },
+    {
+      "name": "RM2",
+      "what": "a file that imports nothing keeps its rank instead of spreading it (the ranks no longer add up to 1)",
+      "patches": [
+        { "file": "lib/pagerank.mjs", "old": "next.fill((1 - damping) / count + (damping * spread) / count);", "new": "next.fill((1 - damping) / count);" }
+      ]
+    },
+    {
+      "name": "RM3",
+      "what": "a file that imports itself votes for itself",
+      "patches": [
+        { "file": "lib/pagerank.mjs", "old": "if (source !== undefined && destination !== undefined && source !== destination) targets[source].add(destination);", "new": "if (source !== undefined && destination !== undefined) targets[source].add(destination);" }
+      ]
+    },
+    {
+      "name": "RM4",
+      "what": "the number of rounds is not bounded",
+      "patches": [
+        { "file": "lib/pagerank.mjs", "old": "while (iterations < maxIterations) {", "new": "while (true) {" }
+      ]
+    },
+    {
+      "name": "RM5",
+      "what": "an unfinished answer says it converged",
+      "patches": [
+        { "file": "lib/pagerank.mjs", "old": "let converged = false;", "new": "let converged = true;" }
+      ]
+    },
+    {
+      "name": "RM6",
+      "what": "the iteration stops long before the ranks settle",
+      "patches": [
+        { "file": "lib/pagerank.mjs", "old": "tolerance = 1e-10 } = {}", "new": "tolerance = 0.05 } = {}" }
+      ]
+    },
+    {
+      "name": "RM7",
+      "what": "a damping outside [0, 1) is accepted",
+      "patches": [
+        { "file": "lib/pagerank.mjs", "old": "if (!(damping >= 0 && damping < 1)) throw new RangeError('pagerank: damping must be at least 0 and below 1');", "new": "" }
+      ]
+    },
+    {
+      "name": "RM8",
+      "what": "a relative Python import goes one folder too high",
+      "patches": [
+        { "file": "lib/code-intelligence.mjs", "old": "for (let level = 1; level < dots; level += 1) {", "new": "for (let level = 1; level <= dots; level += 1) {" }
+      ]
+    },
+    {
+      "name": "RM9",
+      "what": "a Python module under src/ is not found",
+      "patches": [
+        { "file": "lib/code-intelligence.mjs", "old": "if (!roots.includes('src')) roots.push('src');", "new": "" }
+      ]
+    },
+    {
+      "name": "RM10",
+      "what": "every import root that has the module is taken, not the nearest",
+      "patches": [
+        { "file": "lib/code-intelligence.mjs", "old": "for (const root of roots) if (resolveIn(root)) break;", "new": "for (const root of roots) resolveIn(root);" }
+      ]
+    },
+    {
+      "name": "RM11",
+      "what": "the submodules a from-import names are not edges",
+      "patches": [
+        { "file": "lib/code-intelligence.mjs", "old": "const submodule = moduleFile(directory, [...parts, name]);", "new": "const submodule = null;" }
+      ]
+    },
+    {
+      "name": "RM12",
+      "what": "a Python file is resolved as a JavaScript one",
+      "patches": [
+        { "file": "lib/code-intelligence.mjs", "old": "if (path.posix.extname(toPosix(fromRelPath)).toLowerCase() === '.py') return resolvePythonImport(fromRelPath, imp?.specifier, imp?.names, knownFilesSet);", "new": "" }
+      ]
+    },
+    {
+      "name": "RM13",
+      "what": "a module is its own dependency",
+      "patches": [
+        { "file": "lib/code-intelligence.mjs", "old": "  targets.delete(from);", "new": "" }
+      ]
+    },
+    {
+      "name": "RM14",
+      "what": "the map is ranked by counting importers, not by PageRank",
+      "patches": [
+        { "file": "lib/code-intelligence.mjs", "old": "let score = rank * fileCount;", "new": "let score = 1.0 + (inDegree.get(rel) || 0) * 3.0 + (outDegree.get(rel) || 0) * 0.5;" }
+      ]
+    },
+    {
+      "name": "RM15",
+      "what": "the file names of this repository earn a boost again",
+      "patches": [
+        { "file": "lib/code-intelligence.mjs", "old": "if (focusSet.has(rel)) score += 25.0;", "new": "if (focusSet.has(rel)) score += 25.0;\n      if (/(^|\\/)(index|main|server|agent|orchestrator|local-tools)\\.[^/]+$/i.test(rel)) score += 4.0;" }
+      ]
+    },
+    {
+      "name": "RM16",
+      "what": "the files come from the walk even when Git can list them",
+      "patches": [
+        { "file": "lib/code-intelligence.mjs", "old": "if (viaGit) return viaGit;", "new": "" }
+      ]
+    },
+    {
+      "name": "RM17",
+      "what": "a file in a folder the engine ignores (node_modules) is listed because Git lists it",
+      "patches": [
+        { "file": "lib/code-intelligence.mjs", "old": "if (at < segments.length - 1 && this.ignoredDirs.has(name)) return false;", "new": "" }
+      ]
+    },
+    {
+      "name": "RM18",
+      "what": "dot folders are listed because Git lists them",
+      "patches": [
+        { "file": "lib/code-intelligence.mjs", "old": "if (name.startsWith('.') && name !== '.github') return false;", "new": "" }
+      ]
+    },
+    {
+      "name": "RM19",
+      "what": "a file Git still lists after it was deleted is listed",
+      "patches": [
+        { "file": "lib/code-intelligence.mjs", "old": "if (!stats[at]?.isFile()) continue;", "new": "" }
+      ]
+    },
+    {
+      "name": "RM20",
+      "what": "a list cut by the bound does not say it was cut",
+      "patches": [
+        { "file": "lib/code-intelligence.mjs", "old": "if (files.length >= maxFiles) { truncated = true; break; }", "new": "if (files.length >= maxFiles) { break; }" }
+      ]
+    },
+    {
+      "name": "RM21",
+      "what": "a failure of Git is an empty project instead of a walk",
+      "patches": [
+        { "file": "lib/code-intelligence.mjs", "old": "if (!listed) return null;", "new": "if (!listed) return Object.defineProperty([], 'scanTruncated', { value: false, enumerable: false });" }
+      ]
+    },
+    {
+      "name": "RM22",
+      "what": "a non-zero exit of Git (not a repository) is taken for an answer",
+      "patches": [
+        { "file": "lib/git-file-list.mjs", "old": "result.code !== 0 || ", "new": "" }
+      ]
+    },
+    {
+      "name": "RM23",
+      "what": "a folder is handed to Git as a pattern, not as a literal path",
+      "patches": [
+        { "file": "lib/git-file-list.mjs", "old": "[`:(literal)${directory.replaceAll('\\\\', '/')}`]", "new": "[directory.replaceAll('\\\\', '/')]" }
+      ]
+    },
+    {
+      "name": "RM24",
+      "what": "the automatic map of the agent is not given the Git runner",
+      "patches": [
+        { "file": "lib/agent.mjs", "old": "git: this.manager.localTools?.git ?? null,", "new": "git: null," }
+      ]
+    },
+    {
+      "name": "RM25",
+      "what": "the description of repo_map says it is not PageRank again",
+      "patches": [
+        { "file": "lib/code-intelligence.mjs", "old": "ranked by PageRank (damping 0.85, iterated to convergence) over the import graph:", "new": "ranked by import-graph in/out degree (this is not PageRank):" }
+      ]
+    },
+    {
+      "name": "RM26",
+      "what": "a Python module that is not in the workspace is not counted as an external package",
+      "patches": [
+        { "file": "lib/code-intelligence.mjs", "old": "const pkgName = imp.specifier.split('.')[0];", "new": "const pkgName = '';" }
+      ]
+    }
+  ]
+}

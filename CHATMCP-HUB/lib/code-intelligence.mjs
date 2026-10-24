@@ -12,6 +12,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isProtectedPath } from './protected-paths.mjs';
 import { LspProcess } from './studio-intelligence.mjs';
+import { listFilesWithGit } from './git-file-list.mjs';
+import { pagerank } from './pagerank.mjs';
 
 const DEFAULT_IGNORED_DIRS = new Set([
   '.git',
@@ -75,6 +77,68 @@ const JS_KEYWORDS = new Set([
 
 function toPosix(p) {
   return String(p || '').replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+/** The order a walk of the tree gives files in: folder by folder, the entries of each sorted by name (a folder among the files by its name). */
+function compareInWalkOrder(a, b) {
+  const left = a.split('/');
+  const right = b.split('/');
+  for (let at = 0; at < Math.min(left.length, right.length); at += 1) {
+    if (left[at] !== right[at]) return left[at].localeCompare(right[at]);
+  }
+  return left.length - right.length;
+}
+
+/**
+ * The files an import of a Python file can name, inside the workspace. `specifier` is the module as written (`pkg.core`, `.core`, `..`), `names` what a `from` imports of it.
+ * A relative import starts at the folder of the importing file, one level up for each dot after the first. An absolute one is looked for from the folder of the importing file
+ * and each folder above it (a script finds the modules beside it), then in `src/`; the first of these that holds the module wins. A module is `<path>.py` or `<path>/__init__.py`;
+ * `from pkg import a, b` is the package and, where `a` or `b` is a module of it, those too. The standard library and installed packages are not in the workspace and resolve to nothing.
+ */
+export function resolvePythonImport(fromRelPath, specifier, names, knownFilesSet) {
+  const from = toPosix(fromRelPath);
+  const text = String(specifier || '');
+  const dots = /^\.*/.exec(text)[0].length;
+  const parts = text.slice(dots).split('.').filter(Boolean);
+  const identifiers = (Array.isArray(names) ? names : []).filter((name) => /^[A-Za-z_]\w*$/.test(name));
+  const moduleFile = (directory, segments) => {
+    const base = [directory, ...segments].filter(Boolean).join('/');
+    if (knownFilesSet.has(`${base}.py`)) return `${base}.py`;
+    if (knownFilesSet.has(`${base}/__init__.py`)) return `${base}/__init__.py`;
+    return null;
+  };
+  const targets = new Set();
+  // Resolves the module and the submodules a `from` names, relative to one folder. True when anything of them is in the workspace.
+  const resolveIn = (directory) => {
+    const main = parts.length ? moduleFile(directory, parts) : (knownFilesSet.has(`${directory ? `${directory}/` : ''}__init__.py`) ? `${directory ? `${directory}/` : ''}__init__.py` : null);
+    if (main) targets.add(main);
+    let found = main !== null;
+    for (const name of identifiers) {
+      const submodule = moduleFile(directory, [...parts, name]);
+      if (submodule) { targets.add(submodule); found = true; }
+    }
+    return found;
+  };
+  if (dots > 0) {
+    let directory = path.posix.dirname(from);
+    directory = directory === '.' ? '' : directory;
+    for (let level = 1; level < dots; level += 1) {
+      if (directory === '') return [];
+      directory = path.posix.dirname(directory);
+      directory = directory === '.' ? '' : directory;
+    }
+    resolveIn(directory);
+  } else if (parts.length) {
+    const roots = [];
+    for (let directory = path.posix.dirname(from); ; directory = path.posix.dirname(directory)) {
+      roots.push(directory === '.' ? '' : directory);
+      if (directory === '.' || directory === '/') break;
+    }
+    if (!roots.includes('src')) roots.push('src');
+    for (const root of roots) if (resolveIn(root)) break;
+  }
+  targets.delete(from);
+  return [...targets];
 }
 
 function escapeRegExp(value) {
@@ -849,6 +913,8 @@ export class CodeIntelligenceEngine {
    * @param {object} [options.studioIntelligence]  Tier 1: the Studio CodeIntelligence; the engine only calls its lspRequest(), which keeps
    *                                               the sandbox-only policy for host language servers (there is no separate LSP client option)
    * @param {object} [options.treeSitterAdapter]   Tier 2a: { getParser(language) } or a parser with parse(source, previousTree, { language, relPath })
+   * @param {object} [options.git]  the Hub's GitRunner (or anything with text(args, options)): the files to map are then the ones Git lists (tracked, and untracked that
+   *                                .gitignore does not exclude); without it, or when Git cannot answer, the tree is walked and .gitignore is not known
    */
   constructor({
     workspace,
@@ -858,6 +924,7 @@ export class CodeIntelligenceEngine {
     treeSitterAdapter = null,
     enablePythonAst = true,
     enableLsp = true,
+    git = null,
   } = {}) {
     if (!workspace || typeof workspace.resolve !== 'function') {
       throw new TypeError('CodeIntelligenceEngine yêu cầu đối tượng workspace có hàm resolve()');
@@ -870,6 +937,7 @@ export class CodeIntelligenceEngine {
     this.treeSitterAdapter = treeSitterAdapter;
     this.enablePythonAst = enablePythonAst;
     this.enableLsp = enableLsp;
+    this.git = git;
     this._treeSitterInitPromise = null;
     this._treeSitterParsers = new Map();
     this._pythonAstAvailable = null;
@@ -1000,7 +1068,48 @@ export class CodeIntelligenceEngine {
       return files;
     }
 
+    // In a Git repository the project says what is not source (.gitignore): ask Git. Anything it cannot answer is walked, as before.
+    const viaGit = await this._listSourceFilesViaGit(startDir, { maxFiles, signal, deadline });
+    if (viaGit) return viaGit;
     await walk(startDir);
+    Object.defineProperty(files, 'scanTruncated', { value: truncated, enumerable: false });
+    return files;
+  }
+
+  /** Whether a path that Git lists is one the walk would have listed: no dot folder or file (but .github), no ignored folder, a source extension, nothing protected. */
+  _isListableSource(relPath) {
+    const segments = relPath.split('/');
+    for (let at = 0; at < segments.length; at += 1) {
+      const name = segments[at];
+      if (name.startsWith('.') && name !== '.github') return false;
+      if (at < segments.length - 1 && this.ignoredDirs.has(name)) return false;
+    }
+    return CODE_EXTENSIONS.has(path.extname(relPath).toLowerCase()) && !isProtectedPath(relPath);
+  }
+
+  /**
+   * The source files of a folder as Git lists them (tracked, and untracked that .gitignore does not exclude), in the order a walk would give them, each a regular file that
+   * exists now (a link, or a file Git still lists after it was deleted, is not one). Null when there is no Git runner or Git cannot answer.
+   */
+  async _listSourceFilesViaGit(startDir, { maxFiles = Infinity, signal = null, deadline = Infinity } = {}) {
+    if (!this.git) return null;
+    const root = this.rootPath;
+    const listed = await listFilesWithGit(this.git, { directory: toPosix(path.relative(root, startDir)), signal });
+    if (!listed) return null;
+    const relPaths = listed.filter((relPath) => this._isListableSource(relPath)).sort(compareInWalkOrder);
+    const files = [];
+    let truncated = false;
+    for (let from = 0; from < relPaths.length && !truncated; from += 64) {
+      signal?.throwIfAborted();
+      if (Date.now() > deadline) throw Object.assign(new Error('Automatic Repo Map time budget exceeded.'), { code: 'repo_map_budget_exceeded' });
+      const batch = relPaths.slice(from, from + 64);
+      const stats = await Promise.all(batch.map((relPath) => fs.lstat(path.join(root, relPath)).catch(() => null)));
+      for (let at = 0; at < batch.length; at += 1) {
+        if (!stats[at]?.isFile()) continue;
+        if (files.length >= maxFiles) { truncated = true; break; }
+        files.push({ fullPath: path.join(root, batch[at]), relPath: batch[at], ext: path.extname(batch[at]).toLowerCase() });
+      }
+    }
     Object.defineProperty(files, 'scanTruncated', { value: truncated, enumerable: false });
     return files;
   }
@@ -1575,9 +1684,22 @@ export class CodeIntelligenceEngine {
   }
 
   /**
+   * The workspace files an import names: for JavaScript and TypeScript the file a relative specifier resolves to, for Python the module (and the submodules a `from` names) that
+   * an absolute or a relative import resolves to (see resolvePythonImport). Nothing for the standard library, an installed package or a module that is not in the workspace.
+   * @param {{specifier?: string, names?: string[]}} imp an import as parseSourceStructure records it
+   * @returns {string[]}
+   */
+  resolveImportTargets(fromRelPath, imp, knownFilesSet) {
+    if (path.posix.extname(toPosix(fromRelPath)).toLowerCase() === '.py') return resolvePythonImport(fromRelPath, imp?.specifier, imp?.names, knownFilesSet);
+    const resolved = this.resolveImportSpecifier(fromRelPath, imp?.specifier, knownFilesSet);
+    return resolved ? [resolved] : [];
+  }
+
+  /**
    * Resolves a relative module specifier from `fromRelPath` to an existing workspace `relPath`.
    */
   resolveImportSpecifier(fromRelPath, specifier, knownFilesSet) {
+    if (path.posix.extname(toPosix(fromRelPath)).toLowerCase() === '.py') return resolvePythonImport(fromRelPath, specifier, [], knownFilesSet)[0] ?? null;
     if (!specifier || !specifier.startsWith('.')) return null;
     const fromDir = path.posix.dirname(toPosix(fromRelPath));
     const baseCandidate = toPosix(path.posix.normalize(path.posix.join(fromDir, specifier)));
@@ -1633,34 +1755,38 @@ export class CodeIntelligenceEngine {
     }
     const partial = Boolean(fileEntries.scanTruncated) || processed < fileEntries.length;
 
-    // Build dependency centrality scores (in-degree + out-degree + focus/query boosts)
-    const inDegree = new Map();
-    const outDegree = new Map();
+    // The import graph: an edge from every file to each file of the map that it imports (JS and TS relative imports, Python absolute and relative ones), each pair once.
+    const importedBy = new Map();
+    const imports = new Map();
     for (const rel of records.keys()) {
-      inDegree.set(rel, 0);
-      outDegree.set(rel, 0);
+      importedBy.set(rel, new Set());
+      imports.set(rel, new Set());
     }
-
     for (const [rel, rec] of records.entries()) {
       for (const imp of rec.parsed.imports) {
-        const resolved = this.resolveImportSpecifier(rel, imp.specifier, knownSet);
-        if (resolved && inDegree.has(resolved)) {
-          inDegree.set(resolved, (inDegree.get(resolved) || 0) + 1);
-          outDegree.set(rel, (outDegree.get(rel) || 0) + 1);
+        for (const target of this.resolveImportTargets(rel, imp, knownSet)) {
+          if (target === rel || !records.has(target)) continue;
+          imports.get(rel).add(target);
+          importedBy.get(target).add(rel);
         }
       }
     }
+    const edges = [];
+    for (const [rel, targets] of imports) for (const target of targets) edges.push([rel, target]);
+    // PageRank (damping 0.85, iterated until the ranks stop moving): a file matters when files that matter import it, not when many leaves do. A rank of 1.00 is an average file.
+    const { ranks } = pagerank(Array.from(records.keys()), edges);
+    const fileCount = records.size;
+    const inDegree = new Map(Array.from(importedBy, ([rel, set]) => [rel, set.size]));
+    const outDegree = new Map(Array.from(imports, ([rel, set]) => [rel, set.size]));
 
     const focusSet = new Set((focusFiles || []).map((f) => toPosix(f)));
     const queryLower = String(query || '').trim().toLowerCase();
 
     const rankedFiles = Array.from(records.values()).map((rec) => {
       const rel = rec.relPath;
-      let score = 1.0 + (inDegree.get(rel) || 0) * 3.0 + (outDegree.get(rel) || 0) * 0.5;
+      const rank = ranks.get(rel) ?? 0;
+      let score = rank * fileCount;
       if (focusSet.has(rel)) score += 25.0;
-      if (/(^|\/)(index|main|server|agent|orchestrator|local-tools)\.[^/]+$/i.test(rel)) {
-        score += 4.0;
-      }
       if (/^tests?\//i.test(rel) || /\.test\.|\.spec\./i.test(rel)) {
         score *= 0.6;
       }
@@ -1673,6 +1799,7 @@ export class CodeIntelligenceEngine {
       return {
         relPath: rel,
         score: Number(score.toFixed(2)),
+        pagerank: rank,
         inDegree: inDegree.get(rel) || 0,
         outDegree: outDegree.get(rel) || 0,
         lineCount: rec.parsed.lineCount,
@@ -1736,6 +1863,7 @@ export class CodeIntelligenceEngine {
         topFiles: rankedFiles.slice(0, 25).map((f) => ({
           path: f.relPath,
           rankScore: f.score,
+          pagerank: Number(f.pagerank.toFixed(6)),
           importedByCount: f.inDegree,
           lineCount: f.lineCount,
           symbolCount: f.symbols.length,
@@ -1846,7 +1974,7 @@ export class CodeIntelligenceEngine {
       if (ctxRec) {
         for (const imp of ctxRec.parsed.imports) {
           if (imp.names.includes(shortTarget)) {
-            const resolved = this.resolveImportSpecifier(ctxRec.relPath, imp.specifier, knownSet);
+            const resolved = this.resolveImportTargets(ctxRec.relPath, imp, knownSet)[0];
             if (resolved) {
               preferredFile = resolved;
               break;
@@ -2179,18 +2307,27 @@ export class CodeIntelligenceEngine {
 
     for (const [rel, rec] of records.entries()) {
       for (const imp of rec.parsed.imports) {
-        if (imp.specifier.startsWith('.')) {
-          const resolved = this.resolveImportSpecifier(rel, imp.specifier, knownSet);
-          if (resolved) {
-            forwardGraph.get(rel)?.add(resolved);
-            if (!reverseGraph.has(resolved)) reverseGraph.set(resolved, new Set());
-            reverseGraph.get(resolved)?.add(rel);
-          } else {
+        // A Python module may be imported by its dotted name from anywhere (not only with a dot); what is not in the workspace (the standard library, installed packages) is no edge and no problem.
+        const isPython = path.posix.extname(rel).toLowerCase() === '.py';
+        if (imp.specifier.startsWith('.') || isPython) {
+          const resolvedTargets = this.resolveImportTargets(rel, imp, knownSet);
+          if (resolvedTargets.length) {
+            for (const resolved of resolvedTargets) {
+              forwardGraph.get(rel)?.add(resolved);
+              if (!reverseGraph.has(resolved)) reverseGraph.set(resolved, new Set());
+              reverseGraph.get(resolved)?.add(rel);
+            }
+          } else if (imp.specifier.startsWith('.')) {
             unresolvedImports.push({
               file: rel,
               line: imp.line,
               specifier: imp.specifier,
             });
+          } else {
+            // A Python module that is not a file of the workspace: the standard library or an installed package, named by its first component.
+            const pkgName = imp.specifier.split('.')[0];
+            if (!externalPackages.has(pkgName)) externalPackages.set(pkgName, new Set());
+            externalPackages.get(pkgName).add(rel);
           }
         } else {
           const pkgName = imp.specifier.startsWith('@')
@@ -2338,7 +2475,7 @@ export class CodeIntelligenceEngine {
       // Check 3: Cross-file import/export contract verification
       for (const imp of rec.parsed.imports) {
         if (!imp.specifier.startsWith('.')) continue;
-        const resolved = this.resolveImportSpecifier(rec.relPath, imp.specifier, knownSet);
+        const resolved = this.resolveImportTargets(rec.relPath, imp, knownSet)[0];
         if (!resolved) {
           diagnostics.push({
             severity: 'error',
@@ -2467,12 +2604,12 @@ function formatSuccess(text, structuredContent) {
 /**
  * Registers the 6 Code Intelligence tools directly into LocalTools.#register() via `define`.
  */
-export function registerCodeIntelligenceTools(define, workspace, { engine: existingEngine, studioIntelligence = null, treeSitterAdapter = null } = {}) {
-  const engine = existingEngine ?? new CodeIntelligenceEngine({ workspace, studioIntelligence, treeSitterAdapter });
+export function registerCodeIntelligenceTools(define, workspace, { engine: existingEngine, studioIntelligence = null, treeSitterAdapter = null, git = null } = {}) {
+  const engine = existingEngine ?? new CodeIntelligenceEngine({ workspace, studioIntelligence, treeSitterAdapter, git });
 
   define('repo_map', {
     description:
-      'Generate a repository map of source files and exported symbol signatures within a token budget, ranked by how many other files import each file (import-graph in/out degree, boosted by focus files and the query; this is not PageRank). Use this first on large codebases to locate relevant modules and line ranges without reading full files.',
+      'Generate a repository map of source files and exported symbol signatures within a token budget, ranked by PageRank (damping 0.85, iterated to convergence) over the import graph: a file matters when files that matter import it. The graph holds the relative imports of JavaScript and TypeScript and the absolute and relative imports of Python that resolve to files in the workspace; the standard library and installed packages are not in it. Focus files and a query boost the rank. In a Git repository the files that .gitignore excludes are left out. Use this first on large codebases to locate relevant modules and line ranges without reading full files.',
     schema: {
       type: 'object',
       additionalProperties: false,

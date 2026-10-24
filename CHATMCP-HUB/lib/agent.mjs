@@ -1154,6 +1154,8 @@ export class AgentRunner {
             'Đang lập bản đồ mã nguồn giới hạn để chuẩn bị ngữ cảnh cho agent.', { status:'running' });
           const map = await abortable(injectRepoMapIntoInstructions('', this.manager.studio, {
             prompt: cleanPrompt, queryPrompt: selectionText, maxTokens: 900, signal: context.controller.signal,
+            // The Hub's hardened Git runner, when the manager has local tools: the map then leaves out what .gitignore excludes.
+            git: this.manager.localTools?.git ?? null,
           }), context.controller.signal);
           if (map.injected) {
             repoMapPart = {type:'input_text',text:

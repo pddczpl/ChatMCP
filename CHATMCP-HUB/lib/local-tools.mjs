@@ -364,6 +364,7 @@ export class LocalTools {
     registerCodeIntelligenceTools(define, this.workspace, {
       studioIntelligence: this.studioIntelligence ?? null,
       treeSitterAdapter: this.treeSitterAdapter ?? null,
+      git: this.git,
     });
 
     define('read_file', {
