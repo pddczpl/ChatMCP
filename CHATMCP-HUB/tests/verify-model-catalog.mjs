@@ -40,7 +40,8 @@ const script = existsSync(scriptFile) ? await import(pathToFileURL(scriptFile).h
   assert.ok(size <= 760 * 1024, `the snapshot stays under 760 KB: ${size} bytes`);
   if (script) {
     assert.equal(script.snapshotIsIntact(snapshot), true, 'the snapshot matches its own hash');
-    assert.ok(script.ageInDays(snapshot) < 400, 'a snapshot of this release is not older than a year (the release gate is --check, 90 days)');
+    // How old the snapshot may be is the maintainer's `--check` (90 days, section 5 runs it on a fixed date): a suite that turns red with the calendar fails unrelated work.
+    assert.ok(script.ageInDays(snapshot) >= 0, 'the snapshot is not dated in the future (a hand edit of its date)');
   }
   assert.equal(info.source, snapshot.source);
   assert.match(readFileSync(path.join(HUB, 'THIRD-PARTY-NOTICES.txt'), 'utf8'), /models\.dev - MIT License \(Copyright \(c\) 2025 models\.dev/, 'the attribution of the data is in THIRD-PARTY-NOTICES.txt');
