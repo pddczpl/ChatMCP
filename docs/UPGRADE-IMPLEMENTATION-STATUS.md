@@ -1,6 +1,6 @@
 # ChatMCP upgrade implementation checkpoint
 
-Release candidate source line: **v3.9.0**. All exact-commit CI and installed-upgrade release gates must pass before publication. Release status is not inferred from a prepared version number.
+Release candidate source line: **v3.10.0** (a test build, published as a pre-release). All exact-commit CI and installed-upgrade release gates must pass before publication. Release status is not inferred from a prepared version number.
 
 This checkpoint records partial work against the owner-authorized complete ChatMCP upgrade, not a release readiness certificate. Inspect current `main` and exact-SHA GitHub Actions before resuming or releasing.
 
