@@ -125,9 +125,9 @@ const executable = (result) => (result?.status === 'completed' ? result.output.f
     const last = frames.length - 1;
     let released = 0;
     let firstAt = null;
+    let sentAtFirst = null;
     let lastReleasedAt = null;
     let before = 0;
-    const started = performance.now();
     const paced = async () => ({ ok: true, status: 200, headers: new Headers({ 'content-type': 'text/event-stream' }), body: new ReadableStream({
       async pull(controller) {
         if (released >= frames.length) { controller.close(); return; }
@@ -138,13 +138,13 @@ const executable = (result) => (result?.status === 'completed' ? result.output.f
       },
     }) });
     await respondOpenAIResponses({ model: 'm', endpoint: 'https://example.test/v1/responses', headers: {}, stream: true, fetch: paced },
-      { input: HISTORY, instructions: 'x', tools: TOOLS, onToken: () => { if (firstAt === null) firstAt = performance.now(); if (released <= last) before += 1; } });
-    const total = performance.now() - started;
+      { input: HISTORY, instructions: 'x', tools: TOOLS, onToken: () => { if (firstAt === null) { firstAt = performance.now(); sentAtFirst = released; } if (released <= last) before += 1; } });
     assert.ok(before > 0 && firstAt < lastReleasedAt, `${name}: onToken fired before the last event was sent`);
-    // a model that reasons first shows its text after the reasoning, which is most of the stream: the half-time rule is for the ones that start writing
-    if (!fixture.response.output.some((item) => item.type === 'reasoning')) assert.ok((firstAt - started) < total * 0.5, `${name}: first token after ${Math.round(firstAt - started)} ms of ${Math.round(total)} ms`);
+    // a model that reasons first shows its text after the reasoning, which is most of the stream: the half-stream rule is for the ones that start writing
+    // counted in frames and not in milliseconds: the reader works in microtasks, so the token is out before the next frame is sent, whatever the machine is doing
+    if (!fixture.response.output.some((item) => item.type === 'reasoning')) assert.ok(sentAtFirst * 2 <= frames.length, `${name}: the first token came when ${sentAtFirst} of ${frames.length} frames were sent`);
   }
-  ok('Responses adapter: every golden stream gives the plain answer and its text through onToken; the text reaches the caller before the last event is sent, and in under half of the total time');
+  ok('Responses adapter: every golden stream gives the plain answer and its text through onToken; the text reaches the caller before the last event is sent, and within the first half of the frames');
 }
 
 console.log(`\nPASS: ${checks} responses stream checks`);

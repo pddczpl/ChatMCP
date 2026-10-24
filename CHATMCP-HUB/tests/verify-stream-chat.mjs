@@ -529,9 +529,9 @@ const fixtureByName = byName;
     const last = frames.length - 1;
     let released = 0;
     let firstAt = null;
+    let sentAtFirst = null;
     let lastReleasedAt = null;
     let tokensBeforeLast = 0;
-    const started = performance.now();
     const paced = () => ({ ok: true, status: 200, headers: new Headers({ 'content-type': 'text/event-stream' }), body: new ReadableStream({
       async pull(controller) {
         if (released >= frames.length) { controller.close(); return; }
@@ -541,15 +541,15 @@ const fixtureByName = byName;
         released += 1;
       },
     }) });
-    const outcome = await drive([paced], { options: { onToken: () => { if (firstAt === null) firstAt = performance.now(); if (released <= last) tokensBeforeLast += 1; } } });
-    const total = performance.now() - started;
+    const outcome = await drive([paced], { options: { onToken: () => { if (firstAt === null) { firstAt = performance.now(); sentAtFirst = released; } if (released <= last) tokensBeforeLast += 1; } } });
     assert.equal(outcome.error, undefined, name);
     assert.ok(tokensBeforeLast > 0, `${name}: onToken fired before the last chunk was sent`);
     assert.ok(firstAt !== null && firstAt < lastReleasedAt, `${name}: the first token came before the last chunk`);
     // a model that thinks first has no text for a while: its first token is later by nature, and only has to come before the end
-    if (!fixture.summary.reasoning) assert.ok((firstAt - started) < total * 0.5, `${name}: first token after ${Math.round(firstAt - started)} ms of ${Math.round(total)} ms`);
+    // counted in frames and not in milliseconds: the reader works in microtasks, so the token is out before the next frame is sent, whatever the machine is doing
+    if (!fixture.summary.reasoning) assert.ok(sentAtFirst * 2 <= frames.length, `${name}: the first token came when ${sentAtFirst} of ${frames.length} frames were sent`);
   }
-  ok(`Chat timing: for ${names.length} streams the first token came before the last chunk, and (but for the one that thinks first) in under half of the total time`);
+  ok(`Chat timing: for ${names.length} streams the first token came before the last chunk, and (but for the one that thinks first) within the first half of the frames`);
 }
 
 // ------------------------------------------------------------------ 8. the provider: what is asked for, and what is remembered

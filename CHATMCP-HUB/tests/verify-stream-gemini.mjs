@@ -471,9 +471,9 @@ try {
       const last = frames.length - 1;
       let released = 0;
       let firstAt = null;
+      let sentAtFirst = null;
       let lastReleasedAt = null;
       let before = 0;
-      const started = performance.now();
       const paced = () => ({ ok: true, status: 200, headers: new Headers({ 'content-type': 'text/event-stream' }), body: new ReadableStream({
         async pull(controller) {
           if (released >= frames.length) { controller.close(); return; }
@@ -484,15 +484,15 @@ try {
         },
       }) });
       const g = await provider([paced]);
-      const outcome = await ask(g.gateway, { onToken: () => { if (firstAt === null) firstAt = performance.now(); if (released <= last) before += 1; } }).then((value) => ({ value }), (e) => ({ error: e }));
-      const total = performance.now() - started;
+      const outcome = await ask(g.gateway, { onToken: () => { if (firstAt === null) { firstAt = performance.now(); sentAtFirst = released; } if (released <= last) before += 1; } }).then((value) => ({ value }), (e) => ({ error: e }));
       if (fixture.summary.error) assert.equal(outcome.error?.code, 'model_incomplete', `${name}: the plain path refuses it, and so does the stream`);
       else assert.equal(outcome.error, undefined, name);
       assert.ok(before > 0 && firstAt < lastReleasedAt, `${name}: onToken fired before the last chunk was sent`);
-      if (frames.length >= 4) assert.ok((firstAt - started) < total * 0.5, `${name}: first token after ${Math.round(firstAt - started)} ms of ${Math.round(total)} ms`);
+      // counted in frames and not in milliseconds: the reader works in microtasks, so the token is out before the next frame is sent, whatever the machine is doing
+      if (frames.length >= 4) assert.ok(sentAtFirst * 2 <= frames.length, `${name}: the first token came when ${sentAtFirst} of ${frames.length} frames were sent`);
     }
   }
-  ok('Gemini timing: for six streams the text reached the caller before the last chunk was sent, and in under half of the total time for the longer ones');
+  ok('Gemini timing: for six streams the text reached the caller before the last chunk was sent, and within the first half of the frames for the longer ones');
 
   // over a real connection: the strict mock server, with the failures a network has
   {

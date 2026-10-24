@@ -287,7 +287,8 @@ const simple = (events) => events.map((event) => [event.event, event.data]);
   await assert.rejects(() => readResponsesStream(null), { code: 'invalid_responses_stream' });
   // the 12 MiB cap, with the code and the words the Responses callers have always had
   const filler = encoder.encode(`: ${'x'.repeat(1024 * 1024 - 3)}\n`);
-  const huge = streamOf(Array.from({ length: 13 }, () => filler));
+  // a connection that stays open past the cap: a source that has closed itself after its last chunk has nothing left to cancel, and whether it has done so before the reader cancels is up to the runtime
+  const huge = streamOf(Array.from({ length: 13 }, () => filler), { hangAfter: 13 });
   await assert.rejects(() => readResponsesStream(huge.body), { code: 'responses_stream_too_large', message: 'Response stream exceeded 12 MiB.' });
   assert.equal(huge.state.cancelled, true, 'and the connection is closed');
   // a [DONE] marker after the terminal event (some gateways send one) is not an event
