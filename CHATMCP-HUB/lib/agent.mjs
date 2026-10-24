@@ -10,6 +10,7 @@ import { optimizeToolResult, TOKEN_AGENT_INSTRUCTIONS, purgeTokenTask } from './
 import { RequestMeter, accumulateReportedUsage } from './request-budget.mjs';
 import { acceptObjectiveCriterion, availableObjectiveReceipts } from './objective-acceptance.mjs';
 import { createCostLedger, updateCostLedger } from './model-cost.mjs';
+import { AGENT_OUTPUT_TOKENS as MAX_OUTPUT_TOKENS } from './model-facts.mjs';
 import { taskToolSelectionMode, selectTaskToolNames } from './tool-selector.mjs';
 import { HistoryLedger } from './history-ledger.mjs';
 import { FinalAnswerHooks } from './lifecycle-hooks.mjs';
@@ -28,7 +29,6 @@ const EVENT_LIMIT = 200;
 const EVENT_TEXT_LIMIT = 12000;
 const MAX_CONTEXT_BYTES = 48 * 1024 * 1024;
 const MAX_ARGUMENT_BYTES = 4 * 1024 * 1024;
-const MAX_OUTPUT_TOKENS = 16384;
 const TOOL_TIMEOUT = 120000;
 // Initializing a task is bounded even when the user has opted out of model request/time limits.
 const PREFLIGHT_TIMEOUT_MS = 90_000;
@@ -405,12 +405,26 @@ async function atomicWrite(file, data) {
   await writeFileAtomic(file, data, { mode: 0o600 });
 }
 
+// What the provider says about its model besides the owner's own settings (lib/model-facts.mjs): the capacity the model catalog gives for a model it is sure of, the most the model can be
+// asked to write, and the prices a cost estimate is made from. A provider that says nothing, or fails to, leaves the plan as it always was.
+function modelFactsOf(provider) {
+  let snapshot = null;
+  try { snapshot = provider.snapshot?.() ?? null; } catch { /* a provider that cannot say counts as unknown */ }
+  const cap = snapshot?.maxOutputTokens;
+  return {
+    metadataContextTokens: snapshot?.metadataContextTokens ?? null,
+    // The model's own cap lowers what the agent asks for and never raises it; one too small to write an answer in is a gap in the catalog, not a limit.
+    outputLimit: Number.isSafeInteger(cap) && cap >= 1024 ? Math.min(cap, MAX_OUTPUT_TOKENS) : MAX_OUTPUT_TOKENS,
+    pricing: snapshot?.pricing ?? null,
+  };
+}
+
 // The context budget a run is planned on for these instructions and tools, asked of the provider the way #run asks it (a provider that cannot say counts as unknown).
 function plannedBudget(provider, instructions, tools) {
-  let configured = null, metadata = null;
+  let configured = null;
   try { configured = provider.state?.()?.contextWindowTokens ?? null; } catch { /* unknown */ }
-  try { metadata = provider.snapshot?.()?.metadataContextTokens ?? null; } catch { /* unknown */ }
-  return resolveEffectiveContextBudget({ contextWindowTokens: configured, modelMetadataTokens: metadata, instructions, tools, maxOutputTokens: MAX_OUTPUT_TOKENS });
+  const facts = modelFactsOf(provider);
+  return resolveEffectiveContextBudget({ contextWindowTokens: configured, modelMetadataTokens: facts.metadataContextTokens, instructions, tools, maxOutputTokens: facts.outputLimit });
 }
 
 export class AgentRunner {
@@ -626,7 +640,7 @@ export class AgentRunner {
       `Effective task profile: ${JSON.stringify(task.effectiveProfile??{source:'global_provider'})}`,
       `Bắt đầu: ${task.startedAt}`, `Kết thúc: ${task.finishedAt ?? 'Chưa kết thúc'}`,
       `Lượt model: ${task.steps}; HTTP requests: ${task.usage.httpRequests??0}; lượt MCP: ${task.toolCalls}; provider-reported input/output tokens (partial when missing): ${task.usage.inputTokens}/${task.usage.outputTokens}; missing input/output reports: ${task.usage.inputUsageMissing??'legacy-unknown'}/${task.usage.outputUsageMissing??'legacy-unknown'}; cache read/write: ${task.usage.cachedInputTokens??0}/${task.usage.cacheWriteTokens??0}; reported reasoning: ${task.usage.reasoningTokens??0}`,
-      `Cost in USD (owner rates, model response evidence only; incomplete billing): ${JSON.stringify(task.modelCost??createCostLedger())}`,
+      `Cost in USD (the owner's rates, or when there are none the model catalog's, then an estimate; model response evidence only; incomplete billing): ${JSON.stringify(task.modelCost??createCostLedger())}`,
       '', 'NGỮ CẢNH MODEL (DỰ TOÁN)', JSON.stringify(task.contextPolicy??{source:'not_recorded'}),
       '', 'TIẾN ĐỘ CÓ BẰNG CHỨNG', progressCheckpoint(task.progress),
       '', 'KẾ HOẠCH & BẰNG CHỨNG', JSON.stringify(evidenceReport(task.progress,task.goalPlan),null,2),
@@ -1275,14 +1289,16 @@ export class AgentRunner {
         // Freeze the effective policy for this task. Provider settings changed
         // afterwards must not silently change its model context budget.
         if (!context.contextPolicy) {
-          let configuredWindow = null, metadataWindow = null;
+          let configuredWindow = null;
           try { configuredWindow = this.provider.state?.()?.contextWindowTokens ?? null; } catch {}
-          try { metadataWindow = this.provider.snapshot?.()?.metadataContextTokens ?? null; } catch {}
+          const facts = modelFactsOf(this.provider);
           context.contextPolicy = resolveEffectiveContextBudget({
-            contextWindowTokens:configuredWindow, modelMetadataTokens:metadataWindow,
+            contextWindowTokens:configuredWindow, modelMetadataTokens:facts.metadataContextTokens,
             instructions:context.instructions, tools:context.tools,
-            maxOutputTokens:MAX_OUTPUT_TOKENS,
+            maxOutputTokens:facts.outputLimit,
           });
+          // The prices the cost of this run is estimated at are fixed with the plan: a catalog updated while the run goes on does not reprice the responses already counted.
+          context.pricing = facts.pricing;
           task.contextPolicy = context.contextPolicy;
           await this.#event(task,'context_budget',
             'Dung lượng ngữ cảnh dự toán: '+context.contextPolicy.capacityTokens+' tokens ('+context.contextPolicy.source+').',
@@ -1348,7 +1364,7 @@ export class AgentRunner {
         // not add cache/reasoning subsets to total tokens twice.
         task.usage = accumulateReportedUsage(task.usage, response.usage);
         task.modelCost = updateCostLedger(task.modelCost, response.usage,
-          task.effectiveProfile?.ratesUsdPerMillion??null);
+          task.effectiveProfile?.ratesUsdPerMillion??null,{catalog:context.pricing??null});
         context.requestBudget.recordUsage(response.usage?.input_tokens ?? 0, response.usage?.output_tokens ?? 0);
         await this.#persist(task, { at: now(), type: 'model_response', step: task.steps, response });
         if (response.status !== 'completed') {

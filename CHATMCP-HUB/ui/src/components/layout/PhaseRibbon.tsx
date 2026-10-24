@@ -32,12 +32,16 @@ export function ribbonRows(task: Task, t: Translate, lang: FormatLang): Array<[s
     const policy = task.contextPolicy;
     const planned = policy.plannedOutputTokens ?? policy.reservedOutputTokens;
     rows.push([t('agents_ribbon_window'),
-      `${formatNumber(policy.capacityTokens, lang)} (${t(policy.source === 'conservative_fallback' ? 'agents_ribbon_window_unknown' : 'agents_ribbon_window_configured')})`,
+      `${formatNumber(policy.capacityTokens, lang)} (${t(policy.source === 'conservative_fallback' ? 'agents_ribbon_window_unknown' : policy.source === 'trusted_model_metadata' ? 'agents_ribbon_window_catalog' : 'agents_ribbon_window_configured')})`,
       t('agents_ribbon_window_hint', { history: formatNumber(policy.maxHistoryTokens, lang), reserved: formatNumber(policy.reservedOutputTokens, lang), planned: formatNumber(planned, lang) })]);
   }
   if (task.modelCost) {
-    rows.push([t('agents_ribbon_cost'), task.modelCost.complete && task.modelCost.totalUsd !== null ? 'USD ' + task.modelCost.totalUsd.toFixed(6) : 'USD ' + task.modelCost.knownSubtotalUsd.toFixed(6) + ` ${t('agents_ribbon_cost_partial')}`,
-      t('agents_ribbon_cost_hint')]);
+    // A cost made from the model catalog's prices (the owner entered none) is an estimate and says where it comes from; the owner's own rates are not.
+    const cost = task.modelCost;
+    const estimate = cost.approximate === true;
+    rows.push([t('agents_ribbon_cost'),
+      (cost.complete && cost.totalUsd !== null ? 'USD ' + cost.totalUsd.toFixed(6) : 'USD ' + cost.knownSubtotalUsd.toFixed(6) + ` ${t('agents_ribbon_cost_partial')}`) + (estimate ? ` ${t('agents_ribbon_cost_estimate')}` : ''),
+      estimate ? t('agents_ribbon_cost_estimate_hint', { source: cost.estimateSource || 'catalog' }) : t('agents_ribbon_cost_hint')]);
   }
   if (task.completionOutcome?.requirements === 'unverified') {
     rows.push([t('agents_ribbon_unverified'), String(task.completionOutcome.unresolvedObjectiveIds.length), task.completionOutcome.note]);

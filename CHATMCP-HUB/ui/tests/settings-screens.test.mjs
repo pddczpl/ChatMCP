@@ -102,7 +102,17 @@ const { translations } = plain.loaded;
 
 const LANGS = ['vi', 'en'];
 const rendered = {};
+/**
+ * The model picker is a script of its own that the field fetches the first time it renders (React.lazy): the first render of a bundle shows the plain input it falls back to, and every
+ * later one the picker. A person meets the picker (it arrives in milliseconds), so every bundle renders its component once and lets the script arrive before the renders that are pinned.
+ */
+async function warmUp(bundle, state) {
+  await bundle.loaded.renderWith(bundle.loaded[state.component], {}, state.entries ?? [], [], { ...state.store, lang: 'vi' });
+  await new Promise((resolve) => setImmediate(resolve));
+}
 async function renderState(bundle, state) {
+  if (!bundle.warm) bundle.warm = new Set();
+  if (!bundle.warm.has(state.component)) { bundle.warm.add(state.component); await warmUp(bundle, state); }
   rendered[state.id] = {};
   for (const lang of LANGS) {
     rendered[state.id][lang] = await bundle.loaded.renderWith(bundle.loaded[state.component], {}, state.entries ?? [], state.errors ?? [], { ...state.store, lang });

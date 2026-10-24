@@ -1,5 +1,5 @@
 import { browseNativeWorkspace } from './native-folder-picker.ts';
-import type { OutboundReview, HubState, HubHealth, Task, TaskDetail, ChatAttachment, WorkspaceCollection, BackgroundRun, BackgroundWorkflow, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset, ModelInfo } from '@/types';
+import type { OutboundReview, HubState, HubHealth, Task, TaskDetail, ChatAttachment, WorkspaceCollection, BackgroundRun, BackgroundWorkflow, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset, ModelInfo, AccountModel, CatalogModels, CatalogStatus } from '@/types';
 import { normalizeTask } from './task-view.ts';
 import { getHubSecret, hubSessionReady, reportHubSessionLost } from './session.ts';
 
@@ -250,7 +250,16 @@ export const api = {
 
   // AI & Profiles
   getPresets: () => request<{ presets: ProviderPreset[]; envKeys: string[] }>('/api/ai/presets'),
-  getModels: () => request<{ models: string[]; source?: string }>('/api/ai/models'),
+  // The models the provider says the saved key can use (asks the provider, with the saved key); the Hub's own list of a provider's models (a file read) is getCatalogModels.
+  getModels: () => request<{ models: AccountModel[]; source?: string; warning?: string }>('/api/ai/models'),
+  getCatalogModels: (query: { preset?: string; apiBaseUrl?: string; limit?: number }) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) if (value) params.set(key, String(value));
+    return request<CatalogModels>(`/api/ai/catalog/models?${params.toString()}`);
+  },
+  // Which list of models the Hub knows and how old it is; and the one request the Hub makes for a newer one, only because the owner pressed the button (to models.dev, nothing of theirs in it).
+  getCatalog: () => request<CatalogStatus>('/api/ai/catalog'),
+  refreshCatalog: () => request<CatalogStatus>('/api/ai/catalog/refresh', { method: 'POST', body: '{}' }),
   getModelInfo: (query: { preset?: string; protocol?: string; apiBaseUrl?: string; model: string }) => {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(query)) if (value) params.set(key, value);

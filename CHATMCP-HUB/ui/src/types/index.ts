@@ -41,7 +41,7 @@ export interface TaskSummary {
   verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
   completionOutcome?: {execution:string;requirements:string;verification:string;unresolvedObjectiveIds:string[];missingChecks:string[];note?:string};
   contextPolicy?: { source:string;capacityTokens:number;maxHistoryTokens:number;compactAtTokens:number;reservedOutputTokens:number;plannedOutputTokens?:number;approximate:boolean };
-  modelCost?: {schema:number;knownSubtotalUsd:number;pricedResponses:number;unpricedResponses:number;unknownResponses:number;totalUsd:number|null;complete:boolean;lastPriceStatus?:string};
+  modelCost?: {schema:number;knownSubtotalUsd:number;pricedResponses:number;unpricedResponses:number;unknownResponses:number;totalUsd:number|null;complete:boolean;lastPriceStatus?:string;estimatedResponses?:number;estimateSource?:string|null;approximate?:boolean};
   promptCount?: number;
   updatedAt?: string;
   startedAt?: string;
@@ -183,7 +183,10 @@ export interface AiProfile {
   reasoningEffort?: string;
 }
 
-/** What the Hub knows about a model before anything is sent to it (GET /api/ai/model-info): its limits, and the levels of thinking effort that can be offered. */
+/** The prices of a model, USD per million tokens; a cache rate the catalog does not list is null. */
+export interface ModelRates { input: number; output: number; cacheRead: number | null; cacheWrite: number | null }
+
+/** What the Hub knows about a model before anything is sent to it (GET /api/ai/model-info): its limits and prices, what it would plan on, and the levels of thinking effort that can be offered. */
 export interface ModelInfo {
   model: string;
   protocol: string;
@@ -193,9 +196,27 @@ export interface ModelInfo {
   /** Where the answer comes from, e.g. catalog@2026-10-19; null when the catalog does not know the model. */
   source: string | null;
   provider: string | null;
+  /** The model of the catalog this answer is about (for an alias: the one it looks like); null when there is none. */
+  catalogModel?: string | null;
   local: boolean;
   contextWindow: number | null;
+  maxInput?: number | null;
   maxOutput: number | null;
+  rates?: ModelRates | null;
+  /** A prompt of more than aboveTokens tokens is priced at these rates for the whole request. */
+  tiers?: { aboveTokens: number; rates: ModelRates }[];
+  /** null for a stable model; alpha, beta, deprecated, or not_stable. */
+  status?: string | null;
+  openWeights?: boolean | null;
+  /** The Hub plans and prices from this answer (the catalog is sure of the model); false for an alias, a miss and a local runtime. */
+  trusted?: boolean;
+  /** The window a conversation is planned on when none is typed: what the model allows (`modelCapacity`), but not beyond the first rise of its price with the length of the prompt (`priceCap`), when trusted. */
+  capacity?: number | null;
+  /** What the model itself allows: the context window, or, for a model that takes in less, the largest one whose planned prompt fits its input limit. */
+  modelCapacity?: number | null;
+  /** The first rise of the price with the length of the prompt, when it is what stopped `capacity` short of `modelCapacity`; `floored`: the Hub does not plan on less than `tokens`, though the price rises sooner. */
+  priceCap?: { aboveTokens: number; tokens: number; floored: boolean; from: { input: number; output: number }; to: { input: number; output: number } } | null;
+  outputCap?: number | null;
   toolCall: boolean | null;
   vision: boolean | null;
   reasoning: {
@@ -211,6 +232,55 @@ export interface ModelInfo {
     why: string | null;
   };
   catalog: { generatedAt: string; ageDays: number };
+}
+
+/** One model of a provider in the Hub's list of models (GET /api/ai/catalog/models), for the model picker. */
+export interface CatalogModel {
+  id: string;
+  contextWindow: number | null;
+  maxInput: number | null;
+  maxOutput: number | null;
+  rates: { input: number; output: number } | null;
+  tiered: boolean;
+  reasoning: boolean;
+  toolCall: boolean | null;
+  vision: boolean | null;
+  status: string | null;
+}
+
+export interface CatalogModels {
+  provider: string | null;
+  /** e.g. catalog@2026-10-19 */
+  source: string;
+  local: boolean;
+  total: number;
+  truncated: boolean;
+  models: CatalogModel[];
+}
+
+/** A model the provider says the account can use (GET /api/ai/models). */
+export interface AccountModel {
+  id: string;
+  name: string;
+  configured?: boolean;
+  listed?: boolean;
+}
+
+/** Which list of models the Hub knows, how old it is, and whether the owner updated it (GET /api/ai/catalog; POST /api/ai/catalog/refresh answers with the same). */
+export interface CatalogStatus {
+  source: 'bundled' | 'refreshed';
+  label: string;
+  generatedAt: string;
+  ageDays: number;
+  providers: number;
+  models: number;
+  /** The one address an update reads. */
+  url: string;
+  refreshing: boolean;
+  /** A list found in the Hub's folder that was not used, and why: damaged, older, future. */
+  ignored: { reason: string; detail: string } | null;
+  lastRefresh: { at: string; ok: boolean; code?: string; error?: string } | null;
+  bundled: { generatedAt: string; models: number };
 }
 
 export interface ProviderPreset {
@@ -357,7 +427,7 @@ export interface Task {
   verificationOutcome?: { ready: boolean; missing: string[]; reason?: string };
   completionOutcome?: {execution:string;requirements:string;verification:string;unresolvedObjectiveIds:string[];missingChecks:string[];note?:string};
   contextPolicy?: { source:string;capacityTokens:number;maxHistoryTokens:number;compactAtTokens:number;reservedOutputTokens:number;plannedOutputTokens?:number;approximate:boolean };
-  modelCost?: {schema:number;knownSubtotalUsd:number;pricedResponses:number;unpricedResponses:number;unknownResponses:number;totalUsd:number|null;complete:boolean;lastPriceStatus?:string};
+  modelCost?: {schema:number;knownSubtotalUsd:number;pricedResponses:number;unpricedResponses:number;unknownResponses:number;totalUsd:number|null;complete:boolean;lastPriceStatus?:string;estimatedResponses?:number;estimateSource?:string|null;approximate?:boolean};
   lastMessage?: string;
   error?: string;
   transport?: string;

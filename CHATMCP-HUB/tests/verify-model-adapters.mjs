@@ -7,7 +7,8 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GatewayProvider } from '../lib/gateway-provider.mjs';
+import { GatewayProvider, normalizeGemini } from '../lib/gateway-provider.mjs';
+import { normalizeGeminiTextReply } from '../lib/gemini-compat.mjs';
 import { AiProfiles } from '../lib/ai-profiles.mjs';
 import { createHubServer } from '../hub.mjs';
 import { createProtector } from '../lib/secret-box.mjs';
@@ -158,6 +159,19 @@ try {
   same([actualZero.usage.input_tokens,actualZero.usage.output_tokens],[0,0],'provider-reported zeros are preserved');
   const partialChat=normalizeChatCompletion({choices:[{finish_reason:'stop',message:{content:'ok'}}],usage:{prompt_tokens:7}});
   same([partialChat.usage.input_tokens,partialChat.usage.output_tokens],[7,null],'partial provider usage remains partial');
+  // Gemini: candidatesTokenCount leaves out the thinking tokens, and they are billed as output. The output is both; the thinking tokens stay a subset of it (the ledger contract of model-cost.mjs).
+  // (From Google's documentation of usageMetadata: totalTokenCount = prompt + candidates + thoughts. Not checked against a live Gemini model: no key.)
+  const geminiBody = (usageMetadata) => ({ candidates: [{ content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' }], usageMetadata });
+  const geminiNative = (usageMetadata) => normalizeGemini(geminiBody(usageMetadata)).usage;
+  const geminiText = (usageMetadata) => normalizeGeminiTextReply({ candidates: [{ content: { parts: [{ text: '{"chatmcp_action":"final","text":"ok"}' }] }, finishReason: 'STOP' }], usageMetadata }, TOOLS).usage;
+  for (const [dialect, usageOf] of [['native', geminiNative], ['text-only', geminiText]]) {
+    same(usageOf({ promptTokenCount: 450, cachedContentTokenCount: 300, candidatesTokenCount: 20, thoughtsTokenCount: 7, totalTokenCount: 477 }),
+      { input_tokens: 450, output_tokens: 27, cache_read_tokens: 300, reasoning_tokens: 7 }, `${dialect}: the output is the candidates plus the thoughts, and the thoughts are a subset of it`);
+    same(usageOf({ promptTokenCount: 10, candidatesTokenCount: 4 }), { input_tokens: 10, output_tokens: 4, cache_read_tokens: null, reasoning_tokens: null }, `${dialect}: no thinking reported: the output is the candidates`);
+    same(usageOf({ promptTokenCount: 10, thoughtsTokenCount: 50 }).output_tokens, null, `${dialect}: thoughts without a candidates count is not a total`);
+    same([usageOf({ promptTokenCount: 0, candidatesTokenCount: 0, thoughtsTokenCount: 0 }).output_tokens, usageOf({ promptTokenCount: 5, candidatesTokenCount: 0 }).output_tokens], [0, 0], `${dialect}: measured zeros stay zeros`);
+    same(usageOf(undefined), { input_tokens: null, output_tokens: null, cache_read_tokens: null, reasoning_tokens: null }, `${dialect}: no usage at all is unknown, never zero`);
+  }
   same(normalizeChatCompletion({ choices: [{ finish_reason: 'tool_calls', message: { tool_calls: [{ id: 'c9', type: 'function', function: { name: 'a', arguments: '{}' } }] } }] }).output[0].call_id, 'c9', 'a good id is kept');
   const truncated = normalizeChatCompletion({ choices: [{ finish_reason: 'length', message: { content: 'part', tool_calls: [{ id: 'x', type: 'function', function: { name: 'w', arguments: '{"a' } }] } }] });
   same([truncated.status, truncated.incomplete_details.reason, truncated.output.length], ['incomplete', 'max_output_tokens', 1]);
@@ -280,12 +294,14 @@ try {
     const { provider, directory } = await makeProvider('config');
     await provider.configure({ preset: 'anthropic', apiKey: KEY });
     const state = provider.state();
-    same([state.preset, state.protocol, state.apiBaseUrl, state.model, state.contextWindowTokens, state.agentRequestMode], ['anthropic', 'anthropic', 'https://api.anthropic.com', presetById('anthropic').defaultModel, 200000, 'anthropic-tool-use']);
+    // No window is written for the owner any more (the 200,000 of the preset went stale when Claude moved to 1,000,000): the catalog answers for the model, and says so.
+    same([state.preset, state.protocol, state.apiBaseUrl, state.model, state.contextWindowTokens, state.agentRequestMode], ['anthropic', 'anthropic', 'https://api.anthropic.com', presetById('anthropic').defaultModel, null, 'anthropic-tool-use']);
+    same([state.contextWindowSource, state.effectiveContextWindowTokens], ['catalog', 1000000], 'the default model of the Anthropic preset is in the catalog');
     same([state.keySource, state.keyRequired, provider.ready()], ['session', true, true]);
     check(!JSON.stringify(state).includes(KEY), 'state never contains the key');
     await assert.rejects(fs.stat(path.join(directory, 'gateway-key.dpapi')), { code: 'ENOENT' }); checks += 1;
     const saved = JSON.parse(await fs.readFile(path.join(directory, 'gateway-config.json'), 'utf8'));
-    same([saved.version, saved.preset, saved.protocol, saved.contextWindowTokens], [2, 'anthropic', 'anthropic', 200000]);
+    same([saved.version, saved.preset, saved.protocol, saved.contextWindowTokens], [2, 'anthropic', 'anthropic', null]);
     check(!JSON.stringify(saved).includes(KEY), 'the config file never contains the key');
 
     // another provider without a new key: the old key is NOT carried over

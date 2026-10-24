@@ -41,8 +41,9 @@ test('the sections are fetched when their tab is opened and not before, each onl
   expect(first.length, 'the first screen needed scripts').toBeGreaterThan(0);
   expect(first.filter((file) => /^(AgentGroups|CodingWorkers)-/.test(file)), 'neither section is fetched for the first screen or for the Agents tab itself').toEqual([]);
   // the script the two sections share also holds the strings only they ask for (src/lib/i18n-agents-sections.ts), whatever it is called: up to
-  // here the page has fetched the entry script and the two libraries it imports, and nothing else
-  expect(first.filter((file) => !/^(index|radix|icons)-/.test(file)), 'the first screen fetches a script that belongs to the sections').toEqual([]);
+  // here the page has fetched the entry script, the two libraries it imports and the model picker (a script of its own that the model field of the
+  // AI form fetches when it first renders, and the first run shows that form), and nothing else
+  expect(first.filter((file) => !/^(index|radix|icons|ModelPicker)-/.test(file)), 'the first screen fetches a script that belongs to the sections').toEqual([]);
 
   await section(page, 'Nhóm trợ lý').click();
   await expect(page.getByTestId('agent-groups')).toBeVisible();

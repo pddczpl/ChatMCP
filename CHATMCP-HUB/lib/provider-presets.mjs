@@ -4,6 +4,10 @@
 // models are starting points: the Settings page asks the provider for the real list (GatewayProvider#discoverModels),
 // and a model that does not exist for the account is reported by name instead of failing silently.
 //
+// `contextWindowTokens` is what a preset assumes about its default model, and it is written into the connection when the preset is chosen (so it is then the owner's value). A preset
+// carries one only for a default model the model catalog does not know (DeepSeek's deepseek-chat): for every other the catalog answers (lib/model-facts.mjs) and a number kept here
+// would only go stale, as the 200,000 of Anthropic did when its models went to 1,000,000. tests/verify-catalog-budget.mjs holds the presets to that.
+//
 // `keyEnv` lists the environment variables that are accepted as the key for THAT provider only. A key found in the
 // environment is never sent to a different host (see GatewayProvider#configure).
 //
@@ -18,13 +22,13 @@ const preset = (value) => Object.freeze({ keyEnv: [], local: false, authMode: 'a
 export const PRESETS = Object.freeze([
   preset({
     id: 'anthropic', label: 'Anthropic (Claude)', protocol: 'anthropic', apiBaseUrl: 'https://api.anthropic.com', defaultModel: 'claude-sonnet-5-5',
-    keyEnv: ['ANTHROPIC_API_KEY'], contextWindowTokens: 200000, promptCaching: true, keyUrl: 'https://console.anthropic.com/settings/keys',
+    keyEnv: ['ANTHROPIC_API_KEY'], promptCaching: true, keyUrl: 'https://console.anthropic.com/settings/keys',
     notes: 'Messages API gốc, có tool use và prompt caching.',
   }),
   preset({
     id: 'openai', label: 'OpenAI', protocol: 'openai-chat', apiBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-5-mini',
     keyEnv: ['OPENAI_API_KEY'], keyUrl: 'https://platform.openai.com/api-keys',
-    notes: 'Chat Completions. Tên model mặc định chỉ là gợi ý; dùng "Tải danh sách model" để chọn model có trong tài khoản.',
+    notes: 'Chat Completions. Tên model mặc định chỉ là gợi ý; sau khi lưu cấu hình, chọn model có trong tài khoản từ danh sách model.',
   }),
   preset({
     id: 'openai-responses', label: 'OpenAI Responses API', protocol: 'openai-responses',
@@ -34,7 +38,7 @@ export const PRESETS = Object.freeze([
   }),
   preset({
     id: 'gemini', label: 'Google Gemini', protocol: 'gemini', apiBaseUrl: 'https://generativelanguage.googleapis.com', defaultModel: 'gemini-2.5-flash',
-    keyEnv: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], contextWindowTokens: 1000000, keyUrl: 'https://aistudio.google.com/apikey',
+    keyEnv: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], keyUrl: 'https://aistudio.google.com/apikey',
     notes: 'Gemini API gốc (generateContent).',
   }),
   preset({
@@ -48,11 +52,11 @@ export const PRESETS = Object.freeze([
   }),
   preset({
     id: 'groq', label: 'Groq', protocol: 'openai-chat', apiBaseUrl: 'https://api.groq.com/openai/v1', defaultModel: 'llama-3.3-70b-versatile',
-    keyEnv: ['GROQ_API_KEY'], contextWindowTokens: 131072, keyUrl: 'https://console.groq.com/keys',
+    keyEnv: ['GROQ_API_KEY'], keyUrl: 'https://console.groq.com/keys',
   }),
   preset({
     id: 'mistral', label: 'Mistral', protocol: 'openai-chat', apiBaseUrl: 'https://api.mistral.ai/v1', defaultModel: 'mistral-large-latest',
-    keyEnv: ['MISTRAL_API_KEY'], contextWindowTokens: 128000, keyUrl: 'https://console.mistral.ai/api-keys',
+    keyEnv: ['MISTRAL_API_KEY'], keyUrl: 'https://console.mistral.ai/api-keys',
   }),
   preset({
     id: 'ollama', label: 'Ollama (máy cục bộ)', protocol: 'openai-chat', apiBaseUrl: 'http://localhost:11434/v1', defaultModel: 'qwen2.5-coder:7b', local: true,

@@ -1,0 +1,41 @@
+{
+  "suite": "verify-model-adapters.mjs",
+  "description": "What the adapter suite must notice about Gemini token usage: the thinking tokens are left out of the output (they are billed as output), a missing thinking count turns the output unknown, a missing candidates count is taken for zero, or one of the two dialects stops using the shared reading.",
+  "mutations": [
+    {
+      "name": "G1",
+      "what": "the thinking tokens are not part of the output",
+      "patches": [
+        { "file": "lib/gemini-compat.mjs", "old": "output_tokens: candidates === null ? null : candidates + (thoughts ?? 0),", "new": "output_tokens: candidates," }
+      ]
+    },
+    {
+      "name": "G2",
+      "what": "an answer that reports no thinking tokens has an unknown output",
+      "patches": [
+        { "file": "lib/gemini-compat.mjs", "old": "candidates + (thoughts ?? 0),", "new": "candidates + (thoughts ?? NaN)," }
+      ]
+    },
+    {
+      "name": "G3",
+      "what": "a candidates count the answer does not report is taken for zero",
+      "patches": [
+        { "file": "lib/gemini-compat.mjs", "old": "output_tokens: candidates === null ? null : candidates + (thoughts ?? 0),", "new": "output_tokens: (candidates ?? 0) + (thoughts ?? 0)," }
+      ]
+    },
+    {
+      "name": "G4",
+      "what": "the native dialect reads the usage on its own and leaves the thinking tokens out",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "usage: geminiUsage(result.usageMetadata) };", "new": "usage: { input_tokens: reportedTokenCount(result.usageMetadata?.promptTokenCount), output_tokens: reportedTokenCount(result.usageMetadata?.candidatesTokenCount), cache_read_tokens: null, reasoning_tokens: null } };" }
+      ]
+    },
+    {
+      "name": "G5",
+      "what": "the text-only dialect reports no usage",
+      "patches": [
+        { "file": "lib/gemini-compat.mjs", "old": "const usage=geminiUsage(result.usageMetadata);", "new": "const usage={input_tokens:null,output_tokens:null,cache_read_tokens:null,reasoning_tokens:null};" }
+      ]
+    }
+  ]
+}

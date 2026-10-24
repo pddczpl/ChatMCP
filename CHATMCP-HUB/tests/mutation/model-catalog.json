@@ -1,6 +1,6 @@
 {
   "suite": "verify-model-catalog.mjs",
-  "description": "What the model catalog suite must notice: the resolver loses its exactness, stops clamping a context window, guesses between makers, ignores the endpoint, forgets that a local runtime is local, spells one model two ways, offers a level the Hub has no setting for, or reads a snapshot of another format.",
+  "description": "What the model catalog suite must notice: the resolver loses its exactness, stops clamping a context window, guesses between makers, ignores the endpoint, forgets that a local runtime is local, spells one model two ways, offers a level the Hub has no setting for, reads a snapshot of another format, loses the price tiers or the status of a model, lists a provider's models in the wrong order or without a limit, or relies on an alias.",
   "mutations": [
     {
       "name": "M1",
@@ -53,9 +53,9 @@
     },
     {
       "name": "M8",
-      "what": "a snapshot of another format is read as version 1",
+      "what": "a snapshot of another format is read as if it were one of the formats the Hub knows",
       "patches": [
-        { "file": "lib/model-catalog.mjs", "old": "snapshot.version !== 1 || ", "new": "" }
+        { "file": "lib/model-catalog.mjs", "old": "!SUPPORTED_VERSIONS.includes(snapshot.version) || ", "new": "" }
       ]
     },
     {
@@ -63,6 +63,83 @@
       "what": "a gateway's spelling of another maker's model is no longer found through the canonical id",
       "patches": [
         { "file": "lib/model-catalog.mjs", "old": "if (viaCanonical && (ofProviders.length > 0 || /\\//.test(id))) return answer(", "new": "if (false) return answer(" }
+      ]
+    },
+    {
+      "name": "M10",
+      "what": "the price tiers of a model are not reported (a long prompt would be priced at the base rates)",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "rates: row[3] ? { input: row[3][0], output: row[3][1], cacheRead: row[3][2], cacheWrite: row[3][3] } : null, tiers: tiersOf(row),", "new": "rates: row[3] ? { input: row[3][0], output: row[3][1], cacheRead: row[3][2], cacheWrite: row[3][3] } : null, tiers: []," }
+      ]
+    },
+    {
+      "name": "M11",
+      "what": "a deprecated model is reported as a beta one",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "(flags & 64) !== 0 ? 'deprecated'", "new": "(flags & 64) !== 0 ? 'beta'" }
+      ]
+    },
+    {
+      "name": "M12",
+      "what": "a row without a canonical id (null) is read as the canonical id number null",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "if (at === undefined || at === null) continue;", "new": "if (at === undefined) continue;" }
+      ]
+    },
+    {
+      "name": "M13",
+      "what": "the list of a provider's models comes in the order of the file, not sorted",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "const ids = Object.keys(providers[providerId]).filter((id) => accept === null || accept(id)).sort();", "new": "const ids = Object.keys(providers[providerId]).filter((id) => accept === null || accept(id));" }
+      ]
+    },
+    {
+      "name": "M14",
+      "what": "the limit of the list of models is ignored",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "const shown = ids.slice(0, Math.max(0, limit));", "new": "const shown = ids.slice();" }
+      ]
+    },
+    {
+      "name": "M15",
+      "what": "a local runtime is given the models of some provider in the list",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "if (LOCAL_PRESETS.has(presetId) || (host && LOOPBACK.has(host.replace(/:\\d+$/, '')) && !provider)) return none({ local: true });", "new": "if (false) return none({ local: true });" }
+      ]
+    },
+    {
+      "name": "M16",
+      "what": "a gateway's alias of a maker's model is trusted like an exact id",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "(info.confidence === 'exact' || info.confidence === 'normalized')", "new": "info.confidence !== 'none'" }
+      ]
+    },
+    {
+      "name": "M17",
+      "what": "the older context_over_200k field is no longer read as a tier",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "if (!tiers.length && isObject(cost.context_over_200k)) add(200000, cost.context_over_200k);", "new": "" }
+      ]
+    },
+    {
+      "name": "M18",
+      "what": "the tiers of a model are kept in the order of the document, not by size",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "return tiers.sort((a, b) => a[0] - b[0]);", "new": "return tiers;" }
+      ]
+    },
+    {
+      "name": "M19",
+      "what": "a tier that is not about the size of the prompt (an output tier) is taken for a context tier",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "if (isObject(tier) && isObject(tier.tier) && tier.tier.type === 'context') add(tier.tier.size, tier);", "new": "if (isObject(tier) && isObject(tier.tier)) add(tier.tier.size, tier);" }
+      ]
+    },
+    {
+      "name": "M20",
+      "what": "the beta and deprecated bits of a status are swapped when the snapshot is built",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "(status === 'beta' ? FLAG.beta : status === 'deprecated' ? FLAG.deprecated :", "new": "(status === 'beta' ? FLAG.deprecated : status === 'deprecated' ? FLAG.beta :" }
       ]
     }
   ]

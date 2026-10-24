@@ -6,7 +6,7 @@
       "name": "M1",
       "what": "the route is not answered",
       "patches": [
-        { "file": "hub.mjs", "old": "if (req.method === 'GET' && url.pathname === '/api/ai/model-info') return json(200, modelInfo(modelInfoQuery(url.searchParams)));", "new": "if (false) return json(200, modelInfo(modelInfoQuery(url.searchParams)));" }
+        { "file": "hub.mjs", "old": "if (req.method === 'GET' && url.pathname === '/api/ai/model-info') { await catalogReady; return json(200, modelInfo(modelInfoQuery(url.searchParams))); }", "new": "if (false) { await catalogReady; return json(200, modelInfo(modelInfoQuery(url.searchParams))); }" }
       ]
     },
     {
