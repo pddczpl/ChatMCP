@@ -1,7 +1,7 @@
-ChatMCP - third-party notices (plain-text companion of THIRD-PARTY-NOTICES.md)
+DatGold - third-party notices (plain-text companion of THIRD-PARTY-NOTICES.md)
 
-ChatMCP's own code is licensed under the Apache License, Version 2.0: see the files LICENSE and NOTICE in the installation folder.
-The components listed below are NOT covered by that license. ChatMCP redistributes them; they stay under their own licenses and
+DatGold's own code is licensed under the Apache License, Version 2.0: see the files LICENSE and NOTICE in the installation folder.
+The components listed below are NOT covered by that license. DatGold redistributes them; they stay under their own licenses and
 copyright notices. This file is an inventory kept by the maintainers, not legal advice, and it does not replace the license texts.
 Paths are relative to the installation folder (the folder that holds LICENSE and NOTICE). THIRD-PARTY-NOTICES.md in the same folder
 has the same inventory plus the full list of UI libraries; docs/LICENSE-SCAN.md in the source repository explains the audit.

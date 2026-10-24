@@ -137,7 +137,7 @@ The ordinary API coding agent now proposes a **bounded host plan** for clearly m
 
 ### Reproducible acceptance set
 
-Run these examples on a disposable Git repository using the real provider chosen in ChatMCP. Do not run them on a production workspace. Save the checked commit SHA, model/protocol name, task ID, tool-result receipts, Git status/diff, and independent test exit codes (redact credentials and private file contents).
+Run these examples on a disposable Git repository using the real provider chosen in DatGold. Do not run them on a production workspace. Save the checked commit SHA, model/protocol name, task ID, tool-result receipts, Git status/diff, and independent test exit codes (redact credentials and private file contents).
 
 1. **Simple task:** ask the agent to list five files. Expect an ordinary response, without auto-decomposition or unnecessary recovery.
 2. **Multi-part coding task:** ask it to inspect a broken example function, fix it, run the project's real tests and review the Git diff. Expect a proposed plan, independently hashed changed file, a verified exit-code-zero test receipt and a limited, accurate final report. If the model cannot do one step, it must report that blocker rather than invent a PASS.

@@ -1,6 +1,6 @@
-# ChatMCP Desktop — Windows build and release guide
+# DatGold Desktop — Windows build and release guide
 
-Hướng dẫn phát hành ChatMCP Studio trên **Windows 10/11 x64** từ mã nguồn đã được review. Đây là tài liệu dành cho maintainer; người dùng cuối tải bản cài tại [GitHub Releases](https://github.com/pddczpl/ChatMCP/releases).
+Hướng dẫn phát hành DatGold Studio trên **Windows 10/11 x64** từ mã nguồn đã được review. Đây là tài liệu dành cho maintainer; người dùng cuối tải bản cài tại [GitHub Releases](https://github.com/pddczpl/ChatMCP/releases).
 
 ## Tổng quan
 
@@ -85,7 +85,7 @@ GitHub Actions ở đúng commit cũng xuất artifact **ChatMCPSetup-win-x64** 
 ## 4. Kiểm thử trên Windows sạch trước khi công bố
 
 Dùng máy ảo Windows sạch, ghi lại kết quả:
-1. Cài ChatMCPSetup.exe, khởi chạy ChatMCP Studio, kiểm tra WebView2 và launcher/Hub.
+1. Cài ChatMCPSetup.exe, khởi chạy DatGold Studio, kiểm tra WebView2 và launcher/Hub.
 2. Tạo/chọn repository Git thử nghiệm không chứa thông tin bí mật. Chọn chế độ Review.
 3. Cấu hình model có khả năng gọi công cụ (hoặc Ollama/LM Studio hỗ trợ tool calling).
 4. Kiểm tra đọc file, sửa file có phê duyệt, Git diff, checkpoint và restore.
@@ -104,10 +104,10 @@ Tag phải trỏ đến **chính commit đã kiểm thử/build**:
 
 ~~~powershell
 git rev-parse HEAD
-git tag -a vX.Y.Z -m "ChatMCP vX.Y.Z"
+git tag -a vX.Y.Z -m "DatGold vX.Y.Z"
 git push origin vX.Y.Z
 gh auth status
-gh release create vX.Y.Z .\dist\ChatMCPSetup.exe .\dist\ChatMCPSetup.exe.sha256 --draft --title "ChatMCP vX.Y.Z" --generate-notes
+gh release create vX.Y.Z .\dist\ChatMCPSetup.exe .\dist\ChatMCPSetup.exe.sha256 --draft --title "DatGold vX.Y.Z" --generate-notes
 ~~~
 
 Xem lại nội dung và file checksum trên Draft Release rồi publish thủ công. Chưa chọn version / chưa test máy sạch thì không tạo tag hay release.
@@ -131,7 +131,7 @@ Chỉ cần Hub qua browser:
 .\CHATMCP-HUB\START-CHATMCP-HUB.cmd -ProjectPath 'C:\Projects\Demo'
 ~~~
 
-Sau khi cập nhật code, hãy dừng Hub cũ trước khi khởi động bản mới. Không tự tắt tiến trình không thuộc ChatMCP.
+Sau khi cập nhật code, hãy dừng Hub cũ trước khi khởi động bản mới. Không tự tắt tiến trình không thuộc DatGold.
 
 ## 7. Gỡ cài đặt và xử lý lỗi
 

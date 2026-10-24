@@ -23,7 +23,7 @@ CSRF checks remain as defense in depth.
 `EventSource` cannot send an `Authorization` header. The alternative, a cookie issued after a bearer-authenticated bootstrap, was
 rejected: cookies belong to a host, not a port, so a second Hub on another port (or any `127.0.0.1:<port>` dev server, including a
 Preview iframe: same-site) would share or overwrite it, and a stale cookie after a Hub restart is invisible to `EventSource` (it
-just retries) while `fetch` sees the 401 and can show "reopen ChatMCP". The React UI streams through `ui/src/lib/sse.ts`; the two
+just retries) while `fetch` sees the 401 and can show "reopen DatGold". The React UI streams through `ui/src/lib/sse.ts`; the two
 older dashboards (`/classic`, `/legacy`) load `web/hub-session.js`, which gives them a fetch-based `EventSource` and the header.
 
 ## How a page gets the secret
@@ -36,7 +36,7 @@ The long-lived secret never appears in a URL, a command line or browser history.
 3. `ui/src/lib/session.ts` runs when the module loads (not in a React effect, so StrictMode cannot spend the ticket twice), removes
    the fragment with `history.replaceState`, calls `POST /api/session/redeem` (same Origin and `X-ChatMCP-Request` as a dashboard
    POST) and keeps the answer in `sessionStorage`.
-4. A tab with no ticket and no stored secret, or one the Hub rejects (Hub restarted: new secret), shows the "reopen ChatMCP" screen
+4. A tab with no ticket and no stored secret, or one the Hub rejects (Hub restarted: new secret), shows the "reopen DatGold" screen
    instead of failing request by request. Reloading cannot fix it.
 
 ## Clients

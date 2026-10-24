@@ -1,4 +1,4 @@
-# Kiến trúc ChatMCP
+# Kiến trúc DatGold
 
 Đây là kiến trúc **local-only một người dùng**, áp dụng cho nhánh refactor hiện tại. Tài liệu Phase 0–4 ghi lại quá trình phát triển, một số hướng dẫn cloud trong đó đã lỗi thời.
 

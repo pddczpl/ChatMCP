@@ -1,6 +1,6 @@
-# ChatMCP Hub — local runtime
+# DatGold Hub — local runtime
 
-Đây là Hub nền của [ChatMCP Studio](../README.md), chạy dưới tài khoản người dùng và chỉ phục vụ loopback (127.0.0.1). Các kết nối tới API model/GitHub là **outbound** theo tính năng được sử dụng, không phải public hosting.
+Đây là Hub nền của [DatGold Studio](../README.md), chạy dưới tài khoản người dùng và chỉ phục vụ loopback (127.0.0.1). Các kết nối tới API model/GitHub là **outbound** theo tính năng được sử dụng, không phải public hosting.
 
 ## Chạy trên Windows
 

@@ -1,11 +1,11 @@
-ChatMCP
+DatGold (formerly ChatMCP)
 Copyright 2026 Phan Danh Dat
 
-This product includes software developed by Phan Danh Dat and the ChatMCP
+This product includes software developed by Phan Danh Dat and the DatGold
 contributors (https://github.com/pddczpl/ChatMCP). It is licensed under the
 Apache License, Version 2.0; see the LICENSE file.
 
-ChatMCP redistributes third-party components (for example Node.js, CPython,
+DatGold redistributes third-party components (for example Node.js, CPython,
 Pyright, TypeScript, Tree-sitter grammars, Playwright, React and web fonts)
 that are NOT covered by the license above. They remain under their own
 licenses and copyright notices. For those components see:
@@ -13,4 +13,4 @@ licenses and copyright notices. For those components see:
   - THIRD-PARTY-NOTICES.md in the source repository; and
   - CHATMCP-HUB/THIRD-PARTY-NOTICES.txt and the CHATMCP-HUB/licenses/
     folder, together with the LICENSE and NOTICE files inside each bundled
-    package, in an installed copy of ChatMCP.
+    package, in an installed copy of DatGold.

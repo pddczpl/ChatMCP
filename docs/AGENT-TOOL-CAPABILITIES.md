@@ -1,4 +1,4 @@
-# ChatMCP Agent Tools & Token Optimization
+# DatGold Agent Tools & Token Optimization
 
 > Development-branch implementation guide (not a statement that all capabilities have shipped in a signed, clean-Windows release). This document tracks features added after v3.2.0 on the feature branch. **99 LocalTools + 17 declared StudioTools**; the agent catalog may suppress redundant Studio entries. The current number is verified by tests.
 

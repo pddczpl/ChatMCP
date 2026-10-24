@@ -1,4 +1,4 @@
-# Reproducible ChatMCP evaluations
+# Reproducible DatGold evaluations
 
 The deterministic evaluation runner invokes actual repository test processes via `tests/run-all.mjs`. It captures commit identity, fixture version, environment, elapsed time, exit status, and hashed test-result receipts. A passing case means **that regression contract passed**, not that a real model successfully completed a new arbitrary coding task.
 

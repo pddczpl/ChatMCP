@@ -259,11 +259,11 @@
     },
     {
       "id": "license-apache-2",
-      "claim": "ChatMCP's own code is licensed under Apache-2.0 (LICENSE, NOTICE, README, installer payload).",
+      "claim": "DatGold's own code is licensed under Apache-2.0 (LICENSE, NOTICE, README, installer payload).",
       "source": {
         "file": "README.md",
         "line": 40,
-        "quote": "ChatMCP's own source code is licensed under the **Apache License, Version 2.0**"
+        "quote": "DatGold's own source code is licensed under the **Apache License, Version 2.0**"
       },
       "kind": "claim",
       "seam": "real",
