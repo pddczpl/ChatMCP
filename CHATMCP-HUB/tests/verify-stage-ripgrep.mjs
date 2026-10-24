@@ -91,12 +91,18 @@ if (probe.error || probe.status !== 0) {
     const flat = full.filter((entry) => entry.name.split('/').length === 2 && !entry.name.endsWith('/')).map((entry) => ({ ...entry, name: entry.name.split('/')[1] }));
     let counter = 0;
 
+    /**
+     * The environment of the PowerShell child. The release workflows run the suites from a PowerShell 7 step, which hands its own module path down
+     * through node to Windows PowerShell; that child then does not find Get-FileHash. It gets the default module path of the machine instead.
+     */
+    const childEnvironment = (extra) => Object.fromEntries(Object.entries({ ...process.env, ...extra }).filter(([name]) => name.toLowerCase() !== 'psmodulepath'));
+
     /** Runs PowerShell code with the script dot-sourced; returns { status, stdout, stderr }. */
     const run = (code, env = {}) => {
       counter += 1;
       const driver = path.join(folder, `driver-${counter}.ps1`);
       return fs.writeFile(driver, `$ErrorActionPreference = 'Stop'\n. '${scriptPath.replaceAll("'", "''")}'\n${code}\n`).then(() => {
-        const result = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', driver], { encoding: 'utf8', windowsHide: true, env: { ...process.env, ...env }, timeout: 120_000 });
+        const result = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', driver], { encoding: 'utf8', windowsHide: true, env: childEnvironment(env), timeout: 120_000 });
         return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
       });
     };
