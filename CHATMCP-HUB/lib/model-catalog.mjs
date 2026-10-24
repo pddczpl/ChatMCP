@@ -8,10 +8,11 @@
 //   confidence 'alias'       another provider's listing of it, found through the catalog's canonical id ("anthropic/claude-sonnet-4.5" on OpenRouter)
 //   confidence 'none'        not found. A user's own alias, a local runtime's tag. Never a guess: a wrong model is worse than none.
 //
-// Snapshot format (version 1): { version, generatedAt: 'YYYY-MM-DD', source, sha256, canon: [canonical id], hosts: { host: provider id },
-//   providers: { provider id: { model id: row index } }, rows: [[context, output, input limit, [in, out, cacheRead, cacheWrite] | null, flags, options | 0, canon index?]] }
-//   flags: 1 tool calls, 2 reads images, 4 reasons, 8 open weights, 16 not stable (beta, alpha, deprecated). Prices are USD per million tokens.
+// Snapshot format (version 2; version 1 is still read): { version, generatedAt: 'YYYY-MM-DD', source, sha256, canon: [canonical id], hosts: { host: provider id },
+//   providers: { provider id: { model id: row index } }, rows: [[context, output, input limit, [in, out, cacheRead, cacheWrite] | null, flags, options | 0, canon index | null?, tiers?]] }
+//   flags: 1 tool calls, 2 reads images, 4 reasons, 8 open weights, 16 not stable (a status other than stable), 32 beta, 64 deprecated, 128 alpha. Prices are USD per million tokens.
 //   options: [['e', ...efforts], ['t'], ['b', min, max]] = an effort level, an on/off switch, a token budget; 0 for none.
+//   tiers (version 2): [[size, in, out, cacheRead | null, cacheWrite | null]] going up in size: a prompt of MORE than `size` tokens is priced at these rates, for the whole request.
 import { readFileSync } from 'node:fs';
 import { usableContextWindow } from './context-window.mjs';
 import { EFFORT_LEVELS } from './reasoning-effort.mjs';
@@ -38,7 +39,11 @@ const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
  * suffix ("-v1:0", "@20250929", ":latest"), the date ("-20250929"), and with dots written as dashes ("4.5" -> "4-5").
  */
 export function normalizeModelId(id) {
-  return String(id).trim().toLowerCase()
+  const text = String(id).trim().toLowerCase();
+  // The spelling is worked out for the ids the Hub can use (150 characters at most, no control character). Anything else is its own spelling: the patterns below take time that grows with the
+  // square of the length of a text that has a line break in it, so one id of a long catalog could hold the Hub for minutes.
+  if (text.length > 150 || /[\u0000-\u001f\u007f]/.test(text)) return text;
+  return text
     .replace(/^(global|us|eu|apac|jp|au|in)\./, '').replace(/^[a-z0-9-]+\//, '').replace(/^anthropic\./, '')
     .replace(/[:@](latest|\d{8}.*|v\d.*)$/, '').replace(/-v\d+(:\d+)?$/, '').replace(/-\d{8}$/, '').replace(/\./g, '-');
 }
@@ -48,11 +53,16 @@ function hostOf(apiBaseUrl) {
 }
 
 const LOCAL_RESULT = Object.freeze({ local: true });
+const SUPPORTED_VERSIONS = Object.freeze([1, 2]);
+const MODELS_LIMIT = 1000; // the largest provider of the catalog lists 619 models
+
+/** What the Hub may budget and price from: the catalog is sure of the model (the id as written, or the same id in another spelling). A gateway's alias of a maker's model is shown, never relied on. */
+export const isTrusted = (info) => info?.found === true && (info.confidence === 'exact' || info.confidence === 'normalized');
 
 /** A catalog over a snapshot. `createCatalog(snapshot)` is for tests with a small one; `lookup` below is the Hub's, over the file. */
 export function createCatalog(snapshot) {
-  if (!isObject(snapshot) || snapshot.version !== 1 || !Array.isArray(snapshot.rows) || !isObject(snapshot.providers) || !Array.isArray(snapshot.canon)) {
-    throw new Error('model catalog: the snapshot is not a version 1 catalog.');
+  if (!isObject(snapshot) || !SUPPORTED_VERSIONS.includes(snapshot.version) || !Array.isArray(snapshot.rows) || !isObject(snapshot.providers) || !Array.isArray(snapshot.canon)) {
+    throw new Error('model catalog: the snapshot is not a version 1 or 2 catalog.');
   }
   const { rows, providers, canon } = snapshot;
   const hosts = isObject(snapshot.hosts) ? snapshot.hosts : {};
@@ -75,7 +85,7 @@ export function createCatalog(snapshot) {
     for (const [providerId, models] of Object.entries(providers)) {
       for (const [modelId, rowIndex] of Object.entries(models)) {
         const at = rows[rowIndex][6];
-        if (at === undefined) continue;
+        if (at === undefined || at === null) continue;
         const key = canon[at].toLowerCase();
         const creator = key.startsWith(`${providerId}/`);
         const held = byCanonical.get(key);
@@ -97,19 +107,22 @@ export function createCatalog(snapshot) {
       budget: budget ? { min: budget[1], max: budget[2] } : null,
     };
   };
+  /** null for a stable model; alpha, beta or deprecated when the row says which (version 2), else "not_stable". */
+  const statusOf = (flags) => ((flags & 16) === 0 ? null : (flags & 64) !== 0 ? 'deprecated' : (flags & 32) !== 0 ? 'beta' : (flags & 128) !== 0 ? 'alpha' : 'not_stable');
+  const tiersOf = (row) => (Array.isArray(row[7]) ? row[7].map(([aboveTokens, input, output, cacheRead, cacheWrite]) => ({ aboveTokens, rates: { input, output, cacheRead, cacheWrite } })) : []);
   const answer = (providerId, modelId, rowIndex, confidence) => {
     const row = rows[rowIndex];
     return {
       found: true, confidence, local: false, provider: providerId, modelId, source,
       contextWindow: usableContextWindow(row[0]), maxOutput: row[1] ?? null, maxInput: row[2] ?? null,
-      rates: row[3] ? { input: row[3][0], output: row[3][1], cacheRead: row[3][2], cacheWrite: row[3][3] } : null,
-      toolCall: (row[4] & 1) !== 0, vision: (row[4] & 2) !== 0, openWeights: (row[4] & 8) !== 0, notStable: (row[4] & 16) !== 0,
+      rates: row[3] ? { input: row[3][0], output: row[3][1], cacheRead: row[3][2], cacheWrite: row[3][3] } : null, tiers: tiersOf(row),
+      toolCall: (row[4] & 1) !== 0, vision: (row[4] & 2) !== 0, openWeights: (row[4] & 8) !== 0, notStable: (row[4] & 16) !== 0, status: statusOf(row[4]),
       reasoning: reasoningOf(row),
     };
   };
   const nothing = (extra = {}) => ({
-    found: false, confidence: 'none', local: false, provider: null, modelId: null, source: null, contextWindow: null, maxOutput: null, maxInput: null, rates: null,
-    toolCall: null, vision: null, openWeights: null, notStable: null, reasoning: { supported: null, efforts: [], toggle: false, budget: null }, ...extra,
+    found: false, confidence: 'none', local: false, provider: null, modelId: null, source: null, contextWindow: null, maxOutput: null, maxInput: null, rates: null, tiers: [],
+    toolCall: null, vision: null, openWeights: null, notStable: null, status: null, reasoning: { supported: null, efforts: [], toggle: false, budget: null }, ...extra,
   });
 
   /** The catalog providers an endpoint can be, most certain first: the host it is aimed at, then the preset. */
@@ -156,19 +169,51 @@ export function createCatalog(snapshot) {
     return nothing();
   }
 
+  /**
+   * The models of the provider an endpoint is (the most certain one), for a model picker: sorted by id, at most `limit` of them (`truncated` says there are more), only the ids `accept` takes when it is given. A local runtime and an
+   * endpoint the catalog does not know have none: the catalog does not guess what they serve.
+   * @param {{presetId?: string, apiBaseUrl?: string, provider?: string}} query the same words `lookup` takes
+   */
+  function models({ presetId = '', apiBaseUrl = '', provider } = {}, { limit = MODELS_LIMIT, accept = null } = {}) {
+    const none = (extra = {}) => ({ provider: null, source, local: false, total: 0, truncated: false, models: [], ...extra });
+    const host = hostOf(apiBaseUrl);
+    if (LOCAL_PRESETS.has(presetId) || (host && LOOPBACK.has(host.replace(/:\d+$/, '')) && !provider)) return none({ local: true });
+    const providerId = candidates({ presetId, apiBaseUrl, provider })[0];
+    if (!providerId) return none();
+    const ids = Object.keys(providers[providerId]).filter((id) => accept === null || accept(id)).sort();
+    const shown = ids.slice(0, Math.max(0, limit));
+    return { provider: providerId, source, local: false, total: ids.length, truncated: shown.length < ids.length, models: shown.map((id) => answer(providerId, id, providers[providerId][id], 'exact')) };
+  }
+
   const modelCount = Object.values(providers).reduce((sum, models) => sum + Object.keys(models).length, 0);
   const info = () => ({
     version: snapshot.version, generatedAt: snapshot.generatedAt, source: snapshot.source, sha256: snapshot.sha256, label: source,
     providers: Object.keys(providers).length, models: modelCount, ageDays: Math.floor((Date.now() - Date.parse(`${snapshot.generatedAt}T00:00:00Z`)) / 86400000),
   });
-  return { lookup, info, providerIds: () => Object.keys(providers), modelIds: (providerId) => Object.keys(providers[providerId] ?? {}) };
+  return { lookup, models, info, providerIds: () => Object.keys(providers), modelIds: (providerId) => Object.keys(providers[providerId] ?? {}) };
 }
 
 let shared = null;
-/** The Hub's catalog, read from the snapshot file the first time it is needed (not when the Hub starts). */
+let sharedSource = 'bundled';
+/** The snapshot that ships with the Hub, read from its file as a new object. */
+export const bundledSnapshot = () => JSON.parse(readFileSync(SNAPSHOT_URL, 'utf8'));
+/** The Hub's catalog: the snapshot that ships with it, read the first time it is needed (not when the Hub starts), or the one its owner had it update (lib/model-catalog-store.mjs). */
 export function defaultCatalog() {
-  shared ??= createCatalog(JSON.parse(readFileSync(SNAPSHOT_URL, 'utf8')));
+  shared ??= createCatalog(bundledSnapshot());
   return shared;
 }
+/** Answer from another snapshot from now on (one the Hub's owner asked for and the store has checked). */
+export function useCatalog(snapshot) {
+  shared = createCatalog(snapshot);
+  sharedSource = 'refreshed';
+}
+/** Answer from the snapshot that ships with the Hub again. */
+export function resetCatalog() {
+  shared = null;
+  sharedSource = 'bundled';
+}
+/** Which snapshot answers: 'bundled' (the one that ships) or 'refreshed' (the one the owner had the Hub update). */
+export const catalogSource = () => sharedSource;
 export const lookup = (query) => defaultCatalog().lookup(query);
+export const models = (query, options) => defaultCatalog().models(query, options);
 export const catalogInfo = () => defaultCatalog().info();
