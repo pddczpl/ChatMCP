@@ -15,6 +15,12 @@ try {
   equal(validateBaseUrl('https://gateway.example.net/'), 'https://gateway.example.net', 'strip trailing slash');
   equal(buildEndpoint('https://gateway.example.net', 'gemini', 'gemini-3.8-flash'), 'https://gateway.example.net/v1beta/models/gemini-3.8-flash:generateContent');
   equal(buildEndpoint('https://gateway.example.net/v1beta/', 'gemini', 'gemini-3.8-flash'), 'https://gateway.example.net/v1beta/models/gemini-3.8-flash:generateContent');
+  // A version in the address is the version, whatever its number (Z.ai ends in /v4): "/v1" is appended only when there is none.
+  equal(buildEndpoint('https://api.z.ai/api/paas/v4', 'openai-chat', 'glm-5.3'), 'https://api.z.ai/api/paas/v4/chat/completions');
+  equal(buildEndpoint('https://api.z.ai/api/paas/v4/', 'openai-responses', 'glm-5.3'), 'https://api.z.ai/api/paas/v4/responses');
+  equal(buildEndpoint('https://gateway.example.net/v10', 'openai-chat', 'm'), 'https://gateway.example.net/v10/chat/completions');
+  equal(buildEndpoint('https://gateway.example.net/rev2', 'openai-chat', 'm'), 'https://gateway.example.net/rev2/v1/chat/completions', 'a segment that only ends in a number is not a version');
+  equal(buildEndpoint('https://gateway.example.net/v1beta', 'openai-chat', 'm'), 'https://gateway.example.net/v1beta/v1/chat/completions', 'nor is a version with a word after it');
   equal(buildEndpoint('https://gateway.example.net/v1', 'openai-chat', 'gemini-3.8-flash'), 'https://gateway.example.net/v1/chat/completions');
   assert.throws(()=>buildEndpoint('https://gateway.example.net','gemini','demo','//evil.example/path')); passes++;
   for (const url of ['http://host.example.net','http://127.0.0.2:9000','https://username:pass@example.com','https://example.com/?key=abc']) {
@@ -65,7 +71,7 @@ try {
   };
   let requestNumber = 0, seenResult = false;
   const dummyFetcher = async (url, opts) => {
-    equal(url, 'https://gateway.example.net/v1beta/models/gemini-3.8-flash:generateContent');
+    equal(url.replace(':streamGenerateContent?alt=sse', ':generateContent'), 'https://gateway.example.net/v1beta/models/gemini-3.8-flash:generateContent');
     equal(opts.headers['x-goog-api-key'], key);
     const body = JSON.parse(opts.body);
     requestNumber++;
@@ -138,6 +144,14 @@ try {
   const driver = new DualAgent({ browser: {state:()=>({tasks:[{id:'web-historic',startedAt:'2000-01-01',status:'completed',prompt:'past'}],active:null}),get:(id)=> id==='web-historic'?{id,status:'completed'}:null, report:async()=> 'web report',start:async()=>({id:'web-task'}),cancel:async()=>({}),shutdown:async()=>{}}, api:engine,directory:base });
   await driver.load();
   equal(driver.mode,'chatgpt-web');
+  // The thinking effort of a task is a Model API setting: through the ChatGPT Web Companion it is refused, not dropped without a word.
+  {
+    const manager=engine.manager, kept=manager.workspace;
+    manager.workspace=base;
+    try {
+      await assert.rejects(() => driver.start({prompt:'p',reasoningEffort:'high'}),error=>error.statusCode===400&&/thinking effort/i.test(error.message)&&/Companion/.test(error.message)); passes++;
+    } finally { manager.workspace=kept; }
+  }
   await driver.configure({mode:'api'});
   equal(driver.state().mode,'api');
   ok(driver.state().tasks.some(t=>t.transport==='api'),'merged task history');

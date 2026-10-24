@@ -1,6 +1,8 @@
 // Includes the owner's focused Code Intelligence fixture AND the real
 // StudioWorkspace/LocalTools integration contract used by production.
 import './code-intelligence.test.mjs';
+import './pagerank.test.mjs';
+import './repo-map.test.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';

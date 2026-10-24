@@ -1,0 +1,937 @@
+{
+  "suite": "verify-search-rg.mjs",
+  "description": "search_files and find_files with ripgrep (multi-agent-tools-19): the binary, the command line, the JSON, the process, the fallbacks and the filter (hermetic: killed without a real ripgrep)",
+  "mutations": [
+    {
+      "name": "RG1",
+      "what": "the owner's own choice of binary is ignored",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "  if (choice) return path.isAbsolute(choice) && await isFile(choice) ? { path: choice, source: 'env' } : null;", "new": "  if (choice && false) return null;" }
+      ]
+    },
+    {
+      "name": "RG2",
+      "what": "a choice that is not an absolute path is taken from the folder the Hub was started in",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "path.isAbsolute(choice) && await isFile(choice) ? {", "new": "await isFile(choice) ? {" }
+      ]
+    },
+    {
+      "name": "RG3",
+      "what": "a choice that does not exist is replaced by another binary behind the owner's back",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "  if (choice) return path.isAbsolute(choice) && await isFile(choice) ? { path: choice, source: 'env' } : null;", "new": "  if (choice && path.isAbsolute(choice) && await isFile(choice)) return { path: choice, source: 'env' };" }
+      ]
+    },
+    {
+      "name": "RG6",
+      "what": "the bundled binary is never looked for",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "  if (await isFile(bundled)) return { path: bundled, source: 'bundled' };", "new": "" }
+      ]
+    },
+    {
+      "name": "RG7",
+      "what": "a PATH entry that is not an absolute folder is looked in",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (!entry || !path.isAbsolute(entry)) continue;", "new": "if (!entry) continue;" }
+      ]
+    },
+    {
+      "name": "RG8",
+      "what": "a quoted PATH entry is not unquoted",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "const entry = raw.trim().replace(/^\"(.*)\"$/, '$1');", "new": "const entry = raw.trim();" }
+      ]
+    },
+    {
+      "name": "RG9",
+      "what": "the variable Windows spells Path is not read",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "String(env?.PATH ?? env?.Path ?? '')", "new": "String(env?.PATH ?? '')" }
+      ]
+    },
+    {
+      "name": "RG10",
+      "what": "\\0 is taken for a backreference",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "(next >= '1' && next <= '9')", "new": "(next >= '0' && next <= '9')" }
+      ]
+    },
+    {
+      "name": "RG11",
+      "what": "a named backreference does not need PCRE2",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "(next === 'k' && text[at + 2] === '<')", "new": "false" }
+      ]
+    },
+    {
+      "name": "RG12",
+      "what": "a character class is not recognised, so a lookahead written inside one is taken for a lookahead",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (char === '[') { inClass = true; continue; }", "new": "if (char === '[') { continue; }" }
+      ]
+    },
+    {
+      "name": "RG13",
+      "what": "lookbehind does not need PCRE2",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (kind === '<' && (text[at + 3] === '=' || text[at + 3] === '!')) return true;", "new": "" }
+      ]
+    },
+    {
+      "name": "RG14",
+      "what": "a negative lookahead does not need PCRE2",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (kind === '=' || kind === '!') return true;", "new": "if (kind === '=') return true;" }
+      ]
+    },
+    {
+      "name": "RG15",
+      "what": "an escaped parenthesis is not skipped, so \\(?= is taken for a lookahead",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "      at += 1;\n      continue;\n", "new": "      continue;\n" }
+      ]
+    },
+    {
+      "name": "RG16",
+      "what": "a glob whose braces span a folder separator is narrowed to the wrong file name",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": " || /\\{[^}]*\\//.test(text)", "new": "" }
+      ]
+    },
+    {
+      "name": "RG17",
+      "what": "a last segment of ** is handed to ripgrep as a file type",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "name.includes('**') || ", "new": "" }
+      ]
+    },
+    {
+      "name": "RG18",
+      "what": "a colon in a glob (which would end the name of the file type) is accepted",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": " || name.includes(':')", "new": "" }
+      ]
+    },
+    {
+      "name": "RG19",
+      "what": "the file type is case-sensitive on Windows too",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "  if (!caseInsensitive) return name;", "new": "  return name;" }
+      ]
+    },
+    {
+      "name": "RG20",
+      "what": "a class or a letter that is not ASCII is rewritten case-insensitively",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "  if (name.includes('[') || /[^\\u0000-\\u007f]/.test(name)) return null;\n", "new": "" }
+      ]
+    },
+    {
+      "name": "RG21",
+      "what": "backslashes in a glob are not path separators",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "const text = glob.replaceAll('\\\\', '/').replace(/^\\.\\//, '');", "new": "const text = glob.replace(/^\\.\\//, '');" }
+      ]
+    },
+    {
+      "name": "RG22",
+      "what": "hidden files are not searched",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "'--no-config', '--no-messages', '--color', 'never', '--hidden',", "new": "'--no-config', '--no-messages', '--color', 'never'," }
+      ]
+    },
+    {
+      "name": "RG23",
+      "what": "a CRLF line end is part of the line",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "'--json', '--crlf', '--max-filesize', sizeLimit(maxFileBytes),", "new": "'--json', '--max-filesize', sizeLimit(maxFileBytes)," }
+      ]
+    },
+    {
+      "name": "RG24",
+      "what": "files over 1 MiB are searched",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "'--json', '--crlf', '--max-filesize', sizeLimit(maxFileBytes),", "new": "'--json', '--crlf'," }
+      ]
+    },
+    {
+      "name": "RG25",
+      "what": "the search is always case-insensitive",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "ignoreCase ? '-i' : '-s',", "new": "'-i'," }
+      ]
+    },
+    {
+      "name": "RG26",
+      "what": "context lines are not asked for",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "...(context > 0 ? ['-C', String(context)] : []),", "new": "" }
+      ]
+    },
+    {
+      "name": "RG27",
+      "what": "include_ignored does not switch the ignore rules off",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "...(includeIgnored ? ['--no-ignore'] : []),", "new": "" }
+      ]
+    },
+    {
+      "name": "RG28",
+      "what": "the private folders (.git, .ssh ...) are searched",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "for (const name of privateNames) if (GLOB_NAME.test(name)) globs.push('-g', `!${name}`);", "new": "" }
+      ]
+    },
+    {
+      "name": "RG29",
+      "what": "a FILE called node_modules is excluded as if it were the folder",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "globs.push('-g', `!${name}/`);", "new": "globs.push('-g', `!${name}`);" }
+      ]
+    },
+    {
+      "name": "RG30",
+      "what": "the noise folders are left out even with include_ignored",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (!includeIgnored) for (const name of noiseNames)", "new": "for (const name of noiseNames)" }
+      ]
+    },
+    {
+      "name": "RG31",
+      "what": "the pattern is a positional argument, so one that looks like an option is an option",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "'-e', pattern,", "new": "pattern," }
+      ]
+    },
+    {
+      "name": "RG32",
+      "what": "a literal search is a regular expression",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "...(regex ? (pcre2 ? ['--pcre2'] : []) : ['-F']),", "new": "...(regex ? (pcre2 ? ['--pcre2'] : []) : [])," }
+      ]
+    },
+    {
+      "name": "RG33",
+      "what": "the file type is defined but not selected",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "'--type-add', `cmglob:${typeGlob}`, '-t', 'cmglob']", "new": "'--type-add', `cmglob:${typeGlob}`]" }
+      ]
+    },
+    {
+      "name": "RG34",
+      "what": "the file list is separated by newlines, not by NUL",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "return ['--files', '--null', ...commonArguments(", "new": "return ['--files', ...commonArguments(" }
+      ]
+    },
+    {
+      "name": "RG35",
+      "what": "the output is not JSON",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "'--json', '--crlf', '--max-filesize', sizeLimit(maxFileBytes),", "new": "'--crlf', '--max-filesize', sizeLimit(maxFileBytes)," }
+      ]
+    },
+    {
+      "name": "RG36",
+      "what": "the configuration file of the user is read",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "'--no-config', '--no-messages', '--color', 'never', '--hidden',", "new": "'--no-messages', '--color', 'never', '--hidden'," }
+      ]
+    },
+    {
+      "name": "RG37",
+      "what": "the files of a folder come after its folders",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (leftIsFile !== rightIsFile) return leftIsFile ? -1 : 1;", "new": "if (leftIsFile !== rightIsFile) return leftIsFile ? 1 : -1;" }
+      ]
+    },
+    {
+      "name": "RG38",
+      "what": "names are ordered backwards",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "return left[at] < right[at] ? -1 : 1;", "new": "return left[at] > right[at] ? -1 : 1;" }
+      ]
+    },
+    {
+      "name": "RG39",
+      "what": "the ./ before a path is kept",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": ".replace(/^(?:\\.\\/)+/, '')", "new": "" }
+      ]
+    },
+    {
+      "name": "RG40",
+      "what": "a backslash is a separator on every system, even where it is part of a name",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "const slashed = platform === 'win32' ? String(text).replaceAll('\\\\', '/') : String(text);", "new": "const slashed = String(text).replaceAll('\\\\', '/');" }
+      ]
+    },
+    {
+      "name": "RG41",
+      "what": "a doubled separator stays doubled",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": ".replace(/\\/{2,}/g, '/')", "new": "" }
+      ]
+    },
+    {
+      "name": "RG42",
+      "what": "the start of a line that arrived in two chunks is dropped",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "this.pending = Buffer.from(buffer.subarray(last + 1));", "new": "this.pending = Buffer.alloc(0);" }
+      ]
+    },
+    {
+      "name": "RG43",
+      "what": "a chunk without a line end is dropped",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (last < 0) { this.pending = Buffer.from(buffer); return []; }", "new": "if (last < 0) { return []; }" }
+      ]
+    },
+    {
+      "name": "RG44",
+      "what": "empty lines are lines",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": ".split(this.character).filter((line) => line.length > 0);", "new": ".split(this.character);" }
+      ]
+    },
+    {
+      "name": "RG45",
+      "what": "the last line of the output, without its newline, is lost",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "return rest.length > 0 ? [rest] : [];", "new": "return [];" }
+      ]
+    },
+    {
+      "name": "RG46",
+      "what": "one match more than the limit is kept",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (matches >= limit) {", "new": "if (matches > limit) {" }
+      ]
+    },
+    {
+      "name": "RG47",
+      "what": "without context the search goes on after the limit",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "              if (context === 0) return 'stop';\n", "new": "" }
+      ]
+    },
+    {
+      "name": "RG48",
+      "what": "a line beyond the window of the last match is kept",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "            if (data.line_number > limitLine + context) return 'stop';\n", "new": "" }
+      ]
+    },
+    {
+      "name": "RG49",
+      "what": "the search is not stopped when the window of the last match is read",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "return data.line_number >= limitLine + context ? 'stop' : 'continue';", "new": "return 'continue';" }
+      ]
+    },
+    {
+      "name": "RG50",
+      "what": "the matches of a binary file stay counted after the file is dropped",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (done.binary) { skippedBinary += 1; matches -= done.matches; return; }", "new": "if (done.binary) { skippedBinary += 1; return; }" }
+      ]
+    },
+    {
+      "name": "RG51",
+      "what": "the matches of a file that is not UTF-8 stay counted after the file is dropped",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (done.bad) { skippedEncoding += 1; matches -= done.matches; return; }", "new": "if (done.bad) { skippedEncoding += 1; return; }" }
+      ]
+    },
+    {
+      "name": "RG52",
+      "what": "a binary file is a result",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (done.binary) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "RG53",
+      "what": "a file that is not UTF-8 is a result",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (done.bad) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "RG54",
+      "what": "a refused file is a result",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (!done?.accepted) return;", "new": "" }
+      ]
+    },
+    {
+      "name": "RG55",
+      "what": "every file is accepted",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "accepted: named ? Boolean(accept(file)) : true,", "new": "accepted: true," }
+      ]
+    },
+    {
+      "name": "RG56",
+      "what": "the number of files searched is not read",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (Number.isFinite(data?.stats?.searches)) searched = data.stats.searches;", "new": "" }
+      ]
+    },
+    {
+      "name": "RG57",
+      "what": "the carriage return of a CRLF line stays in the line",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "const text = raw.replace(/\\r?\\n$/, '');", "new": "const text = raw.replace(/\\n$/, '');" }
+      ]
+    },
+    {
+      "name": "RG58",
+      "what": "a long line is kept whole",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "text: text.length > KEPT_LINE_CHARS ? text.slice(0, KEPT_LINE_CHARS) : text,", "new": "text," }
+      ]
+    },
+    {
+      "name": "RG59",
+      "what": "a line of spaces is not blank",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "blank: text.trim() === ''", "new": "blank: text === ''" }
+      ]
+    },
+    {
+      "name": "RG60",
+      "what": "the program is started through a shell",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "shell: false, windowsHide: true", "new": "shell: true, windowsHide: true" }
+      ]
+    },
+    {
+      "name": "RG61",
+      "what": "the program opens a window",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "shell: false, windowsHide: true", "new": "shell: false, windowsHide: false" }
+      ]
+    },
+    {
+      "name": "RG62",
+      "what": "output without a bound",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "    if (total > maxOutputBytes) { result.outputTruncated = true; stop(); return; }\n", "new": "" }
+      ]
+    },
+    {
+      "name": "RG63",
+      "what": "the program is not stopped when the caller has enough",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (onChunk && onChunk(chunk) === true) { result.stopped = true; stop(); }", "new": "if (onChunk && onChunk(chunk) === true) { result.stopped = true; }" }
+      ]
+    },
+    {
+      "name": "RG64",
+      "what": "a run that ran out of time does not say so",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "const timer = setTimeout(() => { result.timedOut = true; stop(); }, timeoutMs);", "new": "const timer = setTimeout(() => { result.timedOut = false; stop(); }, timeoutMs);" }
+      ]
+    },
+    {
+      "name": "RG65",
+      "what": "a cancelled run ends as if it had finished",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "const onAbort = () => { aborted = true; stop(); };", "new": "const onAbort = () => { stop(); };" }
+      ]
+    },
+    {
+      "name": "RG66",
+      "what": "a cancelled run ends with a reason of its own, not the one it was cancelled for",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (aborted) throw signal.reason ?? fault('cancelled', 'Tác vụ đã dừng.', 499);", "new": "if (aborted) throw fault('cancelled', 'Tác vụ đã dừng.', 499);" }
+      ]
+    },
+    {
+      "name": "RG67",
+      "what": "a run that was cancelled before it began is started",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "  signal?.throwIfAborted();\n  let child;", "new": "  let child;" }
+      ]
+    },
+    {
+      "name": "RG68",
+      "what": "a failure of the reader is swallowed",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "  if (failure) throw failure;\n", "new": "" }
+      ]
+    },
+    {
+      "name": "RG69",
+      "what": "a program that does not close after it was told to stop is waited for for ever",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "    grace = setTimeout(() => release(), 3000);\n", "new": "" }
+      ]
+    },
+    {
+      "name": "RG70",
+      "what": "a binary that was not found is not looked for again",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (cached && !(cached.missing && this.now() - cached.at >= PROBE_RETRY_MILLIS)) return cached.promise;", "new": "if (cached) return cached.promise;" }
+      ]
+    },
+    {
+      "name": "RG71",
+      "what": "a program that fails to start is remembered as working",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (error?.code === 'ripgrep_unavailable') { this.problem = error.message; this.#cache = null; }", "new": "if (error?.code === 'ripgrep_unavailable') { this.problem = error.message; }" }
+      ]
+    },
+    {
+      "name": "RG72",
+      "what": "the environment of the Hub is handed to ripgrep as it is",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "const environment = scrubEnv(this.env, { secrets: this.secrets() ?? [] });", "new": "const environment = { ...this.env };" }
+      ]
+    },
+    {
+      "name": "RG73",
+      "what": "RIPGREP_CONFIG_PATH reaches ripgrep",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "    for (const key of Object.keys(environment)) if (/^RIPGREP_/i.test(key)) delete environment[key];\n", "new": "" }
+      ]
+    },
+    {
+      "name": "RG74",
+      "what": "an old ripgrep is used",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (Number(version[1]) < MINIMUM_MAJOR_VERSION) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "RG75",
+      "what": "a program that exits with an error on --version is used",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (run.code !== 0 || !version) {", "new": "if (!version) {" }
+      ]
+    },
+    {
+      "name": "RG76",
+      "what": "PCRE2 is taken for present when the build says -pcre2",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "pcre2: /^features:.*\\+pcre2/m.test(text) };", "new": "pcre2: /pcre2/.test(text) };" }
+      ]
+    },
+    {
+      "name": "RG77",
+      "what": "every regular expression is given to PCRE2",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "const pcre2 = regex && patternNeedsPcre2(pattern);", "new": "const pcre2 = regex;" }
+      ]
+    },
+    {
+      "name": "RG78",
+      "what": "a search that needs PCRE2 runs without it",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (pcre2 && !info.pcre2) throw fault(", "new": "if (false) throw fault(" }
+      ]
+    },
+    {
+      "name": "RG79",
+      "what": "the path is not separated from the options by --",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "noiseNames, privateNames, typeGlob }), '--', target];\n    const collector", "new": "noiseNames, privateNames, typeGlob }), target];\n    const collector" }
+      ]
+    },
+    {
+      "name": "RG80",
+      "what": "ripgrep runs in the folder the Hub was started in",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "command: info.path, args, cwd: directory, env: this.#environment(), timeoutMs, signal, spawner: this.spawner,\n      onChunk: (chunk) => { for (const line of splitter.push(chunk))", "new": "command: info.path, args, cwd: process.cwd(), env: this.#environment(), timeoutMs, signal, spawner: this.spawner,\n      onChunk: (chunk) => { for (const line of splitter.push(chunk))" }
+      ]
+    },
+    {
+      "name": "RG81",
+      "what": "an unreadable pattern is told apart from another failure the wrong way round",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "PATTERN_ERROR.test(run.stderr) ? 'ripgrep_pattern' : 'ripgrep_failed'", "new": "PATTERN_ERROR.test(run.stderr) ? 'ripgrep_failed' : 'ripgrep_pattern'" }
+      ]
+    },
+    {
+      "name": "RG82",
+      "what": "an exit code of 2 with nothing found is not an error",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (run.code === 2 && empty && !run.stopped && !run.timedOut && !run.outputTruncated) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "RG83",
+      "what": "an exit code of 2 with results (a file that could not be read) is an error",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "const empty = result.files.length === 0 && result.matches === 0 && result.skippedBinary + result.skippedEncoding === 0;", "new": "const empty = true;" }
+      ]
+    },
+    {
+      "name": "RG84",
+      "what": "a list of files has no bound",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (found.length >= maxFiles) { truncated = true; return true; }", "new": "if (found.length >= maxFiles) { return false; }" }
+      ]
+    },
+    {
+      "name": "RG85",
+      "what": "the filter is not asked about the files of a list",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "if (!file || !accept(file)) return false;", "new": "if (!file) return false;" }
+      ]
+    },
+    {
+      "name": "RG86",
+      "what": "the last line of ripgrep's output is not read",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "    if (!run.stopped) for (const line of splitter.flush()) feed(line);\n    const result = collector.finish();", "new": "    const result = collector.finish();" }
+      ]
+    },
+    {
+      "name": "LT1",
+      "what": "a backreference is always refused, even for ripgrep with PCRE2",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "if (!backreferences && /\\\\[1-9]/.test(pattern)) throw", "new": "if (/\\\\[1-9]/.test(pattern)) throw" }
+      ]
+    },
+    {
+      "name": "LT2",
+      "what": "a backreference is always allowed, even where it would run in this process",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "if (!backreferences && /\\\\[1-9]/.test(pattern)) throw", "new": "if (false && /\\\\[1-9]/.test(pattern)) throw" }
+      ]
+    },
+    {
+      "name": "LT3",
+      "what": "a ripgrep that fails does not fall back to the built-in search",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "const RIPGREP_SOFT_FAILURES = new Set(['ripgrep_unavailable', 'ripgrep_pcre2_unavailable', 'ripgrep_pattern', 'ripgrep_failed']);", "new": "const RIPGREP_SOFT_FAILURES = new Set(['ripgrep_unavailable', 'ripgrep_pcre2_unavailable', 'ripgrep_pattern']);" }
+      ]
+    },
+    {
+      "name": "LT4",
+      "what": "a pattern ripgrep cannot read does not fall back to the built-in search",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "const RIPGREP_SOFT_FAILURES = new Set(['ripgrep_unavailable', 'ripgrep_pcre2_unavailable', 'ripgrep_pattern', 'ripgrep_failed']);", "new": "const RIPGREP_SOFT_FAILURES = new Set(['ripgrep_unavailable', 'ripgrep_pcre2_unavailable', 'ripgrep_failed']);" }
+      ]
+    },
+    {
+      "name": "LT5",
+      "what": "a cancelled search is repeated with the built-in search",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "if (!RIPGREP_SOFT_FAILURES.has(error?.code)) throw error;", "new": "" }
+      ]
+    },
+    {
+      "name": "LT6",
+      "what": "a cancelled file list is repeated with the walk",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "if (RIPGREP_SOFT_FAILURES.has(error?.code)) return null;", "new": "return null;" }
+      ]
+    },
+    {
+      "name": "LT7",
+      "what": "a backreference runs in this process after ripgrep failed",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "if (regex) assertSafeRegex(pattern);", "new": "" }
+      ]
+    },
+    {
+      "name": "LT8",
+      "what": "what ripgrep returns is not checked again",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "const files = outcome.files.filter((file) => accept(file.path)).map(", "new": "const files = outcome.files.map(" }
+      ]
+    },
+    {
+      "name": "LT9",
+      "what": "a secret or Git metadata may be a result",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "if (isProtectedPath(rel)) return false;", "new": "" }
+      ]
+    },
+    {
+      "name": "LT10",
+      "what": "a FILE called node_modules is a noise folder",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "for (let at = 0; at < parts.length - 1; at += 1) if (NOISE_DIRECTORIES.has(parts[at])) return false;", "new": "for (let at = 0; at < parts.length; at += 1) if (NOISE_DIRECTORIES.has(parts[at])) return false;" }
+      ]
+    },
+    {
+      "name": "LT11",
+      "what": "the names of noise folders are matched in any case",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "if (NOISE_DIRECTORIES.has(parts[at])) return false;", "new": "if (NOISE_DIRECTORIES.has(parts[at].toLowerCase())) return false;" }
+      ]
+    },
+    {
+      "name": "LT12",
+      "what": "a pattern with a line end goes to ripgrep",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "Boolean(external) && !/[\\0\\r\\n]/.test(pattern) && (", "new": "Boolean(external) && (" }
+      ]
+    },
+    {
+      "name": "LT13",
+      "what": "a lookahead goes to ripgrep even when it has no PCRE2",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "(!regex || !patternNeedsPcre2(pattern) || external.pcre2)", "new": "true" }
+      ]
+    },
+    {
+      "name": "LT14",
+      "what": "ripgrep is given no narrowing of the glob",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "typeGlob: glob && !single ? basenameTypeGlob(glob, { caseInsensitive: process.platform === 'win32' }) : null,", "new": "typeGlob: null," }
+      ]
+    },
+    {
+      "name": "LT15",
+      "what": "the exact glob is not applied to a result",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "return !globber || globber.test(single ? rel : local);", "new": "return true;" }
+      ]
+    },
+    {
+      "name": "LT16",
+      "what": "the glob of a search in one file is tested against the name only",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "globber.test(single ? rel : local)", "new": "globber.test(local)" }
+      ]
+    },
+    {
+      "name": "LT17",
+      "what": "a separator is printed before the first range of the output",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "if (line.number !== previous + 1 && output.length) output.push('--');", "new": "if (line.number !== previous + 1) output.push('--');" }
+      ]
+    },
+    {
+      "name": "LT18",
+      "what": "a blank line is not marked as blank",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "${line.blank ? '(dòng trống)' : text(line)}", "new": "${text(line)}" }
+      ]
+    },
+    {
+      "name": "LT19",
+      "what": "a long line is cut later than the built-in search cuts it",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "const text = (line) => (line.length > 300 ?", "new": "const text = (line) => (line.length > 400 ?" }
+      ]
+    },
+    {
+      "name": "LT20",
+      "what": "the results are in the order ripgrep gave them",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": ".sort((a, b) => compareWalkOrder(a.rel, b.rel));", "new": ";" }
+      ]
+    },
+    {
+      "name": "LT21",
+      "what": "the files that were not text are not subtracted from the number scanned",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "const scanned = outcome.searched === null ? null : Math.max(0, outcome.searched - skipped);", "new": "const scanned = outcome.searched;" }
+      ]
+    },
+    {
+      "name": "LT22",
+      "what": "a search out of time does not say so",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "if (outcome.timedOut) notes.push(", "new": "if (false) notes.push(" }
+      ]
+    },
+    {
+      "name": "LT23",
+      "what": "a search that printed too much does not say so",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "if (outcome.outputTruncated) notes.push(", "new": "if (false) notes.push(" }
+      ]
+    },
+    {
+      "name": "LT24",
+      "what": "the result does not say which engine found it",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "incomplete: Boolean(outcome.unreadable), engine: 'ripgrep' });", "new": "incomplete: Boolean(outcome.unreadable), engine: 'walk' });" }
+      ]
+    },
+    {
+      "name": "LT25",
+      "what": "a search in one file runs from the workspace folder with the file as the path",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "const target = single ? path.basename(base.absolute) : '.';", "new": "const target = '.';" }
+      ]
+    },
+    {
+      "name": "LT26",
+      "what": "a search in one file runs in the folder of the workspace",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "const directory = single ? path.dirname(base.absolute) : base.absolute;", "new": "const directory = base.absolute;" }
+      ]
+    },
+    {
+      "name": "LT27",
+      "what": "ripgrep is never asked",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "const external = this.ripgrep ? await this.ripgrep.info() : null;", "new": "const external = null;" }
+      ]
+    },
+    {
+      "name": "LT28",
+      "what": "a backreference is refused although ripgrep has PCRE2",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "assertSafeRegex(pattern, { backreferences: viaRipgrep && external.pcre2 });", "new": "assertSafeRegex(pattern);" }
+      ]
+    },
+    {
+      "name": "LT29",
+      "what": "an ignored folder that was asked for by name is not searched (Git has nothing to list there)",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "    if (eligible.length === 0) return null;", "new": "" }
+      ]
+    },
+    {
+      "name": "LT30",
+      "what": "the files from Git are in the order of Git's index",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "this.#searchable(rel.startsWith(prefix) ? rel.slice(prefix.length) : rel, rel, false)).sort(compareWalkOrder);", "new": "this.#searchable(rel.startsWith(prefix) ? rel.slice(prefix.length) : rel, rel, false));" }
+      ]
+    },
+    {
+      "name": "LT31",
+      "what": "the files from Git are not looked at, so what is behind a link is searched",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "const verdicts = await Promise.all(batch.map((rel) => plain(rel)));", "new": "const verdicts = await Promise.all(batch.map(() => true));" }
+      ]
+    },
+    {
+      "name": "LT32",
+      "what": "include_ignored lists the files from Git",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "async *#candidates(base, { includeIgnored, state, signal }) {", "new": "async *#candidates(base, { includeIgnored: ignored, state, signal }) {" }
+      ]
+    },
+    {
+      "name": "LT33",
+      "what": "a noise folder that Git lists is searched",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "this.#searchable(rel.startsWith(prefix) ? rel.slice(prefix.length) : rel, rel, false)", "new": "this.#searchable(rel.startsWith(prefix) ? rel.slice(prefix.length) : rel, rel, true)" }
+      ]
+    },
+    {
+      "name": "LT34",
+      "what": "a repository with more files than the search looks at does not say so",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "if (eligible.length > LIMITS.walkEntries) { state.truncated = true; eligible = eligible.slice(0, LIMITS.walkEntries); }", "new": "" }
+      ]
+    },
+    {
+      "name": "LT35",
+      "what": "the exact glob is not applied to the list from ripgrep",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "const accept = (local) => this.#searchable(local, `${prefix}${local}`, includeIgnored) && matcher.test(local);", "new": "const accept = (local) => this.#searchable(local, `${prefix}${local}`, includeIgnored);" }
+      ]
+    },
+    {
+      "name": "LT36",
+      "what": "the list from ripgrep is not checked again",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "const files = outcome.files.filter(accept).map((local) => `${prefix}${local}`).sort(compareWalkOrder);", "new": "const files = outcome.files.map((local) => `${prefix}${local}`).sort(compareWalkOrder);" }
+      ]
+    },
+    {
+      "name": "LT37",
+      "what": "find_files ignores its limit when ripgrep gives the list",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "return { files: files.slice(0, limit), truncated:", "new": "return { files, truncated:" }
+      ]
+    },
+    {
+      "name": "LT38",
+      "what": "a list that was cut short does not say so",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "truncated: outcome.truncated || outcome.timedOut || outcome.outputTruncated, unreadable: Boolean(outcome.unreadable) };", "new": "truncated: false, unreadable: Boolean(outcome.unreadable) };" }
+      ]
+    },
+    {
+      "name": "LT39",
+      "what": "find_files does not carry the cut of ripgrep's list to its answer",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "      state.truncated = listed.truncated;", "new": "      state.truncated = false;" }
+      ]
+    },
+    {
+      "name": "LT40",
+      "what": "the Hub does not turn ripgrep on",
+      "patches": [
+        { "file": "lib/assemble.mjs", "old": "  localOptions.ripgrep = new Ripgrep({ secrets });", "new": "" }
+      ]
+    },
+    {
+      "name": "LT41",
+      "what": "a backreference is allowed in a pattern that ripgrep does not get, so it runs in this process",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "assertSafeRegex(pattern, { backreferences: viaRipgrep && external.pcre2 });", "new": "assertSafeRegex(pattern, { backreferences: Boolean(external?.pcre2) });" }
+      ]
+    },
+    {
+      "name": "LT42",
+      "what": "a search that could not read some files does not say so",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "if (outcome.unreadable) notes.push(", "new": "if (false) notes.push(" }
+      ]
+    },
+    {
+      "name": "LT43",
+      "what": "the structured answer of a search does not say it may be incomplete",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "incomplete: Boolean(outcome.unreadable), engine: 'ripgrep' });", "new": "incomplete: false, engine: 'ripgrep' });" }
+      ]
+    },
+    {
+      "name": "LT44",
+      "what": "find_files does not take over that some folders could not be read",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "      state.unreadable = listed.unreadable;", "new": "" }
+      ]
+    },
+    {
+      "name": "LT45",
+      "what": "find_files does not say that the list may be incomplete",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "(state.unreadable ? '\\n[Một số thư mục không đọc được; danh sách có thể thiếu.]' : '')", "new": "''" }
+      ]
+    },
+    {
+      "name": "RG87",
+      "what": "an installed Hub uses a ripgrep it finds on PATH",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "  if (await isFile(path.join(hubDirectory, 'runtime-manifest.json'))) return null;\n", "new": "" }
+      ]
+    },
+    {
+      "name": "RG88",
+      "what": "a search with an exit code of 2 does not say that files were left out",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "return { ...result, stopped: run.stopped, timedOut: run.timedOut, outputTruncated: run.outputTruncated, unreadable: run.code === 2 };", "new": "return { ...result, stopped: run.stopped, timedOut: run.timedOut, outputTruncated: run.outputTruncated, unreadable: false };" }
+      ]
+    },
+    {
+      "name": "RG89",
+      "what": "a file list with an exit code of 2 does not say that folders were left out",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "return { files: found, truncated, timedOut: run.timedOut, outputTruncated: run.outputTruncated, unreadable: run.code === 2 };", "new": "return { files: found, truncated, timedOut: run.timedOut, outputTruncated: run.outputTruncated, unreadable: false };" }
+      ]
+    },
+    {
+      "name": "LT46",
+      "what": "the list from ripgrep forgets that some folders could not be read",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": ", unreadable: Boolean(outcome.unreadable) };", "new": ", unreadable: false };" }
+      ]
+    }
+  ]
+}

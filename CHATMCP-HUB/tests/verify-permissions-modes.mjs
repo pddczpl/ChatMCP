@@ -277,6 +277,27 @@ async function outcome(gate, name, args = {}, { approve = true } = {}) {
   const edit = await outcome(gate, 'local.edit_file', { path: 'src/app.py', old_string: 'print("hi")', new_string: 'print("yo")' });
   assert.equal(edit.request.detail.kind, 'edit');
   assert.equal(edit.request.detail.old_string, 'print("hi")');
+  // several edits in one call: the owner is shown ALL of them, in order, never only the first
+  const multi = await outcome(gate, 'local.edit_file', { path: 'src/app.py', edits: [
+    { old_string: 'print("hi")', new_string: 'print("yo")' },
+    { old_string: 'import os', new_string: 'import os, sys', replace_all: true },
+    { old_string: 'password = "hunter2"', new_string: 'password = ""' },
+  ] });
+  assert.equal(multi.kind, 'prompt');
+  assert.equal(multi.request.detail.kind, 'edit');
+  assert.equal(multi.request.detail.edit_count, 3);
+  assert.deepEqual(multi.request.detail.edits.map((item) => [item.old_string, item.new_string, item.replace_all]), [
+    ['print("hi")', 'print("yo")', false], ['import os', 'import os, sys', true], ['password = "[REDACTED]"', 'password = ""', false],
+  ], 'a secret inside an edit is masked like one anywhere else in an approval');
+  for (const [field, needles] of [['old_string', ['[1/3]', 'print("hi")', '[2/3] (replace_all)', 'import os', '[3/3]']], ['new_string', ['[1/3]', 'print("yo")', 'import os, sys', 'password = ""']]]) {
+    for (const needle of needles) assert.ok(multi.request.detail[field].includes(needle), `${field} shows every edit: ${needle}`);
+  }
+  assert.ok(!JSON.stringify(multi.request.detail).includes('hunter2') && !multi.request.preview.includes('hunter2'), 'and it reaches neither the detail nor the preview');
+  assert.match(multi.request.summary, /3 chỉnh sửa/);
+  const huge = await outcome(gate, 'local.edit_file', { path: 'src/app.py', edits: Array.from({ length: 30 }, (_, i) => ({ old_string: `old${i}`, new_string: `new${i}` })) });
+  assert.equal(huge.request.detail.edit_count, 30);
+  assert.equal(huge.request.detail.edits.length, 20, 'the detail lists the first 20 edits and says how many there are');
+  assert.ok(huge.request.detail.old_string.includes('10 chỉnh sửa nữa'), 'and the combined view says how many are not shown');
   const write = await outcome(gate, 'local.write_file', { path: 'src/big.py', content: 'x'.repeat(5000) });
   assert.equal(write.request.detail.kind, 'write');
   assert.equal(write.request.detail.bytes, 5000);

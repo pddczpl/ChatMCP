@@ -1,0 +1,13 @@
+{
+  "suite": "verify-dual-mode.mjs",
+  "description": "What the dual-mode suite must notice about the thinking effort of a task through the ChatGPT Web Companion: it is refused, not dropped.",
+  "mutations": [
+    {
+      "name": "D1",
+      "what": "the ChatGPT Web Companion accepts the thinking effort of a task and drops it without a word",
+      "patches": [
+        { "file": "lib/dual-agent.mjs", "old": "if(payload?.reasoningEffort!==undefined&&payload.reasoningEffort!==null&&String(payload.reasoningEffort).trim()!=='')", "new": "if(false)" }
+      ]
+    }
+  ]
+}

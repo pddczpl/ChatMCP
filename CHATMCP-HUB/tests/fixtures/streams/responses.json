@@ -1,0 +1,551 @@
+{
+  "about": "OpenAI Responses stream fixtures, written by build-responses.cjs from one plan per stream; the plain response of each answer is the object its terminal event carries. Not recorded from an account.",
+  "fixtures": [
+    {
+      "name": "text",
+      "file": "responses/text.sse",
+      "source": "Responses: a message in fragments, usage with cached tokens, response.completed",
+      "strict": true,
+      "response": {
+        "id": "resp_text_0001",
+        "object": "response",
+        "created_at": 1760000000,
+        "status": "completed",
+        "background": false,
+        "error": null,
+        "incomplete_details": null,
+        "instructions": null,
+        "max_output_tokens": 16384,
+        "model": "gpt-5-mini",
+        "output": [
+          {
+            "id": "msg_resp_text_0001_0",
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Xin chào! Đây là một câu trả lời được truyền theo từng mảnh. 😀",
+                "annotations": []
+              }
+            ]
+          }
+        ],
+        "parallel_tool_calls": false,
+        "previous_response_id": null,
+        "store": false,
+        "tool_choice": "auto",
+        "tools": [],
+        "usage": {
+          "input_tokens": 36,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 24,
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "total_tokens": 60
+        }
+      },
+      "summary": {
+        "status": "completed",
+        "text": "Xin chào! Đây là một câu trả lời được truyền theo từng mảnh. 😀",
+        "calls": [],
+        "error": false
+      }
+    },
+    {
+      "name": "function-call",
+      "file": "responses/function-call.sse",
+      "source": "Responses: a short message, then a function_call whose arguments arrive in fragments",
+      "strict": true,
+      "response": {
+        "id": "resp_call_0001",
+        "object": "response",
+        "created_at": 1760000000,
+        "status": "completed",
+        "background": false,
+        "error": null,
+        "incomplete_details": null,
+        "instructions": null,
+        "max_output_tokens": 16384,
+        "model": "gpt-5-mini",
+        "output": [
+          {
+            "id": "msg_resp_call_0001_0",
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Để tôi đọc tệp.",
+                "annotations": []
+              }
+            ]
+          },
+          {
+            "id": "fc_resp_call_0001_1",
+            "type": "function_call",
+            "status": "completed",
+            "arguments": "{\"path\":\"README.md\",\"max_lines\":40}",
+            "call_id": "call_read_0001",
+            "name": "read_file"
+          }
+        ],
+        "parallel_tool_calls": false,
+        "previous_response_id": null,
+        "store": false,
+        "tool_choice": "auto",
+        "tools": [],
+        "usage": {
+          "input_tokens": 148,
+          "input_tokens_details": {
+            "cached_tokens": 64
+          },
+          "output_tokens": 31,
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "total_tokens": 179
+        }
+      },
+      "summary": {
+        "status": "completed",
+        "text": "Để tôi đọc tệp.",
+        "calls": [
+          {
+            "name": "read_file",
+            "arguments": "{\"path\":\"README.md\",\"max_lines\":40}"
+          }
+        ],
+        "error": false
+      }
+    },
+    {
+      "name": "two-calls",
+      "file": "responses/two-calls.sse",
+      "source": "Responses: two function_call items in one turn, in output order",
+      "strict": true,
+      "response": {
+        "id": "resp_two_0001",
+        "object": "response",
+        "created_at": 1760000000,
+        "status": "completed",
+        "background": false,
+        "error": null,
+        "incomplete_details": null,
+        "instructions": null,
+        "max_output_tokens": 16384,
+        "model": "gpt-5-mini",
+        "output": [
+          {
+            "id": "fc_resp_two_0001_0",
+            "type": "function_call",
+            "status": "completed",
+            "arguments": "{\"path\":\"a.txt\"}",
+            "call_id": "call_a_0001",
+            "name": "read_file"
+          },
+          {
+            "id": "fc_resp_two_0001_1",
+            "type": "function_call",
+            "status": "completed",
+            "arguments": "{\"path\":\"b.txt\"}",
+            "call_id": "call_b_0001",
+            "name": "read_file"
+          }
+        ],
+        "parallel_tool_calls": false,
+        "previous_response_id": null,
+        "store": false,
+        "tool_choice": "auto",
+        "tools": [],
+        "usage": {
+          "input_tokens": 160,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 52,
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "total_tokens": 212
+        }
+      },
+      "summary": {
+        "status": "completed",
+        "text": "",
+        "calls": [
+          {
+            "name": "read_file",
+            "arguments": "{\"path\":\"a.txt\"}"
+          },
+          {
+            "name": "read_file",
+            "arguments": "{\"path\":\"b.txt\"}"
+          }
+        ],
+        "error": false
+      }
+    },
+    {
+      "name": "reasoning-call",
+      "file": "responses/reasoning-call.sse",
+      "source": "Responses with store: false: a reasoning item with encrypted_content (asked for with include), a summary in fragments, then a function_call",
+      "strict": true,
+      "response": {
+        "id": "resp_reason_0001",
+        "object": "response",
+        "created_at": 1760000000,
+        "status": "completed",
+        "background": false,
+        "error": null,
+        "incomplete_details": null,
+        "instructions": null,
+        "max_output_tokens": 16384,
+        "model": "gpt-5-mini",
+        "output": [
+          {
+            "id": "rs_resp_reason_0001_0",
+            "type": "reasoning",
+            "summary": [
+              {
+                "type": "summary_text",
+                "text": "I should read the file before changing it."
+              }
+            ],
+            "encrypted_content": "gAAAAABo_encrypted_reasoning_state_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ=="
+          },
+          {
+            "id": "fc_resp_reason_0001_1",
+            "type": "function_call",
+            "status": "completed",
+            "arguments": "{\"path\":\"src/main.rs\"}",
+            "call_id": "call_reason_0001",
+            "name": "read_file"
+          }
+        ],
+        "parallel_tool_calls": false,
+        "previous_response_id": null,
+        "store": false,
+        "tool_choice": "auto",
+        "tools": [],
+        "usage": {
+          "input_tokens": 190,
+          "input_tokens_details": {
+            "cached_tokens": 128
+          },
+          "output_tokens": 120,
+          "output_tokens_details": {
+            "reasoning_tokens": 96
+          },
+          "total_tokens": 310
+        }
+      },
+      "summary": {
+        "status": "completed",
+        "text": "",
+        "calls": [
+          {
+            "name": "read_file",
+            "arguments": "{\"path\":\"src/main.rs\"}"
+          }
+        ],
+        "error": false
+      }
+    },
+    {
+      "name": "reasoning-text",
+      "file": "responses/reasoning-text.sse",
+      "source": "Responses: reasoning, then the final message",
+      "strict": true,
+      "response": {
+        "id": "resp_reasontext_0001",
+        "object": "response",
+        "created_at": 1760000000,
+        "status": "completed",
+        "background": false,
+        "error": null,
+        "incomplete_details": null,
+        "instructions": null,
+        "max_output_tokens": 16384,
+        "model": "gpt-5-mini",
+        "output": [
+          {
+            "id": "rs_resp_reasontext_0001_0",
+            "type": "reasoning",
+            "summary": [
+              {
+                "type": "summary_text",
+                "text": "The result is already in the tool output."
+              }
+            ],
+            "encrypted_content": "gAAAAABo_encrypted_reasoning_state_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ=="
+          },
+          {
+            "id": "msg_resp_reasontext_0001_1",
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Xong: tệp có 42 dòng.",
+                "annotations": []
+              }
+            ]
+          }
+        ],
+        "parallel_tool_calls": false,
+        "previous_response_id": null,
+        "store": false,
+        "tool_choice": "auto",
+        "tools": [],
+        "usage": {
+          "input_tokens": 210,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 88,
+          "output_tokens_details": {
+            "reasoning_tokens": 64
+          },
+          "total_tokens": 298
+        }
+      },
+      "summary": {
+        "status": "completed",
+        "text": "Xong: tệp có 42 dòng.",
+        "calls": [],
+        "error": false
+      }
+    },
+    {
+      "name": "no-args-call",
+      "file": "responses/no-args-call.sse",
+      "source": "Responses: a function_call with empty arguments",
+      "strict": true,
+      "response": {
+        "id": "resp_noargs_0001",
+        "object": "response",
+        "created_at": 1760000000,
+        "status": "completed",
+        "background": false,
+        "error": null,
+        "incomplete_details": null,
+        "instructions": null,
+        "max_output_tokens": 16384,
+        "model": "gpt-5-mini",
+        "output": [
+          {
+            "id": "fc_resp_noargs_0001_0",
+            "type": "function_call",
+            "status": "completed",
+            "arguments": "{}",
+            "call_id": "call_noargs_0001",
+            "name": "list_files"
+          }
+        ],
+        "parallel_tool_calls": false,
+        "previous_response_id": null,
+        "store": false,
+        "tool_choice": "auto",
+        "tools": [],
+        "usage": {
+          "input_tokens": 120,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 12,
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "total_tokens": 132
+        }
+      },
+      "summary": {
+        "status": "completed",
+        "text": "",
+        "calls": [
+          {
+            "name": "list_files",
+            "arguments": "{}"
+          }
+        ],
+        "error": false
+      }
+    },
+    {
+      "name": "refusal",
+      "file": "responses/refusal.sse",
+      "source": "Responses: the model refuses (a refusal content part)",
+      "strict": true,
+      "response": {
+        "id": "resp_refusal_0001",
+        "object": "response",
+        "created_at": 1760000000,
+        "status": "completed",
+        "background": false,
+        "error": null,
+        "incomplete_details": null,
+        "instructions": null,
+        "max_output_tokens": 16384,
+        "model": "gpt-5-mini",
+        "output": [
+          {
+            "id": "msg_resp_refusal_0001_0",
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "refusal",
+                "refusal": "Tôi không thể giúp với yêu cầu này."
+              }
+            ]
+          }
+        ],
+        "parallel_tool_calls": false,
+        "previous_response_id": null,
+        "store": false,
+        "tool_choice": "auto",
+        "tools": [],
+        "usage": {
+          "input_tokens": 40,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 14,
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "total_tokens": 54
+        }
+      },
+      "summary": {
+        "status": "completed",
+        "text": "",
+        "calls": [],
+        "error": false
+      }
+    },
+    {
+      "name": "incomplete",
+      "file": "responses/incomplete.sse",
+      "source": "Responses: the output limit is reached (response.incomplete, max_output_tokens), with a function_call that was cut off",
+      "strict": true,
+      "response": {
+        "id": "resp_incomplete_0001",
+        "object": "response",
+        "created_at": 1760000000,
+        "status": "incomplete",
+        "background": false,
+        "error": null,
+        "incomplete_details": {
+          "reason": "max_output_tokens"
+        },
+        "instructions": null,
+        "max_output_tokens": 16384,
+        "model": "gpt-5-mini",
+        "output": [
+          {
+            "id": "msg_resp_incomplete_0001_0",
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "The answer is cut o",
+                "annotations": []
+              }
+            ]
+          }
+        ],
+        "parallel_tool_calls": false,
+        "previous_response_id": null,
+        "store": false,
+        "tool_choice": "auto",
+        "tools": [],
+        "usage": {
+          "input_tokens": 150,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 16384,
+          "output_tokens_details": {
+            "reasoning_tokens": 16000
+          },
+          "total_tokens": 16534
+        }
+      },
+      "summary": {
+        "status": "incomplete",
+        "text": "The answer is cut o",
+        "calls": [],
+        "error": true
+      }
+    },
+    {
+      "name": "failed",
+      "file": "responses/failed.sse",
+      "source": "Responses: the provider fails after the stream began (response.failed with an error object)",
+      "strict": true,
+      "response": {
+        "id": "resp_failed_0001",
+        "object": "response",
+        "created_at": 1760000000,
+        "status": "failed",
+        "background": false,
+        "error": {
+          "code": "server_error",
+          "message": "The server had an error while processing your request."
+        },
+        "incomplete_details": null,
+        "instructions": null,
+        "max_output_tokens": 16384,
+        "model": "gpt-5-mini",
+        "output": [
+          {
+            "id": "msg_resp_failed_0001_0",
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Partial text before the failure.",
+                "annotations": []
+              }
+            ]
+          }
+        ],
+        "parallel_tool_calls": false,
+        "previous_response_id": null,
+        "store": false,
+        "tool_choice": "auto",
+        "tools": [],
+        "usage": {
+          "input_tokens": 150,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 0,
+          "output_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "total_tokens": 150
+        }
+      },
+      "summary": {
+        "status": "failed",
+        "text": "Partial text before the failure.",
+        "calls": [],
+        "error": true
+      }
+    }
+  ]
+}

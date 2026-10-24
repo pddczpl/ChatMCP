@@ -216,7 +216,9 @@ try {
     check(first.tools.length === manager.catalog.counts.local + 4 && first.tools.length <= 128,
       `all ${manager.catalog.counts.local} local tools + four internal routers are advertised directly (${first.tools.length}); cap is configurable`);
     const edit = first.toolDefinitions.find((entry) => entry.name === 'edit_file');
-    check(edit.parameters.required.includes('old_string') && edit.parameters.properties.path.type === 'string', 'real parameter schemas are offered');
+    // edit_file takes old_string + new_string or edits (several edits of one file): only the path is required by the schema, the call is checked when it is made
+    check(edit.parameters.required.includes('path') && edit.parameters.properties.path.type === 'string' && edit.parameters.properties.old_string.type === 'string'
+      && edit.parameters.properties.edits.type === 'array' && edit.parameters.properties.edits.items.required.includes('new_string'), 'real parameter schemas are offered');
     check(first.instructions.includes(JSON.stringify(dir)), 'instructions name the workspace');
     check(!/Desktop Commander|Cloud Harness/.test(first.instructions), 'local instructions do not mention external servers');
     check(/untrusted DATA/.test(first.instructions) && /Permission denied/.test(first.instructions), 'instructions cover trust and permissions');

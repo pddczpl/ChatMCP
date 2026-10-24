@@ -1,0 +1,55 @@
+{
+  "suite": "verify-profile-routing.mjs",
+  "description": "What the profile routing suite must notice about the thinking effort of a task: a blank word that names a level, a setting that the pool does not hand to the runner, a follow-up or an agent started by the task, a queued task that shows or keeps none, a word that is not a level.",
+  "mutations": [
+    {
+      "name": "K1",
+      "what": "a blank word names a level (auto) instead of naming nothing",
+      "patches": [
+        { "file": "lib/agent.mjs", "old": "if (value === undefined || value === null || (typeof value === 'string' && !value.trim())) return null;", "new": "if (value === undefined || value === null) return null;" }
+      ]
+    },
+    {
+      "name": "K2",
+      "what": "the pool does not hand the setting to the runner of a new conversation",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "roleProfiles:selectedRoleProfiles,...(effort!==null?{reasoningEffort:effort}:{})});", "new": "roleProfiles:selectedRoleProfiles});" }
+      ]
+    },
+    {
+      "name": "K3",
+      "what": "an agent a task starts does not think as the task does",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "reasoningEffort:parent?.reasoningEffort??null,", "new": "reasoningEffort:null," }
+      ]
+    },
+    {
+      "name": "K4",
+      "what": "a queued task shows no setting",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "reasoningEffort:r.reasoningEffort??null,", "new": "reasoningEffort:null," }
+      ]
+    },
+    {
+      "name": "K5",
+      "what": "a follow-up hands the runner nothing of the setting it names",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "const named = effort !== null ? { reasoningEffort: effort } : {};", "new": "const named = {};" }
+      ]
+    },
+    {
+      "name": "K6",
+      "what": "a task record does not keep the setting",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "      ...(effort!==null?{reasoningEffort:effort}:{}),", "new": "" }
+      ]
+    },
+    {
+      "name": "K7",
+      "what": "a word that is not a level reaches a runner through a follow-up",
+      "patches": [
+        { "file": "lib/agent.mjs", "old": "if (effort === undefined) throw fault('invalid_reasoning_effort',", "new": "if (false) throw fault('invalid_reasoning_effort'," }
+      ]
+    }
+  ]
+}

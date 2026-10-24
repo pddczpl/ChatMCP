@@ -28,7 +28,8 @@ let realMcpCalls=0, modelRequests=0, nativeFailures=0,repairRequests=0;
 try {
   const gateway=getGateway(path.join(root,'a'),async(url,opt)=>{
     count(opt.headers['x-goog-api-key']===secret,'key sent only to configured endpoint');
-    count(url==='https://gateway.example.invalid/v1beta/models/gemini-test:generateContent','correct gateway');
+    // AgentRunner shows the text, so the first request of a run goes to the stream twin of the route (:streamGenerateContent?alt=sse): the same gateway and model.
+    count(url.replace(':streamGenerateContent?alt=sse',':generateContent')==='https://gateway.example.invalid/v1beta/models/gemini-test:generateContent','correct gateway');
     const body=JSON.parse(opt.body);
     if(Object.keys(body).join(',')!=='contents') {nativeFailures++;return nativeReject();}
     modelRequests++;

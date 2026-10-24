@@ -1,0 +1,97 @@
+{
+  "suite": "verify-local-tools.mjs",
+  "description": "What the local tools suite must notice about edit_file with several edits: edits applied to the original text instead of the evolving one, a failing edit skipped instead of nothing written, the failure not saying which edit, edits that cancel out written, the two forms mixed, no cap on the number of edits, replace_all of one edit ignored, a missing form not named, CRLF doubled, the receipt without the number of edits.",
+  "mutations": [
+    {
+      "name": "E1",
+      "what": "each edit is applied to the original text instead of the text the edits before it left",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "        updatedLf = step.text;", "new": "" }
+      ]
+    },
+    {
+      "name": "E2",
+      "what": "an edit that does not fit is skipped and the others are written (not all or nothing)",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "} catch (failure) { throw many ? this.#editFailure(failure, index, list.length) : failure; }", "new": "} catch (failure) { /* skipped */ }" }
+      ]
+    },
+    {
+      "name": "E3",
+      "what": "the failure does not say which edit it was",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "`Chỉnh sửa ${index + 1}/${total} thất bại, chưa ghi gì: ${error.message}`", "new": "error.message" }
+      ]
+    },
+    {
+      "name": "E4",
+      "what": "edits that cancel out are written anyway and reported as a change",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "if (updatedLf === hay) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "E5",
+      "what": "old_string and edits are accepted together",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "? ['chỉ dùng một trong hai cách: hoặc old_string + new_string, hoặc edits; không dùng cả hai'] : [];", "new": "? [] : [];" }
+      ]
+    },
+    {
+      "name": "E6",
+      "what": "more than 50 edits are accepted",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "const MAX_EDITS = 50;", "new": "const MAX_EDITS = 500;" }
+      ]
+    },
+    {
+      "name": "E7",
+      "what": "replace_all of one edit is ignored",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "replace_all: edit.replace_all === true })), many };", "new": "replace_all: false })), many };" }
+      ]
+    },
+    {
+      "name": "E8",
+      "what": "a call with neither form is not told what is missing",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "return oldString === undefined || newString === undefined ? ['cần old_string + new_string hoặc edits (danh sách chỉnh sửa)'] : [];", "new": "return [];" }
+      ]
+    },
+    {
+      "name": "E9",
+      "what": "CRLF inside the new text of an edit is written twice over (\\r\\r\\n)",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "newString: crlf ? toLf(edit.new_string) : edit.new_string, replaceAll: edit.replace_all }", "new": "newString: edit.new_string, replaceAll: edit.replace_all }" }
+      ]
+    },
+    {
+      "name": "E10",
+      "what": "the receipt does not say how many edits there were",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "{ path: target.relative, edits: list.length, replacements: count, firstLine, sha256: digest, previousSha: before });", "new": "{ path: target.relative, replacements: count, firstLine, sha256: digest, previousSha: before });" }
+      ]
+    },
+    {
+      "name": "E11",
+      "what": "validate() (the check made before an approval is asked) ignores the rule across the fields",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "return errors.length === 0 ? { ok: true, errors: [] } : { ok: false, code: 'invalid_arguments', errors };", "new": "return checked.ok ? { ok: true, errors: [] } : { ok: false, code: 'invalid_arguments', errors };" }
+      ]
+    },
+    {
+      "name": "E12",
+      "what": "call() runs a call whose form is wrong when its schema is right",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "if (errors.length) return failure('invalid_arguments',", "new": "if (!checked.ok) return failure('invalid_arguments'," }
+      ]
+    },
+    {
+      "name": "E13",
+      "what": "the rule across the fields is never asked of the tool",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "return typeof tool.check === 'function' ? tool.check(value) : [];", "new": "return [];" }
+      ]
+    }
+  ]
+}

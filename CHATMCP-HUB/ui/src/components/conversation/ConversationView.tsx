@@ -10,7 +10,7 @@ import { WorkflowCard } from './WorkflowCard';
 import { StateBanner } from './StateBanner';
 import { Composer } from './Composer';
 import { EmptyState } from './EmptyState';
-import { ModelProfilePicker, RoleOverridesField } from './ModelProfilePicker';
+import { ModelProfilePicker, RoleOverridesField, TaskReasoningPicker } from './ModelProfilePicker';
 import { ProofStrip } from './ProofStrip';
 import { ProjectInstructionsNote } from './ProjectInstructionsNote';
 import { ContextPolicyNotice } from './ContextPolicyNotice';
@@ -39,6 +39,8 @@ export function ConversationView() {
   const [sending, setSending] = useState(false);
   const [dependsOn, setDependsOn] = useState<string[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState('');
+  // The thinking effort chosen for the next message: '' is what is in force (the connection's, or the conversation's own), 'auto' or a level overrides it.
+  const [taskEffort, setTaskEffort] = useState('');
   const [roleProfilesDraft, setRoleProfilesDraft] = useState('');
   const [showRoleProfiles, setShowRoleProfiles] = useState(false);
   const [approving, setApproving] = useState(false);
@@ -83,6 +85,8 @@ export function ConversationView() {
   };
   const desiredTransport=hub?.agent?.mode||'api';
   const willSwitch=Boolean(selectedTaskId&&task?.transport&&task.transport!==desiredTransport);
+  // The chip for the thinking effort of the next message: a new conversation on the Model API, or a follow-up to one that is on it.
+  const effortChip = desiredTransport === 'api' && (!selectedTaskId || (!!task && !willSwitch && task.transport !== 'chatgpt-web'));
   // the sentence is cut where the new channel's name goes (in bold)
   const [switchBefore, switchAfter] = t('agents_conv_switch').split('{transport}');
   const permissions = hub?.studio?.permissions;
@@ -95,6 +99,7 @@ export function ConversationView() {
 
   useEffect(() => {
     if (!selectedTaskId) setDependsOn([]);
+    setTaskEffort('');
     followOutput.current = true;
     setShowLatest(false);
   }, [selectedTaskId]);
@@ -119,13 +124,13 @@ export function ConversationView() {
         const roleProfiles=apiMode?parseRoleProfileOverrides(roleProfilesDraft,knownProfiles):{};
         const res = await api.startTask(text || t('agents_conv_files_prompt'), attachments, selectedBaseRef || null, dependsOn,
           selectedWorkspacePath || hub?.workspaces?.activePath || hub?.workspace?.path || null,
-          apiMode ? selectedProfileId || null : null, roleProfiles);
+          apiMode ? selectedProfileId || null : null, roleProfiles, apiMode ? taskEffort || null : null);
         if (res?.task?.id) {
           queryClient.setQueryData(['task', res.task.id], res.task);
           setSelectedTaskId(res.task.id);
         }
       } else {
-        const res = await api.continueTask(selectedTaskId, text || t('agents_conv_files_prompt'), attachments);
+        const res = await api.continueTask(selectedTaskId, text || t('agents_conv_files_prompt'), attachments, effortChip ? taskEffort || null : null);
         if(res.task.id!==selectedTaskId){
           // A user-requested mode switch creates a linked task in the chosen
           // transport rather than silently using the old model runner.
@@ -134,6 +139,7 @@ export function ConversationView() {
           showToast(res.task.handoff?.note||t('agents_conv_handoff'),'info');
         }else queryClient.setQueryData(['task',selectedTaskId],res.task);
       }
+      setTaskEffort('');
       refreshTask();
       return true;
     } catch (err: any) {
@@ -375,8 +381,9 @@ export function ConversationView() {
             currentMode={mode}
             onModeChange={handleModeChange}
             extraTools={<>
-              {newTaskPicker && <ModelProfilePicker hub={hub} value={selectedProfileId} onChange={setSelectedProfileId}
+              {newTaskPicker && <ModelProfilePicker hub={hub} value={selectedProfileId} onChange={(profileId) => { setSelectedProfileId(profileId); setTaskEffort(''); }}
                 rolesOpen={showRoleProfiles} onToggleRoles={() => setShowRoleProfiles(x => !x)} />}
+              {effortChip && <TaskReasoningPicker hub={hub} profileId={selectedProfileId} task={selectedTaskId ? task ?? null : null} value={taskEffort} onChange={setTaskEffort} />}
               {!!selectedTaskId && !!task?.effectiveProfile && (
                 <span data-testid="active-model-profile" className="inline-flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-2.5 text-[13px] text-muted"
                   title={t('agents_conv_profile_title', { name: task.effectiveProfile.name, model: task.effectiveProfile.model, revision: String(task.effectiveProfile.revision?.slice(0, 8)) })}>

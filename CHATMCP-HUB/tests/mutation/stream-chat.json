@@ -1,0 +1,968 @@
+{
+  "suite": "verify-stream-chat.mjs",
+  "description": "Chat Completions streaming: the reader (lib/openai-chat-stream.mjs), what a stream error is (lib/model-stream.mjs), the adapter (lib/standard-adapter.mjs), the provider's memory of refusals (lib/gateway-provider.mjs) and the request body (lib/openai-chat-api.mjs).",
+  "mutations": [
+    {
+      "name": "CS1",
+      "what": "an event with no data is read as JSON",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (marked || raw === '') return undefined;", "new": "if (marked) return undefined;" }
+      ]
+    },
+    {
+      "name": "CS2",
+      "what": "an event that comes after [DONE] is read",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (marked || raw === '') return undefined;", "new": "if (raw === '') return undefined;" }
+      ]
+    },
+    {
+      "name": "CS3",
+      "what": "[DONE] does not end the read, so what a server sends after it is read",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (raw === '[DONE]') { marked = true; return SSE_STOP; }", "new": "if (raw === '[DONE]') { marked = true; return undefined; }" }
+      ]
+    },
+    {
+      "name": "CS4",
+      "what": "[DONE] is not remembered, so a text answer that ends with it is not complete",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (raw === '[DONE]') { marked = true; return SSE_STOP; }", "new": "if (raw === '[DONE]') { return SSE_STOP; }" }
+      ]
+    },
+    {
+      "name": "CS5",
+      "what": "an event that is not JSON escapes without the code of an invalid stream",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "try { chunk = JSON.parse(raw); } catch { throw streamInvalid('Một sự kiện của luồng Chat Completions không phải JSON.'); }", "new": "chunk = JSON.parse(raw);" }
+      ]
+    },
+    {
+      "name": "CS6",
+      "what": "an event that is JSON but not an object is read",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (!isObject(chunk)) throw streamInvalid('Một sự kiện của luồng Chat Completions không phải một đối tượng.');", "new": "" }
+      ]
+    },
+    {
+      "name": "CS7",
+      "what": "an error object inside the stream is ignored",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (chunk.error) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "CS8",
+      "what": "an error given as a string loses its words",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "const error = isObject(chunk.error) ? chunk.error : { message: String(chunk.error) };", "new": "const error = isObject(chunk.error) ? chunk.error : {};" }
+      ]
+    },
+    {
+      "name": "CS9",
+      "what": "an error inside the stream has no HTTP status of its own",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "throw streamProviderError(error, streamErrorStatus(error));", "new": "throw streamProviderError(error, 502);" }
+      ]
+    },
+    {
+      "name": "CS10",
+      "what": "the usage of the stream is not read",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (isObject(chunk.usage)) usage = chunk.usage;", "new": "" }
+      ]
+    },
+    {
+      "name": "CS11",
+      "what": "any choice is read, not the first",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "chunk.choices.find((candidate) => (candidate?.index ?? 0) === 0)", "new": "chunk.choices.find((candidate) => true)" }
+      ]
+    },
+    {
+      "name": "CS12",
+      "what": "a chunk with no choice is read as if it had one",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (!isObject(choice)) return undefined;", "new": "" }
+      ]
+    },
+    {
+      "name": "CS13",
+      "what": "a choice with no delta breaks the reader",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "const delta = isObject(choice.delta) ? choice.delta : {};", "new": "const delta = choice.delta;" }
+      ]
+    },
+    {
+      "name": "CS14",
+      "what": "the text of the answer is not collected",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "        text += piece;", "new": "" }
+      ]
+    },
+    {
+      "name": "CS15",
+      "what": "the text is not handed to the caller as it comes",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "        await onToken(piece);", "new": "" }
+      ]
+    },
+    {
+      "name": "CS16",
+      "what": "the handler of the text is not waited for",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "        await onToken(piece);", "new": "        onToken(piece);" }
+      ]
+    },
+    {
+      "name": "CS17",
+      "what": "the reasoning text is not collected",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (typeof delta.reasoning_content === 'string') reasoning += delta.reasoning_content;", "new": "" }
+      ]
+    },
+    {
+      "name": "CS18",
+      "what": "a refusal is not collected",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (typeof delta.refusal === 'string') refusal += delta.refusal;", "new": "" }
+      ]
+    },
+    {
+      "name": "CS19",
+      "what": "tool call fragments are not read",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (Array.isArray(delta.tool_calls)) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "CS20",
+      "what": "a tool call fragment that is not an object is read",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (!isObject(fragment)) throw streamInvalid('Một mảnh tool_calls của luồng không hợp lệ.');", "new": "" }
+      ]
+    },
+    {
+      "name": "CS21",
+      "what": "the id of a call is the last one it was given",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (typeof fragment.id === 'string' && fragment.id && !call.id) call.id = fragment.id;", "new": "if (typeof fragment.id === 'string' && fragment.id) call.id = fragment.id;" }
+      ]
+    },
+    {
+      "name": "CS22",
+      "what": "a fragment that has no function in it breaks the reader",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (!isObject(fn)) continue;", "new": "" }
+      ]
+    },
+    {
+      "name": "CS23",
+      "what": "the name of a call is the last name it was given",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (typeof fn.name === 'string' && fn.name.startsWith(call.name)) call.name = fn.name;", "new": "if (typeof fn.name === 'string') call.name = fn.name;" }
+      ]
+    },
+    {
+      "name": "CS24",
+      "what": "the name of a call is never read",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (typeof fn.name === 'string' && fn.name.startsWith(call.name)) call.name = fn.name;", "new": "" }
+      ]
+    },
+    {
+      "name": "CS25",
+      "what": "the fragments of the arguments replace each other",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (typeof fn.arguments === 'string') call.arguments += fn.arguments;", "new": "if (typeof fn.arguments === 'string') call.arguments = fn.arguments;" }
+      ]
+    },
+    {
+      "name": "CS26",
+      "what": "arguments that arrive as an object are lost",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "else if (isObject(fn.arguments)) call.arguments = JSON.stringify(fn.arguments);", "new": "" }
+      ]
+    },
+    {
+      "name": "CS27",
+      "what": "the finish reason is not read",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (typeof choice.finish_reason === 'string' && choice.finish_reason) finishReason = choice.finish_reason;", "new": "" }
+      ]
+    },
+    {
+      "name": "CS28",
+      "what": "an empty finish reason completes the answer",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (typeof choice.finish_reason === 'string' && choice.finish_reason) finishReason = choice.finish_reason;", "new": "if (typeof choice.finish_reason === 'string') finishReason = choice.finish_reason;" }
+      ]
+    },
+    {
+      "name": "CS29",
+      "what": "only [DONE] completes an answer (a finish reason does not)",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "const complete = finishReason !== null || (marked && calls.length === 0 && Boolean(text || reasoning || refusal));", "new": "const complete = (marked && calls.length === 0 && Boolean(text || reasoning || refusal));" }
+      ]
+    },
+    {
+      "name": "CS30",
+      "what": "[DONE] with nothing in it completes an answer",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "const complete = finishReason !== null || (marked && calls.length === 0 && Boolean(text || reasoning || refusal));", "new": "const complete = finishReason !== null || marked;" }
+      ]
+    },
+    {
+      "name": "CS31",
+      "what": "[DONE] completes a call that has no finish reason",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "const complete = finishReason !== null || (marked && calls.length === 0 && Boolean(text || reasoning || refusal));", "new": "const complete = finishReason !== null || (marked && Boolean(text || reasoning || refusal));" }
+      ]
+    },
+    {
+      "name": "CS32",
+      "what": "a stream that ends with no finish reason is a valid answer",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (!complete) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "CS33",
+      "what": "the error of a call cut by [DONE] does not say what was missing",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "throw streamInterrupted(calls.length && marked", "new": "throw streamInterrupted(false" }
+      ]
+    },
+    {
+      "name": "CS34",
+      "what": "the calls of an answer the limit cut are checked as if they were complete",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (!CUT_SHORT.has(finishReason)) {", "new": "if (true) {" }
+      ]
+    },
+    {
+      "name": "CS35",
+      "what": "the calls of a complete answer are not checked",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (!CUT_SHORT.has(finishReason)) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "CS36",
+      "what": "a call with no name is accepted by the reader",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (!call.name) throw streamInvalid('Một lời gọi công cụ trong luồng không có tên; không chạy công cụ.');", "new": "" }
+      ]
+    },
+    {
+      "name": "CS37",
+      "what": "arguments that are empty are taken for invalid",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "try { parsed = call.arguments.trim() ? JSON.parse(call.arguments) : {}; } catch { parsed = null; }", "new": "try { parsed = JSON.parse(call.arguments); } catch { parsed = null; }" }
+      ]
+    },
+    {
+      "name": "CS38",
+      "what": "arguments that are not valid JSON are accepted",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "try { parsed = call.arguments.trim() ? JSON.parse(call.arguments) : {}; } catch { parsed = null; }", "new": "try { parsed = call.arguments.trim() ? JSON.parse(call.arguments) : {}; } catch { parsed = {}; }" }
+      ]
+    },
+    {
+      "name": "CS39",
+      "what": "arguments that are JSON but not an object are accepted",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (!isObject(parsed)) throw streamInvalid(", "new": "if (parsed === null) throw streamInvalid(" }
+      ]
+    },
+    {
+      "name": "CS40",
+      "what": "an answer that completes with nothing in it is accepted",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (!CUT_SHORT.has(finishReason) && !text.trim() && !refusal.trim() && calls.length === 0) throw", "new": "if (false) throw" }
+      ]
+    },
+    {
+      "name": "CS41",
+      "what": "an answer cut by the limit before its first word is refused as empty",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (!CUT_SHORT.has(finishReason) && !text.trim() && !refusal.trim() && calls.length === 0) throw", "new": "if (!text.trim() && !refusal.trim() && calls.length === 0) throw" }
+      ]
+    },
+    {
+      "name": "CS42",
+      "what": "white space counts as an answer",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (!CUT_SHORT.has(finishReason) && !text.trim() && !refusal.trim() && calls.length === 0) throw", "new": "if (!CUT_SHORT.has(finishReason) && !text && !refusal && calls.length === 0) throw" }
+      ]
+    },
+    {
+      "name": "CS43",
+      "what": "the reasoning text does not reach the answer",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (reasoning) message.reasoning_content = reasoning;", "new": "" }
+      ]
+    },
+    {
+      "name": "CS44",
+      "what": "a refusal does not reach the answer",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (refusal) message.refusal = refusal;", "new": "" }
+      ]
+    },
+    {
+      "name": "CS45",
+      "what": "the calls do not reach the answer",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (calls.length) message.tool_calls = calls.map(", "new": "if (false) message.tool_calls = calls.map(" }
+      ]
+    },
+    {
+      "name": "CS46",
+      "what": "the arguments of a call are lost on the way to the answer",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "function: { name: call.name, arguments: call.arguments } }));", "new": "function: { name: call.name, arguments: '{}' } }));" }
+      ]
+    },
+    {
+      "name": "CS47",
+      "what": "the usage does not reach the answer",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "...(usage ? { usage } : {})", "new": "" }
+      ]
+    },
+    {
+      "name": "CS48",
+      "what": "the ids a conversation used already are not given to the normaliser",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "}, { usedCallIds });", "new": "});" }
+      ]
+    },
+    {
+      "name": "CS49",
+      "what": "a content in parts is not read",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "const textOf = (value) => (typeof value === 'string' ? value : Array.isArray(value) ?", "new": "const textOf = (value) => (typeof value === 'string' ? value : false ?" }
+      ]
+    },
+    {
+      "name": "CS50",
+      "what": "an answer cut by a content filter is not told from a complete one",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "const CUT_SHORT = new Set(['length', 'content_filter']);", "new": "const CUT_SHORT = new Set(['length']);" }
+      ]
+    },
+    {
+      "name": "CS51",
+      "what": "a fragment with no index is always a new call",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (!last || (typeof fragment.id === 'string' && fragment.id && last.id && fragment.id !== last.id)) calls.push(", "new": "if (true) calls.push(" }
+      ]
+    },
+    {
+      "name": "CS52",
+      "what": "a fragment with no index never starts a new call",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (!last || (typeof fragment.id === 'string' && fragment.id && last.id && fragment.id !== last.id)) calls.push(", "new": "if (!last) calls.push(" }
+      ]
+    },
+    {
+      "name": "CS53",
+      "what": "calls with an index are kept in the order of the index, not of their start",
+      "patches": [
+        { "file": "lib/openai-chat-stream.mjs", "old": "if (!slotOf.has(fragment.index)) { slotOf.set(fragment.index, calls.length); calls.push({ id: '', name: '', arguments: '' }); }", "new": "if (!slotOf.has(fragment.index)) { slotOf.set(fragment.index, fragment.index); calls[fragment.index] = { id: '', name: '', arguments: '' }; }" }
+      ]
+    },
+    {
+      "name": "MS1",
+      "what": "an error name is looked up in the table with `in`, so a name from the prototype is a status",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "if (typeof name === 'string' && Object.hasOwn(STATUS_OF_NAME, name.toLowerCase())) return STATUS_OF_NAME[name.toLowerCase()];", "new": "if (typeof name === 'string' && name.toLowerCase() in STATUS_OF_NAME) return STATUS_OF_NAME[name.toLowerCase()];" }
+      ]
+    },
+    {
+      "name": "MS2",
+      "what": "a number below 400 is a status",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "number >= 400 && number <= 599", "new": "number >= 300 && number <= 599" }
+      ]
+    },
+    {
+      "name": "MS3",
+      "what": "a number above 599 is a status",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "number >= 400 && number <= 599", "new": "number >= 400 && number <= 699" }
+      ]
+    },
+    {
+      "name": "MS4",
+      "what": "a number that is not whole is a status",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "if (Number.isInteger(number) && number >= 400", "new": "if (number >= 400" }
+      ]
+    },
+    {
+      "name": "MS5",
+      "what": "an unknown error is a 500, not a 502",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "return 502;", "new": "return 500;" }
+      ]
+    },
+    {
+      "name": "MS6",
+      "what": "the type of an error is not looked at",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "for (const name of [error?.type, error?.code, error?.status]) {", "new": "for (const name of [error?.code, error?.status]) {" }
+      ]
+    },
+    {
+      "name": "MS7",
+      "what": "the code of an error is not looked at",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "for (const name of [error?.type, error?.code, error?.status]) {", "new": "for (const name of [error?.type, error?.status]) {" }
+      ]
+    },
+    {
+      "name": "MS8",
+      "what": "the status word of an error is not looked at",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "for (const name of [error?.type, error?.code, error?.status]) {", "new": "for (const name of [error?.type, error?.code]) {" }
+      ]
+    },
+    {
+      "name": "MS9",
+      "what": "an error name is read in the case it was written",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "return STATUS_OF_NAME[name.toLowerCase()];", "new": "return STATUS_OF_NAME[name];" }
+      ]
+    },
+    {
+      "name": "MS10",
+      "what": "a stream that was cut is not told from one that was damaged",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "export const isStreamFallback = (error) => error?.kind === 'stream_interrupted' || error?.kind === 'stream_invalid';", "new": "export const isStreamFallback = (error) => error?.kind === 'stream_interrupted';" }
+      ]
+    },
+    {
+      "name": "MS11",
+      "what": "a damaged stream is not repeated without a stream",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "export const isStreamFallback = (error) => error?.kind === 'stream_interrupted' || error?.kind === 'stream_invalid';", "new": "export const isStreamFallback = (error) => error?.kind === 'stream_invalid';" }
+      ]
+    },
+    {
+      "name": "MS12",
+      "what": "an error inside a stream is repeated like a stream that was cut",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "export const isStreamFallback = (error) => error?.kind === 'stream_interrupted' || error?.kind === 'stream_invalid';", "new": "export const isStreamFallback = (error) => error?.kind === 'stream_interrupted' || error?.kind === 'stream_invalid' || error?.kind === 'stream_error';" }
+      ]
+    },
+    {
+      "name": "MS13",
+      "what": "an error inside a stream with no message has none",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "typeof error?.message === 'string' ? error.message : 'Nhà cung cấp báo lỗi giữa luồng.'", "new": "String(error?.message)" }
+      ]
+    },
+    {
+      "name": "MS14",
+      "what": "an error inside a stream does not carry the error object",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "{ upstreamStatus: status, data: { error } }", "new": "{ upstreamStatus: status }" }
+      ]
+    },
+    {
+      "name": "MS15",
+      "what": "the headers clock is not armed",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "arm(headersMs, 'stream_headers_timeout',", "new": "(() => {})(headersMs, 'stream_headers_timeout'," }
+      ]
+    },
+    {
+      "name": "MS16",
+      "what": "the idle clock is not armed when the response begins",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "arm(idleMs, 'stream_idle_timeout', `Luồng trả lời không có dữ liệu mới trong ${lapse(idleMs)}.`); // the idle clock runs from the response on", "new": "// the idle clock runs from the response on" }
+      ]
+    },
+    {
+      "name": "MS17",
+      "what": "the total cap of a stream is not armed",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "      totalTimer = setTimeout(", "new": "      totalTimer = (() => {}, (ms) => ms)(" }
+      ]
+    },
+    {
+      "name": "MS18",
+      "what": "bytes that arrive do not start the idle clock again",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "if (begun && !own.signal.aborted) arm(idleMs,", "new": "if (false) arm(idleMs," }
+      ]
+    },
+    {
+      "name": "MS19",
+      "what": "the caller's own signal does not stop the request",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "signal: signal ? AbortSignal.any([signal, own.signal]) : own.signal,", "new": "signal: own.signal," }
+      ]
+    },
+    {
+      "name": "MS20",
+      "what": "the clock never says why it ended the request",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "reason: () => (signal?.aborted ? null : own.signal.aborted ? own.signal.reason : null),", "new": "reason: () => null," }
+      ]
+    },
+    {
+      "name": "MS21",
+      "what": "the clock's reason replaces the caller's own",
+      "equivalent": "the adapter looks at the caller's signal before it asks the clock, so the caller's reason wins whichever way the clock answers",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "reason: () => (signal?.aborted ? null : own.signal.aborted ? own.signal.reason : null),", "new": "reason: () => (own.signal.aborted ? own.signal.reason : null)," }
+      ]
+    },
+    {
+      "name": "MS22",
+      "what": "the clocks keep running after the request is over",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "stop() { clearTimeout(timer); clearTimeout(totalTimer); },", "new": "stop() {}," }
+      ]
+    },
+    {
+      "name": "MS23",
+      "what": "an unfinished answer that did not stream is shown as text",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "  if (result.status !== 'completed') return;", "new": "" }
+      ]
+    },
+    {
+      "name": "MS24",
+      "what": "the text of an answer that did not stream is not delivered",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": "if (item.type === 'message') for (const part of item.content) if (part.type === 'output_text') await onToken(part.text);", "new": "" }
+      ]
+    },
+    {
+      "name": "MS25",
+      "what": "a response is taken for a stream whatever its type",
+      "patches": [
+        { "file": "lib/model-stream.mjs", "old": ".toLowerCase().includes('text/event-stream');", "new": ".toLowerCase().includes('');" }
+      ]
+    },
+    {
+      "name": "SA1",
+      "what": "a protocol with no stream reader is asked to stream",
+      "equivalent": "every protocol that respondStandard serves has a stream reader since the Messages reader (prov-14), so the test of a missing reader can no longer be reached; it stays for a protocol added without one",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "const wantsStream = ctx.stream === true && makeReader !== undefined;", "new": "const wantsStream = ctx.stream === true;" }
+      ]
+    },
+    {
+      "name": "SA2",
+      "what": "a stream the caller knows is refused is asked for again",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "let streaming = wantsStream && ctx.streamRefused !== true;", "new": "let streaming = wantsStream;" }
+      ]
+    },
+    {
+      "name": "SA3",
+      "what": "a stream_options refusal the caller knows is not taken into account",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "let includeUsage = ctx.streamOptionsRefused !== true;", "new": "let includeUsage = true;" }
+      ]
+    },
+    {
+      "name": "SA4",
+      "what": "a stream is answered as if the response were a body",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "if (streaming && response.ok && isEventStream(response)) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "SA5",
+      "what": "the response begins but the clocks are not told",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "clock?.started();", "new": "" }
+      ]
+    },
+    {
+      "name": "SA6",
+      "what": "the text shown is not counted, so it is never taken back",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "onToken: async (piece) => { shown += piece.length; await onToken(piece); }", "new": "onToken: async (piece) => { await onToken(piece); }" }
+      ]
+    },
+    {
+      "name": "SA7",
+      "what": "the stream is read without the signal of the clocks and the caller",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "await readSse(response.body, { signal: clock.signal,", "new": "await readSse(response.body, {" }
+      ]
+    },
+    {
+      "name": "SA8",
+      "what": "a stream is read with the cap of a plain response",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "maxBytes: limits.streamMaxBytes,", "new": "" }
+      ]
+    },
+    {
+      "name": "SA9",
+      "what": "bytes of a stream do not start the idle clock again",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "onChunk: () => clock.touch(),", "new": "onChunk: () => {}," }
+      ]
+    },
+    {
+      "name": "SA10",
+      "what": "the reason of a clock is not the failure, so a silent stream is an AbortError",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "const failure = clock?.reason() ?? error;", "new": "const failure = error;" }
+      ]
+    },
+    {
+      "name": "SA11",
+      "what": "a stream over the byte cap is not reported",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "if (failure?.code === 'sse_too_large') throw fail('gateway_too_large'", "new": "if (false) throw fail('gateway_too_large'" }
+      ]
+    },
+    {
+      "name": "SA12",
+      "what": "an error inside a stream is not handled as the HTTP error it stands for",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "if (failure?.kind === 'stream_error') streamError = failure;", "new": "if (false) streamError = failure;" }
+      ]
+    },
+    {
+      "name": "SA13",
+      "what": "a response that says it is a stream and has no body is not repeated without a stream",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "(isStreamFallback(failure) || failure?.code === 'sse_no_stream')", "new": "(isStreamFallback(failure))" }
+      ]
+    },
+    {
+      "name": "SA14",
+      "what": "a cut or damaged stream is not repeated without a stream",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "else if (streaming && (isStreamFallback(failure) || failure?.code === 'sse_no_stream')) {", "new": "else if (false) {" }
+      ]
+    },
+    {
+      "name": "SA15",
+      "what": "after a cut stream the next attempt streams again",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "streaming = false; // cut or damaged: the repeat has no stream", "new": "// cut or damaged: the repeat has no stream" }
+      ]
+    },
+    {
+      "name": "SA16",
+      "what": "a cut stream is not remembered, so every call pays for the cut again",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "streamGaveUp = true; // ... and the caller is told to remember it, once the repeat is accepted", "new": "// remembered" }
+      ]
+    },
+    {
+      "name": "SA17",
+      "what": "the text shown before a cut stream is not taken back",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "await takeBack(); // what was shown is taken back before anything is said or repeated", "new": "// what was shown is taken back before anything is said or repeated" }
+      ]
+    },
+    {
+      "name": "SA18",
+      "what": "the text shown before a lost connection is taken back only after the wait",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "await takeBack(); // a lost connection: what was shown is taken back before the wait", "new": "// a lost connection: what was shown is taken back before the wait" }
+      ]
+    },
+    {
+      "name": "SA19",
+      "what": "the text shown before a retried HTTP error is taken back only after the wait",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "await takeBack(); // a retried HTTP error: what was shown is taken back before the wait", "new": "// a retried HTTP error: what was shown is taken back before the wait" }
+      ]
+    },
+    {
+      "name": "SA20",
+      "what": "an attempt that is replaced does not take back the text of the one before it",
+      "equivalent": "every branch that repeats a request after text was shown takes the text back itself, before it says or waits; the one at the top of the loop is for a branch that does not (none today)",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "    await takeBack(); // text of an attempt", "new": "    // text of an attempt" }
+      ]
+    },
+    {
+      "name": "SA21",
+      "what": "a stream that was accepted does not confirm what it took to be accepted",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "accepted(); // a stream that was read to its end", "new": "// a stream that was read to its end" }
+      ]
+    },
+    {
+      "name": "SA22",
+      "what": "an error inside a stream loses its status",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "      status = streamError.upstreamStatus;", "new": "      status = 502;" }
+      ]
+    },
+    {
+      "name": "SA23",
+      "what": "an error inside a stream loses its body",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "      parsed = streamError.data;", "new": "      parsed = null;" }
+      ]
+    },
+    {
+      "name": "SA24",
+      "what": "a plain answer that was accepted does not confirm what it took to be accepted",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "accepted(); // a plain answer", "new": "// a plain answer" }
+      ]
+    },
+    {
+      "name": "SA25",
+      "what": "the text of an answer that did not stream is not delivered",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "if (wantsStream) await deliverText(result, onToken);", "new": "" }
+      ]
+    },
+    {
+      "name": "SA26",
+      "what": "stream_options are dropped on a request that does not stream",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "if (streaming && includeUsage && ctx.protocol === 'openai-chat' && refusesStreamOptions(status, parsed, info)) {", "new": "if (includeUsage && ctx.protocol === 'openai-chat' && refusesStreamOptions(status, parsed, info)) {" }
+      ]
+    },
+    {
+      "name": "SA27",
+      "what": "stream_options are dropped again and again",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "if (streaming && includeUsage && ctx.protocol === 'openai-chat' && refusesStreamOptions(status, parsed, info)) {", "new": "if (streaming && ctx.protocol === 'openai-chat' && refusesStreamOptions(status, parsed, info)) {" }
+      ]
+    },
+    {
+      "name": "SA28",
+      "what": "a refusal of stream_options is not remembered",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "usageDropped = true; // ... and the caller is told to remember it, once the repeat is accepted", "new": "// remembered" }
+      ]
+    },
+    {
+      "name": "SA29",
+      "what": "stream_options are not taken out of the repeat",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "includeUsage = false; // stream_options refused: the repeat has none", "new": "// stream_options refused: the repeat has none" }
+      ]
+    },
+    {
+      "name": "SA30",
+      "what": "a request that does not stream is asked again without a stream, for ever",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "if (streaming && refusesStream(status, parsed, info)) {", "new": "if (refusesStream(status, parsed, info)) {" }
+      ]
+    },
+    {
+      "name": "SA31",
+      "what": "a refusal of the stream is not remembered",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "streamGaveUp = true; // the refusal is remembered once the repeat is accepted", "new": "// the refusal is remembered once the repeat is accepted" }
+      ]
+    },
+    {
+      "name": "SA32",
+      "what": "a stream is not given up after it is refused",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "streaming = false; // refused: the repeat has no stream", "new": "// refused: the repeat has no stream" }
+      ]
+    },
+    {
+      "name": "SA33",
+      "what": "the time a stream waited is not told in the words of the clock that ended it",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "${waited(failure.waitedMs ?? limits.requestTimeoutMs)}", "new": "${waited(limits.requestTimeoutMs)}" }
+      ]
+    },
+    {
+      "name": "SA34",
+      "what": "any 400 that mentions stream_options is a refusal of the stream",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "/\\bstream(?!_options)/i.test(errorDetail(data))", "new": "/\\bstream/i.test(errorDetail(data))" }
+      ]
+    },
+    {
+      "name": "SA35",
+      "what": "a 400 about stream_options is told by its words only, not by the field it names",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "(data?.error?.param === 'stream_options' || /stream_options|include_usage/i.test(errorDetail(data)))", "new": "(/stream_options|include_usage/i.test(errorDetail(data)))" }
+      ]
+    },
+    {
+      "name": "SA36",
+      "what": "a 400 about stream_options is told by the field only, not by its words",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "(data?.error?.param === 'stream_options' || /stream_options|include_usage/i.test(errorDetail(data)))", "new": "(data?.error?.param === 'stream_options')" }
+      ]
+    },
+    {
+      "name": "SA37",
+      "what": "any 400 is a refusal of stream_options",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "const refusesStreamOptions = (status, data, info) => status === 400 && info.kind === 'request' && (", "new": "const refusesStreamOptions = (status, data, info) => status === 400 && (" }
+      ]
+    },
+    {
+      "name": "SA38",
+      "what": "a 400 that is not a plain refusal (the context, say) that mentions the stream is read as a refusal of the stream",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "const refusesStream = (status, data, info) => status === 400 && info.kind === 'request' && (", "new": "const refusesStream = (status, data, info) => status === 400 && (" }
+      ]
+    },
+    {
+      "name": "SA39",
+      "what": "a 400 that names the stream field is not a refusal of the stream",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "(data?.error?.param === 'stream' || /\\bstream(?!_options)/i.test(errorDetail(data)))", "new": "(/\\bstream(?!_options)/i.test(errorDetail(data)))" }
+      ]
+    },
+    {
+      "name": "SA40",
+      "what": "a 400 that says so in words only is not a refusal of the stream",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "(data?.error?.param === 'stream' || /\\bstream(?!_options)/i.test(errorDetail(data)))", "new": "(data?.error?.param === 'stream')" }
+      ]
+    },
+    {
+      "name": "SA41",
+      "what": "the limits of a stream are not the Hub's own, so the idle clock is the request timeout",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "idleMs: limits.idleTimeoutMs,", "new": "idleMs: limits.requestTimeoutMs," }
+      ]
+    },
+    {
+      "name": "SA42",
+      "what": "a stream has no total cap",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "totalMs: limits.streamTotalMs", "new": "totalMs: 2 ** 30" }
+      ]
+    },
+    {
+      "name": "SA43",
+      "what": "the wait for a response to begin is not the request timeout",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "headersMs: limits.requestTimeoutMs,", "new": "headersMs: limits.idleTimeoutMs," }
+      ]
+    },
+    {
+      "name": "GP1",
+      "what": "the provider asks for a stream whether or not the caller shows the text",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "      stream: typeof onToken === 'function',", "new": "      stream: true," }
+      ]
+    },
+    {
+      "name": "GP2",
+      "what": "the provider never asks for a stream",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "      stream: typeof onToken === 'function',", "new": "      stream: false," }
+      ]
+    },
+    {
+      "name": "GP3",
+      "what": "the provider forgets that a stream was refused",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "      streamRefused: this.#knowsNoStream(endpoint, model),", "new": "      streamRefused: false," }
+      ]
+    },
+    {
+      "name": "GP4",
+      "what": "the provider remembers a refusal for the wrong model",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "      onStreamRefused: () => { if (this.model === model) this.#streamRefused = { endpoint, model }; },", "new": "      onStreamRefused: () => { if (this.model === model) this.#streamRefused = { endpoint, model: 'other' }; }," }
+      ]
+    },
+    {
+      "name": "GP5",
+      "what": "a refusal of the stream is kept for another model",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (this.#streamRefused && (this.#streamRefused.endpoint !== endpoint || this.#streamRefused.model !== model)) this.#streamRefused = null;", "new": "if (this.#streamRefused && this.#streamRefused.endpoint !== endpoint) this.#streamRefused = null;" }
+      ]
+    },
+    {
+      "name": "GP6",
+      "what": "a refusal of the stream is kept for another endpoint",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (this.#streamRefused && (this.#streamRefused.endpoint !== endpoint || this.#streamRefused.model !== model)) this.#streamRefused = null;", "new": "if (this.#streamRefused && this.#streamRefused.model !== model) this.#streamRefused = null;" }
+      ]
+    },
+    {
+      "name": "GP7",
+      "what": "a refusal of stream_options is kept for another endpoint",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (this.#streamOptionsRefused && this.#streamOptionsRefused.endpoint !== endpoint) this.#streamOptionsRefused = null;", "new": "" }
+      ]
+    },
+    {
+      "name": "GP8",
+      "what": "the provider forgets that stream_options were refused",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "      streamOptionsRefused: this.#streamOptionsRefused !== null,", "new": "      streamOptionsRefused: false," }
+      ]
+    },
+    {
+      "name": "GP9",
+      "what": "a refusal of stream_options is not remembered",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "      onStreamOptionsRefused: () => { this.#streamOptionsRefused = { endpoint }; },", "new": "      onStreamOptionsRefused: () => {}," }
+      ]
+    },
+    {
+      "name": "GP10",
+      "what": "the provider does not hand the text to the caller",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "onStatus, onToken: onToken || undefined, onStreamReset: onStreamReset || undefined,", "new": "onStatus, onStreamReset: onStreamReset || undefined," }
+      ]
+    },
+    {
+      "name": "GP11",
+      "what": "the provider does not tell the caller that the text it showed is taken back",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "onStatus, onToken: onToken || undefined, onStreamReset: onStreamReset || undefined,", "new": "onStatus, onToken: onToken || undefined," }
+      ]
+    },
+    {
+      "name": "GP12",
+      "what": "respond() does not pass the caller's callbacks to the standard adapter",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "return await this.#respondStandard({ input, instructions, tools, signal, onStatus, onToken, onStreamReset, maxOutputTokens, beforeModelRequest, effort });", "new": "return await this.#respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens, beforeModelRequest, effort });" }
+      ]
+    },
+    {
+      "name": "BC1",
+      "what": "a request for a stream does not say stream: true",
+      "patches": [
+        { "file": "lib/openai-chat-api.mjs", "old": "stream: stream === true };", "new": "stream: false };" }
+      ]
+    },
+    {
+      "name": "BC2",
+      "what": "a stream does not ask for the usage chunk",
+      "patches": [
+        { "file": "lib/openai-chat-api.mjs", "old": "if (stream === true && includeUsage) body.stream_options = { include_usage: true };", "new": "" }
+      ]
+    },
+    {
+      "name": "BC3",
+      "what": "stream_options are sent with a request that does not stream",
+      "patches": [
+        { "file": "lib/openai-chat-api.mjs", "old": "if (stream === true && includeUsage) body.stream_options = { include_usage: true };", "new": "if (includeUsage) body.stream_options = { include_usage: true };" }
+      ]
+    },
+    {
+      "name": "BC4",
+      "what": "stream_options are sent to a server that refused them",
+      "patches": [
+        { "file": "lib/openai-chat-api.mjs", "old": "if (stream === true && includeUsage) body.stream_options = { include_usage: true };", "new": "if (stream === true) body.stream_options = { include_usage: true };" }
+      ]
+    }
+  ]
+}

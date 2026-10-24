@@ -1,0 +1,138 @@
+{
+  "suite": "verify-stream-responses.mjs",
+  "description": "OpenAI Responses streaming: the reader (readResponsesStream in lib/openai-responses-api.mjs, over lib/sse.mjs): what is shown as text, which events end a stream, and that a stream without its terminal event is no answer.",
+  "mutations": [
+    {
+      "name": "RS1",
+      "what": "a response with no body is read as a stream",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "  if(!body||typeof body.getReader!=='function')throw fail('invalid_responses_stream','Provider returned no SSE stream.');",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "RS2",
+      "what": "a [DONE] line is read as an event",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "    if(!data||data==='[DONE]')return;",
+          "new": "    if(!data)return;"
+        }
+      ]
+    },
+    {
+      "name": "RS3",
+      "what": "an event that is not an object is read",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "    if(!object(event))throw fail('invalid_responses_stream','Malformed SSE event.');",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "RS4",
+      "what": "the arguments of a call are shown as text",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "    if(event.type==='response.output_text.delta'&&typeof event.delta==='string')await onToken(event.delta);",
+          "new": "    if(typeof event.type==='string'&&event.type.endsWith('.delta')&&typeof event.delta==='string')await onToken(event.delta);"
+        }
+      ]
+    },
+    {
+      "name": "RS5",
+      "what": "the text is not shown while it streams",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "    if(event.type==='response.output_text.delta'&&typeof event.delta==='string')await onToken(event.delta);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "RS6",
+      "what": "an incomplete response is not a terminal event",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "    if(['response.completed','response.incomplete','response.failed','response.cancelled'].includes(event.type)){",
+          "new": "    if(['response.completed','response.failed','response.cancelled'].includes(event.type)){"
+        }
+      ]
+    },
+    {
+      "name": "RS7",
+      "what": "a failed response is not a terminal event",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "    if(['response.completed','response.incomplete','response.failed','response.cancelled'].includes(event.type)){",
+          "new": "    if(['response.completed','response.incomplete','response.cancelled'].includes(event.type)){"
+        }
+      ]
+    },
+    {
+      "name": "RS8",
+      "what": "a cancelled response is not a terminal event",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "    if(['response.completed','response.incomplete','response.failed','response.cancelled'].includes(event.type)){",
+          "new": "    if(['response.completed','response.incomplete','response.failed'].includes(event.type)){"
+        }
+      ]
+    },
+    {
+      "name": "RS9",
+      "what": "a completed response is not a terminal event",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "    if(['response.completed','response.incomplete','response.failed','response.cancelled'].includes(event.type)){",
+          "new": "    if(['response.incomplete','response.failed','response.cancelled'].includes(event.type)){"
+        }
+      ]
+    },
+    {
+      "name": "RS10",
+      "what": "a second terminal event is accepted",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "      if(terminal)throw fail('duplicate_responses_terminal','Multiple terminal SSE events.');",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "RS11",
+      "what": "the terminal event itself is the response",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "      terminal=event.response;",
+          "new": "      terminal=event;"
+        }
+      ]
+    },
+    {
+      "name": "RS12",
+      "what": "a stream that ends without its terminal event gives no error",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "  if(!terminal)throw fail('responses_stream_interrupted','Responses stream ended without terminal confirmation. No tool calls executed.');",
+          "new": ""
+        }
+      ]
+    }
+  ]
+}

@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { LspProcess } from '../../CHATMCP-HUB/lib/studio-intelligence.mjs';
 import { verifyRuntime } from './verify.mjs';
 
@@ -82,6 +82,25 @@ try {
   assert(json.files?.[0]?.symbols?.some(s=>s.qualifiedName==='Demo.run'),
     'Embedded CPython must run real AST worker and return qualified method');
   console.log('PASS bundled embedded CPython AST worker');
+  // ripgrep: the Hub's own class finds the bundled binary in the installed layout, it is the release the staging script pins, and it searches
+  const { Ripgrep } = await import('../../CHATMCP-HUB/lib/ripgrep.mjs');
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const pinned = (await fs.readFile(path.join(here, 'stage-ripgrep.ps1'), 'utf8')).match(/\$expectedVersion = '(\d+\.\d+\.\d+)'/)?.[1];
+  assert(pinned, 'stage-ripgrep.ps1 must pin a version.');
+  const ripgrep = new Ripgrep({ hubDirectory: hubRoot, env: { PATH: '' } });
+  const info = await ripgrep.info();
+  assert(info, 'The bundled ripgrep must run: ' + ripgrep.problem);
+  assert.equal(info.source, 'bundled');
+  assert.equal(info.path, path.join(hubRoot, 'runtimes', 'ripgrep', 'rg.exe'));
+  assert.equal(info.version, pinned, 'The bundled ripgrep must be the pinned release.');
+  const searched = path.join(temp, 'ripgrep');
+  await fs.mkdir(path.join(searched, 'src'), { recursive: true });
+  await fs.writeFile(path.join(searched, 'src', 'a.js'), 'const needle = 1;\r\nfunction go() { return needle; }\r\n');
+  const found = await ripgrep.search({ directory: searched, pattern: 'needle', limit: 10, accept: () => true });
+  assert.equal(found.matches, 2);
+  assert.deepEqual(found.files.map(file => file.path), ['src/a.js']);
+  if (info.pcre2) assert.equal((await ripgrep.search({ directory: searched, pattern: 'needle(?= =)', regex: true, limit: 10, accept: () => true })).matches, 1);
+  console.log('PASS bundled ripgrep ' + info.version + ' (PCRE2 ' + (info.pcre2 ? 'yes' : 'no') + ')');
 } finally {
   const dir=await fs.realpath(temp), base=await fs.realpath(os.tmpdir());
   if(path.dirname(dir)!==base || !path.basename(dir).startsWith('chatmcp-runtime-test-')) throw new Error('Unsafe fixture cleanup.');

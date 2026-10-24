@@ -1,0 +1,45 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_two_0001","object":"response","created_at":1760000000,"status":"in_progress","background":false,"error":null,"incomplete_details":null,"instructions":null,"max_output_tokens":16384,"model":"gpt-5-mini","output":[],"parallel_tool_calls":false,"previous_response_id":null,"store":false,"tool_choice":"auto","tools":[]}}
+
+event: response.in_progress
+data: {"type":"response.in_progress","sequence_number":1,"response":{"id":"resp_two_0001","object":"response","created_at":1760000000,"status":"in_progress","background":false,"error":null,"incomplete_details":null,"instructions":null,"max_output_tokens":16384,"model":"gpt-5-mini","output":[],"parallel_tool_calls":false,"previous_response_id":null,"store":false,"tool_choice":"auto","tools":[]}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"id":"fc_resp_two_0001_0","type":"function_call","status":"in_progress","arguments":"","call_id":"call_a_0001","name":"read_file"}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":3,"item_id":"fc_resp_two_0001_0","output_index":0,"delta":"{\"path\""}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":4,"item_id":"fc_resp_two_0001_0","output_index":0,"delta":":\"a.txt"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":5,"item_id":"fc_resp_two_0001_0","output_index":0,"delta":"\"}"}
+
+event: response.function_call_arguments.done
+data: {"type":"response.function_call_arguments.done","sequence_number":6,"item_id":"fc_resp_two_0001_0","output_index":0,"arguments":"{\"path\":\"a.txt\"}"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":7,"output_index":0,"item":{"id":"fc_resp_two_0001_0","type":"function_call","status":"completed","arguments":"{\"path\":\"a.txt\"}","call_id":"call_a_0001","name":"read_file"}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":8,"output_index":1,"item":{"id":"fc_resp_two_0001_1","type":"function_call","status":"in_progress","arguments":"","call_id":"call_b_0001","name":"read_file"}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":9,"item_id":"fc_resp_two_0001_1","output_index":1,"delta":"{\"path\""}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":10,"item_id":"fc_resp_two_0001_1","output_index":1,"delta":":\"b.txt"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":11,"item_id":"fc_resp_two_0001_1","output_index":1,"delta":"\"}"}
+
+event: response.function_call_arguments.done
+data: {"type":"response.function_call_arguments.done","sequence_number":12,"item_id":"fc_resp_two_0001_1","output_index":1,"arguments":"{\"path\":\"b.txt\"}"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":13,"output_index":1,"item":{"id":"fc_resp_two_0001_1","type":"function_call","status":"completed","arguments":"{\"path\":\"b.txt\"}","call_id":"call_b_0001","name":"read_file"}}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":14,"response":{"id":"resp_two_0001","object":"response","created_at":1760000000,"status":"completed","background":false,"error":null,"incomplete_details":null,"instructions":null,"max_output_tokens":16384,"model":"gpt-5-mini","output":[{"id":"fc_resp_two_0001_0","type":"function_call","status":"completed","arguments":"{\"path\":\"a.txt\"}","call_id":"call_a_0001","name":"read_file"},{"id":"fc_resp_two_0001_1","type":"function_call","status":"completed","arguments":"{\"path\":\"b.txt\"}","call_id":"call_b_0001","name":"read_file"}],"parallel_tool_calls":false,"previous_response_id":null,"store":false,"tool_choice":"auto","tools":[],"usage":{"input_tokens":160,"input_tokens_details":{"cached_tokens":0},"output_tokens":52,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":212}}}
+

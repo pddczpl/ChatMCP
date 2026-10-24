@@ -45,9 +45,14 @@ RUNTIME COMPONENTS
     THIRD-PARTY-NOTICES.md). Status: pending (the bundle keeps the license comments of React and lucide-react only).
 16. Model catalog data from models.dev (CHATMCP-HUB/lib/model-catalog.data.json: a compact extract of https://models.dev/api.json, dated inside the
     file; data only, nothing is downloaded when the Hub runs) - MIT. The permission text is at the end of this file. Status: shipped.
+17. ripgrep 15.2.0 (CHATMCP-HUB/runtimes/ripgrep/rg.exe, the search of search_files and find_files) - MIT OR Unlicense (dual-licensed: the licensee
+    chooses). The binary also links PCRE2 (BSD-3-Clause) and Rust crates under permissive licenses.
+    License texts: CHATMCP-HUB/runtimes/ripgrep/LICENSE-MIT, UNLICENSE and COPYING (from the archive). Status: shipped for ripgrep itself (the build
+    fails without LICENSE-MIT and UNLICENSE); pending for PCRE2 and the linked crates (their notices are not in the ripgrep archive).
 
 PENDING NOTICES
 
+ - The notices of PCRE2 and of the Rust crates linked into rg.exe (item 17); they are not in the ripgrep archive.
  - Items 3, 9, 11, 12, 13 and 15 above. A build that lacks the Tree-sitter grammar notices carries licenses/PENDING-NOTICES.txt and lists them in
    runtime-manifest.json ("pendingNotices"); only builds that are not releases may be made that way.
  - The Browser Companion archive ChatMCP-Browser-Companion.zip does not contain LICENSE or NOTICE yet.

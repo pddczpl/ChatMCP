@@ -58,9 +58,13 @@ export function asChatMessages(history, instructions) {
   return messages;
 }
 
-/** Tools are only sent when there are some: several servers reject `tool_choice` without `tools`. */
-export function buildChatBody({ model, input, instructions, tools = [] }) {
-  const body = { model, messages: asChatMessages(input, instructions), stream: false };
+/**
+ * Tools are only sent when there are some: several servers reject `tool_choice` without `tools`. A stream asks for the usage chunk (`stream_options.include_usage`) unless the caller
+ * knows the server does not take it; `stream_options` without a stream is refused by the API, so it is never sent without one.
+ */
+export function buildChatBody({ model, input, instructions, tools = [], stream = false, includeUsage = true }) {
+  const body = { model, messages: asChatMessages(input, instructions), stream: stream === true };
+  if (stream === true && includeUsage) body.stream_options = { include_usage: true };
   if (tools.length) {
     body.tools = tools.map((tool) => ({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.parameters } }));
     body.tool_choice = 'auto';

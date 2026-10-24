@@ -358,6 +358,123 @@ async function cleanup() { await fs.rm(root, { recursive: true, force: true, max
   assert.equal(r.structuredContent.previousSha, sha);
   ok('edit_file: CRLF/BOM/UTF-16/mixed endings preserved, replacement text literal, legacy encodings and secrets refused');
 }
+// ------------------------------------------------------------------ edit_file: edits[] (several edits to one file, all or nothing)
+{
+  const read = (name) => fs.readFile(path.join(work, name));
+  await put('multi.txt', 'alpha\nbeta\ngamma\n');
+  const original = await read('multi.txt');
+  // three edits in order, each on the text the one before left: the second matches only what the first wrote
+  let r = await call('edit_file', { path: 'multi.txt', edits: [
+    { old_string: 'alpha', new_string: 'ALPHA' },
+    { old_string: 'ALPHA\nbeta', new_string: 'ALPHA+beta' },
+    { old_string: 'gamma', new_string: 'GAMMA' },
+  ] });
+  assert.equal(r.isError, false, textOf(r));
+  const written = await read('multi.txt');
+  assert.equal(written.toString('utf8'), 'ALPHA+beta\nGAMMA\n', 'the edits apply in order, each to the text the one before left');
+  assert.deepEqual([r.structuredContent.edits, r.structuredContent.replacements, r.structuredContent.firstLine], [3, 3, 1]);
+  assert.equal(r.structuredContent.sha256, sha256(written), 'one receipt: the hash of what is on disk');
+  assert.equal(r.structuredContent.previousSha, sha256(original), 'and of what the whole call started from');
+  assert.match(textOf(r), /3 chỉnh sửa, 3 chỗ/);
+  assert.ok(textOf(r).includes('ALPHA+beta'), 'the result shows the edited region');
+  for (const line of ['1. dòng 1: 1 chỗ', '2. dòng 1: 1 chỗ', '3. dòng 2: 1 chỗ']) assert.ok(textOf(r).includes(line), `the result says what each edit did: ${line}`);
+
+  // a third edit that fails leaves the file exactly as it was, and says which edit and why
+  await put('atomic.txt', 'one\ntwo\nthree\n');
+  const atomic = await read('atomic.txt');
+  r = await call('edit_file', { path: 'atomic.txt', edits: [{ old_string: 'one', new_string: '1' }, { old_string: 'two', new_string: '2' }, { old_string: 'absent text', new_string: 'x' }] });
+  assert.equal(errorCode(r), 'not_found');
+  assert.match(textOf(r), /Chỉnh sửa 3\/3 thất bại, chưa ghi gì/);
+  assert.ok((await read('atomic.txt')).equals(atomic), 'all or nothing: the file is byte-identical');
+  // ambiguity is judged on the text at that step: the first edit makes "b" appear three times for the second
+  await put('evolving.txt', 'a b\nb\n');
+  const evolving = await read('evolving.txt');
+  r = await call('edit_file', { path: 'evolving.txt', edits: [{ old_string: 'a', new_string: 'b' }, { old_string: 'b', new_string: 'c' }] });
+  assert.equal(errorCode(r), 'ambiguous_match');
+  assert.match(textOf(r), /Chỉnh sửa 2\/2/);
+  assert.ok((await read('evolving.txt')).equals(evolving), 'an edit that only becomes ambiguous after the one before it also leaves the file alone');
+  r = await call('edit_file', { path: 'evolving.txt', edits: [{ old_string: 'a', new_string: 'b' }, { old_string: 'b', new_string: 'c', replace_all: true }] });
+  assert.equal(r.isError, false, textOf(r));
+  assert.equal((await read('evolving.txt')).toString('utf8'), 'c c\nc\n', 'replace_all is per edit');
+  assert.deepEqual([r.structuredContent.edits, r.structuredContent.replacements], [2, 4]);
+
+  // line endings and encodings are kept, as for one edit
+  await put('crlf-multi.txt', 'one\r\ntwo\r\nthree\r\n');
+  r = await call('edit_file', { path: 'crlf-multi.txt', edits: [{ old_string: 'one', new_string: '1' }, { old_string: 'two\nthree', new_string: '2\n3' }] });
+  assert.equal(r.isError, false, textOf(r));
+  assert.equal((await read('crlf-multi.txt')).toString('utf8'), '1\r\n2\r\n3\r\n', 'LF in the edits is matched against and written as CRLF');
+  r = await call('edit_file', { path: 'crlf-multi.txt', edits: [{ old_string: '1\r\n2', new_string: 'one\r\ntwo' }, { old_string: '3', new_string: 'three\r\nfour' }] });
+  assert.equal(r.isError, false, textOf(r));
+  assert.equal((await read('crlf-multi.txt')).toString('utf8'), 'one\r\ntwo\r\nthree\r\nfour\r\n', 'CRLF already in an edit is not doubled');
+  await put('bom-multi.txt', Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('xin chào\nthế giới\n')]));
+  r = await call('edit_file', { path: 'bom-multi.txt', edits: [{ old_string: 'chào', new_string: 'hi' }, { old_string: 'thế giới', new_string: 'world' }] });
+  assert.equal(r.isError, false, textOf(r));
+  const bomFile = await read('bom-multi.txt');
+  assert.deepEqual([...bomFile.subarray(0, 3)], [0xef, 0xbb, 0xbf]);
+  assert.equal(bomFile.subarray(3).toString('utf8'), 'xin hi\nworld\n');
+
+  // edits that cancel out change nothing: no write, no new hash
+  await put('cancel.txt', 'keep\n');
+  const cancel = await read('cancel.txt');
+  r = await call('edit_file', { path: 'cancel.txt', edits: [{ old_string: 'keep', new_string: 'tmp' }, { old_string: 'tmp', new_string: 'keep' }] });
+  assert.equal(r.isError, false, textOf(r));
+  assert.equal(r.structuredContent.unchanged, true);
+  assert.equal(r.structuredContent.sha256, sha256(cancel));
+  assert.ok((await read('cancel.txt')).equals(cancel));
+
+  // the file guard still applies to the whole call
+  const sha = sha256(await read('multi.txt'));
+  r = await call('edit_file', { path: 'multi.txt', expected_sha256: sha, edits: [{ old_string: 'GAMMA', new_string: 'gamma' }] });
+  assert.equal(r.isError, false, textOf(r));
+  assert.equal(r.structuredContent.previousSha, sha);
+  r = await call('edit_file', { path: 'multi.txt', expected_sha256: sha, edits: [{ old_string: 'gamma', new_string: 'GAMMA' }] });
+  assert.equal(errorCode(r), 'stale_revision', 'the file changed since the hash was taken');
+  assert.equal(errorCode(await call('edit_file', { path: '.env', edits: [{ old_string: 'topsecret123', new_string: 'x' }] })), 'protected_path');
+  assert.equal(await fs.readFile(path.join(work, '.env'), 'utf8'), 'API_KEY=topsecret123\n');
+  assert.equal(errorCode(await call('edit_file', { path: 'data.bin', edits: [{ old_string: 'a', new_string: 'x' }] })), 'binary_file');
+  assert.equal(errorCode(await call('edit_file', { path: 'missing.txt', edits: [{ old_string: 'a', new_string: 'x' }] })), 'not_found');
+
+  // the two forms do not mix, and an edit that does nothing is refused where it stands
+  const refuse = async (args, pattern, label, code = 'bad_edit') => {
+    const outcome = await call('edit_file', args);
+    assert.equal(errorCode(outcome), code, `${label}: ${textOf(outcome)}`);
+    assert.match(textOf(outcome), pattern, label);
+  };
+  // the form of the call is checked with the schema, before any approval is asked: an invalid call must not bother the owner
+  const refuseForm = async (args, pattern, label) => {
+    await refuse(args, pattern, label, 'invalid_arguments');
+    assert.equal((await call('edit_file', args)).structuredContent.executed, false, `${label}: nothing ran`);
+    const validated = tools.validate('edit_file', args);
+    assert.deepEqual([validated.ok, validated.code], [false, 'invalid_arguments'], `${label}: validate() says so without running anything`);
+  };
+  await refuseForm({ path: 'multi.txt', old_string: 'a', new_string: 'b', edits: [{ old_string: 'c', new_string: 'd' }] }, /hoặc old_string \+ new_string, hoặc edits/, 'both forms');
+  await refuseForm({ path: 'multi.txt', replace_all: true, edits: [{ old_string: 'c', new_string: 'd' }] }, /không dùng cả hai/, 'replace_all of the single form beside edits');
+  await refuseForm({ path: 'multi.txt' }, /old_string \+ new_string hoặc edits/, 'neither form');
+  await refuseForm({ path: 'multi.txt', old_string: 'a' }, /old_string \+ new_string/, 'half of the single form');
+  await refuseForm({ path: 'multi.txt', new_string: 'a' }, /old_string \+ new_string/, 'the other half');
+  assert.deepEqual(tools.validate('edit_file', { path: 'multi.txt', edits: [{ old_string: 'a', new_string: 'b' }] }), { ok: true, errors: [] }, 'a right form passes validate()');
+  assert.deepEqual(tools.validate('edit_file', { path: 'multi.txt', old_string: 'a', new_string: 'b' }), { ok: true, errors: [] }, 'and so does the single form');
+  assert.equal(errorCode(await call('edit_file', { path: 'multi.txt', edits: [] })), 'invalid_arguments', 'an empty list is refused by the schema');
+  await refuse({ path: 'multi.txt', edits: [{ old_string: 'ALPHA', new_string: 'ALPHA' }] }, /Chỉnh sửa 1\/1.*giống nhau/, 'an edit that changes nothing');
+  await refuse({ path: 'multi.txt', edits: [{ old_string: 'ALPHA', new_string: 'x' }, { old_string: '', new_string: 'y' }] }, /Chỉnh sửa 2\/2.*không được rỗng/, 'an empty old_string');
+  assert.equal((await read('multi.txt')).toString('utf8'), 'ALPHA+beta\ngamma\n', 'and none of them touched the file');
+  // limits: at most 50 edits in one call, enforced by the schema
+  const many = Array.from({ length: 51 }, (_, i) => ({ old_string: `x${i}`, new_string: `y${i}` }));
+  assert.equal(errorCode(await call('edit_file', { path: 'multi.txt', edits: many })), 'invalid_arguments');
+  assert.equal(errorCode(await call('edit_file', { path: 'multi.txt', edits: [{ old_string: 'a' }] })), 'invalid_arguments', 'every edit has both strings');
+  assert.equal(errorCode(await call('edit_file', { path: 'multi.txt', edits: [{ old_string: 'a', new_string: 'b', extra: 1 }] })), 'invalid_arguments', 'and nothing else');
+
+  // the tool is still one tool: its description tells both forms, and it keeps its place among the 99
+  const edit = tools.definitions().find((tool) => tool.originalName === 'edit_file');
+  assert.deepEqual(edit.inputSchema.required, ['path']);
+  assert.equal(edit.inputSchema.properties.edits.type, 'array');
+  assert.equal(edit.inputSchema.properties.edits.maxItems, 50);
+  assert.deepEqual(edit.inputSchema.properties.edits.items.required, ['old_string', 'new_string']);
+  assert.match(edit.description, /edits/);
+  assert.match(edit.description, /nothing is written/i);
+  assert.equal(tools.definitions().length, 99, 'the tool count stays at 99');
+  ok('edit_file edits[]: dependent edits in order with one receipt, all or nothing with the failing edit named, ambiguity judged at each step, CRLF/BOM kept, edits that cancel write nothing, the guards of one edit, the two forms never mixed');
+}
 
 // ------------------------------------------------------------------ directories and moves
 {

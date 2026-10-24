@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { aiDraftHasChanges, aiProtocolForPreset, reconcileSavedAiConfig, selectAiProviderDraft, type AiConfigForm } from '@/lib/ai-config-form';
+import { AI_PROVIDERS } from '@/lib/ai-providers';
 import { ModelProfilesPanel } from './ModelProfilesPanel';
 import { ModelField } from './ModelField';
 import { ReasoningEffortField } from './ReasoningEffortField';
@@ -28,22 +29,7 @@ export function IntelligenceTab() {
 
   const ai = hub?.ai || {};
 
-  const providers = [
-    { id: 'anthropic', name: 'Anthropic', defaultModel: 'claude-sonnet-5-5', defaultUrl: 'https://api.anthropic.com' },
-    { id: 'openai', name: 'OpenAI (Chat Completions)', defaultModel: 'gpt-5-mini', defaultUrl: 'https://api.openai.com/v1' },
-    { id: 'openai-responses', name: 'OpenAI Responses API', defaultModel: 'gpt-5-mini', defaultUrl: 'https://api.openai.com/v1' },
-    { id: 'gemini', name: 'Google Gemini', defaultModel: 'gemini-2.5-flash', defaultUrl: 'https://generativelanguage.googleapis.com' },
-    { id: 'openrouter', name: 'OpenRouter', defaultModel: 'anthropic/claude-sonnet-4.5', defaultUrl: 'https://openrouter.ai/api/v1' },
-    { id: 'deepseek', name: 'DeepSeek', defaultModel: 'deepseek-chat', defaultUrl: 'https://api.deepseek.com' },
-    { id: 'groq', name: 'Groq', defaultModel: 'llama-3.3-70b-versatile', defaultUrl: 'https://api.groq.com/openai/v1' },
-    { id: 'mistral', name: 'Mistral', defaultModel: 'mistral-large-latest', defaultUrl: 'https://api.mistral.ai/v1' },
-    { id: 'ollama', name: 'Ollama (Local)', defaultModel: 'qwen2.5-coder:7b', defaultUrl: 'http://localhost:11434/v1' },
-    { id: 'lmstudio', name: 'LM Studio (Local)', defaultModel: 'local-model', defaultUrl: 'http://localhost:1234/v1' },
-    { id: 'custom-openai', name: 'Custom (Chat Completions)', defaultModel: '', defaultUrl: '' },
-    { id: 'custom-responses', name: 'Custom (Responses API)', defaultModel: '', defaultUrl: '' },
-    { id: 'custom-gemini', name: 'Custom (Gemini)', defaultModel: '', defaultUrl: '' },
-    { id: 'custom-anthropic', name: 'Custom (Anthropic)', defaultModel: '', defaultUrl: '' },
-  ];
+  const providers = AI_PROVIDERS;
 
   const [form, setForm] = useState<AiConfigForm>({
     provider: (ai as any).preset || ai.provider || 'anthropic',

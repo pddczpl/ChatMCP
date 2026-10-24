@@ -473,9 +473,9 @@ test('the thinking effort: levels from the model catalog or a guess, saved with 
   await page.getByRole('button', { name: 'Anthropic', exact: true }).click();
   await expect(effort.locator('option')).toHaveText(['Tự động (model tự quyết định)', 'Thấp', 'Vừa', 'Cao', 'Rất cao', 'Tối đa']);
   await expect(hint).toContainText('Các mức lấy từ danh mục model');
-  // Gemini 2.5 Flash is driven by a switch and a token budget, which the setting does not drive: only Auto, and the page says why
+  // Gemini 2.5 Flash is driven by a token budget: each level is a budget the Hub chooses (high and max come to the same budget, so it is offered once), and the page says so
   await page.getByRole('button', { name: 'Google Gemini', exact: true }).click();
-  await expect(effort.locator('option')).toHaveText(['Tự động (model tự quyết định)']);
+  await expect(effort.locator('option')).toHaveText(['Tự động (model tự quyết định)', 'Tắt suy luận', 'Tối thiểu', 'Thấp', 'Vừa', 'Cao']);
   await expect(hint).toContainText('ngân sách token');
   // back to the mock connection: choose a level and save it with the connection
   await page.getByRole('button', { name: 'Ollama (Local)', exact: true }).click();

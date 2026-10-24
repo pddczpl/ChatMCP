@@ -1,0 +1,20 @@
+data: {"id":"chatcmpl-Bq3Y1LengTh0000000000000001","object":"chat.completion.chunk","created":1760000900,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-Bq3Y1LengTh0000000000000001","object":"chat.completion.chunk","created":1760000900,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"content":"Một câu trả l"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-Bq3Y1LengTh0000000000000001","object":"chat.completion.chunk","created":1760000900,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"content":"ời rất dài bị"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-Bq3Y1LengTh0000000000000001","object":"chat.completion.chunk","created":1760000900,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"content":" cắt giữa chừ"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-Bq3Y1LengTh0000000000000001","object":"chat.completion.chunk","created":1760000900,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"content":"ng bởi giới h"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-Bq3Y1LengTh0000000000000001","object":"chat.completion.chunk","created":1760000900,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"content":"ạn token đầu "},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-Bq3Y1LengTh0000000000000001","object":"chat.completion.chunk","created":1760000900,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{"content":"r"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-Bq3Y1LengTh0000000000000001","object":"chat.completion.chunk","created":1760000900,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[{"index":0,"delta":{},"logprobs":null,"finish_reason":"length"}]}
+
+data: {"id":"chatcmpl-Bq3Y1LengTh0000000000000001","object":"chat.completion.chunk","created":1760000900,"model":"gpt-5-mini-2025-08-07","service_tier":"default","system_fingerprint":null,"choices":[],"usage":{"prompt_tokens":50,"completion_tokens":16,"total_tokens":66}}
+
+data: [DONE]
+

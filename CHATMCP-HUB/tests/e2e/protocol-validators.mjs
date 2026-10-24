@@ -35,6 +35,7 @@ export const RULES = Object.freeze({
   'anthropic.tool_result_placement': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls ("Important formatting requirements"); consecutive turns of one role are combined: https://platform.claude.com/docs/en/api/messages', summary: 'tool_result blocks are the leading blocks of the user message right after the assistant message with their tool_use, one per call' },
   'anthropic.tool_use_id': { api: 'anthropic', provenance: 'recalled', source: 'the pattern ^[a-zA-Z0-9_-]{1,64}$ that safeToolId() in lib/model-history.mjs maps ids to', summary: 'tool_use ids of letters, digits, _ and - (at most 64)' },
   'anthropic.thinking_signature': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/build-with-claude/thinking ("Preserving thinking blocks") and /thinking-troubleshooting (the two error texts); thinking blocks of EARLIER turns are accepted and filtered by the API', summary: 'thinking and redacted_thinking blocks carry what the server issued, unmodified' },
+  'anthropic.thinking_binding': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/build-with-claude/preserved-thinking (a thinking block is bound to the system prompt, the set of tools and every message before it, and to the model; enforced by default for accounts created on or after 2026-08-31; the 400 text is the one quoted there)', summary: 'a thinking block replayed after the system prompt, the tools or an earlier message changed is refused ("bound to a different conversation")' },
   'anthropic.thinking_first': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/build-with-claude/thinking ("Thinking with tool use": in extended (manual) mode the final assistant turn begins with a thinking block); the error text is the older wording of the same rule', summary: 'with extended thinking on, the assistant turn of a tool loop starts with its thinking block' },
   'anthropic.thinking_config': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/build-with-claude/extended-thinking ("Budget rules": at least 1024, below max_tokens) and /thinking ("Tool choice limitation")', summary: 'budget_tokens >= 1024 and < max_tokens; no forced tool use while extended thinking is on' },
   'anthropic.output_config': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/build-with-claude/effort (output_config.effort: low, medium, high, xhigh, max; other keys of output_config, such as format, are not this rule\'s business)', summary: 'output_config is an object and its effort is one of the documented levels' },
@@ -49,8 +50,10 @@ export const RULES = Object.freeze({
   'gemini.function_turns': { api: 'gemini', provenance: 'report', source: 'https://discuss.ai.google.dev (threads quoting "Please ensure that function response turn comes immediately after a function call turn" and "... function call turn comes immediately after a user turn or after a function response turn")', summary: 'a model turn with functionCall parts follows a user turn and is followed by a user turn with one functionResponse part per call' },
   'gemini.tool_declarations': { api: 'gemini', provenance: 'recalled', source: 'Gemini API function calling: function names of letters, digits, _ . : - (at most 64, not starting with a digit)', summary: 'functionDeclarations is a list of declarations with valid names' },
   'gemini.thought_signature': { api: 'gemini', provenance: 'report', source: 'reports of Gemini 3 "thought signature" errors (the signature of a function call must be passed back unmodified)', summary: 'a thoughtSignature on a function call is the one the server issued for that call' },
+  'gemini.thinking_config': { api: 'gemini', provenance: 'doc', source: 'https://ai.google.dev/gemini-api/docs/generate-content/thinking (generationConfig.thinkingConfig: thinkingLevel minimal, low, medium or high; thinkingBudget a whole number, 0 for off and -1 for dynamic; "sending thinkingBudget and thinkingLevel together returns a 400"; includeThoughts); the wording of the messages is ours', summary: 'generationConfig is an object; its thinkingConfig names a documented level or a budget, never both' },
   'chat.stream_shape': { api: 'chat', provenance: 'sdk', source: 'openai-python chat_completion_chunk.py: chunks, tool call fragments, a usage chunk with no choices, [DONE]', summary: 'what a Chat Completions SSE stream looks like' },
   'anthropic.stream_shape': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/build-with-claude/streaming', summary: 'message_start, blocks with start/delta/stop, message_delta, message_stop' },
+  'gemini.stream_shape': { api: 'gemini', provenance: 'doc', source: 'https://ai.google.dev/api/generate-content#method:-models.streamgeneratecontent (a stream of GenerateContentResponse; with alt=sse each one is an event, and the stream ends with the connection, there is no [DONE])', summary: 'each event a GenerateContentResponse, parts of one kind of data, one finishReason in the last event that has a candidate, usage that only grows' },
   'responses.stream_shape': { api: 'responses', provenance: 'sdk', source: 'openai-python src/openai/types/responses/response_*_event.py', summary: 'response.created ... response.completed with increasing sequence_number and items that match their deltas' },
 });
 
@@ -73,27 +76,64 @@ export function errorBody(api, { message, param = null, code = null, type = 'inv
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Thinking signatures. The server signs what it emits; a request that echoes a thinking block back is checked against it.
+//
+// Two kinds of signature. One without a binding is good anywhere (the hand-written fixtures of the validators use it). One WITH a binding is
+// good only in the conversation it was issued in, as on the real API from Claude Opus 5.5 / Sonnet 5.5 on (the preserved thinking check, enforced
+// by default for accounts created on or after 2026-08-31): the signature records the system prompt, the set of tools and every message before the
+// block, and a request that replays the block after any of them changed is answered 400 "bound to a different conversation". The mock issues bound
+// signatures when it is started with `bindThinking`. thinkingBinding() below is this file's own reading of what the check compares, written
+// from the page's list of what it ignores and NOT shared with the Hub's code, so that the Hub is tested against a second opinion.
 // ---------------------------------------------------------------------------------------------------------------------
 export function createThinkingSigner(secret = crypto.randomBytes(16).toString('hex')) {
   const mac = (label, text) => crypto.createHmac('sha256', secret).update(`${label}\0${text}`).digest('base64url');
-  const SIGNATURE = /^mock-sig\.[A-Za-z0-9_-]{43}$/;
+  const SIGNATURE = /^mock-sig\.([A-Za-z0-9_-]{43})(?:\.([A-Za-z0-9_-]{43}))?$/;
+  const REDACTED = /^mock-redacted\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{43})(?:\.([A-Za-z0-9_-]{43}))?$/;
+  /** What ties a signature to a conversation: a MAC of the binding digest (thinkingBinding). */
+  const tagFor = (binding) => mac('binding', String(binding));
   return {
-    signThinking: (text) => `mock-sig.${mac('thinking', String(text))}`,
+    tagFor,
+    signThinking: (text, binding = null) => `mock-sig.${mac('thinking', String(text))}${binding === null ? '' : `.${tagFor(binding)}`}`,
     /** The opaque payload of a redacted_thinking block. */
-    redacted: (label = 'redacted') => `mock-redacted.${Buffer.from(String(label)).toString('base64url')}.${mac('redacted', String(label))}`,
-    /** 'ok', 'modified' (a signature of this server that belongs to another text) or 'invalid' (not a signature of this server). */
+    redacted: (label = 'redacted', binding = null) => `mock-redacted.${Buffer.from(String(label)).toString('base64url')}.${mac('redacted', String(label))}${binding === null ? '' : `.${tagFor(binding)}`}`,
+    /** 'ok', 'modified' (a signature of this server that belongs to another text) or 'invalid' (not a signature of this server). The binding is judged apart (tagOf). */
     verifyThinking({ thinking, signature }) {
-      if (!isNonEmptyText(signature) || !SIGNATURE.test(signature)) return 'invalid';
-      return signature === `mock-sig.${mac('thinking', String(thinking ?? ''))}` ? 'ok' : 'modified';
+      const match = isNonEmptyText(signature) ? SIGNATURE.exec(signature) : null;
+      if (!match) return 'invalid';
+      return match[1] === mac('thinking', String(thinking ?? '')) ? 'ok' : 'modified';
     },
     verifyRedacted(data) {
-      const match = /^mock-redacted\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{43})$/.exec(String(data));
+      const match = REDACTED.exec(String(data));
       return Boolean(match) && match[2] === mac('redacted', Buffer.from(match[1], 'base64url').toString());
+    },
+    /** The conversation tag a thinking signature or a redacted payload carries, or null when it was issued without a binding. */
+    tagOf(signatureOrData) {
+      const text = String(signatureOrData ?? '');
+      return (SIGNATURE.exec(text) ?? REDACTED.exec(text))?.at(-1) ?? null;
     },
     /** The thoughtSignature Gemini puts on a function call: bound to the call it belongs to. */
     signGemini: (functionCall) => `mock-gsig.${mac('gemini', JSON.stringify(functionCall))}`,
     verifyGemini: (functionCall, signature) => isNonEmptyText(signature) && signature === `mock-gsig.${mac('gemini', JSON.stringify(functionCall))}`,
   };
+}
+
+const sortedKeys = (value) => (Array.isArray(value) ? value.map(sortedKeys) : isObject(value) ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortedKeys(value[key])])) : value);
+const withoutCacheControl = (value) => (Array.isArray(value) ? value.map(withoutCacheControl) : isObject(value) ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'cache_control').map(([key, entry]) => [key, withoutCacheControl(entry)])) : value);
+const asBlocks = (content) => (isText(content) ? [{ type: 'text', text: content }] : Array.isArray(content) ? content : []);
+const countsForBinding = (block) => block?.type !== 'thinking' && block?.type !== 'redacted_thinking' && !(block?.type === 'text' && isText(block.text) && block.text.trim() === '');
+const trimmedText = (block) => (block?.type === 'text' && isText(block.text) ? { ...block, text: block.text.trim() } : block);
+
+/**
+ * The digest of what the preserved thinking check compares for a block: the system prompt, the tools (compared as a set, by name, with their whole definition) and the messages
+ * before the block. It leaves out what the API leaves out: cache_control, the thinking blocks themselves, string content versus one text block, the white space around a text
+ * block, white-space-only text blocks, key order and the order of the tools.
+ */
+export function thinkingBinding({ system, tools, messages }) {
+  const toolSet = (Array.isArray(tools) ? tools : []).map((tool) => withoutCacheControl(tool)).sort((a, b) => String(a?.name).localeCompare(String(b?.name)));
+  const turns = (Array.isArray(messages) ? messages : [])
+    .map((message) => ({ role: message?.role, content: asBlocks(message?.content).filter(countsForBinding).map(trimmedText) }))
+    .filter((turn) => turn.content.length > 0);
+  const record = { system: asBlocks(system).filter(countsForBinding).map(trimmedText), tools: toolSet, messages: turns };
+  return crypto.createHash('sha256').update(JSON.stringify(sortedKeys(withoutCacheControl(record)))).digest('hex');
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -326,6 +366,21 @@ export function validateAnthropicRequest(body, { signer = null } = {}) {
     });
   });
 
+  // The conversation a bound signature was issued in (createThinkingSigner): the block is good only where the system prompt, the tools and the messages before it are the same.
+  if (signer) {
+    body.messages.forEach((message, i) => {
+      if (message.role !== 'assistant' || !Array.isArray(message.content)) return;
+      message.content.forEach((block, j) => {
+        if (block?.type !== 'thinking' && block?.type !== 'redacted_thinking') return;
+        const issuedIn = signer.tagOf(block.type === 'thinking' ? block.signature : block.data);
+        if (issuedIn === null) return;
+        if (issuedIn === signer.tagFor(thinkingBinding({ system: body.system, tools: body.tools, messages: body.messages.slice(0, i) }))) return;
+        const at = `messages.${i}.content.${j}`;
+        c.add('anthropic.thinking_binding', `${at}: Invalid \`${block.type === 'thinking' ? 'signature' : 'data'}\` in \`${block.type}\` block. The block is bound to a different conversation. Remove the block, or set \`thinking.block_binding.prefix_mismatch_behavior\` to "drop_block" (beta: thinking-binding-controls-2026-08-01).`, { param: at });
+      });
+    });
+  }
+
   if (body.output_config !== undefined) {
     if (!isObject(body.output_config)) c.add('anthropic.output_config', 'output_config: Input should be a valid dictionary or object to extract fields from', { param: 'output_config' });
     else if (body.output_config.effort !== undefined && !ANTHROPIC_EFFORTS.includes(body.output_config.effort)) c.add('anthropic.output_config', `output_config.effort: Input should be ${quoted(ANTHROPIC_EFFORTS)}`, { param: 'output_config.effort' });
@@ -428,18 +483,42 @@ export function validateResponsesRequest(body) {
 // ---------------------------------------------------------------------------------------------------------------------
 // Gemini generateContent (the native request, as GatewayProvider sends it first)
 // ---------------------------------------------------------------------------------------------------------------------
-// https://ai.google.dev/api/generate-content: the request fields. The model is in the URL; streaming is another method.
+// https://ai.google.dev/api/generate-content: the request fields. The model is in the URL; streaming is another method, with the same request body (validateGeminiStream reads what it answers).
 const GEMINI_FIELDS = new Set(['contents', 'tools', 'toolConfig', 'safetySettings', 'systemInstruction', 'generationConfig', 'cachedContent', 'continuationToken', 'labels', 'serviceTier', 'store']);
 const GEMINI_DATA = ['text', 'inlineData', 'fileData', 'functionCall', 'functionResponse', 'executableCode', 'codeExecutionResult'];
 const GEMINI_FUNCTION_NAME = /^[a-zA-Z_][a-zA-Z0-9_.:-]{0,63}$/;
 const hasCall = (part) => isObject(part) && part.functionCall !== undefined;
 const hasResponse = (part) => isObject(part) && part.functionResponse !== undefined;
+// generationConfig.thinkingConfig: a level (Gemini 3 and 4) or a budget (Gemini 2.5), never both, and whether the thoughts come back.
+const GEMINI_THINKING_LEVELS = ['minimal', 'low', 'medium', 'high'];
+const GEMINI_THINKING_KEYS = ['includeThoughts', 'thinkingBudget', 'thinkingLevel'];
+
+function validateGeminiThinking(config, c) {
+  const at = 'generation_config.thinking_config';
+  const bad = (key, kind, value) => c.add('gemini.thinking_config', `Invalid JSON payload received. Invalid value at '${at}${key}' (${kind}), ${JSON.stringify(value)}`, { param: `generationConfig.thinkingConfig${key}` });
+  if (!isObject(config)) { bad('', 'type.googleapis.com/google.ai.generativelanguage.v1beta.ThinkingConfig', config); return; }
+  for (const key of Object.keys(config)) {
+    if (!GEMINI_THINKING_KEYS.includes(key)) c.add('gemini.thinking_config', `Invalid JSON payload received. Unknown name "${key}" at '${at}': Cannot find field.`, { param: `generationConfig.thinkingConfig.${key}` });
+  }
+  if (config.includeThoughts !== undefined && typeof config.includeThoughts !== 'boolean') bad('.include_thoughts', 'TYPE_BOOL', config.includeThoughts);
+  if (config.thinkingBudget !== undefined && !(Number.isInteger(config.thinkingBudget) && config.thinkingBudget >= -1)) bad('.thinking_budget', 'TYPE_INT32', config.thinkingBudget);
+  if (config.thinkingLevel !== undefined && !(isText(config.thinkingLevel) && GEMINI_THINKING_LEVELS.includes(config.thinkingLevel.toLowerCase()))) {
+    bad('.thinking_level', 'type.googleapis.com/google.ai.generativelanguage.v1beta.ThinkingConfig.ThinkingLevel', config.thinkingLevel);
+  }
+  if (config.thinkingBudget !== undefined && config.thinkingLevel !== undefined) {
+    c.add('gemini.thinking_config', 'Cannot set both thinking_budget and thinking_level in thinking_config. Use thinking_level for Gemini 3 and later and thinking_budget for Gemini 2.5.', { param: 'generationConfig.thinkingConfig' });
+  }
+}
 
 export function validateGeminiRequest(body, { signer = null } = {}) {
   const c = collector();
   if (!isObject(body)) { c.add('gemini.contents', 'Invalid JSON payload received. Expected a JSON object.'); return c.result(); }
   for (const key of Object.keys(body)) {
     if (!GEMINI_FIELDS.has(key)) c.add('gemini.unknown_field', `Invalid JSON payload received. Unknown name "${key}": Cannot find field.`, { param: key });
+  }
+  if (body.generationConfig !== undefined) {
+    if (!isObject(body.generationConfig)) c.add('gemini.thinking_config', `Invalid JSON payload received. Invalid value at 'generation_config' (type.googleapis.com/google.ai.generativelanguage.v1beta.GenerationConfig), ${JSON.stringify(body.generationConfig)}`, { param: 'generationConfig' });
+    else if (body.generationConfig.thinkingConfig !== undefined) validateGeminiThinking(body.generationConfig.thinkingConfig, c);
   }
   if (!Array.isArray(body.contents) || body.contents.length === 0) {
     c.add('gemini.contents', 'GenerateContentRequest.contents: contents is not specified', { param: 'contents' });
@@ -719,5 +798,91 @@ export function validateResponsesStream(events) {
   });
   if (!terminal) c.add(rule, 'the stream has no terminal event (response.completed, response.incomplete or response.failed)');
   else if (terminal !== events.at(-1)) c.add(rule, 'the terminal event is not the last event');
+  return c.result();
+}
+
+/**
+ * Reference reader of a Gemini stream: what a client that follows the documentation builds. Consecutive pieces of plain text (of the same thought flag) are one part, a piece with a
+ * thoughtSignature ends its part, every other part stays as it came, the last usageMetadata and the finishReason are kept.
+ */
+export function accumulateGeminiStream(events) {
+  const parts = [];
+  let open = null;
+  let finishReason;
+  let usageMetadata;
+  let promptFeedback;
+  let sawCandidate = false;
+  for (const { json } of events) {
+    if (!isObject(json)) continue;
+    if (isObject(json.usageMetadata)) usageMetadata = json.usageMetadata;
+    if (isObject(json.promptFeedback)) promptFeedback = json.promptFeedback;
+    const candidate = Array.isArray(json.candidates) ? json.candidates[0] : undefined;
+    if (!isObject(candidate)) continue;
+    sawCandidate = true;
+    for (const part of candidate.content?.parts ?? []) {
+      const plain = isText(part.text) && part.functionCall === undefined;
+      if (plain && open && (open.thought === true) === (part.thought === true)) open.text += part.text;
+      else { open = plain ? { ...part } : null; parts.push(open ?? structuredClone(part)); }
+      if (plain && part.thoughtSignature) { open.thoughtSignature = part.thoughtSignature; open = null; }
+    }
+    if (isNonEmptyText(candidate.finishReason)) finishReason = candidate.finishReason;
+  }
+  const response = {};
+  if (sawCandidate) response.candidates = [{ content: { role: 'model', parts }, ...(finishReason ? { finishReason } : {}), index: 0 }];
+  if (usageMetadata) response.usageMetadata = usageMetadata;
+  if (promptFeedback) response.promptFeedback = promptFeedback;
+  return response;
+}
+
+export function validateGeminiStream(events) {
+  const c = collector();
+  const rule = 'gemini.stream_shape';
+  if (events.length === 0) c.add(rule, 'the stream has no event');
+  let finishedAt = -1;
+  let promptTokens = null;
+  let candidateTokens = -1;
+  let blocked = false;
+  events.forEach((event, i) => {
+    if (event.data === '[DONE]') { c.add(rule, `event ${i} is [DONE]: a Gemini stream ends with the connection, it has no such marker`); return; }
+    const chunk = event.json;
+    if (!isObject(chunk)) { c.add(rule, `event ${i} is not a GenerateContentResponse (an object)`); return; }
+    if (chunk.error !== undefined) { c.add(rule, `event ${i} carries an error object: the stream failed`); return; }
+    if (isObject(chunk.usageMetadata)) {
+      const usage = chunk.usageMetadata;
+      if (!Number.isInteger(usage.promptTokenCount)) c.add(rule, `event ${i}: usageMetadata without promptTokenCount`);
+      else if (promptTokens !== null && usage.promptTokenCount !== promptTokens) c.add(rule, `event ${i}: promptTokenCount ${usage.promptTokenCount} differs from the ${promptTokens} of the events before`);
+      else promptTokens = usage.promptTokenCount;
+      if (Number.isInteger(usage.candidatesTokenCount)) {
+        if (usage.candidatesTokenCount < candidateTokens) c.add(rule, `event ${i}: candidatesTokenCount decreases (${candidateTokens} -> ${usage.candidatesTokenCount}); usage is cumulative`);
+        candidateTokens = usage.candidatesTokenCount;
+      }
+    }
+    if (isObject(chunk.promptFeedback) && isNonEmptyText(chunk.promptFeedback.blockReason)) {
+      blocked = true;
+      if (chunk.candidates !== undefined) c.add(rule, `event ${i}: a blocked prompt has no candidate`);
+    }
+    if (chunk.candidates === undefined) return;
+    if (!Array.isArray(chunk.candidates) || chunk.candidates.length === 0 || !chunk.candidates.every(isObject)) { c.add(rule, `event ${i}: candidates must be a non-empty list of objects`); return; }
+    const candidate = chunk.candidates[0];
+    const parts = candidate.content?.parts;
+    if (finishedAt >= 0 && Array.isArray(parts) && parts.some((part) => (isObject(part) && (part.functionCall !== undefined || (isText(part.text) && part.text !== ''))))) {
+      c.add(rule, `event ${i}: parts after the chunk with finishReason (event ${finishedAt})`);
+    }
+    if (candidate.content !== undefined) {
+      if (!isObject(candidate.content) || (candidate.content.role !== undefined && candidate.content.role !== 'model')) c.add(rule, `event ${i}: the content of a candidate must have role "model"`);
+      if (candidate.content.parts !== undefined && !Array.isArray(candidate.content.parts)) c.add(rule, `event ${i}: parts must be a list`);
+      for (const part of Array.isArray(candidate.content?.parts) ? candidate.content.parts : []) {
+        const kinds = GEMINI_DATA.filter((kind) => isObject(part) && part[kind] !== undefined);
+        if (kinds.length !== 1) c.add(rule, `event ${i}: a part must carry exactly one kind of data (found ${kinds.length ? list(kinds) : 'none'})`);
+        if (hasCall(part) && !(isObject(part.functionCall) && isNonEmptyText(part.functionCall.name))) c.add(rule, `event ${i}: a functionCall needs a name`);
+        if (hasCall(part) && part.functionCall.args !== undefined && !isObject(part.functionCall.args)) c.add(rule, `event ${i}: functionCall args must be an object`);
+      }
+    }
+    if (isNonEmptyText(candidate.finishReason)) {
+      if (finishedAt >= 0) c.add(rule, `event ${i}: a second finishReason (the first is in event ${finishedAt})`);
+      finishedAt = i;
+    }
+  });
+  if (events.length > 0 && !blocked && finishedAt < 0) c.add(rule, 'no event carries a finishReason: the stream was cut, or the model did not finish');
   return c.result();
 }

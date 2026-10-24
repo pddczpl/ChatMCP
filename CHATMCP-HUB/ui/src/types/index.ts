@@ -390,6 +390,8 @@ export interface Task {
   id: string;
   effectiveProfile?: {id:string;name:string;revision?:string|null;provider:string;protocol:string;model:string;endpointOrigin:string;credentialSource:string}|null;
   roleProfiles?: Record<string,string>;
+  /** The thinking effort chosen for this conversation ('auto' or a level); null when it follows its connection. */
+  reasoningEffort?: string | null;
   goalPlan?: {objectives:Array<{
     id:string;text:string;status:string;dependsOn?:string[];acceptanceCriteria:string[];
     evidence?:Array<{criterionIndex:number;receiptId:string;acceptedAt:string}>;

@@ -1,0 +1,57 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_reason_0001","object":"response","created_at":1760000000,"status":"in_progress","background":false,"error":null,"incomplete_details":null,"instructions":null,"max_output_tokens":16384,"model":"gpt-5-mini","output":[],"parallel_tool_calls":false,"previous_response_id":null,"store":false,"tool_choice":"auto","tools":[]}}
+
+event: response.in_progress
+data: {"type":"response.in_progress","sequence_number":1,"response":{"id":"resp_reason_0001","object":"response","created_at":1760000000,"status":"in_progress","background":false,"error":null,"incomplete_details":null,"instructions":null,"max_output_tokens":16384,"model":"gpt-5-mini","output":[],"parallel_tool_calls":false,"previous_response_id":null,"store":false,"tool_choice":"auto","tools":[]}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"id":"rs_resp_reason_0001_0","type":"reasoning","summary":[]}}
+
+event: response.reasoning_summary_part.added
+data: {"type":"response.reasoning_summary_part.added","sequence_number":3,"item_id":"rs_resp_reason_0001_0","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":""}}
+
+event: response.reasoning_summary_text.delta
+data: {"type":"response.reasoning_summary_text.delta","sequence_number":4,"item_id":"rs_resp_reason_0001_0","output_index":0,"summary_index":0,"delta":"I should re"}
+
+event: response.reasoning_summary_text.delta
+data: {"type":"response.reasoning_summary_text.delta","sequence_number":5,"item_id":"rs_resp_reason_0001_0","output_index":0,"summary_index":0,"delta":"ad the file"}
+
+event: response.reasoning_summary_text.delta
+data: {"type":"response.reasoning_summary_text.delta","sequence_number":6,"item_id":"rs_resp_reason_0001_0","output_index":0,"summary_index":0,"delta":" before cha"}
+
+event: response.reasoning_summary_text.delta
+data: {"type":"response.reasoning_summary_text.delta","sequence_number":7,"item_id":"rs_resp_reason_0001_0","output_index":0,"summary_index":0,"delta":"nging it."}
+
+event: response.reasoning_summary_text.done
+data: {"type":"response.reasoning_summary_text.done","sequence_number":8,"item_id":"rs_resp_reason_0001_0","output_index":0,"summary_index":0,"text":"I should read the file before changing it."}
+
+event: response.reasoning_summary_part.done
+data: {"type":"response.reasoning_summary_part.done","sequence_number":9,"item_id":"rs_resp_reason_0001_0","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":"I should read the file before changing it."}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":10,"output_index":0,"item":{"id":"rs_resp_reason_0001_0","type":"reasoning","summary":[{"type":"summary_text","text":"I should read the file before changing it."}],"encrypted_content":"gAAAAABo_encrypted_reasoning_state_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ=="}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":11,"output_index":1,"item":{"id":"fc_resp_reason_0001_1","type":"function_call","status":"in_progress","arguments":"","call_id":"call_reason_0001","name":"read_file"}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":12,"item_id":"fc_resp_reason_0001_1","output_index":1,"delta":"{\"path\""}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":13,"item_id":"fc_resp_reason_0001_1","output_index":1,"delta":":\"src/m"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":14,"item_id":"fc_resp_reason_0001_1","output_index":1,"delta":"ain.rs\""}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":15,"item_id":"fc_resp_reason_0001_1","output_index":1,"delta":"}"}
+
+event: response.function_call_arguments.done
+data: {"type":"response.function_call_arguments.done","sequence_number":16,"item_id":"fc_resp_reason_0001_1","output_index":1,"arguments":"{\"path\":\"src/main.rs\"}"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":17,"output_index":1,"item":{"id":"fc_resp_reason_0001_1","type":"function_call","status":"completed","arguments":"{\"path\":\"src/main.rs\"}","call_id":"call_reason_0001","name":"read_file"}}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":18,"response":{"id":"resp_reason_0001","object":"response","created_at":1760000000,"status":"completed","background":false,"error":null,"incomplete_details":null,"instructions":null,"max_output_tokens":16384,"model":"gpt-5-mini","output":[{"id":"rs_resp_reason_0001_0","type":"reasoning","summary":[{"type":"summary_text","text":"I should read the file before changing it."}],"encrypted_content":"gAAAAABo_encrypted_reasoning_state_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ=="},{"id":"fc_resp_reason_0001_1","type":"function_call","status":"completed","arguments":"{\"path\":\"src/main.rs\"}","call_id":"call_reason_0001","name":"read_file"}],"parallel_tool_calls":false,"previous_response_id":null,"store":false,"tool_choice":"auto","tools":[],"usage":{"input_tokens":190,"input_tokens_details":{"cached_tokens":128},"output_tokens":120,"output_tokens_details":{"reasoning_tokens":96},"total_tokens":310}}}
+

@@ -6,6 +6,8 @@ import { reportedTokenCount } from './request-budget.mjs';
 import { pairToolCalls } from './model-history.mjs';
 import { classifyHttpError, errorDetail, readBodyText } from './model-http.mjs';
 import { applyReasoning, refusesReasoning } from './reasoning-effort.mjs';
+import { deliverText } from './model-stream.mjs';
+import { readSse } from './sse.mjs';
 
 const object = x => x !== null && typeof x === 'object' && !Array.isArray(x);
 const fail = (code,message) => Object.assign(new Error(message),{code,statusCode:502});
@@ -148,15 +150,15 @@ export function normalizeResponsesResponse(raw,{usedCallIds=new Set()}={}){
 // Decode SSE without executing partial tool arguments. Only terminal
 // response.completed provides authoritative final items and call IDs.
 // onChunk runs whenever bytes arrived, of any kind: it is how the caller knows the stream is alive.
+// The events come from the Hub's one SSE reader (lib/sse.mjs); what they mean, and which one ends the stream, is decided here.
 export async function readResponsesStream(body,{signal,onToken=()=>{},onChunk=()=>{}}={}){
   if(!body||typeof body.getReader!=='function')throw fail('invalid_responses_stream','Provider returned no SSE stream.');
-  const reader=body.getReader(),decoder=new TextDecoder();
-  let pending='',total=0,terminal=null;
-  const handle=async block=>{
-    const data=block.split(/\r?\n/).filter(line=>line.startsWith('data:')).map(line=>line.slice(5).trimStart()).join('\n');
+  let terminal=null;
+  const handle=async ({data})=>{
     if(!data||data==='[DONE]')return;
     let event;
     try{event=JSON.parse(data);}catch{throw fail('invalid_responses_stream','Malformed SSE event.');}
+    if(!object(event))throw fail('invalid_responses_stream','Malformed SSE event.');
     if(event.type==='response.output_text.delta'&&typeof event.delta==='string')await onToken(event.delta);
     if(['response.completed','response.incomplete','response.failed','response.cancelled'].includes(event.type)){
       if(terminal)throw fail('duplicate_responses_terminal','Multiple terminal SSE events.');
@@ -164,39 +166,19 @@ export async function readResponsesStream(body,{signal,onToken=()=>{},onChunk=()
     }
   };
   try{
-    for(;;){
-      signal?.throwIfAborted?.();
-      const {done,value}=await reader.read();
-      if(done)break;
-      onChunk();
-      total+=value?.byteLength||0;
-      if(total>12*1024*1024)throw fail('responses_stream_too_large','Response stream exceeded 12 MiB.');
-      pending+=decoder.decode(value,{stream:true});
-      for(;;){
-        const match=/\r?\n\r?\n/.exec(pending);
-        if(!match)break;
-        const block=pending.slice(0,match.index);
-        pending=pending.slice(match.index+match[0].length);
-        await handle(block);
-      }
-    }
-    if(pending.trim())await handle(pending);
-    if(!terminal)throw fail('responses_stream_interrupted','Responses stream ended without terminal confirmation. No tool calls executed.');
-    return terminal;
-  }finally{try{await reader.cancel();}catch{}reader.releaseLock();}
+    await readSse(body,{signal,onChunk,onEvent:handle});
+  }catch(error){
+    if(error?.code==='sse_too_large')throw fail('responses_stream_too_large','Response stream exceeded 12 MiB.');
+    throw error;
+  }
+  if(!terminal)throw fail('responses_stream_interrupted','Responses stream ended without terminal confirmation. No tool calls executed.');
+  return terminal;
 }
 
 // The 400 of a gateway that cannot stream this model. It says so in the field it names or in its words ("Unsupported value: 'stream'
 // does not support true with this model", "Your organization must be verified to stream this model"). A plain refusal only: a 400
 // about the context, the output cap, the quota or the model is not about the stream.
 const refusesStream=(status,data,info)=>status===400&&info.kind==='request'&&(data?.error?.param==='stream'||/\bstream/i.test(errorDetail(data)));
-
-// The stream was refused, so the text did not arrive in pieces: hand it to onToken now, as the stream would have.
-async function deliverText(result,onToken){
-  if(result.status!=='completed')return;
-  for(const item of result.output)
-    if(item.type==='message')for(const part of item.content)if(part.type==='output_text')await onToken(part.text);
-}
 
 /**
  * One model request. At most two network attempts, each announced to the caller through beforeModelRequest, which counts them: a

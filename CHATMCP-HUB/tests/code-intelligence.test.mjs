@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
+import { exactPagerank } from './support/pagerank-reference.mjs';
 
 // Support running both inside CHATMCP-HUB/tests/ (../lib/code-intelligence.mjs)
 // and in the same directory (./code-intelligence.mjs)
@@ -162,15 +163,30 @@ async function runTests() {
     assert(names.includes('MainForm.InitializeWebView'), 'Should find C# method MainForm.InitializeWebView');
     console.log('  [PASS] 2. Multi-language symbol extraction (ESM, #private methods, C#)');
 
-    // Test 3: import-degree ranked Repo Map prioritizes highly imported modules (tool-schema.mjs)
+    // Test 3: the Repo Map is ranked by PageRank over the import graph, not by the names of files. Its ranks must be the exact solution of the
+    // fixture's graph. In a graph this small the two modules that import only each other keep all of their rank (a closed cycle is a rank sink,
+    // as in any PageRank), so they come first; tool-schema.mjs (two importers) ranks above local-tools.mjs (one) and above the files nobody imports.
     const repoMap = await engine.generateRepoMap({ maxTokens: 1500 });
     assert(repoMap.structured.totalFiles >= 6);
-    const topFile = repoMap.structured.topFiles[0];
-    assert.equal(
-      topFile.path,
-      'lib/local-tools.mjs',
-      'local-tools.mjs (entry boost + imported by test) or tool-schema.mjs should rank at top'
+    const exact = exactPagerank(
+      ['desktop-shell/MainForm.cs', 'lib/cycle-a.mjs', 'lib/cycle-b.mjs', 'lib/local-tools.mjs', 'lib/tool-schema.mjs', 'tests/local-tools.test.mjs'],
+      [
+        ['lib/local-tools.mjs', 'lib/tool-schema.mjs'],
+        ['lib/cycle-a.mjs', 'lib/cycle-b.mjs'],
+        ['lib/cycle-b.mjs', 'lib/cycle-a.mjs'],
+        ['tests/local-tools.test.mjs', 'lib/local-tools.mjs'],
+        ['tests/local-tools.test.mjs', 'lib/tool-schema.mjs'],
+      ]
     );
+    const ranked = repoMap.structured.topFiles;
+    for (const file of ranked) {
+      assert(Math.abs(file.pagerank - exact.get(file.path)) < 1e-6, `${file.path}: ${file.pagerank} against the exact ${exact.get(file.path)}`);
+    }
+    const order = ranked.map((f) => f.path);
+    assert.deepEqual(order.slice(0, 2).sort(), ['lib/cycle-a.mjs', 'lib/cycle-b.mjs'], 'the closed import cycle keeps its rank and comes first');
+    assert.equal(order[2], 'lib/tool-schema.mjs', 'tool-schema.mjs (two importers) comes right after the cycle');
+    assert(order.indexOf('lib/tool-schema.mjs') < order.indexOf('lib/local-tools.mjs'), 'two importers outrank one');
+    assert(order.indexOf('lib/local-tools.mjs') < order.indexOf('tests/local-tools.test.mjs'), 'an imported module outranks the test that nobody imports');
     const schemaEntry = repoMap.structured.topFiles.find((f) => f.path === 'lib/tool-schema.mjs');
     assert.equal(schemaEntry.importedByCount, 2, 'tool-schema.mjs is imported by 2 files');
     console.log('  [PASS] 3. Graph-ranked Repo Map generation & token budgeting');

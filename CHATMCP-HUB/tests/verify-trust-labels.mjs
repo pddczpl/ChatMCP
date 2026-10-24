@@ -32,7 +32,7 @@ const FORBIDDEN = [
   { id: 'tamper-proof', pattern: /tamper[\s-]?proof/i, why: 'nothing here is tamper-proof; say tamper-evident and what it detects' },
   { id: 'certified', pattern: /\bcertified\b/i, why: 'no component of DatGold is certified by anyone' },
   { id: 'notary', pattern: /\bnotar(?:y|ize[ds]?|ise[ds]?|ization|isation)\b/i, why: 'no notarisation exists' },
-  { id: 'pagerank', pattern: /PageRank-style/i, why: 'the repo map ranks by import counts, it is not PageRank' },
+  { id: 'pagerank', pattern: /PageRank-style/i, why: 'the repo map is PageRank (damping 0.85, iterated to convergence, tests/repo-map.test.mjs compares it with the exact solution): say PageRank, not "PageRank-style"' },
   { id: 'absolute-security', pattern: /\b(?:unhackable|unbreakable|military[\s-]grade|bulletproof)\b/i, why: 'absolute security claims' },
   { id: 'mcp-servers-label', pattern: /\bMCP Servers\b/, why: 'the skills catalog lists prompts, not MCP servers' },
 ];

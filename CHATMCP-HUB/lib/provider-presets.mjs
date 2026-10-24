@@ -5,8 +5,9 @@
 // and a model that does not exist for the account is reported by name instead of failing silently.
 //
 // `contextWindowTokens` is what a preset assumes about its default model, and it is written into the connection when the preset is chosen (so it is then the owner's value). A preset
-// carries one only for a default model the model catalog does not know (DeepSeek's deepseek-chat): for every other the catalog answers (lib/model-facts.mjs) and a number kept here
-// would only go stale, as the 200,000 of Anthropic did when its models went to 1,000,000. tests/verify-catalog-budget.mjs holds the presets to that.
+// carries one only for a default model the model catalog does not know: for every other the catalog answers (lib/model-facts.mjs) and a number kept here would only go stale, as the
+// 200,000 of Anthropic did when its models went to 1,000,000 and the 128,000 of DeepSeek when its models did. No preset needs one today, and tests/verify-catalog-budget.mjs holds
+// the presets to that: every default model of a named provider must be in the catalog, and not deprecated.
 //
 // `keyEnv` lists the environment variables that are accepted as the key for THAT provider only. A key found in the
 // environment is never sent to a different host (see GatewayProvider#configure).
@@ -26,13 +27,13 @@ export const PRESETS = Object.freeze([
     notes: 'Messages API gốc, có tool use và prompt caching.',
   }),
   preset({
-    id: 'openai', label: 'OpenAI', protocol: 'openai-chat', apiBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-5-mini',
+    id: 'openai', label: 'OpenAI', protocol: 'openai-chat', apiBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-5.6-terra',
     keyEnv: ['OPENAI_API_KEY'], keyUrl: 'https://platform.openai.com/api-keys',
     notes: 'Chat Completions. Tên model mặc định chỉ là gợi ý; sau khi lưu cấu hình, chọn model có trong tài khoản từ danh sách model.',
   }),
   preset({
     id: 'openai-responses', label: 'OpenAI Responses API', protocol: 'openai-responses',
-    apiBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-5-mini',
+    apiBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-5.6-terra',
     keyEnv: ['OPENAI_API_KEY'], keyUrl: 'https://platform.openai.com/api-keys',
     notes: 'Native /v1/responses, function tools and SSE. Select only for genuinely compatible endpoints.',
   }),
@@ -47,8 +48,28 @@ export const PRESETS = Object.freeze([
     notes: 'Một key cho nhiều model. Ngữ cảnh phụ thuộc model: đặt "Ngữ cảnh model" nếu biết.',
   }),
   preset({
-    id: 'deepseek', label: 'DeepSeek', protocol: 'openai-chat', apiBaseUrl: 'https://api.deepseek.com', defaultModel: 'deepseek-chat',
-    keyEnv: ['DEEPSEEK_API_KEY'], contextWindowTokens: 128000, keyUrl: 'https://platform.deepseek.com/api_keys',
+    id: 'deepseek', label: 'DeepSeek', protocol: 'openai-chat', apiBaseUrl: 'https://api.deepseek.com', defaultModel: 'deepseek-flash',
+    keyEnv: ['DEEPSEEK_API_KEY'], keyUrl: 'https://platform.deepseek.com/api_keys',
+  }),
+  preset({
+    id: 'xai', label: 'xAI (Grok)', protocol: 'openai-chat', apiBaseUrl: 'https://api.x.ai/v1', defaultModel: 'grok-4.3',
+    keyEnv: ['XAI_API_KEY'], keyUrl: 'https://console.x.ai',
+    notes: 'Chat Completions của xAI. Prompt từ 200.000 token trở lên bị tính gấp đôi cho cả request.',
+  }),
+  preset({
+    id: 'glm', label: 'Z.ai (GLM)', protocol: 'openai-chat', apiBaseUrl: 'https://api.z.ai/api/paas/v4', defaultModel: 'glm-5.3',
+    keyEnv: ['ZAI_API_KEY'],
+    notes: 'Chat Completions của Z.ai, trả phí theo token. Gói Coding Plan có địa chỉ riêng (https://api.z.ai/api/coding/paas/v4): chọn "Khác: tương thích OpenAI" rồi nhập địa chỉ đó. GLM-5.3 luôn suy luận.',
+  }),
+  preset({
+    id: 'qwen', label: 'Alibaba (Qwen)', protocol: 'openai-chat', apiBaseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', defaultModel: 'qwen3.7-plus',
+    keyEnv: ['DASHSCOPE_API_KEY'],
+    notes: 'Alibaba Cloud Model Studio, chế độ tương thích OpenAI, khu vực quốc tế. Khu vực Trung Quốc có địa chỉ và key riêng (https://dashscope.aliyuncs.com/compatible-mode/v1): chọn "Khác: tương thích OpenAI".',
+  }),
+  preset({
+    id: 'minimax', label: 'MiniMax', protocol: 'anthropic', apiBaseUrl: 'https://api.minimax.io/anthropic', defaultModel: 'MiniMax-M3',
+    keyEnv: ['MINIMAX_API_KEY'],
+    notes: 'Messages API tương thích Anthropic, địa chỉ MiniMax khuyên dùng. Prompt trên 512.000 token bị tính giá cao hơn.',
   }),
   preset({
     id: 'groq', label: 'Groq', protocol: 'openai-chat', apiBaseUrl: 'https://api.groq.com/openai/v1', defaultModel: 'llama-3.3-70b-versatile',

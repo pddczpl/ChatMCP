@@ -1,0 +1,4 @@
+data: {"candidates":[{"content":{"parts":[{"text":"Để tôi đọc tệp. "}],"role":"model"},"index":0}],"usageMetadata":{"promptTokenCount":140,"candidatesTokenCount":11,"totalTokenCount":140},"modelVersion":"gemini-2.5-flash","responseId":"r-call-0001"}
+
+data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"read_file","args":{"path":"README.md","max_lines":40}}}],"role":"model"},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":140,"candidatesTokenCount":22,"totalTokenCount":162},"modelVersion":"gemini-2.5-flash","responseId":"r-call-0001"}
+

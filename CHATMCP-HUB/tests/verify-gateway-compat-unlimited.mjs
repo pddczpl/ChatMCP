@@ -57,7 +57,8 @@ try{
   assert.equal(rejections,3,'native fields rejected, then switched to strict text protocol');
   assert.equal(compatible,2,'subsequent turn cached working dialect');
   assert.equal(gateway.geminiDialect,'text-protocol');
-  assert.ok(seenUrls.every(u=>u==='https://gateway.example.invalid/v1beta/models/gemini-fixture:generateContent'),'same gateway URL');
+  // AgentRunner shows the text, so the first request of a run goes to the stream twin of the route (:streamGenerateContent?alt=sse): the same gateway and model.
+  assert.ok(seenUrls.every(u=>u.replace(':streamGenerateContent?alt=sse',':generateContent')==='https://gateway.example.invalid/v1beta/models/gemini-fixture:generateContent'),'same gateway URL');
   assert.ok(task.events.some(e=>e.type==='network_wait'&&e.message.includes('tương thích')),'agent displays fallback status');
   assert.equal(task.finalText,'Đã đọc README.md. Không sửa file.');
   assert.ok(!JSON.stringify(task).includes(privateKey));

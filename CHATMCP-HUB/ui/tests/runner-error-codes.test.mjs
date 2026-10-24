@@ -99,7 +99,7 @@ const SHOWN_AS_WRITTEN = {
 const NEVER_A_RUN_RECORD = [
   'invalid_attachments', 'invalid_attachment', 'protected_attachment', 'attachments_too_large', 'image_too_large', 'unsupported_attachment',
   'empty_catalog', 'invalid_catalog', 'invalid_task_id', 'task_running', 'task_not_found', 'task_not_running', 'invalid_auto_resume', 'invalid_prompt', 'pending_messages_full',
-  'shutting_down', 'invalid_limits', 'hub_busy', 'preflight_timeout', 'workspace_missing', 'provider_not_ready',
+  'shutting_down', 'invalid_limits', 'invalid_reasoning_effort', 'hub_busy', 'preflight_timeout', 'workspace_missing', 'provider_not_ready',
   'invalid_arguments', 'unknown_function', 'unknown_tool', 'unknown_capability',
 ];
 

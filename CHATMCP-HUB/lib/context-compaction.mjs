@@ -99,11 +99,12 @@ export function extractPromptHints(promptText = '') {
  * Generates an automatic, token-budgeted Repo Map section and appends it to agent instructions.
  * `queryPrompt` is the part of `prompt` the query word is made from, when the caller wrote text around the task that must not choose it (the Hub's handoff around a
  * delegated worker's goal). The focus files stay those of the whole `prompt`: a file a predecessor's result names still focuses the map. Blank or absent: the prompt's.
+ * `git` is the Hub's GitRunner: with it the files of the map are the ones Git lists, so what .gitignore excludes is not in it; without it the tree is walked.
  */
 export async function injectRepoMapIntoInstructions(
   baseInstructions,
   workspace,
-  { prompt = '', queryPrompt = null, maxTokens = 1200, engine = null, signal = null } = {}
+  { prompt = '', queryPrompt = null, maxTokens = 1200, engine = null, signal = null, git = null } = {}
 ) {
   const instructions = String(baseInstructions || '');
   if (!workspace || typeof workspace.resolve !== 'function') {
@@ -114,7 +115,7 @@ export async function injectRepoMapIntoInstructions(
   }
 
   try {
-    const intel = engine ?? new CodeIntelligenceEngine({ workspace });
+    const intel = engine ?? new CodeIntelligenceEngine({ workspace, git });
     const hints = extractPromptHints(prompt);
     const query = typeof queryPrompt === 'string' && queryPrompt.trim() ? extractPromptHints(queryPrompt).query : hints.query;
     const repoMap = await intel.generateRepoMap({

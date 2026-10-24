@@ -10,6 +10,7 @@ export const REQUIRED_COMPONENTS = Object.freeze([
   'runtimes/python/python3.dll',
   'runtimes/python/python311.zip',
   'runtimes/python/python311._pth',
+  'runtimes/ripgrep/rg.exe',
   'runtimes/lsp/node_modules/pyright/langserver.index.js',
   'runtimes/lsp/node_modules/typescript-language-server/lib/cli.mjs',
   'runtimes/lsp/node_modules/typescript/lib/typescript.js',

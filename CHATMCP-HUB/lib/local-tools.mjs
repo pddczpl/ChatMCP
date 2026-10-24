@@ -10,8 +10,10 @@ import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { analyzeCommand, categoryForKind, maxKind } from './command-analysis.mjs';
 import { applyEol, canonicalRelative, decodeText, encodeText, isUnsafeWindowsName, sha256, splitLines, toLf, writeFileAtomic } from './fs-safe.mjs';
+import { createPlainFileChecker, listFilesWithGit } from './git-file-list.mjs';
 import { GitRunner, isSafeRevision } from './git-runner.mjs';
 import { compileGlob } from './glob.mjs';
+import { basenameTypeGlob, compareWalkOrder, patternNeedsPcre2 } from './ripgrep.mjs';
 import { PRIVATE_DIRECTORIES, isProtectedPath } from './protected-paths.mjs';
 import { describeProblem, pathProblems } from './command-paths.mjs';
 import { gitRisksFor, gitSubcommand, inspectGitSafety } from './git-trust.mjs';
@@ -38,8 +40,13 @@ export const NOISE_DIRECTORIES = new Set([
   '.ruff_cache', '.tox', '.idea', '.vs', '.gradle', '.terraform', '.cache',
 ]);
 
+// What ripgrep may fail with and the search still answers (with its own engine); a cancelled search is none of these.
+const RIPGREP_SOFT_FAILURES = new Set(['ripgrep_unavailable', 'ripgrep_pcre2_unavailable', 'ripgrep_pattern', 'ripgrep_failed']);
+const RIPGREP_LIST_FILES = 200_000;
+const RIPGREP_LIST_MILLIS = 15_000;
+
 const fault = (code, message, statusCode = 400) => Object.assign(new Error(message), { code, statusCode });
-const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isObject =(value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const posix = (value) => value.replaceAll('\\', '/');
 const formatBytes = (n) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
 const clip = (value, limit) => (value.length > limit ? `${value.slice(0, limit)}… [đã cắt ${value.length - limit} ký tự]` : value);
@@ -66,14 +73,62 @@ function describeError(error, subject = '') {
 }
 
 const renderLine = (line, number) => `${String(number).padStart(6)}\t${line.length > LIMITS.lineChars ? `${line.slice(0, LIMITS.lineChars)} …[dòng quá dài, đã cắt]` : line}`;
+
+/** The most edits one edit_file call may carry (its schema says so too). */
+const MAX_EDITS = 50;
+
+/**
+ * The form of an edit_file call: old_string + new_string (one edit) OR edits (a list), never both and never neither. Shared by the check made before an approval is asked
+ * (an invalid call must not bother the owner) and by the tool itself.
+ * @returns {string[]} what is wrong, empty when the form is right
+ */
+export function editFormErrors({ old_string: oldString, new_string: newString, replace_all: replaceAll, edits } = {}) {
+  if (edits !== undefined) {
+    return oldString !== undefined || newString !== undefined || replaceAll !== undefined
+      ? ['chỉ dùng một trong hai cách: hoặc old_string + new_string, hoặc edits; không dùng cả hai'] : [];
+  }
+  return oldString === undefined || newString === undefined ? ['cần old_string + new_string hoặc edits (danh sách chỉnh sửa)'] : [];
+}
+
+/**
+ * One edit applied to LF text: the unique occurrence of `oldString` (every occurrence with `replaceAll`) becomes `newString`. Pure: it reads nothing and writes nothing, so a list of
+ * edits can be applied one after the other to the text the one before left, and thrown away whole when one of them does not fit.
+ * @returns {{text: string, count: number, firstLine: number, replacedLines: number}}
+ */
+export function applyEditToText(hay, { oldString, newString, replaceAll = false }, relative) {
+  if (!oldString) throw fault('bad_edit', 'old_string không được rỗng. Để tạo file mới dùng write_file.');
+  if (oldString === newString) throw fault('bad_edit', 'old_string và new_string giống nhau; không có gì để sửa.');
+  const positions = [];
+  for (let at = hay.indexOf(oldString); at !== -1 && positions.length < 5000; at = hay.indexOf(oldString, at + oldString.length)) positions.push(at);
+  const lineAt = (position) => hay.slice(0, position).split('\n').length;
+  if (!positions.length) {
+    const trimmed = oldString.split('\n').map((line) => line.trim()).filter(Boolean);
+    const lines = hay.split('\n');
+    let hint = '';
+    if (trimmed.length) {
+      const probe = trimmed[0];
+      const near = lines.findIndex((line) => line.trim() === probe);
+      if (near !== -1) hint = ` Dòng đầu của old_string xuất hiện ở dòng ${near + 1} nhưng khác khoảng trắng/thụt lề hoặc các dòng sau; dùng read_file để lấy đoạn chính xác.`;
+    }
+    throw fault('not_found', `Không tìm thấy old_string trong "${relative}".${hint || ' Kiểm tra khoảng trắng, thụt lề và dấu xuống dòng; dùng read_file để lấy đoạn chính xác.'}`, 404);
+  }
+  if (positions.length > 1 && !replaceAll) {
+    throw fault('ambiguous_match', `old_string xuất hiện ${positions.length} lần (dòng ${positions.slice(0, 10).map(lineAt).join(', ')}${positions.length > 10 ? ', ...' : ''}). Thêm vài dòng ngữ cảnh xung quanh để duy nhất, hoặc đặt replace_all=true.`, 409);
+  }
+  const text = replaceAll ? hay.split(oldString).join(newString) : hay.slice(0, positions[0]) + newString + hay.slice(positions[0] + oldString.length);
+  return { text, count: replaceAll ? positions.length : 1, firstLine: lineAt(positions[0]), replacedLines: newString ? newString.split('\n').length : 1 };
+}
 const encodingLabel = (encoding) => ({ utf8: 'UTF-8', 'utf8-bom': 'UTF-8 BOM', utf16le: 'UTF-16LE' })[encoding] ?? encoding;
 const eolLabel = (eol) => ({ lf: 'LF', crlf: 'CRLF', mixed: 'hỗn hợp', none: 'không có xuống dòng' })[eol] ?? eol;
 
-/** Rejects regular expressions likely to backtrack catastrophically (the event loop cannot interrupt one). */
-function assertSafeRegex(pattern) {
+/**
+ * Rejects regular expressions likely to backtrack catastrophically (the event loop cannot interrupt one). A backreference is refused too, unless `backreferences` says that
+ * ripgrep with PCRE2 will run the pattern: that is another process with a time limit, which cannot hang the Hub.
+ */
+function assertSafeRegex(pattern, { backreferences = false } = {}) {
   if (pattern.length > 300) throw fault('bad_pattern', 'Regex tối đa 300 ký tự.');
   const flat = pattern.replace(/\\./g, 'x').replace(/\[[^\]]*\]/g, 'x').replace(/\(\?(?::|=|!|<=|<!|<\w+>)/g, '(');
-  if (/\\[1-9]/.test(pattern)) throw fault('bad_pattern', 'Regex không được dùng backreference (\\1...). Dùng tìm kiếm chuỗi thường hoặc run_command với ripgrep.');
+  if (!backreferences && /\\[1-9]/.test(pattern)) throw fault('bad_pattern', 'Regex không được dùng backreference (\\1...). Dùng tìm kiếm chuỗi thường hoặc run_command với ripgrep.');
   if (/\([^()]*[|+*?{][^()]*\)\s*[+*{]/.test(flat)) throw fault('bad_pattern', 'Regex có nhóm lặp chứa lặp/lựa chọn (ví dụ (a+)+ hoặc (a|b)*) dễ làm treo tìm kiếm. Đơn giản hóa mẫu hoặc dùng chuỗi thường.');
   const unbounded = (flat.match(/[*+]|\{\d+,\}/g) ?? []).length;
   if (unbounded > 4) throw fault('bad_pattern', 'Regex có quá nhiều lặp không giới hạn (* hoặc +); giảm xuống tối đa 4.');
@@ -92,8 +147,10 @@ export class LocalTools {
    *                                            the Hub writes keep group-write permission (the agent must be able to change them too)
    * @param {object} [options.studioIntelligence]  Studio CodeIntelligence; the Code Intelligence tools reach the language servers only through its lspRequest()
    * @param {object} [options.treeSitterAdapter]   Tree-sitter tier of the Code Intelligence tools: { getParser(language) } or a parser with parse(); forwarded under this same name
+   * @param {object} [options.ripgrep]  a Ripgrep (lib/ripgrep.mjs): search_files and find_files then use it, and fall back to their own search when it cannot answer. The Hub
+   *                                    turns it on (lib/assemble.mjs); without it the search is the built-in one, which the tests of the other tools rely on.
    */
-  constructor({ workspace, shell, git, stateDirectory = null, secrets = () => [], disabledTools = [], sharedWorkspace = false, studioIntelligence = null, treeSitterAdapter = null } = {}) {
+  constructor({ workspace, shell, git, stateDirectory = null, secrets = () => [], disabledTools = [], sharedWorkspace = false, studioIntelligence = null, treeSitterAdapter = null, ripgrep = null } = {}) {
     if (!workspace || typeof workspace.resolve !== 'function') throw new TypeError('LocalTools cần workspace có resolve().');
     this.workspace = workspace;
     this.stateDirectory = stateDirectory;
@@ -104,6 +161,7 @@ export class LocalTools {
     this.sharedWorkspace = sharedWorkspace;
     this.studioIntelligence = studioIntelligence;
     this.treeSitterAdapter = treeSitterAdapter;
+    this.ripgrep = ripgrep;
     this.#register();
     for (const name of disabledTools) this.tools.delete(String(name).replace(/^local\./, ''));
     this.shellDisabled = !this.tools.has('run_command');
@@ -149,7 +207,16 @@ export class LocalTools {
     const tool = this.#lookup(name);
     if (!tool) return { ok: false, code: 'unknown_tool', errors: [`Không có công cụ ${name}`] };
     const checked = validateArguments(tool.schema, args ?? {});
-    return checked.ok ? { ok: true, errors: [] } : { ok: false, code: 'invalid_arguments', errors: checked.errors };
+    const errors = checked.ok ? this.#crossFieldErrors(tool, checked.value) : checked.errors;
+    return errors.length === 0 ? { ok: true, errors: [] } : { ok: false, code: 'invalid_arguments', errors };
+  }
+
+  /**
+   * What the schema of a tool cannot say: a rule across its fields (edit_file takes old_string + new_string OR edits, never both and never neither). The schema offered to
+   * the providers stays plain (Anthropic refuses oneOf/anyOf at the top level), and the rule is applied here, with the schema, before any approval is asked.
+   */
+  #crossFieldErrors(tool, value) {
+    return typeof tool.check === 'function' ? tool.check(value) : [];
   }
 
   /** Existing files a call is about to change or delete, for a targeted pre-change checkpoint. */
@@ -197,7 +264,8 @@ export class LocalTools {
     const tool = this.#lookup(name);
     if (!tool) return failure('unknown_tool', `Không có công cụ ${name}.`, { executed: false });
     const checked = validateArguments(tool.schema, args ?? {});
-    if (!checked.ok) return failure('invalid_arguments', `Tham số không hợp lệ cho ${tool.name}: ${checked.errors.join('; ')}.`, { executed: false, details: checked.errors });
+    const errors = checked.ok ? this.#crossFieldErrors(tool, checked.value) : checked.errors;
+    if (errors.length) return failure('invalid_arguments', `Tham số không hợp lệ cho ${tool.name}: ${errors.join('; ')}.`, { executed: false, details: errors });
     try {
       return await tool.run(checked.value, { taskId, signal });
     } catch (error) {
@@ -302,6 +370,49 @@ export class LocalTools {
     }
   }
 
+  /**
+   * The files the built-in search looks at, in the order of the walk: in a Git repository the ones Git lists (tracked, and untracked that .gitignore does not exclude), otherwise,
+   * and with include_ignored, the walk of the tree. `state.engine` says which. Never a private folder, a protected file, a link or anything behind one, and unless include_ignored
+   * a noise folder.
+   */
+  async *#candidates(base, { includeIgnored, state, signal }) {
+    if (!includeIgnored) {
+      const listed = await this.#gitCandidates(base, { state, signal });
+      if (listed) { state.engine = 'git'; yield* listed; return; }
+    }
+    state.engine = 'walk';
+    yield* this.#walk(base.absolute, base.root, { includeIgnored, state, signal });
+  }
+
+  /** The files Git lists under `base`, or null when Git cannot answer or lists nothing there (an ignored folder that was asked for by name is walked, as ripgrep would search it). */
+  async #gitCandidates(base, { state, signal }) {
+    const listed = await listFilesWithGit(this.git, { directory: base.relative, signal });
+    if (!listed) return null;
+    const prefix = base.relative ? `${base.relative}/` : '';
+    let eligible = listed.filter((rel) => this.#searchable(rel.startsWith(prefix) ? rel.slice(prefix.length) : rel, rel, false)).sort(compareWalkOrder);
+    if (eligible.length === 0) return null;
+    if (eligible.length > LIMITS.walkEntries) { state.truncated = true; eligible = eligible.slice(0, LIMITS.walkEntries); }
+    const plain = createPlainFileChecker(base.root);
+    return (async function* checked() {
+      for (let from = 0; from < eligible.length; from += 64) {
+        signal?.throwIfAborted();
+        const batch = eligible.slice(from, from + 64);
+        const verdicts = await Promise.all(batch.map((rel) => plain(rel)));
+        for (let at = 0; at < batch.length; at += 1) if (verdicts[at]) yield { absolute: path.join(base.root, batch[at]), rel: batch[at] };
+      }
+    }());
+  }
+
+  /** Whether a file may be a search result: not a secret or Git metadata, and unless `includeIgnored` not inside a noise folder below the folder searched (`local` is relative to it). */
+  #searchable(local, rel, includeIgnored) {
+    if (isProtectedPath(rel)) return false;
+    if (!includeIgnored) {
+      const parts = local.split('/');
+      for (let at = 0; at < parts.length - 1; at += 1) if (NOISE_DIRECTORIES.has(parts[at])) return false;
+    }
+    return true;
+  }
+
   // ------------------------------------------------------------------ registration
   #register() {
     const define = (name, spec) => this.tools.set(name, { name, annotations: { readOnlyHint: true }, pathArgs: [], reason: '', ...spec });
@@ -309,6 +420,7 @@ export class LocalTools {
     registerCodeIntelligenceTools(define, this.workspace, {
       studioIntelligence: this.studioIntelligence ?? null,
       treeSitterAdapter: this.treeSitterAdapter ?? null,
+      git: this.git,
     });
 
     define('read_file', {
@@ -324,17 +436,17 @@ export class LocalTools {
       run: (a) => this.#listDirectory(a),
     });
     define('find_files', {
-      description: 'Find files by glob pattern, e.g. "**/*.py", "src/**/test_*.js", "*.{json,yaml}". A pattern without "/" matches the file name at any depth.',
-      schema: obj({ pattern: str('Glob pattern.'), path: str('Directory to search in (default: workspace root).'), include_ignored: bool('Also search node_modules, dist, build, .venv and similar folders.'), limit: int(`Maximum results (default 200, max ${LIMITS.findResults}).`, { minimum: 1, maximum: LIMITS.findResults }) }, ['pattern']),
+      description: 'Find files by glob pattern, e.g. "**/*.py", "src/**/test_*.js", "*.{json,yaml}". A pattern without "/" matches the file name at any depth. Files that .gitignore excludes are not listed.',
+      schema: obj({ pattern: str('Glob pattern.'), path: str('Directory to search in (default: workspace root).'), include_ignored: bool('Also list files .gitignore excludes and node_modules, dist, build, .venv and similar folders.'), limit: int(`Maximum results (default 200, max ${LIMITS.findResults}).`, { minimum: 1, maximum: LIMITS.findResults }) }, ['pattern']),
       category: 'read', reason: 'Tìm file', pathArgs: ['path'], summary: (a) => `Tìm file ${a.pattern}`,
       run: (a, ctx) => this.#findFiles(a, ctx),
     });
     define('search_files', {
-      description: 'Search text inside files (like grep -n). Literal match by default; regex:true uses JavaScript regex (patterns that could hang, such as (a+)+, are rejected). Binary files, files over 1 MB, secrets and .git are skipped.',
+      description: 'Search text inside files (like grep -n, with ripgrep when present). Literal match by default; regex:true uses a regular expression (patterns that could hang, such as (a+)+, are rejected; lookahead and backreferences work with ripgrep). Files that .gitignore excludes, binary files, files over 1 MB, secrets and .git are skipped.',
       schema: obj({
         pattern: str('Text or regex to look for.', { maxLength: 300 }), path: str('File or directory to search (default: workspace root).'), glob: str('Only search files matching this glob, e.g. "*.py".'),
         regex: bool('Treat pattern as a JavaScript regular expression.'), ignore_case: bool('Case-insensitive match.'), context: int('Lines of context around each match (0-5).', { minimum: 0, maximum: 5 }),
-        limit: int(`Maximum matches (default 100, max ${LIMITS.searchMatches}).`, { minimum: 1, maximum: LIMITS.searchMatches }), include_ignored: bool('Also search node_modules, dist, build, .venv and similar folders.'),
+        limit: int(`Maximum matches (default 100, max ${LIMITS.searchMatches}).`, { minimum: 1, maximum: LIMITS.searchMatches }), include_ignored: bool('Also search files .gitignore excludes and node_modules, dist, build, .venv and similar folders.'),
       }, ['pattern']),
       category: 'read', reason: 'Tìm nội dung trong file', pathArgs: ['path'], summary: (a) => `Tìm "${clip(String(a.pattern ?? ''), 60)}"`,
       run: (a, ctx) => this.#searchFiles(a, ctx),
@@ -377,9 +489,20 @@ export class LocalTools {
       summary: (a) => `Ghi ${a.path} (${formatBytes(Buffer.byteLength(String(a.content ?? '')))})`, run: (a) => this.#writeFile(a),
     });
     define('edit_file', {
-      description: 'Replace an exact piece of text in a file. old_string must match exactly (including indentation) and be unique unless replace_all is true; include enough surrounding lines to make it unique. Line endings are handled for you. Read the file first.',
-      schema: obj({ path: str('File path relative to the workspace.'), old_string: str('Exact text to replace.'), new_string: str('Replacement text (may be empty to delete).'), replace_all: bool('Replace every occurrence.'), expected_sha256: EXPECTED_SHA }, ['path', 'old_string', 'new_string']),
-      annotations: WRITE, category: 'workspace_edit', reason: 'Sửa file', pathArgs: ['path'], summary: (a) => `Sửa ${a.path}`, run: (a) => this.#editFile(a),
+      description: 'Replace an exact piece of text in a file. old_string must match exactly (including indentation) and be unique unless replace_all is true; include enough surrounding lines to make it unique. Line endings are handled for you. Read the file first. '
+        + 'To change one file in several places at once, pass edits instead of old_string/new_string: they apply in order, each to the text the one before left, and if any fails nothing is written.',
+      schema: obj({
+        path: str('File path relative to the workspace.'),
+        old_string: str('Exact text to replace (not with edits).'), new_string: str('Replacement text (may be empty to delete; not with edits).'),
+        replace_all: bool('Replace every occurrence.'),
+        edits: { type: 'array', description: 'Several edits of this file, all or nothing (instead of old_string/new_string).', minItems: 1, maxItems: MAX_EDITS, items: obj({
+          old_string: str('Exact text to replace.'), new_string: str('Replacement (may be empty).'), replace_all: bool('Replace every occurrence.'),
+        }, ['old_string', 'new_string']) },
+        expected_sha256: EXPECTED_SHA,
+      }, ['path']),
+      annotations: WRITE, category: 'workspace_edit', reason: 'Sửa file', pathArgs: ['path'],
+      check: (a) => editFormErrors(a),
+      summary: (a) => (Array.isArray(a.edits) ? `Sửa ${a.path} (${a.edits.length} chỉnh sửa)` : `Sửa ${a.path}`), run: (a) => this.#editFile(a),
     });
     define('make_directory', {
       description: 'Create a directory (and missing parents) inside the workspace.',
@@ -643,22 +766,57 @@ export class LocalTools {
     if (!stat.isDirectory()) throw fault('not_directory', `"${base.relative}" không phải thư mục.`);
     const matcher = compileGlob(pattern);
     const prefix = base.relative ? `${base.relative}/` : '';
-    const found = [];
-    const state = { visited: 0, truncated: false };
-    for await (const file of this.#walk(base.absolute, base.root, { includeIgnored, state, signal })) {
-      const local = prefix && file.rel.startsWith(prefix) ? file.rel.slice(prefix.length) : file.rel;
-      if (matcher.test(local)) { found.push(file.rel); if (found.length >= limit) break; }
+    let found = [];
+    const state = { visited: 0, truncated: false, engine: 'walk' };
+    const listed = this.ripgrep ? await this.#findWithRipgrep({ base, prefix, matcher, glob: pattern, includeIgnored, limit, signal }) : null;
+    if (listed) {
+      found = listed.files;
+      state.engine = 'ripgrep';
+      state.truncated = listed.truncated;
+      state.unreadable = listed.unreadable;
+    } else {
+      for await (const file of this.#candidates(base, { includeIgnored, state, signal })) {
+        const local = prefix && file.rel.startsWith(prefix) ? file.rel.slice(prefix.length) : file.rel;
+        if (matcher.test(local)) { found.push(file.rel); if (found.length >= limit) break; }
+      }
     }
     const limited = found.length >= limit;
-    const note = limited ? `\n[Đã dừng ở ${limit} kết quả.]` : state.truncated ? '\n[Đã dừng vì quá nhiều mục; thu hẹp path hoặc mẫu.]' : '';
-    return ok(`${found.length} file khớp "${pattern}"${base.relative ? ` trong ${base.relative}` : ''}\n${found.join('\n') || '(không có)'}${note}`, { count: found.length, truncated: limited || Boolean(state.truncated) });
+    const note = (limited ? `\n[Đã dừng ở ${limit} kết quả.]` : state.truncated ? '\n[Đã dừng vì quá nhiều mục; thu hẹp path hoặc mẫu.]' : '')
+      + (state.unreadable ? '\n[Một số thư mục không đọc được; danh sách có thể thiếu.]' : '');
+    return ok(`${found.length} file khớp "${pattern}"${base.relative ? ` trong ${base.relative}` : ''}\n${found.join('\n') || '(không có)'}${note}`, { count: found.length, truncated: limited || Boolean(state.truncated), incomplete: Boolean(state.unreadable), engine: state.engine });
+  }
+
+  /**
+   * The list of files for find_files from ripgrep (.gitignore honoured unless include_ignored), already filtered like the walk: no secrets, no noise folders, the exact glob. In the
+   * order of the walk, at most `limit`. Null when ripgrep is not there or cannot answer: the caller walks.
+   */
+  async #findWithRipgrep({ base, prefix, matcher, glob, includeIgnored, limit, signal }) {
+    if (!(await this.ripgrep.info())) return null;
+    const accept = (local) => this.#searchable(local, `${prefix}${local}`, includeIgnored) && matcher.test(local);
+    let outcome;
+    try {
+      outcome = await this.ripgrep.files({
+        directory: base.absolute, target: '.', includeIgnored, typeGlob: basenameTypeGlob(glob, { caseInsensitive: process.platform === 'win32' }), accept, maxFiles: RIPGREP_LIST_FILES, signal,
+        timeoutMs: RIPGREP_LIST_MILLIS, noiseNames: [...NOISE_DIRECTORIES], privateNames: [...PRIVATE_DIRECTORIES],
+      });
+    } catch (error) {
+      if (RIPGREP_SOFT_FAILURES.has(error?.code)) return null;
+      throw error;
+    }
+    const files = outcome.files.filter(accept).map((local) => `${prefix}${local}`).sort(compareWalkOrder);
+    return { files: files.slice(0, limit), truncated: outcome.truncated || outcome.timedOut || outcome.outputTruncated, unreadable: Boolean(outcome.unreadable) };
   }
 
   async #searchFiles({ pattern, path: p = '', glob, regex = false, ignore_case: ignoreCase = false, context = 0, limit = 100, include_ignored: includeIgnored = false }, { signal }) {
     if (!pattern) throw fault('bad_pattern', 'Cần mẫu tìm kiếm.');
+    const external = this.ripgrep ? await this.ripgrep.info() : null;
+    // ripgrep does the search when it can: it knows .gitignore and is much faster on a large tree. A line end or NUL in the pattern can never match one line (and is not an argument it
+    // could take), and PCRE2 is needed for lookahead and backreferences; anything else it cannot do ends with the built-in search below, which answers as it always did.
+    const viaRipgrep = Boolean(external) && !/[\0\r\n]/.test(pattern) && (!regex || !patternNeedsPcre2(pattern) || external.pcre2);
     let matches;
     if (regex) {
-      assertSafeRegex(pattern);
+      // a backreference is allowed only where ripgrep (another process, with a time limit) will run it, never in this process
+      assertSafeRegex(pattern, { backreferences: viaRipgrep && external.pcre2 });
       let expression;
       try { expression = new RegExp(pattern, ignoreCase ? 'i' : ''); } catch (error) { throw fault('bad_pattern', `Regex không hợp lệ: ${error.message}`); }
       matches = (line) => expression.test(line.length > LIMITS.regexLineChars ? line.slice(0, LIMITS.regexLineChars) : line);
@@ -669,9 +827,18 @@ export class LocalTools {
     const base = await this.#target(p, { allowRoot: true });
     const stat = await fs.stat(base.absolute);
     const globber = glob ? compileGlob(glob) : null;
+    if (viaRipgrep) {
+      try {
+        return await this.#searchWithRipgrep({ base, stat, pattern, regex, ignoreCase, context, limit, includeIgnored, glob, globber, signal });
+      } catch (error) {
+        if (!RIPGREP_SOFT_FAILURES.has(error?.code)) throw error;
+      }
+      // from here on the pattern runs in this process, where a backreference is never run
+      if (regex) assertSafeRegex(pattern);
+    }
     const prefix = base.relative && stat.isDirectory() ? `${base.relative}/` : '';
-    const state = { visited: 0, truncated: false };
-    const files = stat.isDirectory() ? this.#walk(base.absolute, base.root, { includeIgnored, state, signal }) : (async function* single() { yield { absolute: base.absolute, rel: base.relative }; }());
+    const state = { visited: 0, truncated: false, engine: 'walk' };
+    const files = stat.isDirectory() ? this.#candidates(base, { includeIgnored, state, signal }) : (async function* single() { yield { absolute: base.absolute, rel: base.relative }; }());
     const started = Date.now();
     const output = [];
     let scanned = 0;
@@ -714,7 +881,62 @@ export class LocalTools {
     if (state.truncated) notes.push('Có quá nhiều mục để quét hết; thu hẹp path.');
     if (skipped) notes.push(`${skipped} file bị bỏ qua (nhị phân, không phải UTF-8 hoặc lớn hơn ${formatBytes(LIMITS.searchFileBytes)}).`);
     const head = `${found} kết quả trong ${filesWithHits} file (đã quét ${scanned} file) cho ${regex ? 'regex' : 'chuỗi'} "${clip(pattern, 80)}"`;
-    return ok(`${head}\n${output.join('\n') || '(không có kết quả)'}${notes.length ? `\n[${notes.join(' ')}]` : ''}`, { matches: found, files: filesWithHits, scanned, skipped, truncated: found >= limit || partial || Boolean(state.truncated) });
+    return ok(`${head}\n${output.join('\n') || '(không có kết quả)'}${notes.length ? `\n[${notes.join(' ')}]` : ''}`, { matches: found, files: filesWithHits, scanned, skipped, truncated: found >= limit || partial || Boolean(state.truncated), engine: state.engine });
+  }
+
+  /**
+   * search_files through ripgrep. Ripgrep decides which lines match (and honours .gitignore); the Hub decides which files may be shown (`accept`, asked of ripgrep and asked again of
+   * what it returns) and formats the answer exactly as the built-in search does.
+   */
+  async #searchWithRipgrep({ base, stat, pattern, regex, ignoreCase, context, limit, includeIgnored, glob, globber, signal }) {
+    const single = !stat.isDirectory();
+    const directory = single ? path.dirname(base.absolute) : base.absolute;
+    const target = single ? path.basename(base.absolute) : '.';
+    const offset = posix(path.relative(base.root, directory));
+    const toRel = (local) => (offset ? `${offset}/${local}` : local);
+    const accept = (local) => {
+      const rel = toRel(local);
+      if (!this.#searchable(local, rel, includeIgnored)) return false;
+      return !globber || globber.test(single ? rel : local);
+    };
+    const outcome = await this.ripgrep.search({
+      directory, target, pattern, regex, ignoreCase, context, includeIgnored, limit, accept, signal, timeoutMs: LIMITS.searchMillis,
+      typeGlob: glob && !single ? basenameTypeGlob(glob, { caseInsensitive: process.platform === 'win32' }) : null,
+      noiseNames: [...NOISE_DIRECTORIES], privateNames: [...PRIVATE_DIRECTORIES],
+    });
+    const files = outcome.files.filter((file) => accept(file.path)).map((file) => ({ rel: toRel(file.path), lines: file.lines })).sort((a, b) => compareWalkOrder(a.rel, b.rel));
+    const text = (line) => (line.length > 300 ? `${line.text.slice(0, 300)}… [đã cắt ${line.length - 300} ký tự]` : line.text);
+    const output = [];
+    let found = 0;
+    let filesWithHits = 0;
+    for (const file of files) {
+      const hits = file.lines.filter((line) => line.match);
+      if (!hits.length) continue;
+      filesWithHits += 1;
+      found += hits.length;
+      if (!context) {
+        for (const line of hits) output.push(`${file.rel}:${line.number}: ${line.blank ? '(dòng trống)' : text(line)}`);
+        continue;
+      }
+      let previous = -2;
+      for (const line of file.lines) {
+        if (line.number !== previous + 1 && output.length) output.push('--');
+        const mark = line.match ? ':' : '-';
+        output.push(`${file.rel}${mark}${line.number}${mark} ${text(line)}`);
+        previous = line.number;
+      }
+    }
+    const skipped = outcome.skippedBinary + outcome.skippedEncoding;
+    const scanned = outcome.searched === null ? null : Math.max(0, outcome.searched - skipped);
+    const notes = [];
+    if (found >= limit) notes.push(`Đã dừng ở ${limit} kết quả.`);
+    if (outcome.timedOut) notes.push(`Đã dừng sau ${LIMITS.searchMillis / 1000}s; thu hẹp path hoặc glob.`);
+    if (outcome.outputTruncated) notes.push('Có quá nhiều kết quả để đọc hết; thu hẹp path.');
+    if (outcome.unreadable) notes.push('Một số file không tìm được (không đọc được hoặc dòng quá phức tạp); kết quả có thể thiếu.');
+    if (skipped) notes.push(`${skipped} file bị bỏ qua (nhị phân hoặc không phải UTF-8).`);
+    const head = `${found} kết quả trong ${filesWithHits} file${scanned === null ? '' : ` (đã quét ${scanned} file)`} cho ${regex ? 'regex' : 'chuỗi'} "${clip(pattern, 80)}"`;
+    return ok(`${head}\n${output.join('\n') || '(không có kết quả)'}${notes.length ? `\n[${notes.join(' ')}]` : ''}`,
+      { matches: found, files: filesWithHits, scanned, skipped, truncated: found >= limit || outcome.timedOut || outcome.outputTruncated, incomplete: Boolean(outcome.unreadable), engine: 'ripgrep' });
   }
 
   // ------------------------------------------------------------------ write tools
@@ -766,9 +988,37 @@ export class LocalTools {
       { path: target.relative, created: !existing, bytes: data.length, sha256: digest, previousSha: existing ? sha256(existing) : null });
   }
 
-  async #editFile({ path: p, old_string: oldString, new_string: newString, replace_all: replaceAll = false, expected_sha256: expectedSha }) {
-    if (!oldString) throw fault('bad_edit', 'old_string không được rỗng. Để tạo file mới dùng write_file.');
-    if (oldString === newString) throw fault('bad_edit', 'old_string và new_string giống nhau; không có gì để sửa.');
+  /**
+   * What an edit_file call asks for, as a list of {old_string, new_string, replace_all}: either one edit (old_string + new_string) or `edits`, never both. A call that
+   * could not do anything is refused here, before the file is opened, with the position of the edit that is wrong when there are several.
+   * @returns {{list: {old_string: string, new_string: string, replace_all: boolean}[], many: boolean}}
+   */
+  #editList({ old_string: oldString, new_string: newString, replace_all: replaceAll, edits }) {
+    const many = edits !== undefined;
+    // call() and validate() have refused a wrong form already, before any approval; this is for a caller that reaches the tool another way.
+    const wrongForm = editFormErrors({ old_string: oldString, new_string: newString, replace_all: replaceAll, edits })[0];
+    if (wrongForm) throw fault('bad_edit', `${wrongForm[0].toUpperCase()}${wrongForm.slice(1)}.`);
+    const list = many ? edits : [{ old_string: oldString, new_string: newString, replace_all: replaceAll === true }];
+    if (!Array.isArray(list) || !list.length) throw fault('bad_edit', 'edits không được rỗng.');
+    if (list.length > MAX_EDITS) throw fault('bad_edit', `Tối đa ${MAX_EDITS} chỉnh sửa trong một lần gọi; chia nhỏ.`);
+    list.forEach((edit, index) => {
+      try {
+        if (typeof edit?.old_string !== 'string' || typeof edit?.new_string !== 'string') throw fault('bad_edit', 'Mỗi chỉnh sửa cần old_string và new_string (chuỗi).');
+        if (!edit.old_string) throw fault('bad_edit', 'old_string không được rỗng. Để tạo file mới dùng write_file.');
+        if (edit.old_string === edit.new_string) throw fault('bad_edit', 'old_string và new_string giống nhau; không có gì để sửa.');
+      } catch (error) { throw many ? this.#editFailure(error, index, list.length) : error; }
+    });
+    return { list: list.map((edit) => ({ old_string: edit.old_string, new_string: edit.new_string, replace_all: edit.replace_all === true })), many };
+  }
+
+  /** The same fault, with the position of the edit that failed in front of its message (a call with several edits writes nothing when one of them fails). */
+  #editFailure(error, index, total) {
+    if (!error?.code || !error?.message) return error;
+    return Object.assign(new Error(`Chỉnh sửa ${index + 1}/${total} thất bại, chưa ghi gì: ${error.message}`), { code: error.code, statusCode: error.statusCode });
+  }
+
+  async #editFile({ path: p, old_string: oldString, new_string: newString, replace_all: replaceAll, edits, expected_sha256: expectedSha }) {
+    const { list, many } = this.#editList({ old_string: oldString, new_string: newString, replace_all: replaceAll, edits });
     const target = await this.#target(p, { write: true });
     const stat = await fs.lstat(target.absolute);
     if (stat.isSymbolicLink()) throw fault('symlink', `"${target.relative}" là symlink; không sửa qua symlink.`, 403);
@@ -781,39 +1031,37 @@ export class LocalTools {
     if (!decoded.ok) throw this.#decodeError(target.relative, decoded.reason);
     const crlf = decoded.eol === 'crlf';
     const hay = crlf ? toLf(decoded.text) : decoded.text;
-    const needle = crlf ? toLf(oldString) : oldString;
-    const replacement = crlf ? toLf(newString) : newString;
-    const positions = [];
-    for (let at = hay.indexOf(needle); at !== -1 && positions.length < 5000; at = hay.indexOf(needle, at + needle.length)) positions.push(at);
-    const lineAt = (position) => hay.slice(0, position).split('\n').length;
-    if (!positions.length) {
-      const trimmed = needle.split('\n').map((line) => line.trim()).filter(Boolean);
-      const lines = hay.split('\n');
-      let hint = '';
-      if (trimmed.length) {
-        const probe = trimmed[0];
-        const near = lines.findIndex((line) => line.trim() === probe);
-        if (near !== -1) hint = ` Dòng đầu của old_string xuất hiện ở dòng ${near + 1} nhưng khác khoảng trắng/thụt lề hoặc các dòng sau; dùng read_file để lấy đoạn chính xác.`;
-      }
-      throw fault('not_found', `Không tìm thấy old_string trong "${target.relative}".${hint || ' Kiểm tra khoảng trắng, thụt lề và dấu xuống dòng; dùng read_file để lấy đoạn chính xác.'}`, 404);
+    // The edits apply in order, each to the text the one before left, in memory: the file is written once, after all of them fit, or not at all.
+    let updatedLf = hay;
+    const steps = [];
+    list.forEach((edit, index) => {
+      try {
+        const step = applyEditToText(updatedLf, { oldString: crlf ? toLf(edit.old_string) : edit.old_string, newString: crlf ? toLf(edit.new_string) : edit.new_string, replaceAll: edit.replace_all }, target.relative);
+        updatedLf = step.text;
+        steps.push(step);
+      } catch (failure) { throw many ? this.#editFailure(failure, index, list.length) : failure; }
+    });
+    const count = steps.reduce((sum, step) => sum + step.count, 0);
+    if (updatedLf === hay) {
+      return ok(`${target.relative}: các chỉnh sửa triệt tiêu nhau, nội dung không đổi, không ghi.`, { path: target.relative, unchanged: true, edits: list.length, replacements: count, sha256: before, previousSha: before });
     }
-    if (positions.length > 1 && !replaceAll) {
-      throw fault('ambiguous_match', `old_string xuất hiện ${positions.length} lần (dòng ${positions.slice(0, 10).map(lineAt).join(', ')}${positions.length > 10 ? ', ...' : ''}). Thêm vài dòng ngữ cảnh xung quanh để duy nhất, hoặc đặt replace_all=true.`, 409);
-    }
-    const updatedLf = replaceAll ? hay.split(needle).join(replacement) : hay.slice(0, positions[0]) + replacement + hay.slice(positions[0] + needle.length);
     const updated = crlf ? updatedLf.replace(/\n/g, '\r\n') : updatedLf;
     const data = encodeText(updated, decoded.encoding);
     await writeFileAtomic(target.absolute, data, { mode: this.#fileMode(stat.mode), expectedSha: before });
     const digest = sha256(data);
-    const firstLine = lineAt(positions[0]);
-    const replacedLines = replacement ? replacement.split('\n').length : 1;
+    const [{ firstLine, replacedLines }] = steps;
     const outLines = updatedLf.split('\n');
     const from = Math.max(1, firstLine - 3);
     const to = Math.min(outLines.length, firstLine + replacedLines - 1 + 3);
     const snippet = outLines.slice(from - 1, to).map((line, i) => renderLine(line, from + i)).join('\n');
-    const count = replaceAll ? positions.length : 1;
-    return ok(`Đã sửa ${target.relative}: thay ${count} chỗ${count === 1 ? ` (dòng ${firstLine})` : ''}.\nsha256: ${digest}\n${snippet}`,
-      { path: target.relative, replacements: count, firstLine, sha256: digest, previousSha: before });
+    if (!many) {
+      return ok(`Đã sửa ${target.relative}: thay ${count} chỗ${count === 1 ? ` (dòng ${firstLine})` : ''}.\nsha256: ${digest}\n${snippet}`,
+        { path: target.relative, replacements: count, firstLine, sha256: digest, previousSha: before });
+    }
+    // The line of an edit is the line it found its text on at its turn, after the edits before it.
+    const account = steps.map((step, index) => `  ${index + 1}. dòng ${step.firstLine}: ${step.count} chỗ`).join('\n');
+    return ok(`Đã sửa ${target.relative}: ${list.length} chỉnh sửa, ${count} chỗ thay (một lần ghi).\n${account}\nsha256: ${digest}\n${snippet}`,
+      { path: target.relative, edits: list.length, replacements: count, firstLine, sha256: digest, previousSha: before });
   }
 
   async #makeDirectory({ path: p }) {

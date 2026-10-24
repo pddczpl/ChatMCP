@@ -7,7 +7,10 @@ import { createProtector } from './secret-box.mjs';
 import { customPresetId, detectEnvKeys, isLoopbackUrl, isValidCustomPath, originOf, presetById, presetIdFor, supportsPromptCaching } from './provider-presets.mjs';
 import { anthropicEndpoint, anthropicHeaders, normalizeAnthropic } from './anthropic-api.mjs';
 import { asChatMessages, normalizeChatCompletion } from './openai-chat-api.mjs';
-import { respondStandard } from './standard-adapter.mjs';
+import { LIMITS, respondStandard } from './standard-adapter.mjs';
+import { createGeminiStreamReader, geminiStreamEndpoint } from './gemini-stream.mjs';
+import { createStreamClock, deliverText, isEventStream, isStreamFallback, streamInvalid } from './model-stream.mjs';
+import { readSse } from './sse.mjs';
 import { respondOpenAIResponses, normalizeResponsesResponse } from './openai-responses-api.mjs';
 import { estimateTokens } from './model-history.mjs';
 import { classifyHttpError, sleep as waitFor } from './model-http.mjs';
@@ -16,9 +19,9 @@ import { probeToolCalling } from './tool-probe.mjs';
 import { reportedTokenCount } from './request-budget.mjs';
 import { normalizeCustomHeaders, publicCustomHeaders, applyCustomHeaders } from './gateway-custom-headers.mjs';
 import { CONTEXT_WINDOW_MAX, CONTEXT_WINDOW_MIN, contextWindowRangeText, parseContextWindow } from './context-window.mjs';
-import { lookup as catalogLookup } from './model-catalog.mjs';
+import { isTrusted, lookup as catalogLookup } from './model-catalog.mjs';
 import { modelFacts } from './model-facts.mjs';
-import { AUTO, EFFORT_LEVELS, parseReasoningEffort, reasoningDecision } from './reasoning-effort.mjs';
+import { AUTO, EFFORT_LEVELS, applyReasoning, parseReasoningEffort, reasoningDecision, refusesReasoning } from './reasoning-effort.mjs';
 
 // These stay importable from here: other modules and the tests have always taken them from this file.
 export { asChatMessages, normalizeChatCompletion };
@@ -48,14 +51,26 @@ function noSecrets(message, redact) {
     .replace(/(?:x-goog-api-key|authorization|api[_-]?key|access[_-]?token)\s*[=:]\s*[^\s,;]+/gi, '[REDACTED]')
     .replace(/\bAIza[0-9A-Za-z_-]{20,}\b/g, '[REDACTED]');
 }
-// Gemini's output cap: the caller's budget (the agent's context policy) within 256..65,536 tokens, 8,192 when the caller says nothing.
-// A thinking model spends the cap on its thoughts, so a fixed 8,192 ended answers at MAX_TOKENS. Some models accept less: the range in
-// their 400 answer is learned (this.outputLimit) and used from then on, as the Anthropic path does for "max_tokens".
+// Gemini's output cap: the caller's budget (the agent's context policy) within 256..65,536 tokens, and never above the output limit the model catalog states for the model
+// (facts.maxOutput: a model that takes 8,192 is not asked for more, so it does not answer with a 400). When the caller says nothing the cap is what the agent may ask of that model
+// (facts.outputCap), or 8,192 for a model the catalog does not know. A thinking model spends the cap on its thoughts, so a fixed 8,192 ended answers at MAX_TOKENS. Some models accept
+// less than any of this: the range in their 400 answer is learned (this.outputLimit) and used from then on, as the Anthropic path does for "max_tokens".
 const GEMINI_DEFAULT_OUTPUT_TOKENS = 8192;
 const GEMINI_MAX_OUTPUT_TOKENS = 65536;
-function geminiOutputCap(requested, learned) {
-  const wanted = Number.isFinite(requested) && requested > 0 ? Math.min(Math.max(256, Math.floor(requested)), GEMINI_MAX_OUTPUT_TOKENS) : GEMINI_DEFAULT_OUTPUT_TOKENS;
+function geminiOutputCap(requested, learned, facts = null) {
+  const ceiling = Math.min(GEMINI_MAX_OUTPUT_TOKENS, facts?.maxOutput ?? GEMINI_MAX_OUTPUT_TOKENS);
+  const wanted = Number.isFinite(requested) && requested > 0 ? Math.min(Math.max(256, Math.floor(requested)), ceiling) : Math.min(facts?.outputCap ?? GEMINI_DEFAULT_OUTPUT_TOKENS, ceiling);
   return learned ? Math.min(wanted, learned) : wanted;
+}
+// The answer of a gateway that has no streaming route or cannot stream this model: the route is missing (404, 405, 501), or a 400 that talks about the stream.
+const refusesGeminiStream = (status, data) => [404, 405, 501].includes(status) || (status === 400 && /\bstream/i.test(gatewayErrorDetail(data)));
+// The thoughts of a Gemini model count against the output cap, so a model asked to think a lot under a small cap ends at MAX_TOKENS with no answer. A budget leaves room for
+// the answer above it; a medium or high level is given the room the Messages API gets for its heavy levels (16,384).
+const GEMINI_ANSWER_ROOM_TOKENS = 4096;
+const GEMINI_HEAVY_LEVEL_TOKENS = 16384;
+function geminiThinkingRoom(thinkingConfig) {
+  if (Number.isInteger(thinkingConfig?.thinkingBudget) && thinkingConfig.thinkingBudget > 0) return thinkingConfig.thinkingBudget + GEMINI_ANSWER_ROOM_TOKENS;
+  return ['medium', 'high'].includes(thinkingConfig?.thinkingLevel) ? GEMINI_HEAVY_LEVEL_TOKENS : 0;
 }
 /** "...maxOutputTokens value of 16384 but the supported range is from 1 (inclusive) to 8193 (exclusive)" -> 8192, else null. */
 function geminiOutputRange(detail) {
@@ -93,7 +108,8 @@ export function buildEndpoint(base, protocol, model, customPath = '') {
     return `${stem}/models/${encodeURIComponent(model)}:generateContent`;
   }
   if (protocol === 'anthropic') return anthropicEndpoint(url);
-  const stem = /\/v1$/.test(url) ? url : `${url}/v1`;
+  // A version already in the address is the provider's own (Z.ai ends in /v4): "/v1" is added only when there is none.
+  const stem = /\/v\d+$/.test(url) ? url : `${url}/v1`;
   return `${stem}/${protocol==='openai-responses'?'responses':'chat/completions'}`;
 }
 function geminiSchema(schema) {
@@ -598,23 +614,51 @@ export class GatewayProvider {
     throw err;
   }
 
-  /** One model step. `maxOutputTokens` is the output budget: Anthropic requires it, Responses and Gemini send it, Chat Completions leaves the provider's own cap. */
-  async respond({ input, instructions, tools = [], signal, onStatus = async () => {}, onToken = null, maxOutputTokens, beforeModelRequest = () => {} } = {}) {
+  /**
+   * One model step. `maxOutputTokens` is the output budget: Anthropic requires it, Responses and Gemini send it, Chat Completions leaves the provider's own cap.
+   * `reasoningEffort` is the thinking setting of the TASK this step belongs to: a level or 'auto' wins over the connection's own for this step, nothing named leaves the
+   * connection's, and a word that is not a level is not obeyed (a run is not stopped for it; the task was refused when it was started).
+   */
+  async respond({ input, instructions, tools = [], signal, onStatus = async () => {}, onToken = null, onStreamReset = null, maxOutputTokens, beforeModelRequest = () => {}, reasoningEffort } = {}) {
     if (!this.ready()) throw bad('gateway_not_ready', 'Hãy cấu hình API Base URL, model và API key.', 409);
     if (!Array.isArray(input)) throw bad('invalid_input', 'Ngữ cảnh Agent không hợp lệ.');
+    const effort = reasoningEffort === undefined || reasoningEffort === null ? null : parseReasoningEffort(reasoningEffort) ?? null;
     if (this.protocol === 'openai-responses')
-      return await this.#respondResponses({ input, instructions, tools, signal, onToken, onStatus, maxOutputTokens, beforeModelRequest });
-    if (this.protocol !== 'gemini') return await this.#respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens, beforeModelRequest });
+      return await this.#respondResponses({ input, instructions, tools, signal, onToken, onStatus, maxOutputTokens, beforeModelRequest, effort });
+    if (this.protocol !== 'gemini') return await this.#respondStandard({ input, instructions, tools, signal, onStatus, onToken, onStreamReset, maxOutputTokens, beforeModelRequest, effort });
     // Gemini keeps its own compatibility loop: gateways in front of it differ a lot (see gemini-compat.mjs).
     const protocol = 'gemini';
     const sourceContextBytes = Buffer.byteLength(JSON.stringify(input),'utf8') + Buffer.byteLength(instructions,'utf8');
-    const endpoint = buildEndpoint(this.apiBaseUrl, protocol, this.model, this.customPath);
+    const model = this.model;
+    const endpoint = buildEndpoint(this.apiBaseUrl, protocol, model, this.customPath);
+    const limits = { ...LIMITS, ...this.limits };
+    const facts = this.#facts();
+    // A caller that shows the text gets it as a stream, from the stream twin of the route, and on the native dialect only (the other three keep the plain path).
+    // What a stream is, and the rule that nothing of a cut one is used, are in lib/model-stream.mjs; the same request is made once more on the plain route, and remembered.
+    const wantsStream = typeof onToken === 'function';
+    const streamEndpoint = wantsStream ? geminiStreamEndpoint(endpoint) : null;
+    let streaming = streamEndpoint !== null && !this.#knowsNoStream(endpoint, model);
+    let streamGaveUp = false;
+    let streamedOk = false;
+    let shown = 0;
+    const takeBack = async () => {
+      if (shown > 0) { shown = 0; await onStreamReset?.(); }
+    };
     const nativeBody = {
       systemInstruction: { parts: [{ text: instructions }] },
       contents: asGeminiContents(input),
       tools: tools.length ? [{ functionDeclarations: tools.map((x) => ({ name: x.name, description: x.description, parameters: geminiSchema(x.parameters) })) }] : undefined,
-      generationConfig: { maxOutputTokens: geminiOutputCap(maxOutputTokens, this.outputLimit) },
+      generationConfig: { maxOutputTokens: geminiOutputCap(maxOutputTokens, this.outputLimit, facts) },
     };
+    // The thinking setting (lib/reasoning-effort.mjs) goes into generationConfig with the output cap, which is raised to leave room for the answer after the thoughts.
+    // Only the native request has it; the compatibility dialects below drop generationConfig (or build a request of their own) and with it the setting.
+    const thinking = this.#reasoningRequest(effort);
+    let thinkingSent = thinking.decision.send !== null && !thinking.refused;
+    let thinkingDropped = false;
+    if (thinkingSent) {
+      applyReasoning(nativeBody, thinking.decision.send);
+      nativeBody.generationConfig.maxOutputTokens = geminiOutputCap(Math.max(nativeBody.generationConfig.maxOutputTokens, geminiThinkingRoom(nativeBody.generationConfig.thinkingConfig)), this.outputLimit, facts);
+    }
     const inlineInstructions = () => {
       const contents = asGeminiContents(input);
       const instructionPart = { text: `SYSTEM / AGENT INSTRUCTIONS (follow these rules):\n${instructions}` };
@@ -647,8 +691,13 @@ export class GatewayProvider {
     let textRepairCount = 0, repairHint = '', normalizedTextReply, reportedCompaction = false;
     while (true) {
       signal?.throwIfAborted();
-      const controller = AbortSignal.timeout(240000);
+      await takeBack(); // text of an attempt that is being replaced, when a branch below did not take it back before
+      const controller = AbortSignal.timeout(limits.requestTimeoutMs);
       const combined = signal ? AbortSignal.any([signal, controller]) : controller;
+      const useStream = streaming && dialects[dialectIndex] === 'native';
+      // A request that streams is bounded by clocks of its own (see createStreamClock); one that does not, by the request timeout alone.
+      const clock = useStream ? createStreamClock({ signal, headersMs: limits.requestTimeoutMs, idleMs: limits.idleTimeoutMs, totalMs: limits.streamTotalMs }) : null;
+      streamedOk = false;
       try {
         const activeDialect = dialects[dialectIndex];
         const requestBody = bodyForDialect(activeDialect);
@@ -662,25 +711,50 @@ export class GatewayProvider {
         if (activeDialect === 'text-protocol' && wireBytes > textRequestBudget)
           throw bad('gateway_context_budget','Gemini request vượt ngân sách byte cục bộ; không gửi.',413);
         beforeModelRequest();
-        response = await this.fetch(endpoint, { method: 'POST', headers: this.#headers('gemini', this.authMode, this.apiKey),
-          body: JSON.stringify(requestBody), signal: combined, redirect: 'error' });
+        response = await this.fetch(useStream ? streamEndpoint : endpoint, { method: 'POST', headers: this.#headers('gemini', this.authMode, this.apiKey),
+          body: JSON.stringify(requestBody), signal: clock ? clock.signal : combined, redirect: 'error' });
+        clock?.started();
         let stream;
-        if (response.body?.getReader) {
-          const reader = response.body.getReader(); let size = 0; const buffers = [];
-          try { while (true) { const part = await reader.read(); if (part.done) break; size += part.value.byteLength;
-            if (size > 12*1024*1024) throw bad('gateway_too_large', 'Phản hồi gateway vượt giới hạn 12 MiB; không tự lặp lại.', 502);
-            buffers.push(Buffer.from(part.value));
-          } } finally { await reader.cancel().catch(()=>{}); }
-          stream = Buffer.concat(buffers).toString('utf8');
-        } else stream = await response.text();
-        if (Buffer.byteLength(stream) > 12*1024*1024) throw bad('gateway_too_large', 'Phản hồi gateway vượt giới hạn 12 MiB; không tự lặp lại.', 502);
-        try { data = JSON.parse(stream); }
-        catch {
-          // Cloud Run / reverse proxies can return HTTP 413 with a plain-text
-          // or HTML body. It is still a SIZE error, not a malformed-model
-          // success response: compact and retry only the model request.
-          if (response.status === 413) data = { error: { message: 'Request body exceeds gateway size limit.' } };
-          else throw bad('gateway_invalid_json', 'Gateway không trả JSON hợp lệ; không tự gửi lại.', 502);
+        if (useStream && response.ok && isEventStream(response)) {
+          const reader = createGeminiStreamReader({ onToken: async (piece) => { shown += piece.length; await onToken(piece); } });
+          try {
+            await readSse(response.body, { signal: clock.signal, maxBytes: limits.streamMaxBytes, onChunk: () => clock.touch(), onEvent: (parsed) => reader.event(parsed) });
+            data = reader.finish();
+            streamedOk = true;
+          } catch (streamFailure) {
+            if (streamFailure?.kind !== 'stream_error') throw streamFailure;
+            // The provider said, inside a stream that began with HTTP 200, what an HTTP answer would have said: it is handled as that answer.
+            response = { ok: false, status: streamFailure.upstreamStatus, headers: response.headers };
+            data = streamFailure.data;
+          }
+        } else {
+          if (response.body?.getReader) {
+            const reader = response.body.getReader(); let size = 0; const buffers = [];
+            try { while (true) { const part = await reader.read(); if (part.done) break; size += part.value.byteLength;
+              if (size > 12*1024*1024) throw bad('gateway_too_large', 'Phản hồi gateway vượt giới hạn 12 MiB; không tự lặp lại.', 502);
+              buffers.push(Buffer.from(part.value));
+            } } finally { await reader.cancel().catch(()=>{}); }
+            stream = Buffer.concat(buffers).toString('utf8');
+          } else stream = await response.text();
+          if (Buffer.byteLength(stream) > 12*1024*1024) throw bad('gateway_too_large', 'Phản hồi gateway vượt giới hạn 12 MiB; không tự lặp lại.', 502);
+          try { data = JSON.parse(stream); }
+          catch {
+            // Cloud Run / reverse proxies can return HTTP 413 with a plain-text
+            // or HTML body. It is still a SIZE error, not a malformed-model
+            // success response: compact and retry only the model request.
+            if (response.status === 413) data = { error: { message: 'Request body exceeds gateway size limit.' } };
+            else throw bad('gateway_invalid_json', 'Gateway không trả JSON hợp lệ; không tự gửi lại.', 502);
+          }
+          // A gateway that ignored alt=sse and answered with the JSON array of the chunks is not a stream this reader reads: the plain route is asked instead.
+          if (useStream && response.ok && Array.isArray(data)) throw streamInvalid('Đường stream trả một mảng JSON thay vì luồng SSE.');
+        }
+        // The gateway has no streaming route, or cannot stream this model: the same request once more on the plain route.
+        if (useStream && !response.ok && refusesGeminiStream(response.status, data)) {
+          streaming = false; // refused: the repeat is on the plain route
+          streamGaveUp = true; // ... and it is remembered once the repeat is accepted
+          const detail = noSecrets(gatewayErrorDetail(data), (text) => this.redact(text)).slice(0, 200);
+          await onStatus(`Gateway không có đường stream cho Gemini (HTTP ${response.status}${detail ? `: ${detail}` : ''}). Gửi lại đúng yêu cầu model này một lần trên đường thường (generateContent); không gọi lại MCP. Các bước sau không thử stream nữa cho model này, văn bản hiện khi model trả xong.`);
+          continue;
         }
         if (response.status === 413) {
           // A gateway may enforce an unusually small request body. Downgrade
@@ -696,6 +770,17 @@ export class GatewayProvider {
             await onStatus(`Gateway trả HTTP 413; giảm request model còn tối đa ${Math.round(textRequestBudget/1024)} KiB và thử lại. Lịch sử MCP đầy đủ vẫn được lưu trên máy; không gọi lại MCP.`, 'context_compaction');
             continue;
           }
+        }
+        // The provider does not take the thinking setting (for this model): the same model request once more without it, and not a step down to another dialect, which would
+        // lose the output cap too. Never a tool call, so nothing can be replayed.
+        if (thinkingSent && activeDialect === 'native' && !response.ok
+            && refusesReasoning({ status: response.status, data, info: classifyHttpError({ status: response.status, data, headers: response.headers, redact: (text) => this.redact(text) }), sent: true })) {
+          thinkingSent = false;
+          thinkingDropped = true;
+          delete nativeBody.generationConfig.thinkingConfig;
+          const detail = noSecrets(gatewayErrorDetail(data), (text) => this.redact(text)).slice(0, 200);
+          await onStatus(`Nhà cung cấp từ chối thiết lập mức suy luận (thinking) cho model này (HTTP ${response.status}${detail ? `: ${detail}` : ''}). Gửi lại đúng yêu cầu model này một lần, không kèm thiết lập đó; không chạy lại công cụ. Các yêu cầu sau không gửi nó cho model này nữa.`);
+          continue;
         }
         // Google words the range in its 400 answer; a gateway in front of Gemini words it its own way, or not at all. An answer that names
         // the cap without a range is still taken as "lower it", to the 8,192 every Gemini model accepts, once.
@@ -746,15 +831,25 @@ export class GatewayProvider {
         break;
       } catch (error) {
         if (signal?.aborted) throw signal.reason;
+        if (error?.code === 'sse_too_large') throw bad('gateway_too_large', 'Phản hồi gateway vượt giới hạn dung lượng; không tự lặp lại.', 502);
+        if (useStream && (isStreamFallback(error) || error?.code === 'sse_no_stream')) {
+          // Cut or damaged: nothing of it is used. The same model request on the plain route, once; no tool can have run.
+          streaming = false; // cut or damaged: the repeat is on the plain route
+          streamGaveUp = true; // ... and it is remembered, as a refusal is
+          await takeBack(); // what was shown is taken back before anything is said or repeated
+          await onStatus(`Luồng trả lời của Gemini kết thúc hoặc hỏng trước khi hoàn tất (${noSecrets(String(error.message), (value) => this.redact(value)).slice(0, 200)}). Không dùng phần dở và không chạy công cụ nào từ nó. Gửi lại đúng yêu cầu model này một lần trên đường thường (generateContent); các bước sau không dùng stream cho model này nữa, văn bản trả lời hiện khi model trả xong. Yêu cầu trước có thể vẫn bị tính phí.`);
+          continue;
+        }
         if (error?.code?.startsWith('gateway_')) throw error;
         const networkFailure = error instanceof TypeError || ['TimeoutError', 'AbortError', 'NetworkError'].includes(error?.name) ||
           ['ECONNRESET', 'ENETUNREACH', 'EHOSTUNREACH', 'ETIMEDOUT', 'EAI_AGAIN', 'ECONNREFUSED'].includes(error?.code);
         if (!networkFailure) throw error; // Unexpected programming/provider errors are not connection loss.
         attempts++;
         const seconds = Math.min(30, 3 * 2**Math.min(attempts - 1, 4));
+        await takeBack(); // a lost connection: what was shown is taken back before the wait
         await onStatus(`Mất kết nối Gateway hoặc chưa nhận được phản hồi (lần thử ${attempts}). Đang chờ ${seconds} giây rồi thử lại model; không gọi lại MCP. Yêu cầu API trước có thể vẫn bị tính phí.`);
         await this.sleep(seconds * 1000, signal);
-      }
+      } finally { clock?.stop(); }
     }
     if (!response.ok || data?.error) {
       const code = response.status === 401 || response.status === 403 ? 'gateway_auth' : response.status === 429 ? 'gateway_rate_limit' : 'gateway_http_error';
@@ -765,8 +860,14 @@ export class GatewayProvider {
       throw bad(code, `Gateway HTTP ${response.status}${detail ? ': ' + detail : '.'} ${hint}`, response.status || 502);
     }
     const normalized = dialects[dialectIndex] === 'text-protocol' ? normalizedTextReply : normalizeGemini(data);
+    // The provider refused the thinking setting and accepted the same request without it: later requests for this model do not send it.
+    if (thinkingDropped && thinking.key && this.model === model) this.#reasoningRefused = thinking.key;
     this.geminiDialect = dialects[dialectIndex]; this.dialectConfirmed = true;
     this.lastError = '';
+    // The gateway refused the stream, or its stream was cut, and the plain route answered: later requests for this model do not ask for a stream.
+    if (streamGaveUp && this.model === model) this.#streamRefused = { endpoint, model };
+    // The text did not arrive in pieces (no stream was asked for, or it could not be had): hand it to the caller now, as the stream would have.
+    if (wantsStream && !streamedOk) await deliverText(normalized, onToken);
     return normalized;
   }
 
@@ -777,12 +878,16 @@ export class GatewayProvider {
   #catalogInfo() {
     return (this.catalog ? (query) => this.catalog.lookup(query) : catalogLookup)({ presetId: this.preset, protocol: this.protocol, apiBaseUrl: this.apiBaseUrl, model: this.model });
   }
-  /** What to send for the setting now, the key of that decision (endpoint, model, level) and whether this provider is known to refuse it. */
-  #reasoningRequest() {
-    const decision = reasoningDecision({ effort: this.reasoningEffort, protocol: this.protocol, apiBaseUrl: this.apiBaseUrl, info: this.#catalogInfo() });
+  /**
+   * What to send for the setting now, the key of that decision (endpoint, model, level) and whether this provider is known to refuse it. `override` is the setting of the
+   * task being served: when there is one it is the level, else the connection's.
+   */
+  #reasoningRequest(override = null) {
+    const effort = override ?? this.reasoningEffort;
+    const decision = reasoningDecision({ effort, protocol: this.protocol, apiBaseUrl: this.apiBaseUrl, info: this.#catalogInfo() });
     let endpoint = null;
     try { endpoint = buildEndpoint(this.apiBaseUrl, this.protocol, this.model, this.customPath); } catch { /* an unusable route is reported when a request is made */ }
-    const key = decision.send ? { endpoint, model: this.model, effort: this.reasoningEffort } : null;
+    const key = decision.send ? { endpoint, model: this.model, effort } : null;
     const held = this.#reasoningRefused;
     const refused = key !== null && held !== null && held.endpoint === key.endpoint && held.model === key.model && held.effort === key.effort;
     return { decision, key, refused };
@@ -793,17 +898,33 @@ export class GatewayProvider {
     return { effort: this.reasoningEffort, sent: decision.send !== null && !refused, why: decision.send === null ? decision.why : null, refused };
   }
 
-  // The endpoint and model of a gateway that answered 400 to stream: true, and then accepted the same request without it. Its later
-  // calls do not ask for a stream. A call for another endpoint or model forgets it: the refusal is about that pair only.
+  // The endpoint and model of a gateway that answered 400 to stream: true, and then accepted the same request without it (Responses and Chat Completions), or whose stream was cut and
+  // whose repeat without a stream was accepted (Chat Completions). Its later calls do not ask for a stream. A call for another endpoint or model forgets it: the refusal is about
+  // that pair only.
   #streamRefused = null;
+  // The endpoint of a Chat Completions server that answered 400 to stream_options and then accepted the same stream without them. It is the server that does not know the option, so
+  // the refusal holds for every model of that endpoint; a call for another endpoint forgets it.
+  #streamOptionsRefused = null;
+  // The endpoint and model of a server that answered 400 to the thinking blocks it was sent back (Anthropic Messages) and then accepted the same request without them. Its later calls do not
+  // send them; a call for another endpoint or model forgets it: the refusal is about that pair only.
+  #thinkingReplayRefused = null;
+  #knowsNoThinkingReplay(endpoint, model) {
+    if (this.#thinkingReplayRefused && (this.#thinkingReplayRefused.endpoint !== endpoint || this.#thinkingReplayRefused.model !== model)) this.#thinkingReplayRefused = null;
+    return this.#thinkingReplayRefused !== null;
+  }
+  /** Whether this endpoint and model are known to refuse a stream (Chat Completions, Messages and Gemini). A call for another endpoint or model forgets the refusal: it was about that pair only. */
+  #knowsNoStream(endpoint, model) {
+    if (this.#streamRefused && (this.#streamRefused.endpoint !== endpoint || this.#streamRefused.model !== model)) this.#streamRefused = null;
+    return this.#streamRefused !== null;
+  }
   // Full Responses request path. Fixed endpoint and credential snapshot; never
   // turn a failed model request into an uncertain tool mutation or cross-provider retry.
-  async #respondResponses({input,instructions,tools,signal,onToken,onStatus,maxOutputTokens,beforeModelRequest}) {
+  async #respondResponses({input,instructions,tools,signal,onToken,onStatus,maxOutputTokens,beforeModelRequest,effort}) {
     const model=this.model, protocol=this.protocol, authMode=this.authMode, apiKey=this.apiKey;
     const endpoint=buildEndpoint(this.apiBaseUrl,protocol,model,this.customPath);
     const headers=this.#headers(protocol,authMode,apiKey);
     if(this.#streamRefused&&(this.#streamRefused.endpoint!==endpoint||this.#streamRefused.model!==model))this.#streamRefused=null;
-    const thinking=this.#reasoningRequest();
+    const thinking=this.#reasoningRequest(effort);
     const result=await respondOpenAIResponses({
       model,endpoint,headers,fetch:this.fetch,
       reasoning:thinking.decision.send,reasoningRefused:thinking.refused,
@@ -820,15 +941,29 @@ export class GatewayProvider {
   }
 
   /** OpenAI-style Chat Completions and Anthropic Messages. See standard-adapter.mjs for what it guarantees. */
-  async #respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens, beforeModelRequest }) {
+  async #respondStandard({ input, instructions, tools, signal, onStatus, onToken, onStreamReset, maxOutputTokens, beforeModelRequest, effort }) {
     const { protocol, model, authMode, apiKey } = this;
     const contextWindowTokens = this.effectiveContextWindow(); // what the adapter trims what it sends to: the owner's window, else the catalog's
-    const thinking = this.#reasoningRequest();
+    const thinking = this.#reasoningRequest(effort);
+    const endpoint = buildEndpoint(this.apiBaseUrl, protocol, model, this.customPath);
+    if (this.#streamOptionsRefused && this.#streamOptionsRefused.endpoint !== endpoint) this.#streamOptionsRefused = null;
+    // What the catalog says about the model, when it is sure: whether it thinks whatever it is asked, and how much it can write in one answer (Anthropic Messages counts the thoughts in max_tokens).
+    const info = protocol === 'anthropic' ? this.#catalogInfo() : null;
     const ctx = {
       protocol, model, fetch: this.fetch, sleep: this.sleep, limits: this.limits,
       reasoning: thinking.decision.send, reasoningRefused: thinking.refused,
       onReasoningRefused: () => { if (thinking.key && this.model === model) this.#reasoningRefused = thinking.key; },
-      endpoint: buildEndpoint(this.apiBaseUrl, protocol, model, this.customPath),
+      // The text is streamed to a caller that shows it (the agent does); one that does not (a connection test) gets the plain answer.
+      stream: typeof onToken === 'function',
+      streamRefused: this.#knowsNoStream(endpoint, model),
+      onStreamRefused: () => { if (this.model === model) this.#streamRefused = { endpoint, model }; },
+      thinks: isTrusted(info) && info.reasoning?.supported === true,
+      modelOutputLimit: isTrusted(info) && Number.isInteger(info.maxOutput) && info.maxOutput > 0 ? info.maxOutput : null,
+      thinkingReplayRefused: protocol === 'anthropic' && this.#knowsNoThinkingReplay(endpoint, model),
+      onThinkingReplayRefused: () => { if (this.model === model) this.#thinkingReplayRefused = { endpoint, model }; },
+      streamOptionsRefused: this.#streamOptionsRefused !== null,
+      onStreamOptionsRefused: () => { this.#streamOptionsRefused = { endpoint }; },
+      endpoint,
       headers: this.#headers(protocol, authMode, apiKey),
       redact: (text) => noSecrets(String(text), (value) => this.redact(value)),
       contextWindowTokens,
@@ -838,7 +973,7 @@ export class GatewayProvider {
       outputLimit: this.outputLimit,
       onOutputLimit: (limit) => { if (this.model === model) this.outputLimit = limit; },
     };
-    const result = await respondStandard(ctx, { input, instructions, tools, signal, onStatus, maxOutputTokens, beforeModelRequest });
+    const result = await respondStandard(ctx, { input, instructions, tools, signal, onStatus, onToken: onToken || undefined, onStreamReset: onStreamReset || undefined, maxOutputTokens, beforeModelRequest });
     this.lastError = '';
     return result;
   }

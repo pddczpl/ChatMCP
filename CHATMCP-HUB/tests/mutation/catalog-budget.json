@@ -246,6 +246,34 @@
       "patches": [
         { "file": "lib/model-facts.mjs", "old": "if (!Number.isInteger(tier?.aboveTokens) || tier.aboveTokens < 1 || !rates ||", "new": "if (!rates ||" }
       ]
+    },
+    {
+      "name": "B36",
+      "what": "a preset starts from a model the catalog does not know (DeepSeek's retired deepseek-chat)",
+      "patches": [
+        { "file": "lib/provider-presets.mjs", "old": "defaultModel: 'deepseek-flash',", "new": "defaultModel: 'deepseek-chat'," }
+      ]
+    },
+    {
+      "name": "B37",
+      "what": "a preset starts from a model the catalog marks deprecated (gpt-4-turbo)",
+      "patches": [
+        { "file": "lib/provider-presets.mjs", "old": "protocol: 'openai-chat', apiBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-5.6-terra',", "new": "protocol: 'openai-chat', apiBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4-turbo'," }
+      ]
+    },
+    {
+      "name": "B38",
+      "what": "a preset writes a context window of its own again",
+      "patches": [
+        { "file": "lib/provider-presets.mjs", "old": "keyEnv: ['DEEPSEEK_API_KEY'],", "new": "keyEnv: ['DEEPSEEK_API_KEY'], contextWindowTokens: 128000," }
+      ]
+    },
+    {
+      "name": "B39",
+      "what": "the GLM preset starts from a model the catalog does not list for Z.ai",
+      "patches": [
+        { "file": "lib/provider-presets.mjs", "old": "defaultModel: 'glm-5.3',", "new": "defaultModel: 'glm-9'," }
+      ]
     }
   ]
 }

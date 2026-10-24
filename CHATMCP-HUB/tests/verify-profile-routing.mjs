@@ -15,6 +15,7 @@ const directory=path.join(root,'pool');
 const globalProvider={name:'global',ready:()=>true,snapshot:()=>({model:'global-model',provider:'gateway:openai-chat'})};
 const saved=new Map();
 const calls=[];
+const continued=[]; // the thinking effort each follow-up handed to the runner
 const profiles=new Map([
   ['coding',{id:'coding',revision:'coding-r1',provider:'openai-chat',protocol:'openai-chat',
     model:'code-model',name:'Code model',endpointOrigin:'https://code.example',credentialSource:'protected_reference'}],
@@ -48,6 +49,7 @@ const primary={
     const id=randomUUID();
     const result={id,prompt:args.prompt,workspace:{path:root},status:'completed',state:'completed',
       effectiveProfile:args.effectiveProfile??null,roleProfiles:args.roleProfiles||{},
+      reasoningEffort:args.reasoningEffort??null,
       providerUsed:this.provider.name};
     saved.set(id,result);
     return result;
@@ -57,6 +59,8 @@ const primary={
     if(!record)throw Error('Missing conversation');
     record.effectiveProfile=args.effectiveProfile??null;
     record.providerUsed=this.provider.name;
+    continued.push(args.reasoningEffort);
+    if(args.reasoningEffort)record.reasoningEffort=args.reasoningEffort;
     return record;
   },
 };
@@ -110,6 +114,29 @@ try {
   assert.ok(calls.some(x=>x.profileId==='__global__'));
   assert.ok(!JSON.stringify(direct).includes('PROTECTED-KEY-NEVER-PERSIST'));
   console.log('PASS task/role profile routing, immutable resume revision, global fallback and secret-free session metadata');
+
+  // The thinking effort of a task is named when it starts, reaches the runner as it was named, is refused when it is not a level, follows the task to its follow-ups and to
+  // the agents the task starts; a task that names none leaves it to its connection.
+  const thoughtful=await pool.start({prompt:'Think about it',profileId:'__global__',reasoningEffort:'high'});
+  assert.equal(thoughtful.reasoningEffort,'high','the runner is told the effort the caller named');
+  const plain=await pool.start({prompt:'No opinion',profileId:'__global__'});
+  assert.equal(plain.reasoningEffort,null,'nothing named: nothing handed over');
+  const blank=await pool.start({prompt:'Blank',profileId:'__global__',reasoningEffort:'  '});
+  assert.equal(blank.reasoningEffort,null,'a blank word names nothing');
+  const spoken=await pool.start({prompt:'Spoken',profileId:'__global__',reasoningEffort:' HIGH '});
+  assert.equal(spoken.reasoningEffort,'high','the word is read as the setting reads it');
+  await assert.rejects(pool.start({prompt:'Bad',profileId:'__global__',reasoningEffort:'extreme'}),{code:'invalid_reasoning_effort',statusCode:400});
+  const helper=await pool.spawnAgent(thoughtful.id,{goal:'Look into it'});
+  assert.equal(helper.reasoningEffort,'high','an agent a task starts thinks as the task does');
+  const quiet=await pool.spawnAgent(plain.id,{goal:'Look elsewhere'});
+  assert.equal(quiet.reasoningEffort,null,'and an agent of a task that named none names none');
+  const handedBefore=continued.length;
+  await pool.continue({id:thoughtful.id,prompt:'More'});
+  await pool.continue({id:thoughtful.id,prompt:'Less',reasoningEffort:'low'});
+  assert.deepEqual(continued.slice(handedBefore),[undefined,'low'],'a follow-up hands over what the caller names, and nothing when it names none (the runner keeps what the task had)');
+  await assert.rejects(pool.continue({id:thoughtful.id,prompt:'Bad',reasoningEffort:'extreme'}),{code:'invalid_reasoning_effort',statusCode:400});
+  assert.equal(continued.length-handedBefore,2,'a refused word reaches no runner');
+  console.log('PASS task thinking effort: named at the start, handed to the runner, refused when it is not a level, inherited by the agents of the task, and carried by a follow-up');
 
   // -------------------------------------------------------------------------------------------------------------
   // The REAL seam. Everything above routes through a hand-written resolver; this part uses hub.mjs's own

@@ -16,8 +16,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  RULES, accumulateAnthropicStream, accumulateChatStream, accumulateResponsesStream, createThinkingSigner, errorBody, parseSse,
-  validateAnthropicRequest, validateAnthropicStream, validateChatRequest, validateChatStream, validateGeminiRequest, validateResponsesRequest, validateResponsesStream,
+  RULES, accumulateAnthropicStream, accumulateChatStream, accumulateGeminiStream, accumulateResponsesStream, createThinkingSigner, errorBody, parseSse, thinkingBinding,
+  validateAnthropicRequest, validateAnthropicStream, validateChatRequest, validateChatStream, validateGeminiRequest, validateGeminiStream, validateResponsesRequest, validateResponsesStream,
 } from './e2e/protocol-validators.mjs';
 import { startMockModel } from './e2e/mock-model-server.mjs';
 import { CANNED_CONVERSATIONS, SCENARIOS, call, redacted as withRedacted, say, thinking as withThinking, truncated } from './e2e/scenarios.mjs';
@@ -60,6 +60,12 @@ const use = (id, name = 'read_file', input = { path: 'a' }) => ({ type: 'tool_us
 const result = (id, content = 'result') => ({ type: 'tool_result', tool_use_id: id, content });
 const anthWith = (...messages) => ({ ...anthBase(), messages: [...anthBase().messages, ...messages] });
 const thinkingBlock = (text = 'I should read the file.') => ({ type: 'thinking', thinking: text, signature: signer.signThinking(text) });
+// A thinking block signed for the conversation `body` carries up to message `index` (the system prompt, the tools and the messages before it), as the real API signs it.
+const boundBlock = (body, index, text = 'I should read the file.') => ({ type: 'thinking', thinking: text, signature: signer.signThinking(text, thinkingBinding({ system: body.system, tools: body.tools, messages: body.messages.slice(0, index) })) });
+const boundRedacted = (body, index, label = 'r1') => ({ type: 'redacted_thinking', data: signer.redacted(label, thinkingBinding({ system: body.system, tools: body.tools, messages: body.messages.slice(0, index) })) });
+// The request a block was issued in, and the request that replays it: the same conversation, plus the assistant message that holds the block and the tool result that follows it.
+const issuedIn = () => ({ ...anthBase(), system: [{ type: 'text', text: 'You are a test.' }], tools: [anthTool, { ...anthTool, name: 'list_files', description: 'List files' }] });
+const replayed = (body, changes = {}, block = boundBlock(body, body.messages.length)) => ({ ...body, ...changes, messages: [...(changes.messages ?? body.messages), { role: 'assistant', content: [block, use('toolu_a')] }, { role: 'user', content: [result('toolu_a')] }] });
 
 // ---- Responses
 const respBase = () => ({ model: 'mock', input: [{ role: 'user', content: 'Hi' }], store: false });
@@ -237,6 +243,32 @@ const FIXTURES = {
       ['a redacted_thinking block the server did not issue', anthWith({ role: 'assistant', content: [{ type: 'redacted_thinking', data: 'not-issued' }, use('toolu_a')] }, { role: 'user', content: [result('toolu_a')] }), 'Invalid `data` in `redacted_thinking` block'],
     ],
   },
+  'anthropic.thinking_binding': {
+    api: 'anthropic',
+    accept: [
+      ['a block replayed in the conversation it was issued in', replayed(issuedIn())],
+      ['what the API ignores does not unbind it: cache_control, the order of the tools, the white space around a text block, a string where a text block was', replayed(issuedIn(), { system: [{ type: 'text', text: 'You are a test.', cache_control: { type: 'ephemeral' } }], tools: [{ ...issuedIn().tools[1], cache_control: { type: 'ephemeral' } }, issuedIn().tools[0]], messages: [{ role: 'user', content: [{ type: 'text', text: ' Hi\n' }] }] }, boundBlock(issuedIn(), 1))],
+      ['an earlier thinking block taken out (from the front is allowed): the block after it is still good', (() => {
+        const first = issuedIn();
+        const afterOne = { ...first, messages: [...first.messages, { role: 'assistant', content: [boundBlock(first, 1), use('toolu_a')] }, { role: 'user', content: [result('toolu_a')] }] };
+        const second = boundBlock(afterOne, 3, 'second thoughts');
+        return { ...afterOne, messages: [first.messages[0], { role: 'assistant', content: [use('toolu_a')] }, { role: 'user', content: [result('toolu_a')] }, { role: 'assistant', content: [second, use('toolu_b')] }, { role: 'user', content: [result('toolu_b')] }] };
+      })()],
+      ['a block issued without a binding is good anywhere (the hand-written fixtures of this file)', { ...anthWith({ role: 'assistant', content: [thinkingBlock(), use('toolu_a')] }, { role: 'user', content: [result('toolu_a')] }), system: 'another system prompt' }],
+    ],
+    reject: [
+      ['the first message was edited after the block was issued', replayed(issuedIn(), { messages: [{ role: 'user', content: 'Hello' }] }, boundBlock(issuedIn(), 1)), 'bound to a different conversation'],
+      ['the system prompt was re-rendered', replayed(issuedIn(), { system: [{ type: 'text', text: 'You are a test. Now it is 12:01.' }] }, boundBlock(issuedIn(), 1)), 'messages.1.content.0: Invalid `signature` in `thinking` block. The block is bound to a different conversation'],
+      ['a tool was added', replayed(issuedIn(), { tools: [...issuedIn().tools, { ...anthTool, name: 'write_file' }] }, boundBlock(issuedIn(), 1)), 'bound to a different conversation'],
+      ['a tool description changed', replayed(issuedIn(), { tools: [{ ...anthTool, description: 'Read a file (today is Tuesday)' }, issuedIn().tools[1]] }, boundBlock(issuedIn(), 1)), 'bound to a different conversation'],
+      ['a tool result before the block was shortened after the block was issued', (() => {
+        const first = { ...issuedIn(), messages: [...issuedIn().messages, { role: 'assistant', content: [use('toolu_a')] }, { role: 'user', content: [result('toolu_a', 'the whole file, many lines')] }] };
+        const block = boundBlock(first, 3, 'second thoughts');
+        return { ...first, messages: [first.messages[0], first.messages[1], { role: 'user', content: [result('toolu_a', '[shortened]')] }, { role: 'assistant', content: [block, use('toolu_b')] }, { role: 'user', content: [result('toolu_b')] }] };
+      })(), 'messages.3.content.0: Invalid `signature` in `thinking` block. The block is bound to a different conversation'],
+      ['a redacted_thinking block replayed in another conversation', replayed(issuedIn(), { system: [{ type: 'text', text: 'You are another test.' }] }, boundRedacted(issuedIn(), 1)), 'Invalid `data` in `redacted_thinking` block. The block is bound to a different conversation'],
+    ],
+  },
   'anthropic.thinking_first': {
     api: 'anthropic',
     accept: [
@@ -368,6 +400,27 @@ const FIXTURES = {
     reject: [
       ['a signature nobody issued', geminiWith({ role: 'model', parts: [{ functionCall: { name: 'read_file', args: { path: 'a' } }, thoughtSignature: 'forged' }] }, { role: 'user', parts: [gresp()] }), 'Corrupted thought signature.'],
       ['a call whose arguments were edited after it was signed', geminiWith({ role: 'model', parts: [{ functionCall: { name: 'read_file', args: { path: 'edited' } }, thoughtSignature: signer.signGemini({ name: 'read_file', args: { path: 'a' } }) }] }, { role: 'user', parts: [gresp()] }), 'Corrupted thought signature.'],
+    ],
+  },
+  'gemini.thinking_config': {
+    api: 'gemini',
+    accept: [
+      ['a level (Gemini 3 and 4)', { ...geminiBase(), generationConfig: { maxOutputTokens: 1024, thinkingConfig: { thinkingLevel: 'low' } } }],
+      ['a budget (Gemini 2.5)', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingBudget: 1024 } } }],
+      ['a budget of 0: thinking off', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingBudget: 0 } } }],
+      ['a budget of -1: dynamic thinking', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingBudget: -1 } } }],
+      ['a level and the request for thought parts', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingLevel: 'high', includeThoughts: true } } }],
+    ],
+    reject: [
+      ['a level and a budget together', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingBudget: 1024, thinkingLevel: 'low' } } }, 'thinking_budget and thinking_level'],
+      ['a level Gemini does not have', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingLevel: 'extreme' } } }, "Invalid value at 'generation_config.thinking_config.thinking_level'"],
+      ['a level of Claude (xhigh)', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingLevel: 'xhigh' } } }, "Invalid value at 'generation_config.thinking_config.thinking_level'"],
+      ['a budget that is not a whole number', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingBudget: 1.5 } } }, "Invalid value at 'generation_config.thinking_config.thinking_budget'"],
+      ['a budget below -1', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingBudget: -2 } } }, "Invalid value at 'generation_config.thinking_config.thinking_budget'"],
+      ['includeThoughts that is not a boolean', { ...geminiBase(), generationConfig: { thinkingConfig: { includeThoughts: 'yes' } } }, "Invalid value at 'generation_config.thinking_config.include_thoughts'"],
+      ['a thinkingConfig that is not an object', { ...geminiBase(), generationConfig: { thinkingConfig: 'high' } }, "Invalid value at 'generation_config.thinking_config'"],
+      ['a generationConfig that is not an object', { ...geminiBase(), generationConfig: 'high' }, "Invalid value at 'generation_config'"],
+      ['a field thinkingConfig does not have', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingMode: 'on' } } }, 'Unknown name "thinkingMode" at \'generation_config.thinking_config\''],
     ],
   },
 };
@@ -520,6 +573,43 @@ const STREAM_FIXTURES = {
         ['response.completed', { type: 'response.completed', sequence_number: 4, response: { id: 'resp_1', status: 'completed', output: [{ type: 'message', id: 'msg_1', status: 'completed', role: 'assistant', content: [{ type: 'output_text', text: 'Goodbye', annotations: [] }] }] } }]), undefined, 'differs from the streamed'],
     ],
   },
+  gemini: {
+    validate: (events) => validateGeminiStream(events),
+    accept: [
+      ['text in pieces, usage in every event, finishReason in the last', sse(
+        [null, { candidates: [{ content: { parts: [{ text: 'Hel' }], role: 'model' }, index: 0 }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 1, totalTokenCount: 6 } }],
+        [null, { candidates: [{ content: { parts: [{ text: 'lo' }], role: 'model' }, finishReason: 'STOP', index: 0 }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 2, totalTokenCount: 7 } }])],
+      ['thought parts, then a signed functionCall in the last chunk, and an empty text part with the finishReason', sse(
+        [null, { candidates: [{ content: { parts: [{ text: 'thinking', thought: true }], role: 'model' }, index: 0 }], usageMetadata: { promptTokenCount: 9, totalTokenCount: 9 } }],
+        [null, { candidates: [{ content: { parts: [{ functionCall: { name: 'read_file', args: { path: 'a' } }, thoughtSignature: 'sig' }], role: 'model' }, index: 0 }], usageMetadata: { promptTokenCount: 9, candidatesTokenCount: 4, totalTokenCount: 13 } }],
+        [null, { candidates: [{ content: { parts: [{ text: '' }], role: 'model' }, finishReason: 'STOP', index: 0 }], usageMetadata: { promptTokenCount: 9, candidatesTokenCount: 4, totalTokenCount: 13 } }])],
+      ['a blocked prompt: no candidate at all', sse([null, { promptFeedback: { blockReason: 'SAFETY' }, usageMetadata: { promptTokenCount: 3, totalTokenCount: 3 } }])],
+    ],
+    reject: [
+      ['no finishReason: the stream was cut', sse([null, { candidates: [{ content: { parts: [{ text: 'x' }], role: 'model' }, index: 0 }] }]), undefined, 'finishReason'],
+      ['text after the chunk that has the finishReason', sse(
+        [null, { candidates: [{ content: { parts: [{ text: 'x' }], role: 'model' }, finishReason: 'STOP', index: 0 }] }],
+        [null, { candidates: [{ content: { parts: [{ text: 'late' }], role: 'model' }, index: 0 }] }]), undefined, 'after the chunk with finishReason'],
+      ['a [DONE] marker (Gemini streams have none)', sse([null, { candidates: [{ content: { parts: [{ text: 'x' }], role: 'model' }, finishReason: 'STOP', index: 0 }] }], [null, '[DONE]']), undefined, '[DONE]'],
+      ['an event that is not an object', sse([null, '[1]']), undefined, 'not a GenerateContentResponse'],
+      ['a functionCall with no name', sse([null, { candidates: [{ content: { parts: [{ functionCall: { args: {} } }], role: 'model' }, finishReason: 'STOP', index: 0 }] }]), undefined, 'needs a name'],
+      ['a functionCall whose args are not an object', sse([null, { candidates: [{ content: { parts: [{ functionCall: { name: 'f', args: 'x' } }], role: 'model' }, finishReason: 'STOP', index: 0 }] }]), undefined, 'args must be an object'],
+      ['a part that carries two kinds of data', sse([null, { candidates: [{ content: { parts: [{ text: 'x', functionCall: { name: 'f' } }], role: 'model' }, finishReason: 'STOP', index: 0 }] }]), undefined, 'exactly one kind'],
+      ['a promptTokenCount that changes between events', sse(
+        [null, { candidates: [{ content: { parts: [{ text: 'a' }], role: 'model' }, index: 0 }], usageMetadata: { promptTokenCount: 5, totalTokenCount: 5 } }],
+        [null, { candidates: [{ content: { parts: [{ text: 'b' }], role: 'model' }, finishReason: 'STOP', index: 0 }], usageMetadata: { promptTokenCount: 6, totalTokenCount: 6 } }]), undefined, 'promptTokenCount'],
+      ['a candidate token count that goes down', sse(
+        [null, { candidates: [{ content: { parts: [{ text: 'a' }], role: 'model' }, index: 0 }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 4, totalTokenCount: 9 } }],
+        [null, { candidates: [{ content: { parts: [{ text: 'b' }], role: 'model' }, finishReason: 'STOP', index: 0 }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 2, totalTokenCount: 7 } }]), undefined, 'candidatesTokenCount decreases'],
+      ['a role other than model', sse([null, { candidates: [{ content: { parts: [{ text: 'x' }], role: 'user' }, finishReason: 'STOP', index: 0 }] }]), undefined, 'role "model"'],
+      ['a blocked prompt that also has a candidate', sse([null, { promptFeedback: { blockReason: 'SAFETY' }, candidates: [{ content: { parts: [{ text: 'x' }], role: 'model' }, finishReason: 'STOP', index: 0 }] }]), undefined, 'blocked prompt has no candidate'],
+      ['an error object inside the stream', sse([null, { error: { code: 503, message: 'down', status: 'UNAVAILABLE' } }]), undefined, 'error object'],
+      ['two events with a finishReason', sse(
+        [null, { candidates: [{ content: { parts: [{ text: 'a' }], role: 'model' }, finishReason: 'STOP', index: 0 }] }],
+        [null, { candidates: [{ content: { parts: [], role: 'model' }, finishReason: 'STOP', index: 0 }] }]), undefined, 'second finishReason'],
+      ['candidates that are not a list', sse([null, { candidates: 'x' }]), undefined, 'non-empty list'],
+    ],
+  },
 };
 
 {
@@ -541,7 +631,7 @@ const STREAM_FIXTURES = {
       rejected += 1;
     }
   }
-  ok(`stream validators: 3 rules, ${accepted} accept and ${rejected} reject fixtures`);
+  ok(`stream validators: ${Object.keys(STREAM_FIXTURES).length} rules, ${accepted} accept and ${rejected} reject fixtures`);
 }
 
 {
@@ -632,6 +722,37 @@ mock.setScenario('rich');
   assert.deepEqual(anthropic.json.usage, { input_tokens: 100, output_tokens: 20, cache_creation_input_tokens: 50, cache_read_input_tokens: 300 });
   ok('Anthropic Messages as JSON: a signed thinking block, text, two tool_use blocks, stop_reason, the cache usage fields');
 
+  // With bindThinking the signature is good only in the conversation it was issued in (the preserved thinking check): the same block comes back to its own conversation, not to another.
+  {
+    const bound = await server({ scenario: 'canned-thinking', strict: true, bindThinking: true });
+    const endpoint = `${bound.url}/messages`;
+    const readTool = { name: 'read_file', description: 'Read a file', input_schema: { type: 'object', properties: { path: { type: 'string' } } } };
+    const opening = { model: 'mock', max_tokens: 1024, system: 'You are a test.', tools: [readTool], messages: [{ role: 'user', content: 'Read c.txt' }] };
+    const turn = await post(endpoint, opening);
+    assert.equal(turn.status, 200);
+    const [thought, toolUse] = turn.json.content;
+    assert.equal(bound.signer.verifyThinking(thought), 'ok');
+    assert.notEqual(bound.signer.tagOf(thought.signature), null, 'the signature carries the conversation it was issued in');
+    const next = (changes = {}) => ({ ...opening, ...changes, messages: [...(changes.messages ?? opening.messages), { role: 'assistant', content: [thought, toolUse] }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUse.id, content: 'c' }] }] });
+    assert.equal((await post(endpoint, next())).status, 200, 'replayed in its own conversation');
+    const moved = await post(endpoint, next({ messages: [{ role: 'user', content: 'Read d.txt' }] }));
+    assert.equal(moved.status, 400);
+    assert.match(moved.json.error.message, /messages\.1\.content\.0: Invalid `signature` in `thinking` block\. The block is bound to a different conversation/);
+    assert.equal((await post(endpoint, next({ system: 'You are a test. It is Tuesday.' }))).status, 400, 'a system prompt that changed');
+    assert.equal((await post(endpoint, next({ tools: [{ ...readTool, description: 'Read a file (changed)' }] }))).status, 400, 'a tool that changed');
+    assert.equal((await post(endpoint, { ...next(), system: [{ type: 'text', text: 'You are a test.', cache_control: { type: 'ephemeral' } }], tools: [{ ...readTool, cache_control: { type: 'ephemeral' } }] })).status, 200, 'cache_control is not part of the conversation');
+    assert.equal(bound.state.rejections.length, 3, 'three requests were refused, with the rule recorded');
+    assert.equal(bound.state.rejections.every((entry) => entry.errors[0].rule === 'anthropic.thinking_binding'), true);
+    // a server that does not bind (the default) accepts the same block anywhere, as the older checks do
+    const loose = await server({ scenario: 'canned-thinking', strict: true });
+    const looseTurn = (await post(`${loose.url}/messages`, opening)).json;
+    const [looseThought, looseUse] = looseTurn.content;
+    assert.equal(loose.signer.tagOf(looseThought.signature), null, 'no binding is in the signature');
+    const elsewhere = { ...opening, system: 'Another conversation.', messages: [{ role: 'user', content: 'Something else' }, { role: 'assistant', content: [looseThought, looseUse] }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: looseUse.id, content: 'c' }] }] };
+    assert.equal((await post(`${loose.url}/messages`, elsewhere)).status, 200, 'an unbound signature is good anywhere');
+    ok('Anthropic bindThinking: a thinking block comes back to the conversation it was issued in and is refused (400 "bound to a different conversation", rule anthropic.thinking_binding) after the first message, the system prompt or a tool changed; cache_control does not matter');
+  }
+
   const responses = await post(URL.responses, bodies.responses());
   assert.equal(responses.status, 200);
   assert.equal(responses.json.object, 'response');
@@ -713,7 +834,21 @@ mock.setScenario('rich');
   for (const name of ['response.created', 'response.in_progress', 'response.output_item.added', 'response.reasoning_summary_text.delta', 'response.output_text.delta', 'response.function_call_arguments.delta', 'response.function_call_arguments.done', 'response.output_item.done', 'response.completed']) assert.ok(names.has(name), `the Responses stream has ${name}`);
   assert.deepEqual(summary.responses(accumulateResponsesStream(responsesEvents)), jsonSummary.responses, 'Responses: the stream says what the JSON answer says');
   assert.equal(accumulateResponsesStream(responsesEvents).output.filter((item) => item.type === 'function_call').length, 2, 'response.completed carries the parallel function_call items');
-  ok('SSE: Chat (fragments and a usage chunk on request), Anthropic (signature_delta, ping) and Responses (reasoning summary and text deltas, completed with parallel calls) are valid streams that carry what the JSON answer carries');
+  const geminiRoute = `${mock.origin}/v1beta/models/mock-gemini:streamGenerateContent?alt=sse`;
+  const geminiStream = await fetch(geminiRoute, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(bodies.gemini()) });
+  assert.equal(geminiStream.status, 200);
+  assert.match(geminiStream.headers.get('content-type'), /^text\/event-stream/);
+  const geminiEvents = parseSse(await geminiStream.text());
+  assert.deepEqual(validateGeminiStream(geminiEvents).errors, []);
+  const geminiDone = accumulateGeminiStream(geminiEvents);
+  const geminiJson = (await post(URL.gemini, bodies.gemini())).json;
+  const geminiParts = (response) => response.candidates[0].content.parts;
+  assert.deepEqual(geminiParts(geminiDone), geminiParts(geminiJson), 'Gemini: the stream says what the JSON answer says (thought, text, two calls, the first one signed)');
+  assert.deepEqual([geminiDone.candidates[0].finishReason, geminiDone.usageMetadata], [geminiJson.candidates[0].finishReason, geminiJson.usageMetadata]);
+  assert.ok(geminiEvents.filter((event) => event.json?.candidates?.[0]?.content?.parts?.some((part) => part.text !== undefined && part.thought !== true)).length > 1, 'the text arrives in pieces');
+  assert.equal(geminiEvents.filter((event) => event.json?.candidates?.[0]?.finishReason).length, 1, 'only the last event has the finishReason');
+  assert.equal((await fetch(geminiRoute.replace('?alt=sse', ''), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(bodies.gemini()) })).status, 400, 'a stream without alt=sse is refused: the Hub reads the SSE form only');
+  ok('SSE: Chat (fragments and a usage chunk on request), Anthropic (signature_delta, ping), Responses (reasoning summary and text deltas, completed with parallel calls) and Gemini (alt=sse chunks, usage that grows, the finishReason in the last) are valid streams that carry what the JSON answer carries');
 }
 
 {
@@ -741,6 +876,24 @@ mock.setScenario('rich');
   assert.deepEqual(refusedGemini.json, { error: { code: 400, message: 'Invalid JSON payload received. Unknown name "model": Cannot find field.', status: 'INVALID_ARGUMENT' } });
   assert.ok(mock.state.rejections.length >= 4);
   ok('strictness: refused requests get the API\'s own error envelope and status 400, and the rule is recorded; the Chat route is lenient unless strict is set');
+}
+
+{
+  // A refused field can be a nested one (Gemini keeps its thinking setting in generationConfig): a dotted path names it, and a request without it is left alone.
+  const m = await server({ scenario: 'canned-answer' });
+  const G = ENDPOINTS(m).gemini;
+  const message = 'Invalid JSON payload received. Unknown name "thinkingConfig" at \'generation_config\': Cannot find field.';
+  const refusal = m.refuseParam('generationConfig.thinkingConfig', { message, on: 'gemini' });
+  const withThinking = await post(G, bodies.gemini({ generationConfig: { maxOutputTokens: 1024, thinkingConfig: { thinkingLevel: 'low' } } }));
+  assert.equal(withThinking.status, 400);
+  assert.deepEqual(withThinking.json, { error: { code: 400, message, status: 'INVALID_ARGUMENT' } });
+  assert.equal((await post(G, bodies.gemini())).status, 200, 'a request without the nested field is answered');
+  assert.equal((await post(G, bodies.gemini({ generationConfig: { maxOutputTokens: 1024 } }))).status, 200, 'and so is one whose generationConfig has only other keys');
+  assert.equal((await post(G, bodies.gemini({ generationConfig: 'x' }))).status, 400, '(a generationConfig that is not an object is refused by the strict check, not by the path)');
+  assert.equal(refusal.used, 1, 'only the request that had the field was refused');
+  m.clearRefusals();
+  assert.equal((await post(G, bodies.gemini({ generationConfig: { thinkingConfig: { thinkingLevel: 'low' } } }))).status, 200, 'cleared: answered again');
+  ok('a refused parameter may be a dotted path (generationConfig.thinkingConfig): only a request that has the nested field is refused');
 }
 
 {
@@ -976,8 +1129,8 @@ const functionCalls = (turn) => turn.output.filter((item) => item.type === 'func
 
 /** The adapters under test, pointed at one mock server. */
 const rows = (m, { limits, timeoutMs = 5000, idleTimeoutMs } = {}) => {
-  const standard = (protocol, path, headers) => (input, options = {}) => respondStandard(
-    { protocol, endpoint: `${m.url}/${path}`, headers, model: 'mock-coder', fetch, sleep: async () => {}, redact: (value) => value, limits: { requestTimeoutMs: 5000, ...limits } },
+  const standard = (protocol, path, headers, stream = false) => (input, options = {}) => respondStandard(
+    { protocol, endpoint: `${m.url}/${path}`, headers, model: 'mock-coder', fetch, sleep: async () => {}, redact: (value) => value, stream, limits: { requestTimeoutMs: 5000, ...limits } },
     { input, instructions: 'system', tools: TOOLS, maxOutputTokens: 1024, ...options });
   const responses = (stream) => (input, options = {}) => respondOpenAIResponses(
     { model: 'mock-coder', endpoint: `${m.url}/responses`, headers: { 'content-type': 'application/json' }, fetch, timeoutMs, idleTimeoutMs, redact: (value) => value, stream },
@@ -988,10 +1141,14 @@ const rows = (m, { limits, timeoutMs = 5000, idleTimeoutMs } = {}) => {
     .forkForTask({ protocol: 'gemini', apiBaseUrl: m.origin, model: 'mock-gemini' });
   return {
     chat: { label: 'respondStandard / Chat Completions', api: 'chat', run: standard('openai-chat', 'chat/completions', { 'content-type': 'application/json' }) },
+    'chat-sse': { label: 'respondStandard / Chat Completions / SSE', api: 'chat', run: standard('openai-chat', 'chat/completions', { 'content-type': 'application/json' }, true) },
     anthropic: { label: 'respondStandard / Anthropic Messages', api: 'anthropic', run: standard('anthropic', 'messages', anthropicHeaders('test-key')) },
+    'anthropic-sse': { label: 'respondStandard / Anthropic Messages / SSE', api: 'anthropic', run: standard('anthropic', 'messages', anthropicHeaders('test-key'), true) },
     responses: { label: 'respondOpenAIResponses / JSON', api: 'responses', run: responses(false) },
     'responses-sse': { label: 'respondOpenAIResponses / SSE', api: 'responses', run: responses(true) },
-    gemini: { label: 'GatewayProvider / Gemini generateContent', api: 'gemini', run: (input, options = {}) => gemini.respond({ input, instructions: 'system', tools: TOOLS, maxOutputTokens: 1024, signal: AbortSignal.timeout(8000), ...options }) },
+    // The plain Gemini row never gets onToken (a caller that shows the text gets the stream route); the SSE row does.
+    gemini: { label: 'GatewayProvider / Gemini generateContent', api: 'gemini', run: (input, options = {}) => gemini.respond({ input, instructions: 'system', tools: TOOLS, maxOutputTokens: 1024, signal: AbortSignal.timeout(8000), ...options, onToken: undefined, onStreamReset: undefined }) },
+    'gemini-sse': { label: 'GatewayProvider / Gemini streamGenerateContent', api: 'gemini', run: (input, options = {}) => gemini.respond({ input, instructions: 'system', tools: TOOLS, maxOutputTokens: 1024, signal: AbortSignal.timeout(8000), ...options }) },
   };
 };
 
@@ -1029,7 +1186,9 @@ for (const [name, row] of Object.entries(ROWS)) {
   assert.equal(finalText(answer.turns[0]), 'Hello from the mock.');
   assert.deepEqual([answer.turns[0].usage.input_tokens, answer.turns[0].usage.output_tokens], [120, 24], `${label}: usage`);
   accepted(answer);
-  if (name === 'responses-sse') assert.equal(answer.tokens.join(''), 'Hello from the mock.', 'the SSE row delivers the text as tokens');
+  if (name === 'responses-sse' || name === 'chat-sse' || name === 'anthropic-sse' || name === 'gemini-sse') assert.equal(answer.tokens.join(''), 'Hello from the mock.', 'the SSE row delivers the text as tokens');
+  if (name === 'chat-sse' || name === 'anthropic-sse' || name === 'gemini-sse') assert.deepEqual(answer.requests.map((request) => request.stream), [true], 'and the request really was a stream');
+  if (name === 'gemini') assert.deepEqual(answer.requests.map((request) => request.stream), [false], 'the plain row asks for the plain route');
 
   const one = await converse(row, contract, 'canned-one-tool');
   assert.equal(one.turns.length, 2, `${label}: a call, then the answer`);
@@ -1058,8 +1217,8 @@ for (const [name, row] of Object.entries(ROWS)) {
   if (row.api === 'gemini') assert.deepEqual(lastParallel.contents.slice(-2).map((content) => content.parts.map((part) => Object.keys(part)[0])), [['functionCall', 'functionCall'], ['functionResponse', 'functionResponse']], 'one model turn with two calls, one user turn with two responses');
 
   // Chat reasoning exists only in the compat dialect (reasoning_content, as DeepSeek sends it), so that row talks to the compat server.
-  const thinkingServer = name === 'chat' ? compat : contract;
-  const thought = await converse(name === 'chat' ? rows(compat).chat : row, thinkingServer, 'canned-thinking');
+  const thinkingServer = name === 'chat' || name === 'chat-sse' ? compat : contract;
+  const thought = await converse(name === 'chat' || name === 'chat-sse' ? rows(compat)[name] : row, thinkingServer, 'canned-thinking');
   assert.equal(finalText(thought.turns.at(-1)), 'Done thinking.');
   assert.equal(thought.turns.length, 2);
   accepted(thought);
@@ -1071,7 +1230,7 @@ for (const [name, row] of Object.entries(ROWS)) {
   if (row.api === 'chat') {
     assert.equal(replayBody.messages.find((message) => message.role === 'assistant').reasoning_content, 'I should read c.txt first.', 'Chat (compat dialect): reasoning_content of the turn in progress is sent back');
   }
-  if (row.api === 'anthropic') findings.push(`Anthropic: the thinking block of the previous turn was ${replayBody.messages.some((message) => Array.isArray(message.content) && message.content.some((block) => block.type === 'thinking')) ? '' : 'NOT '}sent back with the tool result`);
+  if (name === 'anthropic') findings.push(`Anthropic: the thinking block of the previous turn was ${replayBody.messages.some((message) => Array.isArray(message.content) && message.content.some((block) => block.type === 'thinking')) ? '' : 'NOT '}sent back with the tool result`);
 
   if (row.api === 'gemini') {
     const modelTurn = replayBody.contents.find((content) => content.role === 'model');

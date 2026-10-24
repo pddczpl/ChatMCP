@@ -2,7 +2,7 @@
 
 The documents below cover detailed setup, development, architecture, historical phase reports, and release verification. Historical reports describe the state at the time they were written; use the latest release notes for current behavior.
 
-Current provider catalog: **14 preset** choices (including OpenAI Responses API and a custom Responses-compatible gateway). Provider compatibility requires a successful function-call probe.\n\nCurrent agent capability inventory: **LocalTools (99 công cụ)**. This count is checked against the actual local tool definitions by the documentation regression test; capability quantity does not prove quality, security, or parity with another coding agent.
+Current provider catalog: **18 preset** choices (including OpenAI Responses API, the popular providers Grok, GLM, Qwen and MiniMax, and a custom Responses-compatible gateway). Provider compatibility requires a successful function-call probe.\n\nCurrent agent capability inventory: **LocalTools (99 công cụ)**. This count is checked against the actual local tool definitions by the documentation regression test; capability quantity does not prove quality, security, or parity with another coding agent.
 
 Comprehensive documentation across all architecture, implementation, and verification phases:
 

@@ -1,0 +1,702 @@
+{
+  "suite": "verify-sse.mjs",
+  "description": "The SSE reader of the Hub (lib/sse.mjs) and the Responses stream that is read through it: every rule of the format, the limits, and the codes the Responses callers know.",
+  "mutations": [
+    {
+      "name": "SS1",
+      "what": "an event is never handed to the caller at its blank line",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (data.length) onEvent({",
+          "new": "if (false) onEvent({"
+        }
+      ]
+    },
+    {
+      "name": "SS2",
+      "what": "the data lines of one event are joined with a space instead of a line feed",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "data: data.join('\\n')",
+          "new": "data: data.join(' ')"
+        }
+      ]
+    },
+    {
+      "name": "SS3",
+      "what": "an event with no name is called something other than message",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "event: name || 'message'",
+          "new": "event: name || 'data'"
+        }
+      ]
+    },
+    {
+      "name": "SS4",
+      "what": "a comment line (a keep-alive) is read as a field",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (text[0] === ':') return;",
+          "new": "if (false) return;"
+        }
+      ],
+      "equivalent": "a line that starts with a colon would otherwise be read as a field with an empty name, which is no field the Hub uses and is ignored like any unknown one: the comment rule is stated, not needed"
+    },
+    {
+      "name": "SS5",
+      "what": "every space after the colon of a field is dropped, not one",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (value[0] === ' ') value = value.slice(1);",
+          "new": "value = value.trimStart();"
+        }
+      ]
+    },
+    {
+      "name": "SS6",
+      "what": "the space after the colon of a field is kept",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (value[0] === ' ') value = value.slice(1);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SS7",
+      "what": "the name of an event is still there for the next one",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "      name = '';",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SS8",
+      "what": "the data of an event is still there for the next one",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "      data = [];",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SS9",
+      "what": "the id field is not read",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "else if (field === 'id' && !value.includes('\\0')) id = value;",
+          "new": "else if (false) id = value;"
+        }
+      ]
+    },
+    {
+      "name": "SS10",
+      "what": "a byte order mark at the start of the stream is not skipped",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "from = 1;",
+          "new": "from = 0;"
+        }
+      ]
+    },
+    {
+      "name": "SS11",
+      "what": "the LF of a CRLF ends a line of its own",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (afterCarriageReturn) { afterCarriageReturn = false; continue; }",
+          "new": "if (false) { afterCarriageReturn = false; continue; }"
+        }
+      ]
+    },
+    {
+      "name": "SS12",
+      "what": "a lone CR does not end a line",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "} else if (char === '\\r') {",
+          "new": "} else if (char === '\\0') {"
+        }
+      ]
+    },
+    {
+      "name": "SS13",
+      "what": "a CR is not remembered, so the LF after it ends a second line",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "afterCarriageReturn = true;",
+          "new": "afterCarriageReturn = false;"
+        }
+      ]
+    },
+    {
+      "name": "SS14",
+      "what": "an ordinary character does not cancel the CR before it, so a later LF is swallowed",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "afterCarriageReturn = false; // an ordinary character",
+          "new": "// an ordinary character"
+        }
+      ]
+    },
+    {
+      "name": "SS15",
+      "what": "the last line of a stream with no line end is lost",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (line !== '') finishLine(); // a last line with no line end",
+          "new": "// a last line with no line end"
+        }
+      ]
+    },
+    {
+      "name": "SS16",
+      "what": "the last event of a stream with no blank line after it is lost",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "finishLine(); // a last event with no blank line",
+          "new": "// a last event with no blank line"
+        }
+      ]
+    },
+    {
+      "name": "SS17",
+      "what": "the event field is not read",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "else if (field === 'event') name = value;",
+          "new": "else if (false) name = value;"
+        }
+      ]
+    },
+    {
+      "name": "SS18",
+      "what": "a line with no colon takes its whole text as the value of its field",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "let value = colon === -1 ? '' : text.slice(colon + 1);",
+          "new": "let value = colon === -1 ? text : text.slice(colon + 1);"
+        }
+      ]
+    },
+    {
+      "name": "SS19",
+      "what": "a byte order mark is skipped at the start of every chunk, not of the stream",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (!started && text.length) {",
+          "new": "if (text.length) {"
+        }
+      ]
+    },
+    {
+      "name": "SS20",
+      "what": "the name of a field with no colon loses its last letter",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "const field = colon === -1 ? text : text.slice(0, colon);",
+          "new": "const field = text.slice(0, colon);"
+        }
+      ]
+    },
+    {
+      "name": "SR1",
+      "what": "a body that is not a stream is read as one",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (!body || typeof body.getReader !== 'function') throw fail(",
+          "new": "if (false) throw fail("
+        }
+      ]
+    },
+    {
+      "name": "SR2",
+      "what": "a signal that has already aborted does not stop the read",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "signal?.throwIfAborted?.();",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SR3",
+      "what": "a chunk that ends inside a UTF-8 character is decoded as it stands",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "parser.push(decoder.decode(value, { stream: true }));",
+          "new": "parser.push(decoder.decode(value));"
+        }
+      ]
+    },
+    {
+      "name": "SR4",
+      "what": "the decoder is not flushed at the end of the stream",
+      "equivalent": "only a stream that ends inside a character has bytes left in the decoder; for it the flush adds a replacement character to a line that is not an event anyway",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "parser.push(decoder.decode());",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SR5",
+      "what": "the parser is not told that the stream is over",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "parser.end();",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SR6",
+      "what": "the events made by the end of the stream are not delivered",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "await deliver(); // the events of the end of the stream",
+          "new": "// the events of the end of the stream"
+        }
+      ]
+    },
+    {
+      "name": "SR7",
+      "what": "events wait for the end of the stream before they are delivered",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "await deliver(); // the events of this chunk, before the next chunk is read",
+          "new": "// the events of this chunk, before the next chunk is read"
+        }
+      ]
+    },
+    {
+      "name": "SR10",
+      "what": "a stop that comes while the events of the end of the stream are delivered is ignored",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (stopped) throw stopped; // a stop, from wherever it came, is an error and not an end",
+          "new": "// a stop, from wherever it came, is an error and not an end"
+        }
+      ]
+    },
+    {
+      "name": "SR11",
+      "what": "the byte cap is not enforced",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (total > maxBytes) throw fail(",
+          "new": "if (false) throw fail("
+        }
+      ]
+    },
+    {
+      "name": "SR12",
+      "what": "the bytes of a chunk are not counted",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "total += value?.byteLength ?? 0;",
+          "new": "total += 0;"
+        }
+      ]
+    },
+    {
+      "name": "SR13",
+      "what": "the caller is not told that bytes arrived",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "onChunk();",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SR14",
+      "what": "the idle clock is not started again by the bytes that arrive",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "watch(); // every byte starts the clock again",
+          "new": "// every byte starts the clock again"
+        }
+      ]
+    },
+    {
+      "name": "SR15",
+      "what": "the idle clock does not run until the first byte has come",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "watch(); // the clock starts with the read",
+          "new": "// the clock starts with the read"
+        }
+      ]
+    },
+    {
+      "name": "SR16",
+      "what": "the idle clock is armed when the caller asked for none",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (!(idleTimeoutMs > 0)) return;",
+          "new": "if (idleTimeoutMs === undefined) return;"
+        }
+      ]
+    },
+    {
+      "name": "SR17",
+      "what": "the idle clock never runs",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (!(idleTimeoutMs > 0)) return;",
+          "new": "return;"
+        }
+      ]
+    },
+    {
+      "name": "SR18",
+      "what": "the error the caller chose for a silence is not used",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "idleError ? idleError() : fail(",
+          "new": "false ? idleError() : fail("
+        }
+      ]
+    },
+    {
+      "name": "SR19",
+      "what": "an abort of the signal does not stop the read",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "signal?.addEventListener('abort', onAbort, { once: true });",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SR20",
+      "what": "an abort is reported without the reason of the signal",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "stop(signal.reason ?? fail(",
+          "new": "stop(fail("
+        }
+      ]
+    },
+    {
+      "name": "SR21",
+      "what": "a stop does not cancel the stream, so a read that waits for a silent server waits for ever",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "reader.cancel(error).catch(() => {});",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SR22",
+      "what": "the first reason for stopping is replaced by a later one",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (stopped) return; // the first reason stands",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SR23",
+      "what": "events are still delivered after the read was stopped",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "      if (stopped) return;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SR24",
+      "what": "events are delivered in reverse order",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (await onEvent(queue.shift()) === SSE_STOP) { halted = true; return; }",
+          "new": "if (await onEvent(queue.pop()) === SSE_STOP) { halted = true; return; }"
+        }
+      ]
+    },
+    {
+      "name": "SR25",
+      "what": "an error in the handler is swallowed",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (await onEvent(queue.shift()) === SSE_STOP) { halted = true; return; }",
+          "new": "try { if (await onEvent(queue.shift()) === SSE_STOP) { halted = true; return; } } catch { /* swallowed */ }"
+        }
+      ]
+    },
+    {
+      "name": "SR26",
+      "what": "the error of a body that was aborted replaces the reason of the abort",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "throw stopped ?? error;",
+          "new": "throw error;"
+        }
+      ]
+    },
+    {
+      "name": "SR27",
+      "what": "the listener on the signal is left behind",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "signal?.removeEventListener('abort', onAbort);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SR28",
+      "what": "the idle timer of a finished read is left running",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "clearTimeout(idleTimer); // a finished read leaves no timer behind",
+          "new": "// a finished read leaves no timer behind"
+        }
+      ]
+    },
+    {
+      "name": "SR29",
+      "what": "the stream is not cancelled when the read is over (a handler ended it with SSE_STOP and the server keeps the connection open)",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "try { await reader.cancel(); } catch { /* already closed or failed */ }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SR30",
+      "what": "the reader is not released when the read is over",
+      "equivalent": "the body is not used again by anyone: the lock has no observable effect",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "try { reader.releaseLock(); } catch { /* a read is still pending */ }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SW1",
+      "what": "the [DONE] marker after the end of a Responses stream is read as JSON",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "if(!data||data==='[DONE]')return;",
+          "new": "if(!data)return;"
+        }
+      ]
+    },
+    {
+      "name": "SW2",
+      "what": "a Responses event that is JSON but not an object is not refused",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "if(!object(event))throw fail('invalid_responses_stream','Malformed SSE event.');",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SW3",
+      "what": "an oversized Responses stream is reported with the code of the reader",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "if(error?.code==='sse_too_large')throw fail('responses_stream_too_large','Response stream exceeded 12 MiB.');",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SW4",
+      "what": "two terminal events in a Responses stream are accepted",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "if(terminal)throw fail('duplicate_responses_terminal','Multiple terminal SSE events.');",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SW5",
+      "what": "a Responses stream with no terminal event is accepted",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "if(!terminal)throw fail('responses_stream_interrupted','Responses stream ended without terminal confirmation. No tool calls executed.');",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SW6",
+      "what": "the text handler of a Responses stream is not waited for",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "typeof event.delta==='string')await onToken(event.delta);",
+          "new": "typeof event.delta==='string')onToken(event.delta);"
+        }
+      ]
+    },
+    {
+      "name": "SW7",
+      "what": "the idle clock of the caller is not told that bytes arrived on a Responses stream",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "await readSse(body,{signal,onChunk,onEvent:handle});",
+          "new": "await readSse(body,{signal,onEvent:handle});"
+        }
+      ]
+    },
+    {
+      "name": "SW8",
+      "what": "a cancel of the caller does not reach a Responses stream that is being read",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "await readSse(body,{signal,onChunk,onEvent:handle});",
+          "new": "await readSse(body,{onChunk,onEvent:handle});"
+        }
+      ]
+    },
+    {
+      "name": "SW9",
+      "what": "an event of a Responses stream that is not JSON escapes without the code the callers know",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "try{event=JSON.parse(data);}catch{throw fail('invalid_responses_stream','Malformed SSE event.');}",
+          "new": "event=JSON.parse(data);"
+        }
+      ]
+    },
+    {
+      "name": "SW10",
+      "what": "a body that is not a stream is refused with the code of the reader, not the Responses one",
+      "patches": [
+        {
+          "file": "lib/openai-responses-api.mjs",
+          "old": "if(!body||typeof body.getReader!=='function')throw fail('invalid_responses_stream','Provider returned no SSE stream.');",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "SH1",
+      "what": "a handler cannot end the read: SSE_STOP is ignored",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (await onEvent(queue.shift()) === SSE_STOP) { halted = true; return; }",
+          "new": "if (await onEvent(queue.shift()) === Symbol('never')) { halted = true; return; }"
+        }
+      ]
+    },
+    {
+      "name": "SH2",
+      "what": "any value a handler returns ends the read",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (await onEvent(queue.shift()) === SSE_STOP) { halted = true; return; }",
+          "new": "if (await onEvent(queue.shift()) !== undefined) { halted = true; return; }"
+        }
+      ]
+    },
+    {
+      "name": "SH3",
+      "what": "the read goes on after a handler ended it",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "if (halted) break; // a handler said the stream is over",
+          "new": "// a handler said the stream is over"
+        }
+      ]
+    },
+    {
+      "name": "SH4",
+      "what": "the events made by the end of the stream are delivered after a handler ended the read",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "    if (!halted) {",
+          "new": "    if (true) {"
+        }
+      ]
+    },
+    {
+      "name": "SH5",
+      "what": "the result does not say that a handler ended the read",
+      "patches": [
+        {
+          "file": "lib/sse.mjs",
+          "old": "return { bytes: total, halted };",
+          "new": "return { bytes: total, halted: false };"
+        }
+      ]
+    }
+  ]
+}

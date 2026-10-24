@@ -62,6 +62,21 @@ function safePreview(value,length=1800,secrets=[]){
 }
 function error(code,message,statusCode=403){return Object.assign(new Error(message),{code,statusCode});}
 const cut = (value, limit) => { const text = String(value ?? ''); return text.length > limit ? `${text.slice(0, limit)}… [+${text.length - limit} ký tự nữa]` : text; };
+
+// An edit_file call with several edits: the owner is shown ALL of them, never only the first. `edits` lists the first 20 (400 characters of each side); old_string and new_string are
+// the combined view the diff panel prints, each edit under its position, and they say how many are left out when there are more than 20.
+const EDITS_LISTED = 20;
+function editListDetail(input) {
+  const edits = input.edits.filter(isObject);
+  const shown = edits.slice(0, EDITS_LISTED);
+  const combined = (field) => shown.map((edit, index) => `[${index + 1}/${edits.length}]${edit.replace_all ? ' (replace_all)' : ''}\n${cut(edit[field], 400)}`).join('\n----\n')
+    + (edits.length > shown.length ? `\n----\n… ${edits.length - shown.length} chỉnh sửa nữa không hiển thị ở đây` : '');
+  return {
+    kind: 'edit', path: input.path, replace_all: false, edit_count: edits.length,
+    edits: shown.map((edit) => ({ old_string: cut(edit.old_string, 400), new_string: cut(edit.new_string, 400), replace_all: Boolean(edit.replace_all) })),
+    old_string: cut(combined('old_string'), 4000), new_string: cut(combined('new_string'), 4000),
+  };
+}
 const HISTORY_PREVIEW_CHARS = 2000;
 
 export class PermissionGate {
@@ -177,6 +192,8 @@ export class PermissionGate {
       detail={kind:'command',command:cut(input.command,9000),cwd:input.cwd||'.',shell:verdict.risk?.shell??input.shell??'auto',timeout_seconds:input.timeout_seconds??null,description:input.description??null,assessed_as:verdict.risk?.kind??null,reasons:verdict.risk?.reasons??[]};
     }else if(op==='write_file'){
       detail={kind:'write',path:input.path,bytes:Buffer.byteLength(String(input.content??'')),overwrite:Boolean(input.overwrite),head:cut(input.content,600)};
+    }else if(op==='edit_file'&&Array.isArray(input.edits)){
+      detail=editListDetail(input);
     }else if(op==='edit_file'){
       detail={kind:'edit',path:input.path,replace_all:Boolean(input.replace_all),old_string:cut(input.old_string,800),new_string:cut(input.new_string,800)};
     }else{

@@ -11,8 +11,10 @@ import { RequestMeter, accumulateReportedUsage } from './request-budget.mjs';
 import { acceptObjectiveCriterion, availableObjectiveReceipts } from './objective-acceptance.mjs';
 import { createCostLedger, updateCostLedger } from './model-cost.mjs';
 import { AGENT_OUTPUT_TOKENS as MAX_OUTPUT_TOKENS } from './model-facts.mjs';
+import { EFFORT_LEVELS, parseReasoningEffort } from './reasoning-effort.mjs';
 import { taskToolSelectionMode, selectTaskToolNames } from './tool-selector.mjs';
 import { HistoryLedger } from './history-ledger.mjs';
+import { withoutStaleThinking } from './thinking-blocks.mjs';
 import { FinalAnswerHooks } from './lifecycle-hooks.mjs';
 import { AGENT_RESULTS_INSTRUCTIONS, AGENT_RESULTS_TOOL, parseAgentResultsArguments, shapeAgentResults } from './agent-results.mjs';
 import { SUBAGENT_NOTICE_LIMITS, normalizeSubagentNotices, publicSubagentNotices, recordSubagentEnd, takeSubagentNotice, unreadSubagentNotices } from './subagent-notices.mjs';
@@ -64,6 +66,17 @@ export function buildUserAttachmentParts(attachments = []) {
 const object = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const now = () => new Date().toISOString();
 const clip = (s, limit = EVENT_TEXT_LIMIT) => s.length <= limit ? s : `${s.slice(0, limit)}\n[Phần còn lại được lưu trong bản ghi trên máy.]`;
+
+/**
+ * The thinking effort a caller names for a task: null when it names none (the task follows its connection, or keeps what it had), 'auto' or a level otherwise. A word that is not
+ * a level is refused, with a 400, before anything starts.
+ */
+export function taskReasoningEffort(value) {
+  if (value === undefined || value === null || (typeof value === 'string' && !value.trim())) return null;
+  const effort = parseReasoningEffort(value);
+  if (effort === undefined) throw fault('invalid_reasoning_effort', `Mức suy luận ${JSON.stringify(value)} không hợp lệ: dùng auto hoặc một trong ${EFFORT_LEVELS.join(', ')}.`);
+  return effort;
+}
 
 function fault(code, message, statusCode = 400) {
   return Object.assign(new Error(message), { code, statusCode });
@@ -310,7 +323,7 @@ ${facts}
 HOW TO WORK
 1. Look before you change. Use list_directory, find_files, search_files and read_file. ${readRules}, and follow the conventions you find in the code.
 2. For work that spans several files, write a short plan with update_plan and keep its statuses honest (done only with evidence).
-3. Change files with small, targeted edits: edit_file replaces an exact old_string (it must be unique unless replace_all) and write_file creates files. Pass the sha256 you got from read_file as expected_sha256 so you never overwrite a newer change by the user. files_write_batch writes several files at once under the same rules: an item for a file that already exists needs its own expected_sha256 (or overwrite:true), and if any item is refused none is written.
+3. Change files with small, targeted edits: edit_file replaces an exact old_string (it must be unique unless replace_all; pass edits instead to make several changes to one file in one call, in order, all or nothing) and write_file creates files. Pass the sha256 you got from read_file as expected_sha256 so you never overwrite a newer change by the user. files_write_batch writes several files at once under the same rules: an item for a file that already exists needs its own expected_sha256 (or overwrite:true), and if any item is refused none is written.
 4. Check your work with the project's real tooling through run_command (tests, linters, type checks, builds). Read the output. Fix the cause of a failure; never weaken a test or hide an error to get a pass.
 5. Use git_status and git_diff before and after you work so you can describe your changes exactly. Commit (git_add, git_commit, git_branch) only when the user asked for it. You cannot push; if a push is needed, tell the user the exact command.
 6. Prefer the dedicated file and Git tools over shell commands. A shell command may need the user's approval, so make each command do one clear thing and say what it is for in its description.
@@ -497,6 +510,16 @@ export class AgentRunner {
             output[name] = '[Private reasoning content is not part of the task transcript]';
             continue;
           }
+          // The thinking of an Anthropic answer is the model's private context, like Responses reasoning: the signature (or the redacted payload) is kept only in memory for the next request,
+          // and the text of the thoughts (a summary, when one was asked for) is not part of the transcript.
+          if (transcript && (item.type === 'thinking' || item.type === 'redacted_thinking') && (name === 'signature' || name === 'data')) {
+            output[name] = '[Opaque model context retained only in memory for the next model request]';
+            continue;
+          }
+          if (transcript && item.type === 'thinking' && name === 'thinking') {
+            output[name] = '[Private reasoning content is not part of the task transcript]';
+            continue;
+          }
           // Keep encoded media bytes intact. Text credentials are redacted;
           // this is not an OCR/redaction pass over screenshot pixels.
           const media = (name === 'data' && ['image', 'audio'].includes(item.type)) || (name === 'blob' && typeof item.mimeType === 'string');
@@ -612,6 +635,7 @@ export class AgentRunner {
       completionOutcome:task.completionOutcome??(task.status==='completed'?classifyTaskCompletion(task.goalPlan,task.progress):null),
       effectiveProfile:task.effectiveProfile??null,
       roleProfiles:task.roleProfiles??{},
+      reasoningEffort:task.reasoningEffort??null,
       objectiveReceipts:availableObjectiveReceipts(task.progress),
       contextPolicy:task.contextPolicy??null,
       modelCost:task.modelCost??createCostLedger(),
@@ -776,8 +800,8 @@ export class AgentRunner {
     return this.#public(task);
   }
 
-  async continue({id,prompt,attachments=[],maxSteps=null,maxMinutes=null,effectiveProfile=null,roleProfiles=null}={}) {
-    return this.start({prompt,attachments,maxSteps,maxMinutes,resumeId:id,effectiveProfile,roleProfiles});
+  async continue({id,prompt,attachments=[],maxSteps=null,maxMinutes=null,effectiveProfile=null,roleProfiles=null,reasoningEffort=null}={}) {
+    return this.start({prompt,attachments,maxSteps,maxMinutes,resumeId:id,effectiveProfile,roleProfiles,reasoningEffort});
   }
   async enqueueMessage({id,prompt,attachments=[]}={}) {
     const context=this.context;
@@ -884,7 +908,7 @@ export class AgentRunner {
   // host plan and the query word of the repo map are made from it, in this run and in the later ones of the conversation, while the model is given the whole
   // `prompt` (and the repo map still focuses on the files the whole prompt names). Without it they are made from `prompt`.
   async start({ prompt, selectionPrompt = null, attachments = [], initialId = null, maxSteps = null, maxMinutes = null, resumeId = null,
-    effectiveProfile = null, roleProfiles = null, carriedPrompts = null } = {}) {
+    effectiveProfile = null, roleProfiles = null, carriedPrompts = null, reasoningEffort = null } = {}) {
     if (resumeId && this.activeTaskId === resumeId && this.tasks.get(resumeId)?.status !== 'running' && this.context?.done) await this.context.done.promise;
     if (this.closing) throw fault('shutting_down', 'Hub đang dừng.', 503);
     if (this.activeTaskId) throw fault('task_running', 'Đã có một tác vụ đang chạy. Hãy chờ hoặc dừng tác vụ đó.', 409);
@@ -902,6 +926,8 @@ export class AgentRunner {
       throw fault('invalid_task_id','Task ID mới đã tồn tại hoặc không hợp lệ.',409);
     if (maxSteps !== null && (!Number.isSafeInteger(maxSteps) || maxSteps < 1)) throw fault('invalid_limits', 'Lượt tối đa phải là số nguyên dương hoặc null (không giới hạn).');
     if (maxMinutes !== null && (!Number.isFinite(maxMinutes) || maxMinutes <= 0)) throw fault('invalid_limits', 'Giới hạn phút phải lớn hơn 0 hoặc null (không giới hạn).');
+    // The thinking effort of this task, over the connection's: null names none (a new task follows its connection, a resumed one keeps what it had).
+    const taskEffort = taskReasoningEffort(reasoningEffort);
     const existing = resumeId == null ? null : this.tasks.get(resumeId);
     if (resumeId != null && (!TASK_ID.test(resumeId) || !existing)) throw fault('task_not_found', 'Không tìm thấy phiên hội thoại cũ.', 404);
     if (existing && existing.status === 'running') throw fault('task_running', 'Phiên này vẫn đang chạy.', 409);
@@ -940,6 +966,7 @@ export class AgentRunner {
       ? Object.fromEntries(Object.entries(roleProfiles).filter(([role,id])=>
           /^[a-z][a-z0-9_-]{0,40}$/i.test(role) && typeof id==='string' &&
           /^[a-z0-9][a-z0-9._-]{0,40}$/i.test(id))) : {};
+    if (taskEffort !== null) task.reasoningEffort = taskEffort;
     task.status = 'running'; task.finishedAt = null; task.finalText = ''; task.finalParts = null; task.error = null; task.errorCode = null; task.cancelRequested = false;
     task.maxSteps = maxSteps === null ? null : task.steps + maxSteps; task.maxMinutes = maxMinutes;
     task.progress = createTaskProgress(task.progress, { newRun: true });
@@ -1138,6 +1165,8 @@ export class AgentRunner {
             'Đang lập bản đồ mã nguồn giới hạn để chuẩn bị ngữ cảnh cho agent.', { status:'running' });
           const map = await abortable(injectRepoMapIntoInstructions('', this.manager.studio, {
             prompt: cleanPrompt, queryPrompt: selectionText, maxTokens: 900, signal: context.controller.signal,
+            // The Hub's hardened Git runner, when the manager has local tools: the map then leaves out what .gitignore excludes.
+            git: this.manager.localTools?.git ?? null,
           }), context.controller.signal);
           if (map.injected) {
             repoMapPart = {type:'input_text',text:
@@ -1284,7 +1313,9 @@ export class AgentRunner {
         // The snapshot is a new array over the ledger's own items, not a deep clone: the compaction passes below replace
         // entries of this array and never write into an item. From here until the top of the loop a host message that
         // arrives (a notice, a hint) waits, so it cannot land between the results of this model turn.
-        let modelInput = context.history.snapshotForModel();
+        // Anthropic thinking blocks stay on the round that waits for a tool result only (lib/thinking-blocks.mjs): the signatures of older rounds are never sent again, and counting them
+        // would make the conversation look longer than it is and the passes below shorten it sooner (which changes the conversation before the blocks that do go back).
+        let modelInput = withoutStaleThinking(context.history.snapshotForModel());
         context.history.beginBatch();
         // Freeze the effective policy for this task. Provider settings changed
         // afterwards must not silently change its model context budget.
@@ -1354,8 +1385,12 @@ export class AgentRunner {
           input: modelInput, instructions: context.instructions, tools: structuredClone(context.tools),
           signal: context.controller.signal, maxOutputTokens: context.contextPolicy?.reservedOutputTokens ?? MAX_OUTPUT_TOKENS,
           store: false, parallel_tool_calls: false, include: ['reasoning.encrypted_content'],
+          // The thinking effort chosen for this task, over the connection's (undefined: the task follows its connection).
+          reasoningEffort: task.reasoningEffort,
           onStatus: async (message, kind) => { await this.#event(task, kind === 'model_repair' ? 'model_repair' : kind === 'context_compaction' ? 'context_compaction' : 'network_wait', String(message).slice(0,1000), { status:'running' }); },
           onToken: (token) => { this.#emit({ type: 'token', taskId: task.id, token }); },
+          // The stream the pieces came from was cut and the request is made again: whoever shows the pieces drops them (the answer that comes next is shown from its start).
+          onStreamReset: () => { this.#emit({ type: 'token_reset', taskId: task.id }); },
         }), context.controller.signal);
         context.inFlight = null;
         this.#check(context);
@@ -1369,6 +1404,10 @@ export class AgentRunner {
         await this.#persist(task, { at: now(), type: 'model_response', step: task.steps, response });
         if (response.status !== 'completed') {
           const reason = response.incomplete_details?.reason ?? response.error?.message ?? response.status ?? 'unknown';
+          // The output limit counts the thoughts: a model that spent all of it on them has written nothing. Say so, since the remedy is another one (less thinking, or a larger output limit).
+          if (reason === 'max_output_tokens' && response.incomplete_details?.during_thinking === true) {
+            throw fault('output_limit', `Model đã dùng hết giới hạn token đầu ra${Number.isFinite(response.usage?.output_tokens) ? ` (${response.usage.output_tokens})` : ''} cho phần suy luận (thinking) nên chưa viết được câu trả lời hay lời gọi công cụ nào. Hạ mức suy luận của model này hoặc chọn model cho phép đầu ra lớn hơn rồi gửi lại. Không tự gửi lại yêu cầu tính phí hoặc thực thi phần gọi công cụ chưa hoàn chỉnh.`, 502);
+          }
           throw fault(reason === 'max_output_tokens' ? 'output_limit' : 'model_response_failed', `Model chưa hoàn tất phản hồi (${reason}). Không tự gửi lại yêu cầu tính phí hoặc thực thi phần gọi công cụ chưa hoàn chỉnh.`, 502);
         }
         // Preserve all output items in original order, including opaque encrypted

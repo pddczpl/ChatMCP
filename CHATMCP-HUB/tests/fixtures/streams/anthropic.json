@@ -1,0 +1,491 @@
+{
+  "about": "Messages API streams and the plain message of the same answer. Written from one plan by a generator (shape per the streaming documentation), not captured from a live account.",
+  "fixtures": [
+    {
+      "name": "text",
+      "file": "anthropic/text.sse",
+      "source": "Messages API: a plain answer with a ping after the first block starts (the documented example)",
+      "strict": true,
+      "message": {
+        "id": "msg_01XFDUDYJgAACzvnptvVoYEL",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-5-5",
+        "content": [
+          {
+            "type": "text",
+            "text": "Xin chào! Hôm nay tôi có thể giúp gì cho bạn? 😀"
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 25,
+          "output_tokens": 15
+        }
+      },
+      "summary": {
+        "status": "completed",
+        "text": "Xin chào! Hôm nay tôi có thể giúp gì cho bạn? 😀",
+        "refusal": "",
+        "calls": []
+      }
+    },
+    {
+      "name": "tool-use",
+      "file": "anthropic/tool-use.sse",
+      "source": "Messages API: text, then a tool_use block whose input arrives as partial JSON (the documented example)",
+      "strict": true,
+      "message": {
+        "id": "msg_014p7gG3wDgGV9EUtLvnow3U",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-5-5",
+        "content": [
+          {
+            "type": "text",
+            "text": "Tôi sẽ đọc tệp đó."
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_01T1x1fJ34qAmk2tNTrN7Up6",
+            "name": "read_file",
+            "input": {
+              "path": "docs/ARCHITECTURE.md",
+              "max_lines": 80
+            }
+          }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 472,
+          "output_tokens": 89
+        }
+      },
+      "summary": {
+        "status": "completed",
+        "text": "Tôi sẽ đọc tệp đó.",
+        "refusal": "",
+        "calls": [
+          {
+            "id": "toolu_01T1x1fJ34qAmk2tNTrN7Up6",
+            "name": "read_file",
+            "arguments": "{\"path\":\"docs/ARCHITECTURE.md\",\"max_lines\":80}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "thinking-tool",
+      "file": "anthropic/thinking-tool.sse",
+      "source": "Messages API with extended thinking: a thinking block with its signature, text, then a tool_use block",
+      "strict": true,
+      "message": {
+        "id": "msg_01Aq9w938a90dw8q",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-5-5",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "Cần đọc README.md trước, rồi mới trả lời. Hai bước: đọc tệp và tóm tắt.",
+            "signature": "EuYBCkQYAiJAm3F4h2tNn0cVwq6oD9yA1Zb5PxLkS7eRtUiOpAsDfGhJkLzXcVbNm1234567890QwErTyUiOpAsDfGhJkLzXcVbNmQwErTy=="
+          },
+          {
+            "type": "text",
+            "text": "Để tôi mở README.md."
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_01WnZ3q9r5LpVxYb2CdEfGhJ",
+            "name": "read_file",
+            "input": {
+              "path": "README.md"
+            }
+          }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 1034,
+          "output_tokens": 156,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      },
+      "summary": {
+        "status": "completed",
+        "text": "Để tôi mở README.md.",
+        "refusal": "",
+        "calls": [
+          {
+            "id": "toolu_01WnZ3q9r5LpVxYb2CdEfGhJ",
+            "name": "read_file",
+            "arguments": "{\"path\":\"README.md\"}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "thinking-omitted",
+      "file": "anthropic/thinking-omitted.sse",
+      "source": "Messages API with thinking display \"omitted\": the thinking block has no text, only its signature",
+      "strict": true,
+      "message": {
+        "id": "msg_01OmittedThinking00000001",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-5-5",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "EuYBCkQYAiJAm3F4h2tNn0cVwq6oD9yA1Zb5PxLkS7eRtUiOpAsDfGhJkLzXcVbNm1234567890QwErTyUiOpAsDfGhJkLzXcVbNmQwErTy=="
+          },
+          {
+            "type": "text",
+            "text": "Đã xong."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 80,
+          "output_tokens": 40
+        }
+      },
+      "summary": {
+        "status": "completed",
+        "text": "Đã xong.",
+        "refusal": "",
+        "calls": []
+      }
+    },
+    {
+      "name": "redacted-thinking",
+      "file": "anthropic/redacted-thinking.sse",
+      "source": "Messages API: a redacted_thinking block (safety-encrypted), then text",
+      "strict": true,
+      "message": {
+        "id": "msg_01RedactedThinking0000001",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-5-5",
+        "content": [
+          {
+            "type": "redacted_thinking",
+            "data": "EmwKAhgBEgy3va3pzix/LafPsn4aDFIT2Xlxh0L5L8rLVyIwxtE3rAFBa8cr3qpPkNRj2YfWXGmKDxH4mPnZ5sQRkpRtZjTqCp9LdYvNeQoUhA6MbVwIsJ3fK1aG2DxE"
+          },
+          {
+            "type": "text",
+            "text": "Tôi không thể chia sẻ phần suy nghĩ đó, nhưng đây là kết quả."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 64,
+          "output_tokens": 33
+        }
+      },
+      "summary": {
+        "status": "completed",
+        "text": "Tôi không thể chia sẻ phần suy nghĩ đó, nhưng đây là kết quả.",
+        "refusal": "",
+        "calls": []
+      }
+    },
+    {
+      "name": "cache-usage",
+      "file": "anthropic/cache-usage.sse",
+      "source": "Messages API with prompt caching: cache usage in message_start, a cumulative usage in message_delta (the totals replace, they are not added)",
+      "strict": true,
+      "message": {
+        "id": "msg_01CacheUsage00000000000001",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-5-5",
+        "content": [
+          {
+            "type": "text",
+            "text": "Từ bộ nhớ đệm."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 40,
+          "cache_creation_input_tokens": 50,
+          "cache_read_input_tokens": 300,
+          "output_tokens": 20
+        }
+      },
+      "summary": {
+        "status": "completed",
+        "text": "Từ bộ nhớ đệm.",
+        "refusal": "",
+        "calls": []
+      }
+    },
+    {
+      "name": "max-tokens-cut-call",
+      "file": "anthropic/max-tokens-cut-call.sse",
+      "source": "Messages API: stop_reason max_tokens in the middle of a tool_use block: its JSON does not parse and no call exists",
+      "strict": true,
+      "message": {
+        "id": "msg_01MaxTokensCutCall0000001",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-5-5",
+        "content": [
+          {
+            "type": "text",
+            "text": "Tôi sẽ ghi tệp:"
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_01CutCall00000000000001",
+            "name": "write_file",
+            "input": {}
+          }
+        ],
+        "stop_reason": "max_tokens",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 90,
+          "output_tokens": 16384
+        }
+      },
+      "summary": {
+        "status": "incomplete",
+        "text": "Tôi sẽ ghi tệp:",
+        "refusal": "",
+        "calls": []
+      }
+    },
+    {
+      "name": "refusal",
+      "file": "anthropic/refusal.sse",
+      "source": "Messages API: stop_reason refusal",
+      "strict": true,
+      "message": {
+        "id": "msg_01Refusal000000000000001",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-5-5",
+        "content": [
+          {
+            "type": "text",
+            "text": "Tôi không thể giúp với yêu cầu này."
+          }
+        ],
+        "stop_reason": "refusal",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 30,
+          "output_tokens": 12
+        }
+      },
+      "summary": {
+        "status": "completed",
+        "text": "",
+        "refusal": "Tôi không thể giúp với yêu cầu này.",
+        "calls": []
+      }
+    },
+    {
+      "name": "pause-turn",
+      "file": "anthropic/pause-turn.sse",
+      "source": "Messages API: stop_reason pause_turn (a long turn the server paused): incomplete, nothing to run",
+      "strict": true,
+      "message": {
+        "id": "msg_01PauseTurn0000000000001",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-5-5",
+        "content": [
+          {
+            "type": "text",
+            "text": "Đang tìm kiếm"
+          }
+        ],
+        "stop_reason": "pause_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 55,
+          "output_tokens": 5
+        }
+      },
+      "summary": {
+        "status": "incomplete",
+        "text": "Đang tìm kiếm",
+        "refusal": "",
+        "calls": []
+      }
+    },
+    {
+      "name": "two-calls",
+      "file": "anthropic/two-calls.sse",
+      "source": "Messages API (a gateway that allows parallel tool use): two tool_use blocks in one message",
+      "strict": true,
+      "message": {
+        "id": "msg_01TwoCalls00000000000001",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-5-5",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01AAAAAAAAAAAAAAAAAAAAAA",
+            "name": "read_file",
+            "input": {
+              "path": "a.txt"
+            }
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_01BBBBBBBBBBBBBBBBBBBBBB",
+            "name": "read_file",
+            "input": {
+              "path": "b.txt"
+            }
+          }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 200,
+          "output_tokens": 60
+        }
+      },
+      "summary": {
+        "status": "completed",
+        "text": "",
+        "refusal": "",
+        "calls": [
+          {
+            "id": "toolu_01AAAAAAAAAAAAAAAAAAAAAA",
+            "name": "read_file",
+            "arguments": "{\"path\":\"a.txt\"}"
+          },
+          {
+            "id": "toolu_01BBBBBBBBBBBBBBBBBBBBBB",
+            "name": "read_file",
+            "arguments": "{\"path\":\"b.txt\"}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "no-input-tool",
+      "file": "anthropic/no-input-tool.sse",
+      "source": "Messages API: a tool with no parameters: its input is {}",
+      "strict": true,
+      "message": {
+        "id": "msg_01NoInputTool000000000001",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-5-5",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01NoInput0000000000001",
+            "name": "git_status",
+            "input": {}
+          }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 120,
+          "output_tokens": 18
+        }
+      },
+      "summary": {
+        "status": "completed",
+        "text": "",
+        "refusal": "",
+        "calls": [
+          {
+            "id": "toolu_01NoInput0000000000001",
+            "name": "git_status",
+            "arguments": "{}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty-input-tool",
+      "file": "anthropic/empty-input-tool.sse",
+      "source": "A gateway that streams no JSON at all for a tool with no parameters (an empty partial_json): the input is {}",
+      "strict": false,
+      "message": {
+        "id": "msg_01EmptyInputTool0000000001",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-5-5",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01EmptyInput000000000001",
+            "name": "git_status",
+            "input": {}
+          }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 120,
+          "output_tokens": 18
+        }
+      },
+      "summary": {
+        "status": "completed",
+        "text": "",
+        "refusal": "",
+        "calls": [
+          {
+            "id": "toolu_01EmptyInput000000000001",
+            "name": "git_status",
+            "arguments": "{}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "bedrock-no-ping",
+      "file": "anthropic/bedrock-no-ping.sse",
+      "source": "Messages API as a gateway (Bedrock, Vertex) sends it: no ping events, two text blocks",
+      "strict": true,
+      "message": {
+        "id": "msg_01Gateway00000000000001",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-5-5",
+        "content": [
+          {
+            "type": "text",
+            "text": "Phần một."
+          },
+          {
+            "type": "text",
+            "text": "Phần hai."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+          "input_tokens": 21,
+          "output_tokens": 9
+        }
+      },
+      "summary": {
+        "status": "completed",
+        "text": "Phần một.\nPhần hai.",
+        "refusal": "",
+        "calls": []
+      }
+    }
+  ]
+}

@@ -6,6 +6,7 @@
 //   POST /v1/responses          OpenAI Responses, as JSON or as SSE (output_text and reasoning-summary deltas, response.completed
 //                               with parallel function_call items)
 //   POST /v1beta/models/<model>:generateContent   Gemini (JSON; functionCall parts, thought parts, thoughtSignature, usageMetadata)
+//   POST /v1beta/models/<model>:streamGenerateContent?alt=sse   the same answer as SSE (chunks of text, whole calls, usage that grows, finishReason in the last)
 //
 // It is NOT a model. It answers with the next step of a fixed scenario (see scenarios.mjs), decided only by what the conversation
 // already contains. A run is therefore repeatable and needs no API key, no network and no GPU. It listens on loopback only. It
@@ -23,15 +24,19 @@
 //   chatDialect  'openai' | 'compat'                                   'compat' accepts and sends reasoning_content (DeepSeek and kin)
 //   streamUsage  'on-request' | 'always'                               when a Chat stream carries its usage chunk
 //   keepBodies   true | false                                          keep the whole body in each recorded request (state.requests[n].body); default false
-// A field the server does not accept (library: mock.refuseParam(name, { message, on })): every request with that top-level field is answered HTTP 400 naming it,
-// until mock.clearRefusals(). It is what a provider that has no "thinking effort" does with `reasoning_effort` or `output_config`.
+//   bindThinking true | false                                          sign Anthropic thinking blocks for the conversation they were issued in: a request that replays one after the
+//                                                                      system prompt, the tools or an earlier message changed is answered 400 "bound to a different conversation"
+//                                                                      (the preserved thinking check); default false (a signature is then good anywhere)
+// A field the server does not accept (library: mock.refuseParam(name, { message, on })): every request with that field is answered HTTP 400 naming it,
+// until mock.clearRefusals(). The name is a top-level field or a dotted path ("generationConfig.thinkingConfig"). It is what a provider that has no "thinking effort"
+// does with `reasoning_effort`, `output_config` or `generationConfig.thinkingConfig`.
 // Faults, for the failures that only happen on a real network (library: mock.inject(spec); a scenario step may carry `fault: spec`):
 //   { kind: 'stall', afterEvents }      the stream (or the body) stops after N events and nothing more is sent until the client gives up
 //   { kind: 'cut', afterEvents, reset } the stream ends before its terminal event (reset: the connection is torn down instead)
 //   { kind: 'payload-too-large' }       HTTP 413 in the protocol's own error format
 //   { kind: 'stream-unsupported' }      HTTP 400 to a request with stream: true, "stream not supported" (a request without it passes)
 //   { kind: 'status', status, message, headers }   any other HTTP status
-//   common: on ('chat'|'anthropic'|'responses', default any), stream (true|false, default any), times (default 1)
+//   common: on ('chat'|'anthropic'|'responses'|'gemini', default any), stream (true|false, default any), times (default 1)
 // Control (loopback test traffic only):
 //   GET  /__ping       {ok:true}
 //   GET  /__requests   what the Hub has sent so far
@@ -45,7 +50,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { SCENARIOS, call } from './scenarios.mjs';
-import { createThinkingSigner, errorBody, validateAnthropicRequest, validateChatRequest, validateGeminiRequest, validateResponsesRequest } from './protocol-validators.mjs';
+import { createThinkingSigner, errorBody, thinkingBinding, validateAnthropicRequest, validateChatRequest, validateGeminiRequest, validateResponsesRequest } from './protocol-validators.mjs';
 
 export const MODEL_IDS = Object.freeze(['mock-coder', 'mock-coder-small']);
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
@@ -151,12 +156,21 @@ async function readJsonWithText(req) {
   try { return { text, json: JSON.parse(text) }; } catch { throw Object.assign(new Error('body is not JSON'), { statusCode: 400 }); }
 }
 const readJson = async (req) => (await readJsonWithText(req)).json;
+/** Whether a body has a field named by a dotted path ("reasoning_effort", "generationConfig.thinkingConfig"). */
+const hasPath = (value, dotted) => {
+  let at = value;
+  for (const key of String(dotted).split('.')) {
+    if (!at || typeof at !== 'object' || !Object.hasOwn(at, key)) return false;
+    at = at[key];
+  }
+  return true;
+};
 
 const pieces = (text, size = PIECE) => { const out = []; for (let i = 0; i < text.length; i += size) out.push(text.slice(i, i + size)); return out; };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
-const protocolOf = (route) => (route.endsWith('/chat/completions') ? 'chat' : route.endsWith('/messages') ? 'anthropic' : route.endsWith('/responses') ? 'responses' : route.endsWith(':generateContent') ? 'gemini' : null);
+const protocolOf = (route) => (route.endsWith('/chat/completions') ? 'chat' : route.endsWith('/messages') ? 'anthropic' : route.endsWith('/responses') ? 'responses' : route.endsWith(':generateContent') || route.endsWith(':streamGenerateContent') ? 'gemini' : null);
 
-export async function startMockModel({ scenario = 'repair-add', scenarios: extra = {}, host = '127.0.0.1', port = 0, models = MODEL_IDS, strict = undefined, chatDialect = 'openai', streamUsage = 'on-request', keepBodies = false } = {}) {
+export async function startMockModel({ scenario = 'repair-add', scenarios: extra = {}, host = '127.0.0.1', port = 0, models = MODEL_IDS, strict = undefined, chatDialect = 'openai', streamUsage = 'on-request', keepBodies = false, bindThinking = false } = {}) {
   // `scenarios` lets a test bring its own scripted behaviour (a closure over the paths it created) next to the shared ones.
   const registry = { ...SCENARIOS, ...extra };
   if (!registry[scenario]) throw new Error(`unknown scenario "${scenario}"`);
@@ -244,11 +258,14 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
   };
 
   // ---- Anthropic Messages
-  const anthropicMessage = (plan, model) => {
+  // With `bindThinking` the thinking blocks are signed for the conversation the request carried (the system prompt, the tools and every message of it): a later request that
+  // replays them after any of those changed is refused, as the real API refuses it (see createThinkingSigner).
+  const anthropicMessage = (plan, model, body) => {
     state.itemCounter += 1;
     const content = [];
-    if (plan.thinking !== null) content.push({ type: 'thinking', thinking: plan.thinking, signature: signer.signThinking(plan.thinking) });
-    if (plan.redacted) content.push({ type: 'redacted_thinking', data: signer.redacted(`r${state.itemCounter}`) });
+    const binding = bindThinking ? thinkingBinding({ system: body?.system, tools: body?.tools, messages: body?.messages }) : null;
+    if (plan.thinking !== null) content.push({ type: 'thinking', thinking: plan.thinking, signature: signer.signThinking(plan.thinking, binding) });
+    if (plan.redacted) content.push({ type: 'redacted_thinking', data: signer.redacted(`r${state.itemCounter}`, binding) });
     if (plan.text) content.push({ type: 'text', text: plan.text });
     for (const entry of plan.calls) content.push({ type: 'tool_use', id: entry.id, name: entry.name, input: plan.truncated ? {} : entry.args });
     return {
@@ -257,8 +274,8 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
       usage: { input_tokens: plan.usage.input, output_tokens: plan.usage.output, cache_creation_input_tokens: plan.usage.cacheWrite, cache_read_input_tokens: plan.usage.cacheRead },
     };
   };
-  const anthropicFrames = (plan, model) => {
-    const message = anthropicMessage(plan, model);
+  const anthropicFrames = (plan, model, body) => {
+    const message = anthropicMessage(plan, model, body);
     const frames = [];
     const emit = (event, data) => frames.push(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     emit('message_start', { type: 'message_start', message: { ...message, content: [], stop_reason: null, usage: { ...message.usage, output_tokens: 1 } } });
@@ -344,7 +361,7 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
     return { frames, terminal: 1 };
   };
 
-  // ---- Gemini generateContent (JSON only: the Hub's Gemini loop does not stream)
+  // ---- Gemini generateContent (JSON) and streamGenerateContent (SSE)
   const geminiResponse = (plan, model) => {
     const parts = [];
     if (plan.thinking !== null) parts.push({ text: plan.thinking, thought: true });
@@ -365,12 +382,33 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
       usageMetadata, modelVersion: model ?? 'mock-gemini', responseId: `resp_mock_${state.callCounter}_${state.requests.length}`,
     };
   };
+  // The stream of the same answer: the text in pieces (a signature goes with the last piece of its part), a call whole, the usage growing and complete in the last event, which has the finishReason.
+  const geminiFrames = (plan, model) => {
+    const response = geminiResponse(plan, model);
+    const candidate = response.candidates[0];
+    const chunks = [];
+    for (const part of candidate.content.parts) {
+      if (typeof part.text === 'string' && part.functionCall === undefined) {
+        const { thoughtSignature, ...rest } = part;
+        const list = pieces(part.text);
+        list.forEach((piece, index) => chunks.push([{ ...rest, text: piece, ...(index === list.length - 1 && thoughtSignature ? { thoughtSignature } : {}) }]));
+      } else chunks.push([part]);
+    }
+    if (!chunks.length) chunks.push([{ text: '' }]);
+    const usage = response.usageMetadata;
+    const frames = chunks.map((parts, index) => {
+      const last = index === chunks.length - 1;
+      const grown = last ? usage : { ...usage, candidatesTokenCount: Math.max(1, Math.floor((usage.candidatesTokenCount * (index + 1)) / chunks.length)), totalTokenCount: usage.promptTokenCount };
+      return `data: ${JSON.stringify({ candidates: [{ content: { role: 'model', parts }, ...(last ? { finishReason: candidate.finishReason } : {}), index: 0 }], usageMetadata: grown, modelVersion: response.modelVersion, responseId: response.responseId })}\r\n\r\n`;
+    });
+    return { frames, terminal: 1 };
+  };
 
   const PROTOCOLS = {
     gemini: {
       validate: (body) => validateGeminiRequest(body, { signer }),
       json: (plan, model) => geminiResponse(plan, model),
-      stream: null,
+      stream: (plan, model) => geminiFrames(plan, model),
       count: (body) => (Array.isArray(body?.contents) ? body.contents.length : 0),
     },
     chat: {
@@ -381,8 +419,8 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
     },
     anthropic: {
       validate: (body) => validateAnthropicRequest(body, { signer }),
-      json: (plan, model) => anthropicMessage(plan, model),
-      stream: (plan, model) => anthropicFrames(plan, model),
+      json: (plan, model, body) => anthropicMessage(plan, model, body),
+      stream: (plan, model, body) => anthropicFrames(plan, model, body),
       count: (body) => (Array.isArray(body?.messages) ? body.messages.length : 0),
     },
     responses: {
@@ -481,9 +519,10 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
       if (protocol) {
         const adapter = PROTOCOLS[protocol];
         const { text: rawBody, json: body } = await readJsonWithText(req);
-        // generateContent is never a stream (streaming is another method) and carries its model in the URL, not in the body.
-        const stream = protocol !== 'gemini' && body?.stream === true;
-        const model = body?.model ?? (protocol === 'gemini' ? decodeURIComponent(/\/models\/([^/:]+):generateContent$/.exec(route)?.[1] ?? '') || null : null);
+        // Gemini carries its model in the URL, not in the body, and streaming is another method (:streamGenerateContent), not a field.
+        const stream = protocol === 'gemini' ? route.endsWith(':streamGenerateContent') : body?.stream === true;
+        const model = body?.model ?? (protocol === 'gemini' ? decodeURIComponent(/\/models\/([^/:]+):(?:stream)?[Gg]enerateContent$/.exec(route)?.[1] ?? '') || null : null);
+        if (protocol === 'gemini' && stream && url.searchParams.get('alt') !== 'sse') return reply(400, errorBody('gemini', { message: 'This server streams server-sent events only: add alt=sse to the URL.' }));
         const info = describeProtocolConversation(protocol, body);
         const probe = info.tools.includes('record_probe');
         state.lastBody = body;
@@ -506,7 +545,7 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
           return reply(status, errorJson, headers);
         }
         // A provider that does not accept a field says so before it reads the rest, in the protocol's own error format, naming the field.
-        const refusal = body && typeof body === 'object' ? refusals.find((entry) => Object.hasOwn(body, entry.param) && (!entry.on || entry.on === protocol)) : undefined;
+        const refusal = body && typeof body === 'object' ? refusals.find((entry) => hasPath(body, entry.param) && (!entry.on || entry.on === protocol)) : undefined;
         if (refusal) {
           refusal.used += 1;
           record.fault = 'refuse-param';
@@ -568,7 +607,7 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
     },
     clearFaults() { faults.length = 0; },
     /**
-     * From now on a request that has this top-level field is answered HTTP 400 naming it, whatever else it holds ("Unsupported parameter",
+     * From now on a request that has this field (top-level, or a dotted path such as generationConfig.thinkingConfig) is answered HTTP 400 naming it, whatever else it holds ("Unsupported parameter",
      * "Extra inputs are not permitted"), until clearRefusals(). `on` limits it to one protocol ('chat' | 'anthropic' | 'responses' | 'gemini').
      * Returns the entry: `used` says how many requests it has refused.
      */

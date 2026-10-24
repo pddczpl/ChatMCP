@@ -2,6 +2,7 @@
 // model listing. Pure functions, no network and no state, so the wire format can be tested without a key.
 import { contentText, outputText, parseArguments, safeToolId } from './model-history.mjs';
 import { reportedTokenCount } from './request-budget.mjs';
+import { captureThinkingBlocks, endedWhileThinking, replayableBlocks } from './thinking-blocks.mjs';
 
 export const ANTHROPIC_VERSION = '2023-06-01';
 const isObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -38,24 +39,28 @@ export function anthropicHeaders(apiKey, authMode = 'auto') {
   return headers;
 }
 
-/** Conversation -> Anthropic `messages`. Consecutive messages of one role are merged; tool results come first. */
-export function asAnthropicMessages(history) {
+/**
+ * Conversation -> Anthropic `messages` (consecutive messages of one role are merged; tool results come first), and the history item that began each message: the item that holds the
+ * thinking blocks of an assistant message is the one that began it.
+ */
+function convertHistory(history) {
   const messages = [];
-  const push = (role, block) => {
+  const began = [];
+  const push = (role, block, item) => {
     const last = messages.at(-1);
     if (last?.role === role) last.content.push(block);
-    else messages.push({ role, content: [block] });
+    else { messages.push({ role, content: [block] }); began.push(item); }
   };
   for (const item of history) {
     if (item?.role === 'user') {
-      for(const block of anthropicUserBlocks(item.content))push('user',block);
+      for(const block of anthropicUserBlocks(item.content))push('user',block,item);
     } else if (item?.type === 'message' && item.role === 'assistant') {
       const text = contentText(item.content);
-      if (text.trim()) push('assistant', { type: 'text', text });
+      if (text.trim()) push('assistant', { type: 'text', text }, item);
     } else if (item?.type === 'function_call') {
-      push('assistant', { type: 'tool_use', id: safeToolId(item.call_id), name: item.name, input: parseArguments(item.arguments) });
+      push('assistant', { type: 'tool_use', id: safeToolId(item.call_id), name: item.name, input: parseArguments(item.arguments) }, item);
     } else if (item?.type === 'function_call_output') {
-      push('user', { type: 'tool_result', tool_use_id: safeToolId(item.call_id), content: outputText(item.output) || '(không có nội dung)' });
+      push('user', { type: 'tool_result', tool_use_id: safeToolId(item.call_id), content: outputText(item.output) || '(không có nội dung)' }, item);
     }
   }
   for (const message of messages) {
@@ -63,7 +68,12 @@ export function asAnthropicMessages(history) {
     const results = message.content.filter((block) => block.type === 'tool_result');
     if (results.length) message.content = [...results, ...message.content.filter((block) => block.type !== 'tool_result')];
   }
-  return messages;
+  return { messages, began };
+}
+
+/** Conversation -> Anthropic `messages`. Consecutive messages of one role are merged; tool results come first. */
+export function asAnthropicMessages(history) {
+  return convertHistory(history).messages;
 }
 
 export function anthropicTools(tools) {
@@ -75,16 +85,21 @@ export function anthropicTools(tools) {
 }
 
 /**
- * @param {{model: string, input: object[], instructions: string, tools?: object[], maxOutputTokens?: number, promptCaching?: boolean}} request
+ * @param {{model: string, input: object[], instructions: string, tools?: object[], maxOutputTokens?: number, promptCaching?: boolean, stream?: boolean, replay?: {origin: string}|null}} request
+ *   `stream` adds `stream: true`; a request that does not stream has no `stream` field at all, as it never had.
+ *   `replay` (the origin the request goes to) puts the thinking blocks of the tool call that waits for its result back first in its assistant message, when their binding holds
+ *   (lib/thinking-blocks.mjs); without it the body is the one the Hub has always built.
  */
-export function buildAnthropicBody({ model, input, instructions, tools = [], maxOutputTokens = 16384, promptCaching = false }) {
-  const messages = asAnthropicMessages(input);
+export function buildAnthropicBody({ model, input, instructions, tools = [], maxOutputTokens = 16384, promptCaching = false, stream = false, replay = null }) {
+  const { messages, began } = convertHistory(input);
   const body = { model, max_tokens: Math.max(256, Math.floor(maxOutputTokens)), system: [{ type: 'text', text: String(instructions) }], messages };
+  if (stream === true) body.stream = true;
   if (tools.length) {
     body.tools = anthropicTools(tools);
     // One call at a time: the agent runs them in order and a half-finished batch is harder to recover than one step.
     body.tool_choice = { type: 'auto', disable_parallel_tool_use: true };
   }
+  if (replay) putThinkingBack(body, began, { model, origin: replay.origin });
   if (promptCaching) {
     // The instructions, the tool list and the conversation so far are re-sent on every step; let the API reuse them.
     body.system[0].cache_control = { type: 'ephemeral' };
@@ -93,6 +108,20 @@ export function buildAnthropicBody({ model, input, instructions, tools = [], max
     if (lastBlock) lastBlock.cache_control = { type: 'ephemeral' };
   }
   return body;
+}
+
+/**
+ * The thinking blocks of the assistant message that precedes the last user message go back first in it, when that message holds a tool call whose result the last user message carries and
+ * the binding of the blocks holds (replayableBlocks). Only that message: the blocks of earlier rounds are the oldest and may go.
+ */
+function putThinkingBack(body, began, { model, origin }) {
+  const index = body.messages.length - 2;
+  const waiting = body.messages[index];
+  const answer = body.messages[index + 1];
+  if (waiting?.role !== 'assistant' || answer?.role !== 'user') return;
+  if (!waiting.content.some((block) => block.type === 'tool_use') || answer.content[0]?.type !== 'tool_result') return;
+  const blocks = replayableBlocks(began[index], { model, origin, system: body.system, tools: body.tools, messages: body.messages, index });
+  if (blocks) waiting.content = [...blocks, ...waiting.content];
 }
 
 export function normalizeAnthropic(result) {
@@ -119,14 +148,18 @@ export function normalizeAnthropic(result) {
   }
   if (text.trim()) output.push({ type: 'message', role: 'assistant', phase: calls.length ? 'commentary' : 'final', content: [{ type: 'output_text', text }] });
   if (stop === 'max_tokens' || stop === 'pause_turn') {
-    // Only the text so far is returned: a tool call cut off by the limit is never executed.
-    return { status: 'incomplete', incomplete_details: { reason: stop === 'max_tokens' ? 'max_output_tokens' : 'pause_turn' }, output, usage };
+    // Only the text so far is returned: a tool call cut off by the limit is never executed. An answer that thought and wrote nothing says so: the limit was spent on the thoughts.
+    const thinking = stop === 'max_tokens' ? endedWhileThinking(result.content) : null;
+    return { status: 'incomplete', incomplete_details: { reason: stop === 'max_tokens' ? 'max_output_tokens' : 'pause_turn', ...(thinking === null ? {} : { during_thinking: thinking }) }, output, usage };
   }
   for (const block of calls) {
     if (typeof block.id !== 'string' || typeof block.name !== 'string' || !isObject(block.input ?? {})) throw fail('model_invalid_function', 'Anthropic trả lời gọi công cụ không hợp lệ.');
     output.push({ type: 'function_call', name: block.name, call_id: block.id, arguments: JSON.stringify(block.input ?? {}), status: 'completed' });
   }
   if (!output.length) throw fail('model_empty', 'Anthropic không trả văn bản hoặc lời gọi công cụ.');
+  // The thinking blocks of the answer go with its first item (like Gemini's providerParts), to be sent back with the result of its call.
+  const thinking = captureThinkingBlocks(result.content);
+  if (thinking) output[0].providerBlocks = thinking;
   return { status: 'completed', output, usage };
 }
 
