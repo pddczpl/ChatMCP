@@ -116,7 +116,7 @@ const waited = (ms) => (ms >= 60000 ? `${Math.round(ms / 60000)} phút` : `${Mat
  * @param {() => void} [ctx.onStreamRefused] a refusal is confirmed: the repeat without a stream was accepted
  * @param {boolean} [ctx.streamOptionsRefused] (Chat Completions) this endpoint does not take `stream_options`: stream without asking for the usage chunk
  * @param {() => void} [ctx.onStreamOptionsRefused] the repeat without `stream_options` was accepted
- * @param {boolean} [ctx.thinks] (Anthropic) the catalog is sure that the model thinks, whatever it is asked: max_tokens counts the thoughts, so it is given room for them
+ * @param {boolean} [ctx.thinks] (Anthropic) the catalog is sure that the model can reason (the Claude 5 models think whatever they are asked): max_tokens counts the thoughts, so it is given room for them
  * @param {number|null} [ctx.modelOutputLimit] (Anthropic) the most the catalog says the model can write in one answer
  * @param {boolean} [ctx.thinkingReplayRefused] (Anthropic) this endpoint and model are known to refuse the thinking blocks they are sent back, so do not send them
  * @param {() => void} [ctx.onThinkingReplayRefused] a refusal is confirmed: the repeat without the blocks was accepted
@@ -140,10 +140,13 @@ export async function respondStandard(ctx, { input, instructions, tools = [], si
     outputTokens = Math.max(outputTokens, limits.defaultOutputTokens);
     if (ctx.outputLimit) outputTokens = Math.min(outputTokens, ctx.outputLimit);
   }
-  // ... and a model that thinks whatever it is asked (the catalog says so) needs room for the thoughts and the answer, since max_tokens counts both.
+  // ... and a model the catalog says can reason needs room for the thoughts and the answer, since max_tokens counts both. That room is a cap on what may be written, not conversation to make room
+  // for: the history is still planned with the output as asked (the agent's reserve), as models that think do not refuse a prompt and a max_tokens that together pass the window; one that does
+  // answers a context error, which shortens the history as it always has.
+  const plannedOutputTokens = outputTokens;
   if (ctx.protocol === 'anthropic' && ctx.thinks === true) outputTokens = Math.min(Math.max(outputTokens, thinkingRoom(ctx, limits)), ctx.outputLimit || Infinity);
   const fixedBytes = Buffer.byteLength(String(instructions)) + Buffer.byteLength(JSON.stringify(tools));
-  let maxBytes = historyBudgetBytes({ contextWindowTokens: ctx.contextWindowTokens, outputTokens, fixedBytes, limits });
+  let maxBytes = historyBudgetBytes({ contextWindowTokens: ctx.contextWindowTokens, outputTokens: plannedOutputTokens, fixedBytes, limits });
   const counters = { network: 0, http: 0, timeouts: 0, compactions: 0 };
   let limitRetried = false;
   let reasoningDropped = false;

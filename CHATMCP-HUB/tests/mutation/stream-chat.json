@@ -552,6 +552,7 @@
     {
       "name": "SA1",
       "what": "a protocol with no stream reader is asked to stream",
+      "equivalent": "every protocol that respondStandard serves has a stream reader since the Messages reader (prov-14), so the test of a missing reader can no longer be reached; it stays for a protocol added without one",
       "patches": [
         { "file": "lib/standard-adapter.mjs", "old": "const wantsStream = ctx.stream === true && makeReader !== undefined;", "new": "const wantsStream = ctx.stream === true;" }
       ]

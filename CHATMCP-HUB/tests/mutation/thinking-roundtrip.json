@@ -969,6 +969,20 @@
           "new": "          if (reason === 'max_output_tokens') {"
         }
       ]
+    },
+    {
+      "name": "SA20",
+      "what": "the room for the thoughts makes the adapter shorten the history earlier",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "  let maxBytes = historyBudgetBytes({ contextWindowTokens: ctx.contextWindowTokens, outputTokens: plannedOutputTokens, fixedBytes, limits });", "new": "  let maxBytes = historyBudgetBytes({ contextWindowTokens: ctx.contextWindowTokens, outputTokens, fixedBytes, limits });" }
+      ]
+    },
+    {
+      "name": "TH43",
+      "what": "a converter of another protocol forwards the thinking blocks of an item",
+      "patches": [
+        { "file": "lib/openai-chat-api.mjs", "old": "      const message = { role: 'assistant', content: contentText(item.content) };", "new": "      const message = { role: 'assistant', content: contentText(item.content), providerBlocks: item.providerBlocks };" }
+      ]
     }
   ]
 }

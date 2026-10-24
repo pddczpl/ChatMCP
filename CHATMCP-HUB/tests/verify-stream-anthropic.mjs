@@ -128,6 +128,7 @@ const textOfResult = (result) => result.output.filter((item) => item.type === 'm
   assert.match((await attempt(joinFrames([toolFrames[0], 'event: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}']))).error.message, /Overloaded/);
   // an error is an error whatever name the event has: the type is in the data
   assert.equal((await attempt(start() + 'data: {"type":"error","error":{"type":"overloaded_error","message":"x"}}\n\n')).error?.upstreamStatus, 529);
+  assert.equal((await attempt(start() + 'event: error\ndata: {"type":"overloaded","error":{"type":"overloaded_error","message":"x"}}\n\n')).error?.upstreamStatus, 529, 'the name of the event says it is an error, whatever the data calls itself');
   assert.equal((await attempt(start() + 'event: error\ndata: {"error":{"type":"overloaded_error","message":"x"}}\n\n')).error?.upstreamStatus, 529);
   ok(`Messages error event: ${errorCases} cases (${errors.length} error types x positions after a tool call began): the provider's failure with its HTTP status, never an answer`);
 

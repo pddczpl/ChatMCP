@@ -173,6 +173,7 @@
     {
       "name": "AS25",
       "what": "a delta for a block that was never started is accepted",
+      "equivalent": "open is only ever set to the index of a block that has just been stored, so open === index already means that the block exists and the first half of the test adds nothing",
       "patches": [
         { "file": "lib/anthropic-stream.mjs", "old": "if (!found || open !== index) throw streamInvalid(", "new": "if (open !== index) throw streamInvalid(" }
       ]

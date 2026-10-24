@@ -15,12 +15,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { buildAnthropicBody, normalizeAnthropic } from '../lib/anthropic-api.mjs';
 import { AgentRunner } from '../lib/agent.mjs';
+import { buildChatBody } from '../lib/openai-chat-api.mjs';
+import { buildResponsesBody } from '../lib/openai-responses-api.mjs';
 import { createAnthropicStreamReader } from '../lib/anthropic-stream.mjs';
-import { GatewayProvider } from '../lib/gateway-provider.mjs';
+import { GatewayProvider, asGeminiContents } from '../lib/gateway-provider.mjs';
 import { HistoryLedger } from '../lib/history-ledger.mjs';
 import { respondStandard } from '../lib/standard-adapter.mjs';
 import { bindThinking, blocksDigest, conversationDigest, refusesThinkingReplay, withoutStaleThinking } from '../lib/thinking-blocks.mjs';
 import { startMockModel } from './e2e/mock-model-server.mjs';
+import { validateChatRequest, validateGeminiRequest, validateResponsesRequest } from './e2e/protocol-validators.mjs';
 import { call, redacted as withRedacted, sequence, thinking as withThinking, truncated } from './e2e/scenarios.mjs';
 import { jsonResponse, sse } from './support/stream-harness.mjs';
 
@@ -622,6 +625,21 @@ try {
   assert.equal(await sizes(catalogOf({ confidence: 'fuzzy' })), 5898, 'a match the catalog is not sure of is not believed');
   assert.equal(await sizes(null), 5898, 'no catalog answer, no change');
   ok('room for the thoughts: the provider tells the adapter from the catalog whether the model thinks and how much it can write');
+
+  // the room is a cap on what may be written: the history is planned with the output as asked, so the room does not make the adapter shorten it earlier
+  {
+    const rounds = [user('Read the files')];
+    for (let n = 1; n <= 6; n += 1) rounds.push({ type: 'function_call', call_id: `toolu_${n}`, name: 'read_file', arguments: JSON.stringify({ path: `f${n}.txt` }), status: 'completed' }, result(`toolu_${n}`, 'x'.repeat(15000)));
+    const statuses = [];
+    const bodies = [];
+    const fetch = async (url, init) => { bodies.push(JSON.parse(init.body)); return jsonResponse(200, message([textBlock('ok')], 'end_turn')); };
+    const run = (thinks) => respondStandard(ctxFor({ fetch, contextWindowTokens: 40000, thinks, modelOutputLimit: 128000 }), { input: rounds, instructions: SYSTEM, tools: TOOLS, maxOutputTokens: 4096, onStatus: async (text, kind) => { statuses.push(kind ?? text); } });
+    await run(true);
+    assert.equal(bodies.at(-1).max_tokens, 10000, '(premise) the room is a quarter of the window');
+    assert.equal(statuses.includes('context_compaction'), false, 'the history of 90 KB fits a window of 40,000 tokens planned with 4,096 of output; the room for the thoughts did not shorten it');
+    assert.equal(JSON.stringify(bodies.at(-1)).includes('đã rút gọn'), false);
+  }
+  ok('room for the thoughts: it is a cap on what may be written, the history is planned with the output as asked');
 }
 
 // ------------------------------------------------------------------ 9. the edges of the binding
@@ -772,6 +790,28 @@ try {
   assert.deepEqual(cut.incomplete_details, { reason: 'max_output_tokens', during_thinking: true });
   assert.equal(cut.output.length, 0);
   ok('stream: thinking blocks are rebuilt from their pieces exactly (text, signature, redacted payload; nothing else), equal to the plain answer; a stream cut while thinking says so');
+}
+
+// ------------------------------------------------------------------ 11. the blocks stay with Anthropic
+{
+  // the item of the waiting round carries the blocks and their binding; no other protocol's converter may forward them
+  const prompt = [user('Read a.txt')];
+  const minted = step(prompt, message([thinkingBlock(1), textBlock('Looking.'), toolUse('toolu_1')]));
+  const history = withoutStaleThinking([...prompt, ...minted.answer.output, result('toolu_1')]);
+  assert.ok(history.some((item) => item.providerBlocks && item.providerBinding), '(premise) the waiting round carries both');
+  const bodies = {
+    'Chat Completions': buildChatBody({ model: 'm', input: history, instructions: SYSTEM, tools: TOOLS }),
+    Responses: buildResponsesBody({ model: 'm', input: history, instructions: SYSTEM, tools: TOOLS }),
+    Gemini: { contents: asGeminiContents(history) },
+  };
+  for (const [name, body] of Object.entries(bodies)) {
+    const sent = JSON.stringify(body);
+    for (const word of ['providerBlocks', 'providerBinding', 'thinking', 'signature', 'redacted_thinking', sig(1)]) assert.equal(sent.includes(word), false, `${name}: no ${word}`);
+  }
+  assert.deepEqual(validateChatRequest(bodies['Chat Completions'], {}).errors, [], 'Chat Completions: the strict validator accepts it');
+  assert.deepEqual(validateResponsesRequest(bodies.Responses).errors, [], 'Responses: the strict validator accepts it');
+  assert.deepEqual(validateGeminiRequest({ ...bodies.Gemini, systemInstruction: { parts: [{ text: SYSTEM }] } }).errors, [], 'Gemini: the strict validator accepts it');
+  ok('the blocks stay with Anthropic: a history whose waiting round carries thinking blocks and their binding gives Chat Completions, Responses and Gemini requests without a trace of them, accepted by the strict validators');
 }
 
 console.log(`\nPASS: ${checks} thinking round trip checks`);
