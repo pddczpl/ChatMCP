@@ -773,6 +773,7 @@ export class LocalTools {
       found = listed.files;
       state.engine = 'ripgrep';
       state.truncated = listed.truncated;
+      state.unreadable = listed.unreadable;
     } else {
       for await (const file of this.#candidates(base, { includeIgnored, state, signal })) {
         const local = prefix && file.rel.startsWith(prefix) ? file.rel.slice(prefix.length) : file.rel;
@@ -780,8 +781,9 @@ export class LocalTools {
       }
     }
     const limited = found.length >= limit;
-    const note = limited ? `\n[Đã dừng ở ${limit} kết quả.]` : state.truncated ? '\n[Đã dừng vì quá nhiều mục; thu hẹp path hoặc mẫu.]' : '';
-    return ok(`${found.length} file khớp "${pattern}"${base.relative ? ` trong ${base.relative}` : ''}\n${found.join('\n') || '(không có)'}${note}`, { count: found.length, truncated: limited || Boolean(state.truncated), engine: state.engine });
+    const note = (limited ? `\n[Đã dừng ở ${limit} kết quả.]` : state.truncated ? '\n[Đã dừng vì quá nhiều mục; thu hẹp path hoặc mẫu.]' : '')
+      + (state.unreadable ? '\n[Một số thư mục không đọc được; danh sách có thể thiếu.]' : '');
+    return ok(`${found.length} file khớp "${pattern}"${base.relative ? ` trong ${base.relative}` : ''}\n${found.join('\n') || '(không có)'}${note}`, { count: found.length, truncated: limited || Boolean(state.truncated), incomplete: Boolean(state.unreadable), engine: state.engine });
   }
 
   /**
@@ -802,15 +804,19 @@ export class LocalTools {
       throw error;
     }
     const files = outcome.files.filter(accept).map((local) => `${prefix}${local}`).sort(compareWalkOrder);
-    return { files: files.slice(0, limit), truncated: outcome.truncated || outcome.timedOut || outcome.outputTruncated };
+    return { files: files.slice(0, limit), truncated: outcome.truncated || outcome.timedOut || outcome.outputTruncated, unreadable: Boolean(outcome.unreadable) };
   }
 
   async #searchFiles({ pattern, path: p = '', glob, regex = false, ignore_case: ignoreCase = false, context = 0, limit = 100, include_ignored: includeIgnored = false }, { signal }) {
     if (!pattern) throw fault('bad_pattern', 'Cần mẫu tìm kiếm.');
     const external = this.ripgrep ? await this.ripgrep.info() : null;
+    // ripgrep does the search when it can: it knows .gitignore and is much faster on a large tree. A line end or NUL in the pattern can never match one line (and is not an argument it
+    // could take), and PCRE2 is needed for lookahead and backreferences; anything else it cannot do ends with the built-in search below, which answers as it always did.
+    const viaRipgrep = Boolean(external) && !/[\0\r\n]/.test(pattern) && (!regex || !patternNeedsPcre2(pattern) || external.pcre2);
     let matches;
     if (regex) {
-      assertSafeRegex(pattern, { backreferences: Boolean(external?.pcre2) });
+      // a backreference is allowed only where ripgrep (another process, with a time limit) will run it, never in this process
+      assertSafeRegex(pattern, { backreferences: viaRipgrep && external.pcre2 });
       let expression;
       try { expression = new RegExp(pattern, ignoreCase ? 'i' : ''); } catch (error) { throw fault('bad_pattern', `Regex không hợp lệ: ${error.message}`); }
       matches = (line) => expression.test(line.length > LIMITS.regexLineChars ? line.slice(0, LIMITS.regexLineChars) : line);
@@ -821,9 +827,7 @@ export class LocalTools {
     const base = await this.#target(p, { allowRoot: true });
     const stat = await fs.stat(base.absolute);
     const globber = glob ? compileGlob(glob) : null;
-    // ripgrep does the search when it can: it knows .gitignore and is much faster on a large tree. A line end or NUL in the pattern can never match one line (and is not an argument it
-    // could take), and PCRE2 is needed for lookahead and backreferences; anything else it cannot do ends here and the built-in search below answers, as it always did.
-    if (external && !/[\0\r\n]/.test(pattern) && (!regex || !patternNeedsPcre2(pattern) || external.pcre2)) {
+    if (viaRipgrep) {
       try {
         return await this.#searchWithRipgrep({ base, stat, pattern, regex, ignoreCase, context, limit, includeIgnored, glob, globber, signal });
       } catch (error) {
@@ -928,10 +932,11 @@ export class LocalTools {
     if (found >= limit) notes.push(`Đã dừng ở ${limit} kết quả.`);
     if (outcome.timedOut) notes.push(`Đã dừng sau ${LIMITS.searchMillis / 1000}s; thu hẹp path hoặc glob.`);
     if (outcome.outputTruncated) notes.push('Có quá nhiều kết quả để đọc hết; thu hẹp path.');
+    if (outcome.unreadable) notes.push('Một số file không tìm được (không đọc được hoặc dòng quá phức tạp); kết quả có thể thiếu.');
     if (skipped) notes.push(`${skipped} file bị bỏ qua (nhị phân hoặc không phải UTF-8).`);
     const head = `${found} kết quả trong ${filesWithHits} file${scanned === null ? '' : ` (đã quét ${scanned} file)`} cho ${regex ? 'regex' : 'chuỗi'} "${clip(pattern, 80)}"`;
     return ok(`${head}\n${output.join('\n') || '(không có kết quả)'}${notes.length ? `\n[${notes.join(' ')}]` : ''}`,
-      { matches: found, files: filesWithHits, scanned, skipped, truncated: found >= limit || outcome.timedOut || outcome.outputTruncated, engine: 'ripgrep' });
+      { matches: found, files: filesWithHits, scanned, skipped, truncated: found >= limit || outcome.timedOut || outcome.outputTruncated, incomplete: Boolean(outcome.unreadable), engine: 'ripgrep' });
   }
 
   // ------------------------------------------------------------------ write tools

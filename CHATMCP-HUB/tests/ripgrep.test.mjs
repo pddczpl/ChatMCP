@@ -42,6 +42,11 @@ const programName = isWindows ? 'rg.exe' : 'rg';
     assert.equal(await resolveRipgrep({ hubDirectory: hub, env: { [RIPGREP_ENV]: off, PATH: pathVariable }, isFile: present(bundled, onPath) }), null, `${RIPGREP_ENV}=${off} switches it off`);
   }
   assert.deepEqual(await resolveRipgrep({ hubDirectory: hub, env: { Path: pathVariable }, isFile: present(onPath) }), { path: onPath, source: 'path' }, 'Windows spells the variable Path');
+  // an installed Hub (runtime-manifest.json beside it) uses the binary it was installed with, or the one the owner names, and never one it happens to find on PATH
+  const manifest = path.join(hub, 'runtime-manifest.json');
+  assert.equal(await resolveRipgrep({ hubDirectory: hub, env: { PATH: pathVariable }, isFile: present(onPath, manifest) }), null, 'installed, no bundled binary: a ripgrep on PATH is not used');
+  assert.deepEqual(await resolveRipgrep({ hubDirectory: hub, env: { PATH: pathVariable }, isFile: present(bundled, onPath, manifest) }), { path: bundled, source: 'bundled' }, 'installed: the bundled binary');
+  assert.deepEqual(await resolveRipgrep({ hubDirectory: hub, env: { [RIPGREP_ENV]: override, PATH: pathVariable }, isFile: present(onPath, manifest, override) }), { path: override, source: 'env' }, 'installed: the owner\'s choice still works');
   ok('which ripgrep: the choice of the owner, then the bundled one, then PATH (absolute entries only), then none; =off switches it off');
 }
 
@@ -430,8 +435,14 @@ const programName = isWindows ? 'rg.exe' : 'rg';
     assert.ok(last.args.includes('--pcre2') && !last.args.includes('-F'), 'a regular expression with lookahead goes to PCRE2');
     assert.deepEqual(last.args.slice(-2), ['--', 'src']);
     const plain = await rg.search({ directory, target: '.', pattern: 'a.b', regex: true, limit: 5, accept: () => true });
-    assert.ok(!calls.at(-1).args.includes('--pcre2') && !calls.at(-1).args.includes('-F'), 'an ordinary one stays with the default engine');
+    assert.ok(!calls.at(-1).args.includes('--pcre2') && !calls.at(-1).args.includes('-F'), 'an ordinary one stays with the default engine, also where PCRE2 exists');
     assert.equal(plain.matches, 1);
+    await rg.search({ directory, target: '.', pattern: 'a.b', limit: 5, accept: () => true });
+    assert.ok(calls.at(-1).args.includes('-F') && !calls.at(-1).args.includes('--pcre2'), 'a literal search is neither');
+    // a ripgrep without PCRE2 takes an ordinary regular expression with its default engine, and says no only to what needs PCRE2
+    const noPcre = fakeSpawner((command, args) => (args[0] === '--version' ? { stdout: [Buffer.from('ripgrep 14.1.1\n\nfeatures:-pcre2\n')] } : { stdout: json(begin('a.js'), hit('a.js', 1, 'x\n'), end('a.js')) }));
+    assert.equal((await made(noPcre.spawner).search({ directory, pattern: 'a.b', regex: true, limit: 5, accept: () => true })).matches, 1);
+    assert.ok(!noPcre.calls.at(-1).args.includes('--pcre2') && !noPcre.calls.at(-1).args.includes('-F'));
   }
 
   // PCRE2 is not there: say so, and let the caller choose
@@ -460,7 +471,11 @@ const programName = isWindows ? 'rg.exe' : 'rg';
     assert.deepEqual([none.files.length, none.matches, none.timedOut], [0, 0, false]);
     // exit code 2 with results: some file could not be read; the results stand
     const partial = made(fakeSpawner((command, args) => (args[0] === '--version' ? { stdout: [version()] } : { stdout: json(begin('a.js'), hit('a.js', 1, 'x\n'), end('a.js')), stderr: 'rg: .\\locked: Access is denied.', code: 2 })).spawner);
-    assert.equal((await partial.search({ directory: os.tmpdir(), pattern: 'x', limit: 5, accept: () => true })).matches, 1);
+    const partialResult = await partial.search({ directory: os.tmpdir(), pattern: 'x', limit: 5, accept: () => true });
+    assert.equal(partialResult.matches, 1);
+    assert.equal(partialResult.unreadable, true, 'but the result says that some file could not be searched');
+    const complete = made(fakeSpawner((command, args) => (args[0] === '--version' ? { stdout: [version()] } : { stdout: json(begin('a.js'), hit('a.js', 1, 'x\n'), end('a.js')), code: 0 })).spawner);
+    assert.equal((await complete.search({ directory: os.tmpdir(), pattern: 'x', limit: 5, accept: () => true })).unreadable, false);
   }
 
   // the list of files
@@ -471,6 +486,10 @@ const programName = isWindows ? 'rg.exe' : 'rg';
     const result = await rg.files({ directory: os.tmpdir(), target: '.', accept: (file) => !file.startsWith('node_modules/'), maxFiles: 100 });
     assert.deepEqual(result.files, ['b.js', 'src/a.js', 'src/deep/c.py', 'name with\nnewline.txt']);
     assert.equal(result.truncated, false);
+    assert.equal(result.unreadable, false);
+    const locked = made(fakeSpawner((command, args) => (args[0] === '--version' ? { stdout: [version()] } : { stdout: [listing(['a.js'])], stderr: 'rg: .\\locked: Access is denied.', code: 2 })).spawner);
+    const lockedResult = await locked.files({ directory: os.tmpdir(), accept: () => true });
+    assert.deepEqual([lockedResult.files, lockedResult.unreadable], [['a.js'], true], 'a folder that could not be read is said, the files found stand');
     assert.ok(calls.at(-1).args.includes('--files') && calls.at(-1).args.includes('--null'));
     const capped = made(fakeSpawner((command, args) => (args[0] === '--version' ? { stdout: [version()] } : { stdout: [listing(['a', 'b', 'c', 'd'])], hang: true })).spawner);
     const few = await capped.files({ directory: os.tmpdir(), maxFiles: 2, accept: () => true });

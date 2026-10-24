@@ -31,7 +31,7 @@ export const ripgrepProgramName = (platform = process.platform) => (platform ===
 export const bundledRipgrepPath = (hubDirectory = HUB_DIRECTORY, platform = process.platform) => path.join(hubDirectory, 'runtimes', 'ripgrep', ripgrepProgramName(platform));
 
 /**
- * The binary to use: the owner's own choice (CHATMCP_RIPGREP), else the one the installer bundles, else one on PATH; null when there is none. A choice that is not the absolute
+ * The binary to use: the owner's own choice (CHATMCP_RIPGREP), else the one the installer bundles, else (in a checkout, not in an installed product) one on PATH; null when there is none. A choice that is not the absolute
  * path of a file (`off`, `0`, a path that does not exist ...) switches ripgrep off and is not replaced by another binary behind the owner's back. A PATH entry that is not an
  * absolute folder (the folder the Hub was started in, say) is never looked in.
  * @returns {Promise<{path: string, source: 'env'|'bundled'|'path'}|null>}
@@ -41,6 +41,8 @@ export async function resolveRipgrep({ hubDirectory = HUB_DIRECTORY, env = proce
   if (choice) return path.isAbsolute(choice) && await isFile(choice) ? { path: choice, source: 'env' } : null;
   const bundled = bundledRipgrepPath(hubDirectory, platform);
   if (await isFile(bundled)) return { path: bundled, source: 'bundled' };
+  // an installed product uses the binary it was installed with and never picks up an unrelated one from PATH (the rule the code intelligence has for Python)
+  if (await isFile(path.join(hubDirectory, 'runtime-manifest.json'))) return null;
   const name = ripgrepProgramName(platform);
   for (const raw of String(env?.PATH ?? env?.Path ?? '').split(path.delimiter)) {
     const entry = raw.trim().replace(/^"(.*)"$/, '$1');
@@ -411,12 +413,14 @@ export class Ripgrep {
   /**
    * Searches `target` (a path relative to `directory`, where ripgrep runs). `accept(file)` decides per file, with the path relative to `directory`.
    * @returns {Promise<{files: {path: string, lines: object[]}[], matches: number, searched: number|null, skippedBinary: number, skippedEncoding: number, limited: boolean,
-   *                    stopped: boolean, timedOut: boolean, outputTruncated: boolean}>}
+   *                    stopped: boolean, timedOut: boolean, outputTruncated: boolean, unreadable: boolean}>}
    * @throws ripgrep_unavailable, ripgrep_pcre2_unavailable, ripgrep_pattern (ripgrep cannot read the pattern), ripgrep_failed, or the reason `signal` was aborted for
    */
   async search({ directory, target = '.', pattern, regex = false, ignoreCase = false, context = 0, includeIgnored = false, typeGlob = null, limit = 100, accept = () => true,
     signal = null, timeoutMs = 10_000, noiseNames = [], privateNames = [...PRIVATE_DIRECTORIES] }) {
     const info = await this.#require();
+    // PCRE2 only for what the default engine cannot read (lookahead, lookbehind, backreferences). Both engines take \w, \d and \b as Unicode (PCRE2 in ripgrep runs with UCP), where
+    // JavaScript takes them as ASCII: `^\w+$` matches "Việt" here and not in the built-in search. That is a difference of the two searches, not of the engines (tests/verify-search-rg.mjs).
     const pcre2 = regex && patternNeedsPcre2(pattern);
     if (pcre2 && !info.pcre2) throw fault('ripgrep_pcre2_unavailable', 'ripgrep này không có PCRE2 (cần cho lookahead/lookbehind/backreference).', 501);
     const args = [...searchArguments({ pattern, regex, pcre2, ignoreCase, context, includeIgnored, noiseNames, privateNames, typeGlob }), '--', target];
@@ -437,12 +441,13 @@ export class Ripgrep {
     if (run.code === 2 && empty && !run.stopped && !run.timedOut && !run.outputTruncated) {
       throw fault(PATTERN_ERROR.test(run.stderr) ? 'ripgrep_pattern' : 'ripgrep_failed', firstLines(run.stderr) || 'ripgrep dừng với mã 2.', 400);
     }
-    return { ...result, stopped: run.stopped, timedOut: run.timedOut, outputTruncated: run.outputTruncated };
+    // exit code 2 with results: some file or folder could not be read (or searched: PCRE2 gives up on a line that is too much for it); the results stand and say so
+    return { ...result, stopped: run.stopped, timedOut: run.timedOut, outputTruncated: run.outputTruncated, unreadable: run.code === 2 };
   }
 
   /**
    * The files under `target` that ripgrep would search (.gitignore honoured unless `includeIgnored`), as paths relative to `directory`, each `accept`ed one, in no particular order.
-   * @returns {Promise<{files: string[], truncated: boolean, timedOut: boolean, outputTruncated: boolean}>}
+   * @returns {Promise<{files: string[], truncated: boolean, timedOut: boolean, outputTruncated: boolean, unreadable: boolean}>}
    */
   async files({ directory, target = '.', includeIgnored = false, typeGlob = null, accept = () => true, maxFiles = 200_000, signal = null, timeoutMs = 15_000,
     noiseNames = [], privateNames = [...PRIVATE_DIRECTORIES] }) {
@@ -464,6 +469,6 @@ export class Ripgrep {
     });
     if (!run.stopped) for (const name of splitter.flush()) take(name);
     if (run.code === 2 && found.length === 0 && !run.stopped && !run.timedOut && !run.outputTruncated) throw fault('ripgrep_failed', firstLines(run.stderr) || 'ripgrep dừng với mã 2.', 400);
-    return { files: found, truncated, timedOut: run.timedOut, outputTruncated: run.outputTruncated };
+    return { files: found, truncated, timedOut: run.timedOut, outputTruncated: run.outputTruncated, unreadable: run.code === 2 };
   }
 }

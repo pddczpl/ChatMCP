@@ -135,7 +135,7 @@ function modelRipgrep({ pcre2 = true, fail = null, ignoreOptions = false, spy = 
         if (stopped) break;
       }
       if (!stopped) collector.push({ type: 'summary', data: { stats: { searches: searched } } });
-      return { ...collector.finish(), stopped, timedOut: Boolean(flags.timedOut), outputTruncated: Boolean(flags.outputTruncated) };
+      return { ...collector.finish(), stopped, timedOut: Boolean(flags.timedOut), outputTruncated: Boolean(flags.outputTruncated), unreadable: Boolean(flags.unreadable) };
     },
     async files(options) {
       calls.files.push(options);
@@ -145,7 +145,7 @@ function modelRipgrep({ pcre2 = true, fail = null, ignoreOptions = false, spy = 
       const accept = ignoreOptions ? () => true : options.accept;
       const start = path.resolve(options.directory, options.target);
       const found =(await listFiles(start, options)).map((absolute) => path.relative(options.directory, absolute).split(path.sep).join('/')).filter((local) => accept(local));
-      return { files: found, truncated: Boolean(listing.truncated), timedOut: Boolean(listing.timedOut), outputTruncated: Boolean(listing.outputTruncated) };
+      return { files: found, truncated: Boolean(listing.truncated), timedOut: Boolean(listing.timedOut), outputTruncated: Boolean(listing.outputTruncated), unreadable: Boolean(listing.unreadable) };
     },
   };
 }
@@ -314,6 +314,18 @@ try {
       assert.match(textOf(cut), note, flag);
       assert.equal(cut.structuredContent.matches, 1, `${flag}: what was found is still shown`);
     }
+    // a folder or a file that could not be searched: what was found stands, and the answer says it may be incomplete
+    const locked = await workspaceOf(files, { ripgrep: modelRipgrep({ flags: { unreadable: true } }) });
+    const partial = await locked.call('search_files', { pattern: 'needle' });
+    assert.equal(partial.structuredContent.incomplete, true);
+    assert.match(textOf(partial), /Một số file không tìm được/);
+    assert.equal(partial.structuredContent.matches, 1);
+    assert.equal(result.structuredContent.incomplete, false, 'and a search that read everything does not say it');
+    const lockedList = await workspaceOf(files, { ripgrep: modelRipgrep({ listing: { unreadable: true } }) });
+    const partialList = await lockedList.call('find_files', { pattern: '*.txt' });
+    assert.equal(partialList.structuredContent.incomplete, true);
+    assert.match(textOf(partialList), /Một số thư mục không đọc được/);
+    assert.equal(partialList.structuredContent.truncated, false);
     ok('a search that was cut short says so (time, size, the files that were not text) and still shows what it found');
   }
 
@@ -389,6 +401,11 @@ try {
     for (const dangerous of ['(a+)+$', '(a|b)*c', 'a*a*a*a*a*b']) assert.equal(errorCode(await a.call('search_files', { pattern: dangerous, regex: true })), 'bad_pattern', `${dangerous} stays refused`);
     assert.equal(errorCode(await a.call('search_files', { pattern: '(', regex: true })), 'bad_pattern');
     assert.equal(withPcre2.calls.search.length, 2, 'a refused pattern never reaches ripgrep');
+    // a backreference is allowed for the search that ripgrep runs and for no other: a pattern with a real line end can never match one line, stays in this process, and must not
+    // be run there with a backreference (three wildcards and a backreference back-track for ever inside one test() call, which nothing can interrupt)
+    assert.equal(errorCode(await a.call('search_files', { pattern: '(.*)(.*)(.*)\\3\\2\\1\n', regex: true })), 'bad_pattern', 'a backreference in a pattern kept from ripgrep is refused');
+    assert.equal(errorCode(await a.call('search_files', { pattern: '(a)\\1\u0000', regex: true })), 'bad_pattern', 'and so is one with a NUL');
+    assert.equal(withPcre2.calls.search.length, 2, 'neither reached ripgrep');
     // a pattern with a line end can never match one line, and is not a command-line argument ripgrep could take
     const newline = await a.call('search_files', { pattern: 'needle\nsecond' });
     assert.equal(newline.isError, false);
@@ -574,6 +591,7 @@ try {
       'bin/blob.bin': Buffer.concat([Buffer.from('needle before the NUL\n'), Buffer.from([0, 1, 2]), Buffer.from('\nneedle after\n')]),
       'enc/latin1.txt': Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x20, 0x6e, 0x65, 0x65, 0x64, 0x6c, 0x65, 0x0a]),
       'UPPER.JS': 'needle in capitals\n',
+      'enc/words.txt': 'Viet\nViệt\n٣٣٣\n123\nａｂｃ\nabc\n',
     };
     const realWorkspace = await workspaceOf(fixture, { ripgrep: real, initGit: haveGit });
     const builtinWorkspace = await workspaceOf(fixture, { initGit: haveGit });
@@ -627,6 +645,19 @@ try {
       }
       const big = await both({ pattern: 'needle', path: 'big' }, 'a file of exactly 1 MiB and one byte more');
       assert.ok(textOf(big.a).includes('big/one-mib.txt:1:') && !textOf(big.a).includes('over-one-mib'), '1 MiB is searched, 1 MiB + 1 byte is not');
+      // \w, \d and \b are Unicode in ripgrep (both of its engines) and ASCII in JavaScript: the one place where the two searches differ on purpose. Pinned here so that it is
+      // known (and noticed if ripgrep changes); literal and case-insensitive searches of Vietnamese text agree.
+      {
+        const ripgrepWords = await realWorkspace.call('search_files', { pattern: '^\\w+$', regex: true, path: 'enc/words.txt' });
+        const builtinWords = await builtinWorkspace.call('search_files', { pattern: '^\\w+$', regex: true, path: 'enc/words.txt' });
+        assert.deepEqual([...matchSet(ripgrepWords)].sort(), ['enc/words.txt:1', 'enc/words.txt:2', 'enc/words.txt:3', 'enc/words.txt:4', 'enc/words.txt:5', 'enc/words.txt:6'], 'ripgrep: Việt, ٣٣٣ and ａｂｃ are word characters');
+        assert.deepEqual([...matchSet(builtinWords)].sort(), ['enc/words.txt:1', 'enc/words.txt:4', 'enc/words.txt:6'], 'the built-in search: only the ASCII ones');
+        const ripgrepDigits = await realWorkspace.call('search_files', { pattern: '^\\d+$', regex: true, path: 'enc/words.txt' });
+        assert.deepEqual([...matchSet(ripgrepDigits)].sort(), ['enc/words.txt:3', 'enc/words.txt:4'], 'ripgrep: ٣٣٣ is made of digits');
+        await both({ pattern: 'Việt', path: 'enc/words.txt' }, 'Vietnamese, literally');
+        await both({ pattern: 'VIỆT', path: 'enc/words.txt', ignore_case: true }, 'Vietnamese, case-insensitively');
+        await both({ pattern: 'Vi[a-z]t', regex: true, path: 'enc/words.txt' }, 'a class of ASCII letters');
+      }
       const binary = await both({ pattern: 'needle', path: 'bin' }, 'a binary file');
       assert.match(textOf(binary.a), /^0 kết quả/);
       const encoded = await realWorkspace.call('search_files', { pattern: 'needle', path: 'enc' });

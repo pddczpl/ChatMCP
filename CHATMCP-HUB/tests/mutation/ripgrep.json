@@ -671,7 +671,7 @@
       "name": "LT12",
       "what": "a pattern with a line end goes to ripgrep",
       "patches": [
-        { "file": "lib/local-tools.mjs", "old": "if (external && !/[\\0\\r\\n]/.test(pattern) && (", "new": "if (external && (" }
+        { "file": "lib/local-tools.mjs", "old": "Boolean(external) && !/[\\0\\r\\n]/.test(pattern) && (", "new": "Boolean(external) && (" }
       ]
     },
     {
@@ -755,7 +755,7 @@
       "name": "LT24",
       "what": "the result does not say which engine found it",
       "patches": [
-        { "file": "lib/local-tools.mjs", "old": "truncated: found >= limit || outcome.timedOut || outcome.outputTruncated, engine: 'ripgrep' });", "new": "truncated: found >= limit || outcome.timedOut || outcome.outputTruncated, engine: 'walk' });" }
+        { "file": "lib/local-tools.mjs", "old": "incomplete: Boolean(outcome.unreadable), engine: 'ripgrep' });", "new": "incomplete: Boolean(outcome.unreadable), engine: 'walk' });" }
       ]
     },
     {
@@ -783,7 +783,7 @@
       "name": "LT28",
       "what": "a backreference is refused although ripgrep has PCRE2",
       "patches": [
-        { "file": "lib/local-tools.mjs", "old": "assertSafeRegex(pattern, { backreferences: Boolean(external?.pcre2) });", "new": "assertSafeRegex(pattern);" }
+        { "file": "lib/local-tools.mjs", "old": "assertSafeRegex(pattern, { backreferences: viaRipgrep && external.pcre2 });", "new": "assertSafeRegex(pattern);" }
       ]
     },
     {
@@ -853,7 +853,7 @@
       "name": "LT38",
       "what": "a list that was cut short does not say so",
       "patches": [
-        { "file": "lib/local-tools.mjs", "old": "truncated: outcome.truncated || outcome.timedOut || outcome.outputTruncated };", "new": "truncated: false };" }
+        { "file": "lib/local-tools.mjs", "old": "truncated: outcome.truncated || outcome.timedOut || outcome.outputTruncated, unreadable: Boolean(outcome.unreadable) };", "new": "truncated: false, unreadable: Boolean(outcome.unreadable) };" }
       ]
     },
     {
@@ -868,6 +868,69 @@
       "what": "the Hub does not turn ripgrep on",
       "patches": [
         { "file": "lib/assemble.mjs", "old": "  localOptions.ripgrep = new Ripgrep({ secrets });", "new": "" }
+      ]
+    },
+    {
+      "name": "LT41",
+      "what": "a backreference is allowed in a pattern that ripgrep does not get, so it runs in this process",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "assertSafeRegex(pattern, { backreferences: viaRipgrep && external.pcre2 });", "new": "assertSafeRegex(pattern, { backreferences: Boolean(external?.pcre2) });" }
+      ]
+    },
+    {
+      "name": "LT42",
+      "what": "a search that could not read some files does not say so",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "if (outcome.unreadable) notes.push(", "new": "if (false) notes.push(" }
+      ]
+    },
+    {
+      "name": "LT43",
+      "what": "the structured answer of a search does not say it may be incomplete",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "incomplete: Boolean(outcome.unreadable), engine: 'ripgrep' });", "new": "incomplete: false, engine: 'ripgrep' });" }
+      ]
+    },
+    {
+      "name": "LT44",
+      "what": "find_files does not take over that some folders could not be read",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "      state.unreadable = listed.unreadable;", "new": "" }
+      ]
+    },
+    {
+      "name": "LT45",
+      "what": "find_files does not say that the list may be incomplete",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": "(state.unreadable ? '\\n[Một số thư mục không đọc được; danh sách có thể thiếu.]' : '')", "new": "''" }
+      ]
+    },
+    {
+      "name": "RG87",
+      "what": "an installed Hub uses a ripgrep it finds on PATH",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "  if (await isFile(path.join(hubDirectory, 'runtime-manifest.json'))) return null;\n", "new": "" }
+      ]
+    },
+    {
+      "name": "RG88",
+      "what": "a search with an exit code of 2 does not say that files were left out",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "return { ...result, stopped: run.stopped, timedOut: run.timedOut, outputTruncated: run.outputTruncated, unreadable: run.code === 2 };", "new": "return { ...result, stopped: run.stopped, timedOut: run.timedOut, outputTruncated: run.outputTruncated, unreadable: false };" }
+      ]
+    },
+    {
+      "name": "RG89",
+      "what": "a file list with an exit code of 2 does not say that folders were left out",
+      "patches": [
+        { "file": "lib/ripgrep.mjs", "old": "return { files: found, truncated, timedOut: run.timedOut, outputTruncated: run.outputTruncated, unreadable: run.code === 2 };", "new": "return { files: found, truncated, timedOut: run.timedOut, outputTruncated: run.outputTruncated, unreadable: false };" }
+      ]
+    },
+    {
+      "name": "LT46",
+      "what": "the list from ripgrep forgets that some folders could not be read",
+      "patches": [
+        { "file": "lib/local-tools.mjs", "old": ", unreadable: Boolean(outcome.unreadable) };", "new": ", unreadable: false };" }
       ]
     }
   ]
