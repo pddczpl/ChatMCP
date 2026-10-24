@@ -10,7 +10,8 @@ import { HubManager, VERSION, BACKENDS, defaultDataDirectory } from './lib/manag
 import { redact } from './lib/runtime.mjs';
 import { acquireInstanceLock } from './lib/instance-lock.mjs';
 import { publicPresets } from './lib/provider-presets.mjs';
-import { modelInfo, modelInfoQuery } from './lib/model-info.mjs';
+import { modelInfo, modelInfoQuery, modelsList, modelsQuery } from './lib/model-info.mjs';
+import { createCatalogStore } from './lib/model-catalog-store.mjs';
 import { AiProfiles } from './lib/ai-profiles.mjs';
 import { WorkspaceLock } from './lib/workspace-lock.mjs';
 import { SandboxEngine } from './lib/sandbox-engine.mjs';
@@ -40,9 +41,9 @@ export function assertBearerHub(health, port=3007) {
   return true;
 }
 
-export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/agent/project-instructions','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/tasks/accept-criterion','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/browser/recover-url/request','/api/browser/outbound/decide','/api/browser/privacy/config','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle','/api/hooks/approve-project']);
+export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/agent/project-instructions','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/tasks/accept-criterion','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/ai/catalog/refresh','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/browser/recover-url/request','/api/browser/outbound/decide','/api/browser/privacy/config','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle','/api/hooks/approve-project']);
 // Every route the Hub answers besides POST_ROUTES (tests/verify-hub-auth.mjs compares these lists with the source).
-export const GET_ROUTES = Object.freeze(['/api/health','/api/capabilities','/api/state','/api/background-tasks','/api/workspaces','/api/catalog','/api/ai/models','/api/ai/model-info','/api/ai/presets','/api/ai/profiles','/api/sandbox/status','/api/workspace/lock','/api/plugins/registry','/api/plugins/marketplace','/api/plugins/installed','/api/tasks/events','/api/tasks/:id','/api/tasks/:id/report','/api/tasks/:id/stream','/api/extension-state','/api/instructions','/api/studio/terminal/events','/api/studio/intelligence/status','/api/studio/intelligence/symbols','/api/studio/intelligence/references','/api/studio/intelligence/definitions','/api/studio/intelligence/lsp','/api/studio/sandbox','/api/studio/preview','/api/studio/tree','/api/studio/file','/api/studio/search','/api/studio/git/status','/api/studio/git/refs','/api/studio/git/diff','/api/studio/git/check','/api/studio/checkpoints','/api/studio/review','/api/studio/preview-checkpoint','/api/studio/checks','/api/studio/verifications','/api/studio/skills','/api/studio/terminal','/api/studio/terminal/capabilities','/api/studio/delegates','/api/studio/dynamic-delegates','/api/studio/coding','/api/studio/coding/context','/api/studio/coding/recovery','/api/studio/coding/review','/api/studio/coding/checks','/api/studio/workflow','/api/studio/plan','/auth/chatgpt/callback']);
+export const GET_ROUTES = Object.freeze(['/api/health','/api/capabilities','/api/state','/api/background-tasks','/api/workspaces','/api/catalog','/api/ai/models','/api/ai/model-info','/api/ai/catalog','/api/ai/catalog/models','/api/ai/presets','/api/ai/profiles','/api/sandbox/status','/api/workspace/lock','/api/plugins/registry','/api/plugins/marketplace','/api/plugins/installed','/api/tasks/events','/api/tasks/:id','/api/tasks/:id/report','/api/tasks/:id/stream','/api/extension-state','/api/instructions','/api/studio/terminal/events','/api/studio/intelligence/status','/api/studio/intelligence/symbols','/api/studio/intelligence/references','/api/studio/intelligence/definitions','/api/studio/intelligence/lsp','/api/studio/sandbox','/api/studio/preview','/api/studio/tree','/api/studio/file','/api/studio/search','/api/studio/git/status','/api/studio/git/refs','/api/studio/git/diff','/api/studio/git/check','/api/studio/checkpoints','/api/studio/review','/api/studio/preview-checkpoint','/api/studio/checks','/api/studio/verifications','/api/studio/skills','/api/studio/terminal','/api/studio/terminal/capabilities','/api/studio/delegates','/api/studio/dynamic-delegates','/api/studio/coding','/api/studio/coding/context','/api/studio/coding/recovery','/api/studio/coding/review','/api/studio/coding/checks','/api/studio/workflow','/api/studio/plan','/auth/chatgpt/callback']);
 // Bootstrap of a dashboard without the long-lived secret in a URL: POST ticket (bearer) -> page opens /#chatmcp-boot=<ticket> -> POST redeem.
 export const SESSION_ROUTES = Object.freeze(['/api/session/ticket','/api/session/redeem']);
 // Everything under /api/ and /auth/ needs `Authorization: Bearer <per-launch secret>` except these named exceptions:
@@ -111,7 +112,7 @@ async function bodyJson(req, limit = 65536) {
 }
 
 /** Local-only HTTP Hub: localhost and 127.0.0.1 only. */
-export function createHubServer(manager, {port=3007,token=randomBytes(32).toString('hex'),secret=randomBytes(32).toString('hex'),bundleRoot=BUNDLE_ROOT,provider=null,agent=null,browser=null,workspaceRegistry=null,onShutdown=()=>{},isInitialized=()=>true}={}) {
+export function createHubServer(manager, {port=3007,token=randomBytes(32).toString('hex'),secret=randomBytes(32).toString('hex'),bundleRoot=BUNDLE_ROOT,provider=null,agent=null,browser=null,workspaceRegistry=null,onShutdown=()=>{},isInitialized=()=>true,catalogStore=null}={}) {
   // `token` is the CSRF token of the dashboard; `secret` is the bearer every API caller must present. There is no way to
   // build a server without one: a caller that does not pass a secret gets a random one nobody knows.
   const hosts=new Set([`127.0.0.1:${port}`,`localhost:${port}`]);
@@ -138,6 +139,12 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
     return false;
   });
   manager.aiProfiles=aiProfiles;
+  // The list of models the Hub knows: the snapshot that ships, or the newer one its owner had it fetch (lib/model-catalog-store.mjs). Read once, at start; fetched only by POST /api/ai/catalog/refresh.
+  const catalogs=catalogStore??createCatalogStore({directory:hubStateDir});
+  const catalogReady=catalogs.load().catch(error=>{
+    manager.log?.('The model catalog could not be read: '+String(error?.code||'storage_error'));
+    return false;
+  });
   // Resolve and bind a profile before starting a task. Decrypted keys stay in
   // task-local GatewayProvider objects; only a safe revision/reference is
   // returned to task JSON, UI and recovery journals.
@@ -187,7 +194,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   manager.sandboxEngine = sandboxEngine;
   manager.executionRegistry = sandboxEngine.registry;
   const state = (csrf = token) => ({ ...manager.state(), workspaces:workspaceRegistry?.state()??{activePath:manager.workspace,items:manager.workspace?[{path:manager.workspace,name:path.basename(manager.workspace)}]:[]}, ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, projectInstructions: { ...(manager.projectInstructionsSetting?.current() ?? taskEngine?.api?.primary?.projectInstructions ?? projectInstructionsSetting()) }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions: { ...(permissions?.state?.()??gate?.state()??{}), pending: [...(permissions?.state?.().pending??[]), ...(taskEngine?.api?.pendingApprovals?.()??[]), ...(browser?.pendingApprovals?.()??[])] }, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null,dynamicDelegates:dynamic?.state()??null} : null, csrfToken: csrf });
-  const requireNoTask = () => { if (taskEngine?.state().activeTaskId || dynamic?.activeRunId || coding?.active || delegates?.running) { const e = new Error('Dừng các tác vụ AI đang chạy trước khi đổi Base URL, API key hoặc model.'); e.statusCode = 409; throw e; } };
+  const requireNoTask = (message = 'Dừng các tác vụ AI đang chạy trước khi đổi Base URL, API key hoặc model.') => { if (taskEngine?.state().activeTaskId || dynamic?.activeRunId || coding?.active || delegates?.running) { const e = new Error(message); e.statusCode = 409; throw e; } };
   const changeAi = async (operation) => {
     requireNoTask();
     if (aiBusy) { const e = new Error('Đang thay đổi kết nối AI. Chờ thao tác hiện tại hoàn tất.'); e.statusCode = 409; throw e; }
@@ -371,8 +378,11 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
         if (typeof provider.discoverModels !== 'function') return json(200, { models: await provider.listModels(), source: 'configured' });
         return json(200, await provider.discoverModels({ signal }));
       }
-      // What the catalog knows about a model (its limits, the levels of thinking effort it can be given): a file read, no network, nothing about the key.
-      if (req.method === 'GET' && url.pathname === '/api/ai/model-info') return json(200, modelInfo(modelInfoQuery(url.searchParams)));
+      // What the catalog knows about a model (its limits and prices, what the Hub would plan on, the levels of thinking effort it can be given): a file read, no network, nothing about the key.
+      if (req.method === 'GET' && url.pathname === '/api/ai/model-info') { await catalogReady; return json(200, modelInfo(modelInfoQuery(url.searchParams))); }
+      // The list of models the Hub knows (which snapshot, how old, whether the owner updated it) and, for the model picker, the models of one provider with their facts. Neither touches the network.
+      if (req.method === 'GET' && url.pathname === '/api/ai/catalog') { await catalogReady; return json(200, catalogs.status()); }
+      if (req.method === 'GET' && url.pathname === '/api/ai/catalog/models') { await catalogReady; return json(200, modelsList(modelsQuery(url.searchParams))); }
       if (req.method === 'GET' && url.pathname === '/api/ai/presets') return json(200,{ presets: publicPresets(provider?.env ?? process.env), envKeys: provider?.envKeys() ?? [] });
       if (req.method === 'GET' && url.pathname === '/api/ai/profiles') return json(200, { profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId });
       if (req.method === 'GET' && url.pathname === '/api/sandbox/status') return json(200, sandboxEngine.status());
@@ -602,6 +612,8 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
             if(!taskEngine?.acceptCriterion)throw Object.assign(
               new Error('Owner acceptance is unavailable.'),{statusCode:501});
             result={task:await taskEngine.acceptCriterion(payload)};break;
+          // The one request the Hub makes for this list, and only because its owner pressed the button: to models.dev, with nothing of theirs in it. A failure leaves the list in use as it was.
+          case '/api/ai/catalog/refresh': requireNoTask('Chờ các tác vụ AI đang chạy xong rồi mới cập nhật danh sách model: mỗi lượt chạy giữ nguyên kế hoạch và giá của nó.'); await catalogReady; result = await catalogs.refresh(); break;
           case '/api/ai/profiles/upsert': result = { profile: await aiProfiles.upsert(payload) }; break;
           case '/api/ai/profiles/delete': result = await aiProfiles.delete(payload.id); break;
           case '/api/ai/profiles/default': result = await aiProfiles.setDefault(payload.id); break;

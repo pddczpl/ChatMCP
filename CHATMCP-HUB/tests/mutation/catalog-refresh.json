@@ -1,0 +1,273 @@
+{
+  "suite": "verify-model-catalog-refresh.mjs",
+  "description": "What the refresh suite must notice: the Hub may be aimed at another host, or sends more than it should (a credential, a header, a redirect followed), reads without a size or time limit, takes a damaged, edited, older or future file for its list, forgets to say why, keeps a stale list in use, loses a refresh's result, makes two requests for two refreshes, or the routes answer more than they should.",
+  "mutations": [
+    {
+      "name": "R1",
+      "what": "any host is accepted as the source of the list",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "throw coded('catalog_source_refused', `The model catalog is read from ${SOURCE_URL} only (or from a loopback address); ${url.host} is refused.`);", "new": "return url.href;" }
+      ]
+    },
+    {
+      "name": "R2",
+      "what": "a login, a query or a fragment in the address is accepted",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "if (url.username || url.password || url.search || url.hash) throw coded('catalog_source_refused', 'The model catalog address must not carry a login, a query or a fragment.');", "new": "" }
+      ]
+    },
+    {
+      "name": "R3",
+      "what": "a redirect is followed",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "redirect: 'error', credentials: 'omit'", "new": "redirect: 'follow', credentials: 'omit'" }
+      ]
+    },
+    {
+      "name": "R4",
+      "what": "credentials of the browser kind are sent with the request",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "credentials: 'omit'", "new": "credentials: 'include'" }
+      ]
+    },
+    {
+      "name": "R5",
+      "what": "the request carries a header besides what the answer is asked to be",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "headers: { accept: 'application/json' }", "new": "headers: { accept: 'application/json', 'user-agent': 'DatGold-Hub' }" }
+      ]
+    },
+    {
+      "name": "R6",
+      "what": "a size the answer declares over the limit is not noticed",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "if (Number.isFinite(declared) && declared > maxBytes) throw coded(", "new": "if (false) throw coded(" }
+      ]
+    },
+    {
+      "name": "R7",
+      "what": "the limit on a streamed body is a thousand times too generous",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "if (size > maxBytes) throw tooLarge();", "new": "if (size > maxBytes * 1000) throw tooLarge();" }
+      ]
+    },
+    {
+      "name": "R8",
+      "what": "a time out is reported as a network error",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "const timedOut = error?.name === 'TimeoutError' || timeout.aborted;", "new": "const timedOut = false;" }
+      ]
+    },
+    {
+      "name": "R9",
+      "what": "a price tier of the wrong length passes the check of a snapshot",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "tier.length === 5 && Number.isFinite(tier[0])", "new": "tier.length >= 1 && Number.isFinite(tier[0])" }
+      ]
+    },
+    {
+      "name": "R10",
+      "what": "a provider that names a row that does not exist passes the check of a snapshot",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "|| rowIndex < 0 || rowIndex >= rows.length) bad(", "new": "|| rowIndex < 0) bad(" }
+      ]
+    },
+    {
+      "name": "S1",
+      "what": "the hash of a file in the data folder is not checked (an edited file is used)",
+      "patches": [
+        { "file": "lib/model-catalog-store.mjs", "old": "if (!snapshotIsIntact(snapshot)) throw new Error('Its hash does not match its content.');", "new": "" }
+      ]
+    },
+    {
+      "name": "S2",
+      "what": "a file older than the list that ships with the Hub is used",
+      "patches": [
+        { "file": "lib/model-catalog-store.mjs", "old": "if (snapshot.generatedAt < bundled().generatedAt) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "S3",
+      "what": "a file dated in the future is used",
+      "patches": [
+        { "file": "lib/model-catalog-store.mjs", "old": "if (Date.parse(`${snapshot.generatedAt}T00:00:00Z`) > now().getTime() + DAY_MS) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "S4",
+      "what": "a start that cannot use the file leaves the list that was in use before it in use",
+      "patches": [
+        { "file": "lib/model-catalog-store.mjs", "old": "ignored = null;\n    resetCatalog();", "new": "ignored = null;" }
+      ]
+    },
+    {
+      "name": "S5",
+      "what": "a failed refresh is recorded as a success",
+      "patches": [
+        { "file": "lib/model-catalog-store.mjs", "old": "lastRefresh = { at: now().toISOString(), ok: false,", "new": "lastRefresh = { at: now().toISOString(), ok: true," }
+      ]
+    },
+    {
+      "name": "S6",
+      "what": "two refreshes at once make two requests",
+      "patches": [
+        { "file": "lib/model-catalog-store.mjs", "old": "if (inFlight) return inFlight;", "new": "" }
+      ]
+    },
+    {
+      "name": "S7",
+      "what": "a refresh writes the file but the list in use does not change",
+      "patches": [
+        { "file": "lib/model-catalog-store.mjs", "old": "useCatalog(snapshot);\n        ignored = null;", "new": "ignored = null;" }
+      ]
+    },
+    {
+      "name": "S8",
+      "what": "a document that is not the catalog is written anyway",
+      "patches": [
+        { "file": "lib/model-catalog-store.mjs", "old": "throw Object.assign(new Error(String(error?.message ?? 'The answer is not the catalog.')), { code: 'catalog_unusable', statusCode: 502 });", "new": "snapshot = null;" },
+        { "file": "lib/model-catalog-store.mjs", "old": "await writeFileAtomic(file, JSON.stringify(snapshot), { mode: 0o600 });", "new": "await writeFileAtomic(file, JSON.stringify(snapshot ?? {}), { mode: 0o600 });" }
+      ]
+    },
+    {
+      "name": "H1",
+      "what": "an alias is reported as trusted by model-info",
+      "patches": [
+        { "file": "lib/model-info.mjs", "old": "trusted: facts !== null,", "new": "trusted: info.found," }
+      ]
+    },
+    {
+      "name": "H2",
+      "what": "the limit of the list of models is not passed on",
+      "patches": [
+        { "file": "lib/model-info.mjs", "old": "const list = models({ presetId, apiBaseUrl }, { limit, accept: (id) => MODEL_ID.test(id) });", "new": "const list = models({ presetId, apiBaseUrl }, { accept: (id) => MODEL_ID.test(id) });" }
+      ]
+    },
+    {
+      "name": "H3",
+      "what": "a limit of 0 is accepted for the list of models",
+      "patches": [
+        { "file": "lib/model-info.mjs", "old": "limit < 1 || limit > MODELS_LIMIT", "new": "limit < 0 || limit > MODELS_LIMIT" }
+      ]
+    },
+    {
+      "name": "H4",
+      "what": "a limit above 500 is accepted for the list of models",
+      "patches": [
+        { "file": "lib/model-info.mjs", "old": "limit < 1 || limit > MODELS_LIMIT", "new": "limit < 1 || limit > 10 * MODELS_LIMIT * MODELS_LIMIT" }
+      ]
+    },
+    {
+      "name": "H5",
+      "what": "the refresh route answers without refreshing",
+      "patches": [
+        { "file": "hub.mjs", "old": "result = await catalogs.refresh(); break;", "new": "result = catalogs.status(); break;" }
+      ]
+    },
+    {
+      "name": "H6",
+      "what": "the list of models is asked for without a preset or an endpoint",
+      "patches": [
+        { "file": "lib/model-info.mjs", "old": "if (!presetId && !apiBaseUrl) throw invalid('give a preset or an apiBaseUrl.', code);", "new": "" }
+      ]
+    },
+    {
+      "name": "N1",
+      "what": "the Hub fetches the list when it starts",
+      "patches": [
+        { "file": "lib/model-catalog-store.mjs", "old": "    resetCatalog();", "new": "    resetCatalog(); refresh().catch(() => {});" }
+      ]
+    },
+    {
+      "name": "N2",
+      "what": "reading the status of the list is enough to make the Hub download one",
+      "patches": [
+        { "file": "lib/model-catalog-store.mjs", "old": "    const info = catalogInfo();", "new": "    const info = catalogInfo(); if (!inFlight && !lastRefresh) refresh().catch(() => {});" }
+      ]
+    },
+    {
+      "name": "N3",
+      "what": "a GET route of the list downloads a newer one first",
+      "patches": [
+        { "file": "hub.mjs", "old": "url.pathname === '/api/ai/catalog') { await catalogReady; return json(200, catalogs.status()); }", "new": "url.pathname === '/api/ai/catalog') { await catalogReady; await catalogs.refresh().catch(() => {}); return json(200, catalogs.status()); }" }
+      ]
+    },
+    {
+      "name": "C1",
+      "what": "a refresh is made on a machine whose clock is before the date of the list that ships",
+      "patches": [
+        { "file": "lib/model-catalog-store.mjs", "old": "if (today() < bundled().generatedAt) {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "C2",
+      "what": "the list is replaced while a task is running",
+      "patches": [
+        { "file": "hub.mjs", "old": "case '/api/ai/catalog/refresh': requireNoTask('Chờ các tác vụ AI đang chạy xong rồi mới cập nhật danh sách model: mỗi lượt chạy giữ nguyên kế hoạch và giá của nó.'); await catalogReady;", "new": "case '/api/ai/catalog/refresh': await catalogReady;" }
+      ]
+    },
+    {
+      "name": "C3",
+      "what": "a provider with any name is built into the snapshot (a provider called __proto__ becomes the prototype of the others)",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "const PROVIDER_ID_OK = /^[a-z0-9][a-z0-9._-]{0,80}$/i;", "new": "const PROVIDER_ID_OK = /^/;" }
+      ]
+    },
+    {
+      "name": "C4",
+      "what": "a model id with a line break, a space or a hundred and fifty characters too many is built into the snapshot",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "      if (!MODEL_ID_OK.test(modelId)) continue;", "new": "" }
+      ]
+    },
+    {
+      "name": "C5",
+      "what": "a saved file with an id that has a line break in it is used",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "      if (!MODEL_ID_OK.test(modelId)) bad(`provider ${shown(providerId)} has a model called ${shown(modelId)}`);", "new": "" }
+      ]
+    },
+    {
+      "name": "C6",
+      "what": "a tier of half a token is stored as a tier of none, which no snapshot can be read with",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "if (!Number.isFinite(whole) || whole <= 0 || input === null || output === null) return;", "new": "if (!Number.isFinite(whole) || input === null || output === null) return;" }
+      ]
+    },
+    {
+      "name": "C7",
+      "what": "the spelling of an id of any length is worked on (one id of 192,000 characters holds the Hub for seconds, a longer one for minutes)",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "  if (text.length > 150 || /[\\u0000-\\u001f\\u007f]/.test(text)) return text;", "new": "" }
+      ]
+    },
+    {
+      "name": "C8",
+      "what": "a date that does not exist (2026-13-45) is a date",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "  return Number.isFinite(when.getTime()) && when.toISOString().slice(0, 10) === value;", "new": "  return true;" }
+      ]
+    },
+    {
+      "name": "C9",
+      "what": "a message that quotes the document quotes all of it, line breaks included",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "const shown = (value) => JSON.stringify(String(value).slice(0, 60));", "new": "const shown = (value) => String(value);" }
+      ]
+    },
+    {
+      "name": "C10",
+      "what": "the list of a provider's models offers ids the Hub refuses to save",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": ".filter((id) => accept === null || accept(id)).sort();", "new": ".sort();" }
+      ]
+    },
+    {
+      "name": "C11",
+      "what": "a canonical id with a line break is built into the snapshot",
+      "patches": [
+        { "file": "lib/model-catalog-build.mjs", "old": "      if (isCatalogModelId(model.canonical_model_id)) {", "new": "      if (typeof model.canonical_model_id === 'string' && model.canonical_model_id) {" }
+      ]
+    }
+  ]
+}
