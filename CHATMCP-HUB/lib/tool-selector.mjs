@@ -97,7 +97,8 @@ export function followProviderWindow(runner,env=process.env) {
     get() {
       if(explicit!==null)return explicit;
       let window=null;
-      try{window=this.provider?.state?.()?.contextWindowTokens??null;}catch{/* a provider that cannot say counts as unknown */}
+      // The window the provider plans with: the owner's, else the model catalog's for a model it is sure of (a provider that only knows the owner's says contextWindowTokens).
+      try{const state=this.provider?.state?.();window=state?.effectiveContextWindowTokens??state?.contextWindowTokens??null;}catch{/* a provider that cannot say counts as unknown */}
       return windowToolSelectionMode(window,env);
     },
     set(value) {explicit=value??null;}});

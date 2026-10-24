@@ -5,6 +5,7 @@
 
 import { CodeIntelligenceEngine } from './code-intelligence.mjs';
 import { usableContextWindow } from './context-window.mjs';
+import { plannedOutputFor, safetyMarginFor } from './context-reserve.mjs';
 
 const STOP_WORDS = new Set([
   'the', 'and', 'for', 'with', 'that', 'this', 'from', 'into', 'your', 'have', 'will',
@@ -44,9 +45,9 @@ export function resolveEffectiveContextBudget({
     : metadataWindow !== null ? 'trusted_model_metadata' : 'conservative_fallback';
   const capacityTokens = configuredWindow ?? metadataWindow ?? FALLBACK_CAPACITY_TOKENS;
   const outputLimit = Number.isSafeInteger(maxOutputTokens) && maxOutputTokens > 0 ? maxOutputTokens : 16384;
-  const plannedOutputTokens = Math.min(outputLimit, Math.max(1024, Math.floor(capacityTokens / 4)));
+  const plannedOutputTokens = plannedOutputFor(capacityTokens, outputLimit);
   const reservedOutputTokens = source === 'conservative_fallback' ? outputLimit : plannedOutputTokens;
-  const safetyMarginTokens = Math.max(768, Math.ceil(capacityTokens * 0.035));
+  const safetyMarginTokens = safetyMarginFor(capacityTokens);
   const fixedOverheadTokens = estimateTokens({ instructions, tools }) + 256;
   const maxHistoryTokens = Math.max(0, capacityTokens - plannedOutputTokens - safetyMarginTokens - fixedOverheadTokens);
   return Object.freeze({

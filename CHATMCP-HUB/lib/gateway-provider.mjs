@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { readJson, writeJson } from './runtime.mjs';
-import { geminiTextActionContract, geminiTextEnvelope, normalizeGeminiTextReply, unsupportedGeminiFields } from './gemini-compat.mjs';
+import { geminiTextActionContract, geminiTextEnvelope, geminiUsage, normalizeGeminiTextReply, unsupportedGeminiFields } from './gemini-compat.mjs';
 import { createProtector } from './secret-box.mjs';
 import { customPresetId, detectEnvKeys, isLoopbackUrl, isValidCustomPath, originOf, presetById, presetIdFor, supportsPromptCaching } from './provider-presets.mjs';
 import { anthropicEndpoint, anthropicHeaders, normalizeAnthropic } from './anthropic-api.mjs';
@@ -17,6 +17,7 @@ import { reportedTokenCount } from './request-budget.mjs';
 import { normalizeCustomHeaders, publicCustomHeaders, applyCustomHeaders } from './gateway-custom-headers.mjs';
 import { CONTEXT_WINDOW_MAX, CONTEXT_WINDOW_MIN, contextWindowRangeText, parseContextWindow } from './context-window.mjs';
 import { lookup as catalogLookup } from './model-catalog.mjs';
+import { modelFacts } from './model-facts.mjs';
 import { AUTO, EFFORT_LEVELS, parseReasoningEffort, reasoningDecision } from './reasoning-effort.mjs';
 
 // These stay importable from here: other modules and the tests have always taken them from this file.
@@ -183,12 +184,7 @@ export function normalizeGemini(result) {
     output.push({ type: 'function_call', name, call_id: randomUUID(), arguments: JSON.stringify(args), status: 'completed', ...(id ? { providerCallId: id } : {}), providerPart: structuredClone(part) });
   }
   if (!output.length) throw bad('model_empty', 'Gemini không trả văn bản hoặc lời gọi công cụ.', 502);
-  return { status: 'completed', output, usage: {
-    input_tokens: reportedTokenCount(result.usageMetadata?.promptTokenCount),
-    output_tokens: reportedTokenCount(result.usageMetadata?.candidatesTokenCount),
-    cache_read_tokens: reportedTokenCount(result.usageMetadata?.cachedContentTokenCount),
-    reasoning_tokens: reportedTokenCount(result.usageMetadata?.thoughtsTokenCount),
-  } };
+  return { status: 'completed', output, usage: geminiUsage(result.usageMetadata) };
 }
 const shownWindow = (value) => (Number.isFinite(value) ? value.toLocaleString('en-US') : JSON.stringify(value));
 const invalidContextWindow = (value) => bad('invalid_context_window', `Ngữ cảnh model ${shownWindow(value)} không hợp lệ: nhập số token nguyên từ ${contextWindowRangeText()} (để trống nếu không biết). Giá trị lớn hơn ${CONTEXT_WINDOW_MAX.toLocaleString('en-US')} được giảm về mức đó; nhỏ hơn ${CONTEXT_WINDOW_MIN.toLocaleString('en-US')} thì agent không đủ chỗ cho công cụ nên bị từ chối.`);
@@ -212,7 +208,8 @@ const checkKey = (key) => {
 };
 
 export class GatewayProvider {
-  constructor({ directory, bundleRoot, manager, fetchImpl = fetch, env = process.env, protect, unprotect, sleep = waitFor, platform = process.platform, limits } = {}) {
+  constructor({ directory, bundleRoot, manager, fetchImpl = fetch, env = process.env, protect, unprotect, sleep = waitFor, platform = process.platform, limits, catalog = null } = {}) {
+    this.catalog = catalog; // the model catalog to ask (an object with lookup(query)); the Hub's own unless a test brings a small one
     this.directory = directory;
     this.bundleRoot = bundleRoot;
     this.manager = manager;
@@ -299,13 +296,26 @@ export class GatewayProvider {
   state() {
     return {
       provider: 'gateway', preset: this.preset, protocol: this.protocol, model: this.model, apiBaseUrl: this.apiBaseUrl, authMode: this.authMode, customPath: this.customPath,
-      contextWindowTokens: this.contextWindowTokens, reasoningEffort: this.reasoningEffort, reasoning: this.#reasoningState(), configured: this.ready(), keyRequired: this.keyRequired(), keySource: this.keySource,
+      // contextWindowTokens is the owner's own value (null when none was typed); the window the Hub plans against is effectiveContextWindowTokens, and contextWindowSource says where it comes from.
+      contextWindowTokens: this.contextWindowTokens, contextWindowSource: this.#windowSource(), effectiveContextWindowTokens: this.effectiveContextWindow(),
+      reasoningEffort: this.reasoningEffort, reasoning: this.#reasoningState(), configured: this.ready(), keyRequired: this.keyRequired(), keySource: this.keySource,
       customHeaders: publicCustomHeaders(this.customHeaders),
       secretStorage: this.protector.describe(), lastError: this.lastError, toolCalling: this.toolCalling, toolCallingNote: this.toolCallingNote,
       agentRequestMode: this.protocol === 'gemini' ? (this.dialectConfirmed ? this.geminiDialect : 'chưa kiểm tra tool calling') : this.protocol === 'anthropic' ? 'anthropic-tool-use' : this.protocol === 'openai-responses' ? 'openai-responses-functions' : 'openai-tool-calls',
     };
   }
-  snapshot() { return { provider: `gateway:${this.protocol}`, model: this.model }; }
+  /** What the model catalog says about this connection's model, when it is sure (lib/model-facts.mjs); null otherwise, and when the catalog cannot answer. Asked each time: it is a lookup, and a catalog that was just updated is read at once. */
+  #facts() {
+    try { return modelFacts({ presetId: this.preset, protocol: this.protocol, apiBaseUrl: this.apiBaseUrl, model: this.model }, this.catalog ? (query) => this.catalog.lookup(query) : catalogLookup); } catch { return null; }
+  }
+  /** The window the Hub plans this connection's conversations against: the owner's, else the catalog's capacity for a model it is sure of, else none (an unknown window). */
+  effectiveContextWindow() { return this.contextWindowTokens ?? this.#facts()?.capacity ?? null; }
+  #windowSource() { return this.contextWindowTokens !== null ? 'configured' : this.#facts()?.capacity ? 'catalog' : 'fallback'; }
+  /** The model of this connection and what the Hub knows about it: the agent reads the catalog's capacity, output cap and prices from here (never the owner's own settings, which state() has). */
+  snapshot() {
+    const facts = this.#facts();
+    return { provider: `gateway:${this.protocol}`, model: this.model, metadataContextTokens: facts?.capacity ?? null, maxOutputTokens: facts?.outputCap ?? null, pricing: facts?.pricing ?? null };
+  }
   // Fork a task-local provider without changing the global AI settings,
   // writing a new credential file or routing its key through another origin.
   forkForTask(profile) {
@@ -332,7 +342,7 @@ export class GatewayProvider {
     const child=new GatewayProvider({
       directory:this.directory,bundleRoot:this.bundleRoot,manager:this.manager,
       fetchImpl:this.fetch,env:this.env,sleep:this.sleep,limits:this.limits,
-      protect:this.protect,unprotect:this.unprotect,
+      protect:this.protect,unprotect:this.unprotect,catalog:this.catalog,
     });
     child.apiBaseUrl=base;child.protocol=protocol;child.authMode=authMode;
     child.model=profile.model;child.contextWindowTokens=context;
@@ -474,7 +484,8 @@ export class GatewayProvider {
   /** Rough size of a request, for budgets and the context meter. Estimated, not billed. */
   estimateUsage({ input = [], instructions = '', tools = [] } = {}) {
     const inputTokens = estimateTokens({ input, instructions, tools });
-    return { estimated: true, inputTokens, contextWindowTokens: this.contextWindowTokens, fraction: this.contextWindowTokens ? inputTokens / this.contextWindowTokens : null };
+    const window = this.effectiveContextWindow();
+    return { estimated: true, inputTokens, contextWindowTokens: window, fraction: window ? inputTokens / window : null };
   }
   /** An error from any model call in one shape the UI and the agent can rely on. Never contains the key. */
   normalizeError(error) {
@@ -764,7 +775,7 @@ export class GatewayProvider {
   #reasoningRefused = null;
   /** The model's entry in the catalog (lib/model-catalog.mjs) for this connection: what it can be told about thinking, or none. */
   #catalogInfo() {
-    return catalogLookup({ presetId: this.preset, protocol: this.protocol, apiBaseUrl: this.apiBaseUrl, model: this.model });
+    return (this.catalog ? (query) => this.catalog.lookup(query) : catalogLookup)({ presetId: this.preset, protocol: this.protocol, apiBaseUrl: this.apiBaseUrl, model: this.model });
   }
   /** What to send for the setting now, the key of that decision (endpoint, model, level) and whether this provider is known to refuse it. */
   #reasoningRequest() {
@@ -810,7 +821,8 @@ export class GatewayProvider {
 
   /** OpenAI-style Chat Completions and Anthropic Messages. See standard-adapter.mjs for what it guarantees. */
   async #respondStandard({ input, instructions, tools, signal, onStatus, maxOutputTokens, beforeModelRequest }) {
-    const { protocol, model, authMode, apiKey, contextWindowTokens } = this;
+    const { protocol, model, authMode, apiKey } = this;
+    const contextWindowTokens = this.effectiveContextWindow(); // what the adapter trims what it sends to: the owner's window, else the catalog's
     const thinking = this.#reasoningRequest();
     const ctx = {
       protocol, model, fetch: this.fetch, sleep: this.sleep, limits: this.limits,

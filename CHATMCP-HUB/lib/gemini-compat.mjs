@@ -208,6 +208,22 @@ function parseAction(text){
   return isObject(value)?value:null;
 }
 
+/**
+ * The usage of a Gemini answer in the shape the ledger takes. `candidatesTokenCount` leaves out the thinking tokens, which are billed as output (Google: totalTokenCount is the prompt, the
+ * candidates and the thoughts), so the output is both and the thinking tokens stay a subset of it. A count the answer does not report is unknown, not zero; thinking tokens absent while
+ * the candidates are reported mean no thinking.
+ */
+export function geminiUsage(metadata) {
+  const candidates = reportedTokenCount(metadata?.candidatesTokenCount);
+  const thoughts = reportedTokenCount(metadata?.thoughtsTokenCount);
+  return {
+    input_tokens: reportedTokenCount(metadata?.promptTokenCount),
+    output_tokens: candidates === null ? null : candidates + (thoughts ?? 0),
+    cache_read_tokens: reportedTokenCount(metadata?.cachedContentTokenCount),
+    reasoning_tokens: thoughts,
+  };
+}
+
 function textError(message, code, retryable = false, details = {}) {
   return Object.assign(new Error(message), {code, retryable, ...details});
 }
@@ -252,10 +268,7 @@ export function normalizeGeminiTextReply(result, tools) {
   const action=parseAction(textParts.join('')) || parseAction(textParts.join('\n'));
   if(!action) throw textError('Gemini text-only: phản hồi không phải một JSON tool/final object hoàn chỉnh. Chưa gọi MCP; sẽ yêu cầu đúng định dạng.',
     'gateway_text_protocol_invalid', true, {formatIssue:'not_json_object'});
-  const usage={input_tokens:reportedTokenCount(result.usageMetadata?.promptTokenCount),
-    output_tokens:reportedTokenCount(result.usageMetadata?.candidatesTokenCount),
-    cache_read_tokens:reportedTokenCount(result.usageMetadata?.cachedContentTokenCount),
-    reasoning_tokens:reportedTokenCount(result.usageMetadata?.thoughtsTokenCount)};
+  const usage=geminiUsage(result.usageMetadata);
   const progress=typeof action.progress==='string'?action.progress.trim().slice(0,400):'';
   if(action.chatmcp_action==='tool'){
     // The action MUST name a known router. Unknown names are not treated as

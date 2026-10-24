@@ -1,0 +1,91 @@
+{
+  "suite": "verify-model-cost.mjs",
+  "description": "What the cost suite must notice about catalog estimates: the catalog overrides the owner's rates, an estimate is not marked as one, a tier is applied at the wrong size or not at all, the wrong tier is chosen, a missing cache rate is read as free, an estimate is refused for want of a cache split, the ledger forgets its estimates, or an absurd catalog price is accepted.",
+  "mutations": [
+    {
+      "name": "K1",
+      "what": "the catalog's rates are used even when the owner supplied rates",
+      "patches": [
+        { "file": "lib/model-cost.mjs", "old": "const estimate=owner?null:catalogRates(catalog,input);", "new": "const estimate=catalogRates(catalog,input);" },
+        { "file": "lib/model-cost.mjs", "old": "const rates=owner??estimate.rates;", "new": "const rates=estimate?.rates??owner;" }
+      ]
+    },
+    {
+      "name": "K2",
+      "what": "a price made from the catalog is not marked as an estimate",
+      "patches": [
+        { "file": "lib/model-cost.mjs", "old": "approximate:!owner,", "new": "approximate:false," }
+      ]
+    },
+    {
+      "name": "K3",
+      "what": "a prompt of exactly the size of a tier is priced at the tier (the rule is \"more than\")",
+      "patches": [
+        { "file": "lib/model-cost.mjs", "old": "promptTokens<=entry.aboveTokens", "new": "promptTokens<entry.aboveTokens" }
+      ]
+    },
+    {
+      "name": "K4",
+      "what": "the tiers of the catalog are never applied",
+      "patches": [
+        { "file": "lib/model-cost.mjs", "old": "promptTokens<=entry.aboveTokens||", "new": "true||" }
+      ]
+    },
+    {
+      "name": "K5",
+      "what": "the first tier the prompt is over is used, not the highest",
+      "patches": [
+        { "file": "lib/model-cost.mjs", "old": "entry.aboveTokens>=tiers[tier].aboveTokens", "new": "false" }
+      ]
+    },
+    {
+      "name": "K6",
+      "what": "a cache read rate the catalog does not list is taken as free",
+      "patches": [
+        { "file": "lib/model-cost.mjs", "old": "const cacheReadRate=rates.cacheRead??rates.input;", "new": "const cacheReadRate=rates.cacheRead??0;" }
+      ]
+    },
+    {
+      "name": "K7",
+      "what": "an estimate is refused when the provider did not report the cache split (as the owner's rates are)",
+      "patches": [
+        { "file": "lib/model-cost.mjs", "old": "if(owner&&((read===null", "new": "if(((read===null" }
+      ]
+    },
+    {
+      "name": "K8",
+      "what": "the ledger does not count the responses it priced from the catalog",
+      "patches": [
+        { "file": "lib/model-cost.mjs", "old": "if(priced.approximate){state.estimatedResponses++;", "new": "if(false){state.estimatedResponses++;" }
+      ]
+    },
+    {
+      "name": "K9",
+      "what": "an absurd price in the catalog is accepted",
+      "patches": [
+        { "file": "lib/model-cost.mjs", "old": "const sane=value=>typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=RATE_MAX;", "new": "const sane=value=>typeof value==='number'&&Number.isFinite(value)&&value>=0;" }
+      ]
+    },
+    {
+      "name": "K10",
+      "what": "the sum over several conversations forgets the estimates",
+      "patches": [
+        { "file": "lib/model-cost.mjs", "old": "estimatedResponses:acc.estimatedResponses+item.estimatedResponses,", "new": "estimatedResponses:acc.estimatedResponses," }
+      ]
+    },
+    {
+      "name": "K11",
+      "what": "a saved ledger forgets how many of its responses were estimates",
+      "patches": [
+        { "file": "lib/model-cost.mjs", "old": "const estimatedResponses=count(saved.estimatedResponses);", "new": "const estimatedResponses=0;" }
+      ]
+    },
+    {
+      "name": "K12",
+      "what": "a cache write rate the catalog does not list is taken as free",
+      "patches": [
+        { "file": "lib/model-cost.mjs", "old": "const cacheWriteRate=rates.cacheWrite??rates.input;", "new": "const cacheWriteRate=rates.cacheWrite??0;" }
+      ]
+    }
+  ]
+}
