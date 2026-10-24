@@ -1,0 +1,454 @@
+{
+  "suite": "verify-stream-anthropic.mjs",
+  "description": "Anthropic Messages streaming: the reader (lib/anthropic-stream.mjs), its registration in the adapter and the stream flag of the request body.",
+  "mutations": [
+    {
+      "name": "AS1",
+      "what": "an event that comes after message_stop is read",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (stopped || raw === '') return undefined;", "new": "if (raw === '') return undefined;" }
+      ]
+    },
+    {
+      "name": "AS2",
+      "what": "an event with no data is read as JSON",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (stopped || raw === '') return undefined;", "new": "if (stopped) return undefined;" }
+      ]
+    },
+    {
+      "name": "AS3",
+      "what": "an event that is not JSON escapes without the code of an invalid stream",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "try { json = JSON.parse(raw); } catch { throw streamInvalid('Một sự kiện của luồng Messages không phải JSON.'); }", "new": "json = JSON.parse(raw);" }
+      ]
+    },
+    {
+      "name": "AS4",
+      "what": "an event that is JSON but not an object is read",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (!isObject(json)) throw streamInvalid('Một sự kiện của luồng Messages không phải một đối tượng.');", "new": "" }
+      ]
+    },
+    {
+      "name": "AS5",
+      "what": "the type of an event is never taken from its name",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "const type = typeof json.type === 'string' ? json.type : sse?.event;", "new": "const type = json.type;" }
+      ]
+    },
+    {
+      "name": "AS6",
+      "what": "an error event whose data names no type is not an error",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (type === 'error' || sse?.event === 'error') {", "new": "if (type === 'error') {" }
+      ]
+    },
+    {
+      "name": "AS7",
+      "what": "an error whose type is in the data only is not an error",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (type === 'error' || sse?.event === 'error') {", "new": "if (sse?.event === 'error') {" }
+      ]
+    },
+    {
+      "name": "AS8",
+      "what": "an error with its words at the top loses them",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "{ message: String(json.message ?? 'Nhà cung cấp báo lỗi giữa luồng.') }", "new": "{ message: 'Nhà cung cấp báo lỗi giữa luồng.' }" }
+      ]
+    },
+    {
+      "name": "AS9",
+      "what": "an error with no words has none",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "{ message: String(json.message ?? 'Nhà cung cấp báo lỗi giữa luồng.') }", "new": "{ message: String(json.message) }" }
+      ]
+    },
+    {
+      "name": "AS10",
+      "what": "an error inside the stream has no HTTP status of its own",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "throw streamProviderError(error, streamErrorStatus(error));", "new": "throw streamProviderError(error, 502);" }
+      ]
+    },
+    {
+      "name": "AS11",
+      "what": "a ping before message_start breaks the stream",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (type === 'ping') return undefined;", "new": "" }
+      ]
+    },
+    {
+      "name": "AS12",
+      "what": "a second message_start is accepted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (message) throw streamInvalid('Luồng Messages có hai message_start.');", "new": "" }
+      ]
+    },
+    {
+      "name": "AS13",
+      "what": "a message_start with no message is accepted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (!isObject(json.message)) throw streamInvalid('message_start không mang message.');", "new": "" }
+      ]
+    },
+    {
+      "name": "AS14",
+      "what": "the usage of message_start is lost",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "usage = isObject(message.usage) ? { ...message.usage } : {};", "new": "usage = {};" }
+      ]
+    },
+    {
+      "name": "AS15",
+      "what": "a stream that does not begin with message_start is accepted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (!message) throw streamInvalid(`Luồng Messages bắt đầu bằng", "new": "if (false) throw streamInvalid(`Luồng Messages bắt đầu bằng" }
+      ]
+    },
+    {
+      "name": "AS16",
+      "what": "a block index that is not a whole number is accepted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (!Number.isInteger(index) || index < 0 || blocks.has(index) || open !== null) throw", "new": "if (index < 0 || blocks.has(index) || open !== null) throw" }
+      ]
+    },
+    {
+      "name": "AS17",
+      "what": "a negative block index is accepted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (!Number.isInteger(index) || index < 0 || blocks.has(index) || open !== null) throw", "new": "if (!Number.isInteger(index) || blocks.has(index) || open !== null) throw" }
+      ]
+    },
+    {
+      "name": "AS18",
+      "what": "a block index used twice is accepted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (!Number.isInteger(index) || index < 0 || blocks.has(index) || open !== null) throw", "new": "if (!Number.isInteger(index) || index < 0 || open !== null) throw" }
+      ]
+    },
+    {
+      "name": "AS19",
+      "what": "a block that starts while another is open is accepted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (!Number.isInteger(index) || index < 0 || blocks.has(index) || open !== null) throw", "new": "if (!Number.isInteger(index) || index < 0 || blocks.has(index)) throw" }
+      ]
+    },
+    {
+      "name": "AS20",
+      "what": "a block start with no content_block is accepted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (!isObject(begun) || typeof begun.type !== 'string') throw streamInvalid('content_block_start không mang content_block.');", "new": "" }
+      ]
+    },
+    {
+      "name": "AS21",
+      "what": "a text block that starts with no text field breaks",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "entry.text = typeof entry.text === 'string' ? entry.text : '';", "new": "" }
+      ]
+    },
+    {
+      "name": "AS22",
+      "what": "the text blocks are not joined with a line break while they stream",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if ([...blocks.values()].some((earlier) => earlier.type === 'text')) await show('\\n');", "new": "" }
+      ]
+    },
+    {
+      "name": "AS23",
+      "what": "the text a block starts with is not shown",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "          await show(entry.text);", "new": "" }
+      ]
+    },
+    {
+      "name": "AS24",
+      "what": "a delta for a block that is not open is accepted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (!found || open !== index) throw streamInvalid(", "new": "if (!found) throw streamInvalid(" }
+      ]
+    },
+    {
+      "name": "AS25",
+      "what": "a delta for a block that was never started is accepted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (!found || open !== index) throw streamInvalid(", "new": "if (open !== index) throw streamInvalid(" }
+      ]
+    },
+    {
+      "name": "AS26",
+      "what": "a delta with no delta is accepted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (!isObject(piece)) throw streamInvalid('content_block_delta không mang delta.');", "new": "" }
+      ]
+    },
+    {
+      "name": "AS27",
+      "what": "the text of a block is not collected",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "          entry.text += piece.text;", "new": "" }
+      ]
+    },
+    {
+      "name": "AS28",
+      "what": "the text of a block is not shown as it comes",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "          await show(piece.text);", "new": "" }
+      ]
+    },
+    {
+      "name": "AS29",
+      "what": "the fragments of a call's JSON are not collected",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "entry.partial.push(piece.partial_json);", "new": "entry.partial.push('');" }
+      ]
+    },
+    {
+      "name": "AS30",
+      "what": "a delta of another kind than its block is accepted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "        else throw streamInvalid(`Một delta ${piece.type} không thuộc khối ${entry.type}.`);", "new": "" }
+      ]
+    },
+    {
+      "name": "AS31",
+      "what": "a citations delta is refused",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "else if (piece.type === 'citations_delta' || !['text', 'tool_use', 'thinking'].includes(entry.type)) {", "new": "else if (!['text', 'tool_use', 'thinking'].includes(entry.type)) {" }
+      ]
+    },
+    {
+      "name": "AS32",
+      "what": "a block of a kind the Hub does not use is refused",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "else if (piece.type === 'citations_delta' || !['text', 'tool_use', 'thinking'].includes(entry.type)) {", "new": "else if (piece.type === 'citations_delta') {" }
+      ]
+    },
+    {
+      "name": "AS33",
+      "what": "the JSON of a call is not read when its block stops",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (entry.type === 'tool_use') {", "new": "if (false) {" }
+      ]
+    },
+    {
+      "name": "AS34",
+      "what": "a call with no JSON at all is taken for cut",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "const input = raw.trim() ? JSON.parse(raw) : {};", "new": "const input = JSON.parse(raw);" }
+      ]
+    },
+    {
+      "name": "AS35",
+      "what": "a call whose input is not an object is accepted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (!isObject(input)) throw new Error('not an object');", "new": "" }
+      ]
+    },
+    {
+      "name": "AS36",
+      "what": "a call whose JSON does not parse is not marked",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "} catch { entry.input = {}; entry.cut = true; }", "new": "} catch { entry.input = {}; }" }
+      ]
+    },
+    {
+      "name": "AS37",
+      "what": "a block that stops is still open",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "        open = null;", "new": "" }
+      ]
+    },
+    {
+      "name": "AS38",
+      "what": "message_delta while a block is open is accepted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (open !== null) throw streamInvalid('message_delta khi một khối còn mở.');", "new": "" }
+      ]
+    },
+    {
+      "name": "AS39",
+      "what": "the stop reason is not read",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (typeof json.delta.stop_reason === 'string' && json.delta.stop_reason) stopReason = json.delta.stop_reason;", "new": "" }
+      ]
+    },
+    {
+      "name": "AS40",
+      "what": "an empty stop reason is a stop reason",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (typeof json.delta.stop_reason === 'string' && json.delta.stop_reason) stopReason = json.delta.stop_reason;", "new": "if (typeof json.delta.stop_reason === 'string') stopReason = json.delta.stop_reason;" }
+      ]
+    },
+    {
+      "name": "AS41",
+      "what": "the usage of message_delta replaces the whole usage",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (isObject(json.usage)) usage = { ...usage, ...json.usage };", "new": "if (isObject(json.usage)) usage = json.usage;" }
+      ]
+    },
+    {
+      "name": "AS42",
+      "what": "the usage of message_start wins over message_delta (the totals are not cumulative)",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (isObject(json.usage)) usage = { ...usage, ...json.usage };", "new": "if (isObject(json.usage)) usage = { ...json.usage, ...usage };" }
+      ]
+    },
+    {
+      "name": "AS43",
+      "what": "the usage of message_delta is not read",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (isObject(json.usage)) usage = { ...usage, ...json.usage };", "new": "" }
+      ]
+    },
+    {
+      "name": "AS44",
+      "what": "message_stop while a block is open is accepted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (open !== null) throw streamInvalid('message_stop khi một khối còn mở.');", "new": "" }
+      ]
+    },
+    {
+      "name": "AS45",
+      "what": "message_stop without a stop reason is accepted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (stopReason === null) throw streamInvalid('message_stop mà chưa có message_delta với stop_reason.');", "new": "" }
+      ]
+    },
+    {
+      "name": "AS46",
+      "what": "message_stop is not remembered, so a complete stream is interrupted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "        stopped = true;", "new": "" }
+      ]
+    },
+    {
+      "name": "AS47",
+      "what": "message_stop does not end the read",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "        return SSE_STOP;", "new": "        return undefined;" }
+      ]
+    },
+    {
+      "name": "AS48",
+      "what": "a stream with no message_stop is accepted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (!stopped) throw streamInterrupted(", "new": "if (false) throw streamInterrupted(" }
+      ]
+    },
+    {
+      "name": "AS49",
+      "what": "the blocks are not put in the order of their index",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": ".sort((a, b) => a[0] - b[0])", "new": "" }
+      ]
+    },
+    {
+      "name": "AS50",
+      "what": "a call the limit did not cut but that does not parse is accepted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (stopReason !== 'max_tokens' && content.some((entry) => entry.cut)) throw", "new": "if (false) throw" }
+      ]
+    },
+    {
+      "name": "AS51",
+      "what": "a call that does not parse is damage even when the limit cut it",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (stopReason !== 'max_tokens' && content.some((entry) => entry.cut)) throw", "new": "if (content.some((entry) => entry.cut)) throw" }
+      ]
+    },
+    {
+      "name": "AS52",
+      "what": "a message that completes with nothing in it is accepted",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (!MAY_BE_EMPTY.has(stopReason) && !content.some(", "new": "if (false && !content.some(" }
+      ]
+    },
+    {
+      "name": "AS53",
+      "what": "an empty message is refused whatever its stop reason",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "if (!MAY_BE_EMPTY.has(stopReason) && !content.some(", "new": "if (!content.some(" }
+      ]
+    },
+    {
+      "name": "AS54",
+      "what": "an empty message that the limit cut is refused",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "const MAY_BE_EMPTY = new Set(['max_tokens', 'pause_turn', 'refusal']);", "new": "const MAY_BE_EMPTY = new Set(['pause_turn', 'refusal']);" }
+      ]
+    },
+    {
+      "name": "AS55",
+      "what": "an empty message the server paused is refused",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "const MAY_BE_EMPTY = new Set(['max_tokens', 'pause_turn', 'refusal']);", "new": "const MAY_BE_EMPTY = new Set(['max_tokens', 'refusal']);" }
+      ]
+    },
+    {
+      "name": "AS56",
+      "what": "an empty refusal is refused",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "const MAY_BE_EMPTY = new Set(['max_tokens', 'pause_turn', 'refusal']);", "new": "const MAY_BE_EMPTY = new Set(['max_tokens', 'pause_turn']);" }
+      ]
+    },
+    {
+      "name": "AS57",
+      "what": "white space counts as text",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "(entry.type === 'text' && entry.text.trim())", "new": "(entry.type === 'text' && entry.text)" }
+      ]
+    },
+    {
+      "name": "AS58",
+      "what": "a message with only a call is refused as empty",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "content.some((entry) => entry.type === 'tool_use' || (entry.type === 'text' && entry.text.trim()))", "new": "content.some((entry) => (entry.type === 'text' && entry.text.trim()))" }
+      ]
+    },
+    {
+      "name": "AS59",
+      "what": "thinking counts as an answer",
+      "patches": [
+        { "file": "lib/anthropic-stream.mjs", "old": "content.some((entry) => entry.type === 'tool_use' || (entry.type === 'text' && entry.text.trim()))", "new": "content.some((entry) => entry.type !== 'text' || entry.text.trim())" }
+      ]
+    },
+    {
+      "name": "AD1",
+      "what": "the adapter has no Messages reader, so a Messages stream is read as JSON",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "const STREAM_READERS = Object.freeze({ 'openai-chat': createChatStreamReader, anthropic: createAnthropicStreamReader });", "new": "const STREAM_READERS = Object.freeze({ 'openai-chat': createChatStreamReader });" }
+      ]
+    },
+    {
+      "name": "AD2",
+      "what": "a Messages request does not say stream: true",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "promptCaching: ctx.promptCaching === true, stream: streaming })", "new": "promptCaching: ctx.promptCaching === true })" }
+      ]
+    },
+    {
+      "name": "AD3",
+      "what": "a Messages request that does not stream says stream: false",
+      "patches": [
+        { "file": "lib/anthropic-api.mjs", "old": "if (stream === true) body.stream = true;", "new": "body.stream = stream === true;" }
+      ]
+    },
+    {
+      "name": "AD4",
+      "what": "a Messages request never says stream: true",
+      "patches": [
+        { "file": "lib/anthropic-api.mjs", "old": "if (stream === true) body.stream = true;", "new": "" }
+      ]
+    },
+    {
+      "name": "AD5",
+      "what": "stream_options are taken out of the repeat of a Messages request that names them",
+      "patches": [
+        { "file": "lib/standard-adapter.mjs", "old": "if (streaming && includeUsage && ctx.protocol === 'openai-chat' && refusesStreamOptions(status, parsed, info)) {", "new": "if (streaming && includeUsage && refusesStreamOptions(status, parsed, info)) {" }
+      ]
+    }
+  ]
+}

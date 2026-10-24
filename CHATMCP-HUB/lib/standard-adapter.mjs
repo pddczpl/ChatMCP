@@ -10,6 +10,7 @@
 //   * The endpoint and the headers (so the key) are fixed when the call starts. Changing the settings while a call is
 //     in flight cannot redirect a key to another host.
 import { buildAnthropicBody, normalizeAnthropic } from './anthropic-api.mjs';
+import { createAnthropicStreamReader } from './anthropic-stream.mjs';
 import { buildChatBody, normalizeChatCompletion } from './openai-chat-api.mjs';
 import { createChatStreamReader } from './openai-chat-stream.mjs';
 import { compactHistory, historyBytes, pairToolCalls } from './model-history.mjs';
@@ -46,7 +47,7 @@ export const LIMITS = Object.freeze({
 });
 
 /** The protocols whose answers can be read as a stream, and the reader of each (lib/*-stream.mjs). */
-const STREAM_READERS = Object.freeze({ 'openai-chat': createChatStreamReader });
+const STREAM_READERS = Object.freeze({ 'openai-chat': createChatStreamReader, anthropic: createAnthropicStreamReader });
 
 const NETWORK_CODES = ['ECONNRESET', 'ENETUNREACH', 'EHOSTUNREACH', 'ETIMEDOUT', 'EAI_AGAIN', 'ECONNREFUSED', 'EPIPE', 'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT'];
 export function isNetworkFailure(error) {
@@ -165,7 +166,7 @@ export async function respondStandard(ctx, { input, instructions, tools = [], si
       await onStatus(`Đã rút gọn ngữ cảnh gửi tới model: ${kib(view.before)} KiB → ${kib(view.after)} KiB (kết quả công cụ cũ được thay bằng bản tóm tắt). Lịch sử đầy đủ vẫn ở trên máy và không công cụ nào bị chạy lại.`, 'context_compaction');
     }
     const body = ctx.protocol === 'anthropic'
-      ? buildAnthropicBody({ model: ctx.model, input: view.history, instructions, tools, maxOutputTokens: outputTokens, promptCaching: ctx.promptCaching === true })
+      ? buildAnthropicBody({ model: ctx.model, input: view.history, instructions, tools, maxOutputTokens: outputTokens, promptCaching: ctx.promptCaching === true, stream: streaming })
       : buildChatBody({ model: ctx.model, input: view.history, instructions, tools, stream: streaming, includeUsage });
     if (reasoning) applyReasoning(body, reasoning);
 

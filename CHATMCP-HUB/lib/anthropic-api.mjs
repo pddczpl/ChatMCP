@@ -75,11 +75,13 @@ export function anthropicTools(tools) {
 }
 
 /**
- * @param {{model: string, input: object[], instructions: string, tools?: object[], maxOutputTokens?: number, promptCaching?: boolean}} request
+ * @param {{model: string, input: object[], instructions: string, tools?: object[], maxOutputTokens?: number, promptCaching?: boolean, stream?: boolean}} request
+ *   `stream` adds `stream: true`; a request that does not stream has no `stream` field at all, as it never had.
  */
-export function buildAnthropicBody({ model, input, instructions, tools = [], maxOutputTokens = 16384, promptCaching = false }) {
+export function buildAnthropicBody({ model, input, instructions, tools = [], maxOutputTokens = 16384, promptCaching = false, stream = false }) {
   const messages = asAnthropicMessages(input);
   const body = { model, max_tokens: Math.max(256, Math.floor(maxOutputTokens)), system: [{ type: 'text', text: String(instructions) }], messages };
+  if (stream === true) body.stream = true;
   if (tools.length) {
     body.tools = anthropicTools(tools);
     // One call at a time: the agent runs them in order and a half-finished batch is harder to recover than one step.

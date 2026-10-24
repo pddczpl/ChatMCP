@@ -1029,6 +1029,7 @@ const rows = (m, { limits, timeoutMs = 5000, idleTimeoutMs } = {}) => {
     chat: { label: 'respondStandard / Chat Completions', api: 'chat', run: standard('openai-chat', 'chat/completions', { 'content-type': 'application/json' }) },
     'chat-sse': { label: 'respondStandard / Chat Completions / SSE', api: 'chat', run: standard('openai-chat', 'chat/completions', { 'content-type': 'application/json' }, true) },
     anthropic: { label: 'respondStandard / Anthropic Messages', api: 'anthropic', run: standard('anthropic', 'messages', anthropicHeaders('test-key')) },
+    'anthropic-sse': { label: 'respondStandard / Anthropic Messages / SSE', api: 'anthropic', run: standard('anthropic', 'messages', anthropicHeaders('test-key'), true) },
     responses: { label: 'respondOpenAIResponses / JSON', api: 'responses', run: responses(false) },
     'responses-sse': { label: 'respondOpenAIResponses / SSE', api: 'responses', run: responses(true) },
     gemini: { label: 'GatewayProvider / Gemini generateContent', api: 'gemini', run: (input, options = {}) => gemini.respond({ input, instructions: 'system', tools: TOOLS, maxOutputTokens: 1024, signal: AbortSignal.timeout(8000), ...options }) },
@@ -1069,8 +1070,8 @@ for (const [name, row] of Object.entries(ROWS)) {
   assert.equal(finalText(answer.turns[0]), 'Hello from the mock.');
   assert.deepEqual([answer.turns[0].usage.input_tokens, answer.turns[0].usage.output_tokens], [120, 24], `${label}: usage`);
   accepted(answer);
-  if (name === 'responses-sse' || name === 'chat-sse') assert.equal(answer.tokens.join(''), 'Hello from the mock.', 'the SSE row delivers the text as tokens');
-  if (name === 'chat-sse') assert.deepEqual(answer.requests.map((request) => request.stream), [true], 'and the request really was a stream');
+  if (name === 'responses-sse' || name === 'chat-sse' || name === 'anthropic-sse') assert.equal(answer.tokens.join(''), 'Hello from the mock.', 'the SSE row delivers the text as tokens');
+  if (name === 'chat-sse' || name === 'anthropic-sse') assert.deepEqual(answer.requests.map((request) => request.stream), [true], 'and the request really was a stream');
 
   const one = await converse(row, contract, 'canned-one-tool');
   assert.equal(one.turns.length, 2, `${label}: a call, then the answer`);
@@ -1112,7 +1113,7 @@ for (const [name, row] of Object.entries(ROWS)) {
   if (row.api === 'chat') {
     assert.equal(replayBody.messages.find((message) => message.role === 'assistant').reasoning_content, 'I should read c.txt first.', 'Chat (compat dialect): reasoning_content of the turn in progress is sent back');
   }
-  if (row.api === 'anthropic') findings.push(`Anthropic: the thinking block of the previous turn was ${replayBody.messages.some((message) => Array.isArray(message.content) && message.content.some((block) => block.type === 'thinking')) ? '' : 'NOT '}sent back with the tool result`);
+  if (name === 'anthropic') findings.push(`Anthropic: the thinking block of the previous turn was ${replayBody.messages.some((message) => Array.isArray(message.content) && message.content.some((block) => block.type === 'thinking')) ? '' : 'NOT '}sent back with the tool result`);
 
   if (row.api === 'gemini') {
     const modelTurn = replayBody.contents.find((content) => content.role === 'model');
