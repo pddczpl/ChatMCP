@@ -173,6 +173,78 @@ test('the FULL ACCESS banner and the way back to Review read in English, with no
   await expect(page.getByTestId('status-bar')).not.toContainText('FULL ACCESS');
 });
 
+/** The letters only Vietnamese has: a screen in English must hold none (the name of the Vietnamese language in the language selector is taken out first). */
+const VIETNAMESE = /[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]/i;
+const inEnglish = (text) => text.replace('Tiếng Việt (Vietnamese)', '');
+
+test('the first-run setup reads English from the first screen and sets up the same things', async ({ page, app }) => {
+  await page.addInitScript(() => localStorage.setItem('chatmcp:language', 'en'));
+  await page.goto(await app.signInUrl());
+  const setup = page.getByRole('dialog', { name: 'ChatMCP setup' });
+  await expect(setup.getByRole('heading', { name: 'Welcome to ChatMCP Studio' })).toBeVisible();
+  expect(await setup.innerText(), 'step 1 reads English').not.toMatch(VIETNAMESE);
+  await page.getByLabel('Workspace path', { exact: true }).fill(app.project);
+  await page.getByRole('button', { name: 'Apply workspace', exact: true }).click();
+  await expect.poll(async () => (await app.hub.state()).workspace?.path).toBe(app.project);
+  await expect(setup.getByRole('status')).toContainText('Workspace selected:');
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Ollama (Local)', exact: true }).click();
+  await page.getByLabel('API base URL', { exact: true }).fill(app.mock.url);
+  await page.getByLabel('Model', { exact: true }).fill('mock-coder');
+  const checked = page.waitForResponse((response) => response.url().endsWith('/api/ai/test') && response.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Save and test', exact: true }).click();
+  expect((await checked).ok()).toBe(true);
+  expect(await setup.innerText(), 'step 2 reads English').not.toMatch(VIETNAMESE);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  expect(await setup.innerText(), 'step 3 reads English').not.toMatch(VIETNAMESE);
+  await page.getByRole('button', { name: /^Read-only/ }).click();
+  await page.getByRole('button', { name: 'Start working now', exact: true }).click();
+  await expect(page.getByText('Welcome to ChatMCP Studio!')).toBeVisible();
+  await expect(setup).toHaveCount(0);
+  await expect.poll(async () => (await app.hub.state()).studio.permissions.mode).toBe('readonly');
+  expect((await app.hub.state()).ai.model).toBe('mock-coder');
+});
+
+test('Settings, the FULL ACCESS dialog and the command palette read English and do the same things', async ({ page, app }) => {
+  await onboard(page, app);
+  const vietnamese = await openSettings(page, 'Giao diện & ngôn ngữ');
+  await vietnamese.getByRole('button', { name: 'English' }).click();
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  const sections = settings.getByRole('navigation', { name: 'Settings sections' });
+  for (const section of ['Project', 'AI model', 'Permissions & execution', 'Agent channel', 'Code intelligence', 'Appearance & language', 'About & data']) {
+    await sections.getByRole('button', { name: section, exact: true }).click();
+    await expect(sections.getByRole('button', { name: section, exact: true })).toHaveAttribute('aria-current', 'page');
+    expect(inEnglish(await settings.innerText()), `${section} reads English`).not.toMatch(VIETNAMESE);
+  }
+  // FULL ACCESS needs the typed words, and says so in English
+  await sections.getByRole('button', { name: 'Permissions & execution', exact: true }).click();
+  await settings.getByRole('button', { name: /^FULL ACCESS/ }).click();
+  const confirm = page.getByRole('alertdialog', { name: 'Confirm FULL ACCESS permission' });
+  await expect(confirm).toBeVisible();
+  expect(await confirm.innerText(), 'the dialog reads English').not.toMatch(VIETNAMESE);
+  const turnOn = confirm.getByRole('button', { name: 'Turn on FULL ACCESS', exact: true });
+  await expect(turnOn).toBeDisabled();
+  await confirm.getByLabel(/type exactly the phrase/).fill('full access');
+  await expect(turnOn).toBeDisabled();
+  await confirm.getByLabel(/type exactly the phrase/).fill('FULL ACCESS');
+  await turnOn.click();
+  await expect(confirm).toHaveCount(0);
+  await expect(page.getByText('FULL ACCESS mode is on')).toBeVisible();
+  await expect.poll(async () => (await app.hub.state()).studio.permissions.executionPolicy).toBe('full-access');
+  await page.keyboard.press('Escape');
+  await expect(settings).toHaveCount(0);
+  // the page has the new state once its banner is drawn; the palette reads the same state to know that FULL ACCESS is on
+  await expect(page.getByTestId('full-access-banner')).toBeVisible();
+  // the command palette, in English, leaves FULL ACCESS the way the Settings list does
+  await page.keyboard.press('Control+k');
+  const palette = page.getByRole('dialog', { name: 'Command palette' });
+  await expect(palette).toBeVisible();
+  expect(await palette.innerText(), 'the palette reads English').not.toMatch(VIETNAMESE);
+  await palette.getByRole('option', { name: /Read-only/ }).click();
+  await expect(page.getByText('Switched permission mode to readonly')).toBeVisible();
+  await expect.poll(async () => (await app.hub.state()).studio.permissions).toMatchObject({ mode: 'readonly', executionPolicy: 'host-review' });
+});
+
 test('AI config clears a typed fixture key after save and destination changes', async ({ page, app }) => {
   await onboard(page, app);
   await openSettings(page, 'Mô hình AI');
