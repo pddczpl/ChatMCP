@@ -93,7 +93,8 @@ export function buildEndpoint(base, protocol, model, customPath = '') {
     return `${stem}/models/${encodeURIComponent(model)}:generateContent`;
   }
   if (protocol === 'anthropic') return anthropicEndpoint(url);
-  const stem = /\/v1$/.test(url) ? url : `${url}/v1`;
+  // A version already in the address is the provider's own (Z.ai ends in /v4): "/v1" is added only when there is none.
+  const stem = /\/v\d+$/.test(url) ? url : `${url}/v1`;
   return `${stem}/${protocol==='openai-responses'?'responses':'chat/completions'}`;
 }
 function geminiSchema(schema) {

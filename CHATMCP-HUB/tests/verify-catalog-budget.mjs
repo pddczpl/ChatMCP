@@ -251,8 +251,15 @@ async function provider({ preset, apiBaseUrl, model, contextWindowTokens, catalo
     const found = real(preset);
     assert.ok(!(found.found && (found.confidence === 'exact' || found.confidence === 'normalized')), `${preset.id}: a window is hard-coded only for a default model the catalog does not know (${preset.defaultModel} is in it: ${found.contextWindow})`);
   }
-  assert.deepEqual(hardCoded.map((preset) => preset.id), ['deepseek'], 'only DeepSeek\'s default model (deepseek-chat) is not in the catalog');
-  for (const id of ['anthropic', 'gemini', 'groq', 'mistral']) assert.equal(publicPresets({}).find((preset) => preset.id === id).contextWindowTokens, null, id);
+  assert.deepEqual(hardCoded.map((preset) => preset.id), [], 'no preset writes a window: the default model of every one of them is in the catalog, which answers');
+  for (const id of ['anthropic', 'gemini', 'groq', 'mistral', 'deepseek', 'xai', 'glm', 'qwen', 'minimax']) assert.equal(publicPresets({}).find((preset) => preset.id === id).contextWindowTokens, null, id);
+  // The default model of every named preset is one the catalog knows for that provider and has not deprecated: a default that nobody serves any more is the first thing a new person meets
+  // (DeepSeek's deepseek-chat was retired on 2026-07-24 and nothing here noticed).
+  for (const preset of PRESETS.filter((entry) => !entry.local && !entry.id.startsWith('custom-'))) {
+    const found = real(preset);
+    assert.ok(found.found && (found.confidence === 'exact' || found.confidence === 'normalized') && found.status !== 'deprecated',
+      `${preset.id}: the default model ${preset.defaultModel} must be a live model of the catalog (${found.found ? `${found.confidence}, ${found.status ?? 'stable'}` : 'it is not in the catalog'})`);
+  }
   const fresh = await provider({ preset: 'anthropic', model: 'claude-sonnet-5-5', catalog: createCatalog(JSON.parse(await fs.readFile(path.join(BUNDLE, 'lib', 'model-catalog.data.json'), 'utf8'))) });
   assert.deepEqual([fresh.state().contextWindowTokens, fresh.state().contextWindowSource], [null, 'catalog'], 'a new connection to Anthropic plans on the catalog\'s window, not on the 200,000 that used to be written for it');
   ok('presets: the catalog\'s window replaces the hard-coded one wherever the catalog knows the default model (only DeepSeek keeps its own)');

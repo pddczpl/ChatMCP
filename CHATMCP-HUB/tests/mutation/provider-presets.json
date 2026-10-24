@@ -1,0 +1,97 @@
+{
+  "suite": "verify-model-adapters.mjs",
+  "description": "What the model adapter suite must notice about the ready-made providers: a preset aimed at the wrong address, protocol, region or model, a key variable that is dropped or borrowed from another provider, a default that is a retired or deprecated model, a window written where the catalog answers, a caching claim for an endpoint that was not checked.",
+  "mutations": [
+    {
+      "name": "P1",
+      "what": "the xAI preset loses the /v1 of its address",
+      "patches": [
+        { "file": "lib/provider-presets.mjs", "old": "apiBaseUrl: 'https://api.x.ai/v1', defaultModel: 'grok-4.3',", "new": "apiBaseUrl: 'https://api.x.ai', defaultModel: 'grok-4.3'," }
+      ]
+    },
+    {
+      "name": "P2",
+      "what": "the GLM preset is aimed at /v1 instead of the /v4 that Z.ai serves",
+      "patches": [
+        { "file": "lib/provider-presets.mjs", "old": "apiBaseUrl: 'https://api.z.ai/api/paas/v4'", "new": "apiBaseUrl: 'https://api.z.ai/api/paas/v1'" }
+      ]
+    },
+    {
+      "name": "P3",
+      "what": "the GLM preset starts from an older model",
+      "patches": [
+        { "file": "lib/provider-presets.mjs", "old": "defaultModel: 'glm-5.3',", "new": "defaultModel: 'glm-5'," }
+      ]
+    },
+    {
+      "name": "P4",
+      "what": "the Qwen preset is aimed at the Chinese region instead of the international one",
+      "patches": [
+        { "file": "lib/provider-presets.mjs", "old": "apiBaseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1'", "new": "apiBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1'" }
+      ]
+    },
+    {
+      "name": "P5",
+      "what": "the MiniMax preset speaks Chat Completions to an address that serves the Messages API",
+      "patches": [
+        { "file": "lib/provider-presets.mjs", "old": "id: 'minimax', label: 'MiniMax', protocol: 'anthropic',", "new": "id: 'minimax', label: 'MiniMax', protocol: 'openai-chat'," }
+      ]
+    },
+    {
+      "name": "P6",
+      "what": "the MiniMax preset no longer accepts its key from the environment",
+      "patches": [
+        { "file": "lib/provider-presets.mjs", "old": "keyEnv: ['MINIMAX_API_KEY'],", "new": "keyEnv: []," }
+      ]
+    },
+    {
+      "name": "P7",
+      "what": "the xAI preset no longer accepts its key from the environment",
+      "patches": [
+        { "file": "lib/provider-presets.mjs", "old": "keyEnv: ['XAI_API_KEY'],", "new": "keyEnv: []," }
+      ]
+    },
+    {
+      "name": "P8",
+      "what": "DeepSeek starts from the model it retired on 2026-07-24",
+      "patches": [
+        { "file": "lib/provider-presets.mjs", "old": "defaultModel: 'deepseek-flash',", "new": "defaultModel: 'deepseek-chat'," }
+      ]
+    },
+    {
+      "name": "P9",
+      "what": "OpenAI Chat Completions starts from the deprecated gpt-5-mini",
+      "patches": [
+        { "file": "lib/provider-presets.mjs", "old": "protocol: 'openai-chat', apiBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-5.6-terra',", "new": "protocol: 'openai-chat', apiBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-5-mini'," }
+      ]
+    },
+    {
+      "name": "P10",
+      "what": "OpenAI Responses starts from the deprecated gpt-5-mini",
+      "patches": [
+        { "file": "lib/provider-presets.mjs", "old": "    apiBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-5.6-terra',", "new": "    apiBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-5-mini'," }
+      ]
+    },
+    {
+      "name": "P11",
+      "what": "the MiniMax preset claims that its endpoint accepts cache_control",
+      "patches": [
+        { "file": "lib/provider-presets.mjs", "old": "keyEnv: ['MINIMAX_API_KEY'],", "new": "keyEnv: ['MINIMAX_API_KEY'], promptCaching: true," }
+      ]
+    },
+    {
+      "name": "P12",
+      "what": "DeepSeek writes a context window of its own again",
+      "patches": [
+        { "file": "lib/provider-presets.mjs", "old": "keyEnv: ['DEEPSEEK_API_KEY'],", "new": "keyEnv: ['DEEPSEEK_API_KEY'], contextWindowTokens: 128000," }
+      ]
+    },
+    {
+      "name": "P13",
+      "what": "the Z.ai key is also taken from the variable of another provider",
+      "patches": [
+        { "file": "lib/provider-presets.mjs", "old": "keyEnv: ['ZAI_API_KEY'],", "new": "keyEnv: ['ZAI_API_KEY', 'XAI_API_KEY']," }
+      ]
+    }
+  ]
+}

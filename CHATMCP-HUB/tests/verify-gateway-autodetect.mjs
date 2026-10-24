@@ -135,6 +135,11 @@ try{
     ['openrouter','https://openrouter.ai/api/v1/chat/completions'],
     ['openai','https://api.openai.com/v1/chat/completions'],
     ['gemini','https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'],
+    // the popular providers: three of the four do not end their address in /v1 (Z.ai in /v4, DashScope in /compatible-mode/v1, MiniMax speaks the Messages API)
+    ['xai','https://api.x.ai/v1/chat/completions'],
+    ['glm','https://api.z.ai/api/paas/v4/chat/completions'],
+    ['qwen','https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions'],
+    ['minimax','https://api.minimax.io/anthropic/v1/messages'],
   ]);
   for (const [id, expected] of routes) {
     const preset=PRESETS.find(p=>p.id===id);

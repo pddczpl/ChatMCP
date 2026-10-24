@@ -22,12 +22,13 @@ const isObject = (value) => !!value && typeof value === 'object' && !Array.isArr
 
 /** Preset id -> provider id in the catalog. Local runtimes and the "custom" presets have none: the endpoint decides. */
 export const CATALOG_PROVIDER_OF_PRESET = Object.freeze({
-  anthropic: 'anthropic', openai: 'openai', 'openai-responses': 'openai', gemini: 'google', openrouter: 'openrouter', deepseek: 'deepseek', groq: 'groq', mistral: 'mistral',
+  anthropic: 'anthropic', openai: 'openai', 'openai-responses': 'openai', gemini: 'google', openrouter: 'openrouter', deepseek: 'deepseek', xai: 'xai', glm: 'zai', qwen: 'alibaba',
+  minimax: 'minimax', groq: 'groq', mistral: 'mistral',
 });
 /** Hosts of the first-party providers, which the catalog does not list (it lists the endpoints of the others). */
 const FIRST_PARTY_HOSTS = Object.freeze({
   'api.anthropic.com': 'anthropic', 'api.openai.com': 'openai', 'generativelanguage.googleapis.com': 'google', 'api.groq.com': 'groq', 'api.mistral.ai': 'mistral', 'api.x.ai': 'xai',
-  'openrouter.ai': 'openrouter', 'api.deepseek.com': 'deepseek',
+  'openrouter.ai': 'openrouter', 'api.deepseek.com': 'deepseek', 'api.z.ai': 'zai', 'open.bigmodel.cn': 'zhipuai', 'api.minimax.io': 'minimax',
 });
 /** The makers of models that other endpoints serve under the same id. */
 const MAKERS = Object.freeze(['anthropic', 'openai', 'google', 'xai', 'mistral', 'deepseek']);

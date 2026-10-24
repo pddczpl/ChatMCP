@@ -48,9 +48,9 @@ export function selectAiProviderDraft(current: AiConfigForm, next: AiProviderCho
 /** Provider names from the React selector map one-to-one to wire protocols. */
 export function aiProtocolForPreset(preset: string): 'gemini' | 'openai-chat' | 'openai-responses' | 'anthropic' | null {
   if (preset === 'gemini' || preset === 'custom-gemini') return 'gemini';
-  if (preset === 'anthropic' || preset === 'custom-anthropic') return 'anthropic';
+  if (preset === 'anthropic' || preset === 'custom-anthropic' || preset === 'minimax') return 'anthropic';
   if (preset === 'openai-responses' || preset === 'custom-responses') return 'openai-responses';
-  if (['openai','openrouter','deepseek','groq','ollama','lmstudio','custom-openai','mistral'].includes(preset)) return 'openai-chat';
+  if (['openai','openrouter','deepseek','xai','glm','qwen','groq','ollama','lmstudio','custom-openai','mistral'].includes(preset)) return 'openai-chat';
   return null;
 }
 

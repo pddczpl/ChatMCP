@@ -64,6 +64,17 @@ const script = existsSync(scriptFile) ? await import(pathToFileURL(scriptFile).h
     [{ presetId: 'openrouter', model: 'anthropic/claude-sonnet-5-5' }, 'normalized', 'openrouter', 'anthropic/claude-sonnet-5.5'],
     [{ presetId: 'groq', model: 'openai/gpt-oss-120b' }, 'exact', 'groq', 'openai/gpt-oss-120b'],
     [{ presetId: 'mistral', model: 'magistral-medium-latest' }, 'exact', 'mistral', 'magistral-medium-latest'],
+    // the popular providers have a preset each, and their endpoints are recognised when typed by hand into a "custom" connection (GLM and MiniMax were not)
+    [{ presetId: 'xai', model: 'grok-4.3' }, 'exact', 'xai', 'grok-4.3'],
+    [{ presetId: 'glm', model: 'glm-5.3' }, 'exact', 'zai', 'glm-5.3'],
+    [{ presetId: 'qwen', model: 'qwen3.7-plus' }, 'exact', 'alibaba', 'qwen3.7-plus'],
+    [{ presetId: 'minimax', model: 'MiniMax-M3' }, 'exact', 'minimax', 'MiniMax-M3'],
+    [{ presetId: 'deepseek', model: 'deepseek-flash' }, 'exact', 'deepseek', 'deepseek-flash'],
+    [{ presetId: 'custom-openai', apiBaseUrl: 'https://api.x.ai/v1', model: 'grok-4.3' }, 'exact', 'xai', 'grok-4.3'],
+    [{ presetId: 'custom-openai', apiBaseUrl: 'https://api.z.ai/api/paas/v4', model: 'glm-5.3' }, 'exact', 'zai', 'glm-5.3'],
+    [{ presetId: 'custom-openai', apiBaseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-5.3' }, 'exact', 'zhipuai', 'glm-5.3'],
+    [{ presetId: 'custom-openai', apiBaseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', model: 'qwen3.7-plus' }, 'exact', 'alibaba', 'qwen3.7-plus'],
+    [{ presetId: 'custom-anthropic', apiBaseUrl: 'https://api.minimax.io/anthropic', model: 'MiniMax-M3' }, 'exact', 'minimax', 'MiniMax-M3'],
     // an endpoint decides when the preset does not: a "custom" connection aimed at Anthropic, Azure, Bedrock, GitHub Copilot
     [{ presetId: 'custom-openai', apiBaseUrl: 'https://api.anthropic.com', model: 'claude-opus-5-5' }, 'exact', 'anthropic', 'claude-opus-5-5'],
     [{ presetId: 'custom-openai', apiBaseUrl: 'https://x.openai.azure.com/openai/v1', model: 'gpt-5-mini' }, 'exact', 'azure', 'gpt-5-mini'],

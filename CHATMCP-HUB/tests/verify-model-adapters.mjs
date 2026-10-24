@@ -261,6 +261,20 @@ try {
     check(p.apiBaseUrl.startsWith('https://') || isLoopbackUrl(p.apiBaseUrl), `${p.id} uses HTTPS or loopback`);
     check(['anthropic', 'openai-chat', 'openai-responses', 'gemini'].includes(p.protocol), `${p.id} protocol`);
   }
+  // The popular providers have a preset of their own (Grok, GLM, Qwen, MiniMax next to the first ones); every other provider is "something else" with a base URL and a key.
+  for (const [id, protocol, base, model, env] of [
+    ['xai', 'openai-chat', 'https://api.x.ai/v1', 'grok-4.3', ['XAI_API_KEY']],
+    ['glm', 'openai-chat', 'https://api.z.ai/api/paas/v4', 'glm-5.3', ['ZAI_API_KEY']],
+    ['qwen', 'openai-chat', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', 'qwen3.7-plus', ['DASHSCOPE_API_KEY']],
+    ['minimax', 'anthropic', 'https://api.minimax.io/anthropic', 'MiniMax-M3', ['MINIMAX_API_KEY']],
+  ]) {
+    const entry = presetById(id);
+    same([entry?.protocol, entry?.apiBaseUrl, entry?.defaultModel, entry?.keyEnv, entry?.promptCaching, entry?.contextWindowTokens], [protocol, base, model, env, false, null], `${id}: the preset`);
+    same(presetForBaseUrl(base, protocol)?.id, id, `${id}: a connection aimed at its endpoint is that provider`);
+  }
+  same(PRESETS.length, 18, 'the 14 that were there and the four popular providers');
+  same([presetById('openai').defaultModel, presetById('openai-responses').defaultModel], ['gpt-5.6-terra', 'gpt-5.6-terra'], 'gpt-5-mini is deprecated on OpenAI\'s own page, which names GPT-5.6 Terra as its successor');
+  same([presetById('deepseek').defaultModel, presetById('deepseek').contextWindowTokens], ['deepseek-flash', null], 'deepseek-chat was retired on 2026-07-24; the catalog knows the current model and its 1M window, so none is written here');
   same(presetForBaseUrl('https://api.anthropic.com/v1/messages')?.id, 'anthropic');
   same(presetForBaseUrl('https://example.com'), null);
   same([isLoopbackUrl('http://localhost:11434/v1'), isLoopbackUrl('http://127.0.0.1:1'), isLoopbackUrl('http://[::1]:1'), isLoopbackUrl('http://10.0.0.5'), isLoopbackUrl('https://localhost.evil.example')], [true, true, true, false, false]);
@@ -374,6 +388,20 @@ try {
     const without = new GatewayProvider({ directory, bundleRoot: BUNDLE, manager: { secrets: [] }, env: {}, fetchImpl: neverFetch, platform: 'linux' });
     await without.load();
     same(without.ready(), false, 'and without the variable there is no key');
+  }
+
+  // the popular providers: a key in the environment is theirs alone
+  {
+    const env = { XAI_API_KEY: 'xai-env-0123456789', ZAI_API_KEY: 'zai-env-0123456789', DASHSCOPE_API_KEY: 'ds-env-0123456789', MINIMAX_API_KEY: 'mm-env-0123456789' };
+    const { provider } = await makeProvider('env-popular', { env });
+    same(provider.envKeys().map((entry) => entry.preset), ['xai', 'glm', 'qwen', 'minimax'], 'each variable is offered for its own provider');
+    await provider.configure({ preset: 'glm', useEnvKey: true });
+    same([provider.state().keySource, provider.state().apiBaseUrl, provider.state().protocol, provider.state().model, provider.ready()], ['environment', 'https://api.z.ai/api/paas/v4', 'openai-chat', 'glm-5.3', true]);
+    await provider.configure({ preset: 'minimax', useEnvKey: true });
+    same([provider.state().keySource, provider.state().apiBaseUrl, provider.state().protocol, provider.state().model], ['environment', 'https://api.minimax.io/anthropic', 'anthropic', 'MiniMax-M3']);
+    // the variable of one provider is never sent to another's address, typed by hand into a custom connection
+    await rejects(provider.configure({ preset: 'custom-openai', apiBaseUrl: 'https://api.x.ai/v1', model: 'grok-4.3', useEnvKey: true }), { code: 'missing_env_key' }, 'a custom connection aimed at xAI does not get xAI\'s variable');
+    check(!JSON.stringify(provider.state()).includes('-env-'), 'and the state shows no key');
   }
 
   // configurations written by older versions, damaged files, and the old Gemini environment variable

@@ -141,6 +141,55 @@
       "patches": [
         { "file": "lib/model-catalog-build.mjs", "old": "(status === 'beta' ? FLAG.beta : status === 'deprecated' ? FLAG.deprecated :", "new": "(status === 'beta' ? FLAG.deprecated : status === 'deprecated' ? FLAG.beta :" }
       ]
+    },
+    {
+      "name": "M21",
+      "what": "a custom connection aimed at Z.ai's own host is no longer known as Z.ai",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "'api.z.ai': 'zai', ", "new": "" }
+      ]
+    },
+    {
+      "name": "M22",
+      "what": "a custom connection aimed at Zhipu's host (open.bigmodel.cn) is no longer known",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "'open.bigmodel.cn': 'zhipuai', ", "new": "" }
+      ]
+    },
+    {
+      "name": "M23",
+      "what": "a custom connection aimed at MiniMax's host is no longer known",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "'api.minimax.io': 'minimax',", "new": "" }
+      ]
+    },
+    {
+      "name": "M24",
+      "what": "the GLM preset is looked up under Zhipu's (Chinese) listing instead of Z.ai's",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "glm: 'zai',", "new": "glm: 'zhipuai'," }
+      ]
+    },
+    {
+      "name": "M25",
+      "what": "the Qwen preset is looked up under the Chinese Alibaba listing",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "qwen: 'alibaba',", "new": "qwen: 'alibaba-cn'," }
+      ]
+    },
+    {
+      "name": "M26",
+      "what": "the MiniMax preset is looked up under the Chinese MiniMax listing",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "minimax: 'minimax',", "new": "minimax: 'minimax-cn'," }
+      ]
+    },
+    {
+      "name": "M27",
+      "what": "the xAI preset has no catalog provider",
+      "patches": [
+        { "file": "lib/model-catalog.mjs", "old": "xai: 'xai',", "new": "" }
+      ]
     }
   ]
 }

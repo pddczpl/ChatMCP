@@ -1,0 +1,34 @@
+{
+  "suite": "verify-dual-mode.mjs",
+  "description": "What the dual-mode suite must notice about how the Hub builds the Chat Completions and Responses address from a base URL: a version already in the base (Z.ai ends in /v4) is the provider's own, a segment that only ends in a number or has a word after the number is not a version.",
+  "mutations": [
+    {
+      "name": "E1",
+      "what": "only /v1 counts as a version already in the address (Z.ai ends in /v4)",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "const stem = /\\/v\\d+$/.test(url) ? url : `${url}/v1`;", "new": "const stem = /\\/v1$/.test(url) ? url : `${url}/v1`;" }
+      ]
+    },
+    {
+      "name": "E2",
+      "what": "a segment that only ends in a number (rev2) is taken for a version",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "const stem = /\\/v\\d+$/.test(url) ? url : `${url}/v1`;", "new": "const stem = /v\\d+$/.test(url) ? url : `${url}/v1`;" }
+      ]
+    },
+    {
+      "name": "E3",
+      "what": "a version of two digits (v10) is not one",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "const stem = /\\/v\\d+$/.test(url) ? url : `${url}/v1`;", "new": "const stem = /\\/v\\d$/.test(url) ? url : `${url}/v1`;" }
+      ]
+    },
+    {
+      "name": "E4",
+      "what": "a version with a word after it (v1beta) is taken for a plain version",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "const stem = /\\/v\\d+$/.test(url) ? url : `${url}/v1`;", "new": "const stem = /\\/v\\d+/.test(url) ? url : `${url}/v1`;" }
+      ]
+    }
+  ]
+}
