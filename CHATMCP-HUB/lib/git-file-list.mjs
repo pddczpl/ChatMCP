@@ -13,30 +13,36 @@ import path from 'node:path';
 /**
  * A check for the paths Git lists: true for a regular file that can be reached from `root` without crossing a link. Git for Windows lists what a junction points to as if it were a
  * folder of the workspace (so a folder outside it, or a second copy of one inside it, would be listed), and lstat of `link/file` follows the link; so every folder on the way is
- * lstat'ed too (once each) and must be a real folder. A file that Git still lists after it was deleted, a link and anything that is not a regular file are false.
+ * lstat'ed too and must be a real folder. The files themselves are not lstat'ed one by one (48,000 of them cost seconds on Windows): each folder is read once, and its entries say
+ * which names are regular files (a link, a folder and anything else is not one). A file that Git still lists after it was deleted is false too.
  * @returns {(relPath: string) => Promise<boolean>}
  */
 export function createPlainFileChecker(root) {
   const folders = new Map();
-  const plainFolder = (relative) => {
-    if (relative === '') return Promise.resolve(true);
+  // the file systems of Windows and macOS do not tell `A.js` from `a.js`, and Git lists the name it has in its index
+  const fold = process.platform === 'win32' || process.platform === 'darwin' ? (name) => name.toLowerCase() : (name) => name;
+  const folder = (relative) => {
     let known = folders.get(relative);
     if (!known) {
-      const parent = relative.includes('/') ? relative.slice(0, relative.lastIndexOf('/')) : '';
-      known = plainFolder(parent).then(async (parentIsPlain) => {
-        if (!parentIsPlain) return false;
-        const stats = await fs.lstat(path.join(root, relative)).catch(() => null);
-        return Boolean(stats?.isDirectory() && !stats.isSymbolicLink());
-      });
+      known = (async () => {
+        if (relative !== '') {
+          const parent = relative.includes('/') ? relative.slice(0, relative.lastIndexOf('/')) : '';
+          if (!(await folder(parent)).plain) return { plain: false, files: null };
+          const stats = await fs.lstat(path.join(root, relative)).catch(() => null);
+          if (!stats?.isDirectory() || stats.isSymbolicLink()) return { plain: false, files: null };
+        }
+        const entries = await fs.readdir(path.join(root, relative), { withFileTypes: true }).catch(() => null);
+        if (!entries) return { plain: false, files: null };
+        return { plain: true, files: new Set(entries.filter((entry) => entry.isFile()).map((entry) => fold(entry.name))) };
+      })();
       folders.set(relative, known);
     }
     return known;
   };
   return async (relPath) => {
     const slash = relPath.lastIndexOf('/');
-    if (!(await plainFolder(slash < 0 ? '' : relPath.slice(0, slash)))) return false;
-    const stats = await fs.lstat(path.join(root, relPath)).catch(() => null);
-    return Boolean(stats?.isFile());
+    const { plain, files } = await folder(slash < 0 ? '' : relPath.slice(0, slash));
+    return plain && files.has(fold(slash < 0 ? relPath : relPath.slice(slash + 1)));
   };
 }
 

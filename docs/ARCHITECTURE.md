@@ -70,6 +70,8 @@ PermissionGate trong lib/permissions.mjs là chính sách cục bộ và vẫn h
 
 `local-tools.mjs` — 99 công cụ; StudioTools bổ sung kiểm tra, checkpoint, code intelligence và Git review. Các tool không thuộc danh sách cho phép không được thực thi.
 
+**Tìm kiếm.** `search_files` và `find_files` dùng ripgrep khi có: bản bộ cài đặt đi kèm trong `runtimes/ripgrep`, hoặc `rg` trên PATH (`CHATMCP_RIPGREP=<đường dẫn>` để chọn nhị phân, `CHATMCP_RIPGREP=off` để tắt). Ripgrep biết `.gitignore` và nhanh hơn nhiều trên cây lớn; nó chạy như một tiến trình phụ chỉ đọc với dòng lệnh cố định (mẫu truyền qua `-e`, không shell, không file cấu hình, môi trường đã lọc), dưới mọi chính sách thực thi, giống `git`. Hub vẫn tự quyết file nào được hiện (bí mật, `.git`, thư mục nhiễu, glob chính xác) cả khi hỏi lẫn khi nhận câu trả lời. Thiếu ripgrep hoặc ripgrep lỗi thì Hub tự tìm: trong kho Git lấy danh sách file từ Git (tôn trọng `.gitignore`, không đi qua liên kết), ngoài kho thì duyệt cây như trước; `include_ignored: true` luôn duyệt cả file bị `.gitignore` loại. Lookahead và backreference chỉ chạy được khi ripgrep có PCRE2.
+
 ## 8. Chạy lệnh và các lớp bảo vệ quanh nó
 
 ShellRunner lọc biến môi trường, áp timeout, kiểm tra lệnh và đường dẫn. Tuy vậy lệnh được duyệt chạy với quyền tài khoản hệ điều hành hiện tại. SandboxEngine hiện chỉ là chế độ host (osIsolated:false) và **không phải** VM/AppContainer. Optional Docker sandbox chỉ dành cho bài test cục bộ, không phải cloud hosting.

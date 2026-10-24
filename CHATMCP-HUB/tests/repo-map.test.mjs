@@ -174,6 +174,7 @@ try {
     assert.equal(await plain('missing.js'), false);
     assert.equal(await plain('real/missing.js'), false, 'a file that Git still lists after it was deleted');
     assert.equal(await plain('nowhere/at/all.js'), false);
+    if (process.platform === 'win32' || process.platform === 'darwin') assert.equal(await plain('REAL/A.JS'), true, 'a file system that ignores case finds the file under the case Git remembers');
     if (linkable) {
       assert.equal(await plain('alias/a.js'), false, 'a file behind a link to a folder of the workspace');
       assert.equal(await plain('alias/deeper/more.js'), false, 'two levels behind it');

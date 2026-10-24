@@ -12,6 +12,7 @@ import { StudioVerification } from './studio-verification.mjs';
 import { CodeIntelligence } from './studio-intelligence.mjs';
 import { previewStatus } from './studio-preview.mjs';
 import { LocalTools } from './local-tools.mjs';
+import { Ripgrep } from './ripgrep.mjs';
 import { GitRunner } from './git-runner.mjs';
 import { ShellRunner } from './shell-runner.mjs';
 import { PluginManager } from './plugins.mjs';
@@ -68,6 +69,9 @@ export function assembleStudio(manager, { bundleRoot, exec = null }) {
   manager.intelligence.canSpawnLanguageServer = () => manager.permissions.executionPolicy !== 'sandbox-only';
   manager.studioTools = new StudioTools({ workspace: manager.studio, gate: manager.permissions, intelligence: manager.intelligence });
   const localOptions = { workspace: manager.studio, stateDirectory: localDirectory, secrets, studioIntelligence: manager.intelligence };
+  // search_files and find_files use ripgrep (bundled by the installer, or on PATH) when there is one; a read-only helper with a fixed command line, like the Git runner, so it is
+  // available under every execution policy. CHATMCP_RIPGREP=off turns it off.
+  localOptions.ripgrep = new Ripgrep({ secrets });
   if (exec) {
     localOptions.shell = new ShellRunner({
       workspace: manager.studio, stateDirectory: localDirectory, secrets,
