@@ -34,6 +34,11 @@ export function reasoningHint(info: ModelInfo | undefined, current: string, refu
   if (!info) return null;
   if (info.reasoning.why) return { key: `ai_reasoning_why_${info.reasoning.why}`, tone: 'muted' };
   if (current !== REASONING_AUTO && !info.reasoning.levels.includes(current)) return { key: 'ai_reasoning_hint_not_offered', tone: 'warning' };
+  // A model with no levels of its own that thinks within a token budget (Gemini 2.5): the levels are budgets the Hub picks, up to the largest the model takes.
+  const budget = info.reasoning.budget;
+  if (budget && budget.max !== null && info.reasoning.efforts.length === 0 && info.reasoning.levels.length > 0) {
+    return { key: 'ai_reasoning_hint_budget', tone: 'muted', params: { max: budget.max.toLocaleString('en-US') } };
+  }
   return info.reasoning.known
     ? { key: 'ai_reasoning_hint_known', tone: 'muted', params: { date: info.catalog.generatedAt } }
     : { key: 'ai_reasoning_hint_unknown', tone: 'muted' };

@@ -127,6 +127,125 @@
       "patches": [
         { "file": "lib/ai-profiles.mjs", "old": "      contextWindow,\n      reasoningEffort,\n", "new": "      contextWindow,\n" }
       ]
+    },
+    {
+      "name": "R19",
+      "what": "Gemini 3 is sent a level the catalog does not list for the model",
+      "patches": [
+        { "file": "lib/reasoning-effort.mjs", "old": "    if (!reasoning.efforts.includes(effort)) return { send: null, why: 'value_not_offered' };", "new": "" }
+      ]
+    },
+    {
+      "name": "R20",
+      "what": "minimal is no longer a level Gemini takes",
+      "patches": [
+        { "file": "lib/reasoning-effort.mjs", "old": "const GEMINI_LEVELS = Object.freeze(['minimal', 'low', 'medium', 'high']);", "new": "const GEMINI_LEVELS = Object.freeze(['low', 'medium', 'high']);" }
+      ]
+    },
+    {
+      "name": "R21",
+      "what": "the medium rung of the budget ladder moves",
+      "patches": [
+        { "file": "lib/reasoning-effort.mjs", "old": "medium: 8192, high: 24576", "new": "medium: 4096, high: 24576" }
+      ]
+    },
+    {
+      "name": "R22",
+      "what": "thinking can be switched off on a model that cannot (Gemini 2.5 Pro)",
+      "patches": [
+        { "file": "lib/reasoning-effort.mjs", "old": "if (effort === 'none') return reasoning.toggle || min === 0 ? 0 : null;", "new": "if (effort === 'none') return 0;" }
+      ]
+    },
+    {
+      "name": "R23",
+      "what": "the top level is a fixed budget instead of the largest budget of the model",
+      "patches": [
+        { "file": "lib/reasoning-effort.mjs", "old": "if (effort === 'max') return max;", "new": "if (effort === 'max') return Math.min(max, 24576);" }
+      ]
+    },
+    {
+      "name": "R24",
+      "what": "a rung is not held to the range of the model",
+      "patches": [
+        { "file": "lib/reasoning-effort.mjs", "old": "return rung === undefined ? null : Math.min(max, Math.max(min ?? 0, rung));", "new": "return rung === undefined ? null : rung;" }
+      ]
+    },
+    {
+      "name": "R25",
+      "what": "a model that lists its levels is sent a budget as well (the API answers 400 to both)",
+      "patches": [
+        { "file": "lib/reasoning-effort.mjs", "old": "    return GEMINI_LEVELS.includes(effort) ? send({ thinkingLevel: effort }) : { send: null, why: 'value_not_valid_here' };", "new": "    return GEMINI_LEVELS.includes(effort) ? send({ thinkingLevel: effort, thinkingBudget: 1024 }) : { send: null, why: 'value_not_valid_here' };" }
+      ]
+    },
+    {
+      "name": "R26",
+      "what": "two levels that come to the same budget are both offered",
+      "patches": [
+        { "file": "lib/reasoning-effort.mjs", "old": "if (budgets.has(budget)) return false;", "new": "" }
+      ]
+    },
+    {
+      "name": "R27",
+      "what": "a model driven by a budget is offered only the three common levels",
+      "patches": [
+        { "file": "lib/reasoning-effort.mjs", "old": "budgeted ? EFFORT_LEVELS : GENERIC_LEVELS;", "new": "GENERIC_LEVELS;" }
+      ]
+    },
+    {
+      "name": "R28",
+      "what": "a refusal that names thinkingConfig / thinking_budget / thinking_level is not recognised",
+      "patches": [
+        { "file": "lib/reasoning-effort.mjs", "old": "thinking(?:_?(?:config|budget|level))?|output_config", "new": "thinking|output_config" }
+      ]
+    },
+    {
+      "name": "R29",
+      "what": "the Gemini request never carries the thinking setting",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "      applyReasoning(nativeBody, thinking.decision.send);", "new": "" }
+      ]
+    },
+    {
+      "name": "R30",
+      "what": "the repeat after a refusal still carries the setting",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "          delete nativeBody.generationConfig.thinkingConfig;", "new": "" }
+      ]
+    },
+    {
+      "name": "R31",
+      "what": "a confirmed refusal is not remembered, so every request asks the provider again",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "if (thinkingDropped && thinking.key && this.model === model) this.#reasoningRefused = thinking.key;", "new": "" }
+      ]
+    },
+    {
+      "name": "R32",
+      "what": "a budget leaves no room for the answer above it",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "thinkingConfig.thinkingBudget + GEMINI_ANSWER_ROOM_TOKENS;", "new": "thinkingConfig.thinkingBudget;" }
+      ]
+    },
+    {
+      "name": "R33",
+      "what": "a medium level gets no room above the cap that was asked for",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "['medium', 'high'].includes(thinkingConfig?.thinkingLevel)", "new": "['high'].includes(thinkingConfig?.thinkingLevel)" }
+      ]
+    },
+    {
+      "name": "R34",
+      "what": "the room made for the thoughts ignores the cap the model is known to take",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "geminiThinkingRoom(nativeBody.generationConfig.thinkingConfig)), this.outputLimit);", "new": "geminiThinkingRoom(nativeBody.generationConfig.thinkingConfig)), null);" }
+      ]
+    },
+    {
+      "name": "R35",
+      "what": "a 400 that names the setting steps down to another dialect instead of dropping only the setting",
+      "patches": [
+        { "file": "lib/gateway-provider.mjs", "old": "        if (thinkingSent && activeDialect === 'native' && !response.ok", "new": "        if (false && thinkingSent && activeDialect === 'native' && !response.ok" }
+      ]
     }
   ]
 }

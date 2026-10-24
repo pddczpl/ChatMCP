@@ -18,7 +18,7 @@ import { normalizeCustomHeaders, publicCustomHeaders, applyCustomHeaders } from 
 import { CONTEXT_WINDOW_MAX, CONTEXT_WINDOW_MIN, contextWindowRangeText, parseContextWindow } from './context-window.mjs';
 import { lookup as catalogLookup } from './model-catalog.mjs';
 import { modelFacts } from './model-facts.mjs';
-import { AUTO, EFFORT_LEVELS, parseReasoningEffort, reasoningDecision } from './reasoning-effort.mjs';
+import { AUTO, EFFORT_LEVELS, applyReasoning, parseReasoningEffort, reasoningDecision, refusesReasoning } from './reasoning-effort.mjs';
 
 // These stay importable from here: other modules and the tests have always taken them from this file.
 export { asChatMessages, normalizeChatCompletion };
@@ -56,6 +56,14 @@ const GEMINI_MAX_OUTPUT_TOKENS = 65536;
 function geminiOutputCap(requested, learned) {
   const wanted = Number.isFinite(requested) && requested > 0 ? Math.min(Math.max(256, Math.floor(requested)), GEMINI_MAX_OUTPUT_TOKENS) : GEMINI_DEFAULT_OUTPUT_TOKENS;
   return learned ? Math.min(wanted, learned) : wanted;
+}
+// The thoughts of a Gemini model count against the output cap, so a model asked to think a lot under a small cap ends at MAX_TOKENS with no answer. A budget leaves room for
+// the answer above it; a medium or high level is given the room the Messages API gets for its heavy levels (16,384).
+const GEMINI_ANSWER_ROOM_TOKENS = 4096;
+const GEMINI_HEAVY_LEVEL_TOKENS = 16384;
+function geminiThinkingRoom(thinkingConfig) {
+  if (Number.isInteger(thinkingConfig?.thinkingBudget) && thinkingConfig.thinkingBudget > 0) return thinkingConfig.thinkingBudget + GEMINI_ANSWER_ROOM_TOKENS;
+  return ['medium', 'high'].includes(thinkingConfig?.thinkingLevel) ? GEMINI_HEAVY_LEVEL_TOKENS : 0;
 }
 /** "...maxOutputTokens value of 16384 but the supported range is from 1 (inclusive) to 8193 (exclusive)" -> 8192, else null. */
 function geminiOutputRange(detail) {
@@ -609,13 +617,23 @@ export class GatewayProvider {
     // Gemini keeps its own compatibility loop: gateways in front of it differ a lot (see gemini-compat.mjs).
     const protocol = 'gemini';
     const sourceContextBytes = Buffer.byteLength(JSON.stringify(input),'utf8') + Buffer.byteLength(instructions,'utf8');
-    const endpoint = buildEndpoint(this.apiBaseUrl, protocol, this.model, this.customPath);
+    const model = this.model;
+    const endpoint = buildEndpoint(this.apiBaseUrl, protocol, model, this.customPath);
     const nativeBody = {
       systemInstruction: { parts: [{ text: instructions }] },
       contents: asGeminiContents(input),
       tools: tools.length ? [{ functionDeclarations: tools.map((x) => ({ name: x.name, description: x.description, parameters: geminiSchema(x.parameters) })) }] : undefined,
       generationConfig: { maxOutputTokens: geminiOutputCap(maxOutputTokens, this.outputLimit) },
     };
+    // The thinking setting (lib/reasoning-effort.mjs) goes into generationConfig with the output cap, which is raised to leave room for the answer after the thoughts.
+    // Only the native request has it; the compatibility dialects below drop generationConfig (or build a request of their own) and with it the setting.
+    const thinking = this.#reasoningRequest();
+    let thinkingSent = thinking.decision.send !== null && !thinking.refused;
+    let thinkingDropped = false;
+    if (thinkingSent) {
+      applyReasoning(nativeBody, thinking.decision.send);
+      nativeBody.generationConfig.maxOutputTokens = geminiOutputCap(Math.max(nativeBody.generationConfig.maxOutputTokens, geminiThinkingRoom(nativeBody.generationConfig.thinkingConfig)), this.outputLimit);
+    }
     const inlineInstructions = () => {
       const contents = asGeminiContents(input);
       const instructionPart = { text: `SYSTEM / AGENT INSTRUCTIONS (follow these rules):\n${instructions}` };
@@ -698,6 +716,17 @@ export class GatewayProvider {
             continue;
           }
         }
+        // The provider does not take the thinking setting (for this model): the same model request once more without it, and not a step down to another dialect, which would
+        // lose the output cap too. Never a tool call, so nothing can be replayed.
+        if (thinkingSent && activeDialect === 'native' && !response.ok
+            && refusesReasoning({ status: response.status, data, info: classifyHttpError({ status: response.status, data, headers: response.headers, redact: (text) => this.redact(text) }), sent: true })) {
+          thinkingSent = false;
+          thinkingDropped = true;
+          delete nativeBody.generationConfig.thinkingConfig;
+          const detail = noSecrets(gatewayErrorDetail(data), (text) => this.redact(text)).slice(0, 200);
+          await onStatus(`Nhà cung cấp từ chối thiết lập mức suy luận (thinking) cho model này (HTTP ${response.status}${detail ? `: ${detail}` : ''}). Gửi lại đúng yêu cầu model này một lần, không kèm thiết lập đó; không chạy lại công cụ. Các yêu cầu sau không gửi nó cho model này nữa.`);
+          continue;
+        }
         // Google words the range in its 400 answer; a gateway in front of Gemini words it its own way, or not at all. An answer that names
         // the cap without a range is still taken as "lower it", to the 8,192 every Gemini model accepts, once.
         const refusal = response.status === 400 ? gatewayErrorDetail(data) : '';
@@ -766,6 +795,8 @@ export class GatewayProvider {
       throw bad(code, `Gateway HTTP ${response.status}${detail ? ': ' + detail : '.'} ${hint}`, response.status || 502);
     }
     const normalized = dialects[dialectIndex] === 'text-protocol' ? normalizedTextReply : normalizeGemini(data);
+    // The provider refused the thinking setting and accepted the same request without it: later requests for this model do not send it.
+    if (thinkingDropped && thinking.key && this.model === model) this.#reasoningRefused = thinking.key;
     this.geminiDialect = dialects[dialectIndex]; this.dialectConfirmed = true;
     this.lastError = '';
     return normalized;

@@ -49,6 +49,7 @@ export const RULES = Object.freeze({
   'gemini.function_turns': { api: 'gemini', provenance: 'report', source: 'https://discuss.ai.google.dev (threads quoting "Please ensure that function response turn comes immediately after a function call turn" and "... function call turn comes immediately after a user turn or after a function response turn")', summary: 'a model turn with functionCall parts follows a user turn and is followed by a user turn with one functionResponse part per call' },
   'gemini.tool_declarations': { api: 'gemini', provenance: 'recalled', source: 'Gemini API function calling: function names of letters, digits, _ . : - (at most 64, not starting with a digit)', summary: 'functionDeclarations is a list of declarations with valid names' },
   'gemini.thought_signature': { api: 'gemini', provenance: 'report', source: 'reports of Gemini 3 "thought signature" errors (the signature of a function call must be passed back unmodified)', summary: 'a thoughtSignature on a function call is the one the server issued for that call' },
+  'gemini.thinking_config': { api: 'gemini', provenance: 'doc', source: 'https://ai.google.dev/gemini-api/docs/generate-content/thinking (generationConfig.thinkingConfig: thinkingLevel minimal, low, medium or high; thinkingBudget a whole number, 0 for off and -1 for dynamic; "sending thinkingBudget and thinkingLevel together returns a 400"; includeThoughts); the wording of the messages is ours', summary: 'generationConfig is an object; its thinkingConfig names a documented level or a budget, never both' },
   'chat.stream_shape': { api: 'chat', provenance: 'sdk', source: 'openai-python chat_completion_chunk.py: chunks, tool call fragments, a usage chunk with no choices, [DONE]', summary: 'what a Chat Completions SSE stream looks like' },
   'anthropic.stream_shape': { api: 'anthropic', provenance: 'doc', source: 'https://platform.claude.com/docs/en/build-with-claude/streaming', summary: 'message_start, blocks with start/delta/stop, message_delta, message_stop' },
   'responses.stream_shape': { api: 'responses', provenance: 'sdk', source: 'openai-python src/openai/types/responses/response_*_event.py', summary: 'response.created ... response.completed with increasing sequence_number and items that match their deltas' },
@@ -434,12 +435,36 @@ const GEMINI_DATA = ['text', 'inlineData', 'fileData', 'functionCall', 'function
 const GEMINI_FUNCTION_NAME = /^[a-zA-Z_][a-zA-Z0-9_.:-]{0,63}$/;
 const hasCall = (part) => isObject(part) && part.functionCall !== undefined;
 const hasResponse = (part) => isObject(part) && part.functionResponse !== undefined;
+// generationConfig.thinkingConfig: a level (Gemini 3 and 4) or a budget (Gemini 2.5), never both, and whether the thoughts come back.
+const GEMINI_THINKING_LEVELS = ['minimal', 'low', 'medium', 'high'];
+const GEMINI_THINKING_KEYS = ['includeThoughts', 'thinkingBudget', 'thinkingLevel'];
+
+function validateGeminiThinking(config, c) {
+  const at = 'generation_config.thinking_config';
+  const bad = (key, kind, value) => c.add('gemini.thinking_config', `Invalid JSON payload received. Invalid value at '${at}${key}' (${kind}), ${JSON.stringify(value)}`, { param: `generationConfig.thinkingConfig${key}` });
+  if (!isObject(config)) { bad('', 'type.googleapis.com/google.ai.generativelanguage.v1beta.ThinkingConfig', config); return; }
+  for (const key of Object.keys(config)) {
+    if (!GEMINI_THINKING_KEYS.includes(key)) c.add('gemini.thinking_config', `Invalid JSON payload received. Unknown name "${key}" at '${at}': Cannot find field.`, { param: `generationConfig.thinkingConfig.${key}` });
+  }
+  if (config.includeThoughts !== undefined && typeof config.includeThoughts !== 'boolean') bad('.include_thoughts', 'TYPE_BOOL', config.includeThoughts);
+  if (config.thinkingBudget !== undefined && !(Number.isInteger(config.thinkingBudget) && config.thinkingBudget >= -1)) bad('.thinking_budget', 'TYPE_INT32', config.thinkingBudget);
+  if (config.thinkingLevel !== undefined && !(isText(config.thinkingLevel) && GEMINI_THINKING_LEVELS.includes(config.thinkingLevel.toLowerCase()))) {
+    bad('.thinking_level', 'type.googleapis.com/google.ai.generativelanguage.v1beta.ThinkingConfig.ThinkingLevel', config.thinkingLevel);
+  }
+  if (config.thinkingBudget !== undefined && config.thinkingLevel !== undefined) {
+    c.add('gemini.thinking_config', 'Cannot set both thinking_budget and thinking_level in thinking_config. Use thinking_level for Gemini 3 and later and thinking_budget for Gemini 2.5.', { param: 'generationConfig.thinkingConfig' });
+  }
+}
 
 export function validateGeminiRequest(body, { signer = null } = {}) {
   const c = collector();
   if (!isObject(body)) { c.add('gemini.contents', 'Invalid JSON payload received. Expected a JSON object.'); return c.result(); }
   for (const key of Object.keys(body)) {
     if (!GEMINI_FIELDS.has(key)) c.add('gemini.unknown_field', `Invalid JSON payload received. Unknown name "${key}": Cannot find field.`, { param: key });
+  }
+  if (body.generationConfig !== undefined) {
+    if (!isObject(body.generationConfig)) c.add('gemini.thinking_config', `Invalid JSON payload received. Invalid value at 'generation_config' (type.googleapis.com/google.ai.generativelanguage.v1beta.GenerationConfig), ${JSON.stringify(body.generationConfig)}`, { param: 'generationConfig' });
+    else if (body.generationConfig.thinkingConfig !== undefined) validateGeminiThinking(body.generationConfig.thinkingConfig, c);
   }
   if (!Array.isArray(body.contents) || body.contents.length === 0) {
     c.add('gemini.contents', 'GenerateContentRequest.contents: contents is not specified', { param: 'contents' });

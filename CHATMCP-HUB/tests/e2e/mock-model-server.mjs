@@ -23,8 +23,9 @@
 //   chatDialect  'openai' | 'compat'                                   'compat' accepts and sends reasoning_content (DeepSeek and kin)
 //   streamUsage  'on-request' | 'always'                               when a Chat stream carries its usage chunk
 //   keepBodies   true | false                                          keep the whole body in each recorded request (state.requests[n].body); default false
-// A field the server does not accept (library: mock.refuseParam(name, { message, on })): every request with that top-level field is answered HTTP 400 naming it,
-// until mock.clearRefusals(). It is what a provider that has no "thinking effort" does with `reasoning_effort` or `output_config`.
+// A field the server does not accept (library: mock.refuseParam(name, { message, on })): every request with that field is answered HTTP 400 naming it,
+// until mock.clearRefusals(). The name is a top-level field or a dotted path ("generationConfig.thinkingConfig"). It is what a provider that has no "thinking effort"
+// does with `reasoning_effort`, `output_config` or `generationConfig.thinkingConfig`.
 // Faults, for the failures that only happen on a real network (library: mock.inject(spec); a scenario step may carry `fault: spec`):
 //   { kind: 'stall', afterEvents }      the stream (or the body) stops after N events and nothing more is sent until the client gives up
 //   { kind: 'cut', afterEvents, reset } the stream ends before its terminal event (reset: the connection is torn down instead)
@@ -151,6 +152,15 @@ async function readJsonWithText(req) {
   try { return { text, json: JSON.parse(text) }; } catch { throw Object.assign(new Error('body is not JSON'), { statusCode: 400 }); }
 }
 const readJson = async (req) => (await readJsonWithText(req)).json;
+/** Whether a body has a field named by a dotted path ("reasoning_effort", "generationConfig.thinkingConfig"). */
+const hasPath = (value, dotted) => {
+  let at = value;
+  for (const key of String(dotted).split('.')) {
+    if (!at || typeof at !== 'object' || !Object.hasOwn(at, key)) return false;
+    at = at[key];
+  }
+  return true;
+};
 
 const pieces = (text, size = PIECE) => { const out = []; for (let i = 0; i < text.length; i += size) out.push(text.slice(i, i + size)); return out; };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -506,7 +516,7 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
           return reply(status, errorJson, headers);
         }
         // A provider that does not accept a field says so before it reads the rest, in the protocol's own error format, naming the field.
-        const refusal = body && typeof body === 'object' ? refusals.find((entry) => Object.hasOwn(body, entry.param) && (!entry.on || entry.on === protocol)) : undefined;
+        const refusal = body && typeof body === 'object' ? refusals.find((entry) => hasPath(body, entry.param) && (!entry.on || entry.on === protocol)) : undefined;
         if (refusal) {
           refusal.used += 1;
           record.fault = 'refuse-param';
@@ -568,7 +578,7 @@ export async function startMockModel({ scenario = 'repair-add', scenarios: extra
     },
     clearFaults() { faults.length = 0; },
     /**
-     * From now on a request that has this top-level field is answered HTTP 400 naming it, whatever else it holds ("Unsupported parameter",
+     * From now on a request that has this field (top-level, or a dotted path such as generationConfig.thinkingConfig) is answered HTTP 400 naming it, whatever else it holds ("Unsupported parameter",
      * "Extra inputs are not permitted"), until clearRefusals(). `on` limits it to one protocol ('chat' | 'anthropic' | 'responses' | 'gemini').
      * Returns the entry: `used` says how many requests it has refused.
      */

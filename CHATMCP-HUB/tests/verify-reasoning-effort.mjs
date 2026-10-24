@@ -13,7 +13,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { startMockModel } from './e2e/mock-model-server.mjs';
-import { validateAnthropicRequest, validateChatRequest, validateResponsesRequest } from './e2e/protocol-validators.mjs';
+import { validateAnthropicRequest, validateChatRequest, validateGeminiRequest, validateResponsesRequest } from './e2e/protocol-validators.mjs';
 import { AiProfiles } from '../lib/ai-profiles.mjs';
 import { GatewayProvider } from '../lib/gateway-provider.mjs';
 import { createCatalog, lookup } from '../lib/model-catalog.mjs';
@@ -45,6 +45,17 @@ try {
     const sonnet = catalog('anthropic', 'claude-sonnet-5-5');
     const mini = catalog('openai', 'gpt-5-mini');
     const five1 = catalog('openai', 'gpt-5.1');
+    const g38 = catalog('gemini', 'gemini-3.8-flash');
+    const g36 = catalog('gemini', 'gemini-3.6-flash');
+    const g25pro = catalog('gemini', 'gemini-2.5-pro');
+    const g25flash = catalog('gemini', 'gemini-2.5-flash');
+    const g25lite = catalog('gemini', 'gemini-2.5-flash-lite');
+    const gemma = catalog('gemini', 'gemma-4-31b-it');
+    const unknownGemini = catalog('custom-gemini', 'my-gemini', 'https://proxy.example.com');
+    // a model whose budget range no rung of the ladder fits in on both sides (the catalog has none today, a model of tomorrow may)
+    const narrow = { found: true, reasoning: { supported: true, toggle: false, budget: { min: 1024, max: 4096 }, efforts: [], levels: [] } };
+    const geminiLevel = (thinkingLevel) => ({ field: 'generationConfig', value: { thinkingConfig: { thinkingLevel } } });
+    const geminiBudget = (thinkingBudget) => ({ field: 'generationConfig', value: { thinkingConfig: { thinkingBudget } } });
     const rows = [
       // [label, effort, protocol, info, apiBaseUrl, expected send, expected why]
       ['auto sends nothing', AUTO, 'anthropic', sonnet, '', null, null],
@@ -63,8 +74,26 @@ try {
       ['Chat on OpenRouter: reasoning.effort', 'high', 'openai-chat', catalog('openrouter', 'anthropic/claude-sonnet-5-5'), 'https://openrouter.ai/api/v1', { field: 'reasoning', value: { effort: 'high' } }, null],
       ['Chat: a model that does not think', 'low', 'openai-chat', (() => { for (const id of ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini']) { const info = catalog('openai', id); if (info.found && info.reasoning.supported === false) return info; } return null; })(), '', null, 'model_does_not_reason'],
       ['Chat: a model the catalog does not know gets the level', 'medium', 'openai-chat', catalog('custom-openai', 'my-alias', 'https://proxy.example.com'), 'https://proxy.example.com', { field: 'reasoning_effort', value: 'medium' }, null],
-      ['Gemini: driven by a budget, which this setting does not drive', 'high', 'gemini', catalog('gemini', 'gemini-2.5-pro'), '', null, 'no_effort_control'],
-      ['Gemini: no field for it yet', 'high', 'gemini', catalog('custom-gemini', 'my-gemini', 'https://proxy.example.com'), '', null, 'protocol_not_supported'],
+      // Gemini (generationConfig.thinkingConfig): Gemini 3 and 4 take a level, Gemini 2.5 a token budget, and the two are never sent together (the API answers 400).
+      ['Gemini 3: thinkingLevel', 'high', 'gemini', g38, '', geminiLevel('high'), null],
+      ['Gemini 3: a level the model does not list (minimal on 3.8 Flash)', 'minimal', 'gemini', g38, '', null, 'value_not_offered'],
+      ['Gemini 3: minimal where the model lists it', 'minimal', 'gemini', g36, '', geminiLevel('minimal'), null],
+      ['Gemini 3: the top levels of Claude are not Gemini levels', 'max', 'gemini', g38, '', null, 'value_not_offered'],
+      ['Gemini 2.5 Pro: a level is a budget', 'high', 'gemini', g25pro, '', geminiBudget(24576), null],
+      ['Gemini 2.5 Pro: the top level is the largest budget of the model', 'max', 'gemini', g25pro, '', geminiBudget(32768), null],
+      ['Gemini 2.5 Pro: the smallest rung is above the floor of 128 the model has', 'minimal', 'gemini', g25pro, '', geminiBudget(512), null],
+      ['Gemini 2.5 Pro: thinking cannot be switched off', 'none', 'gemini', g25pro, '', null, 'value_not_offered'],
+      ['Gemini 2.5 Pro: xhigh is not a rung of the ladder', 'xhigh', 'gemini', g25pro, '', null, 'value_not_offered'],
+      ['Gemini 2.5 Flash: none is a budget of 0', 'none', 'gemini', g25flash, '', geminiBudget(0), null],
+      ['Gemini 2.5 Flash: medium', 'medium', 'gemini', g25flash, '', geminiBudget(8192), null],
+      ['Gemini 2.5 Flash: high is held at the largest budget of the model', 'high', 'gemini', g25flash, '', geminiBudget(24576), null],
+      ['Gemini 2.5 Flash-Lite: the budget starts at 512', 'minimal', 'gemini', g25lite, '', geminiBudget(512), null],
+      ['Gemini 2.5 Flash-Lite: none is a budget of 0', 'none', 'gemini', g25lite, '', geminiBudget(0), null],
+      ['Gemini: a rung below the range of the model is raised to its smallest budget', 'minimal', 'gemini', narrow, '', geminiBudget(1024), null],
+      ['Gemini: a rung above the range is held at its largest budget', 'high', 'gemini', narrow, '', geminiBudget(4096), null],
+      ['Gemma: a switch and no level', 'high', 'gemini', gemma, '', null, 'no_effort_control'],
+      ['Gemini: a model the catalog does not know gets the level as chosen', 'high', 'gemini', unknownGemini, '', geminiLevel('high'), null],
+      ['Gemini: but none and xhigh are not Gemini levels', 'xhigh', 'gemini', unknownGemini, '', null, 'value_not_valid_here'],
     ];
     for (const [label, effort, protocol, info, apiBaseUrl, send, why] of rows) {
       assert.ok(info !== null, `(premise) ${label}: the catalog has the model it is about`);
@@ -75,6 +104,7 @@ try {
     assert.deepEqual(applyReasoning({ ...body, output_config: { ...body.output_config } }, { field: 'output_config', value: { effort: 'high' } }), { model: 'm', output_config: { format: 'x', effort: 'high' } }, 'output_config keeps its other keys');
     assert.deepEqual(applyReasoning({ model: 'm' }, { field: 'reasoning_effort', value: 'low' }), { model: 'm', reasoning_effort: 'low' });
     assert.deepEqual(applyReasoning({ model: 'm' }, null), { model: 'm' });
+    assert.deepEqual(applyReasoning({ model: 'm', generationConfig: { maxOutputTokens: 1024 } }, geminiLevel('low')), { model: 'm', generationConfig: { maxOutputTokens: 1024, thinkingConfig: { thinkingLevel: 'low' } } }, 'generationConfig keeps the output cap');
     ok(`${rows.length} cases of (setting x protocol x model) decide what is sent, or why nothing is`);
 
     // The levels a settings page offers are the levels the decision would send: from the catalog's list, or, for a model the catalog does not know, the three that every
@@ -87,7 +117,13 @@ try {
     assert.deepEqual(levelsOf('openai-chat', rows[14][3]), { levels: [], known: true, why: 'model_does_not_reason' });
     assert.deepEqual(levelsOf('openai-chat', catalog('custom-openai', 'my-alias', 'https://proxy.example.com'), 'https://proxy.example.com'), { levels: ['low', 'medium', 'high'], known: false, why: null });
     assert.deepEqual(levelsOf('anthropic', catalog('anthropic', 'my-claude')), { levels: ['low', 'medium', 'high'], known: false, why: null });
-    assert.deepEqual(levelsOf('gemini', catalog('custom-gemini', 'my-gemini', 'https://proxy.example.com')), { levels: [], known: false, why: 'protocol_not_supported' });
+    assert.deepEqual(levelsOf('gemini', g38), { levels: ['low', 'medium', 'high'], known: true, why: null }, 'Gemini 3: the levels the catalog lists');
+    assert.deepEqual(levelsOf('gemini', g36).levels, ['minimal', 'low', 'medium', 'high']);
+    assert.deepEqual(levelsOf('gemini', g25pro).levels, ['minimal', 'low', 'medium', 'high', 'max'], 'Gemini 2.5 Pro: the ladder of budgets, with no way to switch thinking off');
+    assert.deepEqual(levelsOf('gemini', g25flash).levels, ['none', 'minimal', 'low', 'medium', 'high'], 'Gemini 2.5 Flash: none switches it off, and max is not offered because it is the same budget as high');
+    assert.deepEqual(levelsOf('gemini', g25lite).levels, ['none', 'minimal', 'low', 'medium', 'high']);
+    assert.deepEqual(levelsOf('gemini', gemma), { levels: [], known: true, why: 'no_effort_control' }, 'a switch and no budget');
+    assert.deepEqual(levelsOf('gemini', unknownGemini), { levels: ['low', 'medium', 'high'], known: false, why: null });
     assert.deepEqual(levelsOf('openai-chat', catalog('openrouter', 'anthropic/claude-sonnet-5-5'), 'https://openrouter.ai/api/v1').levels, ['low', 'medium', 'high', 'xhigh', 'max']);
     // the invariant, over every model of the providers a person is most likely to use: nothing is offered that would not be sent
     const catalogs = [['anthropic', 'anthropic', 'anthropic'], ['openai', 'openai-responses', 'openai'], ['openai', 'openai-chat', 'openai'], ['openrouter', 'openai-chat', 'openrouter'], ['google', 'gemini', 'gemini'], ['mistral', 'openai-chat', 'mistral'], ['groq', 'openai-chat', 'groq']];
@@ -122,6 +158,11 @@ try {
     assert.equal(refused(400, { type: 'invalid_request_error', message: 'This model does not support the effort parameter.' }), true);
     assert.equal(refused(400, { message: "'thinking' is not supported by this model" }), true);
     assert.equal(refused(422, { message: 'reasoning is not enabled for this model' }), true);
+    // Gemini words it with its own field names (camel or snake case) inside a Google error envelope
+    assert.equal(refused(400, { code: 400, status: 'INVALID_ARGUMENT', message: 'Invalid JSON payload received. Unknown name "thinkingConfig" at \'generation_config\': Cannot find field.' }), true);
+    assert.equal(refused(400, { code: 400, status: 'INVALID_ARGUMENT', message: "Unable to submit request because thinking_budget is not supported by this model. Remove thinking_budget and try again." }), true);
+    assert.equal(refused(400, { code: 400, status: 'INVALID_ARGUMENT', message: 'Invalid value at \'generation_config.thinking_config.thinking_level\' (type.googleapis.com/google.ai.generativelanguage.v1beta.ThinkingConfig.ThinkingLevel), "extreme"' }), true);
+    assert.equal(refused(400, { code: 400, status: 'INVALID_ARGUMENT', message: 'Cannot set both thinkingBudget and thinkingLevel.' }), true);
     // something else: the context, the output cap, the quota, the model, a rate limit, a server error
     assert.equal(refused(400, { message: "This model's maximum context length is 8192 tokens." }, 'context'), false);
     assert.equal(refused(400, { message: 'max_tokens: 99999 > 8192, which is the maximum allowed number of output tokens for claude-x' }, 'max_tokens'), false);
@@ -152,9 +193,12 @@ try {
     // a local runtime: not found either, marked local
     const local = ask({ preset: 'ollama', model: 'qwen2.5-coder:7b' });
     assert.deepEqual([local.found, local.local, local.reasoning.levels], [false, true, ['low', 'medium', 'high']]);
-    // Gemini: driven by a budget, which the setting does not drive yet
+    // Gemini 2.5: driven by a budget, which the levels are mapped onto (the ladder, with the top level the largest budget of the model)
     const gemini = ask({ preset: 'gemini', model: 'gemini-2.5-pro' });
-    assert.deepEqual([gemini.reasoning.levels, gemini.reasoning.why, gemini.reasoning.budget], [[], 'no_effort_control', { min: 128, max: 32768 }]);
+    assert.deepEqual([gemini.reasoning.levels, gemini.reasoning.why, gemini.reasoning.budget], [['minimal', 'low', 'medium', 'high', 'max'], null, { min: 128, max: 32768 }]);
+    // and a switch with no budget (Gemma) still has nothing to offer
+    const gemma = ask({ preset: 'gemini', model: 'gemma-4-31b-it' });
+    assert.deepEqual([gemma.reasoning.levels, gemma.reasoning.why], [[], 'no_effort_control']);
     // what is refused
     const refusal = (params, pattern) => assert.throws(() => modelInfoQuery(new URLSearchParams(params)), (error) => error.code === 'invalid_model_info_query' && error.statusCode === 400 && pattern.test(error.message), JSON.stringify(params));
     refusal({}, /model/);
@@ -176,11 +220,11 @@ try {
     .forkForTask({ protocol, apiBaseUrl: server.origin, model: 'mock-coder', ...profile });
   const HI = () => [{ role: 'user', content: [{ type: 'input_text', text: 'Hi' }] }];
   const ask = (provider, options = {}) => provider.respond({ input: HI(), instructions: 'system', tools: [], maxOutputTokens: 1024, signal: AbortSignal.timeout(8000), ...options });
-  const FIELDS = { 'openai-chat': (body) => body.reasoning_effort, 'openai-responses': (body) => body.reasoning, anthropic: (body) => body.output_config };
-  const EXPECTED = { 'openai-chat': 'high', 'openai-responses': { effort: 'high' }, anthropic: { effort: 'high' } };
-  const VALIDATORS = { 'openai-chat': validateChatRequest, 'openai-responses': validateResponsesRequest, anthropic: (body) => validateAnthropicRequest(body, {}) };
+  const FIELDS = { 'openai-chat': (body) => body.reasoning_effort, 'openai-responses': (body) => body.reasoning, anthropic: (body) => body.output_config, gemini: (body) => body.generationConfig?.thinkingConfig };
+  const EXPECTED = { 'openai-chat': 'high', 'openai-responses': { effort: 'high' }, anthropic: { effort: 'high' }, gemini: { thinkingLevel: 'high' } };
+  const VALIDATORS = { 'openai-chat': validateChatRequest, 'openai-responses': validateResponsesRequest, anthropic: (body) => validateAnthropicRequest(body, {}), gemini: (body) => validateGeminiRequest(body) };
   {
-    for (const protocol of ['openai-chat', 'openai-responses', 'anthropic']) {
+    for (const protocol of ['openai-chat', 'openai-responses', 'anthropic', 'gemini']) {
       const server = await mock({ strict: { chat: true, anthropic: true, responses: true, gemini: true } });
       const sent = await ask(fork(server, protocol, { reasoningEffort: 'high' }));
       assert.equal(sent.status, 'completed', protocol);
@@ -200,7 +244,58 @@ try {
         assert.equal(FIELDS[protocol](server.state.requests.at(-1).body), undefined, `${protocol}: ${JSON.stringify(profile)} sends nothing`);
       }
     }
-    ok('Chat reasoning_effort, Responses reasoning.effort and Messages output_config.effort reach a strict server; "auto" and no setting send nothing');
+    ok('Chat reasoning_effort, Responses reasoning.effort, Messages output_config.effort and Gemini thinkingConfig reach a strict server; "auto" and no setting send nothing');
+  }
+  {
+    // Gemini: the catalog decides between a level (Gemini 3 and 4) and a token budget (Gemini 2.5). The mock server is on loopback, where the catalog answers "a local
+    // runtime", so the test brings a catalog that answers for Google whatever the address.
+    const google = { lookup: (query) => lookup({ ...query, provider: 'google' }) };
+    const geminiFork = (server, model, effort) => new GatewayProvider({ directory: path.join(root, `gw-gemini-${model}-${effort}`), bundleRoot: root, manager, env: {}, sleep: async () => {}, catalog: google })
+      .forkForTask({ protocol: 'gemini', apiBaseUrl: server.origin, model, reasoningEffort: effort });
+    const server = await mock({ strict: { chat: true, anthropic: true, responses: true, gemini: true } });
+    const wireFor = async (model, effort) => {
+      const provider = geminiFork(server, model, effort);
+      assert.equal((await ask(provider)).status, 'completed', `${model} ${effort}`);
+      const request = server.state.requests.at(-1);
+      assert.equal(request.rejected, null, `${model} ${effort}: the strict server accepted it`);
+      assert.deepEqual(validateGeminiRequest(request.body).errors, [], `${model} ${effort}: and so does the validator`);
+      return { config: request.body.generationConfig, state: provider.state().reasoning };
+    };
+    const thinking = async (model, effort) => (await wireFor(model, effort)).config.thinkingConfig;
+    assert.deepEqual(await thinking('gemini-3.8-flash', 'high'), { thinkingLevel: 'high' }, 'Gemini 3 and 4 take a level');
+    assert.deepEqual(await thinking('gemini-3.6-flash', 'minimal'), { thinkingLevel: 'minimal' });
+    assert.deepEqual(await thinking('gemini-2.5-pro', 'max'), { thinkingBudget: 32768 }, 'Gemini 2.5 takes a budget, never a level and a budget together');
+    assert.deepEqual(await thinking('gemini-2.5-flash', 'medium'), { thinkingBudget: 8192 });
+    assert.deepEqual(await thinking('gemini-2.5-flash', 'none'), { thinkingBudget: 0 }, 'none switches thinking off where the model allows it');
+    const auto = await wireFor('gemini-3.8-flash', 'auto');
+    assert.equal(auto.config.thinkingConfig, undefined, 'auto sends nothing');
+    assert.equal(typeof auto.config.maxOutputTokens, 'number', 'and the output cap is still there');
+    const kept = await wireFor('gemini-3.8-flash', 'high');
+    assert.equal(typeof kept.config.maxOutputTokens, 'number', 'the thinking setting is added to the generation config, it does not replace it');
+    // a level the model does not list is not sent, and the connection says why
+    const notOffered = await wireFor('gemini-3.8-flash', 'minimal');
+    assert.equal(notOffered.config.thinkingConfig, undefined);
+    assert.deepEqual(notOffered.state, { effort: 'minimal', sent: false, why: 'value_not_offered', refused: false });
+    ok('Gemini: a level for Gemini 3 and 4, a budget for 2.5 (never both), nothing for auto or for a level the model does not list, and the output cap stays');
+
+    // The thoughts count against the output cap (asked for: 1,024): a budget leaves 4,096 for the answer above it, a heavy level gets the 16,384 of the Messages API, a light one nothing
+    assert.equal((await wireFor('gemini-2.5-pro', 'max')).config.maxOutputTokens, 36864, 'a budget of 32,768 and room for the answer');
+    assert.equal((await wireFor('gemini-2.5-flash', 'medium')).config.maxOutputTokens, 12288);
+    assert.equal((await wireFor('gemini-3.8-flash', 'high')).config.maxOutputTokens, 16384);
+    assert.equal((await wireFor('gemini-3.8-flash', 'medium')).config.maxOutputTokens, 16384);
+    assert.equal((await wireFor('gemini-3.8-flash', 'low')).config.maxOutputTokens, 1024, 'a light level keeps the cap that was asked for');
+    assert.equal((await wireFor('gemini-2.5-flash', 'none')).config.maxOutputTokens, 1024, 'and so does thinking switched off');
+    // a model that takes less learns it from the 400 answer, and the raised cap follows it down: the thinking setting stays (the 400 is about the cap, not about it)
+    const small = await mock({ strict: false });
+    small.inject({ kind: 'status', status: 400, message: 'Unable to submit request: the maxOutputTokens value of 36864 is invalid, the supported range is from 1 (inclusive) to 8193 (exclusive).', times: 1, on: 'gemini' });
+    const learner = geminiFork(small, 'gemini-2.5-pro', 'max');
+    assert.equal((await ask(learner)).status, 'completed');
+    assert.deepEqual(small.state.requests.map((request) => request.body.generationConfig.maxOutputTokens), [36864, 8192], 'the repeat asks for what the model takes');
+    assert.deepEqual(small.state.requests[1].body.generationConfig.thinkingConfig, { thinkingBudget: 32768 }, 'and still carries the setting');
+    assert.equal(learner.state().reasoning.refused, false, 'a 400 about the cap does not blame the setting');
+    await ask(learner);
+    assert.equal(small.state.requests.at(-1).body.generationConfig.maxOutputTokens, 8192, 'later requests keep the learned cap');
+    ok('Gemini: the output cap is raised to leave room for the answer after the thoughts, and follows a cap the model turns out to have');
   }
   {
     // the Responses stream carries the field too (the agent always asks for a stream)
@@ -221,8 +316,10 @@ try {
       'openai-chat': { param: 'reasoning_effort', message: "Unsupported parameter: 'reasoning_effort' is not supported with this model." },
       'openai-responses': { param: 'reasoning', message: "Unsupported parameter: 'reasoning.effort' is not supported with this model." },
       anthropic: { param: 'output_config', message: 'output_config.effort: Extra inputs are not permitted' },
+      // Gemini keeps the setting inside generationConfig: the server refuses that nested field and the Hub drops only it, not the output cap
+      gemini: { param: 'generationConfig.thinkingConfig', message: 'Invalid JSON payload received. Unknown name "thinkingConfig" at \'generation_config\': Cannot find field.' },
     };
-    for (const protocol of ['openai-chat', 'openai-responses', 'anthropic']) {
+    for (const protocol of ['openai-chat', 'openai-responses', 'anthropic', 'gemini']) {
       const server = await mock({ strict: false });
       const refusal = server.refuseParam(REFUSALS[protocol].param, { message: REFUSALS[protocol].message });
       const provider = fork(server, protocol, { reasoningEffort: 'high' });
@@ -248,6 +345,7 @@ try {
       assert.equal(server.state.requests.length - before, 2, `${protocol}: another model asks again, is refused again, and is repeated without the setting`);
       assert.notEqual(FIELDS[protocol](server.state.requests[before].body), undefined, `${protocol}: the first of the two carries the setting`);
       assert.equal(refusal.used, 2);
+      if (protocol === 'gemini') assert.equal(typeof server.state.requests[1].body.generationConfig?.maxOutputTokens, 'number', 'gemini: the repeat keeps the output cap, and does not fall back to a dialect without a generation config');
     }
     ok('a provider that refuses the setting: the model request is repeated once without it, the task goes on, the person is told once, and the refusal is remembered for the connection');
   }

@@ -370,6 +370,27 @@ const FIXTURES = {
       ['a call whose arguments were edited after it was signed', geminiWith({ role: 'model', parts: [{ functionCall: { name: 'read_file', args: { path: 'edited' } }, thoughtSignature: signer.signGemini({ name: 'read_file', args: { path: 'a' } }) }] }, { role: 'user', parts: [gresp()] }), 'Corrupted thought signature.'],
     ],
   },
+  'gemini.thinking_config': {
+    api: 'gemini',
+    accept: [
+      ['a level (Gemini 3 and 4)', { ...geminiBase(), generationConfig: { maxOutputTokens: 1024, thinkingConfig: { thinkingLevel: 'low' } } }],
+      ['a budget (Gemini 2.5)', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingBudget: 1024 } } }],
+      ['a budget of 0: thinking off', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingBudget: 0 } } }],
+      ['a budget of -1: dynamic thinking', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingBudget: -1 } } }],
+      ['a level and the request for thought parts', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingLevel: 'high', includeThoughts: true } } }],
+    ],
+    reject: [
+      ['a level and a budget together', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingBudget: 1024, thinkingLevel: 'low' } } }, 'thinking_budget and thinking_level'],
+      ['a level Gemini does not have', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingLevel: 'extreme' } } }, "Invalid value at 'generation_config.thinking_config.thinking_level'"],
+      ['a level of Claude (xhigh)', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingLevel: 'xhigh' } } }, "Invalid value at 'generation_config.thinking_config.thinking_level'"],
+      ['a budget that is not a whole number', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingBudget: 1.5 } } }, "Invalid value at 'generation_config.thinking_config.thinking_budget'"],
+      ['a budget below -1', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingBudget: -2 } } }, "Invalid value at 'generation_config.thinking_config.thinking_budget'"],
+      ['includeThoughts that is not a boolean', { ...geminiBase(), generationConfig: { thinkingConfig: { includeThoughts: 'yes' } } }, "Invalid value at 'generation_config.thinking_config.include_thoughts'"],
+      ['a thinkingConfig that is not an object', { ...geminiBase(), generationConfig: { thinkingConfig: 'high' } }, "Invalid value at 'generation_config.thinking_config'"],
+      ['a generationConfig that is not an object', { ...geminiBase(), generationConfig: 'high' }, "Invalid value at 'generation_config'"],
+      ['a field thinkingConfig does not have', { ...geminiBase(), generationConfig: { thinkingConfig: { thinkingMode: 'on' } } }, 'Unknown name "thinkingMode" at \'generation_config.thinking_config\''],
+    ],
+  },
 };
 
 {
@@ -741,6 +762,24 @@ mock.setScenario('rich');
   assert.deepEqual(refusedGemini.json, { error: { code: 400, message: 'Invalid JSON payload received. Unknown name "model": Cannot find field.', status: 'INVALID_ARGUMENT' } });
   assert.ok(mock.state.rejections.length >= 4);
   ok('strictness: refused requests get the API\'s own error envelope and status 400, and the rule is recorded; the Chat route is lenient unless strict is set');
+}
+
+{
+  // A refused field can be a nested one (Gemini keeps its thinking setting in generationConfig): a dotted path names it, and a request without it is left alone.
+  const m = await server({ scenario: 'canned-answer' });
+  const G = ENDPOINTS(m).gemini;
+  const message = 'Invalid JSON payload received. Unknown name "thinkingConfig" at \'generation_config\': Cannot find field.';
+  const refusal = m.refuseParam('generationConfig.thinkingConfig', { message, on: 'gemini' });
+  const withThinking = await post(G, bodies.gemini({ generationConfig: { maxOutputTokens: 1024, thinkingConfig: { thinkingLevel: 'low' } } }));
+  assert.equal(withThinking.status, 400);
+  assert.deepEqual(withThinking.json, { error: { code: 400, message, status: 'INVALID_ARGUMENT' } });
+  assert.equal((await post(G, bodies.gemini())).status, 200, 'a request without the nested field is answered');
+  assert.equal((await post(G, bodies.gemini({ generationConfig: { maxOutputTokens: 1024 } }))).status, 200, 'and so is one whose generationConfig has only other keys');
+  assert.equal((await post(G, bodies.gemini({ generationConfig: 'x' }))).status, 400, '(a generationConfig that is not an object is refused by the strict check, not by the path)');
+  assert.equal(refusal.used, 1, 'only the request that had the field was refused');
+  m.clearRefusals();
+  assert.equal((await post(G, bodies.gemini({ generationConfig: { thinkingConfig: { thinkingLevel: 'low' } } }))).status, 200, 'cleared: answered again');
+  ok('a refused parameter may be a dotted path (generationConfig.thinkingConfig): only a request that has the nested field is refused');
 }
 
 {
