@@ -183,7 +183,7 @@ export function ConversationView() {
 
   const handleModeChange = async (newMode: string) => {
     try {
-      await api.configurePermissions({ mode: newMode, ...(mode === 'full-access' ? { executionPolicy: 'host-review' } : {}) });
+      await api.configurePermissions({ mode: newMode, leaveFullAccess: true });
       showToast(t('agents_conv_mode_set', { mode: newMode }), 'info');
       queryClient.invalidateQueries({ queryKey: ['hubState'] });
     } catch (err: any) {

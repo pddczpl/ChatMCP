@@ -206,6 +206,49 @@ async function outcome(gate, name, args = {}, { approve = true } = {}) {
   ok('Full Access removes prompts, but Read Only still wins and reads keep working');
 }
 
+// ------------------------------------------------------------------ leaving Full Access in the same request that picks the mode
+{
+  // A page that lowers the policy after reading a snapshot of the state sends only the mode when the snapshot is a few seconds older than the
+  // switch to Full Access, and the agent stays in Full Access under the name Review. A request that says what it means (any mode but Full
+  // Access) is settled here, against the state the Hub holds at that moment.
+  const directory = path.join(state, 'leave-full-access');
+  await fs.mkdir(directory);
+  const gate = await newGate(directory);
+  const elevate = () => gate.configure({ mode: 'full-access', confirmation: 'FULL ACCESS' });
+  elevate();
+  const left = gate.configure({ mode: 'review', leaveFullAccess: true });
+  assert.deepEqual([left.mode, left.executionPolicy, left.fullAccess], ['review', 'host-review', false], 'one request sets the mode and lowers the policy');
+  assert.equal((await outcome(gate, 'local.run_command', { command: 'curl https://example.com' })).kind, 'prompt', 'Review asks again once Full Access is left');
+  await gate.writes;
+  const reloaded = await newGate(directory);
+  await reloaded.load();
+  assert.deepEqual([reloaded.state().mode, reloaded.state().executionPolicy], ['review', 'host-review'], 'and the lowered policy is what survives a restart');
+
+  // it only lowers Full Access: a stricter or an ordinary policy is never changed by it, in either direction
+  gate.configure({ mode: 'autonomous', executionPolicy: 'sandbox-only' });
+  assert.equal(gate.configure({ mode: 'review', leaveFullAccess: true }).executionPolicy, 'sandbox-only', 'sandbox-only is not raised to host-review');
+  gate.configure({ executionPolicy: 'host-review' });
+  assert.equal(gate.configure({ mode: 'readonly', leaveFullAccess: true }).executionPolicy, 'host-review', 'host-review stays');
+
+  // without the flag a mode alone leaves the policy where it is (Read Only then wins over Full Access, as above)
+  elevate();
+  assert.deepEqual([gate.configure({ mode: 'readonly' }).mode, gate.state().executionPolicy], ['readonly', 'full-access'], 'a mode alone does not touch the policy');
+
+  // an explicit policy is the person's word and wins; so does the request that turns Full Access on
+  assert.equal(gate.configure({ mode: 'review', executionPolicy: 'sandbox-only', leaveFullAccess: true }).executionPolicy, 'sandbox-only', 'an explicit policy wins');
+  gate.configure({ mode: 'review', executionPolicy: 'host-review' });
+  assert.throws(() => gate.configure({ mode: 'full-access', leaveFullAccess: true }), { code: 'full_access_confirmation_required' }, 'the flag does not skip the typed words');
+  assert.equal(gate.state().fullAccess, false, 'and a refused request changes nothing');
+  assert.equal(gate.configure({ mode: 'full-access', leaveFullAccess: true, confirmation: 'FULL ACCESS' }).fullAccess, true, 'the request that turns Full Access on is not undone by the flag');
+
+  // only the value true counts
+  for (const odd of ['true', 1, 'yes', {}, [], null, false]) {
+    elevate();
+    assert.equal(gate.configure({ mode: 'review', leaveFullAccess: odd }).fullAccess, true, `${JSON.stringify(odd)} does not lower Full Access`);
+  }
+  ok('leaving Full Access: one request sets the mode and lowers the policy, never raises sandbox-only, yields to an explicit policy and to the request that turns it on, and survives a restart');
+}
+
 // ------------------------------------------------------------------ what the person is asked to approve
 {
   const gate = await newGate();

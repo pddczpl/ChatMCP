@@ -47,6 +47,11 @@ const engines = { engineHealth: { engines: [
   { id: 'typescript-lsp', status: 'ready', version: '5.4.0', source: 'bundled' },
   { id: 'python-lsp', status: 'unavailable', source: 'pyright', detail: 'not installed' },
 ] } };
+/** Two snapshots of the Hub's state a page can hold when a person picks a mode: from before Full Access was turned on, and from after. */
+const SNAPSHOTS = {
+  'a state from before Full Access': hub(),
+  'a state with Full Access on': hub({ studio: { permissions: { mode: 'autonomous', executionPolicy: 'full-access', pending: [] } } }),
+};
 const webHub = (browser) => hub({ agent: { mode: 'chatgpt-web' }, browser: { pairingAvailable: true, ...browser, privacy: { reviewBeforeSend: false, workspaces: [], ...browser.privacy } } });
 const ws = { selectedWorkspacePath: ALPHA };
 
@@ -307,10 +312,23 @@ test('the permission list and the command palette change the mode and say so in 
     serve();
     await fire(readOnly);
     assert.deepEqual(toasts, [[says.modeChanged('readonly'), 'info']], `${lang}: Settings`);
-    assert.deepEqual(calls.find((call) => call.route === '/api/studio/permissions/config')?.body, { mode: 'readonly' }, `${lang}: what was asked of the Hub`);
+    assert.deepEqual(calls.find((call) => call.route === '/api/studio/permissions/config')?.body, { mode: 'readonly', leaveFullAccess: true }, `${lang}: what was asked of the Hub`);
     serve({ '/api/studio/permissions/config': saysNothing });
     await fire(readOnly);
     assert.deepEqual(toasts, [[says.modeFailed, 'error']], `${lang}: Settings, a failure that says nothing`);
+
+    // The page may hold any snapshot of the Hub's state, and the one it holds can be older than the Hub's (Full Access was turned on a moment ago):
+    // the request is the same either way, because the Hub, not the snapshot, knows whether there is a Full Access to leave.
+    for (const [label, snapshot] of Object.entries(SNAPSHOTS)) {
+      const settings = await look(clicks, 'PermissionsSection', { lang, entries: [[['hubState'], snapshot], ...sandboxEntries] });
+      serve();
+      await fire(handlerOf(settings, domButton((props) => typeof props['aria-pressed'] === 'boolean')));
+      assert.deepEqual(calls.find((call) => call.route === '/api/studio/permissions/config')?.body, { mode: 'readonly', leaveFullAccess: true }, `${lang}: Settings, page holding ${label}`);
+      const opened = await look(clicks, 'CommandPalette', { lang, entries: [[['hubState'], snapshot]], store: { commandPaletteOpen: true } });
+      serve();
+      await fire(handlerOf(opened, item(words.cmd_readonly), 'onSelect'));
+      assert.deepEqual(calls.find((call) => call.route === '/api/studio/permissions/config')?.body, { mode: 'readonly', leaveFullAccess: true }, `${lang}: palette, page holding ${label}`);
+    }
 
     // the palette
     elements = await look(clicks, 'CommandPalette', { lang, store: { commandPaletteOpen: true } });
@@ -367,10 +385,11 @@ test('the first-run setup, the FULL ACCESS dialog, the engine check and the work
     assert.deepEqual(toasts, [[says.dismissed, 'info']], `${lang}: setup closed`);
     // the last step: the mode is saved and the person is welcomed
     elements = await look(lastStep, 'OnboardingModal', { lang, store: { onboardingOpen: true } });
-    serve({ '/api/state': hub() });
+    serve();
     await fire(handlerOf(elements, aButton((props) => props.variant === 'primary')));
     assert.deepEqual(toasts, [[says.welcome, 'success']], `${lang}: setup finished`);
-    assert.deepEqual(calls.find((call) => call.route === '/api/studio/permissions/config')?.body, { mode: 'review' }, `${lang}: the mode that was chosen`);
+    assert.deepEqual(calls.find((call) => call.route === '/api/studio/permissions/config')?.body, { mode: 'review', leaveFullAccess: true }, `${lang}: the mode that was chosen, leaving Full Access if the Hub is in it`);
+    assert.equal(calls[0]?.route, '/api/studio/permissions/config', `${lang}: the request comes first, with no read of the Hub's state before it`);
 
     // FULL ACCESS, with the phrase typed
     elements = await look(typedDialog, 'FullAccessDialog', { lang, store: { fullAccessModalOpen: true } });
@@ -379,6 +398,8 @@ test('the first-run setup, the FULL ACCESS dialog, the engine check and the work
     await fire(activate);
     assert.deepEqual(toasts, [[says.activated, 'warning']], `${lang}: FULL ACCESS on`);
     assert.deepEqual(calls.find((call) => call.route === '/api/studio/permissions/config')?.body, { mode: 'autonomous', executionPolicy: 'full-access', confirmation: 'FULL ACCESS' });
+    assert.ok(globalThis.__chatmcpInvalidated.some((filters) => JSON.stringify(filters) === JSON.stringify({ queryKey: ['hubState'] })),
+      `${lang}: the page reads the Hub's state again at once, so that the banner and the lists do not wait for the next poll`);
     serve({ '/api/studio/permissions/config': saysNothing });
     await fire(activate);
     assert.deepEqual(toasts, [[says.activateFailed, 'error']], `${lang}: FULL ACCESS, a failure that says nothing`);

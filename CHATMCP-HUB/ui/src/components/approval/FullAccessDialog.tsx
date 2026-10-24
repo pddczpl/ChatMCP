@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { ShieldAlert, AlertTriangle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
@@ -13,6 +14,7 @@ import { Modal } from '@/components/ui/Modal';
 export function FullAccessDialog() {
   const { fullAccessModalOpen, setFullAccessModalOpen, showToast } = useAppStore();
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [confirmText, setConfirmText] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -28,6 +30,8 @@ export function FullAccessDialog() {
       showToast(t('fa_activated'), 'warning');
       setFullAccessModalOpen(false);
       setConfirmText('');
+      // The banner, the status bar and the lists read this state; without a refresh they would show the old one until the next poll.
+      void queryClient.invalidateQueries({ queryKey: ['hubState'] });
     } catch (err: any) {
       showToast(err.message || t('fa_activate_failed'), 'error');
     } finally {

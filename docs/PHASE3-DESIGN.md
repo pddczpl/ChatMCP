@@ -66,7 +66,7 @@ Nằm tại [`CHATMCP-HUB/lib/sandbox-engine.mjs`](../CHATMCP-HUB/lib/sandbox-en
 
 - **Thanh công cụ Composer:** Tích hợp nút `[ Full Access ⚠️ ]` trực tiếp trên thanh công cụ với cảnh báo trực quan viền đỏ nổi bật.
 - **Xác nhận người dùng:** Yêu cầu người dùng xác nhận tường minh trước khi kích hoạt.
-- **Tự động hoàn nguyên:** Khi người dùng chuyển sang bất kỳ chế độ an toàn nào khác (`readonly`, `review`, `autonomous`), chính sách thực thi tự động hạ cấp về `host-review`.
+- **Tự động hoàn nguyên:** Khi người dùng chuyển sang bất kỳ chế độ an toàn nào khác (`readonly`, `review`, `autonomous`), chính sách thực thi tự động hạ cấp về `host-review`. Việc hạ này do Hub làm trong cùng yêu cầu đổi chế độ: giao diện gửi `leaveFullAccess: true` cùng `mode` (không đoán theo bản sao trạng thái của trang, có thể cũ vài giây), và `PermissionGate.configure` chỉ hạ khi chính sách lúc đó là `full-access`, không đụng tới `sandbox-only`. Một `mode` gửi riêng không đổi chính sách; Chỉ đọc vẫn thắng Full Access.
 - **Nguyên tắc bảo vệ tối cao:** Mọi đường dẫn cấm (`.env`, `.git/`, DPAPI keys) vẫn bị chặn vĩnh viễn kể cả ở chế độ Full Access (Fail-closed by design).
 
 ---

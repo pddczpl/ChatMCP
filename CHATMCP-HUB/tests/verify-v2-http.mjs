@@ -52,6 +52,11 @@ try{
   a=await post('/api/studio/permissions/config',{executionPolicy:'full-access',confirmation:'FULL ACCESS'}, {'X-ChatMCP-CSRF':'wrong'});check(a.status===403,'HTTP Full Access still requires CSRF');
   a=await post('/api/studio/permissions/config',{executionPolicy:'full-access',confirmation:'FULL ACCESS'});check(a.status===200&&a.value.fullAccess===true,'HTTP full access explicit opt in');
   a=await get('/api/state');check(a.value.studio.permissions.fullAccess===true,'HTTP full access visible in hub state');
+  // A page lowers Full Access by saying so in the request that picks the mode, not by guessing from a snapshot of the state.
+  a=await post('/api/studio/permissions/config',{mode:'review',leaveFullAccess:true});
+  check(a.status===200&&a.value.mode==='review'&&a.value.executionPolicy==='host-review'&&a.value.fullAccess===false,'HTTP leaving Full Access: one request sets the mode and lowers the policy');
+  a=await get('/api/state');check(a.value.studio.permissions.fullAccess===false&&a.value.studio.permissions.mode==='review','HTTP hub state shows Full Access left');
+  a=await post('/api/studio/permissions/config',{executionPolicy:'full-access',confirmation:'FULL ACCESS'});check(a.status===200&&a.value.fullAccess===true,'HTTP full access turned on again for the checks below');
   manager.codingOrchestrator.active='worktree-run';
   a=await post('/api/studio/permissions/config',{mode:'review',executionPolicy:'host-review'});
   check(a.status===409&&a.value.code==='workers_active','A live coding worker blocks permission changes');

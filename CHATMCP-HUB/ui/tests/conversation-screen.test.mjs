@@ -349,7 +349,14 @@ for (const [lang, label] of LANGS) {
     serve({ '/api/studio/permissions/config': { ok: true } });
     await fire(mode, ['autonomous']);
     assert.deepEqual(toasts, [[t.modeSet('autonomous'), 'info']]);
-    assert.deepEqual(calls[0].body, { mode: 'autonomous' });
+    assert.deepEqual(calls[0].body, { mode: 'autonomous', leaveFullAccess: true });
+    // The menu asks the Hub to leave Full Access whatever the page last read: the snapshot it holds can be older than the Hub's state (Full Access was
+    // turned on a moment ago), so it is the Hub, not the snapshot, that knows whether there is a Full Access to leave.
+    const inFullAccess = await conversation({ lang, hub: hubState({ studio: { permissions: { mode: 'autonomous', executionPolicy: 'full-access', pending: [], recent: [] } } }), task: record({ status: 'running', state: 'running' }), store: { selectedTaskId: 'chat-1' } });
+    serve({ '/api/studio/permissions/config': { ok: true } });
+    await fire(handlerOf(inFullAccess, component('Composer'), 'onModeChange'), ['review']);
+    assert.deepEqual(calls[0].body, { mode: 'review', leaveFullAccess: true }, 'the same request when the page knows Full Access is on');
+    serve({ '/api/studio/permissions/config': { ok: true } });
     serve({ '/api/studio/permissions/config': throwsNothingSaid });
     await fire(mode, ['autonomous']);
     assert.deepEqual(toasts, [[t.modeFailed, 'error']]);

@@ -233,9 +233,7 @@ test('Settings, the FULL ACCESS dialog and the command palette read English and 
   await expect.poll(async () => (await app.hub.state()).studio.permissions.executionPolicy).toBe('full-access');
   await page.keyboard.press('Escape');
   await expect(settings).toHaveCount(0);
-  // the page has the new state once its banner is drawn; the palette reads the same state to know that FULL ACCESS is on
-  await expect(page.getByTestId('full-access-banner')).toBeVisible();
-  // the command palette, in English, leaves FULL ACCESS the way the Settings list does
+  // the command palette, in English, leaves FULL ACCESS the way the Settings list does, at once (the page does not have to wait for its next poll)
   await page.keyboard.press('Control+k');
   const palette = page.getByRole('dialog', { name: 'Command palette' });
   await expect(palette).toBeVisible();
@@ -243,6 +241,45 @@ test('Settings, the FULL ACCESS dialog and the command palette read English and 
   await palette.getByRole('option', { name: /Read-only/ }).click();
   await expect(page.getByText('Switched permission mode to readonly')).toBeVisible();
   await expect.poll(async () => (await app.hub.state()).studio.permissions).toMatchObject({ mode: 'readonly', executionPolicy: 'host-review' });
+});
+
+test('a page that still holds the state from before Full Access leaves Full Access when a mode is chosen: palette, Settings and the composer menu', async ({ page, app }) => {
+  await onboard(page, app);
+  // For the whole test the page is told that the policy is host-review (every state it reads says so) while the Hub really is in Full Access:
+  // the snapshot a page holds can be a few seconds older than the Hub's state, and this keeps it older.
+  await page.route(/\/api\/state(\?|$)/, async (route) => {
+    const response = await route.fetch();
+    const state = await response.json();
+    state.studio.permissions = { ...state.studio.permissions, executionPolicy: 'host-review', fullAccess: false };
+    await route.fulfill({ response, json: state });
+  });
+  const fullAccessOn = async () => {
+    await app.hub.post('/api/studio/permissions/config', { mode: 'autonomous', executionPolicy: 'full-access', confirmation: 'FULL ACCESS' });
+    expect((await app.hub.state()).studio.permissions.executionPolicy).toBe('full-access');
+  };
+  const left = (mode) => expect.poll(async () => (await app.hub.state()).studio.permissions, { message: `the Hub left Full Access for ${mode}` })
+    .toMatchObject({ mode, executionPolicy: 'host-review', fullAccess: false });
+
+  // the command palette
+  await fullAccessOn();
+  await page.keyboard.press('Control+k');
+  const palette = page.getByRole('dialog', { name: 'Bảng lệnh' });
+  await expect(palette).toBeVisible();
+  await palette.getByRole('option', { name: /^Review/ }).click();
+  await left('review');
+
+  // the permission list in Settings
+  await fullAccessOn();
+  const settings = await openSettings(page, 'Quyền & thực thi');
+  await settings.getByRole('button', { name: /^Review \(Mặc định\)/ }).click();
+  await left('review');
+  await closeSettings(page);
+
+  // the mode menu of the composer
+  await fullAccessOn();
+  await page.getByTitle('Chế độ quyền thực thi của Agent').click();
+  await page.getByRole('menuitemradio', { name: /^Review \(Mặc định\)/ }).click();
+  await left('review');
 });
 
 test('AI config clears a typed fixture key after save and destination changes', async ({ page, app }) => {
