@@ -179,6 +179,38 @@ export interface AiProfile {
   customHeaders?: {name:string;source:'protected'|'environment';envKeyName?:string}[];
   isDefault?: boolean;
   ratesUsdPerMillion?: {input:number;output:number;cacheRead?:number;cacheWrite?:number}|null;
+  /** How much the model is asked to think: 'auto' (send nothing) or a level. See ModelInfo.reasoning.levels for the levels this model takes. */
+  reasoningEffort?: string;
+}
+
+/** What the Hub knows about a model before anything is sent to it (GET /api/ai/model-info): its limits, and the levels of thinking effort that can be offered. */
+export interface ModelInfo {
+  model: string;
+  protocol: string;
+  preset: string | null;
+  found: boolean;
+  confidence: 'exact' | 'normalized' | 'alias' | 'none';
+  /** Where the answer comes from, e.g. catalog@2026-10-19; null when the catalog does not know the model. */
+  source: string | null;
+  provider: string | null;
+  local: boolean;
+  contextWindow: number | null;
+  maxOutput: number | null;
+  toolCall: boolean | null;
+  vision: boolean | null;
+  reasoning: {
+    supported: boolean | null;
+    toggle: boolean;
+    budget: { min: number | null; max: number | null } | null;
+    efforts: string[];
+    /** The levels a settings page offers: the ones that would really be sent. */
+    levels: string[];
+    /** false: the catalog does not know the model, so `levels` are the common ones and a guess. */
+    known: boolean;
+    /** Why there is nothing to offer: model_does_not_reason | no_effort_control | protocol_not_supported. */
+    why: string | null;
+  };
+  catalog: { generatedAt: string; ageDays: number };
 }
 
 export interface ProviderPreset {
@@ -371,6 +403,10 @@ export interface HubState {
     secretStorage?: { protection?: string };
     toolCalling?: boolean;
     toolCallingNote?: string;
+    /** 'auto' (send nothing) or a level. */
+    reasoningEffort?: string;
+    /** Whether the level is sent, why not (see ModelInfo.reasoning.why, or value_not_offered / value_not_valid_here), and whether the provider refused it. */
+    reasoning?: { effort: string; sent: boolean; why: string | null; refused: boolean };
     /** The AI connection (provider, model, key) is being changed; the Hub refuses to start model work meanwhile. */
     busy?: boolean;
   };

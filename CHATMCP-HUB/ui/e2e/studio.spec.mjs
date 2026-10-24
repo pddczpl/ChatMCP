@@ -456,6 +456,74 @@ test('a saved local model profile routes a new task through the real Hub', async
   await expect(page.getByTestId('active-model-profile')).toContainText('Local test profile');
 });
 
+// The thinking effort of the AI connection, through the real Hub: the levels come from what the Hub knows of the model (its catalog, a file), a model the catalog does
+// not know gets the common levels and the page says that it is a guess, the chosen level is saved with the connection and survives a reload, and it is what the provider is
+// sent. A model profile saves its own level. This is NOT a test against a paid provider: the provider is the loopback mock.
+test('the thinking effort: levels from the model catalog or a guess, saved with the connection and with a profile, and sent to the provider', async ({ page, app }) => {
+  app.mock.define('answer-only', () => say('calc.js subtracts where it should add.'));
+  app.mock.setScenario('answer-only');
+  await onboard(page, app);
+  await openSettings(page, 'Mô hình AI');
+  const effort = page.locator('#datgold-reasoning-effort');
+  const hint = page.getByTestId('reasoning-hint').first();
+  // the mock model is not in the catalog: the common levels, and the page says that this is a guess
+  await expect(effort.locator('option')).toHaveText(['Tự động (model tự quyết định)', 'Thấp', 'Vừa', 'Cao']);
+  await expect(hint).toContainText('Danh mục không có model này');
+  // Claude Sonnet 5.5 on Anthropic: the levels of the catalog
+  await page.getByRole('button', { name: 'Anthropic', exact: true }).click();
+  await expect(effort.locator('option')).toHaveText(['Tự động (model tự quyết định)', 'Thấp', 'Vừa', 'Cao', 'Rất cao', 'Tối đa']);
+  await expect(hint).toContainText('Các mức lấy từ danh mục model');
+  // Gemini 2.5 Flash is driven by a switch and a token budget, which the setting does not drive: only Auto, and the page says why
+  await page.getByRole('button', { name: 'Google Gemini', exact: true }).click();
+  await expect(effort.locator('option')).toHaveText(['Tự động (model tự quyết định)']);
+  await expect(hint).toContainText('ngân sách token');
+  // back to the mock connection: choose a level and save it with the connection
+  await page.getByRole('button', { name: 'Ollama (Local)', exact: true }).click();
+  await page.getByLabel('API base URL', { exact: true }).fill(app.mock.url);
+  await page.getByLabel('Model', { exact: true }).fill('mock-coder');
+  await effort.selectOption('medium');
+  const saved = page.waitForRequest((request) => request.url().endsWith('/api/ai/config') && request.method() === 'POST');
+  const savedResponse = page.waitForResponse((response) => response.url().endsWith('/api/ai/config') && response.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Lưu cấu hình', exact: true }).click();
+  expect((await saved).postDataJSON().reasoningEffort).toBe('medium');
+  expect((await savedResponse).ok()).toBe(true);
+  await expect.poll(async () => (await app.hub.state()).ai.reasoningEffort).toBe('medium');
+  // it survives a reload
+  await page.reload();
+  await openSettings(page, 'Mô hình AI');
+  await expect(page.locator('#datgold-reasoning-effort')).toHaveValue('medium');
+  // and it is what the provider is sent with the next task (once the Hub has finished changing the connection)
+  await closeSettings(page);
+  await waitFor(async () => { const state = await app.hub.state(); return state.catalogReady && !state.busy; });
+  const first = 'Explain what calc.js does, thinking at the medium level.';
+  await send(page, first);
+  await waitForState(app.hub, (await taskByPrompt(app, first)).id, 'completed');
+  expect(app.mock.state.lastBody.reasoning_effort).toBe('medium');
+  // Auto sends nothing
+  await openSettings(page, 'Mô hình AI');
+  await page.locator('#datgold-reasoning-effort').selectOption('auto');
+  const cleared = page.waitForResponse((response) => response.url().endsWith('/api/ai/config') && response.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Lưu cấu hình', exact: true }).click();
+  expect((await cleared).ok()).toBe(true);
+  await expect.poll(async () => (await app.hub.state()).ai.reasoningEffort).toBe('auto');
+  await closeSettings(page);
+  await waitFor(async () => { const state = await app.hub.state(); return state.catalogReady && !state.busy; });
+  // a message in the same conversation continues the task: what shows that the model was asked again is the request the mock received
+  const second = 'Explain what calc.js does, with the model deciding.';
+  const asked = app.mock.state.requests.length;
+  await send(page, second);
+  await waitFor(async () => app.mock.state.requests.length > asked && !(await app.hub.state()).agent.activeTaskId);
+  expect(app.mock.state.lastBody).not.toHaveProperty('reasoning_effort');
+  // a model profile has its own level
+  await openSettings(page, 'Mô hình AI');
+  await page.getByLabel('Model profile ID', { exact: true }).fill('effort-e2e');
+  await page.getByLabel('Model profile API base URL', { exact: true }).fill(app.mock.url);
+  await page.getByLabel('Model profile model', { exact: true }).fill('mock-coder');
+  await page.locator('#datgold-profile-reasoning').selectOption('high');
+  await page.getByRole('button', { name: 'Save model profile', exact: true }).click();
+  await expect.poll(async () => (await app.hub.state()).ai.profiles.find((profile) => profile.id === 'effort-e2e')?.reasoningEffort).toBe('high');
+});
+
 // The window policy through the real Hub (hub.mjs main() builds the foreground runner) and the real conversation view. The mock model is
 // connected through the Ollama preset with no declared context window, and this Hub is NOT given the harness default CHATMCP_TOOL_SELECTION=full,
 // so the Hub itself decides: an unknown window gets the task-selected tool schemas and the conversation says the window is unknown.

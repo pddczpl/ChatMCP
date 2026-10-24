@@ -5,6 +5,7 @@ import { useAppStore } from '@/store/useAppStore';
 import { contextWindowRangeText } from '@/lib/context-window';
 import { PROFILE_PROTOCOLS, buildProfilePayload, draftFromProfile, emptyProfileDraft, type ProfileDraft } from '@/lib/model-profile-form';
 import type { AiProfile } from '@/types';
+import { ReasoningEffortField } from './ReasoningEffortField';
 
 const choices = PROFILE_PROTOCOLS;
 const headerSummary = (profile: AiProfile) => (profile.customHeaders || [])
@@ -125,6 +126,8 @@ export function ModelProfilesPanel(){
             onChange={e=>change('model',e.target.value)}
             className="w-full p-1.5 rounded border border-line bg-panel"/>
         </label>
+        <ReasoningEffortField id="datgold-profile-reasoning" protocol={draft.protocol} apiBaseUrl={draft.apiBaseUrl} model={draft.model}
+          value={draft.reasoningEffort} onChange={value=>change('reasoningEffort',value)}/>
         <label className="space-y-1">Authentication
           <select aria-label="Model profile authentication" value={draft.authMode}
             onChange={e=>change('authMode',e.target.value)}

@@ -249,7 +249,9 @@ const clicks = await bundleTsx(entryOf(['PermissionsSection', 'CommandPalette', 
 const typedDialog = await bundleTsx(entryOf(['FullAccessDialog']), 'chatmcp-settings-clicks-', { recordJsx: true, rewrites: [{ file: 'FullAccessDialog.tsx', from: "const [confirmText, setConfirmText] = useState('');", to: "const [confirmText, setConfirmText] = useState('FULL ACCESS');" }] });
 const typedCheckpoint = await bundleTsx(entryOf(['GitTab']), 'chatmcp-settings-clicks-', { recordJsx: true, rewrites: [{ file: 'GitTab.tsx', from: "const [checkpointName, setCheckpointName] = useState('');", to: "const [checkpointName, setCheckpointName] = useState('before');" }] });
 const lastStep = await bundleTsx(entryOf(['OnboardingModal']), 'chatmcp-settings-clicks-', { recordJsx: true, rewrites: [{ file: 'OnboardingModal.tsx', from: 'const [step, setStep] = useState(1);', to: 'const [step, setStep] = useState(3);' }] });
-disposers.push(clicks.dispose, typedDialog.dispose, typedCheckpoint.dispose, lastStep.dispose);
+// the AI form with a thinking level already chosen (the line that declares the draft is rewritten, since choosing needs a browser)
+const chosenLevel = await bundleTsx(entryOf(['IntelligenceTab']), 'chatmcp-settings-clicks-', { recordJsx: true, rewrites: [{ file: 'IntelligenceTab.tsx', from: 'const [reasoningDraft, setReasoningDraft] = useState<string | null>(null);', to: "const [reasoningDraft, setReasoningDraft] = useState<string | null>('medium');" }] });
+disposers.push(clicks.dispose, typedDialog.dispose, typedCheckpoint.dispose, lastStep.dispose, chosenLevel.dispose);
 
 const calls = [];
 const routes = new Map();
@@ -470,5 +472,40 @@ test('the Git tab says it could not create, preview or restore a checkpoint when
     serve({ '/api/studio/preview-checkpoint?checkpointId=cp-1': { ok: true, files: [], modifiedFilesCount: 0 }, '/api/studio/restore-checkpoint': throwsAString });
     await fire(restore);
     assert.deepEqual(toasts, [[says.restoreFailed, 'error']], `${lang}: restore`);
+  }
+});
+
+test('the AI connection form shows the saved thinking level, sends one only when it was chosen, and warns when the provider refused it', async () => {
+  const isField = (element) => typeof element.type === 'function' && element.type.name === 'ReasoningEffortField';
+  const primary = aButton((props) => props.variant === 'primary');
+  const sentToConfig = () => calls.find((call) => call.route === '/api/ai/config')?.body;
+  for (const lang of LANGS) {
+    // untouched: the saved level is shown and the request says nothing about thinking
+    const saved = await look(clicks, 'IntelligenceTab', { lang, entries: [[['hubState'], hub({ ai: aiOf({ reasoningEffort: 'high' }) })]] });
+    const field = saved.find(isField);
+    assert.ok(field, `${lang}: the form has the thinking field`);
+    assert.equal(field.props.value, 'high', `${lang}: the saved level is the one shown`);
+    assert.equal(field.props.refused, false);
+    serve({ '/api/ai/config': { ai: aiOf({ reasoningEffort: 'high' }) } });
+    await fire(handlerOf(saved, primary));
+    assert.ok(sentToConfig(), `${lang}: the form saved`);
+    assert.equal(Object.hasOwn(sentToConfig(), 'reasoningEffort'), false, `${lang}: an untouched level is not sent (the Hub keeps the saved one)`);
+    // nothing saved: auto
+    const fresh = await look(clicks, 'IntelligenceTab', { lang, entries: [[['hubState'], hub({ ai: aiOf() })]] });
+    assert.equal(fresh.find(isField).props.value, 'auto', `${lang}: no level saved reads auto`);
+    // chosen: it is sent
+    const chosen = await look(chosenLevel, 'IntelligenceTab', { lang, entries: [[['hubState'], hub({ ai: aiOf() })]] });
+    assert.equal(chosen.find(isField).props.value, 'medium', `${lang}: the chosen level is shown`);
+    serve({ '/api/ai/config': { ai: aiOf({ reasoningEffort: 'medium' }) } });
+    await fire(handlerOf(chosen, primary));
+    assert.equal(sentToConfig().reasoningEffort, 'medium', `${lang}: the chosen level is sent`);
+    // a Hub with no connection yet calls its provider "gateway", which is not a preset: the field asks about the protocol only, never about a preset the Hub would refuse
+    const bare = await look(clicks, 'IntelligenceTab', { lang, entries: [[['hubState'], hub({ ai: { provider: 'gateway', preset: '', protocol: 'gemini', model: 'gemini-2.5-flash', apiBaseUrl: 'https://generativelanguage.googleapis.com' } })]] });
+    assert.deepEqual([bare.find(isField).props.preset, bare.find(isField).props.protocol], [undefined, 'gemini'], `${lang}: a provider that is not a preset is not sent as one`);
+    const chosenPreset = await look(clicks, 'IntelligenceTab', { lang, entries: [[['hubState'], hub({ ai: aiOf({ preset: 'anthropic', protocol: 'anthropic' }) })]] });
+    assert.deepEqual([chosenPreset.find(isField).props.preset, chosenPreset.find(isField).props.protocol], ['anthropic', 'anthropic'], `${lang}: a preset is sent with its protocol`);
+    // the Hub says the provider refused the saved level
+    const refused = await look(clicks, 'IntelligenceTab', { lang, entries: [[['hubState'], hub({ ai: aiOf({ reasoningEffort: 'high', reasoning: { effort: 'high', sent: false, why: null, refused: true } }) })]] });
+    assert.equal(refused.find(isField).props.refused, true, `${lang}: the refusal reaches the field`);
   }
 });

@@ -1,5 +1,5 @@
 import { browseNativeWorkspace } from './native-folder-picker.ts';
-import type { OutboundReview, HubState, HubHealth, Task, TaskDetail, ChatAttachment, WorkspaceCollection, BackgroundRun, BackgroundWorkflow, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset } from '@/types';
+import type { OutboundReview, HubState, HubHealth, Task, TaskDetail, ChatAttachment, WorkspaceCollection, BackgroundRun, BackgroundWorkflow, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset, ModelInfo } from '@/types';
 import { normalizeTask } from './task-view.ts';
 import { getHubSecret, hubSessionReady, reportHubSessionLost } from './session.ts';
 
@@ -251,6 +251,11 @@ export const api = {
   // AI & Profiles
   getPresets: () => request<{ presets: ProviderPreset[]; envKeys: string[] }>('/api/ai/presets'),
   getModels: () => request<{ models: string[]; source?: string }>('/api/ai/models'),
+  getModelInfo: (query: { preset?: string; protocol?: string; apiBaseUrl?: string; model: string }) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) if (value) params.set(key, value);
+    return request<ModelInfo>(`/api/ai/model-info?${params.toString()}`);
+  },
   getProfiles: () => request<{ profiles: any[]; defaultProfileId?: string }>('/api/ai/profiles'),
   upsertProfile: (profile: any) => request<any>('/api/ai/profiles/upsert', { method: 'POST', body: JSON.stringify(profile) }),
   deleteProfile: (id: string) => request<any>('/api/ai/profiles/delete', { method: 'POST', body: JSON.stringify({ id }) }),
