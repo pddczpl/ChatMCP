@@ -78,6 +78,8 @@ ShellRunner lọc biến môi trường, áp timeout, kiểm tra lệnh và đư
 
 Khóa lưu dưới state directory per-user, được che khi ghi log. Endpoint của provider phải được cấu hình và origin thay đổi không được tự ý nhận khóa cũ. Dữ liệu gửi ra remote provider tuân theo lựa chọn của người dùng; Ollama/LM Studio có thể chạy hoàn toàn cục bộ.
 
+**Danh mục model và mức suy luận.** `lib/model-catalog.mjs` trả lời "model này có giới hạn, giá và cách điều khiển suy luận thế nào" từ một bản chụp có ngày của https://models.dev/api.json (`lib/model-catalog.data.json`, giấy phép MIT, dựng bằng `scripts/update-model-catalog.mjs`; Hub không tải gì lúc chạy). Mỗi câu trả lời ghi nguồn (`catalog@NGÀY`) và độ chắc chắn (`exact`, `normalized`, `alias`, `none`): một id không có trong danh mục (bí danh của người dùng, thẻ Ollama) trả về `none`, không bao giờ đoán sang model khác. `lib/reasoning-effort.mjs` đặt cài đặt "mức suy luận" (`auto` hoặc một mức) lên từng giao thức: `reasoning_effort` (Chat Completions), `reasoning: {effort}` (OpenRouter và Responses), `output_config: {effort}` (Anthropic Messages; với mức cao thì `max_tokens` được nâng lên mặc định để còn chỗ viết câu trả lời); Gemini chưa có. Nhà cung cấp từ chối thiết lập (400 nêu tên trường) thì adapter gửi lại đúng yêu cầu model đó một lần không kèm nó, và `GatewayProvider` nhớ theo endpoint + model + mức. `GET /api/ai/model-info` đưa cùng câu trả lời cho trang cài đặt. Mức nằm trong `gateway-config.json` và trong từng hồ sơ model.
+
 ## 10. Độ bền và phục hồi
 
 Transcript, task history và evidence được lưu trên ổ đĩa per-user. Checkpoint restore kiểm tra SHA và xung đột. Worktree coding worker giữ thay đổi trên branch riêng, cần review commit/diff trước khi tích hợp.
