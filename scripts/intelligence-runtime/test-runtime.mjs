@@ -96,9 +96,9 @@ try {
   const searched = path.join(temp, 'ripgrep');
   await fs.mkdir(path.join(searched, 'src'), { recursive: true });
   await fs.writeFile(path.join(searched, 'src', 'a.js'), 'const needle = 1;\r\nfunction go() { return needle; }\r\n');
-  const result = await ripgrep.search({ directory: searched, pattern: 'needle', limit: 10, accept: () => true });
-  assert.equal(result.matches, 2);
-  assert.deepEqual(result.files.map(file => file.path), ['src/a.js']);
+  const found = await ripgrep.search({ directory: searched, pattern: 'needle', limit: 10, accept: () => true });
+  assert.equal(found.matches, 2);
+  assert.deepEqual(found.files.map(file => file.path), ['src/a.js']);
   if (info.pcre2) assert.equal((await ripgrep.search({ directory: searched, pattern: 'needle(?= =)', regex: true, limit: 10, accept: () => true })).matches, 1);
   console.log('PASS bundled ripgrep ' + info.version + ' (PCRE2 ' + (info.pcre2 ? 'yes' : 'no') + ')');
 } finally {

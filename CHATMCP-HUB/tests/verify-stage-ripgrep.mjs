@@ -5,7 +5,9 @@
 //      (a path that leaves the folder, a link, two copies of rg.exe, a missing or false license text, rg.exe too deep in the archive);
 //   3. run the script itself on a supplied archive (CHATMCP_RIPGREP_ARCHIVE): an archive with another hash is refused before anything is extracted, and an existing destination
 //      is refused;
-//   4. check a staged binary: one that does not report the pinned version is refused (and the real ripgrep is accepted when this machine has one).
+//   4. check a staged binary: one that does not report the pinned version is refused (and the real ripgrep is accepted when this machine has one);
+//   5. the acceptance script of the bundled runtime (scripts/intelligence-runtime/test-runtime.mjs), which the installer build runs on the staged files and which only a Windows build can
+//      execute, at least parses: a SyntaxError in it stops the build.
 // The download itself and the real release archive are not exercised: that is the installer build's job, and it checks the same hash.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -26,6 +28,17 @@ if (!await fs.stat(scriptPath).catch(() => null)) {
   process.exit(0);
 }
 const script = (await fs.readFile(scriptPath, 'utf8')).replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+
+// ------------------------------------------------------------------------------------------------------------------------------- 5. the acceptance script of the bundled runtime parses
+{
+  const acceptance = path.join(repo, 'scripts', 'intelligence-runtime', 'test-runtime.mjs');
+  const parsed = spawnSync(process.execPath, ['--check', acceptance], { encoding: 'utf8', windowsHide: true, timeout: 30000 });
+  assert.equal(parsed.status, 0, `test-runtime.mjs does not parse: ${parsed.stderr}`);
+  const text = (await fs.readFile(acceptance, 'utf8')).replace(/\r\n/g, '\n');
+  assert.match(text, /stage-ripgrep\.ps1/, 'it reads the version that the staging script pins');
+  assert.match(text, /new Ripgrep\(\{ hubDirectory: hubRoot/, 'and asks the Hub\'s own class for the binary in the installed layout');
+  ok('the acceptance script of the bundled runtime parses and checks the staged ripgrep through the Hub\'s own class');
+}
 
 // ------------------------------------------------------------------------------------------------------------------------------- 1. what the script pins
 {
