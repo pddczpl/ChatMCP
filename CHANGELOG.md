@@ -1,5 +1,19 @@
 # Lịch sử thay đổi
 
+## [3.10.0] — 2026-10-25 — Test build: streaming, thinking blocks, a model catalog and new tools (pre-release)
+
+- The product name people read is DatGold (formerly ChatMCP). The installer, its file names, the install folder and the settings folder keep the ChatMCP name so that an upgrade finds what 3.9.0 made (docs/NAMING.md).
+- Add streaming on all four protocols (Chat Completions, Anthropic Messages, Gemini, OpenAI Responses) through one SSE reader. A tool call is used only after the final event; a cut or damaged stream is never half used: the request is repeated once without a stream and the text already shown is taken back.
+- Keep Anthropic thinking blocks and send them back with the result of their tool call where nothing before them changed; leave them out when the Hub shortened the history; repeat once without them if a server refuses them.
+- Add a model catalog (a dated models.dev snapshot, refreshed on request) for context windows, output limits and prices, a model picker, estimated cost, and a plan that stops at the first rise of a model's price. Add presets for Grok, GLM, Qwen and MiniMax; new defaults for OpenAI (gpt-5.6-terra) and DeepSeek (deepseek-flash).
+- Add thinking effort per connection, per profile and per task (Chat Completions, Responses, Messages) and a Gemini thinking level or budget.
+- Add `edit_file` with several edits in one call, a PageRank `repo_map`, and ripgrep 15.2.0 (bundled in the installer) behind `search_files` and `find_files`.
+- Add hooks (PreToolUse, PostToolUse, Stop, SubagentStop, TaskCompleted), project instruction files (AGENTS.md, CLAUDE.md), skills selected on the conversation and loaded on demand, automatic tool selection, results and stop notices of background agents, and an Agents tab.
+- Require a per-launch secret for the Hub; the shell, the installer and the scripts present it. Filter outgoing ChatGPT Web messages for secrets, withhold protected files and offer a review hold. Cap the depth and size of model-spawned agent trees. Ship LICENSE (Apache-2.0) and NOTICE in the installer.
+- Add an English version of the conversation screen, the sidebar, the Agents tab and the dialogs.
+
+**Limitations:** no test called a live provider; streams and thinking-block replay are checked against generated streams and strict mock servers written from the vendors' documentation. The bundled ripgrep was run only by the installer build, its PCRE2 and Rust-crate notices are pending, and searching 48,000 files took 2.3 s on a developer machine (target 1 s). Qwen limits in the catalog are not checked against the vendor. The installer is not Authenticode-signed. See RELEASE-NOTES-v3.10.0.md.
+
 ## [3.9.0] — 2026-10-17 — Model profiles, evidence-oriented workflows and release safety
 
 - Add per-task and role-specific API model profiles, encrypted local credential references, revision checks on resume, and protected origin-bound custom headers.
