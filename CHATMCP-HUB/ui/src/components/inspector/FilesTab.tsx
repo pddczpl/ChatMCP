@@ -2,18 +2,18 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { FileCode, Search } from 'lucide-react';
-import { useTranslation } from '@/lib/i18n';
+import { useTranslation, type Translate } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { EmptyBlock, ErrorLine, LoadingLine, SectionHeading, TabBody } from './parts';
 
 /** Git status letters in plain words: M modified, A added, D deleted, R renamed, ?? new and untracked. */
-const statusLook = (code: string): { label: string; tone: string } => {
+const statusLook = (code: string, t: Translate): { label: string; tone: string } => {
   const c = code.trim();
-  if (c === '??') return { label: 'Mới', tone: 'text-primary' };
-  if (c.includes('D')) return { label: 'Xóa', tone: 'text-danger' };
-  if (c.includes('A')) return { label: 'Thêm', tone: 'text-success' };
-  if (c.includes('R')) return { label: 'Đổi tên', tone: 'text-warning' };
-  if (c.includes('M')) return { label: 'Sửa', tone: 'text-warning' };
+  if (c === '??') return { label: t('files_status_new'), tone: 'text-primary' };
+  if (c.includes('D')) return { label: t('files_status_deleted'), tone: 'text-danger' };
+  if (c.includes('A')) return { label: t('files_status_added'), tone: 'text-success' };
+  if (c.includes('R')) return { label: t('files_status_renamed'), tone: 'text-warning' };
+  if (c.includes('M')) return { label: t('files_status_modified'), tone: 'text-warning' };
   return { label: c || '·', tone: 'text-muted' };
 };
 
@@ -43,7 +43,7 @@ export function FilesTab() {
         ) : (
           <ul className="divide-y divide-line-subtle overflow-hidden rounded-xl border border-line bg-surface">
             {filtered.map((entry, index) => {
-              const look = statusLook(entry.slice(0, 2));
+              const look = statusLook(entry.slice(0, 2), t);
               return (
                 <li key={`${entry}-${index}`} className="flex items-start gap-3 px-3 py-2">
                   {/* Preserve Git's quoted paths and rename notation; neither is a literal filesystem path. */}

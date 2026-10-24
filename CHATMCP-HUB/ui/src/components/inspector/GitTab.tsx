@@ -38,14 +38,14 @@ export function GitTab() {
       setCheckpointName('');
       await refresh();
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Lỗi tạo checkpoint', 'error');
+      showToast(error instanceof Error ? error.message : t('git_checkpoint_create_failed'), 'error');
     } finally { setLoading(false); }
   };
   const handleRevertCheckpoint = async (id: string) => {
     setLoading(true);
     try {
       const preview = await api.previewCheckpoint(id);
-      if (!preview?.ok) throw new Error('Không thể tạo bản xem trước cho checkpoint.');
+      if (!preview?.ok) throw new Error(t('git_checkpoint_preview_failed'));
       const fileCount = preview.files?.length ?? 0;
       const newerCount = preview.files?.filter((file) => file.willOverwriteNewer).length ?? 0;
       let message = lang === 'vi' ? `Khôi phục checkpoint này sẽ hoàn tác ${fileCount} file (${preview.modifiedFilesCount ?? 0} file đang có thay đổi).` : `Restore this checkpoint for ${fileCount} files (${preview.modifiedFilesCount ?? 0} changed files)?`;
@@ -60,7 +60,7 @@ export function GitTab() {
       showToast(lang === 'vi' ? `Đã khôi phục ${result.restoredCount} file.` : `Restored ${result.restoredCount} files.`, 'success');
       await refresh();
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Lỗi khôi phục checkpoint', 'error');
+      showToast(error instanceof Error ? error.message : t('git_checkpoint_restore_failed'), 'error');
     } finally { setLoading(false); }
   };
 

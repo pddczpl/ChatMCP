@@ -45,6 +45,25 @@ export const byRole = (root, role) => all(root).filter((node) => node.attrs.role
 export const byId = (root, id) => all(root).find((node) => node.attrs.id === id);
 export const normalise = (text) => text.replace(/\s+/g, ' ').trim();
 
+/**
+ * Every word a person or a screen reader meets in a render, in page order: the text of each element, and the titles, labels and
+ * placeholders it carries. A test that pins a whole screen compares these lists, so a change of class names or of structure is not
+ * a change of words. A run of white space is one space, and the space at the edge of a piece of text stays: it is the gap between
+ * that text and the element next to it ("Hub is using " then a bold word), which a person sees.
+ */
+export function visibleWords(html) {
+  const words = [];
+  const walk = (node) => {
+    for (const name of ['aria-label', 'placeholder', 'title']) if (node.attrs[name]) words.push(node.attrs[name]);
+    for (const child of node.children) {
+      if (typeof child !== 'string') walk(child);
+      else if (child.trim()) words.push(child.replace(/\s+/g, ' '));
+    }
+  };
+  walk(parseHtml(html));
+  return words;
+}
+
 /** The name a screen reader announces for a control: aria-labelledby, aria-label, a label that points at it or wraps it, its own text, its title. */
 export function accessibleName(root, node) {
   if (node.attrs['aria-labelledby']) {

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ShieldAlert, AlertTriangle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
+import { useTranslation } from '@/lib/i18n';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 
@@ -11,6 +12,7 @@ import { Modal } from '@/components/ui/Modal';
  */
 export function FullAccessDialog() {
   const { fullAccessModalOpen, setFullAccessModalOpen, showToast } = useAppStore();
+  const { t } = useTranslation();
   const [confirmText, setConfirmText] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -23,11 +25,11 @@ export function FullAccessDialog() {
         executionPolicy: 'full-access',
         confirmation: 'FULL ACCESS',
       });
-      showToast('Đã kích hoạt chế độ FULL ACCESS', 'warning');
+      showToast(t('fa_activated'), 'warning');
       setFullAccessModalOpen(false);
       setConfirmText('');
     } catch (err: any) {
-      showToast(err.message || 'Không thể cấp quyền FULL ACCESS', 'error');
+      showToast(err.message || t('fa_activate_failed'), 'error');
     } finally {
       setLoading(false);
     }
@@ -44,29 +46,29 @@ export function FullAccessDialog() {
       open
       onOpenChange={(open) => { if (!open) handleClose(); }}
       role="alertdialog"
-      title="Xác nhận quyền FULL ACCESS"
-      description="Bỏ qua phê duyệt cho việc thường ngày — thao tác nguy hiểm vẫn hỏi lại"
+      title={t('fa_title')}
+      description={t('fa_desc')}
       className="max-w-md border-danger/40 text-[13px] select-none [&_h3]:text-danger"
     >
       <div className="my-4 space-y-2 rounded-xl border border-danger/30 bg-danger/10 p-3.5 leading-5 text-muted">
         <div className="flex items-center gap-2 font-semibold text-danger">
           <AlertTriangle className="h-4 w-4 shrink-0" />
-          <span>Cảnh báo bảo mật quan trọng</span>
+          <span>{t('fa_warning_title')}</span>
         </div>
         <p className="text-[13px]">
-          Ở chế độ này, AI Agent có thể <strong className="text-fg">sửa file</strong>, <strong className="text-fg">chạy lệnh shell terminal</strong>, cài gói và truy cập mạng trực tiếp mà <strong className="text-fg">không hỏi ý kiến bạn</strong>.
+          {t('fa_p1_a')}<strong className="text-fg">{t('fa_p1_edit')}</strong>, <strong className="text-fg">{t('fa_p1_shell')}</strong>{t('fa_p1_b')}<strong className="text-fg">{t('fa_p1_ask')}</strong>.
         </p>
         <p className="text-[13px]">
-          Những thao tác <strong className="text-fg">không thể hoàn tác</strong> vẫn luôn xin phê duyệt: <strong className="text-fg">xóa file/dữ liệu</strong>, <strong className="text-fg">git push</strong>, <strong className="text-fg">merge pull request</strong>, <strong className="text-fg">tạo hoặc xóa release/repo GitHub</strong>, xuất bản gói (npm publish, docker push) và các lệnh nguy hiểm khác. Agent chạy nền (worker, agent con) không có ai để hỏi nên các thao tác này bị từ chối ngay.
+          {t('fa_p2_a')}<strong className="text-fg">{t('fa_p2_irreversible')}</strong>{t('fa_p2_b')}<strong className="text-fg">{t('fa_p2_delete')}</strong>, <strong className="text-fg">git push</strong>, <strong className="text-fg">merge pull request</strong>, <strong className="text-fg">{t('fa_p2_release')}</strong>{t('fa_p2_c')}
         </p>
         <p className="text-[13px]">
-          Chỉ bật chế độ này nếu bạn hoàn toàn tin tưởng prompt hoặc đang chạy trong môi trường sandbox / container an toàn.
+          {t('fa_p3')}
         </p>
       </div>
 
       <div className="my-4 space-y-1.5">
         <label htmlFor="full-access-confirm" className="block text-[13px] text-muted">
-          Để xác nhận, vui lòng gõ chính xác cụm từ <strong className="font-mono text-danger">FULL ACCESS</strong>:
+          {t('fa_confirm')}<strong className="font-mono text-danger">FULL ACCESS</strong>:
         </label>
         <input
           id="full-access-confirm"
@@ -80,10 +82,10 @@ export function FullAccessDialog() {
       </div>
 
       <div className="flex items-center justify-end gap-2 border-t border-line-subtle pt-4">
-        <Button variant="secondary" onClick={handleClose}>Hủy bỏ</Button>
+        <Button variant="secondary" onClick={handleClose}>{t('fa_cancel')}</Button>
         <Button variant="danger" disabled={confirmText.trim() !== 'FULL ACCESS' || loading} onClick={handleConfirm} className="gap-1.5">
           <ShieldAlert className="h-3.5 w-3.5" />
-          <span>{loading ? 'Đang kích hoạt...' : 'Kích hoạt FULL ACCESS'}</span>
+          <span>{loading ? t('fa_activating') : t('fa_activate')}</span>
         </Button>
       </div>
     </Modal>

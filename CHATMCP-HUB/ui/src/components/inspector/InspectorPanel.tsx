@@ -114,9 +114,8 @@ export function InspectorPanel() {
         {blocked ? (
           <div role="status" className="space-y-2 p-4 text-[13px] text-muted">
             <p className="font-semibold text-fg">Workspace Inspector</p>
-            <p>Agent đang xử lý thư mục đã chọn độc lập. Inspector file/Git/terminal cũ chỉ gắn với workspace chính.</p>
-            <p>Để tránh sửa nhầm một dự án khác, các thao tác Inspector bị ẩn ở workspace thứ hai.
-              Bạn vẫn có thể giao nhiều task, xem kết quả và dừng subagent ở tab {labels.agents}.</p>
+            <p>{t('insp_blocked_a')}</p>
+            <p>{t('insp_blocked_b', { tab: labels.agents })}</p>
           </div>
         ) : (
           <>

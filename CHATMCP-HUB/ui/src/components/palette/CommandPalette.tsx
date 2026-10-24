@@ -70,9 +70,9 @@ export function CommandPalette() {
     }
     try {
       await api.configurePermissions({ mode, ...(hub?.studio?.permissions?.executionPolicy === 'full-access' ? { executionPolicy: 'host-review' } : {}) });
-      showToast(`Đã chuyển quyền sang ${mode}`, 'info');
+      showToast(t('cmd_mode_changed', { mode }), 'info');
     } catch (err: any) {
-      showToast(err.message || 'Lỗi chuyển quyền', 'error');
+      showToast(err.message || t('cmd_mode_failed'), 'error');
     }
   };
 
@@ -81,7 +81,7 @@ export function CommandPalette() {
       const res = await api.browseWorkspace();
       if (res.path) {
         await api.selectWorkspace(res.path);
-        showToast(`Đã chọn workspace: ${res.path}`, 'success');
+        showToast(t('cmd_ws_selected', { path: res.path }), 'success');
       }
     } catch {
       // The native folder picker may be unavailable; Settings has a manual path field.
@@ -101,7 +101,7 @@ export function CommandPalette() {
     >
       <div
         role="dialog"
-        aria-label="Bảng lệnh"
+        aria-label={t('cmd_label')}
         onClick={(e) => e.stopPropagation()}
         className="anim-pop w-full max-w-xl select-none overflow-hidden rounded-2xl border border-line bg-panel shadow-[var(--shadow-pop)]"
       >
@@ -110,51 +110,51 @@ export function CommandPalette() {
             <Search className="h-4 w-4 shrink-0 text-faint" />
             <Command.Input
               autoFocus
-              placeholder="Gõ lệnh hoặc tìm kiếm thao tác…"
+              placeholder={t('cmd_placeholder')}
               className="w-full bg-transparent text-[14px] text-fg placeholder:text-faint focus:outline-none"
             />
             <Kbd>Esc</Kbd>
           </div>
 
           <Command.List className="max-h-[min(26rem,60vh)] overflow-y-auto p-2">
-            <Command.Empty className="py-8 text-center text-[13px] text-faint">Không tìm thấy lệnh phù hợp</Command.Empty>
+            <Command.Empty className="py-8 text-center text-[13px] text-faint">{t('cmd_empty')}</Command.Empty>
 
-            <Command.Group heading="Hội thoại & workspace" className={group}>
-              <Item icon={Plus} label="Tạo hội thoại mới" keywords={['new', 'chat', 'session']} onSelect={() => runAction(() => setSelectedTaskId(''))} />
-              <Item icon={Folder} label="Đổi thư mục workspace" keywords={['open', 'folder', 'workspace']} onSelect={() => runAction(() => void handleBrowseWorkspace())} />
+            <Command.Group heading={t('cmd_g_chats')} className={group}>
+              <Item icon={Plus} label={t('cmd_new_chat')} keywords={['new', 'chat', 'session']} onSelect={() => runAction(() => setSelectedTaskId(''))} />
+              <Item icon={Folder} label={t('cmd_change_ws')} keywords={['open', 'folder', 'workspace']} onSelect={() => runAction(() => void handleBrowseWorkspace())} />
             </Command.Group>
 
-            <Command.Group heading="Chế độ quyền" className={group}>
-              <Item icon={Eye} label="Chỉ đọc (Read-only)" hint="Không sửa gì" onSelect={() => runAction(() => void handleSelectMode('readonly'))} />
-              <Item icon={ShieldCheck} label="Review" hint="Hỏi trước khi ghi" onSelect={() => runAction(() => void handleSelectMode('review'))} />
-              <Item icon={Bot} label="Tự động (Autonomous)" hint="Tự chạy trong workspace" onSelect={() => runAction(() => void handleSelectMode('autonomous'))} />
-              <Item icon={ShieldAlert} tone="danger" label="FULL ACCESS" hint="Cần xác nhận" onSelect={() => runAction(() => void handleSelectMode('full-access'))} />
+            <Command.Group heading={t('cmd_g_modes')} className={group}>
+              <Item icon={Eye} label={t('cmd_readonly')} hint={t('cmd_readonly_hint')} onSelect={() => runAction(() => void handleSelectMode('readonly'))} />
+              <Item icon={ShieldCheck} label="Review" hint={t('cmd_review_hint')} onSelect={() => runAction(() => void handleSelectMode('review'))} />
+              <Item icon={Bot} label={t('cmd_auto')} hint={t('cmd_auto_hint')} onSelect={() => runAction(() => void handleSelectMode('autonomous'))} />
+              <Item icon={ShieldAlert} tone="danger" label="FULL ACCESS" hint={t('cmd_full_hint')} onSelect={() => runAction(() => void handleSelectMode('full-access'))} />
             </Command.Group>
 
-            <Command.Group heading="Đi tới" className={group}>
-              <Item icon={ListTodo} label={t('tab_progress')} hint="Kế hoạch và bằng chứng" keywords={['plan', 'evidence', 'kế hoạch']} onSelect={() => go('plan')} />
-              <Item icon={GitBranch} label={t('tab_changes')} hint="Git diff, checkpoint" keywords={['git', 'diff', 'checkpoint']} onSelect={() => go('changes')} />
+            <Command.Group heading={t('cmd_g_go')} className={group}>
+              <Item icon={ListTodo} label={t('tab_progress')} hint={t('cmd_h_plan')} keywords={['plan', 'evidence', 'kế hoạch']} onSelect={() => go('plan')} />
+              <Item icon={GitBranch} label={t('tab_changes')} hint={t('cmd_h_changes')} keywords={['git', 'diff', 'checkpoint']} onSelect={() => go('changes')} />
               <Item icon={FileCode} label={t('tab_files')} keywords={['files']} onSelect={() => go('files')} />
               <Item icon={Terminal} label={t('tab_terminal')} onSelect={() => go('terminal')} />
               <Item icon={Activity} label={t('tab_activity')} keywords={['log', 'nhật ký']} onSelect={() => go('activity')} />
-              <Item icon={Users} label={t('tab_agents')} hint="Tác vụ nền, subagent" keywords={['background', 'subagent']} onSelect={() => go('agents')} />
+              <Item icon={Users} label={t('tab_agents')} hint={t('cmd_h_agents')} keywords={['background', 'subagent']} onSelect={() => go('agents')} />
               <Item icon={Globe} label={t('tab_preview')} onSelect={() => go('preview')} />
             </Command.Group>
 
-            <Command.Group heading="Cài đặt" className={group}>
-              <Item icon={Cpu} label="Mô hình AI và kiểm tra kết nối" keywords={['model', 'provider', 'api']} onSelect={() => settings('model')} />
-              <Item icon={Puzzle} label="Kỹ năng" keywords={['skills']} onSelect={() => settings('skills')} />
-              <Item icon={Link2} label="Kênh agent và ChatGPT Web Companion" keywords={['companion', 'chatgpt']} onSelect={() => settings('agent-channel')} />
-              <Item icon={ShieldCheck} label="Quyền và môi trường thực thi" keywords={['permissions', 'execution', 'isolation']} onSelect={() => settings('permissions')} />
-              <Item icon={Code2} label="Phân tích mã" keywords={['lsp', 'intelligence']} onSelect={() => settings('code-intelligence')} />
-              <Item icon={Settings} label="Mở cài đặt" hint="Ctrl ," onSelect={() => runAction(() => openSettings())} />
+            <Command.Group heading={t('cmd_g_settings')} className={group}>
+              <Item icon={Cpu} label={t('cmd_s_model')} keywords={['model', 'provider', 'api']} onSelect={() => settings('model')} />
+              <Item icon={Puzzle} label={t('cmd_s_skills')} keywords={['skills']} onSelect={() => settings('skills')} />
+              <Item icon={Link2} label={t('cmd_s_channel')} keywords={['companion', 'chatgpt']} onSelect={() => settings('agent-channel')} />
+              <Item icon={ShieldCheck} label={t('cmd_s_perms')} keywords={['permissions', 'execution', 'isolation']} onSelect={() => settings('permissions')} />
+              <Item icon={Code2} label={t('cmd_s_code')} keywords={['lsp', 'intelligence']} onSelect={() => settings('code-intelligence')} />
+              <Item icon={Settings} label={t('settings_open')} hint="Ctrl ," onSelect={() => runAction(() => openSettings())} />
             </Command.Group>
 
-            <Command.Group heading="Giao diện" className={group}>
-              <Item icon={Moon} label="Tối" keywords={['dark', 'theme']} onSelect={() => runAction(() => setTheme('dark'))} />
-              <Item icon={Sun} label="Sáng" keywords={['light', 'theme']} onSelect={() => runAction(() => setTheme('light'))} />
-              <Item icon={Monitor} label="Theo hệ thống" keywords={['system', 'theme']} onSelect={() => runAction(() => setTheme('system'))} />
-              <Item icon={Palette} label="Giao diện và ngôn ngữ" onSelect={() => settings('appearance')} />
+            <Command.Group heading={t('cmd_g_appearance')} className={group}>
+              <Item icon={Moon} label={t('theme_dark')} keywords={['dark', 'theme']} onSelect={() => runAction(() => setTheme('dark'))} />
+              <Item icon={Sun} label={t('theme_light')} keywords={['light', 'theme']} onSelect={() => runAction(() => setTheme('light'))} />
+              <Item icon={Monitor} label={t('cmd_theme_system')} keywords={['system', 'theme']} onSelect={() => runAction(() => setTheme('system'))} />
+              <Item icon={Palette} label={t('cmd_s_appearance')} onSelect={() => settings('appearance')} />
             </Command.Group>
           </Command.List>
         </Command>
