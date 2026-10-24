@@ -28,7 +28,7 @@
       "claim": "AGENTS.md and CLAUDE.md of the workspace are loaded into the agent's instructions with a hard cap of 8,192 bytes, read only inside the workspace, and cannot change what the permission gate decides.",
       "source": {
         "file": "docs/USER-GUIDE.md",
-        "line": 238,
+        "line": 241,
         "quote": "giới hạn cứng **tối đa 8.192 byte**"
       },
       "kind": "claim",
@@ -46,7 +46,7 @@
       "claim": "The project instructions and the skill index (with the definition of skill_load) take at most 10% and 5% of the history budget the model's window leaves, and together at most half of what is left above the 1,000-token floor, whatever the window (an unknown one included), so they do not take the history of a run under the floor on which a known window is refused.",
       "source": {
         "file": "docs/USER-GUIDE.md",
-        "line": 238,
+        "line": 241,
         "quote": "tối đa **10% lịch sử dự toán**"
       },
       "kind": "claim",
@@ -63,7 +63,7 @@
       "claim": "The owner can switch the loading of AGENTS.md and CLAUDE.md off in Settings: the choice is saved, applies from the next run of every runner, and the environment variable CHATMCP_PROJECT_INSTRUCTIONS decides over it.",
       "source": {
         "file": "docs/USER-GUIDE.md",
-        "line": 239,
+        "line": 242,
         "quote": "lưu cùng dữ liệu Hub, áp dụng từ lượt chạy kế tiếp"
       },
       "kind": "claim",
@@ -81,7 +81,7 @@
       "claim": "A skill too big for the index is read through skill_load: bounded, once per load, with the Hub's redaction, and without any effect on permissions.",
       "source": {
         "file": "docs/USER-GUIDE.md",
-        "line": 240,
+        "line": 243,
         "quote": "mỗi lần nạp tối đa 16 KiB, một lần cho mỗi lần gọi"
       },
       "kind": "claim",
@@ -164,7 +164,7 @@
       "claim": "The Hub takes a checkpoint before an agent edit and restores it only if the file is still as reviewed.",
       "source": {
         "file": "docs/USER-GUIDE.md",
-        "line": 214,
+        "line": 217,
         "quote": "Hub tự lưu một checkpoint của các file sắp đổi"
       },
       "kind": "claim",
@@ -298,16 +298,16 @@
     },
     {
       "id": "usage-and-cost",
-      "claim": "Cost totals are shown only from known usage and owner-supplied rates.",
+      "claim": "Cost totals are shown only from known usage and either the owner's own rates or, when the owner gave none and the model catalog is sure of the model, the catalog's prices, in which case the total is labelled an estimate; nothing is shown when the usage or every price is unknown.",
       "source": {
-        "file": "RELEASE-NOTES-v3.9.0.md",
-        "line": 13,
-        "quote": "No guessed total is shown when usage, pricing or failed-attempt billing is unknown."
+        "file": "docs/USER-GUIDE.md",
+        "line": 101,
+        "quote": "con số luôn kèm chữ **(ước tính)**"
       },
       "kind": "claim",
       "seam": "real",
       "test": "CHATMCP-HUB/tests/verify-model-cost.mjs",
-      "seamNote": "Pure functions of lib/model-cost.mjs with no collaborators; the UI that shows the total is not exercised by this test."
+      "seamNote": "Pure functions of lib/model-cost.mjs with no collaborators, the catalog estimates included. That a run prices its responses with the catalog's rates, frozen when it starts, is held by verify-catalog-budget.mjs through the real runner and provider; the label the page puts on an estimate is held by ui/tests/state-banner-ribbon.test.mjs, which this claim's test does not run."
     },
     {
       "id": "project-check-discovery",
