@@ -21,7 +21,7 @@ export function AppearanceSection() {
 
   return (
     <div className="space-y-5">
-      <SettingsCard icon={Palette} title={t('theme_label')} description="Sáng và tối đều được kiểm tra độ tương phản. “Hệ thống” theo cài đặt của Windows.">
+      <SettingsCard icon={Palette} title={t('theme_label')} description={t('appear_theme_desc')}>
         <div className="grid grid-cols-3 gap-2" role="group" aria-label={t('theme_label')}>
           {themes.map(({ id, label, icon: Icon }) => (
             <button key={id} type="button" aria-pressed={theme === id} onClick={() => setTheme(id)} className={choice(theme === id)}>
@@ -32,7 +32,7 @@ export function AppearanceSection() {
         </div>
       </SettingsCard>
 
-      <SettingsCard icon={Languages} title={t('lang_label')} description="Ngôn ngữ của giao diện. Nội dung hội thoại không bị dịch.">
+      <SettingsCard icon={Languages} title={t('lang_label')} description={t('appear_lang_desc')}>
         <div className="grid grid-cols-2 gap-2" role="group" aria-label={t('lang_label')}>
           <button type="button" aria-pressed={lang === 'vi'} className={choice(lang === 'vi')}
             onClick={() => { setLang('vi'); showToast('Đã chuyển ngôn ngữ sang Tiếng Việt', 'info'); }}>

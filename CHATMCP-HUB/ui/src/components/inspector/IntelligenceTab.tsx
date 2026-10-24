@@ -122,7 +122,7 @@ export function IntelligenceTab() {
     });
     const saved = result.ai;
     if (!saved || (aiProtocolForPreset(submitted.provider) && saved.protocol !== aiProtocolForPreset(submitted.provider))) {
-      throw new Error('Hub chưa lưu đúng giao thức đã chọn. Cấu hình AI hiện tại chưa được xác nhận.');
+      throw new Error(t('ai_protocol_unsaved'));
     }
     setForm(current => reconcileSavedAiConfig(current, submitted, saved));
     setCustomHeadersDraft('');
@@ -144,7 +144,7 @@ export function IntelligenceTab() {
       const latency = Date.now() - start;
       if (res?.ok !== false) {
         if (expectedProtocol && res.protocol !== expectedProtocol) {
-          throw new Error('Giao thức kiểm tra không khớp lựa chọn của bạn. Kiểm tra lại cấu hình đã lưu.');
+          throw new Error(t('ai_protocol_mismatch'));
         }
         setTestResult({ ok: true, latencyMs: latency });
         showToast(t('ai_test_success'), 'success');
@@ -174,8 +174,8 @@ export function IntelligenceTab() {
       showToast(t('ai_save_success'), 'success');
       await refetch();
     } catch (err: any) {
-      setSaveError(err.message || 'Lỗi lưu cấu hình');
-      showToast(err.message || 'Lỗi lưu cấu hình', 'error');
+      setSaveError(err.message || t('ai_save_failed'));
+      showToast(err.message || t('ai_save_failed'), 'error');
     } finally {
       setSaving(false);
     }
@@ -206,9 +206,8 @@ export function IntelligenceTab() {
 
       {draftChanged && (
         <div role="status" className="rounded-md border border-warning/40 bg-warning/10 text-warning p-2.5">
-          Chưa áp dụng cấu hình mới. Hub vẫn đang sử dụng <strong>{ai.preset || 'chưa xác định'} / {ai.protocol || 'chưa xác định'}</strong>.
-          Bấm Lưu cấu hình để áp dụng {form.provider}{expectedProtocol ? ` / ${expectedProtocol}` : ''}.
-          {retainsExistingKey && !form.apiKey.trim() ? ' API key đã lưu sẽ được giữ lại vì không đổi host.' : ''}
+          {t('ai_pending_a')}<strong>{ai.preset || t('ai_unknown')} / {ai.protocol || t('ai_unknown')}</strong>{t('ai_pending_b')}{form.provider}{expectedProtocol ? ` / ${expectedProtocol}` : ''}.
+          {retainsExistingKey && !form.apiKey.trim() ? t('ai_keeps_key') : ''}
         </div>
       )}
       {saveError && <div role="alert" className="rounded-md border border-danger/40 bg-danger/10 text-danger p-2.5">{saveError}</div>}
@@ -239,7 +238,7 @@ export function IntelligenceTab() {
       <div className="space-y-1.5">
         <label className="text-[12px] font-semibold text-muted flex items-center justify-between">
           <span>{t('ai_base_url')}</span>
-          <span className="text-[12px] text-faint font-normal">API hoặc model cục bộ</span>
+          <span className="text-[12px] text-faint font-normal">{t('ai_base_url_note')}</span>
         </label>
         <div className="relative">
           <Globe className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
@@ -264,7 +263,7 @@ export function IntelligenceTab() {
           aria-label="Model"
           value={model}
           onChange={(e) => setForm(current => ({ ...current, model: e.target.value }))}
-          placeholder="vd: claude-sonnet-5-5, gpt-4o, deepseek-chat..."
+          placeholder={t('ai_model_placeholder')}
           className="w-full bg-surface text-fg font-mono text-xs rounded-md px-3 py-1.5 border border-line focus:outline-none focus:border-primary"
         />
       </div>
@@ -355,7 +354,7 @@ export function IntelligenceTab() {
       <div className="flex items-center gap-2 pt-2 border-t border-line-subtle">
         <Button
           variant="secondary"
-          aria-label="Lưu & kiểm tra"
+          aria-label={t('ai_test_aria')}
           onClick={handleTestConnection}
           disabled={testing || saving || !!hub?.agent?.activeTaskId}
           className="flex-1 gap-1.5 h-8 text-xs"

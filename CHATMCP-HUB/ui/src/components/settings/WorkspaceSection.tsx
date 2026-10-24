@@ -7,6 +7,7 @@ import { useTranslation } from '@/lib/i18n';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { SettingsCard } from './SettingsCard';
+import { ProjectInstructionsCard } from './ProjectInstructionsCard';
 
 /** The folder the agent works in. */
 export function WorkspaceSection() {
@@ -36,7 +37,7 @@ export function WorkspaceSection() {
         showToast(`${t('workspace_changed_toast')}: ${added.workspace.path}`, 'success');
       }
     } catch (err: any) {
-      showToast(err.message || 'Lỗi duyệt thư mục', 'error');
+      showToast(err.message || t('ws_browse_failed'), 'error');
     }
   };
 
@@ -51,7 +52,7 @@ export function WorkspaceSection() {
       await queryClient.invalidateQueries({ queryKey: ['hubState'] });
       showToast(`${t('workspace_changed_toast')}: ${added.workspace.path}`, 'success');
     } catch (err: any) {
-      showToast(err.message || 'Lỗi thay đổi thư mục', 'error');
+      showToast(err.message || t('ws_change_failed'), 'error');
     } finally {
       setApplyingWs(false);
     }
@@ -63,10 +64,10 @@ export function WorkspaceSection() {
         <div className="flex items-center gap-2">
           <Input
             type="text"
-            aria-label="Đường dẫn thư mục dự án"
+            aria-label={t('ws_path_aria')}
             value={wsInput}
             onChange={(e) => setWsInput(e.target.value)}
-            placeholder="Đường dẫn thư mục dự án…"
+            placeholder={t('ws_path_placeholder')}
             className="flex-1 font-mono text-[12px]"
           />
           <Button variant="secondary" onClick={handleBrowseWs} className="gap-1.5">
@@ -79,16 +80,18 @@ export function WorkspaceSection() {
         </div>
         {currentWs && (
           <p className="truncate font-mono text-[12px] text-muted" title={currentWs}>
-            <span className="text-faint">Đang dùng: </span>
+            <span className="text-faint">{t('ws_in_use')}</span>
             <span className="font-semibold text-success">{currentWs}</span>
           </p>
         )}
         <p className="text-[12px] leading-4 text-faint">
-          File nhạy cảm (.env, khóa riêng, thư mục .git) luôn được bảo vệ khỏi agent, kể cả ở chế độ Tự động.
+          {t('ws_protected')}
         </p>
       </SettingsCard>
 
-      <SettingsCard icon={Sparkles} title="Hướng dẫn khởi động" description="Chạy lại các bước chọn thư mục, kết nối AI và chọn quyền.">
+      <ProjectInstructionsCard />
+
+      <SettingsCard icon={Sparkles} title={t('ws_onboarding_title')} description={t('ws_onboarding_desc')}>
         <Button variant="secondary" onClick={() => { closeSettings(); setOnboardingOpen(true); }} title={t('workspace_reopen_onboarding')}>
           {t('workspace_reopen_onboarding')}
         </Button>

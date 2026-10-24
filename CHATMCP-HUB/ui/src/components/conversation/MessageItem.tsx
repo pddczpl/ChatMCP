@@ -15,10 +15,10 @@ interface MessageItemProps {
  * label, and copy appears on hover or focus.
  */
 export function MessageItem({ message }: MessageItemProps) {
-  const { lang } = useTranslation();
+  const { lang, t } = useTranslation();
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
-  const author = isUser ? 'Bạn' : isSystem ? 'Hệ thống' : 'ChatMCP';
+  const author = isUser ? t('agents_msg_you') : isSystem ? t('agents_msg_system') : 'ChatMCP';
 
   return (
     <article
@@ -31,7 +31,7 @@ export function MessageItem({ message }: MessageItemProps) {
           <span className={cn('font-semibold', isUser ? 'text-fg' : isSystem ? 'text-warning' : 'text-primary')}>{author}</span>
           {message.timestamp && <span className="tabular-nums text-faint">{formatTime(message.timestamp, lang)}</span>}
           <span className="ml-auto opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-            <CopyButton text={message.content} label="Sao chép tin nhắn" />
+            <CopyButton text={message.content} label={t('agents_msg_copy_message')} />
           </span>
         </div>
 
@@ -92,11 +92,12 @@ export function MessageItem({ message }: MessageItemProps) {
 }
 
 function CodeBlock({ language, children }: { language: string; children: string }) {
+  const { t } = useTranslation();
   return (
     <div className="my-3 overflow-hidden rounded-xl border border-line bg-bg text-[13px]" data-testid="message-code">
       <div className="flex items-center justify-between border-b border-line bg-surface px-3 py-1 text-[12px] text-muted">
         <span className="font-medium">{language}</span>
-        <CopyButton text={children} label="Sao chép mã" />
+        <CopyButton text={children} label={t('agents_msg_copy_code')} />
       </div>
       <pre className="overflow-x-auto p-3 leading-6 text-fg" tabIndex={0}>
         <code>{children}</code>

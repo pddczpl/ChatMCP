@@ -146,6 +146,8 @@ try {
   assert.deepEqual(restoredState.jobs[0].workers.map(w=>w.status),['interrupted','interrupted']);
   assert.equal(restoredState.jobs[0].workers[0].commitSha,null);
   assert.equal(restoredState.recoveryFault,null);
+  // The folder a run belongs to is part of what the Hub reports, so that a page can show the runs of the folder in view and no others.
+  assert.equal(restoredState.jobs[0].workspace,root,'a saved run reports the folder it was made in');
   await assert.rejects(restoredOrchestrator.run({
     confirmation:'CREATE WORKTREES',tasks:[{id:'coder',prompt:'must inspect interrupted job'}],
   }),{code:'recovery_review_required'});
@@ -271,6 +273,24 @@ try {
     confirmation:'CREATE WORKTREES',tasks:[{id:'coder',prompt:'no unsafe replay'}],
   }),{code:'recovery_unresolved'});
   console.log('PASS: Phase2 corrupt jobs quarantined; restored workers interrupted; no model/Git replay');
+
+  // A saved run that never recorded its folder cannot be told apart from the runs of any folder: it reports none (null, not undefined, so that
+  // the field is always there), and the Hub itself will not read it because it is not the folder the Hub works on.
+  const unplacedDir=path.join(root,'saved-without-workspace');
+  await fs.mkdir(unplacedDir);
+  const unplacedRun=randomUUID();
+  await fs.writeFile(path.join(unplacedDir,'jobs.json'),JSON.stringify({version:1,jobs:[{
+    id:unplacedRun,baseSha,baseBranch:'main',status:'ready_for_review',
+    workers:[{id:'coder',status:'ready_for_review',commitSha:null}],
+  }]}));
+  const unplaced=makeOrchestrator(unplacedDir);
+  await unplaced.load();
+  assert.equal(unplaced.state().recoveryFault,null);
+  assert.equal(unplaced.state().jobs.length,1);
+  assert.equal(unplaced.state().jobs[0].workspace,null,'a run without a recorded folder reports none');
+  assert.ok('workspace' in unplaced.state().jobs[0],'and the field is there');
+  await assert.rejects(unplaced.recoveryStatus({runId:unplacedRun}),{code:'run_not_found'});
+  console.log('PASS: Phase2 every run reports its folder, and a run with none reports null');
 
   console.log('PASS: Phase2 durable hash-chained checkpoints, crash locks, no secret payload and NO automatic replay');
 }finally{

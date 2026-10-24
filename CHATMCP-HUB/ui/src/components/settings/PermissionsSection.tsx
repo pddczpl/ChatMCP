@@ -11,7 +11,7 @@ const MODE_ICONS = { readonly: Eye, review: ShieldCheck, autonomous: Bot, 'full-
 /** What the agent may do without asking, and what it runs on. */
 export function PermissionsSection() {
   const { showToast, setFullAccessModalOpen } = useAppStore();
-  const { t, lang } = useTranslation();
+  const { t } = useTranslation();
   const { data: hub, refetch } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 3000 });
   const { data: sandboxStatus, isLoading: isSandboxLoading } = useQuery({
     queryKey: ['sandboxStatus'],
@@ -29,24 +29,24 @@ export function PermissionsSection() {
     }
     try {
       await api.setPermissions({ mode, ...(isFullAccess ? { executionPolicy: 'host-review' } : {}) });
-      showToast(`Đã đổi quyền sang ${mode}`, 'info');
+      showToast(t('perm_changed', { mode }), 'info');
       refetch();
     } catch (err: any) {
-      showToast(err.message || 'Lỗi cập nhật quyền', 'error');
+      showToast(err.message || t('perm_update_failed'), 'error');
     }
   };
 
   const badge = isSandboxLoading
     ? { text: t('sandbox_probing'), tone: 'border-primary/30 bg-primary/10 text-primary' }
     : !sandboxStatus?.available
-      ? { text: lang === 'vi' ? 'Không khả dụng' : 'Unavailable', tone: 'border-danger/30 bg-danger/10 text-danger' }
+      ? { text: t('sandbox_unavailable'), tone: 'border-danger/30 bg-danger/10 text-danger' }
       : sandboxStatus?.osIsolated
         ? { text: t('sandbox_isolated'), tone: 'border-success/30 bg-success/10 text-success' }
         : { text: t('sandbox_unisolated'), tone: 'border-warning/30 bg-warning/10 text-warning' };
 
   return (
     <div className="space-y-5">
-      <SettingsCard icon={ShieldCheck} title={t('agent_exec_mode')} description="Chọn mức agent được tự làm. Việc nguy hiểm luôn hỏi lại, ở mọi chế độ.">
+      <SettingsCard icon={ShieldCheck} title={t('agent_exec_mode')} description={t('perm_mode_desc')}>
         <div className="space-y-2" role="group" aria-label={t('agent_exec_mode')}>
           {[
             { id: 'readonly', label: t('perm_read_only'), desc: t('perm_read_only_desc') },

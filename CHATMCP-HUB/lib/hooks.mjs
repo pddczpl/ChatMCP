@@ -1,12 +1,13 @@
-// Lifecycle hooks (phase P1, tasks ext-5 and ext-6).
+// Lifecycle hooks (phase P1, tasks ext-5, ext-6 and ext-7).
 //
 // A hook is a program the OWNER configured that the Hub runs around a tool call: before it (PreToolUse), after it (PostToolUse,
-// PostToolUseFailure) and, once the agent loop is wired to them, when a task stops (Stop, TaskCompleted, SubagentStop). The schema is the
-// documented subset of Claude Code's (https://code.claude.com/docs/en/hooks) so that existing hook scripts keep working: the same event
-// names, matcher groups, `command` handlers (exec form with `args`, or shell form), `timeout`, `onFailure`, `if`, the same JSON on stdin
-// and the same exit-code contract (0 reads stdout, 2 blocks with stderr as the reason, anything else does not block unless onFailure is
-// block). What is not implemented is listed in docs/HOOKS.md: input and output rewriting (updatedInput, updatedToolOutput), handler
-// types other than `command`, running a hook in the background.
+// PostToolUseFailure) and when an agent run ends (Stop, SubagentStop, TaskCompleted: lib/lifecycle-hooks.mjs decides what the agent loop
+// does with their answers). The schema is the documented subset of Claude Code's (https://code.claude.com/docs/en/hooks) so that existing
+// hook scripts keep working: the same event names, matcher groups, `command` handlers (exec form with `args`, or shell form), `timeout`,
+// `onFailure`, `if`, the same JSON on stdin and the same exit-code contract (0 reads stdout, 2 blocks with stderr as the reason, anything
+// else does not block unless onFailure is block; on Stop, SubagentStop and TaskCompleted onFailure has no effect). What is not implemented
+// is listed in docs/HOOKS.md: input and output rewriting (updatedInput, updatedToolOutput), handler types other than `command`, running a
+// hook in the background.
 //
 // Where the configuration lives:
 //   * <Hub data folder>/hooks.json            the owner's file. It is the only file that is trusted as written.
@@ -300,6 +301,13 @@ export function sanitizeHookText(text, { secrets = [], max = MAX_REASON_CHARS } 
   value = maskSecrets(value, secrets).trim();
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
+
+// On Stop, SubagentStop and TaskCompleted an interpreter that cannot open its script (Python exits with 2 and says "No such file or
+// directory") would look like a deliberate block and keep the agent working for ever. Claude Code reads exit 2 with nothing on stdout and a
+// stderr that says a file is missing as an error of the hook, not as a block; so does this runner. The example in the reference is the
+// first phrase; the second is the Windows spelling of the same error.
+const MISSING_SCRIPT = /no such file or directory|cannot find the (?:file|path) specified/i;
+const missingScript = (result) => !String(result.stdout ?? '').trim() && MISSING_SCRIPT.test(String(result.stderr ?? ''));
 
 const KNOWN_TOP_LEVEL = new Set(['continue', 'stopReason', 'suppressOutput', 'systemMessage', 'decision', 'reason', 'hookSpecificOutput', 'terminalSequence']);
 const KNOWN_SPECIFIC = new Set(['hookEventName', 'permissionDecision', 'permissionDecisionReason', 'additionalContext']);
@@ -890,7 +898,7 @@ export class HookRunner {
     let failureText = null;
     if (record.failure === 'spawn') failureText = `the hook could not be started (${record.spawnError})`;
     else if (record.timedOut) { record.failure = 'timeout'; failureText = `the hook timed out after ${handler.timeout} s`; }
-    else if (record.exitCode === 2) {
+    else if (record.exitCode === 2 && !(spec.exit2 === 'block' && missingScript(result))) {
       // The exit code decides; whatever JSON came with it is not read.
       const reason = text(result.stderr) || 'the hook exited with code 2 and gave no reason';
       record.reason = reason;
@@ -902,8 +910,10 @@ export class HookRunner {
     }
     if (failureText) {
       record.reason = text(failureText);
-      if (handler.onFailure === 'block') {
-        if (spec.exit2 === 'deny') { record.decision = 'deny'; record.blocked = true; } else if (spec.exit2 === 'block') record.blocked = true; else record.feedback = record.reason;
+      // Stop, SubagentStop and TaskCompleted (exit2 'block'): onFailure has no effect. Exit 2 there sends the agent back to work, and a hook that
+      // cannot run could never be repaired by it (the Claude Code reference says the same), so a failure is logged and the task goes on.
+      if (handler.onFailure === 'block' && spec.exit2 !== 'block') {
+        if (spec.exit2 === 'deny') { record.decision = 'deny'; record.blocked = true; } else record.feedback = record.reason;
       }
       return record;
     }

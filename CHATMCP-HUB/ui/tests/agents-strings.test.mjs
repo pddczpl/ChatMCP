@@ -1,0 +1,96 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// "No new hard-coded strings": every word the Agents tab shows comes from lib/i18n-agents.ts or lib/i18n-agents-sections.ts through t(), so it exists in both languages.
+// These read the source of the files that make up the tab and refuse prose that is written into them. The Background section is made of
+// layout/BackgroundTasks.tsx and the workflow card (conversation/WorkflowCard.tsx, which the chat shows too), so both are read as well, and so
+// are the two components that name the state of a conversation with the same words: its ribbon (layout/PhaseRibbon.tsx) and its banner
+// (conversation/StateBanner.tsx). The conversation screen (conversation/ConversationView.tsx) and the sidebar (sessions/SessionSidebar.tsx) are read
+// too. They show the Hub's refusals as the Hub wrote them (the Hub's message, else the screen's own sentence), which the rule about error codes below
+// does not match: the sentences of the codes in the dictionary are worded for the Agents tab (workspace_missing speaks of a Git project folder).
+
+const src = fileURLToPath(new URL('../src/', import.meta.url));
+const FILES = [
+  'AgentsTab.tsx', 'OrchestratorTab.tsx', 'LazySection.tsx', 'AgentGroups.tsx', 'DynamicSubagents.tsx', 'ManualGroup.tsx', 'CodingWorkers.tsx', 'CodingRunView.tsx',
+  'CodingWorkerCard.tsx', 'CodingReview.tsx', 'ConfirmDialog.tsx', 'IsolatedChecksPanel.tsx', 'agent-parts.tsx', 'agentLabels.ts', 'useDelegation.ts', 'DiffView.tsx', 'HiddenText.tsx',
+].map((name) => `components/inspector/${name}`).concat(['lib/agent-proof.ts', 'lib/agent-draft.ts', 'lib/agent-errors.ts', 'lib/hidden-chars.ts', 'lib/tab-keys.ts', 'store/useAgentDrafts.ts',
+  'components/layout/BackgroundTasks.tsx', 'components/conversation/WorkflowCard.tsx', 'components/layout/PhaseRibbon.tsx', 'components/conversation/StateBanner.tsx',
+  'components/conversation/ConversationView.tsx', 'components/sessions/SessionSidebar.tsx',
+  'components/approval/OutboundReviewCard.tsx', 'components/approval/ApprovalStack.tsx', 'components/conversation/Composer.tsx', 'components/conversation/MessageItem.tsx',
+  'components/ui/CopyButton.tsx', 'components/conversation/ModelProfilePicker.tsx', 'components/conversation/ToolActivityGroup.tsx', 'components/conversation/ToolReceipt.tsx',
+  'components/ui/Toast.tsx', 'components/conversation/EmptyState.tsx',
+  'components/layout/Header.tsx', 'components/layout/StatusBar.tsx', 'components/layout/FullAccessBanner.tsx', 'components/layout/GitWorkspacePicker.tsx']);
+
+const read = (file) => fs.readFileSync(path.join(src, file), 'utf8');
+/** The source without its comments (a comment may be written in Vietnamese; a string may not). */
+const withoutComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1').replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
+const VIETNAMESE = /[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]/i;
+
+/** String literals and JSX text that read as a sentence: a capital letter, then words. Class lists, ids, keys and test ids never do. */
+function prose(text) {
+  const found = [];
+  const body = withoutComments(text);
+  for (const match of body.matchAll(/(['"`])((?:\\.|(?!\1)[^\\\n])*)\1/g)) found.push(match[2]);
+  for (const match of body.matchAll(/>([^<>{}\n][^<>{}]*)</g)) found.push(match[1].trim());
+  return found.filter((chunk) => /^[A-Z][a-z]+(?:[ ,.'’-]+[A-Za-z]+){1,}/.test(chunk) && /[a-z]{2,} [a-z]{2,}/.test(chunk));
+}
+
+test('no Vietnamese is written into a component of the Agents tab', () => {
+  for (const file of FILES) assert.doesNotMatch(withoutComments(read(file)), VIETNAMESE, `${file} holds Vietnamese text outside the dictionary`);
+});
+
+// A Vietnamese word that has no diacritic is invisible to the scan above. The tool rows said "Xong" on the English screen for that reason, so the words the
+// screens had in that form are named here (a negative control proves the pattern sees one).
+const PLAIN_VIETNAMESE = /\bXong\b/;
+test('no Vietnamese word without a diacritic is written into a component either', () => {
+  assert.match('<span>Xong</span>', PLAIN_VIETNAMESE);
+  for (const file of FILES) assert.doesNotMatch(withoutComments(read(file)), PLAIN_VIETNAMESE, `${file} holds the Vietnamese word "Xong" outside the dictionary`);
+});
+
+test('no English sentence is written into a component of the Agents tab either', () => {
+  for (const file of FILES) assert.deepEqual(prose(read(file)), [], `${file} holds a sentence that should be a dictionary string`);
+});
+
+test('the sentence detector knows a sentence from a class list (a negative control)', () => {
+  assert.deepEqual(prose("const a = 'flex items-center gap-2 rounded-lg border'; const b = 'Start the analysis now'; const c = <p>Nothing to show here</p>;"), ['Start the analysis now', 'Nothing to show here']);
+  assert.deepEqual(prose("t('group_goal_title'); const d = 'agents-view-groups'; const e = 'INTEGRATE WORKTREES'; const f = 'SHA-256: ';"), []);
+});
+
+test('every dictionary key a component asks for exists', () => {
+  const dictionary = read('lib/i18n-agents.ts') + read('lib/i18n-agents-sections.ts');
+  const known = new Set([...dictionary.matchAll(/^\s{2}([a-z_0-9]+):/gm)].map((match) => match[1]));
+  const base = read('lib/i18n.ts');
+  for (const match of base.matchAll(/^\s{4}([a-z_0-9]+):/gm)) known.add(match[1]);
+  const missing = [];
+  for (const file of FILES) {
+    for (const match of withoutComments(read(file)).matchAll(/\bt\(\s*'([a-z_0-9]+)'/g)) if (!known.has(match[1])) missing.push(`${file}: ${match[1]}`);
+  }
+  assert.deepEqual(missing, []);
+});
+
+test('an error from the Hub is told through its code, not by printing the Hub’s own text in whatever language it came in', () => {
+  for (const file of FILES) {
+    const code = withoutComments(read(file));
+    assert.doesNotMatch(code, /\be\??\.message\s*\|\|/, `${file} prints an error's message directly: use agentErrorText(e, t, fallback)`);
+    assert.doesNotMatch(code, /\.error\.message\b(?!\s*\})/, `${file} prints a mutation error's message directly`);
+  }
+});
+
+test('every key of the agents dictionary is used somewhere (no strings left behind)', () => {
+  // both parts of it: the strings the first screen asks for and the ones only the sections ask for (each file lists Vietnamese first, English second)
+  const keys = [['lib/i18n-agents.ts', 'agentsEn'], ['lib/i18n-agents-sections.ts', 'sectionsEn']].flatMap(([file, english]) => {
+    const dictionary = read(file);
+    const found = [...dictionary.slice(0, dictionary.indexOf(`export const ${english}`)).matchAll(/^\s{2}([a-z_0-9]+):/gm)].map((match) => match[1]);
+    assert.ok(found.length > 0, `${file} has no Vietnamese keys to check`);
+    return found;
+  });
+  const code = FILES.map(read).map(withoutComments).join('\n') + read('components/inspector/DynamicSubagents.tsx');
+  // keys built at run time: agent_role_<role>, agent_status_<status>, agent_proof_<kind>_title|note, agent_draft_<field>_<code>, agent_error_<code>,
+  // agents_bg_state_<task state> (agentLabels.ts; the states are those of lib/task-view.ts, so a test of its own pins the list)
+  const dynamic = /^(agent_role_|agent_status_|agent_proof_|agent_draft_|agent_error_|agents_bg_state_)/;
+  const unused = keys.filter((key) => !dynamic.test(key) && !code.includes(`'${key}'`));
+  assert.deepEqual(unused, []);
+});

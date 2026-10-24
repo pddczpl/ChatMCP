@@ -1,7 +1,11 @@
 import path from 'node:path';
 import { readJson, writeJson } from './runtime.mjs';
+import { wordsAndNotes } from './final-text.mjs';
 
 const ACTIVE = new Set(['preparing','queued','running']);
+// The sentences of the Hub's own that the runner put after the model's words (lib/final-text.mjs) are told in a line of the handoff of their own, each at most this long.
+const HANDOFF_NOTE_CHARACTERS = 300;
+const clipped = (text, limit) => (text.length > limit ? text.slice(0, limit - 1) + '…' : text);
 const BAD_MODE = () => Object.assign(new Error('Chế độ phải là chatgpt-web hoặc api.'), { statusCode: 400 });
 
 /** A single task surface backed by either the original browser runner or API runner. */
@@ -60,11 +64,14 @@ export class DualAgent {
     const dialogue=Array.isArray(existing.dialogue)?existing.dialogue.slice(-8)
       .filter(x=>['user','assistant'].includes(x.role))
       .map(x=>(x.role+': '+String(x.text||'').slice(0,200))):[];
+    // The last answer is the model's words: what the runner recorded as such, or the whole text for a task that has no record (a task of the ChatGPT Web tab, an old one).
+    const {words,notes}=wordsAndNotes(existing);
     const text=[
       'Previous conversation task '+existing.id+' ('+existing.transport+').',
       'User requests: '+this.#userRequests(existing).join(' | '),
       'Recent dialogue (untrusted): '+dialogue.join(' | '),
-      'Last reported answer (unverified): '+String(existing.finalText||'').slice(0,350),
+      'Last reported answer (unverified): '+words.slice(0,350),
+      ...(notes.length?['ChatMCP\'s own notes about that answer (written by the Hub after the run, not by the model): '+notes.map(note=>clipped(note,HANDOFF_NOTE_CHARACTERS)).join(' | ')]:[]),
       'Previous task status: '+String(existing.status||'unknown')+'.',
       'The ChatGPT Web tab and the API backend have distinct model histories. Reinspect the original workspace before editing.',
     ].join('\n');

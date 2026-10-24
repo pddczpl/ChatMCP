@@ -1,0 +1,289 @@
+{
+  "suite": "verify-final-answer-parts.mjs",
+  "description": "What the suite of the final answer parts must notice: the runner stops recording where the model's words end (or records the wrong thing, in the wrong order, for the main chat's own text, in a list entry, for a failed run), a reader goes back to cutting the text (the worker's summary, the claim of agent_results), a sentence of the Hub's is not kept apart or not bounded, a record is trusted that does not make the text it came with, the worker's hook note is dropped on its way to the page, and the next worker is handed the Hub's sentences as its predecessor's words (or loses them, or has them unbounded, or has no line that says whose they are), and the handoff to the other transport and the preview on the card of a workflow take the text whole again, or lose, or do not bound, or mix up the Hub's sentences they tell apart. M29 is a control: a changed comment must survive.",
+  "mutations": [
+    {
+      "name": "M1",
+      "what": "the text puts the hook's note before the verification notice",
+      "patches": [
+        { "file": "lib/final-text.mjs", "old": "(verificationNotice ? VERIFICATION_NOTICE_MARK + verificationNotice : '') + (hookNotice ? HOOK_NOTICE_MARK + hookNotice : '')", "new": "(hookNotice ? HOOK_NOTICE_MARK + hookNotice : '') + (verificationNotice ? VERIFICATION_NOTICE_MARK + verificationNotice : '')" }
+      ]
+    },
+    {
+      "name": "M2",
+      "what": "the text leaves the hook's note out: the page would not show it at all",
+      "patches": [
+        { "file": "lib/final-text.mjs", "old": " + (hookNotice ? HOOK_NOTICE_MARK + hookNotice : '');", "new": ";" }
+      ]
+    },
+    {
+      "name": "M3",
+      "what": "a record is trusted whatever text it came with",
+      "patches": [
+        { "file": "lib/final-text.mjs", "old": "return typeof view.finalText === 'string' && composeFinalText(record) === view.finalText ? record : null;", "new": "return record;" }
+      ]
+    },
+    {
+      "name": "M4",
+      "what": "a record whose notices are not strings is trusted when it happens to make the text",
+      "patches": [
+        { "file": "lib/final-text.mjs", "old": "if (typeof words !== 'string' || !notice(verificationNotice) || !notice(hookNotice)) return null;", "new": "if (typeof words !== 'string') return null;" }
+      ]
+    },
+    {
+      "name": "M5",
+      "what": "the wording of the verification sentence changes (a reader that looks for the old one, and every page, would disagree with the runner)",
+      "patches": [
+        { "file": "lib/final-text.mjs", "old": "`ChatMCP has NOT independently verified full completion: ${missing.join('; ')}.`", "new": "`ChatMCP has not independently verified full completion: ${missing.join('; ')}.`" }
+      ]
+    },
+    {
+      "name": "M6",
+      "what": "the runner records the whole text as the model's words",
+      "patches": [
+        { "file": "lib/agent.mjs", "old": "task.finalParts = { words: parts.words, verificationNotice:", "new": "task.finalParts = { words: task.finalText, verificationNotice:" }
+      ]
+    },
+    {
+      "name": "M7",
+      "what": "the runner hands the record to nobody: it is not part of the public task",
+      "patches": [
+        { "file": "lib/agent.mjs", "old": "finalParts:!summary&&task.finalText?(task.finalParts??null):null,", "new": "finalParts:null," }
+      ]
+    },
+    {
+      "name": "M8",
+      "what": "the summary entries of a list carry the record: the model's words twice, next to a text that is clipped",
+      "patches": [
+        { "file": "lib/agent.mjs", "old": "finalParts:!summary&&task.finalText?(task.finalParts??null):null,", "new": "finalParts:task.finalText?(task.finalParts??null):null," }
+      ]
+    },
+    {
+      "name": "M9",
+      "what": "the runner appends the hook's note to the text but does not record it",
+      "patches": [
+        { "file": "lib/agent.mjs", "old": "if (verdict.notice) { parts.hookNotice = verdict.notice; this.#setFinalText(task, parts); }", "new": "if (verdict.notice) { task.finalText += '\\n\\n[Hook notice] ' + verdict.notice; }" }
+      ]
+    },
+    {
+      "name": "M10",
+      "what": "the guard in the public task and every reset of the record are gone: a failed run shows the record of the run before it",
+      "patches": [
+        { "file": "lib/agent.mjs", "old": "finalParts:!summary&&task.finalText?(task.finalParts??null):null,", "new": "finalParts:!summary?(task.finalParts??null):null," },
+        { "file": "lib/agent.mjs", "old": "task.status = 'paused'; task.finishedAt = now(); task.finalText = ''; task.finalParts = null;", "new": "task.status = 'paused'; task.finishedAt = now(); task.finalText = '';" },
+        { "file": "lib/agent.mjs", "old": "task.finishedAt = null; task.finalText = ''; task.finalParts = null; task.error = null;", "new": "task.finishedAt = null; task.finalText = ''; task.error = null;" },
+        { "file": "lib/agent.mjs", "old": "      task.finalText = ''; task.finalParts = null;", "new": "      task.finalText = '';" },
+        { "file": "lib/agent.mjs", "old": "'persistence_failed'; task.finalText = ''; task.finalParts = null;", "new": "'persistence_failed'; task.finalText = '';" }
+      ]
+    },
+    {
+      "name": "M11",
+      "what": "only the guard in the public task is gone: the resets still empty the record whenever the text is emptied",
+      "equivalent": "the resets and the guard each keep a record of an earlier run from being shown; M10 removes both and is killed",
+      "patches": [
+        { "file": "lib/agent.mjs", "old": "finalParts:!summary&&task.finalText?(task.finalParts??null):null,", "new": "finalParts:!summary?(task.finalParts??null):null," }
+      ]
+    },
+    {
+      "name": "M12",
+      "what": "only the resets are gone: the guard in the public task still hides the record while the text is empty",
+      "equivalent": "the resets and the guard each keep a record of an earlier run from being shown; M10 removes both and is killed",
+      "patches": [
+        { "file": "lib/agent.mjs", "old": "task.status = 'paused'; task.finishedAt = now(); task.finalText = ''; task.finalParts = null;", "new": "task.status = 'paused'; task.finishedAt = now(); task.finalText = '';" },
+        { "file": "lib/agent.mjs", "old": "task.finishedAt = null; task.finalText = ''; task.finalParts = null; task.error = null;", "new": "task.finishedAt = null; task.finalText = ''; task.error = null;" },
+        { "file": "lib/agent.mjs", "old": "      task.finalText = ''; task.finalParts = null;", "new": "      task.finalText = '';" },
+        { "file": "lib/agent.mjs", "old": "'persistence_failed'; task.finalText = ''; task.finalParts = null;", "new": "'persistence_failed'; task.finalText = '';" }
+      ]
+    },
+    {
+      "name": "M13",
+      "what": "a worker's summary goes back to cutting the text",
+      "patches": [
+        { "file": "lib/coding-orchestrator.mjs", "old": "if(parts)return {summary:", "new": "if(false)return {summary:" }
+      ]
+    },
+    {
+      "name": "M14",
+      "what": "a worker's summary is not bounded after the split",
+      "patches": [
+        { "file": "lib/coding-orchestrator.mjs", "old": "summary:bounded(parts.words,SUMMARY_MAX)", "new": "summary:parts.words" }
+      ]
+    },
+    {
+      "name": "M15",
+      "what": "the hook's note is not bounded on its own",
+      "patches": [
+        { "file": "lib/coding-orchestrator.mjs", "old": "hookNotice:bounded(parts.hookNotice,RUNNER_NOTICE_MAX)", "new": "hookNotice:parts.hookNotice" }
+      ]
+    },
+    {
+      "name": "M16",
+      "what": "a worker's hook note is dropped before the worker's result is made",
+      "patches": [
+        { "file": "lib/coding-orchestrator.mjs", "old": "...(hookNotice?{runnerHookNotice:hookNotice}:{})", "new": "" }
+      ]
+    },
+    {
+      "name": "M17",
+      "what": "the hook note is part of the result of a worker but is not stored on the worker the page reads",
+      "patches": [
+        { "file": "lib/coding-orchestrator.mjs", "old": "if(out.runnerHookNotice)node.runnerHookNotice=out.runnerHookNotice;", "new": "" }
+      ]
+    },
+    {
+      "name": "M18",
+      "what": "agent_results goes back to cutting the text of a child",
+      "patches": [
+        { "file": "lib/agent-results.mjs", "old": "const parts = raw === null ? null : finalPartsOf(d);", "new": "const parts = null;" }
+      ]
+    },
+    {
+      "name": "M19",
+      "what": "the hook's note is read from the record but never reaches the facts of the child",
+      "patches": [
+        { "file": "lib/agent-results.mjs", "old": "hookNotice: split.hook,", "new": "hookNotice: null," }
+      ]
+    },
+    {
+      "name": "M20",
+      "what": "the hook's note is in the facts but not in the Hub's record of the answer",
+      "patches": [
+        { "file": "lib/agent-results.mjs", "old": "if (safe.hookNotice) record.hookNotice = safe.hookNotice;", "new": "" }
+      ]
+    },
+    {
+      "name": "M21",
+      "what": "the handoff of a predecessor goes back to its text whole, the Hub's sentences inside the result",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "const parts = finalPartsOf(prior);\n  const result", "new": "const parts = null;\n  const result" }
+      ]
+    },
+    {
+      "name": "M22",
+      "what": "the verification sentence is dropped from the handoff",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "if (parts?.verificationNotice) notes.push(clipped(parts.verificationNotice, HANDOFF_NOTICE_CHARACTERS));", "new": "" }
+      ]
+    },
+    {
+      "name": "M23",
+      "what": "the hook note is dropped from the handoff",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "if (parts?.hookNotice) notes.push(clipped(parts.hookNotice, HANDOFF_HOOK_NOTICE_CHARACTERS));", "new": "" }
+      ]
+    },
+    {
+      "name": "M24",
+      "what": "the result is the whole text although the runner recorded the words (the Hub's sentences are told twice)",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "String(parts ? (parts.words || prior?.error || NO_RESULT) : (prior?.finalText", "new": "String(parts ? (prior?.finalText || prior?.error || NO_RESULT) : (prior?.finalText" }
+      ]
+    },
+    {
+      "name": "M25",
+      "what": "the hook note is not bounded",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "notes.push(clipped(parts.hookNotice, HANDOFF_HOOK_NOTICE_CHARACTERS))", "new": "notes.push(parts.hookNotice)" }
+      ]
+    },
+    {
+      "name": "M26",
+      "what": "the verification sentence is not bounded",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "notes.push(clipped(parts.verificationNotice, HANDOFF_NOTICE_CHARACTERS))", "new": "notes.push(parts.verificationNotice)" }
+      ]
+    },
+    {
+      "name": "M27",
+      "what": "the model's words are not bounded",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "NO_RESULT) : (prior?.finalText || prior?.error || NO_RESULT)).slice(0, HANDOFF_RESULT_CHARACTERS);", "new": "NO_RESULT) : (prior?.finalText || prior?.error || NO_RESULT));" }
+      ]
+    },
+    {
+      "name": "M28",
+      "what": "the Hub's sentences follow with no line that says whose they are",
+      "patches": [
+        { "file": "lib/concurrent-api-agent.mjs", "old": "(notes.length ? '\\n' + HANDOFF_NOTES_LABEL + '\\n' + notes.map(", "new": "(notes.length ? '\\n' + notes.map(" }
+      ]
+    },
+    {
+      "name": "M29",
+      "what": "CONTROL: a comment of the module changes; nothing may notice",
+      "equivalent": "only a comment of the module changes, so no behaviour can differ",
+      "patches": [
+        { "file": "lib/final-text.mjs", "old": "// The text a finished run ends with, and whose words are in it.", "new": "// The text a finished run ends with, and whose words are in it (comment changed by the control)." }
+      ]
+    },
+    {
+      "name": "M30",
+      "what": "the handoff to the other transport lists the whole text of the last run as the model's answer again, the Hub's sentences and their marks in it",
+      "patches": [
+        { "file": "lib/dual-agent.mjs", "old": "'Last reported answer (unverified): '+words.slice(0,350),", "new": "'Last reported answer (unverified): '+String(existing.finalText||'').slice(0,350)," }
+      ]
+    },
+    {
+      "name": "M31",
+      "what": "the handoff to the other transport loses the Hub's sentences: no line of notes",
+      "patches": [
+        { "file": "lib/dual-agent.mjs", "old": "...(notes.length?['ChatMCP", "new": "...(false?['ChatMCP" }
+      ]
+    },
+    {
+      "name": "M32",
+      "what": "the line of notes in the handoff does not say whose sentences they are",
+      "patches": [
+        { "file": "lib/dual-agent.mjs", "old": "own notes about that answer (written by the Hub after the run, not by the model): '+notes.map", "new": "own notes about that answer: '+notes.map" }
+      ]
+    },
+    {
+      "name": "M33",
+      "what": "the Hub's sentences in the handoff are not bounded",
+      "patches": [
+        { "file": "lib/dual-agent.mjs", "old": "notes.map(note=>clipped(note,HANDOFF_NOTE_CHARACTERS)).join(' | ')", "new": "notes.join(' | ')" }
+      ]
+    },
+    {
+      "name": "M34",
+      "what": "the model's words in the handoff are not bounded",
+      "patches": [
+        { "file": "lib/dual-agent.mjs", "old": "'Last reported answer (unverified): '+words.slice(0,350),", "new": "'Last reported answer (unverified): '+words," }
+      ]
+    },
+    {
+      "name": "M35",
+      "what": "the preview of an agent on the card of a workflow is the whole text again, the Hub's sentences and their marks in it",
+      "patches": [
+        { "file": "lib/workflow-orchestrator.mjs", "old": "resultPreview:typeof task?.finalText==='string'?words.slice(0,PREVIEW_CHARACTERS):null,", "new": "resultPreview:typeof task?.finalText==='string'?task.finalText.slice(0,PREVIEW_CHARACTERS):null," }
+      ]
+    },
+    {
+      "name": "M36",
+      "what": "the card of a workflow loses the Hub's sentences: no note beside the preview",
+      "patches": [
+        { "file": "lib/workflow-orchestrator.mjs", "old": "resultNotice:recorded&&notes.length?", "new": "resultNotice:null&&notes.length?" }
+      ]
+    },
+    {
+      "name": "M37",
+      "what": "the Hub's sentences on the card of a workflow are not bounded",
+      "patches": [
+        { "file": "lib/workflow-orchestrator.mjs", "old": "notes.map(note=>clipped(note,NOTE_CHARACTERS)).join(' ')", "new": "notes.join(' ')" }
+      ]
+    },
+    {
+      "name": "M38",
+      "what": "a record is trusted by the readers of the handoff and the card whatever text it came with",
+      "patches": [
+        { "file": "lib/final-text.mjs", "old": "if (parts) return { words: parts.words, notes: [parts.verificationNotice, parts.hookNotice].filter(Boolean), recorded: true };", "new": "if (view?.finalParts) return { words: view.finalParts.words, notes: [view.finalParts.verificationNotice, view.finalParts.hookNotice].filter(Boolean), recorded: true };" }
+      ]
+    },
+    {
+      "name": "M39",
+      "what": "the Hub's sentences are told in the other order: the hook's note before the verification notice",
+      "patches": [
+        { "file": "lib/final-text.mjs", "old": "notes: [parts.verificationNotice, parts.hookNotice].filter(Boolean), recorded: true", "new": "notes: [parts.hookNotice, parts.verificationNotice].filter(Boolean), recorded: true" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,116 @@
+{
+ "suite": "verify-hooks-lifecycle-agents.mjs",
+ "description": "What the suite of the lifecycle hooks on the real managers must notice: who ends with SubagentStop and who with Stop (a spawned agent, a second conversation a person started, a coding worker), a hook text that never reaches the model, a loop guard that lets one block too many through, and a block that touches the permission mode (the Read Only criterion).",
+ "mutations": [
+  {
+   "name": "M1",
+   "what": "a spawned agent is not marked as a subagent: it ends with Stop",
+   "patches": [
+    {
+     "file": "lib/concurrent-api-agent.mjs",
+     "old": "if (record.parentTaskId) manager.lifecycleAgent =",
+     "new": "if (false) manager.lifecycleAgent ="
+    }
+   ]
+  },
+  {
+   "name": "M2",
+   "what": "every child runner is a subagent, also a second conversation a person started",
+   "patches": [
+    {
+     "file": "lib/concurrent-api-agent.mjs",
+     "old": "if (record.parentTaskId) manager.lifecycleAgent =",
+     "new": "if (true) manager.lifecycleAgent ="
+    }
+   ]
+  },
+  {
+   "name": "M3",
+   "what": "the roles are the wrong way round",
+   "patches": [
+    {
+     "file": "lib/concurrent-api-agent.mjs",
+     "old": "if (record.parentTaskId) manager.lifecycleAgent =",
+     "new": "if (!record.parentTaskId) manager.lifecycleAgent ="
+    }
+   ]
+  },
+  {
+   "name": "M4",
+   "what": "a coding worker is not marked as a subagent",
+   "patches": [
+    {
+     "file": "lib/coding-orchestrator.mjs",
+     "old": "manager.lifecycleAgent={kind:'subagent',role:'coding_worker',workerId:node.id,runId:job.id};",
+     "new": "manager.lifecycleAgent=null;"
+    }
+   ]
+  },
+  {
+   "name": "M5",
+   "what": "a coding worker has the wrong agent_type",
+   "patches": [
+    {
+     "file": "lib/coding-orchestrator.mjs",
+     "old": "role:'coding_worker'",
+     "new": "role:'worker'"
+    }
+   ]
+  },
+  {
+   "name": "M6",
+   "what": "the identity is ignored when the loop asks",
+   "patches": [
+    {
+     "file": "lib/lifecycle-hooks.mjs",
+     "old": "if (given && typeof given === 'object' && given.kind === 'subagent') {",
+     "new": "if (false) {"
+    }
+   ]
+  },
+  {
+   "name": "M7",
+   "what": "a block also switches Read Only to Autonomous (the escalation the criterion forbids)",
+   "patches": [
+    {
+     "file": "lib/lifecycle-hooks.mjs",
+     "old": "run.byEvent[event] += 1;",
+     "new": "run.byEvent[event] += 1; if (this.#manager.permissions) this.#manager.permissions.mode = 'autonomous';"
+    }
+   ]
+  },
+  {
+   "name": "M8",
+   "what": "a block also sets the execution policy to full-access",
+   "patches": [
+    {
+     "file": "lib/lifecycle-hooks.mjs",
+     "old": "run.byEvent[event] += 1;",
+     "new": "run.byEvent[event] += 1; if (this.#manager.permissions) this.#manager.permissions.executionPolicy = 'full-access';"
+    }
+   ]
+  },
+  {
+   "name": "M9",
+   "what": "one block too many is honored",
+   "patches": [
+    {
+     "file": "lib/lifecycle-hooks.mjs",
+     "old": "if (run.used >= run.limit) {",
+     "new": "if (run.used > run.limit) {"
+    }
+   ]
+  },
+  {
+   "name": "M10",
+   "what": "the hook's text never reaches the model",
+   "patches": [
+    {
+     "file": "lib/agent.mjs",
+     "old": "if (verdict.feedback) context.history.appendUser(",
+     "new": "if (false) context.history.appendUser("
+    }
+   ]
+  }
+ ]
+}

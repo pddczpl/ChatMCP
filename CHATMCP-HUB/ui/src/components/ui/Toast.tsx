@@ -1,4 +1,5 @@
 import { useAppStore } from '@/store/useAppStore';
+import { useTranslation } from '@/lib/i18n';
 import { AlertTriangle, CheckCircle2, Info, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -23,6 +24,7 @@ const accents = {
 };
 
 export function Toast({ message, type = 'info', onClose }: ToastProps) {
+  const { t } = useTranslation();
   return (
     <div
       role="status"
@@ -38,7 +40,7 @@ export function Toast({ message, type = 'info', onClose }: ToastProps) {
         <button
           onClick={onClose}
           className="-mr-1 rounded-md p-1 text-faint transition-colors hover:bg-hover hover:text-fg"
-          aria-label="Đóng thông báo"
+          aria-label={t('agents_toast_close')}
         >
           <X className="h-3.5 w-3.5" />
         </button>

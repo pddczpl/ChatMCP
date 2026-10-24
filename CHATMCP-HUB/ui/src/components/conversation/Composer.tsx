@@ -75,26 +75,26 @@ export function Composer({
   const handleFiles = async (files: File[]) => {
     if (submitting || !files.length) return;
     if (attachments.length + files.length > 5) {
-      showToast('Tối đa 5 file mỗi tin nhắn.','warning');
+      showToast(t('agents_cmp_max_files'),'warning');
       return;
     }
     try {
       const collected: ChatAttachment[] = [];
       for (const file of files) {
         const isImage = /^image\/(?:png|jpeg|webp|gif)$/.test(file.type);
-        if (file.size > (isImage ? 2*1024*1024 : 200000)) throw new Error('File ' + file.name + ' quá lớn.');
-        if (/^\.env(?:\.|$)|\.(?:pem|key|p12|pfx)$/i.test(file.name)) throw new Error('Không đính kèm file chứa khóa riêng.');
+        if (file.size > (isImage ? 2*1024*1024 : 200000)) throw new Error(t('agents_cmp_too_large', { name: file.name }));
+        if (/^\.env(?:\.|$)|\.(?:pem|key|p12|pfx)$/i.test(file.name)) throw new Error(t('agents_cmp_private_key'));
         const data = await new Promise<string>((resolve,reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(String(reader.result || ''));
-          reader.onerror = () => reject(new Error('Không thể đọc ' + file.name));
+          reader.onerror = () => reject(new Error(t('agents_cmp_cannot_read', { name: file.name })));
           reader.readAsDataURL(file);
         });
         collected.push({name:file.name,mimeType:file.type,dataBase64:data.split(',')[1]||'',size:file.size});
       }
       setAttachments(current => [...current,...collected].slice(0,5));
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Không thể đính kèm file.','error');
+      showToast(error instanceof Error ? error.message : t('agents_cmp_cannot_attach'),'error');
     }
   };
 
@@ -162,17 +162,17 @@ export function Composer({
             const files=Array.from(e.clipboardData.items).filter(item=>item.kind==='file'&&item.type.startsWith('image/')).map(item=>item.getAsFile()).filter((file):file is File=>!!file);
             if(files.length){e.preventDefault();void handleFiles(files);}
           }}
-          placeholder={isWorking ? 'Agent đang chạy — gửi chỉ dẫn mới bất kỳ lúc nào…' : activePlaceholder}
-          aria-label="Tin nhắn cho agent"
+          placeholder={isWorking ? t('agents_cmp_placeholder_running') : activePlaceholder}
+          aria-label={t('agents_cmp_label')}
           disabled={disabled || submitting}
           rows={1}
           className="block max-h-56 min-h-[52px] w-full resize-none select-text bg-transparent px-4 pb-1 pt-3.5 font-sans text-[15px] leading-relaxed text-fg placeholder:text-faint focus:outline-none"
         />
 
-        {attachments.length>0 && <div className="flex flex-wrap gap-1.5 px-3 pb-2" aria-label="Tệp đính kèm">
+        {attachments.length>0 && <div className="flex flex-wrap gap-1.5 px-3 pb-2" aria-label={t('agents_cmp_attachments')}>
           {attachments.map((file,index) => <span key={index} className="flex items-center gap-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-fg">
             <Paperclip className="h-3 w-3"/><span className="max-w-40 truncate">{file.name}</span>
-            <button aria-label={'Bỏ '+file.name} type="button" className="text-faint hover:text-fg" onClick={()=>setAttachments(items=>items.filter((_,i)=>i!==index))}><X className="h-3 w-3"/></button>
+            <button aria-label={t('agents_cmp_remove', { name: file.name })} type="button" className="text-faint hover:text-fg" onClick={()=>setAttachments(items=>items.filter((_,i)=>i!==index))}><X className="h-3 w-3"/></button>
           </span>)}
         </div>}
 
@@ -191,7 +191,7 @@ export function Composer({
               <ChevronDown className="h-3 w-3 text-faint" />
             </button>
 
-            <button type="button" aria-label="Đính kèm file hoặc ảnh" title="Chọn file / kéo thả / Ctrl+V để dán ảnh"
+            <button type="button" aria-label={t('agents_cmp_attach')} title={t('agents_cmp_attach_title')}
               onClick={()=>fileInputRef.current?.click()}
               className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors hover:bg-hover hover:text-fg">
               <Paperclip className="h-4 w-4"/>
@@ -199,15 +199,15 @@ export function Composer({
             {extraTools}
             {dependencyOptions.length > 0 && (
               <div className="relative">
-                <button type="button" title="Chờ các task được chọn hoàn tất"
+                <button type="button" title={t('agents_cmp_wait_title')}
                   aria-expanded={dependencyMenuOpen}
                   className={chip}
                   onClick={() => { setDependencyMenuOpen(x=>!x); setModeMenuOpen(false); }}>
-                  Chờ task {selectedDependsOn.length ? '('+selectedDependsOn.length+')' : ''}
+                  {t('agents_cmp_wait')} {selectedDependsOn.length ? '('+selectedDependsOn.length+')' : ''}
                   <ChevronDown className="h-3 w-3 text-faint"/>
                 </button>
                 {dependencyMenuOpen && <div className="anim-pop absolute bottom-full left-0 z-50 mb-2 max-h-64 w-80 overflow-y-auto rounded-xl border border-line bg-panel p-2 shadow-[var(--shadow-pop)]">
-                  <p className="mb-2 px-1 text-[13px] font-semibold">Chỉ bắt đầu khi các task đã chọn hoàn tất</p>
+                  <p className="mb-2 px-1 text-[13px] font-semibold">{t('agents_cmp_wait_note')}</p>
                   {dependencyOptions.map(option=><label key={option.id} className="flex items-center gap-2 rounded-lg p-1.5 text-[13px] hover:bg-hover">
                     <input type="checkbox" className="accent-primary" checked={selectedDependsOn.includes(option.id)}
                       onChange={e=>onDependsOnChange?.(e.target.checked?[...selectedDependsOn,option.id]:selectedDependsOn.filter(id=>id!==option.id))}/>

@@ -52,6 +52,52 @@ export interface TaskSummary {
   autoResume?: boolean;
 }
 
+/**
+ * The owner's switch for AGENTS.md / CLAUDE.md, as /api/state serves it (lib/project-instructions.mjs). `source` is who decided:
+ * the environment variable of the Hub (then a click cannot change it), the choice saved in Settings, or the default (on).
+ */
+export interface ProjectInstructionsSetting {
+  enabled: boolean;
+  source: 'env' | 'config' | 'default' | 'option';
+  /** The choice saved in Settings, whatever decided; null when there is none. */
+  saved?: boolean | null;
+  variable: string;
+  maxBytes: number;
+  files: string[];
+}
+
+/** What the Hub recorded about one project file in one run: names, sizes and hashes, never a text. */
+export interface ProjectInstructionFile {
+  path: string;
+  status: 'loaded' | 'truncated' | 'alias' | 'skipped';
+  reason: string | null;
+  sizeBytes: number | null;
+  textBytes: number;
+  loadedBytes: number;
+  cutBytes: number;
+  aliasOf: string | null;
+}
+
+/** `task.projectInstructions`: what the latest run was given of the project's AGENTS.md / CLAUDE.md. */
+export interface ProjectInstructionsRecord {
+  enabled: boolean;
+  maxBytes: number;
+  blockBytes: number;
+  truncated: boolean;
+  error: string | null;
+  files: ProjectInstructionFile[];
+}
+
+/** The receipt of one skill_load call (lib/skill-index.mjs): hashes and sizes, never the text. */
+export interface SkillLoadReceipt {
+  id: string;
+  loadedBytes?: number;
+  textBytes?: number;
+  cutBytes?: number;
+  truncated?: boolean;
+  forced?: boolean;
+}
+
 export interface TaskEvent {
   type: string;
   toolName?: string;
@@ -62,6 +108,7 @@ export interface TaskEvent {
   output?: any;
   status?: string;
   state?: string;
+  skillLoad?: SkillLoadReceipt;
 }
 
 export interface TaskRun {
@@ -82,6 +129,8 @@ export interface TaskDetail extends TaskSummary {
   runs?: TaskRun[];
   finalText?: string;
   events?: TaskEvent[];
+  /** What the latest run was given of AGENTS.md / CLAUDE.md; absent for a ChatGPT Web task and for one from before the record existed. */
+  projectInstructions?: ProjectInstructionsRecord | null;
   stateReason?: string;
   errorCode?: string;
   error?: string;
@@ -168,6 +217,8 @@ export interface WorkflowAgent {
   finishedAt?:string|null;
   model?:string|null;
   resultPreview?:string|null;
+  /** The sentences of the Hub's own that the runner put after the agent's words (lib/final-text.mjs), apart from `resultPreview`, which is the agent's words alone. */
+  resultNotice?:string|null;
   usage?: {inputTokens:number;outputTokens:number;httpRequests:number}|null;
 }
 export interface WorkflowPhase {
@@ -260,6 +311,7 @@ export interface Task {
   stateReason?: string;
   updatedAt?: string;
   events?: TaskEvent[];
+  projectInstructions?: ProjectInstructionsRecord | null;
   phase?: string;
   stage?: string;
   startedAt?: string;
@@ -319,7 +371,11 @@ export interface HubState {
     secretStorage?: { protection?: string };
     toolCalling?: boolean;
     toolCallingNote?: string;
+    /** The AI connection (provider, model, key) is being changed; the Hub refuses to start model work meanwhile. */
+    busy?: boolean;
   };
+  /** The id of the task the Hub is running for the main agent (null when none). */
+  taskId?: string | null;
   agent?: {
     mode: 'api'|'chatgpt-web';
     activeTaskId: string | null;
@@ -361,11 +417,15 @@ export interface HubState {
     };
     terminals?: TerminalState[];
     features?: string[];
+    /** The group of read-only helpers: `running` while it works. */
+    delegates?: { running?: boolean } | null;
   };
   plugins?: {
     count: number;
     active: number;
   };
+  /** The owner's switch for AGENTS.md / CLAUDE.md (Settings → Dự án). */
+  projectInstructions?: ProjectInstructionsSetting;
   publicMode?: {
     enabled: boolean;
     execMode: string;

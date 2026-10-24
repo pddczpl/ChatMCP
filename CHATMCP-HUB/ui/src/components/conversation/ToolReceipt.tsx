@@ -21,7 +21,7 @@ interface ToolReceiptProps {
 
 /** One tool call: what it did in words, the technical name on hover, and the recorded output when opened. */
 export function ToolReceipt({ tool }: ToolReceiptProps) {
-  const { lang } = useTranslation();
+  const { lang, t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
 
   const { kind, verb, target } = describeTool(tool, lang);
@@ -55,12 +55,12 @@ export function ToolReceipt({ tool }: ToolReceiptProps) {
         <span className="ml-auto flex shrink-0 items-center gap-3">
           {duration && <span className="hidden text-[12px] tabular-nums text-faint sm:inline">{duration}</span>}
           {isRunning ? (
-            <span className="flex items-center gap-1 text-[12px] text-primary"><Loader2 className="h-3 w-3 animate-spin" />Đang chạy</span>
+            <span className="flex items-center gap-1 text-[12px] text-primary"><Loader2 className="h-3 w-3 animate-spin" />{t('agents_tool_running')}</span>
           ) : isError ? (
-            <span className="flex items-center gap-1 text-[12px] text-danger"><AlertCircle className="h-3 w-3" />Lỗi</span>
+            <span className="flex items-center gap-1 text-[12px] text-danger"><AlertCircle className="h-3 w-3" />{t('agents_tool_error')}</span>
           ) : isSuccess ? (
-            <span className="flex items-center gap-1 text-[12px] text-success"><CheckCircle2 className="h-3 w-3" />Xong</span>
-          ) : <span className="text-[12px] text-warning">Chưa rõ kết quả</span>}
+            <span className="flex items-center gap-1 text-[12px] text-success"><CheckCircle2 className="h-3 w-3" />{t('agents_tool_done')}</span>
+          ) : <span className="text-[12px] text-warning">{t('agents_tool_unknown')}</span>}
         </span>
       </div>
 
@@ -68,13 +68,13 @@ export function ToolReceipt({ tool }: ToolReceiptProps) {
         <div className="border-t border-line-subtle bg-bg px-4 py-3 select-text" data-testid="tool-output">
           <div className="mb-2 flex items-center justify-between gap-2">
             <span className="text-[12px] font-medium text-muted">
-              {tool.result !== undefined ? 'Kết quả phản hồi' : 'Chi tiết công cụ đã ghi nhận'}
+              {tool.result !== undefined ? t('agents_tool_result') : t('agents_tool_recorded')}
               <span className="ml-2 font-mono font-normal text-faint">{tool.name}</span>
             </span>
-            <CopyButton text={output} label="Sao chép kết quả" />
+            <CopyButton text={output} label={t('agents_tool_copy_result')} />
           </div>
           <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-line bg-panel p-3 text-[12px] leading-6 text-fg" tabIndex={0}>
-            {output || (isRunning ? 'Đang chờ kết quả…' : 'Không có nội dung phản hồi.')}
+            {output || (isRunning ? t('agents_tool_waiting') : t('agents_tool_empty'))}
           </pre>
         </div>
       )}

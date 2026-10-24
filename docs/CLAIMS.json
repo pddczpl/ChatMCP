@@ -17,10 +17,81 @@
       "kind": "claim",
       "seam": "real",
       "test": "CHATMCP-HUB/tests/verify-skill-delivery.mjs",
-      "seamNote": "Real AgentRunner, real PluginManager and real GitHub registry install path; only the model (a capturing provider) and the GitHub HTTP transport are scripted. Run again against a copy of lib/ with the v3.9.0 defect put back, which must fail.",
+      "seamNote": "Real AgentRunner, real PluginManager and real GitHub registry install path; only the model (a capturing provider) and the GitHub HTTP transport are scripted. A small skill reaches the model whole in the index of the conversation; a bigger one is a line in the index and its text arrives once after the model calls skill_load. Run again against a copy of lib/ with the v3.9.0 defect put back, which must fail.",
       "forbiddenDoubles": [
         "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Agent|Runner|Plugin)",
         "\\b(?:AgentRunner|PluginManager)\\s*=\\s*(?:class|function|\\{)"
+      ]
+    },
+    {
+      "id": "project-instructions-bounded",
+      "claim": "AGENTS.md and CLAUDE.md of the workspace are loaded into the agent's instructions with a hard cap of 8,192 bytes, read only inside the workspace, and cannot change what the permission gate decides.",
+      "source": {
+        "file": "docs/USER-GUIDE.md",
+        "line": 237,
+        "quote": "giới hạn cứng **tối đa 8.192 byte**"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-project-instructions.mjs",
+      "seamNote": "The loader runs on real files in temporary workspaces (links, junctions, a 2 GiB file, binary files). The block is delivered through the real AgentRunner (only the model and a minimal tool session are scripted) with a mutation check, and a hostile AGENTS.md is run through the real HubManager, PermissionGate and LocalTools in Review, Read Only and Autonomous; verify-e2e-prompt-budgets does it again through a real Hub process.",
+      "forbiddenDoubles": [
+        "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Gate|Permission)",
+        "\\bpermissions\\s*[:=]\\s*\\{",
+        "\\bPermissionGate\\s*=\\s*(?:class|function|\\{)"
+      ]
+    },
+    {
+      "id": "guidance-share-of-room",
+      "claim": "The project instructions and the skill index (with the definition of skill_load) take at most 10% and 5% of the history budget the model's window leaves, and together at most half of what is left above the 1,000-token floor, whatever the window (an unknown one included), so they do not take the history of a run under the floor on which a known window is refused.",
+      "source": {
+        "file": "docs/USER-GUIDE.md",
+        "line": 237,
+        "quote": "tối đa **10% lịch sử dự toán**"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-project-instructions.mjs",
+      "seamNote": "The allowance is checked by hand and over every history from 0 to 60,000 tokens; then the real AgentRunner runs a busy project (spawn tools, check suggestions, a plan) on windows of 11,000 to 200,000 tokens and an unknown one, only the model and a minimal tool session scripted: the cap of every window is the allowance of the policy the SAME run has with the guidance switched off, the history budget never goes under the floor, and the text of the run with the guidance is the text without it plus the block and one sentence of the rules. verify-skill-on-demand does it again with 130 KB of project files, four skills and the real PluginManager, recomputing the budget from what the provider received, and verify-e2e-prompt-budgets through a real Hub process at 16,384 tokens.",
+      "forbiddenDoubles": [
+        "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Agent|Runner|Budget|Allowance)",
+        "\\b(?:AgentRunner|promptAllowance)\\s*=\\s*(?:class|function|\\{)"
+      ]
+    },
+    {
+      "id": "project-instructions-switch",
+      "claim": "The owner can switch the loading of AGENTS.md and CLAUDE.md off in Settings: the choice is saved, applies from the next run of every runner, and the environment variable CHATMCP_PROJECT_INSTRUCTIONS decides over it.",
+      "source": {
+        "file": "docs/USER-GUIDE.md",
+        "line": 238,
+        "quote": "lưu cùng dữ liệu Hub, áp dụng từ lượt chạy kế tiếp"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-e2e-project-instructions-switch.mjs",
+      "seamNote": "A real Hub process (real routes with the bearer, CSRF and Origin layers, the saved store, the real runner and permission gate) and a scripted model server: what the model server is sent after the choice changes, a change while an approval is pending, a restart, the environment variable on and off, a damaged file. verify-project-instructions-setting runs the real AgentRunner, a pooled chat in its own worktree and a coding worker whose runners exist before the choice changes, and ui/e2e/project-instructions.spec.mjs flips it from the real page.",
+      "forbiddenDoubles": [
+        "createHubServer\\(",
+        "\\bnew\\s+AgentRunner\\(",
+        "\\bpermissions\\s*[:=]\\s*\\{"
+      ]
+    },
+    {
+      "id": "skills-on-demand",
+      "claim": "A skill too big for the index is read through skill_load: bounded, once per load, with the Hub's redaction, and without any effect on permissions.",
+      "source": {
+        "file": "docs/USER-GUIDE.md",
+        "line": 239,
+        "quote": "mỗi lần nạp tối đa 16 KiB, một lần cho mỗi lần gọi"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-skill-on-demand.mjs",
+      "seamNote": "The index and the loader on their own, then the real AgentRunner and the real PluginManager (only the model is scripted): the text arrives once per load, a pooled worker is offered the tool, and a hostile skill is run through the real HubManager, PermissionGate and LocalTools in three modes.",
+      "forbiddenDoubles": [
+        "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Gate|Permission|Plugin)",
+        "\\bpermissions\\s*[:=]\\s*\\{",
+        "\\b(?:PluginManager|PermissionGate)\\s*=\\s*(?:class|function|\\{)"
       ]
     },
     {
@@ -93,7 +164,7 @@
       "claim": "The Hub takes a checkpoint before an agent edit and restores it only if the file is still as reviewed.",
       "source": {
         "file": "docs/USER-GUIDE.md",
-        "line": 205,
+        "line": 213,
         "quote": "Hub tự lưu một checkpoint của các file sắp đổi"
       },
       "kind": "claim",
@@ -438,6 +509,22 @@
       "test": null,
       "reason": "Negated statement: it promises nothing.",
       "phase": null
+    },
+    {
+      "id": "subagent-results-reach-parent",
+      "claim": "The agent that started background agents is told when one stops and can read the agent's own final message, marked as that agent's claim, next to what the Hub recorded itself.",
+      "source": {
+        "file": "docs/USER-GUIDE.md",
+        "line": 15,
+        "quote": "It can then read what they produced with `agent_results`"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-e2e-subagent-results.mjs",
+      "seamNote": "A real Hub process over HTTP with real Git worktrees for the agents; only the model server is scripted (strict Chat Completions). The parent's answer is built from what the tool returned; a SIGKILL and restarts happen between the endings and the next run.",
+      "forbiddenDoubles": [
+        "new\\s+(?:AgentRunner|HubManager|BrowserRunner|ConcurrentApiAgent)\\("
+      ]
     }
   ]
 }

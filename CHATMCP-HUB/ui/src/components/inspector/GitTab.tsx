@@ -9,29 +9,7 @@ import { useTranslation } from '@/lib/i18n';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { EmptyBlock, ErrorLine, LoadingLine, RowCard, SectionHeading, TabBody } from './parts';
-
-/** A unified diff, one line per element, tinted by what the line does. The text of every line is kept exactly as Git printed it. */
-function DiffView({ diff }: { diff: string }) {
-  const lines = diff.replace(/\n$/, '').split('\n');
-  return (
-    <pre aria-label="Git diff" className="max-h-[28rem] overflow-auto rounded-xl border border-line bg-bg py-1 font-mono text-[12px] leading-5">
-      {lines.map((line, index) => {
-        const kind = /^(diff --git|index |--- |\+\+\+ |new file|deleted file|similarity|rename )/.test(line) ? 'meta'
-          : line.startsWith('@@') ? 'hunk'
-          : line.startsWith('+') ? 'add'
-          : line.startsWith('-') ? 'del' : 'ctx';
-        return (
-          <div key={index} className={cn('min-w-max whitespace-pre border-l-2 px-3',
-            kind === 'add' && 'border-success bg-success/10 text-success',
-            kind === 'del' && 'border-danger bg-danger/10 text-danger',
-            kind === 'hunk' && 'border-transparent bg-primary/10 text-primary',
-            kind === 'meta' && 'border-transparent font-semibold text-muted',
-            kind === 'ctx' && 'border-transparent text-muted')}>{line || ' '}</div>
-        );
-      })}
-    </pre>
-  );
-}
+import { DiffView } from './DiffView';
 
 export function GitTab() {
   const { t, lang } = useTranslation();
@@ -60,14 +38,14 @@ export function GitTab() {
       setCheckpointName('');
       await refresh();
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Lỗi tạo checkpoint', 'error');
+      showToast(error instanceof Error ? error.message : t('git_checkpoint_create_failed'), 'error');
     } finally { setLoading(false); }
   };
   const handleRevertCheckpoint = async (id: string) => {
     setLoading(true);
     try {
       const preview = await api.previewCheckpoint(id);
-      if (!preview?.ok) throw new Error('Không thể tạo bản xem trước cho checkpoint.');
+      if (!preview?.ok) throw new Error(t('git_checkpoint_preview_failed'));
       const fileCount = preview.files?.length ?? 0;
       const newerCount = preview.files?.filter((file) => file.willOverwriteNewer).length ?? 0;
       let message = lang === 'vi' ? `Khôi phục checkpoint này sẽ hoàn tác ${fileCount} file (${preview.modifiedFilesCount ?? 0} file đang có thay đổi).` : `Restore this checkpoint for ${fileCount} files (${preview.modifiedFilesCount ?? 0} changed files)?`;
@@ -82,7 +60,7 @@ export function GitTab() {
       showToast(lang === 'vi' ? `Đã khôi phục ${result.restoredCount} file.` : `Restored ${result.restoredCount} files.`, 'success');
       await refresh();
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Lỗi khôi phục checkpoint', 'error');
+      showToast(error instanceof Error ? error.message : t('git_checkpoint_restore_failed'), 'error');
     } finally { setLoading(false); }
   };
 
@@ -116,7 +94,7 @@ export function GitTab() {
             } />
             {diffQuery.error ? <ErrorLine message={diffQuery.error.message} />
               : diffQuery.isLoading ? <LoadingLine text={lang === 'vi' ? 'Đang tải diff…' : 'Loading diff…'} />
-              : diffQuery.data?.diff ? <DiffView diff={diffQuery.data.diff} />
+              : diffQuery.data?.diff ? <DiffView diff={diffQuery.data.diff} label="Git diff" />
               : <p className="text-muted">{lang === 'vi' ? 'Không có diff được Git theo dõi trong phạm vi này. Tệp mới chưa được stage không có trong diff.' : 'No tracked diff in this scope. Untracked files appear after staging.'}</p>}
             {diffQuery.data?.truncated && <p className="text-warning">{lang === 'vi' ? 'Diff bị cắt do giới hạn dung lượng.' : 'Diff truncated at the output limit.'}</p>}
           </div>

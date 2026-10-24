@@ -140,6 +140,16 @@ try {
   assert.ok(worker.changedFiles.includes('initial.js'));
   assert.ok(worker.changedFiles.includes('repair.js'));
   assert.equal(git(['rev-parse','HEAD']).trim(),finished.baseSha,'Coding still isolated to managed worktree');
+  // The run reports the folder it belongs to, as the very string the Hub reports for its own folder (what a page compares with hub.workspace.path), and
+  // that string is the real path of the project (the temp folder of this machine may be spelled with a short 8.3 name).
+  assert.equal(finished.workspace,parent.state().workspace.path,'the run reports the Hub\'s own spelling of its folder');
+  assert.equal(finished.workspace,await fs.realpath(work));
+  // The summary is what the model said and nothing else. The Hub's sentence about the evidence is a field of its own, and the page reads it as the Hub's.
+  assert.equal(worker.summary,'File edited, verification must be checked independently.','the summary is the model\'s own words');
+  assert.deepEqual(worker.verificationNote,{code:'verified',text:'All registered pinned Node checks have fresh signed TAP evidence.'});
+  const saved=JSON.parse(await fs.readFile(path.join(agent.directory,'jobs.json'),'utf8')).jobs.at(-1);
+  assert.deepEqual(saved.workers[0].verificationNote,worker.verificationNote,'what is saved is what is reported');
+  assert.equal(saved.workspace,finished.workspace);
 
   // The orchestrator writes the first prompt of every worker: "TASK: <goal>" and then its own instructions ("managed, isolated Git worktree", "Git publish
   // tools", "tests", "checks_list" ...). The model reads all of it; skills and tool schemas are selected on the goal. Selected on the whole text, the
@@ -195,6 +205,8 @@ try {
     confirmation:'CREATE WORKTREES',maxConcurrency:1,
   });
   assert.equal(selectionJob.status,'ready_for_review',JSON.stringify(selectionJob));
+  assert.equal(selectionJob.workspace,parent.state().workspace.path,'every run reports its folder');
+  for(const entry of selectionJob.workers)assert.ok(!('verificationNote' in entry),'a worker that was not asked to verify has no verification note: '+entry.id);
   // The calls of each worker, told apart by the goal its prompt starts with: one, and two for the worker that writes through the router.
   const callsOf=(goal,count)=>{
     const found=calls2.filter(call=>call.prompt.startsWith('TASK: '+goal+'\n'));
@@ -242,6 +254,28 @@ try {
   assert.deepEqual(bareCalls[0].skills,ids(selectConversationSkills(plugins,nothing.prompt)),'a runner started without a selectionPrompt is given the skills of the whole text, as before');
   for(const id of ['git-workflow-pro','github-actions-ci-cd'])assert.ok(bareCalls[0].skills.includes(id),'among them '+id);
   for(const name of ['git_commit','git_merge','worktrees_create','test_run'])assert.ok(bareCalls[0].tools.includes(name),'and it is offered '+name+', which only the Hub\'s instructions select');
+
+  // A coding worker is a runner like any other (AgentRunner.start): when its goal names a skill that is too big to be carried in the index, it is offered skill_load, last in
+  // its tool list, and is given the text once, after it asked. (The nine skills above are all small, so none of those workers needed the tool.)
+  const BULK_MARK='BULK-WORKER-SKILL-TEXT-4d2a';
+  await plugins.install('bulkworker',{name:'bulkworker',description:'Long reference for bulkworker work',tools:[],systemPrompt:'Bulk worker skill. '+BULK_MARK+'\n'+'Keep the changes small. '.repeat(120)});
+  const loadCalls=[];
+  const loading=new CodingWorktreeOrchestrator({
+    manager:parent,bundleRoot:path.resolve('.'),directory:path.join(root,'coding-orchestrator-skill-load'),
+    provider:{ready:()=>true,snapshot:()=>({provider:'fake',model:'fixture'}),async respond(request) {
+      loadCalls.push({...record(request),text:JSON.stringify(request.input).split(BULK_MARK).length-1});
+      if(!request.input.some(item=>item.type==='function_call_output'))
+        return {status:'completed',output:[{type:'function_call',call_id:'worker-skill-load',name:'skill_load',arguments:JSON.stringify({id:'bulkworker'})}]};
+      return FINAL;
+    }},
+  });
+  const loadJob=await loading.run({tasks:[{id:'loader',prompt:'Review the notes of bulkworker.'}],confirmation:'CREATE WORKTREES',maxConcurrency:1});
+  assert.equal(loadJob.status,'ready_for_review',JSON.stringify(loadJob));
+  assert.equal(loadCalls.length,2,'the worker asked for the skill and then answered');
+  assert.ok(loadCalls.every(call=>call.tools.at(-1)==='skill_load'),'a coding worker is offered skill_load, last in its list');
+  assert.deepEqual(loadCalls[0].skills,['bulkworker'],'the index names the skill ...');
+  assert.deepEqual(loadCalls.map(call=>call.text),[0,1],'... its text is not in the first request and is there once, after the worker asked');
+  assert.equal((await persisted(loading,loadJob,'loader')).events.filter(event=>event.type==='skill_loaded').length,1,'with a receipt in the worker\'s own task');
   await parent.shutdown();
   console.log('PASS: scripted real AgentRunner edited, approved immutable checks ran, failed, repaired and passed; no host commands or merge; each worker is given the skills and tool schemas of its goal, not of the Hub\'s instructions.');
 } finally {

@@ -63,7 +63,7 @@
       "then": { "$ref": "#/$defs/commandHandler" }
     },
     "commandHandler": {
-      "description": "The only handler type this build runs. Exec form (args present): command is the program, started without a shell. Shell form (no args): command is a script for bash, powershell or cmd. Exit 0: stdout is read as one JSON object. Exit 2: blocks (PreToolUse, Stop, TaskCompleted, SubagentStop) with stderr as the reason; on the Post events it is feedback to the model. Any other exit code does not block unless onFailure is block.",
+      "description": "The only handler type this build runs. Exec form (args present): command is the program, started without a shell. Shell form (no args): command is a script for bash, powershell or cmd. Exit 0: stdout is read as one JSON object. Exit 2: blocks (PreToolUse, Stop, TaskCompleted, SubagentStop) with stderr as the reason; on the Post events it is feedback to the model. Any other exit code does not block unless onFailure is block (on Stop, SubagentStop and TaskCompleted onFailure has no effect: only exit 2 or a block decision holds the agent back).",
       "type": "object",
       "required": ["type", "command"],
       "properties": {
@@ -72,7 +72,7 @@
         "args": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 8192 } },
         "shell": { "enum": ["bash", "powershell", "cmd"] },
         "timeout": { "description": "Seconds. Default 600 (the Claude Code default). The process and everything it started are killed when the time is up.", "type": "integer", "minimum": 1, "maximum": 3600 },
-        "onFailure": { "description": "block: a non-zero exit other than 2, a timeout or a program that cannot be started blocks the action. continue (default): it does not.", "enum": ["continue", "block"] },
+        "onFailure": { "description": "block: a non-zero exit other than 2, a timeout or a program that cannot be started blocks the action. continue (default): it does not. No effect on Stop, SubagentStop and TaskCompleted: a failure there is logged and never blocks.", "enum": ["continue", "block"] },
         "if": { "description": "One permission-rule style condition, for example Bash(git *) or Edit(src/**). Only for the tool events. A condition that cannot be evaluated lets the hook run.", "type": "string", "maxLength": 512 },
         "async": { "description": "Accepted for compatibility; this build runs the hook synchronously.", "type": "boolean" },
         "asyncRewake": { "description": "Accepted for compatibility; this build runs the hook synchronously.", "type": "boolean" },

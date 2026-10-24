@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { RefreshCw, ScanSearch } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
+import { useTranslation } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { SettingsCard } from './SettingsCard';
@@ -18,6 +19,7 @@ const ENGINES: Array<[string, string]> = [
 /** Real code-intelligence checks: an engine is never shown as Ready because a file exists. */
 export function CodeIntelligenceSection() {
   const { showToast } = useAppStore();
+  const { t } = useTranslation();
   const { data: hub } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 3000 });
   const { data: intelligence, refetch: refreshIntelligence } = useQuery({
     queryKey: ['intelligenceEngineHealth'],
@@ -31,9 +33,9 @@ export function CodeIntelligenceSection() {
     try {
       await api.probeIntelligenceEngines();
       await refreshIntelligence();
-      showToast('Đã kiểm tra các Code Intelligence engines', 'success');
+      showToast(t('ci_probed'), 'success');
     } catch (error: any) {
-      showToast(error.message || 'Không thể kiểm tra Code Intelligence', 'error');
+      showToast(error.message || t('ci_probe_failed'), 'error');
     } finally { setProbing(false); }
   };
 
@@ -42,11 +44,11 @@ export function CodeIntelligenceSection() {
       data-testid="code-intelligence-engines"
       icon={ScanSearch}
       title="Code Intelligence Engines"
-      description="Trạng thái lấy từ kết quả kiểm tra engine thực, không chỉ kiểm tra tệp."
+      description={t('ci_desc')}
       action={
         <Button variant="secondary" size="sm" onClick={probe} disabled={probing}>
           <RefreshCw className={cn('h-3.5 w-3.5', probing && 'animate-spin')} />
-          Kiểm tra lại
+          {t('ci_recheck')}
         </Button>
       }
     >
@@ -60,12 +62,12 @@ export function CodeIntelligenceSection() {
                 <div className="text-[13px] font-medium text-fg">{name}</div>
                 <div className="text-[12px] leading-4 text-muted">
                   {engine?.version ? 'v' + engine.version + ' · ' : ''}
-                  {engine?.source || 'Chưa kiểm tra'}
+                  {engine?.source || t('ci_not_checked')}
                   {engine?.detail ? ' · ' + engine.detail : ''}
                 </div>
               </div>
               <span className={cn('shrink-0 text-[12px] font-semibold', status === 'ready' ? 'text-success' : status === 'not_checked' ? 'text-muted' : 'text-warning')}>
-                {status === 'ready' ? 'Ready' : status === 'not_checked' ? 'Chưa kiểm tra' : 'Unavailable'}
+                {status === 'ready' ? 'Ready' : status === 'not_checked' ? t('ci_not_checked') : 'Unavailable'}
               </span>
             </li>
           );
