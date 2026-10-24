@@ -433,13 +433,13 @@ export class LocalTools {
     });
     define('edit_file', {
       description: 'Replace an exact piece of text in a file. old_string must match exactly (including indentation) and be unique unless replace_all is true; include enough surrounding lines to make it unique. Line endings are handled for you. Read the file first. '
-        + 'For several changes to ONE file in one step, pass edits (a list of {old_string, new_string, replace_all}) instead of old_string/new_string, never both: the edits apply in order, each to the text the one before left, every one must match uniquely (unless its replace_all), and if any fails nothing is written (all or nothing).',
+        + 'To change one file in several places at once, pass edits instead of old_string/new_string: they apply in order, each to the text the one before left, and if any fails nothing is written.',
       schema: obj({
         path: str('File path relative to the workspace.'),
-        old_string: str('Exact text to replace (single edit; leave out when you pass edits).'), new_string: str('Replacement text, may be empty to delete (single edit; leave out when you pass edits).'),
-        replace_all: bool('Replace every occurrence (single edit).'),
-        edits: { type: 'array', description: 'Several edits to this file, applied in order to the evolving text, all or nothing. Use instead of old_string/new_string.', minItems: 1, maxItems: MAX_EDITS, items: obj({
-          old_string: str('Exact text to replace.'), new_string: str('Replacement text (may be empty to delete).'), replace_all: bool('Replace every occurrence of this old_string.'),
+        old_string: str('Exact text to replace (not with edits).'), new_string: str('Replacement text (may be empty to delete; not with edits).'),
+        replace_all: bool('Replace every occurrence.'),
+        edits: { type: 'array', description: 'Several edits of this file, all or nothing (instead of old_string/new_string).', minItems: 1, maxItems: MAX_EDITS, items: obj({
+          old_string: str('Exact text to replace.'), new_string: str('Replacement (may be empty).'), replace_all: bool('Replace every occurrence.'),
         }, ['old_string', 'new_string']) },
         expected_sha256: EXPECTED_SHA,
       }, ['path']),

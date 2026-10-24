@@ -471,7 +471,7 @@ async function cleanup() { await fs.rm(root, { recursive: true, force: true, max
   assert.equal(edit.inputSchema.properties.edits.maxItems, 50);
   assert.deepEqual(edit.inputSchema.properties.edits.items.required, ['old_string', 'new_string']);
   assert.match(edit.description, /edits/);
-  assert.match(edit.description, /all or nothing|không ghi gì/i);
+  assert.match(edit.description, /nothing is written/i);
   assert.equal(tools.definitions().length, 99, 'the tool count stays at 99');
   ok('edit_file edits[]: dependent edits in order with one receipt, all or nothing with the failing edit named, ambiguity judged at each step, CRLF/BOM kept, edits that cancel write nothing, the guards of one edit, the two forms never mixed');
 }
