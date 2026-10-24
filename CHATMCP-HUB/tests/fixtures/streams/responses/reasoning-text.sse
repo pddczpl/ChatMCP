@@ -1,0 +1,60 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_reasontext_0001","object":"response","created_at":1760000000,"status":"in_progress","background":false,"error":null,"incomplete_details":null,"instructions":null,"max_output_tokens":16384,"model":"gpt-5-mini","output":[],"parallel_tool_calls":false,"previous_response_id":null,"store":false,"tool_choice":"auto","tools":[]}}
+
+event: response.in_progress
+data: {"type":"response.in_progress","sequence_number":1,"response":{"id":"resp_reasontext_0001","object":"response","created_at":1760000000,"status":"in_progress","background":false,"error":null,"incomplete_details":null,"instructions":null,"max_output_tokens":16384,"model":"gpt-5-mini","output":[],"parallel_tool_calls":false,"previous_response_id":null,"store":false,"tool_choice":"auto","tools":[]}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"id":"rs_resp_reasontext_0001_0","type":"reasoning","summary":[]}}
+
+event: response.reasoning_summary_part.added
+data: {"type":"response.reasoning_summary_part.added","sequence_number":3,"item_id":"rs_resp_reasontext_0001_0","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":""}}
+
+event: response.reasoning_summary_text.delta
+data: {"type":"response.reasoning_summary_text.delta","sequence_number":4,"item_id":"rs_resp_reasontext_0001_0","output_index":0,"summary_index":0,"delta":"The result "}
+
+event: response.reasoning_summary_text.delta
+data: {"type":"response.reasoning_summary_text.delta","sequence_number":5,"item_id":"rs_resp_reasontext_0001_0","output_index":0,"summary_index":0,"delta":"is already "}
+
+event: response.reasoning_summary_text.delta
+data: {"type":"response.reasoning_summary_text.delta","sequence_number":6,"item_id":"rs_resp_reasontext_0001_0","output_index":0,"summary_index":0,"delta":"in the tool"}
+
+event: response.reasoning_summary_text.delta
+data: {"type":"response.reasoning_summary_text.delta","sequence_number":7,"item_id":"rs_resp_reasontext_0001_0","output_index":0,"summary_index":0,"delta":" output."}
+
+event: response.reasoning_summary_text.done
+data: {"type":"response.reasoning_summary_text.done","sequence_number":8,"item_id":"rs_resp_reasontext_0001_0","output_index":0,"summary_index":0,"text":"The result is already in the tool output."}
+
+event: response.reasoning_summary_part.done
+data: {"type":"response.reasoning_summary_part.done","sequence_number":9,"item_id":"rs_resp_reasontext_0001_0","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":"The result is already in the tool output."}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":10,"output_index":0,"item":{"id":"rs_resp_reasontext_0001_0","type":"reasoning","summary":[{"type":"summary_text","text":"The result is already in the tool output."}],"encrypted_content":"gAAAAABo_encrypted_reasoning_state_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ=="}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":11,"output_index":1,"item":{"id":"msg_resp_reasontext_0001_1","type":"message","status":"in_progress","role":"assistant","content":[]}}
+
+event: response.content_part.added
+data: {"type":"response.content_part.added","sequence_number":12,"item_id":"msg_resp_reasontext_0001_1","output_index":1,"content_index":0,"part":{"type":"output_text","text":"","annotations":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":13,"item_id":"msg_resp_reasontext_0001_1","output_index":1,"content_index":0,"delta":"Xong: tệp"}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":14,"item_id":"msg_resp_reasontext_0001_1","output_index":1,"content_index":0,"delta":" có 42 dò"}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":15,"item_id":"msg_resp_reasontext_0001_1","output_index":1,"content_index":0,"delta":"ng."}
+
+event: response.output_text.done
+data: {"type":"response.output_text.done","sequence_number":16,"item_id":"msg_resp_reasontext_0001_1","output_index":1,"content_index":0,"text":"Xong: tệp có 42 dòng."}
+
+event: response.content_part.done
+data: {"type":"response.content_part.done","sequence_number":17,"item_id":"msg_resp_reasontext_0001_1","output_index":1,"content_index":0,"part":{"type":"output_text","text":"Xong: tệp có 42 dòng.","annotations":[]}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":18,"output_index":1,"item":{"id":"msg_resp_reasontext_0001_1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"Xong: tệp có 42 dòng.","annotations":[]}]}}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":19,"response":{"id":"resp_reasontext_0001","object":"response","created_at":1760000000,"status":"completed","background":false,"error":null,"incomplete_details":null,"instructions":null,"max_output_tokens":16384,"model":"gpt-5-mini","output":[{"id":"rs_resp_reasontext_0001_0","type":"reasoning","summary":[{"type":"summary_text","text":"The result is already in the tool output."}],"encrypted_content":"gAAAAABo_encrypted_reasoning_state_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ=="},{"id":"msg_resp_reasontext_0001_1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"Xong: tệp có 42 dòng.","annotations":[]}]}],"parallel_tool_calls":false,"previous_response_id":null,"store":false,"tool_choice":"auto","tools":[],"usage":{"input_tokens":210,"input_tokens_details":{"cached_tokens":0},"output_tokens":88,"output_tokens_details":{"reasoning_tokens":64},"total_tokens":298}}}
+
