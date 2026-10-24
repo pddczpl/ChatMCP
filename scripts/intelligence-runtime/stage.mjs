@@ -115,16 +115,29 @@ async function recordStaged(dir, relative) {
     const child = path.join(dir, entry.name);
     const target = relative + '/' + entry.name;
     const stat = await fs.lstat(child);
-    if (stat.isSymbolicLink()) throw new Error('Embedded Python staging contains a link: ' + target);
+    if (stat.isSymbolicLink()) throw new Error('Runtime staging contains a link: ' + target);
     if (stat.isDirectory()) await recordStaged(child, target);
     else if (stat.isFile()) {
       const bytes = await fs.readFile(child);
       files.push({ path: target.replaceAll('\\', '/'), size: bytes.length, sha256: hash(bytes) });
-    } else throw new Error('Unexpected Python runtime entry: ' + target);
+    } else throw new Error('Unexpected runtime entry: ' + target);
   }
 }
 await recordStaged(pythonOutput, 'runtimes/python');
 if (!files.some(file => file.path === 'runtimes/python/LICENSE.txt' && file.size > 0)) throw new Error('Embedded CPython was staged without its LICENSE.txt');
+// ripgrep (the search_files and find_files tools) is staged from a fixed official release too, with both of its license texts.
+const ripgrepOutput = path.join(destination, 'runtimes', 'ripgrep');
+const ripgrepResult = spawnSync('powershell.exe', [
+  '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+  '-File', path.join(here, 'stage-ripgrep.ps1'), '-Destination', ripgrepOutput,
+], { cwd: here, stdio: 'inherit', windowsHide: true, timeout: 180000 });
+if (ripgrepResult.error || ripgrepResult.status !== 0) {
+  throw ripgrepResult.error || new Error('ripgrep staging failed: ' + ripgrepResult.status);
+}
+await recordStaged(ripgrepOutput, 'runtimes/ripgrep');
+for (const required of ['rg.exe', 'LICENSE-MIT', 'UNLICENSE']) {
+  if (!files.some(file => file.path === 'runtimes/ripgrep/' + required && file.size > 0)) throw new Error('ripgrep was staged without ' + required);
+}
 files.sort((a, b) => a.path.localeCompare(b.path, 'en'));
 await fs.writeFile(path.join(destination, 'runtime-manifest.json'), JSON.stringify({ schemaVersion: 1, target: 'win-x64', packages, grammars, pendingNotices: grammarNotices.pending.map(item => item.entry.id), files }, null, 2) + '\n', { flag: 'wx' });
 console.log(JSON.stringify({ destination, files: files.length, grammars, note: 'Runtime integrity checked; installer builder must copy this staged payload and the bundled Node executable' }, null, 2));

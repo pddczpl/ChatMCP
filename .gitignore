@@ -88,5 +88,6 @@ Thumbs.db
 desktop.ini
 .DS_Store
 
-# Bundled Python runtime binaries
+# Bundled Python and ripgrep runtime binaries
 /CHATMCP-HUB/runtimes/python/
+/CHATMCP-HUB/runtimes/ripgrep/

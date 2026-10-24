@@ -6,6 +6,7 @@
 - `CHATMCP-HUB/runtimes/lsp/node_modules/` — locked TypeScript, Pyright and Tree-sitter runtimes.
 - `CHATMCP-HUB/grammars/` — JavaScript, TypeScript, TSX and Python WASM grammars.
 - `CHATMCP-HUB/runtimes/python/` — official CPython 3.11.9 Windows embeddable distribution.
+- `CHATMCP-HUB/runtimes/ripgrep/` — official ripgrep 15.2.0 `rg.exe` (x86_64-pc-windows-msvc) with its `LICENSE-MIT`, `UNLICENSE` and `COPYING`; the engine of `search_files` and `find_files` (`CHATMCP-HUB/lib/ripgrep.mjs`).
 - `CHATMCP-HUB/runtime-manifest.json` — verified file hashes and dependency information.
 
 ## Build procedure
@@ -20,7 +21,15 @@ Source manifest: https://www.python.org/ftp/python/3.11.9/windows-3.11.9.json
 
 An optional `CHATMCP_PYTHON_EMBED_ARCHIVE` environment variable may supply a predownloaded archive; the same digest is required. The archive is extracted to disposable staging, not committed to Git.
 
-`verify.mjs` validates file hashes and all required components. `Build-Installer.ps1` verifies copied payload and invokes `test-runtime.mjs` with the bundled Node executable for real TypeScript/Pyright cross-file LSP requests and embedded Python AST worker tests.
+Ripgrep is staged the same way by `stage-ripgrep.ps1`:
+
+Official ripgrep archive: `https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-pc-windows-msvc.zip` (1,789,611 bytes)
+
+Expected SHA-256: `71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5` (the digest GitHub states for that release asset)
+
+Only `rg.exe`, `LICENSE-MIT`, `UNLICENSE` and `COPYING` are taken from the archive (from its top or from the one folder below it); both license texts must be there and must be the license texts; the staged `rg.exe` must report `ripgrep 15.2.0`. `CHATMCP_RIPGREP_ARCHIVE` may supply a predownloaded archive for an approved offline build; the same digest is required. At run time the Hub uses, in this order, the binary named by `CHATMCP_RIPGREP` (an absolute path; `off` switches ripgrep off), the bundled `rg.exe`, and an `rg` on PATH; with none of them `search_files` and `find_files` search without ripgrep, as before.
+
+`verify.mjs` validates file hashes and all required components. `Build-Installer.ps1` verifies copied payload and invokes `test-runtime.mjs` with the bundled Node executable for real TypeScript/Pyright cross-file LSP requests, embedded Python AST worker tests and a search with the bundled ripgrep.
 
 ## Security and limitations
 

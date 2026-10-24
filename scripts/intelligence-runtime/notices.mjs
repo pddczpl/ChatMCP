@@ -28,6 +28,8 @@ export const noticeStaged = (entry) => `licenses/${entry.id}/LICENSE`;
 export const ALWAYS_REQUIRED_LICENSE_FILES = Object.freeze([
   'licenses/tree-sitter-wasms/LICENSE',
   'runtimes/python/LICENSE.txt',
+  'runtimes/ripgrep/LICENSE-MIT',
+  'runtimes/ripgrep/UNLICENSE',
 ]);
 
 /** The marker file that a build with pending notices carries; a release build never has it (see PENDING_ALLOWED_ENV). */

@@ -79,6 +79,9 @@ function requiredEntries(repo) {
   const pythonVersion = read(repo, 'scripts', 'intelligence-runtime', 'stage-python.ps1').match(/python-(\d+\.\d+\.\d+)-embeddable-amd64\.zip/)?.[1];
   assert.ok(pythonVersion, 'stage-python.ps1: the pinned CPython version was not found');
   entries.push({ label: `CPython ${pythonVersion}`, name: /CPython embeddable/, needles: [pythonVersion, 'PSF-2.0', 'runtimes/python/LICENSE.txt'], span: 3 });
+  const ripgrepVersion = read(repo, 'scripts', 'intelligence-runtime', 'stage-ripgrep.ps1').match(/ripgrep-(\d+\.\d+\.\d+)-x86_64-pc-windows-msvc\.zip/)?.[1];
+  assert.ok(ripgrepVersion, 'stage-ripgrep.ps1: the pinned ripgrep version was not found');
+  entries.push({ label: `ripgrep ${ripgrepVersion}`, name: /ripgrep[^\n]*runtimes\/ripgrep/, needles: [ripgrepVersion, 'MIT OR Unlicense', 'runtimes/ripgrep/LICENSE-MIT'], span: 3 });
   entries.push({ label: 'Node.js', name: /Node\.js[^\n]*runtimes\/node/, needles: ['MIT', 'runtimes/node/LICENSE'], span: 3 });
   entries.push({ label: 'Microsoft Visual C++ runtime', name: /Visual C\+\+ runtime/, needles: [/Microsoft/, /redistribut/i], span: 3 });
   const webview2 = read(repo, 'desktop-shell', 'ChatMCP.csproj').match(/Include="Microsoft\.Web\.WebView2" Version="([^"]+)"/)?.[1];
@@ -154,8 +157,12 @@ export async function checkNotices(repo) {
   if (!stage.includes("'runtimes/python/LICENSE.txt'")) fail('stage.mjs does not assert that the staged CPython carries LICENSE.txt');
   if (!stage.includes("noticeFiles.includes('LICENSE')")) fail('stage.mjs does not require the LICENSE of tree-sitter-wasms');
   if (!read(repo, 'scripts', 'intelligence-runtime', 'verify.mjs').includes('requiredLicenseFiles(pendingNotices)')) fail('verify.mjs does not require the license files of the staged runtime');
+  const stageRipgrep = read(repo, 'scripts', 'intelligence-runtime', 'stage-ripgrep.ps1');
+  if (!/\$required = @\([^)]*'LICENSE-MIT'[^)]*'UNLICENSE'/.test(stageRipgrep)) fail('stage-ripgrep.ps1 does not require both LICENSE-MIT and UNLICENSE among the files of the ripgrep archive');
+  if (!stageRipgrep.includes('Permission is hereby granted, free of charge') || !stageRipgrep.includes('free and unencumbered software released into the public domain')) fail('stage-ripgrep.ps1 does not check that the two license files are the MIT and Unlicense texts');
+  if (!stage.includes("['rg.exe', 'LICENSE-MIT', 'UNLICENSE']")) fail('stage.mjs does not assert that the staged ripgrep carries rg.exe and both of its license texts');
   const notices = read(repo, 'scripts', 'intelligence-runtime', 'notices.mjs');
-  for (const required of ['licenses/tree-sitter-wasms/LICENSE', 'runtimes/python/LICENSE.txt']) {
+  for (const required of ['licenses/tree-sitter-wasms/LICENSE', 'runtimes/python/LICENSE.txt', 'runtimes/ripgrep/LICENSE-MIT', 'runtimes/ripgrep/UNLICENSE']) {
     if (!notices.includes(`'${required}'`)) fail(`notices.mjs does not list ${required} as a required license file`);
   }
   if (!read(repo, 'scripts', 'Build-Installer.ps1').includes('Copy-InstallerNodeLicense -NodeExecutable $sysNode -Destination $stagingNode')) fail('Build-Installer.ps1 does not copy the Node.js LICENSE next to the bundled node.exe');
@@ -261,7 +268,7 @@ try {
   const copy = (relative) => { mkdirSync(path.dirname(path.join(copyRoot, relative)), { recursive: true }); cpSync(path.join(REPO, relative), path.join(copyRoot, relative), { recursive: true }); };
   for (const relative of [...Object.values(SHIPPING_FILES), 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', 'CHATMCP-HUB/ui/package-lock.json', 'desktop-shell/ChatMCP.csproj',
     'scripts/Build-Installer.ps1', 'scripts/InstallerPayload.ps1', 'scripts/intelligence-runtime/package-lock.json', 'scripts/intelligence-runtime/stage.mjs',
-    'scripts/intelligence-runtime/verify.mjs', 'scripts/intelligence-runtime/notices.mjs', 'scripts/intelligence-runtime/stage-python.ps1', '.github/workflows']) copy(relative);
+    'scripts/intelligence-runtime/verify.mjs', 'scripts/intelligence-runtime/notices.mjs', 'scripts/intelligence-runtime/stage-python.ps1', 'scripts/intelligence-runtime/stage-ripgrep.ps1', '.github/workflows']) copy(relative);
   mkdirSync(path.join(copyRoot, 'scripts', 'intelligence-runtime', 'licenses'), { recursive: true });
   for (const entry of GRAMMAR_NOTICES) if (existsSync(path.join(REPO, 'scripts', 'intelligence-runtime', noticeSource(entry)))) copy(`scripts/intelligence-runtime/${noticeSource(entry)}`);
   const baseline = await checkNotices(copyRoot);
@@ -284,6 +291,12 @@ try {
     ['the old README wording back', 'README.md', (source) => source.replace(/^## License[\s\S]*?(?=^## Security)/m, '## License\n\nChatMCP does **not** currently have an adopted top-level project license in this repository.\n\n'), /License section|no project license/],
     ['LICENSE.txt dropped from the CPython staging assertion', 'scripts/intelligence-runtime/stage-python.ps1', (source) => source.replace(",'LICENSE.txt')", ')'), /does not require LICENSE\.txt/],
     ['the PSF text check dropped from the CPython staging', 'scripts/intelligence-runtime/stage-python.ps1', (source) => source.replace('PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2', 'x'), /PSF license text/],
+    ['the ripgrep entry deleted from THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', dropLines(/^\| ripgrep \(/), /THIRD-PARTY-NOTICES\.md has no entry for ripgrep/],
+    ['the ripgrep entry deleted from the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^17\. ripgrep[\s\S]*?(?=^PENDING NOTICES)/m, ''), /CHATMCP-HUB\/THIRD-PARTY-NOTICES\.txt has no entry for ripgrep/],
+    ['UNLICENSE dropped from the ripgrep staging assertion', 'scripts/intelligence-runtime/stage-ripgrep.ps1', (source) => source.replace("@('rg.exe', 'LICENSE-MIT', 'UNLICENSE')", "@('rg.exe', 'LICENSE-MIT')"), /does not require both LICENSE-MIT and UNLICENSE/],
+    ['the ripgrep license text checks dropped from the staging', 'scripts/intelligence-runtime/stage-ripgrep.ps1', (source) => source.replace('free and unencumbered software released into the public domain', 'x'), /MIT and Unlicense texts/],
+    ['stage.mjs no longer asserts the ripgrep license texts', 'scripts/intelligence-runtime/stage.mjs', (source) => source.replace("['rg.exe', 'LICENSE-MIT', 'UNLICENSE']", "['rg.exe']"), /staged ripgrep carries rg\.exe and both/],
+    ['notices.mjs no longer lists the ripgrep license files', 'scripts/intelligence-runtime/notices.mjs', (source) => source.replace("'runtimes/ripgrep/UNLICENSE'", "'runtimes/ripgrep/x'"), /runtimes\/ripgrep\/UNLICENSE as a required license file/],
     ['the grammar notices no longer staged', 'scripts/intelligence-runtime/stage.mjs', (source) => source.replaceAll('readGrammarNotices', 'skipGrammarNotices'), /does not stage the Tree-sitter grammar notices/],
     ['verify.mjs no longer requires the license files', 'scripts/intelligence-runtime/verify.mjs', (source) => source.replace('requiredLicenseFiles(pendingNotices)', '[]'), /verify\.mjs does not require/],
     ['Build-Installer.ps1 no longer copies the Node.js LICENSE', 'scripts/Build-Installer.ps1', dropLines(/Copy-InstallerNodeLicense/), /Node\.js LICENSE next to/],
