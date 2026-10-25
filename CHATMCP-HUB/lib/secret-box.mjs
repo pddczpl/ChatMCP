@@ -12,6 +12,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createCipheriv, createDecipheriv, randomBytes, scrypt } from 'node:crypto';
 import { promisify } from 'node:util';
+import { powerShellChildEnvironment } from './powershell-environment.mjs';
 
 const scryptAsync = promisify(scrypt);
 const fail = (code, message, statusCode = 400) => Object.assign(new Error(message), { code, statusCode });
@@ -23,7 +24,8 @@ async function dpapi(mode, text, bundleRoot) {
   const binary = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   const script = path.join(bundleRoot, 'windows', 'Protect-ApiKey.ps1');
   return await new Promise((resolve, reject) => {
-    const proc = spawn(binary, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Mode', mode], { windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
+    // The script needs no module, but every PowerShell the Hub starts gets the same environment (lib/powershell-environment.mjs).
+    const proc = spawn(binary, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Mode', mode], { windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'], env: powerShellChildEnvironment() });
     let chunks = '', size = 0, settled = false;
     const done = (error, result) => { if (settled) return; settled = true; clearTimeout(timeout); error ? reject(error) : resolve(result); };
     const timeout = setTimeout(() => { proc.kill(); done(fail('dpapi_timeout', 'Windows chưa thể bảo vệ API key.')); }, 30000);

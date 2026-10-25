@@ -74,7 +74,7 @@ PermissionGate trong lib/permissions.mjs là chính sách cục bộ và vẫn h
 
 ## 8. Chạy lệnh và các lớp bảo vệ quanh nó
 
-ShellRunner lọc biến môi trường, áp timeout, kiểm tra lệnh và đường dẫn. Tuy vậy lệnh được duyệt chạy với quyền tài khoản hệ điều hành hiện tại. SandboxEngine hiện chỉ là chế độ host (osIsolated:false) và **không phải** VM/AppContainer. Optional Docker sandbox chỉ dành cho bài test cục bộ, không phải cloud hosting.
+ShellRunner lọc biến môi trường, áp timeout, kiểm tra lệnh và đường dẫn. Trên Windows nó không chuyển `PSModulePath` cho shell nào: một Hub khởi động từ phiên `pwsh` mang theo thư mục module của PowerShell 7, và Windows PowerShell nhận chúng sẽ mất `Get-FileHash`, `New-Guid`, `New-TemporaryFile`, `Format-Hex`, `Import-PowerShellDataFile` và `ConvertFrom-SddlString`; không có biến này, Windows PowerShell tự tính đường dẫn module mặc định của máy (`lib/powershell-environment.mjs`). Mọi `powershell.exe` do chính Hub khởi động (terminal, hộp chọn thư mục, DPAPI, bộ thăm dò Windows Sandbox, launcher) cũng được cấp môi trường như vậy. Tuy vậy lệnh được duyệt chạy với quyền tài khoản hệ điều hành hiện tại. SandboxEngine hiện chỉ là chế độ host (osIsolated:false) và **không phải** VM/AppContainer. Optional Docker sandbox chỉ dành cho bài test cục bộ, không phải cloud hosting.
 
 ## 9. Nhà cung cấp mô hình và khóa API
 

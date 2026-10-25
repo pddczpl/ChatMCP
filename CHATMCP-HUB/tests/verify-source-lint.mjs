@@ -10,13 +10,16 @@
 // A second class: a Windows PowerShell child that a test or a script starts from node with the module path of the PowerShell 7 that started node (the
 // release workflows run in pwsh) cannot find Get-FileHash and five more commands; the first publish run of v3.10.0 failed that way. Every file under tests/
 // and scripts/ that names powershell.exe must use tests/support/powershell-environment.mjs, and the helper must do what it says on a real Windows PowerShell.
+// The Hub is no different: a Hub that was started from a pwsh session passes the same module path to its children, so every file in lib/ and hub.mjs that names
+// powershell.exe must use lib/powershell-environment.mjs (tests/support exports the same function).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { powerShell7ModuleStandIn, powerShellChildEnvironment, windowsPowerShellPath } from './support/powershell-environment.mjs';
+import { powerShellChildEnvironment } from '../lib/powershell-environment.mjs';
+import { powerShell7ModuleStandIn, windowsPowerShellPath } from './support/powershell-environment.mjs';
 
 const hubRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // literal backslash, the letter n, at least one space or tab, then a // comment opener
@@ -70,7 +73,7 @@ try {
 // A PowerShell child of a test or a script gets the module path of the machine, not the one of the PowerShell 7 that started node
 // ---------------------------------------------------------------------------------------------------------------------------------
 const STARTS_POWERSHELL = /powershell\.exe/i;
-const USES_THE_HELPER = /\bpowerShellChildEnvironment\b/;
+const USES_THE_HELPER = /\bpowerShellChildEnvironment\s*\(/; // a call: an import that nothing calls leaves the child with the environment as it was
 
 /** Of `files`, those that name powershell.exe (`named`) and, among them, those that never use powerShellChildEnvironment (`missing`). */
 export async function powerShellStarters(files) {
@@ -92,9 +95,17 @@ export async function powerShellStarters(files) {
     for await (const file of walk(root)) if (!guestCommands.includes(file)) candidates.push(file);
   }
   const { named, missing } = await powerShellStarters(candidates);
-  for (const file of missing) console.log(`  not ok - ${path.relative(repoRoot, file)} names powershell.exe and does not use powerShellChildEnvironment (tests/support/powershell-environment.mjs)`);
+  for (const file of missing) console.log(`  not ok - ${path.relative(repoRoot, file)} names powershell.exe and does not call powerShellChildEnvironment (tests/support/powershell-environment.mjs)`);
   assert.deepEqual(missing.map((file) => path.relative(repoRoot, file)), [], 'a PowerShell child started from node must get env: powerShellChildEnvironment(...), or it inherits the module path of the PowerShell 7 that started node');
   ok(`all ${named.length} test and script files that name powershell.exe give their PowerShell child the environment of powerShellChildEnvironment (${candidates.length} files scanned)`);
+
+  // the Hub's own code (lib/ and hub.mjs, read above): the same rule and the same helper, which lives in lib/powershell-environment.mjs
+  {
+    const product = await powerShellStarters(files);
+    for (const file of product.missing) console.log(`  not ok - ${path.relative(repoRoot, file)} names powershell.exe and does not call powerShellChildEnvironment (lib/powershell-environment.mjs)`);
+    assert.deepEqual(product.missing.map((file) => path.relative(repoRoot, file)), [], 'a PowerShell child that the Hub starts must get env: powerShellChildEnvironment(...), or a Hub that was started from a pwsh session hands the module path of PowerShell 7 to Windows PowerShell');
+    ok(`all ${product.named.length} Hub files that name powershell.exe give their PowerShell child the environment of powerShellChildEnvironment (${files.length} files scanned)`);
+  }
 
   const control = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-lint-ps-control-'));
   try {
@@ -104,10 +115,13 @@ export async function powerShellStarters(files) {
     await fs.writeFile(guarded, "import { spawnSync } from 'node:child_process';\nimport { powerShellChildEnvironment } from './support/powershell-environment.mjs';\nspawnSync('powershell.exe', ['-File', 'x.ps1'], { env: powerShellChildEnvironment() });\n");
     const unrelated = path.join(control, 'unrelated.mjs');
     await fs.writeFile(unrelated, "const shell = 'bash';\n");
-    const result = await powerShellStarters([seeded, guarded, unrelated]);
-    assert.deepEqual(result.missing.map((file) => path.basename(file)), ['seeded.mjs'], 'the scanner must flag the seeded PowerShell child that has no helper');
-    assert.deepEqual(result.named.map((file) => path.basename(file)), ['seeded.mjs', 'guarded.mjs'], 'and must count the one that has it, and not the file that never starts PowerShell');
-    ok('negative control: a seeded powershell.exe child without the helper is flagged, one with it and a file without PowerShell are not');
+    // the import alone is not the helper: a file that imports it and starts PowerShell with the environment as it is (the call was taken out) must be flagged too
+    const importOnly = path.join(control, 'import-only.mjs');
+    await fs.writeFile(importOnly, "import { spawnSync } from 'node:child_process';\nimport { powerShellChildEnvironment } from './support/powershell-environment.mjs';\nspawnSync('powershell.exe', ['-File', 'x.ps1'], { encoding: 'utf8' });\n");
+    const result = await powerShellStarters([seeded, guarded, unrelated, importOnly]);
+    assert.deepEqual(result.missing.map((file) => path.basename(file)), ['seeded.mjs', 'import-only.mjs'], 'the scanner must flag the seeded PowerShell child that has no helper, and the one that only imports it');
+    assert.deepEqual(result.named.map((file) => path.basename(file)), ['seeded.mjs', 'guarded.mjs', 'import-only.mjs'], 'and must count the one that has it, and not the file that never starts PowerShell');
+    ok('negative control: a seeded powershell.exe child without the helper, or with an import that nothing calls, is flagged; one with the call and a file without PowerShell are not');
   } finally {
     await fs.rm(control, { recursive: true, force: true });
   }

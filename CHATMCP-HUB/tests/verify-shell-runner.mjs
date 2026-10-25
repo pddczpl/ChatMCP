@@ -5,9 +5,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { delay, exists } from '../lib/runtime.mjs';
 import { StudioWorkspace } from '../lib/studio-workspace.mjs';
 import { BoundedCapture, ShellRunner, decodeClixml, scrubEnv, wrapPowerShell } from '../lib/shell-runner.mjs';
+import { powerShell7ModuleStandIn, windowsPowerShellPath } from './support/powershell-environment.mjs';
 
 const isWindows = process.platform === 'win32';
 let checks = 0;
@@ -296,6 +298,61 @@ for (const name of names) {
       assert.equal(auto.transport, 'argv');
     }
     ok(`${posix}: script-file and argv transports agree`);
+  }
+}
+
+// ------------------------------------------------------------------ the module path of PowerShell 7
+// A Hub that was started from a pwsh session carries the module folders of PowerShell 7 in PSModulePath, and a Windows PowerShell that is given them
+// loses Get-FileHash and five more commands (lib/powershell-environment.mjs). On Windows the runner hands no PSModulePath to any shell it starts.
+{
+  const given = { PATH: 'p', SystemRoot: 'C:\\Windows', PSModulePath: 'C:\\Program Files\\PowerShell\\7\\Modules', psmodulepath: 'in lower case' };
+  const modulePaths = (environment) => Object.keys(environment).filter((name) => name.toLowerCase() === 'psmodulepath');
+  const on = (platform) => new ShellRunner({ workspace, stateDirectory: stateDir, env: given, platform });
+  // bash is the usual way to a nested Windows PowerShell on Windows (Git Bash is the default shell when Git is installed), and so is a program that bash runs
+  for (const shell of ['powershell', 'bash', 'sh', null]) {
+    assert.deepEqual(modulePaths(on('win32').environment(shell)), [], `Windows (${shell}): no PSModulePath, in any letter case, reaches a child that may start a Windows PowerShell`);
+    assert.equal(on('win32').environment(shell).PATH, 'p', `Windows (${shell}): the rest of the environment stays`);
+  }
+  for (const platform of ['linux', 'darwin']) {
+    for (const shell of ['powershell', 'bash', null]) {
+      assert.equal(on(platform).environment(shell).PSModulePath, given.PSModulePath, `${platform} (${shell}): "powershell" is pwsh there, which keeps the module path it was given`);
+    }
+  }
+  assert.equal(given.PSModulePath, 'C:\\Program Files\\PowerShell\\7\\Modules', 'the environment the runner was given is not changed');
+  ok('the runner hands no PSModulePath to a child on Windows (PowerShell, bash, sh, and the commands without a shell) and leaves it alone on Linux and macOS, where "powershell" is pwsh');
+}
+{
+  const windowsPowerShell = windowsPowerShellPath();
+  if (!isWindows || !await exists(windowsPowerShell)) {
+    console.log('  --  Windows PowerShell is not here: the runner was not checked against the module folder of PowerShell 7');
+  } else {
+    // a stand-in for the module folder of PowerShell 7, first in PSModulePath, as it is for a Hub that a pwsh step of a workflow started
+    const modules = await powerShell7ModuleStandIn(await fs.mkdtemp(path.join(root, 'ps7-')), windowsPowerShell);
+    const startedFromPwsh = { ...process.env, PSModulePath: `${modules};${process.env.PSModulePath ?? ''}` };
+    const lookup = "try { 'FOUND ' + (Get-FileHash -LiteralPath $env:ComSpec -Algorithm SHA256).Hash.Length } catch { 'MISSING' }";
+    const control = spawnSync(windowsPowerShell, ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(lookup, 'utf16le').toString('base64')], { env: startedFromPwsh, encoding: 'utf8', windowsHide: true, timeout: 60_000 });
+    assert.equal(control.stdout.trim(), 'MISSING', `control: with the module folder of PowerShell 7 first in PSModulePath a raw Windows PowerShell must lose Get-FileHash, or this check no longer reproduces the trap: ${control.stdout}${control.stderr}`);
+    const fromPwsh = new ShellRunner({ workspace, stateDirectory: stateDir, env: startedFromPwsh });
+    const cases = [
+      ['an encoded command that starts with a compiled cmdlet', { shell: 'powershell', command: `('{"a":1}' | ConvertFrom-Json).a | Out-Null; ${lookup}` }, 'encoded'],
+      ['a command too long for the command line, which goes through a script file', { shell: 'powershell', command: `${lookup}\n# ${'x'.repeat(5000)}` }, 'file'],
+      ['shell "pwsh", which is Windows PowerShell on Windows', { shell: 'pwsh', command: lookup }, 'encoded'],
+    ];
+    for (const [label, options, transport] of cases) {
+      const result = await fromPwsh.run({ timeoutMs: 60_000, ...options });
+      assert.equal(result.transport, transport, `${label}: transport`);
+      assert.equal(result.stdout.trim(), 'FOUND 64', `${label}: the agent must still have Get-FileHash when the Hub was started from a pwsh session: ${result.stdout}${result.stderr}`);
+    }
+    // Git Bash is the default shell on a Windows machine that has Git, and a command of the agent often starts a Windows PowerShell from it: bash only passes the
+    // environment on. The program is given by its path, in quotes: bash starts a Windows program that is written with forward slashes.
+    if (info.shells.bash) {
+      const nestedProgram = windowsPowerShell.replaceAll('\\', '/');
+      const nested = await fromPwsh.run({ shell: 'bash', timeoutMs: 60_000, command: `"${nestedProgram}" -NoProfile -NonInteractive -EncodedCommand ${Buffer.from(lookup, 'utf16le').toString('base64')}` });
+      assert.equal(nested.stdout.trim(), 'FOUND 64', `a Windows PowerShell that a bash command starts must still have Get-FileHash when the Hub was started from a pwsh session: ${nested.stdout}${nested.stderr}`);
+    } else {
+      console.log('  --  Git Bash is not here: a Windows PowerShell started from bash was not checked');
+    }
+    ok('behind the module folder of PowerShell 7 the runner still gives the agent Get-FileHash (encoded command, script file, shell "pwsh", a Windows PowerShell that bash starts), where a raw child loses it');
   }
 }
 

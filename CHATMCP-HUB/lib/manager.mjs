@@ -4,6 +4,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readJson, writeJson, redact, resolveProgram, spawnLogged, stopOwned } from './runtime.mjs';
+import { powerShellChildEnvironment } from './powershell-environment.mjs';
 import { buildInternalCatalog } from './catalog.mjs';
 import { hookTextParts } from './hooks.mjs';
 
@@ -238,7 +239,8 @@ export class HubManager {
     // private. If the dialog fails, reveal only the exception TYPE, not paths.
     let output;
     try {
-      output = await this.checkedRun(powershell, args, { quiet:true, windowsHide:false });
+      // The script needs no module, but every PowerShell the Hub starts gets the same environment (lib/powershell-environment.mjs).
+      output = await this.checkedRun(powershell, args, { quiet:true, windowsHide:false, env:powerShellChildEnvironment() });
     } catch(error) {
       const reason = /\[CHATMCP-HUB\] Folder picker failed: ([A-Za-z][A-Za-z0-9]{0,75})/.exec(
         String(error?.result?.output||''))?.[1]||'unknown';

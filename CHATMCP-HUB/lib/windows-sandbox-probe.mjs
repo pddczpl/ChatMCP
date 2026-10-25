@@ -10,6 +10,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { validateCapabilityReport } from './execution-contract.mjs';
 import { pinSandboxCliPackage } from './windows-sandbox-cli-identity.mjs';
+import { powerShellChildEnvironment } from './powershell-environment.mjs';
 
 const MIN_MEMORY_MB = 8192; // Initial offline fixture target, not Microsoft's base minimum
 const MIN_DISK_MB = 10240;  // Initial fixture target; per-project toolchains vary
@@ -30,6 +31,7 @@ function safePowerShell(command) {
         timeout: 5000,
         stdio: ['ignore', 'pipe', 'ignore'],
         windowsHide: true,
+        env: powerShellChildEnvironment(),
       }
     ).trim();
   } catch {
