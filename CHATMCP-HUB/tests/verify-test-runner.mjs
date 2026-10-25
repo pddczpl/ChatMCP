@@ -27,6 +27,14 @@ const SUITES = {
   'verify-bad-fail.mjs': "console.log('PASS: this line must not rescue a failing suite');\nprocess.exit(3);\n",
   'verify-bad-skipfail.mjs': "console.log('CHATMCP_TEST_SKIP: a skip marker must not hide a failure');\nprocess.exit(1);\n",
   'verify-bad-crash.mjs': "throw new Error('boom');\n",
+  // An assertion whose difference is long: Node prints the difference at the top of its report and then both values in full, 60 lines each, and the words that differ
+  // stand near the top of each. The suite also prints enough before it to fill the tail on its own.
+  'verify-bad-longdiff.mjs': [
+    "import assert from 'node:assert/strict';",
+    "for (let i = 1; i <= 400; i += 1) console.log('  ok - a step of the suite that passed, number ' + i);",
+    "const rows = (marker) => Array.from({ length: 12 }, (_, i) => ['row' + i, { n: i }, i === 1 ? marker : 'same']);",
+    "assert.deepEqual(rows('ACTUAL-VALUE'), rows('EXPECTED-VALUE'));",
+  ].join('\n'),
   'verify-bad-slow.mjs': "console.log('started');\nsetInterval(() => {}, 1000);\n",
   // Not a suite: wrong prefix and extension, so the runner must not pick it up.
   'helper-pass.mjs': "console.log('PASS: not a suite');\n",
@@ -115,6 +123,24 @@ try {
     ok('an uncaught exception is FAIL');
   }
   {
+    // The log of a CI run is all that is left of a failure that happens once in a hundred runs. verify-subagent-notices failed that way and the runner showed the last 25
+    // lines of its output, which were the end of the second value of a long assertion: the words that differ were above them, and the cause could not be read.
+    const { status, report, stdout } = run(['--filter', 'bad-longdiff']);
+    assert.equal(status, 1);
+    assert.equal(report.results[0].status, 'FAIL');
+    assert.match(stdout, /ACTUAL-VALUE/, 'what the assertion got is in the log');
+    assert.match(stdout, /EXPECTED-VALUE/, 'and what it expected');
+    assert.match(stdout, /Expected values to be strictly deep-equal/, 'with the sentence Node starts its report with');
+    const shown = stdout.split(/\r?\n/).filter((line) => line.startsWith('    | '));
+    assert.ok(shown.length > 25, `${shown.length} lines of the failing suite are shown`);
+    // The suite printed far more than the runner keeps, so its tail starts inside a line; that half line is not shown.
+    const steps = shown.filter((line) => /number \d+$/.test(line));
+    assert.ok(steps.length > 0 && steps.length < 400, `the tail holds some of the steps and not all (${steps.length})`);
+    assert.ok(steps.every((line) => line.startsWith('    |   ok - a step of the suite that passed, number ')), 'and each of them is whole');
+    assert.ok(stdout.length < 20_000, `and the log of one failing suite stays short (${stdout.length} characters)`);
+    ok('a failing suite shows its whole assertion difference (both values and the words that differ), not the last 25 lines of its output');
+  }
+  {
     const started = Date.now();
     const { status, report, stdout } = run(['--filter', 'slow', '--timeout', '2']);
     const elapsed = Date.now() - started;
@@ -132,7 +158,7 @@ try {
     const list = run(['--list']);
     assert.equal(list.status, 0);
     const names = list.stdout.trim().split(/\r?\n/).sort();
-    assert.deepEqual(names, ['verify-bad-crash.mjs', 'verify-bad-fail.mjs', 'verify-bad-skipfail.mjs', 'verify-bad-slow.mjs', 'verify-count-fail.mjs', 'verify-count-pass.mjs', 'verify-flaky-hang-once.mjs', 'verify-flaky-once.mjs', 'verify-flaky-then-skip.mjs', 'verify-ok-pass.mjs', 'verify-ok-skip.mjs']);
+    assert.deepEqual(names, ['verify-bad-crash.mjs', 'verify-bad-fail.mjs', 'verify-bad-longdiff.mjs', 'verify-bad-skipfail.mjs', 'verify-bad-slow.mjs', 'verify-count-fail.mjs', 'verify-count-pass.mjs', 'verify-flaky-hang-once.mjs', 'verify-flaky-once.mjs', 'verify-flaky-then-skip.mjs', 'verify-ok-pass.mjs', 'verify-ok-skip.mjs']);
     ok('only verify-*.mjs files are suites; helpers and other extensions are ignored');
     const withPython = run(['--list', '--python']);
     assert.ok(withPython.stdout.split(/\r?\n/).includes('verify-py-pass.py'));
