@@ -251,8 +251,9 @@ export class ShellRunner {
     Object.assign(env, { GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', NO_COLOR: '1', PAGER: 'cat', GIT_PAGER: 'cat', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' });
     if (this.platform === 'win32' && shellName !== 'powershell') Object.assign(env, { MSYS_NO_PATHCONV: '1', MSYS2_ARG_CONV_EXCL: '*', CHERE_INVOKING: '1' });
     // A Hub that was started from a pwsh session carries the module folders of PowerShell 7, which cost Windows PowerShell Get-FileHash and five more commands
-    // (lib/powershell-environment.mjs). Off Windows "powershell" is pwsh itself, which needs the module path it was given.
-    return this.platform === 'win32' && shellName === 'powershell' ? powerShellChildEnvironment({}, env) : env;
+    // (lib/powershell-environment.mjs). On Windows no shell gets it: a command of the agent can start powershell.exe from bash or from a program, and they only pass the
+    // variable on. Off Windows "powershell" is pwsh itself, which needs the module path it was given.
+    return this.platform === 'win32' ? powerShellChildEnvironment({}, env) : env;
   }
 
   environment(shellName = null) {
