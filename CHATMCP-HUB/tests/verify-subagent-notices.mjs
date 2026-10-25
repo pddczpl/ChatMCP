@@ -7,7 +7,8 @@
 //      a limit that would lose the answer wins; a parent that is not running only records, and is told once before the prompt of its next run;
 //      the notice selects no tool and no skill and is not something the user asked; restart.
 //   D. the pool: a parent spawns two agents, both stop, its next request carries the notice, it reads their results and its final answer is
-//      built from them; the same when the parent finished first; blocked and cancelled agents; workflows; only the caller's children; a full tree.
+//      built from them; the same when the parent finished first; blocked and cancelled agents; workflows; only the caller's children; a full tree;
+//      agents that start together get their worktrees one at a time (Git does not survive two `git worktree add` on one repository at once).
 //   E. restart of the pool.
 //   F. the same notices and the tool on the wire of all four protocols (Chat Completions, Anthropic Messages, Responses, Gemini): the real runner and provider
 //      against a mock server that refuses what the real API refuses.
@@ -804,6 +805,35 @@ try {
     assert.equal(fact.status, 'failed'); assert.equal(fact.finalText, null); assert.match(fact.error, /branch no longer exists/i);
     assert.equal(pool.primary.activeTaskId, null, 'and nothing ran for the parent');
     ok('D7 an agent that fails before it starts (its base branch is gone, so no worktree and no runner): the pool\'s own catch records the ending on the parent, with the Hub\'s error and no claim');
+  }
+
+  // ---- D8 agents that start together: the worktrees of one repository are made one at a time
+  {
+    reset();
+    handler = (request) => (ownerOf(request).startsWith('Child') ? childAnswer(ownerOf(request)) : final('Nothing to start myself.'));
+    const parent = await pool.start({ prompt: 'Parent P9: nothing to spawn myself.' });
+    await until(() => pool.get(parent.id)?.status === 'completed', 'parent P9');
+    // Git makes a linked worktree in steps: the folder under .git/worktrees first, the files in it after. A second `git worktree add` on the same repository that looks at the folder in
+    // between dies reading a file that is still empty ("fatal: failed to read .git/worktrees/worktree7/commondir: No error"). Agents that start together did that about once in a hundred
+    // runs of this suite on a Windows runner: D5 saw one agent "uncertain" and the one that waited for it "blocked". The moment cannot be provoked on demand, so this counts what the Hub
+    // controls, how many of those calls run at the same moment. Each call is held for a while, so any two that the pool lets start together overlap.
+    const git = manager.studio.gitRunner;
+    const run = git.text.bind(git);
+    let adds = 0; let running = 0; let peak = 0;
+    git.text = async (args, options) => {
+      if (args[0] !== 'worktree' || args[1] !== 'add') return run(args, options);
+      adds += 1; running += 1; peak = Math.max(peak, running);
+      try { await wait(400); return await run(args, options); } finally { running -= 1; }
+    };
+    try {
+      const agents = await Promise.all(['Child C14: inspect the readme', 'Child C15: inspect the license', 'Child C16: inspect the tests'].map((goal) => pool.spawnAgent(parent.id, { goal })));
+      const over = (agent) => ['completed', 'failed', 'cancelled', 'blocked', 'uncertain', 'limit'].includes(pool.get(agent.id)?.status);
+      await until(() => agents.every(over), 'the three agents stop', 400);
+      assert.equal(adds, 3, 'each agent made a worktree of its own');
+      assert.equal(peak, 1, `${peak} worktrees of one repository were being made at the same moment`);
+      assert.deepEqual(agents.map((agent) => pool.get(agent.id).status), ['completed', 'completed', 'completed']);
+    } finally { delete git.text; }
+    ok('D8 agents that start together: Git is asked for one worktree of the repository at a time (never two `git worktree add` at once), and all three agents complete');
   }
 
   // =========================================================================================================================================== E. restart of the pool
