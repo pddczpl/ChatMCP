@@ -25,8 +25,8 @@ Docker/Render hosting, proxy cổng 3006 hoặc đăng nhập chủ sở hữu s
 
 3. CODE VÀ MULTI-AGENT
    - Chọn thư mục workspace Git, mặc định dùng chế độ Review.
-   - Tab Agents cho phép nghiên cứu DAG chỉ đọc hoặc các coding workers
-     độc lập theo Git worktrees. Kiểm tra diff trước khi gộp branch.
+   - Tab Tác nhân hiện công việc nền: các task và subagent mà agent giao
+     trong lúc bạn trò chuyện, kèm nút dừng từng task.
    - Worktrees không phải Windows Sandbox/AppContainer; lệnh được duyệt
      vẫn có thể chạy với quyền tài khoản Windows hiện tại.
 

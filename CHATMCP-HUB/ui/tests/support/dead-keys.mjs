@@ -2,13 +2,13 @@
 //
 // A key is used when its name stands as a quoted string in a module outside the dictionaries, or is written `.name` (a property read), or when a string that
 // ends with an underscore (the start of a key that is made at run time: `agent_status_${state}`, 'agent_role_' + role) is the start of the key, or when one of
-// the other two dictionaries asks for it. The test of the same name keeps the list empty.
+// the other dictionary (lib/i18n-agents.ts) asks for it. The test of the same name keeps the list empty.
 import fs from 'node:fs';
 import path from 'node:path';
 
-const DICTIONARIES = ['i18n.ts', 'i18n-agents.ts', 'i18n-agents-sections.ts'];
+const DICTIONARIES = ['i18n.ts', 'i18n-agents.ts'];
 
-/** Every module under src/ except the three dictionaries, as one text. */
+/** Every module under src/ except the two dictionaries that load with the first screen, as one text. */
 export function sourceTextOf(uiDirectory) {
   const src = path.join(uiDirectory, 'src');
   const walk = (directory) => fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {

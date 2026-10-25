@@ -15,8 +15,12 @@ namespace ChatMCP.Installer
 {
     public static class InstallerEngine
     {
-        public const string AppName = "ChatMCP Studio";
-        public const string AppDescription = "ChatMCP - Autonomous AI Coding Agent";
+        public const string AppName = "DatGold Studio";
+        public const string AppDescription = "DatGold - Autonomous AI Coding Agent";
+        internal const string StartMenuFolder = "DatGold";
+        // Versions up to 3.10.1 made their shortcuts under the product's old name. Setup replaces them and the uninstaller removes them, so a machine never shows two names.
+        internal const string LegacyAppName = "ChatMCP Studio";
+        internal const string LegacyStartMenuFolder = "ChatMCP";
         public static string AppVersion => HubLifecycle.Version;
         public const string Publisher = "Phan Danh Dat";
         public const string RegistryKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ChatMCP";
@@ -98,7 +102,7 @@ namespace ChatMCP.Installer
             var logs = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ChatMCP", "logs");
             Directory.CreateDirectory(logs);
             var log = Path.Combine(logs, "install-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N") + ".log");
-            File.WriteAllText(log, "ChatMCP installer " + AppVersion + " started " + DateTime.UtcNow.ToString("O") + Environment.NewLine);
+            File.WriteAllText(log, "DatGold installer " + AppVersion + " started " + DateTime.UtcNow.ToString("O") + Environment.NewLine);
             try
             {
                 InstallCore(targetDir, createDesktopShortcut, createStartMenuShortcut, (percent, status) =>
@@ -141,27 +145,8 @@ namespace ChatMCP.Installer
 
             // Create Shortcuts
             reportProgress(85, "Creating system shortcuts...");
-            if (createDesktopShortcut)
-            {
-                var desktopDir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                var desktopLnk = Path.Combine(desktopDir, $"{AppName}.lnk");
-                CreateShortcut(desktopLnk, mainExePath, targetDir, iconPath, AppDescription);
-            }
-
-            if (createStartMenuShortcut)
-            {
-                var programsDir = Environment.GetFolderPath(Environment.SpecialFolder.Programs);
-                var appStartMenuDir = Path.Combine(programsDir, "ChatMCP");
-                if (!Directory.Exists(appStartMenuDir))
-                {
-                    Directory.CreateDirectory(appStartMenuDir);
-                }
-                var startMenuLnk = Path.Combine(appStartMenuDir, $"{AppName}.lnk");
-                CreateShortcut(startMenuLnk, mainExePath, targetDir, iconPath, AppDescription);
-
-                var uninstallLnk = Path.Combine(appStartMenuDir, $"Uninstall {AppName}.lnk");
-                CreateShortcut(uninstallLnk, uninstallerPath, targetDir, iconPath, $"Uninstall {AppName}");
-            }
+            ReplaceShortcuts(targetDir, iconPath, Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                Environment.GetFolderPath(Environment.SpecialFolder.Programs), createDesktopShortcut, createStartMenuShortcut, note => reportProgress(85, note));
 
             // Register in Windows Registry
             reportProgress(95, "Registering in Windows Installed Apps...");
@@ -232,6 +217,57 @@ namespace ChatMCP.Installer
             transaction.Commit(reportProgress);
         }
 
+        /// <summary>The shortcuts the wizard asks for, under the DatGold names: the Desktop link, and the Start menu folder with the launcher and the uninstaller.</summary>
+        internal static void CreateShortcuts(string installDir, string iconPath, string desktopDir, string programsDir, bool createDesktop, bool createStartMenu)
+        {
+            var launcher = Path.Combine(installDir, "ChatMCP.exe");
+            if (createDesktop)
+                CreateShortcut(Path.Combine(desktopDir, $"{AppName}.lnk"), launcher, installDir, iconPath, AppDescription);
+            if (!createStartMenu) return;
+            var folder = Path.Combine(programsDir, StartMenuFolder);
+            Directory.CreateDirectory(folder);
+            CreateShortcut(Path.Combine(folder, $"{AppName}.lnk"), launcher, installDir, iconPath, AppDescription);
+            CreateShortcut(Path.Combine(folder, $"Uninstall {AppName}.lnk"), Path.Combine(installDir, "Uninstall.exe"), installDir, iconPath, $"Uninstall {AppName}");
+        }
+
+        /// <summary>
+        /// What setup does with shortcuts: the old-named ones that belong to this installation go, whatever the wizard's choices are (the machine then shows one name),
+        /// and the ones the wizard asks for are made under the new name. A shortcut that cannot be removed is reported through <paramref name="note"/> and does not stop setup.
+        /// </summary>
+        internal static void ReplaceShortcuts(string installDir, string iconPath, string desktopDir, string programsDir, bool createDesktop, bool createStartMenu, Action<string>? note = null)
+        {
+            RemoveShortcutSet(installDir, desktopDir, programsDir, LegacyAppName, LegacyStartMenuFolder, note);
+            CreateShortcuts(installDir, iconPath, desktopDir, programsDir, createDesktop, createStartMenu);
+        }
+
+        /// <summary>What the uninstaller does: both name sets go, still only the shortcuts that point into this installation.</summary>
+        internal static void RemoveShortcuts(string installDir, string desktopDir, string programsDir, Action<string>? note = null)
+        {
+            RemoveShortcutSet(installDir, desktopDir, programsDir, AppName, StartMenuFolder, note);
+            RemoveShortcutSet(installDir, desktopDir, programsDir, LegacyAppName, LegacyStartMenuFolder, note);
+        }
+
+        private static void RemoveShortcutSet(string installDir, string desktopDir, string programsDir, string appName, string startMenuFolder, Action<string>? note)
+        {
+            var launcher = Path.Combine(installDir, "ChatMCP.exe");
+            var folder = Path.Combine(programsDir, startMenuFolder);
+            TryRemoveOwnedShortcut(Path.Combine(desktopDir, $"{appName}.lnk"), launcher, note);
+            TryRemoveOwnedShortcut(Path.Combine(folder, $"{appName}.lnk"), launcher, note);
+            TryRemoveOwnedShortcut(Path.Combine(folder, $"Uninstall {appName}.lnk"), Path.Combine(installDir, "Uninstall.exe"), note);
+            try
+            {
+                // Only an empty folder: whatever else a person put there stays.
+                if (Directory.Exists(folder) && !Directory.EnumerateFileSystemEntries(folder).Any()) Directory.Delete(folder);
+            }
+            catch (Exception error) { note?.Invoke($"Could not remove the Start Menu folder {folder}: {error.Message}"); }
+        }
+
+        private static void TryRemoveOwnedShortcut(string shortcutPath, string expectedTarget, Action<string>? note)
+        {
+            try { RemoveOwnedShortcut(shortcutPath, expectedTarget); }
+            catch (Exception error) { note?.Invoke($"Could not remove the shortcut {shortcutPath}: {error.Message}"); }
+        }
+
         public static void CreateShortcut(string shortcutPath, string targetPath, string workingDir, string iconPath, string description)
         {
             try
@@ -299,20 +335,9 @@ namespace ChatMCP.Installer
             HubLifecycle.StopInstalledHub(installDir).GetAwaiter().GetResult();
             CloseRunningProcesses(installDir);
 
-            reportProgress(30, "Removing Desktop shortcut...");
-            var desktopDir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-            var desktopLnk = Path.Combine(desktopDir, $"{AppName}.lnk");
-            RemoveOwnedShortcut(desktopLnk, Path.Combine(installDir, "ChatMCP.exe"));
-
-            reportProgress(50, "Removing Start Menu shortcuts...");
-            var programsDir = Environment.GetFolderPath(Environment.SpecialFolder.Programs);
-            var appStartMenuDir = Path.Combine(programsDir, "ChatMCP");
-            if (Directory.Exists(appStartMenuDir))
-            {
-                RemoveOwnedShortcut(Path.Combine(appStartMenuDir, $"{AppName}.lnk"), Path.Combine(installDir, "ChatMCP.exe"));
-                RemoveOwnedShortcut(Path.Combine(appStartMenuDir, $"Uninstall {AppName}.lnk"), Path.Combine(installDir, "Uninstall.exe"));
-                if (!Directory.EnumerateFileSystemEntries(appStartMenuDir).Any()) Directory.Delete(appStartMenuDir);
-            }
+            reportProgress(30, "Removing Desktop and Start Menu shortcuts...");
+            RemoveShortcuts(installDir, Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                Environment.GetFolderPath(Environment.SpecialFolder.Programs), note => reportProgress(50, note));
 
             reportProgress(70, "Unregistering from Windows...");
             using (var key = Registry.CurrentUser.OpenSubKey(RegistryKeyPath))
@@ -364,7 +389,10 @@ namespace ChatMCP.Installer
             var shellType = Type.GetTypeFromProgID("WScript.Shell")!;
             dynamic shell = Activator.CreateInstance(shellType)!;
             dynamic shortcut = shell.CreateShortcut(shortcutPath);
-            if (string.Equals((string)shortcut.TargetPath, expectedTarget, StringComparison.OrdinalIgnoreCase))
+            // The shell keeps a target as its long path, so both sides are read the way Windows reads a path (a setup started from a short 8.3 spelling still finds its own).
+            var target = (string)shortcut.TargetPath;
+            if (!string.IsNullOrWhiteSpace(target) &&
+                string.Equals(Path.GetFullPath(target), Path.GetFullPath(expectedTarget), StringComparison.OrdinalIgnoreCase))
                 File.Delete(shortcutPath);
         }
 
@@ -380,7 +408,7 @@ namespace ChatMCP.Installer
                         if (!string.Equals(proc.MainModule?.FileName, expected, StringComparison.OrdinalIgnoreCase)) continue;
                         proc.CloseMainWindow();
                         if (!proc.WaitForExit(5000))
-                            throw new IOException("Close the installed ChatMCP window before upgrading. No files were replaced.");
+                            throw new IOException("Close the installed DatGold window before upgrading. No files were replaced.");
                     }
                     catch (InvalidOperationException) { /* Process already exited. */ }
                 }

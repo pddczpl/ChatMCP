@@ -8,8 +8,11 @@ if ($env:USERNAME -ne 'WDAGUtilityAccount' -or -not (Test-Path -LiteralPath 'C:\
 $report = [ordered]@{ result='FAIL'; runId=$RunId; os=[Environment]::OSVersion.VersionString; user=$env:USERNAME; checks=@(); error=$null }
 $installDir = Join-Path $env:LOCALAPPDATA 'Programs\ChatMCP'
 $appData = Join-Path $env:LOCALAPPDATA 'ChatMCP'
+# Shortcuts: the published baseline (up to 3.10.1) makes them under the product's old name; the candidate makes them as DatGold Studio and removes the old ones.
 $desktopLink = Join-Path ([Environment]::GetFolderPath('Desktop')) 'ChatMCP Studio.lnk'
 $startFolder = Join-Path ([Environment]::GetFolderPath('Programs')) 'ChatMCP'
+$newDesktopLink = Join-Path ([Environment]::GetFolderPath('Desktop')) 'DatGold Studio.lnk'
+$newStartFolder = Join-Path ([Environment]::GetFolderPath('Programs')) 'DatGold'
 $registry = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ChatMCP'
 function Assert-Check([bool]$condition, [string]$label) {
     if (-not $condition) { throw $label }
@@ -66,7 +69,9 @@ function Install-Wizard([string]$file, [string]$phase) {
     $window = Wait-Window $process
     Invoke-Button (Wait-Button $window 'Install')
     $finish = Wait-Button $window 'Finish'
-    $launch = Find-Control $window 'Launch ChatMCP Studio now' ([Windows.Automation.ControlType]::CheckBox)
+    # The published baseline predates the rename and says ChatMCP Studio; the candidate says DatGold Studio.
+    $launch = Find-Control $window 'Launch DatGold Studio now' ([Windows.Automation.ControlType]::CheckBox)
+    if ($null -eq $launch) { $launch = Find-Control $window 'Launch ChatMCP Studio now' ([Windows.Automation.ControlType]::CheckBox) }
     $toggle = $launch.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern)
     if ($toggle.Current.ToggleState -eq [Windows.Automation.ToggleState]::On) { $toggle.Toggle() }
     Invoke-Button $finish
@@ -143,7 +148,7 @@ try {
     foreach ($file in @('ChatMCP.exe','WebView2Loader.dll','runtimes\node\node.exe','runtimes\node\node.exe.sha256','CHATMCP-HUB\hub.mjs','CHATMCP-HUB\web\dist\index.html','CHATMCP-HUB\runtimes\windows-sandbox\GuestSupervisor.exe','CHATMCP-HUB\runtimes\windows-sandbox\GuestSupervisor.exe.sha256','CHATMCP-HUB\runtimes\ripgrep\rg.exe','CHATMCP-HUB\runtimes\ripgrep\LICENSE-MIT','CHATMCP-HUB\runtimes\ripgrep\UNLICENSE','Uninstall.exe')) {
         Assert-Check (Test-Path -LiteralPath (Join-Path $installDir $file)) "installed layout includes $file"
     }
-    Assert-Check ((Test-Path -LiteralPath $desktopLink) -and (Test-Path -LiteralPath (Join-Path $startFolder 'ChatMCP Studio.lnk'))) 'desktop and Start Menu shortcuts exist'
+    Assert-Check ((Test-Path -LiteralPath $desktopLink) -and (Test-Path -LiteralPath (Join-Path $startFolder 'ChatMCP Studio.lnk'))) 'baseline desktop and Start Menu shortcuts exist under the old name'
     Assert-Check ((Get-ItemProperty -LiteralPath $registry).InstallLocation -eq $installDir) 'Windows Installed Apps registration points to installed path'
     foreach ($file in @('runtimes\node\node.exe','CHATMCP-HUB\runtimes\windows-sandbox\GuestSupervisor.exe')) {
         $actual=(Get-FileHash -LiteralPath (Join-Path $installDir $file) -Algorithm SHA256).Hash
@@ -159,6 +164,9 @@ try {
     foreach ($marker in $markers) { [IO.File]::WriteAllText($marker,$RunId) }
     Install-Wizard 'C:\G6Input\CandidateSetup.exe' 'upgrade'
     Assert-Check ((Get-FileHash -LiteralPath (Join-Path $installDir 'Uninstall.exe') -Algorithm SHA256).Hash -eq $report.candidateSha256) 'in-place upgrade replaces baseline installer with candidate'
+    Assert-Check ((Test-Path -LiteralPath $newDesktopLink) -and (Test-Path -LiteralPath (Join-Path $newStartFolder 'DatGold Studio.lnk')) -and (Test-Path -LiteralPath (Join-Path $newStartFolder 'Uninstall DatGold Studio.lnk'))) 'upgrade makes the DatGold Studio shortcuts'
+    Assert-Check (-not (Test-Path -LiteralPath $desktopLink) -and -not (Test-Path -LiteralPath (Join-Path $startFolder 'ChatMCP Studio.lnk')) -and -not (Test-Path -LiteralPath (Join-Path $startFolder 'Uninstall ChatMCP Studio.lnk'))) 'and removes the three shortcuts the baseline made under the old name'
+    Assert-Check ((Get-ItemProperty -LiteralPath $registry).DisplayName -eq 'DatGold Studio') 'Windows Installed Apps lists the product as DatGold Studio'
     # The candidate is the build under test: it carries the license texts of what is compiled into rg.exe, PCRE2 and the Rust standard library included (the baseline may predate them).
     foreach ($file in @('CHATMCP-HUB\licenses\ripgrep\MANIFEST.json','CHATMCP-HUB\licenses\ripgrep\libpcre2-10.46\LICENCE.md','CHATMCP-HUB\licenses\ripgrep\rust-std-da80ed070\COPYRIGHT')) {
         Assert-Check (Test-Path -LiteralPath (Join-Path $installDir $file)) "upgraded layout includes $file"
@@ -203,7 +211,8 @@ try {
     $report.legacyBaselineLeftovers=$legacyLeftovers
     Assert-Check ($legacyLeftovers.Count -eq 0) 'uninstall removes the genuine legacy baseline file inventory too'
     Assert-Check (-not (Test-Path -LiteralPath $registry)) 'uninstall removes Windows Installed Apps entry'
-    Assert-Check (-not (Test-Path -LiteralPath $desktopLink) -and -not (Test-Path -LiteralPath (Join-Path $startFolder 'ChatMCP Studio.lnk'))) 'uninstall removes owned shortcuts'
+    Assert-Check (-not (Test-Path -LiteralPath $desktopLink) -and -not (Test-Path -LiteralPath (Join-Path $startFolder 'ChatMCP Studio.lnk')) -and -not (Test-Path -LiteralPath $newDesktopLink) -and -not (Test-Path -LiteralPath (Join-Path $newStartFolder 'DatGold Studio.lnk')) -and -not (Test-Path -LiteralPath (Join-Path $newStartFolder 'Uninstall DatGold Studio.lnk'))) 'uninstall removes owned shortcuts under either name'
+    Assert-Check (-not (Test-Path -LiteralPath $newStartFolder)) 'and the Start Menu folder DatGold (the old folder stays: it still holds the unrelated document placed there)'
     foreach ($marker in $markers) { Assert-Check ([IO.File]::ReadAllText($marker) -eq $RunId) "uninstall preserves $marker" }
     Assert-Check ((Get-FileHash -LiteralPath $settingsFile -Algorithm SHA256).Hash -eq $settingsBefore) 'uninstall preserves real user model settings'
     Assert-Check (Test-Path -LiteralPath (Join-Path $appData 'webview2-data')) 'uninstall preserves WebView2 user preferences'

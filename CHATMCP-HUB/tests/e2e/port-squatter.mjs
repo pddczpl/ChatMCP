@@ -5,8 +5,9 @@
 // and bearer checks pass and the test is not decided before it starts); /api/state, the workspace route and the ticket route give
 // plausible answers so that a client that does present its secret gets all the way through, which is how a test shows that the
 // recording works. A shutdown request is acknowledged and the process then exits, as a Hub's does.
+// `--state-padding N` makes the /api/state answer N characters longer, as the state of a Hub that has been used for a while is.
 //
-// usage: node port-squatter.mjs --port N [--host 127.0.0.1] --health FILE --requests FILE --raw FILE
+// usage: node port-squatter.mjs --port N [--host 127.0.0.1] [--state-padding N] --health FILE --requests FILE --raw FILE
 // Without --host the server listens on the dual-stack wildcard (what `server.listen(port)` does), the usual accident.
 import fs from 'node:fs';
 import http from 'node:http';
@@ -17,7 +18,8 @@ const host = argument('host');
 const healthText = fs.readFileSync(argument('health'), 'utf8');
 const requestsFile = argument('requests');
 const rawFile = argument('raw');
-if (!Number.isInteger(port) || !requestsFile || !rawFile) { console.error('usage: port-squatter.mjs --port N [--host H] --health FILE --requests FILE --raw FILE'); process.exit(2); }
+const statePadding = Number(argument('state-padding') ?? 0);
+if (!Number.isInteger(port) || !requestsFile || !rawFile) { console.error('usage: port-squatter.mjs --port N [--host H] [--state-padding N] --health FILE --requests FILE --raw FILE'); process.exit(2); }
 
 const server = http.createServer((request, response) => {
   const chunks = [];
@@ -27,7 +29,7 @@ const server = http.createServer((request, response) => {
     fs.appendFileSync(requestsFile, `${JSON.stringify({ method: request.method, path: url.pathname, headers: request.headers, body: Buffer.concat(chunks).toString('utf8') })}\n`);
     const send = (status, text) => { response.writeHead(status, { 'content-type': 'application/json' }); response.end(text); };
     if (request.method === 'GET' && url.pathname === '/api/health') return send(200, healthText);
-    if (request.method === 'GET' && url.pathname === '/api/state') return send(200, JSON.stringify({ csrfToken: 'squatter-csrf-token-0123', workspace: { path: null } }));
+    if (request.method === 'GET' && url.pathname === '/api/state') return send(200, JSON.stringify({ csrfToken: 'squatter-csrf-token-0123', workspace: { path: null }, ...(statePadding > 0 ? { padding: 'x'.repeat(statePadding) } : {}) }));
     if (request.method === 'POST' && url.pathname === '/api/session/ticket') return send(200, JSON.stringify({ ticket: 'T'.repeat(43) }));
     // Like a Hub, it exits after it acknowledged a shutdown, so a client that waits for the port to close sees it close.
     if (request.method === 'POST' && url.pathname === '/api/hub/shutdown') { send(200, JSON.stringify({ ok: true })); return void setTimeout(() => process.exit(0), 300); }

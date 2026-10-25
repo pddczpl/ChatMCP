@@ -37,6 +37,7 @@ const equal = (actual, expected, label) => { assert.deepEqual(actual, expected, 
 const SCRIPTS = ['Stop-ChatMcpHub.ps1', 'windows/Run-StudioSmoke.ps1', 'windows/Test-Gateway-ViaHub.ps1'];
 const [STOP, SMOKE, GATEWAY] = SCRIPTS;
 const MARKER = /# BEGIN hub-listener-check\n[\s\S]*?# END hub-listener-check\n/g;
+const BIG_STATE = 600_000; // the state of a Hub that has been used for a while (the owner's was 445,101 bytes); the script's client once refused anything over 65,536
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // 1. The source
@@ -158,9 +159,9 @@ Write-Output 'DONE'
   const legacyHealth = JSON.stringify(Object.fromEntries(Object.entries(JSON.parse(healthText)).filter(([key]) => key !== 'auth')));
 
   /** A squatter on `host`, a stale session file that names `pid`, and what the squatter has been sent so far. */
-  async function attackSetup(name, { host = '127.0.0.1', pid, health = healthText }) {
+  async function attackSetup(name, { host = '127.0.0.1', pid, health = healthText, statePadding = 0 }) {
     const port = await freePort();
-    const squatter = await squat({ name, port, host, healthText: health });
+    const squatter = await squat({ name, port, host, healthText: health, statePadding });
     const stalePid = pid === 'squatter' ? squatter.pid : (pid ?? await deadPid());
     const stale = await staleSession(sandbox(`state-${name}`), { port, pid: stalePid });
     return { port, squatter, stale, stalePid };
@@ -172,6 +173,9 @@ Write-Output 'DONE'
     nobody: null,
     legacy: await attackSetup('stop-legacy', { health: legacyHealth }),
     control: await attackSetup('control', { pid: 'squatter' }),
+    // The Hub of a person who has used it for a while: its state is far bigger than what the script's client once accepted. The session file names the
+    // process that listens, so the squatter stands in for the verified Hub (as in the control above) and answers /api/state with 600,000 padding characters.
+    bigState: await attackSetup('stop-big-state', { pid: 'squatter', statePadding: BIG_STATE }),
   };
   {
     const port = await freePort();
@@ -184,7 +188,7 @@ Write-Output 'DONE'
   const dedicated = await startHub({ scratch: sandbox('hub-stop') });
   hubs.push(dedicated);
 
-  const [logicRun, stopRun, smokeRun, gatewayRun, nobodyRun, legacyRun, controlRun, localhostRun, smokeOk, gatewayOk, stopOk] = await Promise.all([
+  const [logicRun, stopRun, smokeRun, gatewayRun, nobodyRun, legacyRun, controlRun, localhostRun, smokeOk, gatewayOk, stopOk, bigStateRun] = await Promise.all([
     powershell(path.join(logic, 'harness.ps1'), ['-BlockFile', path.join(logic, 'block.ps1'), '-CasesFile', path.join(logic, 'cases.json')]),
     powershell(scriptPath(STOP), ['-Port', String(scenarios.stop.port), '-StateDir', scenarios.stop.stale.stateDir]),
     powershell(scriptPath(SMOKE), ['-BaseUrl', scenarios.smoke.squatter.origin, '-StateDir', scenarios.smoke.stale.stateDir]),
@@ -196,6 +200,7 @@ Write-Output 'DONE'
     powershell(scriptPath(SMOKE), ['-BaseUrl', hub.origin, '-StateDir', hub.stateDir]),
     powershell(scriptPath(GATEWAY), ['-BaseUrl', hub.origin, '-StateDir', hub.stateDir]),
     powershell(scriptPath(STOP), ['-Port', String(dedicated.port), '-StateDir', dedicated.stateDir]),
+    powershell(scriptPath(STOP), ['-Port', String(scenarios.bigState.port), '-StateDir', scenarios.bigState.stale.stateDir]),
   ]);
 
   // ---- 2. the decision: the answers ---------------------------------------------------------------------------------------------
@@ -265,6 +270,12 @@ Write-Output 'DONE'
   check(/Stopped\./.test(stopOk.output) && !/is held by process/.test(stopOk.output), 'Stop-ChatMcpHub.ps1: the Hub was stopped through its shutdown route with the secret', stopOk.output);
   await waitFor(async () => !dedicated.running, { timeoutMs: 20_000, label: 'the stopped Hub to exit' });
   check(!dedicated.running, 'and its process has exited');
+
+  // A Hub's state grows with use (445,101 bytes on the owner's machine). The script's client accepted 64 KiB, so on a used installation the command that stops the Hub could not read
+  // its state, and the script prints only the phase ("reading the verified Hub session"), never the exception, so the person was told no reason. 600,000 characters of padding stand for that state.
+  check(scenarios.bigState.squatter.requests().some((request) => request.method === 'GET' && request.path === '/api/state' && request.headers.authorization === `Bearer ${scenarios.bigState.stale.secret}`), 'Stop-ChatMcpHub.ps1 asked the verified Hub for its state with the secret (the squatter that stands in for it names the process id of the session file)');
+  check(bigStateRun.code === 0 && /Stopped\./.test(bigStateRun.output) && !/Could not finish/.test(bigStateRun.output), `Stop-ChatMcpHub.ps1 reads a state of ${BIG_STATE.toLocaleString('en-US')} bytes and stops the Hub`, bigStateRun.output);
+  check(scenarios.bigState.squatter.requests().some((request) => request.method === 'POST' && request.path === '/api/hub/shutdown'), 'and it got as far as the shutdown request');
 
   console.log(`PASS: ${checks} checks - the three PowerShell scripts carry one listener check; its decision, a real squatter refused by each (no Authorization header, no secret, no Bearer received), the legacy flow, localhost, the recycled-id limit, and a real Hub passed`);
 } finally {

@@ -1,6 +1,6 @@
-// For the tests that guard the split of the dictionary: lib/i18n.ts and lib/i18n-agents.ts load with the first screen, lib/i18n-agents-sections.ts
-// loads with the two Agents sections. What the first screen loads comes from a real bundler run, never from a list written by hand, and what a
-// module asks for comes from its source.
+// For the tests that guard the split of the dictionary: lib/i18n.ts and lib/i18n-agents.ts load with the first screen, lib/i18n-models.ts loads with
+// the model picker. What the first screen loads comes from a real bundler run, never from a list written by hand, and what a module asks for comes
+// from its source.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -64,6 +64,3 @@ export async function dictionaryOf(snippet, pick) {
 
 /** What the first script holds: lib/i18n.ts and what it imports, with no section module evaluated. */
 export const firstDictionary = () => dictionaryOf("export { translations } from './src/lib/i18n';", ({ translations }) => translations);
-
-/** What the sections bring: the two objects the sections module exports. */
-export const sectionsDictionary = () => dictionaryOf("export { sectionsVi, sectionsEn } from './src/lib/i18n-agents-sections';", ({ sectionsVi, sectionsEn }) => ({ vi: sectionsVi, en: sectionsEn }));

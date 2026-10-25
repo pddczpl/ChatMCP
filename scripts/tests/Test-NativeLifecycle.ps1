@@ -14,6 +14,11 @@ $ErrorActionPreference = 'Stop'
 $root = Join-Path $env:LOCALAPPDATA 'Programs\ChatMCP'
 $data = Join-Path $env:LOCALAPPDATA 'ChatMCP'
 $registry = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ChatMCP'
+# Shortcuts: releases up to 3.10.1 made theirs under the product's old name; this build makes them as DatGold Studio and removes the old ones (installer/InstallerEngine.cs, ReplaceShortcuts).
+$desktopFolder = [Environment]::GetFolderPath('Desktop')
+$programsFolder = [Environment]::GetFolderPath('Programs')
+$oldShortcuts = @((Join-Path $desktopFolder 'ChatMCP Studio.lnk'), (Join-Path $programsFolder 'ChatMCP\ChatMCP Studio.lnk'), (Join-Path $programsFolder 'ChatMCP\Uninstall ChatMCP Studio.lnk'))
+$newShortcuts = @((Join-Path $desktopFolder 'DatGold Studio.lnk'), (Join-Path $programsFolder 'DatGold\DatGold Studio.lnk'), (Join-Path $programsFolder 'DatGold\Uninstall DatGold Studio.lnk'))
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or (Test-Path $root) -or (Test-Path $registry)) {
     throw ('Disposable hosted runner required; rootExists=' + (Test-Path $root) + '; registered=' + (Test-Path $registry) + '; environment=' + $env:RUNNER_ENVIRONMENT)
 }
@@ -34,6 +39,11 @@ function Assert-Native([bool]$condition, [string]$message) {
 }
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
+function Assert-Shortcuts([string[]]$paths, [bool]$exist, [string]$message) {
+    $wrong = @($paths | Where-Object { (Test-Path -LiteralPath $_) -ne $exist })
+    if ($wrong.Count -ne 0) { throw ($message + ': ' + ($wrong -join '; ')) }
+    Assert-Native $true $message
+}
 function Window-For($process) {
     $deadline = [DateTime]::UtcNow.AddSeconds(30)
     do {
@@ -138,16 +148,24 @@ try {
     $report.candidateSha256=(Get-FileHash $CandidateInstaller -Algorithm SHA256).Hash.ToLowerInvariant()
     Assert-Native ($report.baselineVersion -like "$ExpectedBaselineVersion*") ("published baseline EXE metadata matches " + $ExpectedBaselineVersion + ": " + $report.baselineVersion)
     Assert-Native ($report.candidateVersion -like "$ExpectedCandidateVersion*") ("candidate EXE metadata matches " + $ExpectedCandidateVersion + ": " + $report.candidateVersion)
+    # A hosted runner's profile may lack the Desktop or the Start menu folder, which a person's profile always has (setup ignores a shortcut it cannot save): make them, so
+    # that the test is about what setup does with shortcuts and not about the profile it runs in.
+    foreach ($folder in @($desktopFolder, $programsFolder)) { New-Item -ItemType Directory -Path $folder -Force | Out-Null }
     # Baseline is the byte-verified published installer; use its real GUI.
     $setup=Start-Process $BaselineInstaller -PassThru; $owned.Add($setup)
     $window=Window-For $setup
     Click (Wait-Button $window 'Install')
     $finish=Wait-Button $window 'Finish'
-    $launch=Control-ByName $window 'Launch ChatMCP Studio now'
+    # The published baseline predates the rename and says ChatMCP Studio; a baseline built after it says DatGold Studio.
+    $launch=Control-ByName $window 'Launch DatGold Studio now'
+    if ($null -eq $launch) { $launch=Control-ByName $window 'Launch ChatMCP Studio now' }
     $toggle=$launch.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern)
     if ($toggle.Current.ToggleState -eq [Windows.Automation.ToggleState]::On) { $toggle.Toggle() }
     Click $finish
     Assert-Native ($setup.WaitForExit(30000) -and $setup.ExitCode -eq 0) 'published baseline setup wizard completes'
+    if ([version]$ExpectedBaselineVersion -le [version]'3.10.1') {
+        Assert-Shortcuts $oldShortcuts $true 'the published baseline made its Desktop and Start menu shortcuts under the old name (the state the upgrade starts from)'
+    }
     $first=Start-Desktop
     $null=Wait-Health $ExpectedBaselineVersion
     Assert-Native $true 'published baseline ChatMCP.exe starts the bundled Hub'
@@ -175,6 +193,10 @@ try {
     Assert-Native ((Get-Content (Join-Path $root 'CHATMCP-HUB\package.json') -Raw | ConvertFrom-Json).version -eq $ExpectedCandidateVersion) "installed Hub package is $ExpectedCandidateVersion"
     Assert-Native ((Get-Item (Join-Path $root 'ChatMCP.exe')).VersionInfo.ProductVersion -like "$ExpectedCandidateVersion*") "installed launcher EXE is $ExpectedCandidateVersion"
     Assert-Native ((Get-ItemProperty $registry).DisplayVersion -eq $ExpectedCandidateVersion) 'Windows Installed Apps reports the assembly version'
+    Assert-Native ((Get-ItemProperty $registry).DisplayName -eq 'DatGold Studio') 'Windows Installed Apps lists the product as DatGold Studio'
+    Assert-Shortcuts $newShortcuts $true 'the upgrade makes the DatGold Studio shortcuts (Desktop, and Start menu folder DatGold with the launcher and the uninstaller)'
+    Assert-Shortcuts $oldShortcuts $false 'and removes the three shortcuts the baseline made under the old name'
+    Assert-Native (-not (Test-Path -LiteralPath (Join-Path $programsFolder 'ChatMCP'))) 'and the Start menu folder ChatMCP they leave empty'
     Assert-Native ((Get-Content (Join-Path $root 'CHATMCP-HUB\extension\manifest.json') -Raw | ConvertFrom-Json).version -eq '1.5.2') 'installed Companion is 1.5.2'
     Assert-Native ([IO.File]::ReadAllText($canary) -eq 'PRESERVE-USER-DATA' -and [IO.File]::ReadAllText($stateCanary) -eq 'PRESERVE-STATE') 'upgrade preserves unrelated application and state files'
     $candidate=Start-Desktop; $newHealth=Wait-Health $ExpectedCandidateVersion
@@ -233,6 +255,8 @@ try {
     Assert-Native ($uninstall.WaitForExit(120000) -and $uninstall.ExitCode -eq 0) 'actual installed uninstaller completes with live idle Hub, also when started from a PowerShell 7 session'
     Assert-Native (-not (Get-NetTCPConnection -LocalPort 3007 -State Listen -ErrorAction SilentlyContinue)) 'uninstall confirms Hub listener is gone'
     Assert-Native (-not (Test-Path (Join-Path $root 'ChatMCP.exe')) -and -not (Test-Path $registry)) 'uninstall removes owned launcher and registration'
+    Assert-Shortcuts ($newShortcuts + $oldShortcuts) $false 'uninstall removes the Desktop and Start menu shortcuts under either name'
+    Assert-Native (-not (Test-Path -LiteralPath (Join-Path $programsFolder 'DatGold')) -and -not (Test-Path -LiteralPath (Join-Path $programsFolder 'ChatMCP'))) 'and the Start menu folders they were in'
     # The helper outlives the uninstaller by a moment.
     $helperDeadline=[DateTime]::UtcNow.AddSeconds(30)
     while ((Test-Path (Join-Path $root 'Uninstall.exe')) -and [DateTime]::UtcNow -lt $helperDeadline) { Start-Sleep -Milliseconds 400 }

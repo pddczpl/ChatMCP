@@ -209,28 +209,10 @@ export const api = {
   savePlan: (taskId: string, title: string, items: any[]) =>
     request<Plan>('/api/studio/plan/set', { method: 'POST', body: JSON.stringify({ taskId, title, items }) }),
 
-  // Bounded multi-agent orchestration (read-only workers)
-  orchestrateAgents: (nodes: {id:string;role:string;question:string;dependsOn?:string[]}[],maxConcurrency=3) =>
-    request<any>('/api/studio/delegates/orchestrate',{method:'POST',body:JSON.stringify({nodes,maxConcurrency})}),
-  getOrchestrator: () => request<any>('/api/studio/delegates'),
-  getDynamicDelegates: () => request<{activeRunId:string|null;last:any}>('/api/studio/dynamic-delegates'),
-  runDynamicDelegates: (goal:string) => request<any>('/api/studio/dynamic-delegates/run',{
-    method:'POST',body:JSON.stringify({goal,confirmation:'AUTHORIZE READONLY DELEGATION'}),
-  }),
-  cancelDynamicDelegates: () => request<any>('/api/studio/dynamic-delegates/cancel',{method:'POST',body:'{}'}),
+  // Coding workers: the Hub still runs them in their own Git worktrees, but this page no longer starts, reviews or merges them. It only shows the test commands a worker waits for the owner to allow.
   getCodingRuns: () => request<any>('/api/studio/coding'),
-  getCodingContext: (runId:string,workerId:string) => request<any>(`/api/studio/coding/context?runId=${encodeURIComponent(runId)}&workerId=${encodeURIComponent(workerId)}`),
-  getCodingRecovery: (runId:string) => request<any>(`/api/studio/coding/recovery?runId=${encodeURIComponent(runId)}`),
-  acknowledgeCodingRecovery: (runId:string,expectedDigest:string) => request<any>('/api/studio/coding/recovery/acknowledge',{method:'POST',body:JSON.stringify({runId,expectedDigest,confirmation:'REVIEW INTERRUPTED RUN'})}),
-  planCodingAgents: (prompt:string,modelAssist=false) => request<any>('/api/studio/coding/plan',{method:'POST',body:JSON.stringify({prompt,modelAssist})}),
-  runCodingAgents: (tasks:{id:string;prompt:string;verify?:boolean;dependsOn?:string[]}[],maxConcurrency=2) => request<any>('/api/studio/coding/run',{method:'POST',body:JSON.stringify({tasks,maxConcurrency,confirmation:'CREATE WORKTREES'})}),
-  cancelCodingAgents: () => request<any>('/api/studio/coding/cancel',{method:'POST',body:'{}'}),
   getWorkerChecks: (workerId:string) => request<{workerId:string;checks:any[]}>(`/api/studio/coding/checks?workerId=${encodeURIComponent(workerId)}`),
   approveIsolatedCheck: (workerId:string,checkId:string,maxAttempts=3) => request<any>('/api/studio/coding/check-grant',{method:'POST',body:JSON.stringify({workerId,checkId,maxAttempts,confirmation:'AUTHORIZE ISOLATED CHECK'})}),
-  getCodingDiff: (runId:string,workerId?:string) => request<any>(`/api/studio/coding/review?runId=${encodeURIComponent(runId)}&workerId=${encodeURIComponent(workerId||'')}`),
-  integrateCodingAgents: (runId:string,workerIds:string[],reviewTokens:Record<string,string>) => request<any>('/api/studio/coding/integrate',{method:'POST',body:JSON.stringify({runId,workerIds,reviewTokens,confirmation:'INTEGRATE WORKTREES'})}),
-  publishCodingAgents: (runId:string,reviewToken:string,workerId?:string) => request<any>('/api/studio/coding/publish',{method:'POST',body:JSON.stringify({runId,workerId:workerId??null,reviewToken,confirmation:'PUBLISH DRAFT PR'})}),
-  cancelOrchestrator: () => request<any>('/api/studio/delegates/cancel',{method:'POST',body:'{}'}),
 
   // GitHub skills registry
   getSkillRegistry: (query='') => request<{sources:any[];skills:any[];updates:any[]}>(`/api/plugins/registry?query=${encodeURIComponent(query)}`),

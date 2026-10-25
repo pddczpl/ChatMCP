@@ -7,8 +7,8 @@ import { nextTabIndex } from '@/lib/tab-keys';
 import { useAppStore, type InspectorTab } from '@/store/useAppStore';
 import { useTranslation } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { BackgroundTasks } from '@/components/layout/BackgroundTasks';
 import { ActivityTab } from './ActivityTab';
-import { AgentsTab } from './AgentsTab';
 import { FilesTab } from './FilesTab';
 import { GitTab } from './GitTab';
 import { TerminalTab } from './TerminalTab';
@@ -124,7 +124,7 @@ export function InspectorPanel() {
             {activeTab === 'files' && <FilesTab />}
             {activeTab === 'terminal' && <TerminalTab />}
             {activeTab === 'activity' && <ActivityTab />}
-            {activeTab === 'agents' && <AgentsTab />}
+            {activeTab === 'agents' && <BackgroundTasks />}
             {activeTab === 'preview' && <PreviewTab />}
           </>
         )}

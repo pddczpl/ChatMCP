@@ -19,7 +19,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "       ChatMCP Studio - Commercial Installer Builder      " -ForegroundColor Cyan
+Write-Host "            DatGold Studio - Installer Builder            " -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path

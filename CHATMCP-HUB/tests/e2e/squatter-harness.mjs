@@ -25,12 +25,12 @@ export function createSquatterHarness(scratch) {
   };
 
   /** A separate process that listens on `port` (on `host`, else the dual-stack wildcard) and answers like a Hub; see e2e/port-squatter.mjs. */
-  async function squat({ name, port, host, healthText }) {
+  async function squat({ name, port, host, healthText, statePadding = 0 }) {
     const directory = sandbox(`squatter-${name}`);
     const files = { health: path.join(directory, 'health.json'), requests: path.join(directory, 'requests.jsonl'), raw: path.join(directory, 'raw.bin') };
     fs.writeFileSync(files.health, healthText);
     for (const file of [files.requests, files.raw]) fs.writeFileSync(file, '');
-    const child = spawn(process.execPath, [SQUATTER, '--port', String(port), ...(host ? ['--host', host] : []), '--health', files.health, '--requests', files.requests, '--raw', files.raw], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true });
+    const child = spawn(process.execPath, [SQUATTER, '--port', String(port), ...(host ? ['--host', host] : []), ...(statePadding > 0 ? ['--state-padding', String(statePadding)] : []), '--health', files.health, '--requests', files.requests, '--raw', files.raw], { stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true });
     children.push(child);
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('the squatter did not start')), 15_000);

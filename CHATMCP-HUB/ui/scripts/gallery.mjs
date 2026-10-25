@@ -91,13 +91,6 @@ try {
     await shot(page, `2${index}-work-${names[index].toLowerCase().replace(/đ/g, 'd').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-')}`);
   }
 
-  // the Agents tab has sections of its own: groups of read-only helpers and coding workers
-  await page.getByRole('tab', { name: 'Tác nhân', exact: true }).click();
-  for (const [section, slug, marker] of [['Nhóm trợ lý', 'groups', 'agent-groups'], ['Sửa mã', 'coding', 'coding-agents']]) {
-    await page.getByRole('tab', { name: section, exact: true }).click();
-    await page.getByTestId(marker).waitFor(); // a section is a script fetched when its tab is first opened
-    await shot(page, `26-work-agents-${slug}`);
-  }
   await page.getByRole('tab', { name: 'Tiến độ', exact: true }).click();
 
   // Settings, one page per section
@@ -144,12 +137,6 @@ try {
   for (let index = 0; index < names.length; index++) {
     await tabs.nth(index).click();
     await shot(page, `61-light-work-${index}`);
-  }
-  await page.getByRole('tab', { name: 'Tác nhân', exact: true }).click();
-  for (const [section, slug, marker] of [['Nhóm trợ lý', 'groups', 'agent-groups'], ['Sửa mã', 'coding', 'coding-agents']]) {
-    await page.getByRole('tab', { name: section, exact: true }).click();
-    await page.getByTestId(marker).waitFor();
-    await shot(page, `64-light-agents-${slug}`);
   }
   await page.getByRole('tab', { name: 'Tiến độ', exact: true }).click();
   await page.getByRole('button', { name: 'Cài đặt', exact: true }).first().click();
