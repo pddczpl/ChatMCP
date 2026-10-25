@@ -115,10 +115,13 @@ export async function powerShellStarters(files) {
     await fs.writeFile(guarded, "import { spawnSync } from 'node:child_process';\nimport { powerShellChildEnvironment } from './support/powershell-environment.mjs';\nspawnSync('powershell.exe', ['-File', 'x.ps1'], { env: powerShellChildEnvironment() });\n");
     const unrelated = path.join(control, 'unrelated.mjs');
     await fs.writeFile(unrelated, "const shell = 'bash';\n");
-    const result = await powerShellStarters([seeded, guarded, unrelated]);
-    assert.deepEqual(result.missing.map((file) => path.basename(file)), ['seeded.mjs'], 'the scanner must flag the seeded PowerShell child that has no helper');
-    assert.deepEqual(result.named.map((file) => path.basename(file)), ['seeded.mjs', 'guarded.mjs'], 'and must count the one that has it, and not the file that never starts PowerShell');
-    ok('negative control: a seeded powershell.exe child without the helper is flagged, one with it and a file without PowerShell are not');
+    // the import alone is not the helper: a file that imports it and starts PowerShell with the environment as it is (the call was taken out) must be flagged too
+    const importOnly = path.join(control, 'import-only.mjs');
+    await fs.writeFile(importOnly, "import { spawnSync } from 'node:child_process';\nimport { powerShellChildEnvironment } from './support/powershell-environment.mjs';\nspawnSync('powershell.exe', ['-File', 'x.ps1'], { encoding: 'utf8' });\n");
+    const result = await powerShellStarters([seeded, guarded, unrelated, importOnly]);
+    assert.deepEqual(result.missing.map((file) => path.basename(file)), ['seeded.mjs', 'import-only.mjs'], 'the scanner must flag the seeded PowerShell child that has no helper, and the one that only imports it');
+    assert.deepEqual(result.named.map((file) => path.basename(file)), ['seeded.mjs', 'guarded.mjs', 'import-only.mjs'], 'and must count the one that has it, and not the file that never starts PowerShell');
+    ok('negative control: a seeded powershell.exe child without the helper, or with an import that nothing calls, is flagged; one with the call and a file without PowerShell are not');
   } finally {
     await fs.rm(control, { recursive: true, force: true });
   }
