@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { GatewayProvider, normalizeGemini } from '../lib/gateway-provider.mjs';
 import { normalizeGeminiTextReply } from '../lib/gemini-compat.mjs';
@@ -20,6 +21,7 @@ import { backoffMs, classifyHttpError, errorDetail, outputTokenLimit, readBodyTe
 import { finishModelList, modelsUrl, parseGeminiModels, parseOpenAiModels } from '../lib/model-list.mjs';
 import { probeToolCalling } from '../lib/tool-probe.mjs';
 import { isTrusted, lookup as catalogLookup } from '../lib/model-catalog.mjs';
+import { powerShell7ModuleStandIn, windowsPowerShellPath } from './support/powershell-environment.mjs';
 
 const BUNDLE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-adapters-'));
@@ -507,6 +509,24 @@ try {
       const reloaded = new GatewayProvider({ directory: dpapiDir, bundleRoot: BUNDLE, manager: { secrets: [] }, env: {}, fetchImpl: neverFetch });
       await reloaded.load();
       same([reloaded.state().keySource, reloaded.state().secretStorage.kind, reloaded.ready()], ['saved', 'windows-dpapi', true], 'a provider keeps its key through real DPAPI');
+
+      // A Hub started from a pwsh session carries the module folders of PowerShell 7 (lib/powershell-environment.mjs): the helper's PowerShell must not get them, though its script needs
+      // no module. A bundle whose Protect-ApiKey.ps1 only reports whether it still has Get-FileHash tells whether it did; the raw child is the control.
+      const windowsPowerShell = windowsPowerShellPath();
+      const modules = await powerShell7ModuleStandIn(path.join(root, 'ps7'), windowsPowerShell);
+      const observer = path.join(root, 'observer-bundle');
+      await fs.mkdir(path.join(observer, 'windows'), { recursive: true });
+      const observerScript = path.join(observer, 'windows', 'Protect-ApiKey.ps1');
+      await fs.writeFile(observerScript, "param([string]$Mode)\r\ntry { 'FOUND ' + (Get-FileHash -LiteralPath $env:ComSpec -Algorithm SHA256).Hash.Length } catch { 'MISSING' }\r\n");
+      const savedModulePath = process.env.PSModulePath;
+      process.env.PSModulePath = `${modules};${savedModulePath ?? ''}`;
+      try {
+        const raw = spawnSync(windowsPowerShell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', observerScript, '-Mode', 'Protect'], { encoding: 'utf8', windowsHide: true, timeout: 60_000, env: process.env });
+        same(raw.stdout.trim(), 'MISSING', 'control: behind the module folder of PowerShell 7 a raw child loses Get-FileHash');
+        same(await createProtector({ platform: 'win32', bundleRoot: observer, directory: dpapiDir, env: {} }).protect('x'), 'FOUND 64', 'the DPAPI helper is started without the module folders of PowerShell 7');
+      } finally {
+        if (savedModulePath === undefined) delete process.env.PSModulePath; else process.env.PSModulePath = savedModulePath;
+      }
     } else {
       console.log('SKIP (not Windows): DPAPI round trip. It runs on the Windows test pass.');
     }
