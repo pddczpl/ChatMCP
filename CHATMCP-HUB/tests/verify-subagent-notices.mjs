@@ -562,6 +562,9 @@ try {
   const closed = (name) => { let open; const promise = new Promise((resolve) => { open = resolve; }); gate.set(name, { promise, open }); return promise; };
   const childAnswer = (name) => final(`${name} report: ${tokenOf(name)}. ${name === 'Child C2' ? `Also, its key is ${GITHUB}.` : ''}`);
   const hasStopped = (id) => ['completed', 'failed', 'cancelled', 'blocked', 'uncertain', 'limit'].includes(pool.get(id)?.status);
+  // What the Hub recorded about each agent that `parentId` started, in one line, for the message of an assertion about them: a failure of the suite then says WHY an agent did not
+  // complete (the log of a run keeps only the end of a suite's output, and an assertion that compares statuses alone left that out once).
+  const account = (parentId) => pool.listSubagents(parentId).map((fact) => `${fact.role ?? fact.goal.split(':')[0]} ${fact.status}${fact.error ? ` (${String(fact.error).replace(/\s+/g, ' ').slice(0, 300)})` : ''}`).join('; ');
 
   // ---- D1 the plan criterion: the real result of a subagent appears in the parent's output
   {
@@ -601,7 +604,7 @@ try {
     assert.equal(mine[3].trace.at(-1).startsWith('out:'), true);
     const read = lastOutput(mine[3]).structuredContent;
     assert.equal(read.total, 2);
-    assert.deepEqual(read.children.map((child) => child.status), ['completed', 'completed']);
+    assert.deepEqual(read.children.map((child) => child.status), ['completed', 'completed'], `the Hub's record: ${account(parent.id)}`);
     assert.ok(read.children.every((child) => child.claim.verifiedByHub === false && child.startedAt && child.finishedAt && child.durationMs >= 0));
     assert.ok(read.children.every((child) => child.hubRecord.steps >= 1 && child.hubRecord.branch?.startsWith('chatmcp/chat/')), 'the Hub\'s record: its steps and its branch');
     const answer = pool.get(parent.id).finalText;
@@ -760,7 +763,7 @@ try {
     const parent = await pool.start({ prompt: 'Parent P5: run a two-pass audit.' });
     await until(() => pool.get(parent.id)?.status === 'completed', 'parent P5 finishes', 800);
     const rows = JSON.parse(pool.get(parent.id).finalText).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
-    assert.deepEqual(rows, [['Correctness', { name: 'Two-pass audit', phase: 'Review' }, 'completed'], ['Independent verifier', { name: 'Two-pass audit', phase: 'Verify' }, 'completed'], ['Security', { name: 'Two-pass audit', phase: 'Review' }, 'completed']]);
+    assert.deepEqual(rows, [['Correctness', { name: 'Two-pass audit', phase: 'Review' }, 'completed'], ['Independent verifier', { name: 'Two-pass audit', phase: 'Verify' }, 'completed'], ['Security', { name: 'Two-pass audit', phase: 'Review' }, 'completed']], `the agents of the workflow did not all complete - the Hub's record: ${account(parent.id)}`);
     const notice = pool.get(parent.id).subagentNotices;
     assert.equal(notice.length, 3); assert.ok(notice.every((entry) => entry.workflow?.startsWith('Two-pass audit / ')));
     assert.deepEqual(notice.map((entry) => entry.role).sort(), ['Correctness', 'Independent verifier', 'Security']);
@@ -832,7 +835,7 @@ try {
       await until(() => agents.every((agent) => hasStopped(agent.id)), 'the three agents stop', 400);
       assert.equal(adds, 3, 'each agent made a worktree of its own');
       assert.equal(peak, 1, `${peak} worktrees of one repository were being made at the same moment`);
-      assert.deepEqual(agents.map((agent) => pool.get(agent.id).status), ['completed', 'completed', 'completed']);
+      assert.deepEqual(agents.map((agent) => pool.get(agent.id).status), ['completed', 'completed', 'completed'], `the Hub's record: ${account(parent.id)}`);
     } finally { delete git.text; }
     ok('D8 agents that start together: Git is asked for one worktree of the repository at a time (never two `git worktree add` at once), and all three agents complete');
   }
