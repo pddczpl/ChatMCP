@@ -855,9 +855,9 @@ try {
       if (args[0] !== 'worktree' || args[1] !== 'add') return run(args, options);
       asked.push(args[3]);
       if (asked.length > 1) return run(args, options);
-      // The first agent to ask keeps its turn until the test lets go, and then its Git call fails.
+      // The first agent to ask keeps its turn until the test lets go, and then its Git call throws (the way a spawn that fails or a stop does): the turn must be given up all the same.
       await held;
-      return { code: 128, stdout: '', stderr: 'fatal: made up by the test', truncated: false, timedOut: false };
+      throw new Error('fatal: made up by the test');
     };
     try {
       const agents = await Promise.all(['Child C17: inspect the readme', 'Child C18: inspect the license', 'Child C19: inspect the tests'].map((goal) => pool.spawnAgent(parent.id, { goal })));
@@ -871,6 +871,7 @@ try {
       await pool.cancel(stopped.id);
       assert.equal(pool.get(stopped.id).status, 'cancelled', 'an agent stopped while it waits for its turn ends cancelled (nothing was started, nothing is uncertain)');
       assert.equal(pool.records.get(stopped.id).pendingWorktree, undefined, 'and has no crash marker');
+      await until(() => !pool.preflights.has(stopped.id), 'the stopped agent leaves the line at once, not when the turn ahead of it ends', 100);
       open();
       await until(() => agents.every((agent) => hasStopped(agent.id)), 'all three agents stop', 400);
       assert.equal(pool.get(holder.id).status, 'uncertain', 'the agent whose Git call failed keeps the Hub\'s usual answer to a worktree that may be half made');
@@ -880,6 +881,26 @@ try {
       assert.equal(execFileSync('git', ['branch', '--list', branchOf(stopped)], { cwd: repo, encoding: 'utf8' }).trim(), '', 'the stopped agent has no branch');
     } finally { open(); delete git.text; }
     ok('D9 the line moves on: an agent stopped while it waits for its turn ends cancelled and makes nothing; when the Git call of the agent ahead fails, the next agent still gets its worktree');
+  }
+
+  // ---- D10 the question comes before the turn: a person's pause does not hold the line
+  {
+    reset();
+    handler = (request) => (ownerOf(request).startsWith('Child') ? childAnswer(ownerOf(request)) : final('Nothing to start myself, a third time.'));
+    const parent = await pool.start({ prompt: 'Parent P9: nothing to spawn myself, a third time.' });
+    await until(() => pool.get(parent.id)?.status === 'completed', 'the third parent P9');
+    // In Review mode the worktree of each agent is a question for the person. Were the turn taken before the question, the second question would not be asked until the first had been
+    // answered and its worktree made, and a person who is away would hold every other agent.
+    const asks = () => manager.permissions.state().pending.filter((entry) => entry.toolName === 'local.worktrees_create');
+    manager.permissions.mode = 'review';
+    try {
+      const agents = await Promise.all(['Child C20: inspect the readme', 'Child C21: inspect the license'].map((goal) => pool.spawnAgent(parent.id, { goal })));
+      await until(() => asks().length === 2, 'both agents ask for their worktree while nobody has answered');
+      for (const ask of asks()) manager.permissions.decide(ask.id, true);
+      await until(() => agents.every((agent) => hasStopped(agent.id)), 'both agents stop', 400);
+      assert.deepEqual(agents.map((agent) => pool.get(agent.id).status), ['completed', 'completed'], `the Hub's record: ${account(parent.id)}`);
+    } finally { manager.permissions.mode = 'autonomous'; }
+    ok('D10 the question comes before the turn: in Review mode both agents ask for their worktree at once, nobody waits behind another person\'s answer, and both complete once they are allowed');
   }
 
   // =========================================================================================================================================== E. restart of the pool
