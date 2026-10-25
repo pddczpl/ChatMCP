@@ -1,5 +1,15 @@
 # Lịch sử thay đổi
 
+## [3.10.1] — 2026-10-25 — Test build: fixes and notices after 3.10.0 (pre-release)
+
+- Fix: a Hub started from a PowerShell 7 (pwsh) session no longer hands the module path of PowerShell 7 to the Windows PowerShell that it starts, which lost `Get-FileHash`, `New-Guid`, `New-TemporaryFile`, `Format-Hex`, `Import-PowerShellDataFile` and `ConvertFrom-SddlString` without any error at start. It covers every shell of the command runner on Windows (`run_command`, background tasks, hooks that run through bash or PowerShell), the terminal, the folder picker, the DPAPI helper, the Windows Sandbox probe and the launcher.
+- Fix: the uninstaller no longer leaves `Uninstall.exe` behind when it is started from a PowerShell 7 session (its self-delete helper lost `Get-FileHash`); that helper and the Hub ownership query now start Windows PowerShell without `PSModulePath`.
+- Fix: agents that start together get their git worktrees one at a time per repository. Two `git worktree add` at once on one repository could make Git fail and leave an agent `uncertain` and the agents that wait for it `blocked`; the checkouts of agents that start together now run one after the other (8 agents on a tiny repository: about 0.7 s before, 1.5 s after).
+- Add the license texts of what is compiled into the bundled `rg.exe` to the installer: PCRE2, 30 Rust crates and the Rust standard library, with an inventory that the installer build checks against the shipped binary, and a summary of the Microsoft C/C++ runtime terms that apply to the static C runtime in `rg.exe` and to `vcruntime140` in the CPython archive (what Microsoft publishes and what it leaves open; not legal advice). The Tree-sitter grammar notices are listed as shipped.
+- Tests and CI: the narrow-window browser test no longer hangs on a late media-query event; the native lifecycle unit tests (65 checks) run in the pull request CI; a failing suite shows its whole assertion difference in the log.
+
+**Limitations:** this is the second test build and the limitations of 3.10.0 still hold: no test called a live provider, and the part of the thinking-block work that needs a live Anthropic account (the `drop_block` beta header and the logging of input transformations) is not built. The upgrade from 3.10.0 to 3.10.1 was not run by CI, which runs the upgrade from 3.9.0.
+
 ## [3.10.0] — 2026-10-25 — Test build: streaming, thinking blocks, a model catalog and new tools (pre-release)
 
 - The product name people read is DatGold (formerly ChatMCP). The installer, its file names, the install folder and the settings folder keep the ChatMCP name so that an upgrade finds what 3.9.0 made (docs/NAMING.md).

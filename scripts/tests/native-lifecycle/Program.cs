@@ -16,23 +16,23 @@ var scratch = Path.Combine(Path.GetTempPath(), "ChatMCP-native-unit-" + Guid.New
 Directory.CreateDirectory(scratch);
 try
 {
-    using var good = JsonDocument.Parse("{\"app\":\"chatmcp-local-hub\",\"version\":\"3.10.0\",\"uiBuild\":\"3.10.0-react-agent\"}");
-    HubLifecycle.ValidateHealth(good.RootElement, "3.10.0"); Check(true, "exact application version and UI build accepted");
+    using var good = JsonDocument.Parse("{\"app\":\"chatmcp-local-hub\",\"version\":\"3.10.1\",\"uiBuild\":\"3.10.1-react-agent\"}");
+    HubLifecycle.ValidateHealth(good.RootElement, "3.10.1"); Check(true, "exact application version and UI build accepted");
     using var old = JsonDocument.Parse("{\"app\":\"chatmcp-local-hub\",\"version\":\"3.8.3\",\"uiBuild\":\"3.8.3-react-agent\"}");
-    Throws(() => HubLifecycle.ValidateHealth(old.RootElement, "3.10.0"), "old Hub refused even with HTTP 200");
-    using var wrong = JsonDocument.Parse("{\"app\":\"foreign-service\",\"version\":\"3.10.0\"}");
-    Throws(() => HubLifecycle.ValidateHealth(wrong.RootElement, "3.10.0"), "foreign service refused");
-    using var noBuild = JsonDocument.Parse("{\"app\":\"chatmcp-local-hub\",\"version\":\"3.10.0\"}");
-    Throws(() => HubLifecycle.ValidateHealth(noBuild.RootElement, "3.10.0"), "missing UI build refused");
-    Check(InstallerEngine.AppVersion == "3.10.0", "installer display version derives from compiled assembly");
+    Throws(() => HubLifecycle.ValidateHealth(old.RootElement, "3.10.1"), "old Hub refused even with HTTP 200");
+    using var wrong = JsonDocument.Parse("{\"app\":\"foreign-service\",\"version\":\"3.10.1\"}");
+    Throws(() => HubLifecycle.ValidateHealth(wrong.RootElement, "3.10.1"), "foreign service refused");
+    using var noBuild = JsonDocument.Parse("{\"app\":\"chatmcp-local-hub\",\"version\":\"3.10.1\"}");
+    Throws(() => HubLifecycle.ValidateHealth(noBuild.RootElement, "3.10.1"), "missing UI build refused");
+    Check(InstallerEngine.AppVersion == "3.10.1", "installer display version derives from compiled assembly");
     var script = @"C:\Users\Native Test\ChatMCP\CHATMCP-HUB\hub.mjs";
     Check(HubLifecycle.IsHubCommand("node.exe \"" + script + "\" --port 3007 --no-open", script), "quoted Hub entrypoint with spaces is recognized");
     Check(!HubLifecycle.IsHubCommand("node.exe other.mjs \"" + script + "\" --port 3007", script), "Hub path supplied as an unrelated script argument is rejected");
     Check(!HubLifecycle.IsHubCommand("node.exe --eval \"" + script + "\"", script), "Node eval is not an owned Hub entrypoint");
     // Per-launch Hub secret: a current build says auth=bearer and is only attached to by a shell that can present the secret.
-    using var bearer = JsonDocument.Parse("{\"app\":\"chatmcp-local-hub\",\"version\":\"3.10.0\",\"uiBuild\":\"3.10.0-react-agent\",\"auth\":\"bearer\"}");
-    HubLifecycle.ValidateHealth(bearer.RootElement, "3.10.0", requireBearer: true); Check(HubLifecycle.RequiresBearer(bearer.RootElement), "current Hub (auth=bearer) accepted by the shell");
-    Throws(() => HubLifecycle.ValidateHealth(good.RootElement, "3.10.0", requireBearer: true), "same-version Hub without session authentication is refused by the shell");
+    using var bearer = JsonDocument.Parse("{\"app\":\"chatmcp-local-hub\",\"version\":\"3.10.1\",\"uiBuild\":\"3.10.1-react-agent\",\"auth\":\"bearer\"}");
+    HubLifecycle.ValidateHealth(bearer.RootElement, "3.10.1", requireBearer: true); Check(HubLifecycle.RequiresBearer(bearer.RootElement), "current Hub (auth=bearer) accepted by the shell");
+    Throws(() => HubLifecycle.ValidateHealth(good.RootElement, "3.10.1", requireBearer: true), "same-version Hub without session authentication is refused by the shell");
     HubLifecycle.ValidateHealth(good.RootElement); Check(!HubLifecycle.RequiresBearer(good.RootElement), "the installer can still identify (and stop) a Hub that predates the secret");
 
     var stateDir = Path.Combine(scratch, "hub state"); Directory.CreateDirectory(Path.Combine(stateDir, "run"));

@@ -274,7 +274,7 @@ jobs:
       - name: Real setup upgrade with the secretless v3.9.0 Hub running, then installed EXE lifecycle and uninstall
         shell: powershell
         run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/Test-NativeLifecycle.ps1 -BaselineInstaller "$env:RUNNER_TEMP/native-baseline/ChatMCPSetup.exe" -CandidateInstaller dist/ChatMCPSetup.exe -ExpectedBaselineVersion 3.9.0 -ExpectedCandidateVersion 3.10.0 -OutputDirectory "$env:RUNNER_TEMP/native-lifecycle-evidence"
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/Test-NativeLifecycle.ps1 -BaselineInstaller "$env:RUNNER_TEMP/native-baseline/ChatMCPSetup.exe" -CandidateInstaller dist/ChatMCPSetup.exe -ExpectedBaselineVersion 3.9.0 -ExpectedCandidateVersion 3.10.1 -OutputDirectory "$env:RUNNER_TEMP/native-lifecycle-evidence"
           if ($LASTEXITCODE -ne 0) { throw 'Installed EXE acceptance failed' }
       - name: Native WebView2 smoke (shell attaches with the secret; new-window payload runs no script)
         run: node CHATMCP-HUB/ui/e2e/webview2-smoke.mjs
