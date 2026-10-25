@@ -34,7 +34,7 @@ internal static class HubLifecycle
         catch { mutex.Dispose(); throw; }
     }
     /// <summary>
-    /// The most the Hub may answer with. /api/state grows with use (445,101 bytes on a machine that had used DatGold for a week) and is read whole before the installer stops the Hub,
+    /// The most the Hub may answer with. /api/state grows with use (445,101 bytes on the owner's machine) and is read whole before the installer stops the Hub,
     /// so a cap of 256 KiB made every upgrade and uninstall of a used installation fail ("Cannot write more bytes to the buffer than the configured maximum buffer size: 262144").
     /// The Hub being asked is the installed one (OwnedHub checked the process and its command line first), so the cap is only there to bound a runaway answer.
     /// </summary>

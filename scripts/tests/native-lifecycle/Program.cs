@@ -210,7 +210,7 @@ try
         }
         finally { gate.ReleaseMutex(); }
     }
-    // What the installer reads from the running Hub before it stops it. /api/state grows with use (445,101 bytes on the machine of the owner, who had used DatGold for a week) and was read
+    // What the installer reads from the running Hub before it stops it. /api/state grows with use (445,101 bytes on the owner's machine) and was read
     // through a client that refused anything over 256 KiB: "Cannot write more bytes to the buffer than the configured maximum buffer size: 262144". An upgrade and an uninstall died on it
     // as soon as the state had grown that far, which no test saw because every test Hub is new. A one-shot HTTP server on a free loopback port stands in for the Hub.
     {
