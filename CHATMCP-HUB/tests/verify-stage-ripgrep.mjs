@@ -16,6 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Ripgrep, bundledRipgrepPath } from '../lib/ripgrep.mjs';
+import { powerShellChildEnvironment } from './support/powershell-environment.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..', '..');
@@ -73,7 +74,7 @@ const script = (await fs.readFile(scriptPath, 'utf8')).replace(/^\uFEFF/, '').re
 
 // ------------------------------------------------------------------------------------------------------------------------------- 2-4. the functions, in PowerShell
 const powershell = process.platform === 'win32' ? 'powershell.exe' : 'pwsh';
-const probe = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.Major'], { encoding: 'utf8', windowsHide: true });
+const probe = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.Major'], { encoding: 'utf8', windowsHide: true, env: powerShellChildEnvironment() });
 if (probe.error || probe.status !== 0) {
   console.log(`  skip - ${powershell} is not available: the PowerShell checks were not run`);
 } else {
@@ -91,18 +92,12 @@ if (probe.error || probe.status !== 0) {
     const flat = full.filter((entry) => entry.name.split('/').length === 2 && !entry.name.endsWith('/')).map((entry) => ({ ...entry, name: entry.name.split('/')[1] }));
     let counter = 0;
 
-    /**
-     * The environment of the PowerShell child. The release workflows run the suites from a PowerShell 7 step, which hands its own module path down
-     * through node to Windows PowerShell; that child then does not find Get-FileHash. It gets the default module path of the machine instead.
-     */
-    const childEnvironment = (extra) => Object.fromEntries(Object.entries({ ...process.env, ...extra }).filter(([name]) => name.toLowerCase() !== 'psmodulepath'));
-
-    /** Runs PowerShell code with the script dot-sourced; returns { status, stdout, stderr }. */
+    /** Runs PowerShell code with the script dot-sourced; returns { status, stdout, stderr }. The child gets the module path of the machine (see tests/support/powershell-environment.mjs). */
     const run = (code, env = {}) => {
       counter += 1;
       const driver = path.join(folder, `driver-${counter}.ps1`);
       return fs.writeFile(driver, `$ErrorActionPreference = 'Stop'\n. '${scriptPath.replaceAll("'", "''")}'\n${code}\n`).then(() => {
-        const result = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', driver], { encoding: 'utf8', windowsHide: true, env: childEnvironment(env), timeout: 120_000 });
+        const result = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', driver], { encoding: 'utf8', windowsHide: true, env: powerShellChildEnvironment(env), timeout: 120_000 });
         return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
       });
     };

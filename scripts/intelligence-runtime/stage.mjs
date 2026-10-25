@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { Parser, Language } from 'web-tree-sitter';
+import { powerShellChildEnvironment } from '../../CHATMCP-HUB/tests/support/powershell-environment.mjs';
 import { PENDING_ALLOWED_ENV, PENDING_MARKER, noticeSource, noticeStaged, pendingNoticeText, readGrammarNotices } from './notices.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -105,7 +106,7 @@ const pythonOutput = path.join(destination, 'runtimes', 'python');
 const pythonResult = spawnSync('powershell.exe', [
   '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
   '-File', path.join(here, 'stage-python.ps1'), '-Destination', pythonOutput,
-], { cwd: here, stdio: 'inherit', windowsHide: true, timeout: 180000 });
+], { cwd: here, stdio: 'inherit', windowsHide: true, timeout: 180000, env: powerShellChildEnvironment() });
 if (pythonResult.error || pythonResult.status !== 0) {
   throw pythonResult.error || new Error('Embedded CPython staging failed: ' + pythonResult.status);
 }
@@ -130,7 +131,7 @@ const ripgrepOutput = path.join(destination, 'runtimes', 'ripgrep');
 const ripgrepResult = spawnSync('powershell.exe', [
   '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
   '-File', path.join(here, 'stage-ripgrep.ps1'), '-Destination', ripgrepOutput,
-], { cwd: here, stdio: 'inherit', windowsHide: true, timeout: 180000 });
+], { cwd: here, stdio: 'inherit', windowsHide: true, timeout: 180000, env: powerShellChildEnvironment() });
 if (ripgrepResult.error || ripgrepResult.status !== 0) {
   throw ripgrepResult.error || new Error('ripgrep staging failed: ' + ripgrepResult.status);
 }
