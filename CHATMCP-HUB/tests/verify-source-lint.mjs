@@ -10,6 +10,8 @@
 // A second class: a Windows PowerShell child that a test or a script starts from node with the module path of the PowerShell 7 that started node (the
 // release workflows run in pwsh) cannot find Get-FileHash and five more commands; the first publish run of v3.10.0 failed that way. Every file under tests/
 // and scripts/ that names powershell.exe must use tests/support/powershell-environment.mjs, and the helper must do what it says on a real Windows PowerShell.
+// The Hub is no different: a Hub that was started from a pwsh session passes the same module path to its children, so every file in lib/ and hub.mjs that names
+// powershell.exe must use lib/powershell-environment.mjs (tests/support exports the same function).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
@@ -96,6 +98,14 @@ export async function powerShellStarters(files) {
   for (const file of missing) console.log(`  not ok - ${path.relative(repoRoot, file)} names powershell.exe and does not use powerShellChildEnvironment (tests/support/powershell-environment.mjs)`);
   assert.deepEqual(missing.map((file) => path.relative(repoRoot, file)), [], 'a PowerShell child started from node must get env: powerShellChildEnvironment(...), or it inherits the module path of the PowerShell 7 that started node');
   ok(`all ${named.length} test and script files that name powershell.exe give their PowerShell child the environment of powerShellChildEnvironment (${candidates.length} files scanned)`);
+
+  // the Hub's own code (lib/ and hub.mjs, read above): the same rule and the same helper, which lives in lib/powershell-environment.mjs
+  {
+    const product = await powerShellStarters(files);
+    for (const file of product.missing) console.log(`  not ok - ${path.relative(repoRoot, file)} names powershell.exe and does not use powerShellChildEnvironment (lib/powershell-environment.mjs)`);
+    assert.deepEqual(product.missing.map((file) => path.relative(repoRoot, file)), [], 'a PowerShell child that the Hub starts must get env: powerShellChildEnvironment(...), or a Hub that was started from a pwsh session hands the module path of PowerShell 7 to Windows PowerShell');
+    ok(`all ${product.named.length} Hub files that name powershell.exe give their PowerShell child the environment of powerShellChildEnvironment (${files.length} files scanned)`);
+  }
 
   const control = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-lint-ps-control-'));
   try {
