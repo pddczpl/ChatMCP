@@ -153,7 +153,9 @@ try {
     $hubStopHandler.AllowAutoRedirect = $false
     $hubStopHandler.UseProxy = $false
     $hubStopClient = [System.Net.Http.HttpClient]::new($hubStopHandler)
-    $hubStopClient.MaxResponseContentBufferSize = 65536
+    # The Hub's state grows with use (445,101 bytes on one person's machine) and the script reads it whole, so on a used installation 64 KiB was too little and the
+    # command that stops the Hub failed. The cap only bounds a runaway answer now; native-shared/HubLifecycle.cs (MaxResponseBytes) reads the same state with the same bound.
+    $hubStopClient.MaxResponseContentBufferSize = 64MB
 
     $hubStopPhase = 'verifying the service on port ' + $Port
     if (-not (Test-HubPortListening)) {
