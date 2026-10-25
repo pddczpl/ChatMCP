@@ -73,7 +73,7 @@ try {
 // A PowerShell child of a test or a script gets the module path of the machine, not the one of the PowerShell 7 that started node
 // ---------------------------------------------------------------------------------------------------------------------------------
 const STARTS_POWERSHELL = /powershell\.exe/i;
-const USES_THE_HELPER = /\bpowerShellChildEnvironment\b/;
+const USES_THE_HELPER = /\bpowerShellChildEnvironment\s*\(/; // a call: an import that nothing calls leaves the child with the environment as it was
 
 /** Of `files`, those that name powershell.exe (`named`) and, among them, those that never use powerShellChildEnvironment (`missing`). */
 export async function powerShellStarters(files) {
@@ -95,14 +95,14 @@ export async function powerShellStarters(files) {
     for await (const file of walk(root)) if (!guestCommands.includes(file)) candidates.push(file);
   }
   const { named, missing } = await powerShellStarters(candidates);
-  for (const file of missing) console.log(`  not ok - ${path.relative(repoRoot, file)} names powershell.exe and does not use powerShellChildEnvironment (tests/support/powershell-environment.mjs)`);
+  for (const file of missing) console.log(`  not ok - ${path.relative(repoRoot, file)} names powershell.exe and does not call powerShellChildEnvironment (tests/support/powershell-environment.mjs)`);
   assert.deepEqual(missing.map((file) => path.relative(repoRoot, file)), [], 'a PowerShell child started from node must get env: powerShellChildEnvironment(...), or it inherits the module path of the PowerShell 7 that started node');
   ok(`all ${named.length} test and script files that name powershell.exe give their PowerShell child the environment of powerShellChildEnvironment (${candidates.length} files scanned)`);
 
   // the Hub's own code (lib/ and hub.mjs, read above): the same rule and the same helper, which lives in lib/powershell-environment.mjs
   {
     const product = await powerShellStarters(files);
-    for (const file of product.missing) console.log(`  not ok - ${path.relative(repoRoot, file)} names powershell.exe and does not use powerShellChildEnvironment (lib/powershell-environment.mjs)`);
+    for (const file of product.missing) console.log(`  not ok - ${path.relative(repoRoot, file)} names powershell.exe and does not call powerShellChildEnvironment (lib/powershell-environment.mjs)`);
     assert.deepEqual(product.missing.map((file) => path.relative(repoRoot, file)), [], 'a PowerShell child that the Hub starts must get env: powerShellChildEnvironment(...), or a Hub that was started from a pwsh session hands the module path of PowerShell 7 to Windows PowerShell');
     ok(`all ${product.named.length} Hub files that name powershell.exe give their PowerShell child the environment of powerShellChildEnvironment (${files.length} files scanned)`);
   }
