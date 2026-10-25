@@ -83,12 +83,13 @@ export async function powerShellStarters(files) {
 
 {
   const repoRoot = path.resolve(hubRoot, '..');
-  // tests/windows-sandbox runs hardware acceptance of the Windows Sandbox: powershell.exe there is a command for the guest, through the sandbox CLI
-  const guests = path.join(hubRoot, 'tests', 'windows-sandbox') + path.sep;
+  // These two name powershell.exe only as the command of a request that the Windows Sandbox driver, its supervisor or the sandbox CLI runs in the guest: no PowerShell is
+  // a child of node there. (real-blackbox-acceptance.mjs, in the same folder, does start one on the host, and uses the helper.)
+  const guestCommands = ['smoke.mjs', 'real-guest.mjs'].map((name) => path.join(hubRoot, 'tests', 'windows-sandbox', name));
   const candidates = [];
   for (const root of [path.join(hubRoot, 'tests'), path.join(repoRoot, 'scripts')]) {
     if (!await fs.stat(root).catch(() => null)) { console.log(`  --  ${path.relative(repoRoot, root)} was not found next to CHATMCP-HUB: not scanned`); continue; }
-    for await (const file of walk(root)) if (!file.startsWith(guests)) candidates.push(file);
+    for await (const file of walk(root)) if (!guestCommands.includes(file)) candidates.push(file);
   }
   const { named, missing } = await powerShellStarters(candidates);
   for (const file of missing) console.log(`  not ok - ${path.relative(repoRoot, file)} names powershell.exe and does not use powerShellChildEnvironment (tests/support/powershell-environment.mjs)`);
