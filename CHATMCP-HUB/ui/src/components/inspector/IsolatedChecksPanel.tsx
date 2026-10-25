@@ -5,7 +5,7 @@ import { agentErrorText } from '@/lib/agent-errors';
 import { awaitingCheckWorkers, grantState } from '@/lib/agent-proof';
 import { formatTime } from '@/lib/format';
 import { useTranslation } from '@/lib/i18n';
-import { useAgentDrafts } from '@/store/useAgentDrafts';
+import { useCheckGrants } from '@/store/useCheckGrants';
 import { Button } from '@/components/ui/Button';
 import { agentStatusLabel } from './agentLabels';
 import { ErrorLine, LoadingLine } from './parts';
@@ -21,8 +21,8 @@ function WorkerChecks({ workerId, blocked }: { workerId: string; blocked: boolea
   const { t, lang } = useTranslation();
   const client = useQueryClient();
   const [confirmation, setConfirmation] = useState<string | null>(null);
-  const grants = useAgentDrafts((state) => state.checkGrants);
-  const rememberGrant = useAgentDrafts((state) => state.rememberGrant);
+  const grants = useCheckGrants((state) => state.checkGrants);
+  const rememberGrant = useCheckGrants((state) => state.rememberGrant);
   const { data, isLoading, error } = useQuery({ queryKey: ['worker-checks', workerId], queryFn: () => api.getWorkerChecks(workerId), refetchInterval: 3000 });
   const grant = useMutation({
     mutationFn: (checkId: string) => api.approveIsolatedCheck(workerId, checkId, 3),

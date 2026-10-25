@@ -1,32 +1,11 @@
-// The strings of the Agents tab that the first screen asks for, in both languages: the tab and its switch, the line a section shows while its script
-// is on the way and when it cannot be had, the words for roles, statuses and the Hub's refusals, the isolated-checks panel of the Progress tab and
-// the note on hidden characters. They live apart from i18n.ts so that the file other work appends to stays small; i18n.ts spreads these into its two
-// dictionaries, so they load with the first screen. The strings that only the two delegation sections ask for are in i18n-agents-sections.ts, which
-// loads with those sections. A string a first-screen component asks for belongs HERE; tests/i18n-split.test.mjs fails for one in the wrong part.
+// The strings of the Agents tab, in both languages: background tasks, the words for statuses and the Hub's refusals, the isolated-checks panel of the
+// Progress tab and the note on hidden characters (the conversation screen, the sidebar and the banners use some of them too). They live apart from
+// i18n.ts so that the file other work appends to stays small; i18n.ts spreads these into its two dictionaries, so they load with the first screen.
 //
-// Wording rules of this tab: the AI's words are "AI report" and never "result verified"; green and the word "verified" are for what the Hub
-// itself recorded (lib/agent-proof.ts). {name} is a placeholder that useTranslation().t(key, { name }) fills.
+// Wording rule: green and the word "verified" are for what the Hub itself recorded, never for the AI's own words. {name} is a placeholder that
+// useTranslation().t(key, { name }) fills.
 
 export const agentsVi = {
-  // The tab and its sections
-  agents_views_label: 'Các mục của Tác nhân',
-  agents_view_background: 'Công việc nền',
-  agents_view_groups: 'Nhóm trợ lý',
-  agents_view_coding: 'Sửa mã',
-
-  // Each of the two delegation sections is a script fetched when its tab is first opened
-  agents_section_loading: 'Đang tải mục này…',
-  agents_section_failed: 'Không tải được mục này. Có thể trang đã cũ so với Hub hoặc kết nối bị ngắt; hãy tải lại trang.',
-  agents_section_reload: 'Tải lại trang',
-
-  // Roles of the read-only helpers
-  agent_role_planner: 'Lập kế hoạch',
-  agent_role_researcher: 'Tìm hiểu',
-  agent_role_tester: 'Kiểm thử',
-  agent_role_reviewer: 'Rà soát',
-  agent_role_security: 'Kiểm tra bảo mật',
-  agent_role_summarizer: 'Tổng hợp',
-
   // Status of a helper, a worker or a run, as the Hub reports it
   agent_status_pending: 'Đang chờ',
   agent_status_queued: 'Đang chờ',
@@ -431,23 +410,6 @@ export const agentsVi = {
 } as const;
 
 export const agentsEn: Record<keyof typeof agentsVi, string> = {
-  // The tab and its sections
-  agents_views_label: 'Agent sections',
-  agents_view_background: 'Background',
-  agents_view_groups: 'Agent groups',
-  agents_view_coding: 'Code edits',
-  agents_section_loading: 'Loading this section…',
-  agents_section_failed: 'This section could not be loaded. The page may be out of date with the Hub, or the connection dropped; reload the page.',
-  agents_section_reload: 'Reload page',
-
-  // Roles of the read-only helpers
-  agent_role_planner: 'Planner',
-  agent_role_researcher: 'Researcher',
-  agent_role_tester: 'Tester',
-  agent_role_reviewer: 'Reviewer',
-  agent_role_security: 'Security check',
-  agent_role_summarizer: 'Summarizer',
-
   // Status of a helper, a worker or a run, as the Hub reports it
   agent_status_pending: 'Waiting',
   agent_status_queued: 'Waiting',

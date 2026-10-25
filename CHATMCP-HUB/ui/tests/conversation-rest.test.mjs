@@ -14,7 +14,6 @@ const { loaded, dispose } = await bundleTsx(`
   import { ModelProfilePicker, RoleOverridesField } from './src/components/conversation/ModelProfilePicker';
   import { EmptyState } from './src/components/conversation/EmptyState';
   import { translations } from './src/lib/i18n';
-  import './src/lib/i18n-agents-sections';
   export { OutboundReviewCard, ApprovalStack, CopyButton, Toast, ModelProfilePicker, RoleOverridesField, EmptyState, translations };
 `, 'chatmcp-conversation-rest-');
 after(dispose);

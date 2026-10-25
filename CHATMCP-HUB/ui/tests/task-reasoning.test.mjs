@@ -12,7 +12,6 @@ const { loaded, dispose } = await bundleTsx(`
   import { taskConnection } from './src/lib/task-reasoning';
   import { modelInfoKey } from './src/lib/reasoning-effort';
   import { translations } from './src/lib/i18n';
-  import './src/lib/i18n-agents-sections';
   export { TaskReasoningPicker, taskConnection, modelInfoKey, translations };
 `, 'chatmcp-task-reasoning-ui-');
 after(dispose);

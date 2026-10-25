@@ -1,6 +1,5 @@
 import { useAppStore } from '@/store/useAppStore';
 import { agentsVi, agentsEn } from './i18n-agents.ts';
-import type { sectionsVi } from './i18n-agents-sections.ts';
 import type { modelsVi } from './i18n-models.ts';
 
 export const translations = {
@@ -49,7 +48,7 @@ export const translations = {
     tab_terminal: 'Terminal',
     tab_preview: 'Xem trước',
 
-    // Agents tab: the strings the first screen asks for (the sections' own are in i18n-agents-sections.ts and join these when the sections load)
+    // Agents tab (background tasks, the checks panel of the Progress tab, the Hub's refusals)
     ...agentsVi,
 
     // Settings Tab
@@ -401,7 +400,7 @@ export const translations = {
     ai_window_catalog_price_floor: 'Lấy từ danh mục model: khi lời nhắc dài hơn {above} token giá tăng từ {from} lên {to} mỗi 1M token (vào / ra); Hub không lập kế hoạch dưới {tokens} token nên dùng đúng mức đó ({source}), dù cửa sổ của model là {window}. Nhập một số khác nếu muốn.',
     sandbox_unavailable: 'Không khả dụng',
     insp_blocked_a: 'Agent đang xử lý thư mục đã chọn độc lập. Inspector file/Git/terminal cũ chỉ gắn với workspace chính.',
-    insp_blocked_b: 'Để tránh sửa nhầm một dự án khác, các thao tác Inspector bị ẩn ở workspace thứ hai. Bạn vẫn có thể giao nhiều task, xem kết quả và dừng subagent ở tab {tab}.',
+    insp_blocked_b: 'Để tránh sửa nhầm một dự án khác, các thao tác Inspector bị ẩn ở workspace thứ hai. Bạn vẫn có thể xem kết quả và dừng subagent ở tab {tab}.',
 
     // Files tab (what Git's status letters say) and the Git tab's fallbacks when the Hub gives no message
     files_status_new: 'Mới',
@@ -458,7 +457,7 @@ export const translations = {
     tab_terminal: 'Terminal',
     tab_preview: 'Preview',
 
-    // Agents tab: the strings the first screen asks for (the sections' own are in i18n-agents-sections.ts and join these when the sections load)
+    // Agents tab (background tasks, the checks panel of the Progress tab, the Hub's refusals)
     ...agentsEn,
 
     // Settings Tab
@@ -810,7 +809,7 @@ export const translations = {
     ai_window_catalog_price_floor: 'From the model catalog: a prompt longer than {above} tokens costs more, from {from} to {to} per 1M tokens (input / output); the Hub does not plan on less than {tokens} tokens, so it uses exactly that ({source}), although the model has a window of {window}. Type another number if you want.',
     sandbox_unavailable: 'Unavailable',
     insp_blocked_a: 'The agent is working on the selected folder independently. The older file / Git / terminal inspector is tied to the main workspace only.',
-    insp_blocked_b: 'To avoid editing the wrong project by mistake, Inspector actions are hidden in the second workspace. You can still assign several tasks, see the results and stop subagents in the {tab} tab.',
+    insp_blocked_b: 'To avoid editing the wrong project by mistake, Inspector actions are hidden in the second workspace. You can still see the results and stop subagents in the {tab} tab.',
 
     // Files tab (what Git's status letters say) and the Git tab's fallbacks when the Hub gives no message
     files_status_new: 'New',
@@ -824,13 +823,13 @@ export const translations = {
   },
 };
 
-export type TranslationKey = keyof typeof translations.vi | keyof typeof sectionsVi | keyof typeof modelsVi;
+export type TranslationKey = keyof typeof translations.vi | keyof typeof modelsVi;
 /** Values for the {name} placeholders of a string: t('agents_works_on', { folder }). */
 export type TranslationParams = Record<string, string | number>;
 export type Translate = (key: TranslationKey, params?: TranslationParams) => string;
 
 /**
- * Strings that come with a script fetched after the first screen (lib/i18n-agents-sections.ts). The script adds them as it is evaluated, which is
+ * Strings that come with a script fetched after the first screen (lib/i18n-models.ts, the model picker's). The script adds them as it is evaluated, which is
  * before any component of that script renders, so a component finds its words at its first render.
  */
 export function addTranslations(vi: Record<string, string>, en: Record<string, string>) {

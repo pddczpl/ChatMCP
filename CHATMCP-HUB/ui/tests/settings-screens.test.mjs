@@ -190,7 +190,7 @@ test('the English screens say what they should', () => {
     'intelligence-draft': ['The new configuration has not been applied yet. The Hub is still using', 'unknown / unknown', 'Save and test', 'e.g. claude-sonnet-5-5, gpt-5.6-terra, deepseek-flash...', 'A hosted API or a local model'],
     'intelligence-draft-ai': ['openai / responses', '. Press Save Configuration to apply openai / openai-chat.'],
     'intelligence-draft-retain': ['. Press Save Configuration to apply custom-openai / openai-chat. The saved API key will be kept because the host does not change.'],
-    'inspector-blocked': ['The agent is working on the selected folder independently. The older file / Git / terminal inspector is tied to the main workspace only.', 'To avoid editing the wrong project by mistake, Inspector actions are hidden in the second workspace. You can still assign several tasks, see the results and stop subagents in the Agents tab.'],
+    'inspector-blocked': ['The agent is working on the selected folder independently. The older file / Git / terminal inspector is tied to the main workspace only.', 'To avoid editing the wrong project by mistake, Inspector actions are hidden in the second workspace. You can still see the results and stop subagents in the Agents tab.'],
     files: ['New', 'Deleted', 'Added', 'Renamed', 'Modified'],
   };
   for (const [id, phrases] of Object.entries(says)) {

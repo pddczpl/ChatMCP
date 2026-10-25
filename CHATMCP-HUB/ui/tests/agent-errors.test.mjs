@@ -7,7 +7,6 @@ import { bundleTsx } from './support/bundle.mjs';
 // The Hub names why it refused something with a code; the owner reads the sentence for that code in the language on screen, not the Hub's own
 // text (which may be in the other language) and not a bare "HTTP 409".
 const { loaded, dispose } = await bundleTsx(`
-  import './src/lib/i18n-agents-sections';
   export { translations, translate } from './src/lib/i18n';
   export { agentErrorText, errorSentenceKey } from './src/lib/agent-errors';
 `, 'chatmcp-errors-');
@@ -52,22 +51,6 @@ test('the sentence for a code is found by the key agentErrorText reads, and only
   for (const code of ['user_cancelled', 'stale_revision', 'model_empty']) {
     for (const lang of ['en', 'vi']) assert.equal(agentErrorText(hubError(code, 'Hub text'), tFor(lang), 'x'), translate(lang, errorSentenceKey(code)), `${lang}: ${code}`);
   }
-});
-
-test('every note the page tells is one the Hub sends, in both languages, and every note the Hub sends is told', () => {
-  const root = fileURLToPath(new URL('../../', import.meta.url));
-  const sent = [...fs.readFileSync(root + 'lib/coding-orchestrator.mjs', 'utf8').matchAll(/verificationNote\('([a-z_]+)'/g)].map((match) => match[1]).sort();
-  const told = Object.keys(translations.vi).filter((key) => key.startsWith('agent_hub_note_') && key !== 'agent_hub_note_label').map((key) => key.slice('agent_hub_note_'.length)).sort();
-  assert.deepEqual(sent, ['blocked', 'grant_timeout', 'no_checks', 'verified'], 'the codes the Hub sends');
-  assert.deepEqual(told, sent, 'a sentence for each, and for no other');
-  for (const code of told) {
-    assert.ok(translations.en[`agent_hub_note_${code}`]?.trim(), `en: ${code}`);
-    assert.doesNotMatch(translations.en[`agent_hub_note_${code}`], /[ăâđêôơưàáảãạ]/i, `en.${code} still reads Vietnamese`);
-  }
-  assert.ok(translations.en.agent_hub_note_label.trim() && translations.vi.agent_hub_note_label.trim());
-  // and the page picks the line by exactly these codes
-  const parts = fs.readFileSync(root + 'ui/src/components/inspector/agent-parts.tsx', 'utf8');
-  assert.deepEqual([...parts.matchAll(/case '([a-z_]+)': return t\('agent_hub_note_/g)].map((match) => match[1]).sort(), sent);
 });
 
 test('every sentence written for a code is for a code the Hub really sends, and has both languages', () => {
