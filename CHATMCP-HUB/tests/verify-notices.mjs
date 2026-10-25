@@ -26,8 +26,10 @@
 //      test-runtime.mjs must tie the notice to the shipped binary: the version string that the PCRE2 library carries ("10.46 2025-08-27") must be
 //      in rg.exe, and `rg --pcre2-version` must print what the inventory records (10.45: it prints stale constants of the Rust bindings).
 //
-// The notices whose upstream text is not in the repository yet (the Tree-sitter grammar licenses) are PENDING: the suite prints them and does
-// not fail, because the staging code refuses a release build without them (step 5).
+// A notice whose upstream text is not in the repository yet is PENDING: the suite prints it and does not fail, because the staging code refuses a
+// release build without it (step 5). The three Tree-sitter grammar texts are vendored, so none is pending today, and then nothing may call them so:
+// no row or item of the two notice files, no list of pending notices, and no sentence of the scan, of the CI-health document or of the README of
+// the vendored texts (grammarNoticeWording).
 // CLAIM: license-apache-2
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -106,6 +108,55 @@ function requiredEntries(repo) {
   }
   entries.push({ label: 'tree-sitter-wasms license location', name: word('tree-sitter-wasms'), needles: ['Unlicense', 'licenses/tree-sitter-wasms/LICENSE'], span: 2 });
   return entries;
+}
+
+/**
+ * A grammar notice whose upstream text is in the repository is shipped, not pending. Returns the places that still say otherwise: the row of
+ * THIRD-PARTY-NOTICES.md, the item of CHATMCP-HUB/THIRD-PARTY-NOTICES.txt, the lists of pending notices of both, the scan, the CI-health
+ * document and the README of the vendored texts. `settingPending` are the workflows that set the variable which lets a build go without the texts.
+ */
+function grammarNoticeWording(repo, markdown, text, settingPending) {
+  const problems = [];
+  const fail = (message) => problems.push(message);
+  for (const entry of GRAMMAR_NOTICES) {
+    const row = markdown.split('\n').find((line) => line.startsWith('|') && word(entry.id).test(line)) ?? '';
+    if (/pending/i.test(row)) fail(`the ${entry.id} row of THIRD-PARTY-NOTICES.md still says Pending: ${noticeSource(entry)} is in the repository`);
+  }
+  // the numbered item of the plain-text notice that names the grammars, from its number to the line before the next item
+  // (a missing item is reported by the inventory check, not here)
+  const lines = text.split('\n');
+  const named = lines.findIndex((line) => word(GRAMMAR_NOTICES[0].id).test(line));
+  let start = named;
+  while (start > 0 && !/^\s*\d+\. /.test(lines[start])) start -= 1;
+  let end = named + 1;
+  while (end < lines.length && lines[end].trim() !== '' && !/^\s*\d+\. /.test(lines[end])) end += 1;
+  const item = named < 0 ? NaN : Number(lines[start].match(/^\s*(\d+)\. /)?.[1]);
+  if (!Number.isNaN(item) && /pending/i.test(lines.slice(start, end).join('\n'))) fail(`item ${item} (the Tree-sitter grammars) of CHATMCP-HUB/THIRD-PARTY-NOTICES.txt still says pending: their texts are in the repository`);
+  const pendingMarkdown = markdown.match(/^## Pending notices\s*\n([\s\S]*?)(?=^## )/m)?.[1] ?? '';
+  const pendingText = text.match(/^PENDING NOTICES\s*\n([\s\S]*?)(?=^NOT REDISTRIBUTED)/m)?.[1] ?? '';
+  if (/tree-?sitter/i.test(pendingMarkdown)) fail('THIRD-PARTY-NOTICES.md still lists the Tree-sitter grammar notices among the pending notices: their texts are in the repository');
+  if (/tree-?sitter/i.test(pendingText)) fail('CHATMCP-HUB/THIRD-PARTY-NOTICES.txt still lists the Tree-sitter grammar notices among the pending notices: their texts are in the repository');
+  // "Items 3, 9, 11, 12, 13 and 15 above." names the items by number
+  const listed = [...pendingText.replace(/\s+/g, ' ').matchAll(/\bitems? (\d+(?:(?:, | and |, and )\d+)*) above\b/gi)].flatMap((match) => match[1].match(/\d+/g).map(Number));
+  if (!Number.isNaN(item) && listed.includes(item)) fail(`CHATMCP-HUB/THIRD-PARTY-NOTICES.txt still lists item ${item} (the Tree-sitter grammars) among the pending notices`);
+
+  const licenseScan = read(repo, 'docs', 'LICENSE-SCAN.md');
+  const ciHealth = read(repo, 'docs', 'CI-HEALTH.md');
+  const vendoredReadme = read(repo, 'scripts', 'intelligence-runtime', 'licenses', 'README.md');
+  const finding5 = (licenseScan.match(/^## Status of the findings after the notice work\s*\n([\s\S]*?)(?=^## )/m)?.[1] ?? '').split('\n').find((line) => /^\| 5 \|/.test(line)) ?? '';
+  if (!finding5) fail('docs/LICENSE-SCAN.md has no row for finding 5 under "Status of the findings after the notice work"');
+  if (/not in the repository|texts? missing|next step/i.test(finding5)) fail('docs/LICENSE-SCAN.md: the state of finding 5 still says that the grammar texts are missing or are the next step, but they are in the repository');
+  const followUp = licenseScan.match(/^## Recommended follow-up\s*\n([\s\S]*?)(?=^## )/m)?.[1] ?? '';
+  const asked = GRAMMAR_NOTICES.map((entry) => path.basename(noticeSource(entry))).filter((file) => followUp.includes(file));
+  if (asked.length > 0) fail(`docs/LICENSE-SCAN.md still recommends adding ${asked.join(', ')}, which ${asked.length === 1 ? 'is' : 'are'} in the repository`);
+  if (settingPending.length === 0) {
+    for (const [label, document] of [['THIRD-PARTY-NOTICES.md', markdown], ['CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', text], ['docs/LICENSE-SCAN.md', licenseScan], ['docs/CI-HEALTH.md', ciHealth]]) {
+      if (document.includes(`${PENDING_ALLOWED_ENV}=1`)) fail(`${label} shows ${PENDING_ALLOWED_ENV}=1 as something that is set, but no workflow sets it`);
+    }
+    if (/\(CI does\)/.test(vendoredReadme)) fail(`scripts/intelligence-runtime/licenses/README.md still says that CI sets ${PENDING_ALLOWED_ENV}; no workflow does`);
+  }
+  if (/File to add here/.test(vendoredReadme)) fail('scripts/intelligence-runtime/licenses/README.md still calls the grammar files "File to add here": they are in the repository');
+  return problems;
 }
 
 const SHIPPING_FILES = {
@@ -190,6 +241,7 @@ export async function checkNotices(repo) {
   if (releaseWorkflows.length > 0) fail(`${releaseWorkflows.join(', ')} set ${PENDING_ALLOWED_ENV}: only ci.yml may build without every license notice`);
   if (pending.length > 0 && !setIn.includes('ci.yml')) fail(`ci.yml must set ${PENDING_ALLOWED_ENV} while grammar notices are pending, otherwise its installer build fails`);
   if (pending.length === 0 && setIn.length > 0) fail(`every grammar notice is vendored, so ${PENDING_ALLOWED_ENV} must be removed from ${setIn.join(', ')}`);
+  if (pending.length === 0) for (const problem of grammarNoticeWording(repo, markdown, text, setIn)) fail(problem);
 
   // 7. ripgrep: PCRE2 and the Rust crates compiled into rg.exe ---------------------------------------------------------------------------
   const intelligence = path.join(repo, 'scripts', 'intelligence-runtime');
@@ -256,6 +308,7 @@ assert.equal(real.problems.length, 0, `notice problems:\n  - ${real.problems.joi
 ok('README License section, LICENSE and NOTICE state Apache-2.0 and link the notices; no trace of the "no license" wording');
 ok('every redistributed component has an entry with version, license id and license-text location in THIRD-PARTY-NOTICES.md and CHATMCP-HUB/THIRD-PARTY-NOTICES.txt');
 ok('the UI package list in THIRD-PARTY-NOTICES.md equals the production closure of the UI lockfile; there is a single canonical notices file');
+ok('the Tree-sitter grammar texts are vendored, so they are shipped and not pending: no row, item or list of pending notices in the two notice files, and no sentence of the scan, of the CI-health document or of the README of the vendored texts, says otherwise');
 ok('stage-python.ps1, stage.mjs, verify.mjs, Build-Installer.ps1 and the payload script copy or assert the license files; no release workflow may build without them');
 const noticePcre2 = real.ripgrep.manifest.components.find((component) => component.name === 'PCRE2');
 ok(`PCRE2 ${noticePcre2.version} and ${real.ripgrep.manifest.components.length - 1} Rust crates compiled into rg.exe have their texts vendored, hashed and judged, a row in both notice files, and an inventory that belongs to the archive that stage-ripgrep.ps1 pins; no vendored file is unlisted`);
@@ -475,6 +528,7 @@ try {
     'scripts/intelligence-runtime/test-runtime.mjs', 'scripts/intelligence-runtime/licenses/ripgrep', 'scripts/tests/windows-installer/guest-lifecycle.ps1', '.gitattributes', '.github/workflows']) copy(relative);
   mkdirSync(path.join(copyRoot, 'scripts', 'intelligence-runtime', 'licenses'), { recursive: true });
   for (const entry of GRAMMAR_NOTICES) if (existsSync(path.join(REPO, 'scripts', 'intelligence-runtime', noticeSource(entry)))) copy(`scripts/intelligence-runtime/${noticeSource(entry)}`);
+  for (const relative of ['docs/LICENSE-SCAN.md', 'docs/CI-HEALTH.md', 'scripts/intelligence-runtime/licenses/README.md']) copy(relative);
   const baseline = await checkNotices(copyRoot);
   assert.deepEqual(baseline.problems, [], 'the temporary copy must be clean before a defect is put in');
 
@@ -491,6 +545,17 @@ try {
     ['the Node.js entry deleted from THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', dropLines(/^\| Node\.js \(/), /no entry for Node\.js/],
     ['the CPython entry deleted from the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^ 2\. CPython embeddable[\s\S]*?(?=^ 3\.)/m, ''), /CHATMCP-HUB\/THIRD-PARTY-NOTICES\.txt has no entry for CPython/],
     ['the Tree-sitter python grammar removed from the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replaceAll('tree-sitter-python', 'tree-sitter-removed'), /tree-sitter-python grammar notice/],
+    // a grammar notice whose text is vendored is shipped, not pending (grammarNoticeWording): one defect for each place that could say otherwise
+    ...GRAMMAR_NOTICES.map((entry) => [`the ${entry.id} row says Pending again`, 'THIRD-PARTY-NOTICES.md', (source) => source.replace(new RegExp('^(\\| Tree-sitter grammar `' + entry.id + '`[^\\n]*) \\|$', 'm'), '$1 Pending |'), new RegExp(`${entry.id} row of THIRD-PARTY-NOTICES\\.md still says Pending`)]),
+    ['the Tree-sitter item of the plain-text notice says pending again', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^( +tree-sitter-python \([^\n]*\n)/m, '$1    Status: pending.\n'), /item \d+ \(the Tree-sitter grammars\) of CHATMCP-HUB\/THIRD-PARTY-NOTICES\.txt still says pending/],
+    ['the Tree-sitter notices back among the pending notices of THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', (source) => source.replace(/^## Pending notices\s*\n/m, (heading) => `${heading}\n0. **Tree-sitter grammar notices** are pending.\n`), /THIRD-PARTY-NOTICES\.md still lists the Tree-sitter grammar notices among the pending notices/],
+    ['the Tree-sitter notices back among the pending notices of the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^PENDING NOTICES\s*\n/m, (heading) => `${heading}\n - The Tree-sitter grammar notices are pending.\n`), /THIRD-PARTY-NOTICES\.txt still lists the Tree-sitter grammar notices among the pending notices/],
+    ['the number of the Tree-sitter item back in the "Items ... above" list of the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^PENDING NOTICES\s*\n/m, (heading) => `${heading}\n - Item ${source.match(/^ ?(\d+)\. Tree-sitter grammars/m)[1]} above.\n`), /still lists item \d+ \(the Tree-sitter grammars\) among the pending notices/],
+    ['finding 5 of the scan says the grammar texts are not in the repository again', 'docs/LICENSE-SCAN.md', (source) => source.replace(/(^## Status of the findings after the notice work\s[\s\S]*?^\| 5 \|[^\n]*?) \|$/m, '$1 The three upstream MIT texts are not in the repository. |'), /state of finding 5 still says/],
+    ['the scan recommends adding a grammar text again', 'docs/LICENSE-SCAN.md', (source) => source.replace(/^## Recommended follow-up\s*\n/m, (heading) => `${heading}\n1. Add \`${path.basename(noticeSource(GRAMMAR_NOTICES[0]))}\` to the folder of the vendored texts.\n`), /still recommends adding tree-sitter-javascript\.LICENSE/],
+    ['the CI-health document says that the installer jobs set the pending variable again', 'docs/CI-HEALTH.md', (source) => `${source.trimEnd()}\n- The installer jobs of \`ci.yml\` set \`${PENDING_ALLOWED_ENV}=1\` while the grammar licenses are missing.\n`, /docs\/CI-HEALTH\.md shows CHATMCP_ALLOW_PENDING_NOTICES=1/],
+    ['the README of the vendored texts says again that CI sets the pending variable', 'scripts/intelligence-runtime/licenses/README.md', (source) => source.replace('(no workflow does)', '(CI does)'), /licenses\/README\.md still says that CI sets/],
+    ['the README of the vendored texts asks for the grammar files again', 'scripts/intelligence-runtime/licenses/README.md', (source) => source.replace('| Vendored file |', '| File to add here |'), /still calls the grammar files "File to add here"/],
     ['the Visual C++ runtime row deleted', 'THIRD-PARTY-NOTICES.md', dropLines(/Visual C\+\+ runtime/), /Visual C\+\+ runtime/],
     ['the old README wording back', 'README.md', (source) => source.replace(/^## License[\s\S]*?(?=^## Security)/m, '## License\n\nChatMCP does **not** currently have an adopted top-level project license in this repository.\n\n'), /License section|no project license/],
     ['LICENSE.txt dropped from the CPython staging assertion', 'scripts/intelligence-runtime/stage-python.ps1', (source) => source.replace(",'LICENSE.txt')", ')'), /does not require LICENSE\.txt/],
