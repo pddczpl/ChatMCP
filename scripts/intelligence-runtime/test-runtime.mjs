@@ -6,6 +6,7 @@ import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { LspProcess } from '../../CHATMCP-HUB/lib/studio-intelligence.mjs';
+import { checkCompiledPcre2, checkReportedPcre2 } from './notices.mjs';
 import { verifyRuntime } from './verify.mjs';
 
 if (process.platform !== 'win32') throw new Error('Bundled Windows acceptance requires Windows.');
@@ -93,6 +94,16 @@ try {
   assert.equal(info.source, 'bundled');
   assert.equal(info.path, path.join(hubRoot, 'runtimes', 'ripgrep', 'rg.exe'));
   assert.equal(info.version, pinned, 'The bundled ripgrep must be the pinned release.');
+  // The notices of what is linked into rg.exe (licenses/ripgrep) are derived from sources. This is where they meet the binary. `rg --pcre2-version` prints the constants of the Rust
+  // bindings (10.45 for this build, while the library compiled in is 10.46), so it only tells that this is the build the inventory was derived for; the notice itself is tied to the
+  // version string that the PCRE2 library carries, which must be in the bytes of rg.exe.
+  const noticeInventory = JSON.parse(await fs.readFile(path.join(hubRoot, 'licenses', 'ripgrep', 'MANIFEST.json'), 'utf8'));
+  const reportedPcre2 = spawnSync(info.path, ['--pcre2-version'], { encoding: 'utf8', windowsHide: true, timeout: 10000 });
+  const pcre2Problem = checkReportedPcre2(noticeInventory, reportedPcre2.stdout);
+  assert.equal(pcre2Problem, null, pcre2Problem ?? '');
+  const compiledProblem = checkCompiledPcre2(noticeInventory, await fs.readFile(info.path));
+  assert.equal(compiledProblem, null, compiledProblem ?? '');
+  console.log('PASS bundled ripgrep carries the PCRE2 version string of the shipped notice');
   const searched = path.join(temp, 'ripgrep');
   await fs.mkdir(path.join(searched, 'src'), { recursive: true });
   await fs.writeFile(path.join(searched, 'src', 'a.js'), 'const needle = 1;\r\nfunction go() { return needle; }\r\n');

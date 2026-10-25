@@ -13,7 +13,7 @@ Paths are relative to the installation folder, the folder that holds `LICENSE` a
 | Node.js (`runtimes/node/node.exe`) | the build machine's Node.js (the release workflow uses 24.x) | MIT, with bundled V8 (BSD-3-Clause), OpenSSL (Apache-2.0), ICU (Unicode license), zlib, c-ares, nghttp2, undici and others | `runtimes/node/LICENSE` (the LICENSE file of the Node.js archive, which collects those notices) | Copied by `Copy-InstallerNodeLicense` in `scripts/InstallerPayload.ps1`; the build fails without it |
 | CPython embeddable (`CHATMCP-HUB/runtimes/python`) | 3.11.9 (amd64, SHA-256 pinned in `stage-python.ps1`) | PSF-2.0, plus the libraries the archive bundles (OpenSSL, SQLite, libffi, expat, zlib, bzip2, liblzma, mpdecimal), named in its own license file | `CHATMCP-HUB/runtimes/python/LICENSE.txt` | Extracted from the archive; `stage-python.ps1`, `stage.mjs` and `verify.mjs` fail when it is missing or is not the PSF text |
 | Microsoft Visual C++ runtime (`vcruntime140.dll`, `vcruntime140_1.dll` inside the CPython archive) | as in the CPython archive | Microsoft proprietary redistributable terms; not OSI-approved and not Apache-2.0 | none | Pending: the terms are the "Redistributing Visual C++ Files" terms of Microsoft (learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files); their text is not reproduced here because it was not available offline |
-| ripgrep (`CHATMCP-HUB/runtimes/ripgrep/rg.exe`, the search of `search_files` and `find_files`) | 15.2.0 (x86_64-pc-windows-msvc, SHA-256 pinned in `stage-ripgrep.ps1`) | MIT OR Unlicense (dual-licensed: the licensee chooses); the binary also links PCRE2 (BSD-3-Clause) and Rust crates under permissive licenses | `CHATMCP-HUB/runtimes/ripgrep/LICENSE-MIT`, `CHATMCP-HUB/runtimes/ripgrep/UNLICENSE` and `COPYING` (all from the archive) | Extracted from the archive; `stage-ripgrep.ps1`, `stage.mjs` and `verify.mjs` fail when LICENSE-MIT or UNLICENSE is missing or is not the license text. Pending: the notices of PCRE2 and of the crates linked into `rg.exe` are not in the archive |
+| ripgrep (`CHATMCP-HUB/runtimes/ripgrep/rg.exe`, the search of `search_files` and `find_files`) | 15.2.0 (x86_64-pc-windows-msvc, SHA-256 pinned in `stage-ripgrep.ps1`) | MIT OR Unlicense (dual-licensed: the licensee chooses); the binary also contains PCRE2 (BSD-3-Clause, with an exemption for binary library-like packages) and 30 Rust crates, listed in the section "Compiled into rg.exe" below | `CHATMCP-HUB/runtimes/ripgrep/LICENSE-MIT`, `CHATMCP-HUB/runtimes/ripgrep/UNLICENSE` and `COPYING` (ripgrep's own, all from the archive); the texts of PCRE2 and of the crates in `CHATMCP-HUB/licenses/ripgrep/` | Shipped. The archive's texts are extracted by `stage-ripgrep.ps1`; it, `stage.mjs` and `verify.mjs` fail when LICENSE-MIT or UNLICENSE is missing or is not the license text. The other texts are vendored in `scripts/intelligence-runtime/licenses/ripgrep/`, and `stage.mjs`, `verify.mjs` and the installer build fail without them. The Rust standard library and the static C runtime inside `rg.exe` are not covered: see items 2 and 3 of the list after the component table |
 | `pyright` | 1.1.407 | MIT | `CHATMCP-HUB/runtimes/lsp/node_modules/pyright/LICENSE.txt`; the bundled typeshed stubs carry `dist/typeshed-fallback/LICENSE` | Shipped inside the package folder |
 | `typescript` | 5.9.3 | Apache-2.0 | `CHATMCP-HUB/runtimes/lsp/node_modules/typescript/LICENSE.txt`, `ThirdPartyNoticeText.txt` | Shipped inside the package folder |
 | `typescript-language-server` | 4.3.4 | Apache-2.0, with portions from VS Code (MIT) | `CHATMCP-HUB/runtimes/lsp/node_modules/typescript-language-server/LICENSE` (both texts) | Shipped inside the package folder |
@@ -30,13 +30,57 @@ Paths are relative to the installation folder, the folder that holds `LICENSE` a
 | Model catalog data from models.dev (`CHATMCP-HUB/lib/model-catalog.data.json`: a compact extract of https://models.dev/api.json, which names the model limits, prices and thinking options of about 9,000 models) | the snapshot is dated inside the file (`generatedAt`); `scripts/update-model-catalog.mjs` rebuilds it | MIT (Copyright (c) 2025 models.dev) | the permission text in `CHATMCP-HUB/THIRD-PARTY-NOTICES.txt` | Shipped; data only, nothing is downloaded when the Hub runs |
 | UI libraries compiled into `CHATMCP-HUB/web/dist` | see [the generated list](#ui-libraries-compiled-into-the-dashboard) | MIT, ISC, BSD-3-Clause, 0BSD (and the two font packages above) | none | Pending (finding 4): the Vite bundle keeps the license comments of React and lucide-react only |
 
+## Compiled into rg.exe
+
+`CHATMCP-HUB/runtimes/ripgrep/rg.exe` is the official build of ripgrep 15.2.0 for x86_64-pc-windows-msvc (`cargo build --profile release-lto --features pcre2`, with `PCRE2_SYS_STATIC=1`). The ripgrep archive carries the license texts of ripgrep and of its own workspace crates (`ripgrep`, `grep`, `grep-cli`, `grep-matcher`, `grep-pcre2`, `grep-printer`, `grep-regex`, `grep-searcher`, `globset`, `ignore`: Unlicense OR MIT). It does not carry the texts of the components below: PCRE2, compiled from the sources that the `pcre2-sys` crate bundles, and the 30 crates of ripgrep's `Cargo.lock` that Cargo links for this target. Their texts are in `CHATMCP-HUB/licenses/ripgrep/<folder>/`, copied unchanged from the upstream repository at the commit of the version named here. `CHATMCP-HUB/licenses/ripgrep/MANIFEST.json` is the inventory: the repository, commit and path of every text, its SHA-256 and git blob id, and the 19 packages of the lock file that are not linked, each with the reason. `scripts/intelligence-runtime/licenses/README.md` says how the list was derived. It comes from the sources and not from opening the binary; the installer build (`test-runtime.mjs`) checks two facts against the real `rg.exe`: the version string that the PCRE2 library carries (`10.46 2025-08-27`) must be in its bytes, and `rg --pcre2-version` must print what the inventory records. `tests/verify-notices.mjs` fails when a row below is missing, when a text differs from its hash, or when `stage-ripgrep.ps1` pins another release than the inventory was derived for.
+
+| Component | Version | License | Texts in `CHATMCP-HUB/licenses/ripgrep/` |
+|---|---|---|---|
+| PCRE2 | 10.46 | BSD-3-Clause WITH PCRE2-exception | `libpcre2-10.46/` (`LICENCE.md`) |
+| `aho-corasick` | 1.1.4 | Unlicense OR MIT | `aho-corasick-1.1.4/` (`COPYING`, `LICENSE-MIT`, `UNLICENSE`) |
+| `anyhow` | 1.0.103 | MIT OR Apache-2.0 | `anyhow-1.0.103/` (`LICENSE-APACHE`, `LICENSE-MIT`) |
+| `bstr` | 1.13.0 | MIT OR Apache-2.0 | `bstr-1.13.0/` (`COPYING`, `LICENSE-APACHE`, `LICENSE-MIT`, `LICENSE-UNICODE`) |
+| `cfg-if` | 1.0.4 | MIT OR Apache-2.0 | `cfg-if-1.0.4/` (`LICENSE-APACHE`, `LICENSE-MIT`) |
+| `crossbeam-deque` | 0.8.7 | MIT OR Apache-2.0 | `crossbeam-deque-0.8.7/` (`LICENSE-APACHE`, `LICENSE-MIT`) |
+| `crossbeam-epoch` | 0.9.20 | MIT OR Apache-2.0 | `crossbeam-epoch-0.9.20/` (`LICENSE-APACHE`, `LICENSE-MIT`) |
+| `crossbeam-utils` | 0.8.22 | MIT OR Apache-2.0 | `crossbeam-utils-0.8.22/` (`LICENSE-APACHE`, `LICENSE-MIT`) |
+| `encoding_rs` | 0.8.35 | (Apache-2.0 OR MIT) AND BSD-3-Clause | `encoding_rs-0.8.35/` (`COPYRIGHT`, `LICENSE-APACHE`, `LICENSE-MIT`, `LICENSE-WHATWG`) |
+| `encoding_rs_io` | 0.1.7 | MIT OR Apache-2.0 | `encoding_rs_io-0.1.7/` (`COPYING`, `LICENSE-APACHE`, `LICENSE-MIT`) |
+| `itoa` | 1.0.18 | MIT OR Apache-2.0 | `itoa-1.0.18/` (`LICENSE-APACHE`, `LICENSE-MIT`) |
+| `lexopt` | 0.3.2 | MIT | `lexopt-0.3.2/` (`LICENSE`) |
+| `libc` | 0.2.186 | MIT OR Apache-2.0 | `libc-0.2.186/` (`LICENSE-APACHE`, `LICENSE-MIT`) |
+| `log` | 0.4.33 | MIT OR Apache-2.0 | `log-0.4.33/` (`LICENSE-APACHE`, `LICENSE-MIT`) |
+| `memchr` | 2.8.3 | Unlicense OR MIT | `memchr-2.8.3/` (`COPYING`, `LICENSE-MIT`, `UNLICENSE`) |
+| `memmap2` | 0.9.11 | MIT OR Apache-2.0 | `memmap2-0.9.11/` (`LICENSE-APACHE`, `LICENSE-MIT`) |
+| `pcre2` | 0.2.11 | Unlicense OR MIT | `pcre2-0.2.11/` (`COPYING`, `LICENSE-MIT`, `UNLICENSE`) |
+| `pcre2-sys` | 0.2.10 | Unlicense OR MIT | `pcre2-sys-0.2.10/` (`COPYING`, `LICENSE-MIT`, `UNLICENSE`) |
+| `regex-automata` | 0.4.15 | MIT OR Apache-2.0 | `regex-automata-0.4.15/` (`LICENSE-APACHE`, `LICENSE-MIT`, `LICENSE-UNICODE`) |
+| `regex-syntax` | 0.8.11 | MIT OR Apache-2.0 | `regex-syntax-0.8.11/` (`LICENSE-APACHE`, `LICENSE-MIT`, `LICENSE-UNICODE`) |
+| `same-file` | 1.0.6 | Unlicense/MIT | `same-file-1.0.6/` (`COPYING`, `LICENSE-MIT`, `UNLICENSE`) |
+| `serde` | 1.0.228 | MIT OR Apache-2.0 | `serde-1.0.228/` (`LICENSE-APACHE`, `LICENSE-MIT`) |
+| `serde_core` | 1.0.228 | MIT OR Apache-2.0 | `serde_core-1.0.228/` (`LICENSE-APACHE`, `LICENSE-MIT`) |
+| `serde_json` | 1.0.150 | MIT OR Apache-2.0 | `serde_json-1.0.150/` (`LICENSE-APACHE`, `LICENSE-MIT`) |
+| `termcolor` | 1.4.1 | Unlicense OR MIT | `termcolor-1.4.1/` (`COPYING`, `LICENSE-MIT`, `UNLICENSE`) |
+| `textwrap` | 0.16.2 | MIT | `textwrap-0.16.2/` (`LICENSE`) |
+| `walkdir` | 2.5.0 | Unlicense/MIT | `walkdir-2.5.0/` (`COPYING`, `LICENSE-MIT`, `UNLICENSE`) |
+| `winapi-util` | 0.1.11 | Unlicense OR MIT | `winapi-util-0.1.11/` (`COPYING`, `LICENSE-MIT`, `UNLICENSE`) |
+| `windows-link` | 0.2.1 | MIT OR Apache-2.0 | `windows-link-0.2.1/` (`license-apache-2.0`, `license-mit`) |
+| `windows-sys` | 0.61.2 | MIT OR Apache-2.0 | `windows-sys-0.61.2/` (`license-apache-2.0`, `license-mit`) |
+| `zmij` | 1.0.23 | MIT | `zmij-1.0.23/` (`LICENSE-MIT`, `LICENSE-vitaut-zmij`) |
+
+- `bstr`, `regex-syntax` and `regex-automata` contain tables generated from the Unicode Character Database; the Unicode, Inc. license (`LICENSE-UNICODE`) is shipped with each of them.
+- `encoding_rs` contains data derived from the WHATWG Encoding Standard (BSD-3-Clause, `LICENSE-WHATWG`); its `COPYRIGHT` file says so.
+- `zmij` is a line-by-line port of Victor Zverovich's C++ project of the same name (MIT); that project's license is `LICENSE-vitaut-zmij`.
+- `windows-sys` and `windows-link` have no release tag in their repository; their texts are those of the commit that set these versions ("Release 71"), under the lower-case file names the crates use.
+- PCRE2's `LICENCE.md` (the same text in 10.45 and 10.46) is shipped whole, with its exemption for binary library-like packages. The version is 10.46: the sources that `pcre2-sys` 0.2.10 compiles, and the string `10.46 2025-08-27` that the library carries. `rg --pcre2-version` prints `PCRE2 10.45` all the same, because it prints constants of the Rust bindings (`pcre2-sys/src/bindings.rs`), which were generated for 10.45 and not regenerated; the installer build found this in the real 15.2.0 binary, and the inventory records it.
+
 ## Pending notices
 
 These are the gaps that remain after this change. None of them is hidden by the build.
 
 1. **Tree-sitter grammar notices.** The three upstream projects are MIT-licensed *(per their upstream repositories; the texts were not available offline when this file was written)*. `scripts/intelligence-runtime/licenses/` is where their `LICENSE` files go (its README names the files). Until they are there, `stage.mjs` fails; a CI build may set `CHATMCP_ALLOW_PENDING_NOTICES=1`, which stages `CHATMCP-HUB/licenses/PENDING-NOTICES.txt` and records the missing projects in `runtime-manifest.json` (`pendingNotices`). No release workflow sets it, and `verify-notices` checks that.
-2. **Microsoft Visual C++ runtime terms**, see the table.
-3. **ripgrep's own dependencies.** `rg.exe` is a statically linked binary. Its archive carries the license texts of ripgrep itself (MIT OR Unlicense) but not those of PCRE2 (BSD-3-Clause, which asks for its notice in binary redistributions) or of the Rust crates compiled into it; their texts are not in the repository yet.
+2. **Microsoft Visual C++ runtime terms**, see the table. `rg.exe` is also linked with the static Microsoft C runtime (ripgrep's `.cargo/config.toml` sets `+crt-static` for this target), so the same question applies to it; those terms are not reproduced here either.
+3. **The Rust standard library inside `rg.exe`.** Every Rust program contains the standard library (MIT OR Apache-2.0, with the third-party code that the `COPYRIGHT` file of the Rust project lists). The release workflow of ripgrep builds with the `nightly` toolchain of the day, which neither the workflow nor the archive pins, so the version and the exact texts cannot be named here; they are not in the repository yet. The texts of PCRE2 and of the crates are shipped (section "Compiled into rg.exe").
 4. **WebView2, .NET runtime, OFL font texts and the MIT/ISC/BSD notices of the UI libraries** (findings 2 to 4 of the license scan) are outside this change and still open. The Browser Companion archive `ChatMCP-Browser-Companion.zip` also does not contain `LICENSE` or `NOTICE` yet.
 
 ## UI libraries compiled into the dashboard

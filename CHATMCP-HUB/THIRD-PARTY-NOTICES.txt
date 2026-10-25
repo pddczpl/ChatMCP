@@ -46,13 +46,53 @@ RUNTIME COMPONENTS
 16. Model catalog data from models.dev (CHATMCP-HUB/lib/model-catalog.data.json: a compact extract of https://models.dev/api.json, dated inside the
     file; data only, nothing is downloaded when the Hub runs) - MIT. The permission text is at the end of this file. Status: shipped.
 17. ripgrep 15.2.0 (CHATMCP-HUB/runtimes/ripgrep/rg.exe, the search of search_files and find_files) - MIT OR Unlicense (dual-licensed: the licensee
-    chooses). The binary also links PCRE2 (BSD-3-Clause) and Rust crates under permissive licenses.
-    License texts: CHATMCP-HUB/runtimes/ripgrep/LICENSE-MIT, UNLICENSE and COPYING (from the archive). Status: shipped for ripgrep itself (the build
-    fails without LICENSE-MIT and UNLICENSE); pending for PCRE2 and the linked crates (their notices are not in the ripgrep archive).
+    chooses). The binary also contains PCRE2 (BSD-3-Clause, with an exemption for binary library-like packages) and 30 Rust crates, listed below.
+    License texts of ripgrep itself: CHATMCP-HUB/runtimes/ripgrep/LICENSE-MIT, UNLICENSE and COPYING (from the archive). Texts of PCRE2 and of the
+    crates: CHATMCP-HUB/licenses/ripgrep/<folder>/, copied unchanged from the upstream repositories; MANIFEST.json there gives the source, the SHA-256 and
+    the git blob id of each. Status: shipped; the build fails without them. The Rust standard library and the static C runtime inside rg.exe are not
+    covered (see the list of open notices below). The list is derived from the sources of ripgrep 15.2.0, not from opening the binary; the installer
+    build checks that the version string of the PCRE2 library (10.46 2025-08-27) is in rg.exe. rg --pcre2-version prints PCRE2 10.45 all the same: it
+    prints stale constants of the Rust bindings, and the inventory records that. Components, each with the folder of its texts:
+      PCRE2 10.46 - BSD-3-Clause WITH PCRE2-exception - libpcre2-10.46/
+      aho-corasick 1.1.4 - Unlicense OR MIT - aho-corasick-1.1.4/
+      anyhow 1.0.103 - MIT OR Apache-2.0 - anyhow-1.0.103/
+      bstr 1.13.0 - MIT OR Apache-2.0 - bstr-1.13.0/
+      cfg-if 1.0.4 - MIT OR Apache-2.0 - cfg-if-1.0.4/
+      crossbeam-deque 0.8.7 - MIT OR Apache-2.0 - crossbeam-deque-0.8.7/
+      crossbeam-epoch 0.9.20 - MIT OR Apache-2.0 - crossbeam-epoch-0.9.20/
+      crossbeam-utils 0.8.22 - MIT OR Apache-2.0 - crossbeam-utils-0.8.22/
+      encoding_rs 0.8.35 - (Apache-2.0 OR MIT) AND BSD-3-Clause - encoding_rs-0.8.35/
+      encoding_rs_io 0.1.7 - MIT OR Apache-2.0 - encoding_rs_io-0.1.7/
+      itoa 1.0.18 - MIT OR Apache-2.0 - itoa-1.0.18/
+      lexopt 0.3.2 - MIT - lexopt-0.3.2/
+      libc 0.2.186 - MIT OR Apache-2.0 - libc-0.2.186/
+      log 0.4.33 - MIT OR Apache-2.0 - log-0.4.33/
+      memchr 2.8.3 - Unlicense OR MIT - memchr-2.8.3/
+      memmap2 0.9.11 - MIT OR Apache-2.0 - memmap2-0.9.11/
+      pcre2 0.2.11 - Unlicense OR MIT - pcre2-0.2.11/
+      pcre2-sys 0.2.10 - Unlicense OR MIT - pcre2-sys-0.2.10/
+      regex-automata 0.4.15 - MIT OR Apache-2.0 - regex-automata-0.4.15/
+      regex-syntax 0.8.11 - MIT OR Apache-2.0 - regex-syntax-0.8.11/
+      same-file 1.0.6 - Unlicense/MIT - same-file-1.0.6/
+      serde 1.0.228 - MIT OR Apache-2.0 - serde-1.0.228/
+      serde_core 1.0.228 - MIT OR Apache-2.0 - serde_core-1.0.228/
+      serde_json 1.0.150 - MIT OR Apache-2.0 - serde_json-1.0.150/
+      termcolor 1.4.1 - Unlicense OR MIT - termcolor-1.4.1/
+      textwrap 0.16.2 - MIT - textwrap-0.16.2/
+      walkdir 2.5.0 - Unlicense/MIT - walkdir-2.5.0/
+      winapi-util 0.1.11 - Unlicense OR MIT - winapi-util-0.1.11/
+      windows-link 0.2.1 - MIT OR Apache-2.0 - windows-link-0.2.1/
+      windows-sys 0.61.2 - MIT OR Apache-2.0 - windows-sys-0.61.2/
+      zmij 1.0.23 - MIT - zmij-1.0.23/
+    The Unicode, Inc. license is shipped with bstr, regex-syntax and regex-automata, the WHATWG (BSD-3-Clause) license with encoding_rs, and the license
+    of Victor Zverovich's C++ zmij (which the Rust crate ports) with zmij.
 
 PENDING NOTICES
 
- - The notices of PCRE2 and of the Rust crates linked into rg.exe (item 17); they are not in the ripgrep archive.
+ - The Rust standard library inside rg.exe (item 17). ripgrep's release workflow builds with the nightly toolchain of the day, which neither the
+   workflow nor the archive pins, so its version and exact texts are not named here and not in the repository yet.
+ - The static Microsoft C runtime that rg.exe is also linked with (ripgrep's .cargo/config.toml sets +crt-static for this target): its terms belong
+   with the Visual C++ runtime terms of item 3.
  - Items 3, 9, 11, 12, 13 and 15 above. A build that lacks the Tree-sitter grammar notices carries licenses/PENDING-NOTICES.txt and lists them in
    runtime-manifest.json ("pendingNotices"); only builds that are not releases may be made that way.
  - The Browser Companion archive ChatMCP-Browser-Companion.zip does not contain LICENSE or NOTICE yet.

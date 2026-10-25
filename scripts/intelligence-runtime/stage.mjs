@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { Parser, Language } from 'web-tree-sitter';
 import { powerShellChildEnvironment } from '../../CHATMCP-HUB/tests/support/powershell-environment.mjs';
-import { PENDING_ALLOWED_ENV, PENDING_MARKER, noticeSource, noticeStaged, pendingNoticeText, readGrammarNotices } from './notices.mjs';
+import { PENDING_ALLOWED_ENV, PENDING_MARKER, assertRipgrepPin, noticeSource, noticeStaged, pendingNoticeText, readGrammarNotices, readRipgrepNotices } from './notices.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const destination = path.resolve(process.argv[2] || path.join(here, '../../deploy/.generated/intelligence-runtime'));
@@ -86,6 +86,12 @@ if (grammarNotices.pending.length > 0) {
   files.push({ path: PENDING_MARKER, size: marker.length, sha256: hash(marker) });
   console.warn('WARNING: staged WITHOUT licence notices for ' + grammarNotices.pending.map(item => item.entry.id).join(', ') + '. This build must not be released.');
 }
+// rg.exe (staged below from its official archive, which carries only ripgrep's own MIT and Unlicense texts) is also linked with PCRE2 and with Rust
+// crates. Their texts are vendored in scripts/intelligence-runtime/licenses/ripgrep, listed in its MANIFEST.json, and there is no pending option: the
+// build stops without them, and when stage-ripgrep.ps1 pins another release than the one the inventory was derived for.
+const ripgrepNotices = await readRipgrepNotices({ sourceDirectory: here });
+assertRipgrepPin(ripgrepNotices.manifest, await fs.readFile(path.join(here, 'stage-ripgrep.ps1'), 'utf8'));
+for (const file of ripgrepNotices.files) await copy(path.join(here, file.source), file.staged);
 await Parser.init();
 const grammars = [];
 for (const name of ['javascript', 'typescript', 'tsx', 'python']) {

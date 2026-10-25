@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { requiredLicenseFiles } from './notices.mjs';
+import { RIPGREP_NOTICE_FILES, requiredLicenseFiles } from './notices.mjs';
 
 export const REQUIRED_COMPONENTS = Object.freeze([
   'runtimes/python/python.exe',
@@ -53,6 +53,12 @@ export async function verifyRuntime(root) {
   const licenseFiles = requiredLicenseFiles(pendingNotices);
   for (const file of [...required, ...licenseFiles]) {
     if (!seen.has(file.toLowerCase())) throw new Error('Missing required bundled component: ' + file);
+  }
+  // rg.exe is linked with PCRE2 and Rust crates; their texts (and the inventory) are the vendored ones, byte for byte: a runtime in which a text is
+  // replaced consistently (the file and its manifest entry) is refused too.
+  const hashes = new Map(manifest.files.map((entry) => [entry.path.toLowerCase(), entry.sha256]));
+  for (const notice of RIPGREP_NOTICE_FILES) {
+    if (hashes.get(notice.staged.toLowerCase()) !== notice.sha256) throw new Error('Staged licence notice differs from the vendored one: ' + notice.staged);
   }
   return { verifiedFiles: seen.size, target: manifest.target, required: required.length + licenseFiles.length, pendingNotices };
 }

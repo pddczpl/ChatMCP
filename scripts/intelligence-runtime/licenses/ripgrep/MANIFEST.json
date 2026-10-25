@@ -1,0 +1,1421 @@
+{
+  "schemaVersion": 1,
+  "subject": {
+    "name": "ripgrep",
+    "version": "15.2.0",
+    "target": "x86_64-pc-windows-msvc",
+    "binary": "runtimes/ripgrep/rg.exe",
+    "archive": "ripgrep-15.2.0-x86_64-pc-windows-msvc.zip",
+    "archiveSha256": "71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5"
+  },
+  "basis": {
+    "lockfile": {
+      "repository": "BurntSushi/ripgrep",
+      "tag": "15.2.0",
+      "commit": "e89fff89ac9af12e8d4ce9d5fd07beb408ca730f",
+      "path": "Cargo.lock",
+      "blob": "55893348fd8d6ce440e2451df9ca8edd1ec0d7ce",
+      "sha256": "7a7d39cda8a03930e578f1dbb724e055771901842eca239e03b01e19da946a64",
+      "packages": 59
+    },
+    "build": "cargo build --profile release-lto --features pcre2 --target x86_64-pc-windows-msvc, with PCRE2_SYS_STATIC=1 (release.yml at the tag) and -C target-feature=+crt-static (.cargo/config.toml at the tag)",
+    "rule": "The normal dependencies of the ripgrep package for that target and feature set, resolved the way Cargo resolves them from the locked versions: the checksum of every locked crate equals the one in the crates.io index, dependencies come from the index (kind, target cfg, optional, features) and ripgrep's workspace manifests. Dev-dependencies, build-dependencies, other targets and optional crates that no enabled feature reaches are not part of rg.exe (notLinked).",
+    "derivedOn": "2026-10-25",
+    "inspectedBinary": false
+  },
+  "workspaceCrates": [
+    "ripgrep 15.2.0",
+    "grep 0.4.1",
+    "grep-cli 0.1.12",
+    "globset 0.4.19",
+    "grep-matcher 0.1.9",
+    "grep-printer 0.3.1",
+    "grep-searcher 0.1.17",
+    "grep-regex 0.1.14",
+    "ignore 0.4.29",
+    "grep-pcre2 0.1.10"
+  ],
+  "notLinked": [
+    {
+      "name": "arbitrary",
+      "version": "1.4.2",
+      "reason": "optional dependency of globset (feature arbitrary), which ripgrep does not enable"
+    },
+    {
+      "name": "cc",
+      "version": "1.2.67",
+      "reason": "build-dependency of pcre2-sys (compiles the bundled PCRE2 C sources)"
+    },
+    {
+      "name": "crossbeam-channel",
+      "version": "0.5.16",
+      "reason": "dev-dependency of ignore"
+    },
+    {
+      "name": "derive_arbitrary",
+      "version": "1.4.2",
+      "reason": "dependency of arbitrary, which is not enabled"
+    },
+    {
+      "name": "find-msvc-tools",
+      "version": "0.1.9",
+      "reason": "dependency of cc (build time)"
+    },
+    {
+      "name": "getrandom",
+      "version": "0.4.3",
+      "reason": "dependency of jobserver, itself an optional dependency of cc (build time)"
+    },
+    {
+      "name": "glob",
+      "version": "0.3.3",
+      "reason": "dev-dependency of globset"
+    },
+    {
+      "name": "jobserver",
+      "version": "0.1.35",
+      "reason": "optional dependency of cc (build time)"
+    },
+    {
+      "name": "pkg-config",
+      "version": "0.3.33",
+      "reason": "build-dependency of pcre2-sys"
+    },
+    {
+      "name": "proc-macro2",
+      "version": "1.0.106",
+      "reason": "compiler plug-in stack (serde_derive, derive_arbitrary); runs inside rustc, not linked"
+    },
+    {
+      "name": "quote",
+      "version": "1.0.46",
+      "reason": "compiler plug-in stack (serde_derive, derive_arbitrary); runs inside rustc, not linked"
+    },
+    {
+      "name": "r-efi",
+      "version": "6.0.0",
+      "reason": "dependency of getrandom for UEFI targets only (build time)"
+    },
+    {
+      "name": "regex",
+      "version": "1.13.0",
+      "reason": "dev-dependency of grep-matcher and grep-searcher; rg.exe uses regex-automata directly"
+    },
+    {
+      "name": "serde_derive",
+      "version": "1.0.228",
+      "reason": "dev-dependency of ripgrep; serde_core names it only under cfg(any()), which is never true"
+    },
+    {
+      "name": "shlex",
+      "version": "2.0.1",
+      "reason": "dependency of cc (build time)"
+    },
+    {
+      "name": "syn",
+      "version": "2.0.119",
+      "reason": "compiler plug-in stack (serde_derive, derive_arbitrary); runs inside rustc, not linked"
+    },
+    {
+      "name": "tikv-jemalloc-sys",
+      "version": "0.7.1+5.3.1-0-g81034ce1f1373e37dc865038e1bc8eeecf559ce8",
+      "reason": "dependency of tikv-jemallocator, used only on 64-bit musl targets"
+    },
+    {
+      "name": "tikv-jemallocator",
+      "version": "0.7.0",
+      "reason": "dependency of ripgrep for 64-bit musl targets only"
+    },
+    {
+      "name": "unicode-ident",
+      "version": "1.0.24",
+      "reason": "compiler plug-in stack (serde_derive, derive_arbitrary); runs inside rustc, not linked"
+    }
+  ],
+  "components": [
+    {
+      "id": "libpcre2-10.46",
+      "type": "c-library",
+      "name": "PCRE2",
+      "version": "10.46",
+      "license": "BSD-3-Clause WITH PCRE2-exception",
+      "repository": "https://github.com/PCRE2Project/pcre2",
+      "via": "compiled from the sources bundled in pcre2-sys 0.2.10 (upstream/include/pcre2.h there: PCRE2_MAJOR 10, PCRE2_MINOR 46, PCRE2_DATE 2025-08-27; the release build sets PCRE2_SYS_STATIC=1)",
+      "compiledVersionString": "10.46 2025-08-27",
+      "rgReports": "10.45",
+      "rgReportsNote": "rg --pcre2-version prints the PCRE2_MAJOR and PCRE2_MINOR constants of pcre2-sys/src/bindings.rs, which were generated for 10.45 and not regenerated when the bundled sources went to 10.46 (seen in the installer build on the real 15.2.0 binary, 2026-10-25). The version string that the compiled library carries is compiledVersionString (pcre2_config.c builds it from pcre2.h for PCRE2_CONFIG_VERSION); it is found in rg.exe by a byte search.",
+      "files": [
+        {
+          "path": "libpcre2-10.46/LICENCE.md",
+          "kind": "pcre2",
+          "size": 3867,
+          "sha256": "9cf7ac6976099a1d856826d3ef1b093bd6b84489dc6100628ac79e740cf9885a",
+          "source": {
+            "repository": "PCRE2Project/pcre2",
+            "ref": "pcre2-10.46",
+            "commit": "b2bd4254b379b9d7dc9a3dda060a7e27009ccdff",
+            "path": "LICENCE.md",
+            "blob": "f58ceb75a63e5f958631932f83d0786ee7593485"
+          }
+        }
+      ]
+    },
+    {
+      "id": "aho-corasick-1.1.4",
+      "type": "crate",
+      "name": "aho-corasick",
+      "version": "1.1.4",
+      "license": "Unlicense OR MIT",
+      "repository": "https://github.com/BurntSushi/aho-corasick",
+      "files": [
+        {
+          "path": "aho-corasick-1.1.4/COPYING",
+          "kind": "pointer",
+          "size": 126,
+          "sha256": "01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f",
+          "source": {
+            "repository": "BurntSushi/aho-corasick",
+            "ref": "1.1.4",
+            "commit": "17f8b32e3b7c845ef3c5429b823804f552f14ec9",
+            "path": "COPYING",
+            "blob": "bb9c20a094e41b7632d63bcff20c0b4b95e80777"
+          }
+        },
+        {
+          "path": "aho-corasick-1.1.4/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1081,
+          "sha256": "0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f",
+          "source": {
+            "repository": "BurntSushi/aho-corasick",
+            "ref": "1.1.4",
+            "commit": "17f8b32e3b7c845ef3c5429b823804f552f14ec9",
+            "path": "LICENSE-MIT",
+            "blob": "3b0a5dc09c1e16357459ddc9182a50f360f3cdba"
+          }
+        },
+        {
+          "path": "aho-corasick-1.1.4/UNLICENSE",
+          "kind": "unlicense",
+          "size": 1211,
+          "sha256": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c",
+          "source": {
+            "repository": "BurntSushi/aho-corasick",
+            "ref": "1.1.4",
+            "commit": "17f8b32e3b7c845ef3c5429b823804f552f14ec9",
+            "path": "UNLICENSE",
+            "blob": "68a49daad8ff7e35068f2b7a97d643aab440eaec"
+          }
+        }
+      ]
+    },
+    {
+      "id": "anyhow-1.0.103",
+      "type": "crate",
+      "name": "anyhow",
+      "version": "1.0.103",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/dtolnay/anyhow",
+      "files": [
+        {
+          "path": "anyhow-1.0.103/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 9723,
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "source": {
+            "repository": "dtolnay/anyhow",
+            "ref": "1.0.103",
+            "commit": "5bdb0e24db3994be119d42f18fe2d655e1f68f4a",
+            "path": "LICENSE-APACHE",
+            "blob": "1b5ec8b78e237b5c3b3d812a7c0a6589d0f7161d"
+          }
+        },
+        {
+          "path": "anyhow-1.0.103/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1023,
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "source": {
+            "repository": "dtolnay/anyhow",
+            "ref": "1.0.103",
+            "commit": "5bdb0e24db3994be119d42f18fe2d655e1f68f4a",
+            "path": "LICENSE-MIT",
+            "blob": "31aa79387f27e730e33d871925e152e35e428031"
+          }
+        }
+      ]
+    },
+    {
+      "id": "bstr-1.13.0",
+      "type": "crate",
+      "name": "bstr",
+      "version": "1.13.0",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/BurntSushi/bstr",
+      "files": [
+        {
+          "path": "bstr-1.13.0/COPYING",
+          "kind": "pointer",
+          "size": 262,
+          "sha256": "68653aaa727a2bfa31b7a751e31701ce33c49d695c12dd291a07d1c54da4c14b",
+          "source": {
+            "repository": "BurntSushi/bstr",
+            "ref": "1.13.0",
+            "commit": "63c6578f22bb8eda35a983e5c937d79c16b2a355",
+            "path": "COPYING",
+            "blob": "e343d38645740accccc1b176f7baf173b53c889a"
+          }
+        },
+        {
+          "path": "bstr-1.13.0/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 10847,
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": {
+            "repository": "BurntSushi/bstr",
+            "ref": "1.13.0",
+            "commit": "63c6578f22bb8eda35a983e5c937d79c16b2a355",
+            "path": "LICENSE-APACHE",
+            "blob": "16fe87b06e802f094b3fbb0894b137bca2b16ef1"
+          }
+        },
+        {
+          "path": "bstr-1.13.0/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1086,
+          "sha256": "6b7374c39a57e57fc2c38eb529c4c88340152b10f51dd5ae2d819dfa67f61715",
+          "source": {
+            "repository": "BurntSushi/bstr",
+            "ref": "1.13.0",
+            "commit": "63c6578f22bb8eda35a983e5c937d79c16b2a355",
+            "path": "LICENSE-MIT",
+            "blob": "17d687378cc542b89239e954373ad930201d13bf"
+          }
+        },
+        {
+          "path": "bstr-1.13.0/LICENSE-UNICODE",
+          "kind": "unicode",
+          "size": 2271,
+          "sha256": "8b9babb256418ec15761d635a49f973424939affba7a0a88de2fc2690e454a23",
+          "source": {
+            "repository": "BurntSushi/bstr",
+            "ref": "1.13.0",
+            "commit": "63c6578f22bb8eda35a983e5c937d79c16b2a355",
+            "path": "src/unicode/data/LICENSE-UNICODE",
+            "blob": "ad06935770acbcc9d62b2b5f4da26043ce0c12a3"
+          },
+          "note": "Unicode data behind the grapheme, word and sentence segmentation"
+        }
+      ]
+    },
+    {
+      "id": "cfg-if-1.0.4",
+      "type": "crate",
+      "name": "cfg-if",
+      "version": "1.0.4",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/rust-lang/cfg-if",
+      "files": [
+        {
+          "path": "cfg-if-1.0.4/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 10847,
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": {
+            "repository": "rust-lang/cfg-if",
+            "ref": "v1.0.4",
+            "commit": "3510ca6abea34cbbc702509a4e50ea9709925eda",
+            "path": "LICENSE-APACHE",
+            "blob": "16fe87b06e802f094b3fbb0894b137bca2b16ef1"
+          }
+        },
+        {
+          "path": "cfg-if-1.0.4/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1057,
+          "sha256": "378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397",
+          "source": {
+            "repository": "rust-lang/cfg-if",
+            "ref": "v1.0.4",
+            "commit": "3510ca6abea34cbbc702509a4e50ea9709925eda",
+            "path": "LICENSE-MIT",
+            "blob": "39e0ed6602151f235148e6c08413aa7eda5b9038"
+          }
+        }
+      ]
+    },
+    {
+      "id": "crossbeam-deque-0.8.7",
+      "type": "crate",
+      "name": "crossbeam-deque",
+      "version": "0.8.7",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/crossbeam-rs/crossbeam",
+      "files": [
+        {
+          "path": "crossbeam-deque-0.8.7/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 10847,
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": {
+            "repository": "crossbeam-rs/crossbeam",
+            "ref": "crossbeam-deque-0.8.7",
+            "commit": "9b56303b8aa9ff8ec5bbebb9d2da05e034977889",
+            "path": "crossbeam-deque/LICENSE-APACHE",
+            "blob": "16fe87b06e802f094b3fbb0894b137bca2b16ef1"
+          }
+        },
+        {
+          "path": "crossbeam-deque-0.8.7/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1099,
+          "sha256": "5734ed989dfca1f625b40281ee9f4530f91b2411ec01cb748223e7eb87e201ab",
+          "source": {
+            "repository": "crossbeam-rs/crossbeam",
+            "ref": "crossbeam-deque-0.8.7",
+            "commit": "9b56303b8aa9ff8ec5bbebb9d2da05e034977889",
+            "path": "crossbeam-deque/LICENSE-MIT",
+            "blob": "068d491fd551ae2531f4d28583245719a2e19e2d"
+          }
+        }
+      ]
+    },
+    {
+      "id": "crossbeam-epoch-0.9.20",
+      "type": "crate",
+      "name": "crossbeam-epoch",
+      "version": "0.9.20",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/crossbeam-rs/crossbeam",
+      "files": [
+        {
+          "path": "crossbeam-epoch-0.9.20/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 10847,
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": {
+            "repository": "crossbeam-rs/crossbeam",
+            "ref": "crossbeam-epoch-0.9.20",
+            "commit": "239bae00257967a109911b9ebe7c0554d6333501",
+            "path": "crossbeam-epoch/LICENSE-APACHE",
+            "blob": "16fe87b06e802f094b3fbb0894b137bca2b16ef1"
+          }
+        },
+        {
+          "path": "crossbeam-epoch-0.9.20/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1099,
+          "sha256": "5734ed989dfca1f625b40281ee9f4530f91b2411ec01cb748223e7eb87e201ab",
+          "source": {
+            "repository": "crossbeam-rs/crossbeam",
+            "ref": "crossbeam-epoch-0.9.20",
+            "commit": "239bae00257967a109911b9ebe7c0554d6333501",
+            "path": "crossbeam-epoch/LICENSE-MIT",
+            "blob": "068d491fd551ae2531f4d28583245719a2e19e2d"
+          }
+        }
+      ]
+    },
+    {
+      "id": "crossbeam-utils-0.8.22",
+      "type": "crate",
+      "name": "crossbeam-utils",
+      "version": "0.8.22",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/crossbeam-rs/crossbeam",
+      "files": [
+        {
+          "path": "crossbeam-utils-0.8.22/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 10847,
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": {
+            "repository": "crossbeam-rs/crossbeam",
+            "ref": "crossbeam-utils-0.8.22",
+            "commit": "9b56303b8aa9ff8ec5bbebb9d2da05e034977889",
+            "path": "crossbeam-utils/LICENSE-APACHE",
+            "blob": "16fe87b06e802f094b3fbb0894b137bca2b16ef1"
+          }
+        },
+        {
+          "path": "crossbeam-utils-0.8.22/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1099,
+          "sha256": "5734ed989dfca1f625b40281ee9f4530f91b2411ec01cb748223e7eb87e201ab",
+          "source": {
+            "repository": "crossbeam-rs/crossbeam",
+            "ref": "crossbeam-utils-0.8.22",
+            "commit": "9b56303b8aa9ff8ec5bbebb9d2da05e034977889",
+            "path": "crossbeam-utils/LICENSE-MIT",
+            "blob": "068d491fd551ae2531f4d28583245719a2e19e2d"
+          }
+        }
+      ]
+    },
+    {
+      "id": "encoding_rs-0.8.35",
+      "type": "crate",
+      "name": "encoding_rs",
+      "version": "0.8.35",
+      "license": "(Apache-2.0 OR MIT) AND BSD-3-Clause",
+      "repository": "https://github.com/hsivonen/encoding_rs",
+      "files": [
+        {
+          "path": "encoding_rs-0.8.35/COPYRIGHT",
+          "kind": "notice",
+          "size": 713,
+          "sha256": "11789f45bb180841cd362a5eee6789c68ddb573a11105e30768c308a6add0190",
+          "source": {
+            "repository": "hsivonen/encoding_rs",
+            "ref": "v0.8.35",
+            "commit": "2fa58aecf537cc76ff52c0eb3d5e9f8fda466844",
+            "path": "COPYRIGHT",
+            "blob": "83d3ece1409969472684a03fe7de2b6cc343ffda"
+          }
+        },
+        {
+          "path": "encoding_rs-0.8.35/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 11358,
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "source": {
+            "repository": "hsivonen/encoding_rs",
+            "ref": "v0.8.35",
+            "commit": "2fa58aecf537cc76ff52c0eb3d5e9f8fda466844",
+            "path": "LICENSE-APACHE",
+            "blob": "d645695673349e3947e8e5ae42332d0ac3164cd7"
+          }
+        },
+        {
+          "path": "encoding_rs-0.8.35/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1053,
+          "sha256": "3fa4ca83dcc9237839b1bdeb2e6d16bdfb5ec0c5ce42b24694d8bbf0dcbef72c",
+          "source": {
+            "repository": "hsivonen/encoding_rs",
+            "ref": "v0.8.35",
+            "commit": "2fa58aecf537cc76ff52c0eb3d5e9f8fda466844",
+            "path": "LICENSE-MIT",
+            "blob": "3317c82e2f677cf6d16b1ac57672bfdab2b15066"
+          }
+        },
+        {
+          "path": "encoding_rs-0.8.35/LICENSE-WHATWG",
+          "kind": "bsd-3-clause",
+          "size": 1501,
+          "sha256": "838118388fe5c2e7f1dbbaeed13e1c7f3ebf88be91319c7c1d77c18e987d1a50",
+          "source": {
+            "repository": "hsivonen/encoding_rs",
+            "ref": "v0.8.35",
+            "commit": "2fa58aecf537cc76ff52c0eb3d5e9f8fda466844",
+            "path": "LICENSE-WHATWG",
+            "blob": "f690e71965909bac7e62b84603ade9fa7a9cca54"
+          }
+        }
+      ]
+    },
+    {
+      "id": "encoding_rs_io-0.1.7",
+      "type": "crate",
+      "name": "encoding_rs_io",
+      "version": "0.1.7",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/BurntSushi/encoding_rs_io",
+      "files": [
+        {
+          "path": "encoding_rs_io-0.1.7/COPYING",
+          "kind": "pointer",
+          "size": 260,
+          "sha256": "13361f93b3db60ddb43f8fdc97ba469461019bbf7589f6bde833eb3d995d2497",
+          "source": {
+            "repository": "BurntSushi/encoding_rs_io",
+            "ref": "0.1.7",
+            "commit": "ad0a122d5c42dd2375917d32ad50fbbc7be3213d",
+            "path": "COPYING",
+            "blob": "d5a7d7ec8942e2043c278fc6e3cd76fe4a6fb8e7"
+          }
+        },
+        {
+          "path": "encoding_rs_io-0.1.7/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 10847,
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": {
+            "repository": "BurntSushi/encoding_rs_io",
+            "ref": "0.1.7",
+            "commit": "ad0a122d5c42dd2375917d32ad50fbbc7be3213d",
+            "path": "LICENSE-APACHE",
+            "blob": "16fe87b06e802f094b3fbb0894b137bca2b16ef1"
+          }
+        },
+        {
+          "path": "encoding_rs_io-0.1.7/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1081,
+          "sha256": "0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f",
+          "source": {
+            "repository": "BurntSushi/encoding_rs_io",
+            "ref": "0.1.7",
+            "commit": "ad0a122d5c42dd2375917d32ad50fbbc7be3213d",
+            "path": "LICENSE-MIT",
+            "blob": "3b0a5dc09c1e16357459ddc9182a50f360f3cdba"
+          }
+        }
+      ]
+    },
+    {
+      "id": "itoa-1.0.18",
+      "type": "crate",
+      "name": "itoa",
+      "version": "1.0.18",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/dtolnay/itoa",
+      "files": [
+        {
+          "path": "itoa-1.0.18/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 9723,
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "source": {
+            "repository": "dtolnay/itoa",
+            "ref": "1.0.18",
+            "commit": "af77385d0daf4d0e949e81f2588be2e44f69f086",
+            "path": "LICENSE-APACHE",
+            "blob": "1b5ec8b78e237b5c3b3d812a7c0a6589d0f7161d"
+          }
+        },
+        {
+          "path": "itoa-1.0.18/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1023,
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "source": {
+            "repository": "dtolnay/itoa",
+            "ref": "1.0.18",
+            "commit": "af77385d0daf4d0e949e81f2588be2e44f69f086",
+            "path": "LICENSE-MIT",
+            "blob": "31aa79387f27e730e33d871925e152e35e428031"
+          }
+        }
+      ]
+    },
+    {
+      "id": "lexopt-0.3.2",
+      "type": "crate",
+      "name": "lexopt",
+      "version": "0.3.2",
+      "license": "MIT",
+      "repository": "https://github.com/blyxxyz/lexopt",
+      "files": [
+        {
+          "path": "lexopt-0.3.2/LICENSE",
+          "kind": "mit",
+          "size": 1055,
+          "sha256": "8d43b7fa3b2f928cd4ea6346853b95f1ca5d883f4eaad3a40f8af202bfb45d6f",
+          "source": {
+            "repository": "blyxxyz/lexopt",
+            "ref": "v0.3.2",
+            "commit": "f52c6a620b59dcadb01701c039cd4b270e2d5966",
+            "path": "LICENSE",
+            "blob": "16eed15aeb9e98ab173ef5ca4455af23b6cda9a3"
+          }
+        }
+      ]
+    },
+    {
+      "id": "libc-0.2.186",
+      "type": "crate",
+      "name": "libc",
+      "version": "0.2.186",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/rust-lang/libc",
+      "files": [
+        {
+          "path": "libc-0.2.186/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 9723,
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "source": {
+            "repository": "rust-lang/libc",
+            "ref": "0.2.186",
+            "commit": "42620ffc4109dc32e02f1cae9e63a3f4311b4b71",
+            "path": "LICENSE-APACHE",
+            "blob": "1b5ec8b78e237b5c3b3d812a7c0a6589d0f7161d"
+          }
+        },
+        {
+          "path": "libc-0.2.186/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1066,
+          "sha256": "123a331b5dbf04c30097fa43b8f858bc85df671fe776de498d01f3d6b7c1f69e",
+          "source": {
+            "repository": "rust-lang/libc",
+            "ref": "0.2.186",
+            "commit": "42620ffc4109dc32e02f1cae9e63a3f4311b4b71",
+            "path": "LICENSE-MIT",
+            "blob": "f4095b2fa2d9b6b96341d85c5e8d4943edf7a079"
+          }
+        }
+      ]
+    },
+    {
+      "id": "log-0.4.33",
+      "type": "crate",
+      "name": "log",
+      "version": "0.4.33",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/rust-lang/log",
+      "files": [
+        {
+          "path": "log-0.4.33/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 10847,
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": {
+            "repository": "rust-lang/log",
+            "ref": "0.4.33",
+            "commit": "f405739f3a15a3f00680c793e1e1fa7e57d26ba4",
+            "path": "LICENSE-APACHE",
+            "blob": "16fe87b06e802f094b3fbb0894b137bca2b16ef1"
+          }
+        },
+        {
+          "path": "log-0.4.33/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1071,
+          "sha256": "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb",
+          "source": {
+            "repository": "rust-lang/log",
+            "ref": "0.4.33",
+            "commit": "f405739f3a15a3f00680c793e1e1fa7e57d26ba4",
+            "path": "LICENSE-MIT",
+            "blob": "39d4bdb5acd313c1a92dbeaa1c379aaf0596a315"
+          }
+        }
+      ]
+    },
+    {
+      "id": "memchr-2.8.3",
+      "type": "crate",
+      "name": "memchr",
+      "version": "2.8.3",
+      "license": "Unlicense OR MIT",
+      "repository": "https://github.com/BurntSushi/memchr",
+      "files": [
+        {
+          "path": "memchr-2.8.3/COPYING",
+          "kind": "pointer",
+          "size": 126,
+          "sha256": "01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f",
+          "source": {
+            "repository": "BurntSushi/memchr",
+            "ref": "2.8.3",
+            "commit": "5fdb40c054e1fff359a2f7bdf7f87a13b34b465d",
+            "path": "COPYING",
+            "blob": "bb9c20a094e41b7632d63bcff20c0b4b95e80777"
+          }
+        },
+        {
+          "path": "memchr-2.8.3/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1081,
+          "sha256": "0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f",
+          "source": {
+            "repository": "BurntSushi/memchr",
+            "ref": "2.8.3",
+            "commit": "5fdb40c054e1fff359a2f7bdf7f87a13b34b465d",
+            "path": "LICENSE-MIT",
+            "blob": "3b0a5dc09c1e16357459ddc9182a50f360f3cdba"
+          }
+        },
+        {
+          "path": "memchr-2.8.3/UNLICENSE",
+          "kind": "unlicense",
+          "size": 1211,
+          "sha256": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c",
+          "source": {
+            "repository": "BurntSushi/memchr",
+            "ref": "2.8.3",
+            "commit": "5fdb40c054e1fff359a2f7bdf7f87a13b34b465d",
+            "path": "UNLICENSE",
+            "blob": "68a49daad8ff7e35068f2b7a97d643aab440eaec"
+          }
+        }
+      ]
+    },
+    {
+      "id": "memmap2-0.9.11",
+      "type": "crate",
+      "name": "memmap2",
+      "version": "0.9.11",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/RazrFalcon/memmap2-rs",
+      "files": [
+        {
+          "path": "memmap2-0.9.11/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 10835,
+          "sha256": "04ea4849dba9dcae07113850c6f1b1a69052c625210639914eee352023f750ad",
+          "source": {
+            "repository": "RazrFalcon/memmap2-rs",
+            "ref": "v0.9.11",
+            "commit": "7d76ad3157383db5670fd7e012f44de42aa7444b",
+            "path": "LICENSE-APACHE",
+            "blob": "7be3d81ac7f8ddb88d6258bde03c111812f92009"
+          }
+        },
+        {
+          "path": "memmap2-0.9.11/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1091,
+          "sha256": "0d25d03b5ab49576178ad0cae7a2648d12c17ad0452fe49c07e55e4b59aa5257",
+          "source": {
+            "repository": "RazrFalcon/memmap2-rs",
+            "ref": "v0.9.11",
+            "commit": "7d76ad3157383db5670fd7e012f44de42aa7444b",
+            "path": "LICENSE-MIT",
+            "blob": "6357f40d65af1ea9e0e13cd2825b83511c440586"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pcre2-0.2.11",
+      "type": "crate",
+      "name": "pcre2",
+      "version": "0.2.11",
+      "license": "Unlicense OR MIT",
+      "repository": "https://github.com/BurntSushi/rust-pcre2",
+      "files": [
+        {
+          "path": "pcre2-0.2.11/COPYING",
+          "kind": "pointer",
+          "size": 126,
+          "sha256": "01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f",
+          "source": {
+            "repository": "BurntSushi/rust-pcre2",
+            "ref": "0.2.11",
+            "commit": "9f269262a71d88605c67bd3fcc8633970aa6ad81",
+            "path": "COPYING",
+            "blob": "bb9c20a094e41b7632d63bcff20c0b4b95e80777"
+          }
+        },
+        {
+          "path": "pcre2-0.2.11/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1081,
+          "sha256": "cb3c929a05e6cbc9de9ab06a4c57eeb60ca8c724bef6c138c87d3a577e27aa14",
+          "source": {
+            "repository": "BurntSushi/rust-pcre2",
+            "ref": "0.2.11",
+            "commit": "9f269262a71d88605c67bd3fcc8633970aa6ad81",
+            "path": "LICENSE-MIT",
+            "blob": "3303149e523a4cb762a54e2b73b67f2f3c105769"
+          }
+        },
+        {
+          "path": "pcre2-0.2.11/UNLICENSE",
+          "kind": "unlicense",
+          "size": 1211,
+          "sha256": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c",
+          "source": {
+            "repository": "BurntSushi/rust-pcre2",
+            "ref": "0.2.11",
+            "commit": "9f269262a71d88605c67bd3fcc8633970aa6ad81",
+            "path": "UNLICENSE",
+            "blob": "68a49daad8ff7e35068f2b7a97d643aab440eaec"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pcre2-sys-0.2.10",
+      "type": "crate",
+      "name": "pcre2-sys",
+      "version": "0.2.10",
+      "license": "Unlicense OR MIT",
+      "repository": "https://github.com/BurntSushi/rust-pcre2",
+      "files": [
+        {
+          "path": "pcre2-sys-0.2.10/COPYING",
+          "kind": "pointer",
+          "size": 126,
+          "sha256": "01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f",
+          "source": {
+            "repository": "BurntSushi/rust-pcre2",
+            "ref": "pcre2-sys-0.2.10",
+            "commit": "fd05026e1bf3ad62b3876cf9bd952dc742368462",
+            "path": "pcre2-sys/COPYING",
+            "blob": "bb9c20a094e41b7632d63bcff20c0b4b95e80777"
+          }
+        },
+        {
+          "path": "pcre2-sys-0.2.10/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1081,
+          "sha256": "cb3c929a05e6cbc9de9ab06a4c57eeb60ca8c724bef6c138c87d3a577e27aa14",
+          "source": {
+            "repository": "BurntSushi/rust-pcre2",
+            "ref": "pcre2-sys-0.2.10",
+            "commit": "fd05026e1bf3ad62b3876cf9bd952dc742368462",
+            "path": "pcre2-sys/LICENSE-MIT",
+            "blob": "3303149e523a4cb762a54e2b73b67f2f3c105769"
+          }
+        },
+        {
+          "path": "pcre2-sys-0.2.10/UNLICENSE",
+          "kind": "unlicense",
+          "size": 1211,
+          "sha256": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c",
+          "source": {
+            "repository": "BurntSushi/rust-pcre2",
+            "ref": "pcre2-sys-0.2.10",
+            "commit": "fd05026e1bf3ad62b3876cf9bd952dc742368462",
+            "path": "pcre2-sys/UNLICENSE",
+            "blob": "68a49daad8ff7e35068f2b7a97d643aab440eaec"
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-automata-0.4.15",
+      "type": "crate",
+      "name": "regex-automata",
+      "version": "0.4.15",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/rust-lang/regex",
+      "files": [
+        {
+          "path": "regex-automata-0.4.15/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 10847,
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": {
+            "repository": "rust-lang/regex",
+            "ref": "regex-automata-0.4.15",
+            "commit": "7d941a93561430cd259bb9ceb84cc66f33ae7be8",
+            "path": "regex-automata/LICENSE-APACHE",
+            "blob": "16fe87b06e802f094b3fbb0894b137bca2b16ef1"
+          }
+        },
+        {
+          "path": "regex-automata-0.4.15/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1071,
+          "sha256": "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb",
+          "source": {
+            "repository": "rust-lang/regex",
+            "ref": "regex-automata-0.4.15",
+            "commit": "7d941a93561430cd259bb9ceb84cc66f33ae7be8",
+            "path": "regex-automata/LICENSE-MIT",
+            "blob": "39d4bdb5acd313c1a92dbeaa1c379aaf0596a315"
+          }
+        },
+        {
+          "path": "regex-automata-0.4.15/LICENSE-UNICODE",
+          "kind": "unicode",
+          "size": 2847,
+          "sha256": "74db5baf44a41b1000312c673544b3374e4198af5605c7f9080a402cec42cfa3",
+          "source": {
+            "repository": "rust-lang/regex",
+            "ref": "regex-automata-0.4.15",
+            "commit": "7d941a93561430cd259bb9ceb84cc66f33ae7be8",
+            "path": "regex-syntax/src/unicode_tables/LICENSE-UNICODE",
+            "blob": "b82826bdbdd2c34622ca53747e9011919d8b78bf"
+          },
+          "note": "regex-automata/src/util/unicode_data is generated from the Unicode data the same way; the text sits in regex-syntax"
+        }
+      ]
+    },
+    {
+      "id": "regex-syntax-0.8.11",
+      "type": "crate",
+      "name": "regex-syntax",
+      "version": "0.8.11",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/rust-lang/regex",
+      "files": [
+        {
+          "path": "regex-syntax-0.8.11/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 10847,
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": {
+            "repository": "rust-lang/regex",
+            "ref": "regex-syntax-0.8.11",
+            "commit": "140167995737fa11dfe11b8af8b9aa143b790b4e",
+            "path": "regex-syntax/LICENSE-APACHE",
+            "blob": "16fe87b06e802f094b3fbb0894b137bca2b16ef1"
+          }
+        },
+        {
+          "path": "regex-syntax-0.8.11/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1071,
+          "sha256": "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb",
+          "source": {
+            "repository": "rust-lang/regex",
+            "ref": "regex-syntax-0.8.11",
+            "commit": "140167995737fa11dfe11b8af8b9aa143b790b4e",
+            "path": "regex-syntax/LICENSE-MIT",
+            "blob": "39d4bdb5acd313c1a92dbeaa1c379aaf0596a315"
+          }
+        },
+        {
+          "path": "regex-syntax-0.8.11/LICENSE-UNICODE",
+          "kind": "unicode",
+          "size": 2847,
+          "sha256": "74db5baf44a41b1000312c673544b3374e4198af5605c7f9080a402cec42cfa3",
+          "source": {
+            "repository": "rust-lang/regex",
+            "ref": "regex-syntax-0.8.11",
+            "commit": "140167995737fa11dfe11b8af8b9aa143b790b4e",
+            "path": "regex-syntax/src/unicode_tables/LICENSE-UNICODE",
+            "blob": "b82826bdbdd2c34622ca53747e9011919d8b78bf"
+          },
+          "note": "Unicode tables of regex-syntax"
+        }
+      ]
+    },
+    {
+      "id": "same-file-1.0.6",
+      "type": "crate",
+      "name": "same-file",
+      "version": "1.0.6",
+      "license": "Unlicense/MIT",
+      "repository": "https://github.com/BurntSushi/same-file",
+      "files": [
+        {
+          "path": "same-file-1.0.6/COPYING",
+          "kind": "pointer",
+          "size": 126,
+          "sha256": "01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f",
+          "source": {
+            "repository": "BurntSushi/same-file",
+            "ref": "1.0.6",
+            "commit": "5799cd323b8eefd17a089c950dac113f66c89c9e",
+            "path": "COPYING",
+            "blob": "bb9c20a094e41b7632d63bcff20c0b4b95e80777"
+          }
+        },
+        {
+          "path": "same-file-1.0.6/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1081,
+          "sha256": "cb3c929a05e6cbc9de9ab06a4c57eeb60ca8c724bef6c138c87d3a577e27aa14",
+          "source": {
+            "repository": "BurntSushi/same-file",
+            "ref": "1.0.6",
+            "commit": "5799cd323b8eefd17a089c950dac113f66c89c9e",
+            "path": "LICENSE-MIT",
+            "blob": "3303149e523a4cb762a54e2b73b67f2f3c105769"
+          }
+        },
+        {
+          "path": "same-file-1.0.6/UNLICENSE",
+          "kind": "unlicense",
+          "size": 1211,
+          "sha256": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c",
+          "source": {
+            "repository": "BurntSushi/same-file",
+            "ref": "1.0.6",
+            "commit": "5799cd323b8eefd17a089c950dac113f66c89c9e",
+            "path": "UNLICENSE",
+            "blob": "68a49daad8ff7e35068f2b7a97d643aab440eaec"
+          }
+        }
+      ]
+    },
+    {
+      "id": "serde-1.0.228",
+      "type": "crate",
+      "name": "serde",
+      "version": "1.0.228",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/serde-rs/serde",
+      "files": [
+        {
+          "path": "serde-1.0.228/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 9723,
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "source": {
+            "repository": "serde-rs/serde",
+            "ref": "v1.0.228",
+            "commit": "a866b336f14aa57a07f0d0be9f8762746e64ecb4",
+            "path": "LICENSE-APACHE",
+            "linkedFrom": "serde/LICENSE-APACHE",
+            "blob": "1b5ec8b78e237b5c3b3d812a7c0a6589d0f7161d"
+          }
+        },
+        {
+          "path": "serde-1.0.228/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1023,
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "source": {
+            "repository": "serde-rs/serde",
+            "ref": "v1.0.228",
+            "commit": "a866b336f14aa57a07f0d0be9f8762746e64ecb4",
+            "path": "LICENSE-MIT",
+            "linkedFrom": "serde/LICENSE-MIT",
+            "blob": "31aa79387f27e730e33d871925e152e35e428031"
+          }
+        }
+      ]
+    },
+    {
+      "id": "serde_core-1.0.228",
+      "type": "crate",
+      "name": "serde_core",
+      "version": "1.0.228",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/serde-rs/serde",
+      "files": [
+        {
+          "path": "serde_core-1.0.228/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 9723,
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "source": {
+            "repository": "serde-rs/serde",
+            "ref": "v1.0.228",
+            "commit": "a866b336f14aa57a07f0d0be9f8762746e64ecb4",
+            "path": "LICENSE-APACHE",
+            "linkedFrom": "serde_core/LICENSE-APACHE",
+            "blob": "1b5ec8b78e237b5c3b3d812a7c0a6589d0f7161d"
+          }
+        },
+        {
+          "path": "serde_core-1.0.228/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1023,
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "source": {
+            "repository": "serde-rs/serde",
+            "ref": "v1.0.228",
+            "commit": "a866b336f14aa57a07f0d0be9f8762746e64ecb4",
+            "path": "LICENSE-MIT",
+            "linkedFrom": "serde_core/LICENSE-MIT",
+            "blob": "31aa79387f27e730e33d871925e152e35e428031"
+          }
+        }
+      ]
+    },
+    {
+      "id": "serde_json-1.0.150",
+      "type": "crate",
+      "name": "serde_json",
+      "version": "1.0.150",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/serde-rs/json",
+      "files": [
+        {
+          "path": "serde_json-1.0.150/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 9723,
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "source": {
+            "repository": "serde-rs/json",
+            "ref": "v1.0.150",
+            "commit": "a1ae73ac6a6940a4a57c673aebaa13ed4dfe3e8c",
+            "path": "LICENSE-APACHE",
+            "blob": "1b5ec8b78e237b5c3b3d812a7c0a6589d0f7161d"
+          }
+        },
+        {
+          "path": "serde_json-1.0.150/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1023,
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "source": {
+            "repository": "serde-rs/json",
+            "ref": "v1.0.150",
+            "commit": "a1ae73ac6a6940a4a57c673aebaa13ed4dfe3e8c",
+            "path": "LICENSE-MIT",
+            "blob": "31aa79387f27e730e33d871925e152e35e428031"
+          }
+        }
+      ]
+    },
+    {
+      "id": "termcolor-1.4.1",
+      "type": "crate",
+      "name": "termcolor",
+      "version": "1.4.1",
+      "license": "Unlicense OR MIT",
+      "repository": "https://github.com/BurntSushi/termcolor",
+      "files": [
+        {
+          "path": "termcolor-1.4.1/COPYING",
+          "kind": "pointer",
+          "size": 126,
+          "sha256": "01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f",
+          "source": {
+            "repository": "BurntSushi/termcolor",
+            "ref": "1.4.1",
+            "commit": "71f0921f1eeceda85487098588a1602979d52493",
+            "path": "COPYING",
+            "blob": "bb9c20a094e41b7632d63bcff20c0b4b95e80777"
+          }
+        },
+        {
+          "path": "termcolor-1.4.1/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1081,
+          "sha256": "0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f",
+          "source": {
+            "repository": "BurntSushi/termcolor",
+            "ref": "1.4.1",
+            "commit": "71f0921f1eeceda85487098588a1602979d52493",
+            "path": "LICENSE-MIT",
+            "blob": "3b0a5dc09c1e16357459ddc9182a50f360f3cdba"
+          }
+        },
+        {
+          "path": "termcolor-1.4.1/UNLICENSE",
+          "kind": "unlicense",
+          "size": 1211,
+          "sha256": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c",
+          "source": {
+            "repository": "BurntSushi/termcolor",
+            "ref": "1.4.1",
+            "commit": "71f0921f1eeceda85487098588a1602979d52493",
+            "path": "UNLICENSE",
+            "blob": "68a49daad8ff7e35068f2b7a97d643aab440eaec"
+          }
+        }
+      ]
+    },
+    {
+      "id": "textwrap-0.16.2",
+      "type": "crate",
+      "name": "textwrap",
+      "version": "0.16.2",
+      "license": "MIT",
+      "repository": "https://github.com/mgeisler/textwrap",
+      "files": [
+        {
+          "path": "textwrap-0.16.2/LICENSE",
+          "kind": "mit",
+          "size": 1071,
+          "sha256": "ce93600c49fbb3e14df32efe752264644f6a2f8e08a735ba981725799e5309ef",
+          "source": {
+            "repository": "mgeisler/textwrap",
+            "ref": "0.16.2",
+            "commit": "4770e55af425a0cffb9ad8496599d2a1a4f5ed14",
+            "path": "LICENSE",
+            "blob": "0d37ec3891d8607a1b3f809f08ea12c2b8b1fd33"
+          }
+        }
+      ]
+    },
+    {
+      "id": "walkdir-2.5.0",
+      "type": "crate",
+      "name": "walkdir",
+      "version": "2.5.0",
+      "license": "Unlicense/MIT",
+      "repository": "https://github.com/BurntSushi/walkdir",
+      "files": [
+        {
+          "path": "walkdir-2.5.0/COPYING",
+          "kind": "pointer",
+          "size": 126,
+          "sha256": "01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f",
+          "source": {
+            "repository": "BurntSushi/walkdir",
+            "ref": "2.5.0",
+            "commit": "4f26be4d450910916ea11533b2efc52b9a6483bc",
+            "path": "COPYING",
+            "blob": "bb9c20a094e41b7632d63bcff20c0b4b95e80777"
+          }
+        },
+        {
+          "path": "walkdir-2.5.0/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1081,
+          "sha256": "0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f",
+          "source": {
+            "repository": "BurntSushi/walkdir",
+            "ref": "2.5.0",
+            "commit": "4f26be4d450910916ea11533b2efc52b9a6483bc",
+            "path": "LICENSE-MIT",
+            "blob": "3b0a5dc09c1e16357459ddc9182a50f360f3cdba"
+          }
+        },
+        {
+          "path": "walkdir-2.5.0/UNLICENSE",
+          "kind": "unlicense",
+          "size": 1211,
+          "sha256": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c",
+          "source": {
+            "repository": "BurntSushi/walkdir",
+            "ref": "2.5.0",
+            "commit": "4f26be4d450910916ea11533b2efc52b9a6483bc",
+            "path": "UNLICENSE",
+            "blob": "68a49daad8ff7e35068f2b7a97d643aab440eaec"
+          }
+        }
+      ]
+    },
+    {
+      "id": "winapi-util-0.1.11",
+      "type": "crate",
+      "name": "winapi-util",
+      "version": "0.1.11",
+      "license": "Unlicense OR MIT",
+      "repository": "https://github.com/BurntSushi/winapi-util",
+      "files": [
+        {
+          "path": "winapi-util-0.1.11/COPYING",
+          "kind": "pointer",
+          "size": 126,
+          "sha256": "01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f",
+          "source": {
+            "repository": "BurntSushi/winapi-util",
+            "ref": "0.1.11",
+            "commit": "803874c57dc1f10ecd42f7c86d9de72f53818432",
+            "path": "COPYING",
+            "blob": "bb9c20a094e41b7632d63bcff20c0b4b95e80777"
+          }
+        },
+        {
+          "path": "winapi-util-0.1.11/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1081,
+          "sha256": "cb3c929a05e6cbc9de9ab06a4c57eeb60ca8c724bef6c138c87d3a577e27aa14",
+          "source": {
+            "repository": "BurntSushi/winapi-util",
+            "ref": "0.1.11",
+            "commit": "803874c57dc1f10ecd42f7c86d9de72f53818432",
+            "path": "LICENSE-MIT",
+            "blob": "3303149e523a4cb762a54e2b73b67f2f3c105769"
+          }
+        },
+        {
+          "path": "winapi-util-0.1.11/UNLICENSE",
+          "kind": "unlicense",
+          "size": 1211,
+          "sha256": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c",
+          "source": {
+            "repository": "BurntSushi/winapi-util",
+            "ref": "0.1.11",
+            "commit": "803874c57dc1f10ecd42f7c86d9de72f53818432",
+            "path": "UNLICENSE",
+            "blob": "68a49daad8ff7e35068f2b7a97d643aab440eaec"
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows-link-0.2.1",
+      "type": "crate",
+      "name": "windows-link",
+      "version": "0.2.1",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/microsoft/windows-rs",
+      "files": [
+        {
+          "path": "windows-link-0.2.1/license-apache-2.0",
+          "kind": "apache-2.0",
+          "size": 11351,
+          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b",
+          "source": {
+            "repository": "microsoft/windows-rs",
+            "ref": null,
+            "commit": "d468916ac27a36fb8a12bafc1bf5c0ec2fe92238",
+            "path": "crates/libs/link/license-apache-2.0",
+            "blob": "b5ed4ecec27b39347f6f6c081cf6c512f62bca0a"
+          }
+        },
+        {
+          "path": "windows-link-0.2.1/license-mit",
+          "kind": "mit",
+          "size": 1141,
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+          "source": {
+            "repository": "microsoft/windows-rs",
+            "ref": null,
+            "commit": "d468916ac27a36fb8a12bafc1bf5c0ec2fe92238",
+            "path": "crates/libs/link/license-mit",
+            "blob": "9e841e7a26e4eb057b24511e7b92d42b257a80e5"
+          }
+        }
+      ]
+    },
+    {
+      "id": "windows-sys-0.61.2",
+      "type": "crate",
+      "name": "windows-sys",
+      "version": "0.61.2",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/microsoft/windows-rs",
+      "files": [
+        {
+          "path": "windows-sys-0.61.2/license-apache-2.0",
+          "kind": "apache-2.0",
+          "size": 11351,
+          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b",
+          "source": {
+            "repository": "microsoft/windows-rs",
+            "ref": null,
+            "commit": "d468916ac27a36fb8a12bafc1bf5c0ec2fe92238",
+            "path": "crates/libs/sys/license-apache-2.0",
+            "blob": "b5ed4ecec27b39347f6f6c081cf6c512f62bca0a"
+          }
+        },
+        {
+          "path": "windows-sys-0.61.2/license-mit",
+          "kind": "mit",
+          "size": 1141,
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+          "source": {
+            "repository": "microsoft/windows-rs",
+            "ref": null,
+            "commit": "d468916ac27a36fb8a12bafc1bf5c0ec2fe92238",
+            "path": "crates/libs/sys/license-mit",
+            "blob": "9e841e7a26e4eb057b24511e7b92d42b257a80e5"
+          }
+        }
+      ]
+    },
+    {
+      "id": "zmij-1.0.23",
+      "type": "crate",
+      "name": "zmij",
+      "version": "1.0.23",
+      "license": "MIT",
+      "repository": "https://github.com/dtolnay/zmij",
+      "files": [
+        {
+          "path": "zmij-1.0.23/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1023,
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "source": {
+            "repository": "dtolnay/zmij",
+            "ref": "1.0.23",
+            "commit": "7b7cc48b58028e8af7be87e94c0c1c8936f1a57c",
+            "path": "LICENSE-MIT",
+            "blob": "31aa79387f27e730e33d871925e152e35e428031"
+          }
+        },
+        {
+          "path": "zmij-1.0.23/LICENSE-vitaut-zmij",
+          "kind": "mit",
+          "size": 1073,
+          "sha256": "a69b36adb8d116376bcd580772fa45f08fffecc17833cb9822532f4e4f5ec372",
+          "source": {
+            "repository": "vitaut/zmij",
+            "ref": null,
+            "commit": "b32688a1849d1b8f092c1740c61a6b05ea4679ae",
+            "path": "LICENSE",
+            "blob": "0af4df9c3479f11ece4717a34021bc6263163d99"
+          },
+          "note": "zmij is a line-by-line port of this C++ project (named in its README and lib.rs)"
+        }
+      ]
+    }
+  ]
+}

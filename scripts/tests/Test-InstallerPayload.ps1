@@ -141,6 +141,35 @@ try {
     Copy-InstallerNodeLicense -NodeExecutable (Join-Path $nodeHome 'node.exe') -Destination $nodeStage -SuppliedLicense $suppliedLicense
     Assert-Payload (Test-Path -LiteralPath (Join-Path $nodeStage 'LICENSE')) 'a supplied Node.js LICENSE file is accepted for an MSI-installed Node.js'
     Assert-Rejected { Copy-InstallerNodeLicense -NodeExecutable (Join-Path $nodeHome 'node.exe') -Destination $nodeStage -SuppliedLicense (Join-Path $scratch 'no-such-file') } 'does not name an existing file' 'a supplied LICENSE path that does not exist is an error, not a silent fallback'
+    # ripgrep: rg.exe is linked with PCRE2 and with Rust crates whose license texts are not in the ripgrep archive. The texts are vendored in
+    # scripts/intelligence-runtime/licenses/ripgrep, stage.mjs stages them as licenses/ripgrep, and the licenses folder travels into the payload.
+    Assert-Payload ($builder.Contains('Assert-InstallerRipgrepNotices -HubRoot $hubPayload')) 'real builder checks the ripgrep notices of the payload'
+    $hubFixture = Join-Path $scratch 'hub-with-notices'
+    New-Item -ItemType Directory -Path (Join-Path $hubFixture 'licenses') -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $scriptDir '..\intelligence-runtime\licenses\ripgrep') -Destination (Join-Path $hubFixture 'licenses\ripgrep') -Recurse
+    Assert-InstallerRipgrepNotices -HubRoot $hubFixture
+    Assert-Payload $true 'the vendored ripgrep notices (PCRE2 and the Rust crates) make an acceptable payload'
+    $noticeManifest = Join-Path $hubFixture 'licenses\ripgrep\MANIFEST.json'
+    $noticeJson = [IO.File]::ReadAllText($noticeManifest)
+    $firstPath = [string](ConvertFrom-Json $noticeJson).components[0].files[0].path
+    $firstNotice = Join-Path $hubFixture ('licenses\ripgrep\' + $firstPath.Replace('/', '\'))
+    Move-Item -LiteralPath $noticeManifest -Destination ($noticeManifest + '.hidden')
+    Assert-Rejected { Assert-InstallerRipgrepNotices -HubRoot $hubFixture } 'MANIFEST\.json' 'a payload without the ripgrep notice inventory is refused'
+    Move-Item -LiteralPath ($noticeManifest + '.hidden') -Destination $noticeManifest
+    Move-Item -LiteralPath $firstNotice -Destination ($firstNotice + '.hidden')
+    Assert-Rejected { Assert-InstallerRipgrepNotices -HubRoot $hubFixture } 'Missing or empty ripgrep notice' 'a payload without one of the listed license texts is refused'
+    Move-Item -LiteralPath ($firstNotice + '.hidden') -Destination $firstNotice
+    $firstBytes = [IO.File]::ReadAllBytes($firstNotice)
+    [IO.File]::WriteAllBytes($firstNotice, (New-Object byte[] 0))
+    Assert-Rejected { Assert-InstallerRipgrepNotices -HubRoot $hubFixture } 'Missing or empty ripgrep notice' 'an empty license text is refused'
+    [IO.File]::WriteAllBytes($firstNotice, $firstBytes)
+    [IO.File]::WriteAllText($noticeManifest, $noticeJson.Replace('"name": "PCRE2"', '"name": "PCRE3"'))
+    Assert-Rejected { Assert-InstallerRipgrepNotices -HubRoot $hubFixture } 'PCRE2' 'an inventory without PCRE2 is refused'
+    [IO.File]::WriteAllText($noticeManifest, $noticeJson.Replace('"path": "' + $firstPath + '"', '"path": "../LICENCE.md"'))
+    Assert-Rejected { Assert-InstallerRipgrepNotices -HubRoot $hubFixture } 'Unsafe ripgrep notice path' 'an inventory path that leaves the folder is refused'
+    [IO.File]::WriteAllText($noticeManifest, $noticeJson)
+    Assert-InstallerRipgrepNotices -HubRoot $hubFixture
+    Assert-Payload $true 'the restored notices are accepted again (the refusals above were not caused by anything else)'
     Write-Host "PASS: Installer payload regression ($count passed, 0 failed, 0 skipped)"
 } finally {
     $resolved = [IO.Path]::GetFullPath($scratch).TrimEnd('\', '/')

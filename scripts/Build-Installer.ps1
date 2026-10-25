@@ -171,6 +171,7 @@ $hubPayload = Join-Path $payloadDir 'CHATMCP-HUB'
 Copy-Item -LiteralPath (Join-Path $intelligenceStage 'grammars') -Destination (Join-Path $hubPayload 'grammars') -Recurse -ErrorAction Stop
 Copy-Item -Path (Join-Path $intelligenceStage 'runtimes\*') -Destination (Join-Path $hubPayload 'runtimes') -Recurse -ErrorAction Stop
 Copy-Item -LiteralPath (Join-Path $intelligenceStage 'licenses') -Destination (Join-Path $hubPayload 'licenses') -Recurse -ErrorAction Stop
+Assert-InstallerRipgrepNotices -HubRoot $hubPayload
 Copy-Item -LiteralPath (Join-Path $intelligenceStage 'runtime-manifest.json') -Destination (Join-Path $hubPayload 'runtime-manifest.json') -ErrorAction Stop
 & $nodeCmd.Path (Join-Path $intelligenceScripts 'verify.mjs') $hubPayload
 if ($LASTEXITCODE -ne 0) { throw 'Offline intelligence installed payload verification failed.' }

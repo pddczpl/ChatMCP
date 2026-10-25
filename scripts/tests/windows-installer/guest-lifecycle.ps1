@@ -159,6 +159,10 @@ try {
     foreach ($marker in $markers) { [IO.File]::WriteAllText($marker,$RunId) }
     Install-Wizard 'C:\G6Input\CandidateSetup.exe' 'upgrade'
     Assert-Check ((Get-FileHash -LiteralPath (Join-Path $installDir 'Uninstall.exe') -Algorithm SHA256).Hash -eq $report.candidateSha256) 'in-place upgrade replaces baseline installer with candidate'
+    # The candidate is the build under test: it carries the license texts of what is compiled into rg.exe (the baseline may predate them).
+    foreach ($file in @('CHATMCP-HUB\licenses\ripgrep\MANIFEST.json','CHATMCP-HUB\licenses\ripgrep\libpcre2-10.46\LICENCE.md')) {
+        Assert-Check (Test-Path -LiteralPath (Join-Path $installDir $file)) "upgraded layout includes $file"
+    }
     Assert-Check ((Get-FileHash -LiteralPath $settingsFile -Algorithm SHA256).Hash -eq $settingsBefore) 'upgrade preserves real BYO profile settings byte for byte'
     foreach ($marker in $markers) { Assert-Check ([IO.File]::ReadAllText($marker) -eq $RunId) "upgrade preserves $marker" }
     Launch-Desktop 'upgrade'
