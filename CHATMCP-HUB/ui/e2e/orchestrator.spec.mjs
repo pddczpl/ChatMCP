@@ -488,7 +488,7 @@ test('the section switch is a tablist: arrows, Home and End move and select, and
 });
 
 for (const late of [0, 30, 1500]) test(`narrow windows (600 and 900 px): the Agents tab fits its panel in every section, with a real run on screen${late ? `, when the page hears of the new width ${late} ms late` : ''}`, async ({ page, app }, testInfo) => {
-  test.setTimeout(late ? 60_000 : 240_000);
+  test.setTimeout(240_000);
   await delayLayoutChanges(page, late);
   defineNoteWorker(app.mock);
   await onboard(page, app);
@@ -497,15 +497,21 @@ for (const late of [0, 30, 1500]) test(`narrow windows (600 and 900 px): the Age
   const run = await app.hub.post('/api/studio/coding/run', { tasks: [{ id: 'task-a', prompt: 'Add a file named AGENT-NOTE.md that explains this project' }], maxConcurrency: 1, confirmation: 'CREATE WORKTREES' });
   expect(run.status).toBe('ready_for_review');
   for (const [width, height] of [[600, 900], [900, 800]]) {
+    const wasWide = page.viewportSize().width >= 1100;
     await page.setViewportSize({ width, height });
-    // compact windows close the work panel, a moment after the size changes; the header button opens it. The block is retried as a whole
-    // because for that moment the panel of the old layout is still on screen and is about to go.
-    await expect(async () => {
+    // Under 1100 px the page draws the compact layout and closes the work panel, in one step. The browser tells the page of a new width at its next frame and
+    // setViewportSize does not wait for that, so for a moment the panel on screen is the wide layout's, which is about to go. Whatever is done to it then can
+    // never end (a click waits for a tab that has gone, and these actions have no timeout of their own), and a retry around it cannot help: it starts again
+    // only when the callback ends. So wait for the end of the step, which is the header button that opens the panel, and use it. From 600 to 900 px the window
+    // stays compact: nothing closes, and the panel stays as it was.
+    if (wasWide) {
       const opener = page.locator('header button[title="Mở Inspector (Ctrl+J)"]');
-      if (await opener.isVisible()) await opener.click();
-      await openAgents(page, 'Sửa mã');
-      await expect(page.getByTestId('coding-worker')).toBeVisible({ timeout: 2_000 });
-    }).toPass({ timeout: 30_000 });
+      await expect(opener).toBeVisible();
+      await opener.click();
+    }
+    await expect(page.locator('#panel-inspector')).toBeVisible();
+    await openAgents(page, 'Sửa mã');
+    await expect(page.getByTestId('coding-worker')).toBeVisible();
     for (const [section, id] of [['Công việc nền', null], ['Nhóm trợ lý', 'agent-groups'], ['Sửa mã', 'coding-agents']]) {
       await page.getByRole('tab', { name: section, exact: true }).click();
       if (id) {
