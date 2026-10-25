@@ -141,14 +141,14 @@ try {
     Copy-InstallerNodeLicense -NodeExecutable (Join-Path $nodeHome 'node.exe') -Destination $nodeStage -SuppliedLicense $suppliedLicense
     Assert-Payload (Test-Path -LiteralPath (Join-Path $nodeStage 'LICENSE')) 'a supplied Node.js LICENSE file is accepted for an MSI-installed Node.js'
     Assert-Rejected { Copy-InstallerNodeLicense -NodeExecutable (Join-Path $nodeHome 'node.exe') -Destination $nodeStage -SuppliedLicense (Join-Path $scratch 'no-such-file') } 'does not name an existing file' 'a supplied LICENSE path that does not exist is an error, not a silent fallback'
-    # ripgrep: rg.exe is linked with PCRE2 and with Rust crates whose license texts are not in the ripgrep archive. The texts are vendored in
+    # ripgrep: rg.exe is linked with PCRE2, with Rust crates and with the Rust standard library, whose license texts are not in the ripgrep archive. The texts are vendored in
     # scripts/intelligence-runtime/licenses/ripgrep, stage.mjs stages them as licenses/ripgrep, and the licenses folder travels into the payload.
     Assert-Payload ($builder.Contains('Assert-InstallerRipgrepNotices -HubRoot $hubPayload')) 'real builder checks the ripgrep notices of the payload'
     $hubFixture = Join-Path $scratch 'hub-with-notices'
     New-Item -ItemType Directory -Path (Join-Path $hubFixture 'licenses') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $scriptDir '..\intelligence-runtime\licenses\ripgrep') -Destination (Join-Path $hubFixture 'licenses\ripgrep') -Recurse
     Assert-InstallerRipgrepNotices -HubRoot $hubFixture
-    Assert-Payload $true 'the vendored ripgrep notices (PCRE2 and the Rust crates) make an acceptable payload'
+    Assert-Payload $true 'the vendored ripgrep notices (PCRE2, the Rust standard library and the Rust crates) make an acceptable payload'
     $noticeManifest = Join-Path $hubFixture 'licenses\ripgrep\MANIFEST.json'
     $noticeJson = [IO.File]::ReadAllText($noticeManifest)
     $firstPath = [string](ConvertFrom-Json $noticeJson).components[0].files[0].path

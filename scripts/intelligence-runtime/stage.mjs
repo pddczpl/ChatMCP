@@ -86,8 +86,8 @@ if (grammarNotices.pending.length > 0) {
   files.push({ path: PENDING_MARKER, size: marker.length, sha256: hash(marker) });
   console.warn('WARNING: staged WITHOUT licence notices for ' + grammarNotices.pending.map(item => item.entry.id).join(', ') + '. This build must not be released.');
 }
-// rg.exe (staged below from its official archive, which carries only ripgrep's own MIT and Unlicense texts) is also linked with PCRE2 and with Rust
-// crates. Their texts are vendored in scripts/intelligence-runtime/licenses/ripgrep, listed in its MANIFEST.json, and there is no pending option: the
+// rg.exe (staged below from its official archive, which carries only ripgrep's own MIT and Unlicense texts) is also linked with PCRE2, with Rust
+// crates and with the Rust standard library. Their texts are vendored in scripts/intelligence-runtime/licenses/ripgrep, listed in its MANIFEST.json, and there is no pending option: the
 // build stops without them, and when stage-ripgrep.ps1 pins another release than the one the inventory was derived for.
 const ripgrepNotices = await readRipgrepNotices({ sourceDirectory: here });
 assertRipgrepPin(ripgrepNotices.manifest, await fs.readFile(path.join(here, 'stage-ripgrep.ps1'), 'utf8'));

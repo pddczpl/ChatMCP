@@ -6,7 +6,7 @@ import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { LspProcess } from '../../CHATMCP-HUB/lib/studio-intelligence.mjs';
-import { checkCompiledPcre2, checkReportedPcre2 } from './notices.mjs';
+import { checkCompiledPcre2, checkCompiledRust, checkReportedPcre2, checkStaticCrt } from './notices.mjs';
 import { verifyRuntime } from './verify.mjs';
 
 if (process.platform !== 'win32') throw new Error('Bundled Windows acceptance requires Windows.');
@@ -101,9 +101,18 @@ try {
   const reportedPcre2 = spawnSync(info.path, ['--pcre2-version'], { encoding: 'utf8', windowsHide: true, timeout: 10000 });
   const pcre2Problem = checkReportedPcre2(noticeInventory, reportedPcre2.stdout);
   assert.equal(pcre2Problem, null, pcre2Problem ?? '');
-  const compiledProblem = checkCompiledPcre2(noticeInventory, await fs.readFile(info.path));
+  const binary = await fs.readFile(info.path);
+  const compiledProblem = checkCompiledPcre2(noticeInventory, binary);
   assert.equal(compiledProblem, null, compiledProblem ?? '');
   console.log('PASS bundled ripgrep carries the PCRE2 version string of the shipped notice');
+  // The Rust standard library of the notice is the one of the toolchain that the inventory derives from ripgrep's release record (rustStd.toolchain): core and std leave the paths of their
+  // sources, /rustc/<commit>/library/..., in the binary, and that commit must be among them. And the C runtime that the notices name (libcmt, libvcruntime, libucrt) is linked statically:
+  // the import table of the PE file names no runtime DLL.
+  const rustProblem = checkCompiledRust(noticeInventory, binary);
+  assert.equal(rustProblem, null, rustProblem ?? '');
+  const crtProblem = checkStaticCrt(binary);
+  assert.equal(crtProblem, null, crtProblem ?? '');
+  console.log('PASS bundled ripgrep carries the source paths of the Rust toolchain of the shipped notice and imports no C runtime DLL');
   const searched = path.join(temp, 'ripgrep');
   await fs.mkdir(path.join(searched, 'src'), { recursive: true });
   await fs.writeFile(path.join(searched, 'src', 'a.js'), 'const needle = 1;\r\nfunction go() { return needle; }\r\n');
