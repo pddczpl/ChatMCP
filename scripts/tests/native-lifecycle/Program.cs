@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using ChatMCP.Native;
@@ -208,6 +210,45 @@ try
         }
         finally { gate.ReleaseMutex(); }
     }
+    // What the installer reads from the running Hub before it stops it. /api/state grows with use (445,101 bytes on the machine of the owner, who had used DatGold for a week) and was read
+    // through a client that refused anything over 256 KiB: "Cannot write more bytes to the buffer than the configured maximum buffer size: 262144". An upgrade and an uninstall died on it
+    // as soon as the state had grown that far, which no test saw because every test Hub is new. A one-shot HTTP server on a free loopback port stands in for the Hub.
+    {
+        (string Origin, Task Served) Serve(int padding)
+        {
+            var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
+            var origin = "http://127.0.0.1:" + ((IPEndPoint)listener.LocalEndpoint).Port;
+            var body = Encoding.UTF8.GetBytes("{\"agent\":{\"tasks\":[]},\"padding\":\"" + new string('x', padding) + "\"}");
+            var served = Task.Run(async () =>
+            {
+                try
+                {
+                    using var peer = await listener.AcceptTcpClientAsync();
+                    using var stream = peer.GetStream();
+                    var seen = new StringBuilder(); var buffer = new byte[4096];
+                    while (!seen.ToString().Contains("\r\n\r\n")) { var read = await stream.ReadAsync(buffer); if (read == 0) break; seen.Append(Encoding.ASCII.GetString(buffer, 0, read)); }
+                    await stream.WriteAsync(Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {body.Length}\r\nConnection: close\r\n\r\n"));
+                    await stream.WriteAsync(body); await stream.FlushAsync();
+                }
+                catch (IOException) { /* the client gave up on an answer that was too big: that is what one test asks for */ }
+                catch (SocketException) { }
+                finally { listener.Stop(); }
+            });
+            return (origin, served);
+        }
+        int PaddingOf(string origin)
+        {
+            using var client = HubLifecycle.Client();
+            using var answer = HubLifecycle.GetJson(client, "/api/state", null, origin).GetAwaiter().GetResult();
+            return answer.RootElement.GetProperty("padding").GetString()!.Length;
+        }
+        Check(PaddingOf(Serve(600_000).Origin) == 600_000, "the Hub's state is read whole when it is bigger than 256 KiB (the owner's was 445 KB)");
+        Check(PaddingOf(Serve(5_000_000).Origin) == 5_000_000, "and when it has grown more than ten times over that");
+        var runaway = Serve(3_000_000);
+        using (var capped = HubLifecycle.Client(maxResponseBytes: 1_000_000))
+            Throws(() => HubLifecycle.GetJson(capped, "/api/state", null, runaway.Origin).GetAwaiter().GetResult(), "an answer over the cap is still refused: the cap only bounds a runaway answer");
+    }
+
     // Shortcuts. Versions up to 3.10.1 made theirs under the product's old name: the Desktop link "ChatMCP Studio.lnk" and a Start menu folder "ChatMCP" holding
     // "ChatMCP Studio.lnk" and "Uninstall ChatMCP Studio.lnk". Setup now makes the DatGold ones and removes the old ones that belong to this installation (and only
     // those); the uninstaller removes both sets. Real .lnk files, in scratch folders that stand in for the Desktop and the Start menu.

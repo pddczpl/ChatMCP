@@ -33,12 +33,19 @@ internal static class HubLifecycle
         }
         catch { mutex.Dispose(); throw; }
     }
-    internal static HttpClient Client() => new(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false })
-        { Timeout = TimeSpan.FromSeconds(4), MaxResponseContentBufferSize = 256 * 1024 };
+    /// <summary>
+    /// The most the Hub may answer with. /api/state grows with use (445,101 bytes on a machine that had used DatGold for a week) and is read whole before the installer stops the Hub,
+    /// so a cap of 256 KiB made every upgrade and uninstall of a used installation fail ("Cannot write more bytes to the buffer than the configured maximum buffer size: 262144").
+    /// The Hub being asked is the installed one (OwnedHub checked the process and its command line first), so the cap is only there to bound a runaway answer.
+    /// </summary>
+    internal const long MaxResponseBytes = 64L * 1024 * 1024;
+    internal static HttpClient Client(long maxResponseBytes = MaxResponseBytes) => new(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false })
+        { Timeout = TimeSpan.FromSeconds(4), MaxResponseContentBufferSize = maxResponseBytes };
 
-    internal static async Task<JsonDocument> GetJson(HttpClient client, string path, string? secret = null)
+    internal static async Task<JsonDocument> GetJson(HttpClient client, string path, string? secret = null, string? origin = null)
     {
-        using var request = secret == null ? new HttpRequestMessage(HttpMethod.Get, Origin + path) : HubSession.Authorized(HttpMethod.Get, Origin + path, secret);
+        var address = (origin ?? Origin) + path;
+        using var request = secret == null ? new HttpRequestMessage(HttpMethod.Get, address) : HubSession.Authorized(HttpMethod.Get, address, secret);
         using var response = await client.SendAsync(request);
         if (!response.IsSuccessStatusCode) throw new InvalidOperationException("Hub returned HTTP " + (int)response.StatusCode + " for " + path + ".");
         return JsonDocument.Parse(await response.Content.ReadAsStringAsync());
