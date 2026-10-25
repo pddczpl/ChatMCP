@@ -16,7 +16,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { powerShell7ModuleStandIn, powerShellChildEnvironment, windowsPowerShellPath } from './support/powershell-environment.mjs';
+import { powerShellChildEnvironment } from '../lib/powershell-environment.mjs';
+import { powerShell7ModuleStandIn, windowsPowerShellPath } from './support/powershell-environment.mjs';
 
 const hubRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // literal backslash, the letter n, at least one space or tab, then a // comment opener
