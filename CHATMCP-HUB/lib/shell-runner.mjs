@@ -15,6 +15,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { powerShellChildEnvironment } from './powershell-environment.mjs';
 import { exists, resolveProgram } from './runtime.mjs';
 
 export const DEFAULT_TIMEOUT_MS = 120_000;
@@ -249,7 +250,9 @@ export class ShellRunner {
     const env = scrubEnv(this.env, { keep: this.keepEnv, secrets: this.secrets() ?? [] });
     Object.assign(env, { GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', NO_COLOR: '1', PAGER: 'cat', GIT_PAGER: 'cat', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' });
     if (this.platform === 'win32' && shellName !== 'powershell') Object.assign(env, { MSYS_NO_PATHCONV: '1', MSYS2_ARG_CONV_EXCL: '*', CHERE_INVOKING: '1' });
-    return env;
+    // A Hub that was started from a pwsh session carries the module folders of PowerShell 7, which cost Windows PowerShell Get-FileHash and five more commands
+    // (lib/powershell-environment.mjs). Off Windows "powershell" is pwsh itself, which needs the module path it was given.
+    return this.platform === 'win32' && shellName === 'powershell' ? powerShellChildEnvironment({}, env) : env;
   }
 
   environment(shellName = null) {

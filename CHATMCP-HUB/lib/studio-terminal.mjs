@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { StudioSandbox } from './studio-sandbox.mjs';
+import { powerShellChildEnvironment } from './powershell-environment.mjs';
 const fault=(message,statusCode=400)=>Object.assign(new Error(message),{statusCode});
 const stamp=()=>new Date().toISOString();
 export class StudioTerminal {
@@ -44,6 +45,9 @@ export class StudioTerminal {
     if(sandbox && interactive)throw fault('Docker sandbox không hỗ trợ terminal tương tác trong bản này; hãy chạy một lệnh kiểm thử.',409);
     const running=[...this.sessions.values()].filter(s=>s.status==='running');if(running.length>=this.maxSessions)throw fault('Có quá nhiều terminal đang chạy.',409);
     const cwd=this.workspace.requireRoot(),id=randomUUID(),win=process.platform==='win32';
+    // A Hub started from a pwsh session carries the module folders of PowerShell 7, which cost Windows PowerShell Get-FileHash and five more commands (lib/powershell-environment.mjs).
+    // Off Windows the shell is $SHELL, which gets the environment as it is.
+    const shellEnv=(env)=>win?powerShellChildEnvironment({},env):env;
     let child,pty=null,sandboxName=null,mode=sandbox?'docker-readonly':interactive?'pipes':'host';
     if(sandbox){
       const check=await this.sandbox.status();if(!check.ready)throw fault(`Docker sandbox chưa sẵn sàng: ${check.detail}. Kiểm tra Docker Desktop và image ${image||'python:3.11-slim'} đã pull trước.`,503);
@@ -55,14 +59,14 @@ export class StudioTerminal {
       const args=win?['-NoLogo','-NoProfile']:['-i'];
       const {lib:ptyLib}=await this.#loadPty();
       if(ptyLib){
-        try{pty=ptyLib.spawn(shell,args,{name:'xterm-256color',cols:100,rows:28,cwd,env:{...process.env,CHATMCP_WORKSPACE:cwd}});mode='conpty';}
+        try{pty=ptyLib.spawn(shell,args,{name:'xterm-256color',cols:100,rows:28,cwd,env:shellEnv({...process.env,CHATMCP_WORKSPACE:cwd})});mode='conpty';}
         catch(error){pty=null;this.ptyState={lib:null,error:String(error?.message??error).split('\n')[0].slice(0,200),missing:false};}
       }
-      if(!pty)child=spawn(shell,win?['-NoLogo','-NoProfile','-NonInteractive','-Command','-']:[],{cwd,windowsHide:true,shell:false,detached:!win,stdio:['pipe','pipe','pipe'],env:{...process.env,CHATMCP_WORKSPACE:cwd}});
+      if(!pty)child=spawn(shell,win?['-NoLogo','-NoProfile','-NonInteractive','-Command','-']:[],{cwd,windowsHide:true,shell:false,detached:!win,stdio:['pipe','pipe','pipe'],env:shellEnv({...process.env,CHATMCP_WORKSPACE:cwd})});
     } else {
       const shell=win?(process.env.SystemRoot?path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe'):'powershell.exe'):(this.restrict?.shellFile||process.env.SHELL||'/bin/sh');
       const args=win?['-NoLogo','-NoProfile','-NonInteractive','-Command',command]:['-c',command];
-      child=this.spawner(shell,args,{cwd,windowsHide:true,shell:false,detached:!win,stdio:['ignore','pipe','pipe'],env:this.childEnv?this.childEnv(cwd):{...process.env,CHATMCP_WORKSPACE:cwd},...(this.spawner===spawn?{}:{timeout:Math.max(.01,Math.min(this.restrict?.maxTimeoutMinutes??120,Number(timeoutMinutes)||5))*60000+5000})});
+      child=this.spawner(shell,args,{cwd,windowsHide:true,shell:false,detached:!win,stdio:['ignore','pipe','pipe'],env:shellEnv(this.childEnv?this.childEnv(cwd):{...process.env,CHATMCP_WORKSPACE:cwd}),...(this.spawner===spawn?{}:{timeout:Math.max(.01,Math.min(this.restrict?.maxTimeoutMinutes??120,Number(timeoutMinutes)||5))*60000+5000})});
     }
     // On POSIX the shell is started as its own process-group leader (detached) so stop() can signal the whole tree.
     const session={id,command,createdAt:stamp(),status:'running',exitCode:null,logs:[],child,pty,mode,interactive,sandboxName,timer:null,bytes:0,sequence:0,groupLeader:!win&&!sandboxName&&!pty&&Boolean(child)&&!child.brokered};this.sessions.set(id,session);

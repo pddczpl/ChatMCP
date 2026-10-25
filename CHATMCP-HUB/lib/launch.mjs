@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { assertBearerHub, parseArguments } from '../hub.mjs';
 import { assertSessionListener, attachToRunningHub, dashboardUrl, readSession, requestTicket, sessionFile } from './hub-session.mjs';
+import { powerShellChildEnvironment } from './powershell-environment.mjs';
 import { delay, portOpen, redact } from './runtime.mjs';
 
 const bundle = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -63,7 +64,8 @@ async function startHubDetached(args, logFile) {
       try {
         child = spawn(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], {
           shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
-          env: { ...process.env, CHATMCP_SPAWN_FILE: process.execPath, CHATMCP_SPAWN_ARGS: [hub, ...args, '--log-file', logFile].map(quoteWindowsArgument).join(' '), CHATMCP_SPAWN_CWD: bundle },
+          // Start-Process hands the environment of this PowerShell to the Hub, so a Hub started from a pwsh session does not inherit the module folders of PowerShell 7 either.
+          env: powerShellChildEnvironment({ CHATMCP_SPAWN_FILE: process.execPath, CHATMCP_SPAWN_ARGS: [hub, ...args, '--log-file', logFile].map(quoteWindowsArgument).join(' '), CHATMCP_SPAWN_CWD: bundle }),
         });
       } catch { resolve(null); return; }
       const timer = setTimeout(() => { child.kill(); resolve(null); }, 30000);
