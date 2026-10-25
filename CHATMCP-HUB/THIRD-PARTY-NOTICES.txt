@@ -17,9 +17,9 @@ RUNTIME COMPONENTS
     expat, zlib, bzip2, liblzma, mpdecimal) as named in its license file.
     License text: CHATMCP-HUB/runtimes/python/LICENSE.txt. Status: shipped; the build fails without it.
  3. Microsoft Visual C++ runtime (vcruntime140.dll, vcruntime140_1.dll inside the CPython archive) - Microsoft proprietary
-    redistributable terms (not OSI-approved, not Apache-2.0): "Redistributing Visual C++ Files",
-    learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files. Status: pending (the terms are not reproduced here; their text
-    was not available offline).
+    redistributable terms (not OSI-approved, not Apache-2.0). Status: documented on 2026-10-25 - the terms that Microsoft publishes are summarised,
+    not reproduced, in the section MICROSOFT C/C++ RUNTIME COMPONENTS below (THIRD-PARTY-NOTICES.md has the same text with links, under the heading
+    "Microsoft C/C++ runtime components").
  4. pyright 1.1.407 - MIT. CHATMCP-HUB/runtimes/lsp/node_modules/pyright/LICENSE.txt; typeshed stubs: dist/typeshed-fallback/LICENSE.
  5. typescript 5.9.3 - Apache-2.0. CHATMCP-HUB/runtimes/lsp/node_modules/typescript/LICENSE.txt and ThirdPartyNoticeText.txt.
  6. typescript-language-server 4.3.4 - Apache-2.0 with portions from VS Code (MIT). CHATMCP-HUB/runtimes/lsp/node_modules/typescript-language-server/LICENSE.
@@ -47,14 +47,29 @@ RUNTIME COMPONENTS
 16. Model catalog data from models.dev (CHATMCP-HUB/lib/model-catalog.data.json: a compact extract of https://models.dev/api.json, dated inside the
     file; data only, nothing is downloaded when the Hub runs) - MIT. The permission text is at the end of this file. Status: shipped.
 17. ripgrep 15.2.0 (CHATMCP-HUB/runtimes/ripgrep/rg.exe, the search of search_files and find_files) - MIT OR Unlicense (dual-licensed: the licensee
-    chooses). The binary also contains PCRE2 (BSD-3-Clause, with an exemption for binary library-like packages) and 30 Rust crates, listed below.
-    License texts of ripgrep itself: CHATMCP-HUB/runtimes/ripgrep/LICENSE-MIT, UNLICENSE and COPYING (from the archive). Texts of PCRE2 and of the
-    crates: CHATMCP-HUB/licenses/ripgrep/<folder>/, copied unchanged from the upstream repositories; MANIFEST.json there gives the source, the SHA-256 and
-    the git blob id of each. Status: shipped; the build fails without them. The Rust standard library and the static C runtime inside rg.exe are not
-    covered (see the list of open notices below). The list is derived from the sources of ripgrep 15.2.0, not from opening the binary; the installer
-    build checks that the version string of the PCRE2 library (10.46 2025-08-27) is in rg.exe. rg --pcre2-version prints PCRE2 10.45 all the same: it
-    prints stale constants of the Rust bindings, and the inventory records that. Components, each with the folder of its texts:
+    chooses). The binary also contains PCRE2 (BSD-3-Clause, with an exemption for binary library-like packages), the Rust standard library of the toolchain
+    that built it, 30 Rust crates of ripgrep's own build and 2 more that the standard library links, listed below, and the static Microsoft C runtime (see
+    MICROSOFT C/C++ RUNTIME COMPONENTS). License texts of ripgrep itself: CHATMCP-HUB/runtimes/ripgrep/LICENSE-MIT, UNLICENSE and COPYING (from the
+    archive). Texts of PCRE2, of the Rust standard library and of the crates: CHATMCP-HUB/licenses/ripgrep/<folder>/, copied unchanged from the upstream
+    repositories; MANIFEST.json there gives the source, the SHA-256 and the git blob id of each. Status: shipped; the build fails without them. The list is
+    derived from the sources and from the release record of ripgrep 15.2.0, not from opening the binary; the installer build checks against rg.exe that the
+    version string of the PCRE2 library (10.46 2025-08-27) is in it, that it carries the source paths /rustc/<commit> of the Rust toolchain named below, and
+    that its import table names no C runtime DLL. rg --pcre2-version prints PCRE2 10.45 all the same: it prints stale constants of the Rust bindings,
+    and the inventory records that.
+    The Rust toolchain is the nightly of 2026-07-15, 1.99.0-nightly (da80ed070 2026-07-14), commit da80ed0708a09dc096c184345d6eb42cbcd50a1e of rust-lang/rust: ripgrep's release workflow does
+    not pin it, and it is derived from the release record (run 29431117779, Windows job started 2026-07-15 16:07:59 UTC) and the nightly manifests of
+    Rust (2026-07-15 published 01:29:39 UTC, the next one a day later), not read from the binary. Rust's COPYRIGHT file lists no third-party text: it
+    points to REUSE and to a generated COPYRIGHT-library.html (not downloaded), so the inventory records the root texts, the parts of library/ with notices of
+    their own and the 3 registry crates that std links for x86_64-pc-windows-msvc; 27 packages of the Rust library lock file that are not linked are listed
+    with the reason in MANIFEST.json. Components, each with the folder of its texts:
       PCRE2 10.46 - BSD-3-Clause WITH PCRE2-exception - libpcre2-10.46/
+      Rust standard library 1.99.0-nightly (da80ed070 2026-07-14) - MIT OR Apache-2.0 - rust-std-da80ed070/
+      Rust core::unicode tables 1.99.0-nightly (da80ed070 2026-07-14) - Unicode-3.0 - rust-core-unicode-da80ed070/
+      Rust std::sync::mpmc 1.99.0-nightly (da80ed070 2026-07-14) - MIT OR Apache-2.0 - rust-std-mpmc-da80ed070/
+      Rust backtrace (backtrace-rs) 1.99.0-nightly (da80ed070 2026-07-14) - MIT OR Apache-2.0 - rust-backtrace-d902726a1/
+      Rust compiler_builtins and libm 1.99.0-nightly (da80ed070 2026-07-14) - MIT AND Apache-2.0 WITH LLVM-exception AND (MIT OR Apache-2.0) - rust-compiler-builtins-da80ed070/
+      Rust stdarch (core::arch, std_detect) 1.99.0-nightly (da80ed070 2026-07-14) - MIT OR Apache-2.0 - rust-stdarch-da80ed070/
+      Rust portable-simd (core::simd) 1.99.0-nightly (da80ed070 2026-07-14) - MIT OR Apache-2.0 - rust-portable-simd-da80ed070/
       aho-corasick 1.1.4 - Unlicense OR MIT - aho-corasick-1.1.4/
       anyhow 1.0.103 - MIT OR Apache-2.0 - anyhow-1.0.103/
       bstr 1.13.0 - MIT OR Apache-2.0 - bstr-1.13.0/
@@ -64,6 +79,7 @@ RUNTIME COMPONENTS
       crossbeam-utils 0.8.22 - MIT OR Apache-2.0 - crossbeam-utils-0.8.22/
       encoding_rs 0.8.35 - (Apache-2.0 OR MIT) AND BSD-3-Clause - encoding_rs-0.8.35/
       encoding_rs_io 0.1.7 - MIT OR Apache-2.0 - encoding_rs_io-0.1.7/
+      hashbrown 0.17.1 - MIT OR Apache-2.0 - hashbrown-0.17.1/
       itoa 1.0.18 - MIT OR Apache-2.0 - itoa-1.0.18/
       lexopt 0.3.2 - MIT - lexopt-0.3.2/
       libc 0.2.186 - MIT OR Apache-2.0 - libc-0.2.186/
@@ -74,6 +90,7 @@ RUNTIME COMPONENTS
       pcre2-sys 0.2.10 - Unlicense OR MIT - pcre2-sys-0.2.10/
       regex-automata 0.4.15 - MIT OR Apache-2.0 - regex-automata-0.4.15/
       regex-syntax 0.8.11 - MIT OR Apache-2.0 - regex-syntax-0.8.11/
+      rustc-demangle 0.1.28 - MIT OR Apache-2.0 - rustc-demangle-0.1.28/
       same-file 1.0.6 - Unlicense/MIT - same-file-1.0.6/
       serde 1.0.228 - MIT OR Apache-2.0 - serde-1.0.228/
       serde_core 1.0.228 - MIT OR Apache-2.0 - serde_core-1.0.228/
@@ -87,14 +104,39 @@ RUNTIME COMPONENTS
       zmij 1.0.23 - MIT - zmij-1.0.23/
     The Unicode, Inc. license is shipped with bstr, regex-syntax and regex-automata, the WHATWG (BSD-3-Clause) license with encoding_rs, and the license
     of Victor Zverovich's C++ zmij (which the Rust crate ports) with zmij.
+    The Rust components are parts of one release: the Unicode License V3 for the tables of core, crossbeam's texts for std::sync::mpmc (the copyright of The
+    Crossbeam Project Developers), the texts of the backtrace-rs submodule, the two composite files of compiler_builtins and libm, and the license files of
+    stdarch and portable-simd. cfg-if serves both ripgrep and the standard library. The Fuchsia mutex of std (BSD-2-Clause) is not compiled for Windows.
+
+MICROSOFT C/C++ RUNTIME COMPONENTS
+
+ Two places carry code of Microsoft's C and C++ runtime; both are redistributed unmodified and neither is DatGold's own work. THIRD-PARTY-NOTICES.md has
+ the same text with the links, under the heading "Microsoft C/C++ runtime components".
+ - Inside rg.exe, linked statically: ripgrep's .cargo/config.toml sets +crt-static for x86_64-pc-windows-msvc, so rg.exe contains libcmt.lib and
+   libvcruntime.lib (from the MSVC toolset of Visual Studio) and libucrt.lib (from the Windows SDK). The installer build checks that the import table of
+   rg.exe names no C runtime DLL (VCRUNTIME140.dll, MSVCP140.dll, UCRTBASE.dll, api-ms-win-crt-*).
+ - Inside the CPython archive, as DLLs: vcruntime140.dll and vcruntime140_1.dll (Visual C++ 2015-2022 runtime), as the Python Software Foundation ships them.
+ What Microsoft publishes, read on 2026-10-25 (the text of these terms is not reproduced here):
+ - Windows SDK license terms, section "Distributable Code", and its REDIST.TXT list (learn.microsoft.com/en-us/legal/windows-sdk/redist, updated 2024-10-21):
+   the section "Static LIB files" says that the .lib files under Lib\<version>\ucrt\<arch> (and um\<arch>) may be distributed unmodified when built as part
+   of your program.
+ - Visual Studio 2022 and 2026 license terms (visualstudio.microsoft.com/license-terms/), section "Distributable Code", and their Distributable Lists
+   (learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution and .../2026/redistribution, both dated 2025-11-11): they name the Visual C++
+   runtime merge modules and the files under VC\redist (where vcruntime140.dll is); they do not name libcmt.lib or libvcruntime.lib.
+ - "Redistribute Visual C++ Files" (learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files, ms.date 2026-04-13): distribution of the
+   redistributable package, merge modules and individual binaries is limited to licensed Visual Studio users and subject to the Microsoft Software License Terms.
+ Conditions for Distributable Code: significant primary functionality of the program; distributors and external end users must agree to terms that protect the
+ code at least as much as the license; the licensee indemnifies Microsoft; for a .lib (SDK): only the result of linking it into a program, and a valid copyright
+ notice on the program.
+ What that means here: DatGold redistributes rg.exe (built by the release workflow of ripgrep) and the CPython runtime (built by the Python Software Foundation)
+ unmodified. Its installer shows no end-user agreement and DatGold gives Microsoft no indemnity, so nothing in this repository meets the condition about terms for
+ end users or the indemnity condition. Whether these conditions bind DatGold as a redistributor, whether code linked statically from libcmt.lib and libvcruntime.lib
+ is Distributable Code at all, and whether the licenses of ripgrep and CPython count as terms that protect Microsoft's code are legal questions that this file
+ does not answer. This is an inventory kept by the maintainers, not legal advice.
 
 PENDING NOTICES
 
- - The Rust standard library inside rg.exe (item 17). ripgrep's release workflow builds with the nightly toolchain of the day, which neither the
-   workflow nor the archive pins, so its version and exact texts are not named here and not in the repository yet.
- - The static Microsoft C runtime that rg.exe is also linked with (ripgrep's .cargo/config.toml sets +crt-static for this target): its terms belong
-   with the Visual C++ runtime terms of item 3.
- - Items 3, 11, 12, 13 and 15 above.
+ - Items 11, 12, 13 and 15 above.
  - The Browser Companion archive ChatMCP-Browser-Companion.zip does not contain LICENSE or NOTICE yet.
 
 NOT REDISTRIBUTED

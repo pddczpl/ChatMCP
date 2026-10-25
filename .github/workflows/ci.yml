@@ -185,6 +185,11 @@ jobs:
       - name: Required installer payload and cleanup regression tests
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\tests\Test-InstallerPayload.ps1
+      # The classes the installer, the uninstaller and the desktop shell compile from native-shared/ and installer/ (Hub health and ownership, the session file, the
+      # install transaction and its rollback, the update lock, the link filter, the Windows PowerShell child), on the real Windows file system. Until this step only
+      # the publish workflows ran them, so a pull request never showed their result.
+      - name: Native lifecycle unit tests (shared Hub lifecycle, install transaction, Windows PowerShell child)
+        run: dotnet run --project scripts/tests/native-lifecycle/NativeLifecycle.Tests.csproj --configuration Release
       - name: Stage the locked intelligence runtime (the files the installer ships) for the real language-server test
         shell: bash
         run: |

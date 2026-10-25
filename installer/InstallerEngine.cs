@@ -347,10 +347,10 @@ namespace ChatMCP.Installer
                 var literal = installedUninstaller.Replace("'", "''");
                 var command = $"Wait-Process -Id {Environment.ProcessId} -ErrorAction SilentlyContinue; " +
                     $"if ((Test-Path -LiteralPath '{literal}') -and ((Get-FileHash -LiteralPath '{literal}' -Algorithm SHA256).Hash -eq '{selfDigest}')) {{ Remove-Item -LiteralPath '{literal}' -Force }}";
-                var powershell = Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe");
-                Process.Start(new ProcessStartInfo(powershell, "-NoProfile -NonInteractive -EncodedCommand " +
-                    Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(command)))
-                { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden });
+                // The helper must not inherit this process's PSModulePath: started from PowerShell 7 it would lose Get-FileHash and leave Uninstall.exe behind.
+                var helper = HubLifecycle.WindowsPowerShell(command);
+                helper.WindowStyle = ProcessWindowStyle.Hidden;
+                Process.Start(helper);
             }
 
             reportProgress(100, "Uninstall completed successfully!");

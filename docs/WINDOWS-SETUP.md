@@ -81,3 +81,5 @@ Unattended installation is opt-in and has the same safety checks as the wizard:
 ~~~
 
 Exit 1 indicates failure. Installing the desktop does not silently replace a Browser Companion loaded unpacked from another directory; update/reload that extension separately.
+
+The installer and the uninstaller start Windows PowerShell as a child in two places: the helper that deletes `Uninstall.exe` once the uninstaller has ended, and the Hub ownership check of the preflight. Both go through `HubLifecycle.WindowsPowerShell` (`native-shared/HubLifecycle.cs`) and get no `PSModulePath`. A program started from a PowerShell 7 window hands PowerShell 7's module folders on, and Windows PowerShell would load them before its own and lose `Get-FileHash` (an uninstaller started that way used to leave `Uninstall.exe` behind). `scripts/tests/legacy-hub-upgrade/run.mjs` and `scripts/tests/Test-NativeLifecycle.ps1` start both from a stand-in for PowerShell 7's module folder, and `CHATMCP-HUB/tests/verify-native-hardening.mjs` keeps `HubLifecycle.cs` the only C# file that names `powershell.exe`.

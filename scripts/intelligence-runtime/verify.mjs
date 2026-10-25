@@ -54,7 +54,7 @@ export async function verifyRuntime(root) {
   for (const file of [...required, ...licenseFiles]) {
     if (!seen.has(file.toLowerCase())) throw new Error('Missing required bundled component: ' + file);
   }
-  // rg.exe is linked with PCRE2 and Rust crates; their texts (and the inventory) are the vendored ones, byte for byte: a runtime in which a text is
+  // rg.exe is linked with PCRE2, Rust crates and the Rust standard library; their texts (and the inventory) are the vendored ones, byte for byte: a runtime in which a text is
   // replaced consistently (the file and its manifest entry) is refused too.
   const hashes = new Map(manifest.files.map((entry) => [entry.path.toLowerCase(), entry.sha256]));
   for (const notice of RIPGREP_NOTICE_FILES) {

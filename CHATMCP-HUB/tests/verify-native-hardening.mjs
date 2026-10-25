@@ -75,4 +75,24 @@ for (const { file, text } of shell) {
 }
 check(/AreDevToolsEnabled\s*=\s*false/.test(window.text), 'a release build turns DevTools off explicitly (WebView2 defaults to on)');
 
-console.log(`PASS: ${checks} checks - no script injection of page addresses, one http/https-only new-window handler, DevTools only in DEBUG`);
+// Windows PowerShell as a child of the installer. A process started from PowerShell 7 inherits PSModulePath with PowerShell 7's module folders first, and the Windows
+// PowerShell it starts then loses Get-FileHash and the other script functions of Microsoft.PowerShell.Utility: the helper that deletes Uninstall.exe left the file behind
+// (tests tell the same story for node: tests/support/powershell-environment.mjs). The behaviour is proved on Windows by scripts/tests/legacy-hub-upgrade/run.mjs and
+// scripts/tests/Test-NativeLifecycle.ps1; this keeps the source from drifting back, on every platform: the Windows PowerShell executable is named in ONE place, HubLifecycle.WindowsPowerShell,
+// which never goes through the shell (ShellExecute ignores Environment) and takes PSModulePath out of the environment in any letter case; every start goes through it.
+{
+  const code = (entry) => strip(entry.text);
+  const naming = shell.filter((entry) => /\b(?:powershell|pwsh)\.exe\b/i.test(code(entry))).map((entry) => entry.file);
+  check(naming.length === 1 && naming[0] === 'native-shared/HubLifecycle.cs', 'the Windows PowerShell executable is named in exactly one C# file, native-shared/HubLifecycle.cs (a second start of it would not drop PSModulePath)', naming.join(', '));
+  const lifecycle = shell.find((entry) => entry.file === 'native-shared/HubLifecycle.cs');
+  const engine = shell.find((entry) => entry.file === 'installer/InstallerEngine.cs');
+  check(lifecycle && engine, 'HubLifecycle.cs and InstallerEngine.cs exist');
+  const helper = /internal static ProcessStartInfo WindowsPowerShell\(string command\)\s*\{[\s\S]*?\n    \}/.exec(code(lifecycle));
+  check(helper, 'HubLifecycle.WindowsPowerShell(string command) exists');
+  check(/\bpowershell\.exe\b/i.test(helper[0]) && /UseShellExecute\s*=\s*false/.test(helper[0]), 'and starts the machine\'s own Windows PowerShell without the shell');
+  check(/Environment\.Remove\(/.test(helper[0]) && /"PSModulePath"/.test(helper[0]) && /StringComparison\.OrdinalIgnoreCase/.test(helper[0]), 'and removes PSModulePath, in any letter case, from the environment of the child');
+  check(/\bHubLifecycle\.WindowsPowerShell\(/.test(code(engine)), 'the uninstaller starts the helper that deletes Uninstall.exe through it');
+  check((code(lifecycle).match(/\bWindowsPowerShell\(/g) ?? []).length >= 2, 'and so does the Hub ownership query (the definition is the first of the occurrences)');
+}
+
+console.log(`PASS: ${checks} checks - no script injection of page addresses, one http/https-only new-window handler, DevTools only in DEBUG, Windows PowerShell started in one place without PSModulePath`);

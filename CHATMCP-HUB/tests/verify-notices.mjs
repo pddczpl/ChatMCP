@@ -25,6 +25,12 @@
 //      texts, verify.mjs must require them (with the vendored hashes), the payload and the installer build must check them, and
 //      test-runtime.mjs must tie the notice to the shipped binary: the version string that the PCRE2 library carries ("10.46 2025-08-27") must be
 //      in rg.exe, and `rg --pcre2-version` must print what the inventory records (10.45: it prints stale constants of the Rust bindings).
+//   8. The Rust standard library inside rg.exe (the same inventory, `rustStd`): the toolchain that built it (the nightly of 2026-07-15, derived from the release record of
+//      ripgrep and Rust's own nightly manifest), the texts of the library tree and of the crates it links for x86_64-pc-windows-msvc, and the packages of the library lock file it
+//      does not link, each with the reason. test-runtime.mjs must look for the /rustc/<commit> source paths of that toolchain in rg.exe, and the static C runtime that the notices
+//      claim must be real: the import table of rg.exe names no C runtime DLL (checkStaticCrt reads it from the PE file).
+//   9. The Microsoft C/C++ runtime components (the static runtime inside rg.exe, the runtime DLLs inside the CPython archive): both notice files summarise the terms that
+//      Microsoft publishes, with their conditions, the dates they were read and their links, and say that the text of those terms is not reproduced; none of it is pending any more.
 //
 // A notice whose upstream text is not in the repository yet is PENDING: the suite prints it and does not fail, because the staging code refuses a
 // release build without it (step 5). The three Tree-sitter grammar texts are vendored, so none is pending today, and then nothing may call them so:
@@ -47,9 +53,9 @@ if (!existsSync(path.join(REPO, 'README.md')) || !existsSync(path.join(REPO, 'sc
 }
 
 const noticesModule = await import(pathToFileURL(path.join(REPO, 'scripts', 'intelligence-runtime', 'notices.mjs')).href);
-for (const name of ['readRipgrepNotices', 'judgeRipgrepText', 'requiredKindsOf', 'assertRipgrepPin', 'checkReportedPcre2', 'checkCompiledPcre2']) assert.equal(typeof noticesModule[name], 'function', `notices.mjs does not export ${name}`);
+for (const name of ['readRipgrepNotices', 'judgeRipgrepText', 'requiredKindsOf', 'assertRipgrepPin', 'checkReportedPcre2', 'checkCompiledPcre2', 'checkCompiledRust', 'checkStaticCrt', 'peImportedLibraries']) assert.equal(typeof noticesModule[name], 'function', `notices.mjs does not export ${name}`);
 assert.ok(Array.isArray(noticesModule.RIPGREP_NOTICE_FILES) && noticesModule.RIPGREP_NOTICE_FILES.length > 1, 'notices.mjs does not export RIPGREP_NOTICE_FILES');
-const { GRAMMAR_NOTICES, PENDING_ALLOWED_ENV, RIPGREP_NOTICE_FILES, assertRipgrepPin, checkCompiledPcre2, checkReportedPcre2, judgeRipgrepText, noticeSource, noticeStaged, readGrammarNotices, readRipgrepNotices, requiredKindsOf, requiredLicenseFiles } = noticesModule;
+const { GRAMMAR_NOTICES, PENDING_ALLOWED_ENV, RIPGREP_NOTICE_FILES, assertRipgrepPin, checkCompiledPcre2, checkCompiledRust, checkReportedPcre2, checkStaticCrt, judgeRipgrepText, noticeSource, noticeStaged, peImportedLibraries, readGrammarNotices, readRipgrepNotices, requiredKindsOf, requiredLicenseFiles } = noticesModule;
 const { REQUIRED_COMPONENTS, verifyRuntime } = await import(pathToFileURL(path.join(REPO, 'scripts', 'intelligence-runtime', 'verify.mjs')).href);
 const { expectedDocument } = await import(pathToFileURL(path.join(REPO, 'scripts', 'generate-licenses.mjs')).href);
 
@@ -268,10 +274,20 @@ export async function checkNotices(repo) {
     const pcre2 = ripgrep.manifest.components.find((component) => component.name === 'PCRE2');
     if (pcre2 && (!markdown.includes(pcre2.compiledVersionString) || !markdown.includes(`PCRE2 ${pcre2.rgReports}`))) fail(`THIRD-PARTY-NOTICES.md does not state both PCRE2 numbers: the version string compiled into rg.exe ("${pcre2.compiledVersionString}", which the notice is for) and the one rg --pcre2-version prints ("PCRE2 ${pcre2.rgReports}")`);
     if (pcre2 && !text.includes(pcre2.compiledVersionString)) fail(`CHATMCP-HUB/THIRD-PARTY-NOTICES.txt does not state the version string compiled into rg.exe ("${pcre2.compiledVersionString}")`);
-    // the counts the prose gives are the inventory's
-    const crates = ripgrep.manifest.components.length - 1;
+    // the counts the prose gives are the inventory's: the crates of ripgrep's Cargo.lock, and the packages of the Rust library lock file that the standard library does not link
+    const crates = ripgrep.manifest.components.filter((component) => component.type === 'crate' && component.origin !== 'rust-std').length;
+    const rust = ripgrep.manifest.rustStd;
+    const rustNotLinked = rust?.notLinked?.length ?? 0;
     if (!markdown.includes(`${crates} Rust crates`) || !markdown.includes(`${ripgrep.manifest.notLinked.length} packages of the lock file that are not linked`)) fail(`THIRD-PARTY-NOTICES.md does not state the counts of the inventory (${crates} Rust crates, ${ripgrep.manifest.notLinked.length} packages of the lock file that are not linked)`);
+    if (!markdown.includes(`${rustNotLinked} packages of the Rust library lock file that are not linked`)) fail(`THIRD-PARTY-NOTICES.md does not state how many packages of the Rust library lock file the standard library does not link (${rustNotLinked})`);
     if (!text.includes(`${crates} Rust crates`)) fail(`CHATMCP-HUB/THIRD-PARTY-NOTICES.txt does not state the count of the inventory (${crates} Rust crates)`);
+    // the toolchain that built rg.exe, and the check that ties the notice to the binary
+    for (const [label, document] of [['THIRD-PARTY-NOTICES.md', markdown], ['CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', text]]) {
+      if (!rust) { fail(`the inventory has no rustStd record, so ${label} cannot be checked against the toolchain`); break; }
+      if (!document.includes(rust.toolchain.rustc)) fail(`${label} does not name the Rust toolchain that built rg.exe ("${rust.toolchain.rustc}")`);
+      if (!document.includes('/rustc/')) fail(`${label} does not say that the installer build looks for the /rustc/<commit> source paths of the toolchain in rg.exe`);
+    }
+    if (rust && !markdown.includes(rust.toolchain.commit)) fail(`THIRD-PARTY-NOTICES.md does not name the commit of the Rust toolchain (${rust.toolchain.commit})`);
   }
   const ripgrepRow = markdown.split('\n').find((line) => /^\| ripgrep \(/.test(line)) ?? '';
   if (/pending/i.test(ripgrepRow)) fail('the ripgrep row of THIRD-PARTY-NOTICES.md still says Pending');
@@ -280,22 +296,56 @@ export async function checkNotices(repo) {
   const pendingText = text.match(/^PENDING NOTICES\s*\n([\s\S]*?)(?=^NOT REDISTRIBUTED)/m)?.[1] ?? '';
   for (const [label, pendingList] of [['THIRD-PARTY-NOTICES.md', pendingMarkdown], ['CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', pendingText]]) {
     const flat = pendingList.replace(/\s+/g, ' ');
-    if (!/Rust standard library/.test(flat)) fail(`${label} does not list the Rust standard library inside rg.exe among the pending notices (its toolchain is not pinned, so its texts are not vendored)`);
-    if (!/static[^.]*C runtime|C runtime[^.]*static/i.test(flat)) fail(`${label} does not list the static Microsoft C runtime of rg.exe among the pending notices`);
+    if (/Rust standard library/.test(flat)) fail(`${label} still lists the Rust standard library inside rg.exe among the pending notices: its texts are vendored in licenses/ripgrep`);
+    if (/static[^.]*C runtime|C runtime[^.]*static/i.test(flat)) fail(`${label} still lists the static Microsoft C runtime of rg.exe among the pending notices: its terms are summarised in the section "Microsoft C/C++ runtime components"`);
+    if (/Visual C\+\+ runtime/i.test(flat)) fail(`${label} still lists the Microsoft Visual C++ runtime among the pending notices: its terms are summarised in the section "Microsoft C/C++ runtime components"`);
   }
+  if (/\bItems? 3\b/.test(pendingText.replace(/\s+/g, ' '))) fail('CHATMCP-HUB/THIRD-PARTY-NOTICES.txt still lists item 3 (the Microsoft Visual C++ runtime) among the pending notices');
+  // The Microsoft runtime components (the static C runtime inside rg.exe, the runtime DLLs inside the CPython archive): decided on 2026-10-25 to name them and summarise the terms
+  // that Microsoft publishes, without reproducing any Microsoft text. The sections must carry the facts that make the summary honest.
+  const microsoftRow = markdown.split('\n').find((line) => /^\| Microsoft Visual C\+\+ runtime/.test(line)) ?? '';
+  if (/pending/i.test(microsoftRow)) fail('the Microsoft Visual C++ runtime row of THIRD-PARTY-NOTICES.md still says Pending');
+  if (!microsoftRow.includes('Microsoft C/C++ runtime components')) fail('the Microsoft Visual C++ runtime row of THIRD-PARTY-NOTICES.md does not point to the section "Microsoft C/C++ runtime components"');
+  const microsoftItem = text.match(/^ ?\d+\. Microsoft Visual C\+\+ runtime[\s\S]*?(?=^ ?\d+\. )/m)?.[0] ?? '';
+  if (/pending/i.test(microsoftItem)) fail('the Microsoft Visual C++ runtime item of CHATMCP-HUB/THIRD-PARTY-NOTICES.txt still says pending');
+  if (!microsoftItem.includes('Microsoft C/C++ runtime components')) fail('the Microsoft Visual C++ runtime item of CHATMCP-HUB/THIRD-PARTY-NOTICES.txt does not point to the section "Microsoft C/C++ runtime components"');
+  const microsoftMarkdown = markdown.match(/^## Microsoft C\/C\+\+ runtime components\s*\n([\s\S]*?)(?=^## )/m)?.[1] ?? '';
+  const microsoftText = text.match(/^MICROSOFT C\/C\+\+ RUNTIME COMPONENTS\s*\n([\s\S]*?)(?=^PENDING NOTICES)/m)?.[1] ?? '';
+  const microsoftFacts = [
+    [/libucrt\.lib/, 'libucrt.lib (the static Universal C runtime, from the Windows SDK)'], [/libcmt\.lib/, 'libcmt.lib'], [/libvcruntime\.lib/, 'libvcruntime.lib'], [/vcruntime140\.dll/, 'vcruntime140.dll'],
+    [/Static LIB files/, 'the "Static LIB files" section of the Windows SDK REDIST list'], [/end users/i, 'the condition about terms for end users'], [/indemnif/i, 'the indemnity condition'],
+    [/not legal advice/i, 'that this is not legal advice'], [/2026-10-25/, 'the date on which the terms were read'],
+  ];
+  for (const [label, section] of [['THIRD-PARTY-NOTICES.md', microsoftMarkdown], ['CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', microsoftText]]) {
+    if (!section) { fail(`${label} has no section "Microsoft C/C++ runtime components"`); continue; }
+    for (const [pattern, what] of microsoftFacts) if (!pattern.test(section)) fail(`${label}: the section on the Microsoft C/C++ runtime components does not mention ${what}`);
+  }
+  for (const url of ['learn.microsoft.com/en-us/legal/windows-sdk/redist', 'visualstudio.microsoft.com/license-terms', 'learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files']) {
+    if (microsoftMarkdown && !microsoftMarkdown.includes(url)) fail(`THIRD-PARTY-NOTICES.md: the section on the Microsoft C/C++ runtime components does not link ${url}`);
+  }
+  if (microsoftMarkdown && !/significant primary functionality/i.test(microsoftMarkdown)) fail('THIRD-PARTY-NOTICES.md: the section on the Microsoft C/C++ runtime components does not state the "significant primary functionality" condition');
+  if (microsoftMarkdown && !/not reproduced/i.test(microsoftMarkdown)) fail('THIRD-PARTY-NOTICES.md: the section on the Microsoft C/C++ runtime components does not say that the text of the Microsoft terms is not reproduced');
+  const licenseScan = read(repo, 'docs', 'LICENSE-SCAN.md');
+  if (/Not covered: the Rust standard library/.test(licenseScan)) fail('docs/LICENSE-SCAN.md still says that the Rust standard library inside rg.exe is not covered');
+  const licensesReadme = read(repo, 'scripts', 'intelligence-runtime', 'licenses', 'README.md');
+  if (/named as open items/.test(licensesReadme)) fail('scripts/intelligence-runtime/licenses/README.md still names the Rust standard library and the C runtime of rg.exe as open items');
+  if (ripgrep && !licensesReadme.includes(ripgrep.manifest.rustStd?.toolchain?.commit ?? 'no-toolchain')) fail('scripts/intelligence-runtime/licenses/README.md does not say how the Rust standard library notices were derived (it does not name the commit of the toolchain)');
   const stageSource = read(repo, 'scripts', 'intelligence-runtime', 'stage.mjs');
   if (!stageSource.includes('readRipgrepNotices') || !stageSource.includes('assertRipgrepPin')) fail('stage.mjs does not stage the ripgrep notices (PCRE2 and the Rust crates) and check them against the pinned archive');
   if (!read(repo, 'scripts', 'intelligence-runtime', 'verify.mjs').includes('RIPGREP_NOTICE_FILES')) fail('verify.mjs does not compare the staged ripgrep notices with the vendored ones');
   const testRuntime = read(repo, 'scripts', 'intelligence-runtime', 'test-runtime.mjs');
   if (!testRuntime.includes('checkReportedPcre2')) fail('test-runtime.mjs does not compare the PCRE2 version that the bundled rg.exe prints with the notice');
   if (!testRuntime.includes('checkCompiledPcre2')) fail('test-runtime.mjs does not look for the version string of the PCRE2 compiled into the bundled rg.exe');
+  if (!testRuntime.includes('checkCompiledRust')) fail('test-runtime.mjs does not look for the /rustc/<commit> source paths of the Rust toolchain in the bundled rg.exe');
+  if (!testRuntime.includes('checkStaticCrt')) fail('test-runtime.mjs does not check that the bundled rg.exe imports no C runtime DLL (the notices say that the runtime is linked statically)');
   if (!/^scripts\/intelligence-runtime\/licenses\/ripgrep\/\*\* -text$/m.test(read(repo, '.gitattributes'))) fail('.gitattributes does not keep the vendored ripgrep notices byte for byte: a Windows checkout would change their line ends and break their hashes');
   if (!payloadScript.includes('function Assert-InstallerRipgrepNotices')) fail('InstallerPayload.ps1 lost Assert-InstallerRipgrepNotices');
   const builder = read(repo, 'scripts', 'Build-Installer.ps1');
   const copiedLicenses = builder.indexOf("(Join-Path $intelligenceStage 'licenses') -Destination (Join-Path $hubPayload 'licenses')");
   if (copiedLicenses < 0 || builder.indexOf('Assert-InstallerRipgrepNotices -HubRoot $hubPayload') < copiedLicenses) fail('Build-Installer.ps1 does not check the ripgrep notices of the payload after copying the licenses folder');
   const lifecycle = read(repo, 'scripts', 'tests', 'windows-installer', 'guest-lifecycle.ps1');
-  for (const staged of ripgrep ? ['licenses/ripgrep/MANIFEST.json', ripgrep.files.find((file) => file.kind === 'pcre2')?.staged] : []) {
+  const rustRoot = ripgrep?.manifest.components.find((component) => component.type === 'rust-library')?.files[0].path;
+  for (const staged of ripgrep ? ['licenses/ripgrep/MANIFEST.json', ripgrep.files.find((file) => file.kind === 'pcre2')?.staged, `licenses/ripgrep/${rustRoot}`] : []) {
     const installed = `CHATMCP-HUB\\${String(staged).replaceAll('/', '\\')}`;
     if (!lifecycle.includes(installed)) fail(`guest-lifecycle.ps1 does not list ${installed} among the installed files`);
   }
@@ -311,7 +361,9 @@ ok('the UI package list in THIRD-PARTY-NOTICES.md equals the production closure 
 ok('the Tree-sitter grammar texts are vendored, so they are shipped and not pending: no row, item or list of pending notices in the two notice files, and no sentence of the scan, of the CI-health document or of the README of the vendored texts, says otherwise');
 ok('stage-python.ps1, stage.mjs, verify.mjs, Build-Installer.ps1 and the payload script copy or assert the license files; no release workflow may build without them');
 const noticePcre2 = real.ripgrep.manifest.components.find((component) => component.name === 'PCRE2');
-ok(`PCRE2 ${noticePcre2.version} and ${real.ripgrep.manifest.components.length - 1} Rust crates compiled into rg.exe have their texts vendored, hashed and judged, a row in both notice files, and an inventory that belongs to the archive that stage-ripgrep.ps1 pins; no vendored file is unlisted`);
+const noticeRust = real.ripgrep.manifest.rustStd;
+ok(`PCRE2 ${noticePcre2.version}, the Rust standard library (${noticeRust.toolchain.rustc}) with its in-tree parts and ${real.ripgrep.manifest.components.filter((component) => component.type === 'crate').length} Rust crates compiled into rg.exe have their texts vendored, hashed and judged, a row in both notice files, and an inventory that belongs to the archive that stage-ripgrep.ps1 pins; no vendored file is unlisted`);
+ok('the pending lists no longer name the Rust standard library or the Microsoft runtimes; both notice files summarise the Microsoft terms (libucrt.lib, libcmt.lib, libvcruntime.lib, vcruntime140.dll) with their conditions, dates and links, and say that the text is not reproduced');
 for (const entry of real.pending) console.log(`  PENDING (blocks a release build, not this suite) - ${noticeSource(entry)}: the upstream ${entry.license} text of ${entry.id} (${entry.upstream}) is not in the repository`);
 console.log(`  ${real.pending.length} of ${GRAMMAR_NOTICES.length} grammar notices pending`);
 
@@ -395,6 +447,23 @@ try {
   const { components } = vendored.manifest;
   assert.equal(components[0].name, 'PCRE2', 'the inventory starts with the C library');
   assert.equal(vendored.files.length, components.reduce((sum, component) => sum + component.files.length, 0) + 1, 'every text and the inventory itself');
+  // the Rust standard library: the toolchain that built rg.exe, the texts of its tree and of the crates it links, and what it does not link
+  const rustStd = vendored.manifest.rustStd;
+  assert.match(rustStd.toolchain.commit, /^[0-9a-f]{40}$/);
+  assert.match(rustStd.toolchain.date, /^\d{4}-\d{2}-\d{2}$/);
+  assert.ok(rustStd.toolchain.rustc.includes(rustStd.toolchain.commit.slice(0, 9)), 'the rustc version string names the commit');
+  assert.equal(rustStd.toolchain.inspectedBinary, false, 'the toolchain is derived from the release record; the installer build checks it against the binary');
+  assert.ok(rustStd.notLinked.length > 0 && rustStd.notLinked.every((item) => item.name && item.version && item.reason), 'every package of the library lock file that std does not link has a reason');
+  const stdComponent = components.find((component) => component.type === 'rust-library');
+  assert.equal(stdComponent.name, 'Rust standard library');
+  assert.equal(stdComponent.version, rustStd.toolchain.rustc);
+  assert.ok(stdComponent.files.every((file) => file.source.commit === rustStd.toolchain.commit), 'the root texts of the Rust standard library are those of the commit that the toolchain was built from');
+  assert.deepEqual(stdComponent.files.map((file) => file.kind).sort(), ['apache-2.0', 'mit', 'notice']);
+  const partNames = components.filter((component) => component.type === 'rust-library-part').map((component) => component.name);
+  for (const part of ['Rust core::unicode tables', 'Rust std::sync::mpmc', 'Rust backtrace (backtrace-rs)', 'Rust compiler_builtins and libm', 'Rust stdarch (core::arch, std_detect)', 'Rust portable-simd (core::simd)']) assert.ok(partNames.includes(part), `the inventory has the in-tree part ${part}`);
+  for (const crate of ['hashbrown', 'rustc-demangle', 'cfg-if']) assert.ok(components.some((component) => component.type === 'crate' && component.name === crate), `the inventory has the crate ${crate}, which the Rust standard library links`);
+  assert.ok(components.filter((component) => component.origin === 'rust-std').every((component) => component.type === 'crate'), 'only crates carry the origin rust-std');
+  for (const absent of ['libc', 'miniz_oxide', 'addr2line', 'object', 'gimli', 'memchr', 'foldhash', 'dlmalloc']) assert.ok(rustStd.notLinked.some((item) => item.name === absent), `${absent} is named among the packages that the Rust standard library does not link for x86_64-pc-windows-msvc`);
   assert.deepEqual(vendored.files.map((file) => file.staged).sort(), RIPGREP_NOTICE_FILES.map((file) => file.staged).sort(), 'notices.mjs requires exactly the files that the reader finds');
   ok(`readRipgrepNotices accepts the ${vendored.files.length - 1} vendored texts of ${components.length} components; notices.mjs requires exactly those files and the inventory`);
 
@@ -437,6 +506,24 @@ try {
     ['the PCRE2 component names no compiled version string', (inventory) => { delete inventory.components.find((component) => component.name === 'PCRE2').compiledVersionString; }, /compiledVersionString/],
     ['the compiled version string is not one of the PCRE2 version', (inventory) => { inventory.components.find((component) => component.name === 'PCRE2').compiledVersionString = '10.45 2025-02-05'; }, /compiledVersionString/],
     ['the PCRE2 component does not say what rg prints', (inventory) => { delete inventory.components.find((component) => component.name === 'PCRE2').rgReports; }, /rgReports/],
+    // the Rust standard library
+    ['there is no record of the Rust standard library', (inventory) => { delete inventory.rustStd; }, /rustStd/],
+    ['the toolchain commit is not a commit', (inventory) => { inventory.rustStd.toolchain.commit = 'da80ed07'; }, /rustStd\.toolchain\.commit/],
+    ['the toolchain date is not a date', (inventory) => { inventory.rustStd.toolchain.date = 'yesterday'; }, /rustStd\.toolchain\.date/],
+    ['the rustc version string is not of the form that rustc prints', (inventory) => { inventory.rustStd.toolchain.rustc = '1.99.0-nightly (0000000 2026-07-14)'; }, /rustc version string/],
+    ['the rustc version string names another commit', (inventory) => { inventory.rustStd.toolchain.rustc = '1.99.0-nightly (123456789 2026-07-14)'; }, /rustc version string/],
+    ['the library lock file is of another commit than the toolchain', (inventory) => { inventory.rustStd.lockfile.commit = '0'.repeat(40); }, /lockfile/],
+    ['the packages that the standard library does not link are not listed', (inventory) => { inventory.rustStd.notLinked = []; }, /rustStd\.notLinked/],
+    ['a package that the standard library does not link has no reason', (inventory) => { delete inventory.rustStd.notLinked[0].reason; }, /rustStd\.notLinked/],
+    ['the Rust standard library component is missing', (inventory) => { inventory.components = inventory.components.filter((component) => component.type !== 'rust-library'); }, /no component of type rust-library/],
+    ['the Rust standard library component is for another version than the toolchain', (inventory) => { inventory.components.find((component) => component.type === 'rust-library').version = '1.98.0'; }, /Rust standard library[^;]*toolchain/],
+    ['the Rust standard library texts are from another commit than the toolchain', (inventory) => { inventory.components.find((component) => component.type === 'rust-library').files[0].source.commit = '0'.repeat(40); }, /toolchain/],
+    ['an in-tree part is for another version than the toolchain', (inventory) => { inventory.components.find((component) => component.type === 'rust-library-part').version = '1.98.0'; }, /in-tree part[^;]*toolchain/],
+    ['the compiler_builtins component has no libm text', (inventory) => { const part = inventory.components.find((component) => component.name === 'Rust compiler_builtins and libm'); part.files = part.files.filter((file) => file.kind !== 'libm'); }, /needs a text of kind libm/],
+    ['the compiler_builtins component has no composite text', (inventory) => { const part = inventory.components.find((component) => component.name === 'Rust compiler_builtins and libm'); part.files = part.files.filter((file) => file.kind !== 'compiler-builtins'); }, /needs a text of kind compiler-builtins/],
+    ['the core::unicode tables have no Unicode text', (inventory) => { inventory.components.find((component) => component.name === 'Rust core::unicode tables').files = []; }, /lists no licence text/],
+    ['an Unicode V3 text is declared as the older Unicode text', (inventory) => { inventory.components.find((component) => component.name === 'Rust core::unicode tables').files[0].kind = 'unicode'; }, /is not a text of kind unicode/],
+    ['a Rust standard library crate is declared with a license that notices.mjs does not know', (inventory) => { inventory.components.find((component) => component.name === 'hashbrown').license = 'MIT OR Zlib'; }, /Zlib/],
   ];
   for (const [label, edit, expected] of edits) await refuses({ edit }, expected, `an inventory where ${label} must be refused`);
   ok(`an inventory is refused when ${edits.map(([label]) => label).join('; ')}`);
@@ -450,8 +537,26 @@ try {
   assert.match(judgeRipgrepText('apache-2.0', mitText) ?? '', /Apache License/);
   assert.match(judgeRipgrepText('mit', '') ?? '', /empty/);
   assert.match(judgeRipgrepText('gpl-3.0', mitText) ?? '', /unknown kind/);
-  for (const kind of ['mit', 'apache-2.0', 'unlicense', 'bsd-3-clause', 'unicode', 'pcre2', 'pointer', 'notice']) assert.ok(judgeRipgrepText(kind, 'All rights reserved. '.repeat(30)), `a text that says nothing is not a ${kind} text`);
+  for (const kind of ['mit', 'apache-2.0', 'unlicense', 'bsd-3-clause', 'unicode', 'unicode-3.0', 'compiler-builtins', 'libm', 'pcre2', 'pointer', 'notice']) assert.ok(judgeRipgrepText(kind, 'All rights reserved. '.repeat(30)), `a text that says nothing is not a ${kind} text`);
   ok('the judge reads words and not line breaks, wants no copyright line (the MIT texts of anyhow and serde have none), and refuses empty text, a text of another kind and an unknown kind');
+
+  // The kinds that the Rust standard library needs. Each real text is judged by its own kind, and no other kind takes it: the Unicode License V3 of core::unicode is not the older
+  // "Unicode, Inc. License Agreement" of bstr, and the two composite files of compiler_builtins (MIT, Apache-2.0 and the LLVM exception in one file; libm with its musl copyrights)
+  // are texts of their own.
+  const textOf = (kind) => { const file = vendored.files.find((item) => item.kind === kind); assert.ok(file, `the inventory has a text of kind ${kind}`); return readFileSync(path.join(folder, file.path), 'utf8'); };
+  for (const kind of ['unicode-3.0', 'compiler-builtins', 'libm']) {
+    assert.equal(judgeRipgrepText(kind, textOf(kind)), null, `the vendored ${kind} text is a ${kind} text`);
+    assert.equal(judgeRipgrepText(kind, textOf(kind).replace(/\n/g, '\r\n')), null, `CRLF does not matter for a ${kind} text`);
+    for (const other of ['unlicense', 'bsd-3-clause', 'pcre2', 'pointer']) assert.ok(judgeRipgrepText(other, textOf(kind)), `a ${kind} text is not a ${other} text`);
+  }
+  assert.equal(judgeRipgrepText('unicode', textOf('unicode')), null);
+  assert.match(judgeRipgrepText('unicode-3.0', textOf('unicode')) ?? '', /UNICODE LICENSE V3/, 'the older Unicode text is not the V3 text');
+  assert.match(judgeRipgrepText('unicode', textOf('unicode-3.0')) ?? '', /heading/, 'the V3 text is not the older Unicode text');
+  assert.match(judgeRipgrepText('compiler-builtins', textOf('libm')) ?? '', /compiler-builtins/, 'the libm file is not the compiler-builtins file');
+  assert.match(judgeRipgrepText('libm', textOf('compiler-builtins')) ?? '', /libm/, 'the compiler-builtins file is not the libm file');
+  assert.match(judgeRipgrepText('compiler-builtins', textOf('compiler-builtins').replace(/LLVM Exceptions to the Apache 2\.0 License/g, 'x')) ?? '', /LLVM exception/i, 'the compiler-builtins text must carry the LLVM exception');
+  assert.match(judgeRipgrepText('libm', textOf('libm').replace(/Rich Felker/g, 'x')) ?? '', /musl/, 'the libm text must carry the musl copyright');
+  ok('the kinds of the Rust standard library (unicode-3.0, compiler-builtins, libm) judge their own real text and nothing else; the Unicode V3 text and the older Unicode text are told apart; the LLVM exception and the musl copyright are required');
 
   assert.deepEqual([...requiredKindsOf('MIT OR Apache-2.0')].sort(), ['apache-2.0', 'mit']);
   assert.deepEqual([...requiredKindsOf('Unlicense/MIT')].sort(), ['mit', 'unlicense']);
@@ -459,6 +564,16 @@ try {
   assert.deepEqual([...requiredKindsOf('BSD-3-Clause WITH PCRE2-exception')], ['pcre2']);
   assert.throws(() => requiredKindsOf('MIT OR Frobnicate-1.0'), /Frobnicate-1\.0/);
   ok('a license expression needs a text of each license it names; the PCRE2 exception needs the PCRE2 text; an unknown identifier is an error');
+
+  // The Rust standard library: Unicode-3.0 is the V3 text, and the one expression of compiler_builtins (MIT AND Apache-2.0 WITH LLVM-exception AND (MIT OR Apache-2.0)) is answered by
+  // the two composite files that its repository carries, as the PCRE2 exception is answered by the PCRE2 file. The exception alone, or a part of that expression, is not known.
+  assert.deepEqual([...requiredKindsOf('Unicode-3.0')], ['unicode-3.0']);
+  assert.deepEqual([...requiredKindsOf('MIT AND Apache-2.0 WITH LLVM-exception AND (MIT OR Apache-2.0)')].sort(), ['compiler-builtins', 'libm']);
+  assert.deepEqual([...requiredKindsOf('MIT AND  Apache-2.0 WITH LLVM-exception AND (MIT OR Apache-2.0)')].sort(), ['compiler-builtins', 'libm'], 'extra white space does not matter');
+  assert.throws(() => requiredKindsOf('Apache-2.0 WITH LLVM-exception'), /LLVM-exception/);
+  assert.throws(() => requiredKindsOf('MIT AND Apache-2.0 WITH LLVM-exception'), /LLVM-exception/);
+  assert.throws(() => requiredKindsOf('MIT OR Apache-2.0 WITH LLVM-exception'), /LLVM-exception/);
+  ok('Unicode-3.0 needs the V3 text and the one expression of compiler_builtins needs its two composite files; the LLVM exception alone or in another expression is an error');
 
   // the inventory belongs to the archive that stage-ripgrep.ps1 pins
   const { subject } = vendored.manifest;
@@ -491,6 +606,93 @@ try {
   assert.match(checkCompiledPcre2(vendored.manifest, inFile(`${noticePcre2.version} 2025-01-01`)) ?? '', /2025-01-01/, 'the date is part of the version string');
   assert.match(checkCompiledPcre2(vendored.manifest, Buffer.from('MZ without any version string')) ?? '', /no PCRE2 version string/);
   ok(`the version string "${noticePcre2.compiledVersionString}" that the PCRE2 library carries must be in rg.exe; another string, or none, is refused (and named)`);
+
+  // The Rust toolchain: std and core carry the paths of their sources, /rustc/<commit hash>/library/..., into every binary that can panic in them (on Windows the part after the hash is
+  // often written with backslashes). The commit that the inventory names must be among them; a binary built by another toolchain is refused and the commits that it carries are named.
+  const toolchain = vendored.manifest.rustStd.toolchain;
+  const rustPath = (separator, commit = toolchain.commit) => inFile(`/rustc/${commit}${separator}library${separator}core${separator}src${separator}panicking.rs`);
+  assert.equal(checkCompiledRust(vendored.manifest, rustPath('/')), null);
+  assert.equal(checkCompiledRust(vendored.manifest, rustPath('\\')), null, 'the part after the hash written with backslashes');
+  assert.match(checkCompiledRust(vendored.manifest, rustPath('/', 'a'.repeat(40))) ?? '', new RegExp(`${'a'.repeat(40)}[^]*${toolchain.commit}`), 'it names the commit that it finds, and the one that the notice is for');
+  assert.match(checkCompiledRust(vendored.manifest, Buffer.concat([rustPath('/', 'a'.repeat(40)), rustPath('\\', 'b'.repeat(40))])) ?? '', new RegExp(`${'a'.repeat(40)}[^]*${'b'.repeat(40)}`), 'it names every commit that it finds');
+  assert.match(checkCompiledRust(vendored.manifest, rustPath('/', `${toolchain.commit.slice(0, 39)}${toolchain.commit.endsWith('0') ? '1' : '0'}`)) ?? '', /not of the commit/, 'one digit of the hash makes it another toolchain');
+  assert.match(checkCompiledRust(vendored.manifest, inFile(`/rustc/${toolchain.commit}`)) ?? '', /no \/rustc\//, 'a hash that no path follows is not a source path');
+  assert.match(checkCompiledRust(vendored.manifest, inFile(`rustc/${toolchain.commit}/library/core`)) ?? '', /no \/rustc\//, 'it must be the /rustc/ prefix');
+  assert.match(checkCompiledRust(vendored.manifest, Buffer.from('MZ without any source path')) ?? '', /no \/rustc\//);
+  assert.match(checkCompiledRust({ ...vendored.manifest, rustStd: undefined }, rustPath('/')) ?? '', /no Rust toolchain/);
+  ok(`the source paths of the toolchain (/rustc/${toolchain.commit.slice(0, 9)}...) must be in rg.exe, with a slash or a backslash after the hash; another commit, a hash without a path, or none is refused (and the commits found are named)`);
+
+  // The C runtime is linked statically: the import table of the PE file names no runtime DLL. The reader is tested on files built here (PE32+ with one section), on damaged ones,
+  // and, on Windows, on a real executable.
+  const makePe = (imports, { delay = [], pe32 = false } = {}) => {
+    const SECTION_RVA = 0x1000;
+    const SECTION_RAW = 0x200;
+    const importBytes = (imports.length + 1) * 20;
+    const delayBytes = delay.length > 0 ? (delay.length + 1) * 32 : 0;
+    let cursor = importBytes + delayBytes;
+    const names = [...imports, ...delay].map((name) => { const offset = cursor; cursor += name.length + 1; return { name, offset }; });
+    const raw = Buffer.alloc(cursor);
+    imports.forEach((_, index) => { raw.writeUInt32LE(SECTION_RVA + names[index].offset, index * 20 + 12); raw.writeUInt32LE(0x2000, index * 20 + 16); });
+    delay.forEach((_, index) => { raw.writeUInt32LE(1, importBytes + index * 32); raw.writeUInt32LE(SECTION_RVA + names[imports.length + index].offset, importBytes + index * 32 + 4); });
+    for (const { name, offset } of names) raw.write(`${name}\0`, offset, 'latin1');
+    const file = Buffer.alloc(SECTION_RAW + raw.length);
+    file.write('MZ', 0, 'latin1');
+    file.writeUInt32LE(0x80, 0x3c);
+    file.write('PE\0\0', 0x80, 'latin1');
+    const coff = 0x84;
+    const optionalSize = pe32 ? 224 : 240;
+    file.writeUInt16LE(pe32 ? 0x14c : 0x8664, coff);
+    file.writeUInt16LE(1, coff + 2);
+    file.writeUInt16LE(optionalSize, coff + 16);
+    const optional = coff + 20;
+    const directories = optional + (pe32 ? 96 : 112);
+    file.writeUInt16LE(pe32 ? 0x10b : 0x20b, optional);
+    file.writeUInt32LE(16, directories - 4);
+    file.writeUInt32LE(SECTION_RVA, directories + 8);
+    file.writeUInt32LE(importBytes, directories + 12);
+    if (delay.length > 0) { file.writeUInt32LE(SECTION_RVA + importBytes, directories + 13 * 8); file.writeUInt32LE(delayBytes, directories + 13 * 8 + 4); }
+    const section = optional + optionalSize;
+    file.write('.idata\0\0', section, 'latin1');
+    file.writeUInt32LE(raw.length, section + 8);
+    file.writeUInt32LE(SECTION_RVA, section + 12);
+    file.writeUInt32LE(raw.length, section + 16);
+    file.writeUInt32LE(SECTION_RAW, section + 20);
+    raw.copy(file, SECTION_RAW);
+    return file;
+  };
+  assert.deepEqual(peImportedLibraries(makePe(['KERNEL32.dll', 'ntdll.dll'])), ['kernel32.dll', 'ntdll.dll'], 'the imports of a PE32+ file, lower-cased');
+  assert.deepEqual(peImportedLibraries(makePe(['KERNEL32.dll'], { pe32: true })), ['kernel32.dll'], 'and of a PE32 file');
+  assert.deepEqual(peImportedLibraries(makePe(['KERNEL32.dll'], { delay: ['USER32.dll'] })), ['kernel32.dll', 'user32.dll'], 'delay-loaded libraries are imports too');
+  assert.deepEqual(peImportedLibraries(makePe([])), [], 'a file without imports');
+  assert.equal(checkStaticCrt(makePe(['KERNEL32.dll', 'ntdll.dll', 'api-ms-win-core-synch-l1-2-0.dll', 'bcryptprimitives.dll', 'WS2_32.dll'])), null, 'the Windows libraries that a Rust program imports are not the C runtime');
+  for (const dynamic of ['VCRUNTIME140.dll', 'vcruntime140_1.dll', 'MSVCP140.dll', 'api-ms-win-crt-runtime-l1-1-0.dll', 'UCRTBASE.dll', 'msvcr120.dll', 'CONCRT140.dll']) {
+    assert.match(checkStaticCrt(makePe(['KERNEL32.dll', dynamic])) ?? '', new RegExp(escape(dynamic.toLowerCase())), `${dynamic} is the C runtime in a DLL`);
+  }
+  assert.match(checkStaticCrt(makePe(['KERNEL32.dll'], { delay: ['UCRTBASE.dll'] })) ?? '', /ucrtbase\.dll/, 'a delay-loaded C runtime counts');
+  assert.match(checkStaticCrt(makePe(['VCRUNTIME140.dll', 'MSVCP140.dll'])) ?? '', /vcruntime140\.dll[^]*msvcp140\.dll/, 'every runtime DLL is named');
+  assert.match(checkStaticCrt(Buffer.from('not a PE file')) ?? '', /not a PE/);
+  assert.match(checkStaticCrt(Buffer.alloc(0)) ?? '', /not a PE/);
+  const damaged = makePe(['KERNEL32.dll']);
+  assert.match(checkStaticCrt(damaged.subarray(0, 0x90)) ?? '', /truncated/, 'headers cut short');
+  assert.match(checkStaticCrt(damaged.subarray(0, 0x210)) ?? '', /beyond the end/, 'an import table that lies beyond the end of the file');
+  const badSignature = Buffer.from(damaged);
+  badSignature.write('XX', 0x80, 'latin1');
+  assert.match(checkStaticCrt(badSignature) ?? '', /not a PE/, 'no PE signature');
+  const badMagic = Buffer.from(damaged);
+  badMagic.writeUInt16LE(0x1234, 0x98);
+  assert.match(checkStaticCrt(badMagic) ?? '', /not a PE/, 'an optional header that is neither PE32 nor PE32+');
+  const endless = makePe(['KERNEL32.dll']);
+  endless.fill(0x41, 0x200 + 20, endless.length); // no terminating descriptor: the names are garbage that must not make the reader run away
+  assert.match(checkStaticCrt(endless) ?? '', /beyond the end|not a PE|truncated/, 'a table without its terminator ends the reader instead of looping');
+  assert.match(checkStaticCrt(makePe(Array(4100).fill('a.dll'))) ?? '', /more than 4096/, 'thousands of valid entries before the terminator are refused, not read to the end');
+  const outside = makePe(['KERNEL32.dll']);
+  outside.writeUInt32LE(0x40, 0x200 + 12); // the name of the first import points into the DOS header, which no section covers
+  assert.match(checkStaticCrt(outside) ?? '', /beyond the end|outside every section/, 'an address that no section covers is not read as a file offset');
+  if (process.platform === 'win32') {
+    const real = peImportedLibraries(readFileSync(process.execPath));
+    assert.ok(real.includes('kernel32.dll'), `the reader finds KERNEL32.dll among the imports of ${process.execPath} (${real.join(', ')})`);
+  }
+  ok('checkStaticCrt reads the import table (and the delay-load table) of a PE32 or PE32+ file and refuses every C runtime DLL by name; damaged files, a missing terminator and non-PE files are errors, not a pass');
 
   // verifyRuntime: every vendored text and the inventory are required, and each staged text must be the vendored one
   const fullRuntime = makeRuntime(path.join(scratch, 'runtime-with-ripgrep-notices'));
@@ -525,7 +727,7 @@ try {
   for (const relative of [...Object.values(SHIPPING_FILES), 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', 'CHATMCP-HUB/ui/package-lock.json', 'desktop-shell/ChatMCP.csproj',
     'scripts/Build-Installer.ps1', 'scripts/InstallerPayload.ps1', 'scripts/intelligence-runtime/package-lock.json', 'scripts/intelligence-runtime/stage.mjs',
     'scripts/intelligence-runtime/verify.mjs', 'scripts/intelligence-runtime/notices.mjs', 'scripts/intelligence-runtime/stage-python.ps1', 'scripts/intelligence-runtime/stage-ripgrep.ps1',
-    'scripts/intelligence-runtime/test-runtime.mjs', 'scripts/intelligence-runtime/licenses/ripgrep', 'scripts/tests/windows-installer/guest-lifecycle.ps1', '.gitattributes', '.github/workflows']) copy(relative);
+    'scripts/intelligence-runtime/test-runtime.mjs', 'scripts/intelligence-runtime/licenses/ripgrep', 'scripts/intelligence-runtime/licenses/README.md', 'docs/LICENSE-SCAN.md', 'scripts/tests/windows-installer/guest-lifecycle.ps1', '.gitattributes', '.github/workflows']) copy(relative);
   mkdirSync(path.join(copyRoot, 'scripts', 'intelligence-runtime', 'licenses'), { recursive: true });
   for (const entry of GRAMMAR_NOTICES) if (existsSync(path.join(REPO, 'scripts', 'intelligence-runtime', noticeSource(entry)))) copy(`scripts/intelligence-runtime/${noticeSource(entry)}`);
   for (const relative of ['docs/LICENSE-SCAN.md', 'docs/CI-HEALTH.md', 'scripts/intelligence-runtime/licenses/README.md']) copy(relative);
@@ -580,8 +782,37 @@ try {
     ['the zmij row deleted from THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', dropLines(/^\| `zmij` \|/), /THIRD-PARTY-NOTICES\.md has no row for zmij/],
     ['the zmij line deleted from the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', dropLines(/\bzmij 1\.0\.23 - /), /THIRD-PARTY-NOTICES\.txt has no line for zmij/],
     ['the ripgrep row says Pending again', 'THIRD-PARTY-NOTICES.md', (source) => source.replace(/^(\| ripgrep \([^\n]*) \|$/m, '$1 Pending |'), /ripgrep row of THIRD-PARTY-NOTICES\.md still says Pending/],
-    ['the Rust standard library no longer among the pending notices', 'THIRD-PARTY-NOTICES.md', (source) => source.replaceAll('Rust standard library', 'Rust library'), /does not list the Rust standard library/],
-    ['the static C runtime no longer among the pending notices of the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replaceAll('C runtime', 'runtime'), /static Microsoft C runtime/],
+    ['the Rust standard library back among the pending notices', 'THIRD-PARTY-NOTICES.md', (source) => source.replace(/^## Pending notices\s*\n/m, (heading) => `${heading}\n0. **The Rust standard library inside rg.exe** is pending.\n`), /still lists the Rust standard library/],
+    ['the static C runtime back among the pending notices of the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^PENDING NOTICES\s*\n/m, (heading) => `${heading}\n - The static Microsoft C runtime of rg.exe is pending.\n`), /still lists the static Microsoft C runtime/],
+    ['the Visual C++ runtime back among the pending notices of THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', (source) => source.replace(/^## Pending notices\s*\n/m, (heading) => `${heading}\n0. **Microsoft Visual C++ runtime terms** are pending.\n`), /still lists the Microsoft Visual C\+\+ runtime/],
+    ['the Visual C++ runtime row says Pending again', 'THIRD-PARTY-NOTICES.md', (source) => source.replace(/^(\| Microsoft Visual C\+\+ runtime[^\n]*) \|$/m, '$1 Pending |'), /Visual C\+\+ runtime row of THIRD-PARTY-NOTICES\.md still says Pending/],
+    ['the Visual C++ runtime row no longer points to the section', 'THIRD-PARTY-NOTICES.md', (source) => source.replace(/^\| Microsoft Visual C\+\+ runtime[^\n]*$/m, (row) => row.replaceAll('Microsoft C/C++ runtime components', 'elsewhere')), /row of THIRD-PARTY-NOTICES\.md does not point to the section/],
+    ['item 3 of the plain-text notice says pending again', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^( ?\d+\. Microsoft Visual C\+\+ runtime[^\n]*)$/m, '$1 Status: pending.'), /item of CHATMCP-HUB\/THIRD-PARTY-NOTICES\.txt still says pending/],
+    ['item 3 is back in the pending list of the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^( - Items )(\d)/m, (_match, head, rest) => `${head}3, ${rest}`), /still lists item 3/],
+    ['the Microsoft section deleted from THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', (source) => source.replace(/^## Microsoft C\/C\+\+ runtime components\s*\n[\s\S]*?(?=^## )/m, ''), /THIRD-PARTY-NOTICES\.md has no section "Microsoft C\/C\+\+ runtime components"/],
+    ['the Microsoft section deleted from the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replace(/^MICROSOFT C\/C\+\+ RUNTIME COMPONENTS\s*\n[\s\S]*?(?=^PENDING NOTICES)/m, ''), /THIRD-PARTY-NOTICES\.txt has no section "Microsoft C\/C\+\+ runtime components"/],
+    ['the static libraries of the Windows SDK no longer named in the Microsoft section', 'THIRD-PARTY-NOTICES.md', (source) => source.replaceAll('Static LIB files', 'static libraries'), /"Static LIB files" section/],
+    ['the condition about end users no longer in the Microsoft section', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replaceAll('end users', 'people'), /condition about terms for end users/],
+    ['the indemnity condition no longer in the Microsoft section', 'THIRD-PARTY-NOTICES.md', (source) => source.replaceAll('indemnif', 'compensat'), /indemnity condition/],
+    ['the statement that the Microsoft text is not reproduced removed', 'THIRD-PARTY-NOTICES.md', (source) => source.replaceAll('not reproduced', 'omitted'), /does not say that the text of the Microsoft terms is not reproduced/],
+    ['the date on which the Microsoft terms were read removed', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replaceAll('2026-10-25', '2026-10-26'), /the date on which the terms were read/],
+    ['a link to the Microsoft terms removed', 'THIRD-PARTY-NOTICES.md', (source) => source.replaceAll('learn.microsoft.com/en-us/legal/windows-sdk/redist', 'example.invalid/redist'), /does not link learn\.microsoft\.com\/en-us\/legal\/windows-sdk\/redist/],
+    ['the Rust toolchain no longer named in THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', (source) => source.replaceAll(vendored.manifest.rustStd.toolchain.rustc, 'x'), /THIRD-PARTY-NOTICES\.md does not name the Rust toolchain/],
+    ['the Rust toolchain no longer named in the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', (source) => source.replaceAll(vendored.manifest.rustStd.toolchain.rustc, 'x'), /THIRD-PARTY-NOTICES\.txt does not name the Rust toolchain/],
+    ['the commit of the Rust toolchain no longer named in THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', (source) => source.replaceAll(vendored.manifest.rustStd.toolchain.commit, '0'.repeat(40)), /does not name the commit of the Rust toolchain/],
+    ['the Rust standard library row deleted', 'THIRD-PARTY-NOTICES.md', dropLines(/^\| Rust standard library \|/), /no row for Rust standard library/],
+    ['the Rust standard library line deleted from the plain-text notice', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt', dropLines(new RegExp(escape(`Rust standard library ${vendored.manifest.rustStd.toolchain.rustc} - `))), /no line for Rust standard library/],
+    ['the hashbrown row deleted', 'THIRD-PARTY-NOTICES.md', dropLines(/^\| `hashbrown` \|/), /no row for hashbrown/],
+    ['the compiler_builtins row deleted', 'THIRD-PARTY-NOTICES.md', dropLines(/^\| Rust compiler_builtins and libm \|/), /no row for Rust compiler_builtins and libm/],
+    ['the count of packages that the standard library does not link is wrong', 'THIRD-PARTY-NOTICES.md', (source) => source.replace(/\d+ packages of the Rust library lock file that are not linked/g, '1 packages of the Rust library lock file that are not linked'), /how many packages of the Rust library lock file/],
+    ['the /rustc/ check no longer described in THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', (source) => source.replaceAll('/rustc/', '/rust/'), /does not say that the installer build looks for the \/rustc\//],
+    ['test-runtime.mjs no longer looks for the Rust source paths in rg.exe', 'scripts/intelligence-runtime/test-runtime.mjs', (source) => source.replaceAll('checkCompiledRust', 'skipRustCheck'), /source paths of the Rust toolchain/],
+    ['test-runtime.mjs no longer checks the C runtime imports of rg.exe', 'scripts/intelligence-runtime/test-runtime.mjs', (source) => source.replaceAll('checkStaticCrt', 'skipCrtCheck'), /imports no C runtime DLL/],
+    ['docs/LICENSE-SCAN.md says again that the Rust standard library is not covered', 'docs/LICENSE-SCAN.md', (source) => source.replace(/^(\| ripgrep \([^\n]*) \|$/m, '$1 Not covered: the Rust standard library and the static C runtime. |'), /LICENSE-SCAN\.md still says/],
+    ['the licenses README names the open items again', 'scripts/intelligence-runtime/licenses/README.md', (source) => `${source}\n- They are named as open items in THIRD-PARTY-NOTICES.md.\n`, /still names the Rust standard library/],
+    ['the licenses README does not name the commit of the toolchain', 'scripts/intelligence-runtime/licenses/README.md', (source) => source.replaceAll(vendored.manifest.rustStd.toolchain.commit, 'x'), /does not say how the Rust standard library notices were derived/],
+    ['a vendored compiler_builtins text is changed', `scripts/intelligence-runtime/licenses/ripgrep/${vendored.files.find((file) => file.kind === 'compiler-builtins').path}`, (source) => `${source}\nAn extra line.\n`, /SHA-256 differs/],
+    ['a vendored Unicode V3 text is changed', `scripts/intelligence-runtime/licenses/ripgrep/${vendored.files.find((file) => file.kind === 'unicode-3.0').path}`, (source) => `${source}\nAn extra line.\n`, /SHA-256 differs/],
     ['stage-ripgrep.ps1 pins another release', 'scripts/intelligence-runtime/stage-ripgrep.ps1', (source) => source.replace(`$expectedVersion = '${vendored.manifest.subject.version}'`, "$expectedVersion = '15.2.1'"), /stage-ripgrep\.ps1 pins ripgrep 15\.2\.1/],
     ['stage-ripgrep.ps1 pins another archive hash', 'scripts/intelligence-runtime/stage-ripgrep.ps1', (source) => source.replace(`$expected = '${vendored.manifest.subject.archiveSha256}'`, `$expected = '${'0'.repeat(64)}'`), /stage-ripgrep\.ps1 pins ripgrep/],
     ['stage.mjs no longer stages the ripgrep notices', 'scripts/intelligence-runtime/stage.mjs', (source) => source.replaceAll('readRipgrepNotices', 'skipRipgrepNotices'), /does not stage the ripgrep notices/],
@@ -594,6 +825,7 @@ try {
     ['the payload script loses Assert-InstallerRipgrepNotices', 'scripts/InstallerPayload.ps1', (source) => source.replace('function Assert-InstallerRipgrepNotices', 'function Assert-SomethingElse'), /lost Assert-InstallerRipgrepNotices/],
     ['Build-Installer.ps1 no longer checks the ripgrep notices of the payload', 'scripts/Build-Installer.ps1', dropLines(/Assert-InstallerRipgrepNotices/), /does not check the ripgrep notices of the payload/],
     ['guest-lifecycle.ps1 no longer lists the ripgrep inventory among the installed files', 'scripts/tests/windows-installer/guest-lifecycle.ps1', (source) => source.replace('CHATMCP-HUB\\licenses\\ripgrep\\MANIFEST.json', 'CHATMCP-HUB\\licenses\\ripgrep\\x'), /guest-lifecycle\.ps1 does not list/],
+    ['guest-lifecycle.ps1 no longer lists the Rust standard library text among the installed files', 'scripts/tests/windows-installer/guest-lifecycle.ps1', (source) => source.replace('\\ripgrep\\rust-std-', '\\ripgrep\\rust-gone-'), /guest-lifecycle\.ps1 does not list[^;]*rust-std-/],
   ];
   for (const [label, relative, change, expected] of mutations) {
     const restore = edit(relative, change);
