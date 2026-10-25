@@ -17,6 +17,7 @@ import { launch, hubDirectoryFor, quoteWindowsArgument } from '../lib/launch.mjs
 import { defaultDataDirectory } from '../lib/manager.mjs';
 import { parseArguments } from '../hub.mjs';
 import { readSession, sessionFile } from '../lib/hub-session.mjs';
+import { powerShellChildEnvironment } from './support/powershell-environment.mjs';
 
 const bundleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -207,7 +208,7 @@ try {
     const powershell = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
     const runScript = (script, scriptArgs, cwd = root) => {
       const began = Date.now();
-      const result = spawnSync(powershell, ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, ...scriptArgs], { cwd, encoding: 'utf8', timeout: 90_000, windowsHide: true });
+      const result = spawnSync(powershell, ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, ...scriptArgs], { cwd, encoding: 'utf8', timeout: 90_000, windowsHide: true, env: powerShellChildEnvironment() });
       return { code: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}`, ms: Date.now() - began };
     };
     const startScript = path.join(bundleRoot, 'Start-ChatMcpHub.ps1');

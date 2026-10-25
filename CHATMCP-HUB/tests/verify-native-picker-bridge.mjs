@@ -7,6 +7,7 @@ import os from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import {HubManager} from '../lib/manager.mjs';
+import {powerShellChildEnvironment} from './support/powershell-environment.mjs';
 
 const bundleRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const temp=await fs.mkdtemp(path.join(os.tmpdir(),'chatmcp-picker-test-'));
@@ -41,7 +42,7 @@ try{
   if(process.platform==='win32'){
     const file=path.join(bundleRoot,'windows','Select-Workspace.ps1');
     const out=spawnSync('powershell.exe',['-NoLogo','-NoProfile','-STA','-File',file,'-Probe'],
-      {encoding:'utf8',timeout:20000,windowsHide:false});
+      {encoding:'utf8',timeout:20000,windowsHide:false,env:powerShellChildEnvironment()});
     assert.equal(out.status,0,'native WinForms construction failed: '+String(out.stderr||'').slice(0,500));
     const last=String(out.stdout||'').trim().split(/\r?\n/).at(-1);
     const result=JSON.parse(last);
