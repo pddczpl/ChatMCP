@@ -16,7 +16,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { powerShellChildEnvironment } from './support/powershell-environment.mjs';
+import { powerShell7ModuleStandIn, powerShellChildEnvironment, windowsPowerShellPath } from './support/powershell-environment.mjs';
 
 const hubRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // literal backslash, the letter n, at least one space or tab, then a // comment opener
@@ -119,29 +119,31 @@ export async function powerShellStarters(files) {
   ok('powerShellChildEnvironment drops PSModulePath in any letter case, keeps everything else, adds the extra and leaves its argument alone');
 
   // the trap itself, on the real Windows PowerShell: a stand-in for the module folder of PowerShell 7 hides Get-FileHash; the helper's environment does not
-  const powershell = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const powershell = windowsPowerShellPath();
   if (process.platform !== 'win32' || !await fs.stat(powershell).catch(() => null)) {
     console.log('  --  Windows PowerShell is not here: the check against a real powershell.exe was not run');
   } else {
     const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-lint-ps-modules-'));
     try {
-      // PowerShell 7 ships Microsoft.PowerShell.Utility 7.0.0.0 for the Core edition; Windows PowerShell finds it first, cannot load it, and does not look further
-      const module = path.join(folder, 'Modules', 'Microsoft.PowerShell.Utility', '7.0.0.0');
-      await fs.mkdir(module, { recursive: true });
-      await fs.writeFile(path.join(module, 'Microsoft.PowerShell.Utility.psd1'), [
-        '@{', "  GUID = '1da87e53-152b-403e-98dc-74d7b4d63d59'", "  ModuleVersion = '7.0.0.0'", "  CompatiblePSEditions = @('Core')", "  PowerShellVersion = '3.0'",
-        "  NestedModules = @('Microsoft.PowerShell.Commands.Utility.dll')", "  CmdletsToExport = @('Get-FileHash')", '}', '',
-      ].join('\r\n'));
+      const modules = await powerShell7ModuleStandIn(folder, powershell);
       const probe = path.join(folder, 'probe.ps1');
-      await fs.writeFile(probe, "try { 'FOUND ' + (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.Length } catch { 'MISSING' }\r\n");
-      const poisoned = { ...process.env, PSModulePath: `${path.join(folder, 'Modules')};${process.env.PSModulePath ?? ''}` };
-      // the control child gets the poisoned environment as it is, on purpose; the other one gets what the helper makes of it
-      const answer = (environment) => spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probe], { env: environment, encoding: 'utf8', windowsHide: true, timeout: 60_000 });
-      const raw = answer(poisoned);
-      assert.equal(raw.stdout.trim(), 'MISSING', `the control: with the module folder of PowerShell 7 first in PSModulePath, Windows PowerShell must lose Get-FileHash (or this check no longer reproduces the trap): ${raw.stdout}${raw.stderr}`);
-      const guarded = answer(powerShellChildEnvironment({}, poisoned));
-      assert.equal(guarded.stdout.trim(), 'FOUND 64', `with the environment of powerShellChildEnvironment the same child finds Get-FileHash: ${guarded.stdout}${guarded.stderr}`);
-      ok('Windows PowerShell loses Get-FileHash behind the module folder of PowerShell 7, and finds it with the environment of powerShellChildEnvironment');
+      const lookup = "try { 'FOUND ' + (Get-FileHash -LiteralPath $env:ComSpec -Algorithm SHA256).Hash.Length } catch { 'MISSING' }";
+      await fs.writeFile(probe, `${lookup}\r\n`);
+      const poisoned = { ...process.env, PSModulePath: `${modules};${process.env.PSModulePath ?? ''}` };
+      // two ways of being given code: a script file whose first command is Get-FileHash, and the encoded command the Hub's own shell runner uses, with a compiled cmdlet before it
+      const invocations = {
+        '-File, Get-FileHash first': ['-File', probe],
+        '-EncodedCommand, ConvertFrom-Json first': ['-EncodedCommand', Buffer.from(`('{"a":1}' | ConvertFrom-Json).a | Out-Null; ${lookup}`, 'utf16le').toString('base64')],
+      };
+      const answer = (args, environment) => spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', ...args], { env: environment, encoding: 'utf8', windowsHide: true, timeout: 60_000 });
+      for (const [label, args] of Object.entries(invocations)) {
+        // the control child gets the poisoned environment as it is, on purpose; the other one gets what the helper makes of it
+        const raw = answer(args, poisoned);
+        assert.equal(raw.stdout.trim(), 'MISSING', `the control (${label}): with the module folder of PowerShell 7 first in PSModulePath, Windows PowerShell must lose Get-FileHash (or this check no longer reproduces the trap): ${raw.stdout}${raw.stderr}`);
+        const guarded = answer(args, powerShellChildEnvironment({}, poisoned));
+        assert.equal(guarded.stdout.trim(), 'FOUND 64', `with the environment of powerShellChildEnvironment the same child (${label}) finds Get-FileHash: ${guarded.stdout}${guarded.stderr}`);
+      }
+      ok('Windows PowerShell loses Get-FileHash behind the module folder of PowerShell 7 (as a script file, and as the encoded command of the Hub, after a compiled cmdlet), and finds it with the environment of powerShellChildEnvironment');
     } finally {
       await fs.rm(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
