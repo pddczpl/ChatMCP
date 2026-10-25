@@ -163,17 +163,28 @@ namespace ChatMCP.Installer
             };
             _contentPanel.Controls.Add(detailLabel);
 
-            await Task.Run(() =>
+            try
             {
-                InstallerEngine.Uninstall(_installDir, (pct, msg) =>
+                await Task.Run(() =>
                 {
-                    Invoke(new Action(() =>
+                    InstallerEngine.Uninstall(_installDir, (pct, msg) =>
                     {
-                        progressBar.Value = Math.Clamp(pct, 0, 100);
-                        detailLabel.Text = msg;
-                    }));
+                        Invoke(new Action(() =>
+                        {
+                            progressBar.Value = Math.Clamp(pct, 0, 100);
+                            detailLabel.Text = msg;
+                        }));
+                    });
                 });
-            });
+            }
+            catch (Exception ex)
+            {
+                // The engine's own sentence says why it stopped (a task still running, a Hub that could not be stopped, a file in use). Say it the way setup does and offer the
+                // question again, instead of the .NET dialog "Unhandled exception has occurred in your application" that this window used to end in.
+                MessageBox.Show($"Uninstall encountered an error: {ex.Message}", "Uninstall Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                ShowConfirmPage();
+                return;
+            }
 
             _contentPanel.Controls.Clear();
 

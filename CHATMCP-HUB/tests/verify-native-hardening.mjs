@@ -95,4 +95,16 @@ check(/AreDevToolsEnabled\s*=\s*false/.test(window.text), 'a release build turns
   check((code(lifecycle).match(/\bWindowsPowerShell\(/g) ?? []).length >= 2, 'and so does the Hub ownership query (the definition is the first of the occurrences)');
 }
 
-console.log(`PASS: ${checks} checks - no script injection of page addresses, one http/https-only new-window handler, DevTools only in DEBUG, Windows PowerShell started in one place without PSModulePath`);
+// A window that runs the engine reports what stopped it instead of letting the exception reach the .NET crash dialog ("Unhandled exception has occurred in your application").
+// The uninstall window had no try/catch: with the Hub's state over 256 KiB (HubLifecycle's client refused it) it ended in that dialog on the owner's machine. The behaviour needs a
+// window; this keeps the source from drifting back, on every platform. The refusal itself is pinned by the native unit tests (scripts/tests/native-lifecycle).
+{
+  const guarded = (text, call) => new RegExp(`try\\s*\\{[^]*?${call}\\([^]*?\\}\\s*catch\\s*\\(Exception\\b[^]*?MessageBox\\.Show\\(`).test(strip(text));
+  const form = (name) => shell.find((entry) => entry.file === `installer/${name}`);
+  check(form('UninstallForm.cs') && form('SetupForm.cs'), 'SetupForm.cs and UninstallForm.cs exist');
+  check(guarded(form('UninstallForm.cs').text, 'InstallerEngine\\.Uninstall'), 'the uninstaller window runs the uninstall inside try/catch and shows what stopped it');
+  check(guarded(form('SetupForm.cs').text, 'InstallerEngine\\.Install'), 'and so does the setup window');
+  check(!guarded('await Task.Run(() => { InstallerEngine.Uninstall(dir, report); });\nMessageBox.Show("done");', 'InstallerEngine\\.Uninstall'), '(the pattern can fail: a window with no catch around the call is not accepted)');
+}
+
+console.log(`PASS: ${checks} checks - no script injection of page addresses, one http/https-only new-window handler, DevTools only in DEBUG, Windows PowerShell started in one place without PSModulePath, the setup and uninstall windows report errors`);
