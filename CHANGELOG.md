@@ -1,5 +1,18 @@
 # Lịch sử thay đổi
 
+## [3.10.2] — 2026-10-25 — Streaming, a model catalog, hooks and a DatGold installer (latest release)
+
+This is the first normal release since 3.9.0. It contains everything of the test builds 3.10.0 and 3.10.1 (listed below) and what was merged after 3.10.1.
+
+- The installer and the uninstaller say DatGold: the wizard, the shortcuts (Desktop `DatGold Studio`, Start menu folder `DatGold` with the launcher and the uninstaller) and the entry in Apps & features. An upgrade removes the shortcuts that earlier versions made under the old name, but only those that point into the installation it replaces, and the uninstaller removes both sets. File names, the install folder, the settings folder and the registry key keep the ChatMCP spelling so that an upgrade finds what 3.9.0 made (docs/NAMING.md).
+- New icon: a gold "D" on the dark rounded square (installer, application and browser tab).
+- The Agents tab shows the background tasks only. The sections "Nhóm trợ lý" (agent groups) and "Sửa mã" (code edits) are removed from the page; the Hub routes behind them (`/api/studio/dynamic-delegates/*`, `/delegates/*`, `/coding/*`, `/workflow`) are unchanged.
+- Fix: the installer, the uninstaller and `STOP-CHATMCP-HUB.cmd` could not read the Hub's state once it had grown past 256 KiB (installer and uninstaller) or 64 KiB (the stop script). The state grows with use (445,101 bytes on one machine), so an upgrade or an uninstall of a used installation failed with "Cannot write more bytes to the buffer than the configured maximum buffer size", and the stop script ended with "Could not finish: reading the verified Hub session". All three now read up to 64 MiB. A used installation of 3.10.1 or earlier still has the old uninstaller and stop script: install this version over it, and the new setup stops the Hub itself.
+- Fix: the uninstaller window shows what stopped the uninstall in a message box and returns to its question, instead of the .NET "Unhandled exception" dialog.
+- Tests: the native lifecycle unit tests grew to 87 checks (shortcut migration on real `.lnk` files, the size of the Hub's answer); the hosted-runner lifecycle test checks the shortcuts of the published 3.9.0, of the upgrade and of the uninstall; a static check keeps the setup and uninstall windows from ending in the crash dialog; the PowerShell stop script is tested against a stand-in Hub whose state is 600 KB.
+
+**Limitations:** no automated test calls a live provider. The thinking-block rules were tried once, by hand, against a real Anthropic account (claude-sonnet-5-5). The upgrade from 3.10.0 and 3.10.1 is not run by CI, which runs the upgrade from 3.9.0; `guest-lifecycle.ps1` (Windows Sandbox) is not run. The installer is not Authenticode-signed.
+
 ## [3.10.1] — 2026-10-25 — Test build: fixes and notices after 3.10.0 (pre-release)
 
 - Fix: a Hub started from a PowerShell 7 (pwsh) session no longer hands the module path of PowerShell 7 to the Windows PowerShell that it starts, which lost `Get-FileHash`, `New-Guid`, `New-TemporaryFile`, `Format-Hex`, `Import-PowerShellDataFile` and `ConvertFrom-SddlString` without any error at start. It covers every shell of the command runner on Windows (`run_command`, background tasks, hooks that run through bash or PowerShell), the terminal, the folder picker, the DPAPI helper, the Windows Sandbox probe and the launcher.
