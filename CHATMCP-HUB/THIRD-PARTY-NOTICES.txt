@@ -50,8 +50,9 @@ RUNTIME COMPONENTS
     License texts of ripgrep itself: CHATMCP-HUB/runtimes/ripgrep/LICENSE-MIT, UNLICENSE and COPYING (from the archive). Texts of PCRE2 and of the
     crates: CHATMCP-HUB/licenses/ripgrep/<folder>/, copied unchanged from the upstream repositories; MANIFEST.json there gives the source, the SHA-256 and
     the git blob id of each. Status: shipped; the build fails without them. The Rust standard library and the static C runtime inside rg.exe are not
-    covered (see the list of open notices below). The list is derived from the sources of ripgrep 15.2.0, not read from the binary; the PCRE2 version
-    is compared with what rg --pcre2-version reports. Components, each with the folder of its texts:
+    covered (see the list of open notices below). The list is derived from the sources of ripgrep 15.2.0, not from opening the binary; the installer
+    build checks that the version string of the PCRE2 library (10.46 2025-08-27) is in rg.exe. rg --pcre2-version prints PCRE2 10.45 all the same: it
+    prints stale constants of the Rust bindings, and the inventory records that. Components, each with the folder of its texts:
       PCRE2 10.46 - BSD-3-Clause WITH PCRE2-exception - libpcre2-10.46/
       aho-corasick 1.1.4 - Unlicense OR MIT - aho-corasick-1.1.4/
       anyhow 1.0.103 - MIT OR Apache-2.0 - anyhow-1.0.103/

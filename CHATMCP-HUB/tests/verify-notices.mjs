@@ -23,7 +23,8 @@
 //      what the manifest says and the kind of license that the crate's license expression names, no vendored file may be unlisted,
 //      THIRD-PARTY-NOTICES.md and .txt must have a row for every component and no longer call ripgrep pending, stage.mjs must stage the
 //      texts, verify.mjs must require them (with the vendored hashes), the payload and the installer build must check them, and
-//      test-runtime.mjs must compare the PCRE2 version that the bundled rg.exe reports with the one the notice is for.
+//      test-runtime.mjs must tie the notice to the shipped binary: the version string that the PCRE2 library carries ("10.46 2025-08-27") must be
+//      in rg.exe, and `rg --pcre2-version` must print what the inventory records (10.45: it prints stale constants of the Rust bindings).
 //
 // The notices whose upstream text is not in the repository yet (the Tree-sitter grammar licenses) are PENDING: the suite prints them and does
 // not fail, because the staging code refuses a release build without them (step 5).
@@ -44,9 +45,9 @@ if (!existsSync(path.join(REPO, 'README.md')) || !existsSync(path.join(REPO, 'sc
 }
 
 const noticesModule = await import(pathToFileURL(path.join(REPO, 'scripts', 'intelligence-runtime', 'notices.mjs')).href);
-for (const name of ['readRipgrepNotices', 'judgeRipgrepText', 'requiredKindsOf', 'assertRipgrepPin', 'checkReportedPcre2']) assert.equal(typeof noticesModule[name], 'function', `notices.mjs does not export ${name}`);
+for (const name of ['readRipgrepNotices', 'judgeRipgrepText', 'requiredKindsOf', 'assertRipgrepPin', 'checkReportedPcre2', 'checkCompiledPcre2']) assert.equal(typeof noticesModule[name], 'function', `notices.mjs does not export ${name}`);
 assert.ok(Array.isArray(noticesModule.RIPGREP_NOTICE_FILES) && noticesModule.RIPGREP_NOTICE_FILES.length > 1, 'notices.mjs does not export RIPGREP_NOTICE_FILES');
-const { GRAMMAR_NOTICES, PENDING_ALLOWED_ENV, RIPGREP_NOTICE_FILES, assertRipgrepPin, checkReportedPcre2, judgeRipgrepText, noticeSource, noticeStaged, readGrammarNotices, readRipgrepNotices, requiredKindsOf, requiredLicenseFiles } = noticesModule;
+const { GRAMMAR_NOTICES, PENDING_ALLOWED_ENV, RIPGREP_NOTICE_FILES, assertRipgrepPin, checkCompiledPcre2, checkReportedPcre2, judgeRipgrepText, noticeSource, noticeStaged, readGrammarNotices, readRipgrepNotices, requiredKindsOf, requiredLicenseFiles } = noticesModule;
 const { REQUIRED_COMPONENTS, verifyRuntime } = await import(pathToFileURL(path.join(REPO, 'scripts', 'intelligence-runtime', 'verify.mjs')).href);
 const { expectedDocument } = await import(pathToFileURL(path.join(REPO, 'scripts', 'generate-licenses.mjs')).href);
 
@@ -211,6 +212,10 @@ export async function checkNotices(repo) {
       if (!markdown.includes(`| ${label} | ${component.version} | ${component.license} |`)) fail(`THIRD-PARTY-NOTICES.md has no row for ${component.name} ${component.version} (${component.license}) among the components compiled into rg.exe`);
       if (!text.includes(`${component.name} ${component.version} - ${component.license}`)) fail(`CHATMCP-HUB/THIRD-PARTY-NOTICES.txt has no line for ${component.name} ${component.version} (${component.license}) among the components compiled into rg.exe`);
     }
+    // both PCRE2 numbers are in the prose: the compiled one (the notice is for it) and the one rg prints (stale)
+    const pcre2 = ripgrep.manifest.components.find((component) => component.name === 'PCRE2');
+    if (pcre2 && (!markdown.includes(pcre2.compiledVersionString) || !markdown.includes(`PCRE2 ${pcre2.rgReports}`))) fail(`THIRD-PARTY-NOTICES.md does not state both PCRE2 numbers: the version string compiled into rg.exe ("${pcre2.compiledVersionString}", which the notice is for) and the one rg --pcre2-version prints ("PCRE2 ${pcre2.rgReports}")`);
+    if (pcre2 && !text.includes(pcre2.compiledVersionString)) fail(`CHATMCP-HUB/THIRD-PARTY-NOTICES.txt does not state the version string compiled into rg.exe ("${pcre2.compiledVersionString}")`);
     // the counts the prose gives are the inventory's
     const crates = ripgrep.manifest.components.length - 1;
     if (!markdown.includes(`${crates} Rust crates`) || !markdown.includes(`${ripgrep.manifest.notLinked.length} packages of the lock file that are not linked`)) fail(`THIRD-PARTY-NOTICES.md does not state the counts of the inventory (${crates} Rust crates, ${ripgrep.manifest.notLinked.length} packages of the lock file that are not linked)`);
@@ -229,7 +234,9 @@ export async function checkNotices(repo) {
   const stageSource = read(repo, 'scripts', 'intelligence-runtime', 'stage.mjs');
   if (!stageSource.includes('readRipgrepNotices') || !stageSource.includes('assertRipgrepPin')) fail('stage.mjs does not stage the ripgrep notices (PCRE2 and the Rust crates) and check them against the pinned archive');
   if (!read(repo, 'scripts', 'intelligence-runtime', 'verify.mjs').includes('RIPGREP_NOTICE_FILES')) fail('verify.mjs does not compare the staged ripgrep notices with the vendored ones');
-  if (!read(repo, 'scripts', 'intelligence-runtime', 'test-runtime.mjs').includes('checkReportedPcre2')) fail('test-runtime.mjs does not compare the PCRE2 version of the bundled rg.exe with the notice');
+  const testRuntime = read(repo, 'scripts', 'intelligence-runtime', 'test-runtime.mjs');
+  if (!testRuntime.includes('checkReportedPcre2')) fail('test-runtime.mjs does not compare the PCRE2 version that the bundled rg.exe prints with the notice');
+  if (!testRuntime.includes('checkCompiledPcre2')) fail('test-runtime.mjs does not look for the version string of the PCRE2 compiled into the bundled rg.exe');
   if (!/^scripts\/intelligence-runtime\/licenses\/ripgrep\/\*\* -text$/m.test(read(repo, '.gitattributes'))) fail('.gitattributes does not keep the vendored ripgrep notices byte for byte: a Windows checkout would change their line ends and break their hashes');
   if (!payloadScript.includes('function Assert-InstallerRipgrepNotices')) fail('InstallerPayload.ps1 lost Assert-InstallerRipgrepNotices');
   const builder = read(repo, 'scripts', 'Build-Installer.ps1');
@@ -374,6 +381,9 @@ try {
     ['a component has no text', (inventory) => { inventory.components[1].files = []; }, /lists no licence text/],
     ['there is no schema version', (inventory) => { delete inventory.schemaVersion; }, /schemaVersion/],
     ['the inventory is for another program', (inventory) => { inventory.subject.name = 'grep'; }, /subject/],
+    ['the PCRE2 component names no compiled version string', (inventory) => { delete inventory.components.find((component) => component.name === 'PCRE2').compiledVersionString; }, /compiledVersionString/],
+    ['the compiled version string is not one of the PCRE2 version', (inventory) => { inventory.components.find((component) => component.name === 'PCRE2').compiledVersionString = '10.45 2025-02-05'; }, /compiledVersionString/],
+    ['the PCRE2 component does not say what rg prints', (inventory) => { delete inventory.components.find((component) => component.name === 'PCRE2').rgReports; }, /rgReports/],
   ];
   for (const [label, edit, expected] of edits) await refuses({ edit }, expected, `an inventory where ${label} must be refused`);
   ok(`an inventory is refused when ${edits.map(([label]) => label).join('; ')}`);
@@ -407,14 +417,27 @@ try {
   assert.throws(() => assertRipgrepPin(vendored.manifest, '$expected = ""\n'), /pins no/);
   ok('the inventory is refused when stage-ripgrep.ps1 pins another version or another archive hash, or pins nothing');
 
-  // the binary tells the PCRE2 version it was built with: rg --pcre2-version
-  assert.equal(checkReportedPcre2(vendored.manifest, `PCRE2 ${noticePcre2.version} is available (JIT is available)\n`), null);
-  assert.equal(checkReportedPcre2(vendored.manifest, `PCRE2 ${noticePcre2.version} is available (JIT is unavailable)\n`), null);
-  assert.match(checkReportedPcre2(vendored.manifest, 'PCRE2 10.45 is available (JIT is available)\n') ?? '', /10\.45/);
-  assert.match(checkReportedPcre2(vendored.manifest, `PCRE2 ${noticePcre2.version}0 is available\n`) ?? '', /differs/, 'a longer number is not the version');
+  // What rg.exe says about its PCRE2. `rg --pcre2-version` prints the PCRE2_MAJOR/PCRE2_MINOR constants of the Rust bindings (pcre2-sys/src/bindings.rs), which were generated for
+  // 10.45 and not regenerated when the bundled sources went to 10.46: the installer build found "PCRE2 10.45" in the real 15.2.0 binary while the notice is for 10.46. So the inventory
+  // records both: what rg prints (rgReports) and the version string that the compiled library carries (compiledVersionString, the value of PCRE2_CONFIG_VERSION), and the check
+  // that ties the notice to the shipped bytes is the second one.
+  assert.match(noticePcre2.rgReports, /^\d+\.\d+$/);
+  assert.notEqual(noticePcre2.rgReports, noticePcre2.version, 'the inventory records that rg prints another number than the compiled one');
+  assert.match(noticePcre2.compiledVersionString, new RegExp(`^${escape(noticePcre2.version)} \\d{4}-\\d{2}-\\d{2}$`));
+  assert.equal(checkReportedPcre2(vendored.manifest, `PCRE2 ${noticePcre2.rgReports} is available (JIT is available)\n`), null);
+  assert.equal(checkReportedPcre2(vendored.manifest, `PCRE2 ${noticePcre2.rgReports} is available (JIT is unavailable)\n`), null);
+  assert.match(checkReportedPcre2(vendored.manifest, 'PCRE2 10.99 is available (JIT is available)\n') ?? '', /10\.99/);
+  assert.match(checkReportedPcre2(vendored.manifest, `PCRE2 ${noticePcre2.rgReports}0 is available\n`) ?? '', /differs/, 'a longer number is not the version');
   assert.match(checkReportedPcre2(vendored.manifest, 'PCRE2 is not available in this build of ripgrep.\n') ?? '', /without PCRE2/);
   assert.match(checkReportedPcre2(vendored.manifest, '') ?? '', /did not report/);
-  ok(`the PCRE2 version that rg --pcre2-version reports must be the ${noticePcre2.version} of the notice; no PCRE2 or no answer is refused`);
+  ok(`rg --pcre2-version must print the ${noticePcre2.rgReports} that the inventory records (the stale constant of the bindings); no PCRE2 or no answer is refused`);
+
+  const inFile = (text) => Buffer.concat([Buffer.alloc(64, 0x2a), Buffer.from(`${text}\0`, 'latin1'), Buffer.alloc(64, 0)]);
+  assert.equal(checkCompiledPcre2(vendored.manifest, inFile(noticePcre2.compiledVersionString)), null);
+  assert.match(checkCompiledPcre2(vendored.manifest, inFile('10.45 2025-02-05')) ?? '', /10\.45 2025-02-05/, 'it names the version string that it finds instead');
+  assert.match(checkCompiledPcre2(vendored.manifest, inFile(`${noticePcre2.version} 2025-01-01`)) ?? '', /2025-01-01/, 'the date is part of the version string');
+  assert.match(checkCompiledPcre2(vendored.manifest, Buffer.from('MZ without any version string')) ?? '', /no PCRE2 version string/);
+  ok(`the version string "${noticePcre2.compiledVersionString}" that the PCRE2 library carries must be in rg.exe; another string, or none, is refused (and named)`);
 
   // verifyRuntime: every vendored text and the inventory are required, and each staged text must be the vendored one
   const fullRuntime = makeRuntime(path.join(scratch, 'runtime-with-ripgrep-notices'));
@@ -499,7 +522,9 @@ try {
     ['stage.mjs no longer stages the ripgrep notices', 'scripts/intelligence-runtime/stage.mjs', (source) => source.replaceAll('readRipgrepNotices', 'skipRipgrepNotices'), /does not stage the ripgrep notices/],
     ['stage.mjs no longer checks the pinned archive against the notices', 'scripts/intelligence-runtime/stage.mjs', (source) => source.replaceAll('assertRipgrepPin', 'skipRipgrepPin'), /does not stage the ripgrep notices/],
     ['verify.mjs no longer compares the staged ripgrep notices with the vendored ones', 'scripts/intelligence-runtime/verify.mjs', (source) => source.replaceAll('RIPGREP_NOTICE_FILES', 'NO_NOTICE_FILES'), /does not compare the staged ripgrep notices/],
-    ['test-runtime.mjs no longer compares the PCRE2 version of rg.exe', 'scripts/intelligence-runtime/test-runtime.mjs', (source) => source.replaceAll('checkReportedPcre2', 'skipPcre2Check'), /PCRE2 version of the bundled rg\.exe/],
+    ['test-runtime.mjs no longer compares the PCRE2 version that rg.exe prints', 'scripts/intelligence-runtime/test-runtime.mjs', (source) => source.replaceAll('checkReportedPcre2', 'skipPcre2Check'), /PCRE2 version that the bundled rg\.exe prints/],
+    ['test-runtime.mjs no longer looks for the PCRE2 version string in rg.exe', 'scripts/intelligence-runtime/test-runtime.mjs', (source) => source.replaceAll('checkCompiledPcre2', 'skipCompiledCheck'), /version string of the PCRE2 compiled into the bundled rg\.exe/],
+    ['the compiled PCRE2 version string is no longer in THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md', (source) => source.replaceAll(vendored.manifest.components[0].compiledVersionString, 'x'), /does not state both PCRE2 numbers/],
     ['.gitattributes no longer keeps the ripgrep notices byte for byte', '.gitattributes', dropLines(/licenses\/ripgrep/), /byte for byte/],
     ['the payload script loses Assert-InstallerRipgrepNotices', 'scripts/InstallerPayload.ps1', (source) => source.replace('function Assert-InstallerRipgrepNotices', 'function Assert-SomethingElse'), /lost Assert-InstallerRipgrepNotices/],
     ['Build-Installer.ps1 no longer checks the ripgrep notices of the payload', 'scripts/Build-Installer.ps1', dropLines(/Assert-InstallerRipgrepNotices/), /does not check the ripgrep notices of the payload/],

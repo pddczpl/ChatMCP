@@ -202,6 +202,11 @@ export async function readRipgrepNotices({ sourceDirectory, readFile = (file) =>
     if (typeof component?.id !== 'string' || typeof component.name !== 'string' || typeof component.version !== 'string' || typeof component.license !== 'string') { fail(`component ${id}: id, name, version and license are required`); continue; }
     const entries = Array.isArray(component.files) ? component.files : [];
     if (entries.length === 0) fail(`component ${id}: lists no licence text`);
+    if (component.name === 'PCRE2') {
+      // the two ways rg.exe tells its PCRE2 (see checkReportedPcre2 and checkCompiledPcre2)
+      if (typeof component.compiledVersionString !== 'string' || !component.compiledVersionString.startsWith(`${component.version} `) || !/^\d+\.\d+ \d{4}-\d{2}-\d{2}$/.test(component.compiledVersionString)) fail(`component ${id}: compiledVersionString must be "<version> <yyyy-mm-dd>" of the version ${component.version}`);
+      if (!/^\d+\.\d+$/.test(component.rgReports ?? '')) fail(`component ${id}: rgReports must be the major.minor that rg --pcre2-version prints`);
+    }
     try {
       const present = new Set(entries.map((entry) => entry?.kind));
       for (const kind of requiredKindsOf(component.license)) if (!present.has(kind)) fail(`component ${id}: license "${component.license}" needs a text of kind ${kind}, the inventory lists none`);
@@ -247,8 +252,11 @@ export function assertRipgrepPin(manifest, scriptText) {
 }
 
 /**
- * Compares the PCRE2 version that the bundled rg.exe reports (`rg --pcre2-version`: "PCRE2 10.46 is available (JIT is available)", or "PCRE2 is not
- * available in this build of ripgrep." with exit code 1) with the one the notice is for. Null when they are the same, else the problem.
+ * What `rg --pcre2-version` prints ("PCRE2 10.45 is available (JIT is available)", or "PCRE2 is not available in this build of ripgrep." with exit code
+ * 1) against what the inventory records. That command prints the PCRE2_MAJOR and PCRE2_MINOR constants of the Rust bindings (pcre2-sys/src/bindings.rs),
+ * which were generated for 10.45 and not regenerated when pcre2-sys 0.2.10 bundled 10.46: the real 15.2.0 binary printed 10.45 in the installer build while
+ * the library compiled into it is 10.46. So the inventory records the number rg prints (`rgReports`), and a build that prints another number is a build the
+ * inventory was not derived for. Null when they agree, else the problem. The notice itself is tied to the binary by checkCompiledPcre2.
  */
 export function checkReportedPcre2(manifest, output) {
   const notice = manifest.components.find((component) => component.name === 'PCRE2');
@@ -257,8 +265,24 @@ export function checkReportedPcre2(manifest, output) {
   if (/PCRE2 is not available/i.test(text)) return `rg.exe was built without PCRE2, but the shipped notice is for PCRE2 ${notice.version}`;
   const reported = /^PCRE2 (\d+\.\d+) is available/m.exec(text)?.[1];
   if (!reported) return 'rg --pcre2-version did not report a PCRE2 version';
-  if (reported !== notice.version) return `rg.exe reports PCRE2 ${reported}, but the shipped notice is for PCRE2 ${notice.version}: ${RIPGREP_MANIFEST_FILE} differs from the binary`;
+  if (reported !== notice.rgReports) return `rg.exe reports PCRE2 ${reported}, but the inventory records that this build reports ${notice.rgReports}: ${RIPGREP_MANIFEST_FILE} differs from the binary`;
   return null;
+}
+
+/**
+ * The version string that the PCRE2 library carries (the value of PCRE2_CONFIG_VERSION, which pcre2_config.c builds from pcre2.h: "10.46 2025-08-27") must
+ * be in the bytes of rg.exe: this is what ties the notice to the compiled library, whatever the Rust bindings say. Null when it is, else the problem, with
+ * the version strings of that shape that the file does carry.
+ */
+export function checkCompiledPcre2(manifest, bytes) {
+  const notice = manifest.components.find((component) => component.name === 'PCRE2');
+  if (!notice) return 'the ripgrep notice inventory has no PCRE2 component';
+  const text = Buffer.from(bytes).toString('latin1');
+  if (text.includes(notice.compiledVersionString)) return null;
+  const found = [...new Set(text.match(/\b\d{2}\.\d{2} 20\d{2}-\d{2}-\d{2}\b/g) ?? [])];
+  return found.length > 0
+    ? `rg.exe carries the PCRE2 version string ${found.map((item) => `"${item}"`).join(', ')}, not "${notice.compiledVersionString}" that the shipped notice is for`
+    : `rg.exe carries no PCRE2 version string like "${notice.compiledVersionString}" (built without PCRE2, or not the build the notice is for)`;
 }
 
 /**

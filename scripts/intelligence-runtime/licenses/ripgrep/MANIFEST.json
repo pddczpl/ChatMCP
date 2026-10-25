@@ -140,7 +140,10 @@
       "version": "10.46",
       "license": "BSD-3-Clause WITH PCRE2-exception",
       "repository": "https://github.com/PCRE2Project/pcre2",
-      "via": "compiled from the sources bundled in pcre2-sys 0.2.10 (include/pcre2.h there says 10.46; the release build sets PCRE2_SYS_STATIC=1)",
+      "via": "compiled from the sources bundled in pcre2-sys 0.2.10 (upstream/include/pcre2.h there: PCRE2_MAJOR 10, PCRE2_MINOR 46, PCRE2_DATE 2025-08-27; the release build sets PCRE2_SYS_STATIC=1)",
+      "compiledVersionString": "10.46 2025-08-27",
+      "rgReports": "10.45",
+      "rgReportsNote": "rg --pcre2-version prints the PCRE2_MAJOR and PCRE2_MINOR constants of pcre2-sys/src/bindings.rs, which were generated for 10.45 and not regenerated when the bundled sources went to 10.46 (seen in the installer build on the real 15.2.0 binary, 2026-10-25). The version string that the compiled library carries is compiledVersionString (pcre2_config.c builds it from pcre2.h for PCRE2_CONFIG_VERSION); it is found in rg.exe by a byte search.",
       "files": [
         {
           "path": "libpcre2-10.46/LICENCE.md",
