@@ -14,6 +14,7 @@ import { WindowsSandboxBackend } from '../../lib/windows-sandbox-backend.mjs';
 import { ExecutionRegistry, validateExecutionRequest } from '../../lib/execution-contract.mjs';
 import { ExecutionSnapshotStore } from '../../lib/execution-snapshot-store.mjs';
 import { WorkerTestBroker } from '../../lib/worker-test-broker.mjs';
+import { powerShellChildEnvironment } from '../support/powershell-environment.mjs';
 import { probeWindowsSandboxPreflight } from '../../lib/windows-sandbox-probe.mjs';
 import { SEALED_PROTOCOL, readSealedReceiptBytes, sealedReceiptPayload } from '../../lib/windows-sandbox-sealed-receipt.mjs';
 import { observeUnattestedExitDigest } from '../../lib/windows-sandbox-exitcode-channel.mjs';
@@ -116,7 +117,7 @@ try {
       const connect=`Start-Process -FilePath ${quote(cli)} -ArgumentList @('connect','--id',${quote(args.instanceId)},'--raw') -WindowStyle Hidden | Out-Null`;
       const powershell=path.join(process.env.SystemRoot||'C:\\Windows','System32/WindowsPowerShell/v1.0/powershell.exe');
       await exec(powershell,['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(connect,'utf16le').toString('base64')],
-        {encoding:'utf8',windowsHide:true,timeout:15000});
+        {encoding:'utf8',windowsHide:true,timeout:15000,env:powerShellChildEnvironment()});
       let ready=false;
       for(let attempt=0;attempt<30;attempt++){
         try{

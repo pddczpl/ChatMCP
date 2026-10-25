@@ -17,6 +17,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { powerShellChildEnvironment } from '../../../CHATMCP-HUB/tests/support/powershell-environment.mjs';
 
 if (process.platform !== 'win32') { console.log('SKIP: the installer preflight is Windows-only'); process.exit(0); }
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -81,7 +82,7 @@ try {
   check('the installer preflight stops it through the legacy flow, and the Hub exits', first.code === 0 && /STOPPED/.test(first.out) && await gone(legacy), first.out);
 
   const legacyAgain = await startHub(old);
-  const stop = spawnSync('powershell.exe', ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(repo, 'CHATMCP-HUB', 'Stop-ChatMcpHub.ps1'), '-Port', '3007'], { env: { ...process.env, CHATMCP_STATE_DIR: old.state }, encoding: 'utf8', timeout: 180_000 });
+  const stop = spawnSync('powershell.exe', ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(repo, 'CHATMCP-HUB', 'Stop-ChatMcpHub.ps1'), '-Port', '3007'], { env: powerShellChildEnvironment({ CHATMCP_STATE_DIR: old.state }), encoding: 'utf8', timeout: 180_000 });
   check('Stop-ChatMcpHub.ps1 stops it too', stop.status === 0 && await gone(legacyAgain), `${stop.stdout}${stop.stderr}`.trim().split(/\r?\n/).slice(-1)[0]);
 
   const current = prepare('current', 'HEAD');

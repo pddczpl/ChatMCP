@@ -28,6 +28,7 @@ import path from 'node:path';
 import { sessionFile } from '../lib/hub-session.mjs';
 import { HUB_ROOT, freePort, sleep, startHub, waitFor } from './e2e/hub-process.mjs';
 import { createSquatterHarness } from './e2e/squatter-harness.mjs';
+import { powerShellChildEnvironment } from './support/powershell-environment.mjs';
 
 let checks = 0;
 const check = (condition, label, detail = '') => { assert.ok(condition, `${label}${detail ? `: ${detail}` : ''}`); checks += 1; };
@@ -79,7 +80,7 @@ const hubs = [];
 
 /** Windows PowerShell running `script` with `args`; resolves with the exit code and everything it printed. */
 function powershell(script, args = [], { timeoutMs = 150_000 } = {}) {
-  const env = { ...process.env };
+  const env = powerShellChildEnvironment();
   delete env.CHATMCP_STATE_DIR; delete env.CHATMCP_HUB_SECRET; // the scripts are told where to look
   return new Promise((resolve) => {
     const child = spawn(POWERSHELL, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, ...args], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
