@@ -131,6 +131,22 @@ internal static class HubLifecycle
         }
         finally { LocalFree(argv); }
     }
+    /// <summary>
+    /// Windows PowerShell 5.1, the powershell.exe of this machine, as a child of this process that runs <paramref name="command"/> without a window. The child is given no
+    /// PSModulePath: a process started from PowerShell 7 inherits it with PowerShell 7's module folders first, and Windows PowerShell then finds PowerShell 7's modules
+    /// before its own and loses what they define (Get-FileHash and the other script functions of Microsoft.PowerShell.Utility). Without the variable it works out the
+    /// default module path of the machine. The caller adds redirections; the start must not go through the shell, which ignores Environment.
+    /// </summary>
+    internal static ProcessStartInfo WindowsPowerShell(string command)
+    {
+        var start = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"))
+            { UseShellExecute = false, CreateNoWindow = true };
+        start.ArgumentList.Add("-NoProfile"); start.ArgumentList.Add("-NonInteractive"); start.ArgumentList.Add("-EncodedCommand");
+        start.ArgumentList.Add(Convert.ToBase64String(Encoding.Unicode.GetBytes(command)));
+        foreach (var name in start.Environment.Keys.Where(key => string.Equals(key, "PSModulePath", StringComparison.OrdinalIgnoreCase)).ToList())
+            start.Environment.Remove(name);
+        return start;
+    }
     private static Process? OwnedHub(string root)
     {
         var pid = ListenerPid();
@@ -143,11 +159,8 @@ internal static class HubLifecycle
                 throw new InvalidOperationException("Port 3007 belongs to a different installation or process. It was not stopped.");
             // Confirm the exact script as well as the bundled executable. WMI is
             // read-only; the only generated query argument is an integer PID.
-            var psi = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"))
-            { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-            psi.ArgumentList.Add("-NoProfile"); psi.ArgumentList.Add("-NonInteractive"); psi.ArgumentList.Add("-EncodedCommand");
-            psi.ArgumentList.Add(Convert.ToBase64String(Encoding.Unicode.GetBytes(
-                $"(Get-CimInstance Win32_Process -Filter 'ProcessId = {pid.Value}').CommandLine | ConvertTo-Json -Compress")));
+            var psi = WindowsPowerShell($"(Get-CimInstance Win32_Process -Filter 'ProcessId = {pid.Value}').CommandLine | ConvertTo-Json -Compress");
+            psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
             using var probe = Process.Start(psi) ?? throw new IOException("Cannot verify the Hub command line.");
             var output = probe.StandardOutput.ReadToEndAsync(); var errors = probe.StandardError.ReadToEndAsync();
             if (!probe.WaitForExit(10000)) { probe.Kill(); throw new IOException("Hub ownership query timed out."); }
