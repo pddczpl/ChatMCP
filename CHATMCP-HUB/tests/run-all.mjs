@@ -40,7 +40,9 @@ import path from 'node:path';
 
 const ownDirectory = path.dirname(fileURLToPath(import.meta.url));
 const hubRoot = path.resolve(ownDirectory, '..');
-const TAIL_LIMIT = 6000;
+// How much of the end of a suite's output is kept, and shown when the suite fails. The words that differ in a long assertion stand at the top of Node's report and of each value it
+// dumps, a few thousand characters above the end, so this is more than the report of the longest assertion the suites make.
+const TAIL_LIMIT = 12_000;
 
 function parseOptions(argv) {
   const options = { list: false, filter: '', bail: false, verbose: false, timeoutSeconds: 180, python: false, json: '', noSkip: null, testsDirectory: ownDirectory, retryFailedOnce: false, failOnFlaky: false };
@@ -162,6 +164,16 @@ const escapeCommand = (text) => String(text).replace(/%/g, '%25').replace(/\r/g,
 
 function pad(text, width) { return text.length >= width ? text : text + ' '.repeat(width - text.length); }
 
+/**
+ * The lines of a failing suite's tail that the log shows: all of them. The log of a CI run is what is left of a failure that happens once in a hundred runs; the last 25 lines,
+ * which were all that was printed, ended inside the second value of a long assertion and left out the words that differ. The tail is already bounded (TAIL_LIMIT characters), so
+ * showing it whole keeps the log short. When the suite printed more than that, the cut falls inside a line, and that half line is left out.
+ */
+function shownLines(tail) {
+  const lines = tail.trimEnd().split(/\r?\n/);
+  return tail.length >= TAIL_LIMIT && lines.length > 1 ? lines.slice(1) : lines;
+}
+
 async function main() {
   let options;
   try { options = parseOptions(process.argv.slice(2)); } catch (error) { console.error(error.message); process.exit(2); }
@@ -177,8 +189,7 @@ async function main() {
     console.log(`${pad(result.status, 8)}${pad(name, 46)}${pad(`${(result.milliseconds / 1000).toFixed(1)}s`, 8)}${result.note}`);
     // A FLAKY suite prints what its first attempt said: a flake is only worth anything if somebody can read why it failed.
     if ((result.status === 'FAIL' || result.status === 'TIMEOUT' || result.status === 'FLAKY') && !options.verbose) {
-      const lines = result.tail.trimEnd().split(/\r?\n/).slice(-25);
-      for (const line of lines) console.log(`    | ${line}`);
+      for (const line of shownLines(result.tail)) console.log(`    | ${line}`);
     }
     if (options.bail && (result.status === 'FAIL' || result.status === 'TIMEOUT')) break;
   }

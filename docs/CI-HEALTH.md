@@ -85,6 +85,27 @@ How it was measured, so that it can be repeated: `gh run list --workflow CI --li
 
 A run can contain several classes, so the rows do not add up to 62. In 54 of the 62 failed runs at least one Node suite failed (84 suite failures); the other 8 failed only in the React E2E or installer jobs (class H). 73 of the 84 suite failures were in two or more of the four jobs of the same run: they depend on the commit or on the OS, not on luck. Classes A to D (66 suite failures in 41 runs) are the bulk of the 24%; they are not flakes and a retry would not have helped (the second attempt of the same commit fails the same way). Of the 15 failed runs on `main`, A, D and E explain 9, class C one, and the other 5 failed only in class H.
 
+## A race the study could not see: two `git worktree add` at once (read with `gh` on 2026-10-25)
+
+`verify-subagent-notices` (section D5: a workflow of two review agents and a verifier) failed once on `windows-latest` in a `pwsh` run of the whole regression (run 40163727428). It passed in the four Hub jobs of the pull request, in the first publish run of v3.10.0 and 20 of 20 times on a developer machine, and the publish workflows run without `--retry-failed-once`, so one such failure stops a release. `run-all.mjs` printed the last 25 lines of the failure, which ended inside the "expected" dump, so the rows the test had read were not in the log. It prints the whole tail now (12,000 characters), and the assertions about agents say what the Hub recorded for each.
+
+The cause was shown on the runner by running the suite on its own, as `run-all` starts it, in a loop (a throwaway workflow on a `pddczpl/tmp-*` branch, run 40165632854): 90 runs one at a time without a failure, 120 runs four at a time with one. Its output holds the Hub's own record of the agents:
+
+```
+Security: uncertain (Git worktree creation failed: Preparing worktree (new branch 'chatmcp/chat/486ce72d-382')
+  fatal: failed to read .git/worktrees/worktree7/commondir: No error) · Correctness: completed · Independent verifier: blocked (A dependency has not completed successfully.)
+```
+
+The assertion was right and the Hub had a defect. `ConcurrentApiAgent` starts the agents of a phase together and ran `git worktree add` for all of them on the same repository at the same moment. Git makes the folder under `.git/worktrees` before the files in it, and a second `git worktree add` that looks at the folder in between dies reading a `commondir` that is still empty. The Hub marks that agent `uncertain` (its worktree may be half made) and the agents waiting for it `blocked`, as designed. The notices, the 50 ms polling of the test and the order of the phases had nothing to do with it.
+
+| What was run (`windows-latest`, Node 24, `shell: pwsh`; "Git alone" has no Hub code) | Result |
+|---|---|
+| Git alone: 4 `git worktree add` started together, 1,015 rounds (ubuntu 400, `windows-latest` 500, a Windows 11 machine 115) | 4 rounds failed, each with the message above ("No error" on Windows, "Success" on Linux); started one at a time: 0 of 1,015 |
+| The Hub before the fix (main `a45325b`): 8 agents at once, 24 worktrees already in the repository, 160 rounds | `git worktree add` overlapped in 160 of 160 rounds (up to 8 at once); an agent ended `uncertain` in 3 rounds (4 of 1,280 agents), each time with that message |
+| The Hub with the fix, the same 160 rounds | overlapped in 0 rounds (never more than one); 1,280 of 1,280 agents completed |
+
+The failure is rare (3 rounds in 160 above, 1 run in 120 of the suite), so the count of failures alone would not prove the fix. What shows it is the overlap, which is counted in every round and which the fix removes, together with the message. `ConcurrentApiAgent#worktreeTurn` now gives each repository a line of turns: an agent takes its turn after the approval step and keeps it for the crash marker and the `git worktree add`. The price is that the checkouts of agents that start together are made one after the other (8 agents of a tiny repository: about 0.7 s before, 1.5 s after, on a developer machine). `verify-subagent-notices` D8 counts the calls that run at the same moment, D9 covers a stop while an agent waits and a Git call that throws, and D10 that the question to the person (Review mode) comes before the turn. The coding orchestrator already set up its workers one at a time for the same reason. Still unprotected, and left alone: `gitRefs` (`git worktree list`), the studio tool `worktrees_create` and the coding orchestrator's own `git worktree add` calls (one at a time among themselves, but with no turn shared with the pool's), which can meet the same Git failure while the pool makes a worktree.
+
 ## Retry, `FLAKY`, and the streak gate
 
 `node tests/run-all.mjs --retry-failed-once` (used by `ci.yml`) runs a suite that **failed or timed out** a second time, once.

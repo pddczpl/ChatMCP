@@ -7,7 +7,9 @@
 //      a limit that would lose the answer wins; a parent that is not running only records, and is told once before the prompt of its next run;
 //      the notice selects no tool and no skill and is not something the user asked; restart.
 //   D. the pool: a parent spawns two agents, both stop, its next request carries the notice, it reads their results and its final answer is
-//      built from them; the same when the parent finished first; blocked and cancelled agents; workflows; only the caller's children; a full tree.
+//      built from them; the same when the parent finished first; blocked and cancelled agents; workflows; only the caller's children; a full tree;
+//      agents that start together get their worktrees one at a time (Git does not survive two `git worktree add` on one repository at once), an agent
+//      stopped while it waits for its turn makes nothing, and the turn of an agent whose Git call failed is given up.
 //   E. restart of the pool.
 //   F. the same notices and the tool on the wire of all four protocols (Chat Completions, Anthropic Messages, Responses, Gemini): the real runner and provider
 //      against a mock server that refuses what the real API refuses.
@@ -559,6 +561,10 @@ try {
   const gate = new Map();
   const closed = (name) => { let open; const promise = new Promise((resolve) => { open = resolve; }); gate.set(name, { promise, open }); return promise; };
   const childAnswer = (name) => final(`${name} report: ${tokenOf(name)}. ${name === 'Child C2' ? `Also, its key is ${GITHUB}.` : ''}`);
+  const hasStopped = (id) => ['completed', 'failed', 'cancelled', 'blocked', 'uncertain', 'limit'].includes(pool.get(id)?.status);
+  // What the Hub recorded about each agent that `parentId` started, in one line, for the message of an assertion about them: a failure of the suite then says WHY an agent did not
+  // complete (the log of a run keeps only the end of a suite's output, and an assertion that compares statuses alone left that out once).
+  const account = (parentId) => pool.listSubagents(parentId).map((fact) => `${fact.role ?? fact.goal.split(':')[0]} ${fact.status}${fact.error ? ` (${String(fact.error).replace(/\s+/g, ' ').slice(0, 300)})` : ''}`).join('; ');
 
   // ---- D1 the plan criterion: the real result of a subagent appears in the parent's output
   {
@@ -598,7 +604,7 @@ try {
     assert.equal(mine[3].trace.at(-1).startsWith('out:'), true);
     const read = lastOutput(mine[3]).structuredContent;
     assert.equal(read.total, 2);
-    assert.deepEqual(read.children.map((child) => child.status), ['completed', 'completed']);
+    assert.deepEqual(read.children.map((child) => child.status), ['completed', 'completed'], `the Hub's record: ${account(parent.id)}`);
     assert.ok(read.children.every((child) => child.claim.verifiedByHub === false && child.startedAt && child.finishedAt && child.durationMs >= 0));
     assert.ok(read.children.every((child) => child.hubRecord.steps >= 1 && child.hubRecord.branch?.startsWith('chatmcp/chat/')), 'the Hub\'s record: its steps and its branch');
     const answer = pool.get(parent.id).finalText;
@@ -757,7 +763,7 @@ try {
     const parent = await pool.start({ prompt: 'Parent P5: run a two-pass audit.' });
     await until(() => pool.get(parent.id)?.status === 'completed', 'parent P5 finishes', 800);
     const rows = JSON.parse(pool.get(parent.id).finalText).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
-    assert.deepEqual(rows, [['Correctness', { name: 'Two-pass audit', phase: 'Review' }, 'completed'], ['Independent verifier', { name: 'Two-pass audit', phase: 'Verify' }, 'completed'], ['Security', { name: 'Two-pass audit', phase: 'Review' }, 'completed']]);
+    assert.deepEqual(rows, [['Correctness', { name: 'Two-pass audit', phase: 'Review' }, 'completed'], ['Independent verifier', { name: 'Two-pass audit', phase: 'Verify' }, 'completed'], ['Security', { name: 'Two-pass audit', phase: 'Review' }, 'completed']], `the agents of the workflow did not all complete - the Hub's record: ${account(parent.id)}`);
     const notice = pool.get(parent.id).subagentNotices;
     assert.equal(notice.length, 3); assert.ok(notice.every((entry) => entry.workflow?.startsWith('Two-pass audit / ')));
     assert.deepEqual(notice.map((entry) => entry.role).sort(), ['Correctness', 'Independent verifier', 'Security']);
@@ -804,6 +810,97 @@ try {
     assert.equal(fact.status, 'failed'); assert.equal(fact.finalText, null); assert.match(fact.error, /branch no longer exists/i);
     assert.equal(pool.primary.activeTaskId, null, 'and nothing ran for the parent');
     ok('D7 an agent that fails before it starts (its base branch is gone, so no worktree and no runner): the pool\'s own catch records the ending on the parent, with the Hub\'s error and no claim');
+  }
+
+  // ---- D8 agents that start together: the worktrees of one repository are made one at a time
+  {
+    reset();
+    handler = (request) => (ownerOf(request).startsWith('Child') ? childAnswer(ownerOf(request)) : final('Nothing to start myself.'));
+    const parent = await pool.start({ prompt: 'Parent P9: nothing to spawn myself.' });
+    await until(() => pool.get(parent.id)?.status === 'completed', 'parent P9');
+    // Git makes a linked worktree in steps: the folder under .git/worktrees first, the files in it after. A second `git worktree add` on the same repository that looks at the folder in
+    // between dies reading a file that is still empty ("fatal: failed to read .git/worktrees/worktree7/commondir: No error"). Agents that start together did that about once in a hundred
+    // runs of this suite on a Windows runner: D5 saw one agent "uncertain" and the one that waited for it "blocked". The moment cannot be provoked on demand, so this counts what the Hub
+    // controls, how many of those calls run at the same moment. Each call is held for a while, so any two that the pool lets start together overlap.
+    const git = manager.studio.gitRunner;
+    const run = git.text.bind(git);
+    let adds = 0; let running = 0; let peak = 0;
+    git.text = async (args, options) => {
+      if (args[0] !== 'worktree' || args[1] !== 'add') return run(args, options);
+      adds += 1; running += 1; peak = Math.max(peak, running);
+      try { await wait(400); return await run(args, options); } finally { running -= 1; }
+    };
+    try {
+      const agents = await Promise.all(['Child C14: inspect the readme', 'Child C15: inspect the license', 'Child C16: inspect the tests'].map((goal) => pool.spawnAgent(parent.id, { goal })));
+      await until(() => agents.every((agent) => hasStopped(agent.id)), 'the three agents stop', 400);
+      assert.equal(adds, 3, 'each agent made a worktree of its own');
+      assert.equal(peak, 1, `${peak} worktrees of one repository were being made at the same moment`);
+      assert.deepEqual(agents.map((agent) => pool.get(agent.id).status), ['completed', 'completed', 'completed'], `the Hub's record: ${account(parent.id)}`);
+    } finally { delete git.text; }
+    ok('D8 agents that start together: Git is asked for one worktree of the repository at a time (never two `git worktree add` at once), and all three agents complete');
+  }
+
+  // ---- D9 the line moves on: an agent stopped while it waits for its turn makes nothing, and a turn whose Git call fails is given up
+  {
+    reset();
+    handler = (request) => (ownerOf(request).startsWith('Child') ? childAnswer(ownerOf(request)) : final('Nothing to start myself, again.'));
+    const parent = await pool.start({ prompt: 'Parent P9: nothing to spawn myself, again.' });
+    await until(() => pool.get(parent.id)?.status === 'completed', 'the second parent P9');
+    const git = manager.studio.gitRunner;
+    const run = git.text.bind(git);
+    const asked = []; let looked = 0; let open;
+    const held = new Promise((resolve) => { open = resolve; });
+    git.text = async (args, options) => {
+      if (args[0] === 'rev-parse') { const answer = await run(args, options); looked += 1; return answer; }
+      if (args[0] !== 'worktree' || args[1] !== 'add') return run(args, options);
+      asked.push(args[3]);
+      if (asked.length > 1) return run(args, options);
+      // The first agent to ask keeps its turn until the test lets go, and then its Git call throws (the way a spawn that fails or a stop does): the turn must be given up all the same.
+      await held;
+      throw new Error('fatal: made up by the test');
+    };
+    try {
+      const agents = await Promise.all(['Child C17: inspect the readme', 'Child C18: inspect the license', 'Child C19: inspect the tests'].map((goal) => pool.spawnAgent(parent.id, { goal })));
+      // Once an agent has Git's answer about the repository, nothing but its turn stands between it and its own `git worktree add`.
+      await until(() => looked >= 3 && asked.length >= 1, 'all three agents have looked at the repository and one of them asks for its worktree');
+      await wait(50);
+      assert.equal(asked.length, 1, 'nobody else asks Git while the turn is held');
+      const branchOf = (agent) => `chatmcp/chat/${agent.id.slice(0, 12)}`;
+      const holder = agents.find((agent) => branchOf(agent) === asked[0]);
+      const [stopped, next] = agents.filter((agent) => agent !== holder);
+      await pool.cancel(stopped.id);
+      assert.equal(pool.get(stopped.id).status, 'cancelled', 'an agent stopped while it waits for its turn ends cancelled (nothing was started, nothing is uncertain)');
+      assert.equal(pool.records.get(stopped.id).pendingWorktree, undefined, 'and has no crash marker');
+      await until(() => !pool.preflights.has(stopped.id), 'the stopped agent leaves the line at once, not when the turn ahead of it ends', 100);
+      open();
+      await until(() => agents.every((agent) => hasStopped(agent.id)), 'all three agents stop', 400);
+      assert.equal(pool.get(holder.id).status, 'uncertain', 'the agent whose Git call failed keeps the Hub\'s usual answer to a worktree that may be half made');
+      assert.match(pool.get(holder.id).error, /made up by the test/);
+      assert.equal(pool.get(next.id).status, 'completed', 'its turn was given up: the agent behind it made its worktree');
+      assert.deepEqual(asked, [branchOf(holder), branchOf(next)], 'Git was asked twice, in order, and never for the agent that was stopped');
+      assert.equal(execFileSync('git', ['branch', '--list', branchOf(stopped)], { cwd: repo, encoding: 'utf8' }).trim(), '', 'the stopped agent has no branch');
+    } finally { open(); delete git.text; }
+    ok('D9 the line moves on: an agent stopped while it waits for its turn ends cancelled and makes nothing; when the Git call of the agent ahead fails, the next agent still gets its worktree');
+  }
+
+  // ---- D10 the question comes before the turn: a person's pause does not hold the line
+  {
+    reset();
+    handler = (request) => (ownerOf(request).startsWith('Child') ? childAnswer(ownerOf(request)) : final('Nothing to start myself, a third time.'));
+    const parent = await pool.start({ prompt: 'Parent P9: nothing to spawn myself, a third time.' });
+    await until(() => pool.get(parent.id)?.status === 'completed', 'the third parent P9');
+    // In Review mode the worktree of each agent is a question for the person. Were the turn taken before the question, the second question would not be asked until the first had been
+    // answered and its worktree made, and a person who is away would hold every other agent.
+    const asks = () => manager.permissions.state().pending.filter((entry) => entry.toolName === 'local.worktrees_create');
+    manager.permissions.mode = 'review';
+    try {
+      const agents = await Promise.all(['Child C20: inspect the readme', 'Child C21: inspect the license'].map((goal) => pool.spawnAgent(parent.id, { goal })));
+      await until(() => asks().length === 2, 'both agents ask for their worktree while nobody has answered');
+      for (const ask of asks()) manager.permissions.decide(ask.id, true);
+      await until(() => agents.every((agent) => hasStopped(agent.id)), 'both agents stop', 400);
+      assert.deepEqual(agents.map((agent) => pool.get(agent.id).status), ['completed', 'completed'], `the Hub's record: ${account(parent.id)}`);
+    } finally { manager.permissions.mode = 'autonomous'; }
+    ok('D10 the question comes before the turn: in Review mode both agents ask for their worktree at once, nobody waits behind another person\'s answer, and both complete once they are allowed');
   }
 
   // =========================================================================================================================================== E. restart of the pool
