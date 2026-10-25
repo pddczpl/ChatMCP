@@ -132,6 +132,191 @@
       "reason": "compiler plug-in stack (serde_derive, derive_arbitrary); runs inside rustc, not linked"
     }
   ],
+  "rustStd": {
+    "toolchain": {
+      "channel": "nightly",
+      "date": "2026-07-15",
+      "rustc": "1.99.0-nightly (da80ed070 2026-07-14)",
+      "commit": "da80ed0708a09dc096c184345d6eb42cbcd50a1e",
+      "repository": "rust-lang/rust",
+      "derivedFrom": "The release workflow of ripgrep at tag 15.2.0 (e89fff89) builds the Windows binary on windows-latest with dtolnay/rust-toolchain@master, toolchain `nightly` (no rust-toolchain file at the tag, no components requested). The job build-release (win-msvc, windows-latest, nightly, x86_64-pc-windows-msvc) of run 29431117779 started at 2026-07-15T16:07:59Z. The nightly manifest dist/2026-07-15/channel-rust-nightly.toml was published at 2026-07-15T01:29:39Z (the next one, of 2026-07-16, at 01:30:20Z), so `nightly` was that one: rustc \"1.99.0-nightly (da80ed070 2026-07-14)\", git_commit_hash da80ed0708a09dc096c184345d6eb42cbcd50a1e.",
+      "inspectedBinary": false,
+      "checkedBy": "test-runtime.mjs of the installer build: the bytes of rg.exe must carry /rustc/<this commit> followed by / or \\ (the source paths that core and std leave in the binary); a binary that carries only other commits is refused and the commits found are named"
+    },
+    "lockfile": {
+      "repository": "rust-lang/rust",
+      "path": "library/Cargo.lock",
+      "commit": "da80ed0708a09dc096c184345d6eb42cbcd50a1e",
+      "blob": "325cba5d60fdbc7c6fc4d255f4db9bc77c9c0777",
+      "sha256": "c3fea000130cad91f2969c3bf0d4e15c282d41d46e719b383c1a82ef0e266513",
+      "packages": 49
+    },
+    "rule": "The packages that the standard library links for x86_64-pc-windows-msvc, read from the manifests of the library workspace at that commit (library/std/Cargo.toml, library/sysroot/Cargo.toml, library/unwind/Cargo.toml, library/compiler-builtins/compiler-builtins/Cargo.toml) and from library/Cargo.lock: registry crates behind a cfg(...) of another target, optional crates that no enabled feature reaches, and development and build dependencies are not part of rg.exe (notLinked). The locked checksums of the three crates that are linked equal the ones in the crates.io index. The parts of library/ that carry notices of their own (REUSE.toml, license-metadata.json and the license files of the subtrees) are components of type rust-library-part. Rust's own COPYRIGHT-library.html lists the crates of every target and ships only in the rustc component of a toolchain, which was not downloaded.",
+    "derivedOn": "2026-10-25",
+    "linked": [
+      "cfg-if 1.0.4",
+      "hashbrown 0.17.1",
+      "rustc-demangle 0.1.28"
+    ],
+    "inTree": [
+      "alloc",
+      "alloctests",
+      "compiler_builtins",
+      "core",
+      "coretests",
+      "panic_abort",
+      "panic_unwind",
+      "proc_macro",
+      "profiler_builtins",
+      "rustc-std-workspace-alloc",
+      "rustc-std-workspace-core",
+      "rustc-std-workspace-std",
+      "std",
+      "std_detect",
+      "sysroot",
+      "test",
+      "unwind",
+      "windows-link",
+      "windows-sys"
+    ],
+    "notLinked": [
+      {
+        "name": "addr2line",
+        "version": "0.25.1",
+        "reason": "std depends on it only for cfg(not(all(windows, target_env = \"msvc\", not(target_vendor = \"uwp\")))) (library/std/Cargo.toml): MSVC backtraces use dbghelp"
+      },
+      {
+        "name": "adler2",
+        "version": "2.0.1",
+        "reason": "dependency of miniz_oxide, which std does not use for x86_64-pc-windows-msvc"
+      },
+      {
+        "name": "cc",
+        "version": "1.2.0",
+        "reason": "build-dependency of compiler_builtins (feature c): it runs at build time"
+      },
+      {
+        "name": "dlmalloc",
+        "version": "0.2.13",
+        "reason": "std depends on it only for wasm, xous, vexos and SGX targets"
+      },
+      {
+        "name": "foldhash",
+        "version": "0.2.0",
+        "reason": "optional dependency of hashbrown behind its default-hasher feature, which std switches off (default-features = false)"
+      },
+      {
+        "name": "fortanix-sgx-abi",
+        "version": "0.6.1",
+        "reason": "std depends on it only for x86_64-fortanix-unknown-sgx"
+      },
+      {
+        "name": "getopts",
+        "version": "0.2.24",
+        "reason": "dependency of the test crate (the unit test harness), which rg.exe does not link"
+      },
+      {
+        "name": "gimli",
+        "version": "0.32.3",
+        "reason": "dependency of addr2line and object, which std does not use for x86_64-pc-windows-msvc"
+      },
+      {
+        "name": "hermit-abi",
+        "version": "0.5.2",
+        "reason": "std depends on it only for target_os = \"hermit\""
+      },
+      {
+        "name": "libc",
+        "version": "0.2.185",
+        "reason": "std and unwind depend on it only for cfg(not(all(windows, target_env = \"msvc\")))"
+      },
+      {
+        "name": "memchr",
+        "version": "2.7.6",
+        "reason": "dependency of object, which std does not use for x86_64-pc-windows-msvc"
+      },
+      {
+        "name": "miniz_oxide",
+        "version": "0.8.9",
+        "reason": "std depends on it only for cfg(not(all(windows, target_env = \"msvc\", not(target_vendor = \"uwp\")))) (backtrace decompression)"
+      },
+      {
+        "name": "moto-rt",
+        "version": "0.16.0",
+        "reason": "std depends on it only for target_os = \"motor\""
+      },
+      {
+        "name": "object",
+        "version": "0.37.3",
+        "reason": "std depends on it only for cfg(not(all(windows, target_env = \"msvc\", not(target_vendor = \"uwp\")))) (backtrace symbolisation)"
+      },
+      {
+        "name": "r-efi",
+        "version": "5.3.0",
+        "reason": "std depends on it only for target_os = \"uefi\""
+      },
+      {
+        "name": "r-efi-alloc",
+        "version": "2.1.0",
+        "reason": "std depends on it only for target_os = \"uefi\""
+      },
+      {
+        "name": "rand",
+        "version": "0.9.2",
+        "reason": "dev-dependency of std (its own tests)"
+      },
+      {
+        "name": "rand_core",
+        "version": "0.9.3",
+        "reason": "dependency of rand, a dev-dependency"
+      },
+      {
+        "name": "rand_xorshift",
+        "version": "0.4.0",
+        "reason": "dev-dependency of std (its own tests)"
+      },
+      {
+        "name": "rustc-literal-escaper",
+        "version": "0.0.8",
+        "reason": "dependency of proc_macro, which rg.exe does not link"
+      },
+      {
+        "name": "shlex",
+        "version": "1.3.0",
+        "reason": "dependency of cc, a build-dependency"
+      },
+      {
+        "name": "unwinding",
+        "version": "0.2.8",
+        "reason": "unwind depends on it only for target_os = \"xous\""
+      },
+      {
+        "name": "vex-sdk",
+        "version": "0.27.1",
+        "reason": "std depends on it only for target_os = \"vexos\""
+      },
+      {
+        "name": "wasip1",
+        "version": "1.0.0",
+        "reason": "std depends on it only for wasi targets (p1)"
+      },
+      {
+        "name": "wasip2",
+        "version": "1.0.3+wasi-0.2.9",
+        "reason": "std depends on it only for wasi targets (p2)"
+      },
+      {
+        "name": "wasip3",
+        "version": "0.6.0+wasi-0.3.0-rc-2026-03-15",
+        "reason": "std depends on it only for wasi targets (p3)"
+      },
+      {
+        "name": "wit-bindgen",
+        "version": "0.57.1",
+        "reason": "dependency of the wasip2 and wasip3 crates (wasi targets only)"
+      }
+    ]
+  },
   "components": [
     {
       "id": "libpcre2-10.46",
@@ -156,6 +341,266 @@
             "commit": "b2bd4254b379b9d7dc9a3dda060a7e27009ccdff",
             "path": "LICENCE.md",
             "blob": "f58ceb75a63e5f958631932f83d0786ee7593485"
+          }
+        }
+      ]
+    },
+    {
+      "id": "rust-std-da80ed070",
+      "type": "rust-library",
+      "name": "Rust standard library",
+      "version": "1.99.0-nightly (da80ed070 2026-07-14)",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/rust-lang/rust",
+      "via": "the standard library of the toolchain nightly-2026-07-15 (rustc 1.99.0-nightly (da80ed070 2026-07-14), commit da80ed0708a09dc096c184345d6eb42cbcd50a1e of rust-lang/rust); the texts are the files at the root of that commit: COPYRIGHT says that the Rust project is dual-licensed under Apache 2.0 and MIT and that the licenses of third-party material are tracked with REUSE (REUSE.toml, license-metadata.json, LICENSES/) and with cargo; it does not list them itself, so the parts of library/ that carry their own notices, and the crates that std links, are the components below",
+      "files": [
+        {
+          "path": "rust-std-da80ed070/COPYRIGHT",
+          "kind": "notice",
+          "size": 1571,
+          "sha256": "172020dbfd5b53a226dfde77616190a48dcff519b0bc0e6deb91a8450782c4af",
+          "source": {
+            "repository": "rust-lang/rust",
+            "ref": "nightly-2026-07-15",
+            "commit": "da80ed0708a09dc096c184345d6eb42cbcd50a1e",
+            "path": "COPYRIGHT",
+            "blob": "4dad74f234eaaaa3c311ca031216e16fc9c4e940"
+          }
+        },
+        {
+          "path": "rust-std-da80ed070/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 9723,
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "source": {
+            "repository": "rust-lang/rust",
+            "ref": "nightly-2026-07-15",
+            "commit": "da80ed0708a09dc096c184345d6eb42cbcd50a1e",
+            "path": "LICENSE-APACHE",
+            "blob": "1b5ec8b78e237b5c3b3d812a7c0a6589d0f7161d"
+          }
+        },
+        {
+          "path": "rust-std-da80ed070/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1068,
+          "sha256": "b71bd43a069ca0641a9ecfe585ca7b3c53b5cc1608f8b68321168698e28b5ea1",
+          "source": {
+            "repository": "rust-lang/rust",
+            "ref": "nightly-2026-07-15",
+            "commit": "da80ed0708a09dc096c184345d6eb42cbcd50a1e",
+            "path": "LICENSE-MIT",
+            "blob": "a2070c4be7acd5316f8d0357ca3c12419a2f3c62"
+          }
+        }
+      ]
+    },
+    {
+      "id": "rust-core-unicode-da80ed070",
+      "type": "rust-library-part",
+      "name": "Rust core::unicode tables",
+      "version": "1.99.0-nightly (da80ed070 2026-07-14)",
+      "license": "Unicode-3.0",
+      "repository": "https://github.com/rust-lang/rust",
+      "files": [
+        {
+          "path": "rust-core-unicode-da80ed070/Unicode-3.0.txt",
+          "kind": "unicode-3.0",
+          "size": 1995,
+          "sha256": "f5062c9a188d81dfe66b56db4182dcf9e4b17c0d9b0d311a8e20b3a1b075c443",
+          "source": {
+            "repository": "rust-lang/rust",
+            "ref": "nightly-2026-07-15",
+            "commit": "da80ed0708a09dc096c184345d6eb42cbcd50a1e",
+            "path": "LICENSES/Unicode-3.0.txt",
+            "blob": "ee8e69b233293872fcb4d6d4930ec196b63626e7"
+          },
+          "note": "REUSE.toml and license-metadata.json of rust-lang/rust: library/core/src/unicode/unicode_data.rs is Unicode-3.0, \"1991-2024 Unicode, Inc.\" (the REUSE file of the SPDX text)"
+        }
+      ]
+    },
+    {
+      "id": "rust-std-mpmc-da80ed070",
+      "type": "rust-library-part",
+      "name": "Rust std::sync::mpmc",
+      "version": "1.99.0-nightly (da80ed070 2026-07-14)",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/crossbeam-rs/crossbeam",
+      "files": [
+        {
+          "path": "rust-std-mpmc-da80ed070/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 10852,
+          "sha256": "6f712474a3e3be1386d2d0c29449850ea788da64d35cff0fc8799acf741e9ecd",
+          "source": {
+            "repository": "crossbeam-rs/crossbeam",
+            "ref": "crossbeam-channel-0.5.17",
+            "commit": "2920c984290229ab4e0ca0452ef09e48a82063f3",
+            "path": "LICENSE-APACHE",
+            "blob": "bb9abdd7f6738bbc3b8c1f4e12da7c1c2d3f8308"
+          },
+          "note": "REUSE.toml of rust-lang/rust names \"2019 The Crossbeam Project Developers\" as the holder of library/std/src/sync/mpmc; these are crossbeam's own texts (the root of the repository, the same bytes as at crossbeam-channel-0.5.17). crossbeam-channel's own LICENSE-THIRD-PARTY (notices for the work that it was derived from) is not vendored: rust-lang/rust records only the crossbeam copyright for this code"
+        },
+        {
+          "path": "rust-std-mpmc-da80ed070/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1099,
+          "sha256": "5734ed989dfca1f625b40281ee9f4530f91b2411ec01cb748223e7eb87e201ab",
+          "source": {
+            "repository": "crossbeam-rs/crossbeam",
+            "ref": "crossbeam-channel-0.5.17",
+            "commit": "2920c984290229ab4e0ca0452ef09e48a82063f3",
+            "path": "LICENSE-MIT",
+            "blob": "068d491fd551ae2531f4d28583245719a2e19e2d"
+          },
+          "note": "REUSE.toml of rust-lang/rust names \"2019 The Crossbeam Project Developers\" as the holder of library/std/src/sync/mpmc; these are crossbeam's own texts (the root of the repository, the same bytes as at crossbeam-channel-0.5.17). crossbeam-channel's own LICENSE-THIRD-PARTY (notices for the work that it was derived from) is not vendored: rust-lang/rust records only the crossbeam copyright for this code"
+        }
+      ]
+    },
+    {
+      "id": "rust-backtrace-d902726a1",
+      "type": "rust-library-part",
+      "name": "Rust backtrace (backtrace-rs)",
+      "version": "1.99.0-nightly (da80ed070 2026-07-14)",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/rust-lang/backtrace-rs",
+      "files": [
+        {
+          "path": "rust-backtrace-d902726a1/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 10847,
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": {
+            "repository": "rust-lang/backtrace-rs",
+            "ref": "library/backtrace of rust-lang/rust at da80ed070",
+            "commit": "d902726a1dcdc1e1c66f73d1162181b5423c645b",
+            "path": "LICENSE-APACHE",
+            "blob": "16fe87b06e802f094b3fbb0894b137bca2b16ef1"
+          },
+          "note": "library/backtrace is a git submodule of rust-lang/rust (gitlink d902726a1dcdc1e1c66f73d1162181b5423c645b); REUSE.toml: \"2014 Alex Crichton\""
+        },
+        {
+          "path": "rust-backtrace-d902726a1/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1057,
+          "sha256": "378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397",
+          "source": {
+            "repository": "rust-lang/backtrace-rs",
+            "ref": "library/backtrace of rust-lang/rust at da80ed070",
+            "commit": "d902726a1dcdc1e1c66f73d1162181b5423c645b",
+            "path": "LICENSE-MIT",
+            "blob": "39e0ed6602151f235148e6c08413aa7eda5b9038"
+          },
+          "note": "library/backtrace is a git submodule of rust-lang/rust (gitlink d902726a1dcdc1e1c66f73d1162181b5423c645b); REUSE.toml: \"2014 Alex Crichton\""
+        }
+      ]
+    },
+    {
+      "id": "rust-compiler-builtins-da80ed070",
+      "type": "rust-library-part",
+      "name": "Rust compiler_builtins and libm",
+      "version": "1.99.0-nightly (da80ed070 2026-07-14)",
+      "license": "MIT AND Apache-2.0 WITH LLVM-exception AND (MIT OR Apache-2.0)",
+      "repository": "https://github.com/rust-lang/rust",
+      "files": [
+        {
+          "path": "rust-compiler-builtins-da80ed070/LICENSE.txt",
+          "kind": "compiler-builtins",
+          "size": 15078,
+          "sha256": "ab6eec6caf0fa5775e411c7a8bc6a45c4ef2956b0980b157ab74fc5cd62a928b",
+          "source": {
+            "repository": "rust-lang/rust",
+            "ref": "nightly-2026-07-15",
+            "commit": "da80ed0708a09dc096c184345d6eb42cbcd50a1e",
+            "path": "library/compiler-builtins/LICENSE.txt",
+            "blob": "00ae6140bd54e1b538d833f60438e11ed8be12cf"
+          },
+          "note": "MIT text, Apache-2.0 text and LLVM exception in one file, with the provenance of the compiler-rt work"
+        },
+        {
+          "path": "rust-compiler-builtins-da80ed070/libm-LICENSE.txt",
+          "kind": "libm",
+          "size": 14088,
+          "sha256": "3823dda7cf046602f4b4e77ec8e227863dc4736037cc85bb33d9f19febe16bb7",
+          "source": {
+            "repository": "rust-lang/rust",
+            "ref": "nightly-2026-07-15",
+            "commit": "da80ed0708a09dc096c184345d6eb42cbcd50a1e",
+            "path": "library/compiler-builtins/libm/LICENSE.txt",
+            "blob": "2f8e41f147472510b05e0adeadf350df6f5a6b96"
+          },
+          "note": "the MIT text of rust-lang/libm with the musl, Sun Microsystems and other copyrights of its math code"
+        }
+      ]
+    },
+    {
+      "id": "rust-stdarch-da80ed070",
+      "type": "rust-library-part",
+      "name": "Rust stdarch (core::arch, std_detect)",
+      "version": "1.99.0-nightly (da80ed070 2026-07-14)",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/rust-lang/rust",
+      "files": [
+        {
+          "path": "rust-stdarch-da80ed070/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 10847,
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": {
+            "repository": "rust-lang/rust",
+            "ref": "nightly-2026-07-15",
+            "commit": "da80ed0708a09dc096c184345d6eb42cbcd50a1e",
+            "path": "library/stdarch/LICENSE-APACHE",
+            "blob": "16fe87b06e802f094b3fbb0894b137bca2b16ef1"
+          }
+        },
+        {
+          "path": "rust-stdarch-da80ed070/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1071,
+          "sha256": "29662666b44dff84977b46e05642cdef910bc3a93a17b5fd86e632bafa59cf21",
+          "source": {
+            "repository": "rust-lang/rust",
+            "ref": "nightly-2026-07-15",
+            "commit": "da80ed0708a09dc096c184345d6eb42cbcd50a1e",
+            "path": "library/stdarch/LICENSE-MIT",
+            "blob": "52d82415d8b60cd3c5858c8939fa0d8fae1aeca0"
+          }
+        }
+      ]
+    },
+    {
+      "id": "rust-portable-simd-da80ed070",
+      "type": "rust-library-part",
+      "name": "Rust portable-simd (core::simd)",
+      "version": "1.99.0-nightly (da80ed070 2026-07-14)",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/rust-lang/rust",
+      "files": [
+        {
+          "path": "rust-portable-simd-da80ed070/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 11358,
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "source": {
+            "repository": "rust-lang/rust",
+            "ref": "nightly-2026-07-15",
+            "commit": "da80ed0708a09dc096c184345d6eb42cbcd50a1e",
+            "path": "library/portable-simd/LICENSE-APACHE",
+            "blob": "d645695673349e3947e8e5ae42332d0ac3164cd7"
+          }
+        },
+        {
+          "path": "rust-portable-simd-da80ed070/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1071,
+          "sha256": "eb07d497d26e6d68fbc76e793f5e5c9cfa197df2a580e47383569c287a55edf9",
+          "source": {
+            "repository": "rust-lang/rust",
+            "ref": "nightly-2026-07-15",
+            "commit": "da80ed0708a09dc096c184345d6eb42cbcd50a1e",
+            "path": "library/portable-simd/LICENSE-MIT",
+            "blob": "0e9d2f43a06002c1fe691a06a9650e652aaadee3"
           }
         }
       ]
@@ -342,7 +787,8 @@
             "blob": "39e0ed6602151f235148e6c08413aa7eda5b9038"
           }
         }
-      ]
+      ],
+      "note": "also a dependency of the Rust standard library (rustStd.linked): one entry covers both"
     },
     {
       "id": "crossbeam-deque-0.8.7",
@@ -559,6 +1005,43 @@
             "commit": "ad0a122d5c42dd2375917d32ad50fbbc7be3213d",
             "path": "LICENSE-MIT",
             "blob": "3b0a5dc09c1e16357459ddc9182a50f360f3cdba"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hashbrown-0.17.1",
+      "type": "crate",
+      "origin": "rust-std",
+      "name": "hashbrown",
+      "version": "0.17.1",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/rust-lang/hashbrown",
+      "files": [
+        {
+          "path": "hashbrown-0.17.1/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 10847,
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": {
+            "repository": "rust-lang/hashbrown",
+            "ref": "v0.17.1",
+            "commit": "c62a63a61b7caf2de8f9ecb7b06a66b0ab6bdf3d",
+            "path": "LICENSE-APACHE",
+            "blob": "16fe87b06e802f094b3fbb0894b137bca2b16ef1"
+          }
+        },
+        {
+          "path": "hashbrown-0.17.1/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1060,
+          "sha256": "ff8f68cb076caf8cefe7a6430d4ac086ce6af2ca8ce2c4e5a2004d4552ef52a2",
+          "source": {
+            "repository": "rust-lang/hashbrown",
+            "ref": "v0.17.1",
+            "commit": "c62a63a61b7caf2de8f9ecb7b06a66b0ab6bdf3d",
+            "path": "LICENSE-MIT",
+            "blob": "5afc2a7b0acabd34676023f9ebe3912ea2643ac2"
           }
         }
       ]
@@ -974,6 +1457,43 @@
             "blob": "b82826bdbdd2c34622ca53747e9011919d8b78bf"
           },
           "note": "Unicode tables of regex-syntax"
+        }
+      ]
+    },
+    {
+      "id": "rustc-demangle-0.1.28",
+      "type": "crate",
+      "origin": "rust-std",
+      "name": "rustc-demangle",
+      "version": "0.1.28",
+      "license": "MIT OR Apache-2.0",
+      "repository": "https://github.com/rust-lang/rustc-demangle",
+      "files": [
+        {
+          "path": "rustc-demangle-0.1.28/LICENSE-APACHE",
+          "kind": "apache-2.0",
+          "size": 10847,
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "source": {
+            "repository": "rust-lang/rustc-demangle",
+            "ref": "rustc-demangle-v0.1.28",
+            "commit": "1fd8a3e2a25e6cb5a75cf7806dc0c421cfd94465",
+            "path": "LICENSE-APACHE",
+            "blob": "16fe87b06e802f094b3fbb0894b137bca2b16ef1"
+          }
+        },
+        {
+          "path": "rustc-demangle-0.1.28/LICENSE-MIT",
+          "kind": "mit",
+          "size": 1057,
+          "sha256": "378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397",
+          "source": {
+            "repository": "rust-lang/rustc-demangle",
+            "ref": "rustc-demangle-v0.1.28",
+            "commit": "1fd8a3e2a25e6cb5a75cf7806dc0c421cfd94465",
+            "path": "LICENSE-MIT",
+            "blob": "39e0ed6602151f235148e6c08413aa7eda5b9038"
+          }
         }
       ]
     },
