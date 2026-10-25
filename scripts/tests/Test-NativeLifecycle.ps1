@@ -148,6 +148,9 @@ try {
     $report.candidateSha256=(Get-FileHash $CandidateInstaller -Algorithm SHA256).Hash.ToLowerInvariant()
     Assert-Native ($report.baselineVersion -like "$ExpectedBaselineVersion*") ("published baseline EXE metadata matches " + $ExpectedBaselineVersion + ": " + $report.baselineVersion)
     Assert-Native ($report.candidateVersion -like "$ExpectedCandidateVersion*") ("candidate EXE metadata matches " + $ExpectedCandidateVersion + ": " + $report.candidateVersion)
+    # A hosted runner's profile may lack the Desktop or the Start menu folder, which a person's profile always has (setup ignores a shortcut it cannot save): make them, so
+    # that the test is about what setup does with shortcuts and not about the profile it runs in.
+    foreach ($folder in @($desktopFolder, $programsFolder)) { New-Item -ItemType Directory -Path $folder -Force | Out-Null }
     # Baseline is the byte-verified published installer; use its real GUI.
     $setup=Start-Process $BaselineInstaller -PassThru; $owned.Add($setup)
     $window=Window-For $setup
