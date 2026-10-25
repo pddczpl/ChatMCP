@@ -11,9 +11,9 @@
     <RootNamespace>ChatMCP.Installer</RootNamespace>
     <Version>3.10.1</Version>
     <Authors>Phan Danh Đạt</Authors>
-    <Company>ChatMCP Project</Company>
-    <Product>ChatMCP Studio Setup</Product>
-    <Description>ChatMCP Studio - Commercial Desktop Application Installer</Description>
+    <Company>DatGold Project</Company>
+    <Product>DatGold Studio Setup</Product>
+    <Description>DatGold Studio - Desktop Application Installer</Description>
   </PropertyGroup>
 
   <ItemGroup Condition="Exists('payload.zip')">

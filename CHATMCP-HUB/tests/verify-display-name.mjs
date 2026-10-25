@@ -4,8 +4,9 @@
 // docs/NAMING.md lists them with the reason each one stays and the step that changes it.
 //
 // This suite reads those places and fails for any "ChatMCP" that is not one of the exceptions, so that a new string, a new screen or a new document cannot bring the old
-// name back unnoticed. The places are: the sources of the React UI, the Browser Companion, the desktop application's texts, the hooks schema and the living documents.
-// The Hub's own sentences (the verification notice, the withheld notice ...) are pinned by the suites that test them; the installer, the release workflows, the
+// name back unnoticed. The places are: the sources of the React UI, the Browser Companion, the desktop application's texts, the setup and uninstall wizard (its texts,
+// the names of the shortcuts it makes, the entry in Apps & features), the hooks schema and the living documents.
+// The Hub's own sentences (the verification notice, the withheld notice ...) are pinned by the suites that test them; the release workflows, the
 // historical documents (RELEASE-NOTES-*, CHANGELOG.md, docs/PHASE*) and the developer tools keep the old name for now and are not read here.
 //
 // Negative controls: the same scan runs on copies of the real files with one defect put in at a time (the old name in a dictionary value, in a heading, in the
@@ -45,6 +46,8 @@ const TECHNICAL = [
   /\bformerly ChatMCP\b/g, /\btrước đây là ChatMCP\b/g,                                 // the naming note
   /\bChatMCP\.(?:Native|Desktop|Installer|Sandbox)\b/g, /"ChatMCP", "(?:hub|webview2-data)"/g, // namespaces and data folders of the desktop code
   /Local\\+ChatMCP\.Update\./g,                                                         // the name of the lock that keeps two installers apart
+  /\b(?:LegacyAppName|LegacyStartMenuFolder) = "ChatMCP(?: Studio)?";/g,                // the names versions up to 3.10.1 gave the shortcuts, which setup finds and removes
+  /"Programs", "ChatMCP"|"ChatMCP", "logs"|GetProcessesByName\("ChatMCP"\)|Contains\("ChatMCP"|\.ChatMCP-update-/g, // the folders, the process and the update folder the installer works with
 ];
 const isComment = (line) => /^\s*(?:\/\/|\/\*|\*|\{\/\*|<!--|#)/.test(line);
 
@@ -66,6 +69,7 @@ const load = (names) => Object.fromEntries(names.map((name) => [name, readText(n
 const UI = [...walk('CHATMCP-HUB/ui/src', /\.(?:tsx?|css)$/), 'CHATMCP-HUB/ui/index.html'];
 const COMPANION = ['manifest.json', 'popup.html', 'popup.js', 'bridge.js', 'INSTALL-EXTENSION.txt', 'HUONG-DAN.txt'].map((name) => `CHATMCP-HUB/extension/${name}`);
 const DESKTOP = ['desktop-shell/MainWindow.cs', 'native-shared/HubLifecycle.cs', 'native-shared/HubSession.cs'];
+const INSTALLER = ['InstallerEngine.cs', 'InstallTransaction.cs', 'Program.cs', 'SetupForm.cs', 'UninstallForm.cs', 'ChatMCP.Installer.csproj'].map((name) => `installer/${name}`);
 const LIVING_DOCUMENTS = [
   'README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'NOTICE', 'HUONG-DAN.txt', 'THIRD-PARTY-NOTICES.md', 'CHATMCP-HUB/README.md', 'CHATMCP-HUB/THIRD-PARTY-NOTICES.txt',
   ...['AGENT-TOOL-CAPABILITIES', 'ARCHITECTURE', 'COMPANION-PRIVACY', 'DEPLOYMENT', 'DESKTOP-APP', 'DEVELOPMENT', 'EVALUATION', 'HOOKS', 'HUB-AUTH', 'INDEX', 'LICENSE-SCAN',
@@ -76,7 +80,8 @@ const SCHEMA = ['CHATMCP-HUB/schemas/hooks.schema.json'];
 
 // ------------------------------------------------------------------------------------------------------------------------------- 1. the real files
 const real = {
-  'the UI': load(UI), 'the Browser Companion': load(COMPANION), 'the desktop application': load(DESKTOP), 'the hooks schema': load(SCHEMA), 'the living documents': load(LIVING_DOCUMENTS),
+  'the UI': load(UI), 'the Browser Companion': load(COMPANION), 'the desktop application': load(DESKTOP), 'the setup and uninstall wizard': load(INSTALLER), 'the hooks schema': load(SCHEMA),
+  'the living documents': load(LIVING_DOCUMENTS),
 };
 assert.ok(Object.keys(real['the UI']).length > 40, `(premise) the UI sources were found: ${Object.keys(real['the UI']).length} files`);
 for (const [surface, files] of Object.entries(real)) {
@@ -99,6 +104,16 @@ for (const [surface, files] of Object.entries(real)) {
   const project = readText('desktop-shell/ChatMCP.csproj');
   for (const element of ['Company', 'Product', 'Description']) assert.match(project, new RegExp(`<${element}>DatGold\\b`), `the ${element} of the application file`);
   assert.match(project, /<AssemblyName>ChatMCP<\/AssemblyName>/, 'while the file name of the application is still ChatMCP.exe (the installer, the shortcuts and the upgrade depend on it)');
+  // the setup and uninstall wizard: what the window says, what the shortcuts and the entry in Apps & features are called
+  const engine = readText('installer/InstallerEngine.cs');
+  assert.match(engine, /public const string AppName = "DatGold Studio";/, 'the name of the shortcuts and of the entry in Apps & features');
+  assert.match(engine, /internal const string StartMenuFolder = "DatGold";/, 'the Start menu folder');
+  assert.match(engine, /RegistryKeyPath = @"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ChatMCP";/, 'while the registry key is still ChatMCP (an upgrade finds the earlier installation by it)');
+  assert.match(readText('installer/SetupForm.cs'), /Text = "DatGold Studio Setup - Version "/, 'the title of the setup wizard');
+  assert.match(readText('installer/UninstallForm.cs'), /Text = "DatGold Studio - Uninstaller"/, 'the title of the uninstaller');
+  const setupProject = readText('installer/ChatMCP.Installer.csproj');
+  for (const element of ['Company', 'Product', 'Description']) assert.match(setupProject, new RegExp(`<${element}>DatGold\\b`), `the ${element} of the setup file`);
+  assert.match(setupProject, /<AssemblyName>ChatMCPSetup<\/AssemblyName>/, 'while the file name of the setup is still ChatMCPSetup.exe (the release and the upgrade test depend on it)');
   const plugins = readText('CHATMCP-HUB/lib/plugins.mjs');
   assert.equal(/author: 'ChatMCP/.test(plugins), false, 'no built-in skill is by "ChatMCP Team" any more');
   assert.match(plugins, /author: 'DatGold Team'/);
@@ -123,6 +138,10 @@ for (const [surface, files] of Object.entries(real)) {
     ['the old name in a heading of a document', { 'README.md': '# ChatMCP\n' }, { comments: false }],
     ['the old name in a sentence of a document that starts with #', { 'docs/USER-GUIDE.md': '# Hướng dẫn sử dụng ChatMCP Studio' }, { comments: false }],
     ['the old name in the title of the desktop window', { 'desktop-shell/MainWindow.cs': 'Text = "ChatMCP Studio " + HubLifecycle.Version;' }, { comments: true }],
+    ['the old name in the title of the setup wizard', { 'installer/SetupForm.cs': 'Text = "ChatMCP Studio Setup - Version " + InstallerEngine.AppVersion;' }, { comments: true }],
+    ['the old name in a sentence of the uninstaller', { 'installer/UninstallForm.cs': 'Text = "Remove ChatMCP and all associated shortcuts from this computer",' }, { comments: true }],
+    ['the old name as the name of the shortcuts', { 'installer/InstallerEngine.cs': 'public const string AppName = "ChatMCP Studio";' }, { comments: true }],
+    ['the old name in the file properties of the setup', { 'installer/ChatMCP.Installer.csproj': '<Product>ChatMCP Studio Setup</Product>' }, { comments: true }],
   ];
   for (const [label, files, options] of defects) assert.equal(scan(files, options).length, 1, `reported: ${label}`);
   const allowed = [
@@ -134,6 +153,8 @@ for (const [surface, files] of Object.entries(real)) {
     ['the older helper', 'Turn off the old ChatMCP Button Fix helper'],
     ['the naming note', 'DatGold (formerly ChatMCP) is a local-first AI coding agent'],
     ['a code comment in a source file', '// the page was opened without ChatMCP'],
+    ['the old names the installer finds and removes', 'internal const string LegacyAppName = "ChatMCP Studio"; internal const string LegacyStartMenuFolder = "ChatMCP";'],
+    ['the folders, the process and the update folder of the installer', 'Path.Combine(local, "Programs", "ChatMCP"); Path.Combine(local, "ChatMCP", "logs"); Process.GetProcessesByName("ChatMCP"); name.Contains("ChatMCP", x); ".ChatMCP-update-"'],
   ];
   for (const [label, line] of allowed) assert.deepEqual(scan({ 'CHATMCP-HUB/ui/src/x.tsx': line }, { comments: true }), [], `allowed: ${label}`);
   assert.equal(scan({ 'docs/x.md': '# ChatMCP' }, { comments: false }).length, 1, 'a heading of a document is read as a sentence, not skipped as a comment');

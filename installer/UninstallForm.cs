@@ -22,7 +22,7 @@ namespace ChatMCP.Installer
 
         private void InitializeComponent()
         {
-            Text = "ChatMCP Studio - Uninstaller";
+            Text = "DatGold Studio - Uninstaller";
             Size = new Size(540, 360);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -50,7 +50,7 @@ namespace ChatMCP.Installer
 
             _titleLabel = new Label
             {
-                Text = "Uninstall ChatMCP Studio",
+                Text = "Uninstall DatGold Studio",
                 Font = new Font("Segoe UI", 15, FontStyle.Bold),
                 ForeColor = Color.White,
                 Location = new Point(25, 14),
@@ -60,7 +60,7 @@ namespace ChatMCP.Installer
 
             _subTitleLabel = new Label
             {
-                Text = "Remove ChatMCP and all associated shortcuts from this computer",
+                Text = "Remove DatGold and all associated shortcuts from this computer",
                 Font = new Font("Segoe UI", 9, FontStyle.Regular),
                 ForeColor = Color.FromArgb(239, 68, 68), // Red
                 Location = new Point(26, 45),
@@ -92,7 +92,7 @@ namespace ChatMCP.Installer
 
             var prompt = new Label
             {
-                Text = "Are you sure you want to completely remove ChatMCP Studio?\n\n" +
+                Text = "Are you sure you want to completely remove DatGold Studio?\n\n" +
                        $"Installation directory:\n{_installDir}",
                 Font = new Font("Segoe UI", 10),
                 Location = new Point(25, 25),
@@ -136,7 +136,7 @@ namespace ChatMCP.Installer
 
             var statusLabel = new Label
             {
-                Text = "Uninstalling ChatMCP Studio...",
+                Text = "Uninstalling DatGold Studio...",
                 Font = new Font("Segoe UI", 11, FontStyle.Bold),
                 Location = new Point(25, 30),
                 AutoSize = true
@@ -189,7 +189,7 @@ namespace ChatMCP.Installer
 
             var doneMsg = new Label
             {
-                Text = "ChatMCP Studio was successfully removed from your computer.",
+                Text = "DatGold Studio was successfully removed from your computer.",
                 Font = new Font("Segoe UI", 10),
                 Location = new Point(25, 75),
                 Width = 470,

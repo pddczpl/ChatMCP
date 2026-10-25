@@ -72,6 +72,8 @@ The native launcher is single-instance per user/session and checks the running H
 
 Finish active agent/terminal/background work before upgrading. The installer verifies and stops only its own idle Hub, stages the payload and rolls back touched application files on an error. Logs are under `%LOCALAPPDATA%\ChatMCP\logs`. A retained `.chatmcp-update-pending.json` indicates an interrupted update or failed rollback; keep its backup directory for recovery rather than deleting it or launching a mixed bundle.
 
+Setup names what it puts in front of a person DatGold Studio: the Desktop shortcut, the Start menu folder `DatGold` (the launcher and the uninstaller) and the entry in Windows Settings > Apps > Installed apps. Versions up to 3.10.1 used the old product name for these. When setup installs over such a version it removes those shortcuts (only the ones that point into the installation it is replacing, whichever shortcut choices the wizard shows) and their Start menu folder if nothing else is in it; the uninstaller removes both sets. A tile pinned to the taskbar or to Start from an old shortcut keeps its old name until it is unpinned and pinned again. Which names keep the old spelling, and why: [naming](NAMING.md).
+
 Unattended installation is opt-in and has the same safety checks as the wizard:
 
 ~~~powershell

@@ -39,7 +39,7 @@ namespace ChatMCP.Installer
 
         private void InitializeComponent()
         {
-            Text = "ChatMCP Studio Setup - Version " + InstallerEngine.AppVersion;
+            Text = "DatGold Studio Setup - Version " + InstallerEngine.AppVersion;
             Size = new Size(620, 460);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -68,7 +68,7 @@ namespace ChatMCP.Installer
 
             _titleLabel = new Label
             {
-                Text = "ChatMCP Studio",
+                Text = "DatGold Studio",
                 Font = new Font("Segoe UI", 16, FontStyle.Bold),
                 ForeColor = Color.White,
                 Location = new Point(25, 15),
@@ -78,7 +78,7 @@ namespace ChatMCP.Installer
 
             _subTitleLabel = new Label
             {
-                Text = "Autonomous AI Coding Agent • Commercial Setup Wizard",
+                Text = "Autonomous AI Coding Agent • Setup Wizard",
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Regular),
                 ForeColor = Color.FromArgb(0, 242, 254), // Cyan
                 Location = new Point(26, 48),
@@ -182,7 +182,7 @@ namespace ChatMCP.Installer
 
             var infoLabel = new Label
             {
-                Text = "The installer includes the desktop, Hub and bundled runtimes.\nChatMCP will be registered in Windows Apps.",
+                Text = "The installer includes the desktop, Hub and bundled runtimes.\nDatGold will be registered in Windows Apps.",
                 Font = new Font("Segoe UI", 8.5f),
                 ForeColor = Color.FromArgb(156, 163, 175),
                 Location = new Point(25, 205),
@@ -230,7 +230,7 @@ namespace ChatMCP.Installer
 
             var installingTitle = new Label
             {
-                Text = "Installing ChatMCP Studio...",
+                Text = "Installing DatGold Studio...",
                 Font = new Font("Segoe UI", 12, FontStyle.Bold),
                 Location = new Point(25, 30),
                 AutoSize = true
@@ -297,8 +297,8 @@ namespace ChatMCP.Installer
 
             var messageLabel = new Label
             {
-                Text = "ChatMCP Studio has been successfully installed on your computer.\n\n" +
-                       "You can launch ChatMCP anytime from your Desktop or Start Menu.\n" +
+                Text = "DatGold Studio has been successfully installed on your computer.\n\n" +
+                       "You can launch DatGold anytime from your Desktop or Start Menu.\n" +
                        $"Installed at: {targetDir}",
                 Font = new Font("Segoe UI", 9.5f),
                 Location = new Point(25, 70),
@@ -309,7 +309,7 @@ namespace ChatMCP.Installer
 
             _chkLaunch = new CheckBox
             {
-                Text = "Launch ChatMCP Studio now",
+                Text = "Launch DatGold Studio now",
                 Font = new Font("Segoe UI", 10, FontStyle.Bold),
                 ForeColor = Color.FromArgb(0, 242, 254),
                 Checked = true,

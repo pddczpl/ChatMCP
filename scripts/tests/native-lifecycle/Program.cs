@@ -208,6 +208,103 @@ try
         }
         finally { gate.ReleaseMutex(); }
     }
+    // Shortcuts. Versions up to 3.10.1 made theirs under the product's old name: the Desktop link "ChatMCP Studio.lnk" and a Start menu folder "ChatMCP" holding
+    // "ChatMCP Studio.lnk" and "Uninstall ChatMCP Studio.lnk". Setup now makes the DatGold ones and removes the old ones that belong to this installation (and only
+    // those); the uninstaller removes both sets. Real .lnk files, in scratch folders that stand in for the Desktop and the Start menu.
+    {
+        var app = Path.Combine(scratch, "shortcut app"); Directory.CreateDirectory(app);
+        var launcher = Path.Combine(app, "ChatMCP.exe"); var uninstaller = Path.Combine(app, "Uninstall.exe"); var icon = Path.Combine(app, "chatmcp.ico");
+        foreach (var file in new[] { launcher, uninstaller, icon }) File.WriteAllText(file, "fixture");
+        var otherApp = Path.Combine(scratch, "another app"); Directory.CreateDirectory(otherApp);
+        foreach (var name in new[] { "ChatMCP.exe", "Uninstall.exe" }) File.WriteAllText(Path.Combine(otherApp, name), "fixture");
+        (string Desktop, string Programs) Machine(string name)
+        {
+            var folder = Path.Combine(scratch, "machine " + name);
+            Directory.CreateDirectory(Path.Combine(folder, "Desktop")); Directory.CreateDirectory(Path.Combine(folder, "Programs"));
+            return (Path.Combine(folder, "Desktop"), Path.Combine(folder, "Programs"));
+        }
+        void MadeBy3101((string Desktop, string Programs) machine, string installDir)
+        {
+            var folder = Path.Combine(machine.Programs, "ChatMCP"); Directory.CreateDirectory(folder);
+            InstallerEngine.CreateShortcut(Path.Combine(machine.Desktop, "ChatMCP Studio.lnk"), Path.Combine(installDir, "ChatMCP.exe"), installDir, icon, "ChatMCP - Autonomous AI Coding Agent");
+            InstallerEngine.CreateShortcut(Path.Combine(folder, "ChatMCP Studio.lnk"), Path.Combine(installDir, "ChatMCP.exe"), installDir, icon, "ChatMCP - Autonomous AI Coding Agent");
+            InstallerEngine.CreateShortcut(Path.Combine(folder, "Uninstall ChatMCP Studio.lnk"), Path.Combine(installDir, "Uninstall.exe"), installDir, icon, "Uninstall ChatMCP Studio");
+        }
+        string TargetOf(string link)
+        {
+            dynamic shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")!)!;
+            dynamic shortcut = shell.CreateShortcut(link);
+            return (string)shortcut.TargetPath;
+        }
+        bool Points(string link, string target) => File.Exists(link) && string.Equals(Path.GetFullPath(TargetOf(link)), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase);
+        bool Empty(string folder) => !Directory.EnumerateFileSystemEntries(folder).Any();
+        string Old(string folder, params string[] parts) => Path.Combine(new[] { folder }.Concat(parts).ToArray());
+
+        Check(InstallerEngine.AppName == "DatGold Studio" && InstallerEngine.AppDescription.StartsWith("DatGold", StringComparison.Ordinal),
+            "setup names the shortcuts and the Apps & features entry DatGold Studio");
+
+        var fresh = Machine("new install");
+        InstallerEngine.CreateShortcuts(app, icon, fresh.Desktop, fresh.Programs, createDesktop: true, createStartMenu: true);
+        Check(Points(Path.Combine(fresh.Desktop, "DatGold Studio.lnk"), launcher), "a new install makes the Desktop shortcut DatGold Studio.lnk, pointing at the launcher");
+        Check(Points(Path.Combine(fresh.Programs, "DatGold", "DatGold Studio.lnk"), launcher) && Points(Path.Combine(fresh.Programs, "DatGold", "Uninstall DatGold Studio.lnk"), uninstaller),
+            "and the Start menu folder DatGold with the launcher and the uninstaller");
+        Check(!File.Exists(Path.Combine(fresh.Desktop, "ChatMCP Studio.lnk")) && !Directory.Exists(Path.Combine(fresh.Programs, "ChatMCP")), "and nothing under the old name");
+        InstallerEngine.CreateShortcuts(app, icon, fresh.Desktop, fresh.Programs, true, true);
+        Check(Points(Path.Combine(fresh.Desktop, "DatGold Studio.lnk"), launcher), "running setup again over its own shortcuts is harmless");
+        var desktopOnly = Machine("desktop only"); InstallerEngine.CreateShortcuts(app, icon, desktopOnly.Desktop, desktopOnly.Programs, true, false);
+        var menuOnly = Machine("menu only"); InstallerEngine.CreateShortcuts(app, icon, menuOnly.Desktop, menuOnly.Programs, false, true);
+        Check(File.Exists(Path.Combine(desktopOnly.Desktop, "DatGold Studio.lnk")) && Empty(desktopOnly.Programs) && Empty(menuOnly.Desktop) && Directory.Exists(Path.Combine(menuOnly.Programs, "DatGold")),
+            "each choice of the wizard makes only its own shortcuts");
+
+        var upgraded = Machine("upgrade from 3.10.1"); MadeBy3101(upgraded, app);
+        Check(File.Exists(Path.Combine(upgraded.Desktop, "ChatMCP Studio.lnk")) && Directory.GetFiles(Path.Combine(upgraded.Programs, "ChatMCP")).Length == 2,
+            "premise: the machine holds the three shortcuts 3.10.1 made");
+        InstallerEngine.ReplaceShortcuts(app, icon, upgraded.Desktop, upgraded.Programs, true, true);
+        Check(!File.Exists(Path.Combine(upgraded.Desktop, "ChatMCP Studio.lnk")) && !Directory.Exists(Path.Combine(upgraded.Programs, "ChatMCP")),
+            "an upgrade removes the three old shortcuts and the Start menu folder ChatMCP they leave empty");
+        Check(Points(Path.Combine(upgraded.Desktop, "DatGold Studio.lnk"), launcher) && Points(Path.Combine(upgraded.Programs, "DatGold", "DatGold Studio.lnk"), launcher) &&
+              Points(Path.Combine(upgraded.Programs, "DatGold", "Uninstall DatGold Studio.lnk"), uninstaller), "and makes the DatGold ones in their place");
+
+        var declined = Machine("choices cleared"); MadeBy3101(declined, app);
+        InstallerEngine.ReplaceShortcuts(app, icon, declined.Desktop, declined.Programs, false, false);
+        Check(Empty(declined.Desktop) && Empty(declined.Programs), "with both choices cleared the old shortcuts still go (one name on the machine) and no new one is made");
+
+        var userFile = Machine("user file in the old folder"); MadeBy3101(userFile, app);
+        File.WriteAllText(Path.Combine(userFile.Programs, "ChatMCP", "notes.txt"), "mine");
+        InstallerEngine.ReplaceShortcuts(app, icon, userFile.Desktop, userFile.Programs, true, true);
+        Check(File.ReadAllText(Path.Combine(userFile.Programs, "ChatMCP", "notes.txt")) == "mine" && Directory.GetFiles(Path.Combine(userFile.Programs, "ChatMCP")).Length == 1,
+            "the old folder goes only when it is empty: a file of the user's stays, the old shortcuts around it go");
+
+        var another = Machine("another installation"); MadeBy3101(another, otherApp);
+        InstallerEngine.ReplaceShortcuts(app, icon, another.Desktop, another.Programs, true, true);
+        Check(Points(Path.Combine(another.Desktop, "ChatMCP Studio.lnk"), Path.Combine(otherApp, "ChatMCP.exe")) && Points(Old(another.Programs, "ChatMCP", "ChatMCP Studio.lnk"), Path.Combine(otherApp, "ChatMCP.exe")) &&
+              Points(Old(another.Programs, "ChatMCP", "Uninstall ChatMCP Studio.lnk"), Path.Combine(otherApp, "Uninstall.exe")), "old-named shortcuts that point into another folder are not this installation's and are left alone");
+        Check(Points(Path.Combine(another.Desktop, "DatGold Studio.lnk"), launcher), "while the new ones are made");
+
+        // The shell stores a target as its long path; a setup started from a short (8.3) path must still recognise its own old shortcuts.
+        dynamic fso = Activator.CreateInstance(Type.GetTypeFromProgID("Scripting.FileSystemObject")!)!;
+        var shortApp = (string)fso.GetFolder(app).ShortPath;
+        var shortened = Machine("short path"); MadeBy3101(shortened, app);
+        InstallerEngine.ReplaceShortcuts(shortApp, icon, shortened.Desktop, shortened.Programs, true, true);
+        Check(!File.Exists(Path.Combine(shortened.Desktop, "ChatMCP Studio.lnk")) && !Directory.Exists(Path.Combine(shortened.Programs, "ChatMCP")),
+            "the old shortcuts are found whether the installation folder is spelled long or short (" + shortApp + ")");
+
+        var stuck = Machine("locked"); MadeBy3101(stuck, app);
+        var notes = new List<string>();
+        using (new FileStream(Path.Combine(stuck.Desktop, "ChatMCP Studio.lnk"), FileMode.Open, FileAccess.Read, FileShare.Read)) // readable, but it cannot be deleted while it is open
+            InstallerEngine.ReplaceShortcuts(app, icon, stuck.Desktop, stuck.Programs, true, true, notes.Add);
+        Check(notes.Count == 1 && notes[0].Contains("ChatMCP Studio.lnk", StringComparison.Ordinal), "an old shortcut that cannot be removed is reported, once, and does not stop setup");
+        Check(!Directory.Exists(Path.Combine(stuck.Programs, "ChatMCP")) && Points(Path.Combine(stuck.Desktop, "DatGold Studio.lnk"), launcher), "the other old shortcuts still go and the new ones are made");
+
+        var both = Machine("uninstall"); MadeBy3101(both, app); InstallerEngine.CreateShortcuts(app, icon, both.Desktop, both.Programs, true, true);
+        Check(Directory.GetFiles(both.Desktop).Length == 2 && Directory.GetDirectories(both.Programs).Length == 2, "premise: both name sets are on the machine (an upgrade that could not remove the old ones)");
+        InstallerEngine.RemoveShortcuts(app, both.Desktop, both.Programs);
+        Check(Empty(both.Desktop) && Empty(both.Programs), "the uninstaller removes the DatGold shortcuts and the old ones, and both Start menu folders");
+
+        var foreign = Machine("uninstall with another installation's shortcuts"); MadeBy3101(foreign, otherApp);
+        InstallerEngine.RemoveShortcuts(app, foreign.Desktop, foreign.Programs);
+        Check(File.Exists(Path.Combine(foreign.Desktop, "ChatMCP Studio.lnk")) && Directory.GetFiles(Path.Combine(foreign.Programs, "ChatMCP")).Length == 2, "and leaves the shortcuts of another installation");
+    }
     Console.WriteLine(JsonSerializer.Serialize(new { result = "PASS", checks, scope = "real shared native classes; Windows filesystem" }));
 }
 finally { Directory.Delete(scratch, recursive: true); }
