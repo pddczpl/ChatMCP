@@ -30,7 +30,8 @@ RUNTIME COMPONENTS
       tree-sitter-javascript (MIT, ^0.20.3)  -> CHATMCP-HUB/grammars/tree-sitter-javascript.wasm, text: CHATMCP-HUB/licenses/tree-sitter-javascript/LICENSE
       tree-sitter-typescript (MIT, ^0.20.5)  -> tree-sitter-typescript.wasm and tree-sitter-tsx.wasm, text: CHATMCP-HUB/licenses/tree-sitter-typescript/LICENSE
       tree-sitter-python (MIT, ^0.21.0)      -> tree-sitter-python.wasm, text: CHATMCP-HUB/licenses/tree-sitter-python/LICENSE
-    Status: pending (the upstream texts are not in the repository yet; a release build refuses to go on without them).
+    Status: shipped; staging fails without them. The texts are the upstream LICENSE files, copied unchanged from the default branch of each upstream
+    repository on 2026-10-19; the versions of the grammars inside tree-sitter-wasms are not recorded in its package.
 10. playwright and playwright-core 1.64.0 (JavaScript only, CHATMCP-HUB/runtimes/browser/node_modules) - Apache-2.0. LICENSE and NOTICE in each
     package folder, ThirdPartyNotices.txt in playwright-core. The browser executable is not bundled.
 11. Microsoft.Web.WebView2 1.0.4258.31 (managed assemblies and WebView2Loader.dll beside ChatMCP.exe) - Microsoft BSD-3-Clause-style license;
@@ -135,8 +136,7 @@ MICROSOFT C/C++ RUNTIME COMPONENTS
 
 PENDING NOTICES
 
- - Items 9, 11, 12, 13 and 15 above. A build that lacks the Tree-sitter grammar notices carries licenses/PENDING-NOTICES.txt and lists them in
-   runtime-manifest.json ("pendingNotices"); only builds that are not releases may be made that way.
+ - Items 11, 12, 13 and 15 above.
  - The Browser Companion archive ChatMCP-Browser-Companion.zip does not contain LICENSE or NOTICE yet.
 
 NOT REDISTRIBUTED

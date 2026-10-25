@@ -6,7 +6,7 @@ Two groups: the notices of the bundled Tree-sitter grammars (the `*.LICENSE` fil
 
 `stage.mjs` copies the files below to `licenses/<project>/LICENSE` in the staged runtime, which `Build-Installer.ps1` ships as `CHATMCP-HUB/licenses/`. `notices.mjs` lists them (`GRAMMAR_NOTICES`).
 
-| File to add here | Upstream project | Compiled into |
+| Vendored file | Upstream project | Compiled into |
 |---|---|---|
 | `tree-sitter-javascript.LICENSE` | <https://github.com/tree-sitter/tree-sitter-javascript> | `grammars/tree-sitter-javascript.wasm` |
 | `tree-sitter-typescript.LICENSE` | <https://github.com/tree-sitter/tree-sitter-typescript> | `grammars/tree-sitter-typescript.wasm`, `grammars/tree-sitter-tsx.wasm` |
@@ -19,8 +19,8 @@ These three files were copied unchanged from the default branch of each upstream
 If one of them is missing or unusable:
 
 - `stage.mjs` stops, so `Build-Installer.ps1` and the release workflow fail with a message that names the missing files.
-- A build that is not a release may set `CHATMCP_ALLOW_PENDING_NOTICES=1` (CI does). It stages `licenses/PENDING-NOTICES.txt`, records `pendingNotices` in `runtime-manifest.json` and prints a warning.
-- `tests/verify-notices.mjs` prints which notices are pending (none when all three files are present) and fails if a release workflow sets the variable.
+- A build that is not a release may set `CHATMCP_ALLOW_PENDING_NOTICES=1` (no workflow does). It stages `licenses/PENDING-NOTICES.txt`, records `pendingNotices` in `runtime-manifest.json` and prints a warning.
+- `tests/verify-notices.mjs` prints which notices are pending (none when all three files are present) and fails if a release workflow sets the variable, and if any workflow does while all three files are present.
 
 ## What is compiled into rg.exe (`ripgrep/`)
 
