@@ -268,7 +268,7 @@
       "kind": "claim",
       "seam": "real",
       "test": "CHATMCP-HUB/tests/verify-notices.mjs",
-      "seamNote": "Reads the real README, LICENSE and NOTICE; the installer payload requirement is checked in the script and in scripts/tests/Test-InstallerPayload.ps1 (a CI step). 15 seeded defects are each reported."
+      "seamNote": "Reads the real README, LICENSE and NOTICE; the installer payload requirement is checked in the script and in scripts/tests/Test-InstallerPayload.ps1 (a CI step). The seeded defects (deliberate breaks put into a temporary copy of the repository) are each reported by the check that owns them; the suite prints how many."
     },
     {
       "id": "dco-signoff",
