@@ -87,6 +87,20 @@ function Stop-InstalledHub {
     & (Join-Path $root 'CHATMCP-HUB\STOP-CHATMCP-HUB.cmd') -Port 3007
     if ($LASTEXITCODE -ne 0) { throw 'Owned test Hub shutdown was not confirmed.' }
 }
+function New-PowerShell7ModuleStandIn([string]$Directory) {
+    # A process started from a PowerShell 7 session hands PSModulePath on with PowerShell 7's module folders first, and the Windows PowerShell it starts then
+    # loses Get-FileHash (measured under pwsh 7.6.7 on windows-latest). This is the module folder that does the same on any machine: Microsoft.PowerShell.Utility
+    # 7.0.0.0 for the Core edition, exporting every command of Windows PowerShell's own module (CHATMCP-HUB/tests/support/powershell-environment.mjs does it for node).
+    $names = @((Get-Command -Module Microsoft.PowerShell.Utility).Name | Where-Object { $_ -match '^[A-Za-z]+-[A-Za-z]+$' })
+    if ($names -notcontains 'Get-FileHash') { throw 'Windows PowerShell did not list the commands of Microsoft.PowerShell.Utility.' }
+    $modules = Join-Path $Directory 'Modules'
+    $folder = Join-Path $modules 'Microsoft.PowerShell.Utility\7.0.0.0'
+    New-Item -ItemType Directory -Path $folder -Force | Out-Null
+    $manifest = @('@{', "  GUID = '1da87e53-152b-403e-98dc-74d7b4d63d59'", "  ModuleVersion = '7.0.0.0'", "  CompatiblePSEditions = @('Core')", "  PowerShellVersion = '3.0'",
+        "  NestedModules = @('Microsoft.PowerShell.Commands.Utility.dll')", "  CmdletsToExport = @($(($names | ForEach-Object { "'$_'" }) -join ', '))", '}')
+    [IO.File]::WriteAllText((Join-Path $folder 'Microsoft.PowerShell.Utility.psd1'), ($manifest -join "`r`n") + "`r`n")
+    return $modules
+}
 function Start-Desktop {
     $p=Start-Process -FilePath (Join-Path $root 'ChatMCP.exe') -PassThru
     $script:owned.Add($p)
@@ -207,10 +221,22 @@ try {
     $fake.Kill(); $null=$fake.WaitForExit(10000)
     # Actual uninstall also stops a Hub kept alive after closing the GUI.
     $candidate=Start-Desktop; $null=Wait-Health $ExpectedCandidateVersion; Close-Desktop $candidate
-    $uninstall=Start-Process (Join-Path $root 'Uninstall.exe') -ArgumentList '--quiet','--uninstall' -PassThru; $owned.Add($uninstall)
-    Assert-Native ($uninstall.WaitForExit(120000) -and $uninstall.ExitCode -eq 0) 'actual installed uninstaller completes with live idle Hub'
+    # Started the way a person starts it from a PowerShell 7 window: only this process gets PowerShell 7's module folder first in PSModulePath. Its Windows PowerShell helper,
+    # which deletes Uninstall.exe once the uninstaller has ended, must not inherit it (Get-FileHash is gone behind it).
+    $powerShell7 = New-PowerShell7ModuleStandIn (Join-Path $OutputDirectory 'powershell7-modules')
+    $uninstallInfo = New-Object Diagnostics.ProcessStartInfo
+    $uninstallInfo.FileName = Join-Path $root 'Uninstall.exe'
+    $uninstallInfo.Arguments = '--quiet --uninstall'
+    $uninstallInfo.UseShellExecute = $false
+    $uninstallInfo.EnvironmentVariables['PSModulePath'] = $powerShell7 + ';' + $env:PSModulePath
+    $uninstall=[Diagnostics.Process]::Start($uninstallInfo); $owned.Add($uninstall)
+    Assert-Native ($uninstall.WaitForExit(120000) -and $uninstall.ExitCode -eq 0) 'actual installed uninstaller completes with live idle Hub, also when started from a PowerShell 7 session'
     Assert-Native (-not (Get-NetTCPConnection -LocalPort 3007 -State Listen -ErrorAction SilentlyContinue)) 'uninstall confirms Hub listener is gone'
     Assert-Native (-not (Test-Path (Join-Path $root 'ChatMCP.exe')) -and -not (Test-Path $registry)) 'uninstall removes owned launcher and registration'
+    # The helper outlives the uninstaller by a moment.
+    $helperDeadline=[DateTime]::UtcNow.AddSeconds(30)
+    while ((Test-Path (Join-Path $root 'Uninstall.exe')) -and [DateTime]::UtcNow -lt $helperDeadline) { Start-Sleep -Milliseconds 400 }
+    Assert-Native (-not (Test-Path (Join-Path $root 'Uninstall.exe'))) 'uninstaller deletes its own Uninstall.exe through its helper, also when started from a PowerShell 7 session'
     Assert-Native ([IO.File]::ReadAllText($canary) -eq 'PRESERVE-USER-DATA' -and [IO.File]::ReadAllText($stateCanary) -eq 'PRESERVE-STATE') 'uninstall preserves unrelated files and user state'
     $report.result='PASS'
 } catch {
