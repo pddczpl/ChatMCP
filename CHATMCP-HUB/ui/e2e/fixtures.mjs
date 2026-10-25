@@ -200,6 +200,27 @@ export async function openWorkTab(page, name) {
   await expect(tab).toHaveAttribute('aria-selected', 'true');
 }
 
+/**
+ * The page hears of a new window width `ms` late, as it does on a slow machine. The browser reports a change of width to the page at its next frame
+ * and not when `setViewportSize` returns, and a loaded runner can take a long while to get to that frame. Install it before the page is opened.
+ */
+export async function delayLayoutChanges(page, ms) {
+  if (!ms) return;
+  await page.addInitScript((delay) => {
+    const add = MediaQueryList.prototype.addEventListener;
+    const remove = MediaQueryList.prototype.removeEventListener;
+    const late = new WeakMap();
+    MediaQueryList.prototype.addEventListener = function (type, listener, options) {
+      if (type !== 'change' || typeof listener !== 'function') return add.call(this, type, listener, options);
+      if (!late.has(listener)) late.set(listener, function (event) { setTimeout(() => listener.call(this, event), delay); });
+      return add.call(this, type, late.get(listener), options);
+    };
+    MediaQueryList.prototype.removeEventListener = function (type, listener, options) {
+      return remove.call(this, type, late.get(listener) ?? listener, options);
+    };
+  }, ms);
+}
+
 /** Settings is a full-page dialog. `section` is the visible name of an entry in its left menu (Mô hình AI, Kỹ năng, ...). */
 export async function openSettings(page, section) {
   const dialog = page.getByRole('dialog', { name: 'Cài đặt' });

@@ -1,4 +1,4 @@
-import { test, expect, onboard, send, taskByPrompt, openWorkTab, openSettings, closeSettings } from './fixtures.mjs';
+import { test, expect, onboard, send, taskByPrompt, openWorkTab, openSettings, closeSettings, delayLayoutChanges } from './fixtures.mjs';
 import { say, call } from '../../tests/e2e/scenarios.mjs';
 import { setMode, waitForState, continueTask } from '../../tests/e2e/hub-process.mjs';
 import { git, gitInit, makeCalcProject } from '../../tests/e2e/fixtures.mjs';
@@ -487,8 +487,9 @@ test('the section switch is a tablist: arrows, Home and End move and select, and
   await expect(outer.getByRole('tab', { name: 'Terminal', exact: true })).toHaveAttribute('aria-selected', 'true');
 });
 
-test('narrow windows (600 and 900 px): the Agents tab fits its panel in every section, with a real run on screen', async ({ page, app }, testInfo) => {
-  test.setTimeout(240_000);
+for (const late of [0, 30, 1500]) test(`narrow windows (600 and 900 px): the Agents tab fits its panel in every section, with a real run on screen${late ? `, when the page hears of the new width ${late} ms late` : ''}`, async ({ page, app }, testInfo) => {
+  test.setTimeout(late ? 60_000 : 240_000);
+  await delayLayoutChanges(page, late);
   defineNoteWorker(app.mock);
   await onboard(page, app);
   await setMode(app.hub, 'autonomous');
