@@ -7,17 +7,22 @@
 //      HubLifecycle.StopInstalledHub (the installer/uninstaller preflight) through the legacy session-token flow;
 //   b. the same Hub is stopped by the current Stop-ChatMcpHub.ps1;
 //   c. the current Hub is stopped through the secret in its session file, which the Hub then removes;
-//   d. a current Hub whose session file is missing, or names another process, is NOT stopped and the preflight says why.
+//   d. a current Hub whose session file is missing, or names another process, is NOT stopped and the preflight says why;
+//   e. the same preflight, started from a PowerShell 7 session whose CimCmdlets Windows PowerShell cannot load (a stand-in module folder
+//      first in PSModulePath), still stops the current Hub: its Hub ownership query is a Windows PowerShell child;
+//   f. the real uninstaller (the installer exe under the name Uninstall.exe, in a throwaway "installed" folder), started from a PowerShell 7
+//      session that has taken Get-FileHash from Windows PowerShell, still deletes its own Uninstall.exe: that is done by a Windows PowerShell child too.
 // Windows only. It needs port 3007 (the product's fixed port) free and never touches a process it did not start. The Hub data
 // folder is redirected with CHATMCP_STATE_DIR so the owner's real data is untouched.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { powerShellChildEnvironment } from '../../../CHATMCP-HUB/tests/support/powershell-environment.mjs';
+import { powerShell7ModuleStandIn, powerShellChildEnvironment, windowsPowerShellPath } from '../../../CHATMCP-HUB/tests/support/powershell-environment.mjs';
 
 if (process.platform !== 'win32') { console.log('SKIP: the installer preflight is Windows-only'); process.exit(0); }
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -65,12 +70,36 @@ async function startHub({ root, state }) {
 }
 const gone = async (hub) => { for (let i = 0; i < 60 && !hub.exited; i++) await wait(250); return hub.exited; };
 
+// A process started from PowerShell 7 hands PSModulePath on with PowerShell 7's module folders first, and Windows PowerShell then loses what its own modules define.
+// There is no PowerShell 7 on every machine that runs this, so the folder is a stand-in: Microsoft.PowerShell.Utility 7.0.0.0 for the Core edition comes from the
+// support file (it reproduces what windows-latest does under pwsh: Get-FileHash is gone); CimCmdlets 7.0.0.0 is written here. Windows PowerShell on windows-latest
+// does load the real CimCmdlets of PowerShell 7 and the Hub ownership query works there (run 40168200866), so that one models a PowerShell 7 whose CimCmdlets it cannot.
+const behind = (modules) => {
+  const environment = {};
+  for (const [name, value] of Object.entries(process.env)) if (name.toLowerCase() !== 'psmodulepath') environment[name] = value;
+  environment.PSModulePath = `${modules};${process.env.PSModulePath ?? ''}`;
+  return environment;
+};
+function cimCmdletsStandIn(directory) {
+  const listed = spawnSync(windowsPowerShellPath(), ['-NoProfile', '-NonInteractive', '-Command', '(Get-Command -Module CimCmdlets).Name'], { encoding: 'utf8', windowsHide: true, env: powerShellChildEnvironment(), timeout: 60_000 });
+  const names = String(listed.stdout).split(/\r?\n/).map((line) => line.trim()).filter((line) => /^[A-Za-z]+-[A-Za-z]+$/.test(line));
+  assert.ok(listed.status === 0 && names.includes('Get-CimInstance'), `Windows PowerShell did not list the commands of CimCmdlets: ${listed.stdout}${listed.stderr}`);
+  const folder = path.join(directory, 'Modules', 'CimCmdlets', '7.0.0.0');
+  fs.mkdirSync(folder, { recursive: true });
+  fs.writeFileSync(path.join(folder, 'CimCmdlets.psd1'), ['@{', "  GUID = '6c3f5d7e-2b1a-4c58-9e0d-7a41b8c2d9f3'", "  ModuleVersion = '7.0.0.0'", "  CompatiblePSEditions = @('Core')", "  PowerShellVersion = '3.0'",
+    `  CmdletsToExport = @(${names.map((name) => `'${name}'`).join(', ')})`, '}', ''].join('\r\n'));
+  return path.join(directory, 'Modules');
+}
+// What a Windows PowerShell started with `environment` finds under `name`: the premise of a check that it still works with the fix.
+const found = (name, environment) => spawnSync(windowsPowerShellPath(), ['-NoProfile', '-NonInteractive', '-Command', `if (Get-Command ${name} -ErrorAction SilentlyContinue) { 'FOUND' } else { 'MISSING' }`],
+  { env: environment, encoding: 'utf8', windowsHide: true, timeout: 60_000 }).stdout.trim();
+
 try {
   const probeOutput = path.join(scratch, 'probe');
   const build = spawnSync('dotnet', ['build', path.join(repo, 'scripts', 'tests', 'legacy-hub-upgrade', 'StopProbe.csproj'), '-c', 'Release', '--nologo', '-v', 'q', '-o', probeOutput], { encoding: 'utf8' });
   assert.equal(build.status, 0, `probe build failed:\n${build.stdout}${build.stderr}`);
-  const preflight = ({ root, state }) => {
-    const run = spawnSync('dotnet', [path.join(probeOutput, 'StopProbe.dll'), root], { env: { ...process.env, CHATMCP_STATE_DIR: state }, encoding: 'utf8', timeout: 180_000 });
+  const preflight = ({ root, state }, environment = process.env) => {
+    const run = spawnSync('dotnet', [path.join(probeOutput, 'StopProbe.dll'), root], { env: { ...environment, CHATMCP_STATE_DIR: state }, encoding: 'utf8', timeout: 180_000 });
     return { code: run.status, out: `${run.stdout}${run.stderr}`.trim() };
   };
 
@@ -93,6 +122,14 @@ try {
   check('the preflight stops the current Hub with the secret', second.code === 0 && /STOPPED/.test(second.out) && await gone(hub), second.out);
   check('and the Hub removed its session file', !fs.existsSync(path.join(current.state, 'run', 'hub-session.json')));
 
+  // e. started from a PowerShell 7 session whose CimCmdlets Windows PowerShell cannot load
+  const cimFolder = cimCmdletsStandIn(path.join(scratch, 'powershell7-cim'));
+  check('premise: behind the CimCmdlets stand-in Windows PowerShell has lost Get-CimInstance, which the Hub ownership query runs', found('Get-CimInstance', behind(cimFolder)) === 'MISSING');
+  const behindCim = await startHub(current);
+  const third = preflight(current, behind(cimFolder));
+  check('started from a PowerShell 7 session that hides Get-CimInstance, the preflight still stops the current Hub', third.code === 0 && /STOPPED/.test(third.out) && await gone(behindCim), third.out);
+  if (!behindCim.exited) { behindCim.child.kill(); await gone(behindCim); }
+
   const unreadable = await startHub(current);
   fs.rmSync(path.join(current.state, 'run', 'hub-session.json'));
   const missing = preflight(current);
@@ -102,6 +139,26 @@ try {
   check('a session file that names another process is never presented', stale.code === 2 && !unreadable.exited, stale.out);
   unreadable.child.kill();
   await gone(unreadable);
+
+  // f. the uninstaller, from a PowerShell 7 session. Every Hub is gone now (an uninstaller refuses a listener it does not own). The installed folder is a throwaway one with the
+  // installer exe under the name the installer gives it and a manifest that owns it; the uninstall touches nothing else (its shortcuts and registry entry are
+  // removed only when they name this folder). Nothing is installed, so nothing is left for the next suite.
+  const setup = path.join(scratch, 'setup');
+  const buildSetup = spawnSync('dotnet', ['build', path.join(repo, 'installer', 'ChatMCP.Installer.csproj'), '-c', 'Release', '--nologo', '-v', 'q', '-o', setup], { encoding: 'utf8' });
+  assert.equal(buildSetup.status, 0, `installer build failed:\n${buildSetup.stdout}${buildSetup.stderr}`);
+  const installed = path.join(scratch, 'installed app');
+  fs.mkdirSync(installed, { recursive: true });
+  for (const name of ['ChatMCPSetup.dll', 'ChatMCPSetup.runtimeconfig.json', 'ChatMCPSetup.deps.json']) fs.copyFileSync(path.join(setup, name), path.join(installed, name));
+  fs.copyFileSync(path.join(setup, 'ChatMCPSetup.exe'), path.join(installed, 'Uninstall.exe'));
+  const digest = crypto.createHash('sha256').update(fs.readFileSync(path.join(installed, 'Uninstall.exe'))).digest('hex').toUpperCase();
+  fs.writeFileSync(path.join(installed, '.chatmcp-installed-files.json'), JSON.stringify({ 'Uninstall.exe': digest }));
+  const utilityFolder = await powerShell7ModuleStandIn(path.join(scratch, 'powershell7-utility'));
+  check('premise: behind the Utility stand-in Windows PowerShell has lost Get-FileHash, as it does under pwsh on windows-latest', found('Get-FileHash', behind(utilityFolder)) === 'MISSING');
+  const uninstall = spawnSync(path.join(installed, 'Uninstall.exe'), ['--quiet', '--uninstall'], { env: behind(utilityFolder), encoding: 'utf8', timeout: 120_000 });
+  check('the real uninstaller started from that PowerShell 7 session completes', uninstall.status === 0, `exit ${uninstall.status} ${uninstall.stdout}${uninstall.stderr}`.trim());
+  // The helper that deletes the running uninstaller works on for a moment after the uninstaller has ended.
+  for (let i = 0; i < 120 && fs.existsSync(path.join(installed, 'Uninstall.exe')); i++) await wait(250);
+  check('and it still deletes its own Uninstall.exe', !fs.existsSync(path.join(installed, 'Uninstall.exe')));
 } catch (error) {
   console.error(error.stack ?? error);
   results.push(false);
@@ -110,5 +167,5 @@ try {
   await wait(500);
   fs.rmSync(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
 }
-console.log(results.every(Boolean) ? `PASS: ${results.length} checks - legacy and current Hub upgrade preflight` : 'FAIL');
+console.log(results.every(Boolean) ? `PASS: ${results.length} checks - legacy and current Hub upgrade preflight, and the preflight and the uninstaller behind PowerShell 7` : 'FAIL');
 process.exit(results.every(Boolean) ? 0 : 1);

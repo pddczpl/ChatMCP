@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using ChatMCP.Native;
@@ -61,6 +62,46 @@ try
         Check(HubSession.DefaultStateDirectory().EndsWith(Path.Combine("ChatMCP", "hub"), StringComparison.OrdinalIgnoreCase), "otherwise %LOCALAPPDATA%\\ChatMCP\\hub, where the Hub keeps its data");
     }
     finally { Environment.SetEnvironmentVariable("CHATMCP_STATE_DIR", previous); }
+
+    // Windows PowerShell as a child process gets no PSModulePath. A process started from PowerShell 7 has PowerShell 7's module folders first in it, and the Windows
+    // PowerShell it starts would load them before its own: the helper that deletes Uninstall.exe lost Get-FileHash that way and left the file behind.
+    var modulePath = Environment.GetEnvironmentVariable("PSModulePath");
+    try
+    {
+        var marker = Path.Combine(scratch, "powershell 7 modules");
+        Environment.SetEnvironmentVariable("PSModulePath", marker + ";" + modulePath);
+        Environment.SetEnvironmentVariable("CHATMCP_NATIVE_UNIT_KEEP", "kept");
+        var child = HubLifecycle.WindowsPowerShell("Get-Date");
+        Check(child.FileName.EndsWith(@"WindowsPowerShell\v1.0\powershell.exe", StringComparison.OrdinalIgnoreCase) && Path.IsPathFullyQualified(child.FileName) && !child.UseShellExecute && child.CreateNoWindow,
+            "the child is the machine's own Windows PowerShell, started without the shell and without a window");
+        Check(child.ArgumentList.SequenceEqual(new[] { "-NoProfile", "-NonInteractive", "-EncodedCommand", Convert.ToBase64String(Encoding.Unicode.GetBytes("Get-Date")) }),
+            "and it runs the command it is given, encoded, with no profile and no prompt");
+        Check(!child.Environment.Keys.Any(key => string.Equals(key, "PSModulePath", StringComparison.OrdinalIgnoreCase)), "it is given no PSModulePath");
+        Check(child.Environment["CHATMCP_NATIVE_UNIT_KEEP"] == "kept" && child.Environment.ContainsKey("Path"), "and the rest of the environment is handed on");
+        Check(Environment.GetEnvironmentVariable("PSModulePath")!.StartsWith(marker, StringComparison.Ordinal), "while this process keeps its own PSModulePath");
+        Environment.SetEnvironmentVariable("PSModulePath", null);
+        foreach (var spelling in new[] { "psmodulepath", "PSMODULEPATH", "PsModulePath" })
+        {
+            Environment.SetEnvironmentVariable(spelling, marker);
+            Check(!HubLifecycle.WindowsPowerShell("Get-Date").Environment.Keys.Any(key => string.Equals(key, "PSModulePath", StringComparison.OrdinalIgnoreCase)), "the child is given no " + spelling + " either");
+            Environment.SetEnvironmentVariable(spelling, null);
+        }
+        // A real Windows PowerShell: the child that the control starts by hand sees the marker folder in its module path, the one the helper starts does not.
+        Environment.SetEnvironmentVariable("PSModulePath", marker + ";" + modulePath);
+        string ModulePathSeenBy(ProcessStartInfo start)
+        {
+            start.RedirectStandardOutput = true; start.RedirectStandardError = true;
+            using var process = Process.Start(start) ?? throw new IOException("Cannot start Windows PowerShell.");
+            var output = process.StandardOutput.ReadToEndAsync(); var errors = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(60000)) { process.Kill(); throw new IOException("Windows PowerShell did not end."); }
+            return output.GetAwaiter().GetResult();
+        }
+        var raw = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe")) { UseShellExecute = false, CreateNoWindow = true };
+        foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-Command", "$env:PSModulePath" }) raw.ArgumentList.Add(argument);
+        Check(ModulePathSeenBy(raw).Contains(marker, StringComparison.OrdinalIgnoreCase), "premise: a Windows PowerShell started with this environment finds the PowerShell 7 folder in its module path");
+        Check(!ModulePathSeenBy(HubLifecycle.WindowsPowerShell("$env:PSModulePath")).Contains(marker, StringComparison.OrdinalIgnoreCase), "and the one HubLifecycle.WindowsPowerShell starts does not");
+    }
+    finally { Environment.SetEnvironmentVariable("PSModulePath", modulePath); Environment.SetEnvironmentVariable("CHATMCP_NATIVE_UNIT_KEEP", null); }
 
     // A link from the page reaches the shell's message as the same string and never as script text.
     var hostile = "http://127.0.0.1:3007/#back\\slash'quote\"dq</script><img src=x onerror=window.__pwned=1>";
