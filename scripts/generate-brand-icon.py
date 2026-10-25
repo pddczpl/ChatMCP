@@ -1,6 +1,8 @@
 """
-Generates high-resolution branded icons for ChatMCP Desktop Application and Web Studio.
-Outputs:
+Generates the DatGold brand icon: a gold "D" on a dark rounded square. The D is drawn from rectangles and circles (no font, no third-party artwork),
+so the icon is original work under the repository licence.
+
+Outputs (the file names keep the old product name on purpose: the desktop shell, the installer and the web UI refer to them by these names):
 - assets/icons/chatmcp.ico (Multi-resolution: 256, 128, 64, 48, 32, 24, 16)
 - assets/icons/chatmcp.png (512x512)
 - assets/icons/chatmcp-1024.png (1024x1024)
@@ -9,153 +11,101 @@ Outputs:
 """
 
 import os
-import math
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps
+
+# The palette. The background is the same dark slate the installer and the app use; the gold runs from a pale highlight to a deep amber.
+SLATE_TOP = (17, 24, 39)
+SLATE_BOTTOM = (9, 13, 26)
+GOLD_LIGHT = (255, 226, 138)
+GOLD = (242, 180, 22)
+GOLD_DEEP = (176, 112, 4)
+GOLD_EDGE = (255, 244, 200)
+
+
+def rounded_square_mask(size, pad, radius):
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([pad, pad, size - pad, size - pad], radius=radius, fill=255)
+    return mask
+
+
+def d_mask(size, left, top, width, height, stem, bowl):
+    """
+    The letter D as a mask: an outer shape (a rectangle whose right end is a half circle) minus a counter of the same kind, inset by `stem` on the left
+    and by `bowl` on the other three sides, so the left stroke is `stem` thick and the strokes at the top, the bottom and the right are `bowl` thick.
+    """
+    def d_shape(l, t, w, h):
+        radius = h / 2.0
+        shape = Image.new("L", (size, size), 0)
+        draw = ImageDraw.Draw(shape)
+        draw.rectangle([l, t, l + w - radius, t + h], fill=255)
+        # only the right half of the circle: its left half would stick out of the rectangle when the shape is narrower than it is tall
+        draw.pieslice([l + w - 2 * radius, t, l + w, t + h], start=-90, end=90, fill=255)
+        return shape
+
+    outer = d_shape(left, top, width, height)
+    inner = d_shape(left + stem, top + bowl, width - stem - bowl, height - 2 * bowl)
+    return ImageChops.subtract(outer, inner)
+
+
+def vertical_gradient(size, top, bottom, colors):
+    """An RGBA image the size of the canvas whose colour goes from colors[0] at row `top` through colors[1] to colors[2] at row `bottom`."""
+    ramp = Image.linear_gradient("L").resize((size, max(1, int(bottom - top))), Image.Resampling.BILINEAR)
+    painted = ImageOps.colorize(ramp, black=colors[0], white=colors[2], mid=colors[1]).convert("RGBA")
+    canvas = Image.new("RGBA", (size, size), colors[0] + (255,))
+    canvas.paste(painted, (0, int(top)))
+    canvas.paste(Image.new("RGBA", (size, size - int(bottom)), colors[2] + (255,)), (0, int(bottom)))
+    return canvas
+
 
 def create_brand_icon(size=1024):
-    # Create canvas with RGBA
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
 
-    pad = int(size * 0.08)  # 80px pad
-    radius = int(size * 0.22) # 220px corner radius
-    w = size - 2 * pad
-    h = size - 2 * pad
+    pad = int(size * 0.08)
+    radius = int(size * 0.22)
+    body = rounded_square_mask(size, pad, radius)
 
-    # 1. Base Shadow
-    shadow_offset = int(size * 0.03)
-    shadow_box = [pad, pad + shadow_offset, pad + w, pad + h + shadow_offset]
-    shadow_img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    shadow_draw = ImageDraw.Draw(shadow_img)
-    shadow_draw.rounded_rectangle(shadow_box, radius=radius, fill=(0, 0, 0, 140))
-    shadow_img = shadow_img.filter(ImageFilter.GaussianBlur(int(size * 0.04)))
-    img = Image.alpha_composite(img, shadow_img)
+    # 1. A soft shadow under the rounded square
+    shadow = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).rounded_rectangle([pad, pad + int(size * 0.03), size - pad, size - pad + int(size * 0.03)], radius=radius, fill=(0, 0, 0, 140))
+    img = Image.alpha_composite(img, shadow.filter(ImageFilter.GaussianBlur(int(size * 0.04))))
 
-    # 2. Main Background with Gradient Squircle
-    bg_img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    bg_draw = ImageDraw.Draw(bg_img)
+    # 2. The dark body, a vertical gradient
+    slate = vertical_gradient(size, pad, size - pad, (SLATE_TOP, tuple((a + b) // 2 for a, b in zip(SLATE_TOP, SLATE_BOTTOM)), SLATE_BOTTOM))
+    img = Image.alpha_composite(img, Image.composite(slate, Image.new("RGBA", (size, size), (0, 0, 0, 0)), body))
 
-    # Draw gradient background mask
-    mask_img = Image.new("L", (size, size), 0)
-    mask_draw = ImageDraw.Draw(mask_img)
-    mask_draw.rounded_rectangle([pad, pad, pad + w, pad + h], radius=radius, fill=255)
+    # 3. A thin gold rim, with a fainter one inside it
+    rim = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    rim_draw = ImageDraw.Draw(rim)
+    rim_draw.rounded_rectangle([pad, pad, size - pad, size - pad], radius=radius, outline=GOLD + (150,), width=max(1, int(size * 0.012)))
+    rim_draw.rounded_rectangle([pad + 6, pad + 6, size - pad - 6, size - pad - 6], radius=radius - 6, outline=GOLD_DEEP + (70,), width=max(1, int(size * 0.006)))
+    img = Image.alpha_composite(img, rim)
 
-    # Create gradient fill from top-left (#111827) to bottom-right (#090D1A)
-    grad_img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    grad_draw = ImageDraw.Draw(grad_img)
-    for y in range(size):
-        ratio = y / size
-        # Smooth deep blue / dark slate gradient
-        r = int(14 + ratio * (7 - 14))
-        g = int(22 + ratio * (11 - 22))
-        b = int(38 + ratio * (22 - 38))
-        grad_draw.line([(0, y), (size, y)], fill=(r, g, b, 255))
+    # 4. The D: 500 tall, 440 wide, strokes 128 thick, centred a little to the right because the flat left side carries less weight to the eye
+    height = size * 0.50
+    width = size * 0.43
+    left = (size - width) / 2.0 + size * 0.012
+    top = (size - height) / 2.0
+    stem = size * 0.125
+    bowl = size * 0.125
+    letter = d_mask(size, left, top, width, height, stem, bowl)
 
-    bg_img = Image.composite(grad_img, bg_img, mask_img)
-    img = Image.alpha_composite(img, bg_img)
+    # a warm glow behind the letter
+    glow = Image.new("RGBA", (size, size), GOLD + (0,))
+    glow.putalpha(letter.filter(ImageFilter.GaussianBlur(int(size * 0.035))).point(lambda value: int(value * 0.32)))
+    img = Image.alpha_composite(img, glow)
 
-    # 3. Outer Glowing Rim / Border
-    border_img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    border_draw = ImageDraw.Draw(border_img)
-    border_draw.rounded_rectangle(
-        [pad, pad, pad + w, pad + h],
-        radius=radius,
-        outline=(0, 242, 254, 180),
-        width=int(size * 0.012)
-    )
-    # Subtle inner bevel
-    border_draw.rounded_rectangle(
-        [pad + 4, pad + 4, pad + w - 4, pad + h - 4],
-        radius=radius - 4,
-        outline=(138, 43, 226, 80),
-        width=int(size * 0.008)
-    )
-    img = Image.alpha_composite(img, border_img)
+    # the letter itself, in a gold that runs from light at the top to deep amber at the bottom
+    gold = vertical_gradient(size, top, top + height, (GOLD_LIGHT, GOLD, GOLD_DEEP))
+    img = Image.alpha_composite(img, Image.composite(gold, Image.new("RGBA", (size, size), (0, 0, 0, 0)), letter))
 
-    # 4. Central Emblem: Futuristic Hexagonal Cyber Shield + Code Brackets + Core Spark
-    center_x = size / 2.0
-    center_y = size / 2.0
-
-    # Draw Hexagonal Shield Ambient Glow
-    glow_img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    glow_draw = ImageDraw.Draw(glow_img)
-    hex_radius = size * 0.28
-    hex_points = []
-    for i in range(6):
-        angle = math.radians(60 * i - 30)
-        px = center_x + hex_radius * math.cos(angle)
-        py = center_y + hex_radius * math.sin(angle)
-        hex_points.append((px, py))
-
-    glow_draw.polygon(hex_points, fill=(0, 220, 255, 35))
-    glow_img = glow_img.filter(ImageFilter.GaussianBlur(int(size * 0.06)))
-    img = Image.alpha_composite(img, glow_img)
-
-    # Draw Hexagonal Shield Outline
-    shield_img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    shield_draw = ImageDraw.Draw(shield_img)
-    shield_draw.polygon(hex_points, outline=(0, 242, 254, 230), width=int(size * 0.016))
-    
-    # Inner hexagon
-    inner_points = []
-    for i in range(6):
-        angle = math.radians(60 * i - 30)
-        px = center_x + (hex_radius * 0.88) * math.cos(angle)
-        py = center_y + (hex_radius * 0.88) * math.sin(angle)
-        inner_points.append((px, py))
-    shield_draw.polygon(inner_points, outline=(139, 92, 246, 160), width=int(size * 0.008))
-    img = Image.alpha_composite(img, shield_img)
-
-    # 5. Stylized Code Brackets '<' and '>' with Gradient Glow
-    code_img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    code_draw = ImageDraw.Draw(code_img)
-
-    bracket_w = size * 0.09
-    bracket_h = size * 0.16
-    thick = int(size * 0.024)
-
-    # Left bracket '<'
-    left_x = center_x - size * 0.12
-    l_pt1 = (left_x + bracket_w * 0.5, center_y - bracket_h)
-    l_pt2 = (left_x - bracket_w * 0.6, center_y)
-    l_pt3 = (left_x + bracket_w * 0.5, center_y + bracket_h)
-    code_draw.line([l_pt1, l_pt2, l_pt3], fill=(0, 245, 255, 255), width=thick, joint="curve")
-
-    # Right bracket '>'
-    right_x = center_x + size * 0.12
-    r_pt1 = (right_x - bracket_w * 0.5, center_y - bracket_h)
-    r_pt2 = (right_x + bracket_w * 0.6, center_y)
-    r_pt3 = (right_x - bracket_w * 0.5, center_y + bracket_h)
-    code_draw.line([r_pt1, r_pt2, r_pt3], fill=(167, 139, 250, 255), width=thick, joint="curve")
-
-    # 6. Central AI Core: Brilliant Quantum Diamond / Spark
-    spark_w = size * 0.045
-    spark_h = size * 0.08
-    core_pts = [
-        (center_x, center_y - spark_h),
-        (center_x + spark_w, center_y),
-        (center_x, center_y + spark_h),
-        (center_x - spark_w, center_y),
-    ]
-    code_draw.polygon(core_pts, fill=(16, 185, 129, 255)) # Emerald core
-
-    inner_core_pts = [
-        (center_x, center_y - spark_h * 0.55),
-        (center_x + spark_w * 0.55, center_y),
-        (center_x, center_y + spark_h * 0.55),
-        (center_x - spark_w * 0.55, center_y),
-    ]
-    code_draw.polygon(inner_core_pts, fill=(255, 255, 255, 255)) # Pure white shine
-
-    # Horizontal spark flare
-    code_draw.line(
-        [(center_x - spark_w * 1.8, center_y), (center_x + spark_w * 1.8, center_y)],
-        fill=(52, 211, 153, 200),
-        width=int(size * 0.008)
-    )
-
-    img = Image.alpha_composite(img, code_img)
+    # a pale edge on the upper and left sides of every stroke, so the letter reads as a raised piece of metal
+    shift = max(2, int(size * 0.009))
+    edge = ImageChops.subtract(letter, ImageChops.offset(letter, shift, shift))
+    edge_layer = Image.new("RGBA", (size, size), GOLD_EDGE + (0,))
+    edge_layer.putalpha(edge.point(lambda value: int(value * 0.6)))
+    img = Image.alpha_composite(img, edge_layer)
     return img
+
 
 def main():
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -164,7 +114,7 @@ def main():
     os.makedirs(icons_dir, exist_ok=True)
     os.makedirs(web_dir, exist_ok=True)
 
-    print("Rendering master 1024x1024 ChatMCP brand icon...")
+    print("Rendering master 1024x1024 DatGold brand icon...")
     master_1024 = create_brand_icon(1024)
 
     # Save master 1024 PNG
@@ -197,6 +147,7 @@ def main():
     print(f"  [OK] Saved Web Favicon: {fav_path}")
 
     print("\nBrand icon generation completed successfully!")
+
 
 if __name__ == "__main__":
     main()
