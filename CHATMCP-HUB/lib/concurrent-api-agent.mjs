@@ -103,6 +103,8 @@ export class ConcurrentApiAgent {
     this.accessManagers = new Map();
     this.readyAccessManagers = new Map();
     this.preflights = new Map();
+    // For each repository, the end of the line of agents waiting to make a worktree there (#worktreeTurn).
+    this.worktreeTurns = new Map();
     this.listeners = new Set();
     this.writes = Promise.resolve();
     this.draining = false;
@@ -461,6 +463,34 @@ export class ConcurrentApiAgent {
     this.children.set(record.id, child);
     return child;
   }
+  /**
+   * Git cannot make two linked worktrees of one repository at the same moment. It makes the folder under .git/worktrees first and the files in it after, and a second
+   * `git worktree add` that looks at the folder in between dies reading a file that is still empty ("fatal: failed to read .git/worktrees/worktree7/commondir: No error").
+   * The agents of a workflow phase start together, so one of them could end "uncertain" and the agents waiting for it "blocked" (verify-subagent-notices, D5, on a Windows
+   * runner). The worktrees of one repository are therefore made one at a time, in the order they were asked for; the coding orchestrator sets up its workers the same way.
+   * Resolves, once every earlier turn on this repository is over, with the function that ends this one. A signal that aborts while this waits ends the wait without a turn.
+   */
+  async #worktreeTurn(sourceRoot, signal) {
+    const key = process.platform === 'win32' ? sourceRoot.toLowerCase() : sourceRoot;
+    const before = this.worktreeTurns.get(key) ?? Promise.resolve();
+    let finish;
+    const mine = new Promise((resolve) => { finish = resolve; });
+    const behind = before.then(() => mine);
+    this.worktreeTurns.set(key, behind);
+    const end = () => {
+      finish();
+      void behind.then(() => { if (this.worktreeTurns.get(key) === behind) this.worktreeTurns.delete(key); });
+    };
+    try {
+      await new Promise((resolve, reject) => {
+        signal?.throwIfAborted();
+        const abort = () => reject(signal.reason);
+        signal?.addEventListener('abort', abort, { once: true });
+        void before.then(() => { signal?.removeEventListener('abort', abort); resolve(); });
+      });
+    } catch (error) { end(); throw error; }
+    return end;
+  }
   async #worktree(record, signal) {
     signal?.throwIfAborted();
     const owner = await this.#workspaceManager(record.sourceRoot);
@@ -488,15 +518,22 @@ export class ConcurrentApiAgent {
       if (!decision.allowed) throw fail('permission_denied', 'Worktree creation was not approved.', 403);
     }
     signal?.throwIfAborted();
-    // Persist a crash marker before Git can create an independent branch.
-    // Cancellation or a crash during Git may leave a partially created worktree;
-    // never silently retry or remove it.
-    record.pendingWorktree = { path: worktree, branch, startedAt: now() };
-    await this.#save();
-    signal?.throwIfAborted();
-    const result = await git.text(['worktree', 'add', '-b', branch, worktree, baseRef], {
-      writes: true, timeoutMs: 60000, signal,
-    });
+    // The turn is waited for here and not earlier: the approval above can take as long as a person needs, and nobody else may wait behind it. An agent that is stopped while
+    // it waits has no crash marker yet, so it ends "cancelled" and not "uncertain".
+    const endTurn = await this.#worktreeTurn(record.sourceRoot, signal);
+    let result;
+    try {
+      signal?.throwIfAborted();
+      // Persist a crash marker before Git can create an independent branch.
+      // Cancellation or a crash during Git may leave a partially created worktree;
+      // never silently retry or remove it.
+      record.pendingWorktree = { path: worktree, branch, startedAt: now() };
+      await this.#save();
+      signal?.throwIfAborted();
+      result = await git.text(['worktree', 'add', '-b', branch, worktree, baseRef], {
+        writes: true, timeoutMs: 60000, signal,
+      });
+    } finally { endTurn(); }
     if (result.code !== 0 || result.truncated || result.timedOut)
       throw fail('worktree_failed', 'Git worktree creation failed: ' + String(result.stderr || result.stdout).slice(0, 500));
     record.branch = branch;

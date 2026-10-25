@@ -8,7 +8,8 @@
 //      the notice selects no tool and no skill and is not something the user asked; restart.
 //   D. the pool: a parent spawns two agents, both stop, its next request carries the notice, it reads their results and its final answer is
 //      built from them; the same when the parent finished first; blocked and cancelled agents; workflows; only the caller's children; a full tree;
-//      agents that start together get their worktrees one at a time (Git does not survive two `git worktree add` on one repository at once).
+//      agents that start together get their worktrees one at a time (Git does not survive two `git worktree add` on one repository at once), an agent
+//      stopped while it waits for its turn makes nothing, and the turn of an agent whose Git call failed is given up.
 //   E. restart of the pool.
 //   F. the same notices and the tool on the wire of all four protocols (Chat Completions, Anthropic Messages, Responses, Gemini): the real runner and provider
 //      against a mock server that refuses what the real API refuses.
@@ -560,6 +561,7 @@ try {
   const gate = new Map();
   const closed = (name) => { let open; const promise = new Promise((resolve) => { open = resolve; }); gate.set(name, { promise, open }); return promise; };
   const childAnswer = (name) => final(`${name} report: ${tokenOf(name)}. ${name === 'Child C2' ? `Also, its key is ${GITHUB}.` : ''}`);
+  const hasStopped = (id) => ['completed', 'failed', 'cancelled', 'blocked', 'uncertain', 'limit'].includes(pool.get(id)?.status);
 
   // ---- D1 the plan criterion: the real result of a subagent appears in the parent's output
   {
@@ -827,13 +829,54 @@ try {
     };
     try {
       const agents = await Promise.all(['Child C14: inspect the readme', 'Child C15: inspect the license', 'Child C16: inspect the tests'].map((goal) => pool.spawnAgent(parent.id, { goal })));
-      const over = (agent) => ['completed', 'failed', 'cancelled', 'blocked', 'uncertain', 'limit'].includes(pool.get(agent.id)?.status);
-      await until(() => agents.every(over), 'the three agents stop', 400);
+      await until(() => agents.every((agent) => hasStopped(agent.id)), 'the three agents stop', 400);
       assert.equal(adds, 3, 'each agent made a worktree of its own');
       assert.equal(peak, 1, `${peak} worktrees of one repository were being made at the same moment`);
       assert.deepEqual(agents.map((agent) => pool.get(agent.id).status), ['completed', 'completed', 'completed']);
     } finally { delete git.text; }
     ok('D8 agents that start together: Git is asked for one worktree of the repository at a time (never two `git worktree add` at once), and all three agents complete');
+  }
+
+  // ---- D9 the line moves on: an agent stopped while it waits for its turn makes nothing, and a turn whose Git call fails is given up
+  {
+    reset();
+    handler = (request) => (ownerOf(request).startsWith('Child') ? childAnswer(ownerOf(request)) : final('Nothing to start myself, again.'));
+    const parent = await pool.start({ prompt: 'Parent P9: nothing to spawn myself, again.' });
+    await until(() => pool.get(parent.id)?.status === 'completed', 'the second parent P9');
+    const git = manager.studio.gitRunner;
+    const run = git.text.bind(git);
+    const asked = []; let looked = 0; let open;
+    const held = new Promise((resolve) => { open = resolve; });
+    git.text = async (args, options) => {
+      if (args[0] === 'rev-parse') { const answer = await run(args, options); looked += 1; return answer; }
+      if (args[0] !== 'worktree' || args[1] !== 'add') return run(args, options);
+      asked.push(args[3]);
+      if (asked.length > 1) return run(args, options);
+      // The first agent to ask keeps its turn until the test lets go, and then its Git call fails.
+      await held;
+      return { code: 128, stdout: '', stderr: 'fatal: made up by the test', truncated: false, timedOut: false };
+    };
+    try {
+      const agents = await Promise.all(['Child C17: inspect the readme', 'Child C18: inspect the license', 'Child C19: inspect the tests'].map((goal) => pool.spawnAgent(parent.id, { goal })));
+      // Once an agent has Git's answer about the repository, nothing but its turn stands between it and its own `git worktree add`.
+      await until(() => looked >= 3 && asked.length >= 1, 'all three agents have looked at the repository and one of them asks for its worktree');
+      await wait(50);
+      assert.equal(asked.length, 1, 'nobody else asks Git while the turn is held');
+      const branchOf = (agent) => `chatmcp/chat/${agent.id.slice(0, 12)}`;
+      const holder = agents.find((agent) => branchOf(agent) === asked[0]);
+      const [stopped, next] = agents.filter((agent) => agent !== holder);
+      await pool.cancel(stopped.id);
+      assert.equal(pool.get(stopped.id).status, 'cancelled', 'an agent stopped while it waits for its turn ends cancelled (nothing was started, nothing is uncertain)');
+      assert.equal(pool.records.get(stopped.id).pendingWorktree, undefined, 'and has no crash marker');
+      open();
+      await until(() => agents.every((agent) => hasStopped(agent.id)), 'all three agents stop', 400);
+      assert.equal(pool.get(holder.id).status, 'uncertain', 'the agent whose Git call failed keeps the Hub\'s usual answer to a worktree that may be half made');
+      assert.match(pool.get(holder.id).error, /made up by the test/);
+      assert.equal(pool.get(next.id).status, 'completed', 'its turn was given up: the agent behind it made its worktree');
+      assert.deepEqual(asked, [branchOf(holder), branchOf(next)], 'Git was asked twice, in order, and never for the agent that was stopped');
+      assert.equal(execFileSync('git', ['branch', '--list', branchOf(stopped)], { cwd: repo, encoding: 'utf8' }).trim(), '', 'the stopped agent has no branch');
+    } finally { open(); delete git.text; }
+    ok('D9 the line moves on: an agent stopped while it waits for its turn ends cancelled and makes nothing; when the Git call of the agent ahead fails, the next agent still gets its worktree');
   }
 
   // =========================================================================================================================================== E. restart of the pool
