@@ -6,6 +6,7 @@ import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { LspProcess } from '../../CHATMCP-HUB/lib/studio-intelligence.mjs';
+import { checkReportedPcre2 } from './notices.mjs';
 import { verifyRuntime } from './verify.mjs';
 
 if (process.platform !== 'win32') throw new Error('Bundled Windows acceptance requires Windows.');
@@ -93,6 +94,12 @@ try {
   assert.equal(info.source, 'bundled');
   assert.equal(info.path, path.join(hubRoot, 'runtimes', 'ripgrep', 'rg.exe'));
   assert.equal(info.version, pinned, 'The bundled ripgrep must be the pinned release.');
+  // The notices of what is linked into rg.exe (licenses/ripgrep) are derived from sources. This is where they meet the binary: the PCRE2 it was built with is the one the notice is for.
+  const noticeInventory = JSON.parse(await fs.readFile(path.join(hubRoot, 'licenses', 'ripgrep', 'MANIFEST.json'), 'utf8'));
+  const reportedPcre2 = spawnSync(info.path, ['--pcre2-version'], { encoding: 'utf8', windowsHide: true, timeout: 10000 });
+  const pcre2Problem = checkReportedPcre2(noticeInventory, reportedPcre2.stdout);
+  assert.equal(pcre2Problem, null, pcre2Problem ?? '');
+  console.log('PASS bundled ripgrep PCRE2 is the version of the shipped notice');
   const searched = path.join(temp, 'ripgrep');
   await fs.mkdir(path.join(searched, 'src'), { recursive: true });
   await fs.writeFile(path.join(searched, 'src', 'a.js'), 'const needle = 1;\r\nfunction go() { return needle; }\r\n');

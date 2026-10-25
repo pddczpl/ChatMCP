@@ -156,6 +156,34 @@ function Copy-InstallerNodeLicense {
     Copy-Item -LiteralPath $source -Destination (Join-Path $Destination 'LICENSE') -Force
 }
 
+function Assert-InstallerRipgrepNotices {
+    # rg.exe is linked with PCRE2 and with Rust crates whose license texts are not in the ripgrep archive. They are vendored in
+    # scripts/intelligence-runtime/licenses/ripgrep, stage.mjs stages them as licenses/ripgrep and the licenses folder travels into the payload.
+    # This refuses a payload in which the inventory (MANIFEST.json) or a text that it lists is missing or empty, or which does not list PCRE2.
+    # The hashes are compared by verify.mjs; this is the check of the payload tree itself.
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$HubRoot)
+    $directory = Join-Path $HubRoot 'licenses\ripgrep'
+    $inventory = Join-Path $directory 'MANIFEST.json'
+    if (-not (Test-Path -LiteralPath $inventory -PathType Leaf)) {
+        throw 'The payload has no licenses\ripgrep\MANIFEST.json: the notices of PCRE2 and of the Rust crates linked into rg.exe are required.'
+    }
+    $manifest = [IO.File]::ReadAllText($inventory) | ConvertFrom-Json
+    $names = @($manifest.components | ForEach-Object { [string]$_.name })
+    # case-sensitive: the Rust crate pcre2 (the binding) is not PCRE2 (the C library)
+    if ($names -cnotcontains 'PCRE2') { throw 'The ripgrep notice inventory does not list PCRE2, which rg.exe is built with.' }
+    foreach ($component in @($manifest.components)) {
+        $files = @($component.files)
+        if ($files.Count -eq 0) { throw ('The ripgrep notice inventory lists no license text for ' + $component.id + '.') }
+        foreach ($file in $files) {
+            $relative = [string]$file.path
+            if ($relative -notmatch '^[A-Za-z0-9_.+-]+/[A-Za-z0-9_.+-]+$' -or $relative -match '(^|/)\.+(/|$)') { throw ('Unsafe ripgrep notice path in the inventory: ' + $relative) }
+            $text = Join-Path $directory $relative.Replace('/', '\')
+            if (-not (Test-Path -LiteralPath $text -PathType Leaf) -or (Get-Item -LiteralPath $text).Length -eq 0) { throw ('Missing or empty ripgrep notice: ' + $relative) }
+        }
+    }
+}
+
 function Copy-InstallerDesktopPayload {
     [CmdletBinding()]
     param(

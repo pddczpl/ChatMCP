@@ -14,6 +14,9 @@ LICENSE eol=lf
 NOTICE  eol=lf
 # Vendored third-party license texts are kept byte for byte (stage.mjs copies them into the installer).
 scripts/intelligence-runtime/licenses/*.LICENSE eol=lf
+# The texts of what is compiled into rg.exe (PCRE2 and the Rust crates) are vendored unchanged. licenses/ripgrep/MANIFEST.json holds the SHA-256 and the git blob
+# id of each, so no checkout may convert their line ends (core.autocrlf on a Windows runner would break every hash).
+scripts/intelligence-runtime/licenses/ripgrep/** -text
 
 # The recorded-shape model streams are compared byte for byte by the tests: no line-end conversion.
 CHATMCP-HUB/tests/fixtures/streams/** -text
