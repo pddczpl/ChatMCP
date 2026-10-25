@@ -131,7 +131,7 @@ Chỉ sau khi phép 1–4 đạt với một mô hình thật, mới có cơ s�
 
 Dự án **chưa có** bộ test tự động chạy với nhà cung cấp thật (cần key và tốn tiền, nên không phù hợp để chạy trong CI mặc định). Nếu bạn muốn, có thể thêm một bộ `verify-real-model.mjs` đọc key và nhà cung cấp từ biến môi trường và tự bỏ qua (`CHATMCP_TEST_SKIP:`) khi thiếu — đây là việc tiếp theo hợp lý sau khi bạn cho phép dùng key, không phải thứ đã có.
 
-Có hai phép kiểm **chạy tay** với API thật của Anthropic, chỉ về một việc: khối `thinking` mà mô hình trả về có được gửi lại đúng không ([docs/ARCHITECTURE.md](ARCHITECTURE.md), "Khối suy luận của Anthropic (prov-18)"). Chúng nằm ở `CHATMCP-HUB/tests/live/`, không tên `verify-*` nên `run-all` và CI không chạy chúng. Mỗi lần chạy gửi vài chục yêu cầu ngắn, tốn vài xu. Key chỉ đọc từ biến môi trường (`ANTHROPIC_API_KEY`, hoặc `ANTHROPIC_AUTH_TOKEN` cho cổng dùng bearer) và không bao giờ được in ra. Trong PowerShell, chỉ cho cửa sổ này:
+Có hai phép kiểm **chạy tay** với API thật của Anthropic, chỉ về một việc: khối `thinking` mà mô hình trả về có được gửi lại đúng không ([docs/ARCHITECTURE.md](ARCHITECTURE.md), "Khối suy luận của Anthropic (prov-18)"). Chúng nằm ở `CHATMCP-HUB/tests/live/`, không tên `verify-*` nên `run-all` và CI không chạy chúng với API thật (CI chỉ chạy `verify-live-checks.mjs`, bài tự kiểm hai script này offline với máy chủ giả, không cần key). Mỗi lần chạy gửi vài chục yêu cầu ngắn, tốn vài xu. Key chỉ đọc từ biến môi trường (`ANTHROPIC_API_KEY`, hoặc `ANTHROPIC_AUTH_TOKEN` cho cổng dùng bearer) và không bao giờ được in ra. Trong PowerShell, chỉ cho cửa sổ này:
 
 ```powershell
 $env:ANTHROPIC_API_KEY = "<key của bạn>"

@@ -1,5 +1,5 @@
 // The two checks in tests/live/ ask the REAL Anthropic API whether the thinking-block rules the Hub relies on hold (docs/ARCHITECTURE.md, "Khối suy luận của Anthropic (prov-18)"). They need
-// a key and spend money, so CI never runs them. A tool that is never run rots: when the Hub's provider changes its shape, the check would break the next time the owner pays for it. This suite
+// a key and spend money, so CI never runs them against the real API. A tool that is never run rots: when the Hub's provider changes its shape, the check would break the next time the owner pays for it. This suite
 // runs both of them, offline and with no key, against stand-ins for the API, and checks what they say and what they return:
 //   1. check-anthropic-thinking.mjs against a small imitation of the Messages API, in the answers an account can give: a thinking block is required or not, the prefix binding is enforced or
 //      not, the model never thinks, the control request fails, the key is refused and the API echoes it back.

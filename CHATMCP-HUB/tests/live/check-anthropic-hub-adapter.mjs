@@ -1,5 +1,6 @@
-// check-anthropic-hub-adapter.mjs - the SECOND Anthropic check: the questions of the first one, asked through the Hub's OWN code. Run by the owner against the REAL Anthropic API:
-// CI never runs it (it needs a key and spends a few cents); tests/verify-live-checks.mjs checks, offline and with no key, that it still works and that it reports a Hub defect.
+// check-anthropic-hub-adapter.mjs - the SECOND Anthropic check: the questions of the first one, asked through the Hub's OWN code. Run by the owner against the REAL Anthropic API
+// (it needs a key and spends a few cents), so CI never runs it against the real API; tests/verify-live-checks.mjs runs it in CI, offline and with no key, against stand-ins for the API,
+// so that it cannot rot, and checks that it reports a Hub defect.
 //
 //   node CHATMCP-HUB/tests/live/check-anthropic-hub-adapter.mjs [--model <id>] [--mode json|stream|both] [--effort auto|low|medium|high|xhigh|max]
 //                                        [--hub <folder CHATMCP-HUB>] [--base-url <url>] [--tries <n>] [--no-tamper] [--dry-run]

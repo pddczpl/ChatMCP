@@ -1,5 +1,5 @@
-// check-anthropic-thinking.mjs - the "Anthropic check" of the DatGold roadmap, in one command. Run by the owner against the REAL Anthropic API: CI never runs it (it needs a
-// key and spends a few cents); tests/verify-live-checks.mjs checks, offline and with no key, that it still works.
+// check-anthropic-thinking.mjs - the "Anthropic check" of the DatGold roadmap, in one command. Run by the owner against the REAL Anthropic API (it needs a key
+// and spends a few cents), so CI never runs it against the real API; tests/verify-live-checks.mjs runs it in CI, offline and with no key, against a stand-in for the API, so that it cannot rot.
 //
 //   node CHATMCP-HUB/tests/live/check-anthropic-thinking.mjs [--model <id>] [--thinking default|adaptive] [--api-version <v>] [--base-url <url>] [--dry-run]
 //
