@@ -53,7 +53,7 @@ Dữ liệu Hub theo mặc định ở %LOCALAPPDATA%\ChatMCP\hub; ứng dụng 
 
 - Local models: cấu hình Ollama hoặc LM Studio bằng base URL loopback trong UI.
 - GitHub Skills: tải nội dung từ những nguồn GitHub được cho phép, kiểm tra hash; skills mới mặc định disabled.
-- Git coding workers: mỗi worker trên worktree riêng, bắt buộc xem diff trước khi integrate/publish Draft PR.
+- Git coding workers: Hub vẫn có route cho chúng (`/api/studio/coding/*`) nhưng giao diện không còn mục để bắt đầu chúng (đã gỡ 2026-10-25); mỗi worker chạy trên worktree riêng và Hub bắt buộc đọc diff trước khi integrate/publish Draft PR.
 - Docker test sandbox là tính năng **cục bộ tùy chọn**, không phải Docker hosting.
 
 ## 7. Kiểm thử trước khi phát hành

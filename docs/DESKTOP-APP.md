@@ -89,10 +89,8 @@ Dùng máy ảo Windows sạch, ghi lại kết quả:
 2. Tạo/chọn repository Git thử nghiệm không chứa thông tin bí mật. Chọn chế độ Review.
 3. Cấu hình model có khả năng gọi công cụ (hoặc Ollama/LM Studio hỗ trợ tool calling).
 4. Kiểm tra đọc file, sửa file có phê duyệt, Git diff, checkpoint và restore.
-5. Chạy 2 coding workers trong các worktree riêng, mở **Review diff** cho từng worker, thử integrate vào nhánh mới, bảo đảm nhánh gốc không thay đổi.
-6. Mở **Review integration diff** trước khi xuất Draft PR. Không khẳng định tests pass nếu agent không thực sự chạy test.
-7. Thử Skills Hub: tìm SKILL.md thật, tải nested/binary resources, kiểm tra file hash và mặc định disabled. Script của nguồn bên ngoài không được tự thực thi.
-8. Tắt ứng dụng, kiểm tra Hub không còn tiến trình con ngoài ý muốn; thử uninstall và hành vi lưu trữ dữ liệu theo chính sách.
+5. Thử Skills Hub: tìm SKILL.md thật, tải nested/binary resources, kiểm tra file hash và mặc định disabled. Script của nguồn bên ngoài không được tự thực thi.
+6. Tắt ứng dụng, kiểm tra Hub không còn tiến trình con ngoài ý muốn; thử uninstall và hành vi lưu trữ dữ liệu theo chính sách.
 
 Không đánh dấu bước này hoàn tất chỉ vì dotnet build hoặc CI xanh.
 
