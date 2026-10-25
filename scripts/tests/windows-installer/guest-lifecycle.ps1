@@ -140,7 +140,7 @@ try {
     Install-Wizard 'C:\G6Input\BaselineSetup.exe' 'baseline'
     $baselineFiles=@(Get-ChildItem -LiteralPath $installDir -File -Recurse | ForEach-Object { $_.FullName.Substring($installDir.Length+1) })
     [IO.File]::WriteAllText('C:\G6Output\baseline-file-inventory.json',($baselineFiles | ConvertTo-Json))
-    foreach ($file in @('ChatMCP.exe','WebView2Loader.dll','runtimes\node\node.exe','runtimes\node\node.exe.sha256','CHATMCP-HUB\hub.mjs','CHATMCP-HUB\web\dist\index.html','CHATMCP-HUB\runtimes\windows-sandbox\GuestSupervisor.exe','CHATMCP-HUB\runtimes\windows-sandbox\GuestSupervisor.exe.sha256','CHATMCP-HUB\runtimes\ripgrep\rg.exe','CHATMCP-HUB\runtimes\ripgrep\LICENSE-MIT','CHATMCP-HUB\runtimes\ripgrep\UNLICENSE','CHATMCP-HUB\licenses\ripgrep\MANIFEST.json','CHATMCP-HUB\licenses\ripgrep\libpcre2-10.46\LICENCE.md','Uninstall.exe')) {
+    foreach ($file in @('ChatMCP.exe','WebView2Loader.dll','runtimes\node\node.exe','runtimes\node\node.exe.sha256','CHATMCP-HUB\hub.mjs','CHATMCP-HUB\web\dist\index.html','CHATMCP-HUB\runtimes\windows-sandbox\GuestSupervisor.exe','CHATMCP-HUB\runtimes\windows-sandbox\GuestSupervisor.exe.sha256','CHATMCP-HUB\runtimes\ripgrep\rg.exe','CHATMCP-HUB\runtimes\ripgrep\LICENSE-MIT','CHATMCP-HUB\runtimes\ripgrep\UNLICENSE','Uninstall.exe')) {
         Assert-Check (Test-Path -LiteralPath (Join-Path $installDir $file)) "installed layout includes $file"
     }
     Assert-Check ((Test-Path -LiteralPath $desktopLink) -and (Test-Path -LiteralPath (Join-Path $startFolder 'ChatMCP Studio.lnk'))) 'desktop and Start Menu shortcuts exist'
@@ -159,6 +159,10 @@ try {
     foreach ($marker in $markers) { [IO.File]::WriteAllText($marker,$RunId) }
     Install-Wizard 'C:\G6Input\CandidateSetup.exe' 'upgrade'
     Assert-Check ((Get-FileHash -LiteralPath (Join-Path $installDir 'Uninstall.exe') -Algorithm SHA256).Hash -eq $report.candidateSha256) 'in-place upgrade replaces baseline installer with candidate'
+    # The candidate is the build under test: it carries the license texts of what is compiled into rg.exe (the baseline may predate them).
+    foreach ($file in @('CHATMCP-HUB\licenses\ripgrep\MANIFEST.json','CHATMCP-HUB\licenses\ripgrep\libpcre2-10.46\LICENCE.md')) {
+        Assert-Check (Test-Path -LiteralPath (Join-Path $installDir $file)) "upgraded layout includes $file"
+    }
     Assert-Check ((Get-FileHash -LiteralPath $settingsFile -Algorithm SHA256).Hash -eq $settingsBefore) 'upgrade preserves real BYO profile settings byte for byte'
     foreach ($marker in $markers) { Assert-Check ([IO.File]::ReadAllText($marker) -eq $RunId) "upgrade preserves $marker" }
     Launch-Desktop 'upgrade'
