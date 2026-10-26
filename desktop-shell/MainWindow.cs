@@ -191,21 +191,12 @@ namespace ChatMCP.Desktop
 
         private void HandleFolderRequest(string json, string requestId)
         {
+            // read by PageMessage, which the native tests run: a value .NET cannot give as text (a lone surrogate) is a message that is dropped, and never an exception in this handler
+            if (!PageMessage.TryReadInitialPath(json, out var suggested)) return;
             string? initial = null;
-            try
-            {
-                using var doc = JsonDocument.Parse(json);
-                var value = doc.RootElement;
-                if (value.TryGetProperty("initialPath", out var start) &&
-                    start.ValueKind == JsonValueKind.String)
-                {
-                    var suggested = start.GetString();
-                    if (!string.IsNullOrWhiteSpace(suggested) && suggested.Length <= 4096 &&
-                        Path.IsPathFullyQualified(suggested) && Directory.Exists(suggested))
-                        initial = Path.GetFullPath(suggested);
-                }
-            }
-            catch (JsonException) { return; }
+            if (!string.IsNullOrWhiteSpace(suggested) && suggested.Length <= 4096 &&
+                Path.IsPathFullyQualified(suggested) && Directory.Exists(suggested))
+                initial = Path.GetFullPath(suggested);
 
             string? folder = null;
             string? error = null;

@@ -286,6 +286,14 @@ export function applyView(update: UpdateInfo | null | undefined, hub: unknown, s
   return { kind: 'offer', ...base };
 }
 
+/**
+ * What a surface draws of the install control right now. A surface that is not drawn itself draws nothing of it: the strip under the header is not drawn for a release the owner skipped (noticeKind), and a
+ * question or a refusal that nothing draws must not wait for the strip to come back. `surfaceShown` is false for such a surface; Settings draws the control for any release that is on offer.
+ */
+export function drawnApplyKind(update: UpdateInfo | null | undefined, hub: unknown, shell: boolean, apply: ApplyPhase, surfaceShown = true): ApplyKind {
+  return surfaceShown ? applyView(update, hub, shell, apply).kind : 'hidden';
+}
+
 /** The refusals whose words say "download it again" and for which that can help: the folder is gone or is not the release that was offered, or it does not prove itself. */
 const APPLY_AGAIN_GROUPS: ReadonlySet<ApplyErrorGroup> = new Set<ApplyErrorGroup>(['missing', 'unproven']);
 

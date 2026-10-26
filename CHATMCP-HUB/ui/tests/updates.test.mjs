@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { NOTES_PREFIX, appliedView, applyErrorGroup, applyReducer, applyView, autoView, cooldownMs, downloadErrorGroup, downloadView, errorGroup, formatBytes, formatWhen, hasActiveWork, noticeKind, notesUrlFor, pollInterval, refusalKey, safeNotesUrl, signatureView, statusKey } from '../src/lib/updates.ts';
+import { NOTES_PREFIX, appliedView, applyErrorGroup, applyReducer, applyView, autoView, drawnApplyKind, cooldownMs, downloadErrorGroup, downloadView, errorGroup, formatBytes, formatWhen, hasActiveWork, noticeKind, notesUrlFor, pollInterval, refusalKey, safeNotesUrl, signatureView, statusKey } from '../src/lib/updates.ts';
 
 // What the page says about the update notice (lib/update-check.mjs on the Hub): which strip to draw, which link to trust, how long a button waits, how a failure is named.
 // Plain functions, so the words and the rules are pinned without a browser.
@@ -251,6 +251,20 @@ test('the install control is offered only for an update that is ready, only insi
   };
   for (const [code, expected] of Object.entries(again)) assert.equal(view(ready(), idleHub, true, { phase: 'refused', version: V, code }).again, expected, `${code}: a new download ${expected ? 'can' : 'cannot'} help`);
   for (const apply of [IDLE, { phase: 'confirm', version: V }, { phase: 'sending', version: V }]) assert.equal(view(ready(), idleHub, true, apply).again, false, `${apply.phase}: no download again outside a refusal`);
+});
+
+test('what a surface draws of the install control follows whether the surface itself is drawn: the strip draws nothing for a release the owner skipped', () => {
+  const V = '3.10.3';
+  const confirm = { phase: 'confirm', version: V };
+  const refused = { phase: 'refused', version: V, code: 'bad_signature' };
+  assert.equal(noticeKind(ready()), 'available', 'premise: the strip is drawn for a release that is on offer');
+  assert.equal(noticeKind(ready({ skippedVersion: V })), 'none', 'and not for one the owner skipped');
+  assert.equal(drawnApplyKind(ready(), idleHub, true, confirm, true), 'confirm', 'a surface that is drawn draws what applyView says');
+  assert.equal(drawnApplyKind(ready(), idleHub, true, confirm), 'confirm', 'also when the caller does not say (Settings draws it for any release that is on offer)');
+  assert.equal(drawnApplyKind(ready(), idleHub, true, refused), 'refused');
+  assert.equal(drawnApplyKind(ready(), idleHub, true, confirm, false), 'hidden', 'a surface that is not drawn draws nothing, so a question put in it is not drawn either');
+  assert.equal(drawnApplyKind(ready(), idleHub, true, refused, false), 'hidden', 'nor a refusal');
+  assert.equal(drawnApplyKind(ready(), busyHub, true, IDLE, false), 'hidden', 'whatever the Hub is doing');
 });
 
 test("a refusal of the shell is named by what went wrong, and a code the page does not know is 'other'", () => {

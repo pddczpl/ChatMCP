@@ -745,9 +745,30 @@ test('Settings shows the same install controls as the strip', async () => {
   assert.equal(text(confirm, 'updates-apply-yes'), 'Đóng và cài đặt');
   const refused = await panel({ update: READY, install: install({ phase: { phase: 'refused', version: ABOUT, code: 'bad_signature' } }) }, 'en');
   assert.match(text(refused, 'updates-apply-error'), /did not run it/);
-  assert.match(tag(refused, 'updates-apply-error'), /role="status"/, 'in Settings, where no strip around it is a live region, the refusal is announced by itself');
   assert.ok(has(refused, 'updates-apply-again') && has(refused, 'updates-apply-dismiss') && has(refused, 'updates-apply'), 'with the same three buttons as the strip');
   assert.equal(text(await panel({ update: READY, install: install({ phase: { phase: 'sending', version: ABOUT } }) }, 'en'), 'updates-apply-sending'), 'Starting the update…');
+});
+
+test('in Settings the wait and a refusal are announced by a live region that is there before the words are (a region inserted already holding its words is not announced by every screen reader)', async () => {
+  const idle = await panel({ update: READY, install: install() }, 'en');
+  assert.match(tag(idle, 'updates-apply-live'), /role="status"/, 'a status region');
+  assert.match(tag(idle, 'updates-apply-live'), /aria-atomic="true"/, 'read whole');
+  assert.match(tag(idle, 'updates-apply-live'), /class="sr-only"/, 'for a screen reader only: the words are drawn where they belong');
+  assert.equal(text(idle, 'updates-apply-live'), '', 'it is there while there is nothing to say');
+  for (const phase of [{ phase: 'confirm', version: ABOUT }]) assert.equal(text(await panel({ update: READY, install: install({ phase }) }, 'en'), 'updates-apply-live'), '', 'and stays empty for the question (the group is announced as one)');
+  assert.equal(text(await panel({ update: READY, install: install({ hub: BUSY_HUB }) }, 'en'), 'updates-apply-live'), '', 'and for the button that is held back');
+  const waiting = await panel({ update: READY, install: install({ phase: { phase: 'sending', version: ABOUT } }) }, 'en');
+  assert.equal(text(waiting, 'updates-apply-live'), 'Starting the update…', 'while the shell starts the update it says so');
+  assert.doesNotMatch(tag(waiting, 'updates-apply-sending'), /role=/, 'and the visible words are not a second region');
+  const refused = await panel({ update: READY, install: install({ phase: { phase: 'refused', version: ABOUT, code: 'bad_signature' } }) }, 'en');
+  assert.equal(text(refused, 'updates-apply-live'), text(refused, 'updates-apply-error'), 'for a refusal it holds the very words that are drawn');
+  assert.match(text(refused, 'updates-apply-live'), /did not run it/);
+  assert.doesNotMatch(tag(refused, 'updates-apply-error'), /role=/, 'which are not a second region either');
+  const noAnswer = await panel({ update: READY, install: install({ phase: { phase: 'refused', version: ABOUT, code: 'no_answer' } }) }, 'vi');
+  assert.equal(text(noAnswer, 'updates-apply-live'), text(noAnswer, 'updates-apply-error'), 'in both languages');
+  // the strip is a live region itself: nothing is added to it
+  assert.ok(!has(await strip({ update: READY, install: install({ phase: { phase: 'refused', version: ABOUT, code: 'bad_signature' } }) }, 'en'), 'update-apply-live'), 'no second region in the strip');
+  assert.ok(!has(await panel({ update: READY }, 'en'), 'updates-apply-live') || text(await panel({ update: READY }, 'en'), 'updates-apply-live') === '', 'and nothing to announce outside the shell');
 });
 
 // ---- what the last update left -------------------------------------------------------------------------------------------------------------------
@@ -799,15 +820,15 @@ test('an update that did not go through says why, in the words of the page, and 
     assert.ok(has(enHtml, 'update-applied-dismiss'), reason);
   }
   assert.match(text(await notice({ update: failed('install_failed', 'rolled_back') }, 'en'), 'update-applied-text'), /The files that had been replaced were put back\./);
+  // An installation that stopped halfway needs recovery, and nothing runs behind the marker of the unfinished update: the page can say anything only once a Hub has started again, that is, after the
+  // installation was recovered by hand. So the words are about what happened (it had to be put back), not "DatGold will not start" or "keep the backup", and the version that runs is named as for any refusal.
   const recovery = text(await notice({ update: failed('install_failed', 'needs_recovery') }, 'en'), 'update-applied-text');
-  assert.match(recovery, /An unfinished update is blocking DatGold: it will not start until that is recovered\./);
-  assert.match(recovery, /Keep the backup that \.chatmcp-update-pending\.json in the DatGold folder points to/);
-  assert.doesNotMatch(recovery, /run DatGoldSetup\.exe again/i, 'setup refuses to install while the marker is there: the strip does not send the person to it');
-  assert.doesNotMatch(recovery, /still the version that runs/, 'and an installation that needs recovery has no version that still runs: it will not start');
-  assert.match(text(await notice({ update: failed('pending_recovery', 'needs_recovery') }, 'en'), 'update-applied-text'), /An earlier update had not finished and has to be recovered first\. An unfinished update is blocking DatGold/, 'the same words fit an earlier update that was found unfinished');
-  assert.doesNotMatch(text(await notice({ update: failed('install_failed', 'needs_recovery') }, 'vi'), 'update-applied-text'), /vẫn là phiên bản đang chạy/);
-  assert.match(text(await notice({ update: failed('install_failed', 'needs_recovery') }, 'vi'), 'update-applied-text'), /Một lần cập nhật chưa xong đang chặn DatGold: DatGold sẽ không khởi động cho đến khi việc đó được khôi phục\./);
-  assert.doesNotMatch(text(await notice({ update: failed('install_failed', 'needs_recovery') }, 'vi'), 'update-applied-text'), /chạy lại DatGoldSetup\.exe/);
+  assert.equal(recovery, 'The update to DatGold 3.10.4 did not go through. The files could not be replaced. DatGold 3.10.2 is still the version that runs. That update stopped halfway and DatGold had to be put back by hand from its backup. If anything does not work as it should, run DatGoldSetup.exe again.');
+  assert.doesNotMatch(recovery, /blocking DatGold|will not start|Keep the backup/, 'the app is running when this is drawn: it is not blocked, and there is no backup left to keep');
+  const earlierUpdate = text(await notice({ update: failed('pending_recovery', 'needs_recovery') }, 'en'), 'update-applied-text');
+  assert.equal(earlierUpdate, 'The update to DatGold 3.10.4 did not go through. An earlier update had not finished, so this one was not started. DatGold 3.10.2 is still the version that runs.', 'an earlier update that was found unfinished: the update that was refused did nothing, and that is all there is to say');
+  assert.equal(text(await notice({ update: failed('install_failed', 'needs_recovery') }, 'vi'), 'update-applied-text'), 'Lần cập nhật lên DatGold 3.10.4 không xong. Không thay được các tệp. DatGold 3.10.2 vẫn là phiên bản đang chạy. Lần cập nhật đó dừng giữa chừng và DatGold đã phải được khôi phục thủ công từ bản sao lưu. Nếu có gì không hoạt động đúng, hãy chạy lại DatGoldSetup.exe.');
+  assert.equal(text(await notice({ update: failed('pending_recovery', 'needs_recovery') }, 'vi'), 'update-applied-text'), 'Lần cập nhật lên DatGold 3.10.4 không xong. Lần cập nhật trước chưa xong nên lần này không được bắt đầu. DatGold 3.10.2 vẫn là phiên bản đang chạy.');
   assert.match(text(await notice({ update: failed('install_failed', 'rolled_back') }, 'vi'), 'update-applied-text'), /Các tệp đã bị thay đã được trả về như cũ/);
   assert.doesNotMatch(text(await notice({ update: failed('tasks_running') }, 'en'), 'update-applied-text'), /put back|halfway/, 'a refusal that touched nothing does not say that anything was put back');
   const withPath = await notice({ update: afterUpdate({ applied: applied({ ok: false, version: '3.10.4', state: 'unchanged', reason: 'C:\\Users\\Test User\\secret\\log.txt' }) }) }, 'en');

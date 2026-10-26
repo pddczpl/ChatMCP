@@ -4,7 +4,7 @@ import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
 import { translate, useTranslation, type TranslationKey } from '@/lib/i18n';
 import { isDesktopShell, requestApplyUpdate } from '@/lib/native-apply-update';
-import { applyReducer, applyView, errorGroup, refusalKey, type ApplyPhase } from '@/lib/updates';
+import { applyReducer, drawnApplyKind, errorGroup, refusalKey, type ApplyPhase } from '@/lib/updates';
 import type { UpdateInfo } from '@/types';
 
 /**
@@ -14,10 +14,10 @@ import type { UpdateInfo } from '@/types';
  * click with again: true, offered after the desktop app found that what the Hub calls ready is gone or does not prove itself.
  * `askApply`, `backApply` and `confirmApply` are the steps of the owner's click on Install and restart, inside the desktop shell: the page sends the shell one message (lib/native-apply-update.ts) and the
  * shell checks everything itself (native-shared/UpdateApplier.cs); nothing here installs or starts anything. The question and a refusal are about the release the owner pressed the button for, and a
- * confirm is sent only for the question that was asked about it. `context` (the update notice and the Hub's state the page has) lets the hook drop a question or a refusal that the page no longer draws, so
- * that it does not come back by itself later. `dismissApplied` tells the Hub that the owner has read what the last update left.
+ * confirm is sent only for the question that was asked about it. `context` (the update notice and the Hub's state the page has, and `shown`: whether the surface that uses the hook is drawn at all, which the
+ * strip is not for a release the owner skipped) lets the hook drop a question or a refusal that the page no longer draws, so that it does not come back by itself later. `dismissApplied` tells the Hub that the owner has read what the last update left.
  */
-export function useUpdateActions(context?: { update: UpdateInfo | null | undefined; hub: unknown }) {
+export function useUpdateActions(context?: { update: UpdateInfo | null | undefined; hub: unknown; shown?: boolean }) {
   const { t, lang } = useTranslation();
   const queryClient = useQueryClient();
   const showToast = useAppStore(state => state.showToast);
@@ -29,7 +29,7 @@ export function useUpdateActions(context?: { update: UpdateInfo | null | undefin
 
   // A question or a refusal that is no longer drawn (a task has started, the release changed, the download is gone) is put away, so that it does not come back by itself when the page draws the button again:
   // the owner answers a question they can see.
-  const drawn = context ? applyView(context.update, context.hub, isDesktopShell(), apply).kind : null;
+  const drawn = context ? drawnApplyKind(context.update, context.hub, isDesktopShell(), apply, context.shown ?? true) : null;
   useEffect(() => {
     if (drawn !== null && (apply.phase === 'confirm' || apply.phase === 'refused') && drawn !== apply.phase) dispatchApply({ type: 'back' });
   }, [drawn, apply.phase]);

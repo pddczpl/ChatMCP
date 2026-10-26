@@ -55,6 +55,20 @@ internal static class ApplyTests
         kit.Check(Parses("{\"type\":\"chatmcp.apply-update\",\"id\":\"" + id + "\"}", out var t1, out var i1) && t1 == "chatmcp.apply-update" && i1 == id, "an apply-update message has a type and an id and nothing else is read");
         kit.Check(Parses("{\"type\":\"chatmcp.pick-folder\",\"id\":\"" + id + "\",\"initialPath\":\"C:\\\\x\"}", out var t2, out _) && t2 == "chatmcp.pick-folder", "a pick-folder message keeps working (its folder is read by the folder code, not here)");
         kit.Check(Parses("{\"type\":\"chatmcp.pick-folder\",\"id\":\"" + id + "\",\"initialPath\":\"" + string.Concat(Enumerable.Repeat("\\\\", 4096)) + "\"}", out _, out _), "even with the longest path the folder picker takes (4096 characters, every one a backslash that JSON writes as two: over 8 KiB of text)");
+        // the one field of a pick-folder message that is read (the folder the picker starts in) is read here, with the same care: a value .NET cannot give as text is a message that is dropped, never an exception
+        bool Suggests(string json, out string? path) => PageMessage.TryReadInitialPath(json, out path);
+        string Pick(string fields) => "{\"type\":\"chatmcp.pick-folder\",\"id\":\"" + id + "\"" + fields + "}";
+        kit.Check(Suggests(Pick(",\"initialPath\":\"C:\\\\Work\\\\App\""), out var suggested) && suggested == @"C:\Work\App", "the folder the picker starts in is the string of the field initialPath");
+        kit.Check(Suggests(Pick(",\"initialPath\":\"C:\\\\caf\\u00e9 \\ud83d\\ude00\""), out suggested) && suggested == "C:\\caf\u00e9 \U0001F600", "also with letters that are not ASCII, and a surrogate PAIR (which is text)");
+        kit.Check(Suggests(Pick(""), out suggested) && suggested == null, "a message with no suggestion has none");
+        kit.Check(Suggests(Pick(",\"initialPath\":5"), out suggested) && suggested == null && Suggests(Pick(",\"initialPath\":null"), out suggested) && suggested == null && Suggests(Pick(",\"initialPath\":[\"C:\\\\x\"]"), out suggested) && suggested == null, "and so does one whose field is not a string");
+        foreach (var (why, json) in new (string, string)[] { ("a lone surrogate in it", Pick(",\"initialPath\":\"\\ud800\"")), ("a lone low surrogate in it", Pick(",\"initialPath\":\"C:\\\\x\\udc00\"")), ("a reversed pair in it", Pick(",\"initialPath\":\"\\udc00\\ud800\"")),
+                     ("a field named by a lone surrogate", Pick(",\"\\ud800\":1")), ("a message that is not JSON", "not json"), ("a message that is an array", "[1]"), ("nothing", ""), ("a message over 32 KiB", Pick(",\"initialPath\":\"" + new string('x', 40000) + "\"")) })
+        {
+            kit.Check(SafeSuggests(json) == "dropped" || SafeSuggests(json) == "read", "a pick-folder message with " + why + " never throws");
+            if (why != "a field named by a lone surrogate") kit.Check(SafeSuggests(json) == "dropped", "and is dropped: " + why);
+        }
+        string SafeSuggests(string json) { try { return Suggests(json, out _) ? "read" : "dropped"; } catch (Exception error) { return "threw " + error.GetType().Name; } }
         kit.Check(Parses("{\"type\":\"chatmcp.apply-update\",\"id\":\"" + id + "\",\"path\":\"C:\\\\evil\\\\setup.exe\",\"version\":\"9.9.9\",\"name\":\"x.exe\",\"args\":[\"--x\"],\"url\":\"https://evil.example/\"}", out var t3, out var i3) && t3 == "chatmcp.apply-update" && i3 == id,
             "a path, a version, a name, arguments or an address in the message are not an error and are not read: the shell computes everything itself");
         var refused = new (string Why, string Json)[]

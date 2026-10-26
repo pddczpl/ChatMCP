@@ -8,25 +8,26 @@ import type { UpdateInfo } from '@/types';
 /** The test ids of one place that shows the download (the strip under the header and Settings → Updates show the same controls under different ids). */
 export interface DownloadIds {
   download: string; progress: string; progressText: string; cancel: string; verifying: string; ready: string; readyNote: string; error: string; signatureNote: string; recheck: string;
-  apply: string; applyBrowser: string; applyBlocked: string; confirm: string; confirmText: string; confirmYes: string; confirmNo: string; applying: string; applyError: string; applyAgain: string; applyDismiss: string;
+  apply: string; applyBrowser: string; applyBlocked: string; confirm: string; confirmText: string; confirmYes: string; confirmNo: string; applying: string; applyError: string; applyAgain: string; applyDismiss: string; applyLive: string;
 }
 export const STRIP_IDS: DownloadIds = {
   download: 'update-download', progress: 'update-download-progress', progressText: 'update-download-progress-text', cancel: 'update-cancel', verifying: 'update-download-verifying',
   ready: 'update-download-ready', readyNote: 'update-download-ready-note', error: 'update-download-error', signatureNote: 'update-signature-note', recheck: 'update-recheck',
   apply: 'update-apply', applyBrowser: 'update-apply-browser', applyBlocked: 'update-apply-blocked', confirm: 'update-apply-confirm', confirmText: 'update-apply-confirm-text',
-  confirmYes: 'update-apply-yes', confirmNo: 'update-apply-no', applying: 'update-apply-sending', applyError: 'update-apply-error', applyAgain: 'update-apply-again', applyDismiss: 'update-apply-dismiss',
+  confirmYes: 'update-apply-yes', confirmNo: 'update-apply-no', applying: 'update-apply-sending', applyError: 'update-apply-error', applyAgain: 'update-apply-again', applyDismiss: 'update-apply-dismiss', applyLive: 'update-apply-live',
 };
 export const PANEL_IDS: DownloadIds = {
   download: 'updates-download', progress: 'updates-download-progress', progressText: 'updates-download-progress-text', cancel: 'updates-cancel', verifying: 'updates-download-verifying',
   ready: 'updates-download-ready', readyNote: 'updates-download-ready-note', error: 'updates-download-error', signatureNote: 'updates-signature-note', recheck: 'updates-recheck',
   apply: 'updates-apply', applyBrowser: 'updates-apply-browser', applyBlocked: 'updates-apply-blocked', confirm: 'updates-apply-confirm', confirmText: 'updates-apply-confirm-text',
-  confirmYes: 'updates-apply-yes', confirmNo: 'updates-apply-no', applying: 'updates-apply-sending', applyError: 'updates-apply-error', applyAgain: 'updates-apply-again', applyDismiss: 'updates-apply-dismiss',
+  confirmYes: 'updates-apply-yes', confirmNo: 'updates-apply-no', applying: 'updates-apply-sending', applyError: 'updates-apply-error', applyAgain: 'updates-apply-again', applyDismiss: 'updates-apply-dismiss', applyLive: 'updates-apply-live',
 };
 
 /**
  * What the page knows about installing the update that is ready, handed down from the container: whether this page runs inside the desktop shell (the only place the shell can be asked), the state of the
- * Hub (to hold the button back while work runs), the step of the owner's click, and what each step does (each is about the release that is ready, which the control says). `live` makes the refusal a live
- * region of its own: the strip under the header already is one, Settings is not. Without it the page behaves as in a plain browser.
+ * Hub (to hold the button back while work runs), the step of the owner's click, and what each step does (each is about the release that is ready, which the control says). `live` adds a live region of its
+ * own, for a screen reader only, that holds the words of the wait and of a refusal: the strip under the header already is one, Settings is not, and the region has to be there BEFORE the words are (a region
+ * that is inserted already holding them is not announced by every screen reader). Without it the page behaves as in a plain browser.
  */
 export interface InstallProps {
   shell: boolean;
@@ -150,11 +151,20 @@ function InstallControls({ view, ids, t, busy, install, version }: {
   const applyButton = useRef<HTMLButtonElement>(null);
   const before = useRef<ApplyKind>(view.kind);
   useEffect(() => {
-    // The question or the refusal that had the focus is gone (Not now, Dismiss, or the shell answered a refusal): the focus goes back to the button that asks, and not to the top of the page.
-    if ((before.current === 'confirm' || before.current === 'refused') && view.kind === 'offer') applyButton.current?.focus();
-    if (before.current === 'sending' && view.kind === 'refused') applyButton.current?.focus();
+    // The question or the refusal that had the focus is gone (Not now, Dismiss, or the shell answered a refusal): the focus goes back to the button that asks, and not to the top of the page. Only when the focus
+    // was left on nothing, which is where a button that disappears leaves it: a person who has moved on (the field they were typing in, a dialog) keeps it, and a refusal that arrives 90 seconds later does
+    // not take it away mid-sentence.
+    const focusIsFree = () => { const active = document.activeElement; return !active || active === document.body; };
+    if ((before.current === 'confirm' || before.current === 'refused') && view.kind === 'offer' && focusIsFree()) applyButton.current?.focus();
+    if (before.current === 'sending' && view.kind === 'refused' && focusIsFree()) applyButton.current?.focus();
     before.current = view.kind;
   }, [view.kind]);
+  const live = install?.live === true;
+  // An answer that never came is not "not started": the page does not know whether it started, and says that without the label that would claim it.
+  const refusedWords = view.kind === 'refused' ? (view.group === 'no_answer' ? '' : `${t('upd_apply_err_label')} `) + t(`upd_apply_err_${view.group ?? 'other'}`) : '';
+  // what a screen reader is told in Settings: the wait, or the very words of a refusal (drawn below); nothing otherwise
+  const announcement = view.kind === 'sending' ? t('upd_apply_sending') : refusedWords;
+  const announcer = live ? <p role="status" aria-atomic="true" data-testid={ids.applyLive} className="sr-only">{announcement}</p> : null;
   const button = (disabled: boolean, describedBy?: string) => (
     <Button ref={applyButton} data-testid={ids.apply} size="sm" variant="primary" disabled={disabled} aria-describedby={describedBy} onClick={() => install?.onAsk(version)}>
       <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
@@ -167,34 +177,33 @@ function InstallControls({ view, ids, t, busy, install, version }: {
     case 'browser':
       return <p data-testid={ids.applyBrowser} className="text-[12px] leading-5 text-muted">{t('upd_apply_browser')}</p>;
     case 'offer':
-      return <div>{button(busy)}</div>;
+      return <>{announcer}<div>{button(busy)}</div></>;
     case 'blocked':
       return (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <>{announcer}<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           {button(true, ids.applyBlocked)}
           <p id={ids.applyBlocked} data-testid={ids.applyBlocked} className="min-w-[12rem] flex-1 text-[12px] leading-5 text-muted">{t('upd_apply_blocked')}</p>
-        </div>
+        </div></>
       );
     case 'confirm':
       return (
-        <div data-testid={ids.confirm} role="group" aria-labelledby={ids.confirmText} className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <>{announcer}<div data-testid={ids.confirm} role="group" aria-labelledby={ids.confirmText} className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <p id={ids.confirmText} data-testid={ids.confirmText} className="min-w-[12rem] flex-1 text-[13px] leading-5 text-fg">{t('upd_apply_confirm', { version })}</p>
           <div className="flex shrink-0 items-center gap-2">
             <Button data-testid={ids.confirmYes} size="sm" variant="primary" onClick={() => void install?.onConfirm(version)}>{t('upd_apply_confirm_yes')}</Button>
             <Button data-testid={ids.confirmNo} size="sm" variant="secondary" autoFocus onClick={install?.onBack}>{t('upd_apply_confirm_no')}</Button>
           </div>
-        </div>
+        </div></>
       );
     case 'sending':
-      return <p data-testid={ids.applying} role="status" className="text-[13px] leading-5 text-fg">{t('upd_apply_sending')}</p>;
+      // the strip around it is a live region; in Settings the announcer is
+      return <>{announcer}<p data-testid={ids.applying} {...(live ? {} : { role: 'status' })} className="text-[13px] leading-5 text-fg">{t('upd_apply_sending')}</p></>;
     case 'refused': {
-      // An answer that never came is not "not started": the page does not know whether it started, and says that without the label that would claim it.
-      const words = (view.group === 'no_answer' ? '' : `${t('upd_apply_err_label')} `) + t(`upd_apply_err_${view.group ?? 'other'}`);
       return (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <>{announcer}<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <div className="flex min-w-[12rem] flex-1 items-start gap-2">
             <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
-            <p data-testid={ids.applyError} {...(install?.live ? { role: 'status' } : {})} className="text-[13px] leading-5 text-fg">{words}</p>
+            <p data-testid={ids.applyError} className="text-[13px] leading-5 text-fg">{refusedWords}</p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             {button(busy)}
@@ -206,7 +215,7 @@ function InstallControls({ view, ids, t, busy, install, version }: {
             )}
             <Button data-testid={ids.applyDismiss} size="sm" variant="secondary" onClick={install?.onBack}>{t('upd_applied_dismiss')}</Button>
           </div>
-        </div>
+        </div></>
       );
     }
     default:

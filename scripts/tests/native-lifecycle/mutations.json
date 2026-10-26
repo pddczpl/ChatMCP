@@ -252,8 +252,8 @@
    "patches": [
     {
      "file": "native-shared/PageMessage.cs",
-     "old": "if (string.IsNullOrEmpty(json) || json.Length > MaxBytes) return false;",
-     "new": "if (string.IsNullOrEmpty(json)) return false;"
+     "old": "type = \"\"; id = \"\";\n        if (string.IsNullOrEmpty(json) || json.Length > MaxBytes) return false;",
+     "new": "type = \"\"; id = \"\";\n        if (string.IsNullOrEmpty(json)) return false;"
     }
    ]
   },
@@ -4464,6 +4464,62 @@
      "file": "installer/InstallerEngine.cs",
      "old": "                try { key = InstallTransaction.Normalize(item.Key); }\n                catch (IOException) { throw new InvalidOperationException(\"Installation manifest path is invalid: \" + item.Key); }",
      "new": "                key = InstallTransaction.Normalize(item.Key);"
+    }
+   ]
+  },
+  {
+   "name": "initialpath-text-unchecked",
+   "what": "the folder the picker starts in is taken as a string without asking whether .NET can give it as text (a lone surrogate throws)",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "if (Json.TextOf(start) is not { } text) return false;\n                initialPath = text;",
+     "new": "initialPath = start.GetString();"
+    }
+   ]
+  },
+  {
+   "name": "initialpath-catch-only-json",
+   "what": "a message .NET cannot compare a name of is not dropped but thrown at the window",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "catch (Exception error) when (error is JsonException or InvalidOperationException) { initialPath = null; return false; }",
+     "new": "catch (JsonException) { initialPath = null; return false; }"
+    }
+   ]
+  },
+  {
+   "name": "initialpath-not-an-object-accepted",
+   "what": "a message that is not an object is looked into for the field",
+   "equivalent": "TryGetProperty on a value that is not an object throws InvalidOperationException, which the catch of the method turns into false: the same answer, by another road",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "            if (document.RootElement.ValueKind != JsonValueKind.Object) return false;\n            if (document.RootElement.TryGetProperty(\"initialPath\"",
+     "new": "            if (document.RootElement.TryGetProperty(\"initialPath\""
+    }
+   ]
+  },
+  {
+   "name": "initialpath-size-unchecked",
+   "what": "a pick-folder message of any size is read",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "internal static bool TryReadInitialPath(string? json, out string? initialPath)\n    {\n        initialPath = null;\n        if (string.IsNullOrEmpty(json) || json.Length > MaxBytes) return false;",
+     "new": "internal static bool TryReadInitialPath(string? json, out string? initialPath)\n    {\n        initialPath = null;\n        if (string.IsNullOrEmpty(json)) return false;"
+    }
+   ]
+  },
+  {
+   "name": "initialpath-non-string-read-as-text",
+   "what": "a field that is not a string is read as if it were one",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "out var start) && start.ValueKind == JsonValueKind.String)\n            {\n                if (Json.TextOf(start)",
+     "new": "out var start))\n            {\n                if (Json.TextOf(start)"
     }
    ]
   }

@@ -55,6 +55,28 @@ internal static class PageMessage
         catch (Exception error) when (error is JsonException or InvalidOperationException) { return false; }
     }
 
+    /// <summary>
+    /// The one field of a pick-folder message that is read: the folder the picker starts in (`initialPath`), null when the message has none or it is not a string. False when the message cannot be read at all, a
+    /// lone surrogate in it, say (see <see cref="Json.TextOf"/>): the message is then dropped like any other that is not of the known shape, and nothing is thrown at the window.
+    /// </summary>
+    internal static bool TryReadInitialPath(string? json, out string? initialPath)
+    {
+        initialPath = null;
+        if (string.IsNullOrEmpty(json) || json.Length > MaxBytes) return false;
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return false;
+            if (document.RootElement.TryGetProperty("initialPath", out var start) && start.ValueKind == JsonValueKind.String)
+            {
+                if (Json.TextOf(start) is not { } text) return false;
+                initialPath = text;
+            }
+            return true;
+        }
+        catch (Exception error) when (error is JsonException or InvalidOperationException) { initialPath = null; return false; }
+    }
+
     /// <summary>The answer to an apply-update message. A code that is not on the closed list is not passed on: the page is told launch_failed.</summary>
     internal static string UpdateResultJson(string id, bool ok, string code) =>
         JsonSerializer.Serialize(new { type = UpdateResult, id, ok, code = UpdateCodes.IsKnown(code) ? code : "launch_failed" });

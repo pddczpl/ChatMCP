@@ -640,6 +640,18 @@ signedTest('a refusal can be put away, a release the shell cannot find can be do
   await expect(page.getByTestId('update-apply-error')).not.toContainText('Chưa bắt đầu cập nhật được');
   await page.getByTestId('update-apply-dismiss').click();
 
+  // ---- the focus is the person's: a refusal that arrives while they type somewhere else (it can take 90 seconds) does not take it away ------------------------------
+  await apply.click();
+  await page.getByTestId('update-apply-yes').click();
+  const typing = (await posted(page)).at(-1);
+  await page.evaluate(() => { const probe = document.createElement('input'); probe.id = 'focus-probe'; document.body.append(probe); probe.focus(); });
+  await say(page, { type: RESULT, id: typing.id, ok: false, code: 'no_answer' });
+  await expect(page.getByTestId('update-apply-error')).toBeVisible();
+  await expect(page.locator('#focus-probe'), 'the field they were typing in keeps the focus').toBeFocused();
+  await expect(apply, 'and the button of the refusal did not take it').not.toBeFocused();
+  await page.evaluate(() => document.getElementById('focus-probe')?.remove());
+  await page.getByTestId('update-apply-dismiss').click();
+
   // ---- the folder is gone: the shell says so, the words advise a new download, and the button does it --------------------------------------------------------------
   await fs.rm(path.join(updates, '3.10.3'), { recursive: true, force: true });
   await refuse('no_update');
@@ -673,6 +685,20 @@ signedTest('a refusal can be put away, a release the shell cannot find can be do
   await expect(page.getByTestId('update-apply-confirm'), 'and the question is not put again by itself: the owner asked it, and did not answer').toHaveCount(0);
   const sentSoFar = (await posted(page)).length;
 
+  // ---- a release the owner skips while the question is up: the strip goes, and the question does not wait to come back when the skip is taken back ----------------
+  await apply.click();
+  await expect(page.getByTestId('update-apply-confirm')).toBeVisible();
+  await page.getByTestId('update-skip').click();
+  await expect(page.getByTestId('update-notice'), 'skipped: the strip is gone').toHaveCount(0);
+  const skipped = await openSettings(page, 'Cập nhật');
+  await skipped.getByTestId('updates-unskip').click();
+  await closeSettings(page);
+  await expect(page.getByTestId('update-notice'), 'the skip is taken back: the strip is back').toBeVisible();
+  await expect(page.getByTestId('update-apply'), 'with the button, as if nothing had been asked').toBeVisible();
+  await expect(page.getByTestId('update-apply-confirm'), 'and not at the question that was put before the release was skipped').toHaveCount(0);
+  await expect(page.getByTestId('update-apply-no'), 'which would also have taken the focus out of the dialog of Settings').toHaveCount(0);
+  expect(await posted(page), 'and nothing was sent').toHaveLength(sentSoFar);
+
   // ---- Settings: nothing around the refusal is a live region there, so the refusal is one of its own ----------------------------------------------------------------
   const dialog = await openSettings(page, 'Cập nhật');
   await dialog.getByTestId('updates-apply').click();
@@ -680,10 +706,14 @@ signedTest('a refusal can be put away, a release the shell cannot find can be do
   const request = (await posted(page)).at(-1);
   expect(await posted(page)).toHaveLength(sentSoFar + 1);
   await say(page, { type: RESULT, id: request.id, ok: false, code: 'bad_signature' });
-  await expect(dialog.getByTestId('updates-apply-error')).toHaveAttribute('role', 'status');
+  const announcer = dialog.getByTestId('updates-apply-live');
+  await expect(announcer, 'a status region that was there before the words, and now holds them').toHaveAttribute('role', 'status');
+  await expect(announcer).toHaveText(await dialog.getByTestId('updates-apply-error').innerText());
+  await expect(dialog.getByTestId('updates-apply-error'), 'the words that are drawn are not a second region').not.toHaveAttribute('role', /.+/);
   await expect(dialog.getByTestId('updates-apply-again')).toBeVisible();
   await dialog.getByTestId('updates-apply-dismiss').click();
   await expect(dialog.getByTestId('updates-apply-error')).toHaveCount(0);
+  await expect(announcer, 'and it is empty again').toHaveText('');
   await expect(dialog.getByTestId('updates-apply'), 'and the focus is back on the button there too').toBeFocused();
   await closeSettings(page);
 });
