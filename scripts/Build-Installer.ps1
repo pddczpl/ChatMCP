@@ -9,10 +9,16 @@
   2. Compiles native desktop executable (ChatMCP.exe)
   3. Prepares distribution payload and compresses to installer/payload.zip
   4. Compiles and embeds payload into standalone dist/DatGoldSetup.exe
+
+.PARAMETER ReleaseKeysFile
+  TEST BUILDS ONLY. The full path of a key list that the desktop shell is built with and that the Hub it installs reads, instead of the committed
+  CHATMCP-HUB\lib\release-keys.json (the end-to-end test of the updater builds two versions that trust a key made for the run). A release is built without it
+  and a publish workflow refuses it.
 #>
 [CmdletBinding()]
 param(
-    [switch]$Force
+    [switch]$Force,
+    [string]$ReleaseKeysFile = ''
 )
 
 Set-StrictMode -Version 2.0
@@ -29,6 +35,10 @@ $distDir = Join-Path $repoRoot 'dist'
 $installerDir = Join-Path $repoRoot 'installer'
 $temporaryRoot = [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\', '/')
 Assert-InstallerNoReparsePath -Path $temporaryRoot
+if ($ReleaseKeysFile -ne '') {
+    $ReleaseKeysFile = Resolve-InstallerReleaseKeysFile -Path $ReleaseKeysFile
+    Write-Host "  [TEST BUILD] The release keys of this build are the ones in $ReleaseKeysFile, not the committed CHATMCP-HUB\lib\release-keys.json. Never publish what this builds." -ForegroundColor Yellow
+}
 $stagingDir = Join-Path $temporaryRoot ('ChatMCP-Staging-' + [guid]::NewGuid().ToString('N'))
 
 # 1. Prerequisite checks
@@ -99,7 +109,10 @@ try {
 $shellCsproj = Join-Path $repoRoot 'desktop-shell\ChatMCP.csproj'
 $shellDist = Join-Path $stagingDir 'desktop-publish'
 $payloadDir = Join-Path $stagingDir 'payload'
-& $dotnetCmd.Path publish $shellCsproj -c Release -r win-x64 --self-contained true -o $shellDist -p:PublishSingleFile=true | Out-Null
+# The key list is built into the program (desktop-shell/ShellKeys.cs): the one that is committed, unless this is a test build that names another.
+$shellKeys = @()
+if ($ReleaseKeysFile -ne '') { $shellKeys = @("-p:ReleaseKeysFile=$ReleaseKeysFile") }
+& $dotnetCmd.Path publish $shellCsproj -c Release -r win-x64 --self-contained true -o $shellDist -p:PublishSingleFile=true @shellKeys | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Desktop publish failed with exit code $LASTEXITCODE" }
 $desktopExe = Join-Path $shellDist 'ChatMCP.exe'
 if (-not (Test-Path -LiteralPath $desktopExe -PathType Leaf)) {
@@ -116,6 +129,10 @@ Copy-InstallerDesktopPayload -PublishDirectory $shellDist -Destination $payloadD
 # Copy tracked runtime source files and the freshly generated UI only. Never
 # recurse over source folders: ignored files may contain private user state.
 Copy-InstallerSourcePayload -RepositoryRoot $repoRoot -Destination $payloadDir
+if ($ReleaseKeysFile -ne '') {
+    # The Hub reads its keys from the installed files, the shell has them built in: both must trust the same list (this copy comes after the tracked files, which it replaces).
+    Copy-Item -LiteralPath $ReleaseKeysFile -Destination (Join-Path $payloadDir 'CHATMCP-HUB\lib\release-keys.json') -Force
+}
 
 # Trusted Sandbox Supervisor: publish from checked source into a fresh private
 # staging directory. Never recursively package GuestSupervisor bin/obj/source.

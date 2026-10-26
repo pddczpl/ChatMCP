@@ -112,6 +112,14 @@ const title = /<AssemblyTitle>([^<]+)<\/AssemblyTitle>/.exec(installerProject)?.
 check(expectedProduct && product === expectedProduct, 'the product the shell expects of a setup is the one the installer project gives (Product -> ProductName)', `${expectedProduct} / ${product}`);
 check(expectedDescription && title === expectedDescription, 'the description the shell expects is the title the installer project gives (AssemblyTitle -> FileDescription)', `${expectedDescription} / ${title}`);
 
+// The lifecycle script (it runs only on a disposable hosted runner) asks the real setup for the same two names, and drives it with the flags of the contract and no others.
+const lifecycle = read('scripts/tests/Test-NativeLifecycle.ps1');
+check(new RegExp(`ProductName -ceq '${expectedProduct}'`).test(lifecycle) && new RegExp(`FileDescription -ceq '${expectedDescription}'`).test(lifecycle), 'scripts/tests/Test-NativeLifecycle.ps1 checks the real setup for the names the shell expects');
+const contractFlags = [...(/new\[\] \{([^}]*)\}/.exec(strip(read('native-shared/UpdateContract.cs')))?.[1] ?? '').matchAll(/"(--[a-z-]+)"/g)].map((match) => match[1]);
+const scriptFlags = [...(/function Update-Arguments[\s\S]*?\n\}/.exec(lifecycle)?.[0] ?? '').matchAll(/'(--[a-z-]+)'/g)].map((match) => match[1]);
+check(contractFlags.length === 6 && scriptFlags.length === 6, 'both the contract and the lifecycle script name six flags of the update mode', `${contractFlags} / ${scriptFlags}`);
+check([...scriptFlags].sort().join() === [...contractFlags].sort().join(), 'and they are the same six: --quiet --update --install-dir --wait-pid --relaunch --result', `${contractFlags} / ${scriptFlags}`);
+
 // ---- how the installer is started ----------------------------------------------------------------------------------------------------------------------------------------------------------
 const applier = strip(read('native-shared/UpdateApplier.cs'));
 const mainUpdate = strip(read('desktop-shell/MainWindow.Update.cs'));

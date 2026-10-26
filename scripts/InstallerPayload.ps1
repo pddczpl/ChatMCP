@@ -42,6 +42,31 @@ function Assert-InstallerNoReparsePath {
     }
 }
 
+# For a TEST build only (Build-Installer.ps1 -ReleaseKeysFile): the full path of a key list that the desktop shell is built with and that the Hub the installer installs reads, so that the
+# end-to-end test of the updater can build two versions that trust a key made for the run. A release is built from the committed CHATMCP-HUB\lib\release-keys.json and from nothing else, so a
+# publish workflow refuses it. What is checked is the FILE: where it is, that nothing on its way is a link, that it is small, and that it holds an entry that says use "release" with a key of the
+# size of a P-256 SubjectPublicKeyInfo (91 bytes, 124 characters of base64). The shell and the Hub read the keys themselves, strictly (native-shared/UpdatePackage.cs, lib/release-signature.mjs).
+function Resolve-InstallerReleaseKeysFile {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if ($env:GITHUB_WORKFLOW -like 'Publish*') { throw 'A release is built from the committed CHATMCP-HUB\lib\release-keys.json and from nothing else: -ReleaseKeysFile is for test builds.' }
+    if ($Path -notmatch '^(?:[A-Za-z]:[\\/]|\\\\)') { throw "-ReleaseKeysFile must be a full path: $Path" }
+    $full = [IO.Path]::GetFullPath($Path)
+    if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { throw "-ReleaseKeysFile is not a file: $full" }
+    Assert-InstallerNoReparsePath -Path $full
+    $length = (Get-Item -LiteralPath $full -Force).Length
+    if ($length -lt 2 -or $length -gt 16384) { throw "-ReleaseKeysFile must hold between 2 bytes and 16 KiB: $full" }
+    try { $document = [IO.File]::ReadAllText($full) | ConvertFrom-Json } catch { throw "-ReleaseKeysFile is not JSON: $full" }
+    $entries = @()
+    if ($null -ne $document -and $null -ne $document.PSObject.Properties['keys']) { $entries = @($document.keys) }
+    $releaseKeys = @($entries | Where-Object {
+        $null -ne $_ -and $null -ne $_.PSObject.Properties['use'] -and $_.use -ceq 'release' -and
+        $null -ne $_.PSObject.Properties['spki'] -and $_.spki -is [string] -and $_.spki -cmatch '^[A-Za-z0-9+/]{122}==$'
+    })
+    if ($releaseKeys.Count -lt 1) { throw "-ReleaseKeysFile holds no release key (an entry that says use ""release"" with a 91-byte public key): $full" }
+    return $full
+}
+
 function Get-InstallerPayloadFiles {
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)][string]$RepositoryRoot)

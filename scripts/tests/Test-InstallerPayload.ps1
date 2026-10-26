@@ -170,6 +170,82 @@ try {
     [IO.File]::WriteAllText($noticeManifest, $noticeJson)
     Assert-InstallerRipgrepNotices -HubRoot $hubFixture
     Assert-Payload $true 'the restored notices are accepted again (the refusals above were not caused by anything else)'
+    # -ReleaseKeysFile: a TEST build can name the key list that the desktop shell (built in) and the Hub (the copy in the payload) trust, so that the end-to-end test of the updater can build two
+    # versions that trust a key made for the run. The helper checks the FILE (where it is, how big, that it holds a release key of the right size); the shell and the Hub read the keys with their own strict code.
+    $keysFolder = Join-Path $scratch 'keys'
+    New-Item -ItemType Directory -Path $keysFolder -Force | Out-Null
+    $testSpki = 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAExgbXOYRPa08zYU3oyO9jGU1RtUw3JQ9JiLbYgYaNy/nTP5X1eiw8y7GJuVK8y4BUt3t4Ou5ON/htHPhNtjxUcg=='
+    $validKeys = '{"version":1,"algorithm":"ES256","keys":[{"kid":"00000000","use":"release","spki":"' + $testSpki + '"}]}'
+    function Write-KeyList {
+        param([string]$Name, [string]$Text)
+        $file = Join-Path $keysFolder $Name
+        [IO.File]::WriteAllText($file, $Text)
+        return $file
+    }
+    $validFile = Write-KeyList 'valid.json' $validKeys
+    Assert-Payload ((Resolve-InstallerReleaseKeysFile -Path $validFile) -eq $validFile) 'a key list for a test build is accepted as a full path and returned as one'
+    Assert-Payload ((Resolve-InstallerReleaseKeysFile -Path ($keysFolder + '/sub/../valid.json')) -eq $validFile) 'and is returned in its plain form (one kind of separator, no dot segments)'
+    Assert-Rejected { Resolve-InstallerReleaseKeysFile -Path 'valid.json' } 'full path' 'a relative path is refused (it would mean what the current folder happens to be)'
+    Assert-Rejected { Resolve-InstallerReleaseKeysFile -Path '\valid.json' } 'full path' 'so is a path without a drive'
+    Assert-Rejected { Resolve-InstallerReleaseKeysFile -Path (Join-Path $keysFolder 'missing.json') } 'not a file' 'a file that is not there is refused'
+    Assert-Rejected { Resolve-InstallerReleaseKeysFile -Path $keysFolder } 'not a file' 'a folder is refused'
+    Assert-Rejected { Resolve-InstallerReleaseKeysFile -Path (Write-KeyList 'empty.json' '') } 'between' 'an empty file is refused'
+    Assert-Rejected { Resolve-InstallerReleaseKeysFile -Path (Write-KeyList 'big.json' ($validKeys + (' ' * 20000))) } 'between' 'a file over 16 KiB is refused'
+    Assert-Rejected { Resolve-InstallerReleaseKeysFile -Path (Write-KeyList 'text.json' 'not json at all') } 'not JSON' 'text that is not JSON is refused'
+    Assert-Rejected { Resolve-InstallerReleaseKeysFile -Path (Write-KeyList 'array.json' '[]') } 'release key' 'JSON that is not a key list is refused'
+    Assert-Rejected { Resolve-InstallerReleaseKeysFile -Path (Write-KeyList 'nokeys.json' '{"keys":[]}') } 'release key' 'a list without a key is refused'
+    Assert-Rejected { Resolve-InstallerReleaseKeysFile -Path (Write-KeyList 'placeholder.json' '{"keys":[{"kid":"00000000","use":"placeholder","spki":null}]}') } 'release key' 'the placeholder, which trusts nothing, is refused (a test build that cannot verify anything tests nothing)'
+    Assert-Rejected { Resolve-InstallerReleaseKeysFile -Path (Write-KeyList 'nospki.json' '{"keys":[{"kid":"00000000","use":"release","spki":null}]}') } 'release key' 'a release entry without a key is refused'
+    Assert-Rejected { Resolve-InstallerReleaseKeysFile -Path (Write-KeyList 'short.json' '{"keys":[{"kid":"00000000","use":"release","spki":"AAAA"}]}') } 'release key' 'a key that is not 91 bytes long is refused'
+    Assert-Rejected { Resolve-InstallerReleaseKeysFile -Path (Write-KeyList 'other-use.json' ($validKeys.Replace('"use":"release"', '"use":"test"'))) } 'release key' 'only an entry that says use "release" counts, as for the Hub and the shell'
+    $junction = Join-Path $scratch 'keys-junction'
+    New-Item -ItemType Junction -Path $junction -Target $keysFolder | Out-Null
+    try {
+        Assert-Rejected { Resolve-InstallerReleaseKeysFile -Path (Join-Path $junction 'valid.json') } 'symlink or junction' 'a key file reached through a junction is refused'
+    } finally { [IO.Directory]::Delete($junction) }
+    $savedWorkflow = $env:GITHUB_WORKFLOW
+    try {
+        $env:GITHUB_WORKFLOW = 'Publish ChatMCP v9.9.9'
+        Assert-Rejected { Resolve-InstallerReleaseKeysFile -Path $validFile } 'test builds' 'a publish workflow never builds with a key list of its own (a release is built from the committed one)'
+        $env:GITHUB_WORKFLOW = 'CI'
+        Assert-Payload ((Resolve-InstallerReleaseKeysFile -Path $validFile) -eq $validFile) 'the CI workflow can (the end-to-end test of the updater runs there)'
+    } finally {
+        if ($null -eq $savedWorkflow) { Remove-Item -LiteralPath Env:\GITHUB_WORKFLOW -ErrorAction SilentlyContinue } else { $env:GITHUB_WORKFLOW = $savedWorkflow }
+    }
+    Assert-Payload ($builder.Contains('[string]$ReleaseKeysFile = ''''')) 'the builder takes -ReleaseKeysFile, empty by default (a release is built without it)'
+    Assert-Payload ($builder.Contains('Resolve-InstallerReleaseKeysFile -Path $ReleaseKeysFile')) 'the builder checks it with the tested helper before it builds anything'
+    Assert-Payload ($builder.Contains('"-p:ReleaseKeysFile=$ReleaseKeysFile"')) 'the desktop shell is built with it (embedded in the program)'
+    Assert-Payload ($builder.Contains('Copy-Item -LiteralPath $ReleaseKeysFile -Destination (Join-Path $payloadDir ''CHATMCP-HUB\lib\release-keys.json'') -Force')) 'and the Hub the installer installs gets the same file'
+    Assert-Payload ([regex]::Matches($builder, 'ReleaseKeysFile=').Count -eq 1) 'nothing else is built with it (not the installer, not the guest helper)'
+    Assert-Payload ($builder.IndexOf('Copy-InstallerSourcePayload -RepositoryRoot') -lt $builder.IndexOf('Copy-Item -LiteralPath $ReleaseKeysFile')) 'the copy of the key list comes after the tracked files are copied (before, it would be overwritten)'
+    Assert-Payload ($builder.Contains('TEST BUILD')) 'and the build says, in its output, that it is a test build'
+    # The pure helpers of the native lifecycle script, which itself runs only on a disposable hosted runner: the argument list it gives the setup in update mode is vector 1 of the contract
+    # (native-shared/UpdateContract.cs, UpdateArguments.Build), and it judges the result file strictly. Their definitions are taken from the script (never the script, which refuses to run anywhere else).
+    & {
+        $lifecycle = Join-Path $scriptDir 'Test-NativeLifecycle.ps1'
+        $lifecycleErrors = $null; $lifecycleTokens = $null
+        $lifecycleAst = [Management.Automation.Language.Parser]::ParseFile($lifecycle, [ref]$lifecycleTokens, [ref]$lifecycleErrors)
+        foreach ($helper in @('Update-Arguments', 'Assert-UpdateResult')) {
+            $definition = $lifecycleAst.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $helper }, $true)
+            Assert-Payload ($null -ne $definition) ('the lifecycle script defines ' + $helper)
+            Invoke-Expression $definition.Extent.Text
+        }
+        function Assert-Native([bool]$condition, [string]$message) { Assert-Payload $condition ('lifecycle helper: ' + $message) }
+        $root = 'C:\Users\x\AppData\Local\Programs\ChatMCP'
+        $ExpectedCandidateVersion = '3.11.0'
+        $vector = Update-Arguments -WaitPid '4242' -Relaunch $true -ResultFile 'C:\r\x.json'
+        Assert-Payload (($vector -join '|') -ceq '--quiet|--update|--install-dir|"C:\Users\x\AppData\Local\Programs\ChatMCP"|--wait-pid|4242|--relaunch|--result|"C:\r\x.json"') 'the update arguments of the lifecycle script are vector 1 of the contract, with the paths quoted for Start-Process'
+        Assert-Payload (((Update-Arguments) -join '|') -ceq '--quiet|--update|--install-dir|"C:\Users\x\AppData\Local\Programs\ChatMCP"') 'and the wait, the relaunch and the result file are only there when asked for'
+        $refusal = '{"format":1,"ok":false,"version":"3.11.0","previous":"3.10.2","state":"unchanged","reason":"not_newer","rolledBack":false}' | ConvertFrom-Json
+        Assert-UpdateResult $refusal $false 'unchanged' 'not_newer' '3.10.2' 'a refusal as the setup writes it is accepted'
+        $success = '{"format":1,"ok":true,"version":"3.11.0","previous":"3.10.2","state":"installed","reason":null,"rolledBack":false}' | ConvertFrom-Json
+        Assert-UpdateResult $success $true 'installed' $null '3.10.2' 'a success has no reason'
+        Assert-Rejected { Assert-UpdateResult $refusal $false 'unchanged' 'foreign_listener' '3.10.2' 'x' } 'FAIL' 'the helper refuses another reason'
+        Assert-Rejected { Assert-UpdateResult $refusal $true 'unchanged' 'not_newer' '3.10.2' 'x' } 'FAIL' 'and another ok'
+        Assert-Rejected { Assert-UpdateResult $refusal $false 'unchanged' 'not_newer' '3.9.0' 'x' } 'FAIL' 'and another previous version'
+        Assert-Rejected { Assert-UpdateResult $success $true 'installed' 'oops' '3.10.2' 'x' } 'FAIL' 'and a reason on a success'
+        Assert-Rejected { Assert-UpdateResult $refusal $false 'rolled_back' 'not_newer' '3.10.2' 'x' } 'FAIL' 'and a rollback flag that does not agree with the state'
+    }
     Write-Host "PASS: Installer payload regression ($count passed, 0 failed, 0 skipped)"
 } finally {
     $resolved = [IO.Path]::GetFullPath($scratch).TrimEnd('\', '/')
