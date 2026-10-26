@@ -202,7 +202,7 @@ async function main() {
           const judged = await payload();
           if (judged.timedOut) result = { status: 'KILLED', note: 'the tests hung and were stopped' };
           else if (judged.code === 0) result = mutation.equivalent ? { status: 'EQUIVALENT', note: mutation.equivalent } : { status: 'SURVIVED', note: 'the PowerShell tests passed on the broken script' };
-          else result = { status: 'KILLED', note: `exit ${judged.code}: ${(judged.output.split(/\r?\n/).find((line) => /FAIL:/.test(line)) ?? judged.output.trim().split(/\r?\n/)[0] ?? '').replace(/^.*?(?=FAIL:)/, '').slice(0, 180)}${mutation.equivalent ? ' (annotated as equivalent, yet killed: the annotation is stale)' : ''}` };
+          else result = { status: 'KILLED', note: `exit ${judged.code}: ${(judged.output.split(/\r?\n/).find((line) => /FAIL:/.test(line)) ?? judged.output.split(/\r?\n/).find((line) => /\b(?:Exception|error)\b|is not recognized|cannot be/i.test(line)) ?? judged.output.trim().split(/\r?\n/).at(-1) ?? '').replace(/^.*?(?=FAIL:)/, '').slice(0, 180)}${mutation.equivalent ? ' (annotated as equivalent, yet killed: the annotation is stale)' : ''}` };
           result.seconds = judged.seconds;
         } else {
           const built = await build();
