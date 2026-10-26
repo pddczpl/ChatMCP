@@ -1391,7 +1391,6 @@
   {
    "name": "staging-missing-installer",
    "what": "the installer need not be in the folder",
-   "equivalent": "Opening a file that is not there fails right after with the same code (bad_installer, the installer cannot be read); only the detail differs.",
    "patches": [
     {
      "file": "native-shared/UpdateStaging.cs",
