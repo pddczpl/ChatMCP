@@ -1,4 +1,4 @@
-name: tmp teardown loop
+name: tmp teardown ubuntu
 
 # THROWAWAY: proof for the fix of the Windows E2E teardown hang ("Tearing down "app" exceeded the test timeout of 90000ms"). It lives on the branch
 # pddczpl/tmp-teardown-loop only and is never part of the pull request. Every job runs on windows-latest, the only place the hang was ever seen.
@@ -14,17 +14,15 @@ permissions:
 
 jobs:
   proof:
-    name: ${{ matrix.fixture }} fixtures / ${{ matrix.what }} #${{ matrix.id }}
-    runs-on: windows-latest
+    name: ${{ matrix.os }} ${{ matrix.fixture }} fixtures / ${{ matrix.what }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { fixture: before, what: loop, repeat: 40, id: 5, burners: 2 }
-          - { fixture: before, what: loop, repeat: 40, id: 6, burners: 4 }
-          - { fixture: after, what: loop, repeat: 40, id: 5, burners: 2 }
-          - { fixture: after, what: loop, repeat: 40, id: 6, burners: 4 }
+          - { os: ubuntu-latest, fixture: before, what: gate, repeat: 1 }
+          - { os: ubuntu-latest, fixture: after, what: gate, repeat: 1 }
     defaults:
       run:
         shell: bash
@@ -71,6 +69,9 @@ jobs:
             echo "expected: the old fixtures fail the gate"; exit 0
           fi
           exit $code
+      - name: gate - the whole UI unit suite (npm run test:unit)
+        if: matrix.what == 'gate' && matrix.fixture == 'after'
+        run: npm run test:unit 2>&1 | tail -25
       - name: loop - the test that failed twice, repeated
         if: matrix.what == 'loop'
         env:
@@ -79,10 +80,7 @@ jobs:
           set +e
           line=$(grep -n "^test('the thinking effort" e2e/studio.spec.mjs | head -1 | cut -d: -f1)
           echo "the test is at e2e/studio.spec.mjs:$line"
-          # CPU contention widens the window in which a reload meets a response in flight
-          for i in $(seq 1 ${{ matrix.burners }}); do node -e "for(;;){}" & done
           npx playwright test "e2e/studio.spec.mjs:$line" --repeat-each=${{ matrix.repeat }} --reporter=list,json 2>&1 | tail -150
-          kill $(jobs -p) 2>/dev/null || true
           node ../../tmp-summarize.mjs "$GITHUB_WORKSPACE/loop-report.json" "${{ matrix.fixture }} fixtures" > summary.md
           code=$?
           cat summary.md
@@ -94,7 +92,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: proof-${{ matrix.fixture }}-${{ matrix.what }}-${{ matrix.id }}-burners${{ matrix.burners }}
+          name: proof-${{ matrix.os }}-${{ matrix.fixture }}-${{ matrix.what }}
           path: |
             loop-report.json
             CHATMCP-HUB/ui/test-results
