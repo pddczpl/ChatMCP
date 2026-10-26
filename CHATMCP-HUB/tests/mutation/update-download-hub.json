@@ -144,8 +144,8 @@
       "patches": [
         {
           "file": "hub.mjs",
-          "old": "'/api/update/download','/api/update/download-cancel']);",
-          "new": "]);"
+          "old": "'/api/update/download','/api/update/download-cancel','/api/update/applied-dismiss']);",
+          "new": "'/api/update/applied-dismiss']);"
         }
       ]
     },
