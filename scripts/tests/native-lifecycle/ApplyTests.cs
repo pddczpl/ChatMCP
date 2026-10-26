@@ -235,7 +235,8 @@ internal static class ApplyTests
             kit.Check(pid == 777, "the answer is the pid of the installer that was started");
             kit.Check(string.Join(",", events) == "installed-copy?,preflight,verify,preflight,before-start,start", "the sequence: is this an installed copy, are tasks running, verify, are tasks running NOW, stop the monitor, start (got " + string.Join(",", events) + ")");
             kit.Check(heldAtStart, "at the moment the installer is started it can be neither written nor deleted: the shell holds it until Process.Start has returned");
-            kit.Check(seen != null && seen.FileName == installerPath && seen.WorkingDirectory == Path.GetDirectoryName(installerPath) && !seen.UseShellExecute, "it is started from the file that was verified, in its own folder, without the shell");
+            string Final(string file) { using var open = File.OpenHandle(file, FileMode.Open, FileAccess.Read, FileShare.Read); return UpdateStaging.FinalPathOf(open); }
+            kit.Check(seen != null && seen.FileName == Final(installerPath) && seen.WorkingDirectory == Path.GetDirectoryName(Final(installerPath)) && !seen.UseShellExecute, "it is started from the real place of the file that was verified (its final path), in its own folder, without the shell");
             kit.Check(seen!.ArgumentList.SequenceEqual(UpdateArguments.Build(app, 4242, Path.Combine(state, "update-result.json"))), "with exactly the arguments of the contract, the result in the state folder, and the pid of this shell");
             kit.Check(File.Exists(installerPath), "(the installer is still there: only a refused write and delete were tried)");
             File.WriteAllBytes(installerPath, installer); // released by now, so this works

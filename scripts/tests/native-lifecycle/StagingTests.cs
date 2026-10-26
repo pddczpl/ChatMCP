@@ -112,6 +112,57 @@ internal static class StagingTests
             kit.Check(!update.IsHeld, "and the shell lets go of it once it has started");
         }
 
+        // ---- a link ABOVE the folder of updates. A folder of updates that is itself a link is refused, but a link higher up (a profile can be reached through one) is a legitimate place and was not looked at. The
+        // installer used to be started by the PATH the shell had found, so removing that link and making another one that leads to a forged tree, between the hash and the start, made the shell run bytes it had
+        // not hashed (a held handle keeps the old file readable, but a fresh open of the same path reads the new one). It is started from the FINAL path of the handle the shell holds instead: the real place of
+        // the file, with no link left in it to re-point.
+        {
+            var real = kit.Folder("state-real"); var forgedState = kit.Folder("state-forged");
+            Release(Path.Combine(real, "updates"), owner, "3.11.0", installer);
+            var forged = Encoding.UTF8.GetBytes("MZ a forged installer " + new string('f', 4000));
+            Release(Path.Combine(forgedState, "updates"), owner, "3.11.0", forged);
+            var above = MakeJunction(Path.Combine(kit.Scratch, "state-link-" + Guid.NewGuid().ToString("N")[..8]), real);
+            using var update = Verify(Path.Combine(above, "updates"));
+            kit.Check(update.InstallerPath.StartsWith(above, StringComparison.OrdinalIgnoreCase), "premise: the update is found through a link above the folder of updates");
+            kit.Check(!update.StartPath.StartsWith(above, StringComparison.OrdinalIgnoreCase) && Path.GetFileName(update.StartPath) == "DatGoldSetup.exe", "the installer is started from the real place of the file (" + update.StartPath + "), not through the link");
+            kit.Check(!update.StartPath.StartsWith(@"\\?\", StringComparison.Ordinal) && Path.IsPathFullyQualified(update.StartPath), "and it is a plain full path of the disk, which a program can be started from");
+            Directory.Delete(above); // the link only
+            MakeJunction(above, forgedState);
+            kit.Check(File.ReadAllBytes(update.InstallerPath).SequenceEqual(forged), "premise: the path that was found now leads to the forged tree");
+            kit.Check(File.ReadAllBytes(update.StartPath).SequenceEqual(installer), "but what is started is still the file that was hashed");
+        }
+        // the final path of an open file is a plain path to that same file, whatever name it was opened by
+        {
+            var folder = kit.Folder("final-path"); var file = Path.Combine(folder, "plain.txt"); File.WriteAllText(file, "x");
+            using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var final = UpdateStaging.FinalPathOf(stream.SafeFileHandle);
+            kit.Check(File.ReadAllText(final) == "x" && Path.GetFileName(final) == "plain.txt" && !final.StartsWith(@"\\?\", StringComparison.Ordinal), "the final path of an open file leads to that file: " + final);
+        }
+        // Windows gives the extended form (\\?\C:\... or \\?\UNC\...); a program is started from the plain one, except where the plain one is too long to be used (MAX_PATH, 260, with its end)
+        {
+            kit.Check(UpdateStaging.PlainPath(@"\\?\C:\Users\a\DatGoldSetup.exe") == @"C:\Users\a\DatGoldSetup.exe", "a drive: the extended prefix comes off");
+            kit.Check(UpdateStaging.PlainPath(@"\\?\z:\a.exe") == @"z:\a.exe", "any letter of a drive");
+            kit.Check(UpdateStaging.PlainPath(@"\\?\C:\") == @"C:\", "the root of a drive");
+            kit.Check(UpdateStaging.PlainPath(@"\\?\UNC\server\share\a\DatGoldSetup.exe") == @"\\server\share\a\DatGoldSetup.exe", "a network share: the extended prefix becomes two backslashes");
+            kit.Check(UpdateStaging.PlainPath(@"\\?\unc\server\share\a.exe") == @"\\server\share\a.exe", "and Windows may spell UNC in any letter case");
+            kit.Check(UpdateStaging.PlainPath(@"C:\Users\a\DatGoldSetup.exe") == @"C:\Users\a\DatGoldSetup.exe", "a path that is plain already is left alone");
+            kit.Check(UpdateStaging.PlainPath(@"\\server\share\a.exe") == @"\\server\share\a.exe", "also a plain share");
+            var volume = @"\\?\Volume{01234567-89ab-cdef-0123-456789abcdef}\a.exe";
+            kit.Check(UpdateStaging.PlainPath(volume) == volume, "a volume that has no letter keeps the form it has");
+            var device = @"\\.\C:\a.exe";
+            kit.Check(UpdateStaging.PlainPath(device) == device, "a device path is not touched");
+            kit.Check(UpdateStaging.PlainPath(@"\\?\1:\a.exe") == @"\\?\1:\a.exe" && UpdateStaging.PlainPath(@"\\?\C/a.exe") == @"\\?\C/a.exe" && UpdateStaging.PlainPath(@"\\?\C:a.exe") == @"\\?\C:a.exe", "only a real drive and a separator are taken for a plain path");
+            kit.Check(UpdateStaging.PlainPath(@"\\?\C:") == @"\\?\C:" && UpdateStaging.PlainPath(@"\\?\") == @"\\?\" && UpdateStaging.PlainPath("") == "", "and short odd strings are neither changed nor a crash");
+            var fits = @"C:\" + new string('d', 256);       // 259 characters: the longest plain path
+            var tooLong = @"C:\" + new string('d', 257);    // 260
+            kit.Check(UpdateStaging.PlainPath(@"\\?\" + fits) == fits, "a plain path of 259 characters is used");
+            kit.Check(UpdateStaging.PlainPath(@"\\?\" + tooLong) == @"\\?\" + tooLong, "one of 260 keeps the extended form, which is the only one that works");
+            var shareFits = @"\\s\h\" + new string('d', 253);  // 259
+            var shareTooLong = @"\\s\h\" + new string('d', 254); // 260
+            kit.Check(UpdateStaging.PlainPath(@"\\?\UNC\" + shareFits[2..]) == shareFits, "a share path of 259 characters is plain");
+            kit.Check(UpdateStaging.PlainPath(@"\\?\UNC\" + shareTooLong[2..]) == @"\\?\UNC\" + shareTooLong[2..], "and one of 260 keeps the extended form");
+        }
+
         // ---- the places where it is not there
         kit.Check(CodeOf(() => Verify(Path.Combine(kit.Scratch, "no-such-folder"))) == "no_update", "no folder of updates: nothing to apply");
         var empty = kit.Folder("updates-empty");

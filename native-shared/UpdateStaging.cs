@@ -1,5 +1,8 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
 
 namespace ChatMCP.Native;
 
@@ -19,7 +22,8 @@ internal sealed record InstallerIdentity(string? ProductName, string? FileDescri
 
 /// <summary>
 /// An update that proved itself, with its installer held open: nobody can write to, delete or rename the file (and so not the folder it is in, or the folder of updates above it) until
-/// <see cref="Release"/>. The shell lets go only after it has started the installer: the program is started from the path, so the file has to be the one that was checked until then.
+/// <see cref="Release"/>. The shell lets go only after it has started the installer: the program is started from <see cref="StartPath"/>, the real place of the file that was hashed (the final path
+/// of the handle, with no link left in it), so the file has to be the one that was checked until then, whatever is done to a link above the path it was found by.
 /// </summary>
 internal sealed class VerifiedUpdate : IDisposable
 {
@@ -27,13 +31,15 @@ internal sealed class VerifiedUpdate : IDisposable
     internal ReleaseVersion Version { get; }
     internal string Folder { get; }
     internal string InstallerPath { get; }
+    /// <summary>The real place of the installer: the final path of the handle that is held, with no link left in it. The program is started from this and not from <see cref="InstallerPath"/>.</summary>
+    internal string StartPath { get; }
     /// <summary>The id of the key that signed the manifest.</summary>
     internal string Kid { get; }
     internal long Bytes { get; }
     internal bool IsHeld => held != null;
 
-    internal VerifiedUpdate(ReleaseVersion version, string folder, string installerPath, string kid, long bytes, FileStream held)
-    { Version = version; Folder = folder; InstallerPath = installerPath; Kid = kid; Bytes = bytes; this.held = held; }
+    internal VerifiedUpdate(ReleaseVersion version, string folder, string installerPath, string startPath, string kid, long bytes, FileStream held)
+    { Version = version; Folder = folder; InstallerPath = installerPath; StartPath = startPath; Kid = kid; Bytes = bytes; this.held = held; }
 
     internal void Release() { var handle = held; held = null; handle?.Dispose(); }
     public void Dispose() => Release();
@@ -165,12 +171,43 @@ internal static class UpdateStaging
             var identity = identityOf(path);
             if (identity.ProductName != expectedProduct || identity.FileDescription != expectedDescription) throw new UpdateRefused("bad_installer", "the file is not the DatGold setup");
             if (identity.ProductVersion?.Split('+')[0] != manifest.Version) throw new UpdateRefused("bad_installer", "the file says it is another version than the signed manifest");
-            var update = new VerifiedUpdate(version, folder, path, kid, installer.Bytes, stream);
+            // The real place of the file that was hashed, worked out from the handle that stays open: the program is started from this, never from the path that was found (a link above it could be re-pointed).
+            var update = new VerifiedUpdate(version, folder, path, FinalPathOf(stream.SafeFileHandle), kid, installer.Bytes, stream);
             stream = null; // the update owns it now
             return update;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { throw new UpdateRefused("bad_installer", "the installer cannot be read"); }
         finally { stream?.Dispose(); }
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetFinalPathNameByHandleW(SafeFileHandle file, StringBuilder path, uint length, uint flags);
+
+    /// <summary>
+    /// The real place of an open file: its final path, which Windows works out from the handle with every link resolved and every name in full, made into the plain form a program can be started from
+    /// (<c>C:\...</c>, or <c>\\server\share\...</c>; a path too long for that keeps the <c>\\?\</c> form). A path that is reached through a link can be made to lead somewhere else after the file was hashed
+    /// (the held handle goes on reading the old file, a fresh open of the same path reads the new one); a path with no link left in it cannot, because the file that is held also holds its folders in place.
+    /// </summary>
+    internal static string FinalPathOf(SafeFileHandle handle)
+    {
+        var buffer = new StringBuilder(512);
+        var needed = GetFinalPathNameByHandleW(handle, buffer, (uint)buffer.Capacity, 0);
+        if (needed >= buffer.Capacity) { buffer = new StringBuilder((int)needed + 1); needed = GetFinalPathNameByHandleW(handle, buffer, (uint)buffer.Capacity, 0); }
+        if (needed == 0 || needed >= buffer.Capacity) throw new UpdateRefused("staging_unsafe", "the real place of the installer cannot be told");
+        return PlainPath(buffer.ToString());
+    }
+
+    /// <summary>The longest a plain path can be, with its end (MAX_PATH): a longer one is only reachable in the extended form.</summary>
+    private const int MaxPlainPath = 260;
+
+    /// <summary>The extended form that Windows gives (<c>\\?\C:\...</c>, <c>\\?\UNC\server\share\...</c>) as the plain form a program is started from, when there is one that is short enough; anything else as it is.</summary>
+    internal static string PlainPath(string path)
+    {
+        string plain;
+        if (path.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase)) plain = @"\\" + path[8..];
+        else if (path.Length > 6 && path.StartsWith(@"\\?\", StringComparison.Ordinal) && char.IsAsciiLetter(path[4]) && path[5] == ':' && path[6] == '\\') plain = path[4..];
+        else return path;
+        return plain.Length < MaxPlainPath ? plain : path;
     }
 
     /// <summary>The product, the file description and the version a program says it is (its version resource); nothing for a file that is not there or says nothing.</summary>

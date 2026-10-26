@@ -47,7 +47,8 @@ internal static class UpdateApplier
         {
             var offered = await CheckHubIsIdle(environment);
             if (offered != update.Version.ToString()) throw new UpdateRefused("stale", "the Hub offers " + (offered ?? "nothing") + " and the folder holds " + update.Version);
-            var start = new ProcessStartInfo(update.InstallerPath) { UseShellExecute = false, WorkingDirectory = update.Folder };
+            // From the real place of the file that was hashed (the final path of the handle that is held), not from the path that was found: a link above that path could be re-pointed between the hash and the start.
+            var start = new ProcessStartInfo(update.StartPath) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(update.StartPath)! };
             foreach (var argument in UpdateArguments.Build(environment.InstalledDirectory, environment.ShellPid, Path.Combine(environment.StateDirectory, ResultFileName))) start.ArgumentList.Add(argument);
             RequireReadableByInstaller(start);
             beforeStart();
