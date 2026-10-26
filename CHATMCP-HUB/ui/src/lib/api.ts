@@ -1,5 +1,5 @@
 import { browseNativeWorkspace } from './native-folder-picker.ts';
-import type { OutboundReview, HubState, HubHealth, Task, TaskDetail, ChatAttachment, WorkspaceCollection, BackgroundRun, BackgroundWorkflow, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset, ModelInfo, AccountModel, CatalogModels, CatalogStatus, UpdateInfo, UpdateCheckAnswer } from '@/types';
+import type { OutboundReview, HubState, HubHealth, Task, TaskDetail, ChatAttachment, WorkspaceCollection, BackgroundRun, BackgroundWorkflow, TreeEntry, FileData, GitStatus, Checkpoint, GitReview, TerminalState, Plan, MarketplacePlugin, ProviderPreset, ModelInfo, AccountModel, CatalogModels, CatalogStatus, UpdateInfo, UpdateCheckAnswer, UpdateDownloadAnswer, UpdateCancelAnswer } from '@/types';
 import { normalizeTask } from './task-view.ts';
 import { getHubSecret, hubSessionReady, reportHubSessionLost } from './session.ts';
 
@@ -263,6 +263,9 @@ export const api = {
   checkForUpdates: () => request<UpdateCheckAnswer>('/api/update/check', { method: 'POST', body: '{}' }),
   skipUpdate: (version: string | null) => request<{ update: UpdateInfo }>('/api/update/skip', { method: 'POST', body: JSON.stringify({ version }) }),
   setAutoCheckUpdates: (enabled: boolean) => request<{ update: UpdateInfo }>('/api/update/auto-check', { method: 'POST', body: JSON.stringify({ enabled }) }),
+  // The download of the installer (lib/update-download.mjs): only the owner's click. The body is the version the page showed; the Hub refuses (409) when that is no longer the release on offer.
+  downloadUpdate: (version: string) => request<UpdateDownloadAnswer>('/api/update/download', { method: 'POST', body: JSON.stringify({ version }) }),
+  cancelUpdateDownload: () => request<UpdateCancelAnswer>('/api/update/download-cancel', { method: 'POST', body: '{}' }),
   createBrowserPairCode: () => request<{code:string;expiresAt:string}>('/api/browser/pair-code',{method:'POST'}),
   unpairBrowser: () => request<any>('/api/browser/unpair',{method:'POST'}),
   // ChatGPT Web privacy: "review before send" (global or for one workspace) and the decision about a held tool result.

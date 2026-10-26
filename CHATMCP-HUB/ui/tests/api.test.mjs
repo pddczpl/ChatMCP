@@ -106,13 +106,14 @@ test('the project-instructions switch is one POST of {enabled}, with the page he
   } finally { globalThis.fetch = original; setHubSecret(''); }
 });
 
-test('the update notice is one GET that asks nobody and three POSTs, each with the page headers and the bearer, and a refusal keeps its code', async () => {
+test('the update notice is one GET that asks nobody and five POSTs (the download and its cancel among them), each with the page headers and the bearer, and a refusal keeps its code', async () => {
   const original = globalThis.fetch;
   const seen = [];
   const update = { current: '3.10.2', latest: '3.10.3', available: true, autoCheck: { enabled: true, saved: true, needsChoice: false } };
   globalThis.fetch = async (route, init = {}) => {
     seen.push({ route, method: init.method ?? 'GET', body: init.body, headers: init.headers });
-    if (route === '/api/update/skip' && seen.length > 4) return Response.json({ error: 'Bản này không còn là bản mới đang được đề nghị.', code: 'update_skip_stale' }, { status: 409 });
+    if (route === '/api/update/skip' && seen.length > 6) return Response.json({ error: 'Bản này không còn là bản mới đang được đề nghị.', code: 'update_skip_stale' }, { status: 409 });
+    if (route === '/api/update/download' && seen.length > 6) return Response.json({ error: 'The release is not signed with a valid signature, so nothing is downloaded.', code: 'update_download_unsigned' }, { status: 409 });
     return Response.json({ csrfToken: 'fresh-token', update, checked: true, throttled: false });
   };
   setHubSecret('u'.repeat(40));
@@ -129,12 +130,19 @@ test('the update notice is one GET that asks nobody and three POSTs, each with t
     assert.equal(seen[3].body, '{"version":null}', 'null takes a skip back');
     await api.setAutoCheckUpdates(false);
     assert.deepEqual([seen[4].route, seen[4].method, seen[4].body], ['/api/update/auto-check', 'POST', '{"enabled":false}']);
+    const started = await api.downloadUpdate('3.10.3');
+    assert.deepEqual([seen[5].route, seen[5].method, seen[5].body], ['/api/update/download', 'POST', '{"version":"3.10.3"}'], 'the download carries the version the page showed and nothing else');
+    assert.equal(typeof started.update, 'object');
+    await api.cancelUpdateDownload();
+    assert.deepEqual([seen[6].route, seen[6].method, seen[6].body], ['/api/update/download-cancel', 'POST', '{}']);
     for (const call of seen) assert.equal(call.headers.Authorization, 'Bearer ' + 'u'.repeat(40), `${call.route}: behind the bearer like every route`);
     for (const call of seen.filter((entry) => entry.method === 'POST')) {
       assert.equal(call.headers['X-ChatMCP-Request'], 'local-dashboard', `${call.route}: with the marker of the page`);
       assert.equal(call.headers['Content-Type'], 'application/json');
     }
     assert.equal(seen[4].headers['X-ChatMCP-CSRF'], 'fresh-token', 'the token of an earlier answer goes with the next call');
+    assert.equal(seen[5].headers['X-ChatMCP-CSRF'], 'fresh-token');
     await assert.rejects(api.skipUpdate('3.10.3'), { status: 409, code: 'update_skip_stale', message: /không còn là bản mới/ });
+    await assert.rejects(api.downloadUpdate('3.10.3'), { status: 409, code: 'update_download_unsigned', message: /not signed with a valid signature/ });
   } finally { globalThis.fetch = original; setHubSecret(''); }
 });

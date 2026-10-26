@@ -3,21 +3,24 @@ import { Bell, CircleArrowUp } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
 import { translate, useTranslation } from '@/lib/i18n';
-import { noticeKind, safeNotesUrl } from '@/lib/updates';
+import { noticeKind, pollInterval, safeNotesUrl } from '@/lib/updates';
 import { useUpdateActions } from '@/lib/useUpdateActions';
 import { Button } from '@/components/ui/Button';
 import { CopyButton } from '@/components/ui/CopyButton';
+import { DownloadControls, STRIP_IDS } from './UpdateDownload';
 import type { UpdateInfo } from '@/types';
 
 const strip = 'flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-primary/30 bg-primary/10 px-4 py-2 text-[13px] text-fg';
 
 /**
  * The strip under the header: first the question the owner is asked once (may DatGold look for a new version by itself?), then a release that is on offer, with "What's new" and
- * "Skip this version". Presentational (the container below talks to the Hub), so that a test can render every state. It only tells: nothing here downloads or starts anything.
+ * "Skip this version", and under them what the owner can do about its installer (Download for a release whose signature checked, the progress with Cancel, "Downloaded and checked", or why there
+ * is no button). Presentational (the container below talks to the Hub), so that a test can render every state. Nothing here installs or starts anything.
  */
-export function UpdateNotice({ update, lang: pinned, busy = false, onAnswer, onSkip, onDetails }: {
+export function UpdateNotice({ update, lang: pinned, busy = false, onAnswer, onSkip, onDetails, onDownload, onCancel, onCheck }: {
   update: UpdateInfo | null | undefined; lang?: 'vi' | 'en'; busy?: boolean;
   onAnswer: (enabled: boolean) => void; onSkip: (version: string) => void; onDetails: () => void;
+  onDownload: (version: string) => void; onCancel: () => void; onCheck: () => void;
 }) {
   const { lang: current } = useTranslation();
   const lang = pinned ?? current;
@@ -56,13 +59,22 @@ export function UpdateNotice({ update, lang: pinned, busy = false, onAnswer, onS
       {/* In the desktop shell a link that opens a new window goes to the preview tab, which cannot show github.com: the owner can always copy the address instead. */}
       {notes && <span data-testid="update-copy" className="shrink-0"><CopyButton text={notes} label={t('upd_copy_link')} /></span>}
       <Button data-testid="update-skip" size="sm" variant="secondary" disabled={busy} onClick={() => onSkip(latest)}>{t('upd_n_skip')}</Button>
+      <div className="basis-full">
+        <DownloadControls update={update} lang={lang} busy={busy} ids={STRIP_IDS} onDownload={onDownload} onCancel={onCancel} onCheck={onCheck} />
+      </div>
     </div>
   );
 }
 
 export function UpdateBanner() {
   const openSettings = useAppStore(state => state.openSettings);
-  const { data: hub } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 3000 });
-  const { busy, answer, skip } = useUpdateActions();
-  return <UpdateNotice update={hub?.update} busy={busy} onAnswer={enabled => void answer(enabled)} onSkip={version => void skip(version)} onDetails={() => openSettings('updates')} />;
+  // the page asks faster while a download runs, so that the bar moves
+  const { data: hub } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: query => pollInterval(query.state.data?.update) });
+  const { busy, answer, skip, check, download, cancelDownload } = useUpdateActions();
+  return (
+    <UpdateNotice
+      update={hub?.update} busy={busy} onAnswer={enabled => void answer(enabled)} onSkip={version => void skip(version)} onDetails={() => openSettings('updates')}
+      onDownload={version => void download(version)} onCancel={() => void cancelDownload()} onCheck={() => void check()}
+    />
+  );
 }

@@ -3,11 +3,12 @@ import { useQuery } from '@tanstack/react-query';
 import { Download, RefreshCw } from 'lucide-react';
 import { api } from '@/lib/api';
 import { translate, useTranslation } from '@/lib/i18n';
-import { autoView, cooldownMs, errorGroup, formatWhen, safeNotesUrl, statusKey } from '@/lib/updates';
+import { autoView, cooldownMs, downloadView, errorGroup, formatBytes, formatWhen, pollInterval, safeNotesUrl, signatureView, statusKey } from '@/lib/updates';
 import { useUpdateActions } from '@/lib/useUpdateActions';
 import { Button } from '@/components/ui/Button';
 import { CopyButton } from '@/components/ui/CopyButton';
 import type { UpdateInfo } from '@/types';
+import { DownloadControls, PANEL_IDS } from '@/components/layout/UpdateDownload';
 import { SettingsCard, FactRow } from './SettingsCard';
 
 const STATE_OF = { upd_status_unknown: 'unknown', upd_status_uptodate: 'uptodate', upd_status_available: 'available', upd_status_skipped: 'skipped' } as const;
@@ -18,11 +19,12 @@ const linkClass = 'inline-flex h-8 items-center rounded-lg border border-line bg
 /**
  * Settings → Updates: the version in use, the newest one DatGold knows of, the last check, "Check now", and the owner's choice about looking by itself. Presentational (the container
  * below talks to the Hub), so that a test can render every state; `now` is the time the cooldown of "Check now" is counted from.
- * It only tells: DatGold does not download or run an installer in this version, and the page says so.
+ * Under them, for a release on offer: whether it is signed, the size of its installer and the same download controls as the strip (Download only for a signature that checked). Nothing here
+ * installs or runs an installer, and the page says so.
  */
-export function UpdatesPanel({ update, lang: pinned, now = Date.now(), busy = false, onCheck, onSkip, onToggle }: {
+export function UpdatesPanel({ update, lang: pinned, now = Date.now(), busy = false, onCheck, onSkip, onToggle, onDownload, onCancel }: {
   update: UpdateInfo | null | undefined; lang?: 'vi' | 'en'; now?: number; busy?: boolean;
-  onCheck: () => void; onSkip: (version: string | null) => void; onToggle: (enabled: boolean) => void;
+  onCheck: () => void; onSkip: (version: string | null) => void; onToggle: (enabled: boolean) => void; onDownload: (version: string) => void; onCancel: () => void;
 }) {
   const { lang: current } = useTranslation();
   const lang = pinned ?? current;
@@ -36,6 +38,8 @@ export function UpdatesPanel({ update, lang: pinned, now = Date.now(), busy = fa
   const wait = Math.ceil(cooldownMs(info, now) / 1000);
   const checking = info?.checking === true;
   const auto = autoView(info);
+  const download = downloadView(info);
+  const signature = signatureView(info);
 
   return (
     <div className="space-y-5" data-testid="updates-settings">
@@ -64,6 +68,16 @@ export function UpdatesPanel({ update, lang: pinned, now = Date.now(), busy = fa
         {wait > 0 && !checking && <p data-testid="updates-wait" className="text-[12px] leading-5 text-muted">{t('upd_wait', { seconds: wait })}</p>}
       </SettingsCard>
 
+      {download.kind !== 'none' && (
+        <SettingsCard icon={Download} title={t('upd_dl_title')} description={t('upd_dl_desc')}>
+          <dl>
+            <FactRow label={t('upd_sig_label')}><span data-testid="updates-signature" data-signature={signature}>{t(`upd_sig_state_${signature}`, { kid: info?.kid ?? '' })}</span></FactRow>
+            <FactRow label={t('upd_size_label')}><span data-testid="updates-size">{formatBytes(download.bytes, lang)}</span></FactRow>
+          </dl>
+          <DownloadControls update={info} lang={lang} busy={busy} ids={PANEL_IDS} onDownload={onDownload} onCancel={onCancel} onCheck={onCheck} />
+        </SettingsCard>
+      )}
+
       <SettingsCard icon={RefreshCw} title={t('upd_auto_title')} description={t('upd_auto_desc')}>
         <label className="flex items-start gap-3">
           <input type="checkbox" className="mt-1 h-4 w-4 accent-primary" data-testid="updates-auto-toggle" checked={auto.checked} disabled={auto.disabled || busy} onChange={event => onToggle(event.target.checked)} />
@@ -80,8 +94,8 @@ export function UpdatesPanel({ update, lang: pinned, now = Date.now(), busy = fa
 
 /** Settings → Updates (the section after Appearance). */
 export function UpdatesSection() {
-  const { data: hub } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 3000 });
-  const { busy, answer, check, skip } = useUpdateActions();
+  const { data: hub } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: query => pollInterval(query.state.data?.update) });
+  const { busy, answer, check, skip, download, cancelDownload } = useUpdateActions();
   const update = hub?.update;
   // While "Check now" is held back, the seconds left count down: the page paints again once a second. The time they are counted from is read at every paint, never kept, so a page that was
   // asleep (a window that was minimised stops asking the Hub) and then hears of a look made long ago does not count from the time it last painted.
@@ -93,5 +107,10 @@ export function UpdatesSection() {
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
   }, [waiting]);
-  return <UpdatesPanel update={update} now={now} busy={busy} onCheck={() => void check()} onSkip={version => void skip(version)} onToggle={enabled => void answer(enabled)} />;
+  return (
+    <UpdatesPanel
+      update={update} now={now} busy={busy} onCheck={() => void check()} onSkip={version => void skip(version)} onToggle={enabled => void answer(enabled)}
+      onDownload={version => void download(version)} onCancel={() => void cancelDownload()}
+    />
+  );
 }
