@@ -111,8 +111,8 @@
         },
         {
           "file": "lib/update-check.mjs",
-          "old": "      checkedAt = nowMs();\n      error = null;",
-          "new": "      checkedAt = nowMs();\n      lastAttemptAt = startedAt;\n      error = null;"
+          "old": "      checkedAt = nowMs();\n      const problem =",
+          "new": "      checkedAt = nowMs();\n      lastAttemptAt = startedAt;\n      const problem ="
         }
       ]
     },

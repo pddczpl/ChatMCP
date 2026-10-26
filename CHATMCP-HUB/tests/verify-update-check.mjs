@@ -19,12 +19,15 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { sign } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { feedManifest, startUpdateFeed } from './e2e/update-feed-server.mjs';
+import { keyFileText, signatureFor, throwawayKey } from './support/release-keys.mjs';
 import {
   FEED_HOSTS, FEED_URL, LIMITS, NOTES_URL_PREFIX, SCHEDULE, SETTINGS_FILE, STATE_FILE, WHEN_UNANSWERED,
-  checkedFeedUrl, compareVersions, createUpdateChecker, fetchManifest, isReleaseVersion, notesUrlFor, parseManifest, parseVersion, redirectAllowed, updateOptionsFromEnvironment,
+  checkedFeedUrl, compareVersions, createUpdateChecker, fetchManifest, isReleaseVersion, notesUrlFor, parseManifest, parseVersion, redirectAllowed, releaseAssetUrl, updateOptionsFromEnvironment,
 } from '../lib/update-check.mjs';
+import { parseReleaseKeys } from '../lib/release-signature.mjs';
 
 let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
@@ -70,6 +73,10 @@ function fakeTimers() {
 
 const feed = await startUpdateFeed();
 const foreign = await startUpdateFeed();
+// the owner's key, made for this run, and a stand-in that signs every manifest it serves with it (the other one is a release the owner has not signed yet)
+const owner = throwawayKey();
+const trusted = parseReleaseKeys(keyFileText([owner.entry])).keys;
+const signedFeed = await startUpdateFeed({ key: owner });
 
 try {
   // ------------------------------------------------------------------------------------------------------------------------------- 1. versions
@@ -291,7 +298,7 @@ try {
     const checker = createUpdateChecker({ directory: overrides.directory ?? folder(), currentVersion: '3.10.2', feedUrl: feed.url, now: () => clock.now(), random: () => 0.5, log: (line) => lines.push(line), ...overrides.options });
     return { checker, clock, lines, directory: overrides.directory };
   };
-  const KEYS = ['autoCheck', 'available', 'checkedAt', 'checking', 'current', 'error', 'installerName', 'lastAttemptAt', 'latest', 'manualCheckAfter', 'nextAutomaticCheckAt', 'notesUrl', 'skippedVersion'];
+  const KEYS = ['autoCheck', 'available', 'checkedAt', 'checking', 'current', 'error', 'installerBytes', 'installerName', 'kid', 'lastAttemptAt', 'latest', 'manualCheckAfter', 'nextAutomaticCheckAt', 'notesUrl', 'signature', 'skippedVersion'];
   {
     feed.mode('chain');
     feed.publish(feedManifest({ version: '3.10.3' }));
@@ -300,7 +307,7 @@ try {
     const before = checker.status();
     assert.deepEqual(Object.keys(before).sort(), KEYS, 'the state has exactly these keys');
     assert.deepEqual(Object.keys(before.autoCheck).sort(), ['enabled', 'needsChoice', 'saved']);
-    assert.deepEqual({ ...before, autoCheck: undefined }, { current: '3.10.2', latest: null, available: false, checkedAt: null, lastAttemptAt: null, notesUrl: null, installerName: null, skippedVersion: null, error: null, checking: false, manualCheckAfter: null, nextAutomaticCheckAt: null, autoCheck: undefined }, 'nothing is known before the first check');
+    assert.deepEqual({ ...before, autoCheck: undefined }, { current: '3.10.2', latest: null, available: false, checkedAt: null, lastAttemptAt: null, notesUrl: null, installerName: null, installerBytes: null, signature: null, kid: null, skippedVersion: null, error: null, checking: false, manualCheckAfter: null, nextAutomaticCheckAt: null, autoCheck: undefined }, 'nothing is known before the first check');
     const answer = await checker.check();
     assert.deepEqual([answer.checked, answer.throttled], [true, false]);
     const after = answer.update;
@@ -415,6 +422,157 @@ try {
     assert.equal((await bom.checker.check()).update.latest, '3.10.3', 'a manifest that starts with a BOM is read end to end');
     feed.mode('chain');
     ok('a first check that fails leaves nothing known; a manifest with a BOM is read through the whole path');
+  }
+
+  // ------------------------------------------------------------------------------------------------------------------------------- 5b. the signature of the manifest (a check is two request chains)
+  {
+    const TAG = '/pddczpl/ChatMCP/releases/download/v3.10.3';
+    const makeSigned = (overrides = {}) => make({ ...overrides, options: { feedUrl: signedFeed.url, releaseKeys: trusted, ...overrides.options } });
+    /** Serves this release as the owner published it: signed by the owner's key, unless a test sets the signature itself. */
+    const publish = (overrides = {}, publishOptions) => { signedFeed.mode('chain'); signedFeed.signature.mode('chain'); signedFeed.signature.set(null); signedFeed.publish(feedManifest({ version: '3.10.3', ...overrides }), publishOptions); };
+    const checkOnce = async (build = makeSigned) => { const made = build(); await made.checker.load(); return { ...made, update: (await made.checker.check()).update }; };
+    const paths = () => signedFeed.requests.map((request) => request.url.split('?')[0]);
+
+    // a valid signature: two chains, the manifest and then its signature at the address of the tag
+    publish();
+    signedFeed.requests.length = 0;
+    const validDirectory = folder();
+    const valid = await checkOnce(() => makeSigned({ directory: validDirectory }));
+    assert.deepEqual(Object.keys(readJson(validDirectory, STATE_FILE)).sort(), ['checkedAt', 'installerName', 'lastAttemptAt', 'latest', 'skippedVersion', 'version'], 'nothing about the signature is saved: a file cannot say "valid"');
+    const afterRestart = await makeSigned({ directory: validDirectory, clock: valid.clock }).checker.load();
+    assert.deepEqual([afterRestart.latest, afterRestart.available, afterRestart.signature, afterRestart.kid, afterRestart.installerBytes], ['3.10.3', true, null, null, null], 'after a restart the release is known and its signature is not, until a check has looked');
+    fs.writeFileSync(path.join(validDirectory, STATE_FILE), JSON.stringify({ ...readJson(validDirectory, STATE_FILE), signature: 'valid', kid: owner.kid, installerBytes: 5, signatureBytes: 'AAAA' }));
+    const hostileSignature = await makeSigned({ directory: validDirectory, clock: valid.clock }).checker.load();
+    assert.deepEqual([hostileSignature.signature, hostileSignature.kid, hostileSignature.installerBytes], [null, null, null], 'a saved file that says "valid" is not believed');
+    assert.deepEqual([valid.update.signature, valid.update.kid, valid.update.error, valid.update.available, valid.update.latest, valid.update.installerName, valid.update.installerBytes], ['valid', owner.kid, null, true, '3.10.3', 'DatGoldSetup.exe', 232753314]);
+    assert.deepEqual(paths(), [
+      '/pddczpl/ChatMCP/releases/latest/download/RELEASE-MANIFEST.json', `${TAG}/RELEASE-MANIFEST.json`, '/github-production-release-asset/1413019619/24765420',
+      `${TAG}/RELEASE-MANIFEST.json.sig`, '/github-production-release-asset/1413019619/24765421',
+    ], 'a check is two chains of requests: the manifest (three hops), then its signature at the address of the tag the manifest names (two hops)');
+    const names = new Set();
+    for (const request of signedFeed.requests) {
+      assert.equal(request.method, 'GET');
+      assert.equal(request.headers['user-agent'], 'DatGold/3.10.2');
+      for (const name of Object.keys(request.headers)) names.add(name);
+    }
+    assert.deepEqual([...names].sort(), ['accept', 'connection', 'host', 'user-agent'], 'the signature is asked for with the same four headers and nothing more');
+    assert.ok(!paths().some((path) => /\.exe|\.zip/.test(path)), 'no installer is asked for');
+    assert.equal(valid.checker.feedUrl, new URL(signedFeed.url).href, 'the checker says which feed it reads (the download uses the same one)');
+    assert.deepEqual(valid.checker.trustedKeys().map((key) => key.kid), [owner.kid]);
+
+    // not signed yet: the release still shows up, and the state says so
+    feed.mode('chain');
+    feed.publish(feedManifest({ version: '3.10.3' }));
+    const unsigned = await checkOnce(() => make({ options: { releaseKeys: trusted } }));
+    assert.deepEqual([unsigned.update.signature, unsigned.update.kid, unsigned.update.error, unsigned.update.available, unsigned.update.latest], ['missing', null, null, true, '3.10.3'], 'a 404 for the signature is normal before the owner has signed: no error, the release is on offer, no download');
+    publish();
+    signedFeed.signature.mode('missing');
+    assert.equal((await checkOnce()).update.signature, 'missing');
+
+    // a signature that does not check is a failure of its own, and the release still shows up
+    const wrongs = {
+      'one byte of the manifest changed after it was signed': () => { publish(); signedFeed.signature.set(signatureFor(signedFeed.manifestBytes(), owner)); signedFeed.publish(feedManifest({ version: '3.10.3', commit: 'f'.repeat(40) })); },
+      'a signature of another release': () => { publish(); signedFeed.signature.set(signatureFor(Buffer.from(JSON.stringify(feedManifest({ version: '3.10.2' }), null, 2)), owner)); },
+      'a signature of the right bytes by a key the kid does not belong to': () => { const other = throwawayKey(); publish(); signedFeed.signature.set(signatureFor(signedFeed.manifestBytes(), other, { kid: owner.kid })); },
+      'a DER signature instead of r||s': () => { publish(); signedFeed.signature.set(signatureFor(signedFeed.manifestBytes(), owner, { sig: sign('sha256', signedFeed.manifestBytes(), { key: owner.privateKey, dsaEncoding: 'der' }).toString('base64') })); },
+      'a signature over the manifest without its BOM': () => { publish({}, { bom: true }); signedFeed.signature.set(signatureFor(Buffer.from(signedFeed.manifestBytes().subarray(3)), owner)); },
+      'an empty signature file': () => { publish(); signedFeed.signature.set(Buffer.alloc(0)); },
+      'a signature file over 4096 bytes': () => { publish(); signedFeed.signature.set(Buffer.alloc(5000, 0x20)); },
+      'a signature file that is not JSON': () => { publish(); signedFeed.signature.set(Buffer.from('<!doctype html><title>Not found</title>')); },
+      'a signature that is not canonical base64': () => { publish(); signedFeed.signature.set(signatureFor(signedFeed.manifestBytes(), owner, { sig: 'AAAA' })); },
+    };
+    for (const [label, arrange] of Object.entries(wrongs)) {
+      arrange();
+      const found = (await checkOnce()).update;
+      assert.deepEqual([found.signature, found.kid, found.error?.code, found.available, found.latest], ['invalid', null, 'update_signature_invalid', true, '3.10.3'], `${label}: invalid, with the code of its own, and the release is still on offer`);
+      assert.equal(typeof found.error.message, 'string');
+      assert.ok(!/X-Amz|SIGNED-QUERY/.test(JSON.stringify(found)), `${label}: no signed address in the state`);
+    }
+    // a key this version does not know is told apart: the person can do something about it (install a newer version by hand)
+    publish();
+    signedFeed.signature.set(signatureFor(signedFeed.manifestBytes(), throwawayKey()));
+    const unknown = (await checkOnce()).update;
+    assert.deepEqual([unknown.signature, unknown.error?.code], ['invalid', 'update_signature_unknown_key'], 'a kid that no trusted key has');
+    publish();
+    const noKeys = (await checkOnce(() => makeSigned({ options: { releaseKeys: [] } }))).update;
+    assert.deepEqual([noKeys.signature, noKeys.error?.code], ['invalid', 'update_signature_unknown_key'], 'a Hub that trusts no key (the placeholder) cannot say that any release is signed');
+    assert.equal((await checkOnce(() => make({ options: { feedUrl: signedFeed.url } }))).update.signature, 'invalid', 'the key file that ships (a placeholder today) trusts nothing');
+    // a manifest that is published with a BOM is signed with its BOM
+    publish({}, { bom: true });
+    assert.equal((await checkOnce()).update.signature, 'valid', 'the signature covers the exact bytes, a BOM included');
+    publish({}, { raw: JSON.stringify(feedManifest({ version: '3.10.3' })) });
+    assert.equal((await checkOnce()).update.signature, 'valid', 'and the document as it is spelled, not as a parser would write it');
+
+    // a failure to READ the signature is neither "not signed" nor "does not check": the notice stands, the download waits, and the error says what happened
+    publish();
+    signedFeed.signature.mode('status', { status: 500 });
+    const server = (await checkOnce()).update;
+    assert.deepEqual([server.signature, server.kid, server.error?.code, server.error?.status, server.available, server.latest], [null, null, 'update_signature_unreachable', 500, true, '3.10.3'], 'a 500 for the signature');
+    signedFeed.signature.mode('status', { status: 403 });
+    assert.equal((await checkOnce()).update.error?.code, 'update_signature_unreachable', 'and so is a 403');
+    signedFeed.signature.mode('stall');
+    const started = Date.now();
+    const stalled = (await checkOnce(() => makeSigned({ options: { timeoutMs: 300 } }))).update;
+    assert.deepEqual([stalled.signature, stalled.error?.code], [null, 'update_signature_unreachable'], 'a signature that never comes');
+    assert.ok(Date.now() - started < 4000);
+    await waitUntil(() => signedFeed.openCount() === 0, 'the stalled signature request to be closed');
+    signedFeed.signature.mode('redirect', { target: `${foreign.origin}/x` });
+    foreign.requests.length = 0;
+    assert.equal((await checkOnce()).update.error?.code, 'update_signature_unreachable', 'a signature that is redirected to another host');
+    assert.equal(foreign.requests.length, 0, 'the other host was never asked');
+    signedFeed.signature.mode('endless');
+    assert.equal((await checkOnce()).update.signature, 'invalid', 'an endless signature is an answer that is not a signature');
+    await waitUntil(() => signedFeed.openCount() === 0, 'the endless signature to be closed');
+    publish();
+    // the signature of a release the Hub could not read is not the one of the last good check
+    const keeper = makeSigned();
+    await keeper.checker.load();
+    assert.equal((await keeper.checker.check()).update.signature, 'valid');
+    keeper.clock.advance(SCHEDULE.minManualGapMs + 1);
+    signedFeed.signature.mode('status', { status: 500 });
+    const lost = (await keeper.checker.check()).update;
+    assert.deepEqual([lost.signature, lost.kid, lost.error?.code], [null, null, 'update_signature_unreachable'], 'a signature that could not be read now is not "valid" because it was valid a minute ago: the Download button waits');
+    keeper.clock.advance(SCHEDULE.minManualGapMs + 1);
+    signedFeed.signature.mode('chain');
+    const back = (await keeper.checker.check()).update;
+    assert.deepEqual([back.signature, back.kid, back.error], ['valid', owner.kid, null], 'and the next check that can read it says valid again, with no error');
+    // a manifest that cannot be read keeps the last good answer, signature included
+    keeper.clock.advance(SCHEDULE.minManualGapMs + 1);
+    signedFeed.mode('status', { status: 503 });
+    const kept = (await keeper.checker.check()).update;
+    assert.deepEqual([kept.error?.code, kept.signature, kept.kid, kept.latest, kept.installerBytes], ['update_http', 'valid', owner.kid, '3.10.3', 232753314], 'a failed check of the manifest keeps what was last known, signature included');
+    signedFeed.mode('chain');
+    // a release that has a signature and then loses it (the file was deleted): the state follows the feed
+    keeper.clock.advance(SCHEDULE.minManualGapMs + 1);
+    signedFeed.signature.mode('missing');
+    assert.equal((await keeper.checker.check()).update.signature, 'missing');
+    signedFeed.signature.mode('chain');
+
+    // the address of the signature is built from the version of the manifest and from nothing else in it
+    publish();
+    const decoy = { signatureUrl: `${foreign.origin}/x.sig`, signature: `${foreign.origin}/y.sig`, url: `${foreign.origin}/z`, assets: feedManifest().assets };
+    signedFeed.publish({ ...feedManifest({ version: '3.10.3' }), ...decoy, assets: decoy.assets });
+    signedFeed.signature.set(null);
+    foreign.requests.length = 0;
+    signedFeed.requests.length = 0;
+    assert.equal((await checkOnce()).update.signature, 'valid');
+    assert.equal(foreign.requests.length, 0, 'an address inside the manifest is data: nobody is asked');
+    assert.ok(paths().includes(`${TAG}/RELEASE-MANIFEST.json.sig`) && paths().every((path) => !path.includes('x.sig') && !path.includes('y.sig')));
+    for (const [feedUrl, version, name] of [[FEED_URL, '3.11.0', 'RELEASE-MANIFEST.json.sig'], [signedFeed.url, '3.11.0', 'DatGoldSetup.exe']]) {
+      const address = releaseAssetUrl(feedUrl, version, name);
+      assert.equal(address, `${feedUrl === FEED_URL ? 'https://github.com' : new URL(feedUrl).origin}/pddczpl/ChatMCP/releases/download/v${version}/${name}`);
+    }
+    for (const version of ['3.11', '3.11.0-rc.1', '../x', '', 'v3.11.0', null]) assert.throws(() => releaseAssetUrl(FEED_URL, version, 'x.sig'), { code: 'update_feed_refused' }, `a version of ${JSON.stringify(version)} makes no address`);
+    for (const name of ['', '../x.exe', 'a/b.exe', 'a\\b.exe', 'a:b.exe', '.hidden', `${'a'.repeat(129)}.exe`, null]) assert.throws(() => releaseAssetUrl(FEED_URL, '3.11.0', name), { code: 'update_feed_refused' }, `a name of ${JSON.stringify(name)} makes no address`);
+    assert.throws(() => releaseAssetUrl('https://evil.example/x', '3.11.0', 'x.sig'), { code: 'update_feed_refused' }, 'and the feed has to be one the checker may read');
+
+    // a Hub that cannot compare versions asks for neither
+    publish();
+    signedFeed.requests.length = 0;
+    const invalidCurrent = await checkOnce(() => makeSigned({ options: { currentVersion: 'three' } }));
+    assert.equal(invalidCurrent.update.error?.code, 'update_current_invalid');
+    assert.equal(signedFeed.requests.length, 0, 'no request at all: not the manifest, not its signature');
+    ok('a check is two chains: the manifest, then its signature at the address of the tag the manifest names; valid says which key, a 404 is "missing" (the release still shows up, no error), nine kinds of signature that do not check are "invalid" with a code of their own (a key this version does not know has another), and a signature that cannot be READ (500, 403, a stall, a redirect to another host) is neither: the notice stands, the state says nothing is checked, and the error says why; the address is built from the version alone');
   }
 
   // ---- the state a restart finds, and how little of the saved file is trusted
@@ -949,7 +1107,21 @@ try {
     assert.ok(lines.every((line) => !/evil\.example|token=1/.test(line)), 'without repeating what was set');
     assert.deepEqual(updateOptionsFromEnvironment({ CHATMCP_UPDATE_FIRST_CHECK_MS: '300' }, log), {}, 'a short delay with the real feed is ignored: it is for a stand-in only');
     assert.deepEqual(updateOptionsFromEnvironment({ CHATMCP_UPDATE_FEED_URL: FEED_URL, CHATMCP_UPDATE_FIRST_CHECK_MS: '300' }, log), {}, 'and so is one with the real feed named');
-    ok('the test hooks: CHATMCP_UPDATE_FEED_URL takes a loopback address only and anything else is ignored with a line in the log (the real feed stays); CHATMCP_UPDATE_FIRST_CHECK_MS counts only beside it, between 0 and 60 s');
+    // the test key: one more key that signatures are checked with, and only while every address the Hub reads is on this machine
+    const testKey = throwawayKey();
+    const withKey = updateOptionsFromEnvironment({ CHATMCP_UPDATE_FEED_URL: feed.url, CHATMCP_UPDATE_TEST_KEY: testKey.spkiBase64 }, log);
+    assert.deepEqual(withKey.testKeys.map((key) => key.kid), [testKey.kid], 'beside a loopback feed the test key is one more trusted key');
+    assert.deepEqual(updateOptionsFromEnvironment({ CHATMCP_UPDATE_TEST_KEY: testKey.spkiBase64 }, log), {}, 'with no feed named it is ignored: nothing is read from GitHub with a key that is only for a test');
+    assert.deepEqual(updateOptionsFromEnvironment({ CHATMCP_UPDATE_FEED_URL: FEED_URL, CHATMCP_UPDATE_TEST_KEY: testKey.spkiBase64 }, log), {}, 'and so is it with the real feed named');
+    assert.deepEqual(updateOptionsFromEnvironment({ CHATMCP_UPDATE_FEED_URL: 'https://evil.example/x', CHATMCP_UPDATE_TEST_KEY: testKey.spkiBase64 }, log), {}, 'and with a feed that is refused');
+    lines.length = 0;
+    for (const bad of ['not base64!', 'AAAA', Buffer.alloc(91, 1).toString('base64'), '']) {
+      assert.equal('testKeys' in updateOptionsFromEnvironment({ CHATMCP_UPDATE_FEED_URL: feed.url, CHATMCP_UPDATE_TEST_KEY: bad }, log), false, `a test key of ${JSON.stringify(bad)} is ignored`);
+    }
+    assert.equal(lines.length, 3, 'each key that is set and wrong is said in the log (an empty one is as good as none)');
+    assert.ok(lines.every((line) => !/AAAA|not base64|AQEB/.test(line)), 'without repeating what was set');
+    assert.equal(createUpdateChecker({ directory: folder(), currentVersion: '3.10.2', feedUrl: feed.url, releaseKeys: [], testKeys: withKey.testKeys }).trustedKeys().length, 1, 'the checker trusts the test key beside the keys of the key file');
+    ok('the test hooks: CHATMCP_UPDATE_FEED_URL takes a loopback address only and anything else is ignored with a line in the log (the real feed stays); CHATMCP_UPDATE_FIRST_CHECK_MS and CHATMCP_UPDATE_TEST_KEY count only beside it (the first between 0 and 60 s, the second a P-256 SPKI)');
 
     // The script of the hand check (tests/live/check-update-feed.mjs) is run here, offline, against the stand-in: a tool that is never run rots, and this is the one that is pointed at the real feed.
     const live = path.join(HUB_ROOT, 'tests', 'live', 'check-update-feed.mjs');
@@ -1026,6 +1198,7 @@ try {
   console.log(`PASS: ${checks} update-check groups`);
 } finally {
   await feed.close();
+  await signedFeed.close();
   await foreign.close();
   fs.rmSync(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 }

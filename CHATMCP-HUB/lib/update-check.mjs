@@ -1,17 +1,24 @@
-// The update notice: step 1 of the in-app updater. The Hub finds out that a newer release exists and the page says so. It downloads nothing and runs nothing.
+// The update notice: the Hub finds out that a newer release exists, whether its owner signed it, and the page says so. This module downloads nothing and runs nothing (the download is
+// lib/update-download.mjs, and only on the owner's click).
 //
 // Where the news comes from: one address, https://github.com/pddczpl/ChatMCP/releases/latest/download/RELEASE-MANIFEST.json. GitHub answers it with two redirects (github.com, then
 // release-assets.githubusercontent.com) to the manifest of the Latest release that is NOT flagged as a pre-release, so a test build never reaches anyone. No REST API, no token.
+// A check is two chains of requests to GitHub: that manifest, and then its signature, RELEASE-MANIFEST.json.sig, at the address of the tag the manifest names (the manifest is verified
+// over its exact bytes, lib/release-signature.mjs). The tag address also keeps a manifest and a signature of two releases from mixing when another release becomes Latest in between.
 //
 // What it promises, and what the tests hold it to (tests/verify-update-check.mjs against a loopback server, tests/verify-e2e-update-check.mjs against a real Hub process):
 //   * Whether the Hub asks at all is the owner's choice. Until the owner has answered (a question the page asks once) the Hub makes NO request on its own; "yes" starts a timer, "no"
 //     stops it, and a "no" counts from the moment the Hub receives it, not from when its file is written (a timer that fires meanwhile, or a try between its note and its request, asks
 //     nothing). What happens before an answer is ONE constant, WHEN_UNANSWERED. "Check now" is the owner's own act and works in every state.
-//   * One request, to GitHub only: a GET with `User-Agent: DatGold/<version>` and `Accept`, no cookie, no login, no referrer, no body. The address is fixed. A redirect is followed at most
-//     3 times and only to https on the default port of github.com, release-assets.githubusercontent.com or objects.githubusercontent.com; the whole thing (every hop and the body) has 10 seconds
-//     and 64 KiB. A loopback address may stand in for the feed in tests (checkedFeedUrl, updateOptionsFromEnvironment); no route and no page can change it.
+//   * Requests to GitHub only: GETs with `User-Agent: DatGold/<version>` and `Accept`, no cookie, no login, no referrer, no body. The address is fixed. A redirect is followed at most
+//     3 times and only to https on the default port of github.com, release-assets.githubusercontent.com or objects.githubusercontent.com; each chain (every hop and the body) has 10 seconds
+//     and 64 KiB (4 KiB for the signature). A loopback address may stand in for the feed in tests (checkedFeedUrl, updateOptionsFromEnvironment); no route and no page can change it.
 //   * What comes back is data: strict JSON of a known shape (a BOM is dropped, keys it does not know are kept out of the way), a release version x.y.z and nothing else, never a pre-release.
 //     The notice is offered only for a version strictly higher than the one that runs. The link to the notes is built here from that version, never read from the answer or from the saved file.
+//   * The signature is one of three things, each said in the state: `missing` (a 404: the owner has not signed yet, which is normal; the release still shows up, with no download), `valid`
+//     (one of the keys this version ships with made it, over exactly these bytes) and `invalid` (it is there and does not check: a failure code of its own). A signature that could not be READ
+//     (a 500, a time-out, a redirect that was refused) is none of them: the notice stands, `signature` is null and the error says why. Nothing about the signature is saved: after a restart it
+//     is null until the next check has looked, so that a saved file cannot say "valid".
 //   * It keeps the last good answer when a check fails, saves it so that the next start can say it before the first check ends, and works out "available" again against the version that runs.
 //   * It is polite: the first check 30 s after the Hub starts, then every 12 hours (1 hour after a failure), each with jitter, never less than 15 minutes after the last attempt (the attempt is
 //     saved BEFORE the request goes out, so a Hub that restarts in a loop still asks once per 15 minutes; where that note cannot be saved the Hub does not look by itself, because the floor
@@ -23,6 +30,7 @@ import https from 'node:https';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { writeJson } from './runtime.mjs';
+import { SIGNATURE_ASSET, SIGNATURE_LIMITS, SignatureError, loadReleaseKeys, publicKeyFromSpki, verifyManifest } from './release-signature.mjs';
 
 export const FEED_URL = 'https://github.com/pddczpl/ChatMCP/releases/latest/download/RELEASE-MANIFEST.json';
 export const NOTES_URL_PREFIX = 'https://github.com/pddczpl/ChatMCP/releases/tag/v';
@@ -139,7 +147,8 @@ export function parseManifest(text) {
     return { name, bytes, sha256: sha256.toLowerCase() };
   });
   const programs = list.filter((asset) => /\.exe$/i.test(asset.name));
-  return { version, commit: commit.toLowerCase(), installerName: programs.length === 1 ? programs[0].name : null, assets: list };
+  const installer = programs.length === 1 ? programs[0] : null;
+  return { version, commit: commit.toLowerCase(), installerName: installer ? installer.name : null, installer, assets: list };
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------- the address and the request
@@ -153,6 +162,19 @@ export function checkedFeedUrl(value) {
   if (url.href === FEED_URL) return FEED_URL;
   if ((url.protocol === 'http:' || url.protocol === 'https:') && LOOPBACK_HOSTS.has(url.hostname)) return url.href;
   throw refused('another host');
+}
+
+/**
+ * The address of a file of a release, made from the feed, a release version and a plain file name and from nothing else: https://github.com/pddczpl/ChatMCP/releases/download/v<version>/<name>
+ * (the same path on the origin of a stand-in in a test). An address that a manifest, a saved file or a page carries is never used for it.
+ */
+export function releaseAssetUrl(feed, version, name) {
+  const checked = checkedFeedUrl(feed);
+  const refused = (why) => fault('update_feed_refused', `The address of a release file cannot be made: ${why}.`);
+  if (!isReleaseVersion(version)) throw refused('the version is not a release x.y.z');
+  if (typeof name !== 'string' || !ASSET_NAME.test(name)) throw refused('the name is not a plain file name');
+  const origin = checked === FEED_URL ? 'https://github.com' : new URL(checked).origin;
+  return `${origin}/pddczpl/ChatMCP/releases/download/v${version}/${name}`;
 }
 
 /**
@@ -200,7 +222,7 @@ function requestOnce(target, { userAgent, maxBytes, signal }) {
         if (size > maxBytes) { request.destroy(); done(reject, tooLarge(maxBytes)); return; }
         chunks.push(chunk);
       });
-      response.on('end', () => done(resolve, { status, text: Buffer.concat(chunks).toString('utf8') }));
+      response.on('end', () => { const bytes = Buffer.concat(chunks); done(resolve, { status, bytes, text: bytes.toString('utf8') }); });
       response.on('error', (error) => done(reject, networkFault(error)));
       response.on('close', () => { if (!response.complete) done(reject, networkFault(null)); });
     });
@@ -210,15 +232,14 @@ function requestOnce(target, { userAgent, maxBytes, signal }) {
 }
 
 /**
- * Reads the manifest: the address `url` (checkedFeedUrl), redirects followed by hand (at most `maxRedirects`, each checked by redirectAllowed before a connection is made), one deadline for
- * all of it, the body cut at `maxBytes`. Resolves with {text, redirects}; rejects with an UpdateError whose message never holds an address (the last hop of the real feed is signed).
+ * One chain of requests from `first`: redirects followed by hand (at most `maxRedirects`, each checked by redirectAllowed before a connection is made), one deadline for all of it, the body
+ * cut at `maxBytes`. Resolves with {bytes, text, redirects}; rejects with an UpdateError whose message never holds an address (the last hop of the real feed is signed).
  */
-export async function fetchManifest({ url = FEED_URL, userAgent = 'DatGold', timeoutMs = LIMITS.timeoutMs, maxBytes = LIMITS.maxBytes, maxRedirects = LIMITS.maxRedirects } = {}) {
-  const feed = checkedFeedUrl(url);
+async function fetchChain(first, feed, { userAgent = 'DatGold', timeoutMs = LIMITS.timeoutMs, maxBytes = LIMITS.maxBytes, maxRedirects = LIMITS.maxRedirects } = {}) {
   const deadline = new AbortController();
   const timer = setTimeout(() => deadline.abort(), timeoutMs);
   try {
-    let target = new URL(feed);
+    let target = first;
     for (let hops = 0; ; hops += 1) {
       const answer = await requestOnce(target, { userAgent, maxBytes, signal: deadline.signal });
       if (REDIRECTS.has(answer.status)) {
@@ -231,17 +252,55 @@ export async function fetchManifest({ url = FEED_URL, userAgent = 'DatGold', tim
         continue;
       }
       if (answer.status !== 200) throw fault('update_http', `GitHub answered HTTP ${answer.status}.`, { status: answer.status });
-      return { text: answer.text, redirects: hops };
+      return { bytes: answer.bytes, text: answer.text, redirects: hops };
     }
   } finally { clearTimeout(timer); }
+}
+
+/**
+ * Reads the manifest: the address `url` (checkedFeedUrl), one chain of requests (see fetchChain). Resolves with {bytes, text, redirects}: the exact bytes, because the signature is made over
+ * them, and the same bytes as text.
+ */
+export async function fetchManifest({ url = FEED_URL, ...options } = {}) {
+  const feed = checkedFeedUrl(url);
+  return fetchChain(new URL(feed), feed, options);
+}
+
+/**
+ * The second chain of a check: the signature of a manifest, asked for at the address of its own tag and verified over the exact bytes of the manifest with `keys` (the entries
+ * parseReleaseKeys makes). Resolves with
+ *   {state: 'missing'}                                            a 404: the owner has not signed this release (yet)
+ *   {state: 'valid', kid, signature}                              `signature` is the bytes of the file, for whoever must verify them again
+ *   {state: 'invalid', code, reason, signature?}                  it is there and does not check: code is update_signature_invalid, or update_signature_unknown_key when no key this version
+ *                                                                 trusts has the id the file names (the person can do something about that one)
+ * and rejects with an UpdateError (update_signature_unreachable) when the signature could not be READ at all: that says nothing about the release.
+ */
+export async function proveManifest({ feed = FEED_URL, version, manifestBytes, keys, userAgent = 'DatGold', timeoutMs = LIMITS.timeoutMs, maxRedirects = LIMITS.maxRedirects } = {}) {
+  const checked = checkedFeedUrl(feed);
+  const first = new URL(releaseAssetUrl(checked, version, SIGNATURE_ASSET));
+  let answer;
+  try { answer = await fetchChain(first, checked, { userAgent, timeoutMs, maxBytes: SIGNATURE_LIMITS.maxBytes, maxRedirects }); } catch (reason) {
+    if (!(reason instanceof UpdateError)) throw reason;
+    if (reason.code === 'update_http' && reason.status === 404) return { state: 'missing' };
+    if (reason.code === 'update_too_large') return { state: 'invalid', code: 'update_signature_invalid', reason: 'size' };
+    throw fault('update_signature_unreachable', `The signature of the release could not be read (${reason.code}${reason.status ? ` ${reason.status}` : ''}).`, { status: reason.status ?? null });
+  }
+  try {
+    const checkedSignature = verifyManifest(manifestBytes, answer.bytes, keys);
+    return { state: 'valid', kid: checkedSignature.kid, signature: answer.bytes };
+  } catch (reason) {
+    if (!(reason instanceof SignatureError)) throw reason;
+    return { state: 'invalid', code: reason.reason === 'unknown_kid' ? 'update_signature_unknown_key' : 'update_signature_invalid', reason: reason.reason, signature: answer.bytes };
+  }
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------- the hooks of the tests
 
 /**
- * The two variables a test may set, read once when the Hub starts. CHATMCP_UPDATE_FEED_URL puts a loopback server where GitHub is; CHATMCP_UPDATE_FIRST_CHECK_MS (0 to 60000) makes the first
- * check come sooner, and only counts beside it. Anything else is ignored with a line in the log that does not repeat the value, so the address that is read stays GitHub's.
- * There is no route, setting or page that can change the feed.
+ * The three variables a test may set, read once when the Hub starts. CHATMCP_UPDATE_FEED_URL puts a loopback server where GitHub is; CHATMCP_UPDATE_FIRST_CHECK_MS (0 to 60000) makes the first
+ * check come sooner, and CHATMCP_UPDATE_TEST_KEY (a base64 SPKI of a P-256 key) is one more key that the Hub trusts for signatures. The last two count only beside a loopback feed: a key
+ * that is trusted only while every address the Hub reads is on this machine can never make a download from GitHub look signed. Anything else is ignored with a line in the log that does
+ * not repeat the value, so the address that is read stays GitHub's. There is no route, setting or page that can change the feed or the keys.
  */
 export function updateOptionsFromEnvironment(env = process.env, log = () => {}) {
   const options = {};
@@ -256,6 +315,10 @@ export function updateOptionsFromEnvironment(env = process.env, log = () => {}) 
   options.feedUrl = feedUrl;
   const delay = env.CHATMCP_UPDATE_FIRST_CHECK_MS;
   if (typeof delay === 'string' && /^\d{1,5}$/.test(delay.trim()) && Number(delay) <= 60_000) options.firstCheckMs = Number(delay);
+  const testKey = env.CHATMCP_UPDATE_TEST_KEY;
+  if (typeof testKey === 'string' && testKey.trim()) {
+    try { options.testKeys = [publicKeyFromSpki(testKey.trim())]; } catch { log('CHATMCP_UPDATE_TEST_KEY bị bỏ qua: không phải khóa công khai P-256 dạng SPKI base64.'); }
+  }
   return options;
 }
 
@@ -263,19 +326,30 @@ export function updateOptionsFromEnvironment(env = process.env, log = () => {}) 
 
 const TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const DAY_MS = 86_400_000;
+/** What is said (in English, for the log and the diagnostic) about a signature that does not check, by the reason lib/release-signature.mjs gives. The page says it in its own words, by the code. */
+const SIGNATURE_PROBLEMS = Object.freeze({
+  mismatch: 'The signature of the newest release is not the signature of its manifest.',
+  unknown_kid: 'The newest release is signed with a key that this version of DatGold does not know.',
+  size: 'The signature file of the newest release is not a signature file (too large).',
+  other: 'The signature file of the newest release is not valid.',
+});
 const iso = (ms) => (ms === null ? null : new Date(ms).toISOString());
 
 /**
  * @param {{directory: string, currentVersion: string, feedUrl?: string, whenUnanswered?: 'ask'|'on', now?: () => Date, random?: () => number,
- *   timers?: {setTimeout: Function, clearTimeout: Function}, firstCheckMs?: number, timeoutMs?: number, log?: (line: string) => void}} options
- *   `feedUrl`, `now`, `random`, `timers`, `firstCheckMs` and `timeoutMs` are for tests; the Hub passes only `directory`, `currentVersion`, `log` and what updateOptionsFromEnvironment allows.
+ *   timers?: {setTimeout: Function, clearTimeout: Function}, firstCheckMs?: number, timeoutMs?: number, log?: (line: string) => void,
+ *   releaseKeys?: object[], testKeys?: object[]}} options
+ *   `feedUrl`, `now`, `random`, `timers`, `firstCheckMs`, `timeoutMs` and `testKeys` are for tests; the Hub passes only `directory`, `currentVersion`, `log`, the keys of the key file
+ *   (`releaseKeys`, which defaults to lib/release-keys.json) and what updateOptionsFromEnvironment allows.
  */
 export function createUpdateChecker({
   directory, currentVersion, feedUrl = FEED_URL, whenUnanswered = WHEN_UNANSWERED, now = () => new Date(), random = Math.random,
   timers = { setTimeout, clearTimeout }, firstCheckMs = SCHEDULE.firstCheckMs, timeoutMs = LIMITS.timeoutMs, log = () => {},
+  releaseKeys = loadReleaseKeys().keys, testKeys = [],
 } = {}) {
   if (typeof directory !== 'string' || !directory) throw new TypeError('The update check needs the data folder of the Hub.');
   const feed = checkedFeedUrl(feedUrl);
+  const trusted = Object.freeze([...releaseKeys, ...testKeys]);
   const stateFile = path.join(directory, STATE_FILE);
   const settingsFile = path.join(directory, SETTINGS_FILE);
   const running = String(currentVersion);
@@ -284,6 +358,10 @@ export function createUpdateChecker({
 
   let latest = null;
   let installerName = null;
+  let installerBytes = null;
+  // What the second chain of the last good check found: 'valid' | 'missing' | 'invalid', or null (not looked at yet in this run, or it could not be read). Never saved, never read from a file.
+  let signature = null;
+  let kid = null;
   let checkedAt = null;
   let lastAttemptAt = null;
   let skippedVersion = null;
@@ -316,6 +394,9 @@ export function createUpdateChecker({
       lastAttemptAt: iso(attempted),
       notesUrl: latest === null ? null : notesUrlFor(latest),
       installerName,
+      installerBytes: latest === null ? null : installerBytes,
+      signature: latest === null ? null : signature,
+      kid: latest === null || signature !== 'valid' ? null : kid,
       skippedVersion,
       error: error ? { ...error } : null,
       checking: inFlight !== null,
@@ -347,7 +428,7 @@ export function createUpdateChecker({
 
   /** Reads both files; never throws. Each field is checked on its own, and what is wrong costs that field and nothing else. */
   async function load() {
-    latest = null; installerName = null; checkedAt = null; lastAttemptAt = null; skippedVersion = null; saved = null; error = null;
+    latest = null; installerName = null; installerBytes = null; signature = null; kid = null; checkedAt = null; lastAttemptAt = null; skippedVersion = null; saved = null; error = null;
     const setting = await readFile(settingsFile);
     if (setting?.damaged) log(`Không dùng được ${SETTINGS_FILE}: ${setting.damaged}; hỏi lại chủ máy có muốn kiểm tra bản mới không.`);
     else if (setting) {
@@ -407,13 +488,25 @@ export function createUpdateChecker({
     }
     try {
       if (runningParsed === null) throw fault('update_current_invalid', 'The version of this Hub is not x.y.z, so it cannot be compared.');
-      const { text } = await fetchManifest({ url: feed, userAgent, timeoutMs });
-      const manifest = parseManifest(text);
+      const answer = await fetchManifest({ url: feed, userAgent, timeoutMs });
+      const manifest = parseManifest(answer.text);
+      // The second chain: the signature of exactly these bytes, at the address of the tag the manifest names. A signature that cannot be READ says nothing about the release: the notice
+      // stands (the first chain worked), nothing is called checked, and the error says what happened.
+      let proof;
+      try { proof = await proveManifest({ feed, version: manifest.version, manifestBytes: answer.bytes, keys: trusted, userAgent, timeoutMs }); } catch (reason) {
+        if (!(reason instanceof UpdateError)) throw reason;
+        proof = { state: null, failure: reason };
+      }
       latest = manifest.version;
       installerName = manifest.installerName;
+      installerBytes = manifest.installer ? manifest.installer.bytes : null;
+      signature = proof.state;
+      kid = proof.state === 'valid' ? proof.kid : null;
       checkedAt = nowMs();
-      error = null;
-      log(isAvailable() ? `Kiểm tra bản cập nhật: DatGold ${latest} đã có (bản đang chạy ${running}).` : `Kiểm tra bản cập nhật: bản mới nhất là ${latest}, không mới hơn bản đang chạy (${running}).`);
+      const problem = proof.state === 'invalid' ? fault(proof.code, SIGNATURE_PROBLEMS[proof.reason] ?? SIGNATURE_PROBLEMS.other) : (proof.failure ?? null);
+      error = problem ? { code: problem.code, message: String(problem.message).slice(0, 200), status: problem.status ?? null, at: iso(nowMs()) } : null;
+      const said = { valid: 'chữ ký hợp lệ', missing: 'chưa có chữ ký', invalid: 'chữ ký không khớp' }[proof.state] ?? 'chưa đọc được chữ ký';
+      log(isAvailable() ? `Kiểm tra bản cập nhật: DatGold ${latest} đã có (bản đang chạy ${running}); ${said}.` : `Kiểm tra bản cập nhật: bản mới nhất là ${latest}, không mới hơn bản đang chạy (${running}).`);
     } catch (reason) {
       const known = reason instanceof UpdateError;
       error = { code: known ? reason.code : 'update_failed', message: String(known ? reason.message : 'The check failed.').slice(0, 200), status: known ? (reason.status ?? null) : null, at: iso(nowMs()) };
@@ -517,5 +610,11 @@ export function createUpdateChecker({
     return status();
   }
 
-  return { load, start, stop, status, check, skip, setAutoCheck };
+  return {
+    load, start, stop, status, check, skip, setAutoCheck,
+    /** The feed this checker reads (the download asks for the files of a release at the same place). */
+    feedUrl: feed,
+    /** The keys a signature is checked with (the key file's, and in a test the extra key). A copy: nothing outside can add one. */
+    trustedKeys: () => [...trusted],
+  };
 }

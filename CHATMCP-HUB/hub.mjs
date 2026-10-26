@@ -23,6 +23,7 @@ import { BEARER_PATTERN, attachToRunningHub, createSecret, createTicketBook, das
 import { followProviderWindow } from './lib/tool-selector.mjs';
 import { ProjectInstructionsStore, projectInstructionsSetting } from './lib/project-instructions.mjs';
 import { createUpdateChecker, updateOptionsFromEnvironment } from './lib/update-check.mjs';
+import { loadReleaseKeys } from './lib/release-signature.mjs';
 
 const APP_ID = 'chatmcp-local-hub';
 export const UI_BUILD = '3.10.2-react-agent';
@@ -776,8 +777,11 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   manager.projectInstructionsSetting = new ProjectInstructionsStore({ directory: manager.hubDirectory, env, log: (line) => manager.log(line) });
   await manager.projectInstructionsSetting.load();
   // The update notice: found out and kept here, read before the Hub says it is initialised so that the first /api/state already knows what the last check found. It asks nothing until the owner has
-  // said yes (lib/update-check.mjs WHEN_UNANSWERED) and its timer starts only below, once the Hub is up. The two test hooks of the environment are read here and nowhere else.
-  const updates = createUpdateChecker({ directory: manager.hubDirectory, currentVersion: VERSION, log: (line) => manager.log(line), ...updateOptionsFromEnvironment(env, (line) => manager.log(line)) });
+  // said yes (lib/update-check.mjs WHEN_UNANSWERED) and its timer starts only below, once the Hub is up. The test hooks of the environment are read here and nowhere else. The keys that the signature
+  // of a release is checked with are the ones in lib/release-keys.json (a placeholder until the owner has made a key), plus the test key beside a loopback feed.
+  const releaseKeys = loadReleaseKeys();
+  for (const skipped of releaseKeys.ignored) manager.log(`Khóa phát hành bị bỏ qua (${skipped.reason}).`);
+  const updates = createUpdateChecker({ directory: manager.hubDirectory, currentVersion: VERSION, log: (line) => manager.log(line), releaseKeys: releaseKeys.keys, ...updateOptionsFromEnvironment(env, (line) => manager.log(line)) });
   await updates.load();
   const { BrowserRunner } = await import('./lib/browser-runner.mjs');
   const { AgentRunner } = await import('./lib/agent.mjs');
