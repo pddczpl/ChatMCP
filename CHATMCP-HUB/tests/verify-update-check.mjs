@@ -738,25 +738,42 @@ try {
     }
     {
       // ZERO requests unless the owner said yes - with a positive control in the same timing
-      const probe = async (label, { saved, whenUnanswered }) => {
+      // Nothing here depends on a fixed sleep to SEE a request: the control waits for it (at most 5 s) and measures how long that took on this machine; every "zero" window is then at least
+      // three times that, and never under 600 ms, so a slow runner widens the windows instead of missing the one request.
+      const armedChecker = async ({ saved, whenUnanswered }) => {
         const directory = folder();
         if (saved !== null) fs.writeFileSync(path.join(directory, SETTINGS_FILE), JSON.stringify({ version: 1, autoCheckUpdates: saved }));
         const checker = createUpdateChecker({ directory, currentVersion: '3.10.2', feedUrl: feed.url, firstCheckMs: 40, random: () => 0.5, ...(whenUnanswered ? { whenUnanswered } : {}) });
         await checker.load();
         const before = feed.checks();
+        const startedAt = Date.now();
         checker.start();
-        await sleep(600);
+        return { checker, before, startedAt };
+      };
+      /** A Hub that may ask: waits for the first request, then looks a little longer to see that it is the only one. */
+      const control = async (options) => {
+        const { checker, before, startedAt } = await armedChecker(options);
+        await waitUntil(() => feed.checks() - before >= 1, 'the first request of a checker that may ask', 5000);
+        const latency = Date.now() - startedAt;
+        await sleep(Math.max(300, latency));
         const made = feed.checks() - before;
         checker.stop();
-        return { label, made };
+        return { made, latency };
       };
-      const control = await probe('on', { saved: true });
-      assert.equal(control.made, 1, 'POSITIVE CONTROL: with the setting on and a first check after 40 ms, the server is asked exactly once in 600 ms');
-      const unanswered = await probe('unanswered', { saved: null });
-      const off = await probe('off', { saved: false });
-      assert.equal(unanswered.made, 0, 'unanswered: the same timing, no request at all');
-      assert.equal(off.made, 0, 'off: the same timing, no request at all');
-      const flipped = await probe('unanswered, constant on', { saved: null, whenUnanswered: 'on' });
+      /** A Hub that must not ask: the same start, watched for `window` ms. */
+      const quiet = async (options, window) => {
+        const { checker, before } = await armedChecker(options);
+        await sleep(window);
+        const made = feed.checks() - before;
+        checker.stop();
+        return made;
+      };
+      const asking = await control({ saved: true });
+      assert.equal(asking.made, 1, `POSITIVE CONTROL: with the setting on and a first check after 40 ms, the server is asked exactly once (the request came after ${asking.latency} ms)`);
+      const window = Math.max(600, 3 * asking.latency);
+      assert.equal(await quiet({ saved: null }, window), 0, `unanswered: the same start, ${window} ms, no request at all`);
+      assert.equal(await quiet({ saved: false }, window), 0, `off: the same start, ${window} ms, no request at all`);
+      const flipped = await control({ saved: null, whenUnanswered: 'on' });
       assert.equal(flipped.made, 1, 'and with the constant flipped to "on" the unanswered case asks once, which is what the constant is for');
       const noChoiceButManual = make({ options: {} });
       await noChoiceButManual.checker.load();
@@ -769,7 +786,7 @@ try {
       const offBefore = feed.checks();
       assert.equal((await manualOff.checker.check()).checked, true);
       assert.equal(feed.checks() - offBefore, 1, 'and with the setting off');
-      ok('ZERO requests while unanswered or off (600 ms at a 40 ms first check), against a positive control that makes exactly one with the setting on; flipping the constant makes the unanswered case ask once; a manual check works unanswered and off');
+      ok(`ZERO requests while unanswered or off (${window} ms at a 40 ms first check: three times what the control needed, at least 600), against a positive control that waits for exactly one request with the setting on; flipping the constant makes the unanswered case ask once; a manual check works unanswered and off`);
     }
     {
       // the failure of one check does not take the timer or the Hub down

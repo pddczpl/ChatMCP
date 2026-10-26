@@ -184,8 +184,8 @@ function requestOnce(target, { userAgent, maxBytes, signal }) {
     request = client.request(target, { method: 'GET', agent: false, headers: { 'user-agent': userAgent, accept: 'application/json' } }, (response) => {
       const status = response.statusCode ?? 0;
       if (status !== 200) {
-        response.resume();
         done(resolve, { status, location: REDIRECTS.has(status) ? String(response.headers.location ?? '') : '' });
+        request.destroy(); // the body of a redirect or of an error is not read, and a server that never ends it does not keep a connection open
         return;
       }
       const declared = Number(response.headers['content-length']);

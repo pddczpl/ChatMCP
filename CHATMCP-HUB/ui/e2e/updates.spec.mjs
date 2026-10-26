@@ -34,6 +34,23 @@ async function open(page, app) {
 }
 const noSideways = (page) => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
 
+/** The contrast ratio of the text of an element against what it is really drawn on: the translucent backgrounds of its ancestors are laid over each other, over white. */
+const contrast = (locator) => locator.evaluate((element) => {
+  const parse = (color) => { const parts = color.match(/[\d.]+/g).map(Number); return [parts[0], parts[1], parts[2], parts.length > 3 ? parts[3] : 1]; };
+  const luminance = ([r, g, b]) => [r, g, b].map((value) => { const c = value / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }).reduce((sum, c, index) => sum + c * [0.2126, 0.7152, 0.0722][index], 0);
+  const layers = [];
+  for (let node = element; node; node = node.parentElement) {
+    const layer = parse(getComputedStyle(node).backgroundColor);
+    if (layer[3] > 0) layers.push(layer);
+    if (layer[3] === 1) break;
+  }
+  let back = [255, 255, 255];
+  for (const layer of layers.reverse()) back = back.map((value, index) => layer[index] * layer[3] + value * (1 - layer[3]));
+  const fore = luminance(parse(getComputedStyle(element).color));
+  const ground = luminance(back);
+  return (Math.max(fore, ground) + 0.05) / (Math.min(fore, ground) + 0.05);
+});
+
 test('the owner is asked once, a yes makes one look, the release is announced and can be skipped, and it all survives a reload and a restart', async ({ page, context, app, feed, browserErrors }, testInfo) => {
   await open(page, app);
 
@@ -49,6 +66,16 @@ test('the owner is asked once, a yes makes one look, the release is announced an
   await page.waitForTimeout(1500); // five times the 0.3 s the Hub would wait if it were allowed to ask
   expect(feed.requests.length, 'ZERO requests to the feed while the owner has not answered').toBe(0);
   await page.screenshot({ path: testInfo.outputPath('question.png'), animations: 'disabled' });
+  const unreadable = [];
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme);
+    await page.waitForTimeout(400); // the buttons change colour over 150 ms: read them at rest
+    for (const id of ['update-question-title', 'update-question-body', 'update-yes', 'update-no', 'update-details']) {
+      const ratio = await contrast(page.getByTestId(id));
+      if (ratio < 4.5) unreadable.push(`${id} in the ${theme} theme: ${ratio.toFixed(2)} ${await page.getByTestId(id).evaluate((el) => `${getComputedStyle(el).color} on ${getComputedStyle(el).backgroundColor}`)}`);
+    }
+  }
+  expect(unreadable, 'the question reads at 4.5:1 or better in both themes').toEqual([]);
 
   // ---- yes: the choice is saved, one look is made at once, and the strip becomes the notice --------------------------------------------------------
   const saved = page.waitForResponse(post(AUTO));
@@ -79,8 +106,14 @@ test('the owner is asked once, a yes makes one look, the release is announced an
   await expect(notes).toHaveAttribute('rel', 'noopener noreferrer');
   for (const theme of ['light', 'dark']) {
     await setTheme(page, theme);
+    await page.waitForTimeout(400);
+    for (const id of ['update-notice-text', 'update-notes', 'update-skip']) {
+      const ratio = await contrast(page.getByTestId(id));
+      if (ratio < 4.5) unreadable.push(`${id} in the ${theme} theme: ${ratio.toFixed(2)}`);
+    }
     await page.screenshot({ path: testInfo.outputPath(`notice-${theme}.png`), animations: 'disabled' });
   }
+  expect(unreadable, 'the notice reads at 4.5:1 or better in both themes').toEqual([]);
   // a narrow window: the strip wraps and nothing scrolls sideways
   await page.setViewportSize({ width: 640, height: 900 });
   await expect(notice).toBeVisible();

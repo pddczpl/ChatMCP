@@ -35,7 +35,7 @@ export function UpdateNotice({ update, lang: pinned, busy = false, onAnswer, onS
         <div className="flex shrink-0 items-center gap-2">
           <Button data-testid="update-yes" size="sm" variant="primary" disabled={busy} onClick={() => onAnswer(true)}>{t('upd_q_yes')}</Button>
           <Button data-testid="update-no" size="sm" variant="secondary" disabled={busy} onClick={() => onAnswer(false)}>{t('upd_q_no')}</Button>
-          <button type="button" data-testid="update-details" onClick={onDetails} className="text-[13px] text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary">{t('upd_q_details')}</button>
+          <button type="button" data-testid="update-details" onClick={onDetails} className="text-[13px] text-fg underline decoration-fg/40 underline-offset-2 hover:decoration-fg">{t('upd_q_details')}</button>
         </div>
       </div>
     );
