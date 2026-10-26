@@ -167,6 +167,50 @@
       ]
     },
     {
+      "name": "manifest-declared-size-unchecked",
+      "what": "a manifest that declares itself larger than the apps read is read all the same",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "if (Number.isFinite(declared) && declared > LIMITS.maxBytes) throw new ToolError(",
+          "new": "if (false) throw new ToolError("
+        }
+      ]
+    },
+    {
+      "name": "manifest-stream-uncapped",
+      "what": "a manifest with no length is read to its end",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "if (size > LIMITS.maxBytes) throw new ToolError(",
+          "new": "if (false) throw new ToolError("
+        }
+      ]
+    },
+    {
+      "name": "installer-comparison-optional",
+      "what": "a manifest is signed without an installer to compare it with",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "if (!installerFile && !allowUncheckedInstaller) {",
+          "new": "if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "race-file-removed",
+      "what": "a key file that appeared between the look and the creation is removed by the clean-up",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "if (created) fs.rmSync(target, { force: true });",
+          "new": "fs.rmSync(target, { force: true });"
+        }
+      ]
+    },
+    {
       "name": "tag-unchecked",
       "what": "any text is a tag",
       "patches": [

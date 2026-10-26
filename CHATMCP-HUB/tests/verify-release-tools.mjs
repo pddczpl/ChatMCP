@@ -257,11 +257,11 @@ try {
   assert.equal((await signRelease({ ...base, allowUncheckedInstaller: false, manifestFile, installerFile, out: path.join(folder('out'), SIGNATURE_ASSET) })).installerChecked, true, 'with the installer it signs, as before');
   // a manifest larger than the apps read is refused from its length, and one with no length that does not end is read only up to the limit (the stream here is 200 MiB long, so that a read to the end shows)
   feed.publish(null, { raw: 'x'.repeat(100 * 1024) });
-  await refused(() => signRelease({ ...base, releaseBase: feed.origin }), /larger than/i, 'a manifest of 100 KiB');
+  await refused(() => signRelease({ ...base, releaseBase: feed.origin }), /larger than.*it declares \d+/i, 'a manifest of 100 KiB, refused from its declared length');
   feed.publish(manifestOf(), { bom: true });
   let pulled = 0;
   const long = () => Promise.resolve(new Response(new ReadableStream({ pull(controller) { pulled += 1; if (pulled > 200) controller.close(); else controller.enqueue(new Uint8Array(1024 * 1024)); } }), { status: 200 }));
-  await refused(() => signRelease({ ...base, releaseBase: feed.origin, fetchImpl: long }), /larger than/i, 'a body with no length');
+  await refused(() => signRelease({ ...base, releaseBase: feed.origin, fetchImpl: long }), /larger than.*reading stopped/i, 'a body with no length, cut when it passes the limit');
   assert.ok(pulled <= 4, `reading stopped soon after the limit (${pulled} MiB were pulled)`);
   await refused(() => signRelease({ ...base, manifestFile, tag: 'v3.11.1' }), /3\.11\.0.*3\.11\.1|tag/i, 'a manifest of another version than the tag');
   for (const tag of ['3.11.0', 'v3.11', 'v3.11.0-rc.1', 'latest', '', 'v3.11.0/../x', null]) await refused(() => signRelease({ ...base, manifestFile, tag }), /tag/i, `a tag of ${JSON.stringify(tag)}`);

@@ -2,6 +2,22 @@
   "suite": "verify-e2e-update-download.mjs",
   "mutations": [
     {
+      "name": "downloads-loaded-before-the-lock",
+      "what": "the start-up cleaning of the folder of updates is done before the Hub holds the data folder, so a second start of the launcher deletes the first one's download",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "await downloads.load();",
+          "new": ""
+        },
+        {
+          "file": "hub.mjs",
+          "old": "updates.onChecked(() => downloads.reconcile());",
+          "new": "await downloads.load(); updates.onChecked(() => downloads.reconcile());"
+        }
+      ]
+    },
+    {
       "name": "state-without-download",
       "what": "the state of the Hub never says anything about the download",
       "patches": [

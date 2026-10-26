@@ -283,8 +283,19 @@
       "patches": [
         {
           "file": "lib/update-download.mjs",
-          "old": "if (!Number.isSafeInteger(installer.bytes) || installer.bytes < 1 || installer.bytes > DOWNLOAD.maxBytes) throw refusal('update_download_size', 'The size of the installer is out of range.', 409);",
+          "old": "if (!Number.isSafeInteger(installer.bytes) || installer.bytes < 1 || installer.bytes > DOWNLOAD.maxBytes) throw refusal('update_download_bad_size', 'The size of the installer is out of range.', 409);",
           "new": ""
+        }
+      ]
+    },
+    {
+      "name": "bad-size-told-as-a-stream-failure",
+      "what": "a size the manifest should not carry is refused with the code of a stream that did not match",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "throw refusal('update_download_bad_size', 'The size of the installer is out of range.', 409);",
+          "new": "throw refusal('update_download_size', 'The size of the installer is out of range.', 409);"
         }
       ]
     },
@@ -517,6 +528,77 @@
           "file": "lib/update-download.mjs",
           "old": "if (cancelWanted) { state = { state: 'idle' }; return { started: false, status: snapshot() }; }",
           "new": ""
+        }
+      ]
+    },
+    {
+      "name": "cancelled-click-fails",
+      "what": "a click that was cancelled while the release was looked at ends as the refusal that look gave",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (cancelWanted) { state = { state: 'idle' }; return { status: snapshot(), started: false }; }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "state-rename-not-retried",
+      "what": "the rename of the state file is tried once, so a lock that lasts a moment throws a checked installer away",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "await renameWhole(temporary, file); // the antivirus may hold this one too, and a checked installer is not thrown away for a lock that lasts a moment",
+          "new": "await fsp.rename(temporary, file);"
+        }
+      ]
+    },
+    {
+      "name": "clear-root-follows-link",
+      "what": "the tidying walks into a folder of updates that has become a link",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (stat === null || stat.isSymbolicLink() || !stat.isDirectory()) return;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "reconcile-skips-starting-click",
+      "what": "a check that finishes while a click is being looked at does not stop it",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "const subject = inProgress ? (job?.version ?? state.version ?? null) : (state.state === 'ready' ? state.version : null);",
+          "new": "const subject = inProgress ? (job?.version ?? null) : (state.state === 'ready' ? state.version : null);"
+        }
+      ]
+    },
+    {
+      "name": "reconcile-ignores-late-ready",
+      "what": "a download that ends ready after a cancel that came too late stays",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (!(state.state === 'ready' && state.version === subject)) return;",
+          "new": "return;"
+        }
+      ]
+    },
+    {
+      "name": "reconcile-says-idle-last",
+      "what": "the status says ready until the folder of a dropped download has been removed",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "state = { state: 'idle' }; // said first, so that nobody is shown \"ready\" for a folder that is on its way out",
+          "new": ""
+        },
+        {
+          "file": "lib/update-download.mjs",
+          "old": "log(`Bản cập nhật ${subject} đã tải về không còn được đề nghị nữa, nên đã xóa.`);",
+          "new": "state = { state: 'idle' }; log(`Bản cập nhật ${subject} đã tải về không còn được đề nghị nữa, nên đã xóa.`);"
         }
       ]
     },
