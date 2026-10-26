@@ -43,6 +43,13 @@ and plain-text report endpoints retain their explicit response formats, and a
 task's recorded cancellation is treated as task data.
 Deliberate page closes stop response capture and finish checking response bodies
 already received before disposing the page, including the restart scenario.
+That wait has an end (`e2e/response-body.mjs`). A reload cuts a response off between
+its headers and its body, and Chromium then neither delivers the body nor fails the
+read, so a response of the document the page has just left is let go of one second
+after the navigation (it is written to `browser-warnings.json`, not counted as an
+error); a body that does not arrive in 10 s on a page that stays fails the test by
+name instead of holding its teardown until the test timeout. Both cases are in
+`tests/e2e-gate.test.mjs`, against a local server that never ends the response.
 
 `english-screens.spec.mjs` reads the English screens against the real Hub and the scripted model, each for Vietnamese in its text and in its titles, labels and placeholders: the Agents tab (the list of background tasks, with a real task and its opened card, and no switch to sections that hand out work), the light theme, the ribbon above the conversation that chat made (finished with its details open, and running with its Stop button), the banner a stop leaves (its title and its Continue button are English, and Continue runs the conversation again; what the Hub wrote about the stop is the Hub's own Vietnamese sentence, shown as written, so the banner is not read whole), then the conversation screen and the sidebar: the Stop toast and the message the Continue button writes as the person's own, the sidebar read whole, the bar above the conversation and the one below it read whole with the Git branch picker the first one holds opened, a group folded and unfolded and the two questions it asks before it lets go of a folder or a conversation (real browser dialogs, answered "no"), the toast of the permission mode, of an approval and of a denial with the approval history under the conversation (the approval card, which the test names in English: "Approval: local.", "Approve", "Deny", "Confirm denial"), the notice that the next turn goes through another channel and the ChatGPT Web banner with its tooltip. Screenshots of each step are attached to the test output.
 
