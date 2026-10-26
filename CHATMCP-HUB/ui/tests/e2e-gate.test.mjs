@@ -43,6 +43,13 @@ test('browser error gate rejects malformed API responses and accepts explicit no
     { title: 'task report', route: `/api/tasks/${taskId}/report`, contentType: 'text/plain; charset=utf-8', body: 'Task report' },
     { title: 'valid JSON body pending at close', route: '/api/state', contentType: 'application/json', body: '{}', closeAfterHeaders: true },
     { title: 'malformed JSON body pending at close', route: '/api/state', contentType: 'application/json', body: '<html>late fallback</html>', closeAfterHeaders: true, error: 'Invalid API JSON' },
+    // A reload cuts a response off between its headers and the end of its body. Chromium then neither delivers the body nor fails the read, and
+    // Playwright raises no event: response.json() stays pending until the browser closes. The gate used to wait for it for good, so the
+    // teardown of a test that reloaded the page ran into the test timeout (twice on windows-latest, with the Hub idle and healthy).
+    // `within` is how long the case may take, teardown included: a second to let go of the response, not the 10 s a body is waited for on a page that stays, and not the 15 s of the test timeout.
+    { title: 'JSON body cut off by a reload', route: '/api/state', contentType: 'application/json', body: '{"half":', hold: true, reload: true, warning: 'API response dropped by a navigation: GET ', within: 8000 },
+    // Without a navigation nothing explains a body that does not come: that is a real hang of the response, and it fails the test at once (after the 1,500 ms the test asks for).
+    { title: 'JSON body that never arrives on a page that stays', route: '/api/state', contentType: 'application/json', body: '{"half":', hold: true, error: 'API response body did not arrive in 1500 ms: GET ', within: 8000 },
   ];
   try {
     const config = path.join(temp, 'playwright.config.mjs');
@@ -51,6 +58,8 @@ test('browser error gate rejects malformed API responses and accepts explicit no
     await fs.writeFile(path.join(temp, 'api-gate.spec.mjs'), `
       import http from 'node:http';
       import { test, expect } from ${JSON.stringify(fixtures)};
+      // The gate waits this long for a body that the page keeps on screen; the default is longer than a test of the gate should take.
+      test.use({ bodyLimitMs: 1500 });
       for (const entry of ${JSON.stringify(cases)}) {
         test(entry.title, async ({ page, browserErrors }) => {
           const server = http.createServer((request, response) => {
@@ -59,6 +68,9 @@ test('browser error gate rejects malformed API responses and accepts explicit no
               if (entry.closeAfterHeaders) {
                 response.flushHeaders();
                 setTimeout(() => response.end(entry.body), 250);
+              } else if (entry.hold) {
+                // The headers and the first bytes, and then nothing: the response is never ended (the browser hangs up when it cancels the request).
+                response.write(entry.body);
               } else response.end(entry.body);
             } else {
               response.writeHead(200, { 'content-type': 'text/html' });
@@ -73,10 +85,11 @@ test('browser error gate rejects malformed API responses and accepts explicit no
             await page.evaluate(async entry => {
               try {
                 const response = await fetch(entry.route);
-                if (!entry.closeAfterHeaders) await response.json();
+                if (!entry.closeAfterHeaders && !entry.hold) await response.json();
               } catch { /* handled by the consumer */ }
             }, entry);
             await expect.poll(() => browserErrors.requests.has(entry.route)).toBe(true);
+            if (entry.reload) await page.reload();
           } finally {
             await browserErrors.closePage(page);
             // Manual closure followed by fixture cleanup is safe to repeat.
@@ -101,6 +114,12 @@ test('browser error gate rejects malformed API responses and accepts explicit no
       const outcome = recorded.find(spec => spec.title === entry.title)?.tests[0]?.results[0];
       assert.equal(outcome?.status, entry.error ? 'failed' : 'passed', `${entry.title}: ${JSON.stringify(outcome)}`);
       if (entry.error) assert.ok(outcome.errors.some(error => error.message.includes(entry.error)), `${entry.title}: ${JSON.stringify(outcome.errors)}`);
+      if (entry.within) assert.ok(outcome.duration <= entry.within, `${entry.title}: took ${outcome.duration} ms, more than ${entry.within} ms`);
+      // What the gate let go of is not an error, but it is written down where a person reading the result finds it.
+      if (entry.warning) {
+        const warnings = outcome.attachments.find(attachment => attachment.name === 'browser-warnings.json');
+        assert.ok(warnings && Buffer.from(warnings.body, 'base64').toString('utf8').includes(entry.warning), `${entry.title}: ${JSON.stringify(outcome.attachments)}`);
+      }
     }
     assert.equal(value.stats.skipped, 0);
   } finally {

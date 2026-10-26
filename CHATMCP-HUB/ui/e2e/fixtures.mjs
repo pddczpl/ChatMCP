@@ -6,12 +6,16 @@ import { spawnSync } from 'node:child_process';
 import { startHub, cleanEnvironment, waitFor } from '../../tests/e2e/hub-process.mjs';
 import { startMockModel } from '../../tests/e2e/mock-model-server.mjs';
 import { makeCalcProject, gitInit, WRONG_EXPECTATION_TEST } from '../../tests/e2e/fixtures.mjs';
+import { BODY_LIMIT_MS, readBody } from './response-body.mjs';
 
 export const test = base.extend({
   failingProject: [false, { option: true }],
   // Extra environment for the Hub process. The shared harness sets CHATMCP_TOOL_SELECTION=full (tests/e2e/hub-process.mjs) because scripted
   // models call tools by name; a test of the Hub's own choice sets it to '' so that the context window decides.
   hubEnv: [{}, { option: true }],
+  // How long browserErrors waits for the body of an API response while the page stays on the document that asked for it (e2e/response-body.mjs).
+  // Only the test of the gate itself shortens it.
+  bodyLimitMs: [BODY_LIMIT_MS, { option: true }],
   app: async ({ failingProject, hubEnv, context, browserErrors }, use, testInfo) => {
     // Windows TEMP may use an 8.3 alias; compare the canonical path the Hub returns.
     const scratch = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-react-e2e-')));
@@ -52,7 +56,9 @@ export const test = base.extend({
       await use(app);
     } finally {
       await Promise.all(context.pages().map((page) => browserErrors.closePage(page)));
-      await hub?.stop();
+      // A Hub that does not stop is an error that carries its log (tests/e2e/hub-process.mjs), but the mock, the attached log and the folder are dealt with first.
+      let notStopped;
+      try { await hub?.stop(); } catch (error) { notStopped = error; }
       await mock?.close();
       for (const name of ['hub.log', 'hub-restart.log']) {
         const file = path.join(scratch, name);
@@ -62,10 +68,12 @@ export const test = base.extend({
       const resolved = await fs.realpath(scratch);
       const temp = await fs.realpath(os.tmpdir());
       if (path.dirname(resolved) !== temp || !path.basename(resolved).startsWith('chatmcp-react-e2e-')) throw new Error('Unsafe E2E cleanup path');
-      await fs.rm(resolved, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+      // A Hub that is still running holds its folder; that the folder cannot be removed is then the lesser news.
+      await fs.rm(resolved, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }).catch((error) => { if (!notStopped) throw error; });
+      if (notStopped) throw notStopped;
     }
   },
-  browserErrors: [async ({ context }, use, testInfo) => {
+  browserErrors: [async ({ context, bodyLimitMs }, use, testInfo) => {
     const errors = [];
     const warnings = [];
     const requests = new Set();
@@ -74,7 +82,16 @@ export const test = base.extend({
     const inspectPage = (page) => {
       const pageChecks = [];
       let navigationVersion = 0;
-      const onNavigation = frame => { if (frame === page.mainFrame()) navigationVersion++; };
+      // Settles when the main frame navigates away from the document it shows now: a response of that document that has not delivered its body
+      // by then was cut off (readBody).
+      let leaveDocument;
+      let documentGone = new Promise((resolve) => { leaveDocument = resolve; });
+      const onNavigation = frame => {
+        if (frame !== page.mainFrame()) return;
+        navigationVersion++;
+        leaveDocument();
+        documentGone = new Promise((resolve) => { leaveDocument = resolve; });
+      };
       page.on('framenavigated', onNavigation);
       page.on('pageerror', (error) => errors.push(`Runtime: ${error.message}`));
       page.on('console', (message) => {
@@ -88,6 +105,7 @@ export const test = base.extend({
       });
       const onResponse = (response) => {
         const responseNavigation = navigationVersion;
+        const responseDocumentGone = documentGone;
         const route = new URL(response.url()).pathname;
         if (!route.startsWith('/api/')) return;
         requests.add(route);
@@ -103,10 +121,21 @@ export const test = base.extend({
             errors.push(`Unexpected API content type: ${response.url()}: ${mediaType || '(missing)'}`);
             return;
           }
-          let value;
-          try { value = await response.json(); }
-          catch (error) {
-            const message = String(error?.message || error);
+          const read = await readBody(response, responseDocumentGone, { limitMs: bodyLimitMs });
+          // A reload cut the response off and Chromium reports nothing about it: the read never settles. The browser dropped it, so there is
+          // nothing left to check and nothing to blame (a note in browser-warnings.json says which response it was).
+          if (read.left) {
+            warnings.push(`API response dropped by a navigation: ${response.request().method()} ${response.url()}`);
+            return;
+          }
+          // The page stayed on the document that asked and the body never came: the response itself hangs. That fails the test by name instead
+          // of holding the teardown until the test timeout.
+          if (read.stuck) {
+            errors.push(`API response body did not arrive in ${bodyLimitMs} ms: ${response.request().method()} ${response.url()}`);
+            return;
+          }
+          if ('error' in read) {
+            const message = String(read.error?.message || read.error);
             // During deliberate page.reload/close on Windows Chromium the CDP
             // response-body handle can disappear AFTER status and MIME were read.
             // Do not misreport that navigation race as malformed JSON. Genuine
@@ -116,6 +145,7 @@ export const test = base.extend({
             if (!disposedByNavigation) errors.push(`Invalid API JSON: ${response.url()}: ${message}`);
             return;
           }
+          const value = read.value;
           // A task's persisted cancellation/failure is domain data, not an API failure envelope.
           if (value?.ok === false || (value?.error && !value?.id)) errors.push(`API error: ${response.url()}: ${JSON.stringify(value)}`);
         })();
