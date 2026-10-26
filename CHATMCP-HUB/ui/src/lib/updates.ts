@@ -1,8 +1,9 @@
 // What the page says about the update notice (lib/update-check.mjs on the Hub): which strip to draw under the header, which link to trust, how long "Check now" waits and how a failure is named.
 // Plain functions, so a test can pin the rules without a browser. The words are in the dictionary (lib/i18n.ts, keys upd_*); this file only chooses the key.
 //
-// The notice tells that a newer release exists and where its notes are; with a signature that checks, the owner can have the Hub download the installer (a click, never by itself). Nothing here
-// installs or starts anything. The words are in the dictionary; these functions only choose what to show.
+// The notice tells that a newer release exists and where its notes are; with a signature that checks, the owner can have the Hub download the installer (a click, never by itself), and inside the
+// desktop shell install it (a second click, which the shell checks again with its own code). Nothing here installs or starts anything by itself. The words are in the dictionary; these functions only
+// choose what to show.
 import type { UpdateInfo } from '../types/index';
 
 export type Lang = 'vi' | 'en';
@@ -204,4 +205,127 @@ export function formatWhen(iso: unknown, lang: Lang, timeZone?: string): string 
   const ms = Date.parse(iso);
   if (!Number.isFinite(ms)) return '–';
   return new Date(ms).toLocaleString(lang === 'en' ? 'en-US' : 'vi-VN', { dateStyle: 'medium', timeStyle: 'short', ...(timeZone ? { timeZone } : {}) });
+}
+
+// ---- installing the update (step 3) ----------------------------------------------------------------------------------------------------------------
+// The page offers "Install and restart" for an update that is ready, only inside the desktop shell (the page asks the shell, chatmcp.apply-update; in a plain browser there is nothing to ask), and holds it
+// back while the Hub is doing work (the installer refuses to stop a Hub that is, and by then the window is gone: the shell asks the Hub first, and so does the page, to disable the button with its reason).
+
+const WORK_STATUS: ReadonlySet<string> = new Set(['running', 'preparing', 'queued', 'planning', 'verifying', 'waiting_approval']);
+
+/** HubLifecycle.HasWork of the shell: the DIRECT properties of an object, and arrays one by one (an object inside an object is not looked into). */
+function hasWork(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasWork);
+  if (!isObject(value)) return false;
+  for (const [name, property] of Object.entries(value)) {
+    if ((name === 'activeTaskId' || name === 'activeRunId') && typeof property === 'string' && property !== '') return true;
+    if (name === 'activeTaskIds' && Array.isArray(property) && property.length > 0) return true;
+    if ((name === 'running' || name === 'integrating') && property === true) return true;
+    if ((name === 'status' || name === 'state') && typeof property === 'string' && WORK_STATUS.has(property)) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether the Hub is doing work that an update would cut off, from the state the page has (GET /api/state): the rule of HubLifecycle.WorkInState in native-shared/HubLifecycle.cs, which the installer
+ * applies before it stops the Hub and the shell applies before it exits, held to the same list of cases (CHATMCP-HUB/tests/fixtures/active-work-cases.json). A state that is not an object, or has no
+ * `agent`, is not an idle Hub (the page has not got it yet): fail closed. The coding answer is not part of the state: the shell asks for it too.
+ */
+export function hasActiveWork(state: unknown): boolean {
+  if (!isObject(state) || !('agent' in state) || hasWork(state.agent)) return true;
+  const studio = state.studio;
+  if (isObject(studio)) for (const name of ['terminals', 'delegates', 'dynamicDelegates']) if (name in studio && hasWork(studio[name])) return true;
+  return false;
+}
+
+/** The step of the owner's click: nothing yet, asked to confirm, waiting for the shell, or refused (with the code the shell gave). */
+export type ApplyPhase = { phase: 'idle' | 'confirm' | 'sending' } | { phase: 'refused'; code: string };
+export type ApplyKind = 'hidden' | 'browser' | 'blocked' | 'offer' | 'confirm' | 'sending' | 'refused';
+export type ApplyErrorGroup = 'tasks' | 'hub' | 'portable' | 'missing' | 'unproven' | 'nokey' | 'older' | 'busy' | 'launch' | 'no_answer' | 'other';
+
+export interface ApplyView {
+  kind: ApplyKind;
+  /** The release that would be installed (the one the Hub says is downloaded and checked). */
+  version: string | null;
+  /** For a refusal, what went wrong. */
+  group: ApplyErrorGroup | null;
+}
+
+const APPLY_GROUPS: Record<string, ApplyErrorGroup> = {
+  tasks_running: 'tasks', hub_unreachable: 'hub', not_installed: 'portable', not_in_shell: 'portable', no_update: 'missing', stale: 'missing', ambiguous: 'missing',
+  staging_unsafe: 'unproven', bad_signature: 'unproven', bad_manifest: 'unproven', bad_installer: 'unproven', no_trusted_key: 'nokey', not_newer: 'older', busy: 'busy', launch_failed: 'launch', no_answer: 'no_answer',
+};
+
+/** How a refusal of the shell is named (the key is `upd_apply_err_<group>`): what it means to a person. A code the page does not know is "other". */
+export function applyErrorGroup(code: unknown): ApplyErrorGroup {
+  return typeof code === 'string' && Object.hasOwn(APPLY_GROUPS, code) ? APPLY_GROUPS[code] : 'other';
+}
+
+/**
+ * What to draw for installing the release that is ready: nothing (no update is ready), a note that the desktop app does it (a plain browser), the button held back with its reason (work is running), the
+ * button, the confirm that says the app closes and opens again, the wait for the shell, or the shell's refusal in words (with the button back). `shell` is whether this page runs inside the desktop shell.
+ */
+export function applyView(update: UpdateInfo | null | undefined, hub: unknown, shell: boolean, apply: ApplyPhase): ApplyView {
+  const download = downloadView(update);
+  if (download.kind !== 'ready') return { kind: 'hidden', version: null, group: null };
+  const base = { version: download.version, group: null };
+  if (!shell) return { kind: 'browser', ...base };
+  if (apply.phase === 'sending') return { kind: 'sending', ...base };
+  if (hasActiveWork(hub)) return { kind: 'blocked', ...base };
+  if (apply.phase === 'confirm') return { kind: 'confirm', ...base };
+  if (apply.phase === 'refused') return { kind: 'refused', ...base, group: applyErrorGroup(apply.code) };
+  return { kind: 'offer', ...base };
+}
+
+export type ApplyEvent = { type: 'ask' } | { type: 'back' } | { type: 'confirm' } | { type: 'answered'; result: { ok: true } | { ok: false; code: string } };
+
+/**
+ * The steps of the owner's click on Install and restart: the button asks the question (also after a refusal), "back" is "not now" or putting a refusal away, Confirm sends the message, and the shell's answer is
+ * either the end (launched: the window is closing, so there is nothing more to show) or a refusal. An event that does not belong to the step changes nothing.
+ */
+export function applyReducer(state: ApplyPhase, event: ApplyEvent): ApplyPhase {
+  switch (event.type) {
+    case 'ask': return state.phase === 'idle' || state.phase === 'refused' ? { phase: 'confirm' } : state;
+    case 'back': return state.phase === 'confirm' || state.phase === 'refused' ? { phase: 'idle' } : state;
+    case 'confirm': return state.phase === 'confirm' ? { phase: 'sending' } : state;
+    case 'answered': return state.phase === 'sending' ? (event.result.ok ? state : { phase: 'refused', code: event.result.code }) : state;
+    default: return state;
+  }
+}
+
+/** The page of the notes of a release, built from the version alone; null for anything that is not a release version x.y.z. */
+export function notesUrlFor(version: unknown): string | null {
+  return typeof version === 'string' && RELEASE.test(version) ? `${NOTES_PREFIX}${version}` : null;
+}
+
+const APPLIED_STATES: ReadonlySet<string> = new Set(['installed', 'unchanged', 'rolled_back', 'needs_recovery']);
+/** The reasons the installer can write (native-shared/HubLifecycle.cs StepCode.Known); the key of the words is `upd_applied_reason_<code>`. Anything else is a failure to install. */
+const APPLIED_REASONS: ReadonlySet<string> = new Set([
+  'shell_not_exited', 'no_installation', 'not_newer', 'disk_full', 'pending_recovery', 'tasks_running', 'foreign_listener', 'hub_stop_failed', 'window_open', 'another_update', 'payload_invalid', 'install_failed',
+]);
+
+export interface AppliedView {
+  kind: 'none' | 'updated' | 'not_updated';
+  version: string | null;
+  previous: string | null;
+  /** The notes of `version`, built by the page; null when it is not a release version. */
+  notesUrl: string | null;
+  /** The key of the words for what went wrong; null for an update that went through. */
+  reasonKey: string | null;
+  state: 'installed' | 'unchanged' | 'rolled_back' | 'needs_recovery' | null;
+}
+
+/**
+ * What the last update left, from `update.applied`: "Updated to x.y.z" or why it did not go through. Read defensively (the Hub checked the file, and the page checks what it is given): anything that is not
+ * the shape of a result is nothing, a reason the page has no words for is "the files could not be replaced", and no text of the result is ever drawn.
+ */
+export function appliedView(update: UpdateInfo | null | undefined): AppliedView {
+  const none: AppliedView = { kind: 'none', version: null, previous: null, notesUrl: null, reasonKey: null, state: null };
+  const applied = isObject(update) ? update.applied : null;
+  if (!isObject(applied) || typeof applied.ok !== 'boolean' || typeof applied.version !== 'string' || !RELEASE.test(applied.version) || typeof applied.state !== 'string' || !APPLIED_STATES.has(applied.state)) return none;
+  const previous = typeof applied.previous === 'string' && RELEASE.test(applied.previous) ? applied.previous : null;
+  const state = applied.state as AppliedView['state'];
+  if (applied.ok) return { kind: 'updated', version: applied.version, previous, notesUrl: notesUrlFor(applied.version), reasonKey: null, state };
+  const reason = typeof applied.reason === 'string' && APPLIED_REASONS.has(applied.reason) ? applied.reason : 'install_failed';
+  return { kind: 'not_updated', version: applied.version, previous, notesUrl: notesUrlFor(applied.version), reasonKey: `upd_applied_reason_${reason}`, state };
 }

@@ -3,8 +3,8 @@
 // survive a reload and a Hub restart. Settings → Cập nhật / Updates shows the versions, "Check now" and the owner's choice, in both languages. Nothing is mocked in the page, and nothing is
 // intercepted but in the last test, which hands the page an answer to its poll that only a window that had been asleep would get (the Hub cannot make the page sleep).
 //
-// The link to the notes is never clicked: it goes to github.com. Its address, target and rel are read instead. Inside the desktop shell the same link goes through the shell's
-// new-window path (a preview tab), which this suite does not exercise (docs/THREAT-MODEL.md, Surface 8).
+// The link to the notes is never clicked: it goes to github.com. Its address, target and rel are read instead. Inside the desktop shell the shell opens it in the system browser (OpenLink.TryGetExternalLink,
+// checked with a real WebView2 by ui/e2e/webview2-smoke.mjs), which this suite does not exercise. The desktop shell itself is pretended where a test needs it (a window.chrome.webview put in front of the page).
 import { test as base, expect, openSettings, closeSettings, setTheme } from './fixtures.mjs';
 import { startUpdateFeed, feedManifest } from '../../tests/e2e/update-feed-server.mjs';
 import { throwawayKey } from '../../tests/support/release-keys.mjs';
@@ -293,7 +293,7 @@ const signedTest = base.extend({
 const DOWNLOAD = '/api/update/download';
 const CANCEL = '/api/update/download-cancel';
 
-signedTest('a signed release is downloaded on a click: the bar moves, Cancel stops it, the installer arrives whole, and nothing offers to install it', async ({ page, app, feed, installer, browserErrors }, testInfo) => {
+signedTest('a signed release is downloaded on a click: the bar moves, Cancel stops it, the installer arrives whole, and a plain browser says where to install it', async ({ page, app, feed, installer, browserErrors }, testInfo) => {
   await open(page, app);
   await page.getByTestId('update-yes').click();
   const notice = page.getByTestId('update-notice');
@@ -360,11 +360,11 @@ signedTest('a signed release is downloaded on a click: the bar moves, Cancel sto
   await button.click();
   const ready = page.getByTestId('update-download-ready');
   await expect(ready).toHaveText('Đã tải xong và đã kiểm tra.', { timeout: 30_000 });
-  await expect(page.getByTestId('update-download-ready-note')).toContainText('Cài đặt từ trong ứng dụng chưa có ở phiên bản này');
+  await expect(page.getByTestId('update-download-ready-note')).toContainText('ứng dụng trên máy tính kiểm tra lại tệp và chữ ký bằng mã của chính nó');
   expect(await fs.readFile(path.join(updates, '3.10.3', 'DatGoldSetup.exe')), 'the installer on disk is the bytes the stand-in served').toEqual(installer.bytes);
   expect(await fs.readdir(path.join(updates, '3.10.3'))).toEqual(expect.arrayContaining(['DatGoldSetup.exe', 'RELEASE-MANIFEST.json', 'RELEASE-MANIFEST.json.sig', 'state.json']));
-  await expect(page.locator('[data-testid*="install"], [data-testid*="apply"], [data-testid*="restart"]'), 'no way to install it, not even a hidden one').toHaveCount(0);
-  expect(await notice.innerText(), 'and no word that offers it').not.toMatch(/\b(?:Cài đặt ngay|Cập nhật ngay|Install|Restart|Relaunch)\b/i);
+  await expect(page.locator('button[data-testid*="apply"], button[data-testid*="install"], button[data-testid*="restart"]'), 'a plain browser has no shell to ask: nothing to press to install it, not even a hidden button').toHaveCount(0);
+  await expect(page.getByTestId('update-apply-browser'), 'it says where the update can be installed').toContainText('hãy mở ứng dụng DatGold trên máy tính');
   for (const theme of ['light', 'dark']) {
     await setTheme(page, theme);
     await page.waitForTimeout(400);
@@ -448,4 +448,237 @@ signedTest('a release that is not signed, or whose signature does not check, is 
   await expect(dialog.getByTestId('updates-signature')).toHaveText('Chưa được ký');
   await expect(dialog.getByTestId('updates-download')).toHaveCount(0);
   await closeSettings(page);
+});
+
+// ---- installing the downloaded update, inside the desktop shell ---------------------------------------------------------------------------------------
+// The page asks the shell with one message (chatmcp.apply-update) and the shell answers once (chatmcp.update-result). Chromium has no window.chrome.webview, so a pretend shell is put in front of the page
+// before it loads: it keeps what the page posts and says what the test tells it to say. What the real shell does with the message is native-shared/PageMessage.cs and UpdateApplier.cs, run by the native tests.
+
+/** Puts a pretend desktop shell in front of the page: window.chrome.webview with postMessage, the message listeners, and window.__shell for the test. */
+async function pretendShell(page) {
+  await page.addInitScript(() => {
+    const listeners = new Set();
+    window.__shell = {
+      posted: [],
+      say(data) { for (const listener of [...listeners]) listener({ data }); },
+      listeners: () => listeners.size,
+    };
+    window.chrome = window.chrome ?? {};
+    window.chrome.webview = {
+      postMessage: (message) => window.__shell.posted.push(JSON.parse(JSON.stringify(message))),
+      addEventListener: (type, listener) => { if (type === 'message') listeners.add(listener); },
+      removeEventListener: (type, listener) => { listeners.delete(listener); },
+    };
+  });
+}
+const posted = (page) => page.evaluate(() => window.__shell.posted);
+const say = (page, data) => page.evaluate((message) => window.__shell.say(message), data);
+const RESULT = 'chatmcp.update-result';
+
+signedTest('inside the desktop shell a downloaded update is installed on a second click: the question, the one message, a refusal in words, and the button held back while a task runs', async ({ page, app, feed }, testInfo) => {
+  await pretendShell(page);
+  await open(page, app);
+  await page.getByTestId('update-yes').click();
+  await page.getByTestId('update-download').click();
+  await expect(page.getByTestId('update-download-ready')).toBeVisible({ timeout: 30_000 });
+  const apply = page.getByTestId('update-apply');
+  await expect(apply, 'ready, in the shell, nothing running: the button').toHaveText('Cài đặt và khởi động lại');
+  await expect(apply).toBeEnabled();
+  await expect(page.getByTestId('update-apply-browser'), 'and not the sentence that says where to do it').toHaveCount(0);
+  expect(await posted(page), 'nothing has been sent').toEqual([]);
+
+  // ---- the question: it says the app closes and opens again, and "not now" takes it back ------------------------------------------------------------------
+  await apply.click();
+  const confirm = page.getByTestId('update-apply-confirm');
+  await expect(confirm).toBeVisible();
+  await expect(page.getByTestId('update-apply-confirm-text')).toHaveText('DatGold sẽ đóng lại, cài phiên bản 3.10.3 rồi mở lại. Cài đặt và các dự án của bạn không bị thay đổi.');
+  await expect(page.getByTestId('update-apply-no'), 'focus starts on the safe answer').toBeFocused();
+  expect(await posted(page), 'asking sends nothing').toEqual([]);
+  await page.getByTestId('update-apply-no').click();
+  await expect(apply).toBeVisible();
+  await expect(confirm).toHaveCount(0);
+  expect(await posted(page)).toEqual([]);
+
+  // ---- close and install: one message, type and id and nothing else -----------------------------------------------------------------------------------------
+  await apply.click();
+  await page.getByTestId('update-apply-yes').click();
+  const sending = page.getByTestId('update-apply-sending');
+  await expect(sending).toHaveText('Đang bắt đầu cập nhật…');
+  await expect(page.getByTestId('update-apply'), 'nothing to press twice while it waits').toHaveCount(0);
+  const first = await posted(page);
+  expect(first).toHaveLength(1);
+  expect(Object.keys(first[0]).sort(), 'the page sends two fields: the shell computes the folder, the file and the version itself').toEqual(['id', 'type']);
+  expect(first[0].type).toBe('chatmcp.apply-update');
+  expect(first[0].id).toMatch(/^[a-fA-F0-9-]{16,64}$/);
+  expect(await page.evaluate(() => window.__shell.listeners()), 'the page listens for the answer (and the bridge of links listens too)').toBeGreaterThanOrEqual(1);
+  // an answer to another request, and other messages of the shell, change nothing
+  await say(page, { type: RESULT, id: '0123456789abcdef-someone-else', ok: false, code: 'launch_failed' });
+  await say(page, { type: 'chatmcp.folder-result', id: first[0].id, path: null, error: null });
+  await expect(sending).toBeVisible();
+  // a refusal of the shell is said in words, and the button is back
+  await say(page, { type: RESULT, id: first[0].id, ok: false, code: 'tasks_running' });
+  await expect(page.getByTestId('update-apply-error')).toHaveText('Chưa bắt đầu cập nhật được: Vẫn còn tác vụ đang chạy. Hãy dừng chúng rồi thử lại.');
+  await expect(apply).toBeVisible();
+  await expect(sending).toHaveCount(0);
+  // ... and every other refusal has words of its own
+  const says = { hub_unreachable: /không hỏi được dịch vụ nền/, not_installed: /không do trình cài đặt tạo ra/, stale: /không còn ở đó, hoặc không phải bản đã được đề nghị/, bad_signature: /không xác nhận được tệp đã tải đúng là bản phát hành đã ký/, no_trusted_key: /chưa có khóa phát hành nào/, launch_failed: /Không khởi động được trình cài đặt/ };
+  for (const [code, words] of Object.entries(says)) {
+    await apply.click();
+    await page.getByTestId('update-apply-yes').click();
+    const request = (await posted(page)).at(-1);
+    await say(page, { type: RESULT, id: request.id, ok: false, code });
+    await expect(page.getByTestId('update-apply-error'), code).toContainText(words);
+  }
+  // the words read at 4.5:1 or better in both themes, and nothing scrolls the page sideways at 375px
+  const unreadable = [];
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme);
+    await page.waitForTimeout(400);
+    for (const id of ['update-apply-error', 'update-download-ready-note']) {
+      const ratio = await contrast(page.getByTestId(id));
+      if (ratio < 4.5) unreadable.push(`${id} in the ${theme} theme: ${ratio.toFixed(2)}`);
+    }
+    await page.screenshot({ path: testInfo.outputPath(`apply-refused-${theme}.png`), animations: 'disabled' });
+  }
+  await apply.click();
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme);
+    await page.waitForTimeout(400);
+    for (const id of ['update-apply-confirm-text', 'update-apply-yes', 'update-apply-no']) {
+      const ratio = await contrast(page.getByTestId(id));
+      if (ratio < 4.5) unreadable.push(`${id} in the ${theme} theme: ${ratio.toFixed(2)}`);
+    }
+    await page.screenshot({ path: testInfo.outputPath(`apply-confirm-${theme}.png`), animations: 'disabled' });
+  }
+  expect(unreadable, 'the install words read at 4.5:1 or better in both themes').toEqual([]);
+  for (const width of [640, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await noSideways(page), `the question does not scroll the page sideways at ${width}px`).toBe(true);
+    await expect(page.getByTestId('update-apply-yes'), `and its buttons are in reach at ${width}px`).toBeVisible();
+  }
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.getByTestId('update-apply-no').click();
+
+  // ---- launched: the window is closing, so the page only says so and goes on saying it ------------------------------------------------------------------------
+  const before = (await posted(page)).length;
+  await apply.click();
+  await page.getByTestId('update-apply-yes').click();
+  const launched = (await posted(page)).at(-1);
+  expect(await posted(page)).toHaveLength(before + 1);
+  await say(page, { type: RESULT, id: launched.id, ok: true, code: 'launched' });
+  await expect(page.getByTestId('update-apply-sending')).toBeVisible();
+  await expect(page.getByTestId('update-apply-error')).toHaveCount(0);
+  expect(await posted(page), 'and sent nothing more').toHaveLength(before + 1);
+  expect(feed.installer.hits(), 'the page asked the shell and never the feed: it installed nothing itself').toBeLessThanOrEqual(1);
+
+  // ---- Settings → Updates offers the same, for the same update -------------------------------------------------------------------------------------------------
+  await page.reload();
+  await expect(page.getByTestId('update-apply')).toBeVisible();
+  const dialog = await openSettings(page, 'Cập nhật');
+  await expect(dialog.getByTestId('updates-apply')).toHaveText('Cài đặt và khởi động lại');
+  await dialog.getByTestId('updates-apply').click();
+  await expect(dialog.getByTestId('updates-apply-confirm-text')).toContainText('DatGold sẽ đóng lại, cài phiên bản 3.10.3');
+  await dialog.getByTestId('updates-apply-no').click();
+  await closeSettings(page);
+
+  // ---- a task is running: the button is held back, with the reason; it comes back when the Hub is idle again --------------------------------------------------------
+  await page.route('**/api/state', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({ response, json: { ...body, agent: { ...(body.agent ?? {}), activeTaskId: 'task-running' } } });
+  });
+  await page.reload();
+  const held = page.getByTestId('update-apply');
+  await expect(held, 'a task is running: the button waits').toBeDisabled();
+  await expect(page.getByTestId('update-apply-blocked')).toContainText('Hãy dừng các tác vụ đang chạy trước');
+  await expect(held, 'and the reason is tied to it for a screen reader').toHaveAttribute('aria-describedby', 'update-apply-blocked');
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme);
+    await page.waitForTimeout(400);
+    expect(await contrast(page.getByTestId('update-apply-blocked')), `the reason in the ${theme} theme`).toBeGreaterThanOrEqual(4.5);
+  }
+  await page.unroute('**/api/state');
+  await page.reload();
+  await expect(page.getByTestId('update-apply'), 'the Hub is idle again: the button is back').toBeEnabled();
+});
+
+signedTest('in a plain browser a downloaded update says where it can be installed and offers no button, and the English words are the same', async ({ page, app }) => {
+  await open(page, app);
+  await page.getByTestId('update-yes').click();
+  await page.getByTestId('update-download').click();
+  await expect(page.getByTestId('update-download-ready')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('update-apply-browser')).toHaveText('Để cài bản này, hãy mở ứng dụng DatGold trên máy tính rồi bấm "Cài đặt và khởi động lại" ở đó.');
+  await expect(page.locator('button[data-testid*="apply"]'), 'no button, not even a hidden one: there is no shell to ask').toHaveCount(0);
+  const vietnamese = await openSettings(page, 'Giao diện & ngôn ngữ');
+  await vietnamese.getByRole('button', { name: 'English', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('update-apply-browser')).toHaveText('To install it, open the DatGold desktop app and press "Install and restart" there.');
+  expect(await page.getByTestId('update-notice').innerText(), 'the strip reads English').not.toMatch(VIETNAMESE);
+});
+
+// ---- what the last update left -------------------------------------------------------------------------------------------------------------------------
+// The installer leaves a result file (native-shared/UpdateContract.cs); the Hub that starts next reads it once (lib/update-applied.mjs). The test writes the file the installer would write and starts the
+// Hub again, as the shell does after an update.
+
+const resultFile = (app) => path.join(app.hub.stateDir, 'update-result.json');
+const note = (over = {}) => ({ format: 1, ok: true, version: '3.10.2', previous: '3.10.1', state: 'installed', reason: null, rolledBack: false, ...over });
+
+test('after an update the page says which version it updated to, once, with its notes, and the owner can dismiss it', async ({ page, app }, testInfo) => {
+  await fs.writeFile(resultFile(app), JSON.stringify(note()));
+  await app.restart();
+  await open(page, app);
+  const strip = page.getByTestId('update-applied');
+  await expect(strip).toBeVisible();
+  await expect(strip).toHaveAttribute('data-kind', 'updated');
+  await expect(strip).toHaveAttribute('role', 'status');
+  await expect(page.getByTestId('update-applied-text')).toHaveText('Đã cập nhật lên DatGold 3.10.2.');
+  const notes = page.getByTestId('update-applied-notes');
+  await expect(notes).toHaveText('Có gì mới');
+  await expect(notes).toHaveAttribute('href', 'https://github.com/pddczpl/ChatMCP/releases/tag/v3.10.2');
+  await expect(notes).toHaveAttribute('target', '_blank');
+  await expect(notes).toHaveAttribute('rel', 'noopener noreferrer');
+  expect(await fs.stat(resultFile(app)).catch(() => null), 'the Hub consumed the file when it read it').toBeNull();
+  expect((await app.hub.state()).update.applied).toEqual({ ok: true, version: '3.10.2', previous: '3.10.1', state: 'installed', reason: null, rolledBack: false });
+  const unreadable = [];
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme);
+    await page.waitForTimeout(400);
+    for (const id of ['update-applied-text', 'update-applied-notes', 'update-applied-dismiss']) {
+      const ratio = await contrast(page.getByTestId(id));
+      if (ratio < 4.5) unreadable.push(`${id} in the ${theme} theme: ${ratio.toFixed(2)}`);
+    }
+    await page.screenshot({ path: testInfo.outputPath(`updated-${theme}.png`), animations: 'disabled' });
+  }
+  expect(unreadable, 'the strip reads at 4.5:1 or better in both themes').toEqual([]);
+  await page.setViewportSize({ width: 375, height: 900 });
+  expect(await noSideways(page), 'and does not scroll the page sideways at 375px').toBe(true);
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  const dismissed = page.waitForResponse(post('/api/update/applied-dismiss'));
+  await page.getByTestId('update-applied-dismiss').click();
+  const answer = await dismissed;
+  expect([answer.status(), answer.request().postData()]).toEqual([200, '{}']);
+  await expect(strip).toHaveCount(0);
+  expect((await app.hub.state()).update.applied).toBeNull();
+  await page.reload();
+  await expect(page.getByTestId('update-applied'), 'and it does not come back').toHaveCount(0);
+});
+
+test('an update that did not go through says why, in words, and which version still runs; a file about another time says nothing', async ({ page, app }) => {
+  await fs.writeFile(resultFile(app), JSON.stringify(note({ ok: false, version: '3.10.3', previous: '3.10.2', state: 'unchanged', reason: 'tasks_running' })));
+  await app.restart();
+  await open(page, app);
+  const strip = page.getByTestId('update-applied');
+  await expect(strip).toHaveAttribute('data-kind', 'not_updated');
+  await expect(page.getByTestId('update-applied-text')).toHaveText('Lần cập nhật lên DatGold 3.10.3 không xong. Vẫn còn tác vụ đang chạy. DatGold 3.10.2 vẫn là phiên bản đang chạy.');
+  await expect(page.getByTestId('update-applied-notes'), 'no notes link for a release that was not installed').toHaveCount(0);
+  await page.getByTestId('update-applied-dismiss').click();
+  await expect(strip).toHaveCount(0);
+  // a file that is about another time is thrown away and shown to nobody
+  await fs.writeFile(resultFile(app), JSON.stringify(note({ version: '3.9.0', previous: null })));
+  await page.close();
+  await app.restart();
+  const next = await page.context().newPage();
+  await open(next, app);
+  await expect(next.getByTestId('update-applied')).toHaveCount(0);
+  expect(await fs.stat(resultFile(app)).catch(() => null), 'and its file is gone').toBeNull();
 });

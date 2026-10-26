@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { NOTES_PREFIX, autoView, cooldownMs, downloadErrorGroup, downloadView, errorGroup, formatBytes, formatWhen, noticeKind, pollInterval, refusalKey, safeNotesUrl, signatureView, statusKey } from '../src/lib/updates.ts';
+import fs from 'node:fs';
+import { NOTES_PREFIX, appliedView, applyErrorGroup, applyReducer, applyView, autoView, cooldownMs, downloadErrorGroup, downloadView, errorGroup, formatBytes, formatWhen, hasActiveWork, noticeKind, notesUrlFor, pollInterval, refusalKey, safeNotesUrl, signatureView, statusKey } from '../src/lib/updates.ts';
 
 // What the page says about the update notice (lib/update-check.mjs on the Hub): which strip to draw, which link to trust, how long a button waits, how a failure is named.
 // Plain functions, so the words and the rules are pinned without a browser.
@@ -199,4 +200,91 @@ test('a refusal of the Hub that has a code of the download is told in the words 
     update_download_folder: 'upd_dl_err_write', update_download_no_installer: 'upd_dl_err_name', update_download_bad_name: 'upd_dl_err_name', update_download_bad_size: 'upd_dl_err_name', update_download_size: 'upd_dl_err_mismatch',
   })) assert.equal(refusalKey(code), key, code);
   assert.equal(refusalKey('update_download_something_new'), null, 'a code the page does not know is shown as the Hub said it');
+});
+
+// ---- installing the update (step 3): when the page may offer it, and what it says when it was not done -------------------------------------------------------------
+
+const workCases = JSON.parse(fs.readFileSync(new URL('../../tests/fixtures/active-work-cases.json', import.meta.url), 'utf8')).cases;
+
+test('the page tells when work is running by the SAME rule as the shell and the installer, held to the same list of cases', () => {
+  assert.ok(workCases.length >= 25, `${workCases.length} cases`);
+  for (const item of workCases) assert.equal(hasActiveWork(item.state), item.inState, `${item.name} (the page has the state, not the coding answer)`);
+  for (const odd of [null, undefined, 5, 'agent', [], [{ agent: {} }]]) assert.equal(hasActiveWork(odd), true, `${JSON.stringify(odd)}: a state that is not an object is not an idle Hub (fail closed)`);
+});
+
+const ready = (overrides = {}) => signed({ download: { state: 'ready', version: '3.10.3', bytes: 232753314 }, ...overrides });
+const idleHub = { agent: { activeTaskId: null, tasks: [] }, studio: null };
+const busyHub = { agent: { activeTaskId: 'task-1', tasks: [] }, studio: null };
+const IDLE = { phase: 'idle' };
+
+test('the install control is offered only for an update that is ready, only inside the desktop shell, and is held back while work runs', () => {
+  const view = (update, hub, shell, apply = IDLE) => applyView(update, hub, shell, apply);
+  assert.deepEqual([view(ready(), idleHub, true).kind, view(ready(), idleHub, true).version], ['offer', '3.10.3'], 'ready, in the shell, idle: offered');
+  assert.equal(view(ready(), idleHub, false).kind, 'browser', 'in a plain browser it does nothing, and the page says where it can be done');
+  assert.equal(view(ready(), busyHub, true).kind, 'blocked', 'tasks running: held back, with the reason');
+  assert.equal(view(ready(), { agent: {}, studio: { terminals: [{ running: true }] } }, true).kind, 'blocked', 'a running terminal is work too');
+  assert.equal(view(ready(), {}, true).kind, 'blocked', 'a state with no agent is not an idle Hub');
+  assert.equal(view(ready(), undefined, true).kind, 'blocked', 'nor is a state the page has not got yet');
+  for (const other of [{ state: 'idle' }, { state: 'downloading', version: '3.10.3', received: 1, total: 2 }, { state: 'verifying', version: '3.10.3' }, { state: 'failed', version: '3.10.3', code: 'update_download_hash' }, undefined, null]) {
+    assert.equal(view(signed({ download: other }), idleHub, true).kind, 'hidden', `nothing to install while the download is ${JSON.stringify(other)}`);
+  }
+  assert.equal(view(ready({ download: { state: 'ready', version: '3.10.2', bytes: 5 } }), idleHub, true).kind, 'hidden', 'a ready download of another version than the one on offer is nothing here');
+  assert.equal(view(update({ available: false, latest: '3.10.2', download: { state: 'ready', version: '3.10.2', bytes: 5 } }), idleHub, true).kind, 'hidden', 'nothing newer is on offer: nothing to install');
+  assert.equal(view(null, idleHub, true).kind, 'hidden');
+  // the steps of the owner's click
+  assert.equal(view(ready(), idleHub, true, { phase: 'confirm' }).kind, 'confirm', 'asked once: the confirm says the app closes and opens again');
+  assert.equal(view(ready(), idleHub, true, { phase: 'sending' }).kind, 'sending', 'confirmed: waiting for the shell');
+  assert.equal(view(ready(), busyHub, true, { phase: 'confirm' }).kind, 'blocked', 'a task that starts while the owner is deciding takes the confirm back');
+  const refused = view(ready(), idleHub, true, { phase: 'refused', code: 'bad_signature' });
+  assert.deepEqual([refused.kind, refused.group], ['refused', 'unproven'], 'refused: the reason is said and the button is back');
+  assert.equal(view(ready(), busyHub, true, { phase: 'sending' }).kind, 'sending', 'sending shows even when a task has started (it is the shell that decides)');
+  assert.equal(view(ready(), idleHub, false, { phase: 'confirm' }).kind, 'browser', 'no confirm outside the shell, whatever state a test puts it in');
+});
+
+test("a refusal of the shell is named by what went wrong, and a code the page does not know is 'other'", () => {
+  const groups = {
+    tasks_running: 'tasks', hub_unreachable: 'hub', not_installed: 'portable', no_update: 'missing', stale: 'missing', ambiguous: 'missing',
+    staging_unsafe: 'unproven', bad_signature: 'unproven', bad_manifest: 'unproven', bad_installer: 'unproven', no_trusted_key: 'nokey', not_newer: 'older', busy: 'busy', launch_failed: 'launch',
+    no_answer: 'no_answer', not_in_shell: 'portable', something_new: 'other', '': 'other', update_http: 'other',
+  };
+  for (const [code, group] of Object.entries(groups)) assert.equal(applyErrorGroup(code), group, code);
+  for (const odd of [null, undefined, 5, {}, '__proto__', 'constructor', 'toString']) assert.equal(applyErrorGroup(odd), 'other');
+});
+
+test('what the last update left is shown for the version that runs, with its notes, and in words of the page', () => {
+  const applied = (overrides = {}) => ({ ok: true, version: '3.10.3', previous: '3.10.2', state: 'installed', reason: null, rolledBack: false, ...overrides });
+  const withApplied = (value) => update({ current: '3.10.3', available: false, latest: '3.10.3', applied: value });
+  assert.deepEqual(appliedView(withApplied(applied())), { kind: 'updated', version: '3.10.3', previous: '3.10.2', notesUrl: NOTES_PREFIX + '3.10.3', reasonKey: null, state: 'installed' });
+  const refused = appliedView(update({ applied: applied({ ok: false, version: '3.10.4', previous: '3.10.2', state: 'unchanged', reason: 'tasks_running' }) }));
+  assert.deepEqual(refused, { kind: 'not_updated', version: '3.10.4', previous: '3.10.2', notesUrl: NOTES_PREFIX + '3.10.4', reasonKey: 'upd_applied_reason_tasks_running', state: 'unchanged' });
+  for (const reason of ['shell_not_exited', 'no_installation', 'not_newer', 'disk_full', 'pending_recovery', 'tasks_running', 'foreign_listener', 'hub_stop_failed', 'window_open', 'another_update', 'payload_invalid', 'install_failed'])
+    assert.equal(appliedView(update({ applied: applied({ ok: false, state: 'unchanged', reason }) })).reasonKey, `upd_applied_reason_${reason}`, reason);
+  assert.equal(appliedView(update({ applied: applied({ ok: false, state: 'unchanged', reason: 'a reason of a later version' }) })).reasonKey, 'upd_applied_reason_install_failed', 'a reason the page has no words for is a failure to install');
+  assert.equal(appliedView(update({ applied: applied({ ok: false, state: 'unchanged', reason: 'C:\\Users\\x\\secret' }) })).reasonKey, 'upd_applied_reason_install_failed', 'and a path is never a key');
+  assert.equal(appliedView(update({ applied: applied({ ok: false, state: 'rolled_back', reason: 'install_failed', rolledBack: true }) })).state, 'rolled_back');
+  assert.equal(appliedView(update({ applied: applied({ ok: false, state: 'needs_recovery', reason: 'install_failed' }) })).state, 'needs_recovery');
+  for (const none of [undefined, null, 5, 'updated', [], {}, { ok: 'yes', version: '3.10.3' }, applied({ version: '3.10.3-rc.1' }), applied({ version: 3.103 }), applied({ version: '../3.10.3' }), applied({ state: 'exploded' })])
+    assert.equal(appliedView(update({ applied: none })).kind, 'none', `nothing for ${JSON.stringify(none)}`);
+  assert.equal(appliedView(null).kind, 'none');
+  assert.equal(appliedView(undefined).kind, 'none');
+  assert.equal(notesUrlFor('3.10.3'), NOTES_PREFIX + '3.10.3');
+  for (const odd of ['3.10', '3.10.3-rc.1', '../3.10.3', '3.10.3/../../x', '', null, undefined, 3, '3.10.3\n']) assert.equal(notesUrlFor(odd), null, `no link for ${JSON.stringify(odd)}`);
+});
+
+test('the click on Install and restart goes in steps, and every step can be taken back or refused', () => {
+  const step = (state, event) => applyReducer(state, event);
+  assert.deepEqual(step({ phase: 'idle' }, { type: 'ask' }), { phase: 'confirm' }, 'the button asks the question');
+  assert.deepEqual(step({ phase: 'confirm' }, { type: 'back' }), { phase: 'idle' }, 'not now');
+  assert.deepEqual(step({ phase: 'confirm' }, { type: 'confirm' }), { phase: 'sending' }, 'close and install');
+  assert.deepEqual(step({ phase: 'sending' }, { type: 'answered', result: { ok: true } }), { phase: 'sending' }, 'launched: the window is closing, there is nothing more to show');
+  assert.deepEqual(step({ phase: 'sending' }, { type: 'answered', result: { ok: false, code: 'bad_signature' } }), { phase: 'refused', code: 'bad_signature' }, 'refused: with the code of the shell');
+  assert.deepEqual(step({ phase: 'refused', code: 'x' }, { type: 'ask' }), { phase: 'confirm' }, 'after a refusal the button asks again');
+  assert.deepEqual(step({ phase: 'refused', code: 'x' }, { type: 'back' }), { phase: 'idle' }, 'and the refusal can be put away');
+  const same = [
+    [{ phase: 'idle' }, { type: 'confirm' }], [{ phase: 'idle' }, { type: 'back' }], [{ phase: 'idle' }, { type: 'answered', result: { ok: false, code: 'x' } }],
+    [{ phase: 'confirm' }, { type: 'answered', result: { ok: true } }], [{ phase: 'confirm' }, { type: 'ask' }],
+    [{ phase: 'sending' }, { type: 'ask' }], [{ phase: 'sending' }, { type: 'back' }], [{ phase: 'sending' }, { type: 'confirm' }],
+    [{ phase: 'refused', code: 'x' }, { type: 'confirm' }], [{ phase: 'refused', code: 'x' }, { type: 'answered', result: { ok: true } }],
+  ];
+  for (const [state, event] of same) assert.deepEqual(step(state, event), state, `${state.phase} + ${event.type}: an event that does not belong to the step changes nothing`);
 });

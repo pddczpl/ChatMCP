@@ -135,6 +135,8 @@ test('the update notice is one GET that asks nobody and five POSTs (the download
     assert.equal(typeof started.update, 'object');
     await api.cancelUpdateDownload();
     assert.deepEqual([seen[6].route, seen[6].method, seen[6].body], ['/api/update/download-cancel', 'POST', '{}']);
+    await api.dismissAppliedUpdate();
+    assert.deepEqual([seen[7].route, seen[7].method, seen[7].body], ['/api/update/applied-dismiss', 'POST', '{}'], 'dismissing what the last update left sends an empty body: nothing in it is read');
     for (const call of seen) assert.equal(call.headers.Authorization, 'Bearer ' + 'u'.repeat(40), `${call.route}: behind the bearer like every route`);
     for (const call of seen.filter((entry) => entry.method === 'POST')) {
       assert.equal(call.headers['X-ChatMCP-Request'], 'local-dashboard', `${call.route}: with the marker of the page`);
