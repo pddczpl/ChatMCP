@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "about": "The result file that the installer writes (--result) and the Hub of whichever version runs afterwards reads: a contract across versions, so every text is literal and the list only grows. `written` is what the installer writes for an outcome (scripts/tests/native-lifecycle/ContractTests.cs holds the installer to these texts byte for byte); `read` is what the Hub makes of a text while it runs `running` (CHATMCP-HUB/tests/verify-update-applied.mjs).",
+  "written": [
+    { "name": "installed", "text": "{\"format\":1,\"ok\":true,\"version\":\"3.11.0\",\"previous\":\"3.10.2\",\"state\":\"installed\",\"reason\":null,\"rolledBack\":false}" },
+    { "name": "refused before anything changed", "text": "{\"format\":1,\"ok\":false,\"version\":\"3.11.0\",\"previous\":\"3.10.2\",\"state\":\"unchanged\",\"reason\":\"tasks_running\",\"rolledBack\":false}" },
+    { "name": "failed and rolled back", "text": "{\"format\":1,\"ok\":false,\"version\":\"3.11.0\",\"previous\":\"3.10.2\",\"state\":\"rolled_back\",\"reason\":\"install_failed\",\"rolledBack\":true}" },
+    { "name": "failed and needs recovery", "text": "{\"format\":1,\"ok\":false,\"version\":\"3.11.0\",\"previous\":\"3.10.2\",\"state\":\"needs_recovery\",\"reason\":\"install_failed\",\"rolledBack\":false}" },
+    { "name": "the old version could not be read", "text": "{\"format\":1,\"ok\":false,\"version\":\"3.11.0\",\"previous\":null,\"state\":\"unchanged\",\"reason\":\"no_installation\",\"rolledBack\":false}" }
+  ]
+}

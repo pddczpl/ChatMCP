@@ -119,6 +119,7 @@ try
     LinkTests.Run(kit);
     ReleaseVectorTests.Run(kit);
     StagingTests.Run(kit);
+    ContractTests.Run(kit);
 
     var root = Path.Combine(scratch, "installed app with spaces"); Directory.CreateDirectory(root);
     File.WriteAllText(Path.Combine(root, "a.txt"), "old-a"); File.WriteAllText(Path.Combine(root, "b.txt"), "old-b");
