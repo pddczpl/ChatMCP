@@ -10,7 +10,7 @@ internal static class WorkTests
         var path = Path.Combine(AppContext.BaseDirectory, "active-work-cases.json");
         using var document = JsonDocument.Parse(File.ReadAllBytes(path));
         var cases = document.RootElement.GetProperty("cases").EnumerateArray().ToList();
-        kit.Check(cases.Count >= 25, "the list holds " + cases.Count + " cases");
+        kit.Check(cases.Count == 36, "the list holds " + cases.Count + " cases (36: the docs say so; a case added to the list is added there too)");
         foreach (var item in cases)
         {
             var name = item.GetProperty("name").GetString()!;

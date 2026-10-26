@@ -182,13 +182,13 @@ internal static class HubLifecycle
         catch { process.Dispose(); throw; }
     }
     /// <summary>
-    /// The words that say why the Hub's state (GET /api/state) holds work that an update would cut off, or null when it holds none: an agent that is not idle, or terminals and workers that run. A state with no `agent` is
-    /// work too (the Hub is not fully loaded: fail closed). The rule the installer applies before it stops the Hub and the shell applies before it exits, held to one list of cases with the page's port of it
-    /// (CHATMCP-HUB/tests/fixtures/active-work-cases.json).
+    /// The words that say why the Hub's state (GET /api/state) holds work that an update would cut off, or null when it holds none: an agent that is not idle, or terminals and workers that run. A state with no
+    /// `agent`, or one that is not an object (null, a string, a list), is work too (the Hub has not loaded its agent, or is not a Hub: fail closed). The rule the installer applies before it stops the Hub and
+    /// the shell applies before it exits, held to one list of cases with the page's port of it (CHATMCP-HUB/tests/fixtures/active-work-cases.json).
     /// </summary>
     internal static string? WorkInState(JsonElement data)
     {
-        if (data.ValueKind != JsonValueKind.Object || !data.TryGetProperty("agent", out var agent) || HasWork(agent))
+        if (data.ValueKind != JsonValueKind.Object || !data.TryGetProperty("agent", out var agent) || agent.ValueKind != JsonValueKind.Object || HasWork(agent))
             return "Stop active DatGold tasks before installing or uninstalling. Nothing was cancelled.";
         if (data.TryGetProperty("studio", out var studio) && studio.ValueKind == JsonValueKind.Object)
             foreach (var name in new[] { "terminals", "delegates", "dynamicDelegates" })

@@ -207,7 +207,7 @@ test('a refusal of the Hub that has a code of the download is told in the words 
 const workCases = JSON.parse(fs.readFileSync(new URL('../../tests/fixtures/active-work-cases.json', import.meta.url), 'utf8')).cases;
 
 test('the page tells when work is running by the SAME rule as the shell and the installer, held to the same list of cases', () => {
-  assert.ok(workCases.length >= 25, `${workCases.length} cases`);
+  assert.equal(workCases.length, 36, `${workCases.length} cases (36: the docs say so; a case added to the list is added there too)`);
   for (const item of workCases) assert.equal(hasActiveWork(item.state), item.inState, `${item.name} (the page has the state, not the coding answer)`);
   for (const odd of [null, undefined, 5, 'agent', [], [{ agent: {} }]]) assert.equal(hasActiveWork(odd), true, `${JSON.stringify(odd)}: a state that is not an object is not an idle Hub (fail closed)`);
 });

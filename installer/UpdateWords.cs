@@ -34,9 +34,22 @@ internal static class UpdateWords
         var still = outcome.Previous == null ? "The installed version has not been changed." : "DatGold " + outcome.Previous + " is still installed.";
         return outcome.State switch
         {
-            "needs_recovery" => "The update to " + outcome.Version + " stopped halfway and the old files could not all be put back. DatGold will not start until this is repaired: run DatGoldSetup.exe again, or look in the installer log in %LOCALAPPDATA%\\ChatMCP\\logs.",
+            "needs_recovery" => RecoveryFor(outcome),
             "rolled_back" => head + " The files that had been replaced were put back. " + still + (relaunched ? " It was opened again." : ""),
             _ => head + " " + still + (relaunched ? " It was opened again." : ""),
         };
+    }
+
+    /// <summary>
+    /// An update that left the installation in need of recovery, in two cases that must not be mixed up: the marker of an EARLIER update was found (this one was not started, nothing was changed) or this one stopped
+    /// halfway. Nothing recovers it by itself and setup refuses to install while the marker is there (InstallTransaction), so the words do not send the person to run the setup again: they say that DatGold will not
+    /// start, where the backup is and that it is not to be deleted, where the log is, and that setup will not install meanwhile.
+    /// </summary>
+    private static string RecoveryFor(UpdateOutcome outcome)
+    {
+        const string keep = "Keep the backup that .chatmcp-update-pending.json in the DatGold folder points to (do not delete it) and look in the installer log in %LOCALAPPDATA%\\ChatMCP\\logs. DatGoldSetup.exe will not install again while that file is there.";
+        return outcome.Reason == "pending_recovery"
+            ? "An earlier update of DatGold did not finish, so the update to " + outcome.Version + " was not started and nothing was changed. DatGold will not start until that earlier update is recovered. " + keep
+            : "The update to " + outcome.Version + " stopped halfway and the old files could not all be put back. DatGold will not start until this is recovered. " + keep;
     }
 }

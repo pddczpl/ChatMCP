@@ -211,6 +211,61 @@ try
     File.WriteAllText(Path.Combine(root, InstallTransaction.PendingName), "{}");
     Throws(() => { using var tx = new InstallTransaction(root); }, "interrupted update marker blocks a blind second update");
     File.Delete(Path.Combine(root, InstallTransaction.PendingName));
+
+    // What a damaged installer looks like to the result file: the payload checks of the transaction carry the code payload_invalid, so that the window says "This installer is damaged"
+    // and the page can say it too, instead of "The files could not be replaced".
+    {
+        Exception? Caught(Action action) { try { action(); return null; } catch (Exception error) { return error; } }
+        foreach (var unsafePath in new[] { "../escape.txt", "..\\escape.txt", "a/../../b", "/rooted.txt", "C:\\Windows\\x.txt", "bad:name.txt", "trailing.", "dir//file", "" })
+            Check(StepCode.Of(Caught(() => InstallTransaction.Normalize(unsafePath))) == "payload_invalid", "a payload path that is not safe is a damaged installer (payload_invalid): " + (unsafePath == "" ? "(empty)" : unsafePath));
+        Check(InstallTransaction.Normalize("CHATMCP-HUB\\lib/x.mjs") == "CHATMCP-HUB/lib/x.mjs", "while a good path is normalized and passes");
+        using var tx = new InstallTransaction(Path.Combine(scratch, "payload checks"));
+        tx.Add("one.txt", Bytes("one"));
+        Check(StepCode.Of(Caught(() => tx.Add("ONE.txt", Bytes("two")))) == "payload_invalid", "a payload that names a file twice (in any letter case) is a damaged installer");
+        Check(StepCode.Of(Caught(() => tx.Add("../x", Bytes("x")))) == "payload_invalid", "so is one that adds a path that leaves the folder");
+        Check(StepCode.Of(Caught(() => tx.StagedPath("missing.txt"))) == "payload_invalid" && Caught(() => tx.StagedPath("missing.txt")) is IOException, "and a component that the setup needs and the payload does not have (an IOException, not a lookup that failed)");
+        Check(tx.StagedPath("one.txt").Length > 0, "while a component that is there is found");
+    }
+
+    // The marker of an update in progress ("keep the backup, the launcher must not start") is made whole or not at all: it is written under another name and moved into place, so it is never
+    // there empty or half written (a marker like that blocks the launcher, setup and the uninstaller with nothing to recover from).
+    {
+        var pendingMarker = (string folder) => Path.Combine(folder, InstallTransaction.PendingName);
+        var guarded = Path.Combine(scratch, "marker cannot be written"); Directory.CreateDirectory(guarded);
+        File.WriteAllText(Path.Combine(guarded, "a.txt"), "old-a");
+        Directory.CreateDirectory(pendingMarker(guarded) + ".new"); // the name the marker is written under first is taken by a folder
+        using (var tx = new InstallTransaction(guarded))
+        {
+            tx.Add("a.txt", Bytes("new-a"));
+            Throws(() => tx.Commit((_, _) => { }), "when the marker cannot be written the update does not start");
+        }
+        Check(File.ReadAllText(Path.Combine(guarded, "a.txt")) == "old-a" && !File.Exists(pendingMarker(guarded)), "and no file was replaced and no marker was left behind");
+        Check(!Directory.EnumerateDirectories(guarded).Any(folder => Path.GetFileName(folder).StartsWith(".ChatMCP-update-", StringComparison.Ordinal)), "and the working folder of the transaction was removed (nothing to recover was kept)");
+
+        var whole = Path.Combine(scratch, "marker whole"); Directory.CreateDirectory(whole);
+        File.WriteAllText(Path.Combine(whole, "a.txt"), "old-a");
+        File.WriteAllText(pendingMarker(whole) + ".new", "left by an earlier run that died"); // a leftover under that name is replaced, not trusted
+        string? duringCommit = null;
+        using (var tx = new InstallTransaction(whole))
+        {
+            tx.Add("a.txt", Bytes("new-a"));
+            tx.Commit((_, _) => { duringCommit ??= File.ReadAllText(pendingMarker(whole)); });
+        }
+        using (var marked = JsonDocument.Parse(duringCommit ?? "null"))
+            Check(marked.RootElement.GetProperty("version").GetInt32() == 1 && Path.GetFileName(marked.RootElement.GetProperty("backupDirectory").GetString()!).StartsWith(".ChatMCP-update-", StringComparison.Ordinal),
+                "while the files are replaced the marker is whole JSON that names the folder of the backup");
+        Check(File.ReadAllText(Path.Combine(whole, "a.txt")) == "new-a" && !File.Exists(pendingMarker(whole)) && !File.Exists(pendingMarker(whole) + ".new"), "and after a good update neither the marker nor the name it is written under is left");
+
+        var raced = Path.Combine(scratch, "marker raced"); Directory.CreateDirectory(raced);
+        File.WriteAllText(Path.Combine(raced, "a.txt"), "old-a");
+        using (var tx = new InstallTransaction(raced))
+        {
+            tx.Add("a.txt", Bytes("new-a"));
+            File.WriteAllText(pendingMarker(raced), "{\"from\":\"another update\"}"); // an update that began between the check and the commit
+            Throws(() => tx.Commit((_, _) => { }), "a marker that appears after the transaction was made is not overwritten: the commit stops");
+        }
+        Check(File.ReadAllText(pendingMarker(raced)) == "{\"from\":\"another update\"}" && File.ReadAllText(Path.Combine(raced, "a.txt")) == "old-a" && !File.Exists(pendingMarker(raced) + ".new"), "and that marker is as it was, nothing was replaced and nothing of ours is left");
+    }
     using (var gate = HubLifecycle.AcquireUpdateLock(root))
     {
         try

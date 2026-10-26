@@ -66,9 +66,19 @@ internal sealed class ReleaseKeys
     /// <summary>The key list of its text (a byte order mark in front of it is dropped). Never throws: what is wrong with the file or with an entry is in <see cref="Ignored"/> (index -1 is the file).</summary>
     internal static ReleaseKeys Parse(string? text)
     {
+        try { return Read(text); }
+        catch (Exception error) when (error is JsonException or InvalidOperationException)
+        {
+            // JSON that .NET parses and then cannot give the text of (a lone surrogate, written \ud800, which JavaScript takes: see Json.TextOf; or a property named by one) cannot be read whole: it trusts nothing
+            return new ReleaseKeys(new List<ReleaseKey>(), new List<IgnoredKey> { new(-1, null, "not_json") }, 0);
+        }
+    }
+
+    private static ReleaseKeys Read(string? text)
+    {
         var keys = new List<ReleaseKey>(); var ignored = new List<IgnoredKey>(); var placeholders = 0;
         void Skip(int index, string reason, JsonElement? entry = null) =>
-            ignored.Add(new IgnoredKey(index, entry is { ValueKind: JsonValueKind.Object } e && e.TryGetProperty("kid", out var kid) && kid.ValueKind == JsonValueKind.String ? kid.GetString() : null, reason));
+            ignored.Add(new IgnoredKey(index, entry is { ValueKind: JsonValueKind.Object } e && e.TryGetProperty("kid", out var kid) ? Json.TextOf(kid) : null, reason));
         JsonDocument document;
         try { document = JsonDocument.Parse(Json.StripBom(text ?? ""), Json.Strict); } catch (JsonException) { Skip(-1, "not_json"); return new ReleaseKeys(keys, ignored, placeholders); }
         using (document)
@@ -76,7 +86,7 @@ internal sealed class ReleaseKeys
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object) { Skip(-1, "shape"); return new ReleaseKeys(keys, ignored, placeholders); }
             if (!root.TryGetProperty("version", out var version) || version.ValueKind != JsonValueKind.Number || !version.TryGetDouble(out var number) || number != 1) { Skip(-1, "version"); return new ReleaseKeys(keys, ignored, placeholders); }
-            if (root.TryGetProperty("algorithm", out var algorithm) && (algorithm.ValueKind != JsonValueKind.String || algorithm.GetString() != "ES256")) { Skip(-1, "algorithm"); return new ReleaseKeys(keys, ignored, placeholders); }
+            if (root.TryGetProperty("algorithm", out var algorithm) && Json.TextOf(algorithm) != "ES256") { Skip(-1, "algorithm"); return new ReleaseKeys(keys, ignored, placeholders); }
             if (!root.TryGetProperty("keys", out var list) || list.ValueKind != JsonValueKind.Array) { Skip(-1, "shape"); return new ReleaseKeys(keys, ignored, placeholders); }
             var seen = new HashSet<string>(StringComparer.Ordinal);
             var index = -1;
@@ -84,15 +94,15 @@ internal sealed class ReleaseKeys
             {
                 index++;
                 if (entry.ValueKind != JsonValueKind.Object) { Skip(index, "entry"); continue; }
-                var use = entry.TryGetProperty("use", out var usage) && usage.ValueKind == JsonValueKind.String ? usage.GetString() : null;
+                var use = entry.TryGetProperty("use", out var usage) ? Json.TextOf(usage) : null;
                 if (use == "placeholder") { placeholders++; continue; }
                 if (use != "release") { Skip(index, "use", entry); continue; }
                 if (keys.Count >= MaxKeys) { Skip(index, "too_many", entry); continue; }
-                var spki = entry.TryGetProperty("spki", out var encoded) && encoded.ValueKind == JsonValueKind.String ? Json.DecodeBase64(encoded.GetString()) : null;
+                var spki = entry.TryGetProperty("spki", out var encoded) ? Json.DecodeBase64(Json.TextOf(encoded)) : null;
                 if (spki == null) { Skip(index, "key_encoding", entry); continue; }
                 if (!IsCanonicalP256(spki)) { Skip(index, "key_der", entry); continue; }
                 var kid = IdOf(spki);
-                if (!entry.TryGetProperty("kid", out var claimed) || claimed.ValueKind != JsonValueKind.String || claimed.GetString() != kid) { Skip(index, "kid_mismatch", entry); continue; }
+                if (!entry.TryGetProperty("kid", out var claimed) || Json.TextOf(claimed) != kid) { Skip(index, "kid_mismatch", entry); continue; }
                 if (!seen.Add(kid)) { Skip(index, "duplicate", entry); continue; }
                 keys.Add(new ReleaseKey(kid, spki));
             }
@@ -159,17 +169,21 @@ internal static class ReleaseSignature
         string text;
         try { text = new UTF8Encoding(false, throwOnInvalidBytes: true).GetString(bytes); } catch (DecoderFallbackException) { throw new SignatureRefused("encoding"); }
         JsonDocument document;
-        try { document = JsonDocument.Parse(Json.StripBom(text), Json.Strict); } catch (JsonException) { throw new SignatureRefused("json"); }
+        try { document = JsonDocument.Parse(Json.StripBom(text), Json.Strict); } catch (Exception error) when (error is JsonException or InvalidOperationException) { throw new SignatureRefused("json"); }
         using (document)
         {
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object) throw new SignatureRefused("shape");
-            if (!root.TryGetProperty("alg", out var alg) || alg.ValueKind != JsonValueKind.String || alg.GetString() != "ES256") throw new SignatureRefused("alg");
-            if (!root.TryGetProperty("kid", out var kid) || kid.ValueKind != JsonValueKind.String || !KeyId.IsMatch(kid.GetString()!)) throw new SignatureRefused("kid");
-            var signature = root.TryGetProperty("sig", out var encoded) && encoded.ValueKind == JsonValueKind.String ? Json.DecodeBase64(encoded.GetString()) : null;
-            if (signature == null) throw new SignatureRefused("sig_encoding");
-            if (signature.Length != SignatureBytes) throw new SignatureRefused("sig_length");
-            return (kid.GetString()!, signature);
+            try
+            {
+                if (!root.TryGetProperty("alg", out var alg) || Json.TextOf(alg) != "ES256") throw new SignatureRefused("alg");
+                if (!root.TryGetProperty("kid", out var kidElement) || Json.TextOf(kidElement) is not { } kid || !KeyId.IsMatch(kid)) throw new SignatureRefused("kid");
+                var signature = root.TryGetProperty("sig", out var encoded) ? Json.DecodeBase64(Json.TextOf(encoded)) : null;
+                if (signature == null) throw new SignatureRefused("sig_encoding");
+                if (signature.Length != SignatureBytes) throw new SignatureRefused("sig_length");
+                return (kid, signature);
+            }
+            catch (InvalidOperationException) { throw new SignatureRefused("json"); } // a property that .NET cannot compare the name of (see Json.TextOf): the file cannot be read
         }
     }
 }
@@ -198,28 +212,31 @@ internal sealed record ReleaseManifest(string Version, string Commit, IReadOnlyL
     internal static ReleaseManifest Parse(byte[] bytes)
     {
         JsonDocument document;
-        try { document = JsonDocument.Parse(Json.StripBom(bytes), Json.Strict); } catch (JsonException) { throw new ManifestRefused("the file is not JSON"); }
+        try { document = JsonDocument.Parse(Json.StripBom(bytes), Json.Strict); } catch (Exception error) when (error is JsonException or InvalidOperationException) { throw new ManifestRefused("the file is not JSON"); }
         using (document)
         {
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object) throw new ManifestRefused("the file is not an object");
-            if (!root.TryGetProperty("version", out var version) || version.ValueKind != JsonValueKind.String) throw new ManifestRefused("no version");
-            var versionText = version.GetString()!;
-            if (!ReleaseVersion.TryParse(versionText, out _)) throw new ManifestRefused("the version is not a release x.y.z");
-            if (!root.TryGetProperty("commit", out var commit) || commit.ValueKind != JsonValueKind.String || !Commit40.IsMatch(commit.GetString()!)) throw new ManifestRefused("the commit is not 40 hexadecimal characters");
-            if (!root.TryGetProperty("assets", out var list) || list.ValueKind != JsonValueKind.Array || list.GetArrayLength() > MaxAssets) throw new ManifestRefused("the assets are not a short list");
-            var assets = new List<ReleaseAsset>(); var names = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var asset in list.EnumerateArray())
+            try
             {
-                if (asset.ValueKind != JsonValueKind.Object) throw new ManifestRefused("an asset is not an object");
-                if (!asset.TryGetProperty("name", out var name) || name.ValueKind != JsonValueKind.String || !AssetName.IsMatch(name.GetString()!)) throw new ManifestRefused("an asset has a name that is not a file name");
-                if (!asset.TryGetProperty("bytes", out var size) || size.ValueKind != JsonValueKind.Number || !size.TryGetInt64(out var count) || count < 0 || count > MaxSafe) throw new ManifestRefused("an asset has a size that is not a count of bytes");
-                if (!asset.TryGetProperty("sha256", out var digest) || digest.ValueKind != JsonValueKind.String || !Digest.IsMatch(digest.GetString()!)) throw new ManifestRefused("an asset has a digest that is not SHA-256");
-                if (!names.Add(name.GetString()!.ToLowerInvariant())) throw new ManifestRefused("two assets have one name");
-                assets.Add(new ReleaseAsset(name.GetString()!, count, digest.GetString()!.ToLowerInvariant()));
+                if (!root.TryGetProperty("version", out var version) || Json.TextOf(version) is not { } versionText) throw new ManifestRefused("no version");
+                if (!ReleaseVersion.TryParse(versionText, out _)) throw new ManifestRefused("the version is not a release x.y.z");
+                if (!root.TryGetProperty("commit", out var commit) || Json.TextOf(commit) is not { } commitText || !Commit40.IsMatch(commitText)) throw new ManifestRefused("the commit is not 40 hexadecimal characters");
+                if (!root.TryGetProperty("assets", out var list) || list.ValueKind != JsonValueKind.Array || list.GetArrayLength() > MaxAssets) throw new ManifestRefused("the assets are not a short list");
+                var assets = new List<ReleaseAsset>(); var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var asset in list.EnumerateArray())
+                {
+                    if (asset.ValueKind != JsonValueKind.Object) throw new ManifestRefused("an asset is not an object");
+                    if (!asset.TryGetProperty("name", out var nameElement) || Json.TextOf(nameElement) is not { } name || !AssetName.IsMatch(name)) throw new ManifestRefused("an asset has a name that is not a file name");
+                    if (!asset.TryGetProperty("bytes", out var size) || size.ValueKind != JsonValueKind.Number || !size.TryGetInt64(out var count) || count < 0 || count > MaxSafe) throw new ManifestRefused("an asset has a size that is not a count of bytes");
+                    if (!asset.TryGetProperty("sha256", out var digestElement) || Json.TextOf(digestElement) is not { } digest || !Digest.IsMatch(digest)) throw new ManifestRefused("an asset has a digest that is not SHA-256");
+                    if (!names.Add(name.ToLowerInvariant())) throw new ManifestRefused("two assets have one name");
+                    assets.Add(new ReleaseAsset(name, count, digest.ToLowerInvariant()));
+                }
+                var programs = assets.Where(asset => asset.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)).ToList();
+                return new ReleaseManifest(versionText, commitText.ToLowerInvariant(), assets, programs.Count == 1 ? programs[0] : null);
             }
-            var programs = assets.Where(asset => asset.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)).ToList();
-            return new ReleaseManifest(versionText, commit.GetString()!.ToLowerInvariant(), assets, programs.Count == 1 ? programs[0] : null);
+            catch (InvalidOperationException) { throw new ManifestRefused("the file cannot be read as JSON"); } // a property that .NET cannot compare the name of (see Json.TextOf)
         }
     }
 }
@@ -229,6 +246,18 @@ internal static class Json
 {
     /// <summary>Strict: no comment, no trailing comma, no repeated name in an object (JavaScript would take the last one and .NET another), and no more than 32 levels.</summary>
     internal static readonly JsonDocumentOptions Strict = new() { AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow, MaxDepth = 32, AllowDuplicateProperties = false };
+
+    /// <summary>
+    /// The text of a JSON string value, or null when <paramref name="element"/> is not a string or its text cannot be had. JSON may write a lone surrogate (\ud800): JavaScript, and so the Hub, reads it, and
+    /// .NET parses the document but throws InvalidOperationException (not JsonException) as soon as it is asked for that text, so a reader that expects only JsonException lets it out. A value like that is a
+    /// value that is not a usable string, and each check that looks for text refuses it as it refuses a number. (A PROPERTY named by one makes .NET throw on parsing with <see cref="Strict"/>, or on the
+    /// first lookup of a name; the readers catch that and refuse the document.)
+    /// </summary>
+    internal static string? TextOf(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.String) return null;
+        try { return element.GetString(); } catch (InvalidOperationException) { return null; }
+    }
 
     /// <summary>The text without a byte order mark in front of it.</summary>
     internal static string StripBom(string text) => text.Length > 0 && text[0] == '﻿' ? text[1..] : text;

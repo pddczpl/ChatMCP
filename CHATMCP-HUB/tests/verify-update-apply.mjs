@@ -45,6 +45,8 @@ check(/Set-StrictMode -Version 2\.0/.test(buildScript), 'and it runs under stric
 
 const shellProject = read('desktop-shell/ChatMCP.csproj');
 const installerProject = read('installer/ChatMCP.Installer.csproj');
+check(/\$shellKeysFile = if \(\$ReleaseKeysFile -ne ''\) \{ \$ReleaseKeysFile \} else \{ Join-Path \$repoRoot 'CHATMCP-HUB\\lib\\release-keys\.json' \}/.test(buildScript) && /"-p:ReleaseKeysFile=\$shellKeysFile"/.test(buildScript) && !/@shellKeys\b/.test(buildScript),
+  'scripts/Build-Installer.ps1 ALWAYS names the key list the shell is built with (MSBuild reads an environment variable called ReleaseKeysFile as a property: left to the default of the project, it would be the list the program trusts)');
 check(propertyGroups(shellProject) === 1, 'desktop-shell/ChatMCP.csproj has ONE PropertyGroup (Build-Installer.ps1 reads its Version as one element)', `found ${propertyGroups(shellProject)}`);
 check(propertyGroups(installerProject) === 1, 'installer/ChatMCP.Installer.csproj has ONE PropertyGroup', `found ${propertyGroups(installerProject)}`);
 check(/<Version>[^<]+<\/Version>/.test(shellProject) && /<Version>[^<]+<\/Version>/.test(installerProject), 'both name their version');
@@ -128,6 +130,19 @@ const mainUpdate = strip(read('desktop-shell/MainWindow.Update.cs'));
 check(/UseShellExecute\s*=\s*false/.test(applier) && !/UseShellExecute\s*=\s*true/.test(applier + mainUpdate), 'the installer is started without a shell');
 check(/ArgumentList\.Add\(/.test(applier) && !/(?<![A-Za-z])Arguments\s*=/.test(applier + mainUpdate) && !/new ProcessStartInfo\([^)]*,/.test(applier + mainUpdate), 'with an argument list, never a command line made by joining text');
 check(!/cmd(?:\.exe)?\b|powershell|pwsh|Process\.Start\(\s*"/i.test(applier + mainUpdate), 'and never through cmd or PowerShell');
+
+// ---- every reason an update can end with is carried by some step --------------------------------------------------------------------------------------------------------------------------
+// A code of the closed list (StepCode.Known, which the Hub's list and the page's list repeat) that no step of the installer ever carries is a reason the window and the page have words for and nobody ever
+// sees: window_open and payload_invalid were that, until the steps that refuse for them were tagged. A code has a producer when its text stands in a source of the installer or of native-shared other than the
+// list itself and the words (UpdateWords.cs).
+const sourcesWithProducers = [...fs.readdirSync(path.join(repo, 'installer')).filter((name) => name.endsWith('.cs')).map((name) => `installer/${name}`), ...fs.readdirSync(path.join(repo, 'native-shared')).filter((name) => name.endsWith('.cs')).map((name) => `native-shared/${name}`)]
+  .filter((file) => file !== 'installer/UpdateWords.cs')
+  .map((file) => strip(read(file)).replace(/internal static readonly IReadOnlySet<string> Known = new HashSet<string>\(StringComparer\.Ordinal\)\s*\{[\s\S]*?\};/, ''));
+const producerCount = (code, sources) => sources.filter((text) => text.includes(`"${code}"`)).length;
+const reasonCodes = [...(/internal static readonly IReadOnlySet<string> Known = new HashSet<string>\(StringComparer\.Ordinal\)\s*\{([\s\S]*?)\};/.exec(strip(read('native-shared/HubLifecycle.cs')))?.[1] ?? '').matchAll(/"([a-z_]+)"/g)].map((match) => match[1]);
+check(reasonCodes.length === 12 && new Set(reasonCodes).size === 12, 'the closed list of reasons has 12 codes', reasonCodes.join());
+for (const code of reasonCodes) check(producerCount(code, sourcesWithProducers) >= 1, `the reason ${code} is carried by a step of the installer (not only listed and worded)`);
+check(producerCount('a_reason_nobody_carries', sourcesWithProducers) === 0 && producerCount('window_open', [strip(read('installer/UpdateWords.cs'))]) === 1, 'negative control: a code that stands nowhere has no producer, and the words alone are not one');
 
 // ---- the mutations of the native code (scripts/tests/native-lifecycle/mutations.json, run by run-mutations.mjs): a pattern that no longer occurs exactly once in its file tests nothing, silently
 const staleOnes = (list, source) => {

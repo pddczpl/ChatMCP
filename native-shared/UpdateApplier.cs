@@ -22,6 +22,9 @@ internal sealed class ApplyEnvironment
     internal Func<ProcessStartInfo, int> Start { get; set; } = info => throw new InvalidOperationException("No way to start a program.");
 }
 
+/// <summary>What the shell saw of the installer it started: its window is on the screen, it has ended, or (when neither happened in the time it was given) it showed nothing.</summary>
+internal enum InstallerSighting { Window, Exited, Silent }
+
 /// <summary>
 /// The sequence of the shell when the page asks for the update to be installed, in the order that keeps the person's work and the installation safe: (1) this must be an installed copy; (2) the Hub is asked
 /// whether it is doing work, BEFORE anything else, because the installer's own refusal comes after this window is gone; (3) the update is found and verified with the shell's own code, off the thread that
@@ -44,13 +47,42 @@ internal static class UpdateApplier
         {
             var offered = await CheckHubIsIdle(environment);
             if (offered != update.Version.ToString()) throw new UpdateRefused("stale", "the Hub offers " + (offered ?? "nothing") + " and the folder holds " + update.Version);
-            beforeStart();
             var start = new ProcessStartInfo(update.InstallerPath) { UseShellExecute = false, WorkingDirectory = update.Folder };
             foreach (var argument in UpdateArguments.Build(environment.InstalledDirectory, environment.ShellPid, Path.Combine(environment.StateDirectory, ResultFileName))) start.ArgumentList.Add(argument);
-            try { return environment.Start(start); }
+            RequireReadableByInstaller(start);
+            beforeStart();
+            // Off the thread that draws the window: starting a file of 230 MB can wait for a virus scan, and the window must keep answering. The file stays held until Start has returned.
+            try { return await Task.Run(() => environment.Start(start)); }
             catch (Exception error) when (error is not UpdateRefused) { throw new UpdateRefused("launch_failed", error.GetType().Name); }
             // the file is let go here, when Start has returned and not before: the program is made from the path
         }
+    }
+
+    /// <summary>
+    /// The installer reads its command line with <see cref="InstallerCommandLine"/>, and one it cannot read makes it exit AT ONCE with nothing on the screen, after this window has gone. So the shell reads the
+    /// arguments it is about to give the way the installer will (with the name of the file that it starts, which is part of what the installer reads), before anything is stopped or started.
+    /// </summary>
+    private static void RequireReadableByInstaller(ProcessStartInfo start)
+    {
+        InstallerCommand command;
+        try { command = InstallerCommandLine.Parse(start.ArgumentList.ToArray(), Path.GetFileNameWithoutExtension(start.FileName)); }
+        catch (ArgumentException) { throw new UpdateRefused("launch_failed", "the installer would not read the arguments it is given"); }
+        if (command.Mode != InstallerMode.Update) throw new UpdateRefused("launch_failed", "the arguments are not those of an update");
+    }
+
+    /// <summary>
+    /// Gives the installer up to <paramref name="limit"/> to put its own window on the screen, so that the person never looks at an empty desktop between this window closing and that one opening, and says what it saw:
+    /// the window, the installer already ended, or (nothing in that time) <see cref="InstallerSighting.Silent"/>. The installer waits for this shell to exit, so one that has ended before the shell has closed
+    /// cannot have replaced anything: it did not start well, and the window that started it must stay and say so. <paramref name="look"/> answers for this moment (null: running, no window yet).
+    /// </summary>
+    internal static async Task<InstallerSighting> WaitForInstaller(Func<InstallerSighting?> look, TimeSpan limit, TimeSpan step, Func<TimeSpan, Task> delay)
+    {
+        for (var waited = TimeSpan.Zero; waited < limit; waited += step)
+        {
+            if (look() is { } seen) return seen;
+            await delay(step);
+        }
+        return look() ?? InstallerSighting.Silent;
     }
 
     /// <summary>Asks the Hub; refuses when it is working, or cannot be asked. Returns the version the Hub says is ready.</summary>

@@ -51,8 +51,11 @@ namespace ChatMCP.Desktop
                 };
                 // the monitor of the Hub is stopped only when everything has been checked and the installer is about to start: it would otherwise tell the person that the Hub went away
                 var installerPid = await UpdateApplier.ApplyAsync(environment, () => { _hubMonitor.Stop(); monitorStopped = true; });
+                // The installer waits for this process to exit, so one that has already ended did not start well and replaced nothing (it could not read its arguments, say): this window stays open and says so,
+                // and the monitor is started again below. Otherwise the installer is given a few seconds to put its own window on the screen, so that the person never looks at an empty desktop.
+                var seen = await UpdateApplier.WaitForInstaller(() => LookAtInstaller(installerPid), TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(100), Task.Delay);
+                if (seen == InstallerSighting.Exited) throw new UpdateRefused("launch_failed", "the installer ended before this window closed");
                 ReplyToPage(requestId, true, "launched");
-                await WaitForWindowOf(installerPid);
                 // The installer waits for this process to exit; the Hub is left running, as when the window is closed by hand, and the installer stops it itself.
                 Close();
             }
@@ -70,20 +73,18 @@ namespace ChatMCP.Desktop
             }
         }
 
-        /// <summary>Gives the installer up to 5 seconds to put its own window on the screen, so that the person never looks at an empty desktop between this window closing and that one opening.</summary>
-        private static async Task WaitForWindowOf(int processId)
+        /// <summary>What the installer with this id is doing now: its window is up, it has ended (or no process has the id any more), or neither (null: running, no window yet, or it cannot be looked at).</summary>
+        private static InstallerSighting? LookAtInstaller(int processId)
         {
-            for (var tries = 0; tries < 50; tries++)
+            try
             {
-                try
-                {
-                    using var installer = Process.GetProcessById(processId);
-                    installer.Refresh();
-                    if (installer.HasExited || installer.MainWindowHandle != IntPtr.Zero) return;
-                }
-                catch (Exception) { return; }
-                await Task.Delay(100);
+                using var installer = Process.GetProcessById(processId);
+                installer.Refresh();
+                if (installer.HasExited) return InstallerSighting.Exited;
+                return installer.MainWindowHandle != IntPtr.Zero ? InstallerSighting.Window : null;
             }
+            catch (ArgumentException) { return InstallerSighting.Exited; }
+            catch (Exception) { return null; }
         }
     }
 }

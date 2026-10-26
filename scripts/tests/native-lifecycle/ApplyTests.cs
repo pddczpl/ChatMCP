@@ -66,8 +66,20 @@ internal static class ApplyTests
             ("an id that ends with a line break", "{\"type\":\"chatmcp.apply-update\",\"id\":\"" + id + "\\n\"}"),
             ("an array", "[{\"type\":\"chatmcp.apply-update\",\"id\":\"" + id + "\"}]"), ("a string", "\"chatmcp.apply-update\""), ("null", "null"), ("a number", "7"), ("not JSON", "chatmcp.apply-update"), ("nothing", ""),
             ("a message over 32 KiB", "{\"type\":\"chatmcp.apply-update\",\"id\":\"" + id + "\",\"padding\":\"" + new string('x', 40000) + "\"}"),
+            // JSON may write a lone surrogate (\ud800): JavaScript reads it, and .NET throws InvalidOperationException (not JsonException) when it is asked for that text or has to compare the name of such a
+            // property. A page that sent one crashed the window's message handler, so each is a message that is dropped.
+            ("a type that is a lone surrogate", "{\"type\":\"\\ud800\",\"id\":\"" + id + "\"}"), ("a type that is a lone surrogate before a letter", "{\"type\":\"\\ud800x\",\"id\":\"" + id + "\"}"),
+            ("an id that is a lone surrogate", "{\"type\":\"chatmcp.apply-update\",\"id\":\"\\ud800\"}"), ("an id that is a reversed pair", "{\"type\":\"chatmcp.apply-update\",\"id\":\"\\udc00\\ud800\"}"),
         };
         foreach (var (why, json) in refused) kit.Check(!Parses(json, out _, out _), "a message with " + why + " is dropped");
+        kit.Check(Parses("{\"type\":\"chatmcp.apply-update\",\"id\":\"" + id + "\",\"note\":\"\\ud800\"}", out var t4, out var i4) && t4 == "chatmcp.apply-update" && i4 == id, "while a lone surrogate in a value that is not read is no error: nothing in it is looked at");
+        // A field NAMED by a lone surrogate: .NET throws when it has to compare that name with the one it looks for, and it looks from the last field to the first, so whether the message is dropped or read right depends
+        // on where the field stands and on the library. That is the library's business; that nothing is thrown, and that what is read is right, is ours.
+        foreach (var json in new[]
+        {
+            "{\"type\":\"chatmcp.apply-update\",\"id\":\"" + id + "\",\"\\ud800\":1}", "{\"type\":\"chatmcp.apply-update\",\"\\ud800\":1,\"id\":\"" + id + "\"}", "{\"\\ud800\":1,\"type\":\"chatmcp.apply-update\",\"id\":\"" + id + "\"}",
+        })
+            kit.Check(!Parses(json, out var t5, out var i5) || (t5 == "chatmcp.apply-update" && i5 == id), "a message with a field named by a lone surrogate is either dropped or read right, and never throws: " + json.Replace(id, "<id>"));
 
         // the answer to the page: a JSON string value, never script text, and a code of the closed list
         using (var reply = JsonDocument.Parse(PageMessage.UpdateResultJson(id, false, "tasks_running")))
@@ -274,5 +286,83 @@ internal static class ApplyTests
             UpdateApplier.ApplyAsync(environment, () => { }).GetAwaiter().GetResult();
             kit.Check(e.Count(item => item == "verify") == 1, "a second click verifies again: nothing is remembered from the first");
         }
+
+        // ---- the installer reads the arguments the shell gives it (InstallerCommandLine) and exits AT ONCE when it cannot, after this window has gone and with nothing on the screen: so the shell reads them the way
+        // the installer will, before anything is stopped or started. A result file that is not on a drive (a state folder under a device path or a share) or a folder that is not a full path is such a case.
+        void CannotBeRead(string label, Action<ApplyEnvironment> bend)
+        {
+            var s = MakeState("unreadable " + Guid.NewGuid().ToString("N")[..6]); var e = new List<string>();
+            var environment = Shell(s, e); bend(environment);
+            var started = false; var before = false; environment.Start = info => { started = true; return 1; };
+            var got = CodeOf(() => UpdateApplier.ApplyAsync(environment, () => before = true));
+            kit.Check(got == "launch_failed" && !started && !before, label + ": launch_failed, the monitor was not stopped and nothing was started (got " + (got ?? "no refusal") + ")");
+        }
+        CannotBeRead("a result file the installer would refuse (the state folder is under a device path)", environment => environment.StateDirectory = @"\\?\" + environment.StateDirectory);
+        CannotBeRead("an installation folder that is not a full path", environment => environment.InstalledDirectory = @"app\relative");
+        {
+            // the name of the file that is started is part of what the installer reads (a name with "uninstall" in it makes it an uninstaller): the check uses the real name
+            var s = MakeState("named like an uninstaller", write: false); var folder = Path.Combine(s, "updates", "3.11.0"); Directory.CreateDirectory(folder);
+            var manifest = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { version = "3.11.0", commit = new string('0', 40), assets = new[] { new { name = "Uninstall-DatGold.exe", bytes = installer.Length, sha256 = Convert.ToHexString(SHA256.HashData(installer)).ToLowerInvariant() } } }));
+            File.WriteAllBytes(Path.Combine(folder, UpdateStaging.ManifestName), manifest); File.WriteAllBytes(Path.Combine(folder, UpdateStaging.SignatureName), owner.SignatureFile(manifest)); File.WriteAllBytes(Path.Combine(folder, "Uninstall-DatGold.exe"), installer);
+            var e = new List<string>(); var started = false;
+            var environment = Shell(s, e); environment.Start = info => { started = true; return 1; };
+            kit.Check(CodeOf(() => UpdateApplier.ApplyAsync(environment, () => { })) == "launch_failed" && !started, "an installer whose file name makes it read its arguments as an uninstall is not started: launch_failed (the check uses the name of the file, not a name of its own)");
+        }
+
+        // ---- the installer is started off the thread that draws the window: Process.Start of a file of 230 MB can wait for a virus scan, and the window must keep answering. A thread with its own queue stands in for the one
+        // that draws the window (a continuation of an await goes back to it); where Start runs is read from the context it sees there.
+        {
+            var s = MakeState("start off the ui thread"); var e = new List<string>();
+            var contexts = new List<SynchronizationContext?>();
+            var environment = Shell(s, e, start: info => { contexts.Add(SynchronizationContext.Current); return 777; });
+            var pid = OnWindowThread(() => UpdateApplier.ApplyAsync(environment, () => { }));
+            kit.Check(pid == 777 && contexts.Count == 1 && contexts[0] == null, "the installer is started on a thread of the pool, not on the thread of the window (the context it saw: " + (contexts.Count == 1 && contexts[0] != null ? "the window's" : "none") + ")");
+            kit.Check(OnWindowThread(() => Task.FromResult(SynchronizationContext.Current != null)), "premise: what the thread of the window runs from an await goes back to the window's context");
+            var held = MakeState("start off the ui thread, held"); var heldEvents = new List<string>();
+            var installerFile = Path.Combine(held, "updates", "3.11.0", "DatGoldSetup.exe"); var heldAtStart = false;
+            var heldEnvironment = Shell(held, heldEvents, start: info => { try { File.Delete(installerFile); } catch (Exception) { heldAtStart = true; } return 5; });
+            OnWindowThread(() => UpdateApplier.ApplyAsync(heldEnvironment, () => { }));
+            kit.Check(heldAtStart, "and the file is still held while it starts there");
+        }
+
+        // ---- the installer is given a few seconds to put its window on the screen; one that has ended by then did not start well, and the window that started it stays
+        {
+            var delays = new List<TimeSpan>();
+            Task Delay(TimeSpan time) { delays.Add(time); return Task.CompletedTask; }
+            InstallerSighting Wait(Func<InstallerSighting?> look) { delays.Clear(); return UpdateApplier.WaitForInstaller(look, TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(100), Delay).GetAwaiter().GetResult(); }
+            var sightings = new Queue<InstallerSighting?>(new InstallerSighting?[] { null, null, InstallerSighting.Window });
+            kit.Check(Wait(() => sightings.Dequeue()) == InstallerSighting.Window && delays.Count == 2 && delays.All(time => time == TimeSpan.FromMilliseconds(100)), "an installer that shows its window after two looks is seen with it, after waiting 100 ms twice");
+            kit.Check(Wait(() => InstallerSighting.Exited) == InstallerSighting.Exited && delays.Count == 0, "one that has already ended is reported at once: nothing was replaced, the shell stays open and says so");
+            var gone = new Queue<InstallerSighting?>(new InstallerSighting?[] { null, InstallerSighting.Exited });
+            kit.Check(Wait(() => gone.Dequeue()) == InstallerSighting.Exited && delays.Count == 1, "one that ends while it is waited for is reported as ended");
+            var looks = 0;
+            kit.Check(Wait(() => { looks++; return null; }) == InstallerSighting.Silent && delays.Count == 50 && looks == 51, "one that shows nothing for the whole time is Silent after 5 seconds (50 waits of 100 ms and a last look): the window closes as it did before");
+            var late = 0;
+            kit.Check(Wait(() => ++late == 51 ? InstallerSighting.Window : null) == InstallerSighting.Window, "and one whose window comes in the last 100 ms is seen with it by the last look");
+        }
+    }
+
+    /// <summary>Runs <paramref name="start"/> on a thread with its own queue and its own SynchronizationContext, the way the window's thread has one, and pumps that queue until the task is done.</summary>
+    private static T OnWindowThread<T>(Func<Task<T>> start)
+    {
+        T result = default!; Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            var queue = new System.Collections.Concurrent.BlockingCollection<(SendOrPostCallback Run, object? State)>();
+            SynchronizationContext.SetSynchronizationContext(new QueueContext(queue));
+            var task = start();
+            while (!task.IsCompleted) if (queue.TryTake(out var item, 20)) item.Run(item.State);
+            try { result = task.GetAwaiter().GetResult(); } catch (Exception error) { failure = error; }
+        });
+        thread.Start(); thread.Join();
+        if (failure != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return result;
+    }
+
+    private sealed class QueueContext : SynchronizationContext
+    {
+        private readonly System.Collections.Concurrent.BlockingCollection<(SendOrPostCallback Run, object? State)> queue;
+        internal QueueContext(System.Collections.Concurrent.BlockingCollection<(SendOrPostCallback Run, object? State)> queue) { this.queue = queue; }
+        public override void Post(SendOrPostCallback d, object? state) => queue.Add((d, state));
     }
 }

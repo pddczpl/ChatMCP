@@ -173,7 +173,7 @@ namespace ChatMCP.Installer
             using var transaction = new InstallTransaction(targetDir);
             reportProgress(5, "Validating and staging the complete installer...");
             using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("ChatMCP.Installer.payload.zip")
-                ?? throw new InvalidOperationException("The standalone installer payload is missing. No files were replaced.");
+                ?? throw new InvalidOperationException("The standalone installer payload is missing. No files were replaced.").Tag("payload_invalid");
             using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
             foreach (var entry in archive.Entries)
             {
@@ -184,7 +184,7 @@ namespace ChatMCP.Installer
                 if (relative.Equals(ManifestName, StringComparison.OrdinalIgnoreCase) ||
                     relative.Equals(InstallTransaction.PendingName, StringComparison.OrdinalIgnoreCase) ||
                     relative.Equals("Uninstall.exe", StringComparison.OrdinalIgnoreCase))
-                    throw new IOException("Reserved installer payload path.");
+                    throw new IOException("Reserved installer payload path.").Tag("payload_invalid");
                 var target = SafePath(targetDir, relative);
                 if (File.Exists(target) && !legacyUpgrade && previousFiles?.ContainsKey(relative) != true)
                     throw new InvalidOperationException("Installation would overwrite an unrelated file: " + relative);
@@ -195,14 +195,14 @@ namespace ChatMCP.Installer
             // filename or Installed Apps' old hard-coded DisplayVersion.
             using (var package = JsonDocument.Parse(File.ReadAllText(transaction.StagedPath("CHATMCP-HUB/package.json"))))
                 if (package.RootElement.GetProperty("version").GetString() != AppVersion)
-                    throw new IOException("Installer and embedded Hub package versions differ.");
+                    throw new IOException("Installer and embedded Hub package versions differ.").Tag("payload_invalid");
             var desktopVersion = FileVersionInfo.GetVersionInfo(transaction.StagedPath("ChatMCP.exe")).ProductVersion?.Split('+')[0];
-            if (desktopVersion != AppVersion) throw new IOException("Embedded desktop version differs from the installer.");
+            if (desktopVersion != AppVersion) throw new IOException("Embedded desktop version differs from the installer.").Tag("payload_invalid");
             var manager = File.ReadAllText(transaction.StagedPath("CHATMCP-HUB/lib/manager.mjs"));
             var hub = File.ReadAllText(transaction.StagedPath("CHATMCP-HUB/hub.mjs"));
             if (!manager.Contains("export const VERSION = '" + AppVersion + "';") ||
                 !hub.Contains("export const UI_BUILD = '" + AppVersion + "-react-agent';"))
-                throw new IOException("Embedded Hub runtime version/build differs from the installer.");
+                throw new IOException("Embedded Hub runtime version/build differs from the installer.").Tag("payload_invalid");
             var uninstallTarget = SafePath(targetDir, "Uninstall.exe");
             if (File.Exists(uninstallTarget) && !legacyUpgrade && previousFiles?.ContainsKey("Uninstall.exe") != true && !IsOwnBinary(uninstallTarget))
                 throw new InvalidOperationException("Installation would overwrite an unrelated Uninstall.exe.");
@@ -467,7 +467,7 @@ namespace ChatMCP.Installer
                         if (!string.Equals(proc.MainModule?.FileName, expected, StringComparison.OrdinalIgnoreCase)) continue;
                         proc.CloseMainWindow();
                         if (!proc.WaitForExit(5000))
-                            throw new IOException("Close the installed DatGold window before upgrading. No files were replaced.");
+                            throw new IOException("Close the installed DatGold window before upgrading. No files were replaced.").Tag("window_open");
                     }
                     catch (InvalidOperationException) { /* Process already exited. */ }
                 }

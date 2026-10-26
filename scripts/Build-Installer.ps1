@@ -109,10 +109,11 @@ try {
 $shellCsproj = Join-Path $repoRoot 'desktop-shell\ChatMCP.csproj'
 $shellDist = Join-Path $stagingDir 'desktop-publish'
 $payloadDir = Join-Path $stagingDir 'payload'
-# The key list is built into the program (desktop-shell/ShellKeys.cs): the one that is committed, unless this is a test build that names another.
-$shellKeys = @()
-if ($ReleaseKeysFile -ne '') { $shellKeys = @("-p:ReleaseKeysFile=$ReleaseKeysFile") }
-& $dotnetCmd.Path publish $shellCsproj -c Release -r win-x64 --self-contained true -o $shellDist -p:PublishSingleFile=true @shellKeys | Out-Null
+# The key list is built into the program (desktop-shell/ShellKeys.cs): the one that is committed, unless this is a test build that names another. It is ALWAYS named on the command line and never
+# left to the default of the project: MSBuild reads environment variables as properties, so a variable called ReleaseKeysFile in the environment of a release build would otherwise be the list the program trusts.
+$shellKeysFile = if ($ReleaseKeysFile -ne '') { $ReleaseKeysFile } else { Join-Path $repoRoot 'CHATMCP-HUB\lib\release-keys.json' }
+if (-not (Test-Path -LiteralPath $shellKeysFile -PathType Leaf)) { throw "The release key list is not a file: $shellKeysFile" }
+& $dotnetCmd.Path publish $shellCsproj -c Release -r win-x64 --self-contained true -o $shellDist -p:PublishSingleFile=true "-p:ReleaseKeysFile=$shellKeysFile" | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Desktop publish failed with exit code $LASTEXITCODE" }
 $desktopExe = Join-Path $shellDist 'ChatMCP.exe'
 if (-not (Test-Path -LiteralPath $desktopExe -PathType Leaf)) {

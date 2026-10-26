@@ -86,11 +86,22 @@ internal static class UpdateStaging
 
         var proven = new List<VerifiedUpdate>();
         UpdateRefused? newestFailure = null;
-        foreach (var (version, name) in candidates.Take(MaxCandidates))
+        try
         {
-            try { proven.Add(VerifyFolder(Path.Combine(root, name), name, running, keys, identityOf, expectedProduct, expectedDescription)); }
-            catch (UpdateRefused refused) { newestFailure ??= refused; }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { newestFailure ??= new UpdateRefused("staging_unsafe", "the release folder " + name + " cannot be read"); }
+            foreach (var (version, name) in candidates.Take(MaxCandidates))
+            {
+                try { proven.Add(VerifyFolder(Path.Combine(root, name), name, running, keys, identityOf, expectedProduct, expectedDescription)); }
+                catch (UpdateRefused refused) { newestFailure ??= refused; }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { newestFailure ??= new UpdateRefused("staging_unsafe", "the release folder " + name + " cannot be read"); }
+                // a folder that fails in a way nobody foresaw is a folder that is not trusted; it neither stops another folder from proving itself nor lets an exception of any type out of the shell
+                catch (Exception error) when (error is not OutOfMemoryException) { newestFailure ??= new UpdateRefused("staging_unsafe", "the release folder " + name + " could not be checked (" + error.GetType().Name + ")"); }
+            }
+        }
+        catch
+        {
+            // whatever else ends the loop, an installer that proved itself earlier is not left held for the rest of the life of the shell
+            foreach (var update in proven) update.Dispose();
+            throw;
         }
         if (proven.Count == 1) return proven[0];
         foreach (var update in proven) update.Dispose();

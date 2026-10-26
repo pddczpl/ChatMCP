@@ -17,6 +17,7 @@ internal static class LinkTests
         kit.Check(Open("https://github.com/pddczpl/ChatMCP/releases/latest") == "https://github.com/pddczpl/ChatMCP/releases/latest", "the Latest release page opens");
         kit.Check(Open("https://github.com/pddczpl/ChatMCP/releases/") == "https://github.com/pddczpl/ChatMCP/releases/", "so does the list of releases (the prefix itself)");
         kit.Check(Open(Notes + "?expanded=true#notes") == Notes + "?expanded=true#notes", "a query and a fragment on a release page go on with it");
+        kit.Check(Open("https://github.com/pddczpl/ChatMCP/releases/tag/v3.10.2?download=1") == "https://github.com/pddczpl/ChatMCP/releases/tag/v3.10.2?download=1", "and the word download in a query is no path: the page it names is a page");
 
         // ---- what does not -------------------------------------------------------------------------------------------------------------------------------
         var refused = new (string Why, string? Address)[]
@@ -50,6 +51,13 @@ internal static class LinkTests
             ("encoded dot segments in capitals", "https://github.com/pddczpl/ChatMCP/releases/%2E%2E/evil"), ("a dot segment that stays inside", "https://github.com/pddczpl/ChatMCP/releases/./tag/v3.10.2"),
             ("an encoded slash", "https://github.com/pddczpl/ChatMCP/releases/..%2f..%2fevil"), ("an encoded backslash", "https://github.com/pddczpl/ChatMCP/releases/tag%5c..%5cevil"),
             ("a backslash in the path", "https://github.com/pddczpl/ChatMCP/releases\\..\\evil"),
+            // a release PAGE, never a download: a link into releases/download or releases/latest/download makes the browser fetch a file (the installer) the moment it is opened
+            ("a download of an asset of a release", "https://github.com/pddczpl/ChatMCP/releases/download/v3.10.2/DatGoldSetup.exe"),
+            ("a download of an asset of the latest release", "https://github.com/pddczpl/ChatMCP/releases/latest/download/DatGoldSetup.exe"),
+            ("a download segment in capitals", "https://github.com/pddczpl/ChatMCP/releases/DOWNLOAD/v3.10.2/DatGoldSetup.exe"),
+            ("a download segment with a letter written as an escape", "https://github.com/pddczpl/ChatMCP/releases/%64ownload/v3.10.2/DatGoldSetup.exe"),
+            ("a download segment at the end", "https://github.com/pddczpl/ChatMCP/releases/latest/download"), ("the folder of downloads", "https://github.com/pddczpl/ChatMCP/releases/download/"),
+            ("a download segment in the middle of the path", "https://github.com/pddczpl/ChatMCP/releases/tag/v3.10.2/download/x"),
             // spellings that .NET reads as a path INSIDE the releases folder: only the text as written tells them from the good ones (the opener is given the parsed address, but a link that is written like this is not a release page)
             ("a backslash in the path that stays inside the releases folder", "https://github.com/pddczpl/ChatMCP/releases\\tag/v1"),
             ("an encoded dot segment that stays inside", "https://github.com/pddczpl/ChatMCP/releases/%2e/tag/v3.10.2"),

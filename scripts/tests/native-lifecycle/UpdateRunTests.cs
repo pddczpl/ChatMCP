@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
 using System.Text.Json;
 using ChatMCP.Installer;
 using ChatMCP.Native;
@@ -25,6 +27,8 @@ internal static class UpdateRunTests
         internal bool Marker;
         internal bool WriteWorks = true;
         internal bool WriteThrows, MarkerThrows, DetectThrows;
+        /// <summary>Whether a program listens on the port of the Hub when the result is about to be left, and whether asking fails.</summary>
+        internal bool HubRunning, HubCheckThrows;
         internal ShortcutPlan Shortcuts = new(true, true, false);
         internal Action<ShortcutPlan, Action<int, string>>? Install;
         internal Action? OnRelaunch;
@@ -44,9 +48,11 @@ internal static class UpdateRunTests
             PendingMarkerExists = dir => MarkerThrows ? throw new IOException("locked") : Marker,
             Relaunch = exe => { Events.Add("relaunch"); Relaunched = exe; OnRelaunch?.Invoke(); },
             WriteResult = (path, outcome) => { Events.Add("write-result"); if (WriteThrows) throw new IOException("disk"); Written = outcome; WrittenTo = path; return WriteWorks; },
+            HubIsRunning = () => { Events.Add("hub-running"); if (HubCheckThrows) throw new IOException("table"); return HubRunning; },
         };
 
         internal UpdateOutcome Run(InstallerCommand command) => UpdateRun.Run(command, Environment(), (percent, text) => Progress.Add(percent + " " + text));
+        internal UpdateOutcome Run(InstallerCommand command, out bool relaunched) => UpdateRun.Run(command, Environment(), (percent, text) => Progress.Add(percent + " " + text), out relaunched);
     }
 
     private static InstallerCommand Command(bool wait = true, bool relaunch = true, bool result = true) =>
@@ -58,7 +64,7 @@ internal static class UpdateRunTests
         var m = new Machine();
         var outcome = m.Run(Command());
         kit.Check(outcome == new UpdateOutcome(true, "3.11.0", "3.10.2", "installed", null), "an update: installed, from 3.10.2 to 3.11.0");
-        kit.Check(string.Join(",", m.Events) == "installed-version,wait,free-bytes,detect-shortcuts,install,write-result,relaunch", "the old version is read, the shell is waited for, the machine is looked at (room, shortcuts), the files are replaced, the result is written and the app is opened, in that order (got " + string.Join(",", m.Events) + ")");
+        kit.Check(string.Join(",", m.Events) == "installed-version,wait,free-bytes,detect-shortcuts,install,hub-running,write-result,relaunch", "the old version is read, the shell is waited for, the machine is looked at (room, shortcuts), the files are replaced, the port of the Hub is looked at, the result is written and the app is opened, in that order (got " + string.Join(",", m.Events) + ")");
         kit.Check(m.Events.IndexOf("install") < m.Events.IndexOf("write-result") && m.Events.IndexOf("write-result") < m.Events.IndexOf("relaunch"), "the result is written after the install and BEFORE the app is opened (the Hub that starts reads it)");
         kit.Check(m.WaitedPid == 4242 && m.WaitedImage == Path.Combine(Dir, "ChatMCP.exe") && m.WaitedLimit == TimeSpan.FromSeconds(30), "the wait is for the pid it was given, whose program must be the installed ChatMCP.exe, for at most 30 seconds");
         kit.Check(m.WrittenTo == Result && m.Relaunched == Path.Combine(Dir, "ChatMCP.exe"), "the result goes where the shell said, and it is the installed ChatMCP.exe that is opened");
@@ -147,6 +153,53 @@ internal static class UpdateRunTests
             kit.Check(machine.Run(Command()).Reason == "no_installation" && !machine.Events.Contains("install"), "an installed version that cannot be read is no installation");
         }
         kit.Check(UpdateRun.RequiredBytes(0) == 128L * 1024 * 1024 && UpdateRun.RequiredBytes(100L * 1024 * 1024) == 228L * 1024 * 1024 && UpdateRun.RequiredBytes(1L << 30) == (1L << 30) + (1L << 28), "the room needed is the payload and 128 MiB, or a quarter of it when that is more");
+
+        // ---- the result file is for the Hub that starts NEXT. The Hub reads the file once, when it starts, so a note left while a Hub is already up (a refusal that stopped nothing, a program on the port) would
+        // sit there until some later start and tell the person, days on, about an update they had forgotten. So it is left only when no program listens on the port of the Hub: every Hub that starts after it reads it.
+        {
+            var machine = new Machine { HubRunning = true };
+            var result = machine.Run(Command());
+            kit.Check(result.Ok && machine.Written == null && !machine.Events.Contains("write-result") && machine.Events.Contains("hub-running"), "while a program listens on the port of the Hub no result file is left (nobody would read it until some later start)");
+            kit.Check(machine.Events.Contains("relaunch"), "and the app is still opened");
+            machine = new Machine { HubRunning = true };
+            machine.Install = (plan, progress) => throw Wrapped(new InvalidOperationException("Stop active DatGold tasks").Tag("tasks_running"));
+            result = machine.Run(Command());
+            kit.Check(result.Reason == "tasks_running" && machine.Written == null && machine.Events.Contains("relaunch"), "a refusal because tasks are running (the Hub is still up and was not stopped) leaves no result: the window said why, and the old app is opened again");
+            machine = new Machine { HubRunning = true, Target = "3.10.2" };
+            result = machine.Run(Command());
+            kit.Check(result.Reason == "not_newer" && machine.Written == null, "nor does a refusal that stopped nothing, such as an installer that is not newer");
+            machine = new Machine { HubCheckThrows = true };
+            result = machine.Run(Command());
+            kit.Check(result.Ok && machine.Written == result, "when the port cannot be looked at the result is left: a note that nobody reads is better than a failure nobody hears of");
+            machine = new Machine { HubRunning = false };
+            kit.Check(machine.Run(Command()).Ok && machine.Written != null, "with no Hub up the result is left, as always");
+        }
+
+        // ---- "opened again" is said only when the app really was opened
+        {
+            var machine = new Machine();
+            machine.Run(Command(), out var relaunched);
+            kit.Check(relaunched, "after an update that went through, with the app opened, relaunched is true");
+            machine = new Machine { OnRelaunch = () => throw new IOException("cannot start") };
+            machine.Run(Command(), out relaunched);
+            kit.Check(!relaunched, "an app that could not be opened is not said to have been");
+            machine = new Machine(); machine.Run(Command(relaunch: false), out relaunched);
+            kit.Check(!relaunched, "nor is one that was not asked for");
+            machine = new Machine { Marker = true }; machine.Run(Command(), out relaunched);
+            kit.Check(!relaunched, "nor one that is not opened because the installation needs recovery");
+            machine = new Machine { Target = "3.9.0" }; machine.Run(Command(), out relaunched);
+            kit.Check(relaunched, "after a refusal the OLD app is opened and that is said too");
+        }
+        kit.Throws(() => UpdateRun.Real().Relaunch(Path.Combine(kit.Folder("no app here"), "ChatMCP.exe")), "the real way to open the app fails when there is no ChatMCP.exe to open (the window must not say it was opened)");
+        // the port of the Hub as the real machine answers: a port that nothing listens on, then the same port with a listener of this test on it
+        {
+            var probe = new TcpListener(IPAddress.Loopback, 0); probe.Start(); var port = ((IPEndPoint)probe.LocalEndpoint).Port; probe.Stop();
+            var onPort = UpdateRun.Real(port);
+            kit.Check(!onPort.HubIsRunning(), "nothing listens on a free port: no Hub is running there");
+            var listener = new TcpListener(IPAddress.Loopback, port); listener.Start();
+            try { kit.Check(onPort.HubIsRunning(), "and a program that listens on it is a Hub that is up (whatever it is: the port is taken)"); }
+            finally { listener.Stop(); }
+        }
 
         // ---- the written result is the contract text
         {

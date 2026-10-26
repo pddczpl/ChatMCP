@@ -72,6 +72,66 @@ internal static class ReleaseVectorTests
         }
 
         StricterThanTheHub(kit);
+        LoneSurrogates(kit);
+    }
+
+    // JSON may write a lone surrogate (\ud800). JavaScript reads it, so the Hub does; .NET reads the document and then throws InvalidOperationException, not JsonException, when it is asked for the text of
+    // such a string value or has to compare the name of such a property. A reader that expects only JsonException lets it out of the shell, so each of these is a refusal of its own kind. Where the Hub
+    // takes the document the shell takes it too: a lone surrogate in a value that is not read is no reason to refuse. A lone surrogate in a NAME the shell refuses (stricter, like a repeated name).
+    private static void LoneSurrogates(TestKit kit)
+    {
+        string Text(string version = "3.11.0", string commit = "", string name = "DatGoldSetup.exe", string sha = "", string extra = "") =>
+            "{\"version\":\"" + version + "\",\"commit\":\"" + (commit == "" ? new string('0', 40) : commit) + "\",\"assets\":[{\"name\":\"" + name + "\",\"bytes\":5,\"sha256\":\"" + (sha == "" ? new string('a', 64) : sha) + "\"}]" + extra + "}";
+        bool ManifestRefused(string text) { try { ReleaseManifest.Parse(Encoding.UTF8.GetBytes(text)); return false; } catch (ManifestRefused) { return true; } }
+        kit.Check(!ManifestRefused(Text()), "premise: a manifest of this shape is read");
+        kit.Check(!ManifestRefused(Text(extra: ",\"note\":\"\\ud800\"")), "a lone surrogate in a field of a manifest that is not read is not read: the manifest is taken (the Hub takes it)");
+        foreach (var (why, text) in new[]
+        {
+            ("a version that is a lone surrogate", Text(version: "\\ud800")), ("a version that is a high surrogate before a digit", Text(version: "\\ud8003.11.0")), ("a commit that is a lone surrogate", Text(commit: "\\udc00")),
+            ("the name of an asset that is a lone surrogate", Text(name: "\\ud800")), ("a digest that is a reversed pair", Text(sha: "\\udc00\\ud800")), ("a field named by a lone surrogate", Text(extra: ",\"\\ud800\":1")),
+        })
+            kit.Check(ManifestRefused(text), "a manifest with " + why + " is refused as a manifest, and does not throw out of the shell");
+        // the bytes of a lone surrogate (ED A0 80) and a byte that is not UTF-8 (FF) inside a value that IS read are refused the same way
+        foreach (var raw in new[] { new byte[] { 0xED, 0xA0, 0x80 }, new byte[] { 0xFF } })
+        {
+            var bytes = Encoding.UTF8.GetBytes(Text(version: "@@")).ToList(); var at = Encoding.UTF8.GetString(bytes.ToArray()).IndexOf("@@", StringComparison.Ordinal);
+            bytes.RemoveRange(at, 2); bytes.InsertRange(at, raw);
+            var refused = false; try { ReleaseManifest.Parse(bytes.ToArray()); } catch (ManifestRefused) { refused = true; }
+            kit.Check(refused, "a manifest whose version holds the bytes " + Convert.ToHexString(raw) + " is refused as a manifest");
+        }
+
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var spki = key.ExportSubjectPublicKeyInfo();
+        var kid = ReleaseKeys.IdOf(spki);
+        var entry = "{\"kid\":\"" + kid + "\",\"use\":\"release\",\"spki\":\"" + Convert.ToBase64String(spki) + "\"}";
+        var manifest = Encoding.UTF8.GetBytes(Text());
+        var signature = Convert.ToBase64String(key.SignData(manifest, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
+        var keys = ReleaseKeys.Parse("{\"version\":1,\"keys\":[" + entry + "]}");
+        string SigFile(string alg = "ES256", string id = "", string sig = "", string extra = "") => "{\"alg\":\"" + alg + "\",\"kid\":\"" + (id == "" ? kid : id) + "\",\"sig\":\"" + (sig == "" ? signature : sig) + "\"" + extra + "}";
+        bool SignatureRefused(string text) { try { ReleaseSignature.Verify(manifest, Encoding.UTF8.GetBytes(text), keys.Keys); return false; } catch (SignatureRefused) { return true; } }
+        kit.Check(keys.Keys.Count == 1 && !SignatureRefused(SigFile()), "premise: a signature file of this shape checks");
+        kit.Check(!SignatureRefused(SigFile(extra: ",\"note\":\"\\ud800\"")), "a lone surrogate in a field of the signature file that is not read is not read: the signature checks");
+        foreach (var (why, text) in new[]
+        {
+            ("an alg that is a lone surrogate", SigFile(alg: "\\ud800")), ("a kid that is a lone surrogate", SigFile(id: "\\ud800")), ("a sig that is a lone surrogate", SigFile(sig: "\\ud800")),
+            ("a sig that is a reversed pair", SigFile(sig: "\\udc00\\ud800")), ("a field named by a lone surrogate", SigFile(extra: ",\"\\ud800\":1")),
+        })
+            kit.Check(SignatureRefused(text), "a signature file with " + why + " is refused as a signature, and does not throw out of the shell");
+
+        // the key list never throws: what it cannot read it does not trust
+        ReleaseKeys List(string entries, string head = "\"version\":1") => ReleaseKeys.Parse("{" + head + ",\"keys\":[" + entries + "]}");
+        using var second = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var secondSpki = second.ExportSubjectPublicKeyInfo(); var secondKid = ReleaseKeys.IdOf(secondSpki);
+        string Entry(string kidText, string spkiText, string use = "release") => "{\"kid\":\"" + kidText + "\",\"use\":\"" + use + "\",\"spki\":\"" + spkiText + "\"}";
+        var good = Entry(kid, Convert.ToBase64String(spki)); var other = Entry(secondKid, Convert.ToBase64String(secondSpki));
+        kit.Check(List(good + "," + other).Keys.Count == 2, "premise: two release keys are two keys");
+        kit.Check(List(good + "," + Entry(secondKid, Convert.ToBase64String(secondSpki), use: "\\ud800")).Keys.Count == 1, "an entry whose use is a lone surrogate is set aside, as any other entry that says something else than release (the Hub does the same), and the keys before it stay");
+        kit.Check(List(Entry("\\ud800", Convert.ToBase64String(secondSpki)) + "," + good).Keys.Select(item => item.Kid).SequenceEqual(new[] { kid }), "so is an entry whose kid is a lone surrogate (it is not the key's id)");
+        kit.Check(List(Entry(secondKid, "\\ud800") + "," + good).Keys.Select(item => item.Kid).SequenceEqual(new[] { kid }), "and one whose key is");
+        kit.Check(List(good, head: "\"version\":1,\"algorithm\":\"\\ud800\"").Keys.Count == 0, "a list whose algorithm is a lone surrogate is not ES256 and trusts nothing");
+        kit.Check(List(good + "," + other.Replace("\"use\"", "\"\\ud800\":0,\"use\"")).Keys.Count == 0, "a list with a field named by a lone surrogate cannot be read whole, and trusts nothing (stricter than the Hub, like a repeated name)");
+        kit.Check(List(good, head: "\"version\":1,\"\\ud800\":0").Keys.Count == 0, "wherever that field is");
+        kit.Check(List(good, head: "\"version\":1,\"note\":\"\\ud800\"").Keys.Count == 1, "while a lone surrogate in a value that is not read changes nothing");
     }
 
     // Where the shell is STRICTER than the Hub, on purpose, so that these are not in the shared list (the Hub must read what is in it the same way): the Hub reads JSON with JSON.parse, where the last of two equal

@@ -214,9 +214,14 @@ try {
     }
     Assert-Payload ($builder.Contains('[string]$ReleaseKeysFile = ''''')) 'the builder takes -ReleaseKeysFile, empty by default (a release is built without it)'
     Assert-Payload ($builder.Contains('Resolve-InstallerReleaseKeysFile -Path $ReleaseKeysFile')) 'the builder checks it with the tested helper before it builds anything'
-    Assert-Payload ($builder.Contains('"-p:ReleaseKeysFile=$ReleaseKeysFile"')) 'the desktop shell is built with it (embedded in the program)'
+    Assert-Payload ($builder.Contains('"-p:ReleaseKeysFile=$shellKeysFile"')) 'the desktop shell is built with a key list that is ALWAYS named on the command line (embedded in the program)'
+    Assert-Payload ($builder.Contains('$shellKeysFile = if ($ReleaseKeysFile -ne '''') { $ReleaseKeysFile } else { Join-Path $repoRoot ''CHATMCP-HUB\lib\release-keys.json'' }')) 'the one it names is the committed CHATMCP-HUB\lib\release-keys.json unless a test build gives another (MSBuild reads environment variables as properties: left to the default of the project, a variable called ReleaseKeysFile in the environment of a release build would be the list the program trusts)'
+    Assert-Payload ($builder.Contains('-not (Test-Path -LiteralPath $shellKeysFile -PathType Leaf)')) 'and the build stops, before it compiles anything, when that file is not there'
+    Assert-Payload ($builder.IndexOf('$shellKeysFile = if') -lt $builder.IndexOf('publish $shellCsproj')) 'the key list is chosen before the shell is published'
+    Assert-Payload (-not $builder.Contains('@shellKeys')) 'and nothing leaves it out (an empty list of extra arguments, as before, is gone)'
     Assert-Payload ($builder.Contains('Copy-Item -LiteralPath $ReleaseKeysFile -Destination (Join-Path $payloadDir ''CHATMCP-HUB\lib\release-keys.json'') -Force')) 'and the Hub the installer installs gets the same file'
     Assert-Payload ([regex]::Matches($builder, 'ReleaseKeysFile=').Count -eq 1) 'nothing else is built with it (not the installer, not the guest helper)'
+    Assert-Payload ([regex]::Matches($builder, 'publish \$shellCsproj').Count -eq 1) 'and the shell is published once, with it'
     Assert-Payload ($builder.IndexOf('Copy-InstallerSourcePayload -RepositoryRoot') -lt $builder.IndexOf('Copy-Item -LiteralPath $ReleaseKeysFile')) 'the copy of the key list comes after the tracked files are copied (before, it would be overwritten)'
     Assert-Payload ($builder.Contains('TEST BUILD')) 'and the build says, in its output, that it is a test build'
     # The pure helpers of the native lifecycle script, which itself runs only on a disposable hosted runner: the argument list it gives the setup in update mode is vector 1 of the contract

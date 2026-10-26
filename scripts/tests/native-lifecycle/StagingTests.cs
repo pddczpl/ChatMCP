@@ -237,6 +237,17 @@ internal static class StagingTests
             var failing = kit.Folder("updates-two-failing"); Release(failing, owner, "3.11.0", installer, declaredSha: new string('0', 64)); Release(failing, owner, "3.12.0", installer, signatureOverride: new byte[] { 1 });
             kit.Check(CodeOf(() => { using var update = Verify(failing); }) == "bad_signature", "when none proves itself the page is told why the NEWEST one does not");
         }
+        // a folder that fails in a way nobody foresaw (here the version resource of its installer cannot be read at all) proves nothing: it is neither a reason to lose the one that does prove itself nor a way
+        // for an exception of any type to leave the shell, and a folder that proved itself before it is not left held
+        {
+            var odd = kit.Folder("updates-unforeseen"); Release(odd, owner, "3.12.0", installer); var older = Release(odd, owner, "3.11.0", installer);
+            InstallerIdentity Unforeseen(string file) => file.Contains("3.11.0") ? throw new InvalidOperationException("nobody expected this") : Genuine("3.12.0");
+            using (var update = Verify(odd, identity: Unforeseen)) kit.Check(update.Version.ToString() == "3.12.0" && update.IsHeld, "a folder that fails in an unforeseen way next to one that proves itself: the one that proves itself is the update");
+            kit.Check(CodeOf(() => { using var update = Verify(odd, identity: _ => throw new InvalidOperationException("nobody expected this")); }) == "staging_unsafe", "and when nothing proves itself the refusal is staging_unsafe, a code of the list, never the exception");
+            File.Delete(older);
+            File.Delete(Path.Combine(odd, "3.12.0", "DatGoldSetup.exe"));
+            kit.Check(true, "and nothing of either is held after that refusal: both installers can be deleted");
+        }
         // at most 16 folders are looked at, the newest first: the cost of a look is bounded, and a good older release behind 16 newer folders is not found
         {
             var many = kit.Folder("updates-many");

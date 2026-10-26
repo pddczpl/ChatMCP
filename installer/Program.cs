@@ -55,14 +55,16 @@ namespace ChatMCP.Installer
             using var form = new UpdateProgressForm(InstallerEngine.AppVersion);
             form.Shown += (_, _) => Task.Run(() =>
             {
-                try { outcome = UpdateRun.Run(command, environment, (_, status) => form.Report(status)); }
+                var relaunched = false;
+                try { outcome = UpdateRun.Run(command, environment, (_, status) => form.Report(status), out relaunched); }
                 catch (Exception error)
                 {
                     Console.Error.WriteLine(error.Message);
                     outcome = new UpdateOutcome(false, InstallerEngine.AppVersion, null, "unchanged", "install_failed");
                 }
-                if (outcome.Ok == false) Console.Error.WriteLine(UpdateWords.FailureFor(outcome, command.Relaunch));
-                form.Finish(outcome, command.Relaunch);
+                // "opened again" is said only when the app really was opened, not when it was asked for
+                if (outcome.Ok == false) Console.Error.WriteLine(UpdateWords.FailureFor(outcome, relaunched));
+                form.Finish(outcome, relaunched);
             });
             Application.Run(form);
             return outcome is { Ok: true } ? 0 : 1;

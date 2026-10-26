@@ -31,7 +31,8 @@ internal static class OpenLink
     /// Whether <paramref name="uri"/> is a release page of the project (https://github.com/pddczpl/ChatMCP/releases/...) that may open in the SYSTEM browser, and the address to open: the one
     /// that was parsed (AbsoluteUri), never the text that came in, so that this check and the browser cannot read a dot segment, an encoded slash or a host differently. https only; the host
     /// exactly github.com (no subdomain, no trailing dot, no look-alike letters); no user name, no password and no port, not even the default one; the path inside the releases folder, with the
-    /// owner and the repository in the letter case the project uses; no backslash, no dot segment and no encoded slash or backslash anywhere in it. Printable ASCII only, at most 2048 characters.
+    /// owner and the repository in the letter case the project uses; no backslash, no dot segment, no segment named download and no encoded slash or backslash anywhere in it (a page of a release, never a file to
+    /// download). Printable ASCII only, at most 2048 characters.
     /// </summary>
     internal static bool TryGetExternalLink(string? uri, out string absoluteUri)
     {
@@ -49,10 +50,12 @@ internal static class OpenLink
         var pathEnd = uri.IndexOfAny(new[] { '?', '#' }, authorityEnd < 0 ? uri.Length : authorityEnd);
         var rawPath = authorityEnd < 0 ? "" : uri[authorityEnd..(pathEnd < 0 ? uri.Length : pathEnd)];
         if (rawPath.Contains("%2f", StringComparison.OrdinalIgnoreCase) || rawPath.Contains("%5c", StringComparison.OrdinalIgnoreCase)) return false;
+        // ... and no segment named download, in any letter case or escape: releases/download/<tag>/<file> and releases/latest/download/<file> make the browser fetch a file (the installer) the moment they are opened.
+        // This opens the page of a release, never a download.
         foreach (var segment in rawPath.Split('/'))
         {
-            var plain = segment.Replace("%2e", ".", StringComparison.OrdinalIgnoreCase);
-            if (plain == "." || plain == "..") return false;
+            var plain = Uri.UnescapeDataString(segment);
+            if (plain == "." || plain == ".." || plain.Equals("download", StringComparison.OrdinalIgnoreCase)) return false;
         }
         if (!parsed.AbsolutePath.StartsWith(ExternalPathPrefix, StringComparison.Ordinal)) return false;
         absoluteUri = parsed.AbsoluteUri;

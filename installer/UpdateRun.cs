@@ -37,6 +37,8 @@ internal sealed class UpdateEnvironment
     internal required Action<string> Relaunch { get; init; }
     /// <summary>Leaves the result file; false when it could not.</summary>
     internal required Func<string, UpdateOutcome, bool> WriteResult { get; init; }
+    /// <summary>Whether any program is listening on the port of the Hub. Throws when that cannot be told.</summary>
+    internal required Func<bool> HubIsRunning { get; init; }
 }
 
 /// <summary>Waiting for the shell that started the installer.</summary>
@@ -97,8 +99,9 @@ internal static class UpdateRun
     internal static ReleaseVersion? ReadVersion(string? text) =>
         !string.IsNullOrEmpty(text) && ReleaseVersion.TryParse(text.Split('+')[0], out var version) ? version : null;
 
-    internal static UpdateEnvironment Real() => new()
+    internal static UpdateEnvironment Real(int hubPort = 3007) => new()
     {
+        HubIsRunning = () => HubLifecycle.ListenerPid(hubPort) != null,
         Target = ReadVersion(InstallerEngine.AppVersion) ?? throw new InvalidOperationException("The version of this setup is not a release version."),
         InstalledVersion = directory =>
         {
@@ -135,29 +138,41 @@ internal static class UpdateRun
         return total;
     }
 
+    /// <summary>Opens the app. Throws when it cannot (there is no ChatMCP.exe, or it did not start): the window says "opened again" only when this returned.</summary>
     private static void OpenApp(string program)
     {
-        if (!File.Exists(program)) return;
-        using var started = Process.Start(new ProcessStartInfo(program) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(program)! });
+        if (!File.Exists(program)) throw new FileNotFoundException("There is no ChatMCP.exe to open.");
+        using var started = Process.Start(new ProcessStartInfo(program) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(program)! }) ?? throw new IOException("The app did not start.");
     }
 
     /// <summary>Runs the update and says how it ended. Never throws.</summary>
-    internal static UpdateOutcome Run(InstallerCommand command, UpdateEnvironment environment, Action<int, string> progress)
+    internal static UpdateOutcome Run(InstallerCommand command, UpdateEnvironment environment, Action<int, string> progress) => Run(command, environment, progress, out _);
+
+    internal static UpdateOutcome Run(InstallerCommand command, UpdateEnvironment environment, Action<int, string> progress, out bool relaunched)
     {
+        relaunched = false;
         var directory = command.InstallDir ?? throw new ArgumentException("An update needs the installation directory.");
         var program = Path.Combine(directory, "ChatMCP.exe");
         ReleaseVersion? previous = null;
         try { previous = environment.InstalledVersion(directory); } catch (Exception) { /* no installation that can be read */ }
         var outcome = Execute(command, environment, progress, directory, program, previous);
-        if (command.ResultFile != null)
+        // The Hub reads the result file ONCE, when it starts. A note left while a Hub is already up (the refusal stopped nothing, or a program holds the port) is read by nobody until some later start, and would then
+        // tell the person about an update they have forgotten; the window already said why. So it is left only when no program listens on the port: the Hub that starts next reads it.
+        if (command.ResultFile != null && !HubListens(environment))
         {
             try { environment.WriteResult(command.ResultFile, outcome); } catch (Exception) { /* a result that cannot be left is not worth failing for */ }
         }
         if (command.Relaunch && outcome.State != "needs_recovery" && !MarkerExists(environment, directory))
         {
-            try { environment.Relaunch(program); } catch (Exception) { /* the person can open the app themselves */ }
+            try { environment.Relaunch(program); relaunched = true; } catch (Exception) { /* the person can open the app themselves */ }
         }
         return outcome;
+    }
+
+    /// <summary>Whether a program listens on the port of the Hub. Where that cannot be told the answer is no: the note is left, because one that nobody reads is better than a failure that nobody hears of.</summary>
+    private static bool HubListens(UpdateEnvironment environment)
+    {
+        try { return environment.HubIsRunning(); } catch (Exception) { return false; }
     }
 
     /// <summary>Whether the marker is there; where that cannot be told it is taken as there, because the launcher refuses to start behind it.</summary>

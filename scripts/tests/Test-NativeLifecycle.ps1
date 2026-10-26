@@ -127,9 +127,9 @@ function Quiet-Install {
     if (-not $p.WaitForExit(240000)) { throw 'Candidate installer timed out.' }
     return $p.ExitCode
 }
-function Assert-NativeError($process, [string]$pattern) {
+function Assert-NativeError($process, [string]$pattern, [int]$Seconds = 15) {
     $window=Window-For $process
-    $deadline=[DateTime]::UtcNow.AddSeconds(15)
+    $deadline=[DateTime]::UtcNow.AddSeconds($Seconds)
     do {
         $texts=$window.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.Condition]::TrueCondition)
         foreach($text in $texts) { if($text.Current.Name -match $pattern) { return } }
@@ -346,10 +346,11 @@ try {
         $null = Wait-Health $ExpectedBaselineVersion
         $foreignResult = Join-Path $results 'foreign-listener.json'
         $refused = Start-InstallerUpdate (Update-Arguments -WaitPid ([string]$PID) -ResultFile $foreignResult)
-        $outcome = Read-UpdateResult $foreignResult
-        Assert-UpdateResult $outcome $false 'unchanged' 'foreign_listener' $ExpectedBaselineVersion '[update] another program on port 3007 refuses the update with the reason foreign_listener and the baseline still installed (a pid that is not the shell is not waited for)'
-        Assert-NativeError $refused 'Another program is using the port'
-        Assert-Native ((Close-UpdateWindow $refused) -eq 1) '[update] the window of a refused update says why, ends with its Close button, and the exit code says it did not go through'
+        Assert-NativeError $refused 'Another program is using the port' 300
+        Assert-Native $true '[update] another program on port 3007 refuses the update in the words of the window ("Another program is using the port"), and the baseline is still installed (a pid that is not the shell is not waited for: had it been, the window would say that DatGold did not close, after 30 seconds)'
+        Assert-Native ((Close-UpdateWindow $refused) -eq 1) '[update] the window of a refused update ends with its Close button, and the exit code says it did not go through'
+        # The Hub reads the result file once, when it starts. While a program holds the port no result file is left: nobody would read it until some later start, when it would announce a refusal that was long forgotten.
+        Assert-Native (-not (Test-Path -LiteralPath $foreignResult)) '[update] and, while a program is on the port of the Hub, no result file is left for a Hub that may start days later'
         Assert-Native ((Get-FileHash $exe -Algorithm SHA256).Hash -eq $baselineHash -and -not $fakeHub.HasExited) '[update] the refusal left the installed bytes and the other program as they were'
         $fakeHub.Kill(); $null = $fakeHub.WaitForExit(10000)
 
@@ -405,10 +406,11 @@ try {
         $started = Get-Date
         $again = Start-InstallerUpdate (Update-Arguments -WaitPid ([string]$newApp.Id) -Relaunch $true -ResultFile $sameResult)
         Close-Desktop $newApp
-        $outcome = Read-UpdateResult $sameResult
-        Assert-UpdateResult $outcome $false 'unchanged' 'not_newer' $ExpectedCandidateVersion '[update] the same version is refused (not_newer): nothing is replaced and the installed version is the candidate'
-        Assert-NativeError $again 'not newer than the installed'
-        Assert-Native ((Close-UpdateWindow $again) -eq 1) '[update] and its window says so and ends with Close'
+        Assert-NativeError $again 'not newer than the installed' 120
+        Assert-Native ((Close-UpdateWindow $again) -eq 1) '[update] the same version is refused (not_newer) in the words of the window, which ends with Close, and the exit code says it did not go through'
+        # The Hub of the app that was closed is still up (nothing was stopped: the refusal comes first), so no Hub is going to start and read a result file: none is left.
+        Assert-Native (-not (Test-Path -LiteralPath $sameResult)) '[update] and, the Hub that ran being still up, no result file is left'
+        Assert-Native ((Get-Item $exe).VersionInfo.ProductVersion -like "$ExpectedCandidateVersion*") '[update] and nothing is replaced: the installed version is the candidate'
         $reopened = Wait-InstalledApp $started
         $null = Wait-Health $ExpectedCandidateVersion
         Assert-Native $true '[update] the installed app was opened again after the refusal'

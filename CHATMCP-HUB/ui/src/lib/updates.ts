@@ -229,10 +229,10 @@ function hasWork(value: unknown): boolean {
 /**
  * Whether the Hub is doing work that an update would cut off, from the state the page has (GET /api/state): the rule of HubLifecycle.WorkInState in native-shared/HubLifecycle.cs, which the installer
  * applies before it stops the Hub and the shell applies before it exits, held to the same list of cases (CHATMCP-HUB/tests/fixtures/active-work-cases.json). A state that is not an object, or has no
- * `agent`, is not an idle Hub (the page has not got it yet): fail closed. The coding answer is not part of the state: the shell asks for it too.
+ * `agent`, or whose `agent` is not an object, is not an idle Hub (the page has not got it yet, or it is not a Hub): fail closed. The coding answer is not part of the state: the shell asks for it too.
  */
 export function hasActiveWork(state: unknown): boolean {
-  if (!isObject(state) || !('agent' in state) || hasWork(state.agent)) return true;
+  if (!isObject(state) || !isObject(state.agent) || hasWork(state.agent)) return true;
   const studio = state.studio;
   if (isObject(studio)) for (const name of ['terminals', 'delegates', 'dynamicDelegates']) if (name in studio && hasWork(studio[name])) return true;
   return false;

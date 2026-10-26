@@ -46,12 +46,13 @@ internal static class PageMessage
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object) return false;
-            if (!root.TryGetProperty("type", out var kind) || kind.ValueKind != JsonValueKind.String || !Types.Contains(kind.GetString()!)) return false;
-            if (!root.TryGetProperty("id", out var identifier) || identifier.ValueKind != JsonValueKind.String || !RequestId.IsMatch(identifier.GetString()!)) return false;
-            type = kind.GetString()!; id = identifier.GetString()!;
+            if (!root.TryGetProperty("type", out var kind) || Json.TextOf(kind) is not { } kindText || !Types.Contains(kindText)) return false;
+            if (!root.TryGetProperty("id", out var identifier) || Json.TextOf(identifier) is not { } idText || !RequestId.IsMatch(idText)) return false;
+            type = kindText; id = idText;
             return true;
         }
-        catch (JsonException) { return false; }
+        // InvalidOperationException: JSON that .NET parses and cannot compare the name of, or give the text of (a lone surrogate, written \ud800: see Json.TextOf). The page decides what it sends; it never decides that the shell stops.
+        catch (Exception error) when (error is JsonException or InvalidOperationException) { return false; }
     }
 
     /// <summary>The answer to an apply-update message. A code that is not on the closed list is not passed on: the page is told launch_failed.</summary>
