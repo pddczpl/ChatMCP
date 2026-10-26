@@ -32,6 +32,7 @@ const COPIED = [
   'scripts/Build-Installer.ps1', 'scripts/tests/Test-NativeLifecycle.ps1',
   'CHATMCP-HUB/lib/release-keys.json', 'CHATMCP-HUB/tests/verify-update-apply.mjs',
   'CHATMCP-HUB/tests/fixtures/release-verify-vectors.json', 'CHATMCP-HUB/tests/fixtures/update-result-vectors.json', 'CHATMCP-HUB/tests/fixtures/active-work-cases.json',
+  'docs/WINDOWS-SETUP.md', // the recovery by hand that the guide gives is run by Program.cs from this text
 ];
 const SKIPPED = /(^|[\\/])(bin|obj|node_modules|payload\.zip)([\\/]|$)/;
 /** What this machine can do, found by trying it once. */

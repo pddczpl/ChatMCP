@@ -212,6 +212,46 @@ try
     Throws(() => { using var tx = new InstallTransaction(root); }, "interrupted update marker blocks a blind second update");
     File.Delete(Path.Combine(root, InstallTransaction.PendingName));
 
+    // An installation that needs recovery has no tool that recovers it; docs/WINDOWS-SETUP.md gives the steps by hand, as a PowerShell block. Here that block is taken from the guide and RUN, on the marker, the
+    // journal and the backups that a transaction really leaves when its rollback cannot put every file back (the files were edited by somebody else while it worked). The text of the guide is what is tested.
+    {
+        var folder = Path.Combine(scratch, "recovery by hand"); Directory.CreateDirectory(Path.Combine(folder, "sub"));
+        File.WriteAllText(Path.Combine(folder, "a.txt"), "old-a"); File.WriteAllText(Path.Combine(folder, "b.txt"), "old-b"); File.WriteAllText(Path.Combine(folder, "same.txt"), "same"); File.WriteAllText(Path.Combine(folder, "keep.txt"), "the owner's own file");
+        using (var tx = new InstallTransaction(folder))
+        {
+            tx.Add("a.txt", Bytes("new-a")); tx.Add("sub/new.txt", Bytes("created by the update")); tx.Add("same.txt", Bytes("same")); tx.RemoveObsolete("b.txt");
+            var step = 0;
+            Throws(() => tx.Commit((_, _) =>
+            {
+                step++;
+                if (step == 1) File.WriteAllText(Path.Combine(folder, "a.txt"), "edited by someone else while the update worked");
+                if (step == 2) File.WriteAllText(Path.Combine(folder, "sub", "new.txt"), "edited by someone else too");
+                if (step == 3) throw new IOException("the update stops halfway");
+            }), "premise: an update that stops halfway, with two files edited by somebody else, cannot be rolled back whole");
+        }
+        var marker = Path.Combine(folder, InstallTransaction.PendingName);
+        Check(File.Exists(marker) && Directory.GetDirectories(folder, ".ChatMCP-update-*").Length == 1, "premise: the marker and the retained backup are on disk");
+        Check(File.ReadAllText(Path.Combine(folder, "a.txt")) != "old-a" && File.Exists(Path.Combine(folder, "sub", "new.txt")), "premise: the installation is in a mixed state");
+        var guide = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "WINDOWS-SETUP.md")).Replace("\r\n", "\n");
+        var block = System.Text.RegularExpressions.Regex.Matches(guide, "~~~powershell\n(.*?)\n~~~", System.Text.RegularExpressions.RegexOptions.Singleline).Select(match => match.Groups[1].Value).FirstOrDefault(text => text.Contains("# recovery-from-retained-backup"));
+        Check(block != null, "the setup guide has the block that recovers an installation by hand (docs/WINDOWS-SETUP.md, marked recovery-from-retained-backup)");
+        var recoveryScript = System.Text.RegularExpressions.Regex.Replace(block!, @"^\$install = .*$", "$$install = '" + folder.Replace("'", "''") + "'", System.Text.RegularExpressions.RegexOptions.Multiline);
+        Check(recoveryScript.Contains(folder), "premise: the block is pointed at the scratch installation");
+        var recovery = HubLifecycle.WindowsPowerShell(recoveryScript);
+        recovery.RedirectStandardOutput = true; recovery.RedirectStandardError = true;
+        using (var shell = Process.Start(recovery)!)
+        {
+            var output = shell.StandardOutput.ReadToEndAsync(); var errors = shell.StandardError.ReadToEndAsync();
+            Check(shell.WaitForExit(120000) && shell.ExitCode == 0, "the block runs to its end without an error" + (shell.HasExited && shell.ExitCode != 0 ? ": " + errors.GetAwaiter().GetResult() : ""));
+        }
+        Check(File.ReadAllText(Path.Combine(folder, "a.txt")) == "old-a", "it puts back a file that the update had replaced, over what somebody else wrote");
+        Check(File.ReadAllText(Path.Combine(folder, "b.txt")) == "old-b" && File.ReadAllText(Path.Combine(folder, "same.txt")) == "same", "a file the update removes or leaves alone is as it was");
+        Check(!File.Exists(Path.Combine(folder, "sub", "new.txt")), "a file the update created is removed");
+        Check(File.ReadAllText(Path.Combine(folder, "keep.txt")) == "the owner's own file", "and a file of the owner's that the update never knew is not touched");
+        Check(!File.Exists(marker) && Directory.GetDirectories(folder, ".ChatMCP-update-*").Length == 0, "the marker and the backup are gone once everything is back, so the launcher and the setup work again");
+        using (var again = new InstallTransaction(folder)) Check(true, "and the setup accepts the folder (no marker)");
+    }
+
     // What a damaged installer looks like to the result file: the payload checks of the transaction carry the code payload_invalid, so that the window says "This installer is damaged"
     // and the page can say it too, instead of "The files could not be replaced".
     {

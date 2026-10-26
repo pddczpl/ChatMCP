@@ -130,6 +130,15 @@ const mainUpdate = strip(read('desktop-shell/MainWindow.Update.cs'));
 check(/UseShellExecute\s*=\s*false/.test(applier) && !/UseShellExecute\s*=\s*true/.test(applier + mainUpdate), 'the installer is started without a shell');
 check(/ArgumentList\.Add\(/.test(applier) && !/(?<![A-Za-z])Arguments\s*=/.test(applier + mainUpdate) && !/new ProcessStartInfo\([^)]*,/.test(applier + mainUpdate), 'with an argument list, never a command line made by joining text');
 check(!/cmd(?:\.exe)?\b|powershell|pwsh|Process\.Start\(\s*"/i.test(applier + mainUpdate), 'and never through cmd or PowerShell');
+// The window closes itself only when the installer is still running five seconds after it was started: one that has ended replaced nothing (it waits for this shell), so the window stays and says
+// launch_failed; and the page is told `launched` only after that look. (The logic of the look is tested; the window that carries it out is WinForms, and is read here.)
+const lookAt = mainUpdate.indexOf('UpdateApplier.WaitForInstaller(');
+const exitedAt = mainUpdate.search(/if \(seen == InstallerSighting\.Exited\) throw new UpdateRefused\("launch_failed"/);
+const launchedAt = mainUpdate.indexOf('ReplyToPage(requestId, true, "launched")');
+const closeAt = mainUpdate.indexOf('Close();', launchedAt);
+check(lookAt > 0 && exitedAt > lookAt && launchedAt > exitedAt && closeAt > launchedAt, 'the window looks at the installer, keeps itself open with launch_failed when it has ended, and only then tells the page `launched` and closes');
+check(/WaitForInstaller\(\(\) => LookAtInstaller\(installerPid\), TimeSpan\.FromSeconds\(5\), TimeSpan\.FromMilliseconds\(100\), Task\.Delay\)/.test(mainUpdate), 'and gives it five seconds, looking every 100 ms');
+check(/return await Task\.Run\(\(\) => environment\.Start\(start\)\)/.test(applier) && /RequireReadableByInstaller\(start\);\s*beforeStart\(\);/.test(applier), 'the installer is started off the thread of the window, and the arguments are read the way the installer will read them BEFORE the call that stops the monitor of the Hub');
 
 // ---- every reason an update can end with is carried by some step --------------------------------------------------------------------------------------------------------------------------
 // A code of the closed list (StepCode.Known, which the Hub's list and the page's list repeat) that no step of the installer ever carries is a reason the window and the page have words for and nobody ever

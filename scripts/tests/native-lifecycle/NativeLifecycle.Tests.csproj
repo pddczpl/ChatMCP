@@ -28,5 +28,7 @@
     <None Include="../../../CHATMCP-HUB/tests/fixtures/update-result-vectors.json" Link="update-result-vectors.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- Whether the Hub is doing work that an update would cut off: this rule, the installer's, and the page's port of it are held to one list of cases (CHATMCP-HUB/ui/tests/updates.test.mjs). -->
     <None Include="../../../CHATMCP-HUB/tests/fixtures/active-work-cases.json" Link="active-work-cases.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The recovery that the setup guide describes for an installation that needs it is run for real by Program.cs, from the text of the guide. -->
+    <None Include="../../../docs/WINDOWS-SETUP.md" Link="WINDOWS-SETUP.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

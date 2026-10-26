@@ -131,8 +131,8 @@
    "patches": [
     {
      "file": "native-shared/OpenLink.cs",
-     "old": "if (plain == \".\" || plain == \"..\") return false;",
-     "new": ""
+     "old": "if (plain == \".\" || plain == \"..\" || plain.Equals(\"download\", StringComparison.OrdinalIgnoreCase)) return false;",
+     "new": "if (plain.Equals(\"download\", StringComparison.OrdinalIgnoreCase)) return false;"
     }
    ]
   },
@@ -142,7 +142,7 @@
    "patches": [
     {
      "file": "native-shared/OpenLink.cs",
-     "old": "var plain = segment.Replace(\"%2e\", \".\", StringComparison.OrdinalIgnoreCase);",
+     "old": "var plain = Uri.UnescapeDataString(segment);",
      "new": "var plain = segment;"
     }
    ]
@@ -274,7 +274,7 @@
    "patches": [
     {
      "file": "native-shared/PageMessage.cs",
-     "old": " || !Types.Contains(kind.GetString()!)",
+     "old": " || !Types.Contains(kindText)",
      "new": ""
     }
    ]
@@ -285,7 +285,7 @@
    "patches": [
     {
      "file": "native-shared/PageMessage.cs",
-     "old": " || !RequestId.IsMatch(identifier.GetString()!)",
+     "old": " || !RequestId.IsMatch(idText)",
      "new": ""
     }
    ]
@@ -428,8 +428,8 @@
    "patches": [
     {
      "file": "native-shared/UpdatePackage.cs",
-     "old": "(algorithm.ValueKind != JsonValueKind.String || algorithm.GetString() != \"ES256\")",
-     "new": "false"
+     "old": "&& Json.TextOf(algorithm) != \"ES256\")",
+     "new": "&& false)"
     }
    ]
   },
@@ -472,8 +472,8 @@
    "patches": [
     {
      "file": "native-shared/UpdatePackage.cs",
-     "old": "Json.DecodeBase64(encoded.GetString()) : null;\n                if (spki == null)",
-     "new": "Convert.FromBase64String(encoded.GetString()!.Trim()) : null;\n                if (spki == null)"
+     "old": "Json.DecodeBase64(Json.TextOf(encoded)) : null;\n                if (spki == null)",
+     "new": "Convert.FromBase64String(Json.TextOf(encoded)!.Trim()) : null;\n                if (spki == null)"
     }
    ]
   },
@@ -483,8 +483,8 @@
    "patches": [
     {
      "file": "native-shared/UpdatePackage.cs",
-     "old": "Json.DecodeBase64(encoded.GetString()) : null;\n            if (signature == null)",
-     "new": "Convert.FromBase64String(encoded.GetString()!.Trim()) : null;\n            if (signature == null)"
+     "old": "Json.DecodeBase64(Json.TextOf(encoded)) : null;\n                if (signature == null)",
+     "new": "Convert.FromBase64String(Json.TextOf(encoded)!.Trim()) : null;\n                if (signature == null)"
     }
    ]
   },
@@ -494,7 +494,7 @@
    "patches": [
     {
      "file": "native-shared/UpdatePackage.cs",
-     "old": "if (!entry.TryGetProperty(\"kid\", out var claimed) || claimed.ValueKind != JsonValueKind.String || claimed.GetString() != kid) { Skip(index, \"kid_mismatch\", entry); continue; }",
+     "old": "if (!entry.TryGetProperty(\"kid\", out var claimed) || Json.TextOf(claimed) != kid) { Skip(index, \"kid_mismatch\", entry); continue; }",
      "new": ""
     }
    ]
@@ -723,7 +723,7 @@
    "patches": [
     {
      "file": "native-shared/UpdatePackage.cs",
-     "old": " || alg.GetString() != \"ES256\") throw new SignatureRefused(\"alg\");",
+     "old": " || Json.TextOf(alg) != \"ES256\") throw new SignatureRefused(\"alg\");",
      "new": ") throw new SignatureRefused(\"alg\");"
     }
    ]
@@ -918,7 +918,7 @@
    "patches": [
     {
      "file": "native-shared/UpdatePackage.cs",
-     "old": " || !Commit40.IsMatch(commit.GetString()!)",
+     "old": " || !Commit40.IsMatch(commitText)",
      "new": ""
     }
    ]
@@ -951,7 +951,7 @@
    "patches": [
     {
      "file": "native-shared/UpdatePackage.cs",
-     "old": " || !AssetName.IsMatch(name.GetString()!)",
+     "old": " || !AssetName.IsMatch(name)",
      "new": ""
     }
    ]
@@ -973,7 +973,7 @@
    "patches": [
     {
      "file": "native-shared/UpdatePackage.cs",
-     "old": " || !Digest.IsMatch(digest.GetString()!)",
+     "old": " || !Digest.IsMatch(digest)",
      "new": ""
     }
    ]
@@ -1006,7 +1006,7 @@
    "patches": [
     {
      "file": "native-shared/UpdatePackage.cs",
-     "old": "if (!names.Add(name.GetString()!.ToLowerInvariant())) throw new ManifestRefused(\"two assets have one name\");",
+     "old": "if (!names.Add(name.ToLowerInvariant())) throw new ManifestRefused(\"two assets have one name\");",
      "new": ""
     }
    ]
@@ -1017,8 +1017,8 @@
    "patches": [
     {
      "file": "native-shared/UpdatePackage.cs",
-     "old": "names.Add(name.GetString()!.ToLowerInvariant())",
-     "new": "names.Add(name.GetString()!)"
+     "old": "names.Add(name.ToLowerInvariant())",
+     "new": "names.Add(name)"
     }
    ]
   },
@@ -1050,8 +1050,8 @@
    "patches": [
     {
      "file": "native-shared/UpdatePackage.cs",
-     "old": "digest.GetString()!.ToLowerInvariant()",
-     "new": "digest.GetString()!"
+     "old": "digest.ToLowerInvariant()",
+     "new": "digest"
     }
    ]
   },
@@ -1062,8 +1062,8 @@
    "patches": [
     {
      "file": "native-shared/UpdatePackage.cs",
-     "old": "commit.GetString()!.ToLowerInvariant()",
-     "new": "commit.GetString()!"
+     "old": "commitText.ToLowerInvariant()",
+     "new": "commitText"
     }
    ]
   },
@@ -1220,8 +1220,8 @@
    "patches": [
     {
      "file": "native-shared/UpdateStaging.cs",
-     "old": "foreach (var update in proven) update.Dispose();",
-     "new": ""
+     "old": "        if (proven.Count == 1) return proven[0];\n        foreach (var update in proven) update.Dispose();",
+     "new": "        if (proven.Count == 1) return proven[0];"
     }
    ]
   },
@@ -1630,8 +1630,8 @@
    "patches": [
     {
      "file": "native-shared/UpdateApplier.cs",
-     "old": "try { return environment.Start(start); }",
-     "new": "try { update.Release(); return environment.Start(start); }"
+     "old": "try { return await Task.Run(() => environment.Start(start)); }",
+     "new": "try { update.Release(); return await Task.Run(() => environment.Start(start)); }"
     }
    ]
   },
@@ -1659,12 +1659,12 @@
   },
   {
    "name": "apply-before-start-too-early",
-   "what": "the monitor of the Hub is stopped before anything is checked",
+   "what": "the caller is never told to stop the monitor of the Hub before the installer is started",
    "patches": [
     {
      "file": "native-shared/UpdateApplier.cs",
-     "old": "            beforeStart();\n            var start",
-     "new": "            var start"
+     "old": "            beforeStart();\n            // Off the thread",
+     "new": "            // Off the thread"
     }
    ]
   },
@@ -2210,8 +2210,8 @@
    "patches": [
     {
      "file": "installer/UpdateRun.cs",
-     "old": " && !MarkerExists(environment, directory))\n        {\n            try { environment.Relaunch(program); }",
-     "new": ")\n        {\n            try { environment.Relaunch(program); }"
+     "old": " && !MarkerExists(environment, directory))\n        {\n            try { environment.Relaunch(program); relaunched = true; }",
+     "new": ")\n        {\n            try { environment.Relaunch(program); relaunched = true; }"
     }
    ]
   },
@@ -2243,8 +2243,8 @@
    "patches": [
     {
      "file": "installer/UpdateRun.cs",
-     "old": "try { environment.Relaunch(program); } catch (Exception) { /* the person can open the app themselves */ }",
-     "new": "environment.Relaunch(program);"
+     "old": "try { environment.Relaunch(program); relaunched = true; } catch (Exception) { /* the person can open the app themselves */ }",
+     "new": "environment.Relaunch(program); relaunched = true;"
     }
    ]
   },
@@ -2310,7 +2310,7 @@
    "patches": [
     {
      "file": "installer/UpdateWords.cs",
-     "old": "\"needs_recovery\" => \"The update to \" + outcome.Version + \" stopped halfway and the old files could not all be put back. DatGold will not start until this is repaired: run DatGoldSetup.exe again, or look in the installer log in %LOCALAPPDATA%\\\\ChatMCP\\\\logs.\",",
+     "old": "\"needs_recovery\" => RecoveryFor(outcome),",
      "new": "\"needs_recovery\" => head,"
     }
    ]
@@ -2387,7 +2387,7 @@
    "patches": [
     {
      "file": "native-shared/HubLifecycle.cs",
-     "old": "!data.TryGetProperty(\"agent\", out var agent) || HasWork(agent))",
+     "old": "!data.TryGetProperty(\"agent\", out var agent) || agent.ValueKind != JsonValueKind.Object || HasWork(agent))",
      "new": "data.TryGetProperty(\"agent\", out var agent) && HasWork(agent))"
     }
    ]
@@ -2398,8 +2398,8 @@
    "patches": [
     {
      "file": "native-shared/HubLifecycle.cs",
-     "old": "        if (data.ValueKind != JsonValueKind.Object || !data.TryGetProperty(\"agent\", out var agent) || HasWork(agent))",
-     "new": "        if (data.ValueKind != JsonValueKind.Object) return null;\n        if (!data.TryGetProperty(\"agent\", out var agent) || HasWork(agent))"
+     "old": "        if (data.ValueKind != JsonValueKind.Object || !data.TryGetProperty(\"agent\", out var agent) || agent.ValueKind != JsonValueKind.Object || HasWork(agent))",
+     "new": "        if (data.ValueKind != JsonValueKind.Object) return null;\n        if (!data.TryGetProperty(\"agent\", out var agent) || agent.ValueKind != JsonValueKind.Object || HasWork(agent))"
     }
    ]
   },
@@ -3084,6 +3084,477 @@
      "file": "scripts/Build-Installer.ps1",
      "old": "$shellManifest.Project.PropertyGroup.Version",
      "new": "$shellManifest.Project.PropertyGroup[0].Version"
+    }
+   ]
+  },
+  {
+   "name": "json-text-of-throws",
+   "what": "a value that .NET cannot give as text is not caught: the exception leaves the reader",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "try { return element.GetString(); } catch (InvalidOperationException) { return null; }",
+     "new": "return element.GetString();"
+    }
+   ]
+  },
+  {
+   "name": "page-lone-surrogate-name-thrown",
+   "what": "a message with a field named by a lone surrogate throws out of the handler",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "catch (Exception error) when (error is JsonException or InvalidOperationException) { return false; }",
+     "new": "catch (JsonException) { return false; }"
+    }
+   ]
+  },
+  {
+   "name": "page-text-of-removed",
+   "what": "the type of a message is asked for as text without the guard of TextOf",
+   "equivalent": "The same handler already catches InvalidOperationException (a lone surrogate), so the guard of TextOf and the handler give the same answer for the message: dropped.",
+   "patches": [
+    {
+     "file": "native-shared/PageMessage.cs",
+     "old": "Json.TextOf(kind) is not { } kindText",
+     "new": "kind.GetString() is not { } kindText"
+    }
+   ]
+  },
+  {
+   "name": "keys-lone-surrogate-name-thrown",
+   "what": "a key list with a field named by a lone surrogate throws out of Parse, which must never throw",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "catch (Exception error) when (error is JsonException or InvalidOperationException)\n        {\n            // JSON that .NET parses",
+     "new": "catch (JsonException)\n        {\n            // JSON that .NET parses"
+    }
+   ]
+  },
+  {
+   "name": "keys-use-as-text-unguarded",
+   "what": "the use of a key is asked for as text without the guard: one entry with a lone surrogate costs the whole list",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "var use = entry.TryGetProperty(\"use\", out var usage) ? Json.TextOf(usage) : null;",
+     "new": "var use = entry.TryGetProperty(\"use\", out var usage) && usage.ValueKind == JsonValueKind.String ? usage.GetString() : null;"
+    }
+   ]
+  },
+  {
+   "name": "sig-lone-surrogate-name-thrown",
+   "what": "a signature file with a field named by a lone surrogate throws instead of being refused",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "try { document = JsonDocument.Parse(Json.StripBom(text), Json.Strict); } catch (Exception error) when (error is JsonException or InvalidOperationException) { throw new SignatureRefused(\"json\"); }",
+     "new": "try { document = JsonDocument.Parse(Json.StripBom(text), Json.Strict); } catch (JsonException) { throw new SignatureRefused(\"json\"); }"
+    }
+   ]
+  },
+  {
+   "name": "sig-read-fault-rethrown",
+   "what": "a fault of .NET while the signature file is read leaves as it is",
+   "equivalent": "Defence in depth: every InvalidOperationException .NET can raise here (a lone surrogate in a value or a name) is stopped earlier, by Json.TextOf or by the parse; no input reaches this handler.",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "catch (InvalidOperationException) { throw new SignatureRefused(\"json\"); } // a property",
+     "new": "catch (InvalidOperationException) { throw; } // a property"
+    }
+   ]
+  },
+  {
+   "name": "manifest-lone-surrogate-name-thrown",
+   "what": "a manifest with a field named by a lone surrogate throws instead of being refused",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "try { document = JsonDocument.Parse(Json.StripBom(bytes), Json.Strict); } catch (Exception error) when (error is JsonException or InvalidOperationException) { throw new ManifestRefused(\"the file is not JSON\"); }",
+     "new": "try { document = JsonDocument.Parse(Json.StripBom(bytes), Json.Strict); } catch (JsonException) { throw new ManifestRefused(\"the file is not JSON\"); }"
+    }
+   ]
+  },
+  {
+   "name": "manifest-read-fault-rethrown",
+   "what": "a fault of .NET while the manifest is read leaves as it is",
+   "equivalent": "Defence in depth, as for the signature file: no input reaches this handler, because Json.TextOf and the parse stop every lone surrogate before it.",
+   "patches": [
+    {
+     "file": "native-shared/UpdatePackage.cs",
+     "old": "catch (InvalidOperationException) { throw new ManifestRefused(\"the file cannot be read as JSON\"); }",
+     "new": "catch (InvalidOperationException) { throw; }"
+    }
+   ]
+  },
+  {
+   "name": "staging-unforeseen-escapes",
+   "what": "a folder that fails in an unforeseen way lets its exception out of the shell",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "catch (Exception error) when (error is not OutOfMemoryException) { newestFailure ??= new UpdateRefused(\"staging_unsafe\", \"the release folder \" + name + \" could not be checked (\" + error.GetType().Name + \")\"); }",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "staging-unforeseen-code",
+   "what": "a folder that fails in an unforeseen way is told as another code than staging_unsafe",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "newestFailure ??= new UpdateRefused(\"staging_unsafe\", \"the release folder \" + name + \" could not be checked (",
+     "new": "newestFailure ??= new UpdateRefused(\"bad_installer\", \"the release folder \" + name + \" could not be checked ("
+    }
+   ]
+  },
+  {
+   "name": "apply-arguments-not-read",
+   "what": "the arguments are not read the way the installer will read them before anything is started",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "            RequireReadableByInstaller(start);\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "apply-arguments-read-with-another-name",
+   "what": "the arguments are read with a name of the file that is not the file that is started",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "InstallerCommandLine.Parse(start.ArgumentList.ToArray(), Path.GetFileNameWithoutExtension(start.FileName))",
+     "new": "InstallerCommandLine.Parse(start.ArgumentList.ToArray(), \"DatGoldSetup\")"
+    }
+   ]
+  },
+  {
+   "name": "apply-arguments-refusal-code",
+   "what": "arguments the installer cannot read are told as another code than launch_failed",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "throw new UpdateRefused(\"launch_failed\", \"the installer would not read the arguments it is given\");",
+     "new": "throw new UpdateRefused(\"bad_installer\", \"the installer would not read the arguments it is given\");"
+    }
+   ]
+  },
+  {
+   "name": "apply-arguments-mode-unchecked",
+   "what": "arguments that are not those of an update are started all the same",
+   "equivalent": "InstallerCommandLine.Parse returns an update command or throws for every argument list that holds --update, and UpdateArguments.Build always gives it: no input reaches this check.",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "if (command.Mode != InstallerMode.Update) throw new UpdateRefused(\"launch_failed\", \"the arguments are not those of an update\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "apply-start-on-the-window-thread",
+   "what": "the installer is started on the thread that draws the window",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "return await Task.Run(() => environment.Start(start));",
+     "new": "return environment.Start(start);"
+    }
+   ]
+  },
+  {
+   "name": "wait-one-look-too-many",
+   "what": "the wait for the installer looks and waits once more than the time it was given",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "waited < limit; waited += step",
+     "new": "waited <= limit; waited += step"
+    }
+   ]
+  },
+  {
+   "name": "wait-no-last-look",
+   "what": "the installer that shows its window in the last moment is not seen",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "return look() ?? InstallerSighting.Silent;",
+     "new": "return InstallerSighting.Silent;"
+    }
+   ]
+  },
+  {
+   "name": "wait-ignores-the-end",
+   "what": "an installer that has ended is not told",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "if (look() is { } seen) return seen;",
+     "new": "if (look() is { } seen && seen == InstallerSighting.Window) return seen;"
+    }
+   ]
+  },
+  {
+   "name": "run-result-beside-a-hub",
+   "what": "the result file is left whatever listens on the port of the Hub",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "if (command.ResultFile != null && !HubListens(environment))",
+     "new": "if (command.ResultFile != null)"
+    }
+   ]
+  },
+  {
+   "name": "run-hub-check-fatal",
+   "what": "a port that cannot be looked at makes the update throw",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "try { return environment.HubIsRunning(); } catch (Exception) { return false; }",
+     "new": "return environment.HubIsRunning();"
+    }
+   ]
+  },
+  {
+   "name": "run-hub-check-unknown-means-running",
+   "what": "a port that cannot be looked at is taken as a Hub that is up, and no note is left",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "try { return environment.HubIsRunning(); } catch (Exception) { return false; }",
+     "new": "try { return environment.HubIsRunning(); } catch (Exception) { return true; }"
+    }
+   ]
+  },
+  {
+   "name": "run-relaunched-before-it-worked",
+   "what": "the update says the app was opened before it has tried to open it",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "try { environment.Relaunch(program); relaunched = true; }",
+     "new": "try { relaunched = true; environment.Relaunch(program); }"
+    }
+   ]
+  },
+  {
+   "name": "open-app-missing-is-silent",
+   "what": "opening an app that is not there is no failure",
+   "patches": [
+    {
+     "file": "installer/UpdateRun.cs",
+     "old": "if (!File.Exists(program)) throw new FileNotFoundException(\"There is no ChatMCP.exe to open.\");",
+     "new": "if (!File.Exists(program)) return;"
+    }
+   ]
+  },
+  {
+   "name": "words-recovery-earlier-update-unseen",
+   "what": "the marker of an earlier update is told as this update stopping halfway",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "return outcome.Reason == \"pending_recovery\"",
+     "new": "return false"
+    }
+   ]
+  },
+  {
+   "name": "words-recovery-setup-again",
+   "what": "the words send the person to the setup, which refuses behind the marker",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "DatGoldSetup.exe will not install again while that file is there.\";",
+     "new": "Run DatGoldSetup.exe again.\";"
+    }
+   ]
+  },
+  {
+   "name": "words-recovery-no-backup-named",
+   "what": "the words do not name the file that holds the backup or say it is not to be deleted",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "Keep the backup that .chatmcp-update-pending.json in the DatGold folder points to (do not delete it) and look",
+     "new": "Look"
+    }
+   ]
+  },
+  {
+   "name": "tx-marker-overwrites",
+   "what": "a marker that another update made is replaced",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "File.Move(temporary, marker);",
+     "new": "File.Move(temporary, marker, overwrite: true);"
+    }
+   ]
+  },
+  {
+   "name": "tx-marker-stale-name-kept",
+   "what": "the file the marker is written under first is not cleared before it is made",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "File.Delete(temporary); // a leftover of an earlier run that died is replaced, not trusted\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "tx-marker-name-kept-on-failure",
+   "what": "a failure to write the marker leaves the file it was written under",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "try { File.Delete(temporary); } catch (Exception) { /* nothing more can be done about it */ }",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "tx-path-untagged",
+   "what": "a payload path that is not safe is not told as a damaged installer",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "throw new IOException(\"Unsafe or non-canonical payload path.\").Tag(\"payload_invalid\");",
+     "new": "throw new IOException(\"Unsafe or non-canonical payload path.\");"
+    }
+   ]
+  },
+  {
+   "name": "tx-duplicate-untagged",
+   "what": "a payload that names a file twice is not told as a damaged installer",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "throw new IOException(\"Duplicate or oversized installer manifest.\").Tag(\"payload_invalid\");",
+     "new": "throw new IOException(\"Duplicate or oversized installer manifest.\");"
+    }
+   ]
+  },
+  {
+   "name": "tx-missing-component-untagged",
+   "what": "a component the payload does not have is not told as a damaged installer",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "throw new IOException(\"Missing required staged component.\").Tag(\"payload_invalid\");",
+     "new": "throw new IOException(\"Missing required staged component.\");"
+    }
+   ]
+  },
+  {
+   "name": "tx-missing-component-lookup",
+   "what": "a component the payload does not have makes a lookup fail (KeyNotFoundException)",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "changes.TryGetValue(Normalize(relative), out var change) && change.Staged != null\n        ? change.Staged\n        : throw new IOException(\"Missing required staged component.\").Tag(\"payload_invalid\");",
+     "new": "changes[Normalize(relative)].Staged!;"
+    }
+   ]
+  },
+  {
+   "name": "work-agent-not-object-is-idle",
+   "what": "an agent that is null, a string or a list is a Hub with no work",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": " || agent.ValueKind != JsonValueKind.Object || HasWork(agent))",
+     "new": " || HasWork(agent))"
+    }
+   ]
+  },
+  {
+   "name": "link-download-allowed",
+   "what": "a link into releases/download or releases/latest/download is opened",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": " || plain.Equals(\"download\", StringComparison.OrdinalIgnoreCase)) return false;",
+     "new": ") return false;"
+    }
+   ]
+  },
+  {
+   "name": "link-download-case-sensitive",
+   "what": "a segment named DOWNLOAD (capitals) is not a download",
+   "patches": [
+    {
+     "file": "native-shared/OpenLink.cs",
+     "old": "plain.Equals(\"download\", StringComparison.OrdinalIgnoreCase)) return false;",
+     "new": "plain.Equals(\"download\", StringComparison.Ordinal)) return false;"
+    }
+   ]
+  },
+  {
+   "name": "gate-window-tag-lost",
+   "what": "the step that refuses for a window that would not close carries no code, so window_open is listed and worded and nobody ever sees it",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "throw new IOException(\"Close the installed DatGold window before upgrading. No files were replaced.\").Tag(\"window_open\");",
+     "new": "throw new IOException(\"Close the installed DatGold window before upgrading. No files were replaced.\");"
+    }
+   ]
+  },
+  {
+   "name": "gate-window-keeps-itself-open-lost",
+   "what": "the window of the shell closes although the installer has ended",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "desktop-shell/MainWindow.Update.cs",
+     "old": "if (seen == InstallerSighting.Exited) throw new UpdateRefused(\"launch_failed\", \"the installer ended before this window closed\");",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "gate-window-told-before-the-look",
+   "what": "the page is told `launched` before the installer was looked at",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "desktop-shell/MainWindow.Update.cs",
+     "old": "                var seen = await UpdateApplier.WaitForInstaller(",
+     "new": "                ReplyToPage(requestId, true, \"launched\");\n                var seen = await UpdateApplier.WaitForInstaller("
+    }
+   ]
+  },
+  {
+   "name": "gate-key-list-left-to-the-project-default",
+   "what": "the build of the shell is not given its key list on the command line",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": " \"-p:ReleaseKeysFile=$shellKeysFile\" |",
+     "new": " |"
+    }
+   ]
+  },
+  {
+   "name": "gate-arguments-read-after-the-monitor-stops",
+   "what": "the arguments are read after the monitor of the Hub has been stopped",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "            RequireReadableByInstaller(start);\n            beforeStart();",
+     "new": "            beforeStart();\n            RequireReadableByInstaller(start);"
     }
    ]
   }
