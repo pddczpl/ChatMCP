@@ -167,6 +167,50 @@ function Assert-UpdateResult($result, [bool]$ok, [string]$state, $reason, [strin
     $reasonMatches = if ($null -eq $reason) { $null -eq $result.reason } else { $result.reason -eq $reason }
     Assert-Native (($result.format -eq 1) -and ($result.ok -eq $ok) -and ($result.state -eq $state) -and $reasonMatches -and ($result.version -eq $ExpectedCandidateVersion) -and ($result.previous -eq $previous) -and ($result.rolledBack -eq ($state -eq 'rolled_back'))) $message
 }
+# An installation left behind the marker of an update that stopped halfway and could not put every file back, made the way installer/InstallTransaction.cs leaves one: the marker names a backup folder
+# (.ChatMCP-update-<id> in the installation) that holds journal.json, an array of {Relative, Staged, NewHash, Backup, OldHash}, and a copy of each file the update was about to change (old\000000, ...). The update
+# in this one had replaced a file, removed another and created a third, and the files are left the way it left them. Returns the backup folder. (Test-InstallerPayload.ps1 holds the fields to the installer's.)
+function New-RetainedUpdate([string]$Install, [string]$Replaced, [string]$Removed, [string]$Created) {
+    $backups = Join-Path $Install ('.ChatMCP-update-' + [guid]::NewGuid().ToString('N'))
+    $old = Join-Path $backups 'old'
+    New-Item -ItemType Directory -Path $old -Force | Out-Null
+    $entries = @()
+    $index = 0
+    foreach ($relative in @($Replaced, $Removed)) {
+        $copy = Join-Path $old ('{0:D6}' -f $index)
+        Copy-Item -LiteralPath (Join-Path $Install ($relative -replace '/', '\')) -Destination $copy
+        $replaces = ($relative -eq $Replaced)
+        $entries += [ordered]@{
+            Relative = $relative
+            Staged = $(if ($replaces) { Join-Path $backups ('new\{0:D6}' -f $index) } else { $null })
+            NewHash = $(if ($replaces) { 'A' * 64 } else { $null })
+            Backup = $copy
+            OldHash = (Get-FileHash -LiteralPath $copy -Algorithm SHA256).Hash
+        }
+        $index++
+    }
+    $entries += [ordered]@{ Relative = $Created; Staged = (Join-Path $backups ('new\{0:D6}' -f $index)); NewHash = 'B' * 64; Backup = $null; OldHash = $null }
+    [IO.File]::WriteAllText((Join-Path $backups 'journal.json'), (ConvertTo-Json -InputObject @($entries) -Depth 4))
+    [IO.File]::WriteAllText((Join-Path $Install '.chatmcp-update-pending.json'), (ConvertTo-Json -Compress -InputObject ([ordered]@{ version = 1; backupDirectory = $backups })))
+    # what the half-done update left in the installation
+    [IO.File]::WriteAllText((Join-Path $Install ($Replaced -replace '/', '\')), 'written by the update that stopped halfway')
+    Remove-Item -LiteralPath (Join-Path $Install ($Removed -replace '/', '\')) -Force
+    $createdFile = Join-Path $Install ($Created -replace '/', '\')
+    New-Item -ItemType Directory -Path (Split-Path -Parent $createdFile) -Force | Out-Null
+    [IO.File]::WriteAllText($createdFile, 'created by the update that stopped halfway')
+    return $backups
+}
+# The block of the setup guide that recovers an installation by hand (docs\WINDOWS-SETUP.md, marked recovery-from-retained-backup), pointed at the installation it is to recover instead of the default one.
+function Get-RecoveryScript([string]$Guide, [string]$Install) {
+    $text = [IO.File]::ReadAllText($Guide).Replace("`r`n", "`n")
+    foreach ($block in [regex]::Matches($text, '(?s)~~~powershell\n(.*?)\n~~~')) {
+        if ($block.Groups[1].Value.Contains('# recovery-from-retained-backup')) {
+            $pointed = '$install = ''' + $Install.Replace('''', '''''') + ''''
+            return [regex]::Replace($block.Groups[1].Value, '(?m)^\$install = .*$', [Text.RegularExpressions.MatchEvaluator]{ param($match) $pointed })
+        }
+    }
+    throw 'The setup guide has no block marked recovery-from-retained-backup.'
+}
 function Wait-InstalledApp([datetime]$Since) {
     # The app the installer opens: ChatMCP.exe of the installation, started after the update began.
     $exe = Join-Path $root 'ChatMCP.exe'
@@ -371,6 +415,30 @@ try {
         $null = Window-For $reopened
         Close-Desktop $reopened
         Stop-InstalledHub
+
+        # 2b. An installation behind the marker of an update that stopped halfway ("needs recovery"). Nothing repairs it by itself: the real setup refuses to install over it (in the update form and in the
+        # quiet one), what the person does is the block of the setup guide (docs\WINDOWS-SETUP.md, "Recovering an installation by hand"), run here on the text of the guide, and afterwards the setup works again
+        # (step 3, the update that goes through, is that proof). The files the "update" touched are canaries of the test, not files of the installation. No Hub is up here (step 2 stopped it), so the update leaves its result.
+        $canaryReplaced = Join-Path $root 'recovery-canary-replaced.txt'; $canaryRemoved = Join-Path $root 'recovery-canary-removed.txt'; $canaryCreated = Join-Path $root 'recovery-canary-created.txt'
+        [IO.File]::WriteAllText($canaryReplaced, 'REPLACED-ORIGINAL'); [IO.File]::WriteAllText($canaryRemoved, 'REMOVED-ORIGINAL')
+        $retainedBackups = New-RetainedUpdate -Install $root -Replaced 'recovery-canary-replaced.txt' -Removed 'recovery-canary-removed.txt' -Created 'recovery-canary-created.txt'
+        $pendingMarker = Join-Path $root '.chatmcp-update-pending.json'
+        Assert-Native ((Test-Path -LiteralPath $pendingMarker) -and (Test-Path -LiteralPath $retainedBackups) -and ([IO.File]::ReadAllText($canaryReplaced) -ne 'REPLACED-ORIGINAL') -and -not (Test-Path -LiteralPath $canaryRemoved) -and (Test-Path -LiteralPath $canaryCreated)) '[recovery] the installation is left behind the marker of an update that stopped halfway: one file replaced, one removed, one created'
+        $pendingResult = Join-Path $results 'pending-recovery.json'
+        $blocked = Start-InstallerUpdate (Update-Arguments -ResultFile $pendingResult)
+        $outcome = Read-UpdateResult $pendingResult 300
+        Assert-UpdateResult $outcome $false 'needs_recovery' 'pending_recovery' $ExpectedBaselineVersion '[recovery] the update form of the real setup refuses behind the marker: state needs_recovery, reason pending_recovery'
+        Assert-NativeError $blocked 'earlier update of DatGold did not finish' 120
+        Assert-Native ((Close-UpdateWindow $blocked) -eq 1) '[recovery] and its window says that an earlier update did not finish, and ends with Close'
+        Assert-Native ((Quiet-Install) -ne 0) '[recovery] the quiet form of the real setup refuses as well (exit code 1)'
+        Assert-Native ((Test-Path -LiteralPath $pendingMarker) -and (Test-Path -LiteralPath $retainedBackups) -and ((Get-FileHash $exe -Algorithm SHA256).Hash -eq $baselineHash) -and ([IO.File]::ReadAllText($canaryReplaced) -ne 'REPLACED-ORIGINAL')) '[recovery] neither replaced anything: the marker, the backup, the installed program and the files of the half-done update are as they were'
+        $recoveryFile = Join-Path $results 'recover-by-hand.ps1'
+        [IO.File]::WriteAllText($recoveryFile, (Get-RecoveryScript -Guide (Join-Path $PSScriptRoot '..\..\docs\WINDOWS-SETUP.md') -Install $root))
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $recoveryFile
+        Assert-Native ($LASTEXITCODE -eq 0) '[recovery] the block of the setup guide runs to its end in Windows PowerShell'
+        Assert-Native (([IO.File]::ReadAllText($canaryReplaced) -ceq 'REPLACED-ORIGINAL') -and ([IO.File]::ReadAllText($canaryRemoved) -ceq 'REMOVED-ORIGINAL') -and -not (Test-Path -LiteralPath $canaryCreated)) '[recovery] it puts back the file that was replaced and the one that was removed, and removes the one that was created'
+        Assert-Native (-not (Test-Path -LiteralPath $pendingMarker) -and -not (Test-Path -LiteralPath $retainedBackups) -and (Get-ChildItem -LiteralPath $root -Force -Directory -Filter '.ChatMCP-update-*').Count -eq 0 -and ((Get-FileHash $exe -Algorithm SHA256).Hash -eq $baselineHash)) '[recovery] and the marker and the backup are gone, the installed program is untouched, so the setup works again (the next step is the update that goes through)'
+        foreach ($canary in @($canaryReplaced, $canaryRemoved)) { Remove-Item -LiteralPath $canary -Force }
 
         # 3. The update that goes through, from the app that is open: it waits for the shell to close, replaces the files, opens the new app, and leaves the Hub that runs next the word "updated".
         $shell = Start-Desktop

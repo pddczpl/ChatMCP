@@ -331,7 +331,7 @@ try {
         $lifecycle = Join-Path $scriptDir 'Test-NativeLifecycle.ps1'
         $lifecycleErrors = $null; $lifecycleTokens = $null
         $lifecycleAst = [Management.Automation.Language.Parser]::ParseFile($lifecycle, [ref]$lifecycleTokens, [ref]$lifecycleErrors)
-        foreach ($helper in @('Update-Arguments', 'Assert-UpdateResult')) {
+        foreach ($helper in @('Update-Arguments', 'Assert-UpdateResult', 'New-RetainedUpdate', 'Get-RecoveryScript')) {
             $definition = $lifecycleAst.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $helper }, $true)
             Assert-Payload ($null -ne $definition) ('the lifecycle script defines ' + $helper)
             Invoke-Expression $definition.Extent.Text
@@ -351,6 +351,39 @@ try {
         Assert-Rejected { Assert-UpdateResult $refusal $false 'unchanged' 'not_newer' '3.9.0' 'x' } 'FAIL' 'and another previous version'
         Assert-Rejected { Assert-UpdateResult $success $true 'installed' 'oops' '3.10.2' 'x' } 'FAIL' 'and a reason on a success'
         Assert-Rejected { Assert-UpdateResult $refusal $false 'rolled_back' 'not_newer' '3.10.2' 'x' } 'FAIL' 'and a rollback flag that does not agree with the state'
+        # The recovery of an installation behind the marker of an update that stopped halfway ("needs recovery"): the lifecycle script makes one the way installer/InstallTransaction.cs leaves it and runs the
+        # block of the setup guide on it, on a disposable runner. Both are tried here, in a scratch folder and with the real Windows PowerShell, and the journal is held to the fields of the record the installer writes.
+        $guide = Join-Path $scriptDir '..\..\docs\WINDOWS-SETUP.md'
+        $retainedInstall = Join-Path $scratch 'retained-install'
+        New-Item -ItemType Directory -Path $retainedInstall -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $retainedInstall 'replaced.txt'), 'REPLACED-ORIGINAL')
+        [IO.File]::WriteAllText((Join-Path $retainedInstall 'removed.txt'), 'REMOVED-ORIGINAL')
+        [IO.File]::WriteAllText((Join-Path $retainedInstall 'untouched.txt'), 'UNTOUCHED')
+        $retainedBackups = New-RetainedUpdate -Install $retainedInstall -Replaced 'replaced.txt' -Removed 'removed.txt' -Created 'sub/created.txt'
+        $retainedMarker = Join-Path $retainedInstall '.chatmcp-update-pending.json'
+        $pending = Get-Content -LiteralPath $retainedMarker -Raw | ConvertFrom-Json
+        Assert-Native (($pending.version -eq 1) -and ($pending.backupDirectory -eq $retainedBackups) -and ((Split-Path -Parent $retainedBackups) -eq $retainedInstall) -and ((Split-Path -Leaf $retainedBackups) -match '^\.ChatMCP-update-[0-9a-f]{32}$')) 'the marker names a backup folder of the installation, the way the installer writes it'
+        $changeFields = @([regex]::Match([IO.File]::ReadAllText((Join-Path $scriptDir '..\..\installer\InstallTransaction.cs')), 'record Change\(([^)]*)\)').Groups[1].Value -split ',' | ForEach-Object { ($_.Trim() -split '\s+')[-1] })
+        Assert-Native (($changeFields -join '|') -ceq 'Relative|Staged|NewHash|Backup|OldHash') 'premise: the installer writes its journal as records with these five fields'
+        # (Windows PowerShell 5.1 hands a JSON array on as ONE object: it is unrolled here)
+        $journal = @(Get-Content -LiteralPath (Join-Path $retainedBackups 'journal.json') -Raw | ConvertFrom-Json | ForEach-Object { $_ })
+        Assert-Native (($journal.Count -eq 3) -and (@($journal | Where-Object { (($_.PSObject.Properties.Name) -join '|') -ceq ($changeFields -join '|') }).Count -eq 3)) 'the journal has one record for each file, with exactly the fields of the installer'
+        Assert-Native (([IO.File]::ReadAllText((Join-Path $retainedInstall 'replaced.txt')) -ne 'REPLACED-ORIGINAL') -and -not (Test-Path -LiteralPath (Join-Path $retainedInstall 'removed.txt')) -and (Test-Path -LiteralPath (Join-Path $retainedInstall 'sub\created.txt'))) 'the installation is left as the half-done update left it: one file replaced, one removed, one created'
+        $recoveryText = Get-RecoveryScript -Guide $guide -Install $retainedInstall
+        Assert-Native ($recoveryText.Contains('$install = ''' + $retainedInstall + '''') -and -not $recoveryText.Contains('LOCALAPPDATA')) 'the block of the setup guide is pointed at that folder and at nothing else'
+        $recoveryFile = Join-Path $scratch 'recover.ps1'
+        [IO.File]::WriteAllText($recoveryFile, $recoveryText)
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $recoveryFile
+        Assert-Native ($LASTEXITCODE -eq 0) 'the block runs to its end in Windows PowerShell'
+        Assert-Native (([IO.File]::ReadAllText((Join-Path $retainedInstall 'replaced.txt')) -ceq 'REPLACED-ORIGINAL') -and ([IO.File]::ReadAllText((Join-Path $retainedInstall 'removed.txt')) -ceq 'REMOVED-ORIGINAL') -and -not (Test-Path -LiteralPath (Join-Path $retainedInstall 'sub\created.txt')) -and ([IO.File]::ReadAllText((Join-Path $retainedInstall 'untouched.txt')) -ceq 'UNTOUCHED')) 'it puts back the file that was replaced and the one that was removed, removes the one that was created, and leaves the rest'
+        Assert-Native (-not (Test-Path -LiteralPath $retainedMarker) -and -not (Test-Path -LiteralPath $retainedBackups)) 'and the marker and the backup are gone, so the setup works again'
+        Assert-Rejected { Get-RecoveryScript -Guide (Join-Path $scriptDir 'Test-InstallerPayload.ps1') -Install $retainedInstall } 'recovery-from-retained-backup' 'a guide without the block is an error and not an empty script'
+        # and the scenario itself is in the lifecycle script, between the file in use (2) and the update that goes through (3)
+        $lifecycleText = [IO.File]::ReadAllText($lifecycle)
+        $first = $lifecycleText.IndexOf('# 2. A file in use'); $recover = $lifecycleText.IndexOf('# 2b.'); $second = $lifecycleText.IndexOf('# 3. The update that goes through')
+        Assert-Native (($first -gt 0) -and ($recover -gt $first) -and ($second -gt $recover)) 'the lifecycle script has the scenario of an installation behind the marker, between the file in use and the update that goes through'
+        $scenario = $lifecycleText.Substring($recover, $second - $recover)
+        Assert-Native ($scenario.Contains('New-RetainedUpdate -Install $root') -and $scenario.Contains('Get-RecoveryScript -Guide') -and $scenario.Contains('WINDOWS-SETUP.md') -and $scenario.Contains('Start-InstallerUpdate') -and $scenario.Contains('Quiet-Install') -and ([regex]::Matches($scenario, '\[recovery\]').Count -ge 8)) 'and it makes the retained update, has the real setup refuse it (the update form and the quiet one), runs the block of the guide, and checks the result'
     }
     Write-Host "PASS: Installer payload regression ($count passed, 0 failed, 0 skipped)"
 } finally {

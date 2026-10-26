@@ -3372,8 +3372,8 @@
    "patches": [
     {
      "file": "installer/UpdateWords.cs",
-     "old": "DatGoldSetup.exe will not install again while that file is there.\";",
-     "new": "Run DatGoldSetup.exe again.\";"
+     "old": "DatGoldSetup.exe will not install again while that file is there. \"",
+     "new": "Run DatGoldSetup.exe again. \""
     }
    ]
   },
@@ -4211,6 +4211,28 @@
      "file": "native-shared/WebViewBridge.cs",
      "old": "e.IsUserInitiated && OpenLink",
      "new": "!e.IsUserInitiated && OpenLink"
+    }
+   ]
+  },
+  {
+   "name": "words-recovery-no-guide",
+   "what": "the words of an update that needs recovery do not name the way out that exists",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "\"To put the files back by hand, follow Recovering an installation by hand in docs/WINDOWS-SETUP.md in the DatGold project on GitHub.\";",
+     "new": "\"\";"
+    }
+   ]
+  },
+  {
+   "name": "words-recovery-guide-wrong-file",
+   "what": "and name another file than the guide",
+   "patches": [
+    {
+     "file": "installer/UpdateWords.cs",
+     "old": "in docs/WINDOWS-SETUP.md in the DatGold project",
+     "new": "in docs/README.md in the DatGold project"
     }
    ]
   }
