@@ -56,7 +56,9 @@ export const test = base.extend({
       await use(app);
     } finally {
       await Promise.all(context.pages().map((page) => browserErrors.closePage(page)));
-      await hub?.stop();
+      // A Hub that does not stop is an error that carries its log (tests/e2e/hub-process.mjs), but the mock, the attached log and the folder are dealt with first.
+      let notStopped;
+      try { await hub?.stop(); } catch (error) { notStopped = error; }
       await mock?.close();
       for (const name of ['hub.log', 'hub-restart.log']) {
         const file = path.join(scratch, name);
@@ -66,7 +68,9 @@ export const test = base.extend({
       const resolved = await fs.realpath(scratch);
       const temp = await fs.realpath(os.tmpdir());
       if (path.dirname(resolved) !== temp || !path.basename(resolved).startsWith('chatmcp-react-e2e-')) throw new Error('Unsafe E2E cleanup path');
-      await fs.rm(resolved, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+      // A Hub that is still running holds its folder; that the folder cannot be removed is then the lesser news.
+      await fs.rm(resolved, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }).catch((error) => { if (!notStopped) throw error; });
+      if (notStopped) throw notStopped;
     }
   },
   browserErrors: [async ({ context, bodyLimitMs }, use, testInfo) => {

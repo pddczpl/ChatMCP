@@ -20,6 +20,24 @@ const CREDENTIAL_LIKE = /(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|^OPENAI_|^ANTHROP
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** What `promise` settles with, or null once `ms` have passed without it (the timer does not outlive the wait). */
+export function within(promise, ms) {
+  let timer;
+  return Promise.race([promise, new Promise((resolve) => { timer = setTimeout(resolve, ms, null); })]).finally(() => clearTimeout(timer));
+}
+
+// Nothing the harness waits for at the end of a test has a reason to take long, and a wait with no end turns into the whole test timeout (90 s of a Playwright
+// teardown, the 20 minutes of a CI job). taskkill runs synchronously, so while it hangs nothing else in the process moves either.
+const TASKKILL_MS = 10_000;
+const AFTER_KILL_MS = 15_000;
+const LOG_TAIL_LINES = 60;
+
+/** Ends a process and the children it started on Windows. False when taskkill did not do it (or did not finish within `timeoutMs`, which a hung taskkill never does). */
+export function taskkillTree(pid, { timeoutMs = TASKKILL_MS, run = spawnSync } = {}) {
+  const ended = run('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', timeout: timeoutMs });
+  return ended.status === 0; // a taskkill that could not start, or was cut off at the bound, has no status
+}
+
 /** Polls `check` until it returns something truthy; the last error or value goes into the failure message. */
 export async function waitFor(check, { timeoutMs = 20_000, intervalMs = 100, label = 'the condition' } = {}) {
   const deadline = Date.now() + timeoutMs;
@@ -89,6 +107,11 @@ export class HubProcess {
   get pid() { return this.child.pid; }
   get running() { return this.exitInfo === null; }
   logText() { try { return fs.readFileSync(this.logFile, 'utf8'); } catch { return ''; } }
+  /** The last lines of the Hub's log, headed the way tests/e2e/harness.mjs prints them. */
+  logTail() {
+    const lines = this.logText().split('\n').filter(Boolean).slice(-LOG_TAIL_LINES);
+    return `--- ${path.basename(this.logFile)} (last ${lines.length} lines) ---\n${lines.join('\n')}\n--- end of log ---`;
+  }
 
   /** The per-launch bearer every API call (reads included) must carry. */
   get authorization() { return `Bearer ${this.secret}`; }
@@ -146,27 +169,43 @@ export class HubProcess {
     });
   }
 
+  /** The exit of a Hub that was just ended by force. One that is still there after `ms` is an error that carries its log, not a wait with no end. */
+  async #exitAfterKill(ms) {
+    const outcome = await within(this.exited, ms);
+    if (outcome) return outcome;
+    throw new Error(`the Hub (pid ${this.pid}) is still running ${ms} ms after it was ended by force\n${this.logTail()}`);
+  }
+
   /** A crash: no shutdown handler runs, no file is flushed. Children the Hub started are left to fend for themselves. */
   async kill() {
     if (this.running) { try { process.kill(this.pid, 'SIGKILL'); } catch { /* already gone */ } }
-    await this.exited;
+    await this.#exitAfterKill(AFTER_KILL_MS);
   }
 
   /** Stops the Hub and everything it started (the end of a test, whether it passed or not). */
   killTree() {
     if (!this.running) return;
-    if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(this.pid), '/T', '/F'], { stdio: 'ignore' });
-    else { try { process.kill(-this.pid, 'SIGKILL'); } catch { try { process.kill(this.pid, 'SIGKILL'); } catch { /* gone */ } } }
+    if (process.platform === 'win32') {
+      // When taskkill hangs or fails, the Hub itself is ended the way kill() does it; its children are then left, but the Hub is gone.
+      if (!taskkillTree(this.pid)) { try { process.kill(this.pid, 'SIGKILL'); } catch { /* already gone */ } }
+    } else { try { process.kill(-this.pid, 'SIGKILL'); } catch { try { process.kill(this.pid, 'SIGKILL'); } catch { /* gone */ } } }
   }
 
-  /** Politely, through the shutdown route; if that does not end the process soon, by force. */
-  async stop({ graceMs = 8000 } = {}) {
+  /**
+   * Politely, through the shutdown route; if that does not end the process within `graceMs`, by force (the log of the Hub goes to stderr then: that is
+   * the first sign of a Hub that does not stop). A Hub still running `killMs` after that is an error with its log in the message.
+   */
+  async stop({ graceMs = 8000, killMs = AFTER_KILL_MS } = {}) {
     if (!this.running) return this.exitInfo;
-    try { await this.request('POST', '/api/hub/shutdown', {}); } catch { /* it may already be closing */ }
-    const outcome = await Promise.race([this.exited, sleep(graceMs).then(() => null)]);
+    const stopped = (async () => {
+      try { await this.request('POST', '/api/hub/shutdown', {}); } catch { /* it may already be closing */ }
+      return this.exited;
+    })();
+    const outcome = await within(stopped, graceMs);
     if (outcome) return outcome;
+    console.error(`[hub-process] the Hub (pid ${this.pid}) did not exit within ${graceMs} ms of the shutdown request; ending its process tree\n${this.logTail()}`);
     this.killTree();
-    return this.exited;
+    return this.#exitAfterKill(killMs);
   }
 }
 
