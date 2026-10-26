@@ -65,3 +65,7 @@ The long-lived secret never appears in a URL, a command line or browser history.
 
 See `scripts/tests/legacy-hub-upgrade/run.mjs` for the upgrade path from a secretless Hub, and `tests/verify-native-hardening.mjs`
 plus `ui/e2e/webview2-smoke.mjs` for the WebView2 new-window handler (http/https only, delivered as a JSON web message).
+
+## The update routes
+
+The notice that a newer release exists (`lib/update-check.mjs`) has four routes, all behind the bearer like every other route, and none is a named exception: `GET /api/update/status` reads what the Hub already knows and never reaches the network (the suite of this document calls every GET with the secret, so it must not), and the three POSTs are the owner's own acts and sit behind Origin, the page marker and the CSRF token as well: `/api/update/check` (one GET to GitHub at most once a minute; two callers at once share it), `/api/update/skip` (only the release on offer, or `null` to take a skip back) and `/api/update/auto-check` (true or false only). The state is also in `GET /api/state` under `update`; it is nested because the page's end-to-end checks read a top-level `error` as a failed request. `tests/verify-hub-auth.mjs` pins the four routes and `tests/verify-e2e-update-check.mjs` runs every layer against each of them.

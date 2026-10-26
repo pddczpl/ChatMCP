@@ -33,7 +33,8 @@ export const test = base.extend({
       async restart() {
         const port = hub.port;
         await hub.stop();
-        hub = await startHub({ scratch, port, logName: 'hub-restart.log' });
+        // The restarted Hub gets the environment of the first one (a test that points the Hub at a stand-in for GitHub keeps pointing it there).
+        hub = await startHub({ scratch, port, logName: 'hub-restart.log', env: hubEnv });
       },
       runProjectTest() {
         return spawnSync(process.execPath, ['test.js'], { cwd: project, env: cleanEnvironment(scratch), encoding: 'utf8', windowsHide: true });

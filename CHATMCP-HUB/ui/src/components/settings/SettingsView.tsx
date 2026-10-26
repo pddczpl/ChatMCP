@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { ArrowLeft, Code2, Cpu, FolderOpen, Info, Link2, Palette, Puzzle, ShieldCheck, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, Code2, Cpu, Download, FolderOpen, Info, Link2, Palette, Puzzle, ShieldCheck, type LucideIcon } from 'lucide-react';
 import { useAppStore, type SettingsSection } from '@/store/useAppStore';
 import { useTranslation, type TranslationKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -13,6 +13,7 @@ import { PermissionsSection } from './PermissionsSection';
 import { AgentChannelSection } from './AgentChannelSection';
 import { CodeIntelligenceSection } from './CodeIntelligenceSection';
 import { AppearanceSection } from './AppearanceSection';
+import { UpdatesSection } from './UpdatesSection';
 import { AboutSection } from './AboutSection';
 
 const SECTIONS: Array<{ id: SettingsSection; label: TranslationKey; icon: LucideIcon }> = [
@@ -23,6 +24,7 @@ const SECTIONS: Array<{ id: SettingsSection; label: TranslationKey; icon: Lucide
   { id: 'skills', label: 'sec_skills', icon: Puzzle },
   { id: 'code-intelligence', label: 'sec_code_intel', icon: Code2 },
   { id: 'appearance', label: 'sec_appearance', icon: Palette },
+  { id: 'updates', label: 'sec_updates', icon: Download },
   { id: 'about', label: 'sec_about', icon: Info },
 ];
 
@@ -88,6 +90,7 @@ function SettingsDialog() {
               {current.id === 'skills' && <div className="-mx-4 -my-4"><SkillsTab /></div>}
               {current.id === 'code-intelligence' && <CodeIntelligenceSection />}
               {current.id === 'appearance' && <AppearanceSection />}
+              {current.id === 'updates' && <UpdatesSection />}
               {current.id === 'about' && <AboutSection />}
             </div>
           </main>

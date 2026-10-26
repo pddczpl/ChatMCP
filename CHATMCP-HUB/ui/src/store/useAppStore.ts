@@ -4,7 +4,7 @@ export type Theme = 'dark' | 'light' | 'system';
 export type Language = 'vi' | 'en';
 /** The tabs of the right-hand work panel. Model, skills, permissions and the rest live in the Settings view. */
 export type InspectorTab = 'plan' | 'changes' | 'files' | 'terminal' | 'activity' | 'agents' | 'preview';
-export type SettingsSection = 'workspace' | 'model' | 'permissions' | 'agent-channel' | 'skills' | 'code-intelligence' | 'appearance' | 'about';
+export type SettingsSection = 'workspace' | 'model' | 'permissions' | 'agent-channel' | 'skills' | 'code-intelligence' | 'appearance' | 'updates' | 'about';
 
 interface ToastState {
   message: string;

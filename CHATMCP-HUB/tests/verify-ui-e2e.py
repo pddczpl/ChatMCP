@@ -123,7 +123,8 @@ def clean_environment(home):
     """The caller's environment minus anything that looks like a credential, so the run cannot touch a real account."""
     sensitive = re.compile(r'(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|^OPENAI_|^ANTHROPIC_|^GEMINI_|^GOOGLE_|^OPENROUTER_|^DEEPSEEK_|^GROQ_|^MISTRAL_|^CHATMCP_|PROXY)', re.I)
     env = {name: value for name, value in os.environ.items() if not sensitive.search(name)}
-    env.update({'HOME': str(home), 'USERPROFILE': str(home), 'NO_PROXY': '127.0.0.1,localhost', 'CHATMCP_NO_OPEN': '1'})
+    # the Hub's update notice reads a closed loopback port, not GitHub, whatever its default is (docs/THREAT-MODEL.md, Surface 8)
+    env.update({'HOME': str(home), 'USERPROFILE': str(home), 'NO_PROXY': '127.0.0.1,localhost', 'CHATMCP_NO_OPEN': '1', 'CHATMCP_UPDATE_FEED_URL': 'http://127.0.0.1:9/RELEASE-MANIFEST.json'})
     return env
 
 

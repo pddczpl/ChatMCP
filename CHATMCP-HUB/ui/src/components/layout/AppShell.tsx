@@ -4,6 +4,7 @@ import { useAppStore } from '@/store/useAppStore';
 import { Header } from '@/components/layout/Header';
 import { StatusBar } from '@/components/layout/StatusBar';
 import { FullAccessBanner } from '@/components/layout/FullAccessBanner';
+import { UpdateBanner } from '@/components/layout/UpdateBanner';
 import { SessionSidebar } from '@/components/sessions/SessionSidebar';
 import { ConversationView } from '@/components/conversation/ConversationView';
 import { InspectorPanel } from '@/components/inspector/InspectorPanel';
@@ -71,6 +72,7 @@ export function AppShell() {
     <div className="flex h-screen w-screen select-none flex-col overflow-hidden bg-bg text-fg">
       <Header />
       <FullAccessBanner />
+      <UpdateBanner />
 
       {/* Main resizable workspace area */}
       <div className="relative min-h-0 flex-1">

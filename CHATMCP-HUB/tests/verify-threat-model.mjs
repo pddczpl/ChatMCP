@@ -10,6 +10,8 @@
 //      routes that answer a browser-extension Origin without the secret (EXTENSION_READ_ROUTES) are the ones the documents name;
 //   4. the same-OS-user limitation is stated in the threat model, SECURITY.md, the README and HUB-AUTH.md; SECURITY.md links the
 //      threat model and describes the bearer (not only Host/Origin/CSRF), the open exceptions and the best-effort Companion filter;
+//   4b. Surface 8 (the update notice): the address, the hosts, the limits, the times and the constant that says what "not answered" means are the ones in lib/update-check.mjs, and
+//      SECURITY.md and the README say that the Hub asks only after the owner has said yes and that this step only notifies;
 //   5. negative controls: the same checks on a temporary copy of the documents with defects put in one at a time (a symbol that does
 //      not exist, a missing file, a wrong ticket lifetime, a route missing from SECURITY.md, the same-user sentence removed, a
 //      dangling reference ...); each must be reported.
@@ -32,13 +34,14 @@ if (DOCUMENTS.some((name) => !existsSync(path.join(REPO, name)))) {
 
 const { EXTENSION_READ_ROUTES } = await import(pathToFileURL(path.join(HUB, 'hub.mjs')).href);
 const { TICKET_LIMIT, TICKET_TTL_MS, attachToRunningHub } = await import(pathToFileURL(path.join(HUB, 'lib', 'hub-session.mjs')).href);
+const UPDATE = await import(pathToFileURL(path.join(HUB, 'lib', 'update-check.mjs')).href);
 
 let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
 const read = (root, name) => readFileSync(path.join(root, name), 'utf8').replace(/^﻿/, '').replace(/\r\n/g, '\n');
 
 /** Problems found in the documents under `docsRoot`, with the code and tests taken from `codeRoot`. */
-export function checkThreatModel(docsRoot, codeRoot = REPO) {
+export function checkThreatModel(docsRoot, codeRoot = REPO, constants = { WHEN_UNANSWERED: UPDATE.WHEN_UNANSWERED }) {
   const problems = [];
   const fail = (message) => problems.push(message);
   const model = read(docsRoot, 'docs/THREAT-MODEL.md');
@@ -78,7 +81,7 @@ export function checkThreatModel(docsRoot, codeRoot = REPO) {
     const candidates = [name, `CHATMCP-HUB/tests/${name}`, `CHATMCP-HUB/${name}`].map((candidate) => path.join(codeRoot, candidate));
     if (!candidates.some((candidate) => existsSync(candidate))) fail(`the test ${name} does not exist`);
   }
-  for (const match of model.matchAll(/^\| ((?:H|O|R|K|S|P|M)\d+) \|(.*)\|$/gm)) {
+  for (const match of model.matchAll(/^\| ((?:H|O|R|K|S|P|M|U)\d+) \|(.*)\|$/gm)) {
     const cells = match[2].split(' | ');
     const testCell = cells[cells.length - 2] ?? '';
     if (!/`[^`]*(?:verify-|\.spec\.|smoke|run\.mjs)[^`]*`|not tested/i.test(testCell)) fail(`${match[1]}: the Test column names no test and does not say "not tested"`);
@@ -107,6 +110,43 @@ export function checkThreatModel(docsRoot, codeRoot = REPO) {
     }
   }
   if (!/browser-extension origin/i.test(readme)) fail('README.md does not say that the Companion status routes answer a browser-extension origin without the secret');
+
+  // 3b. Surface 8: the update notice says what lib/update-check.mjs does -----------------------------------------------------------------------
+  {
+    const start = model.indexOf('## Surface 8');
+    const end = model.indexOf('\n## ', start + 1);
+    const surface = start < 0 ? '' : model.slice(start, end < 0 ? undefined : end);
+    if (!surface) fail('docs/THREAT-MODEL.md has no Surface 8 (the update notice)');
+    const { FEED_URL, FEED_HOSTS, LIMITS, SCHEDULE } = UPDATE;
+    const stated = [
+      [`\`${FEED_URL}\``, 'the address of the feed (FEED_URL)'],
+      ...FEED_HOSTS.map((host) => [host, `the host ${host} (FEED_HOSTS)`]),
+      [`${LIMITS.maxBytes / 1024} KiB`, 'the size limit (LIMITS.maxBytes)'],
+      [`${LIMITS.timeoutMs / 1000} seconds`, 'the deadline (LIMITS.timeoutMs)'],
+      [`at most ${LIMITS.maxRedirects} times`, 'the number of redirects (LIMITS.maxRedirects)'],
+      [`${SCHEDULE.firstCheckMs / 1000} seconds after it starts`, 'the first check (SCHEDULE.firstCheckMs)'],
+      [`every ${SCHEDULE.intervalMs / 3_600_000} hours`, 'the interval (SCHEDULE.intervalMs)'],
+      [`${SCHEDULE.retryMs / 3_600_000} hour after a failure`, 'the retry after a failure (SCHEDULE.retryMs)'],
+      [`${SCHEDULE.minAutomaticGapMs / 60_000} minutes of the last attempt`, 'the floor between attempts (SCHEDULE.minAutomaticGapMs)'],
+      [SCHEDULE.minManualGapMs === 60_000 ? 'at most once a minute' : '', 'the limit of a manual check (SCHEDULE.minManualGapMs)'],
+      ['`WHEN_UNANSWERED`', 'the constant that says what "not answered" means'],
+    ];
+    for (const [needle, what] of stated) if (needle && !surface.includes(needle)) fail(`Surface 8 does not state ${what}: ${needle}`);
+    if (constants.WHEN_UNANSWERED !== 'ask') fail('WHEN_UNANSWERED is not "ask": the README, SECURITY.md and Surface 8 say that nothing is asked until the owner has said yes; change them with the constant');
+    const security8 = security.slice(security.indexOf('## Update notice'), security.indexOf('\n## ', security.indexOf('## Update notice') + 1));
+    if (!security8.includes('## Update notice')) fail('SECURITY.md has no "Update notice" section');
+    for (const [needle, what] of [
+      [`\`${FEED_URL}\``, 'the address of the feed'], ...FEED_HOSTS.map((host) => [host, `the host ${host}`]), [`${LIMITS.maxBytes / 1024} KiB`, 'the size limit'], [`${LIMITS.timeoutMs / 1000} seconds`, 'the deadline'],
+      [`at most ${LIMITS.maxRedirects} redirects`, 'the number of redirects'], [`${SCHEDULE.firstCheckMs / 1000} seconds after the Hub starts`, 'the first check'], [`every ${SCHEDULE.intervalMs / 3_600_000} hours`, 'the interval'],
+      [`${SCHEDULE.minAutomaticGapMs / 60_000} minutes of the last attempt`, 'the floor between attempts'], ['at most once a minute', 'the limit of a manual check'],
+      ['**only after you have said yes**', 'that the Hub asks only after the owner has said yes'], ['**This step only notifies**', 'that this step only notifies'], ['nothing is downloaded', 'that nothing is downloaded'],
+    ]) if (!security8.includes(needle)) fail(`SECURITY.md (Update notice) does not state ${what}: ${needle}`);
+    for (const [needle, what] of [['github.com', 'the host it asks'], ['until you answer, the app makes no request of its own', 'that nothing is asked before the owner answers'], ['This only notifies', 'that it only notifies'],
+      ['nothing is downloaded and nothing is installed', 'that nothing is downloaded or installed']]) if (!readme.includes(needle)) fail(`README.md does not state ${what} (update notice): ${needle}`);
+    if (!/Surface 8/.test(security8)) fail('SECURITY.md (Update notice) does not point at Surface 8 of the threat model');
+    if (!/update check of Surface 8/.test(model.slice(model.indexOf('## Surface 7'), model.indexOf('## Surface 8')))) fail('Surface 7 still says that nothing but the owner\'s button makes the Hub ask: it does not name the update check of Surface 8');
+    if (/models\.dev, or any host, without the owner asking/.test(model)) fail('M1 still says "or any host": the update check of Surface 8 is a second request the Hub can make');
+  }
 
   // 4. the documents agree -------------------------------------------------------------------------------------------------------------
   const SAME_USER = /(running as (?:you|the owner)|runs? as the (?:same Windows user|owner)|as the same Windows user|same Windows user)/i;
@@ -260,6 +300,27 @@ try {
     ['SECURITY.md back to Host, Origin and CSRF only', 'SECURITY.md', (text) => text.replace('Every `/api/*` and `/auth/*` request', 'The local HTTP interface validates Host and Origin and applies CSRF protection to mutations. Browser Companion pairing; every `/api/*` and `/auth/*` request'), /still describes only Host, Origin and CSRF|per-launch bearer/],
     ['the threat model link removed from SECURITY.md', 'SECURITY.md', (text) => text.replaceAll('(docs/THREAT-MODEL.md)', '(docs/ARCHITECTURE.md)'), /SECURITY\.md does not link docs\/THREAT-MODEL\.md/],
     ['the README no longer names the forged-origin exception', 'README.md', (text) => text.replace('browser-extension origin', 'extension'), /README\.md does not say that the Companion status routes/],
+    ['a host missing from Surface 8', model, (text) => text.replaceAll('objects.githubusercontent.com', 'objects.example'), /Surface 8 does not state the host objects\.githubusercontent\.com/],
+    ['a wrong interval in Surface 8', model, (text) => text.replace('then every 12 hours (1 hour after a failure)', 'then every 24 hours (1 hour after a failure)'), /Surface 8 does not state the interval/],
+    ['a wrong size limit in Surface 8', model, (text) => text.replaceAll('64 KiB', '1 MiB'), /Surface 8 does not state the size limit/],
+    ['a wrong floor in Surface 8', model, (text) => text.replaceAll('15 minutes of the last attempt', '5 minutes of the last attempt'), /Surface 8 does not state the floor between attempts/],
+    ['the constant no longer named in Surface 8', model, (text) => text.replaceAll('`WHEN_UNANSWERED`', '`SOMETHING_ELSE`'), /Surface 8 does not state the constant/],
+    ['the feed address changed in Surface 8', model, (text) => text.replaceAll('releases/latest/download/RELEASE-MANIFEST.json', 'releases/latest/download/MANIFEST.json'), /Surface 8 does not state the address of the feed/],
+    ['a U row without a test', model, (text) => text.replace('`verify-update-check.mjs` (a hostile file, eight kinds of damaged file, a clock two days ahead, seven hours ahead and put back, a Hub that was updated since the file was written)', 'nothing'), /U4: the Test column/],
+    ['a U row with an empty limit', model, (text) => text.replace('a program that can write the file can write anything in it (RR-1): the worst it can make the page show is a notice for a version at the project\'s GitHub |', ' |'), /U4: the Limit column is empty/],
+    ['a code reference of the update notice to a symbol that does not exist', model, (text) => text.replace('| `fetchManifest` |', '| `fetchManifestOld` |'), /no symbol fetchManifestOld/],
+    ['a code reference to a file that does not exist', model, (text) => text.replace('`CHATMCP-HUB/ui/src/lib/updates.ts`', '`CHATMCP-HUB/ui/src/lib/update-notice.ts`'), /update-notice\.ts does not exist/],
+    ['a code reference of the update notice that no text cites', model, (text) => text.replaceAll('[C66]', ''), /C66 is in the code reference table but no text cites it/],
+    ['Surface 8 removed', model, (text) => text.replace('## Surface 8: the notice that a newer release exists', '## Something else'), /has no Surface 8/],
+    ['M1 back to "or any host"', model, (text) => text.replace('| M1 | The Hub contacts models.dev without the owner asking |', '| M1 | The Hub contacts models.dev, or any host, without the owner asking |'), /M1 still says "or any host"/],
+    ['Surface 7 no longer naming the update check', model, (text) => text.replace('is the update check of Surface 8', 'is nothing else'), /Surface 7 still says that nothing but the owner's button/],
+    ['SECURITY.md without the Update notice section', 'SECURITY.md', (text) => text.replace('## Update notice', '## Something else'), /SECURITY\.md has no "Update notice" section/],
+    ['SECURITY.md no longer saying only after a yes', 'SECURITY.md', (text) => text.replace('**only after you have said yes**', '**always**'), /does not state that the Hub asks only after the owner has said yes/],
+    ['SECURITY.md no longer saying it only notifies', 'SECURITY.md', (text) => text.replace('**This step only notifies**', 'This step installs'), /does not state that this step only notifies/],
+    ['SECURITY.md with another deadline', 'SECURITY.md', (text) => text.replace('in 10 seconds', 'in 60 seconds'), /SECURITY\.md \(Update notice\) does not state the deadline/],
+    ['SECURITY.md not pointing at Surface 8', 'SECURITY.md', (text) => text.replace('(Surface 8)', '(a section)'), /does not point at Surface 8/],
+    ['the README no longer saying nothing is asked before an answer', 'README.md', (text) => text.replace('until you answer, the app makes no request of its own', 'the app asks'), /README\.md does not state that nothing is asked before the owner answers/],
+    ['the README no longer saying it only notifies', 'README.md', (text) => text.replace('This only notifies', 'This installs'), /README\.md does not state that it only notifies/],
     ['the threat model no longer in the index', 'docs/INDEX.md', (text) => text.replace('(THREAT-MODEL.md)', '(ARCHITECTURE.md)'), /INDEX\.md does not link THREAT-MODEL\.md/],
     ['a threat row without a test', model, (text) => text.replace('comparison is exercised by `verify-hub-auth.mjs`; no timing measurement', 'nothing'), /H3: the Test column/],
     ['a hooks threat row without a test', model, (text) => text.replace('`verify-hooks-core.mjs` (inert until approved, a one-byte edit, a restart, the same bytes in another folder), `verify-hooks-guard.mjs` (the route on a real Hub, behind the bearer)', 'nothing'), /K1: the Test column/],
@@ -283,7 +344,9 @@ try {
     restore();
     assert.ok(found.some((problem) => expected.test(problem)), `defect "${label}" was not reported; problems: ${JSON.stringify(found)}`);
   }
-  ok(`${mutations.length} seeded defects in a temporary copy of the documents are each reported`);
+  const flipped = checkThreatModel(scratch, REPO, { WHEN_UNANSWERED: 'on' });
+  assert.ok(flipped.some((problem) => /WHEN_UNANSWERED is not "ask"/.test(problem)), `a constant flipped to "on" must be reported: ${JSON.stringify(flipped)}`);
+  ok(`${mutations.length} seeded defects in a temporary copy of the documents are each reported, and so is the constant of the update notice flipped to "on" while the documents still say "ask"`);
   assert.deepEqual(checkThreatModel(scratch), [], 'removing the defects must make the copy clean again');
   ok('the temporary copy is clean again once the defects are removed');
 } finally {

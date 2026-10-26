@@ -20,6 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { EXTENSION_READ_ROUTES, GET_ROUTES, POST_ROUTES, PUBLIC_API_ROUTES, SESSION_ROUTES } from '../hub.mjs';
 import { createSecret, createTicketBook, protectDirectory, sessionFile } from '../lib/hub-session.mjs';
+import { VERSION } from '../lib/manager.mjs';
 import { HUB_ROOT, cleanEnvironment, sleep, startHub, waitFor } from './e2e/hub-process.mjs';
 import { gitInit, makeCalcProject } from './e2e/fixtures.mjs';
 
@@ -63,6 +64,11 @@ equal(scannedGet, sorted(GET_ROUTES), 'every GET route the source answers is dec
 check(PUBLIC_API_ROUTES.every((route) => GET_ROUTES.includes(route)) && EXTENSION_READ_ROUTES.every((route) => GET_ROUTES.includes(route)), 'the named exceptions are real routes');
 equal([...PUBLIC_API_ROUTES], ['/api/health', '/api/capabilities'], 'the unauthenticated probes are exactly health and capabilities');
 equal([...EXTENSION_READ_ROUTES], ['/api/extension-state', '/api/instructions'], 'the Companion read routes are exactly extension-state and instructions');
+// The update notice (lib/update-check.mjs): one GET that reads what the Hub already knows, three POSTs that are the owner's acts. All behind the bearer; none is a named exception.
+const UPDATE_GET = ['/api/update/status'];
+const UPDATE_POST = ['/api/update/check', '/api/update/skip', '/api/update/auto-check'];
+check(UPDATE_GET.every((route) => GET_ROUTES.includes(route)) && UPDATE_POST.every((route) => POST_ROUTES.includes(route)), 'the four routes of the update notice are declared (one GET, three POSTs)');
+check(UPDATE_GET.concat(UPDATE_POST).every((route) => !PUBLIC_API_ROUTES.includes(route) && !EXTENSION_READ_ROUTES.includes(route)), 'and none of them is a named exception to the bearer');
 
 // ---------------------------------------------------------------------------------------------------------------------
 // 2. Units that need no process
@@ -145,6 +151,10 @@ try {
     equal((await fetch(hub.origin + route, { headers: { origin: hub.origin } })).status, 401, `SSE ${route}: refused without the secret`);
   }
 
+  // ---- the update notice: with the secret a read of the Hub's memory (this suite calls every GET, so it must never reach the network), without it nothing
+  const updateRead = await hub.get('/api/update/status');
+  check(updateRead.status === 200 && updateRead.json.update?.current === VERSION && Object.keys(updateRead.json).join() === 'update', 'GET /api/update/status with the secret: the state under "update" (a top-level "error" key would read as a failed request to the page), for the version that runs');
+  equal([updateRead.json.update.latest, updateRead.json.update.checking, updateRead.json.update.autoCheck.needsChoice], [null, false, true], 'and nothing was asked on the way: no check has been made, the owner is not asked-and-answered');
   // ---- /api/state
   const stateWithout = await hub.rawRequest({ route: '/api/state', headers: { origin: hub.origin } });
   check(stateWithout.status === 401 && !stateWithout.text.includes('csrfToken') && !stateWithout.text.includes(csrf), '/api/state: no csrfToken without the bearer');

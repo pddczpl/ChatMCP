@@ -1,0 +1,631 @@
+{
+  "suite": "verify-update-check.mjs",
+  "mutations": [
+    {
+      "name": "redirect-any-port",
+      "what": "a redirect may go to any port of an allowed host",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "return target.protocol === 'https:' && target.port === '' && FEED_HOSTS.includes(target.hostname);",
+          "new": "return target.protocol === 'https:' && FEED_HOSTS.includes(target.hostname);"
+        }
+      ]
+    },
+    {
+      "name": "redirect-http-allowed",
+      "what": "a redirect may fall back to http",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "return target.protocol === 'https:' && target.port === '' && FEED_HOSTS.includes(target.hostname);",
+          "new": "return (target.protocol === 'https:' || target.protocol === 'http:') && target.port === '' && FEED_HOSTS.includes(target.hostname);"
+        }
+      ]
+    },
+    {
+      "name": "redirect-host-suffix",
+      "what": "a host that merely ends like an allowed one is allowed",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "&& FEED_HOSTS.includes(target.hostname);",
+          "new": "&& FEED_HOSTS.some((host) => target.hostname.endsWith(host));"
+        }
+      ]
+    },
+    {
+      "name": "redirect-login-allowed",
+      "what": "a redirect with a login in the address is allowed",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (!(target instanceof URL) || target.username || target.password) return false;",
+          "new": "if (!(target instanceof URL)) return false;"
+        }
+      ]
+    },
+    {
+      "name": "stand-in-anywhere",
+      "what": "a loopback stand-in may send the Hub anywhere",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "return target.origin === new URL(feedUrl).origin;",
+          "new": "return true;"
+        }
+      ]
+    },
+    {
+      "name": "redirect-limit-off-by-one",
+      "what": "one redirect too many is followed",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (hops >= maxRedirects) throw fault('update_redirect_limit'",
+          "new": "if (hops > maxRedirects) throw fault('update_redirect_limit'"
+        }
+      ]
+    },
+    {
+      "name": "redirect-without-location-follows",
+      "what": "a redirect with no Location is not refused",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (!answer.location) throw fault('update_redirect_invalid', 'GitHub redirected the request without saying where.');",
+          "new": "if (!answer.location) return { text: '', redirects: hops };"
+        }
+      ]
+    },
+    {
+      "name": "feed-query-allowed",
+      "what": "a feed address with a query is accepted",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (url.username || url.password || url.search || url.hash) throw refused('no login, query or fragment');",
+          "new": "if (url.username || url.password || url.hash) throw refused('no login, query or fragment');"
+        }
+      ]
+    },
+    {
+      "name": "feed-any-host",
+      "what": "any host may stand in for the feed",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if ((url.protocol === 'http:' || url.protocol === 'https:') && LOOPBACK_HOSTS.has(url.hostname)) return url.href;",
+          "new": "if (url.protocol === 'http:' || url.protocol === 'https:') return url.href;"
+        }
+      ]
+    },
+    {
+      "name": "assets-host-typo",
+      "what": "the second host of the feed is misspelt",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "'release-assets.githubusercontent.com', 'objects.githubusercontent.com']);",
+          "new": "'release-asset.githubusercontent.com', 'objects.githubusercontent.com']);"
+        }
+      ]
+    },
+    {
+      "name": "hook-takes-remote-feed",
+      "what": "the test hook takes any address",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "try { feedUrl = checkedFeedUrl(raw.trim()); } catch {",
+          "new": "try { feedUrl = raw.trim(); } catch {"
+        }
+      ]
+    },
+    {
+      "name": "notes-url-any-version",
+      "what": "a link is made for a pre-release too",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "return isReleaseVersion(version) ? `${NOTES_URL_PREFIX}${version}` : null;",
+          "new": "return typeof version === 'string' ? `${NOTES_URL_PREFIX}${version}` : null;"
+        }
+      ]
+    },
+    {
+      "name": "user-agent-wrong",
+      "what": "the User-Agent names another product",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "`DatGold/${running}` : 'DatGold';",
+          "new": "`ChatMCP/${running}` : 'DatGold';"
+        }
+      ]
+    },
+    {
+      "name": "extra-header",
+      "what": "a header that names the person's language is sent",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "headers: { 'user-agent': userAgent, accept: 'application/json' } }",
+          "new": "headers: { 'user-agent': userAgent, accept: 'application/json', 'accept-language': 'vi' } }"
+        }
+      ]
+    },
+    {
+      "name": "any-2xx-is-success",
+      "what": "a 204 is read as an answer",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (answer.status !== 200) throw fault('update_http'",
+          "new": "if (answer.status < 200 || answer.status >= 300) throw fault('update_http'"
+        }
+      ]
+    },
+    {
+      "name": "stream-limit-off-by-one",
+      "what": "a body of exactly the limit is refused",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (size > maxBytes) { request.destroy(); done(reject, tooLarge(maxBytes)); return; }",
+          "new": "if (size >= maxBytes) { request.destroy(); done(reject, tooLarge(maxBytes)); return; }"
+        }
+      ]
+    },
+    {
+      "name": "declared-size-ignored",
+      "what": "a declared size over the limit is not looked at",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (Number.isFinite(declared) && declared > maxBytes) { request.destroy(); done(reject, tooLarge(maxBytes)); return; }",
+          "new": "if (false) { request.destroy(); }"
+        }
+      ]
+    },
+    {
+      "name": "timeout-ten-times-longer",
+      "what": "the deadline is a hundred seconds",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "export const LIMITS = Object.freeze({ timeoutMs: 10_000,",
+          "new": "export const LIMITS = Object.freeze({ timeoutMs: 100_000,"
+        }
+      ]
+    },
+    {
+      "name": "bom-not-dropped",
+      "what": "a UTF-8 BOM breaks the JSON",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "document = JSON.parse(text.replace(/^\\uFEFF/, ''));",
+          "new": "document = JSON.parse(text);"
+        }
+      ]
+    },
+    {
+      "name": "prerelease-offered",
+      "what": "a pre-release in the feed is accepted",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (!isReleaseVersion(version)) {\n    if (parseVersion(version)) throw",
+          "new": "if (!parseVersion(version)) {\n    if (parseVersion(version)) throw"
+        }
+      ]
+    },
+    {
+      "name": "commit-unchecked",
+      "what": "any text is a commit",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (typeof commit !== 'string' || !COMMIT.test(commit)) throw",
+          "new": "if (typeof commit !== 'string') throw"
+        }
+      ]
+    },
+    {
+      "name": "duplicate-assets-allowed",
+      "what": "two assets of one name are accepted",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (seen.has(name.toLowerCase())) throw invalidManifest('two assets have one name');",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "installer-first-exe",
+      "what": "with several .exe files the first is the installer",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "installerName: programs.length === 1 ? programs[0].name : null",
+          "new": "installerName: programs.length >= 1 ? programs[0].name : null"
+        }
+      ]
+    },
+    {
+      "name": "release-below-prerelease",
+      "what": "a release is below its own pre-release",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (!a.length) return 1; // a release is above its own pre-releases",
+          "new": "if (!a.length) return -1; // a release is above its own pre-releases"
+        }
+      ]
+    },
+    {
+      "name": "prerelease-numbers-as-text",
+      "what": "pre-release numbers are compared as text",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (xNumber && yNumber) return x.length !== y.length ? (x.length > y.length ? 1 : -1) : (x > y ? 1 : -1);",
+          "new": "if (xNumber && yNumber) return x > y ? 1 : -1;"
+        }
+      ]
+    },
+    {
+      "name": "equal-is-available",
+      "what": "the same version is offered as an update",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "compareVersions(latest, running) > 0;",
+          "new": "compareVersions(latest, running) >= 0;"
+        }
+      ]
+    },
+    {
+      "name": "saved-release-unchecked",
+      "what": "any text in the file is a release",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (isReleaseVersion(data.latest)) {\n        latest = data.latest;",
+          "new": "if (typeof data.latest === 'string') {\n        latest = data.latest;"
+        }
+      ]
+    },
+    {
+      "name": "future-time-kept",
+      "what": "a time years ahead is believed",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "return Number.isFinite(ms) && ms <= limit ? ms : null;",
+          "new": "return Number.isFinite(ms) ? ms : null;"
+        }
+      ]
+    },
+    {
+      "name": "installer-name-unchecked",
+      "what": "any text in the file is the name of the installer",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (typeof data.installerName === 'string' && ASSET_NAME.test(data.installerName) && /\\.exe$/i.test(data.installerName)) installerName = data.installerName;",
+          "new": "if (typeof data.installerName === 'string') installerName = data.installerName;"
+        }
+      ]
+    },
+    {
+      "name": "attempt-saved-after-request",
+      "what": "the attempt is recorded only when the request ends",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "    const before = lastAttemptAt;\n    lastAttemptAt = nowMs();\n    // on disk BEFORE the request: a Hub that is killed in the middle, or restarted in a loop, still counts this try\n    const noted = await saveStateQuietly();\n",
+          "new": "    const before = lastAttemptAt;\n    const startedAt = nowMs();\n    const noted = true;\n"
+        },
+        {
+          "file": "lib/update-check.mjs",
+          "old": "      checkedAt = nowMs();\n      error = null;",
+          "new": "      checkedAt = nowMs();\n      lastAttemptAt = startedAt;\n      error = null;"
+        }
+      ]
+    },
+    {
+      "name": "floor-ignored",
+      "what": "a restarted Hub may ask at once",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "const floor = attempted === null ? 0 : attempted + SCHEDULE.minAutomaticGapMs - from;\n    return Math.max(",
+          "new": "const floor = 0;\n    return Math.max("
+        }
+      ]
+    },
+    {
+      "name": "floor-five-minutes",
+      "what": "the floor is five minutes",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "minAutomaticGapMs: 15 * 60_000,",
+          "new": "minAutomaticGapMs: 5 * 60_000,"
+        }
+      ]
+    },
+    {
+      "name": "manual-gap-boundary",
+      "what": "a press exactly a minute after is still too soon",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "nowMs() - attempted < SCHEDULE.minManualGapMs)",
+          "new": "nowMs() - attempted <= SCHEDULE.minManualGapMs)"
+        }
+      ]
+    },
+    {
+      "name": "callers-do-not-share",
+      "what": "two callers at once make two requests",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "    if (inFlight) return inFlight;\n    const attempted = lastAttempt();",
+          "new": "    const attempted = lastAttempt();"
+        }
+      ]
+    },
+    {
+      "name": "no-jitter",
+      "what": "every delay is exactly the base",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "const jittered = (base, fraction) => Math.round(base * (1 + fraction * (2 * random() - 1)));",
+          "new": "const jittered = (base) => Math.round(base);"
+        }
+      ]
+    },
+    {
+      "name": "retry-as-long-as-interval",
+      "what": "a failure waits twelve hours",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "schedule(jittered(error ? SCHEDULE.retryMs : SCHEDULE.intervalMs, SCHEDULE.intervalJitter));",
+          "new": "schedule(jittered(SCHEDULE.intervalMs, SCHEDULE.intervalJitter));"
+        }
+      ]
+    },
+    {
+      "name": "unanswered-asks",
+      "what": "a Hub that has not been asked checks by itself",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "const autoEnabled = () => (saved === null ? whenUnanswered === 'on' : saved);",
+          "new": "const autoEnabled = () => (saved === null ? true : saved);"
+        }
+      ]
+    },
+    {
+      "name": "no-keeps-timer",
+      "what": "saying no leaves the timer running",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "      if (!enabled) clearTimer();\n",
+          "new": "      if (!enabled) { /* the timer stays */ }\n"
+        }
+      ]
+    },
+    {
+      "name": "stale-timer-asks",
+      "what": "a timer that was already running when the owner said no still asks",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "    if (!started || !autoEnabled()) return;\n    if (inFlight) return;",
+          "new": "    if (!started) return;\n    if (inFlight) return;"
+        }
+      ]
+    },
+    {
+      "name": "stop-leaves-timer",
+      "what": "stop() leaves the timer set",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "  function stop() {\n    started = false;\n    clearTimer();\n  }",
+          "new": "  function stop() {\n    started = false;\n  }"
+        }
+      ]
+    },
+    {
+      "name": "choice-not-boolean",
+      "what": "any truthy value is a choice",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (typeof enabled !== 'boolean') throw refusal('update_setting_invalid'",
+          "new": "if (enabled === undefined) throw refusal('update_setting_invalid'"
+        }
+      ]
+    },
+    {
+      "name": "skip-any-version",
+      "what": "any release version can be skipped",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (version !== latest || !isAvailable()) throw refusal('update_skip_stale'",
+          "new": "if (!isAvailable()) throw refusal('update_skip_stale'"
+        }
+      ]
+    },
+    {
+      "name": "skip-pre-release",
+      "what": "a pre-release can be skipped",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (!isReleaseVersion(version)) throw refusal('update_skip_invalid'",
+          "new": "if (!parseVersion(version)) throw refusal('update_skip_invalid'"
+        }
+      ]
+    },
+    {
+      "name": "write-failure-hidden",
+      "what": "a choice that could not be saved is shown as made",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "      try { await writeJson(settingsFile, { version: 1, autoCheckUpdates: enabled }); } catch (reason) {",
+          "new": "      try { await writeJson(settingsFile, { version: 1, autoCheckUpdates: enabled }); } catch (reason) { saved = enabled; return status();"
+        }
+      ]
+    },
+    {
+      "name": "clock-ahead-kept",
+      "what": "a last try that lies ahead of the clock is believed, so Check now and the next look wait for hours",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (lastAttemptAt !== null && lastAttemptAt > nowMs()) lastAttemptAt = nowMs();",
+          "new": "/* no clamp */"
+        }
+      ]
+    },
+    {
+      "name": "checked-time-ahead-shown",
+      "what": "the time of the last success is shown as it is saved, even when it lies ahead of the clock",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "checkedAt: iso(checkedAt === null ? null : Math.min(checkedAt, nowMs())),",
+          "new": "checkedAt: iso(checkedAt),"
+        }
+      ]
+    },
+    {
+      "name": "unsaved-note-asks",
+      "what": "an automatic try whose note cannot be saved asks anyway",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "      if (!noted) {",
+          "new": "      if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "unsaved-note-counted",
+      "what": "an automatic try that was not made still counts as a try",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "        lastAttemptAt = before;",
+          "new": "        /* the try that was not made still counts */"
+        }
+      ]
+    },
+    {
+      "name": "unsaved-note-retry-as-interval",
+      "what": "after a try that was not made the next one is twelve hours on",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "schedule(jittered(SCHEDULE.retryMs, SCHEDULE.intervalJitter));",
+          "new": "schedule(jittered(SCHEDULE.intervalMs, SCHEDULE.intervalJitter));"
+        }
+      ]
+    },
+    {
+      "name": "manual-skipped-when-unsaved",
+      "what": "the owner's Check now is refused too when the note cannot be saved",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "    if (automatic) {",
+          "new": "    if (true) {"
+        }
+      ]
+    },
+    {
+      "name": "no-after-note-asks",
+      "what": "a No that comes between the note of a try and its request does not stop the request",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "      // a No that came while the note was being written: nothing is asked\n      if (!started || !autoEnabled()) return;",
+          "new": "      // a No that came while the note was being written: nothing is asked"
+        }
+      ]
+    },
+    {
+      "name": "no-counts-after-write",
+      "what": "a No counts only when its file has been written, so a timer that fires meanwhile asks",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "      saved = enabled;\n      try { await writeJson(",
+          "new": "      try { await writeJson("
+        },
+        {
+          "file": "lib/update-check.mjs",
+          "old": "      log(`Tự kiểm tra bản cập nhật: ${enabled ? 'bật' : 'tắt'} (chủ máy chọn).`);",
+          "new": "      saved = enabled;\n      log(`Tự kiểm tra bản cập nhật: ${enabled ? 'bật' : 'tắt'} (chủ máy chọn).`);"
+        }
+      ]
+    },
+    {
+      "name": "no-not-rolled-back",
+      "what": "a choice that could not be saved stays as made in memory",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "        saved = before;",
+          "new": "        /* the choice stays as made */"
+        }
+      ]
+    },
+    {
+      "name": "spent-timer-not-set-again",
+      "what": "a timer that saw a No which then could not be saved is not set again, so the Hub never looks again",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (started && autoEnabled() && timer === null && inFlight === null) { const from = nowMs(); schedule(firstDelay(from), from); }",
+          "new": "/* not set again */"
+        }
+      ]
+    },
+    {
+      "name": "harness-feed-removed",
+      "what": "the harness no longer points the Hubs it starts at a closed port, so a changed default would reach GitHub from every test",
+      "patches": [
+        {
+          "file": "tests/e2e/hub-process.mjs",
+          "old": "CHATMCP_UPDATE_FEED_URL: 'http://127.0.0.1:9/RELEASE-MANIFEST.json',",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "launcher-forgets-feed",
+      "what": "a launcher of the tests starts a Hub without pointing it at a closed port",
+      "patches": [
+        {
+          "file": "tests/verify-local-backend.mjs",
+          "old": ", CHATMCP_UPDATE_FEED_URL: 'http://127.0.0.1:9/RELEASE-MANIFEST.json' } });",
+          "new": " } });"
+        }
+      ]
+    }
+  ]
+}
