@@ -19,5 +19,7 @@
     <None Include="../../../CHATMCP-HUB/tests/fixtures/release-verify-vectors.json" Link="release-verify-vectors.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- The result file the installer writes and the Hub reads, as literal text (CHATMCP-HUB/tests/verify-update-applied.mjs reads the same file). -->
     <None Include="../../../CHATMCP-HUB/tests/fixtures/update-result-vectors.json" Link="update-result-vectors.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Whether the Hub is doing work that an update would cut off: this rule, the installer's, and the page's port of it are held to one list of cases (CHATMCP-HUB/ui/tests/updates.test.mjs). -->
+    <None Include="../../../CHATMCP-HUB/tests/fixtures/active-work-cases.json" Link="active-work-cases.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -13,6 +13,14 @@ using Microsoft.Win32;
 
 namespace ChatMCP.Installer
 {
+    /// <summary>Which of the three shortcuts an installation has or should have: the Desktop link and, in the Start menu, the launcher and the uninstaller.</summary>
+    internal readonly record struct ShortcutPlan(bool Desktop, bool StartMenuLauncher, bool StartMenuUninstall)
+    {
+        internal static ShortcutPlan All => new(true, true, true);
+        /// <summary>What the two check boxes of the wizard ask for (the Start menu choice covers its launcher and its uninstaller).</summary>
+        internal static ShortcutPlan From(bool desktop, bool startMenu) => new(desktop, startMenu, startMenu);
+    }
+
     public static class InstallerEngine
     {
         public const string AppName = "DatGold Studio";
@@ -97,7 +105,10 @@ namespace ChatMCP.Installer
         }
 
         public static void Install(string targetDir, bool createDesktopShortcut, bool createStartMenuShortcut,
-            Action<int, string> reportProgress)
+            Action<int, string> reportProgress) => Install(targetDir, ShortcutPlan.From(createDesktopShortcut, createStartMenuShortcut), reportProgress);
+
+        /// <summary>Installs over <paramref name="targetDir"/> and makes exactly the shortcuts of <paramref name="plan"/> (an update passes what the installation already had).</summary>
+        internal static void Install(string targetDir, ShortcutPlan plan, Action<int, string> reportProgress)
         {
             var logs = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ChatMCP", "logs");
             Directory.CreateDirectory(logs);
@@ -105,7 +116,7 @@ namespace ChatMCP.Installer
             File.WriteAllText(log, "DatGold installer " + AppVersion + " started " + DateTime.UtcNow.ToString("O") + Environment.NewLine);
             try
             {
-                InstallCore(targetDir, createDesktopShortcut, createStartMenuShortcut, (percent, status) =>
+                InstallCore(targetDir, plan, (percent, status) =>
                 {
                     File.AppendAllText(log, percent + " " + status + Environment.NewLine);
                     reportProgress(percent, status);
@@ -120,8 +131,7 @@ namespace ChatMCP.Installer
 
         private static void InstallCore(
             string targetDir,
-            bool createDesktopShortcut,
-            bool createStartMenuShortcut,
+            ShortcutPlan plan,
             Action<int, string> reportProgress)
         {
             targetDir = NormalizeInstallDirectory(targetDir);
@@ -145,8 +155,8 @@ namespace ChatMCP.Installer
 
             // Create Shortcuts
             reportProgress(85, "Creating system shortcuts...");
-            ReplaceShortcuts(targetDir, iconPath, Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-                Environment.GetFolderPath(Environment.SpecialFolder.Programs), createDesktopShortcut, createStartMenuShortcut, note => reportProgress(85, note));
+            ReplaceShortcutsBestEffort(targetDir, iconPath, Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                Environment.GetFolderPath(Environment.SpecialFolder.Programs), plan, note => reportProgress(85, note));
 
             // Register in Windows Registry
             reportProgress(95, "Registering in Windows Installed Apps...");
@@ -218,26 +228,75 @@ namespace ChatMCP.Installer
         }
 
         /// <summary>The shortcuts the wizard asks for, under the DatGold names: the Desktop link, and the Start menu folder with the launcher and the uninstaller.</summary>
-        internal static void CreateShortcuts(string installDir, string iconPath, string desktopDir, string programsDir, bool createDesktop, bool createStartMenu)
+        internal static void CreateShortcuts(string installDir, string iconPath, string desktopDir, string programsDir, bool createDesktop, bool createStartMenu) =>
+            CreateShortcuts(installDir, iconPath, desktopDir, programsDir, ShortcutPlan.From(createDesktop, createStartMenu));
+
+        internal static void CreateShortcuts(string installDir, string iconPath, string desktopDir, string programsDir, ShortcutPlan plan)
         {
             var launcher = Path.Combine(installDir, "ChatMCP.exe");
-            if (createDesktop)
+            if (plan.Desktop)
                 CreateShortcut(Path.Combine(desktopDir, $"{AppName}.lnk"), launcher, installDir, iconPath, AppDescription);
-            if (!createStartMenu) return;
+            if (!plan.StartMenuLauncher && !plan.StartMenuUninstall) return;
             var folder = Path.Combine(programsDir, StartMenuFolder);
             Directory.CreateDirectory(folder);
-            CreateShortcut(Path.Combine(folder, $"{AppName}.lnk"), launcher, installDir, iconPath, AppDescription);
-            CreateShortcut(Path.Combine(folder, $"Uninstall {AppName}.lnk"), Path.Combine(installDir, "Uninstall.exe"), installDir, iconPath, $"Uninstall {AppName}");
+            if (plan.StartMenuLauncher)
+                CreateShortcut(Path.Combine(folder, $"{AppName}.lnk"), launcher, installDir, iconPath, AppDescription);
+            if (plan.StartMenuUninstall)
+                CreateShortcut(Path.Combine(folder, $"Uninstall {AppName}.lnk"), Path.Combine(installDir, "Uninstall.exe"), installDir, iconPath, $"Uninstall {AppName}");
+        }
+
+        /// <summary>
+        /// Which of the three shortcuts <paramref name="installDir"/> has now, under the DatGold name or the old one (releases up to 3.10.1 made theirs as ChatMCP Studio, and the first update starts from one of
+        /// those): the ones that point into this installation. A shortcut that exists but cannot be read counts as present, because a shortcut that is missing after an update looks like a broken update and an extra one does not.
+        /// An update makes exactly these again (after it has removed the old ones), so that a shortcut the person deleted stays deleted.
+        /// </summary>
+        internal static ShortcutPlan DetectShortcuts(string installDir, string desktopDir, string programsDir)
+        {
+            var launcher = Path.Combine(installDir, "ChatMCP.exe");
+            var uninstaller = Path.Combine(installDir, "Uninstall.exe");
+            bool Has(string folder, string appName, bool uninstall, string target) => PointsInto(Path.Combine(folder, uninstall ? $"Uninstall {appName}.lnk" : $"{appName}.lnk"), target);
+            return new ShortcutPlan(
+                Has(desktopDir, AppName, false, launcher) || Has(desktopDir, LegacyAppName, false, launcher),
+                Has(Path.Combine(programsDir, StartMenuFolder), AppName, false, launcher) || Has(Path.Combine(programsDir, LegacyStartMenuFolder), LegacyAppName, false, launcher),
+                Has(Path.Combine(programsDir, StartMenuFolder), AppName, true, uninstaller) || Has(Path.Combine(programsDir, LegacyStartMenuFolder), LegacyAppName, true, uninstaller));
+        }
+
+        private static bool PointsInto(string shortcutPath, string expectedTarget)
+        {
+            if (!File.Exists(shortcutPath)) return false;
+            try
+            {
+                var shellType = Type.GetTypeFromProgID("WScript.Shell");
+                if (shellType == null) return true;
+                dynamic shell = Activator.CreateInstance(shellType)!;
+                dynamic shortcut = shell.CreateShortcut(shortcutPath);
+                var target = (string)shortcut.TargetPath;
+                return string.IsNullOrWhiteSpace(target) || string.Equals(Path.GetFullPath(target), Path.GetFullPath(expectedTarget), StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception) { return true; }
         }
 
         /// <summary>
         /// What setup does with shortcuts: the old-named ones that belong to this installation go, whatever the wizard's choices are (the machine then shows one name),
         /// and the ones the wizard asks for are made under the new name. A shortcut that cannot be removed is reported through <paramref name="note"/> and does not stop setup.
         /// </summary>
-        internal static void ReplaceShortcuts(string installDir, string iconPath, string desktopDir, string programsDir, bool createDesktop, bool createStartMenu, Action<string>? note = null)
+        internal static void ReplaceShortcuts(string installDir, string iconPath, string desktopDir, string programsDir, bool createDesktop, bool createStartMenu, Action<string>? note = null) =>
+            ReplaceShortcuts(installDir, iconPath, desktopDir, programsDir, ShortcutPlan.From(createDesktop, createStartMenu), note);
+
+        internal static void ReplaceShortcuts(string installDir, string iconPath, string desktopDir, string programsDir, ShortcutPlan plan, Action<string>? note = null)
         {
             RemoveShortcutSet(installDir, desktopDir, programsDir, LegacyAppName, LegacyStartMenuFolder, note);
-            CreateShortcuts(installDir, iconPath, desktopDir, programsDir, createDesktop, createStartMenu);
+            CreateShortcuts(installDir, iconPath, desktopDir, programsDir, plan);
+        }
+
+        /// <summary>
+        /// <see cref="ReplaceShortcuts(string, string, string, string, ShortcutPlan, Action{string}?)"/>, except that a shortcut that cannot be made is reported through <paramref name="note"/> (the text holds no path) and does not stop the installation:
+        /// by the time shortcuts are made the new files are in place and the transaction is committed, and an update that has replaced every file must not say that it failed for a Start menu folder.
+        /// </summary>
+        internal static void ReplaceShortcutsBestEffort(string installDir, string iconPath, string desktopDir, string programsDir, ShortcutPlan plan, Action<string> note)
+        {
+            try { ReplaceShortcuts(installDir, iconPath, desktopDir, programsDir, plan, note); }
+            catch (Exception error) { note("Could not make every shortcut (" + error.GetType().Name + "). The installation itself is complete."); }
         }
 
         /// <summary>What the uninstaller does: both name sets go, still only the shortcuts that point into this installation.</summary>
