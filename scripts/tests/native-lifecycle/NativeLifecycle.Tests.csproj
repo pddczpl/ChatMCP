@@ -7,7 +7,12 @@
     <Compile Include="../../../native-shared/HubLifecycle.cs" Link="HubLifecycle.cs" />
     <Compile Include="../../../native-shared/HubSession.cs" Link="HubSession.cs" />
     <Compile Include="../../../native-shared/OpenLink.cs" Link="OpenLink.cs" />
+    <Compile Include="../../../native-shared/UpdatePackage.cs" Link="UpdatePackage.cs" />
     <Compile Include="../../../installer/InstallerEngine.cs" Link="InstallerEngine.cs" />
     <Compile Include="../../../installer/InstallTransaction.cs" Link="InstallTransaction.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The cases that the Hub's code and the shell's code must read the same way (CHATMCP-HUB/tests/verify-release-vectors.mjs runs the same file). -->
+    <None Include="../../../CHATMCP-HUB/tests/fixtures/release-verify-vectors.json" Link="release-verify-vectors.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -117,6 +117,7 @@ try
         Check(!OpenLink.TryCreateMessage(blocked, out _), "dropped: " + (blocked.Length > 40 ? blocked[..40] + "..." : blocked));
     Check(OpenLink.TryCreateMessage("HTTPS://Example.com/a?b=c#d", out _), "https is accepted");
     LinkTests.Run(kit);
+    ReleaseVectorTests.Run(kit);
 
     var root = Path.Combine(scratch, "installed app with spaces"); Directory.CreateDirectory(root);
     File.WriteAllText(Path.Combine(root, "a.txt"), "old-a"); File.WriteAllText(Path.Combine(root, "b.txt"), "old-b");
