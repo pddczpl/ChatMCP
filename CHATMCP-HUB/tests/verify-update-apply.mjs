@@ -129,4 +129,31 @@ check(/UseShellExecute\s*=\s*false/.test(applier) && !/UseShellExecute\s*=\s*tru
 check(/ArgumentList\.Add\(/.test(applier) && !/(?<![A-Za-z])Arguments\s*=/.test(applier + mainUpdate) && !/new ProcessStartInfo\([^)]*,/.test(applier + mainUpdate), 'with an argument list, never a command line made by joining text');
 check(!/cmd(?:\.exe)?\b|powershell|pwsh|Process\.Start\(\s*"/i.test(applier + mainUpdate), 'and never through cmd or PowerShell');
 
+// ---- the mutations of the native code (scripts/tests/native-lifecycle/mutations.json, run by run-mutations.mjs): a pattern that no longer occurs exactly once in its file tests nothing, silently
+const staleOnes = (list, source) => {
+  const problems = [];
+  const names = new Set();
+  for (const mutation of list.mutations) {
+    if (names.has(mutation.name)) problems.push(`${mutation.name}: the name is used twice`);
+    names.add(mutation.name);
+    for (const patch of mutation.patches) {
+      const text = source(patch.file);
+      if (text === null) { problems.push(`${mutation.name}: ${patch.file} does not exist`); continue; }
+      const occurrences = text.split(patch.old).length - 1;
+      if (occurrences !== 1) problems.push(`${mutation.name}: the pattern occurs ${occurrences} times in ${patch.file}, it must occur exactly once`);
+    }
+  }
+  return problems;
+};
+const sourceOf = (file) => (fs.existsSync(path.join(repo, file)) ? read(file) : null);
+const mutationList = JSON.parse(read('scripts/tests/native-lifecycle/mutations.json'));
+check(Array.isArray(mutationList.mutations) && mutationList.mutations.length >= 200, `the list of mutations of the native code is there (${mutationList.mutations.length} of them)`);
+// In the copy that run-mutations.mjs breaks on purpose, one pattern is gone by design: the list is not read against it there.
+if (process.env.CHATMCP_NATIVE_MUTATION_COPY === '1') console.log('NOTE: this is a copy with a mutation in it: the patterns of the list are not compared with its files');
+else check(staleOnes(mutationList, sourceOf).length === 0, 'every pattern of every mutation still occurs exactly once in its file', staleOnes(mutationList, sourceOf).slice(0, 3).join('; '));
+check(staleOnes({ mutations: [{ name: 'x', patches: [{ file: 'native-shared/OpenLink.cs', old: 'a text that the file does not hold', new: '' }] }] }, sourceOf).length === 1, 'negative control: a pattern that is not in the file is reported');
+check(staleOnes({ mutations: [{ name: 'x', patches: [{ file: 'native-shared/OpenLink.cs', old: 'internal', new: '' }] }] }, sourceOf).length === 1, 'and so is one that is in it more than once');
+check(staleOnes({ mutations: [{ name: 'x', patches: [{ file: 'native-shared/NoSuchFile.cs', old: 'x', new: '' }] }] }, sourceOf).length === 1, 'and a file that is not there');
+check(staleOnes({ mutations: [{ name: 'x', patches: [] }, { name: 'x', patches: [] }] }, sourceOf).length === 1, 'and a name used twice');
+
 console.log(`verify-update-apply: ${checks} checks PASS`);
