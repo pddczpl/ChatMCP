@@ -1,14 +1,14 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-  Builds the commercial ChatMCPSetup.exe standalone installer.
+  Builds the commercial DatGoldSetup.exe standalone installer (called ChatMCPSetup.exe up to v3.10.2).
 
 .DESCRIPTION
   Automated build pipeline:
   1. Generates official brand icons
   2. Compiles native desktop executable (ChatMCP.exe)
   3. Prepares distribution payload and compresses to installer/payload.zip
-  4. Compiles and embeds payload into standalone dist/ChatMCPSetup.exe
+  4. Compiles and embeds payload into standalone dist/DatGoldSetup.exe
 #>
 [CmdletBinding()]
 param(
@@ -35,7 +35,7 @@ $stagingDir = Join-Path $temporaryRoot ('ChatMCP-Staging-' + [guid]::NewGuid().T
 Write-Host "`n[1/5] Checking build prerequisites..." -ForegroundColor Yellow
 $dotnetCmd = Get-Command dotnet.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($null -eq $dotnetCmd) {
-    Write-Error ".NET SDK is required to build ChatMCPSetup.exe. Please install from https://dot.net"
+    Write-Error ".NET SDK is required to build DatGoldSetup.exe. Please install from https://dot.net"
     exit 1
 }
 $dotnetVer = (& $dotnetCmd.Path --version).Trim()
@@ -221,8 +221,8 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyCon
 $zipSizeMb = [Math]::Round((Get-Item $payloadZip).Length / 1MB, 2)
 Write-Host "  [OK] Created payload.zip ($zipSizeMb MB)" -ForegroundColor Green
 
-# 5. Compile Standalone Installer (ChatMCPSetup.exe)
-Write-Host "`n[5/5] Compiling commercial ChatMCPSetup.exe..." -ForegroundColor Yellow
+# 5. Compile Standalone Installer (DatGoldSetup.exe)
+Write-Host "`n[5/5] Compiling commercial DatGoldSetup.exe..." -ForegroundColor Yellow
 if (-not (Test-Path -LiteralPath $distDir)) {
     New-Item -ItemType Directory -Path $distDir -Force | Out-Null
 }
@@ -232,18 +232,18 @@ $installerPublish = Join-Path $stagingDir 'installer-publish'
 & $dotnetCmd.Path publish $installerCsproj -c Release -r win-x64 --self-contained true -o $installerPublish -p:PublishSingleFile=true | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Installer publish failed with exit code $LASTEXITCODE" }
 
-$publishedSetup = Join-Path $installerPublish 'ChatMCPSetup.exe'
+$publishedSetup = Join-Path $installerPublish 'DatGoldSetup.exe'
 if (-not (Test-Path -LiteralPath $publishedSetup -PathType Leaf)) {
-    throw 'Failed to build ChatMCPSetup.exe.'
+    throw 'Failed to build DatGoldSetup.exe.'
 }
-$setupExe = Join-Path $distDir 'ChatMCPSetup.exe'
+$setupExe = Join-Path $distDir 'DatGoldSetup.exe'
 Copy-Item -LiteralPath $publishedSetup -Destination $setupExe -Force
 
 $setupSizeMb = [Math]::Round((Get-Item $setupExe).Length / 1MB, 2)
 Write-Host "  [OK] Built standalone installer: $setupExe ($setupSizeMb MB)" -ForegroundColor Green
 $checksum = (Get-FileHash -LiteralPath $setupExe -Algorithm SHA256).Hash.ToLowerInvariant()
 $checksumFile = "$setupExe.sha256"
-Set-Content -LiteralPath $checksumFile -Value "$checksum  ChatMCPSetup.exe" -Encoding Ascii
+Set-Content -LiteralPath $checksumFile -Value "$checksum  DatGoldSetup.exe" -Encoding Ascii
 Write-Host "  [OK] SHA-256: $checksum" -ForegroundColor Green
 Write-Host "  [OK] Checksum file: $checksumFile" -ForegroundColor Green
 } finally {
@@ -253,9 +253,9 @@ Write-Host "  [OK] Checksum file: $checksumFile" -ForegroundColor Green
 }
 
 Write-Host "`n==========================================================" -ForegroundColor Cyan
-Write-Host "         ChatMCPSetup.exe Built Successfully!             " -ForegroundColor Cyan
+Write-Host "         DatGoldSetup.exe Built Successfully!             " -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "Output File: $setupExe"
-Write-Host "You can now distribute or double-click ChatMCPSetup.exe to install."
+Write-Host "You can now distribute or double-click DatGoldSetup.exe to install."
 Write-Host "----------------------------------------------------------`n"
 exit 0

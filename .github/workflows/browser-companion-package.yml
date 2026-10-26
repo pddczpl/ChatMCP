@@ -39,23 +39,31 @@ jobs:
       - name: Validate ZIP and checksum
         shell: powershell
         run: |
-          $zip = '.\dist\ChatMCP-Browser-Companion.zip'
-          if (-not (Test-Path $zip)) { throw 'Missing standalone extension ZIP' }
-          if (-not (Test-Path "$zip.sha256")) { throw 'Missing extension checksum' }
-          $sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          $expected = ((Get-Content "$zip.sha256" -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
-          if ($sha -ne $expected) { throw 'Extension checksum does not match' }
+          # The archive under its new name and, as a copy, under the old name that every installed version links to.
+          $digests = @()
+          foreach ($zip in @('.\dist\DatGold-Browser-Companion.zip', '.\dist\ChatMCP-Browser-Companion.zip')) {
+            if (-not (Test-Path $zip)) { throw "Missing standalone extension ZIP: $zip" }
+            if (-not (Test-Path "$zip.sha256")) { throw "Missing extension checksum: $zip" }
+            $sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+            $expected = ((Get-Content "$zip.sha256" -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+            if ($sha -ne $expected) { throw "Extension checksum does not match: $zip" }
+            $digests += $sha
+          }
+          if (@($digests | Select-Object -Unique).Count -ne 1) { throw 'The archive under its two names is not the same file' }
+          $zip = '.\dist\DatGold-Browser-Companion.zip'
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $archive = [IO.Compression.ZipFile]::OpenRead($zip)
           try {
             if ($null -eq $archive.GetEntry('manifest.json')) { throw 'Archive root is missing manifest.json' }
-            if ($null -eq $archive.GetEntry('browser-background.js')) { throw 'Archive is not ChatMCP Hub Companion' }
+            if ($null -eq $archive.GetEntry('browser-background.js')) { throw 'Archive is not DatGold Hub Companion' }
           } finally { $archive.Dispose() }
       - name: Upload standalone browser extension test artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: ChatMCP-Browser-Companion-verified
+          name: DatGold-Browser-Companion-verified
           path: |
+            dist/DatGold-Browser-Companion.zip
+            dist/DatGold-Browser-Companion.zip.sha256
             dist/ChatMCP-Browser-Companion.zip
             dist/ChatMCP-Browser-Companion.zip.sha256
           if-no-files-found: error

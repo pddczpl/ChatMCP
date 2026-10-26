@@ -108,7 +108,7 @@ def verify(root: Path, evidence: Path, expected_commit: str) -> dict:
     manifest = json.loads((root / 'dist/RELEASE-MANIFEST.json').read_text(encoding='utf-8-sig'))
     if manifest['commit'] != head:
         raise ValueError('Release manifest commit mismatch')
-    installer = root / 'dist/ChatMCPSetup.exe'
+    installer = root / 'dist/DatGoldSetup.exe'
     no_link(installer)
     with installer.open('rb') as stream:
         checksum = hashlib.file_digest(stream, 'sha256').hexdigest()

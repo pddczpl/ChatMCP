@@ -32,7 +32,7 @@ class ReleaseSourceTests(unittest.TestCase):
         (self.ui / 'fresh.js').write_bytes(b'fresh UI build\n')
         (self.root / 'installer').mkdir()
         (self.root / 'dist').mkdir()
-        exe = self.root / 'dist/ChatMCPSetup.exe'
+        exe = self.root / 'dist/DatGoldSetup.exe'
         exe.write_bytes(b'test-only fake exe; never executed')
         self.checksum = gate.digest(exe.read_bytes())
         self.manifest = {'commit': self.head, 'assets': [{'name': exe.name, 'bytes': exe.stat().st_size, 'sha256': self.checksum}]}
@@ -53,12 +53,12 @@ class ReleaseSourceTests(unittest.TestCase):
     def test_reproduce_tracked_vite_diff_then_validate_and_restore(self):
         before = subprocess.run(['git', '-C', str(self.root), 'diff', '--exit-code'], capture_output=True)
         self.assertEqual(before.returncode, 1, 'Original release gate must reproduce the failure')
-        exe = (self.root / 'dist/ChatMCPSetup.exe').read_bytes()
+        exe = (self.root / 'dist/DatGoldSetup.exe').read_bytes()
         report = self.run_gate()
         self.assertEqual(report['result'], 'PASS')
         self.assertEqual({f['path'] for f in report['uiFiles']}, {'index.html', 'fresh.js'})
         self.assertEqual(gate.git(self.root, 'diff', '--exit-code'), b'')
-        self.assertEqual((self.root / 'dist/ChatMCPSetup.exe').read_bytes(), exe)
+        self.assertEqual((self.root / 'dist/DatGoldSetup.exe').read_bytes(), exe)
 
     def test_readme_checksum_only_is_recorded(self):
         p = self.root / 'README.md'
@@ -116,7 +116,7 @@ class ReleaseSourceTests(unittest.TestCase):
             self.run_gate()
 
     def test_installer_hash_mismatch_rejected(self):
-        (self.root / 'dist/ChatMCPSetup.exe').write_bytes(b'different')
+        (self.root / 'dist/DatGoldSetup.exe').write_bytes(b'different')
         with self.assertRaisesRegex(ValueError, 'Installer'):
             self.run_gate()
 

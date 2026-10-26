@@ -5,8 +5,10 @@ The full Windows installer and this ZIP contain the same extension source.
 Install it manually: browser extension installation requires your consent.
 
 HOW TO INSTALL OR RESTORE AFTER REMOVING IT
-1. Extract ChatMCP-Browser-Companion.zip to an ordinary folder, for example
-   Documents\ChatMCP-Browser-Companion. Do not load the ZIP itself.
+1. Extract the ZIP you downloaded (DatGold-Browser-Companion.zip, which a release
+   also publishes under its old name ChatMCP-Browser-Companion.zip: the same file)
+   to an ordinary folder, for example Documents\DatGold-Browser-Companion.
+   Do not load the ZIP itself.
 2. Open chrome://extensions (Chrome) or edge://extensions (Microsoft Edge).
 3. Enable Developer mode.
 4. Click "Load unpacked" (Chrome) / "Load unpacked" (Edge).

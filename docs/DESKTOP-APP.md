@@ -5,7 +5,7 @@ Hướng dẫn phát hành DatGold Studio trên **Windows 10/11 x64** từ mã n
 ## Tổng quan
 
 - **Ứng dụng Windows:** WinForms + WebView2, xuất thành ChatMCP.exe từ desktop-shell/ChatMCP.csproj.
-- **Bộ cài:** ChatMCPSetup.exe từ installer/ChatMCP.Installer.csproj.
+- **Bộ cài:** DatGoldSetup.exe từ installer/ChatMCP.Installer.csproj (bản đến v3.10.2 tên là ChatMCPSetup.exe).
 - Hai dự án C# hiện nhắm **net10.0-windows**, build self-contained win-x64.
 - **Frontend React:** CHATMCP-HUB/ui -> CHATMCP-HUB/web/dist. Bắt buộc build lại UI nếu thêm tab/tính năng.
 - **Backend:** Node.js portable được đóng cùng installer; Git for Windows, WebView2 Runtime và nhà cung cấp AI/API key không đi kèm.
@@ -66,26 +66,27 @@ Script tự kiểm tra .NET SDK 10 / Node.js 22, chạy lại npm ci và fronten
 Sau khi thành công:
 
 ~~~text
-dist\ChatMCPSetup.exe
-dist\ChatMCPSetup.exe.sha256
+dist\DatGoldSetup.exe
+dist\DatGoldSetup.exe.sha256
+dist\DatGold-Browser-Companion.zip (và bản sao ChatMCP-Browser-Companion.zip, cùng checksum riêng)
 ~~~
 
 Kiểm tra SHA-256:
 
 ~~~powershell
-$exe = '.\dist\ChatMCPSetup.exe'
+$exe = '.\dist\DatGoldSetup.exe'
 $actual = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
 $expected = ((Get-Content "$exe.sha256" -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
 if ($actual -ne $expected) { throw 'Installer checksum mismatch; stop release' }
 Write-Host "SHA-256 OK: $actual"
 ~~~
 
-GitHub Actions ở đúng commit cũng xuất artifact **ChatMCPSetup-win-x64** (EXE và checksum) và **chatmcp-ui-dist**. Đây là build artifact, không phải bản release đã phát hành.
+GitHub Actions ở đúng commit cũng xuất artifact **DatGoldSetup-win-x64** (EXE, Companion và các checksum) và **chatmcp-ui-dist**. Đây là build artifact, không phải bản release đã phát hành.
 
 ## 4. Kiểm thử trên Windows sạch trước khi công bố
 
 Dùng máy ảo Windows sạch, ghi lại kết quả:
-1. Cài ChatMCPSetup.exe, khởi chạy DatGold Studio, kiểm tra WebView2 và launcher/Hub.
+1. Cài DatGoldSetup.exe, khởi chạy DatGold Studio, kiểm tra WebView2 và launcher/Hub.
 2. Tạo/chọn repository Git thử nghiệm không chứa thông tin bí mật. Chọn chế độ Review.
 3. Cấu hình model có khả năng gọi công cụ (hoặc Ollama/LM Studio hỗ trợ tool calling).
 4. Kiểm tra đọc file, sửa file có phê duyệt, Git diff, checkpoint và restore.
@@ -105,7 +106,7 @@ git rev-parse HEAD
 git tag -a vX.Y.Z -m "DatGold vX.Y.Z"
 git push origin vX.Y.Z
 gh auth status
-gh release create vX.Y.Z .\dist\ChatMCPSetup.exe .\dist\ChatMCPSetup.exe.sha256 --draft --title "DatGold vX.Y.Z" --generate-notes
+gh release create vX.Y.Z .\dist\DatGoldSetup.exe .\dist\DatGoldSetup.exe.sha256 .\dist\DatGold-Browser-Companion.zip .\dist\DatGold-Browser-Companion.zip.sha256 .\dist\ChatMCP-Browser-Companion.zip .\dist\ChatMCP-Browser-Companion.zip.sha256 --draft --title "DatGold vX.Y.Z" --generate-notes
 ~~~
 
 Xem lại nội dung và file checksum trên Draft Release rồi publish thủ công. Chưa chọn version / chưa test máy sạch thì không tạo tag hay release.

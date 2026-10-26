@@ -112,8 +112,8 @@ for (const [surface, files] of Object.entries(real)) {
   assert.match(readText('installer/SetupForm.cs'), /Text = "DatGold Studio Setup - Version "/, 'the title of the setup wizard');
   assert.match(readText('installer/UninstallForm.cs'), /Text = "DatGold Studio - Uninstaller"/, 'the title of the uninstaller');
   const setupProject = readText('installer/ChatMCP.Installer.csproj');
-  for (const element of ['Company', 'Product', 'Description']) assert.match(setupProject, new RegExp(`<${element}>DatGold\\b`), `the ${element} of the setup file`);
-  assert.match(setupProject, /<AssemblyName>ChatMCPSetup<\/AssemblyName>/, 'while the file name of the setup is still ChatMCPSetup.exe (the release and the upgrade test depend on it)');
+  for (const element of ['Company', 'Product', 'Description', 'AssemblyTitle']) assert.match(setupProject, new RegExp(`<${element}>DatGold\\b`), `the ${element} of the setup file (AssemblyTitle is the "File description" that Windows shows)`);
+  assert.match(setupProject, /<AssemblyName>DatGoldSetup<\/AssemblyName>/, 'and the file name of the setup is DatGoldSetup.exe (section 4 reads the rest of the downloads)');
   const plugins = readText('CHATMCP-HUB/lib/plugins.mjs');
   assert.equal(/author: 'ChatMCP/.test(plugins), false, 'no built-in skill is by "ChatMCP Team" any more');
   assert.match(plugins, /author: 'DatGold Team'/);
@@ -160,6 +160,70 @@ for (const [surface, files] of Object.entries(real)) {
   assert.equal(scan({ 'docs/x.md': '# ChatMCP' }, { comments: false }).length, 1, 'a heading of a document is read as a sentence, not skipped as a comment');
   assert.equal(scan({ 'docs/x.md': '# ChatMCP' }, { comments: true }).length, 1, 'even when comments are skipped for code');
   ok(`${defects.length} defects are reported, ${allowed.length} exceptions pass, and a heading of a document is never mistaken for a comment`);
+}
+
+// ------------------------------------------------------------------------------------------------------------------------------- 4. the names of the downloads
+// What a person downloads from a release is called DatGold too: DatGoldSetup.exe with its .sha256, and DatGold-Browser-Companion.zip. Releases up to 3.10.2 published ChatMCPSetup.exe and
+// ChatMCP-Browser-Companion.zip, and two things still depend on those names: every installed version links to
+// https://github.com/pddczpl/ChatMCP/releases/latest/download/ChatMCP-Browser-Companion.zip, so every release keeps publishing that file as a COPY of the new one; and the upgrade test
+// downloads the published 3.9.0 by its file name. The names inside the installed program (ChatMCP.exe, the folders, the registry key) are the identifier step of docs/NAMING.md.
+{
+  /** A script or a workflow without its comments (PowerShell `<# ... #>` blocks and whole comment lines): a comment may say what a file used to be called. */
+  const code = (text) => text.replace(/<#[\s\S]*?#>/g, '').split('\n').filter((line) => !/^\s*(?:#|\/\/)/.test(line)).join('\n');
+  const DOWNLOAD_FILES = {
+    project: 'installer/ChatMCP.Installer.csproj', usage: 'installer/Program.cs', build: 'scripts/Build-Installer.ps1', companion: 'scripts/Build-BrowserCompanion.ps1',
+    ci: '.github/workflows/ci.yml', package: '.github/workflows/browser-companion-package.yml', gate: 'scripts/verify-release-source.py',
+    upgrade: 'scripts/tests/legacy-hub-upgrade/run.mjs', link: 'CHATMCP-HUB/ui/src/components/settings/AgentChannelSection.tsx',
+  };
+  const TELL_A_PERSON = ['README.md', 'HUONG-DAN.txt', 'docs/WINDOWS-SETUP.md', 'docs/DESKTOP-APP.md'];
+  /** `files` maps a path to its text. Returns what is wrong with the names of the downloads, one sentence each. */
+  function downloadProblems(files) {
+    const found = [];
+    const need = (condition, sentence) => { if (!condition) found.push(sentence); };
+    const at = (key) => files[DOWNLOAD_FILES[key]] ?? '';
+    need(/<AssemblyName>DatGoldSetup<\/AssemblyName>/.test(at('project')), `${DOWNLOAD_FILES.project}: the setup is not built as DatGoldSetup.exe`);
+    need(/DatGoldSetup\.exe --quiet --install-dir/.test(at('usage')), `${DOWNLOAD_FILES.usage}: the usage text does not name DatGoldSetup.exe`);
+    const build = code(at('build'));
+    need(/Join-Path \$installerPublish 'DatGoldSetup\.exe'/.test(build) && /Join-Path \$distDir 'DatGoldSetup\.exe'/.test(build) && /"\$checksum {2}DatGoldSetup\.exe"/.test(build), `${DOWNLOAD_FILES.build}: does not publish dist/DatGoldSetup.exe with a checksum line that names it`);
+    need(!/ChatMCPSetup/.test(build), `${DOWNLOAD_FILES.build}: still names ChatMCPSetup outside a comment`);
+    const companion = code(at('companion'));
+    need(/\$filename = 'DatGold-Browser-Companion\.zip'/.test(companion), `${DOWNLOAD_FILES.companion}: the Browser Companion is not built as DatGold-Browser-Companion.zip`);
+    need(/\$legacyFilename = 'ChatMCP-Browser-Companion\.zip'/.test(companion) && /Copy-Item/.test(companion), `${DOWNLOAD_FILES.companion}: the old name is not published as a copy (installed versions link to it)`);
+    for (const key of ['ci', 'package']) {
+      const text = at(key);
+      const listed = (name) => new RegExp(`^\\s+dist/${name.replace(/[.]/g, '\\.')}$`, 'm').test(text);
+      for (const name of ['DatGold-Browser-Companion.zip', 'DatGold-Browser-Companion.zip.sha256', 'ChatMCP-Browser-Companion.zip', 'ChatMCP-Browser-Companion.zip.sha256'])
+        need(listed(name), `${DOWNLOAD_FILES[key]}: the uploaded artifact does not list dist/${name}`);
+    }
+    need(/^\s+dist\/DatGoldSetup\.exe$/m.test(at('ci')) && /^\s+dist\/DatGoldSetup\.exe\.sha256$/m.test(at('ci')) && /name: DatGoldSetup-win-x64/.test(at('ci')), `${DOWNLOAD_FILES.ci}: the installer artifact is not DatGoldSetup-win-x64 with dist/DatGoldSetup.exe`);
+    const oldNameLines = at('ci').split('\n').filter((line) => /ChatMCPSetup/.test(line) && !/^\s*#/.test(line));
+    need(oldNameLines.length > 0 && oldNameLines.every((line) => /native-baseline/.test(line)), `${DOWNLOAD_FILES.ci}: ChatMCPSetup is named outside the download of the published 3.9.0 (its file name cannot change): ${oldNameLines.filter((line) => !/native-baseline/.test(line)).map((line) => line.trim().slice(0, 80)).join(' | ')}`);
+    need(/'dist\/DatGoldSetup\.exe'/.test(at('gate')) && !/ChatMCPSetup/.test(at('gate')), `${DOWNLOAD_FILES.gate}: the provenance gate does not read dist/DatGoldSetup.exe`);
+    need(/'DatGoldSetup\.dll'/.test(at('upgrade')) && /'DatGoldSetup\.exe'/.test(at('upgrade')), `${DOWNLOAD_FILES.upgrade}: the upgrade test does not copy the files of DatGoldSetup`);
+    for (const name of TELL_A_PERSON) need(/DatGoldSetup\.exe/.test(files[name] ?? ''), `${name}: does not tell a person to get DatGoldSetup.exe`);
+    // The link inside the app must name a file that every release publishes: the new name, or the old one that is kept as a copy.
+    const linked = /releases\/latest\/download\/([A-Za-z0-9._-]+)/.exec(at('link'))?.[1];
+    const published = [/\$filename = '([^']+)'/.exec(companion)?.[1], /\$legacyFilename = '([^']+)'/.exec(companion)?.[1]];
+    need(linked !== undefined && published.includes(linked), `${DOWNLOAD_FILES.link}: the app links ${linked ?? 'nothing'}, which the Companion build does not publish (${published.join(', ')})`);
+    return found;
+  }
+  const names = Object.fromEntries([...Object.values(DOWNLOAD_FILES), ...TELL_A_PERSON].map((name) => [name, readText(name)]));
+  const wrong = downloadProblems(names);
+  assert.deepEqual(wrong, [], `the names of the downloads are not DatGold's (docs/NAMING.md, section "What still says ChatMCP"):\n${wrong.join('\n')}`);
+  const mutate = (name, from, to) => { assert.ok(names[name].includes(from), `(premise) ${name} holds the text the defect replaces`); return { ...names, [name]: names[name].replace(from, to) }; };
+  const downloadDefects = [
+    ['the setup built under the old file name', mutate(DOWNLOAD_FILES.project, '<AssemblyName>DatGoldSetup</AssemblyName>', '<AssemblyName>ChatMCPSetup</AssemblyName>')],
+    ['the old installer name in the build script', mutate(DOWNLOAD_FILES.build, "$setupExe = Join-Path $distDir 'DatGoldSetup.exe'", "$setupExe = Join-Path $distDir 'ChatMCPSetup.exe'")],
+    ['the checksum line naming the old file', mutate(DOWNLOAD_FILES.build, '"$checksum  DatGoldSetup.exe"', '"$checksum  ChatMCPSetup.exe"')],
+    ['the Companion without its old-named copy', mutate(DOWNLOAD_FILES.companion, "$legacyFilename = 'ChatMCP-Browser-Companion.zip'", "$legacyFilename = 'DatGold-Browser-Companion.zip'")],
+    ['the artifact without the old-named Companion', mutate(DOWNLOAD_FILES.ci, '            dist/ChatMCP-Browser-Companion.zip\n', '')],
+    ['the old installer name beside the checks of the new build', mutate(DOWNLOAD_FILES.ci, 'if (-not (Test-Path .\\dist\\DatGoldSetup.exe))', 'if (-not (Test-Path .\\dist\\ChatMCPSetup.exe))')],
+    ['the provenance gate reading the old file', mutate(DOWNLOAD_FILES.gate, "'dist/DatGoldSetup.exe'", "'dist/ChatMCPSetup.exe'")],
+    ['the README without the new file name', mutate('README.md', 'DatGoldSetup.exe', 'the installer')],
+    ['the app linking a file no release publishes', mutate(DOWNLOAD_FILES.link, 'ChatMCP-Browser-Companion.zip', 'Companion.zip')],
+  ];
+  for (const [label, files] of downloadDefects) assert.ok(downloadProblems(files).length >= 1, `reported: ${label}`);
+  ok(`the downloads are DatGoldSetup.exe and DatGold-Browser-Companion.zip, the old-named Companion is published as a copy, and ${downloadDefects.length} defects are reported`);
 }
 
 console.log(`\nPASS: ${checks} display-name checks`);

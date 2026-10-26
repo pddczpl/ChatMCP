@@ -11,7 +11,7 @@ Hub mặc định chạy trên **127.0.0.1:3007** dưới tài khoản Windows h
 | Git for Windows | Cần cho Git và parallel worktrees |
 | Node.js 22.12+ | Cần khi chạy từ mã nguồn; bản installer đã bundle portable Node |
 | Model provider | API key theo nhà cung cấp; hoặc Ollama/LM Studio tool-capable ở loopback |
-| .NET SDK 10 | Chỉ khi build lại ChatMCP.exe / ChatMCPSetup.exe |
+| .NET SDK 10 | Chỉ khi build lại ChatMCP.exe / DatGoldSetup.exe |
 
 ## 2. Lấy mã nguồn
 
@@ -61,7 +61,7 @@ Dữ liệu Hub theo mặc định ở %LOCALAPPDATA%\ChatMCP\hub; ứng dụng 
 ~~~powershell
 node .\CHATMCP-HUB\tests\run-all.mjs
 .\scripts\Build-Installer.ps1
-Get-FileHash .\dist\ChatMCPSetup.exe -Algorithm SHA256
+Get-FileHash .\dist\DatGoldSetup.exe -Algorithm SHA256
 ~~~
 
 Test bản cài trên Windows sạch, đặc biệt WebView2, giữ lại dữ liệu sau nâng cấp, và việc gỡ cài đặt. Xem [Desktop Release Guide](DESKTOP-APP.md) và [Security](../SECURITY.md).
@@ -77,7 +77,8 @@ Setup names what it puts in front of a person DatGold Studio: the Desktop shortc
 Unattended installation is opt-in and has the same safety checks as the wizard:
 
 ~~~powershell
-.\ChatMCPSetup.exe --quiet --install-dir "$env:LOCALAPPDATA\Programs\ChatMCP"
+# The setup of releases up to v3.10.2 is called ChatMCPSetup.exe.
+.\DatGoldSetup.exe --quiet --install-dir "$env:LOCALAPPDATA\Programs\ChatMCP"
 # Use only from the actual installed directory:
 .\Uninstall.exe --quiet --uninstall
 ~~~

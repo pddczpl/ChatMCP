@@ -5,7 +5,7 @@ trên Windows (127.0.0.1). Không cần và không còn hỗ trợ Cloud Harness
 Docker/Render hosting, proxy cổng 3006 hoặc đăng nhập chủ sở hữu server.
 
 1. CÀI VÀ KHỞI ĐỘNG
-   - Với bản phát hành: lấy ChatMCPSetup.exe từ trang GitHub Releases;
+   - Với bản phát hành: lấy DatGoldSetup.exe (bản đến v3.10.2 tên là ChatMCPSetup.exe) từ trang GitHub Releases;
      so sánh SHA-256 với checksum được phát hành, cài và mở DatGold Studio.
    - Với mã nguồn: cài Git for Windows, Node.js 22.12+ và npm; mở PowerShell
      trong thư mục repository:
