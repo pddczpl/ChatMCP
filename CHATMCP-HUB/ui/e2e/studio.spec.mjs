@@ -211,7 +211,7 @@ test('Settings, the FULL ACCESS dialog and the command palette read English and 
   await vietnamese.getByRole('button', { name: 'English' }).click();
   const settings = page.getByRole('dialog', { name: 'Settings' });
   const sections = settings.getByRole('navigation', { name: 'Settings sections' });
-  for (const section of ['Project', 'AI model', 'Permissions & execution', 'Agent channel', 'Code intelligence', 'Appearance & language', 'About & data']) {
+  for (const section of ['Project', 'AI model', 'Permissions & execution', 'Agent channel', 'Code intelligence', 'Appearance & language', 'Updates', 'About & data']) {
     await sections.getByRole('button', { name: section, exact: true }).click();
     await expect(sections.getByRole('button', { name: section, exact: true })).toHaveAttribute('aria-current', 'page');
     expect(inEnglish(await settings.innerText()), `${section} reads English`).not.toMatch(VIETNAMESE);

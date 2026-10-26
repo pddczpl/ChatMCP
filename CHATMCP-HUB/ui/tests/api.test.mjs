@@ -105,3 +105,36 @@ test('the project-instructions switch is one POST of {enabled}, with the page he
     await assert.rejects(api.setProjectInstructions(false), { status: 409, code: 'project_instructions_env', message: /CHATMCP_PROJECT_INSTRUCTIONS/ });
   } finally { globalThis.fetch = original; setHubSecret(''); }
 });
+
+test('the update notice is one GET that asks nobody and three POSTs, each with the page headers and the bearer, and a refusal keeps its code', async () => {
+  const original = globalThis.fetch;
+  const seen = [];
+  const update = { current: '3.10.2', latest: '3.10.3', available: true, autoCheck: { enabled: true, saved: true, needsChoice: false } };
+  globalThis.fetch = async (route, init = {}) => {
+    seen.push({ route, method: init.method ?? 'GET', body: init.body, headers: init.headers });
+    if (route === '/api/update/skip' && seen.length > 4) return Response.json({ error: 'Bản này không còn là bản mới đang được đề nghị.', code: 'update_skip_stale' }, { status: 409 });
+    return Response.json({ csrfToken: 'fresh-token', update, checked: true, throttled: false });
+  };
+  setHubSecret('u'.repeat(40));
+  try {
+    const status = await api.getUpdateStatus();
+    assert.deepEqual([seen[0].route, seen[0].method, seen[0].body], ['/api/update/status', 'GET', undefined], 'reading what the Hub knows is a GET with no body');
+    assert.equal(status.update.latest, '3.10.3');
+    const checked = await api.checkForUpdates();
+    assert.deepEqual([seen[1].route, seen[1].method, seen[1].body], ['/api/update/check', 'POST', '{}']);
+    assert.deepEqual([checked.checked, checked.throttled], [true, false]);
+    await api.skipUpdate('3.10.3');
+    assert.deepEqual([seen[2].route, seen[2].method, seen[2].body], ['/api/update/skip', 'POST', '{"version":"3.10.3"}']);
+    await api.skipUpdate(null);
+    assert.equal(seen[3].body, '{"version":null}', 'null takes a skip back');
+    await api.setAutoCheckUpdates(false);
+    assert.deepEqual([seen[4].route, seen[4].method, seen[4].body], ['/api/update/auto-check', 'POST', '{"enabled":false}']);
+    for (const call of seen) assert.equal(call.headers.Authorization, 'Bearer ' + 'u'.repeat(40), `${call.route}: behind the bearer like every route`);
+    for (const call of seen.filter((entry) => entry.method === 'POST')) {
+      assert.equal(call.headers['X-ChatMCP-Request'], 'local-dashboard', `${call.route}: with the marker of the page`);
+      assert.equal(call.headers['Content-Type'], 'application/json');
+    }
+    assert.equal(seen[4].headers['X-ChatMCP-CSRF'], 'fresh-token', 'the token of an earlier answer goes with the next call');
+    await assert.rejects(api.skipUpdate('3.10.3'), { status: 409, code: 'update_skip_stale', message: /không còn là bản mới/ });
+  } finally { globalThis.fetch = original; setHubSecret(''); }
+});

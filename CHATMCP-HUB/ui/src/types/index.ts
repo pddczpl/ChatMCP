@@ -66,6 +66,54 @@ export interface ProjectInstructionsSetting {
   files: string[];
 }
 
+/** Why the last check for a newer release did not work (lib/update-check.mjs). `code` is what the page translates; `message` is the Hub's diagnostic and is not shown as it is. */
+export interface UpdateFailure {
+  code: string;
+  message: string;
+  /** The HTTP status GitHub answered with, for update_http. */
+  status: number | null;
+  at: string;
+}
+
+/**
+ * The update notice as /api/state, GET /api/update/status and the update routes serve it (lib/update-check.mjs), always UNDER the key `update`: a top-level `error` would read as a failed request.
+ * Nothing here is downloaded or run: it says that a newer release exists and where its notes are.
+ */
+export interface UpdateInfo {
+  /** The version that runs. */
+  current: string;
+  /** The newest release the Hub knows of (a release version x.y.z), from the last good check; null before the first. */
+  latest: string | null;
+  /** latest is higher than current. */
+  available: boolean;
+  checkedAt: string | null;
+  lastAttemptAt: string | null;
+  /** The page of the notes of `latest`, made by the Hub from the version. The page checks it again. */
+  notesUrl: string | null;
+  installerName: string | null;
+  skippedVersion: string | null;
+  error: UpdateFailure | null;
+  checking: boolean;
+  /** The earliest time the next manual check is answered with a request (a minute after the last attempt). */
+  manualCheckAfter: string | null;
+  nextAutomaticCheckAt: string | null;
+  autoCheck: {
+    /** The Hub looks by itself. */
+    enabled: boolean;
+    /** The owner's answer: true, false, or null while the question has not been answered. */
+    saved: boolean | null;
+    /** The page should ask the owner once. */
+    needsChoice: boolean;
+  };
+}
+
+/** The answer of POST /api/update/check: `checked` is false and `throttled` true when it was too soon after the last attempt and nothing was asked. */
+export interface UpdateCheckAnswer {
+  update: UpdateInfo;
+  checked: boolean;
+  throttled: boolean;
+}
+
 /** What the Hub recorded about one project file in one run: names, sizes and hashes, never a text. */
 export interface ProjectInstructionFile {
   path: string;
@@ -534,6 +582,8 @@ export interface HubState {
   };
   /** The owner's switch for AGENTS.md / CLAUDE.md (Settings → Dự án). */
   projectInstructions?: ProjectInstructionsSetting;
+  /** The update notice (Settings → Cập nhật and the strip under the header); null when the Hub has none. */
+  update?: UpdateInfo | null;
   publicMode?: {
     enabled: boolean;
     execMode: string;
