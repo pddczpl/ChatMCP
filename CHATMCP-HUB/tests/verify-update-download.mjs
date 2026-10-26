@@ -497,7 +497,8 @@ try {
     const sentBefore = feed.installer.sent();
     await huge.downloader.start({ version: '3.11.0' });
     await settled(huge.downloader, ['failed']);
-    assert.ok(feed.installer.sent() - sentBefore < 40 * MiB, 'a declared size that is not the manifest\'s is refused from the headers: the body is not read');
+    const sentOf40 = feed.installer.sent() - sentBefore;
+    assert.ok(sentOf40 < 1 * MiB, 'a declared size that is not the manifest\'s is refused from the headers: the body is not read (a body read until it passes the size of the manifest would have sent at least 1 MiB)');
     ok('every way the transport can go wrong ends as a failure with its own code and nothing left behind (no .part, no folder, the other server never asked): other bytes of the same size, one bit, a short body (with or without a length), a long one (declared, or counted as it comes and cut), a body that ends before its length, a reset, a stall (idle, not total: a pause shorter than the limit is fine), a 404 or 500, a redirect to another host, another port, https, a login, nowhere, or for ever');
   }
 
