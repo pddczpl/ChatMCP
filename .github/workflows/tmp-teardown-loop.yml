@@ -1,0 +1,98 @@
+name: tmp teardown loop
+
+# THROWAWAY: proof for the fix of the Windows E2E teardown hang ("Tearing down "app" exceeded the test timeout of 90000ms"). It lives on the branch
+# pddczpl/tmp-teardown-loop only and is never part of the pull request. Every job runs on windows-latest, the only place the hang was ever seen.
+#   gate  = tests/e2e-gate.test.mjs and the one nested case that cuts a response off with a reload (scratch script), against the old (before) or the new (after) fixtures
+#   loop  = the test that failed twice (studio.spec.mjs "the thinking effort ...") run --repeat-each times against the old (before) or the new (after) fixtures
+on:
+  push:
+    branches: ['pddczpl/tmp-teardown-loop']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    name: ${{ matrix.fixture }} fixtures / ${{ matrix.what }}
+    runs-on: windows-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { fixture: before, what: gate, repeat: 1 }
+          - { fixture: after, what: gate, repeat: 1 }
+          - { fixture: before, what: loop, repeat: 60 }
+          - { fixture: after, what: loop, repeat: 60 }
+    defaults:
+      run:
+        shell: bash
+        working-directory: CHATMCP-HUB/ui
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: CHATMCP-HUB/ui/package-lock.json
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install headless Chromium and platform dependencies
+        run: npx playwright install --with-deps chromium
+      - name: Build current React UI
+        run: npm run build
+      - name: The old fixtures (main at the base of the fix)
+        if: matrix.fixture == 'before'
+        run: |
+          git checkout 6415c95270a83a3438f1a9c63674dcd89ebf895f -- e2e/fixtures.mjs
+          git diff --stat HEAD -- e2e/fixtures.mjs
+          grep -c "readBody" e2e/fixtures.mjs || true
+      - name: gate - one nested case, a response cut off by a reload (prints the timeline)
+        if: matrix.what == 'gate'
+        run: |
+          set +e
+          for round in 1 2 3; do
+            echo "=== round $round"
+            node ../../tmp-run-nested.mjs "cut off by a reload"
+          done
+          exit 0
+      - name: gate - tests/e2e-gate.test.mjs and the unit tests of the helpers
+        if: matrix.what == 'gate'
+        run: |
+          set +e
+          node --experimental-strip-types --test tests/e2e-gate.test.mjs tests/response-body.test.mjs tests/hub-process.test.mjs
+          code=$?
+          echo "node --test exit code: $code (fixtures: ${{ matrix.fixture }})"
+          if [ "${{ matrix.fixture }}" = "before" ]; then
+            if [ "$code" = "0" ]; then echo "::error::the OLD fixtures passed the gate"; exit 1; fi
+            echo "expected: the old fixtures fail the gate"; exit 0
+          fi
+          exit $code
+      - name: loop - the test that failed twice, repeated
+        if: matrix.what == 'loop'
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ github.workspace }}/loop-report.json
+        run: |
+          set +e
+          line=$(grep -n "^test('the thinking effort" e2e/studio.spec.mjs | head -1 | cut -d: -f1)
+          echo "the test is at e2e/studio.spec.mjs:$line"
+          npx playwright test "e2e/studio.spec.mjs:$line" --repeat-each=${{ matrix.repeat }} --reporter=list,json 2>&1 | tail -150
+          node ../../tmp-summarize.mjs "$GITHUB_WORKSPACE/loop-report.json" "${{ matrix.fixture }} fixtures" > summary.md
+          code=$?
+          cat summary.md
+          cat summary.md >> "$GITHUB_STEP_SUMMARY"
+          # the old fixtures are measured, not judged; the new ones must pass every repeat
+          if [ "${{ matrix.fixture }}" = "before" ]; then exit 0; fi
+          exit $code
+      - name: Upload what was measured
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: proof-${{ matrix.fixture }}-${{ matrix.what }}
+          path: |
+            loop-report.json
+            CHATMCP-HUB/ui/test-results
+          if-no-files-found: ignore
