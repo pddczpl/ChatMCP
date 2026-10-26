@@ -81,7 +81,7 @@
       "claim": "A skill too big for the index is read through skill_load: bounded, once per load, with the Hub's redaction, and without any effect on permissions.",
       "source": {
         "file": "docs/USER-GUIDE.md",
-        "line": 239,
+        "line": 240,
         "quote": "mỗi lần nạp tối đa 16 KiB, một lần cho mỗi lần gọi"
       },
       "kind": "claim",
@@ -524,6 +524,57 @@
       "seamNote": "A real Hub process over HTTP with real Git worktrees for the agents; only the model server is scripted (strict Chat Completions). The parent's answer is built from what the tool returned; a SIGKILL and restarts happen between the endings and the next run.",
       "forbiddenDoubles": [
         "new\\s+(?:AgentRunner|HubManager|BrowserRunner|ConcurrentApiAgent)\\("
+      ]
+    },
+    {
+      "id": "update-notice-no-request-until-yes",
+      "claim": "The Hub makes no request of its own to look for a new release until the owner has said yes; \"Check now\" is the owner's own act and works in every state.",
+      "source": {
+        "file": "README.md",
+        "line": 50,
+        "quote": "until you answer, the app makes no request of its own to look for a new release"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-e2e-update-check.mjs",
+      "seamNote": "A real Hub process over HTTP, started with the one test hook that points it at a loopback server standing in for GitHub (the real feed is read by hand once, not in CI). Two seconds with the owner not asked and after a no: no request; a Hub with the setting on and an old attempt, the same timing: exactly one. The module is also run against real servers in verify-update-check.",
+      "forbiddenDoubles": [
+        "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Update|Checker|Feed)",
+        "\\bcreateUpdateChecker\\s*=\\s*(?:async\\s*)?(?:\\(|function|class)"
+      ]
+    },
+    {
+      "id": "update-notice-notifies-only",
+      "claim": "The update notice only tells the owner that a newer release exists: nothing is downloaded, installed or started.",
+      "source": {
+        "file": "README.md",
+        "line": 50,
+        "quote": "This only notifies: nothing is downloaded and nothing is installed"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-e2e-update-check.mjs",
+      "seamNote": "A real Hub process; the stand-in for GitHub records every request it is sent: only the three hops towards the manifest, never an installer. The module is read as source (no child process). That the Hub starts no program is shown by what the module imports, not by watching the operating system.",
+      "forbiddenDoubles": [
+        "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Update|Checker|Feed)",
+        "\\bfetchManifest\\s*=\\s*(?:async\\s*)?(?:\\(|function)"
+      ]
+    },
+    {
+      "id": "update-notice-one-request-to-github",
+      "claim": "When it asks, the Hub sends one GET request to GitHub's release feed and nothing else about the person than the line DatGold/<version>; it follows at most 3 redirects and only to github.com, release-assets.githubusercontent.com or objects.githubusercontent.com.",
+      "source": {
+        "file": "README.md",
+        "line": 50,
+        "quote": "GitHub sees your IP address and the line `DatGold/<version>`, nothing else about you"
+      },
+      "kind": "claim",
+      "seam": "real",
+      "test": "CHATMCP-HUB/tests/verify-update-check.mjs",
+      "seamNote": "The real fetch code over real sockets to loopback servers that imitate GitHub (three hops, a signed address at the end); the headers are read from what the server received. The policy for the real hosts is checked as a pure function on 27 addresses; what GitHub answers today was read by hand once (2026-10-26), not by a test.",
+      "forbiddenDoubles": [
+        "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Update|Checker|Feed|Manifest)",
+        "\\bfetch(?:Fn|Impl)\\s*[:=]"
       ]
     }
   ]

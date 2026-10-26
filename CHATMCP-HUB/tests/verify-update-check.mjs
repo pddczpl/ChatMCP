@@ -12,6 +12,7 @@
 // The other half of the proof (a real Hub process, the routes and their layers) is tests/verify-e2e-update-check.mjs.
 //
 // This proves the module does what it was written to do against a server that imitates GitHub. It does not prove what GitHub answers today: that was read by hand once (docs/THREAT-MODEL.md, Surface 8).
+// CLAIM: update-notice-one-request-to-github
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -554,7 +555,7 @@ try {
   // ------------------------------------------------------------------------------------------------------------------------------- 6. the setting and the timer
   {
     assert.ok(['ask', 'on'].includes(WHEN_UNANSWERED), 'the default is one constant with one of two values');
-    assert.equal(WHEN_UNANSWERED, 'ask', 'and today it is: no request until the owner says yes');
+    assert.equal(WHEN_UNANSWERED, 'ask', 'and today it is: no request until the owner says yes. It is the owner\'s decision; to make it "on", change the constant and say so in the README, SECURITY.md, Surface 8 (U1) of the threat model and the tests that talk about "not answered"');
     // unanswered: no timer, a question to ask
     {
       const timers = fakeTimers();
