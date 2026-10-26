@@ -22,6 +22,7 @@ import { GitHubSkillRegistry } from './lib/skill-registry.mjs';
 import { BEARER_PATTERN, attachToRunningHub, createSecret, createTicketBook, dashboardUrl, hubRequiresBearer, writeSession } from './lib/hub-session.mjs';
 import { followProviderWindow } from './lib/tool-selector.mjs';
 import { ProjectInstructionsStore, projectInstructionsSetting } from './lib/project-instructions.mjs';
+import { createUpdateChecker, updateOptionsFromEnvironment } from './lib/update-check.mjs';
 
 const APP_ID = 'chatmcp-local-hub';
 export const UI_BUILD = '3.10.2-react-agent';
@@ -41,9 +42,9 @@ export function assertBearerHub(health, port=3007) {
   return true;
 }
 
-export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/agent/project-instructions','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/tasks/accept-criterion','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/ai/catalog/refresh','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/browser/recover-url/request','/api/browser/outbound/decide','/api/browser/privacy/config','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle','/api/hooks/approve-project']);
+export const POST_ROUTES = Object.freeze(['/api/agent/mode','/api/agent/project-instructions','/api/tasks/start','/api/tasks/continue','/api/tasks/delete','/api/tasks/cancel','/api/tasks/auto-resume','/api/tasks/accept-criterion','/api/workflows/cancel','/api/ai/config','/api/ai/clear-key','/api/ai/test','/api/ai/catalog/refresh','/api/workspace/browse','/api/workspace/select','/api/workspaces/add','/api/workspaces/activate','/api/workspaces/remove','/api/services/start','/api/services/stop','/api/browser/pair-code','/api/browser/unpair','/api/browser/recover-url/request','/api/browser/outbound/decide','/api/browser/privacy/config','/api/studio/permissions/config','/api/studio/permissions/decide','/api/studio/file/save','/api/studio/checkpoint','/api/studio/restore','/api/studio/restore-checkpoint','/api/studio/accept','/api/studio/terminal/start','/api/studio/terminal/stop','/api/studio/plan/set','/api/studio/verify/run','/api/studio/delegates/research','/api/studio/delegates/orchestrate','/api/studio/delegates/cancel','/api/studio/dynamic-delegates/run','/api/studio/dynamic-delegates/cancel','/api/studio/coding/plan','/api/studio/coding/run','/api/studio/coding/cancel','/api/studio/coding/recovery/acknowledge','/api/studio/coding/integrate','/api/studio/coding/publish','/api/studio/coding/check-grant','/api/studio/intelligence/index','/api/studio/intelligence/engines/probe','/api/studio/intelligence/lsp/start','/api/studio/terminal/input','/api/studio/terminal/resize','/api/hub/shutdown','/api/ai/profiles/upsert','/api/ai/profiles/delete','/api/ai/profiles/default','/api/plugins/install','/api/plugins/registry/refresh','/api/plugins/registry/install','/api/plugins/registry/source/add','/api/plugins/registry/source/remove','/api/plugins/uninstall','/api/plugins/toggle','/api/hooks/approve-project','/api/update/check','/api/update/skip','/api/update/auto-check']);
 // Every route the Hub answers besides POST_ROUTES (tests/verify-hub-auth.mjs compares these lists with the source).
-export const GET_ROUTES = Object.freeze(['/api/health','/api/capabilities','/api/state','/api/background-tasks','/api/workspaces','/api/catalog','/api/ai/models','/api/ai/model-info','/api/ai/catalog','/api/ai/catalog/models','/api/ai/presets','/api/ai/profiles','/api/sandbox/status','/api/workspace/lock','/api/plugins/registry','/api/plugins/marketplace','/api/plugins/installed','/api/tasks/events','/api/tasks/:id','/api/tasks/:id/report','/api/tasks/:id/stream','/api/extension-state','/api/instructions','/api/studio/terminal/events','/api/studio/intelligence/status','/api/studio/intelligence/symbols','/api/studio/intelligence/references','/api/studio/intelligence/definitions','/api/studio/intelligence/lsp','/api/studio/sandbox','/api/studio/preview','/api/studio/tree','/api/studio/file','/api/studio/search','/api/studio/git/status','/api/studio/git/refs','/api/studio/git/diff','/api/studio/git/check','/api/studio/checkpoints','/api/studio/review','/api/studio/preview-checkpoint','/api/studio/checks','/api/studio/verifications','/api/studio/skills','/api/studio/terminal','/api/studio/terminal/capabilities','/api/studio/delegates','/api/studio/dynamic-delegates','/api/studio/coding','/api/studio/coding/context','/api/studio/coding/recovery','/api/studio/coding/review','/api/studio/coding/checks','/api/studio/workflow','/api/studio/plan','/auth/chatgpt/callback']);
+export const GET_ROUTES = Object.freeze(['/api/health','/api/capabilities','/api/state','/api/background-tasks','/api/workspaces','/api/catalog','/api/ai/models','/api/ai/model-info','/api/ai/catalog','/api/ai/catalog/models','/api/ai/presets','/api/ai/profiles','/api/sandbox/status','/api/workspace/lock','/api/plugins/registry','/api/plugins/marketplace','/api/plugins/installed','/api/tasks/events','/api/tasks/:id','/api/tasks/:id/report','/api/tasks/:id/stream','/api/extension-state','/api/instructions','/api/studio/terminal/events','/api/studio/intelligence/status','/api/studio/intelligence/symbols','/api/studio/intelligence/references','/api/studio/intelligence/definitions','/api/studio/intelligence/lsp','/api/studio/sandbox','/api/studio/preview','/api/studio/tree','/api/studio/file','/api/studio/search','/api/studio/git/status','/api/studio/git/refs','/api/studio/git/diff','/api/studio/git/check','/api/studio/checkpoints','/api/studio/review','/api/studio/preview-checkpoint','/api/studio/checks','/api/studio/verifications','/api/studio/skills','/api/studio/terminal','/api/studio/terminal/capabilities','/api/studio/delegates','/api/studio/dynamic-delegates','/api/studio/coding','/api/studio/coding/context','/api/studio/coding/recovery','/api/studio/coding/review','/api/studio/coding/checks','/api/studio/workflow','/api/studio/plan','/api/update/status','/auth/chatgpt/callback']);
 // Bootstrap of a dashboard without the long-lived secret in a URL: POST ticket (bearer) -> page opens /#chatmcp-boot=<ticket> -> POST redeem.
 export const SESSION_ROUTES = Object.freeze(['/api/session/ticket','/api/session/redeem']);
 // Everything under /api/ and /auth/ needs `Authorization: Bearer <per-launch secret>` except these named exceptions:
@@ -112,7 +113,7 @@ async function bodyJson(req, limit = 65536) {
 }
 
 /** Local-only HTTP Hub: localhost and 127.0.0.1 only. */
-export function createHubServer(manager, {port=3007,token=randomBytes(32).toString('hex'),secret=randomBytes(32).toString('hex'),bundleRoot=BUNDLE_ROOT,provider=null,agent=null,browser=null,workspaceRegistry=null,onShutdown=()=>{},isInitialized=()=>true,catalogStore=null}={}) {
+export function createHubServer(manager, {port=3007,token=randomBytes(32).toString('hex'),secret=randomBytes(32).toString('hex'),bundleRoot=BUNDLE_ROOT,provider=null,agent=null,browser=null,workspaceRegistry=null,onShutdown=()=>{},isInitialized=()=>true,catalogStore=null,updates=null}={}) {
   // `token` is the CSRF token of the dashboard; `secret` is the bearer every API caller must present. There is no way to
   // build a server without one: a caller that does not pass a secret gets a random one nobody knows.
   const hosts=new Set([`127.0.0.1:${port}`,`localhost:${port}`]);
@@ -193,8 +194,9 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
   });
   manager.sandboxEngine = sandboxEngine;
   manager.executionRegistry = sandboxEngine.registry;
-  const state = (csrf = token) => ({ ...manager.state(), workspaces:workspaceRegistry?.state()??{activePath:manager.workspace,items:manager.workspace?[{path:manager.workspace,name:path.basename(manager.workspace)}]:[]}, ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, projectInstructions: { ...(manager.projectInstructionsSetting?.current() ?? taskEngine?.api?.primary?.projectInstructions ?? projectInstructionsSetting()) }, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions: { ...(permissions?.state?.()??gate?.state()??{}), pending: [...(permissions?.state?.().pending??[]), ...(taskEngine?.api?.pendingApprovals?.()??[]), ...(browser?.pendingApprovals?.()??[])] }, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null,dynamicDelegates:dynamic?.state()??null} : null, csrfToken: csrf });
+  const state = (csrf = token) => ({ ...manager.state(), workspaces:workspaceRegistry?.state()??{activePath:manager.workspace,items:manager.workspace?[{path:manager.workspace,name:path.basename(manager.workspace)}]:[]}, ai: { ...(provider?.state() ?? { provider: 'disabled', configured: false }), profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId, busy: aiBusy }, plugins: { count: pluginManager.installed().length, active: pluginManager.activeSkills().length }, projectInstructions: { ...(manager.projectInstructionsSetting?.current() ?? taskEngine?.api?.primary?.projectInstructions ?? projectInstructionsSetting()) }, update: updates?.status() ?? null, browser: browser?.browserState() ?? null, agent: taskEngine?.state() ?? { activeTaskId: null, active: null, tasks: [] }, studio: studio ? {workspace:studio.root, permissions: { ...(permissions?.state?.()??gate?.state()??{}), pending: [...(permissions?.state?.().pending??[]), ...(taskEngine?.api?.pendingApprovals?.()??[]), ...(browser?.pendingApprovals?.()??[])] }, terminals:terminal?.state()??[], features:['files','code-search','git-diff','checkpoints','review','terminal','skills','plan','test-discovery','test-evidence','research-delegates','docker-readonly-sandbox','interactive-terminal','optional-conpty','python-ast-index','optional-lsp','local-preview','light-dark-theme'], delegates:delegates?.state()??null,dynamicDelegates:dynamic?.state()??null} : null, csrfToken: csrf });
   const requireNoTask = (message = 'Dừng các tác vụ AI đang chạy trước khi đổi Base URL, API key hoặc model.') => { if (taskEngine?.state().activeTaskId || dynamic?.activeRunId || coding?.active || delegates?.running) { const e = new Error(message); e.statusCode = 409; throw e; } };
+  const updateUnavailable = () => Object.assign(new Error('Kiểm tra bản cập nhật chưa khởi tạo.'), { statusCode: 503, code: 'update_unavailable' });
   const changeAi = async (operation) => {
     requireNoTask();
     if (aiBusy) { const e = new Error('Đang thay đổi kết nối AI. Chờ thao tác hiện tại hoàn tất.'); e.statusCode = 409; throw e; }
@@ -386,6 +388,8 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
       if (req.method === 'GET' && url.pathname === '/api/ai/presets') return json(200,{ presets: publicPresets(provider?.env ?? process.env), envKeys: provider?.envKeys() ?? [] });
       if (req.method === 'GET' && url.pathname === '/api/ai/profiles') return json(200, { profiles: aiProfiles.list(), defaultProfileId: aiProfiles.defaultProfileId });
       if (req.method === 'GET' && url.pathname === '/api/sandbox/status') return json(200, sandboxEngine.status());
+      // The update notice (lib/update-check.mjs): what the Hub already knows about a newer release. A read of memory, never a request to the network: the check is the POST below.
+      if (req.method === 'GET' && url.pathname === '/api/update/status') { if (!updates) return json(503, { error: 'Kiểm tra bản cập nhật chưa khởi tạo.', code: 'update_unavailable' }); return json(200, { update: updates.status() }); }
       if (req.method === 'GET' && url.pathname === '/api/workspace/lock') {
         const lock = new WorkspaceLock({ workspaceRoot: manager.workspace || BUNDLE_ROOT });
         return json(200, await lock.inspect());
@@ -627,6 +631,11 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           // The owner approves the sha256 of the project's .chatmcp/hooks.json that they reviewed (lib/hooks.mjs). The project is always the
           // one the Hub has open: a caller cannot name another folder. Behind the bearer like every /api route.
           case '/api/hooks/approve-project': if (!manager.hooks) throw Object.assign(new Error('Hooks chưa khởi tạo.'), { statusCode: 503 }); result = await manager.hooks.approveProject({ projectRoot: manager.workspace, sha256: payload.sha256 }); break;
+          // The update notice (lib/update-check.mjs). The owner's own acts, behind the same layers as every route: a check is one GET to GitHub (at most one a minute, two callers share it), skipping
+          // a version and the choice to check on its own write two small files. Nothing here downloads or starts anything.
+          case '/api/update/check': { if (!updates) throw updateUnavailable(); const answer = await updates.check(); result = { update: answer.update, checked: answer.checked, throttled: answer.throttled }; break; }
+          case '/api/update/skip': if (!updates) throw updateUnavailable(); result = { update: await updates.skip(payload.version) }; break;
+          case '/api/update/auto-check': if (!updates) throw updateUnavailable(); result = { update: await updates.setAutoCheck(payload.enabled) }; break;
           case '/api/hub/shutdown': result = { ok: true }; setTimeout(() => void onShutdown(), 150); break;
           default: return unknownAction();
         }
@@ -766,6 +775,10 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   // follows it. Every runner (the foreground one, the pooled chats, the coding workers) is given this one object, which is asked at the start of each run.
   manager.projectInstructionsSetting = new ProjectInstructionsStore({ directory: manager.hubDirectory, env, log: (line) => manager.log(line) });
   await manager.projectInstructionsSetting.load();
+  // The update notice: found out and kept here, read before the Hub says it is initialised so that the first /api/state already knows what the last check found. It asks nothing until the owner has
+  // said yes (lib/update-check.mjs WHEN_UNANSWERED) and its timer starts only below, once the Hub is up. The two test hooks of the environment are read here and nowhere else.
+  const updates = createUpdateChecker({ directory: manager.hubDirectory, currentVersion: VERSION, log: (line) => manager.log(line), ...updateOptionsFromEnvironment(env, (line) => manager.log(line)) });
+  await updates.load();
   const { BrowserRunner } = await import('./lib/browser-runner.mjs');
   const { AgentRunner } = await import('./lib/agent.mjs');
   const { ConcurrentApiAgent } = await import('./lib/concurrent-api-agent.mjs');
@@ -800,7 +813,7 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   let initialized=false,closing=false;
   let releaseInstance=async()=>{};
   let session=null;
-  const server=createHubServer(manager,{port:options.port,secret,browser,agent,provider,workspaceRegistry,onShutdown:close,
+  const server=createHubServer(manager,{port:options.port,secret,browser,agent,provider,workspaceRegistry,onShutdown:close,updates,
     isInitialized:()=>initialized});
   const url=`http://127.0.0.1:${options.port}`;
   try {
@@ -838,10 +851,12 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   if (manager.workspace) void manager.start().catch(() => {});
   else manager.log('Chọn thư mục workspace trên trang localhost để bắt đầu.');
   resumer.start();
+  updates.start();
   async function close() {
     if (closing) return;
     closing = true;
     resumer.stop();
+    updates.stop();
     manager.log('Đang dừng DatGold local Hub...');
     const deadline = setTimeout(() => process.exit(1), 12000);
     manager.codingOrchestrator?.cancel();

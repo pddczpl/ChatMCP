@@ -415,16 +415,16 @@ export function createUpdateChecker({
     timer = null;
     nextAt = null;
   }
-  function schedule(delayMs) {
+  function schedule(delayMs, from = nowMs()) {
     clearTimer();
     if (!started || !autoEnabled()) return;
     timer = timers.setTimeout(() => runAutomatic(), delayMs);
     timer?.unref?.();
-    nextAt = nowMs() + delayMs;
+    nextAt = from + delayMs;
   }
-  /** The first try after start, or after the owner says yes: a little later, and never inside the floor of the last attempt (which survives a restart). */
-  function firstDelay() {
-    const floor = lastAttemptAt === null ? 0 : lastAttemptAt + SCHEDULE.minAutomaticGapMs - nowMs();
+  /** The first try after start, or after the owner says yes: a little later, and never inside the floor of the last attempt (which survives a restart). `from` is the moment it is counted from. */
+  function firstDelay(from) {
+    const floor = lastAttemptAt === null ? 0 : lastAttemptAt + SCHEDULE.minAutomaticGapMs - from;
     return Math.max(jittered(firstCheckMs, SCHEDULE.firstCheckJitter), floor);
   }
   async function runAutomatic() {
@@ -433,15 +433,16 @@ export function createUpdateChecker({
     // a timer that was already running when it was cleared, or when the owner said no, asks nothing
     if (!started || !autoEnabled()) return;
     if (inFlight) return; // a try is out; when it ends it sets the next one
-    const wait = lastAttemptAt === null ? 0 : lastAttemptAt + SCHEDULE.minAutomaticGapMs - nowMs();
-    if (wait > 0) { schedule(wait); return; }
+    const from = nowMs();
+    const wait = lastAttemptAt === null ? 0 : lastAttemptAt + SCHEDULE.minAutomaticGapMs - from;
+    if (wait > 0) { schedule(wait, from); return; }
     try { await run(); } catch { /* attempt() reports failures in the state; nothing may escape from a timer: an unhandled rejection stops the Hub */ }
   }
 
   function start() {
     if (started) return;
     started = true;
-    if (autoEnabled()) schedule(firstDelay());
+    if (autoEnabled()) { const from = nowMs(); schedule(firstDelay(from), from); }
   }
   function stop() {
     started = false;
@@ -461,7 +462,7 @@ export function createUpdateChecker({
       saved = enabled;
       log(`Tự kiểm tra bản cập nhật: ${enabled ? 'bật' : 'tắt'} (chủ máy chọn).`);
       if (!enabled) clearTimer();
-      else if (started && timer === null) schedule(firstDelay());
+      else if (started && timer === null) { const from = nowMs(); schedule(firstDelay(from), from); }
       return status();
     });
     settingsWrites = write;

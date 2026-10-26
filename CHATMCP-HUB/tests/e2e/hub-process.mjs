@@ -66,6 +66,9 @@ export function cleanEnvironment(home, extra = {}) {
     // only calls what it was offered. They test what the Hub does with the call, so they get the full list; the selection itself is tested
     // in verify-tool-selector and verify-smart-context-compaction.
     CHATMCP_TOOL_SELECTION: 'full',
+    // The update notice (lib/update-check.mjs) reads GitHub. A test Hub must never reach it, whatever the owner's default for "not answered yet" is: the feed is a loopback port nobody listens on
+    // (the one hook that may replace it, and only with a loopback address). A test of the notice sets CHATMCP_UPDATE_FEED_URL to its own stand-in (tests/e2e/update-feed-server.mjs).
+    CHATMCP_UPDATE_FEED_URL: 'http://127.0.0.1:9/RELEASE-MANIFEST.json',
   });
   return Object.assign(env, extra);
 }
