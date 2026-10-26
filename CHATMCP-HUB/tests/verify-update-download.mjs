@@ -492,13 +492,19 @@ try {
     await sleep(300);
     feed.installer.resume();
     assert.equal((await settled(slow.downloader, ['ready', 'failed'])).state, 'ready', 'a pause shorter than the idle limit does not matter');
-    // a body that is headed for a size the manifest does not have is cut as soon as it is known: not read to its end
-    const huge = await world({ release: releaseFor({ size: 1 * MiB, seed: 13 }), served: pseudoBytes(40 * MiB, 14) });
+    // a body that is headed for a size the manifest does not have is refused from the headers, before one byte of it is read. The server sends the headers of 40 MiB and holds the whole body back: a Hub
+    // that refuses on the length ends the download at once; one that waits for the body to count it has nothing to count and goes on until its idle limit. (Counting what the server wrote does not do: a Linux
+    // loopback socket takes several MiB before the server finds out that the client has gone, so "less than the size of the manifest was sent" held on Windows and failed on the Linux runner of CI.)
+    const huge = await world({ release: releaseFor({ size: 1 * MiB, seed: 13 }), served: pseudoBytes(40 * MiB, 14), options: { idleTimeoutMs: 30_000, timeoutMs: 30_000 } });
+    feed.installer.mode('chain', { pauseAfter: 0 });
     const sentBefore = feed.installer.sent();
     await huge.downloader.start({ version: '3.11.0' });
-    await settled(huge.downloader, ['failed']);
-    const sentOf40 = feed.installer.sent() - sentBefore;
-    assert.ok(sentOf40 < 1 * MiB, 'a declared size that is not the manifest\'s is refused from the headers: the body is not read (a body read until it passes the size of the manifest would have sent at least 1 MiB)');
+    const headersOnly = await waitUntil(() => huge.downloader.status().state === 'failed' && huge.downloader.status(), 'the refusal of a body whose declared length is not the manifest\'s, from the headers alone', 8000);
+    assert.equal(headersOnly.code, 'update_download_size', 'refused for its size');
+    assert.equal(feed.installer.sent() - sentBefore, 0, 'and not one byte of that body was sent: the Hub decided on the headers');
+    feed.installer.resume();
+    await waitUntil(() => feed.openCount() === 0, 'the connection to be closed');
+    assert.deepEqual(left(huge), [], 'and nothing is left of it');
     ok('every way the transport can go wrong ends as a failure with its own code and nothing left behind (no .part, no folder, the other server never asked): other bytes of the same size, one bit, a short body (with or without a length), a long one (declared, or counted as it comes and cut), a body that ends before its length, a reset, a stall (idle, not total: a pause shorter than the limit is fine), a 404 or 500, a redirect to another host, another port, https, a login, nowhere, or for ever');
   }
 

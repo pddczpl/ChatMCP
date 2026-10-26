@@ -59,7 +59,7 @@ const CHUNK = 64 * 1024;
  *   stall          takes the request and never answers
  *   endless        200 that never stops sending
  *   declared-huge  200 that declares `{bytes}` and sends a little
- * and, for the body of an installer (the options of any mode that answers 200): `pauseAfter: n` stops after n bytes until `resume()`, `stallAfter: n` stops there for good, `resetAfter: n`
+ * and, for the body of an installer (the options of any mode that answers 200): `pauseAfter: n` stops after n bytes (0: after the headers, before any byte of the body) until `resume()`, `stallAfter: n` stops there for good, `resetAfter: n`
  * breaks the connection there, `endAfter: n` ends the response there although it declared more (a body that stops short of its length), `chunked: true` sends no length (the client has to count).
  */
 export async function startUpdateFeed({ manifest = feedManifest(), text = null, key = null } = {}) {
@@ -171,6 +171,7 @@ export async function startUpdateFeed({ manifest = feedManifest(), text = null, 
     if (behavior.mode === 'declared-huge') { response.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': behavior.bytes ?? 0 }); response.write('{'); return; }
     if (bytes === null) { plain(response, 404); return; }
     response.writeHead(200, { 'content-type': 'application/octet-stream', ...(behavior.chunked ? {} : { 'content-length': bytes.length }) });
+    response.flushHeaders(); // on the wire before the first byte of the body: `pauseAfter: 0` holds the body back and the client still sees the length it declares
     entry.open += 1;
     response.on('close', () => { entry.open -= 1; });
     void (async () => {
