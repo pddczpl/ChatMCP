@@ -8,6 +8,8 @@
 //
 // The stand-in imitates GitHub's shape. It is not GitHub: the real feed is read by hand up to the signature (tests/live/check-update-download.mjs), and a real 230 MB download only with the
 // owner's word.
+// CLAIM: update-download-only-on-a-click
+// CLAIM: update-download-needs-valid-signature
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -201,6 +203,16 @@ await runScenario({
   const refusedUnsigned = await post(unsigned, ROUTES.download, { version: '3.11.0' });
   t.equal([refusedUnsigned.status, refusedUnsigned.json.code, installerHits(), listing(folderOf(unsignedDir))], [409, 'update_download_unsigned', hitsUnsigned, null], 'a click is refused (409 update_download_unsigned): nothing fetched, nothing written');
   feed.signature.mode('chain');
+
+  // ---- a release signed with a key this Hub was not given: no click can download it either ------------------------------------------------------------
+  const stranger = throwawayKey();
+  const strangerDir = path.join(t.scratch, 'state-stranger');
+  const strangerHub = await t.hub({ env: hooks({ CHATMCP_UPDATE_TEST_KEY: stranger.spkiBase64 }), stateDir: strangerDir });
+  const strangerCheck = (await post(strangerHub, '/api/update/check', {})).json.update;
+  t.equal([strangerCheck.available, strangerCheck.signature, strangerCheck.error?.code], [true, 'invalid', 'update_signature_unknown_key'], 'a release signed with a key this Hub does not know: on offer, "invalid", and told apart from one whose signature does not check');
+  const hitsStranger = installerHits();
+  const refusedStranger = await post(strangerHub, ROUTES.download, { version: '3.11.0' });
+  t.equal([refusedStranger.status, refusedStranger.json.code, installerHits(), listing(folderOf(strangerDir))], [409, 'update_download_unsigned', hitsStranger, null], 'a click is refused (409 update_download_unsigned): nothing fetched, nothing written');
 
   // ---- what the Hub is not -----------------------------------------------------------------------------------------------------------------------------------
   const hubSource = fs.readFileSync(new URL('../hub.mjs', import.meta.url), 'utf8');

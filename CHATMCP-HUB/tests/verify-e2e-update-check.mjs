@@ -8,7 +8,6 @@
 //
 // The stand-in imitates GitHub's shape. It is not GitHub: whether the real answer is what the module expects was read by hand once, on 2026-10-26 (docs/THREAT-MODEL.md, Surface 8).
 // CLAIM: update-notice-no-request-until-yes
-// CLAIM: update-notice-notifies-only
 import fs from 'node:fs';
 import path from 'node:path';
 import { findNeedles, runScenario } from './e2e/harness.mjs';

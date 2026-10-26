@@ -635,8 +635,8 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           // The owner approves the sha256 of the project's .chatmcp/hooks.json that they reviewed (lib/hooks.mjs). The project is always the
           // one the Hub has open: a caller cannot name another folder. Behind the bearer like every /api route.
           case '/api/hooks/approve-project': if (!manager.hooks) throw Object.assign(new Error('Hooks chưa khởi tạo.'), { statusCode: 503 }); result = await manager.hooks.approveProject({ projectRoot: manager.workspace, sha256: payload.sha256 }); break;
-          // The update notice (lib/update-check.mjs). The owner's own acts, behind the same layers as every route: a check is one GET to GitHub (at most one a minute, two callers share it), skipping
-          // a version and the choice to check on its own write two small files. Nothing here downloads or starts anything.
+          // The update notice (lib/update-check.mjs). The owner's own acts, behind the same layers as every route: a check is a look at GitHub, the manifest and then its signature (at most one a minute,
+          // two callers share it), skipping a version and the choice to check on its own write two small files. Nothing here downloads or starts anything.
           case '/api/update/check': { if (!updates) throw updateUnavailable(); const answer = await updates.check(); result = { update: updateState(), checked: answer.checked, throttled: answer.throttled }; break; }
           case '/api/update/skip': if (!updates) throw updateUnavailable(); await updates.skip(payload.version); result = { update: updateState() }; break;
           case '/api/update/auto-check': if (!updates) throw updateUnavailable(); await updates.setAutoCheck(payload.enabled); result = { update: updateState() }; break;

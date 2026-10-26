@@ -12,6 +12,7 @@
 //   5. what the module is not: it starts no program, reads no environment variable, reads no clock, and the installer is never opened, moved or run.
 // "ready" is the Hub's own statement. It does not make the file trustworthy to whoever runs it: the step that runs the installer hashes it again (a program running with Full Access can write this
 // folder); docs/THREAT-MODEL.md, Surface 8.
+// CLAIM: update-download-checks-size-and-hash
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';

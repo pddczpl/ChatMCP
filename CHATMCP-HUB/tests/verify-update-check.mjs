@@ -1,4 +1,5 @@
-// The update notice, step 1 of the in-app updater (lib/update-check.mjs): the Hub finds out that a newer release exists and says so. It downloads and runs nothing.
+// The update notice, steps 1 and 2 of the in-app updater (lib/update-check.mjs): the Hub finds out that a newer release exists, whether its manifest carries a signature that checks, and says so.
+// It downloads and runs nothing (the download of the installer is lib/update-download.mjs, tests/verify-update-download.mjs).
 //
 // What this suite holds the module to, against a REAL loopback HTTP server that stands in for GitHub (tests/e2e/update-feed-server.mjs: the same three hops, a signed
 // address at the end, the same headers on the way in) and real files in a temporary folder. Nothing of the code under test is replaced by a double; the clock, the timers and
