@@ -67,6 +67,71 @@ function Resolve-InstallerReleaseKeysFile {
     return $full
 }
 
+# The build does not believe how it asked for the key list, it PROVES what it made. MSBuild reads an environment variable called ReleaseKeysFile as a property, so in a publish workflow one that is
+# set is refused outright (a release is built from the committed file and from nothing else); in any other workflow it changes nothing the proofs below would not see.
+function Assert-InstallerNoAmbientReleaseKeysFile {
+    [CmdletBinding()]
+    param()
+    if ($env:GITHUB_WORKFLOW -like 'Publish*' -and -not [string]::IsNullOrEmpty($env:ReleaseKeysFile)) {
+        throw 'A release is built from the committed CHATMCP-HUB\lib\release-keys.json and from nothing else: the environment variable ReleaseKeysFile is set in this publish workflow, and MSBuild would read it as a property. Remove it.'
+    }
+}
+
+# Whether the bytes are somewhere in the file. A program is 100 MB, so it is read in blocks and never held whole; the last bytes of a block are carried into the next one, so that a match that a block
+# ends in the middle of is still found. A byte is a character of the Latin-1 text of the block (one to one), and the search is an ordinal one.
+function Test-InstallerFileContains {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][byte[]]$Needle,
+        [int]$BlockSize = 8388608
+    )
+    if ($Needle.Length -lt 1) { throw 'Test-InstallerFileContains: there is nothing to look for (an empty list of bytes is in every file).' }
+    if ($BlockSize -lt 1) { throw 'Test-InstallerFileContains: a block holds at least one byte.' }
+    $latin1 = [Text.Encoding]::GetEncoding(28591)
+    $needleText = $latin1.GetString($Needle)
+    $carried = $Needle.Length - 1
+    $buffer = New-Object byte[] ($carried + $BlockSize)
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    try {
+        $held = 0
+        while ($true) {
+            $read = $stream.Read($buffer, $held, $BlockSize)
+            if ($read -le 0) { return $false }
+            $length = $held + $read
+            if ($latin1.GetString($buffer, 0, $length).IndexOf($needleText, [StringComparison]::Ordinal) -ge 0) { return $true }
+            $held = [Math]::Min($carried, $length)
+            [Array]::Copy($buffer, $length - $held, $buffer, 0, $held)
+        }
+    } finally { $stream.Dispose() }
+}
+
+# The desktop shell carries its key list as an embedded resource, which is the file byte for byte. So the program that was published must hold the exact bytes of the list the build meant to give it:
+# the committed CHATMCP-HUB\lib\release-keys.json, or the one a TEST build named. A program that holds anything else would trust other keys than the build says.
+function Assert-InstallerReleaseKeysBuiltIn {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$Executable, [Parameter(Mandatory = $true)][string]$KeysFile)
+    if (-not (Test-Path -LiteralPath $Executable -PathType Leaf)) { throw "The program that should carry the key list is not a file: $Executable" }
+    if (-not (Test-Path -LiteralPath $KeysFile -PathType Leaf)) { throw "The key list that was meant to be built in is not a file: $KeysFile" }
+    $keys = [IO.File]::ReadAllBytes($KeysFile)
+    if ($keys.Length -lt 1) { throw "The key list that was meant to be built in is empty: $KeysFile" }
+    if (-not (Test-InstallerFileContains -Path $Executable -Needle $keys)) {
+        throw "$Executable does not carry the key list that was meant to be built into it ($KeysFile): the program would trust other keys than this build says."
+    }
+}
+
+# The Hub reads its keys from the installed files: the copy in the payload must be the list the shell was built with.
+function Assert-InstallerReleaseKeysShipped {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$PayloadDirectory, [Parameter(Mandatory = $true)][string]$KeysFile)
+    $shipped = Join-Path $PayloadDirectory 'CHATMCP-HUB\lib\release-keys.json'
+    if (-not (Test-Path -LiteralPath $shipped -PathType Leaf)) { throw "The Hub of the payload has no key list, it is not a file: $shipped" }
+    if (-not (Test-Path -LiteralPath $KeysFile -PathType Leaf)) { throw "The key list that was meant to be shipped is not a file: $KeysFile" }
+    if ((Get-FileHash -LiteralPath $shipped -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $KeysFile -Algorithm SHA256).Hash) {
+        throw "The key list in the payload is not the key list this build was meant to carry ($KeysFile): the Hub would trust other keys than the shell."
+    }
+}
+
 function Get-InstallerPayloadFiles {
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)][string]$RepositoryRoot)

@@ -212,6 +212,104 @@ try {
     } finally {
         if ($null -eq $savedWorkflow) { Remove-Item -LiteralPath Env:\GITHUB_WORKFLOW -ErrorAction SilentlyContinue } else { $env:GITHUB_WORKFLOW = $savedWorkflow }
     }
+    # The build does not believe how it asked for the key list: it PROVES what it made. MSBuild reads an environment variable called ReleaseKeysFile as a property, and any other way of naming the
+    # file can go wrong without a word, so the program that was built is searched for the exact bytes of the list it was meant to carry (the resource is the file, byte for byte), the copy that goes
+    # to the Hub is compared with it, and a publish workflow refuses the variable altogether. The search is done in blocks (a program is 100 MB): the tests make the blocks tiny so that every place
+    # where a block ends is tried.
+    $provenFolder = Join-Path $scratch 'proven'
+    New-Item -ItemType Directory -Path $provenFolder -Force | Out-Null
+    $random = New-Object System.Random 20261027
+    function New-NoiseBytes {
+        param([int]$Length)
+        $noise = New-Object byte[] $Length
+        $random.NextBytes($noise)
+        return , $noise
+    }
+    function Write-Program {
+        param([string]$Name, [byte[]]$Content)
+        $file = Join-Path $provenFolder $Name
+        [IO.File]::WriteAllBytes($file, $Content)
+        return $file
+    }
+    $needle = [byte[]](0x7B, 0x00, 0xFF, 0x80, 0x9F, 0x22, 0x6B, 0x0A, 0x7D)
+    $noise = New-NoiseBytes 100
+    $blockSizes = @(1, 2, 3, 8, 9, 10, 16, 100, 1000)
+    $missed = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($offset in 0..($noise.Length - $needle.Length)) {
+        $haystack = [byte[]]$noise.Clone()
+        [Array]::Copy($needle, 0, $haystack, $offset, $needle.Length)
+        $haystackFile = Write-Program 'haystack.bin' $haystack
+        foreach ($blockSize in $blockSizes) {
+            if (-not (Test-InstallerFileContains -Path $haystackFile -Needle $needle -BlockSize $blockSize)) { $missed.Add("offset $offset, block $blockSize") }
+        }
+    }
+    Assert-Payload ($missed.Count -eq 0) ('the search finds the bytes wherever they are, also where a block ends in the middle of them (92 places, 9 block sizes)' + $(if ($missed.Count -gt 0) { ': missed ' + (($missed | Select-Object -First 3) -join '; ') } else { '' }))
+    $falseHits = New-Object 'System.Collections.Generic.List[string]'
+    $lookalikes = New-Object 'System.Collections.Generic.List[byte[]]'
+    for ($position = 0; $position -lt $needle.Length; $position++) { $changed = [byte[]]$needle.Clone(); $changed[$position] = [byte](($changed[$position] + 1) -band 255); $lookalikes.Add($changed) }
+    $otherCase = [byte[]]$needle.Clone(); $otherCase[6] = [byte]($otherCase[6] -bxor 0x20); $lookalikes.Add($otherCase) # the letter k as K: a search that ignores case would take it for the same bytes
+    foreach ($blockSize in $blockSizes) {
+        foreach ($other in $lookalikes) {
+            $haystack = [byte[]]$noise.Clone(); [Array]::Copy($other, 0, $haystack, 40, $other.Length)
+            if (Test-InstallerFileContains -Path (Write-Program 'lookalike.bin' $haystack) -Needle $needle -BlockSize $blockSize) { $falseHits.Add("a copy that differs in one byte, block $blockSize") }
+        }
+        foreach ($cut in @(@($needle[0..7], 'its first eight bytes at the end'), @($needle[1..8], 'its last eight bytes at the start'))) {
+            $haystack = if ($cut[1] -like '*end') { [byte[]]($noise + $cut[0]) } else { [byte[]]($cut[0] + $noise) }
+            if (Test-InstallerFileContains -Path (Write-Program 'cut.bin' $haystack) -Needle $needle -BlockSize $blockSize) { $falseHits.Add("$($cut[1]), block $blockSize") }
+        }
+        if (Test-InstallerFileContains -Path (Write-Program 'noise.bin' $noise) -Needle $needle -BlockSize $blockSize) { $falseHits.Add("noise only, block $blockSize") }
+        if (Test-InstallerFileContains -Path (Write-Program 'empty.bin' (New-Object byte[] 0)) -Needle $needle -BlockSize $blockSize) { $falseHits.Add("an empty file, block $blockSize") }
+        if (Test-InstallerFileContains -Path (Write-Program 'short.bin' $needle[0..4]) -Needle $needle -BlockSize $blockSize) { $falseHits.Add("a file shorter than the bytes, block $blockSize") }
+    }
+    Assert-Payload ($falseHits.Count -eq 0) ('and it finds nothing that is not there: a copy that differs in any one byte, half of the bytes at either end, noise, an empty file, a short one' + $(if ($falseHits.Count -gt 0) { ': ' + (($falseHits | Select-Object -First 3) -join '; ') } else { '' }))
+    $exactFile = Write-Program 'exact.bin' $needle
+    Assert-Payload ((Test-InstallerFileContains -Path $exactFile -Needle $needle -BlockSize 4) -and (Test-InstallerFileContains -Path $exactFile -Needle $needle)) 'a file that is nothing but the bytes holds them (also with the real block size)'
+    Assert-Rejected { Test-InstallerFileContains -Path $exactFile -Needle (New-Object byte[] 0) } 'nothing to look for' 'and an empty list of bytes is not "found in everything": it is refused'
+    Assert-Rejected { Test-InstallerFileContains -Path $exactFile -Needle $needle -BlockSize 0 } 'at least one byte' 'and a block of no bytes is refused (it would read nothing and say "not found")'
+    $big = New-NoiseBytes (3 * 1024 * 1024 + 17)
+    [Array]::Copy($needle, 0, $big, $big.Length - $needle.Length - 5, $needle.Length)
+    Assert-Payload (Test-InstallerFileContains -Path (Write-Program 'big.bin' $big) -Needle $needle -BlockSize 1048576) 'bytes near the end of a file of several blocks are found at the real kind of size'
+    $keysBytes = [IO.File]::ReadAllBytes($validFile)
+    $otherFile = Write-KeyList 'other.json' ($validKeys.Replace('00000000', '00000001'))
+    $program = Write-Program 'carries.exe' ([byte[]]((New-NoiseBytes 5000) + $keysBytes + (New-NoiseBytes 3000)))
+    Assert-InstallerReleaseKeysBuiltIn -Executable $program -KeysFile $validFile
+    Assert-Payload $true 'a program that carries the key list byte for byte passes'
+    Assert-Rejected { Assert-InstallerReleaseKeysBuiltIn -Executable $program -KeysFile $otherFile } 'does not carry' 'a program that carries another key list (one character apart) is refused: this is the check that a test list did not reach a release, or the other way round'
+    Assert-Rejected { Assert-InstallerReleaseKeysBuiltIn -Executable (Write-Program 'plain.exe' (New-NoiseBytes 9000)) -KeysFile $validFile } 'does not carry' 'a program with no key list in it is refused'
+    Assert-Rejected { Assert-InstallerReleaseKeysBuiltIn -Executable (Write-Program 'nothing.exe' (New-Object byte[] 0)) -KeysFile $validFile } 'does not carry' 'an empty program is refused'
+    $oneByteOff = [byte[]]$keysBytes.Clone(); $oneByteOff[$oneByteOff.Length - 3] = [byte]($oneByteOff[$oneByteOff.Length - 3] -bxor 1)
+    Assert-Rejected { Assert-InstallerReleaseKeysBuiltIn -Executable (Write-Program 'off-by-one.exe' ([byte[]]((New-NoiseBytes 400) + $oneByteOff + (New-NoiseBytes 400)))) -KeysFile $validFile } 'does not carry' 'and so is one whose copy of the list differs in a single byte'
+    Assert-Rejected { Assert-InstallerReleaseKeysBuiltIn -Executable $program -KeysFile (Write-KeyList 'zero.json' '') } 'meant to be built in is empty' 'an empty key list is refused by the proof itself (it would be "found" in every program)'
+    Assert-Rejected { Assert-InstallerReleaseKeysBuiltIn -Executable $program -KeysFile (Join-Path $keysFolder 'missing.json') } 'not a file' 'a key list that is not there is refused'
+    Assert-Rejected { Assert-InstallerReleaseKeysBuiltIn -Executable (Join-Path $provenFolder 'missing.exe') -KeysFile $validFile } 'not a file' 'and so is a program that is not there'
+    $payloadFixture = Join-Path $scratch 'proven-payload'
+    New-Item -ItemType Directory -Path (Join-Path $payloadFixture 'CHATMCP-HUB\lib') -Force | Out-Null
+    Assert-Rejected { Assert-InstallerReleaseKeysShipped -PayloadDirectory $payloadFixture -KeysFile $validFile } 'not a file' 'a payload with no key list for the Hub is refused'
+    [IO.File]::WriteAllBytes((Join-Path $payloadFixture 'CHATMCP-HUB\lib\release-keys.json'), $keysBytes)
+    Assert-InstallerReleaseKeysShipped -PayloadDirectory $payloadFixture -KeysFile $validFile
+    Assert-Payload $true 'a payload whose Hub reads the same list passes'
+    Assert-Rejected { Assert-InstallerReleaseKeysShipped -PayloadDirectory $payloadFixture -KeysFile $otherFile } 'not the key list' 'a payload whose Hub reads another list than the shell was built with is refused'
+    [IO.File]::WriteAllBytes((Join-Path $payloadFixture 'CHATMCP-HUB\lib\release-keys.json'), [byte[]]($keysBytes + [byte[]](0x20)))
+    Assert-Rejected { Assert-InstallerReleaseKeysShipped -PayloadDirectory $payloadFixture -KeysFile $validFile } 'not the key list' 'and so is one with a single space more at its end'
+    $savedWorkflowForKeys = $env:GITHUB_WORKFLOW; $savedAmbient = $env:ReleaseKeysFile
+    try {
+        $env:GITHUB_WORKFLOW = 'Publish ChatMCP v9.9.9'; $env:ReleaseKeysFile = $validFile
+        Assert-Rejected { Assert-InstallerNoAmbientReleaseKeysFile } 'environment variable ReleaseKeysFile' 'a publish workflow with a variable called ReleaseKeysFile in its environment is refused (MSBuild would read it as a property)'
+        $env:GITHUB_WORKFLOW = 'Publish'
+        Assert-Rejected { Assert-InstallerNoAmbientReleaseKeysFile } 'environment variable ReleaseKeysFile' 'whatever follows Publish in the name'
+        Remove-Item -LiteralPath Env:\ReleaseKeysFile
+        Assert-InstallerNoAmbientReleaseKeysFile
+        Assert-Payload $true 'a publish workflow without the variable is fine'
+        $env:GITHUB_WORKFLOW = 'CI'; $env:ReleaseKeysFile = $validFile
+        Assert-InstallerNoAmbientReleaseKeysFile
+        Assert-Payload $true 'another workflow is not stopped by the variable (the program that is built is searched for the list either way)'
+        Remove-Item -LiteralPath Env:\GITHUB_WORKFLOW; Remove-Item -LiteralPath Env:\ReleaseKeysFile
+        Assert-InstallerNoAmbientReleaseKeysFile
+        Assert-Payload $true 'and nor is a machine that is no workflow at all'
+    } finally {
+        if ($null -eq $savedWorkflowForKeys) { Remove-Item -LiteralPath Env:\GITHUB_WORKFLOW -ErrorAction SilentlyContinue } else { $env:GITHUB_WORKFLOW = $savedWorkflowForKeys }
+        if ($null -eq $savedAmbient) { Remove-Item -LiteralPath Env:\ReleaseKeysFile -ErrorAction SilentlyContinue } else { $env:ReleaseKeysFile = $savedAmbient }
+    }
     Assert-Payload ($builder.Contains('[string]$ReleaseKeysFile = ''''')) 'the builder takes -ReleaseKeysFile, empty by default (a release is built without it)'
     Assert-Payload ($builder.Contains('Resolve-InstallerReleaseKeysFile -Path $ReleaseKeysFile')) 'the builder checks it with the tested helper before it builds anything'
     Assert-Payload ($builder.Contains('"-p:ReleaseKeysFile=$shellKeysFile"')) 'the desktop shell is built with a key list that is ALWAYS named on the command line (embedded in the program)'
@@ -224,6 +322,9 @@ try {
     Assert-Payload ([regex]::Matches($builder, 'publish \$shellCsproj').Count -eq 1) 'and the shell is published once, with it'
     Assert-Payload ($builder.IndexOf('Copy-InstallerSourcePayload -RepositoryRoot') -lt $builder.IndexOf('Copy-Item -LiteralPath $ReleaseKeysFile')) 'the copy of the key list comes after the tracked files are copied (before, it would be overwritten)'
     Assert-Payload ($builder.Contains('TEST BUILD')) 'and the build says, in its output, that it is a test build'
+    Assert-Payload ([regex]::Matches($builder, 'Assert-InstallerNoAmbientReleaseKeysFile').Count -eq 1 -and $builder.IndexOf('Assert-InstallerNoAmbientReleaseKeysFile') -lt $builder.IndexOf('Resolve-InstallerReleaseKeysFile -Path $ReleaseKeysFile') -and $builder.IndexOf('Assert-InstallerNoAmbientReleaseKeysFile') -lt $builder.IndexOf('[1/5] Checking build prerequisites')) 'the builder refuses a variable called ReleaseKeysFile in a publish workflow before anything is built'
+    Assert-Payload ([regex]::Matches($builder, 'Assert-InstallerReleaseKeysBuiltIn -Executable \$desktopExe -KeysFile \$shellKeysFile').Count -eq 1 -and $builder.IndexOf('publish $shellCsproj') -lt $builder.IndexOf('Assert-InstallerReleaseKeysBuiltIn') -and $builder.IndexOf('Assert-InstallerReleaseKeysBuiltIn') -lt $builder.IndexOf('Copy-InstallerDesktopPayload -PublishDirectory')) 'the program that was published is searched for the list it was meant to carry, before it goes into the payload'
+    Assert-Payload ([regex]::Matches($builder, 'Assert-InstallerReleaseKeysShipped -PayloadDirectory \$payloadDir -KeysFile \$shellKeysFile').Count -eq 1 -and $builder.IndexOf('Copy-Item -LiteralPath $ReleaseKeysFile') -lt $builder.IndexOf('Assert-InstallerReleaseKeysShipped') -and $builder.IndexOf('Assert-InstallerReleaseKeysShipped') -lt $builder.IndexOf('CreateFromDirectory')) 'and the Hub of the payload is compared with the same list, after every copy that could change it and before the payload is packed'
     # The pure helpers of the native lifecycle script, which itself runs only on a disposable hosted runner: the argument list it gives the setup in update mode is vector 1 of the contract
     # (native-shared/UpdateContract.cs, UpdateArguments.Build), and it judges the result file strictly. Their definitions are taken from the script (never the script, which refuses to run anywhere else).
     & {

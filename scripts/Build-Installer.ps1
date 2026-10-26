@@ -35,6 +35,8 @@ $distDir = Join-Path $repoRoot 'dist'
 $installerDir = Join-Path $repoRoot 'installer'
 $temporaryRoot = [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\', '/')
 Assert-InstallerNoReparsePath -Path $temporaryRoot
+# A release is built from the committed key list and from nothing else: a publish workflow whose environment names another one (MSBuild reads such a variable as a property) is stopped here.
+Assert-InstallerNoAmbientReleaseKeysFile
 if ($ReleaseKeysFile -ne '') {
     $ReleaseKeysFile = Resolve-InstallerReleaseKeysFile -Path $ReleaseKeysFile
     Write-Host "  [TEST BUILD] The release keys of this build are the ones in $ReleaseKeysFile, not the committed CHATMCP-HUB\lib\release-keys.json. Never publish what this builds." -ForegroundColor Yellow
@@ -120,6 +122,9 @@ if (-not (Test-Path -LiteralPath $desktopExe -PathType Leaf)) {
     throw "Failed to compile desktop shell: $desktopExe not found."
 }
 Write-Host "  [OK] Compiled ChatMCP.exe: $([Math]::Round((Get-Item $desktopExe).Length / 1MB, 2)) MB" -ForegroundColor Green
+# Not believed, proved: the program that came out holds the exact bytes of the key list this build meant to give it (the resource is the file, byte for byte), whatever the way it was asked for.
+Assert-InstallerReleaseKeysBuiltIn -Executable $desktopExe -KeysFile $shellKeysFile
+Write-Host "  [OK] ChatMCP.exe carries the key list $shellKeysFile, byte for byte." -ForegroundColor Green
 
 # 4. Prepare Staging & Build Payload Zip
 Write-Host "`n[4/5] Packaging payload archive..." -ForegroundColor Yellow
@@ -134,6 +139,9 @@ if ($ReleaseKeysFile -ne '') {
     # The Hub reads its keys from the installed files, the shell has them built in: both must trust the same list (this copy comes after the tracked files, which it replaces).
     Copy-Item -LiteralPath $ReleaseKeysFile -Destination (Join-Path $payloadDir 'CHATMCP-HUB\lib\release-keys.json') -Force
 }
+# and proved again after the last copy that could change it: the Hub of the payload reads the same list as the shell.
+Assert-InstallerReleaseKeysShipped -PayloadDirectory $payloadDir -KeysFile $shellKeysFile
+Write-Host "  [OK] The Hub in the payload reads the same key list." -ForegroundColor Green
 
 # Trusted Sandbox Supervisor: publish from checked source into a fresh private
 # staging directory. Never recursively package GuestSupervisor bin/obj/source.
