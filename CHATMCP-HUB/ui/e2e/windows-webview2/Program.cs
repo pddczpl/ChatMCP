@@ -47,6 +47,8 @@ internal sealed class SmokeWindow : Form
     private readonly HashSet<string> requests = [];
     private readonly List<string> passed = [];
     private readonly List<string> newWindowUris = [];
+    // What the shell hands to the SYSTEM browser: the harness stands in for it, so no browser starts on the machine that runs the smoke.
+    private readonly List<string> externalOpened = [];
     private readonly Size requestedSize;
 
     public SmokeWindow(Uri origin, string profile, string stateDirectory, Size requestedSize)
@@ -134,6 +136,37 @@ internal sealed class SmokeWindow : Form
         if (opened != 1 || await browser.CoreWebView2.ExecuteScriptAsync("window.__pwned") != "0")
             throw new InvalidOperationException("A non-http(s) address reached the page or ran script.");
         passed.Add("about:, javascript: and file: addresses are dropped by the shell");
+
+        // A release page of the project goes to the SYSTEM browser and not to the preview tab (that is what "What's new" is), whether it comes from window.open or from a
+        // link with target=_blank; a look-alike address is not on the list and keeps the old road, to the page.
+        const string notes = "https://github.com/pddczpl/ChatMCP/releases/tag/v3.10.2";
+        await browser.CoreWebView2.ExecuteScriptAsync("window.open(" + JsonSerializer.Serialize(notes) + ", '_blank'); true");
+        await WaitForCount(externalOpened, 1, "a release page of the project reaches the system browser through window.open");
+        if (externalOpened[0] != notes) throw new InvalidOperationException("The system browser was handed " + externalOpened[0] + " instead of " + notes);
+        var link = "(() => { const a = document.createElement('a'); a.href = " + JsonSerializer.Serialize(notes + "#readme") + "; a.target = '_blank'; a.rel = 'noopener noreferrer'; document.body.append(a); a.click(); a.remove(); return true; })()";
+        await browser.CoreWebView2.ExecuteScriptAsync(link);
+        await WaitForCount(externalOpened, 2, "and through a link with target=_blank and rel=noopener, the way the page's own link is made");
+        if (externalOpened[1] != notes + "#readme") throw new InvalidOperationException("The link was handed over as " + externalOpened[1]);
+        await Task.Delay(1000);
+        if (int.Parse(await browser.CoreWebView2.ExecuteScriptAsync("window.__opened.length")) != 1)
+            throw new InvalidOperationException("A release page was also forwarded to the preview tab.");
+        passed.Add("and is not forwarded to the preview tab as well");
+        var lookalike = "https://github.com.evil.example/pddczpl/ChatMCP/releases/tag/v3.10.2";
+        await browser.CoreWebView2.ExecuteScriptAsync("window.open(" + JsonSerializer.Serialize(lookalike) + ", '_blank'); true");
+        await WaitFor("window.__opened.length === 2", "a look-alike address is forwarded to the page as before");
+        if (externalOpened.Count != 2) throw new InvalidOperationException("A look-alike address reached the system browser: " + string.Join(" | ", externalOpened));
+        passed.Add("and never reaches the system browser");
+    }
+
+    private async Task WaitForCount(List<string> list, int count, string label)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (list.Count >= count) { passed.Add(label); return; }
+            await Task.Delay(100);
+        }
+        throw new TimeoutException("Waiting for " + label + "; saw " + list.Count + " of " + count);
     }
 
     private async Task SelectWorkTab(string title)
@@ -196,7 +229,7 @@ internal sealed class SmokeWindow : Form
                 };
                 """);
             // The shipped shell code (native-shared): the new-window bridge, then the Hub's session file and a one-time ticket.
-            WebViewBridge.AttachNewWindowHandler(browser.CoreWebView2);
+            WebViewBridge.AttachNewWindowHandler(browser.CoreWebView2, address => externalOpened.Add(address));
             browser.CoreWebView2.NewWindowRequested += (_, link) => newWindowUris.Add(link.Uri);
             browser.CoreWebView2.Navigate(await SignInUrl());
             await WaitFor("location.hash === '' && Boolean(sessionStorage.getItem('chatmcp.hub-session'))", "page traded the ticket for the session and removed it from the address");

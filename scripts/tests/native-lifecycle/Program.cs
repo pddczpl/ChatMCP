@@ -16,6 +16,7 @@ void Throws(Action action, string message)
 Stream Bytes(string text) => new MemoryStream(Encoding.UTF8.GetBytes(text));
 var scratch = Path.Combine(Path.GetTempPath(), "ChatMCP-native-unit-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(scratch);
+var kit = new TestKit(scratch); // the tests of the update steps are in their own files and count themselves
 try
 {
     using var good = JsonDocument.Parse("{\"app\":\"chatmcp-local-hub\",\"version\":\"3.10.2\",\"uiBuild\":\"3.10.2-react-agent\"}");
@@ -115,6 +116,7 @@ try
     foreach (var blocked in new[] { "javascript:window.__pwned=1", "about:blank", "file:///C:/Windows/win.ini", "data:text/html,<script>1</script>", "ftp://127.0.0.1/", "chrome://settings", "relative/path", "", "http://" + new string('a', 9000) })
         Check(!OpenLink.TryCreateMessage(blocked, out _), "dropped: " + (blocked.Length > 40 ? blocked[..40] + "..." : blocked));
     Check(OpenLink.TryCreateMessage("HTTPS://Example.com/a?b=c#d", out _), "https is accepted");
+    LinkTests.Run(kit);
 
     var root = Path.Combine(scratch, "installed app with spaces"); Directory.CreateDirectory(root);
     File.WriteAllText(Path.Combine(root, "a.txt"), "old-a"); File.WriteAllText(Path.Combine(root, "b.txt"), "old-b");
@@ -360,6 +362,6 @@ try
         InstallerEngine.RemoveShortcuts(app, foreign.Desktop, foreign.Programs);
         Check(File.Exists(Path.Combine(foreign.Desktop, "ChatMCP Studio.lnk")) && Directory.GetFiles(Path.Combine(foreign.Programs, "ChatMCP")).Length == 2, "and leaves the shortcuts of another installation");
     }
-    Console.WriteLine(JsonSerializer.Serialize(new { result = "PASS", checks, scope = "real shared native classes; Windows filesystem" }));
+    Console.WriteLine(JsonSerializer.Serialize(new { result = "PASS", checks = checks + kit.Count, scope = "real shared native classes; Windows filesystem" }));
 }
 finally { Directory.Delete(scratch, recursive: true); }

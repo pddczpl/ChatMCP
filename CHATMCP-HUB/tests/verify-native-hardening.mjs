@@ -60,6 +60,23 @@ check(/e\.Handled\s*=\s*true/.test(strip(bridge.text)) && /PostWebMessageAsJson\
 check(/UriSchemeHttp\b/.test(strip(link.text)) && /UriSchemeHttps\b/.test(strip(link.text)) && !/UriSchemeFile|javascript:|"data:/.test(strip(link.text)), 'only http and https addresses are forwarded');
 check(/JsonSerializer\.Serialize\(/.test(strip(link.text)), 'the address is serialised as a JSON string value');
 
+// The system browser. The shell opens an address outside the app in exactly one case, a release page of this project on GitHub, and only from the one handler above: WebViewBridge hands its
+// opener the address that OpenLink.TryGetExternalLink PARSED (never the text of the request), and no other page-facing source starts a program through the shell with an address at all. The
+// behaviour is proved by the unit tests of the list (scripts/tests/native-lifecycle/LinkTests.cs) and by the real WebView2 smoke; this keeps the source from drifting back, on every platform.
+{
+  const bridgeCode = strip(bridge.text);
+  const linkCode = strip(link.text);
+  check(/OpenLink\.TryGetExternalLink\(\s*e\.Uri\s*,\s*out\s+var\s+external\s*\)\s*\)\s*\{\s*open\(\s*external\s*\)\s*;\s*return;\s*\}/.test(bridgeCode), 'the handler hands the opener the address that OpenLink parsed, and the page gets nothing for it');
+  check(!/\bopen\(\s*e\.Uri\s*\)/.test(bridgeCode) && pageFacing.every(({ text }) => !/Process\.Start\([^;]*\be\.Uri\b/.test(strip(text))), 'no source hands the raw address of a request to a program');
+  const shellExecute = pageFacing.filter(({ text }) => /UseShellExecute\s*=\s*true/.test(strip(text))).map(({ file }) => file);
+  check(shellExecute.length === 1 && shellExecute[0] === 'native-shared/WebViewBridge.cs', 'the shell starts something through the system shell in one place only, WebViewBridge.OpenInSystemBrowser', shellExecute.join(', '));
+  check(/ExternalHost\s*=\s*"github\.com"/.test(linkCode) && /ExternalPathPrefix\s*=\s*"\/pddczpl\/ChatMCP\/releases\/"/.test(linkCode), 'the list is github.com and /pddczpl/ChatMCP/releases/ and nothing wider');
+  check(/UriSchemeHttps\b/.test(linkCode) && /c == '\\\\'/.test(linkCode) && /UserInfo/.test(linkCode) && /"%2f"/i.test(linkCode) && /"%5c"/i.test(linkCode), 'and it asks for https, no backslash, no user name, and no encoded slash or backslash');
+  // the patterns above can fail: a handler that opens the request itself, or that opens a second kind of address, is not accepted
+  check(!/OpenLink\.TryGetExternalLink\(\s*e\.Uri\s*,\s*out\s+var\s+external\s*\)\s*\)\s*\{\s*open\(\s*external\s*\)\s*;\s*return;\s*\}/.test('if (Process.Start(e.Uri)) { open(e.Uri); return; }'), '(a handler that opens the address of the request is not accepted)');
+  check(/Process\.Start\([^;]*\be\.Uri\b/.test('Process.Start(new ProcessStartInfo(e.Uri) { UseShellExecute = true });'), '(and a Process.Start with the address of a request is found by the pattern)');
+}
+
 // AreDevToolsEnabled = true only inside #if DEBUG ... (#else|#endif)
 for (const { file, text } of shell) {
   const lines = text.split('\n');
@@ -110,4 +127,4 @@ check(/AreDevToolsEnabled\s*=\s*false/.test(window.text), 'a release build turns
   check(guarded('try { await Task.Run(() => { InstallerEngine.Uninstall(dir, (p, m) => { Invoke(new Action(() => { bar.Value = p; })); }); }); } catch (Exception ex) { MessageBox.Show(ex.Message); }', 'InstallerEngine\\.Uninstall'), '(and the shape the windows use is accepted, lambdas and braces inside the try included)');
 }
 
-console.log(`PASS: ${checks} checks - no script injection of page addresses, one http/https-only new-window handler, DevTools only in DEBUG, Windows PowerShell started in one place without PSModulePath, the setup and uninstall windows report errors`);
+console.log(`PASS: ${checks} checks - no script injection of page addresses, one http/https-only new-window handler (the system browser opens a release page of the project and nothing else), DevTools only in DEBUG, Windows PowerShell started in one place without PSModulePath, the setup and uninstall windows report errors`);
