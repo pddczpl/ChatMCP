@@ -14,17 +14,19 @@ permissions:
 
 jobs:
   proof:
-    name: ${{ matrix.fixture }} fixtures / ${{ matrix.what }}
+    name: ${{ matrix.fixture }} fixtures / ${{ matrix.what }} #${{ matrix.id }}
     runs-on: windows-latest
     timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { fixture: before, what: gate, repeat: 1 }
-          - { fixture: after, what: gate, repeat: 1 }
-          - { fixture: before, what: loop, repeat: 60 }
-          - { fixture: after, what: loop, repeat: 60 }
+          - { fixture: before, what: loop, repeat: 60, id: 2 }
+          - { fixture: before, what: loop, repeat: 60, id: 3 }
+          - { fixture: before, what: loop, repeat: 60, id: 4 }
+          - { fixture: after, what: loop, repeat: 60, id: 2 }
+          - { fixture: after, what: loop, repeat: 60, id: 3 }
+          - { fixture: after, what: loop, repeat: 60, id: 4 }
     defaults:
       run:
         shell: bash
@@ -91,7 +93,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: proof-${{ matrix.fixture }}-${{ matrix.what }}
+          name: proof-${{ matrix.fixture }}-${{ matrix.what }}-${{ matrix.id }}
           path: |
             loop-report.json
             CHATMCP-HUB/ui/test-results
