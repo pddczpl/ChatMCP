@@ -75,7 +75,9 @@ function runProgram(program, args) {
 }
 
 /**
- * Leaves `file` readable by the current user and nobody else. Windows: inheritance removed, the account (by SID, so that a name with odd characters is no problem) granted, and the list read back
+ * Leaves `file` readable by the current user and nobody else. Windows: what the file got when it was made is reset (a folder that passes nothing on gives a new file the explicit entries of the token that
+ * made it: the user, SYSTEM, the logon session, and Administrators when the process is elevated, as on a CI runner; /inheritance:r leaves explicit entries alone), inheritance removed, the account (by SID,
+ * so that a name with odd characters is no problem) granted, and the list read back
  * to hold exactly one entry. Elsewhere: mode 600. Throws a ToolError, and the caller removes the file. `platform` and `run` are for tests.
  */
 export function restrictToCurrentUser(file, { platform = process.platform, run = runProgram } = {}) {
@@ -85,18 +87,33 @@ export function restrictToCurrentUser(file, { platform = process.platform, run =
     const sid = /"(S-1-[0-9-]+)"/.exec(String(who?.stdout ?? ''))?.[1];
     if (who?.status !== 0 || !sid) throw new ToolError('Could not find out which account runs this, so the key file cannot be restricted to it. Nothing was written.');
     const icacls = path.join(system32, 'icacls.exe');
-    for (const args of [[file, '/inheritance:r'], [file, '/grant:r', `*${sid}:F`]]) {
+    for (const args of [[file, '/reset'], [file, '/inheritance:r'], [file, '/grant:r', `*${sid}:F`]]) {
       const done = run(icacls, args);
       if (done?.status !== 0) throw new ToolError(`icacls could not restrict the key file to your account (${String(done?.stderr ?? '').trim().slice(0, 120) || `exit ${done?.status}`}). Nothing was written.`);
     }
     const listing = run(icacls, [file]);
-    const entries = (String(listing?.stdout ?? '').match(/:\(/g) ?? []).length;
+    const accounts = accessEntries(listing?.stdout, file);
+    const entries = accounts.length;
     if (listing?.status !== 0 || entries === 0) throw new ToolError('Could not read back who may open the key file, so it cannot be restricted with certainty. Nothing was written.');
-    if (entries > 1) throw new ToolError(`More than your account may open the key file (${entries} access entries), so it was not used. Nothing was written.`);
+    if (entries > 1) throw new ToolError(`More than your account may open the key file (${entries} access entries: ${accounts.join(', ')}), so it was not used. Nothing was written.`);
     return;
   }
   fs.chmodSync(file, 0o600);
   if (process.platform !== 'win32' && (fs.statSync(file).mode & 0o077) !== 0) throw new ToolError('The key file could not be restricted to your account (mode 600). Nothing was written.');
+}
+
+/** The accounts an `icacls <file>` listing grants access to, in the order it prints them (the first line starts with the path of the file). A mandatory integrity label is not one: it grants nothing. */
+function accessEntries(listing, file) {
+  const accounts = [];
+  for (const line of String(listing ?? '').split(/\r?\n/)) {
+    const at = line.indexOf(':(');
+    if (at < 0) continue;
+    let account = line.slice(0, at).trim();
+    if (account.startsWith(file)) account = account.slice(file.length).trim();
+    if (/^Mandatory Label\\/i.test(account)) continue;
+    accounts.push(account);
+  }
+  return accounts;
 }
 
 /**

@@ -107,6 +107,28 @@ const PEM_BODY = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
   } else {
     assert.equal(fs.statSync(file).mode & 0o077, 0, 'mode 600: nobody but the owner');
   }
+  if (process.platform === 'win32') {
+    // A folder that passes nothing on (the work folder of a CI runner, a folder made in an elevated shell, a drive with rules of its own): a new file there carries the explicit entries of the token that made it
+    // (the user, SYSTEM, the logon session or Administrators), which /inheritance:r does not touch. The first run on a GitHub runner read back "3 access entries" and refused to make a key.
+    const system32 = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32');
+    const runIcacls = (args) => spawnSync(path.join(system32, 'icacls.exe'), args, { encoding: 'utf8', windowsHide: true });
+    const sid = /"(S-1-[0-9-]+)"/.exec(spawnSync(path.join(system32, 'whoami.exe'), ['/user', '/fo', 'csv', '/nh'], { encoding: 'utf8', windowsHide: true }).stdout)?.[1];
+    const bare = folder('bare');
+    assert.equal(runIcacls([bare, '/inheritance:r']).status, 0, 'the folder keeps nothing it got from above');
+    assert.equal(runIcacls([bare, '/grant:r', `*${sid}:(NP)(F)`]).status, 0, 'and its own entry is not passed on to what is made in it');
+    const probe = path.join(bare, 'probe.txt');
+    fs.writeFileSync(probe, '');
+    const atCreation = (runIcacls([probe]).stdout.match(/:\(/g) ?? []).length;
+    if (atCreation < 2) {
+      console.log('  --  a new file in a folder that passes nothing on carries a single entry on this account: the trap does not reproduce here');
+    } else {
+      const bareKey = path.join(bare, 'datgold-release.pem');
+      await createReleaseKey({ file: bareKey });
+      const listing = runIcacls([bareKey]).stdout;
+      assert.equal((listing.match(/:\(/g) ?? []).length, 1, `exactly one access entry, although the folder gave the file ${atCreation} when it was made:\n${listing}`);
+      assert.ok(fs.statSync(bareKey).size > 100, 'and the key is written');
+    }
+  }
   const before = fs.readFileSync(file);
   await refused(() => createReleaseKey({ file }), /already exists/i, 'a key file that exists');
   assert.ok(fs.readFileSync(file).equals(before), 'and the key that was there is untouched: an overwrite would be a key lost');
@@ -161,12 +183,18 @@ const PEM_BODY = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
   calls.length = 0;
   await createReleaseKey({ file: win, platform: 'win32', run: fake(only(win)) });
   const icacls = calls.filter((call) => call.name === 'icacls.exe');
-  assert.deepEqual(icacls.map((call) => call.args.slice(1)), [['/inheritance:r'], ['/grant:r', `*${SID}:F`], []], 'inheritance removed, the current user (by SID) granted, then the result read back');
+  assert.deepEqual(icacls.map((call) => call.args.slice(1)), [['/reset'], ['/inheritance:r'], ['/grant:r', `*${SID}:F`], []], 'what the file got at its creation reset, inheritance removed, the current user (by SID) granted, then the result read back');
   assert.ok(icacls.every((call) => call.size === 0 || call.args.length === 1), 'the file was still empty when its access was restricted: the key is written after');
   assert.ok(fs.statSync(win).size > 100, 'and the key is there afterwards');
   const crowded = path.join(directory, 'crowded.pem');
   await refused(() => createReleaseKey({ file: crowded, platform: 'win32', run: fake(`${crowded} PC\\me:(F)\r\n  NT AUTHORITY\\SYSTEM:(F)\r\n`) }), /more than/i, 'an access list with a second entry');
   assert.equal(fs.existsSync(crowded), false, 'the file is removed when its access could not be restricted');
+  // the refusal says who has access, so that the owner sees what is wrong; a mandatory integrity label grants nothing and is not one of them
+  const named = path.join(directory, 'named.pem');
+  await refused(() => createReleaseKey({ file: named, platform: 'win32', run: fake(`${named} PC\\me:(F)\r\n  NT AUTHORITY\\SYSTEM:(F)\r\n  BUILTIN\\Administrators:(RX)\r\n`) }), /3 access entries: PC\\me, NT AUTHORITY\\SYSTEM, BUILTIN\\Administrators\)/i, 'the three entries are named');
+  const labelled = path.join(directory, 'labelled.pem');
+  await createReleaseKey({ file: labelled, platform: 'win32', run: fake(`${labelled} PC\\me:(F)\r\n  Mandatory Label\\High Mandatory Level:(NW)\r\n`) });
+  assert.ok(fs.statSync(labelled).size > 100, 'a mandatory integrity label is not an access entry: the key is made');
   const denied = path.join(directory, 'denied.pem');
   await refused(() => createReleaseKey({ file: denied, platform: 'win32', run: fake('', { failAt: '/inheritance:r' }) }), /restrict/i, 'icacls that fails');
   assert.equal(fs.existsSync(denied), false, 'nothing is left when icacls fails');
@@ -175,6 +203,7 @@ const PEM_BODY = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
   assert.equal(fs.existsSync(anonymous), false);
   // each thing that can go wrong with the restriction is a refusal of its own (everything else in the answers is as it should be, so that nothing else can be what refuses), and leaves nothing
   const mishaps = [
+    ['icacls that cannot reset the access the file got at its creation', { failAt: '/reset' }, /could not restrict/i],
     ['icacls that cannot remove the inheritance', { failAt: '/inheritance:r' }, /could not restrict/i],
     ['icacls that cannot grant the current user', { failAt: '/grant:r' }, /could not restrict/i],
     ['an account that cannot be named (no SID in what whoami says)', { noSid: true }, /which account/i],

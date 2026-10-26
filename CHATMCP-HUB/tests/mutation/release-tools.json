@@ -320,6 +320,39 @@
           "new": "export const UPLOAD_REPOSITORY = 'someone/else';"
         }
       ]
+    },
+    {
+      "name": "acl-reset-skipped",
+      "what": "the access a new file gets from the token that made it is not reset, so a folder that passes nothing on leaves SYSTEM and the like on the key",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "for (const args of [[file, '/reset'], [file, '/inheritance:r'], [file, '/grant:r', `*${sid}:F`]]) {",
+          "new": "for (const args of [[file, '/inheritance:r'], [file, '/grant:r', `*${sid}:F`]]) {"
+        }
+      ]
+    },
+    {
+      "name": "acl-label-counted",
+      "what": "a mandatory integrity label is counted as somebody who may open the file",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "if (/^Mandatory Label\\\\/i.test(account)) continue;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "acl-accounts-unnamed",
+      "what": "the refusal does not say who has access",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "access entries: ${accounts.join(', ')}), so it was not used",
+          "new": "access entries), so it was not used"
+        }
+      ]
     }
   ]
 }
