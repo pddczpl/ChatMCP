@@ -266,7 +266,11 @@ export function createUpdateDownloader({
       const plan = { version, name: installer.name, bytes: installer.bytes, sha256: installer.sha256, kid: proven.kid, manifestBytes: proven.manifestBytes, signatureBytes: proven.signatureBytes };
       state = { state: 'downloading', version, received: 0, total: plan.bytes };
       job = { version, controller, done: null };
-      job.done = run(plan, controller).finally(() => { job = null; });
+      // run() never rejects; the catch is for a bug in it, which must not become an unhandled rejection (the Hub treats one as fatal)
+      job.done = run(plan, controller).catch((error) => {
+        state = { state: 'failed', version, code: 'update_download_interrupted' };
+        log(`Tải bản cập nhật ${version} gặp lỗi không lường trước (${error?.code ?? error?.name ?? 'lỗi'}).`);
+      }).finally(() => { job = null; });
       return { started: true, status: snapshot() };
     } catch (error) {
       state = previous;
@@ -352,6 +356,7 @@ export function createUpdateDownloader({
     const flags = { stalled: false };
     let handle = null;
     let out = null;
+    let final; // how this ends; it becomes the status only after the folder has been tidied, so that "ready" is never seen while a download is still being finished off
     try {
       await clearRoot(); // whatever an earlier attempt left, and the folders of other versions
       try { await fsp.mkdir(folder); } catch (error) { throw Object.assign(new Failure(failureOf(error, flags)), { cause: error }); }
@@ -391,19 +396,21 @@ export function createUpdateDownloader({
         await fsp.writeFile(path.join(folder, SIGNATURE_COPY), plan.signatureBytes, { flag: 'wx', mode: 0o600 });
         await writeWhole(path.join(folder, STATE_FILE_NAME), `${JSON.stringify({ version: 1, release: plan.version, name: plan.name, bytes: plan.bytes, sha256: plan.sha256, kid: plan.kid }, null, 2)}\n`);
       } catch { throw new Failure('update_download_save'); }
-      state = { state: 'ready', version: plan.version, bytes: plan.bytes };
+      final = { state: 'ready', version: plan.version, bytes: plan.bytes };
       log(`Bản cập nhật ${plan.version} đã tải xong, đủ ${plan.bytes} byte và khớp SHA-256 đã ký.`);
     } catch (error) {
       if (out) out.destroy(); // a stream that is left alone holds a reference on the handle, and close() would wait for it for ever
       if (handle) { try { await handle.close(); } catch { /* it is being removed */ } }
       await removeEntry(folder);
-      const code = error instanceof Failure ? error.code : failureOf(error, flags);
-      if (code === 'cancelled') { state = { state: 'idle' }; log('Đã hủy tải bản cập nhật.'); } else {
-        state = { state: 'failed', version: plan.version, code };
+      // a cancel (the owner's, a check that withdrew the release, the Hub shutting down) is no failure, whatever the connection said when it was cut
+      const code = signal.aborted ? 'cancelled' : (error instanceof Failure ? error.code : failureOf(error, flags));
+      if (code === 'cancelled') { final = { state: 'idle' }; log('Đã hủy tải bản cập nhật.'); } else {
+        final = { state: 'failed', version: plan.version, code };
         log(`Tải bản cập nhật ${plan.version} không thành công (${code}).`);
       }
     }
-    await clearRoot(state.state === 'ready' ? plan.version : null); // after every attempt
+    await clearRoot(final.state === 'ready' ? plan.version : null); // after every attempt
+    state = final;
   }
 
   // ------------------------------------------------------------------------------------------------------------------------------- stopping
@@ -414,7 +421,7 @@ export function createUpdateDownloader({
     const current = job;
     current.controller.abort();
     await current.done;
-    return { cancelled: true, status: snapshot() };
+    return { cancelled: state.state === 'idle', status: snapshot() }; // a download that had already finished cannot be cancelled
   }
 
   /**
@@ -422,14 +429,15 @@ export function createUpdateDownloader({
    * no longer newer, its signature withdrawn or not checking). A signature that could not be READ says nothing about the release, and neither does a notice that knows nothing: those keep it.
    */
   async function reconcile() {
-    const subject = job?.version ?? (state.state === 'ready' ? state.version : null);
+    const inProgress = state.state === 'downloading' || state.state === 'verifying';
+    const subject = inProgress ? (job?.version ?? null) : (state.state === 'ready' ? state.version : null);
     if (subject === null) return;
     const known = offer() ?? {};
     const departed = known.latest !== null && known.latest !== undefined && known.latest !== subject;
     const withdrawn = known.latest !== null && known.latest !== undefined && known.available === false;
     const unsigned = known.signature === 'missing' || known.signature === 'invalid';
     if (!departed && !withdrawn && !unsigned) return;
-    if (job) { await cancel(); return; }
+    if (inProgress) { await cancel(); return; }
     await removeEntry(path.join(root, subject));
     state = { state: 'idle' };
     log(`Bản cập nhật ${subject} đã tải về không còn được đề nghị nữa, nên đã xóa.`);

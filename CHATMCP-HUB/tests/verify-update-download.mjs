@@ -214,6 +214,16 @@ try {
     await waitUntil(() => feed.installer.openCount() === 0, 'the connection to be closed by the Hub');
     assert.equal(feed.installer.sent() - sentBefore, 3 * MiB, 'and the rest of the installer was never sent: the connection was gone when the server went on');
     assert.deepEqual(await w.downloader.cancel(), { cancelled: false, status: { state: 'idle' } }, 'a cancel with nothing to cancel is not an error');
+    // a cancel while the Hub is still waiting for the first answer (nothing has arrived yet) is a cancel too, not a failure of the connection
+    feed.installer.mode('stall');
+    const hitsBefore = feed.installer.hits();
+    await w.downloader.start({ version: '3.11.0' });
+    await waitUntil(() => feed.installer.hits() > hitsBefore, 'the request for the installer');
+    assert.equal(w.downloader.status().state, 'downloading');
+    await w.downloader.cancel();
+    assert.deepEqual(w.downloader.status(), { state: 'idle' }, 'cancelled before a byte came: idle, not failed');
+    assert.deepEqual(left(w), []);
+    await waitUntil(() => feed.openCount() === 0, 'the waiting request to be closed');
     // a click after a cancel starts again, from the beginning
     feed.installer.mode('chain');
     await w.downloader.start({ version: '3.11.0' });
