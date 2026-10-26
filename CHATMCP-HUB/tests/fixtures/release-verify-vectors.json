@@ -464,6 +464,17 @@
    }
   },
   {
+   "name": "keys-point-marker-takes-no-slot",
+   "note": "a key whose point does not start with 0x04 takes no one of the four places",
+   "keys": "{\n  \"version\": 1,\n  \"algorithm\": \"ES256\",\n  \"about\": \"keys made for the test vectors\",\n  \"keys\": [\n    {\n      \"kid\": \"1f1fe0e2\",\n      \"use\": \"release\",\n      \"spki\": \"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEHstT2hJ2qYrzXC8EYo/KR8oeXlYFXNKfdCDypqzgFq31icFR2Djtndr++/xBI+1z1uGaYj1mPVnPBqY8lIwO/Q==\"\n    },\n    {\n      \"kid\": \"867fd6cf\",\n      \"use\": \"release\",\n      \"spki\": \"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgACk0gH96YFjMHc8ZctZJQkdS+AcCNOjyMVBHp/YELaGxkjoNb6p4UzNhiK0rBiI6tf2fVFjyHZnTOAejPAP42+Hg==\"\n    },\n    {\n      \"kid\": \"749a1658\",\n      \"use\": \"release\",\n      \"spki\": \"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE8n26A9Rf6vqKBKRs2KQYs/WANqssn5nUMkhTqgV/LhlpHNsaEnUzYVpP/7XvKuWoX8YxgK567HXTJKT1Pxsyqg==\"\n    },\n    {\n      \"kid\": \"13d05b7e\",\n      \"use\": \"release\",\n      \"spki\": \"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEUJNPE8fEpp/lOd6bc8yBtVDa74DCxdcRQy1uD/TVhJHVNtqg2NXLITgsOhtm6DMRAKA2OukmAfICalnJKIzwTQ==\"\n    },\n    {\n      \"kid\": \"7a7e6b86\",\n      \"use\": \"release\",\n      \"spki\": \"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEaH9Vszn4Qdv/O+kzmADWpP07w15P+b6x58Sapsi+0qdYYjnLSt4ope/2XnuRaJKs9sR9mcZR+usu9/9wxQFBbQ==\"\n    }\n  ]\n}\n",
+   "manifest": "ewogICJ2ZXJzaW9uIjogIjMuMTEuMCIsCiAgImNvbW1pdCI6ICIwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3IiwKICAiYXNzZXRzIjogWwogICAgewogICAgICAibmFtZSI6ICJEYXRHb2xkU2V0dXAuZXhlIiwKICAgICAgImJ5dGVzIjogMjMyNzUzMzE0LAogICAgICAic2hhMjU2IjogImFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEiCiAgICB9LAogICAgewogICAgICAibmFtZSI6ICJEYXRHb2xkLUJyb3dzZXItQ29tcGFuaW9uLnppcCIsCiAgICAgICJieXRlcyI6IDEwMjQsCiAgICAgICJzaGEyNTYiOiAiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIKICAgIH0KICBdCn0K",
+   "signature": "ewogICJhbGciOiAiRVMyNTYiLAogICJraWQiOiAiN2E3ZTZiODYiLAogICJzaWciOiAibU9FY2ZxRUpKMkRyWlZ6VEM0b1RTMFcwdU16VlhONGp3RHNwOVVBbjdVbWVNdWJxNFd3S0ppZk9ac25EY2t0ZytoSUZ1dG9rbU1sMFdUTld2NGRtSEE9PSIKfQo=",
+   "expect": {
+    "valid": true,
+    "kid": "7a7e6b86"
+   }
+  },
+  {
    "name": "keys-p384",
    "note": "a P-384 key",
    "keys": "{\n  \"version\": 1,\n  \"algorithm\": \"ES256\",\n  \"about\": \"keys made for the test vectors\",\n  \"keys\": [\n    {\n      \"kid\": \"f1513746\",\n      \"use\": \"release\",\n      \"spki\": \"MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE2NjahCakJZbiKt2hP4WqAiJG0s42PQl0jvgb5Os34RQazg6RgoKTGcUfh/hfPZuXUPSO2nAhRWVQHDFATXaptDxh1kNNfZe3OTkggZdC5fvyZP5dHE58MVOObGEgzMRo\"\n    }\n  ]\n}\n",

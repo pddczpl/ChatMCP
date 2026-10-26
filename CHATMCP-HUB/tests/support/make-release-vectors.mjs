@@ -138,6 +138,12 @@ sig('keys-compressed-point-and-key', 'it costs that entry and nothing else', key
 }
 sig('keys-off-curve', 'a point that is not on the curve is not a key', keyList([odd(offCurveSpki)]), MANIFEST, signatureFile(A, MANIFEST), refused);
 sig('keys-off-curve-takes-no-slot', 'and takes no one of the four places', keyList([entry(B), odd(offCurveSpki), entry(C), entry(D), entry(E)]), MANIFEST, signatureFile(E, MANIFEST), valid(E));
+{
+  // a key that is refused as a key must not take a place: with four places and this key counted, E would be the fifth (the form with the wrong marker is the one whose signature check fails whether or not it was counted)
+  const markerSpki = Buffer.from(A.spki);
+  markerSpki[HEADER.length] = 0x02;
+  sig('keys-point-marker-takes-no-slot', 'a key whose point does not start with 0x04 takes no one of the four places', keyList([entry(B), odd(markerSpki), entry(C), entry(D), entry(E)]), MANIFEST, signatureFile(E, MANIFEST), valid(E));
+}
 sig('keys-p384', 'a P-384 key', keyList([odd(p384)]), MANIFEST, signatureFile(A, MANIFEST), refused);
 sig('keys-rsa', 'an RSA key', keyList([odd(rsa)]), MANIFEST, signatureFile(A, MANIFEST), refused);
 sig('keys-p384-takes-no-slot', 'a P-384 key takes no one of the four places', keyList([entry(B), odd(p384), entry(C), entry(D), entry(E)]), MANIFEST, signatureFile(E, MANIFEST), valid(E));
