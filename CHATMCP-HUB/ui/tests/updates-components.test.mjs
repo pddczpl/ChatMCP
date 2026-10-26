@@ -18,17 +18,19 @@ const { renderWith, useAppStore, UpdateBanner, UpdateNotice, UpdatesSection, Upd
 const DIACRITICS = /[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]/i;
 const update = (overrides = {}) => ({
   current: '3.10.2', latest: '3.10.3', available: true, checkedAt: '2026-10-26T12:00:00.000Z', lastAttemptAt: '2026-10-26T12:00:00.000Z',
-  notesUrl: 'https://github.com/pddczpl/ChatMCP/releases/tag/v3.10.3', installerName: 'DatGoldSetup.exe', skippedVersion: null, error: null, checking: false,
-  manualCheckAfter: '2026-10-26T12:01:00.000Z', nextAutomaticCheckAt: null, autoCheck: { enabled: true, saved: true, needsChoice: false }, ...overrides,
+  notesUrl: 'https://github.com/pddczpl/ChatMCP/releases/tag/v3.10.3', installerName: 'DatGoldSetup.exe', installerBytes: 232753314, signature: null, kid: null, skippedVersion: null, error: null, checking: false,
+  manualCheckAfter: '2026-10-26T12:01:00.000Z', nextAutomaticCheckAt: null, autoCheck: { enabled: true, saved: true, needsChoice: false }, download: { state: 'idle' }, ...overrides,
 });
+/** A release whose signature checked, so that it can be downloaded. */
+const signed = (overrides = {}) => update({ signature: 'valid', kid: '1a2b3c4d', ...overrides });
 const asking = (overrides = {}) => update({ autoCheck: { enabled: false, saved: null, needsChoice: true }, ...overrides });
 const failure = (code, status = null) => ({ code, message: 'diagnostic in English that is never shown as it is', status, at: '2026-10-26T12:05:00.000Z' });
 const NOW = Date.parse('2026-10-26T12:30:00.000Z'); // long after the minute of the state above
 const noop = () => {};
 
 // the language is given to the component and to the store: CopyButton, which the panel shares with the rest of the page, reads the store's
-const strip = (props, lang = 'vi') => renderWith(UpdateNotice, { update: update(), onAnswer: noop, onSkip: noop, onDetails: noop, lang, ...props }, [], [], { lang });
-const panel = (props, lang = 'vi') => renderWith(UpdatesPanel, { update: update(), now: NOW, onCheck: noop, onSkip: noop, onToggle: noop, lang, ...props }, [], [], { lang });
+const strip = (props, lang = 'vi') => renderWith(UpdateNotice, { update: update(), onAnswer: noop, onSkip: noop, onDetails: noop, onDownload: noop, onCancel: noop, onCheck: noop, lang, ...props }, [], [], { lang });
+const panel = (props, lang = 'vi') => renderWith(UpdatesPanel, { update: update(), now: NOW, onCheck: noop, onSkip: noop, onToggle: noop, onDownload: noop, onCancel: noop, lang, ...props }, [], [], { lang });
 const tag = (html, testid) => new RegExp(`<[a-z]+[^>]*data-testid="${testid}"[^>]*>`).exec(html)?.[0] ?? '';
 const text = (html, testid) => {
   const open = new RegExp(`<([a-z0-9]+)[^>]*data-testid="${testid}"[^>]*>`).exec(html);
@@ -52,7 +54,7 @@ test('unanswered: the strip asks once, says what is sent and to whom, and offers
   assert.match(text(vi, 'update-question-body'), /GitHub/);
   assert.match(text(vi, 'update-question-body'), /DatGold\/3\.10\.2/, 'which line GitHub sees');
   assert.match(text(vi, 'update-question-body'), /12 giờ/);
-  assert.match(text(vi, 'update-question-body'), /không tải gì về và không cài gì/, 'and that this only tells');
+  assert.match(text(vi, 'update-question-body'), /không tải gì về trừ khi bạn bấm Tải về, và không cài gì/, 'and that checking only tells: a download is the owner\'s click');
   assert.equal(text(vi, 'update-yes'), 'Có, kiểm tra');
   assert.equal(text(vi, 'update-no'), 'Không');
   assert.equal(text(vi, 'update-details'), 'Chi tiết');
@@ -62,7 +64,7 @@ test('unanswered: the strip asks once, says what is sent and to whom, and offers
   assert.equal(text(en, 'update-yes'), 'Yes, check');
   assert.equal(text(en, 'update-no'), 'No');
   assert.match(text(en, 'update-question-body'), /GitHub sees your IP address and the line "DatGold\/3\.10\.2"/);
-  assert.match(text(en, 'update-question-body'), /nothing is downloaded and nothing is installed/);
+  assert.match(text(en, 'update-question-body'), /nothing is downloaded unless you press Download, and nothing is installed/);
   assert.doesNotMatch(en, DIACRITICS, 'the English strip reads English');
   assert.doesNotMatch(en, /ChatMCP/);
   const busy = await strip({ update: asking(), busy: true });
@@ -160,6 +162,9 @@ test('a failed check says what went wrong, in words, and keeps what was known', 
     update_network: [/Không kết nối được tới GitHub/, /Could not reach GitHub/], update_timeout: [/không trả lời kịp/, /did not answer in time/],
     update_http: [/HTTP 503/, /HTTP 503/], update_redirect_refused: [/không tin/, /does not trust/], update_too_large: [/không phải là mô tả bản phát hành hợp lệ/, /not a valid release description/],
     update_state_unsaved: [/không lưu được ghi chú/, /could not save its note/],
+    update_signature_invalid: [/Chữ ký của bản mới nhất không khớp/, /signature of the newest release does not check/],
+    update_signature_unknown_key: [/khóa mà phiên bản DatGold này chưa biết/, /key this version of DatGold does not know/],
+    update_signature_unreachable: [/chưa đọc được chữ ký/, /its signature could not be read/],
     update_something_new: [/Lần kiểm tra không thành công/, /The check did not work/],
   };
   for (const [code, [vi, en]] of Object.entries(says)) {
@@ -216,7 +221,8 @@ test('the owner\'s choice is a box with three readings, and the page says what e
   const unknown = await panel({ update: null }, 'en');
   assert.match(tag(unknown, 'updates-auto-toggle'), /disabled=""/, 'the box cannot be used before the Hub has said what the choice is');
   const points = (await panel({ update: update() }, 'en'));
-  assert.match(points, /short chain of GET requests/, 'a check is not one request');
+  assert.match(points, /two short chains of GET requests/, 'a check is two chains of requests: the manifest and its signature');
+  assert.match(points, /RELEASE-MANIFEST\.json\.sig/, 'the signature file is named');
   assert.match(points, /starts at github\.com/);
   assert.match(points, /release-assets\.githubusercontent\.com/, 'the file server of GitHub is named: it is the host a firewall rule has to allow');
   assert.match(points, /DatGold\/3\.10\.2/);
@@ -224,7 +230,8 @@ test('the owner\'s choice is a box with three readings, and the page says what e
   assert.match(pointsVi, /chuỗi ngắn các yêu cầu GET/);
   assert.match(pointsVi, /release-assets\.githubusercontent\.com/);
   assert.match(points, /never more often than every 15 minutes/);
-  assert.match(points, /download the installer from the releases page yourself and compare its SHA-256/);
+  assert.match(points, /Nothing is downloaded until you press Download/, 'a download is the owner\'s click');
+  assert.match(points, /does not install or run it/, 'and it installs nothing');
   assert.match(points, /at most once a minute/);
   assert.doesNotMatch(points, /\b(?:certified|tamper-proof|guarantee|verified|secure)\b/i, 'no word that claims more than it does');
 });
@@ -373,4 +380,231 @@ test('the box offers nothing of its own to change: it holds no address of the fe
   assert.doesNotMatch(html, /<input[^>]*type="(?:text|url)"/, 'no field to type an address into');
   assert.doesNotMatch(html, /RELEASE-MANIFEST\.json[^<]*<\/(?:input|textarea)/);
   assert.equal((html.match(/<input/g) ?? []).length, 1, 'one box: the choice');
+});
+
+// ---- the download --------------------------------------------------------------------------------------------------------------------------
+
+const INSTALLING = /data-testid="[^"]*(?:install|apply|restart|relaunch)[^"]*"|>\s*(?:Install|Cài đặt|Cài bản|Cập nhật ngay|Update now|Restart)\b/i;
+
+test('a signed release: the strip offers the download with its size, and no way to install', async () => {
+  const vi = await strip({ update: signed() });
+  assert.equal(text(vi, 'update-download'), 'Tải về (222 MB)');
+  assert.doesNotMatch(tag(vi, 'update-download'), /disabled=""/);
+  for (const absent of ['update-signature-note', 'update-download-progress', 'update-download-ready', 'update-download-error', 'update-cancel', 'update-recheck']) assert.ok(!has(vi, absent), `${absent} is not there`);
+  assert.doesNotMatch(vi, PROOF_LOOK, 'an offer is not drawn like a result that was checked');
+  const en = await strip({ update: signed() }, 'en');
+  assert.equal(text(en, 'update-download'), 'Download (222 MB)');
+  assert.doesNotMatch(en, DIACRITICS);
+  assert.doesNotMatch(vi + en, INSTALLING, 'no install control, not even a hidden one');
+  assert.match(tag(await strip({ update: signed(), busy: true }), 'update-download'), /disabled=""/, 'it waits while a request is out');
+  assert.ok(has(vi, 'update-notes') && has(vi, 'update-copy') && has(vi, 'update-skip'), 'the notes, the copy button and Skip are still there');
+});
+
+test('a download in progress: a bar with the bytes that arrived out of the size, and Cancel; nothing to press for Download', async () => {
+  const running = signed({ download: { state: 'downloading', version: '3.10.3', received: 50_000_000, total: 232753314 } });
+  const en = await strip({ update: running }, 'en');
+  const bar = tag(en, 'update-download-progress');
+  assert.match(bar, /role="progressbar"/);
+  assert.match(bar, /aria-valuemin="0"/);
+  assert.match(bar, /aria-valuemax="100"/);
+  assert.match(bar, /aria-valuenow="21"/);
+  assert.match(bar, /aria-label="Downloading… 21% \(48 MB of 222 MB\)"/, 'the bar is named for a screen reader with what the text says');
+  assert.equal(text(en, 'update-download-progress-text'), 'Downloading… 21% (48 MB of 222 MB)');
+  assert.equal(text(en, 'update-cancel'), 'Cancel');
+  assert.ok(!has(en, 'update-download'), 'the Download button is gone while it runs');
+  const vi = await strip({ update: running }, 'vi');
+  assert.equal(text(vi, 'update-download-progress-text'), 'Đang tải… 21% (48 MB / 222 MB)');
+  assert.equal(text(vi, 'update-cancel'), 'Hủy');
+  assert.doesNotMatch(en, DIACRITICS);
+  assert.doesNotMatch(vi + en, INSTALLING);
+  // the Hub does not know the size yet (it is looking at the release again): no percentage, no bar value
+  const preparing = await strip({ update: signed({ download: { state: 'downloading', version: '3.10.3', received: 0, total: null } }) }, 'en');
+  assert.doesNotMatch(tag(preparing, 'update-download-progress'), /aria-valuenow/, 'no value while the size is not known');
+  assert.equal(text(preparing, 'update-download-progress-text'), 'Preparing the download…');
+  assert.ok(has(preparing, 'update-cancel'));
+  assert.doesNotMatch(preparing, /w-1\/3/, 'no static third of a bar: with reduced motion that would read as 33%');
+  assert.match(preparing, /bg-primary\/40 animate-pulse/, 'a faint full bar that pulses where motion is allowed');
+  const verifying = await strip({ update: signed({ download: { state: 'verifying', version: '3.10.3' } }) }, 'en');
+  assert.equal(text(verifying, 'update-download-verifying'), 'Checking the file…');
+  assert.ok(has(verifying, 'update-cancel') && !has(verifying, 'update-download'));
+  assert.doesNotMatch(tag(await strip({ update: running, busy: true }), 'update-cancel'), /disabled=""/, 'Cancel is not held back by the click that is still being answered (the Hub already reports the download): it waits only for its own request');
+  assert.match(tag(await strip({ update: running, cancelling: true }), 'update-cancel'), /disabled=""/, 'but it is not pressed twice');
+  assert.match(tag(en, 'update-notice'), /aria-atomic="false"/, 'a change in the strip is announced as the part that changed, not the whole strip');
+  assert.match(en, /aria-live="off"/, 'and the progress, which changes at every poll, is not read out');
+  assert.doesNotMatch(await strip({ update: signed({ download: { state: 'ready', version: '3.10.3', bytes: 232753314 } }) }, 'en'), /aria-live="off"/, 'the end of a download is announced');
+});
+
+test('a download that is ready says so and says what it is, and offers no way to install it', async () => {
+  const ready = signed({ download: { state: 'ready', version: '3.10.3', bytes: 232753314 } });
+  const en = await strip({ update: ready }, 'en');
+  assert.equal(text(en, 'update-download-ready'), 'Downloaded and checked.');
+  assert.match(text(en, 'update-download-ready-note'), /installer of DatGold 3\.10\.3 \(222 MB\) is in DatGold's update folder/);
+  assert.match(text(en, 'update-download-ready-note'), /When the download finished, its size and SHA-256 matched the signed list of the release/, 'said of the moment it arrived, not of the file as it is now');
+  assert.match(text(en, 'update-download-ready-note'), /Installing it from the app is not available in this version/);
+  assert.ok(!has(en, 'update-download') && !has(en, 'update-cancel') && !has(en, 'update-download-progress'));
+  assert.doesNotMatch(en, INSTALLING, 'nothing to press to install it');
+  assert.doesNotMatch(en, DIACRITICS);
+  const vi = await strip({ update: ready }, 'vi');
+  assert.equal(text(vi, 'update-download-ready'), 'Đã tải xong và đã kiểm tra.');
+  assert.match(text(vi, 'update-download-ready-note'), /Cài đặt từ trong ứng dụng chưa có ở phiên bản này/);
+  assert.match(text(vi, 'update-download-ready-note'), /Khi tải xong, dung lượng và mã SHA-256 của nó khớp/);
+  assert.doesNotMatch(vi, INSTALLING);
+  assert.doesNotMatch(en + vi, /\b(?:certified|tamper-proof|guarantee|verified|secure|authentic)\b/i, 'no word that claims more than it does');
+});
+
+test('a download that failed says what went wrong, in words, and can be tried again while the signature checks', async () => {
+  const says = {
+    update_download_stalled: [/Kết nối tới GitHub bị lỗi/, /connection to GitHub failed or stopped/], update_download_interrupted: [/Kết nối tới GitHub bị lỗi/, /connection to GitHub failed or stopped/],
+    update_download_size: [/không phải tệp mà danh sách đã ký mô tả/, /not the one the signed list describes/], update_download_hash: [/không phải tệp mà danh sách đã ký mô tả/, /not the one the signed list describes/],
+    update_download_bad_size: [/không nêu một bộ cài/, /does not name an installer/],
+    update_download_disk_full: [/không đủ chỗ trống/, /not enough free space/], update_download_write: [/không ghi được tệp/, /could not write the file/],
+    update_download_save: [/không ghi được tệp/, /could not write the file/], update_download_platform: [/không chạy được bộ cài Windows/, /cannot run the Windows installer/],
+    update_download_unsigned: [/không còn chữ ký hợp lệ/, /no longer has a signature that checks/], update_download_stale: [/không còn là bản đang được đề nghị/, /no longer the release on offer/],
+    update_download_bad_name: [/không nêu một bộ cài/, /does not name an installer/], update_download_something_new: [/Tải về không thành công\./, /The download did not work\./],
+  };
+  for (const [code, [vi, en]] of Object.entries(says)) {
+    const state = signed({ download: { state: 'failed', version: '3.10.3', code } });
+    const viHtml = await strip({ update: state }, 'vi');
+    const enHtml = await strip({ update: state }, 'en');
+    assert.match(text(viHtml, 'update-download-error'), vi, `${code} in Vietnamese`);
+    assert.match(text(enHtml, 'update-download-error'), en, `${code} in English`);
+    assert.match(text(enHtml, 'update-download-error'), /^The download did not work:/);
+    assert.doesNotMatch(enHtml, DIACRITICS, `${code}: the English strip reads English`);
+    assert.ok(has(viHtml, 'update-download'), `${code}: and it can be tried again`);
+    assert.doesNotMatch(viHtml, /text-danger|bg-danger|border-danger/, 'a failure of the network is not drawn as a danger');
+    assert.doesNotMatch(tag(viHtml, 'update-download-error'), /text-warning/, 'its words are in the colour of the text: the amber is for the icon, because amber text on the strip does not reach 4.5:1 in the light theme');
+  }
+  const withdrawn = await strip({ update: update({ signature: 'missing', download: { state: 'failed', version: '3.10.3', code: 'update_download_hash' } }) }, 'en');
+  assert.ok(has(withdrawn, 'update-download-error') && !has(withdrawn, 'update-download'), 'not when the signature no longer checks');
+  assert.match(tag(withdrawn, 'update-signature-note'), /data-signature="missing"/, 'and it says why there is no button');
+  assert.match(text(withdrawn, 'update-signature-note'), /This release is not signed yet/);
+});
+
+test('a signed release that names no single installer says so and offers nothing to press, in the strip and in Settings', async () => {
+  const noInstaller = signed({ installerName: null, installerBytes: null });
+  const vi = await strip({ update: noInstaller }, 'vi');
+  const en = await strip({ update: noInstaller }, 'en');
+  for (const html of [vi, en]) {
+    assert.ok(!has(html, 'update-download') && !has(html, 'update-cancel'), 'no button');
+    assert.match(tag(html, 'update-signature-note'), /data-signature="valid"/, 'the signature is fine');
+    assert.match(tag(html, 'update-signature-note'), /data-reason="installer"/, 'it is the installer that is the matter');
+    assert.ok(!has(html, 'update-recheck'), 'looking again does not change a manifest');
+  }
+  assert.match(text(vi, 'update-signature-note'), /không nêu đúng một bộ cài Windows/);
+  assert.match(text(en, 'update-signature-note'), /does not list exactly one Windows installer/);
+  assert.doesNotMatch(en, DIACRITICS);
+  const settings = await panel({ update: noInstaller }, 'en');
+  assert.ok(!has(settings, 'updates-download'));
+  assert.match(text(settings, 'updates-signature-note'), /does not list exactly one Windows installer/);
+});
+
+test('a release that cannot be downloaded says why, and a signature that was not read can be looked at again', async () => {
+  const cases = {
+    missing: [update({ signature: 'missing' }), /Bản này chưa được ký/, /This release is not signed yet, so DatGold will not download it/, false],
+    invalid: [update({ signature: 'invalid', error: failure('update_signature_invalid') }), /Chữ ký của bản này không khớp, nên DatGold sẽ không tải/, /signature of this release does not check, so DatGold will not download it/, false],
+    unknown_key: [update({ signature: 'invalid', error: failure('update_signature_unknown_key') }), /khóa mà phiên bản DatGold này chưa biết/, /key this version of DatGold does not know/, false],
+    unreadable: [update({ signature: null, error: failure('update_signature_unreachable', 500) }), /chưa đọc được chữ ký/, /could not read the signature/, true],
+    unchecked: [update({ signature: null }), /chưa xem chữ ký/, /has not looked at the signature/, true],
+  };
+  for (const [kind, [state, vi, en, again]] of Object.entries(cases)) {
+    const viHtml = await strip({ update: state }, 'vi');
+    const enHtml = await strip({ update: state }, 'en');
+    assert.match(tag(viHtml, 'update-signature-note'), new RegExp(`data-signature="${kind}"`), kind);
+    assert.match(text(viHtml, 'update-signature-note'), vi, `${kind} in Vietnamese`);
+    assert.match(text(enHtml, 'update-signature-note'), en, `${kind} in English`);
+    assert.ok(!has(viHtml, 'update-download'), `${kind}: no Download button`);
+    assert.equal(has(viHtml, 'update-recheck'), again, `${kind}: ${again ? 'Check now is offered' : 'no button: it is not a thing a second look can change'}`);
+    if (again) assert.equal(text(enHtml, 'update-recheck'), 'Check now');
+    assert.doesNotMatch(enHtml, DIACRITICS, `${kind}: the English strip reads English`);
+    assert.doesNotMatch(viHtml + enHtml, INSTALLING);
+    assert.ok(has(viHtml, 'update-notes') && has(viHtml, 'update-copy'), `${kind}: the notes and the copy button stay: the owner can still go and get it himself`);
+  }
+});
+
+test('Settings shows the signature, the size and the same controls as the strip', async () => {
+  const en = await panel({ update: signed() }, 'en');
+  assert.match(text(en, 'updates-signature'), /Valid \(key 1a2b3c4d\)/);
+  assert.equal(text(en, 'updates-size'), '222 MB');
+  assert.equal(text(en, 'updates-download'), 'Download (222 MB)');
+  assert.doesNotMatch(en, INSTALLING);
+  assert.doesNotMatch(en, DIACRITICS);
+  const vi = await panel({ update: signed() }, 'vi');
+  assert.match(text(vi, 'updates-signature'), /Hợp lệ \(khóa 1a2b3c4d\)/);
+  assert.equal(text(vi, 'updates-download'), 'Tải về (222 MB)');
+  const labels = { missing: ['Not signed yet', update({ signature: 'missing' })], invalid: ['Does not check', update({ signature: 'invalid' })], unknown_key: ['Signed with an unknown key', update({ signature: 'invalid', error: failure('update_signature_unknown_key') })],
+    unreadable: ['Could not be read', update({ error: failure('update_signature_unreachable') })], unchecked: ['Not looked at in this session', update()] };
+  for (const [kind, [label, state]] of Object.entries(labels)) {
+    const html = await panel({ update: state }, 'en');
+    assert.equal(text(html, 'updates-signature'), label, kind);
+    assert.match(tag(html, 'updates-signature'), new RegExp(`data-signature="${kind}"`));
+    assert.ok(has(html, 'updates-signature-note'), `${kind}: and the note that says what it means`);
+    assert.ok(!has(html, 'updates-download'));
+  }
+  const running = await panel({ update: signed({ download: { state: 'downloading', version: '3.10.3', received: 50_000_000, total: 232753314 } }) }, 'en');
+  assert.match(tag(running, 'updates-download-progress'), /aria-valuenow="21"/);
+  assert.equal(text(running, 'updates-download-progress-text'), 'Downloading… 21% (48 MB of 222 MB)');
+  assert.equal(text(running, 'updates-cancel'), 'Cancel');
+  const ready = await panel({ update: signed({ download: { state: 'ready', version: '3.10.3', bytes: 232753314 } }) }, 'en');
+  assert.equal(text(ready, 'updates-download-ready'), 'Downloaded and checked.');
+  assert.match(text(ready, 'updates-download-ready-note'), /Installing it from the app is not available in this version/);
+  const failedPanel = await panel({ update: signed({ download: { state: 'failed', version: '3.10.3', code: 'update_download_disk_full' } }) }, 'en');
+  assert.match(text(failedPanel, 'updates-download-error'), /not enough free space/);
+  assert.ok(has(failedPanel, 'updates-download'));
+  assert.ok(!has(await panel({ update: update({ available: false, latest: '3.10.2' }) }, 'en'), 'updates-signature'), 'nothing newer: nothing to say about a signature');
+  assert.doesNotMatch(await panel({ update: signed() }, 'en'), /ChatMCP(?!\/releases|\/tag)/, 'the product is DatGold on this screen');
+});
+
+test('Download asks the Hub for that very release; Cancel asks it to stop; both are said in the words of the page, and a refusal is shown', async () => {
+  for (const lang of ['vi', 'en']) {
+    const words = translations[lang];
+    for (const [component, name] of [[UpdateBanner, 'UpdateNotice'], [UpdatesSection, 'UpdatesPanel']]) {
+      const elements = await look(component, {}, signed(), lang);
+      const download = handlerOf(elements, name, 'onDownload');
+      serve({ '/api/update/download': { update: signed({ download: { state: 'downloading', version: '3.10.3', received: 0, total: null } }), started: true } });
+      globalThis.__chatmcpInvalidated.length = 0;
+      await fire(download, '3.10.3');
+      assert.deepEqual(asked(), ['POST /api/update/download {"version":"3.10.3"}'], `${lang} ${name}: the version the page showed, and nothing else`);
+      assert.deepEqual(toasts, [[words.upd_toast_dl_started.replace('{version}', '3.10.3'), 'info']], `${lang} ${name}`);
+      assert.ok(globalThis.__chatmcpInvalidated.some((filter) => JSON.stringify(filter?.queryKey) === '["hubState"]'), `${lang} ${name}: and the page looks at what the Hub says now`);
+      // a second click that the Hub says started nothing is not announced as a start
+      serve({ '/api/update/download': { update: signed({ download: { state: 'downloading', version: '3.10.3', received: 5, total: 10 } }), started: false } });
+      await fire(download, '3.10.3');
+      assert.deepEqual(toasts, [], `${lang} ${name}: nothing was started, so nothing is announced`);
+      for (const [code, key] of [['update_download_unsigned', 'upd_dl_err_unsigned'], ['update_download_disk_full', 'upd_dl_err_disk'], ['update_download_platform', 'upd_dl_err_platform'], ['update_download_stale', 'upd_dl_err_stale'], ['update_download_unverified', 'upd_dl_err_network']]) {
+        serve({ '/api/update/download': () => reply(409, { error: 'a diagnostic in English or Vietnamese', code }) });
+        globalThis.__chatmcpInvalidated.length = 0;
+        await fire(download, '3.10.3');
+        assert.deepEqual(toasts, [[words[key], 'error']], `${lang} ${name}: ${code} is said in the words of the page`);
+        assert.ok(globalThis.__chatmcpInvalidated.some((filter) => JSON.stringify(filter?.queryKey) === '["hubState"]'), `${lang} ${name}: and the page looks again`);
+      }
+      serve({ '/api/update/download': () => reply(502, { error: 'Something the page cannot know', code: 'something_new' }) });
+      await fire(download, '3.10.3');
+      assert.deepEqual(toasts, [['Something the page cannot know', 'error']], `${lang} ${name}: a code it has no words for is shown as the Hub said it`);
+
+      const cancel = handlerOf(elements, name, 'onCancel');
+      serve({ '/api/update/download-cancel': { update: signed(), cancelled: true } });
+      await fire(cancel);
+      assert.deepEqual(asked(), ['POST /api/update/download-cancel {}'], `${lang} ${name}`);
+      assert.deepEqual(toasts, [[words.upd_toast_dl_cancelled, 'info']], `${lang} ${name}`);
+      serve({ '/api/update/download-cancel': { update: signed(), cancelled: false } });
+      await fire(cancel);
+      assert.deepEqual(toasts, [], `${lang} ${name}: a cancel that stopped nothing says nothing`);
+    }
+  }
+  const elements = await look(UpdateBanner, {}, update(), 'en');
+  const again = handlerOf(elements, 'UpdateNotice', 'onCheck');
+  serve({ '/api/update/check': { update: signed(), checked: true, throttled: false } });
+  await fire(again);
+  assert.deepEqual(asked(), ['POST /api/update/check {}'], 'the button that looks at the signature again is "Check now"');
+});
+
+test('the dictionary holds every word of the download in both languages, and none of them says more than the code does', () => {
+  const keys = Object.keys(translations.vi).filter((key) => /^upd_(?:n_download|dl_|sig_|size_|err_signature|toast_dl_)/.test(key));
+  assert.ok(keys.length >= 38, `${keys.length} keys`);
+  for (const key of keys) {
+    assert.ok(translations.en[key]?.trim(), `en.${key}`);
+    assert.doesNotMatch(translations.en[key], DIACRITICS, `en.${key} reads English`);
+    assert.doesNotMatch(translations.vi[key] + translations.en[key], /ChatMCP/, `${key} says DatGold`);
+    assert.doesNotMatch(translations.en[key] + translations.vi[key], /\b(?:certified|tamper-proof|guarantee[sd]?|verified|secure[sd]?|authentic(?:ated|ity)?)\b/i, `${key}: no word that claims more than it does`);
+  }
 });

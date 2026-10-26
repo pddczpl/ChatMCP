@@ -1,0 +1,214 @@
+{
+  "suite": "verify-update-check.mjs",
+  "mutations": [
+    {
+      "name": "missing-is-unreadable",
+      "what": "a 404 for the signature is an error instead of \"not signed yet\"",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (reason.code === 'update_http' && reason.status === 404) return { state: 'missing' };",
+          "new": "if (false) return { state: 'missing' };"
+        }
+      ]
+    },
+    {
+      "name": "any-http-error-is-missing",
+      "what": "a server error for the signature is read as \"not signed yet\"",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (reason.code === 'update_http' && reason.status === 404) return { state: 'missing' };",
+          "new": "if (reason.code === 'update_http') return { state: 'missing' };"
+        }
+      ]
+    },
+    {
+      "name": "huge-signature-unreadable",
+      "what": "a signature file over the limit is an error instead of \"invalid\"",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (reason.code === 'update_too_large') return { state: 'invalid', code: 'update_signature_invalid', reason: 'size' };",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "unreadable-is-invalid",
+      "what": "a signature that could not be read at all is said not to check",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "throw fault('update_signature_unreachable',",
+          "new": "return { state: 'invalid', code: 'update_signature_invalid', reason: 'other' }; void fault('update_signature_unreachable',"
+        }
+      ]
+    },
+    {
+      "name": "unknown-key-not-told-apart",
+      "what": "a key this version does not know has the code of a signature that does not check",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "reason.reason === 'unknown_kid' ? 'update_signature_unknown_key' : 'update_signature_invalid'",
+          "new": "'update_signature_invalid'"
+        }
+      ]
+    },
+    {
+      "name": "manifest-reserialized",
+      "what": "the signature is checked over a copy of the manifest that was parsed and written again",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "manifestBytes: answer.bytes, keys: trusted,",
+          "new": "manifestBytes: Buffer.from(JSON.stringify(JSON.parse(answer.text))), keys: trusted,"
+        }
+      ]
+    },
+    {
+      "name": "no-key-trusted",
+      "what": "the Hub trusts no key at all",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "const trusted = Object.freeze([...releaseKeys, ...testKeys]);",
+          "new": "const trusted = Object.freeze([]);"
+        }
+      ]
+    },
+    {
+      "name": "test-keys-ignored",
+      "what": "the extra key of a test is not trusted",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "const trusted = Object.freeze([...releaseKeys, ...testKeys]);",
+          "new": "const trusted = Object.freeze([...releaseKeys]);"
+        }
+      ]
+    },
+    {
+      "name": "signature-saved-in-state",
+      "what": "what the second chain found is written into the saved file",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "return { version: 1, latest, installerName, checkedAt: iso(checkedAt), lastAttemptAt: iso(lastAttempt()), skippedVersion, ...overrides };",
+          "new": "return { version: 1, latest, installerName, signature, checkedAt: iso(checkedAt), lastAttemptAt: iso(lastAttempt()), skippedVersion, ...overrides };"
+        }
+      ]
+    },
+    {
+      "name": "signature-read-from-state",
+      "what": "a saved file can say that the release is signed",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "lastAttemptAt = validTime(data.lastAttemptAt, limit);",
+          "new": "lastAttemptAt = validTime(data.lastAttemptAt, limit); if (data.signature === 'valid') signature = 'valid';"
+        }
+      ]
+    },
+    {
+      "name": "invalid-without-error",
+      "what": "a signature that does not check leaves no error behind",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "const problem = proof.state === 'invalid' ? fault(proof.code, SIGNATURE_PROBLEMS[proof.reason] ?? SIGNATURE_PROBLEMS.other) : (proof.failure ?? null);",
+          "new": "const problem = proof.failure ?? null;"
+        }
+      ]
+    },
+    {
+      "name": "unreadable-signature-fails-the-check",
+      "what": "a signature that could not be read makes the whole check fail, and the notice with it",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "proof = { state: null, failure: reason };",
+          "new": "throw reason;"
+        }
+      ]
+    },
+    {
+      "name": "kid-forgotten",
+      "what": "the id of the key that signed is not kept",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "kid = proof.state === 'valid' ? proof.kid : null;",
+          "new": "kid = null;"
+        }
+      ]
+    },
+    {
+      "name": "installer-size-forgotten",
+      "what": "the size of the installer is not kept",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "installerBytes = manifest.installer ? manifest.installer.bytes : null;",
+          "new": "installerBytes = null;"
+        }
+      ]
+    },
+    {
+      "name": "listeners-not-told",
+      "what": "a finished check tells nobody",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "for (const listener of listeners) {",
+          "new": "for (const listener of []) {"
+        }
+      ]
+    },
+    {
+      "name": "listener-throw-breaks-check",
+      "what": "a listener that throws breaks the check",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "try { Promise.resolve(listener()).catch(() => {}); } catch { /* a listener that throws */ }",
+          "new": "Promise.resolve(listener()).catch(() => {});"
+        }
+      ]
+    },
+    {
+      "name": "asset-address-without-v",
+      "what": "the address of a release file leaves out the v of the tag",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "/releases/download/v${version}/${name}",
+          "new": "/releases/download/${version}/${name}"
+        }
+      ]
+    },
+    {
+      "name": "asset-name-unchecked",
+      "what": "any text is the name of a release file",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (typeof name !== 'string' || !ASSET_NAME.test(name)) throw refused('the name is not a plain file name');",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "asset-version-unchecked",
+      "what": "any text is the version of a release file",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (!isReleaseVersion(version)) throw refused('the version is not a release x.y.z');",
+          "new": ""
+        }
+      ]
+    }
+  ]
+}

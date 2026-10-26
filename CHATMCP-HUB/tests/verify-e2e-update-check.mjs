@@ -1,18 +1,19 @@
 // End-to-end scenario: the update notice through a REAL Hub process, and a loopback server that stands in for GitHub (tests/e2e/update-feed-server.mjs).
 //
 // tests/verify-update-check.mjs holds the module to its promises. This suite looks at the Hub the page talks to: the routes and every layer in front of them, what a real Hub sends over HTTP
-// (its own version in the User-Agent, four headers and nothing else, the three hops and nothing else), that NOTHING is asked until the owner says yes (a positive control beside every "zero requests"),
+// (its own version in the User-Agent, four headers and nothing else; two chains of requests, the manifest and its signature, and nothing else; the signature as the Hub says it with the key it was given
+// and without it), that NOTHING is asked until the owner says yes (a positive control beside every "zero requests"),
 // that a restart finds the notice without a request and keeps the 15-minute floor between attempts, that a skip and a choice survive a restart, and that bad answers (a page of HTML, an error, an
 // endless body, a redirect to another server) leave a Hub that is still up and a notice that is still the last good one.
 //
 // The stand-in imitates GitHub's shape. It is not GitHub: whether the real answer is what the module expects was read by hand once, on 2026-10-26 (docs/THREAT-MODEL.md, Surface 8).
 // CLAIM: update-notice-no-request-until-yes
-// CLAIM: update-notice-notifies-only
 import fs from 'node:fs';
 import path from 'node:path';
 import { findNeedles, runScenario } from './e2e/harness.mjs';
 import { sleep, waitFor } from './e2e/hub-process.mjs';
 import { feedManifest, startUpdateFeed } from './e2e/update-feed-server.mjs';
+import { throwawayKey } from './support/release-keys.mjs';
 import { VERSION } from '../lib/manager.mjs';
 
 const ROUTES = Object.freeze({ check: '/api/update/check', skip: '/api/update/skip', auto: '/api/update/auto-check' });
@@ -89,16 +90,17 @@ await runScenario({
   t.equal(Object.keys(first.json).sort(), ['checked', 'csrfToken', 'throttled', 'update'], 'the answer holds the state under "update" next to the two flags');
   const found = first.json.update;
   t.equal([found.current, found.latest, found.available, found.installerName, found.notesUrl, found.error, found.checking], [VERSION, '3.10.3', true, 'DatGoldSetup.exe', 'https://github.com/pddczpl/ChatMCP/releases/tag/v3.10.3', null, false], 'a newer release: the version, the installer name from the manifest, the link made from the version');
+  t.equal([found.signature, found.kid, found.installerBytes], ['missing', null, 232753314], 'the owner has not signed it yet (the stand-in has no signature): the release shows up, "missing" says no download, and the size is the one the manifest gives');
   t.equal(found.autoCheck, { enabled: false, saved: null, needsChoice: true }, 'and the owner is still not asked-and-answered: a manual check is not an answer');
   t.equal(feed.checks(), 1, 'one check');
-  t.equal(feed.requests.length, 3, 'is three GET requests, the three hops of the stand-in');
+  t.equal(feed.requests.length, 4, 'is four GET requests in two chains: the three hops of the stand-in towards the manifest, and one for its signature (a 404)');
   const names = new Set();
   for (const request of feed.requests) {
     t.equal([request.method, request.headers['user-agent'], request.headers.accept], ['GET', `DatGold/${VERSION}`, 'application/json'], `${request.url.split('?')[0].slice(-40)}: GET, DatGold/${VERSION}, accept`);
     for (const name of Object.keys(request.headers)) names.add(name);
   }
   t.equal([...names].sort(), ['accept', 'connection', 'host', 'user-agent'], 'the only headers: nothing that identifies the person (no cookie, no login, no referrer, no language)');
-  t.check(feed.requests.every((request) => /^\/(pddczpl\/ChatMCP\/releases\/(latest\/download|download\/v3\.10\.3)\/RELEASE-MANIFEST\.json|github-production-release-asset\/)/.test(request.url)), 'every address asked for is the manifest or a hop towards it: no installer, no page, nothing to download');
+  t.check(feed.requests.every((request) => /^\/(pddczpl\/ChatMCP\/releases\/(latest\/download|download\/v3\.10\.3)\/RELEASE-MANIFEST\.json(\.sig)?|github-production-release-asset\/)/.test(request.url)), 'every address asked for is the manifest, its signature or a hop towards one of them: no installer, no page, nothing to download');
   t.check(feed.requests.every((request) => !/\.exe|\.zip|installer/i.test(request.url.split('?')[0])), 'in particular not the installer the manifest names');
   t.equal(read(hub, STATE), { version: 1, latest: '3.10.3', installerName: 'DatGoldSetup.exe', checkedAt: found.checkedAt, lastAttemptAt: found.lastAttemptAt, skippedVersion: null }, 'the state file: the release, the installer name and the two times');
   t.check(read(hub, SETTINGS) === null, 'and no setting: the owner has not decided');
@@ -215,6 +217,33 @@ await runScenario({
     feed.mode('chain'); feed.publish(feedManifest());
   }
   t.equal(other.requests.length, 0, 'the server a redirect pointed at was never asked');
+
+  // ---- the signature, on a real Hub: with the key it is given, without it ---------------------------------------------------------------------------
+  {
+    const owner = throwawayKey();
+    const signed = await startUpdateFeed({ key: owner });
+    t.own(() => signed.close());
+    const signedHooks = (extra = {}) => ({ CHATMCP_UPDATE_FEED_URL: signed.url, CHATMCP_UPDATE_FIRST_CHECK_MS: String(FIRST), ...extra });
+    const dir = path.join(t.scratch, 'state-signed');
+    const trusting = await t.hub({ env: signedHooks({ CHATMCP_UPDATE_TEST_KEY: owner.spkiBase64 }), stateDir: dir });
+    const answer = await post(trusting, ROUTES.check, {});
+    const checked = answer.json.update;
+    t.equal([answer.status, checked.signature, checked.kid, checked.error, checked.available, checked.installerBytes], [200, 'valid', owner.kid, null, true, 232753314], 'a Hub that is given the owner\'s key (the test hook) and a release signed with it: "valid", with the id of the key');
+    t.equal([(await updateOf(trusting)).signature, (await trusting.get('/api/update/status')).json.update.kid], ['valid', owner.kid], '/api/state and GET /api/update/status say the same');
+    t.equal(signed.requests.length, 5, 'two chains of requests: three hops towards the manifest and two towards its signature');
+    t.equal(Object.keys(read(trusting, STATE)).sort(), ['checkedAt', 'installerName', 'lastAttemptAt', 'latest', 'skippedVersion', 'version'], 'nothing about the signature is saved');
+    await trusting.stop();
+    const restarted = await t.hub({ env: signedHooks({ CHATMCP_UPDATE_TEST_KEY: owner.spkiBase64 }), stateDir: dir });
+    const afterRestart = await updateOf(restarted);
+    t.equal([afterRestart.latest, afterRestart.available, afterRestart.signature, afterRestart.kid], ['3.10.3', true, null, null], 'after a restart the release is known and its signature is not, until a check has looked: the Download button waits for it');
+    const strangers = await t.hub({ env: signedHooks(), stateDir: path.join(t.scratch, 'state-signed-b') });
+    const unknown = (await post(strangers, ROUTES.check, {})).json.update;
+    t.equal([unknown.signature, unknown.kid, unknown.error?.code, unknown.available], ['invalid', null, 'update_signature_unknown_key', true], 'a Hub that does not trust that key (it has the placeholder only): "invalid", told apart from a signature that does not check, and the release still shows up');
+    t.check(!trusting.logText().includes(SIGNED) && !strangers.logText().includes(SIGNED), 'no signed address in either log');
+    signed.signature.set(Buffer.from('{"alg":"ES256","kid":"00000000","sig":"AAAA"}'));
+    const forged = await t.hub({ env: signedHooks({ CHATMCP_UPDATE_TEST_KEY: owner.spkiBase64 }), stateDir: path.join(t.scratch, 'state-signed-c') });
+    t.equal((await post(forged, ROUTES.check, {})).json.update.signature, 'invalid', 'a Hub that trusts the key and a signature that is not one: "invalid"');
+  }
 
   // ---- what the Hub is not ----------------------------------------------------------------------------------------------------------------------
   const source = fs.readFileSync(new URL('../lib/update-check.mjs', import.meta.url), 'utf8');

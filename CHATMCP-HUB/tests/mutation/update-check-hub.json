@@ -7,8 +7,8 @@
       "patches": [
         {
           "file": "hub.mjs",
-          "old": "return json(200, { update: updates.status() });",
-          "new": "return json(200, updates.status());"
+          "old": "return json(200, { update: updateState() });",
+          "new": "return json(200, updateState());"
         }
       ]
     },
@@ -18,8 +18,8 @@
       "patches": [
         {
           "file": "hub.mjs",
-          "old": "result = { update: answer.update, checked: answer.checked, throttled: answer.throttled }; break; }",
-          "new": "result = { update: answer.update }; break; }"
+          "old": "result = { update: updateState(), checked: answer.checked, throttled: answer.throttled }; break; }",
+          "new": "result = { update: updateState() }; break; }"
         }
       ]
     },
@@ -29,7 +29,7 @@
       "patches": [
         {
           "file": "hub.mjs",
-          "old": "update: updates?.status() ?? null, browser:",
+          "old": "update: updateState(), browser:",
           "new": "update: null, browser:"
         }
       ]
@@ -62,8 +62,8 @@
       "patches": [
         {
           "file": "hub.mjs",
-          "old": "result = { update: await updates.skip(payload.version) }; break;",
-          "new": "result = { update: await updates.skip(null) }; break;"
+          "old": "await updates.skip(payload.version); result = { update: updateState() }; break;",
+          "new": "await updates.skip(null); result = { update: updateState() }; break;"
         }
       ]
     },
@@ -73,8 +73,8 @@
       "patches": [
         {
           "file": "hub.mjs",
-          "old": "result = { update: await updates.setAutoCheck(payload.enabled) }; break;",
-          "new": "result = { update: await updates.setAutoCheck(true) }; break;"
+          "old": "await updates.setAutoCheck(payload.enabled); result = { update: updateState() }; break;",
+          "new": "await updates.setAutoCheck(true); result = { update: updateState() }; break;"
         }
       ]
     },
@@ -111,8 +111,8 @@
         },
         {
           "file": "lib/update-check.mjs",
-          "old": "      checkedAt = nowMs();\n      error = null;",
-          "new": "      checkedAt = nowMs();\n      lastAttemptAt = startedAt;\n      error = null;"
+          "old": "      checkedAt = nowMs();\n      const problem =",
+          "new": "      checkedAt = nowMs();\n      lastAttemptAt = startedAt;\n      const problem ="
         }
       ]
     },

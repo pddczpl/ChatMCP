@@ -75,9 +75,23 @@ export interface UpdateFailure {
   at: string;
 }
 
+/** The download of the installer (lib/update-download.mjs), as the Hub keeps it in memory: which state, and what belongs to it. */
+export interface UpdateDownload {
+  state: 'idle' | 'downloading' | 'verifying' | 'ready' | 'failed';
+  /** The release the download is about. */
+  version?: string;
+  /** Bytes that have arrived, and the size the manifest gives (null while the Hub looks at the release again). */
+  received?: number;
+  total?: number | null;
+  /** The size of a download that is ready. */
+  bytes?: number;
+  /** What went wrong, for a failed download. */
+  code?: string;
+}
+
 /**
  * The update notice as /api/state, GET /api/update/status and the update routes serve it (lib/update-check.mjs), always UNDER the key `update`: a top-level `error` would read as a failed request.
- * Nothing here is downloaded or run: it says that a newer release exists and where its notes are.
+ * It says that a newer release exists, where its notes are, whether its owner signed it, and (under `download`) how far the download of its installer has got. Nothing here installs or runs anything.
  */
 export interface UpdateInfo {
   /** The version that runs. */
@@ -91,6 +105,12 @@ export interface UpdateInfo {
   /** The page of the notes of `latest`, made by the Hub from the version. The page checks it again. */
   notesUrl: string | null;
   installerName: string | null;
+  /** The size of the installer, from the manifest. */
+  installerBytes: number | null;
+  /** The signature on the manifest: valid (one of the keys this version ships with made it), missing (a 404), invalid, or null (not looked at in this run, or it could not be read). */
+  signature: 'valid' | 'missing' | 'invalid' | null;
+  /** The id of the key that made a valid signature. */
+  kid: string | null;
   skippedVersion: string | null;
   error: UpdateFailure | null;
   checking: boolean;
@@ -105,7 +125,12 @@ export interface UpdateInfo {
     /** The page should ask the owner once. */
     needsChoice: boolean;
   };
+  download: UpdateDownload;
 }
+
+/** The answers of POST /api/update/download and /api/update/download-cancel. */
+export interface UpdateDownloadAnswer { update: UpdateInfo; started: boolean }
+export interface UpdateCancelAnswer { update: UpdateInfo; cancelled: boolean }
 
 /** The answer of POST /api/update/check: `checked` is false and `throttled` true when it was too soon after the last attempt and nothing was asked. */
 export interface UpdateCheckAnswer {

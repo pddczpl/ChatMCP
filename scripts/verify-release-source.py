@@ -8,6 +8,7 @@ else, including staged edits, still has to pass the original clean-source gate.
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -18,6 +19,16 @@ import subprocess
 import zipfile
 
 UI = 'CHATMCP-HUB/web/dist'
+# The keys that sign RELEASE-MANIFEST.json (lib/release-signature.mjs). A release of the updater verifies the next release with the keys it ships, so a release whose key file still holds a
+# placeholder, or a test key, is an updater that can never update anything: this gate, which runs on the release commit, refuses it. The Hub's own suites accept the placeholder, so normal CI stays green.
+KEYS = 'CHATMCP-HUB/lib/release-keys.json'
+MAX_KEYS = 4
+# SEQUENCE { SEQUENCE { id-ecPublicKey, prime256v1 }, BIT STRING } up to the 0x00 of the BIT STRING; then 0x04 and the 64 bytes of an uncompressed point: 91 bytes in all.
+SPKI_HEADER = bytes.fromhex('3059301306072a8648ce3d020106082a8648ce3d030107034200')
+SPKI_BYTES = 91
+# secp256r1: y^2 = x^3 - 3x + b over the integers modulo P256_P
+P256_P = 0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF
+P256_B = 0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B
 
 
 def git(root: Path, *args: str) -> bytes:
@@ -95,6 +106,82 @@ def verify_ui(root: Path) -> list[dict]:
     return [actual[name] for name in sorted(actual)]
 
 
+def p256_point_on_curve(x: int, y: int) -> bool:
+    """Whether (x, y) is a point of P-256: both coordinates below the prime, and on the curve."""
+    if not (0 <= x < P256_P and 0 <= y < P256_P):
+        return False
+    return (y * y - (x * x * x - 3 * x + P256_B)) % P256_P == 0
+
+
+def canonical_base64(value) -> bytes | None:
+    """The bytes of canonical base64 (no white space, padding as written, no spare bits set); None for anything else."""
+    if not isinstance(value, str) or not value or len(value) % 4:
+        return None
+    try:
+        raw = base64.b64decode(value, validate=True)
+    except ValueError:
+        return None
+    return raw if base64.b64encode(raw).decode('ascii') == value else None
+
+
+def reject_json_constant(name: str):
+    """Python's json accepts NaN and Infinity, which Node's JSON.parse (the Hub's reader of this file) refuses: the gate refuses them too."""
+    raise ValueError(f'{name} is not JSON')
+
+
+def verify_release_keys(root: Path, head: str) -> list[dict]:
+    """The key file as the release commit holds it must list real release keys, and only those: at least one, at most MAX_KEYS, each an uncompressed P-256 point on the curve in its
+    canonical SPKI form whose kid is the first 8 hex characters of the SHA-256 of the SPKI. A placeholder or a test key anywhere in it fails. Returns the keys for the evidence."""
+    try:
+        text = git(root, 'show', f'{head}:{KEYS}').decode('utf-8-sig')
+    except subprocess.CalledProcessError:
+        raise ValueError(f'The release commit has no key file ({KEYS}): the updater of this release could not verify the next one.') from None
+    try:
+        document = json.loads(text, parse_constant=reject_json_constant)
+    except ValueError:
+        raise ValueError(f'The key file ({KEYS}) is not JSON.') from None
+    # `true == 1` in Python and not in the Hub's reader (`document.version !== 1`): a bool is not the version
+    if not isinstance(document, dict) or type(document.get('version')) is not int or document.get('version') != 1:
+        raise ValueError(f'The key file ({KEYS}) must be a JSON object with "version": 1.')
+    if document.get('algorithm', 'ES256') != 'ES256':
+        raise ValueError(f'The key file ({KEYS}) names an algorithm other than ES256.')
+    entries = document.get('keys')
+    if not isinstance(entries, list) or not entries:
+        raise ValueError(f'The key file ({KEYS}) lists no keys: a release needs at least one.')
+    if len(entries) > MAX_KEYS:
+        raise ValueError(f'The key file ({KEYS}) lists {len(entries)} keys; at most {MAX_KEYS}.')
+    found: list[dict] = []
+    seen: set[str] = set()
+    for index, entry in enumerate(entries, start=1):
+        where = f'entry {index} of the key file'
+        if not isinstance(entry, dict):
+            raise ValueError(f'The {where} is not an object.')
+        use = entry.get('use')
+        if use == 'placeholder':
+            raise ValueError(f'The key file still holds a placeholder ({where}): make the release key with scripts/new-release-key.mjs and put its entry there before releasing.')
+        if use == 'test':
+            raise ValueError(f'The key file holds a test key ({where}): a release ships release keys only.')
+        if use != 'release':
+            raise ValueError(f'The {where} has use {use!r}; only "release" is a key (use).')
+        der = canonical_base64(entry.get('spki'))
+        if der is None:
+            raise ValueError(f'The {where} has a spki that is not canonical base64.')
+        if len(der) != SPKI_BYTES or der[:len(SPKI_HEADER)] != SPKI_HEADER or der[len(SPKI_HEADER)] != 4:
+            raise ValueError(f'The {where} is not an uncompressed EC P-256 public key in SPKI form ({SPKI_BYTES} bytes, the P-256 curve).')
+        x = int.from_bytes(der[27:59], 'big')
+        y = int.from_bytes(der[59:91], 'big')
+        if not p256_point_on_curve(x, y):
+            raise ValueError(f'The {where} is not a point of the P-256 curve.')
+        kid = hashlib.sha256(der).hexdigest()[:8]
+        if entry.get('kid') != kid:
+            raise ValueError(f'The {where} has a kid that is not the first 8 hex characters of the SHA-256 of its key ({kid}).')
+        if kid in seen:
+            raise ValueError(f'The key file lists the key {kid} twice (duplicate).')
+        seen.add(kid)
+        found.append({'kid': kid, 'use': 'release'})
+    return found
+
+
 def verify(root: Path, evidence: Path, expected_commit: str) -> dict:
     root = root.resolve(strict=True)
     head = git(root, 'rev-parse', 'HEAD').decode().strip()
@@ -105,6 +192,7 @@ def verify(root: Path, evidence: Path, expected_commit: str) -> dict:
     changed = [p for p in git(root, 'diff', '--name-only', '-z').decode('utf-8').split('\0') if p]
     if any(p != 'README.md' and not p.startswith(UI + '/') for p in changed):
         raise ValueError('Build changed tracked source outside README checksum/UI output')
+    release_keys = verify_release_keys(root, head)
     manifest = json.loads((root / 'dist/RELEASE-MANIFEST.json').read_text(encoding='utf-8-sig'))
     if manifest['commit'] != head:
         raise ValueError('Release manifest commit mismatch')
@@ -121,7 +209,7 @@ def verify(root: Path, evidence: Path, expected_commit: str) -> dict:
         raise ValueError('Unexpected README edit')
     files = verify_ui(root)
     report = {'result': 'PASS', 'commit': head, 'installerSha256': checksum,
-              'generatedUiPrefix': UI, 'uiFiles': files, 'changedPaths': changed}
+              'generatedUiPrefix': UI, 'uiFiles': files, 'changedPaths': changed, 'releaseKeys': release_keys}
     evidence.mkdir(parents=True, exist_ok=True)
     (evidence / 'generated-ui.patch').write_bytes(git(root, 'diff', '--binary', '--', UI))
     (evidence / 'generated-readme-checksum.patch').write_bytes(git(root, 'diff', '--', 'README.md'))

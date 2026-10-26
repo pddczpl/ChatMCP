@@ -9,13 +9,14 @@ import type { UpdateInfo } from '@/types';
 /**
  * What the owner can do about the update notice, shared by the strip under the header and Settings → Updates: answer the question (or tick the box), look now, skip a release.
  * Each call asks the Hub (lib/update-check.mjs), refreshes what the page knows and says the result in the language of the page; one request at a time (`busy`).
- * Nothing here downloads or starts anything: the Hub only tells whether a newer release exists.
+ * `download` and `cancelDownload` are the owner's clicks on the Download and Cancel buttons (lib/update-download.mjs): the Hub downloads nothing else, ever. Nothing here installs or starts anything.
  */
 export function useUpdateActions() {
   const { t, lang } = useTranslation();
   const queryClient = useQueryClient();
   const showToast = useAppStore(state => state.showToast);
   const [busy, setBusy] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['hubState'] });
 
   /** A refusal the Hub gave a code of the update notice is said in the words of the page (the Hub speaks Vietnamese only); any other failure in the Hub's own words when it gave some, else the page's. */
@@ -71,7 +72,38 @@ export function useUpdateActions() {
     } finally { setBusy(false); }
   };
 
-  return { busy, answer, check, skip };
+  /** Download the release that was shown (the Hub refuses when it is no longer the one on offer). A click that started nothing, because it was already running or ready, is not announced. */
+  const download = async (version: string) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const result = await api.downloadUpdate(version);
+      await refresh();
+      if (result.started) showToast(t('upd_toast_dl_started', { version }), 'info');
+    } catch (error) {
+      await refresh().catch(() => undefined);
+      failed(error);
+    } finally { setBusy(false); }
+  };
+
+  /**
+   * Stop the download that runs; the Hub closes the connection and removes what it had written. It does not wait for `busy`: the click on Download is still being answered for as long as the Hub looks
+   * at the release again (two chains of requests), the Hub already reports the download, and the person who started it must be able to stop it. Only a second Cancel waits.
+   */
+  const cancelDownload = async () => {
+    if (cancelling) return;
+    setCancelling(true);
+    try {
+      const result = await api.cancelUpdateDownload();
+      await refresh();
+      if (result.cancelled) showToast(t('upd_toast_dl_cancelled'), 'info');
+    } catch (error) {
+      await refresh().catch(() => undefined);
+      failed(error);
+    } finally { setCancelling(false); }
+  };
+
+  return { busy, cancelling, answer, check, skip, download, cancelDownload };
 }
 
 export type { TranslationKey };

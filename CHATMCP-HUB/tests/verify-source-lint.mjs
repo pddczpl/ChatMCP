@@ -165,4 +165,72 @@ export async function powerShellStarters(files) {
   }
 }
 
+// ---------------------------------------------------------------------------------------------------------------------------------
+// The "Repository hygiene" step of CI, run offline: no tracked file outside the test and doc folders may hold a private-key header or a bearer token
+// ---------------------------------------------------------------------------------------------------------------------------------
+// .github/workflows/ci.yml greps the tracked files for those two shapes and fails the pull request on a match. The scan is textual: it takes a line that only DESCRIBES a header
+// (the key tool tests for the header of an encrypted key with a regular expression written out in full) for a header, and PR #68 failed there after every suite here had passed.
+// The same pattern and the same exclusions run here, so that a local run finds it before a push does; a second check fails if ci.yml and this file drift apart.
+const HYGIENE_PATTERN = 'Authorization"?[:=] *"?Bearer [A-Za-z0-9._~+/=-]{24,}|-----BEGIN ([A-Z]+ )?PRIVATE KEY-----';
+const HYGIENE_EXCLUDED = ['scripts/tests', 'CHATMCP-HUB/tests', 'docs', '.github'];
+
+/** `path:line` of each tracked line under `cwd` that the hygiene pattern matches (git grep, as CI runs it; the text of the line is not kept: it may be a credential); null where git or a work tree is missing. */
+export function hygieneMatches(cwd) {
+  const run = spawnSync('git', ['grep', '-I', '-n', '-E', HYGIENE_PATTERN, '--', '.', ...HYGIENE_EXCLUDED.map((folder) => `:(exclude)${folder}`)], { cwd, encoding: 'utf8', windowsHide: true, timeout: 60_000 });
+  if (run.error || (run.status !== 0 && run.status !== 1)) return null; // 0 = matches, 1 = none, anything else = git could not look
+  return run.stdout.split(/\r?\n/).filter(Boolean).map((line) => line.split(':').slice(0, 2).join(':'));
+}
+
+{
+  const repoRoot = path.resolve(hubRoot, '..');
+  const workflow = await fs.readFile(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8').catch(() => null);
+  if (workflow === null) {
+    console.log('  --  .github/workflows/ci.yml was not found next to CHATMCP-HUB: the hygiene pattern was not compared with it');
+  } else {
+    assert.ok(workflow.includes(`git grep -I -n -E '${HYGIENE_PATTERN}'`), 'the pattern of the "Repository hygiene" step in ci.yml is not the one tests/verify-source-lint.mjs runs: change both');
+    for (const folder of HYGIENE_EXCLUDED) assert.ok(workflow.includes(`':(exclude)${folder}'`), `ci.yml no longer excludes ${folder} from the credential scan, or tests/verify-source-lint.mjs excludes one more than it: change both`);
+    ok('the credential pattern and the excluded folders are the ones of the "Repository hygiene" step in ci.yml');
+  }
+
+  const found = hygieneMatches(repoRoot);
+  if (found === null) {
+    console.log('  --  git or a Git work tree is not here: the credential scan of the "Repository hygiene" step was not run');
+  } else {
+    for (const place of found) console.log(`  not ok - ${place} looks like a private-key header or a bearer token to the "Repository hygiene" step of CI (write a regular expression that describes the header, such as -{5}BEGIN ..., not the header itself)`);
+    assert.deepEqual(found, [], 'a tracked file outside the test and doc folders has a line that CI "Repository hygiene" takes for a credential');
+    ok(`no tracked file outside ${HYGIENE_EXCLUDED.join(', ')} has a line that looks like a private-key header or a bearer token (${repoRoot})`);
+  }
+
+  // negative control, in a throwaway repository: the scan flags both shapes outside the excluded folders, and flags neither inside them nor a regular expression that describes the header
+  const control = await fs.mkdtemp(path.join(os.tmpdir(), 'chatmcp-lint-hygiene-'));
+  try {
+    const git = (args) => spawnSync('git', args, { cwd: control, encoding: 'utf8', windowsHide: true, timeout: 60_000 });
+    const files = {
+      'lib/encrypted-header.mjs': 'const encrypted = /-----BEGIN ENCRYPTED PRIVATE KEY-----/;\n', // the defect of PR #68
+      'lib/plain-header.mjs': "const pem = '-----BEGIN PRIVATE KEY-----';\n",
+      'lib/bearer.mjs': "const header = 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123456789';\n",
+      'lib/described.mjs': 'const encrypted = /-{5}BEGIN ENCRYPTED PRIVATE KEY-{5}/;\n', // the repair: describes the header, is not one
+      'lib/short-bearer.mjs': "const header = 'Authorization: Bearer short';\n",
+      'CHATMCP-HUB/tests/fixture.mjs': "const pem = '-----BEGIN PRIVATE KEY-----';\n",
+      'scripts/tests/fixture.py': "pem = '-----BEGIN PRIVATE KEY-----'\n",
+      'docs/example.md': '-----BEGIN PRIVATE KEY-----\n',
+      '.github/workflows/example.yml': "run: echo '-----BEGIN PRIVATE KEY-----'\n",
+    };
+    if (git(['init', '-q']).status !== 0) {
+      console.log('  --  git could not make a repository here: the negative control of the credential scan was not run');
+    } else {
+      for (const [name, text] of Object.entries(files)) {
+        await fs.mkdir(path.dirname(path.join(control, name)), { recursive: true });
+        await fs.writeFile(path.join(control, name), text);
+      }
+      assert.equal(git(['add', '-A']).status, 0, 'the seeded files can be staged');
+      const seeded = hygieneMatches(control);
+      assert.deepEqual(seeded, ['lib/bearer.mjs:1', 'lib/encrypted-header.mjs:1', 'lib/plain-header.mjs:1'], 'the scan must flag the two private-key headers and the bearer token, and nothing else: not the described header, not a short token, not the excluded folders');
+      ok('negative control: a seeded private-key header (plain and encrypted) and a seeded bearer token are flagged; a regular expression that describes the header, a short token and the excluded folders are not');
+    }
+  } finally {
+    await fs.rm(control, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  }
+}
+
 console.log(`PASS: ${checks} source lint checks`);

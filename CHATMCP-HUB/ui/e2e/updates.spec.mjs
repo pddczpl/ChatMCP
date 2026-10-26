@@ -7,6 +7,8 @@
 // new-window path (a preview tab), which this suite does not exercise (docs/THREAT-MODEL.md, Surface 8).
 import { test as base, expect, openSettings, closeSettings, setTheme } from './fixtures.mjs';
 import { startUpdateFeed, feedManifest } from '../../tests/e2e/update-feed-server.mjs';
+import { throwawayKey } from '../../tests/support/release-keys.mjs';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -61,7 +63,7 @@ test('the owner is asked once, a yes makes one look, the release is announced an
   await expect(question).toHaveAttribute('role', 'status');
   await expect(page.getByTestId('update-question-title')).toHaveText('DatGold có thể báo khi có bản mới. Bạn có muốn không?');
   await expect(page.getByTestId('update-question-body')).toContainText('GitHub thấy địa chỉ IP của bạn và dòng "DatGold/3.10.2"');
-  await expect(page.getByTestId('update-question-body')).toContainText('không tải gì về và không cài gì');
+  await expect(page.getByTestId('update-question-body')).toContainText('không tải gì về trừ khi bạn bấm Tải về, và không cài gì');
   await expect(page.getByTestId('update-notice')).toHaveCount(0);
   expect((await app.hub.state()).update.autoCheck).toEqual({ enabled: false, saved: null, needsChoice: true });
   await page.waitForTimeout(1500); // five times the 0.3 s the Hub would wait if it were allowed to ask
@@ -96,7 +98,10 @@ test('the owner is asked once, a yes makes one look, the release is announced an
   await expect(page.getByTestId('update-notice-text')).toHaveText('Đã có DatGold 3.10.3.');
   await expect(notice).toHaveAttribute('data-version', '3.10.3');
   expect(feed.checks(), 'POSITIVE CONTROL: after a yes the Hub asked, once').toBe(1);
-  expect((await app.hub.state()).update).toMatchObject({ current: '3.10.2', latest: '3.10.3', available: true, installerName: 'DatGoldSetup.exe', skippedVersion: null, error: null, autoCheck: { enabled: true, saved: true, needsChoice: false } });
+  expect((await app.hub.state()).update).toMatchObject({ current: '3.10.2', latest: '3.10.3', available: true, installerName: 'DatGoldSetup.exe', skippedVersion: null, error: null, signature: 'missing', autoCheck: { enabled: true, saved: true, needsChoice: false } });
+  // the stand-in has no signature for it (the owner has not signed): the release is announced, and the strip says why there is no button
+  await expect(page.getByTestId('update-signature-note')).toContainText('Bản này chưa được ký nên DatGold sẽ không tải');
+  await expect(page.getByTestId('update-download')).toHaveCount(0);
   expect(JSON.parse(await fs.readFile(SETTINGS(app), 'utf8'))).toEqual({ version: 1, autoCheckUpdates: true });
 
   // the link to the notes: GitHub's tag page of that release, opened outside the page (read, not clicked: it is the internet)
@@ -111,7 +116,7 @@ test('the owner is asked once, a yes makes one look, the release is announced an
   for (const theme of ['light', 'dark']) {
     await setTheme(page, theme);
     await page.waitForTimeout(400);
-    for (const [name, element] of [['update-notice-text', page.getByTestId('update-notice-text')], ['update-notes', notes], ['update-copy', copy], ['update-skip', page.getByTestId('update-skip')]]) {
+    for (const [name, element] of [['update-notice-text', page.getByTestId('update-notice-text')], ['update-notes', notes], ['update-copy', copy], ['update-skip', page.getByTestId('update-skip')], ['update-signature-note', page.getByTestId('update-signature-note')]]) {
       const ratio = await contrast(element);
       if (ratio < 4.5) unreadable.push(`${name} in the ${theme} theme: ${ratio.toFixed(2)}`);
     }
@@ -160,7 +165,11 @@ test('the owner is asked once, a yes makes one look, the release is announced an
   await expect(dialog.getByTestId('updates-status')).toHaveText('Có DatGold 3.10.3.');
   await closeSettings(next);
   await expect(next.getByTestId('update-notice'), 'taking the skip back shows the notice again').toBeVisible();
-  expect(feed.requests.every((request) => !/\.exe|\.zip/i.test(request.url.split('?')[0])), 'the feed was never asked for an installer: this version only tells').toBe(true);
+  expect(feed.requests.every((request) => !/\.exe|\.zip/i.test(request.url.split('?')[0])), 'the feed was never asked for an installer: nobody pressed Download').toBe(true);
+  // a restarted Hub has not looked at the signature yet (nothing about it is saved): the strip says why there is no button, offers to look, and offers no way to install
+  await expect(next.getByTestId('update-signature-note')).toContainText('chưa xem chữ ký của bản này');
+  await expect(next.getByTestId('update-recheck')).toHaveText('Kiểm tra ngay');
+  await expect(next.getByTestId('update-download')).toHaveCount(0);
 });
 
 test('No: nothing is asked; "Check now" in Settings finds the release, a second press waits; the screens read English too', async ({ page, app, feed }, testInfo) => {
@@ -259,4 +268,184 @@ test('Settings → Updates: a look the page hears of late does not leave "Check 
   await expect(dialog.getByTestId('updates-latest'), 'the page took in the state it was given').toHaveText('v3.10.9', { timeout: 10_000 });
   await expect(dialog.getByTestId('updates-check'), 'and the minute of that look is over: Check now is not held back').toBeEnabled();
   await expect(dialog.getByTestId('updates-wait')).toHaveCount(0);
+});
+
+// ---- the download, with a release the owner signed -------------------------------------------------------------------------------------------------
+
+const MiB = 1024 * 1024;
+const signedTest = base.extend({
+  owner: async ({}, use) => { await use(throwawayKey()); }, // eslint-disable-line no-empty-pattern
+  installer: async ({}, use) => { // eslint-disable-line no-empty-pattern
+    const bytes = Buffer.alloc(6 * MiB);
+    for (let index = 0; index < bytes.length; index += 4) bytes.writeUInt32LE((Math.imul(index + 1, 2654435761) ^ (index >>> 3)) >>> 0, index);
+    await use({ bytes, sha256: createHash('sha256').update(bytes).digest('hex') });
+  },
+  feed: async ({ owner, installer }, use) => {
+    const feed = await startUpdateFeed({ key: owner, manifest: feedManifest({ assets: [{ name: 'DatGoldSetup.exe', sha256: installer.sha256, bytes: installer.bytes.length }] }) });
+    feed.installer.set({ name: 'DatGoldSetup.exe', bytes: installer.bytes });
+    try { await use(feed); } finally { await feed.close(); }
+  },
+  // the Hub reads the stand-in, trusts the owner's key of this run (a hook that counts only beside a loopback feed) and believes it runs on Windows (the same)
+  hubEnv: async ({ feed, owner }, use) => {
+    await use({ CHATMCP_UPDATE_FEED_URL: feed.url, CHATMCP_UPDATE_FIRST_CHECK_MS: '300', CHATMCP_UPDATE_TEST_KEY: owner.spkiBase64, CHATMCP_UPDATE_TEST_PLATFORM: 'win32' });
+  },
+});
+const DOWNLOAD = '/api/update/download';
+const CANCEL = '/api/update/download-cancel';
+
+signedTest('a signed release is downloaded on a click: the bar moves, Cancel stops it, the installer arrives whole, and nothing offers to install it', async ({ page, app, feed, installer, browserErrors }, testInfo) => {
+  await open(page, app);
+  await page.getByTestId('update-yes').click();
+  const notice = page.getByTestId('update-notice');
+  await expect(notice).toBeVisible();
+  const button = page.getByTestId('update-download');
+  await expect(button, 'a release whose signature checked can be downloaded').toHaveText('Tải về (6,0 MB)');
+  await expect(page.getByTestId('update-signature-note')).toHaveCount(0);
+  expect((await app.hub.state()).update).toMatchObject({ latest: '3.10.3', signature: 'valid', installerBytes: 6 * MiB, download: { state: 'idle' } });
+  await page.waitForTimeout(1500);
+  expect(feed.installer.hits(), 'ZERO requests for the installer before the click, although the first automatic look found a signed release').toBe(0);
+  const updates = path.join(app.hub.stateDir, 'updates');
+
+  // ---- the click: the stand-in holds the stream at a third, and the page shows it ----------------------------------------------------------------
+  feed.installer.mode('chain', { pauseAfter: 2 * MiB });
+  const clicked = page.waitForResponse(post(DOWNLOAD));
+  await button.click();
+  const started = await clicked;
+  expect(started.request().postDataJSON(), 'the click carries the version the page showed and nothing else').toEqual({ version: '3.10.3' });
+  expect(started.status()).toBe(200);
+  expect((await started.json()).started).toBe(true);
+  const bar = page.getByTestId('update-download-progress');
+  await expect(bar).toBeVisible();
+  await expect(bar).toHaveAttribute('aria-valuenow', '33');
+  await expect(page.getByTestId('update-download-progress-text')).toHaveText('Đang tải… 33% (2,0 MB / 6,0 MB)');
+  await expect(page.getByTestId('update-download'), 'while it runs there is no second button').toHaveCount(0);
+  const unreadable = [];
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme);
+    await page.waitForTimeout(400);
+    for (const id of ['update-download-progress-text', 'update-cancel']) {
+      const ratio = await contrast(page.getByTestId(id));
+      if (ratio < 4.5) unreadable.push(`${id} in the ${theme} theme: ${ratio.toFixed(2)}`);
+    }
+    await page.screenshot({ path: testInfo.outputPath(`downloading-${theme}.png`), animations: 'disabled' });
+  }
+  expect(unreadable, 'the progress reads at 4.5:1 or better in both themes').toEqual([]);
+  for (const width of [640, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await noSideways(page), `the progress does not scroll the page sideways at ${width}px`).toBe(true);
+    await expect(page.getByTestId('update-cancel'), `and Cancel is in reach at ${width}px`).toBeVisible();
+  }
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  // Settings shows the same
+  const dialog = await openSettings(page, 'Cập nhật');
+  await expect(dialog.getByTestId('updates-signature')).toHaveText(/^Hợp lệ \(khóa [0-9a-f]{8}\)$/);
+  await expect(dialog.getByTestId('updates-size')).toHaveText('6,0 MB');
+  await expect(dialog.getByTestId('updates-download-progress')).toHaveAttribute('aria-valuenow', '33');
+  await closeSettings(page);
+
+  // ---- cancel: the connection is closed, the file and its folder are gone, and the button is back ------------------------------------------------
+  const cancelled = page.waitForResponse(post(CANCEL));
+  await page.getByTestId('update-cancel').click();
+  expect((await (await cancelled).json()).cancelled).toBe(true);
+  await expect(button).toBeVisible();
+  await expect(bar).toHaveCount(0);
+  expect((await app.hub.state()).update.download, 'a cancel is not a failure').toEqual({ state: 'idle' });
+  feed.installer.resume();
+  await expect.poll(() => feed.installer.openCount(), { message: 'the Hub closed the connection' }).toBe(0);
+  expect(feed.installer.sent(), 'the rest of the installer was never sent').toBe(2 * MiB);
+  await expect.poll(async () => fs.readdir(updates).catch(() => []), { message: 'the .part file and its folder are gone' }).toEqual([]);
+
+  // ---- a whole download -------------------------------------------------------------------------------------------------------------------------------
+  feed.installer.mode('chain');
+  await button.click();
+  const ready = page.getByTestId('update-download-ready');
+  await expect(ready).toHaveText('Đã tải xong và đã kiểm tra.', { timeout: 30_000 });
+  await expect(page.getByTestId('update-download-ready-note')).toContainText('Cài đặt từ trong ứng dụng chưa có ở phiên bản này');
+  expect(await fs.readFile(path.join(updates, '3.10.3', 'DatGoldSetup.exe')), 'the installer on disk is the bytes the stand-in served').toEqual(installer.bytes);
+  expect(await fs.readdir(path.join(updates, '3.10.3'))).toEqual(expect.arrayContaining(['DatGoldSetup.exe', 'RELEASE-MANIFEST.json', 'RELEASE-MANIFEST.json.sig', 'state.json']));
+  await expect(page.locator('[data-testid*="install"], [data-testid*="apply"], [data-testid*="restart"]'), 'no way to install it, not even a hidden one').toHaveCount(0);
+  expect(await notice.innerText(), 'and no word that offers it').not.toMatch(/\b(?:Cài đặt ngay|Cập nhật ngay|Install|Restart|Relaunch)\b/i);
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme);
+    await page.waitForTimeout(400);
+    for (const id of ['update-download-ready', 'update-download-ready-note']) {
+      const ratio = await contrast(page.getByTestId(id));
+      if (ratio < 4.5) unreadable.push(`${id} in the ${theme} theme: ${ratio.toFixed(2)}`);
+    }
+    await page.screenshot({ path: testInfo.outputPath(`ready-${theme}.png`), animations: 'disabled' });
+  }
+  expect(unreadable, 'the ready state reads at 4.5:1 or better in both themes').toEqual([]);
+  await page.setViewportSize({ width: 375, height: 900 });
+  expect(await noSideways(page), 'the ready state does not scroll the page sideways at 375px').toBe(true);
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  const before = feed.installer.hits();
+  await page.reload();
+  await expect(page.getByTestId('update-download-ready'), 'a reloaded page finds it ready: it is the Hub\'s').toBeVisible();
+
+  // ---- a Hub restart: ready from the folder alone, with no request ---------------------------------------------------------------------------------------
+  await browserErrors.closePage(page);
+  await app.restart();
+  const next = await page.context().newPage();
+  await open(next, app);
+  await expect(next.getByTestId('update-download-ready')).toBeVisible();
+  expect(feed.installer.hits(), 'nothing was fetched again').toBe(before);
+  expect((await app.hub.state()).update).toMatchObject({ signature: null, download: { state: 'ready', version: '3.10.3', bytes: 6 * MiB } });
+
+  // ---- the same words in English, from the real language switch -----------------------------------------------------------------------------------------
+  const vietnamese = await openSettings(next, 'Giao diện & ngôn ngữ');
+  await vietnamese.getByRole('button', { name: 'English', exact: true }).click();
+  const english = next.getByRole('dialog', { name: 'Settings', exact: true });
+  await english.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Updates', exact: true }).click();
+  await expect(english.getByTestId('updates-download-ready')).toHaveText('Downloaded and checked.');
+  await expect(english.getByTestId('updates-signature'), 'after a restart the signature has not been looked at yet in this session').toHaveText('Not looked at in this session');
+  expect(await english.innerText(), 'Settings → Updates reads English').not.toMatch(VIETNAMESE);
+  await next.keyboard.press('Escape');
+  await expect(english).toHaveCount(0);
+  await expect(next.getByTestId('update-download-ready')).toHaveText('Downloaded and checked.');
+  expect(await next.getByTestId('update-notice').innerText(), 'the strip reads English').not.toMatch(VIETNAMESE);
+});
+
+signedTest('a download that fails says why in words and can be tried again; an unsigned release is not offered; neither installs anything', async ({ page, app, feed, installer }) => {
+  await open(page, app);
+  await page.getByTestId('update-yes').click();
+  const button = page.getByTestId('update-download');
+  await expect(button).toBeVisible();
+  feed.installer.set({ name: 'DatGoldSetup.exe', bytes: Buffer.concat([installer.bytes.subarray(0, installer.bytes.length - 1), Buffer.from([installer.bytes[installer.bytes.length - 1] ^ 1])]) });
+  await button.click();
+  await expect(page.getByTestId('update-download-error')).toContainText('Tải về không thành công: Tệp tải về không phải tệp mà danh sách đã ký mô tả', { timeout: 30_000 });
+  expect((await app.hub.state()).update.download).toEqual({ state: 'failed', version: '3.10.3', code: 'update_download_hash' });
+  await expect.poll(async () => fs.readdir(path.join(app.hub.stateDir, 'updates')).catch(() => []), { message: 'nothing is left of the file that did not match' }).toEqual([]);
+  // the words of the failure read at 4.5:1 or better in both themes (they are in the colour of the text; amber text on the strip does not reach it in the light theme), and do not scroll the page at 375px
+  const unreadable = [];
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme);
+    await page.waitForTimeout(400);
+    const ratio = await contrast(page.getByTestId('update-download-error'));
+    if (ratio < 4.5) unreadable.push(`update-download-error in the ${theme} theme: ${ratio.toFixed(2)}`);
+  }
+  expect(unreadable, 'the failure reads at 4.5:1 or better in both themes').toEqual([]);
+  await page.setViewportSize({ width: 375, height: 900 });
+  expect(await noSideways(page), 'the failure does not scroll the page sideways at 375px').toBe(true);
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  // tried again with the right bytes
+  feed.installer.set({ name: 'DatGoldSetup.exe', bytes: installer.bytes });
+  await expect(button, 'a failure can be tried again').toBeVisible();
+  await button.click();
+  await expect(page.getByTestId('update-download-ready')).toBeVisible({ timeout: 30_000 });
+  await page.reload();
+  await expect(page.getByTestId('update-download-ready')).toBeVisible();
+});
+
+signedTest('a release that is not signed, or whose signature does not check, is announced with the reason and without a download button', async ({ page, app, feed }) => {
+  feed.signature.mode('missing');
+  await open(page, app);
+  await page.getByTestId('update-yes').click();
+  await expect(page.getByTestId('update-notice')).toBeVisible();
+  await expect(page.getByTestId('update-signature-note')).toContainText('Bản này chưa được ký nên DatGold sẽ không tải');
+  await expect(page.getByTestId('update-download')).toHaveCount(0);
+  await expect(page.getByTestId('update-notes'), 'the notes and the copy button stay: the owner can still go and get it himself').toBeVisible();
+  const dialog = await openSettings(page, 'Cập nhật');
+  await expect(dialog.getByTestId('updates-signature')).toHaveText('Chưa được ký');
+  await expect(dialog.getByTestId('updates-download')).toHaveCount(0);
+  await closeSettings(page);
 });

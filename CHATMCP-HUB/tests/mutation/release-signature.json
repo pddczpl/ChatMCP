@@ -1,0 +1,291 @@
+{
+  "suite": "verify-release-signature.mjs",
+  "mutations": [
+    {
+      "name": "verify-always-good",
+      "what": "any signature is taken for a good one",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "try { good = verify('sha256', manifestBytes, { key: key.publicKey, dsaEncoding: 'ieee-p1363' }, document.sig); } catch { good = false; }",
+          "new": "try { good = true; } catch { good = false; }"
+        }
+      ]
+    },
+    {
+      "name": "verify-as-der",
+      "what": "the signature is read as DER instead of the 64 bytes r||s that the other side makes",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "{ key: key.publicKey, dsaEncoding: 'ieee-p1363' }, document.sig)",
+          "new": "{ key: key.publicKey }, document.sig)"
+        }
+      ]
+    },
+    {
+      "name": "sign-as-der",
+      "what": "the signature is made in DER form, which the desktop shell does not read",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "const signature = sign('sha256', manifestBytes, { key: privateKey, dsaEncoding: 'ieee-p1363' });",
+          "new": "const signature = sign('sha256', manifestBytes, { key: privateKey });"
+        }
+      ]
+    },
+    {
+      "name": "any-key-for-any-kid",
+      "what": "the first key is tried whatever id the signature names",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": ".find((candidate) => candidate?.kid === document.kid);",
+          "new": ".find(() => true);"
+        }
+      ]
+    },
+    {
+      "name": "alg-unchecked",
+      "what": "any algorithm name is accepted",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "if (document.alg !== ALGORITHM) throw invalid('alg',",
+          "new": "if (false) throw invalid('alg',"
+        }
+      ]
+    },
+    {
+      "name": "kid-shape-unchecked",
+      "what": "any text is a key id",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "if (typeof document.kid !== 'string' || !KID.test(document.kid)) throw invalid('kid',",
+          "new": "if (false) throw invalid('kid',"
+        }
+      ]
+    },
+    {
+      "name": "signature-length-unchecked",
+      "what": "a signature of any length is passed on (a DER signature is not refused for its shape)",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "if (signature.length !== SIGNATURE_BYTES) throw invalid('sig_length',",
+          "new": "if (false) throw invalid('sig_length',"
+        }
+      ]
+    },
+    {
+      "name": "base64-not-canonical",
+      "what": "base64 that is not the canonical form of its bytes is accepted",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "return bytes.toString('base64') === value ? bytes : null;",
+          "new": "return bytes;"
+        }
+      ]
+    },
+    {
+      "name": "utf8-lenient",
+      "what": "a signature file that is not UTF-8 is decoded anyway",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "new TextDecoder('utf-8', { fatal: true })",
+          "new": "new TextDecoder('utf-8', { fatal: false })"
+        }
+      ]
+    },
+    {
+      "name": "signature-size-unchecked",
+      "what": "a signature file of any size is read",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "if (bytes.length > SIGNATURE_LIMITS.maxBytes) throw invalid('size',",
+          "new": "if (false) throw invalid('size',"
+        }
+      ]
+    },
+    {
+      "name": "signature-empty-unchecked",
+      "what": "an empty signature file is not named as empty",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "if (bytes.length === 0) throw invalid('empty',",
+          "new": "if (false) throw invalid('empty',"
+        }
+      ]
+    },
+    {
+      "name": "signature-shape-unchecked",
+      "what": "a signature file that is not a JSON object is not named as such",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "if (!document || typeof document !== 'object' || Array.isArray(document)) throw invalid('shape', 'The signature file is not a JSON object.');",
+          "new": "if (false) throw invalid('shape', 'The signature file is not a JSON object.');"
+        }
+      ]
+    },
+    {
+      "name": "key-form-unchecked",
+      "what": "a key in a non-canonical form (a compressed point, a wrong header) is accepted",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "if (spki.length !== SPKI_BYTES || !spki.subarray(0, SPKI_HEADER.length).equals(SPKI_HEADER) || spki[SPKI_HEADER.length] !== 0x04) throw invalid('key_der',",
+          "new": "if (false) throw invalid('key_der',"
+        }
+      ]
+    },
+    {
+      "name": "key-curve-unchecked",
+      "what": "a key of another curve or type is not named as such",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "if (publicKey.asymmetricKeyType !== 'ec' || publicKey.asymmetricKeyDetails?.namedCurve !== 'prime256v1') throw invalid('key_type',",
+          "new": "if (false) throw invalid('key_type',"
+        }
+      ]
+    },
+    {
+      "name": "kid-mismatch-accepted",
+      "what": "an entry whose id is not the one its key gives is trusted",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "if (entry.kid !== key.kid) { skip(index, 'kid_mismatch', entry); return; }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "duplicate-accepted",
+      "what": "a key listed twice is trusted twice",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "if (seen.has(key.kid)) { skip(index, 'duplicate', entry); return; }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "fifth-key-accepted",
+      "what": "more keys than the file has room for are trusted",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "if (result.keys.length >= MAX_KEYS) { skip(index, 'too_many', entry); return; }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "placeholder-not-counted",
+      "what": "a placeholder is not counted",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "if (entry.use === 'placeholder') { result.placeholders += 1; return; }",
+          "new": "if (entry.use === 'placeholder') { return; }"
+        }
+      ]
+    },
+    {
+      "name": "test-key-trusted",
+      "what": "an entry that is not marked for release is trusted as a key",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "if (entry.use !== 'release') { skip(index, 'use', entry); return; }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "key-file-version-unchecked",
+      "what": "a key file of another version is read",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "if (document.version !== 1) { skip(-1, 'version'); return result; }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "key-file-algorithm-unchecked",
+      "what": "a key file that names another algorithm is read",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "if (document.algorithm !== undefined && document.algorithm !== ALGORITHM) { skip(-1, 'algorithm'); return result; }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "key-id-short",
+      "what": "the id of a key is 7 characters",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": ".digest('hex').slice(0, 8);",
+          "new": ".digest('hex').slice(0, 7);"
+        }
+      ]
+    },
+    {
+      "name": "key-id-from-base64-text",
+      "what": "the id is made from the base64 text of the key, not from its bytes",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "return createHash('sha256').update(spki).digest('hex').slice(0, 8);",
+          "new": "return createHash('sha256').update(spki.toString('base64')).digest('hex').slice(0, 8);"
+        }
+      ]
+    },
+    {
+      "name": "sign-any-private-key",
+      "what": "a private key of another curve signs",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "privateKey.type !== 'private' || privateKey.asymmetricKeyType !== 'ec' || privateKey.asymmetricKeyDetails?.namedCurve !== 'prime256v1') {",
+          "new": "privateKey.type !== 'private') {"
+        }
+      ]
+    },
+    {
+      "name": "manifest-as-text",
+      "what": "a manifest that is not bytes is checked all the same",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "if (!(manifestBytes instanceof Uint8Array)) throw invalid('manifest', 'The manifest is verified as bytes.');",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "signature-file-without-sig",
+      "what": "the signature file the owner writes has no signature in it",
+      "patches": [
+        {
+          "file": "lib/release-signature.mjs",
+          "old": "JSON.stringify({ alg: document.alg, kid: document.kid, sig: document.sig }, null, 2)",
+          "new": "JSON.stringify({ alg: document.alg, kid: document.kid }, null, 2)"
+        }
+      ]
+    }
+  ]
+}

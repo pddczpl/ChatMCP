@@ -10,8 +10,10 @@
 //      routes that answer a browser-extension Origin without the secret (EXTENSION_READ_ROUTES) are the ones the documents name;
 //   4. the same-OS-user limitation is stated in the threat model, SECURITY.md, the README and HUB-AUTH.md; SECURITY.md links the
 //      threat model and describes the bearer (not only Host/Origin/CSRF), the open exceptions and the best-effort Companion filter;
-//   4b. Surface 8 (the update notice): the address, the hosts, the limits, the times and the constant that says what "not answered" means are the ones in lib/update-check.mjs, and
-//      SECURITY.md and the README say that the Hub asks only after the owner has said yes and that this step only notifies;
+//   4b. Surface 8 (the update notice, the signature on the manifest and the download): the address, the hosts, the limits, the times and the constant that says what "not answered" means
+//      are the ones in lib/update-check.mjs, the limits of the signature file, of the key list and of the download are the ones in lib/release-signature.mjs and lib/update-download.mjs, and
+//      SECURITY.md and the README say that the Hub looks only after the owner has said yes, that Download needs a valid signature, that a download starts only on the owner's click and that
+//      nothing is installed or run;
 //   5. negative controls: the same checks on a temporary copy of the documents with defects put in one at a time (a symbol that does
 //      not exist, a missing file, a wrong ticket lifetime, a route missing from SECURITY.md, the same-user sentence removed, a
 //      dangling reference ...); each must be reported.
@@ -35,6 +37,8 @@ if (DOCUMENTS.some((name) => !existsSync(path.join(REPO, name)))) {
 const { EXTENSION_READ_ROUTES } = await import(pathToFileURL(path.join(HUB, 'hub.mjs')).href);
 const { TICKET_LIMIT, TICKET_TTL_MS, attachToRunningHub } = await import(pathToFileURL(path.join(HUB, 'lib', 'hub-session.mjs')).href);
 const UPDATE = await import(pathToFileURL(path.join(HUB, 'lib', 'update-check.mjs')).href);
+const { DOWNLOAD } = await import(pathToFileURL(path.join(HUB, 'lib', 'update-download.mjs')).href);
+const { MAX_KEYS, SIGNATURE_ASSET, SIGNATURE_LIMITS } = await import(pathToFileURL(path.join(HUB, 'lib', 'release-signature.mjs')).href);
 
 let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok - ${label}`); };
@@ -94,7 +98,7 @@ export function checkThreatModel(docsRoot, codeRoot = REPO, constants = { WHEN_U
   const pairingMinutes = Number(runner.match(/expires: this\.now\(\) \+ (\d+)/)?.[1]) / 60_000;
   const pairingAttempts = Number(runner.match(/\+\+pending\.attempts > (\d+)/)?.[1]);
   const reviewMinutes = Number(runner.match(/reviewTimeoutMs = ([\d_]+)/)?.[1].replaceAll('_', '')) / 60_000;
-  if (!model.includes(`${TICKET_TTL_MS / 1000} second`)) fail(`the text does not say that a ticket lives ${TICKET_TTL_MS / 1000} seconds (TICKET_TTL_MS)`);
+  if (!model.includes(`a ${TICKET_TTL_MS / 1000} second, single-use ticket`)) fail(`the text does not say that a ticket lives ${TICKET_TTL_MS / 1000} seconds (TICKET_TTL_MS)`);
   if (!new RegExp(`at most ${TICKET_LIMIT} outstanding`).test(model)) fail(`the text does not say that at most ${TICKET_LIMIT} tickets are outstanding (TICKET_LIMIT)`);
   if (!Number.isFinite(pairingMinutes) || !Number.isFinite(pairingAttempts)) fail('browser-runner.mjs: the pairing validity or attempt limit was not found');
   else {
@@ -130,6 +134,16 @@ export function checkThreatModel(docsRoot, codeRoot = REPO, constants = { WHEN_U
       [`${SCHEDULE.minAutomaticGapMs / 60_000} minutes of the last attempt`, 'the floor between attempts (SCHEDULE.minAutomaticGapMs)'],
       [SCHEDULE.minManualGapMs === 60_000 ? 'at most once a minute' : '', 'the limit of a manual check (SCHEDULE.minManualGapMs)'],
       ['`WHEN_UNANSWERED`', 'the constant that says what "not answered" means'],
+      [`at most ${SIGNATURE_LIMITS.maxBytes / 1024} KiB`, 'the size limit of the signature file (SIGNATURE_LIMITS.maxBytes)'],
+      [`at most ${MAX_KEYS};`, 'the number of keys the key file may hold (MAX_KEYS)'],
+      [SIGNATURE_ASSET, 'the name of the signature file (SIGNATURE_ASSET)'],
+      ['CHATMCP-HUB/lib/release-keys.json', 'the key file'],
+      ['ECDSA over P-256 with SHA-256', 'the algorithm of the signature'],
+      [`at most ${DOWNLOAD.maxBytes / 1024 ** 3} GiB`, 'the size limit of the installer (DOWNLOAD.maxBytes)'],
+      [`${DOWNLOAD.idleTimeoutMs / 1000} seconds without a byte`, 'the idle limit of the download (DOWNLOAD.idleTimeoutMs)'],
+      [DOWNLOAD.freeSpaceFactor === 2 ? 'twice the installer\'s size free' : '', 'the room needed on the disk (DOWNLOAD.freeSpaceFactor)'],
+      ['only from the owner\'s click on Download', 'that a download starts only from the owner\'s click'],
+      ['Nothing is installed or run', 'that nothing is installed or run'],
     ];
     for (const [needle, what] of stated) if (needle && !surface.includes(needle)) fail(`Surface 8 does not state ${what}: ${needle}`);
     if (constants.WHEN_UNANSWERED !== 'ask') fail('WHEN_UNANSWERED is not "ask": the README, SECURITY.md and Surface 8 say that nothing is asked until the owner has said yes; change them with the constant');
@@ -139,10 +153,17 @@ export function checkThreatModel(docsRoot, codeRoot = REPO, constants = { WHEN_U
       [`\`${FEED_URL}\``, 'the address of the feed'], ...FEED_HOSTS.map((host) => [host, `the host ${host}`]), [`${LIMITS.maxBytes / 1024} KiB`, 'the size limit'], [`${LIMITS.timeoutMs / 1000} seconds`, 'the deadline'],
       [`at most ${LIMITS.maxRedirects} redirects`, 'the number of redirects'], [`${SCHEDULE.firstCheckMs / 1000} seconds after the Hub starts`, 'the first check'], [`every ${SCHEDULE.intervalMs / 3_600_000} hours`, 'the interval'],
       [`${SCHEDULE.minAutomaticGapMs / 60_000} minutes of the last attempt`, 'the floor between attempts'], ['at most once a minute', 'the limit of a manual check'],
-      ['**only after you have said yes**', 'that the Hub asks only after the owner has said yes'], ['**This step only notifies**', 'that this step only notifies'], ['nothing is downloaded', 'that nothing is downloaded'],
-    ]) if (!security8.includes(needle)) fail(`SECURITY.md (Update notice) does not state ${what}: ${needle}`);
-    for (const [needle, what] of [['github.com', 'the host it asks'], ['until you answer, the app makes no request of its own', 'that nothing is asked before the owner answers'], ['This only notifies', 'that it only notifies'],
-      ['nothing is downloaded and nothing is installed', 'that nothing is downloaded or installed']]) if (!readme.includes(needle)) fail(`README.md does not state ${what} (update notice): ${needle}`);
+      ['**only after you have said yes**', 'that the Hub asks only after the owner has said yes'],
+      ['**A download starts only from your click on Download**', 'that a download starts only from the owner\'s click'], ['**Nothing is installed or run in this step**', 'that nothing is installed or run'],
+      ['**Only a release whose manifest has a valid signature is offered for download.**', 'that Download needs a valid signature'], ['ECDSA over P-256 with SHA-256', 'the algorithm of the signature'],
+      [`at most ${SIGNATURE_LIMITS.maxBytes / 1024} KiB`, 'the size limit of the signature file'], [SIGNATURE_ASSET, 'the name of the signature file'], ['CHATMCP-HUB/lib/release-keys.json', 'the key file'],
+      [`takes at most ${DOWNLOAD.maxBytes / 1024 ** 3} GiB`, 'the size limit of the installer'], [`${DOWNLOAD.idleTimeoutMs / 1000} seconds without a byte`, 'the idle limit of the download'],
+      [DOWNLOAD.freeSpaceFactor === 2 ? 'twice the installer\'s size free' : '', 'the room needed on the disk'],
+    ]) if (needle && !security8.includes(needle)) fail(`SECURITY.md (Update notice) does not state ${what}: ${needle}`);
+    for (const [needle, what] of [['github.com', 'the host it asks'], ['until you answer, the app makes no request of its own', 'that nothing is asked before the owner answers'],
+      ['A download starts only when you click **Download**', 'that a download starts only on the owner\'s click'], ['Nothing is installed or run in this version', 'that nothing is installed or run'],
+      ['offers **Download** only for a release whose signature checks', 'that Download needs a signature that checks'], ['it has no Authenticode signature', 'that the installer has no Authenticode signature'],
+    ]) if (!readme.includes(needle)) fail(`README.md does not state ${what} (update notice): ${needle}`);
     if (!/Surface 8/.test(security8)) fail('SECURITY.md (Update notice) does not point at Surface 8 of the threat model');
     if (!/update check of Surface 8/.test(model.slice(model.indexOf('## Surface 7'), model.indexOf('## Surface 8')))) fail('Surface 7 still says that nothing but the owner\'s button makes the Hub ask: it does not name the update check of Surface 8');
     if (/models\.dev, or any host, without the owner asking/.test(model)) fail('M1 still says "or any host": the update check of Surface 8 is a second request the Hub can make');
@@ -316,11 +337,36 @@ try {
     ['Surface 7 no longer naming the update check', model, (text) => text.replace('is the update check of Surface 8', 'is nothing else'), /Surface 7 still says that nothing but the owner's button/],
     ['SECURITY.md without the Update notice section', 'SECURITY.md', (text) => text.replace('## Update notice', '## Something else'), /SECURITY\.md has no "Update notice" section/],
     ['SECURITY.md no longer saying only after a yes', 'SECURITY.md', (text) => text.replace('**only after you have said yes**', '**always**'), /does not state that the Hub asks only after the owner has said yes/],
-    ['SECURITY.md no longer saying it only notifies', 'SECURITY.md', (text) => text.replace('**This step only notifies**', 'This step installs'), /does not state that this step only notifies/],
+    ['SECURITY.md no longer saying that a download starts only from the click', 'SECURITY.md', (text) => text.replace('**A download starts only from your click on Download**', 'A download starts at once'), /does not state that a download starts only from the owner's click/],
+    ['SECURITY.md no longer saying that nothing is installed or run', 'SECURITY.md', (text) => text.replace('**Nothing is installed or run in this step**', 'Something is installed in this step'), /does not state that nothing is installed or run/],
+    ['SECURITY.md no longer saying that Download needs a valid signature', 'SECURITY.md', (text) => text.replace('**Only a release whose manifest has a valid signature is offered for download.**', 'A release is offered for download.'), /does not state that Download needs a valid signature/],
+    ['SECURITY.md with another installer limit', 'SECURITY.md', (text) => text.replace('takes at most 2 GiB', 'takes at most 4 GiB'), /SECURITY\.md \(Update notice\) does not state the size limit of the installer/],
+    ['SECURITY.md with another idle limit', 'SECURITY.md', (text) => text.replace('60 seconds without a byte', '90 seconds without a byte'), /SECURITY\.md \(Update notice\) does not state the idle limit of the download/],
+    ['SECURITY.md without the key file', 'SECURITY.md', (text) => text.replaceAll('CHATMCP-HUB/lib/release-keys.json', 'the key file'), /SECURITY\.md \(Update notice\) does not state the key file/],
+    ['SECURITY.md with another size for the signature file', 'SECURITY.md', (text) => text.replace('at most 4 KiB', 'at most 8 KiB'), /SECURITY\.md \(Update notice\) does not state the size limit of the signature file/],
+    ['a wrong installer size limit in Surface 8', model, (text) => text.replaceAll('at most 2 GiB', 'at most 4 GiB'), /Surface 8 does not state the size limit of the installer/],
+    ['a wrong idle limit in Surface 8', model, (text) => text.replaceAll('60 seconds without a byte', '120 seconds without a byte'), /Surface 8 does not state the idle limit of the download/],
+    ['a wrong room on the disk in Surface 8', model, (text) => text.replaceAll('twice the installer\'s size free', 'the installer\'s size free'), /Surface 8 does not state the room needed on the disk/],
+    ['a wrong size for the signature file in Surface 8', model, (text) => text.replaceAll('at most 4 KiB', 'at most 8 KiB'), /Surface 8 does not state the size limit of the signature file/],
+    ['a wrong number of keys in Surface 8', model, (text) => text.replaceAll('at most 4;', 'at most 9;'), /Surface 8 does not state the number of keys/],
+    ['the key file no longer named in Surface 8', model, (text) => text.replaceAll('CHATMCP-HUB/lib/release-keys.json', 'the key file'), /Surface 8 does not state the key file/],
+    ['the algorithm no longer named in Surface 8', model, (text) => text.replaceAll('ECDSA over P-256 with SHA-256', 'a signature'), /Surface 8 does not state the algorithm of the signature/],
+    ['the click no longer named in Surface 8', model, (text) => text.replaceAll('only from the owner\'s click on Download', 'on its own'), /Surface 8 does not state that a download starts only from the owner's click/],
+    ['Surface 8 no longer saying that nothing is run', model, (text) => text.replaceAll('Nothing is installed or run', 'Something is installed'), /Surface 8 does not state that nothing is installed or run/],
+    ['a download row without a test', model, (text) => text.replace('`verify-update-download.mjs` (other bytes of the same size, one bit, short and long bodies with and without a length, a connection that is reset, a stall, a disk that fills, a rename that the antivirus holds), `verify-e2e-update-download.mjs` (the whole file on a real Hub is the bytes that were served, and a cancel leaves nothing)', 'nothing'), /U9: the Test column/],
+    ['a download row with an empty limit', model, (text) => text.replace('there is no total deadline (a slow connection that keeps sending may finish), no resume (a broken download starts again from the start) and no limit on how often the owner clicks; connecting is bounded by the operating system, not by the 60 seconds |', ' |'), /U11: the Limit column is empty/],
+    ['a download code reference to a symbol that does not exist', model, (text) => text.replace('| `installerNameProblem` |', '| `installerNameProblemOld` |'), /no symbol installerNameProblemOld/],
+    ['a gate code reference to a symbol that does not exist', model, (text) => text.replace('| `verify_release_keys` |', '| `verify_release_keys_old` |'), /no symbol verify_release_keys_old/],
+    ['a code reference of the download that no text cites', model, (text) => text.replaceAll('[C72]', ''), /C72 is in the code reference table but no text cites it/],
+    ['a code reference of the signature that no text cites', model, (text) => text.replaceAll('[C68]', ''), /C68 is in the code reference table but no text cites it/],
+    ['a download test that does not exist', model, (text) => text.replace('`CHATMCP-HUB/tests/verify-e2e-update-download.mjs`', '`CHATMCP-HUB/tests/verify-e2e-update-nothing.mjs`'), /verify-e2e-update-nothing\.mjs does not exist/],
     ['SECURITY.md with another deadline', 'SECURITY.md', (text) => text.replace('in 10 seconds', 'in 60 seconds'), /SECURITY\.md \(Update notice\) does not state the deadline/],
     ['SECURITY.md not pointing at Surface 8', 'SECURITY.md', (text) => text.replace('(Surface 8)', '(a section)'), /does not point at Surface 8/],
     ['the README no longer saying nothing is asked before an answer', 'README.md', (text) => text.replace('until you answer, the app makes no request of its own', 'the app asks'), /README\.md does not state that nothing is asked before the owner answers/],
-    ['the README no longer saying it only notifies', 'README.md', (text) => text.replace('This only notifies', 'This installs'), /README\.md does not state that it only notifies/],
+    ['the README no longer saying that a download starts only on a click', 'README.md', (text) => text.replace('A download starts only when you click **Download**', 'A download starts by itself'), /README\.md does not state that a download starts only on the owner's click/],
+    ['the README no longer saying that nothing is installed or run', 'README.md', (text) => text.replace('Nothing is installed or run in this version', 'Something is installed in this version'), /README\.md does not state that nothing is installed or run/],
+    ['the README no longer saying that Download needs a signature that checks', 'README.md', (text) => text.replace('offers **Download** only for a release whose signature checks', 'offers **Download** for every release'), /README\.md does not state that Download needs a signature that checks/],
+    ['the README no longer saying that the installer has no Authenticode signature', 'README.md', (text) => text.replace('it has no Authenticode signature', 'it is signed'), /README\.md does not state that the installer has no Authenticode signature/],
     ['the threat model no longer in the index', 'docs/INDEX.md', (text) => text.replace('(THREAT-MODEL.md)', '(ARCHITECTURE.md)'), /INDEX\.md does not link THREAT-MODEL\.md/],
     ['a threat row without a test', model, (text) => text.replace('comparison is exercised by `verify-hub-auth.mjs`; no timing measurement', 'nothing'), /H3: the Test column/],
     ['a hooks threat row without a test', model, (text) => text.replace('`verify-hooks-core.mjs` (inert until approved, a one-byte edit, a restart, the same bytes in another folder), `verify-hooks-guard.mjs` (the route on a real Hub, behind the bearer)', 'nothing'), /K1: the Test column/],

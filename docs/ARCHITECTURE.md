@@ -23,7 +23,7 @@ The Windows desktop starts the local Node Hub. It does not deploy a shared/publi
 
 Trong các phiên bản trước có hai backend local và MCP legacy. **Hiện chỉ còn local.** Toàn bộ đường Cloud Harness/Desktop Commander MCP proxy, Docker/Render hosting, public-mode login và remote workspace manager đã bị gỡ. Startup từ chối tùy chọn public, --repo-root và --backend mcp.
 
-Outbound HTTPS đến nhà cung cấp AI, GitHub, Skills và nghiên cứu web **vẫn được hỗ trợ**; thêm một yêu cầu tới `https://models.dev/api.json` để cập nhật danh mục model, chỉ khi chủ máy bấm nút cập nhật (mục 9). Thêm một chuỗi ngắn yêu cầu GET bắt đầu ở `github.com` (chuyển tiếp tới `release-assets.githubusercontent.com`) để biết có bản phát hành mới (`lib/update-check.mjs`), chỉ sau khi chủ máy trả lời "có" cho câu hỏi hiện một lần (hằng `WHEN_UNANSWERED` quyết định chưa trả lời nghĩa là gì) hoặc khi bấm "Kiểm tra ngay"; bước này chỉ báo tin, không tải, không cài và không chạy gì ([THREAT-MODEL](THREAT-MODEL.md), Surface 8). Local-only không có nghĩa offline-only.
+Outbound HTTPS đến nhà cung cấp AI, GitHub, Skills và nghiên cứu web **vẫn được hỗ trợ**; thêm một yêu cầu tới `https://models.dev/api.json` để cập nhật danh mục model, chỉ khi chủ máy bấm nút cập nhật (mục 9). Thêm hai chuỗi ngắn yêu cầu GET bắt đầu ở `github.com` (chuyển tiếp tới `release-assets.githubusercontent.com`) để biết có bản phát hành mới và bản đó có chữ ký hợp lệ không (manifest rồi chữ ký của nó: `lib/update-check.mjs`, `lib/release-signature.mjs`), chỉ sau khi chủ máy trả lời "có" cho câu hỏi hiện một lần (hằng `WHEN_UNANSWERED` quyết định chưa trả lời nghĩa là gì) hoặc khi bấm "Kiểm tra ngay"; và, **chỉ khi chủ máy bấm "Tải về"**, một yêu cầu tải bộ cài của chính bản đó vào thư mục `updates` của dữ liệu Hub (`lib/update-download.mjs`). Không bước nào cài, di chuyển hay chạy gì ([THREAT-MODEL](THREAT-MODEL.md), Surface 8). Local-only không có nghĩa offline-only.
 
 ## 3. Vòng lặp agent
 
@@ -94,7 +94,7 @@ Transcript, task history và evidence được lưu trên ổ đĩa per-user. Ch
 
 ## 11. Dữ liệu trên đĩa
 
-Mặc định Windows: %LOCALAPPDATA%\ChatMCP\hub; có thể đổi bằng --state-dir. Đây là dữ liệu riêng tư gồm lịch sử, key store, logs, checkpoints, skills registry, coding-agent state và, chỉ khi chủ máy đã bấm cập nhật, `model-catalog.json` (danh mục model đã tải; mục 9). Không lưu vào repository.
+Mặc định Windows: %LOCALAPPDATA%\ChatMCP\hub; có thể đổi bằng --state-dir. Đây là dữ liệu riêng tư gồm lịch sử, key store, logs, checkpoints, skills registry, coding-agent state và, chỉ khi chủ máy đã bấm cập nhật, `model-catalog.json` (danh mục model đã tải; mục 9), `update-check.json` và `update-settings.json` (thông báo bản mới) và, chỉ khi chủ máy đã bấm Tải về, thư mục `updates/<phiên bản>/` (bộ cài đã tải cùng bản sao manifest đã ký, chữ ký và `state.json`; bị xóa khi lỗi, khi bị hủy và khi Hub khởi động lại giữa chừng). Không lưu vào repository.
 
 ## 12. HTTP API (nội bộ của dashboard)
 

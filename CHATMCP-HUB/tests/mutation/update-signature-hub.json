@@ -1,0 +1,60 @@
+{
+  "suite": "verify-e2e-update-check.mjs",
+  "mutations": [
+    {
+      "name": "test-key-dropped",
+      "what": "the test key of the environment is read and then not used",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "options.testKeys = [publicKeyFromSpki(testKey.trim())];",
+          "new": "void publicKeyFromSpki(testKey.trim());"
+        }
+      ]
+    },
+    {
+      "name": "signature-hidden",
+      "what": "the state never says what the signature is",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "signature: latest === null ? null : signature,",
+          "new": "signature: null,"
+        }
+      ]
+    },
+    {
+      "name": "invalid-called-valid",
+      "what": "a signature that does not check is called valid",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "signature = proof.state;",
+          "new": "signature = proof.state === 'invalid' ? 'valid' : proof.state;"
+        }
+      ]
+    },
+    {
+      "name": "always-valid",
+      "what": "every release is called signed",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "signature = proof.state;",
+          "new": "signature = 'valid';"
+        }
+      ]
+    },
+    {
+      "name": "missing-called-valid",
+      "what": "a release without a signature file is called signed",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "signature = proof.state;",
+          "new": "signature = proof.state === 'missing' ? 'valid' : proof.state;"
+        }
+      ]
+    }
+  ]
+}
