@@ -252,8 +252,9 @@ try
         using (var again = new InstallTransaction(folder)) Check(true, "and the setup accepts the folder (no marker)");
     }
 
-    // What a damaged installer looks like to the result file: the payload checks of the transaction carry the code payload_invalid, so that the window says "This installer is damaged"
-    // and the page can say it too, instead of "The files could not be replaced".
+    // What a damaged installer looks like to the outcome: the payload checks of the transaction carry the code payload_invalid, so that the window says "This installer is damaged" instead of "The files
+    // could not be replaced". (The page hears it only when the result file is written, and that happens only when no Hub is running: a damaged payload is found before the Hub is stopped, so there it is the
+    // window that says it; a window that would not close is found after.)
     {
         Exception? Caught(Action action) { try { action(); return null; } catch (Exception error) { return error; } }
         foreach (var unsafePath in new[] { "../escape.txt", "..\\escape.txt", "a/../../b", "/rooted.txt", "C:\\Windows\\x.txt", "bad:name.txt", "trailing.", "dir//file", "" })
@@ -265,6 +266,22 @@ try
         Check(StepCode.Of(Caught(() => tx.Add("../x", Bytes("x")))) == "payload_invalid", "so is one that adds a path that leaves the folder");
         Check(StepCode.Of(Caught(() => tx.StagedPath("missing.txt"))) == "payload_invalid" && Caught(() => tx.StagedPath("missing.txt")) is IOException, "and a component that the setup needs and the payload does not have (an IOException, not a lookup that failed)");
         Check(tx.StagedPath("one.txt").Length > 0, "while a component that is there is found");
+    }
+
+    // The receipt of the INSTALLATION is read with the same path rules as the payload of a setup; a receipt that breaks them is a damaged installation, and it must not be said as "This installer is damaged"
+    // (payload_invalid is the code of the payload of the setup that is running).
+    {
+        Exception? Caught(Action action) { try { action(); return null; } catch (Exception error) { return error; } }
+        var receiptFolder = Path.Combine(scratch, "receipt"); Directory.CreateDirectory(receiptFolder);
+        string Receipt(string key) => "{\"" + key + "\":\"" + new string('a', 64) + "\"}";
+        File.WriteAllText(Path.Combine(receiptFolder, InstalledCopy.ReceiptName), Receipt("good/file.txt"));
+        Check(InstallerEngine.ReadManifest(receiptFolder).ContainsKey("good/file.txt"), "a good receipt of the installation is read");
+        foreach (var key in new[] { "trailing.", "dir//file", "a/../b", "ends-with-space " })
+        {
+            File.WriteAllText(Path.Combine(receiptFolder, InstalledCopy.ReceiptName), Receipt(key));
+            var broken = Caught(() => InstallerEngine.ReadManifest(receiptFolder));
+            Check(broken is InvalidOperationException && StepCode.Of(broken) == null, "a receipt of the installation with the path \"" + key + "\" is a failed install and is not blamed on the installer (" + broken?.GetType().Name + ", code " + (StepCode.Of(broken) ?? "none") + ")");
+        }
     }
 
     // The two codes that a step of the update must really carry, tried through the code that refuses and not through an exception that the test tags itself: payload_invalid by the install step of a
@@ -282,12 +299,14 @@ try
         File.Copy(Path.Combine(Environment.SystemDirectory, "ping.exe"), Path.Combine(home, "ChatMCP.exe"));
         File.Copy(Path.Combine(Environment.SystemDirectory, "ping.exe"), Path.Combine(elsewhere, "ChatMCP.exe"));
         Process Run(string folder) => Process.Start(new ProcessStartInfo(Path.Combine(folder, "ChatMCP.exe"), "-n 120 127.0.0.1") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })!;
+        var imageTrouble = "";
         string? ImageOf(Process program)
         {
-            for (var attempt = 0; attempt < 100; attempt++)
+            for (var attempt = 0; attempt < 400; attempt++)
             {
-                try { return program.MainModule?.FileName; }
-                catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception) { Thread.Sleep(50); } // the image is not mapped yet
+                try { if (program.MainModule?.FileName is { } image) return image; imageTrouble = "MainModule was null"; }
+                catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception) { imageTrouble = error.GetType().Name + ": " + error.Message; } // the image is not mapped yet
+                Thread.Sleep(50);
             }
             return null;
         }
@@ -295,7 +314,7 @@ try
         try
         {
             var stuckImage = ImageOf(stuck); var neighbourImage = ImageOf(neighbour);
-            Check(stuckImage != null && neighbourImage != null && !string.Equals(stuckImage, neighbourImage, StringComparison.OrdinalIgnoreCase), "premise: two running programs called ChatMCP.exe, in two folders of the scratch area");
+            Check(stuckImage != null && neighbourImage != null && !string.Equals(stuckImage, neighbourImage, StringComparison.OrdinalIgnoreCase), "premise: two running programs called ChatMCP.exe, in two folders of the scratch area (" + (stuckImage ?? "none") + " / " + (neighbourImage ?? "none") + ", exited: " + stuck.HasExited + " / " + neighbour.HasExited + "; last trouble: " + imageTrouble + ")");
             var installation = Path.GetDirectoryName(stuckImage)!; // the folder as Windows spells it
             var clock = Stopwatch.StartNew();
             var neverCloses = Caught(() => InstallerEngine.CloseRunningProcesses(installation, 300));
@@ -351,9 +370,25 @@ try
         {
             tx.Add("a.txt", Bytes("new-a"));
             File.WriteAllText(pendingMarker(raced), "{\"from\":\"another update\"}"); // an update that began between the check and the commit
-            Throws(() => tx.Commit((_, _) => { }), "a marker that appears after the transaction was made is not overwritten: the commit stops");
+            Exception? stopped = null;
+            try { tx.Commit((_, _) => { }); } catch (Exception error) { stopped = error; }
+            Check(stopped != null, "a marker that appears after the transaction was made is not overwritten: the commit stops");
+            Check(StepCode.Of(stopped) == "pending_recovery", "and it says what is true, an update that did not finish and that this one found (pending_recovery: nothing of this one was touched), and not that this update stopped halfway (" + (StepCode.Of(stopped) ?? "no code") + ")");
         }
         Check(File.ReadAllText(pendingMarker(raced)) == "{\"from\":\"another update\"}" && File.ReadAllText(Path.Combine(raced, "a.txt")) == "old-a" && !File.Exists(pendingMarker(raced) + ".new"), "and that marker is as it was, nothing was replaced and nothing of ours is left");
+
+        // a marker that cannot be put in place for another reason (here a folder has its name: no marker FILE is there) is not an earlier update that did not finish, and is not said to be one
+        var blocked = Path.Combine(scratch, "marker place taken"); Directory.CreateDirectory(blocked);
+        File.WriteAllText(Path.Combine(blocked, "a.txt"), "old-a");
+        Directory.CreateDirectory(pendingMarker(blocked));
+        using (var tx = new InstallTransaction(blocked))
+        {
+            tx.Add("a.txt", Bytes("new-a"));
+            Exception? taken = null;
+            try { tx.Commit((_, _) => { }); } catch (Exception error) { taken = error; }
+            Check(taken != null && StepCode.Of(taken) != "pending_recovery", "a marker that cannot be written because its name is taken by a folder stops the commit without claiming that an earlier update did not finish (" + (taken?.GetType().Name ?? "no error") + ")");
+        }
+        Check(File.ReadAllText(Path.Combine(blocked, "a.txt")) == "old-a" && !File.Exists(pendingMarker(blocked) + ".new"), "and nothing was replaced and nothing of ours is left");
     }
     using (var gate = HubLifecycle.AcquireUpdateLock(root))
     {

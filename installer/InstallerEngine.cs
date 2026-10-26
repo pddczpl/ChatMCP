@@ -69,7 +69,7 @@ namespace ChatMCP.Installer
             return Convert.ToHexString(SHA256.HashData(stream));
         }
 
-        private static Dictionary<string, string> ReadManifest(string directory)
+        internal static Dictionary<string, string> ReadManifest(string directory)
         {
             var manifestPath = SafePath(directory, ManifestName);
             var files = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(manifestPath))
@@ -81,7 +81,14 @@ namespace ChatMCP.Installer
                     throw new InvalidOperationException("Installation manifest digest is invalid.");
             }
             var normalized = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var item in files) normalized.Add(InstallTransaction.Normalize(item.Key), item.Value);
+            foreach (var item in files)
+            {
+                string key;
+                // the receipt of the INSTALLATION follows the path rules of a payload, but is not one: a path it names that breaks them is a damaged installation, not "This installer is damaged"
+                try { key = InstallTransaction.Normalize(item.Key); }
+                catch (IOException) { throw new InvalidOperationException("Installation manifest path is invalid: " + item.Key); }
+                normalized.Add(key, item.Value);
+            }
             return normalized;
         }
 

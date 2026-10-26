@@ -4373,6 +4373,99 @@
      "new": "$shellKeysArgument = $shellKeysFile"
     }
    ]
+  },
+  {
+   "name": "gate-installer-looked-at-by-id",
+   "what": "the installer is looked at through its id and the handle is closed at once",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "desktop-shell/MainWindow.Update.cs",
+     "old": "_installer = Process.Start(info) ?? throw new IOException(\"The installer did not start.\");\n                        return _installer.Id;",
+     "new": "using var installer = Process.Start(info) ?? throw new IOException(\"The installer did not start.\");\n                        return installer.Id;"
+    }
+   ]
+  },
+  {
+   "name": "gate-installer-handle-kept-after-look",
+   "what": "the handle of the installer is not closed after the look",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "desktop-shell/MainWindow.Update.cs",
+     "old": "                _installer?.Dispose(); _installer = null;\n                if (seen == InstallerSighting.Exited)",
+     "new": "                if (seen == InstallerSighting.Exited)"
+    }
+   ]
+  },
+  {
+   "name": "gate-installer-handle-kept-after-refusal",
+   "what": "the handle of the installer is not closed when the update is refused",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "desktop-shell/MainWindow.Update.cs",
+     "old": "            catch (UpdateRefused refused)\n            {\n                _installer?.Dispose(); _installer = null;\n",
+     "new": "            catch (UpdateRefused refused)\n            {\n"
+    }
+   ]
+  },
+  {
+   "name": "gate-journal-written-with-writealltext",
+   "what": "the journal is written with File.WriteAllText, not flushed",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "        using (var journal = new FileStream(Path.Combine(workspace, \"journal.json\"), FileMode.CreateNew, FileAccess.Write, FileShare.None))\n        {\n            JsonSerializer.Serialize(journal, changes.Values);\n            journal.Flush(true);\n        }",
+     "new": "        File.WriteAllText(Path.Combine(workspace, \"journal.json\"), JsonSerializer.Serialize(changes.Values));"
+    }
+   ]
+  },
+  {
+   "name": "gate-journal-not-flushed",
+   "what": "the journal is written through a stream that is not flushed to the disk",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "            journal.Flush(true);\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "marker-race-untagged",
+   "what": "a marker that appeared meanwhile is reported without the code of an earlier update that did not finish",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "No files were changed.\").Tag(\"pending_recovery\"); }",
+     "new": "No files were changed.\"); }"
+    }
+   ]
+  },
+  {
+   "name": "marker-race-any-move-failure",
+   "what": "any failure to put the marker in place is said to be an earlier update that did not finish",
+   "patches": [
+    {
+     "file": "installer/InstallTransaction.cs",
+     "old": "catch (IOException) when (File.Exists(marker)) { throw new IOException(\"An update that did not finish",
+     "new": "catch (IOException) { throw new IOException(\"An update that did not finish"
+    }
+   ]
+  },
+  {
+   "name": "receipt-path-blamed-on-the-installer",
+   "what": "a path of the installation receipt that breaks the rules is reported as a damaged installer",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "                try { key = InstallTransaction.Normalize(item.Key); }\n                catch (IOException) { throw new InvalidOperationException(\"Installation manifest path is invalid: \" + item.Key); }",
+     "new": "                key = InstallTransaction.Normalize(item.Key);"
+    }
+   ]
   }
  ]
 }

@@ -148,6 +148,12 @@ const launchedAt = mainUpdate.indexOf('ReplyToPage(requestId, true, "launched")'
 const closeAt = mainUpdate.indexOf('Close();', launchedAt);
 check(lookAt > 0 && exitedAt > lookAt && launchedAt > exitedAt && closeAt > launchedAt, 'the window looks at the installer, keeps itself open with launch_failed when it has ended, and only then tells the page `launched` and closes');
 check(/WaitForInstaller\(\(\) => LookAtInstaller\(installerPid\), TimeSpan\.FromSeconds\(5\), TimeSpan\.FromMilliseconds\(100\), Task\.Delay\)/.test(mainUpdate), 'and gives it five seconds, looking every 100 ms');
+// It is looked at through the Process that Start returned, which stays open for the look: an installer that dies early frees its id, and another program could be given it within the five seconds, so a look by
+// id could take that program for the installer (and the window would close with nothing on the screen).
+// (it is closed after the look and on both ways out of a refusal: three places)
+const looksThroughTheHandle = (text) => /_installer\s*=\s*Process\.Start\(info\)/.test(text) && !/GetProcessById/.test(text) && !/using var installer\s*=\s*Process\.Start/.test(text) && (text.match(/_installer\?\.Dispose\(\)/g) ?? []).length === 3;
+check(looksThroughTheHandle(mainUpdate), 'the installer is looked at through the Process object that started it (kept open for the look), never through its id');
+check(!looksThroughTheHandle(mainUpdate.replace('_installer = Process.Start(info)', 'using var installer = Process.Start(info)')) && !looksThroughTheHandle(`${mainUpdate}\nProcess.GetProcessById(1);`), 'negative control: a look through the id, or a Process that is closed at once, is not accepted');
 check(/return await Task\.Run\(\(\) => environment\.Start\(start\)\)/.test(applier) && /RequireReadableByInstaller\(start\);\s*beforeStart\(\);/.test(applier), 'the installer is started off the thread of the window, and the arguments are read the way the installer will read them BEFORE the call that stops the monitor of the Hub');
 // The file is hashed through a handle that is held, so the program has to be started from where that handle says the file is, and not from the path that was walked to find it (a link above the folder of
 // updates could be pointed somewhere else between the hash and the start). The native tests prove it with a junction; this keeps the two sources from drifting apart.
@@ -160,6 +166,15 @@ const bridge = strip(read('native-shared/WebViewBridge.cs'));
 const opensOnlyForAPerson = /if\s*\(\s*e\.IsUserInitiated\s*&&\s*OpenLink\.TryGetExternalLink\(\s*e\.Uri\s*,\s*out\s+var\s+external\s*\)\s*\)\s*\{\s*open\(\s*external\s*\)\s*;\s*return;\s*\}/;
 check(opensOnlyForAPerson.test(bridge), 'the new-window handler hands a release page to the system browser only for a request that a person made (IsUserInitiated)');
 check(!opensOnlyForAPerson.test(bridge.replace('e.IsUserInitiated && ', '')) && !opensOnlyForAPerson.test(bridge.replace('e.IsUserInitiated &&', 'e.IsUserInitiated ||')), 'negative control: the same condition without the gesture, or with an "or", is not accepted');
+
+// ---- what the transaction puts on the disk before it changes a file is flushed to the disk ------------------------------------------------------------------------------------------------------
+// The marker says "keep the backup" and the journal says which file was backed up where; after a power cut the marker can be there with a journal that is empty or zeros (and backups that are only numbered), a
+// state nobody can recover from. So the staged files, the backups, the journal and the marker are each flushed to the disk (FileStream.Flush(true)) before the next thing is done. (The behaviour of a
+// power cut cannot be tried by a test; the source is held to the shape.)
+const transaction = strip(read('installer/InstallTransaction.cs'));
+const flushes = (text) => (text.match(/\.Flush\(true\)/g) ?? []).length;
+check(flushes(transaction) === 4 && !/File\.WriteAllText\(\s*Path\.Combine\(workspace,\s*"journal\.json"\)/.test(transaction) && /new FileStream\(\s*Path\.Combine\(workspace,\s*"journal\.json"\)/.test(transaction), 'the staged files, the backups, the journal and the marker are each flushed to the disk (four Flush(true)), and the journal is not written with File.WriteAllText');
+check(flushes(transaction.replace('journal.Flush(true);', '')) === 3 && /File\.WriteAllText\(\s*Path\.Combine\(workspace,\s*"journal\.json"\)/.test(transaction.replace(/new FileStream\(\s*Path\.Combine\(workspace,\s*"journal\.json"\)[^;]*;/, 'File.WriteAllText(Path.Combine(workspace, "journal.json"), x);')), 'negative control: a journal that is not flushed, or is written with WriteAllText, is not accepted');
 
 // ---- every reason an update can end with is carried by some step --------------------------------------------------------------------------------------------------------------------------
 // A code of the closed list (StepCode.Known, which the Hub's list and the page's list repeat) that no step of the installer ever carries is a reason the window and the page have words for and nobody ever

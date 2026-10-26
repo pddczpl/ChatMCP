@@ -641,7 +641,7 @@ export function createHubServer(manager, {port=3007,token=randomBytes(32).toStri
           case '/api/update/check': { if (!updates) throw updateUnavailable(); const answer = await updates.check(); result = { update: updateState(), checked: answer.checked, throttled: answer.throttled }; break; }
           case '/api/update/skip': if (!updates) throw updateUnavailable(); await updates.skip(payload.version); result = { update: updateState() }; break;
           case '/api/update/auto-check': if (!updates) throw updateUnavailable(); await updates.setAutoCheck(payload.enabled); result = { update: updateState() }; break;
-          // The download (lib/update-download.mjs): only from the owner's click, and the body is {version} and nothing else is read. It looks at the release again (signature, platform, version, room on the disk)
+          // The download (lib/update-download.mjs): only from the owner's click, and the body is {version} (and, for "Download again", again: true) and nothing else is read. It looks at the release again (signature, platform, version, room on the disk)
           // before it fetches one byte, then streams the installer to a .part file of the Hub's data folder. It is allowed while agent tasks run (only applying an update needs them idle) and it installs nothing.
           case '/api/update/download': { if (!updates || !downloads) throw updateUnavailable(); const answer = await downloads.start(payload); result = { update: updateState(), started: answer.started }; break; }
           case '/api/update/download-cancel': { if (!downloads) throw updateUnavailable(); const answer = await downloads.cancel(); result = { update: updateState(), cancelled: answer.cancelled }; break; }

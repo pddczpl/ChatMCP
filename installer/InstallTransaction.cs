@@ -104,7 +104,13 @@ internal sealed class InstallTransaction : IDisposable
             if (Hash(backup) != oldHash) throw new IOException("Upgrade backup checksum mismatch.");
             changes[item.Relative] = item with { Backup = backup, OldHash = oldHash };
         }
-        File.WriteAllText(Path.Combine(workspace, "journal.json"), JsonSerializer.Serialize(changes.Values));
+        // The journal says which file was backed up where, and the marker says "keep the backup": both are on the disk, flushed, before the first file changes (after a power cut a marker with a journal that is
+        // empty or zeros is a backup that nobody can map back to its files).
+        using (var journal = new FileStream(Path.Combine(workspace, "journal.json"), FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        {
+            JsonSerializer.Serialize(journal, changes.Values);
+            journal.Flush(true);
+        }
         WritePendingMarker();
         retain = true;
         try
@@ -181,7 +187,9 @@ internal sealed class InstallTransaction : IDisposable
                 JsonSerializer.Serialize(pending, new { version = 1, backupDirectory = workspace });
                 pending.Flush(true);
             }
-            File.Move(temporary, marker);
+            try { File.Move(temporary, marker); }
+            // another update began between the check of the constructor and now: nothing of this one has been touched, and the words must say that and not that this update stopped halfway
+            catch (IOException) when (File.Exists(marker)) { throw new IOException("An update that did not finish has left " + PendingName + " here. No files were changed.").Tag("pending_recovery"); }
         }
         catch
         {

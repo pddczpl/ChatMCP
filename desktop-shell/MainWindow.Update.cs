@@ -12,6 +12,9 @@ namespace ChatMCP.Desktop
     public partial class MainWindow
     {
         private bool _applyingUpdate;
+        // The installer, as the Process that Start returned, kept open until the look at it is over: once an installer has ended its id is free, and another program could be given it within the five seconds, so
+        // the look is at this handle and never at an id.
+        private Process? _installer;
 
         private void ReplyToPage(string requestId, bool ok, string code)
         {
@@ -45,8 +48,8 @@ namespace ChatMCP.Desktop
                     },
                     Start = info =>
                     {
-                        using var installer = Process.Start(info) ?? throw new IOException("The installer did not start.");
-                        return installer.Id;
+                        _installer = Process.Start(info) ?? throw new IOException("The installer did not start.");
+                        return _installer.Id;
                     },
                 };
                 // the monitor of the Hub is stopped only when everything has been checked and the installer is about to start: it would otherwise tell the person that the Hub went away
@@ -54,6 +57,7 @@ namespace ChatMCP.Desktop
                 // The installer waits for this process to exit, so one that has already ended did not start well and replaced nothing (it could not read its arguments, say): this window stays open and says so,
                 // and the monitor is started again below. Otherwise the installer is given a few seconds to put its own window on the screen, so that the person never looks at an empty desktop.
                 var seen = await UpdateApplier.WaitForInstaller(() => LookAtInstaller(installerPid), TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(100), Task.Delay);
+                _installer?.Dispose(); _installer = null;
                 if (seen == InstallerSighting.Exited) throw new UpdateRefused("launch_failed", "the installer ended before this window closed");
                 ReplyToPage(requestId, true, "launched");
                 // The installer waits for this process to exit; the Hub is left running, as when the window is closed by hand, and the installer stops it itself.
@@ -61,29 +65,31 @@ namespace ChatMCP.Desktop
             }
             catch (UpdateRefused refused)
             {
+                _installer?.Dispose(); _installer = null;
                 if (monitorStopped && !IsDisposed) _hubMonitor.Start();
                 ReplyToPage(requestId, false, refused.Code);
                 _applyingUpdate = false;
             }
             catch (Exception)
             {
+                _installer?.Dispose(); _installer = null;
                 if (monitorStopped && !IsDisposed) _hubMonitor.Start();
                 ReplyToPage(requestId, false, "launch_failed");
                 _applyingUpdate = false;
             }
         }
 
-        /// <summary>What the installer with this id is doing now: its window is up, it has ended (or no process has the id any more), or neither (null: running, no window yet, or it cannot be looked at).</summary>
-        private static InstallerSighting? LookAtInstaller(int processId)
+        /// <summary>What the installer that was started is doing now (a look at its handle, which is still open, and not at its id): its window is up, it has ended, or neither (null: running, no window yet, or it cannot be looked at).</summary>
+        private InstallerSighting? LookAtInstaller(int processId)
         {
+            var installer = _installer;
+            if (installer == null || installer.Id != processId) return null;
             try
             {
-                using var installer = Process.GetProcessById(processId);
                 installer.Refresh();
                 if (installer.HasExited) return InstallerSighting.Exited;
                 return installer.MainWindowHandle != IntPtr.Zero ? InstallerSighting.Window : null;
             }
-            catch (ArgumentException) { return InstallerSighting.Exited; }
             catch (Exception) { return null; }
         }
     }
