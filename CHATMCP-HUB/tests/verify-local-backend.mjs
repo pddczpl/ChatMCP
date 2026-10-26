@@ -479,6 +479,8 @@ try {
     equal(response.status, 200, 'shutdown accepted');
     const code = await Promise.race([exited, sleep(20_000).then(() => 'timeout')]);
     equal(code, 0, `clean exit\n${output}`);
+    // close() writes one line per step as the step begins, and "done" before the exit: a log that ends in the middle names the step that hung (a Windows E2E teardown was once blamed on the Hub for lack of this).
+    equal([...output.matchAll(/Stop: ([a-z ]+) \(\+\d+ ms\)/g)].map((match) => match[1]), ['terminal', 'agent', 'manager', 'server', 'session', 'instance lock', 'done'], 'the stop of the Hub leaves one line per step, and ends with "done"');
     await fs.access(path.join(state, 'hub-state.json'));
     checks += 1;
   });

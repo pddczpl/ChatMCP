@@ -858,17 +858,23 @@ export async function main(args = process.argv.slice(2), env = process.env) {
     resumer.stop();
     updates.stop();
     manager.log('Đang dừng DatGold local Hub...');
-    const deadline = setTimeout(() => process.exit(1), 12000);
+    // One short line per step as it begins, with the time since the stop began: a log that ends in the middle names the step the Hub was in, and so does the line of the deadline.
+    const began = Date.now();
+    let step = 'start';
+    const mark = (name) => { step = name; manager.log(`Stop: ${name} (+${Date.now() - began} ms)`); };
+    const deadline = setTimeout(() => { manager.log(`Stop: still in ${step} after 12 s, exiting`); process.exit(1); }, 12000);
     manager.codingOrchestrator?.cancel();
     manager.dynamicDelegates?.cancel();
-    manager.permissions?.shutdown(); await manager.terminal?.close(); manager.intelligence?.close();
-    await agent.shutdown().catch(() => {});
-    await manager.shutdown().catch(() => {});
-    server.closeAllConnections();
+    manager.permissions?.shutdown();
+    mark('terminal'); await manager.terminal?.close(); manager.intelligence?.close();
+    mark('agent'); await agent.shutdown().catch(() => {});
+    mark('manager'); await manager.shutdown().catch(() => {});
+    mark('server'); server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
-    await session?.remove().catch(() => {});
-    await releaseInstance().catch(() => {});
+    mark('session'); await session?.remove().catch(() => {});
+    mark('instance lock'); await releaseInstance().catch(() => {});
     clearTimeout(deadline);
+    mark('done');
     process.exit(0);
   }
   process.once('SIGINT', () => void close());
