@@ -7,9 +7,10 @@
 //
 //   node scripts/tests/native-lifecycle/run-mutations.mjs [--only name,name] [--json file] [--timeout seconds] [--keep] [--check] [--list mutations.json]
 //
-// A list is {"mutations": [{"name", "what", "run"?: "native" | "gate", "equivalent"?, "patches": [{"file", "old", "new"}]}]}. `file` is relative to the repository root and must be one of the files the copy holds;
+// A list is {"mutations": [{"name", "what", "run"?: "native" | "gate" | "payload", "equivalent"?, "patches": [{"file", "old", "new"}]}]}. `file` is relative to the repository root and must be one of the files the copy holds;
 // `old` must occur exactly once in it (an ambiguous or stale pattern is an ERROR, never guessed at). `run` says what judges the mutation: "native" (the default) builds the native test project and runs it,
-// "gate" runs CHATMCP-HUB/tests/verify-update-apply.mjs, the static gate for the build and the source. A mutation that does not COMPILE is INVALID, not killed: a compiler error is not a test that noticed
+// "gate" runs CHATMCP-HUB/tests/verify-update-apply.mjs, the static gate for the build and the source, "payload" runs scripts/tests/Test-InstallerPayload.ps1, the PowerShell tests of the build's own helpers
+// (the proof of the key list the build embeds). A mutation that does not COMPILE is INVALID, not killed: a compiler error is not a test that noticed
 // something, so the list must hold only mutations that build. `"equivalent": "why"` marks a mutation that provably changes no behaviour; if it survives it is EQUIVALENT and does not fail the run, and if it
 // is killed after all the annotation is stale and the note says so. `"needs": ["symlink"]` marks a mutation that only a machine able to make a link to a file can judge (on Windows that takes a privilege): where it
 // cannot, the test says so and passes, and the mutation is N/A there, never counted as survived.
@@ -30,6 +31,7 @@ const HERE = path.relative(REPO, path.dirname(fileURLToPath(import.meta.url))).r
 const COPIED = [
   'native-shared', 'installer', 'desktop-shell', HERE,
   'scripts/Build-Installer.ps1', 'scripts/tests/Test-NativeLifecycle.ps1',
+  'scripts/InstallerPayload.ps1', 'scripts/tests/Test-InstallerPayload.ps1', 'scripts/intelligence-runtime/licenses/ripgrep', 'CHATMCP-HUB/lib/assemble.mjs', // what the PowerShell tests of the build read
   'CHATMCP-HUB/lib/release-keys.json', 'CHATMCP-HUB/tests/verify-update-apply.mjs',
   'CHATMCP-HUB/tests/fixtures/release-verify-vectors.json', 'CHATMCP-HUB/tests/fixtures/update-result-vectors.json', 'CHATMCP-HUB/tests/fixtures/active-work-cases.json',
   'docs/WINDOWS-SETUP.md', // the recovery by hand that the guide gives is run by Program.cs from this text
@@ -67,7 +69,7 @@ async function load(file) {
   for (const mutation of list.mutations) {
     if (typeof mutation.name !== 'string' || !mutation.name || names.has(mutation.name)) throw new Error(`every mutation needs a unique name (${mutation.name})`);
     names.add(mutation.name);
-    if (mutation.run !== undefined && !['native', 'gate'].includes(mutation.run)) throw new Error(`${mutation.name}: run is "native" or "gate"`);
+    if (mutation.run !== undefined && !['native', 'gate', 'payload'].includes(mutation.run)) throw new Error(`${mutation.name}: run is "native", "gate" or "payload"`);
     if (mutation.needs !== undefined && (!Array.isArray(mutation.needs) || mutation.needs.some((need) => !(need in CAPABILITIES)))) throw new Error(`${mutation.name}: needs is a list of ${Object.keys(CAPABILITIES).join(', ')}`);
     if (mutation.equivalent !== undefined && (typeof mutation.equivalent !== 'string' || mutation.equivalent.trim().length < 20)) throw new Error(`${mutation.name}: "equivalent" must explain why, in a sentence`);
     if (!Array.isArray(mutation.patches) || mutation.patches.length === 0) throw new Error(`${mutation.name} has no patches`);
@@ -154,15 +156,19 @@ async function main() {
     const execute = () => run('dotnet', ['run', '--no-build', '--project', project, '-c', 'Release'], { cwd: copy, timeout: opts.timeout });
     // the gate must not compare the list of mutations with a copy that has a mutation in it: it is told so
     const gate = () => run(process.execPath, [path.join(copy, 'CHATMCP-HUB', 'tests', 'verify-update-apply.mjs')], { cwd: copy, timeout: opts.timeout, env: { ...process.env, CHATMCP_NATIVE_MUTATION_COPY: '1' } });
+    // the PowerShell tests of the build's helpers: they read the copy of the scripts next to them
+    const payload = () => run('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(copy, 'scripts', 'tests', 'Test-InstallerPayload.ps1')], { cwd: copy, timeout: opts.timeout });
 
     console.log(`Native mutation run: ${mutations.length} mutation(s) - ${HERE}/${path.basename(opts.list)} - node ${process.version} on ${process.platform}`);
     const first = await build();
     if (first.code !== 0) { console.error(`The copy does not build (exit ${first.code}):\n${first.output.trimEnd().split(/\r?\n/).slice(-20).join('\n')}`); return 2; }
     const baseline = await execute();
     const baselineGate = await gate();
+    const baselinePayload = await payload();
     if (baseline.code !== 0 || baseline.timedOut || !/"result":"PASS"/.test(baseline.output)) { console.error(`The native tests do not pass on the unmodified copy (exit ${baseline.code}), so no mutation can be judged.\n${baseline.output.trimEnd().split(/\r?\n/).slice(-15).join('\n')}`); return 2; }
     if (baselineGate.code !== 0) { console.error(`The static gate does not pass on the unmodified copy (exit ${baselineGate.code}).\n${baselineGate.output.trimEnd().split(/\r?\n/).slice(-15).join('\n')}`); return 2; }
-    console.log(`baseline  PASS   native ${baseline.seconds}s, gate ${baselineGate.seconds}s`);
+    if (baselinePayload.code !== 0 || !/Installer payload regression \(\d+ passed, 0 failed/.test(baselinePayload.output)) { console.error(`The PowerShell tests of the build do not pass on the unmodified copy (exit ${baselinePayload.code}).\n${baselinePayload.output.trimEnd().split(/\r?\n/).slice(-15).join('\n')}`); return 2; }
+    console.log(`baseline  PASS   native ${baseline.seconds}s, gate ${baselineGate.seconds}s, payload ${baselinePayload.seconds}s`);
 
     const results = [];
     const can = Object.fromEntries(Object.entries(CAPABILITIES).map(([need, probe]) => [need, probe()]));
@@ -183,6 +189,12 @@ async function main() {
           if (judged.timedOut) result = { status: 'KILLED', note: 'the gate hung and was stopped' };
           else if (judged.code === 0) result = mutation.equivalent ? { status: 'EQUIVALENT', note: mutation.equivalent } : { status: 'SURVIVED', note: 'the gate passed on the broken source' };
           else result = { status: 'KILLED', note: `exit ${judged.code}: ${(judged.output.split(/\r?\n/).find((line) => /AssertionError/.test(line)) ?? '').replace(/^AssertionError \[ERR_ASSERTION\]: /, '').slice(0, 180)}${mutation.equivalent ? ' (annotated as equivalent, yet killed: the annotation is stale)' : ''}` };
+          result.seconds = judged.seconds;
+        } else if (mutation.run === 'payload') {
+          const judged = await payload();
+          if (judged.timedOut) result = { status: 'KILLED', note: 'the tests hung and were stopped' };
+          else if (judged.code === 0) result = mutation.equivalent ? { status: 'EQUIVALENT', note: mutation.equivalent } : { status: 'SURVIVED', note: 'the PowerShell tests passed on the broken script' };
+          else result = { status: 'KILLED', note: `exit ${judged.code}: ${(judged.output.split(/\r?\n/).find((line) => /FAIL:/.test(line)) ?? judged.output.trim().split(/\r?\n/)[0] ?? '').replace(/^.*?(?=FAIL:)/, '').slice(0, 180)}${mutation.equivalent ? ' (annotated as equivalent, yet killed: the annotation is stale)' : ''}` };
           result.seconds = judged.seconds;
         } else {
           const built = await build();

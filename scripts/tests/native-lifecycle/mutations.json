@@ -1608,8 +1608,8 @@
    "patches": [
     {
      "file": "native-shared/UpdateApplier.cs",
-     "old": "UseShellExecute = false, WorkingDirectory = update.Folder",
-     "new": "UseShellExecute = true, WorkingDirectory = update.Folder"
+     "old": "UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(update.StartPath)!",
+     "new": "UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(update.StartPath)!"
     }
    ]
   },
@@ -3010,8 +3010,8 @@
    "patches": [
     {
      "file": "native-shared/UpdateApplier.cs",
-     "old": "UseShellExecute = false, WorkingDirectory = update.Folder",
-     "new": "UseShellExecute = true, WorkingDirectory = update.Folder"
+     "old": "UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(update.StartPath)!",
+     "new": "UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(update.StartPath)!"
     }
    ]
   },
@@ -3555,6 +3555,662 @@
      "file": "native-shared/UpdateApplier.cs",
      "old": "            RequireReadableByInstaller(start);\n            beforeStart();",
      "new": "            beforeStart();\n            RequireReadableByInstaller(start);"
+    }
+   ]
+  },
+  {
+   "name": "payload-ambient-wrong-workflow-name",
+   "what": "a publish workflow is not recognised by its name",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ($env:GITHUB_WORKFLOW -like 'Publish*' -and -not [string]::IsNullOrEmpty($env:ReleaseKeysFile)) {",
+     "new": "if ($env:GITHUB_WORKFLOW -like 'Publisher*' -and -not [string]::IsNullOrEmpty($env:ReleaseKeysFile)) {"
+    }
+   ]
+  },
+  {
+   "name": "payload-ambient-refused-everywhere",
+   "what": "the variable is refused in every workflow, not only a publish one",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ($env:GITHUB_WORKFLOW -like 'Publish*' -and -not [string]::IsNullOrEmpty($env:ReleaseKeysFile)) {",
+     "new": "if (-not [string]::IsNullOrEmpty($env:ReleaseKeysFile)) {"
+    }
+   ]
+  },
+  {
+   "name": "payload-ambient-publish-always-refused",
+   "what": "a publish workflow is refused whether the variable is set or not",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ($env:GITHUB_WORKFLOW -like 'Publish*' -and -not [string]::IsNullOrEmpty($env:ReleaseKeysFile)) {",
+     "new": "if ($env:GITHUB_WORKFLOW -like 'Publish*') {"
+    }
+   ]
+  },
+  {
+   "name": "payload-ambient-or-instead-of-and",
+   "what": "the refusal needs a publish workflow OR the variable",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ($env:GITHUB_WORKFLOW -like 'Publish*' -and -not [string]::IsNullOrEmpty($env:ReleaseKeysFile)) {",
+     "new": "if ($env:GITHUB_WORKFLOW -like 'Publish*' -or -not [string]::IsNullOrEmpty($env:ReleaseKeysFile)) {"
+    }
+   ]
+  },
+  {
+   "name": "payload-contains-carries-one-byte-short",
+   "what": "a block carries one byte too few into the next, so a match that a block ends in the middle of is lost",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$carried = $Needle.Length - 1",
+     "new": "$carried = $Needle.Length - 2"
+    }
+   ]
+  },
+  {
+   "name": "payload-contains-reads-over-the-carry",
+   "what": "the next block is read over the bytes that were carried",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$stream.Read($buffer, $held, $BlockSize)",
+     "new": "$stream.Read($buffer, 0, $BlockSize)"
+    }
+   ]
+  },
+  {
+   "name": "payload-contains-end-of-file-is-found",
+   "what": "the end of the file counts as a match",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ($read -le 0) { return $false }",
+     "new": "if ($read -le 0) { return $true }"
+    }
+   ]
+  },
+  {
+   "name": "payload-contains-start-of-block-missed",
+   "what": "a match at the very start of a block is not counted",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": ".IndexOf($needleText, [StringComparison]::Ordinal) -ge 0",
+     "new": ".IndexOf($needleText, [StringComparison]::Ordinal) -gt 0"
+    }
+   ]
+  },
+  {
+   "name": "payload-contains-culture-compare",
+   "what": "the bytes are compared as text of a culture (which ignores some characters) and not one to one",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": ".IndexOf($needleText, [StringComparison]::Ordinal)",
+     "new": ".IndexOf($needleText, [StringComparison]::InvariantCultureIgnoreCase)"
+    }
+   ]
+  },
+  {
+   "name": "payload-contains-carry-longer-than-read",
+   "what": "more bytes are carried than the block holds",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$held = [Math]::Min($carried, $length)",
+     "new": "$held = $carried"
+    }
+   ]
+  },
+  {
+   "name": "payload-contains-empty-needle-allowed",
+   "what": "an empty list of bytes is looked for (it is in every file)",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ($Needle.Length -lt 1) {",
+     "new": "if ($Needle.Length -lt 0) {"
+    }
+   ]
+  },
+  {
+   "name": "payload-contains-empty-block-allowed",
+   "what": "a block of no bytes is allowed",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ($BlockSize -lt 1) {",
+     "new": "if ($BlockSize -lt 0) {"
+    }
+   ]
+  },
+  {
+   "name": "payload-contains-latin1-becomes-utf8",
+   "what": "the bytes are turned into text as UTF-8, which is not one to one",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$latin1 = [Text.Encoding]::GetEncoding(28591)",
+     "new": "$latin1 = [Text.Encoding]::UTF8"
+    }
+   ]
+  },
+  {
+   "name": "payload-built-in-inverted",
+   "what": "a program passes when it does NOT carry the list",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if (-not (Test-InstallerFileContains -Path $Executable -Needle $keys)) {",
+     "new": "if (Test-InstallerFileContains -Path $Executable -Needle $keys) {"
+    }
+   ]
+  },
+  {
+   "name": "payload-built-in-empty-list-allowed",
+   "what": "an empty key list is not refused by the proof",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ($keys.Length -lt 1) {",
+     "new": "if ($keys.Length -lt 0) {"
+    }
+   ]
+  },
+  {
+   "name": "payload-built-in-missing-program-unchecked",
+   "what": "a program that is not there is not named",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if (-not (Test-Path -LiteralPath $Executable -PathType Leaf)) { throw \"The program that should carry",
+     "new": "if ($false) { throw \"The program that should carry"
+    }
+   ]
+  },
+  {
+   "name": "payload-built-in-missing-list-unchecked",
+   "what": "a key list that is not there is not named",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if (-not (Test-Path -LiteralPath $KeysFile -PathType Leaf)) { throw \"The key list that was meant to be built in is not a file",
+     "new": "if ($false) { throw \"The key list that was meant to be built in is not a file"
+    }
+   ]
+  },
+  {
+   "name": "payload-built-in-never-throws",
+   "what": "the proof throws for nothing",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "        throw \"$Executable does not carry the key list that was meant to be built into it",
+     "new": "        return # \"$Executable does not carry the key list that was meant to be built into it"
+    }
+   ]
+  },
+  {
+   "name": "payload-shipped-inverted",
+   "what": "a payload passes when its list DIFFERS",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": ".Hash -ne (Get-FileHash -LiteralPath $KeysFile",
+     "new": ".Hash -eq (Get-FileHash -LiteralPath $KeysFile"
+    }
+   ]
+  },
+  {
+   "name": "payload-shipped-wrong-file",
+   "what": "the Hub of the payload is looked for under another name",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$shipped = Join-Path $PayloadDirectory 'CHATMCP-HUB\\lib\\release-keys.json'",
+     "new": "$shipped = Join-Path $PayloadDirectory 'CHATMCP-HUB\\lib\\release-key.json'"
+    }
+   ]
+  },
+  {
+   "name": "payload-shipped-never-compares",
+   "what": "the two lists are not compared",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ((Get-FileHash -LiteralPath $shipped -Algorithm SHA256).Hash -ne (Get-FileHash",
+     "new": "if ($false -and (Get-FileHash -LiteralPath $shipped -Algorithm SHA256).Hash -ne (Get-FileHash"
+    }
+   ]
+  },
+  {
+   "name": "payload-shipped-missing-hub-list-unchecked",
+   "what": "a payload with no key list for the Hub is not named",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if (-not (Test-Path -LiteralPath $shipped -PathType Leaf)) { throw \"The Hub of the payload has no key list",
+     "new": "if ($false) { throw \"The Hub of the payload has no key list"
+    }
+   ]
+  },
+  {
+   "name": "payload-build-ambient-not-asserted",
+   "what": "the build does not ask for the variable to be absent",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Assert-InstallerNoAmbientReleaseKeysFile\nif ($ReleaseKeysFile -ne '') {",
+     "new": "if ($ReleaseKeysFile -ne '') {"
+    }
+   ]
+  },
+  {
+   "name": "payload-build-ambient-after-first-step",
+   "what": "the variable is looked at only after the prerequisites",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Assert-InstallerNoAmbientReleaseKeysFile\nif ($ReleaseKeysFile -ne '') {",
+     "new": "if ($ReleaseKeysFile -ne '') {"
+    },
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "# 1. Prerequisite checks\n",
+     "new": "# 1. Prerequisite checks\nAssert-InstallerNoAmbientReleaseKeysFile\n"
+    }
+   ]
+  },
+  {
+   "name": "payload-build-built-in-not-asserted",
+   "what": "the program that is built is not searched for its list",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Assert-InstallerReleaseKeysBuiltIn -Executable $desktopExe -KeysFile $shellKeysFile\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-build-built-in-other-program",
+   "what": "another file than the published shell is searched",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Assert-InstallerReleaseKeysBuiltIn -Executable $desktopExe -KeysFile $shellKeysFile",
+     "new": "Assert-InstallerReleaseKeysBuiltIn -Executable $shellCsproj -KeysFile $shellKeysFile"
+    }
+   ]
+  },
+  {
+   "name": "payload-build-built-in-other-list",
+   "what": "the program is searched for another list than the one it was built with",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Assert-InstallerReleaseKeysBuiltIn -Executable $desktopExe -KeysFile $shellKeysFile",
+     "new": "Assert-InstallerReleaseKeysBuiltIn -Executable $desktopExe -KeysFile $ReleaseKeysFile"
+    }
+   ]
+  },
+  {
+   "name": "payload-build-built-in-after-payload-copy",
+   "what": "the program is searched only after it went into the payload",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Assert-InstallerReleaseKeysBuiltIn -Executable $desktopExe -KeysFile $shellKeysFile\n",
+     "new": ""
+    },
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Copy-InstallerDesktopPayload -PublishDirectory $shellDist -Destination $payloadDir\n",
+     "new": "Copy-InstallerDesktopPayload -PublishDirectory $shellDist -Destination $payloadDir\nAssert-InstallerReleaseKeysBuiltIn -Executable $desktopExe -KeysFile $shellKeysFile\n"
+    }
+   ]
+  },
+  {
+   "name": "payload-build-shipped-not-asserted",
+   "what": "the list in the payload is not compared with the one the shell was built with",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Assert-InstallerReleaseKeysShipped -PayloadDirectory $payloadDir -KeysFile $shellKeysFile\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-build-shipped-other-list",
+   "what": "the payload is compared with another list than the one the shell was built with",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Assert-InstallerReleaseKeysShipped -PayloadDirectory $payloadDir -KeysFile $shellKeysFile",
+     "new": "Assert-InstallerReleaseKeysShipped -PayloadDirectory $payloadDir -KeysFile $ReleaseKeysFile"
+    }
+   ]
+  },
+  {
+   "name": "payload-build-shipped-before-the-copy",
+   "what": "the payload is compared before the list of a test build is copied into it",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Assert-InstallerReleaseKeysShipped -PayloadDirectory $payloadDir -KeysFile $shellKeysFile\n",
+     "new": ""
+    },
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Copy-InstallerSourcePayload -RepositoryRoot $repoRoot -Destination $payloadDir\nif ($ReleaseKeysFile -ne '') {",
+     "new": "Copy-InstallerSourcePayload -RepositoryRoot $repoRoot -Destination $payloadDir\nAssert-InstallerReleaseKeysShipped -PayloadDirectory $payloadDir -KeysFile $shellKeysFile\nif ($ReleaseKeysFile -ne '') {"
+    }
+   ]
+  },
+  {
+   "name": "staging-start-path-is-found-path",
+   "what": "the start path of a verified update is the path that was walked to find the file",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "new VerifiedUpdate(version, folder, path, FinalPathOf(stream.SafeFileHandle), kid, installer.Bytes, stream)",
+     "new": "new VerifiedUpdate(version, folder, path, path, kid, installer.Bytes, stream)"
+    }
+   ]
+  },
+  {
+   "name": "applier-starts-from-found-path",
+   "what": "the installer is started from the path that was found, not from the real place of the file that was hashed",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "new ProcessStartInfo(update.StartPath) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(update.StartPath)! }",
+     "new": "new ProcessStartInfo(update.InstallerPath) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(update.StartPath)! }"
+    }
+   ]
+  },
+  {
+   "name": "applier-working-directory-is-found-folder",
+   "what": "the installer runs in the folder that was found, not in the one the file really is in",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "WorkingDirectory = Path.GetDirectoryName(update.StartPath)! }",
+     "new": "WorkingDirectory = update.Folder }"
+    }
+   ]
+  },
+  {
+   "name": "gate-applier-starts-from-found-path",
+   "what": "the installer is started from the path that was found (judged by the static gate)",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "native-shared/UpdateApplier.cs",
+     "old": "new ProcessStartInfo(update.StartPath) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(update.StartPath)! }",
+     "new": "new ProcessStartInfo(update.InstallerPath) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(update.StartPath)! }"
+    }
+   ]
+  },
+  {
+   "name": "gate-staging-start-path-is-found-path",
+   "what": "the start path of a verified update is the path that was walked to find the file (judged by the static gate)",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "new VerifiedUpdate(version, folder, path, FinalPathOf(stream.SafeFileHandle), kid, installer.Bytes, stream)",
+     "new": "new VerifiedUpdate(version, folder, path, path, kid, installer.Bytes, stream)"
+    }
+   ]
+  },
+  {
+   "name": "plain-path-unc-case-sensitive",
+   "what": "Windows spelling UNC in lower case is not understood",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "StringComparison.OrdinalIgnoreCase)) plain = @\"\\\\\" + path[8..];",
+     "new": "StringComparison.Ordinal)) plain = @\"\\\\\" + path[8..];"
+    }
+   ]
+  },
+  {
+   "name": "plain-path-unc-offset",
+   "what": "a network path loses one character too few after the prefix",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "plain = @\"\\\\\" + path[8..];",
+     "new": "plain = @\"\\\\\" + path[7..];"
+    }
+   ]
+  },
+  {
+   "name": "plain-path-drive-letter-unchecked",
+   "what": "any character is taken for the letter of a drive",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": " && char.IsAsciiLetter(path[4]) && path[5] == ':'",
+     "new": " && path[5] == ':'"
+    }
+   ]
+  },
+  {
+   "name": "plain-path-colon-unchecked",
+   "what": "the colon after the letter of a drive is not looked for",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "path[5] == ':' && path[6] == '\\\\') plain = path[4..];",
+     "new": "path[6] == '\\\\') plain = path[4..];"
+    }
+   ]
+  },
+  {
+   "name": "plain-path-separator-unchecked",
+   "what": "the separator after the colon is not looked for",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "path[5] == ':' && path[6] == '\\\\') plain = path[4..];",
+     "new": "path[5] == ':') plain = path[4..];"
+    }
+   ]
+  },
+  {
+   "name": "plain-path-short-string-guard",
+   "what": "a string that is just the prefix and a drive is indexed past its end",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "path.Length > 6 && path.StartsWith(@\"\\\\?\\\", StringComparison.Ordinal)",
+     "new": "path.Length > 5 && path.StartsWith(@\"\\\\?\\\", StringComparison.Ordinal)"
+    }
+   ]
+  },
+  {
+   "name": "plain-path-bound-inclusive",
+   "what": "a plain path of 260 characters is used",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "return plain.Length < MaxPlainPath ? plain : path;",
+     "new": "return plain.Length <= MaxPlainPath ? plain : path;"
+    }
+   ]
+  },
+  {
+   "name": "plain-path-bound-constant",
+   "what": "the longest plain path is one character more",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "private const int MaxPlainPath = 260;",
+     "new": "private const int MaxPlainPath = 261;"
+    }
+   ]
+  },
+  {
+   "name": "plain-path-never-plain",
+   "what": "the extended form is always kept",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "return plain.Length < MaxPlainPath ? plain : path;",
+     "new": "return path;"
+    }
+   ]
+  },
+  {
+   "name": "final-path-failure-ignored",
+   "what": "a handle whose place cannot be told gives an empty place and no refusal",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if (needed == 0 || needed >= buffer.Capacity) throw new UpdateRefused",
+     "new": "if (needed >= buffer.Capacity) throw new UpdateRefused"
+    }
+   ]
+  },
+  {
+   "name": "final-path-no-second-try",
+   "what": "a place longer than the first buffer is refused instead of asked again with room",
+   "patches": [
+    {
+     "file": "native-shared/UpdateStaging.cs",
+     "old": "if (needed >= buffer.Capacity) { buffer = new StringBuilder((int)needed + 1); needed = GetFinalPathNameByHandleW(handle, buffer, (uint)buffer.Capacity, 0); }\n",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "install-files-missing-payload-untagged",
+   "what": "a setup with no payload refuses without saying so (the code of the step is lost)",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "?? throw new InvalidOperationException(\"The standalone installer payload is missing. No files were replaced.\").Tag(\"payload_invalid\");",
+     "new": "?? throw new InvalidOperationException(\"The standalone installer payload is missing. No files were replaced.\");"
+    }
+   ]
+  },
+  {
+   "name": "close-window-untagged",
+   "what": "the window that does not close is refused without saying so",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "throw new IOException(\"Close the installed DatGold window before upgrading. No files were replaced.\").Tag(\"window_open\");",
+     "new": "throw new IOException(\"Close the installed DatGold window before upgrading. No files were replaced.\");"
+    }
+   ]
+  },
+  {
+   "name": "close-window-wait-skipped",
+   "what": "the app is not given any time to close",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "if (!proc.WaitForExit(waitMilliseconds))",
+     "new": "if (!proc.WaitForExit(0))"
+    }
+   ]
+  },
+  {
+   "name": "close-window-wait-fixed",
+   "what": "the app is always given five seconds, whatever it was told",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "if (!proc.WaitForExit(waitMilliseconds))",
+     "new": "if (!proc.WaitForExit(5000))"
+    }
+   ]
+  },
+  {
+   "name": "close-window-never-refuses",
+   "what": "the app that does not close is not refused",
+   "patches": [
+    {
+     "file": "installer/InstallerEngine.cs",
+     "old": "if (!proc.WaitForExit(waitMilliseconds))",
+     "new": "if (false)"
+    }
+   ]
+  },
+  {
+   "name": "gate-bridge-no-gesture",
+   "what": "script in the page can start the system browser (no user gesture asked for)",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "native-shared/WebViewBridge.cs",
+     "old": "if (e.IsUserInitiated && OpenLink.TryGetExternalLink(e.Uri, out var external))",
+     "new": "if (OpenLink.TryGetExternalLink(e.Uri, out var external))"
+    }
+   ]
+  },
+  {
+   "name": "gate-bridge-gesture-or",
+   "what": "the system browser opens for a person or for a release page",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "native-shared/WebViewBridge.cs",
+     "old": "e.IsUserInitiated && OpenLink",
+     "new": "e.IsUserInitiated || OpenLink"
+    }
+   ]
+  },
+  {
+   "name": "gate-bridge-gesture-negated",
+   "what": "the system browser opens only for what a person did NOT make",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "native-shared/WebViewBridge.cs",
+     "old": "e.IsUserInitiated && OpenLink",
+     "new": "!e.IsUserInitiated && OpenLink"
     }
    ]
   }
