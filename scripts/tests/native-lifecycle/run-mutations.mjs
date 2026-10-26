@@ -73,6 +73,8 @@ async function load(file) {
     if (mutation.needs !== undefined && (!Array.isArray(mutation.needs) || mutation.needs.some((need) => !(need in CAPABILITIES)))) throw new Error(`${mutation.name}: needs is a list of ${Object.keys(CAPABILITIES).join(', ')}`);
     if (mutation.equivalent !== undefined && (typeof mutation.equivalent !== 'string' || mutation.equivalent.trim().length < 20)) throw new Error(`${mutation.name}: "equivalent" must explain why, in a sentence`);
     if (!Array.isArray(mutation.patches) || mutation.patches.length === 0) throw new Error(`${mutation.name} has no patches`);
+    // The native tests build C# and nothing else: a patch to any other kind of file that they are asked to judge would "survive" for no reason (eleven mutations of a PowerShell function once did).
+    if ((mutation.run === undefined || mutation.run === 'native') && mutation.patches.some((patch) => typeof patch.file === 'string' && !patch.file.endsWith('.cs'))) throw new Error(`${mutation.name}: the native tests build C# only: a patch to another kind of file is judged by "gate" or "payload"`);
     for (const patch of mutation.patches) {
       if (typeof patch.file !== 'string' || typeof patch.old !== 'string' || typeof patch.new !== 'string' || !patch.old) throw new Error(`${mutation.name} has a malformed patch`);
       const relative = path.relative(REPO, path.resolve(REPO, patch.file));
