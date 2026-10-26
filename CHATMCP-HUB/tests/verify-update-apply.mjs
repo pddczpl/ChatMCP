@@ -45,8 +45,8 @@ check(/Set-StrictMode -Version 2\.0/.test(buildScript), 'and it runs under stric
 
 const shellProject = read('desktop-shell/ChatMCP.csproj');
 const installerProject = read('installer/ChatMCP.Installer.csproj');
-check(/\$shellKeysFile = if \(\$ReleaseKeysFile -ne ''\) \{ \$ReleaseKeysFile \} else \{ Join-Path \$repoRoot 'CHATMCP-HUB\\lib\\release-keys\.json' \}/.test(buildScript) && /"-p:ReleaseKeysFile=\$shellKeysFile"/.test(buildScript) && !/@shellKeys\b/.test(buildScript),
-  'scripts/Build-Installer.ps1 ALWAYS names the key list the shell is built with (MSBuild reads an environment variable called ReleaseKeysFile as a property: left to the default of the project, it would be the list the program trusts)');
+check(/\$shellKeysFile = if \(\$ReleaseKeysFile -ne ''\) \{ \$ReleaseKeysFile \} else \{ Join-Path \$repoRoot 'CHATMCP-HUB\\lib\\release-keys\.json' \}/.test(buildScript) && /\$shellKeysArgument = ConvertTo-InstallerMsbuildValue -Value \$shellKeysFile/.test(buildScript) && /"-p:ReleaseKeysFile=\$shellKeysArgument"/.test(buildScript) && !/@shellKeys\b/.test(buildScript),
+  'scripts/Build-Installer.ps1 ALWAYS names the key list the shell is built with, written so that MSBuild reads the path back as it is (MSBuild reads an environment variable called ReleaseKeysFile as a property: left to the default of the project, it would be the list the program trusts)');
 check(propertyGroups(shellProject) === 1, 'desktop-shell/ChatMCP.csproj has ONE PropertyGroup (Build-Installer.ps1 reads its Version as one element)', `found ${propertyGroups(shellProject)}`);
 check(propertyGroups(installerProject) === 1, 'installer/ChatMCP.Installer.csproj has ONE PropertyGroup', `found ${propertyGroups(installerProject)}`);
 check(/<Version>[^<]+<\/Version>/.test(shellProject) && /<Version>[^<]+<\/Version>/.test(installerProject), 'both name their version');
@@ -89,6 +89,16 @@ if (!sdk) {
     const other = path.join(fs.realpathSync.native(scratch), 'keys made for a run.json');
     const named = evaluate([`-p:ReleaseKeysFile=${other}`]);
     check(named.items.length === 1 && same(named.items[0].FullPath, other) && named.items[0].LogicalName === resourceName, 'MSBuild: a build that names its own key file embeds that one, under the same name', named.items.map((item) => item.FullPath).join());
+    // A repository can be anywhere: in C:\My Repos, Inc\ or C:\a;b\. MSBuild splits a property on the command line at ';' and ',' and reads '%' as an escape, so the build script writes the path the way its
+    // helper does (the real helper is asked here), and MSBuild must give the very same path back. Unescaped it refuses (MSB1006): the regression a review found, kept as a negative control.
+    const strange = path.join(fs.realpathSync.native(scratch), "a;b, c%d (e) $f 'g' @h", 'keys made for a run.json');
+    const escaped = execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', `. '${path.join(repo, 'scripts', 'InstallerPayload.ps1').replaceAll("'", "''")}'; ConvertTo-InstallerMsbuildValue -Value '${strange.replaceAll("'", "''")}'`], { encoding: 'utf8', timeout: 60000 }).trim();
+    check(escaped !== strange && !/[;,]/.test(escaped), 'the helper of the build script escapes the characters MSBuild splits at', escaped);
+    const viaBuildScript = evaluate([`-p:ReleaseKeysFile=${escaped}`]);
+    check(viaBuildScript.items.length === 1 && same(viaBuildScript.items[0].FullPath, strange) && viaBuildScript.items[0].LogicalName === resourceName, 'MSBuild: a key file in a folder with ; , % ( ) $ \' and @ in its name is read back as the same path through the escaping of the build script', viaBuildScript.items.map((item) => item.FullPath).join());
+    let refusedUnescaped = false;
+    try { evaluate([`-p:ReleaseKeysFile=${strange}`]); } catch { refusedUnescaped = true; }
+    check(refusedUnescaped, 'negative control: the same path, not escaped, is refused by MSBuild (the build would fail for such a repository)');
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
   }

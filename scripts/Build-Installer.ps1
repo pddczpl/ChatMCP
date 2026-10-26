@@ -115,7 +115,9 @@ $payloadDir = Join-Path $stagingDir 'payload'
 # left to the default of the project: MSBuild reads environment variables as properties, so a variable called ReleaseKeysFile in the environment of a release build would otherwise be the list the program trusts.
 $shellKeysFile = if ($ReleaseKeysFile -ne '') { $ReleaseKeysFile } else { Join-Path $repoRoot 'CHATMCP-HUB\lib\release-keys.json' }
 if (-not (Test-Path -LiteralPath $shellKeysFile -PathType Leaf)) { throw "The release key list is not a file: $shellKeysFile" }
-& $dotnetCmd.Path publish $shellCsproj -c Release -r win-x64 --self-contained true -o $shellDist -p:PublishSingleFile=true "-p:ReleaseKeysFile=$shellKeysFile" | Out-Null
+# (written so that MSBuild reads the path back as it is: a repository in C:\My Repos, Inc\ or C:\a;b\ must build as well)
+$shellKeysArgument = ConvertTo-InstallerMsbuildValue -Value $shellKeysFile
+& $dotnetCmd.Path publish $shellCsproj -c Release -r win-x64 --self-contained true -o $shellDist -p:PublishSingleFile=true "-p:ReleaseKeysFile=$shellKeysArgument" | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Desktop publish failed with exit code $LASTEXITCODE" }
 $desktopExe = Join-Path $shellDist 'ChatMCP.exe'
 if (-not (Test-Path -LiteralPath $desktopExe -PathType Leaf)) {

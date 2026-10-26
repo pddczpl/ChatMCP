@@ -67,6 +67,17 @@ function Resolve-InstallerReleaseKeysFile {
     return $full
 }
 
+# A value that goes on the command line of MSBuild as a property (-p:Name=value). MSBuild splits it at ';' and ',', and reads '%' and the other characters of its syntax as the start of an escape, so a
+# repository in C:\My Repos, Inc\ or in C:\a;b\ failed every build with "MSB1006: Property is not valid" once the key list was named on each of them. Each such character is written as %XX (the percent sign
+# first), which MSBuild turns back into the character when the value is used.
+function ConvertTo-InstallerMsbuildValue {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Value)
+    $escaped = $Value.Replace('%', '%25')
+    foreach ($pair in @(@('*', '%2A'), @('?', '%3F'), @('@', '%40'), @('$', '%24'), @('(', '%28'), @(')', '%29'), @(';', '%3B'), @("'", '%27'), @(',', '%2C'))) { $escaped = $escaped.Replace($pair[0], $pair[1]) }
+    return $escaped
+}
+
 # The build does not believe how it asked for the key list, it PROVES what it made. MSBuild reads an environment variable called ReleaseKeysFile as a property, so in a publish workflow one that is
 # set is refused outright (a release is built from the committed file and from nothing else); in any other workflow it changes nothing the proofs below would not see.
 function Assert-InstallerNoAmbientReleaseKeysFile {

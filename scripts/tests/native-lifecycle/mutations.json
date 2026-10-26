@@ -3541,7 +3541,7 @@
    "patches": [
     {
      "file": "scripts/Build-Installer.ps1",
-     "old": " \"-p:ReleaseKeysFile=$shellKeysFile\" |",
+     "old": " \"-p:ReleaseKeysFile=$shellKeysArgument\" |",
      "new": " |"
     }
    ]
@@ -4233,6 +4233,144 @@
      "file": "installer/UpdateWords.cs",
      "old": "in docs/WINDOWS-SETUP.md in the DatGold project",
      "new": "in docs/README.md in the DatGold project"
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-percent-not-escaped",
+   "what": "a percent sign goes to MSBuild as it is",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$escaped = $Value.Replace('%', '%25')",
+     "new": "$escaped = $Value"
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-percent-escaped-last",
+   "what": "the percent sign is escaped after the others, so that their escapes are escaped again",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$escaped = $Value.Replace('%', '%25')",
+     "new": "$escaped = $Value"
+    },
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "    return $escaped\n",
+     "new": "    $escaped = $escaped.Replace('%', '%25')\n    return $escaped\n"
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-star-not-escaped",
+   "what": "a star goes to MSBuild as it is",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "@('*', '%2A'), ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-question-not-escaped",
+   "what": "a question goes to MSBuild as it is",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "@('?', '%3F'), ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-at-not-escaped",
+   "what": "a at goes to MSBuild as it is",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "@('@', '%40'), ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-dollar-not-escaped",
+   "what": "a dollar goes to MSBuild as it is",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "@('$', '%24'), ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-open-parenthesis-not-escaped",
+   "what": "a open parenthesis goes to MSBuild as it is",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "@('(', '%28'), ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-close-parenthesis-not-escaped",
+   "what": "a close parenthesis goes to MSBuild as it is",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "@(')', '%29'), ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-semicolon-not-escaped",
+   "what": "a semicolon goes to MSBuild as it is",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "@(';', '%3B'), ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-quote-not-escaped",
+   "what": "a quote goes to MSBuild as it is",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "@(\"'\", '%27'), ",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "payload-msbuild-comma-not-escaped",
+   "what": "a comma goes to MSBuild as it is",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": ", @(',', '%2C')",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "gate-key-argument-unescaped",
+   "what": "the path of the key list goes to MSBuild as it is (a repository with a semicolon or a comma in its path cannot be built)",
+   "run": "gate",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "$shellKeysArgument = ConvertTo-InstallerMsbuildValue -Value $shellKeysFile",
+     "new": "$shellKeysArgument = $shellKeysFile"
     }
    ]
   }
