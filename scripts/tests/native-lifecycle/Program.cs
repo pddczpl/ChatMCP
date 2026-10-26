@@ -249,6 +249,20 @@ try
             Throws(() => HubLifecycle.GetJson(capped, "/api/state", null, runaway.Origin).GetAwaiter().GetResult(), "an answer over the cap is still refused: the cap only bounds a runaway answer");
     }
 
+    // Which Uninstall.exe setup takes for its own when the manifest of an installation does not list it. The setup file was ChatMCPSetup.exe (product "ChatMCP Studio Setup" up to
+    // 3.10.0; "DatGold Studio Setup" but still the file name ChatMCPSetup.exe in 3.10.1 and 3.10.2) and is DatGoldSetup.exe from the release after 3.10.2. Every one of them is ours,
+    // a stranger's is not, and a name in any one of the four fields is enough (the fields are what Windows shows under Properties > Details).
+    {
+        Check(InstallerEngine.IsOwnVersionInfo("ChatMCP Studio Setup", "ChatMCP Studio - Desktop Application Installer", "ChatMCPSetup.exe", "ChatMCPSetup.exe"), "an Uninstall.exe made by 3.10.0 or older is ours");
+        Check(InstallerEngine.IsOwnVersionInfo("DatGold Studio Setup", "DatGold Studio - Desktop Application Installer", "ChatMCPSetup.exe", "ChatMCPSetup.exe"), "so is one made by 3.10.1 or 3.10.2 (new words, old file name)");
+        Check(InstallerEngine.IsOwnVersionInfo("DatGold Studio Setup", "DatGold Studio - Desktop Application Installer", "DatGoldSetup.exe", "DatGoldSetup.exe"), "and one made by a setup that is called DatGoldSetup.exe");
+        Check(InstallerEngine.IsOwnVersionInfo("Tools", "Installer", "Uninstall.exe", "DatGoldSetup.exe"), "the original file name alone is enough");
+        Check(InstallerEngine.IsOwnVersionInfo("Tools", "Installer", "datgoldsetup.exe", "Uninstall.exe"), "so is the internal name alone, in any letter case");
+        Check(InstallerEngine.IsOwnVersionInfo("DatGold Studio Setup", "", "", ""), "and the product alone");
+        Check(!InstallerEngine.IsOwnVersionInfo("Contoso Tools", "Contoso uninstaller", "Uninstall.exe", "Uninstall.exe"), "an Uninstall.exe of another product is not ours");
+        Check(!InstallerEngine.IsOwnVersionInfo(null, null, null, null) && !InstallerEngine.IsOwnVersionInfo("", "", "", ""), "and neither is a file without version information");
+    }
+
     // Shortcuts. Versions up to 3.10.1 made theirs under the product's old name: the Desktop link "ChatMCP Studio.lnk" and a Start menu folder "ChatMCP" holding
     // "ChatMCP Studio.lnk" and "Uninstall ChatMCP Studio.lnk". Setup now makes the DatGold ones and removes the old ones that belong to this installation (and only
     // those); the uninstaller removes both sets. Real .lnk files, in scratch folders that stand in for the Desktop and the Start menu.

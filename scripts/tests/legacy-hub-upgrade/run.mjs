@@ -148,8 +148,8 @@ try {
   assert.equal(buildSetup.status, 0, `installer build failed:\n${buildSetup.stdout}${buildSetup.stderr}`);
   const installed = path.join(scratch, 'installed app');
   fs.mkdirSync(installed, { recursive: true });
-  for (const name of ['ChatMCPSetup.dll', 'ChatMCPSetup.runtimeconfig.json', 'ChatMCPSetup.deps.json']) fs.copyFileSync(path.join(setup, name), path.join(installed, name));
-  fs.copyFileSync(path.join(setup, 'ChatMCPSetup.exe'), path.join(installed, 'Uninstall.exe'));
+  for (const name of ['DatGoldSetup.dll', 'DatGoldSetup.runtimeconfig.json', 'DatGoldSetup.deps.json']) fs.copyFileSync(path.join(setup, name), path.join(installed, name));
+  fs.copyFileSync(path.join(setup, 'DatGoldSetup.exe'), path.join(installed, 'Uninstall.exe'));
   const digest = crypto.createHash('sha256').update(fs.readFileSync(path.join(installed, 'Uninstall.exe'))).digest('hex').toUpperCase();
   fs.writeFileSync(path.join(installed, '.chatmcp-installed-files.json'), JSON.stringify({ 'Uninstall.exe': digest }));
   const utilityFolder = await powerShell7ModuleStandIn(path.join(scratch, 'powershell7-utility'));

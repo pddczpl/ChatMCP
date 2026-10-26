@@ -43,7 +43,7 @@ namespace ChatMCP.Installer
                     {
                         int index = Array.IndexOf(args, "--install-dir");
                         if (args.Length != 3 || index < 0 || index + 1 >= args.Length || !Path.IsPathFullyQualified(args[index + 1]))
-                            throw new ArgumentException("Use ChatMCPSetup.exe --quiet --install-dir <absolute directory>.");
+                            throw new ArgumentException("Use DatGoldSetup.exe --quiet --install-dir <absolute directory>.");
                         InstallerEngine.Install(args[index + 1], true, true, (_, _) => { });
                     }
                 }

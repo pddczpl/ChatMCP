@@ -13,9 +13,15 @@ $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $extension = Join-Path $root 'CHATMCP-HUB\extension'
 $dist = Join-Path $root 'dist'
-$filename = 'ChatMCP-Browser-Companion.zip'
+$filename = 'DatGold-Browser-Companion.zip'
+# Releases up to 3.10.2 published this file as ChatMCP-Browser-Companion.zip, and every installed version links to
+# releases/latest/download/ChatMCP-Browser-Companion.zip. The old name is therefore published too, as a byte-identical copy
+# with a checksum file of its own (a .sha256 file names the file it belongs to). It can go when no supported version links to it.
+$legacyFilename = 'ChatMCP-Browser-Companion.zip'
 $output = Join-Path $dist $filename
+$legacyOutput = Join-Path $dist $legacyFilename
 $checksumPath = "$output.sha256"
+$legacyChecksumPath = "$legacyOutput.sha256"
 $temp = Join-Path $dist ("." + $filename + "." + [Guid]::NewGuid().ToString('N') + '.tmp')
 
 # Explicit allowlist prevents bundling a tracked legacy helper or ignored user
@@ -145,7 +151,11 @@ try {
     Move-Item -LiteralPath $temp -Destination $output
     $sha256 = (Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant()
     [IO.File]::WriteAllText($checksumPath, "$sha256  $filename" + [Environment]::NewLine, [Text.Encoding]::ASCII)
+    Copy-Item -LiteralPath $output -Destination $legacyOutput -Force
+    if ((Get-FileHash -LiteralPath $legacyOutput -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sha256) { throw 'The copy under the old file name differs from the archive.' }
+    [IO.File]::WriteAllText($legacyChecksumPath, "$sha256  $legacyFilename" + [Environment]::NewLine, [Text.Encoding]::ASCII)
     Write-Host "Verified Browser Companion v$($manifest.version) ZIP: $output"
+    Write-Host "Same bytes under the old name, which installed versions link to: $legacyOutput"
     Write-Host "SHA-256: $sha256"
     Write-Host 'Manual install only: extract ZIP and choose its folder through chrome://extensions or edge://extensions > Load unpacked.'
 } finally {

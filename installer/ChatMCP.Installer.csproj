@@ -7,12 +7,13 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationIcon>..\assets\icons\chatmcp.ico</ApplicationIcon>
-    <AssemblyName>ChatMCPSetup</AssemblyName>
+    <AssemblyName>DatGoldSetup</AssemblyName>
     <RootNamespace>ChatMCP.Installer</RootNamespace>
     <Version>3.10.2</Version>
     <Authors>Phan Danh Đạt</Authors>
     <Company>DatGold Project</Company>
     <Product>DatGold Studio Setup</Product>
+    <AssemblyTitle>DatGold Studio Setup</AssemblyTitle>
     <Description>DatGold Studio - Desktop Application Installer</Description>
   </PropertyGroup>
 

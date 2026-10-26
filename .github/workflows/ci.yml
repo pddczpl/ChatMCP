@@ -219,24 +219,31 @@ jobs:
       - name: Verify installer and checksum
         shell: powershell
         run: |
-          if (-not (Test-Path .\dist\ChatMCPSetup.exe)) { throw 'Installer was not created' }
-          if (-not (Test-Path .\dist\ChatMCPSetup.exe.sha256)) { throw 'Missing checksum' }
-          $actual = (Get-FileHash .\dist\ChatMCPSetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          $expected = ((Get-Content .\dist\ChatMCPSetup.exe.sha256 -Raw).Trim() -split '\s+')[0]
+          if (-not (Test-Path .\dist\DatGoldSetup.exe)) { throw 'Installer was not created' }
+          if (-not (Test-Path .\dist\DatGoldSetup.exe.sha256)) { throw 'Missing checksum' }
+          $actual = (Get-FileHash .\dist\DatGoldSetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = ((Get-Content .\dist\DatGoldSetup.exe.sha256 -Raw).Trim() -split '\s+')[0]
           if ($actual -ne $expected) { throw 'Installer checksum verification failed' }
-          $extensionZip = '.\dist\ChatMCP-Browser-Companion.zip'
-          $extensionChecksum = "$extensionZip.sha256"
-          if (-not (Test-Path $extensionZip) -or -not (Test-Path $extensionChecksum)) { throw 'Companion ZIP or checksum missing' }
-          $extensionExpected = ((Get-Content $extensionChecksum -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
-          $extensionActual = (Get-FileHash $extensionZip -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($extensionActual -ne $extensionExpected) { throw 'Companion ZIP checksum verification failed' }
+          # The Companion is built under its new name and, as a copy, under the old one that every installed version links to.
+          $extensionDigests = @()
+          foreach ($extensionZip in @('.\dist\DatGold-Browser-Companion.zip', '.\dist\ChatMCP-Browser-Companion.zip')) {
+            $extensionChecksum = "$extensionZip.sha256"
+            if (-not (Test-Path $extensionZip) -or -not (Test-Path $extensionChecksum)) { throw "Companion ZIP or checksum missing: $extensionZip" }
+            $extensionExpected = ((Get-Content $extensionChecksum -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+            $extensionActual = (Get-FileHash $extensionZip -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($extensionActual -ne $extensionExpected) { throw "Companion ZIP checksum verification failed: $extensionZip" }
+            $extensionDigests += $extensionActual
+          }
+          if (@($extensionDigests | Select-Object -Unique).Count -ne 1) { throw 'The Companion under its two names is not the same file' }
       - name: Upload Windows installer build
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: ChatMCPSetup-win-x64
+          name: DatGoldSetup-win-x64
           path: |
-            dist/ChatMCPSetup.exe
-            dist/ChatMCPSetup.exe.sha256
+            dist/DatGoldSetup.exe
+            dist/DatGoldSetup.exe.sha256
+            dist/DatGold-Browser-Companion.zip
+            dist/DatGold-Browser-Companion.zip.sha256
             dist/ChatMCP-Browser-Companion.zip
             dist/ChatMCP-Browser-Companion.zip.sha256
           if-no-files-found: error
@@ -262,6 +269,8 @@ jobs:
       - name: Build fresh UI and Windows installer
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Installer.ps1
+      # The baseline is a RELEASE ASSET that already exists: v3.9.0 published its installer as ChatMCPSetup.exe and that name cannot change.
+      # The candidate built above is DatGoldSetup.exe.
       - name: Retrieve published hash-pinned upgrade baseline (v3.9.0)
         shell: powershell
         env:
@@ -274,7 +283,7 @@ jobs:
       - name: Real setup upgrade with the secretless v3.9.0 Hub running, then installed EXE lifecycle and uninstall
         shell: powershell
         run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/Test-NativeLifecycle.ps1 -BaselineInstaller "$env:RUNNER_TEMP/native-baseline/ChatMCPSetup.exe" -CandidateInstaller dist/ChatMCPSetup.exe -ExpectedBaselineVersion 3.9.0 -ExpectedCandidateVersion 3.10.2 -OutputDirectory "$env:RUNNER_TEMP/native-lifecycle-evidence"
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/Test-NativeLifecycle.ps1 -BaselineInstaller "$env:RUNNER_TEMP/native-baseline/ChatMCPSetup.exe" -CandidateInstaller dist/DatGoldSetup.exe -ExpectedBaselineVersion 3.9.0 -ExpectedCandidateVersion 3.10.2 -OutputDirectory "$env:RUNNER_TEMP/native-lifecycle-evidence"
           if ($LASTEXITCODE -ne 0) { throw 'Installed EXE acceptance failed' }
       - name: Native WebView2 smoke (shell attaches with the secret; new-window payload runs no script)
         run: node CHATMCP-HUB/ui/e2e/webview2-smoke.mjs

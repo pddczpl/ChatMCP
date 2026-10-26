@@ -194,7 +194,7 @@ namespace ChatMCP.Installer
                 !hub.Contains("export const UI_BUILD = '" + AppVersion + "-react-agent';"))
                 throw new IOException("Embedded Hub runtime version/build differs from the installer.");
             var uninstallTarget = SafePath(targetDir, "Uninstall.exe");
-            if (File.Exists(uninstallTarget) && !legacyUpgrade && previousFiles?.ContainsKey("Uninstall.exe") != true && !IsChatMcpBinary(uninstallTarget))
+            if (File.Exists(uninstallTarget) && !legacyUpgrade && previousFiles?.ContainsKey("Uninstall.exe") != true && !IsOwnBinary(uninstallTarget))
                 throw new InvalidOperationException("Installation would overwrite an unrelated Uninstall.exe.");
             using (var self = File.OpenRead(Environment.ProcessPath ?? throw new IOException("Setup executable path is unavailable.")))
                 transaction.Add("Uninstall.exe", self);
@@ -415,25 +415,31 @@ namespace ChatMCP.Installer
             }
         }
 
-        private static bool IsChatMcpBinary(string path)
+        /// <summary>Whether a file is one of this product's own binaries, by the four fields Windows shows under Properties > Details.</summary>
+        private static bool IsOwnBinary(string path)
         {
             try
             {
                 if (!File.Exists(path)) return false;
                 var info = FileVersionInfo.GetVersionInfo(path);
-                var product = info.ProductName ?? "";
-                var desc = info.FileDescription ?? "";
-                var internalName = info.InternalName ?? "";
-                var original = info.OriginalFilename ?? "";
-                return product.Contains("ChatMCP", StringComparison.OrdinalIgnoreCase) ||
-                       desc.Contains("ChatMCP", StringComparison.OrdinalIgnoreCase) ||
-                       internalName.Contains("ChatMCP", StringComparison.OrdinalIgnoreCase) ||
-                       original.Contains("ChatMCP", StringComparison.OrdinalIgnoreCase);
+                return IsOwnVersionInfo(info.ProductName, info.FileDescription, info.InternalName, info.OriginalFilename);
             }
             catch
             {
                 return false;
             }
+        }
+
+        /// <summary>
+        /// A name of the product in ANY of the fields is enough. The setup was called ChatMCPSetup.exe (product "ChatMCP Studio Setup" up to 3.10.0, "DatGold Studio Setup" with
+        /// the old file name in 3.10.1 and 3.10.2) and is DatGoldSetup.exe from the release after 3.10.2: the Uninstall.exe that an earlier version made carries the old names and one
+        /// made by the new setup carries the new ones, and an installation may hold either.
+        /// </summary>
+        internal static bool IsOwnVersionInfo(string? product, string? description, string? internalName, string? originalFilename)
+        {
+            foreach (var field in new[] { product, description, internalName, originalFilename })
+                if (field != null && (field.Contains("ChatMCP", StringComparison.OrdinalIgnoreCase) || field.Contains("DatGold", StringComparison.OrdinalIgnoreCase))) return true;
+            return false;
         }
     }
 }
