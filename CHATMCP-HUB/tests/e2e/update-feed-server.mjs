@@ -115,7 +115,7 @@ export async function startUpdateFeed({ manifest = feedManifest(), text = null }
     /** Serve another document (a newer release, a document with a BOM). */
     publish(next, { bom = false, raw = null } = {}) {
       if (next) manifest = next;
-      body = raw ?? `${bom ? '﻿' : ''}${JSON.stringify(manifest, null, 2)}\r\n`;
+      body = raw ?? `${bom ? '\uFEFF' : ''}${JSON.stringify(manifest, null, 2)}\r\n`;
     },
     async close() {
       for (const timer of timers) clearInterval(timer);

@@ -14,6 +14,7 @@
 // This proves the module does what it was written to do against a server that imitates GitHub. It does not prove what GitHub answers today: that was read by hand once (docs/THREAT-MODEL.md, Surface 8).
 // CLAIM: update-notice-one-request-to-github
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -316,6 +317,29 @@ try {
     assert.equal(after.checking, false);
     assert.deepEqual(checker.status(), after, 'status() says what the check returned');
     ok('a newer release: current, latest, available, the notes address built from the version, the installer name from the manifest, both times, and the earliest time of the next manual check');
+  }
+  {
+    // the line GitHub sees is made from the version that runs, by the checker itself (fetchManifest takes it as given); a version that is not x.y.z cannot be compared and asks nothing
+    for (const current of ['3.10.2', '3.11.0-rc.1+local']) {
+      feed.requests.length = 0;
+      feed.mode('chain');
+      feed.publish(feedManifest({ version: '3.10.3' }));
+      const { checker } = make({ options: { currentVersion: current } });
+      await checker.load();
+      await checker.check();
+      assert.ok(feed.requests.length > 0, `a check of ${current} asked`);
+      for (const request of feed.requests) assert.equal(request.headers['user-agent'], `DatGold/${current}`, `the User-Agent of a Hub that runs ${current}`);
+    }
+    for (const current of ['three', '3.10', '', '3.10.2 evil', '3.10.2\r\nX-Injected: 1']) {
+      feed.requests.length = 0;
+      const { checker } = make({ options: { currentVersion: current } });
+      await checker.load();
+      const { update } = await checker.check();
+      assert.equal(update.error?.code, 'update_current_invalid', `${JSON.stringify(current)} cannot be compared`);
+      assert.equal(update.available, false);
+      assert.equal(feed.requests.length, 0, `and asks nothing: ${JSON.stringify(current)}`);
+    }
+    ok('the User-Agent is DatGold/<the version that runs> as the checker makes it (a release or a pre-release with build metadata); a version that is not x.y.z gives "update_current_invalid" and no request');
   }
   {
     const cases = [
@@ -787,6 +811,35 @@ try {
     assert.deepEqual(updateOptionsFromEnvironment({ CHATMCP_UPDATE_FIRST_CHECK_MS: '300' }, log), {}, 'a short delay with the real feed is ignored: it is for a stand-in only');
     assert.deepEqual(updateOptionsFromEnvironment({ CHATMCP_UPDATE_FEED_URL: FEED_URL, CHATMCP_UPDATE_FIRST_CHECK_MS: '300' }, log), {}, 'and so is one with the real feed named');
     ok('the test hooks: CHATMCP_UPDATE_FEED_URL takes a loopback address only and anything else is ignored with a line in the log (the real feed stays); CHATMCP_UPDATE_FIRST_CHECK_MS counts only beside it, between 0 and 60 s');
+
+    // The script of the hand check (tests/live/check-update-feed.mjs) is run here, offline, against the stand-in: a tool that is never run rots, and this is the one that is pointed at the real feed.
+    const live = path.join(HUB_ROOT, 'tests', 'live', 'check-update-feed.mjs');
+    const runLive = (args, env) => new Promise((resolve) => {
+      const child = spawn(process.execPath, [live, ...args], { env: { ...process.env, ...env }, windowsHide: true });
+      let output = '';
+      child.stdout.on('data', (chunk) => { output += chunk; });
+      child.stderr.on('data', (chunk) => { output += chunk; });
+      const timer = setTimeout(() => child.kill(), 30_000);
+      child.on('close', (code) => { clearTimeout(timer); resolve({ code, output }); });
+    });
+    feed.mode('chain');
+    feed.publish(feedManifest({ version: '3.10.3' }));
+    const good = await runLive([], { CHATMCP_UPDATE_FEED_URL: feed.url });
+    assert.equal(good.code, 0, good.output);
+    assert.match(good.output, /\(a loopback stand-in\)/);
+    assert.match(good.output, /redirects:\s+2/);
+    assert.match(good.output, /release:\s+3\.10\.3\s+commit 0123456789abcdef0123456789abcdef01234567/);
+    assert.match(good.output, /installer:\s+DatGoldSetup\.exe/);
+    assert.match(good.output, /verdict:\s+the Hub would offer 3\.10\.3 \(newer than 3\.10\.2\)/);
+    assert.match(good.output, /notes link:\s+https:\/\/github\.com\/pddczpl\/ChatMCP\/releases\/tag\/v3\.10\.3/);
+    assert.match(good.output, /OK: the Hub reads this answer\./);
+    feed.mode('status', { status: 503 });
+    const bad = await runLive([], { CHATMCP_UPDATE_FEED_URL: feed.url });
+    assert.equal(bad.code, 1, bad.output);
+    assert.match(bad.output, /FAIL: update_http: GitHub answered HTTP 503\./);
+    assert.equal((await runLive(['--anything'], { CHATMCP_UPDATE_FEED_URL: feed.url })).code, 2, 'a bad use is exit 2, and nothing is asked');
+    feed.mode('chain');
+    ok('the hand-check script (tests/live/check-update-feed.mjs) runs offline against the stand-in: it prints what the Hub makes of the answer (release, commit, installer name, verdict, notes link), exits 1 with the code of a failure and 2 for a bad use');
 
     const source = fs.readFileSync(path.join(HUB_ROOT, 'lib', 'update-check.mjs'), 'utf8');
     assert.ok(!/child_process|\bspawn\b|\bexecFile\b|\bexecSync\b|\bfork\(/.test(source), 'the module starts no program');

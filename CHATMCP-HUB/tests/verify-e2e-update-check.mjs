@@ -168,6 +168,29 @@ await runScenario({
   t.equal([manual.status, manual.json.checked], [200, true], 'a manual check works with the setting off');
   t.equal(feed.checks(), before + 1, 'and it asked once');
 
+  // ---- a Hub killed in the middle of a check: the attempt was already on disk, so a restart loop asks once per 15 minutes, not once per start ---
+  {
+    const dir = path.join(t.scratch, 'state-crash');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, SETTINGS), JSON.stringify({ version: 1, autoCheckUpdates: true }));
+    fs.writeFileSync(path.join(dir, STATE), JSON.stringify({ version: 1, latest: '3.10.2', checkedAt: new Date(Date.now() - 2 * 86_400_000).toISOString(), lastAttemptAt: new Date(Date.now() - 2 * 86_400_000).toISOString() }));
+    feed.mode('stall');
+    const asked = feed.checks();
+    const doomed = await t.hub({ env: hooks(), stateDir: dir });
+    await waitFor(() => feed.checks() === asked + 1, { timeoutMs: 8000, label: 'the Hub to begin its check' });
+    t.check(doomed.running && (await updateOf(doomed)).checking === true, 'the Hub is in the middle of a check that never answers');
+    await doomed.kill();
+    const cut = read({ stateDir: dir }, STATE);
+    t.check(Date.now() - Date.parse(cut.lastAttemptAt) < 60_000, 'the attempt was on disk before the Hub was killed', String(cut.lastAttemptAt));
+    t.equal(cut.latest, '3.10.2', 'and what was known is what it was');
+    feed.mode('chain');
+    const again = await t.hub({ env: hooks(), stateDir: dir });
+    await sleep(QUIET);
+    t.equal(feed.checks(), asked + 1, 'the restarted Hub asks nothing for the next 15 minutes: the floor is counted from the attempt that was cut short');
+    const resumed = await updateOf(again);
+    t.check(Date.parse(resumed.nextAutomaticCheckAt) - Date.parse(resumed.lastAttemptAt) === 15 * 60_000, 'and its next try is exactly 15 minutes after that attempt');
+  }
+
   // ---- bad answers: the Hub stays up, says why, and keeps what it knew ---------------------------------------------------------------------------
   const badStates = [];
   const bad = [

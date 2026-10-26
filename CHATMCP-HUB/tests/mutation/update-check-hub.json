@@ -1,0 +1,142 @@
+{
+  "suite": "verify-e2e-update-check.mjs",
+  "mutations": [
+    {
+      "name": "status-not-nested",
+      "what": "GET /api/update/status answers the state at the top",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "return json(200, { update: updates.status() });",
+          "new": "return json(200, updates.status());"
+        }
+      ]
+    },
+    {
+      "name": "check-without-flags",
+      "what": "POST /api/update/check leaves out checked and throttled",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "result = { update: answer.update, checked: answer.checked, throttled: answer.throttled }; break; }",
+          "new": "result = { update: answer.update }; break; }"
+        }
+      ]
+    },
+    {
+      "name": "state-without-update",
+      "what": "/api/state holds no update",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "update: updates?.status() ?? null, browser:",
+          "new": "update: null, browser:"
+        }
+      ]
+    },
+    {
+      "name": "timer-never-started",
+      "what": "the Hub never starts the timer",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "  updates.start();\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "state-never-loaded",
+      "what": "the Hub does not read what the last check found",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "  await updates.load();\n",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "skip-ignores-version",
+      "what": "skip takes nothing from the page",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "result = { update: await updates.skip(payload.version) }; break;",
+          "new": "result = { update: await updates.skip(null) }; break;"
+        }
+      ]
+    },
+    {
+      "name": "choice-ignores-body",
+      "what": "the choice is always yes",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "result = { update: await updates.setAutoCheck(payload.enabled) }; break;",
+          "new": "result = { update: await updates.setAutoCheck(true) }; break;"
+        }
+      ]
+    },
+    {
+      "name": "floor-ignored",
+      "what": "a restarted Hub may ask at once",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "const floor = lastAttemptAt === null ? 0 : lastAttemptAt + SCHEDULE.minAutomaticGapMs - from;\n    return Math.max(",
+          "new": "const floor = 0;\n    return Math.max("
+        }
+      ]
+    },
+    {
+      "name": "unanswered-asks",
+      "what": "a Hub that has not been asked checks by itself",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "const autoEnabled = () => (saved === null ? whenUnanswered === 'on' : saved);",
+          "new": "const autoEnabled = () => (saved === null ? true : saved);"
+        }
+      ]
+    },
+    {
+      "name": "attempt-saved-after-request",
+      "what": "the attempt is recorded only when the request ends",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "    lastAttemptAt = nowMs();\n    // on disk BEFORE the request: a Hub that is killed in the middle, or restarted in a loop, still counts this try\n    await saveStateQuietly();\n",
+          "new": "    const startedAt = nowMs();\n"
+        },
+        {
+          "file": "lib/update-check.mjs",
+          "old": "      checkedAt = nowMs();\n      error = null;",
+          "new": "      checkedAt = nowMs();\n      lastAttemptAt = startedAt;\n      error = null;"
+        }
+      ]
+    },
+    {
+      "name": "manual-check-unlimited",
+      "what": "a manual check is never held back",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "if (lastAttemptAt !== null && nowMs() - lastAttemptAt < SCHEDULE.minManualGapMs) return",
+          "new": "if (false) return"
+        }
+      ]
+    },
+    {
+      "name": "redirect-to-anywhere",
+      "what": "a stand-in may send the Hub anywhere",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "return target.origin === new URL(feedUrl).origin;",
+          "new": "return true;"
+        }
+      ]
+    }
+  ]
+}

@@ -114,7 +114,7 @@ const invalidManifest = (reason) => fault('update_invalid_manifest', `The releas
 export function parseManifest(text) {
   if (typeof text !== 'string') throw invalidManifest('the answer is not text');
   let document;
-  try { document = JSON.parse(text.replace(/^﻿/, '')); } catch { throw invalidManifest('the answer is not JSON'); }
+  try { document = JSON.parse(text.replace(/^\uFEFF/, '')); } catch { throw invalidManifest('the answer is not JSON'); }
   if (!document || typeof document !== 'object' || Array.isArray(document)) throw invalidManifest('the answer is not an object');
   const { version, commit, assets } = document;
   if (typeof version !== 'string') throw invalidManifest('no version');
@@ -325,7 +325,7 @@ export function createUpdateChecker({
       return { damaged: `không đọc được (${reason?.code ?? 'lỗi'})` };
     }
     try {
-      const data = JSON.parse(text.replace(/^﻿/, ''));
+      const data = JSON.parse(text.replace(/^\uFEFF/, ''));
       return data && typeof data === 'object' && !Array.isArray(data) ? { data } : { damaged: 'không phải một đối tượng JSON' };
     } catch { return { damaged: 'không phải JSON' }; }
   }
