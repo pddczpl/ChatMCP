@@ -151,7 +151,7 @@ internal static class StagingTests
             kit.Check(UpdateStaging.PlainPath(volume) == volume, "a volume that has no letter keeps the form it has");
             var device = @"\\.\C:\a.exe";
             kit.Check(UpdateStaging.PlainPath(device) == device, "a device path is not touched");
-            kit.Check(UpdateStaging.PlainPath(@"\\?\1:\a.exe") == @"\\?\1:\a.exe" && UpdateStaging.PlainPath(@"\\?\C/a.exe") == @"\\?\C/a.exe" && UpdateStaging.PlainPath(@"\\?\C:a.exe") == @"\\?\C:a.exe", "only a real drive and a separator are taken for a plain path");
+            kit.Check(UpdateStaging.PlainPath(@"\\?\1:\a.exe") == @"\\?\1:\a.exe" && UpdateStaging.PlainPath(@"\\?\C/a.exe") == @"\\?\C/a.exe" && UpdateStaging.PlainPath(@"\\?\C:a.exe") == @"\\?\C:a.exe" && UpdateStaging.PlainPath(@"\\?\C|\a.exe") == @"\\?\C|\a.exe", "only a real drive (a letter, a colon) and a separator are taken for a plain path");
             kit.Check(UpdateStaging.PlainPath(@"\\?\C:") == @"\\?\C:" && UpdateStaging.PlainPath(@"\\?\") == @"\\?\" && UpdateStaging.PlainPath("") == "", "and short odd strings are neither changed nor a crash");
             var fits = @"C:\" + new string('d', 256);       // 259 characters: the longest plain path
             var tooLong = @"C:\" + new string('d', 257);    // 260
@@ -161,6 +161,18 @@ internal static class StagingTests
             var shareTooLong = @"\\s\h\" + new string('d', 254); // 260
             kit.Check(UpdateStaging.PlainPath(@"\\?\UNC\" + shareFits[2..]) == shareFits, "a share path of 259 characters is plain");
             kit.Check(UpdateStaging.PlainPath(@"\\?\UNC\" + shareTooLong[2..]) == @"\\?\UNC\" + shareTooLong[2..], "and one of 260 keeps the extended form");
+        }
+        // a handle that has no place is refused: nothing is started from a place that cannot be told
+        kit.Check(CodeOf(() => UpdateStaging.FinalPathOf(new Microsoft.Win32.SafeHandles.SafeFileHandle(IntPtr.Zero, false))) == "staging_unsafe", "a handle whose real place cannot be told is refused (staging_unsafe)");
+        // a place longer than the first buffer (512 characters) and than MAX_PATH: asked again with room enough, and kept in the extended form, the only one that reaches it
+        {
+            var deepFolder = kit.Folder("final-path-deep");
+            for (var level = 0; level < 6; level++) deepFolder = Path.Combine(deepFolder, new string((char)('a' + level), 100));
+            Directory.CreateDirectory(deepFolder);
+            var deepFile = Path.Combine(deepFolder, "plain.txt"); File.WriteAllText(deepFile, "x");
+            using var stream = new FileStream(deepFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var final = UpdateStaging.FinalPathOf(stream.SafeFileHandle);
+            kit.Check(final.Length > 600 && final.StartsWith(@"\\?\", StringComparison.Ordinal) && Path.GetFileName(final) == "plain.txt" && File.ReadAllText(final) == "x", "a final path of more than 600 characters is told whole, in the extended form, and leads to the file (" + final.Length + " characters)");
         }
 
         // ---- the places where it is not there

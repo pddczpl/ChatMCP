@@ -66,14 +66,18 @@ check(/JsonSerializer\.Serialize\(/.test(strip(link.text)), 'the address is seri
 {
   const bridgeCode = strip(bridge.text);
   const linkCode = strip(link.text);
-  check(/OpenLink\.TryGetExternalLink\(\s*e\.Uri\s*,\s*out\s+var\s+external\s*\)\s*\)\s*\{\s*open\(\s*external\s*\)\s*;\s*return;\s*\}/.test(bridgeCode), 'the handler hands the opener the address that OpenLink parsed, and the page gets nothing for it');
+  const opensOnlyForAPerson = /if\s*\(\s*e\.IsUserInitiated\s*&&\s*OpenLink\.TryGetExternalLink\(\s*e\.Uri\s*,\s*out\s+var\s+external\s*\)\s*\)\s*\{\s*open\(\s*external\s*\)\s*;\s*return;\s*\}/;
+  check(opensOnlyForAPerson.test(bridgeCode), 'the handler hands the opener the address that OpenLink parsed, only for a request that a person made (IsUserInitiated), and the page gets nothing for it');
   check(!/\bopen\(\s*e\.Uri\s*\)/.test(bridgeCode) && pageFacing.every(({ text }) => !/Process\.Start\([^;]*\be\.Uri\b/.test(strip(text))), 'no source hands the raw address of a request to a program');
   const shellExecute = pageFacing.filter(({ text }) => /UseShellExecute\s*=\s*true/.test(strip(text))).map(({ file }) => file);
   check(shellExecute.length === 1 && shellExecute[0] === 'native-shared/WebViewBridge.cs', 'the shell starts something through the system shell in one place only, WebViewBridge.OpenInSystemBrowser', shellExecute.join(', '));
   check(/ExternalHost\s*=\s*"github\.com"/.test(linkCode) && /ExternalPathPrefix\s*=\s*"\/pddczpl\/ChatMCP\/releases\/"/.test(linkCode), 'the list is github.com and /pddczpl/ChatMCP/releases/ and nothing wider');
   check(/UriSchemeHttps\b/.test(linkCode) && /c == '\\\\'/.test(linkCode) && /UserInfo/.test(linkCode) && /"%2f"/i.test(linkCode) && /"%5c"/i.test(linkCode), 'and it asks for https, no backslash, no user name, and no encoded slash or backslash');
   // the patterns above can fail: a handler that opens the request itself, or that opens a second kind of address, is not accepted
-  check(!/OpenLink\.TryGetExternalLink\(\s*e\.Uri\s*,\s*out\s+var\s+external\s*\)\s*\)\s*\{\s*open\(\s*external\s*\)\s*;\s*return;\s*\}/.test('if (Process.Start(e.Uri)) { open(e.Uri); return; }'), '(a handler that opens the address of the request is not accepted)');
+  check(!opensOnlyForAPerson.test('if (Process.Start(e.Uri)) { open(e.Uri); return; }'), '(a handler that opens the address of the request is not accepted)');
+  check(!opensOnlyForAPerson.test('if (OpenLink.TryGetExternalLink(e.Uri, out var external)) { open(external); return; }'), '(and neither is one that does not ask whether a person made the request: script in the page has no user gesture)');
+  check(!opensOnlyForAPerson.test('if (e.IsUserInitiated || OpenLink.TryGetExternalLink(e.Uri, out var external)) { open(external); return; }') && !opensOnlyForAPerson.test('if (!e.IsUserInitiated && OpenLink.TryGetExternalLink(e.Uri, out var external)) { open(external); return; }'), '(nor one that asks the other way round)');
+  check(opensOnlyForAPerson.test('if (e.IsUserInitiated && OpenLink.TryGetExternalLink(e.Uri, out var external)) { open(external); return; }'), '(while the handler as it should be written is)');
   check(/Process\.Start\([^;]*\be\.Uri\b/.test('Process.Start(new ProcessStartInfo(e.Uri) { UseShellExecute = true });'), '(and a Process.Start with the address of a request is found by the pattern)');
 }
 

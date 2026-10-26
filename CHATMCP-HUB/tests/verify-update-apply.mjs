@@ -139,6 +139,17 @@ const closeAt = mainUpdate.indexOf('Close();', launchedAt);
 check(lookAt > 0 && exitedAt > lookAt && launchedAt > exitedAt && closeAt > launchedAt, 'the window looks at the installer, keeps itself open with launch_failed when it has ended, and only then tells the page `launched` and closes');
 check(/WaitForInstaller\(\(\) => LookAtInstaller\(installerPid\), TimeSpan\.FromSeconds\(5\), TimeSpan\.FromMilliseconds\(100\), Task\.Delay\)/.test(mainUpdate), 'and gives it five seconds, looking every 100 ms');
 check(/return await Task\.Run\(\(\) => environment\.Start\(start\)\)/.test(applier) && /RequireReadableByInstaller\(start\);\s*beforeStart\(\);/.test(applier), 'the installer is started off the thread of the window, and the arguments are read the way the installer will read them BEFORE the call that stops the monitor of the Hub');
+// The file is hashed through a handle that is held, so the program has to be started from where that handle says the file is, and not from the path that was walked to find it (a link above the folder of
+// updates could be pointed somewhere else between the hash and the start). The native tests prove it with a junction; this keeps the two sources from drifting apart.
+check(/new VerifiedUpdate\(version, folder, path, FinalPathOf\(stream\.SafeFileHandle\), kid, installer\.Bytes, stream\)/.test(staging) && /new ProcessStartInfo\(update\.StartPath\)/.test(applier) && !/new ProcessStartInfo\(update\.(?:InstallerPath|Folder)\b/.test(applier), 'the installer is started from the final path of the handle that holds the file that was hashed (VerifiedUpdate.StartPath), never from the path that was walked to find it');
+check(!/new ProcessStartInfo\(update\.StartPath\)/.test(applier.replace('update.StartPath', 'update.InstallerPath')), 'negative control: a start from the path that was found is not accepted');
+
+// ---- the system browser opens a link only for a person -------------------------------------------------------------------------------------------------------------------------------------------
+// Script that runs in the page has no user gesture; a request that WebView2 does not call user-initiated must not start the browser of the person. (Proved with the real WebView2 by ui/e2e/webview2-smoke.mjs.)
+const bridge = strip(read('native-shared/WebViewBridge.cs'));
+const opensOnlyForAPerson = /if\s*\(\s*e\.IsUserInitiated\s*&&\s*OpenLink\.TryGetExternalLink\(\s*e\.Uri\s*,\s*out\s+var\s+external\s*\)\s*\)\s*\{\s*open\(\s*external\s*\)\s*;\s*return;\s*\}/;
+check(opensOnlyForAPerson.test(bridge), 'the new-window handler hands a release page to the system browser only for a request that a person made (IsUserInitiated)');
+check(!opensOnlyForAPerson.test(bridge.replace('e.IsUserInitiated && ', '')) && !opensOnlyForAPerson.test(bridge.replace('e.IsUserInitiated &&', 'e.IsUserInitiated ||')), 'negative control: the same condition without the gesture, or with an "or", is not accepted');
 
 // ---- every reason an update can end with is carried by some step --------------------------------------------------------------------------------------------------------------------------
 // A code of the closed list (StepCode.Known, which the Hub's list and the page's list repeat) that no step of the installer ever carries is a reason the window and the page have words for and nobody ever

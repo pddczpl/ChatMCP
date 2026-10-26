@@ -267,6 +267,55 @@ try
         Check(tx.StagedPath("one.txt").Length > 0, "while a component that is there is found");
     }
 
+    // The two codes that a step of the update must really carry, tried through the code that refuses and not through an exception that the test tags itself: payload_invalid by the install step of a
+    // program that holds no payload, and window_open by the closing of the installed window with a real program that does not close. The program is a copy of ping.exe called ChatMCP.exe in a folder of
+    // its own: only a process whose program is exactly the file of that folder is asked to close, so the app that is installed on this machine is never touched (and no mutation may remove that filter).
+    {
+        Exception? Caught(Action action) { try { action(); return null; } catch (Exception error) { return error; } }
+        var empty = Path.Combine(scratch, "no payload"); Directory.CreateDirectory(empty);
+        var refusal = Caught(() => InstallerEngine.InstallFiles(empty, null, false, (_, _) => { }));
+        Check(refusal is InvalidOperationException && StepCode.Of(refusal) == "payload_invalid", "a setup that carries no payload refuses with payload_invalid, through the install step itself (" + refusal?.GetType().Name + ")");
+        Check(!Directory.EnumerateFileSystemEntries(empty).Any(), "and it left nothing behind: no working folder, no marker");
+
+        var home = Path.Combine(scratch, "window stays open"); Directory.CreateDirectory(home);
+        var elsewhere = Path.Combine(scratch, "another folder"); Directory.CreateDirectory(elsewhere);
+        File.Copy(Path.Combine(Environment.SystemDirectory, "ping.exe"), Path.Combine(home, "ChatMCP.exe"));
+        File.Copy(Path.Combine(Environment.SystemDirectory, "ping.exe"), Path.Combine(elsewhere, "ChatMCP.exe"));
+        Process Run(string folder) => Process.Start(new ProcessStartInfo(Path.Combine(folder, "ChatMCP.exe"), "-n 120 127.0.0.1") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })!;
+        string? ImageOf(Process program)
+        {
+            for (var attempt = 0; attempt < 100; attempt++)
+            {
+                try { return program.MainModule?.FileName; }
+                catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception) { Thread.Sleep(50); } // the image is not mapped yet
+            }
+            return null;
+        }
+        var stuck = Run(home); var neighbour = Run(elsewhere);
+        try
+        {
+            var stuckImage = ImageOf(stuck); var neighbourImage = ImageOf(neighbour);
+            Check(stuckImage != null && neighbourImage != null && !string.Equals(stuckImage, neighbourImage, StringComparison.OrdinalIgnoreCase), "premise: two running programs called ChatMCP.exe, in two folders of the scratch area");
+            var installation = Path.GetDirectoryName(stuckImage)!; // the folder as Windows spells it
+            var clock = Stopwatch.StartNew();
+            var neverCloses = Caught(() => InstallerEngine.CloseRunningProcesses(installation, 300));
+            clock.Stop();
+            Check(neverCloses is IOException && StepCode.Of(neverCloses) == "window_open", "the installed program that does not close is refused with window_open, through the closing step itself (" + neverCloses?.GetType().Name + ")");
+            Check(clock.ElapsedMilliseconds >= 250 && clock.ElapsedMilliseconds < 4000, "after the time it was given to close, which is neither skipped nor the whole five seconds of a real setup (" + clock.ElapsedMilliseconds + " ms)");
+            Check(neverCloses!.Message.Contains("No files were replaced"), "and the words say that nothing was replaced");
+            var untouched = Caught(() => InstallerEngine.CloseRunningProcesses(Path.Combine(scratch, "no program lives here"), 300));
+            Check(untouched == null && !stuck.HasExited && !neighbour.HasExited, "an installation with no running program of its own is neither refused nor does it close anything: programs of the same name elsewhere run on");
+        }
+        finally
+        {
+            foreach (var program in new[] { stuck, neighbour })
+            {
+                try { if (!program.HasExited) program.Kill(true); program.WaitForExit(10000); } catch (InvalidOperationException) { /* already gone */ }
+                program.Dispose();
+            }
+        }
+    }
+
     // The marker of an update in progress ("keep the backup, the launcher must not start") is made whole or not at all: it is written under another name and moved into place, so it is never
     // there empty or half written (a marker like that blocks the launcher, setup and the uninstaller with nothing to recover from).
     {

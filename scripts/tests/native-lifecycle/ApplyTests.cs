@@ -219,9 +219,23 @@ internal static class ApplyTests
         };
         string? CodeOf(Func<Task<int>> action) { try { action().GetAwaiter().GetResult(); return null; } catch (UpdateRefused refused) { return refused.Code; } }
 
-        // ---- the one way through
+        // A junction (a link to a folder, which needs no privilege): the Hub's data folder can be reached through one, and then the path the shell walks and the real place of the file part ways.
+        var junctions = new List<string>();
+        string Junction(string target)
         {
-            var state = MakeState("applier ok"); var events = new List<string>();
+            var link = Path.Combine(kit.Scratch, "applier-link-" + Guid.NewGuid().ToString("N")[..8]);
+            var make = new ProcessStartInfo("cmd.exe") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            make.ArgumentList.Add("/c"); make.ArgumentList.Add("mklink"); make.ArgumentList.Add("/J"); make.ArgumentList.Add(link); make.ArgumentList.Add(target);
+            using var process = Process.Start(make)!; process.StandardOutput.ReadToEnd(); process.StandardError.ReadToEnd(); process.WaitForExit();
+            if (process.ExitCode != 0) throw new IOException("mklink /J failed");
+            junctions.Add(link);
+            return link;
+        }
+
+        // ---- the one way through, with the Hub's data folder reached through a link
+        try
+        {
+            var state = Junction(MakeState("applier ok")); var events = new List<string>();
             ProcessStartInfo? seen = null; bool heldAtStart = false, writeFailedAtStart = false, deleteFailedAtStart = false;
             var installerPath = Path.Combine(state, "updates", "3.11.0", "DatGoldSetup.exe");
             var pid = UpdateApplier.ApplyAsync(Shell(state, events, start: info =>
@@ -237,11 +251,13 @@ internal static class ApplyTests
             kit.Check(heldAtStart, "at the moment the installer is started it can be neither written nor deleted: the shell holds it until Process.Start has returned");
             string Final(string file) { using var open = File.OpenHandle(file, FileMode.Open, FileAccess.Read, FileShare.Read); return UpdateStaging.FinalPathOf(open); }
             kit.Check(seen != null && seen.FileName == Final(installerPath) && seen.WorkingDirectory == Path.GetDirectoryName(Final(installerPath)) && !seen.UseShellExecute, "it is started from the real place of the file that was verified (its final path), in its own folder, without the shell");
+            kit.Check(!seen!.FileName.StartsWith(state, StringComparison.OrdinalIgnoreCase) && !seen.WorkingDirectory.StartsWith(state, StringComparison.OrdinalIgnoreCase), "and that place does not go through the link the file was found by");
             kit.Check(seen!.ArgumentList.SequenceEqual(UpdateArguments.Build(app, 4242, Path.Combine(state, "update-result.json"))), "with exactly the arguments of the contract, the result in the state folder, and the pid of this shell");
             kit.Check(File.Exists(installerPath), "(the installer is still there: only a refused write and delete were tried)");
             File.WriteAllBytes(installerPath, installer); // released by now, so this works
             kit.Check(true, "and the file is free again once the program has started");
         }
+        finally { foreach (var link in junctions) try { Directory.Delete(link); } catch (Exception) { /* already gone */ } junctions.Clear(); }
 
         // ---- every way it stops, and what was not done
         void Stops(string label, string code, Func<(string State, ApplyEnvironment Environment, List<string> Events)> arrange, bool beforeStartIsCalled = false)

@@ -47,6 +47,8 @@ internal sealed class SmokeWindow : Form
     private readonly HashSet<string> requests = [];
     private readonly List<string> passed = [];
     private readonly List<string> newWindowUris = [];
+    // for each request for a new window: whether WebView2 says that a person made it (IsUserInitiated), and the address
+    private readonly List<(bool Person, string Uri)> newWindowRequests = [];
     // What the shell hands to the SYSTEM browser: the harness stands in for it, so no browser starts on the machine that runs the smoke.
     private readonly List<string> externalOpened = [];
     private readonly Size requestedSize;
@@ -137,25 +139,60 @@ internal sealed class SmokeWindow : Form
             throw new InvalidOperationException("A non-http(s) address reached the page or ran script.");
         passed.Add("about:, javascript: and file: addresses are dropped by the shell");
 
-        // A release page of the project goes to the SYSTEM browser and not to the preview tab (that is what "What's new" is), whether it comes from window.open or from a
-        // link with target=_blank; a look-alike address is not on the list and keeps the old road, to the page.
+        // A release page of the project goes to the SYSTEM browser and not to the preview tab (that is what "What's new" is), but only when a PERSON asked for it: script that runs in the page
+        // (window.open, or a click that code makes) has no user gesture, and a program on the page must not be able to start the browser of the person on its own. A look-alike address is not
+        // on the list and keeps the old road, to the page.
         const string notes = "https://github.com/pddczpl/ChatMCP/releases/tag/v3.10.2";
-        await browser.CoreWebView2.ExecuteScriptAsync("window.open(" + JsonSerializer.Serialize(notes) + ", '_blank'); true");
-        await WaitForCount(externalOpened, 1, "a release page of the project reaches the system browser through window.open");
+        // a link made the way the page makes its own (target=_blank, rel=noopener noreferrer), laid out where a mouse can reach it; `then` is what is done to it at once
+        string LinkTo(string address, string then) => "(() => { const a = document.createElement('a'); a.id = 'chatmcp-smoke-link'; a.href = " + JsonSerializer.Serialize(address) + "; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = 'notes'; a.style.cssText = 'position:fixed;left:20px;top:20px;width:200px;height:40px;display:block;z-index:2147483647;background:#fff;color:#000'; document.body.append(a); " + then + " return true; })()";
+        // Script WITHOUT a user gesture. ExecuteScriptAsync is not one: WebView2 runs it as if a person had acted, and the page keeps that user activation for about five seconds (a DevTools
+        // evaluation with userGesture false does not give it, but it inherits what an earlier step left). So the two requests are made by a timer that fires after every earlier activation has run out.
+        var before = newWindowRequests.Count;
+        await Evaluate("setTimeout(() => { window.open(" + JsonSerializer.Serialize(notes) + ", '_blank'); " + LinkTo(notes + "#script", "a.click(); a.remove();") + " }, 6500); true", userGesture: false);
+        await WaitForCount(newWindowUris, before + 2, "WebView2 reports the two windows that script without a user gesture asked for: window.open, and a click that the script made");
+        if (newWindowRequests.Skip(before).Any(request => request.Person)) throw new InvalidOperationException("Premise of the test: WebView2 says that a person made a request that a timer made: " + string.Join(" | ", newWindowRequests.Skip(before)));
+        await WaitFor("window.__opened.length === 3", "a release page asked for by script (window.open, and a click that code makes: the way a page could try to start the browser) is forwarded to the page like any other address");
+        await Task.Delay(1000);
+        if (externalOpened.Count != 0) throw new InvalidOperationException("Script that runs in the page started the system browser: " + string.Join(" | ", externalOpened));
+        passed.Add("and neither reaches the system browser");
+        // the same two roads with a person: script that runs with a user gesture, and a real press and release of the mouse button on the link
+        before = newWindowRequests.Count;
+        await Evaluate("window.open(" + JsonSerializer.Serialize(notes) + ", '_blank'); true", userGesture: true);
+        await WaitForCount(externalOpened, 1, "a release page of the project reaches the system browser through window.open when a person asked for it");
+        if (!newWindowRequests[before].Person) throw new InvalidOperationException("Premise of the test: WebView2 does not say that a person made a request with a user gesture: " + newWindowRequests[before].Uri);
         if (externalOpened[0] != notes) throw new InvalidOperationException("The system browser was handed " + externalOpened[0] + " instead of " + notes);
-        var link = "(() => { const a = document.createElement('a'); a.href = " + JsonSerializer.Serialize(notes + "#readme") + "; a.target = '_blank'; a.rel = 'noopener noreferrer'; document.body.append(a); a.click(); a.remove(); return true; })()";
-        await browser.CoreWebView2.ExecuteScriptAsync(link);
-        await WaitForCount(externalOpened, 2, "and through a link with target=_blank and rel=noopener, the way the page's own link is made");
+        before = newWindowRequests.Count;
+        await Evaluate(LinkTo(notes + "#readme", ""), userGesture: false);
+        await ClickLikeAPerson("#chatmcp-smoke-link");
+        await WaitForCount(externalOpened, 2, "and through a click on a link with target=_blank and rel=noopener, the way the page's own link is made");
+        if (newWindowRequests.Count != before + 1 || !newWindowRequests[before].Person) throw new InvalidOperationException("Premise of the test: the click of the mouse is not one request that WebView2 says a person made: " + string.Join(" | ", newWindowRequests.Skip(before)));
+        await Evaluate("document.getElementById('chatmcp-smoke-link')?.remove(); true", userGesture: false);
         if (externalOpened[1] != notes + "#readme") throw new InvalidOperationException("The link was handed over as " + externalOpened[1]);
         await Task.Delay(1000);
-        if (int.Parse(await browser.CoreWebView2.ExecuteScriptAsync("window.__opened.length")) != 1)
+        if (int.Parse(await browser.CoreWebView2.ExecuteScriptAsync("window.__opened.length")) != 3)
             throw new InvalidOperationException("A release page was also forwarded to the preview tab.");
         passed.Add("and is not forwarded to the preview tab as well");
         var lookalike = "https://github.com.evil.example/pddczpl/ChatMCP/releases/tag/v3.10.2";
-        await browser.CoreWebView2.ExecuteScriptAsync("window.open(" + JsonSerializer.Serialize(lookalike) + ", '_blank'); true");
-        await WaitFor("window.__opened.length === 2", "a look-alike address is forwarded to the page as before");
+        await Evaluate("window.open(" + JsonSerializer.Serialize(lookalike) + ", '_blank'); true", userGesture: true);
+        await WaitFor("window.__opened.length === 4", "a look-alike address is forwarded to the page as before, also when a person asked");
         if (externalOpened.Count != 2) throw new InvalidOperationException("A look-alike address reached the system browser: " + string.Join(" | ", externalOpened));
         passed.Add("and never reaches the system browser");
+    }
+
+    /// <summary>Runs script in the page through the DevTools protocol, with or without the user-activation flag (a person acting), which is what WebView2 reports as IsUserInitiated.</summary>
+    private async Task Evaluate(string expression, bool userGesture)
+    {
+        var answer = await browser.CoreWebView2.CallDevToolsProtocolMethodAsync("Runtime.evaluate", JsonSerializer.Serialize(new { expression, userGesture }));
+        if (answer.Contains("exceptionDetails", StringComparison.Ordinal)) throw new InvalidOperationException("The script of the smoke failed: " + answer);
+    }
+
+    /// <summary>A real press and release of the left mouse button in the middle of an element, sent to the page by the DevTools protocol: a trusted event, which carries a user gesture.</summary>
+    private async Task ClickLikeAPerson(string selector)
+    {
+        var centre = JsonSerializer.Deserialize<double[]>(await browser.CoreWebView2.ExecuteScriptAsync("(() => { const r = document.querySelector(" + JsonSerializer.Serialize(selector) + ").getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()"))
+            ?? throw new InvalidOperationException("The element to click is not on the page: " + selector);
+        foreach (var type in new[] { "mousePressed", "mouseReleased" })
+            await browser.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent", JsonSerializer.Serialize(new { type, x = centre[0], y = centre[1], button = "left", clickCount = 1 }));
     }
 
     private async Task WaitForCount(List<string> list, int count, string label)
@@ -230,7 +267,7 @@ internal sealed class SmokeWindow : Form
                 """);
             // The shipped shell code (native-shared): the new-window bridge, then the Hub's session file and a one-time ticket.
             WebViewBridge.AttachNewWindowHandler(browser.CoreWebView2, address => externalOpened.Add(address));
-            browser.CoreWebView2.NewWindowRequested += (_, link) => newWindowUris.Add(link.Uri);
+            browser.CoreWebView2.NewWindowRequested += (_, link) => { newWindowUris.Add(link.Uri); newWindowRequests.Add((link.IsUserInitiated, link.Uri)); };
             browser.CoreWebView2.Navigate(await SignInUrl());
             await WaitFor("location.hash === '' && Boolean(sessionStorage.getItem('chatmcp.hub-session'))", "page traded the ticket for the session and removed it from the address");
             await WaitFor("document.querySelector('#root header')", "current React root rendered");

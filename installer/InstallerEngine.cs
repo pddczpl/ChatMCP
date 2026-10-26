@@ -167,7 +167,7 @@ namespace ChatMCP.Installer
             finally { updateLock.ReleaseMutex(); }
         }
 
-        private static void InstallFiles(string targetDir, Dictionary<string, string>? previousFiles,
+        internal static void InstallFiles(string targetDir, Dictionary<string, string>? previousFiles,
             bool legacyUpgrade, Action<int, string> reportProgress)
         {
             using var transaction = new InstallTransaction(targetDir);
@@ -455,7 +455,11 @@ namespace ChatMCP.Installer
                 File.Delete(shortcutPath);
         }
 
-        private static void CloseRunningProcesses(string installDir)
+        /// <summary>
+        /// Asks the installed app (the program called ChatMCP.exe that lives in <paramref name="installDir"/>, and no other program of that name) to close, and gives it <paramref name="waitMilliseconds"/>;
+        /// one that is still there then stops the setup with window_open before any file is replaced. The wait is a parameter so that the test of the refusal does not have to sit through five seconds.
+        /// </summary>
+        internal static void CloseRunningProcesses(string installDir, int waitMilliseconds = 5000)
         {
             var expected = Path.Combine(installDir, "ChatMCP.exe");
             foreach (var proc in Process.GetProcessesByName("ChatMCP"))
@@ -466,7 +470,7 @@ namespace ChatMCP.Installer
                     {
                         if (!string.Equals(proc.MainModule?.FileName, expected, StringComparison.OrdinalIgnoreCase)) continue;
                         proc.CloseMainWindow();
-                        if (!proc.WaitForExit(5000))
+                        if (!proc.WaitForExit(waitMilliseconds))
                             throw new IOException("Close the installed DatGold window before upgrading. No files were replaced.").Tag("window_open");
                     }
                     catch (InvalidOperationException) { /* Process already exited. */ }
