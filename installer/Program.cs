@@ -1,5 +1,7 @@
+using ChatMCP.Native;
 using System;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace ChatMCP.Installer
@@ -13,53 +15,57 @@ namespace ChatMCP.Installer
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            var exeName = Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "");
-            var isUninstall = exeName.Contains("uninstall", StringComparison.OrdinalIgnoreCase);
+            // Every form of the command line is read in one place (native-shared/UpdateContract.cs) and held to literal vectors by the native tests.
+            InstallerCommand command;
+            try { command = InstallerCommandLine.Parse(args, Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "")); }
+            catch (ArgumentException error) { Console.Error.WriteLine(error.Message); Environment.ExitCode = 1; return; }
 
-            foreach (var arg in args)
+            switch (command.Mode)
             {
-                if (arg.Equals("--uninstall", StringComparison.OrdinalIgnoreCase) ||
-                    arg.Equals("/uninstall", StringComparison.OrdinalIgnoreCase) ||
-                    arg.Equals("-uninstall", StringComparison.OrdinalIgnoreCase))
+                // Explicit unattended mode uses exactly the same engine, ownership,
+                // active-task checks and rollback as the wizard. It is not a test bypass.
+                case InstallerMode.QuietUninstall:
+                    try { InstallerEngine.Uninstall(AppDomain.CurrentDomain.BaseDirectory, (_, _) => { }); }
+                    catch (Exception error) { Console.Error.WriteLine(error.Message); Environment.ExitCode = 1; }
+                    return;
+                case InstallerMode.QuietInstall:
+                    try { InstallerEngine.Install(command.InstallDir!, true, true, (_, _) => { }); }
+                    catch (Exception error) { Console.Error.WriteLine(error.Message); Environment.ExitCode = 1; }
+                    return;
+                // The shell started this setup to replace the installation it was running from: see UpdateRun.
+                case InstallerMode.Update:
+                    Environment.ExitCode = RunUpdate(command);
+                    return;
+                case InstallerMode.WizardUninstall:
+                    Application.Run(new UninstallForm(AppDomain.CurrentDomain.BaseDirectory));
+                    return;
+                default:
+                    Application.Run(new SetupForm());
+                    return;
+            }
+        }
+
+        /// <summary>The update, with its window. The work runs on another thread so that the window keeps moving; the exit code says whether the new version is in place.</summary>
+        private static int RunUpdate(InstallerCommand command)
+        {
+            UpdateEnvironment environment;
+            try { environment = UpdateRun.Real(); }
+            catch (Exception error) { Console.Error.WriteLine(error.Message); return 1; }
+            UpdateOutcome? outcome = null;
+            using var form = new UpdateProgressForm(InstallerEngine.AppVersion);
+            form.Shown += (_, _) => Task.Run(() =>
+            {
+                try { outcome = UpdateRun.Run(command, environment, (_, status) => form.Report(status)); }
+                catch (Exception error)
                 {
-                    isUninstall = true;
-                    break;
+                    Console.Error.WriteLine(error.Message);
+                    outcome = new UpdateOutcome(false, InstallerEngine.AppVersion, null, "unchanged", "install_failed");
                 }
-            }
-
-            // Explicit unattended mode uses exactly the same engine, ownership,
-            // active-task checks and rollback as the wizard. It is not a test bypass.
-            if (Array.Exists(args, arg => arg == "--quiet"))
-            {
-                try
-                {
-                    if (isUninstall)
-                    {
-                        if (args.Length != 2 || !Array.Exists(args, arg => arg == "--uninstall"))
-                            throw new ArgumentException("Use Uninstall.exe --quiet --uninstall.");
-                        InstallerEngine.Uninstall(AppDomain.CurrentDomain.BaseDirectory, (_, _) => { });
-                    }
-                    else
-                    {
-                        int index = Array.IndexOf(args, "--install-dir");
-                        if (args.Length != 3 || index < 0 || index + 1 >= args.Length || !Path.IsPathFullyQualified(args[index + 1]))
-                            throw new ArgumentException("Use DatGoldSetup.exe --quiet --install-dir <absolute directory>.");
-                        InstallerEngine.Install(args[index + 1], true, true, (_, _) => { });
-                    }
-                }
-                catch (Exception error) { Console.Error.WriteLine(error.Message); Environment.ExitCode = 1; }
-                return;
-            }
-
-            if (isUninstall)
-            {
-                var installDir = AppDomain.CurrentDomain.BaseDirectory;
-                Application.Run(new UninstallForm(installDir));
-            }
-            else
-            {
-                Application.Run(new SetupForm());
-            }
+                if (outcome.Ok == false) Console.Error.WriteLine(UpdateWords.FailureFor(outcome, command.Relaunch));
+                form.Finish(outcome, command.Relaunch);
+            });
+            Application.Run(form);
+            return outcome is { Ok: true } ? 0 : 1;
         }
     }
 }

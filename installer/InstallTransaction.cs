@@ -1,7 +1,14 @@
+using ChatMCP.Native;
 using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace ChatMCP.Installer;
+
+/// <summary>The upgrade failed and every file that it had changed was put back: the old version is in place. (A rollback that is not whole throws an AggregateException and leaves the marker.)</summary>
+internal sealed class UpgradeRolledBackException : IOException
+{
+    internal UpgradeRolledBackException(string message, Exception inner) : base(message, inner) { }
+}
 
 // Stages and hashes all bytes, preflights every destination, then changes only
 // owned application files. Failure rolls back touched files; power interruption
@@ -24,7 +31,7 @@ internal sealed class InstallTransaction : IDisposable
     {
         root = Path.GetFullPath(directory).TrimEnd('\\', '/');
         marker = InstallerEngine.SafePath(root, PendingName);
-        if (File.Exists(marker)) throw new InvalidOperationException("An interrupted update has a retained backup. Inspect .chatmcp-update-pending.json and the installer log before retrying; no files were changed.");
+        if (File.Exists(marker)) throw new InvalidOperationException("An interrupted update has a retained backup. Inspect .chatmcp-update-pending.json and the installer log before retrying; no files were changed.").Tag("pending_recovery");
         workspace = InstallerEngine.SafePath(root, ".ChatMCP-update-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(workspace, "new"));
         Directory.CreateDirectory(Path.Combine(workspace, "old"));
@@ -158,7 +165,7 @@ internal sealed class InstallTransaction : IDisposable
             }
             if (rollbackFailures.Count == 0) { File.Delete(marker); retain = false; }
             if (retain) throw new AggregateException("Upgrade failed; keep the retained backup at " + workspace + ". The launcher is blocked until recovery.", new[] { failure }.Concat(rollbackFailures));
-            throw new IOException("Upgrade failed; all changed application files were rolled back. " + failure.Message, failure);
+            throw new UpgradeRolledBackException("Upgrade failed; all changed application files were rolled back. " + failure.Message, failure);
         }
     }
     public void Dispose()
