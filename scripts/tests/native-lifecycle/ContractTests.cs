@@ -115,7 +115,10 @@ internal static class ContractTests
             var folderInTheWay = Path.Combine(folder, "a-folder.json"); Directory.CreateDirectory(folderInTheWay);
             var files = Directory.GetFiles(folder).Length;
             kit.Check(!UpdateResultFile.TryWrite(folderInTheWay, cases[0].Outcome) && Directory.GetFiles(folder).Length == files && Directory.Exists(folderInTheWay), "nor is a folder with that name, and no temporary file is left");
-            kit.Check(!UpdateResultFile.TryWrite(@".\relative-result.json", cases[0].Outcome) && !File.Exists("relative-result.json"), "and a path that starts with a dot is relative too: nothing is written in the folder the setup was started from");
+            // A name of its own for each run, removed afterwards: a file left in the working folder by an earlier run (or by a mutation that makes TryWrite accept the path) must not decide this one.
+            var relativeName = "relative-result-" + Guid.NewGuid().ToString("N") + ".json";
+            try { kit.Check(!UpdateResultFile.TryWrite(@".\" + relativeName, cases[0].Outcome) && !File.Exists(relativeName), "and a path that starts with a dot is relative too: nothing is written in the folder the setup was started from"); }
+            finally { try { File.Delete(relativeName); } catch (Exception) { /* nothing to remove */ } }
         }
     }
 }

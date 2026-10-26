@@ -104,8 +104,10 @@ test('browser error gate rejects malformed API responses and accepts explicit no
     // the main E2E report or another concurrently running test's output.
     const env = { ...process.env };
     for (const name of Object.keys(env)) if (name.startsWith('PLAYWRIGHT_JSON_')) delete env[name];
-    const result = spawnSync(process.execPath, [path.join(ui, 'node_modules/@playwright/test/cli.js'), 'test', '--config', config], { cwd: ui, env, encoding: 'utf8', windowsHide: true, timeout: 60_000 });
-    assert.equal(result.status, 1, result.stdout + result.stderr);
+    // The nested run has eleven cases of up to 15 s each: it takes 9-15 s on a healthy runner, but a Windows runner once needed more than 60 s and the old limit of 60 s killed it, which ended the test with a
+    // status of null and told nobody which case it was in. The limit is now the worst case of the cases (their own timeouts), and an end without a status says so.
+    const result = spawnSync(process.execPath, [path.join(ui, 'node_modules/@playwright/test/cli.js'), 'test', '--config', config], { cwd: ui, env, encoding: 'utf8', windowsHide: true, timeout: cases.length * 15_000 + 30_000 });
+    assert.equal(result.status, 1, `the nested run ended with status ${result.status}, signal ${result.signal}, ${result.error?.message ?? 'no error'} (null is a run that was killed at the limit)\n${result.stdout}${result.stderr}`);
     const value = JSON.parse(await fs.readFile(report, 'utf8'));
     const specs = (suites) => suites.flatMap(suite => [...suite.specs, ...specs(suite.suites ?? [])]);
     const recorded = specs(value.suites);

@@ -260,6 +260,7 @@
   {
    "name": "page-message-not-an-object",
    "what": "a message that is not an object is looked at",
+   "equivalent": "TryGetProperty on a value that is not an object throws InvalidOperationException, which the broad catch of TryParse (JsonException or InvalidOperationException) turns into false: the same answer by another road",
    "patches": [
     {
      "file": "native-shared/PageMessage.cs",
@@ -4239,6 +4240,7 @@
   {
    "name": "payload-msbuild-percent-not-escaped",
    "what": "a percent sign goes to MSBuild as it is",
+   "run": "payload",
    "patches": [
     {
      "file": "scripts/InstallerPayload.ps1",
@@ -4250,6 +4252,7 @@
   {
    "name": "payload-msbuild-percent-escaped-last",
    "what": "the percent sign is escaped after the others, so that their escapes are escaped again",
+   "run": "payload",
    "patches": [
     {
      "file": "scripts/InstallerPayload.ps1",
@@ -4266,6 +4269,7 @@
   {
    "name": "payload-msbuild-star-not-escaped",
    "what": "a star goes to MSBuild as it is",
+   "run": "payload",
    "patches": [
     {
      "file": "scripts/InstallerPayload.ps1",
@@ -4277,6 +4281,7 @@
   {
    "name": "payload-msbuild-question-not-escaped",
    "what": "a question goes to MSBuild as it is",
+   "run": "payload",
    "patches": [
     {
      "file": "scripts/InstallerPayload.ps1",
@@ -4288,6 +4293,7 @@
   {
    "name": "payload-msbuild-at-not-escaped",
    "what": "a at goes to MSBuild as it is",
+   "run": "payload",
    "patches": [
     {
      "file": "scripts/InstallerPayload.ps1",
@@ -4299,6 +4305,7 @@
   {
    "name": "payload-msbuild-dollar-not-escaped",
    "what": "a dollar goes to MSBuild as it is",
+   "run": "payload",
    "patches": [
     {
      "file": "scripts/InstallerPayload.ps1",
@@ -4310,6 +4317,7 @@
   {
    "name": "payload-msbuild-open-parenthesis-not-escaped",
    "what": "a open parenthesis goes to MSBuild as it is",
+   "run": "payload",
    "patches": [
     {
      "file": "scripts/InstallerPayload.ps1",
@@ -4321,6 +4329,7 @@
   {
    "name": "payload-msbuild-close-parenthesis-not-escaped",
    "what": "a close parenthesis goes to MSBuild as it is",
+   "run": "payload",
    "patches": [
     {
      "file": "scripts/InstallerPayload.ps1",
@@ -4332,6 +4341,7 @@
   {
    "name": "payload-msbuild-semicolon-not-escaped",
    "what": "a semicolon goes to MSBuild as it is",
+   "run": "payload",
    "patches": [
     {
      "file": "scripts/InstallerPayload.ps1",
@@ -4343,6 +4353,7 @@
   {
    "name": "payload-msbuild-quote-not-escaped",
    "what": "a quote goes to MSBuild as it is",
+   "run": "payload",
    "patches": [
     {
      "file": "scripts/InstallerPayload.ps1",
@@ -4354,6 +4365,7 @@
   {
    "name": "payload-msbuild-comma-not-escaped",
    "what": "a comma goes to MSBuild as it is",
+   "run": "payload",
    "patches": [
     {
      "file": "scripts/InstallerPayload.ps1",
@@ -4470,6 +4482,7 @@
   {
    "name": "initialpath-text-unchecked",
    "what": "the folder the picker starts in is taken as a string without asking whether .NET can give it as text (a lone surrogate throws)",
+   "equivalent": "GetString throws InvalidOperationException for a lone surrogate, and the catch of the method turns that into the same false that Json.TextOf gives by returning null: the same answer by another road",
    "patches": [
     {
      "file": "native-shared/PageMessage.cs",

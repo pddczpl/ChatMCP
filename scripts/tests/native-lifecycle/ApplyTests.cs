@@ -63,10 +63,12 @@ internal static class ApplyTests
         kit.Check(Suggests(Pick(""), out suggested) && suggested == null, "a message with no suggestion has none");
         kit.Check(Suggests(Pick(",\"initialPath\":5"), out suggested) && suggested == null && Suggests(Pick(",\"initialPath\":null"), out suggested) && suggested == null && Suggests(Pick(",\"initialPath\":[\"C:\\\\x\"]"), out suggested) && suggested == null, "and so does one whose field is not a string");
         foreach (var (why, json) in new (string, string)[] { ("a lone surrogate in it", Pick(",\"initialPath\":\"\\ud800\"")), ("a lone low surrogate in it", Pick(",\"initialPath\":\"C:\\\\x\\udc00\"")), ("a reversed pair in it", Pick(",\"initialPath\":\"\\udc00\\ud800\"")),
-                     ("a field named by a lone surrogate", Pick(",\"\\ud800\":1")), ("a message that is not JSON", "not json"), ("a message that is an array", "[1]"), ("nothing", ""), ("a message over 32 KiB", Pick(",\"initialPath\":\"" + new string('x', 40000) + "\"")) })
+                     ("a field named by a lone surrogate", Pick(",\"\\ud800\":1")),
+                     // .NET compares a name that is written with an escape only when it can be as long as the name it looks for (initialPath, 11 characters): this one can, and then it throws
+                     ("a field named by a lone surrogate and as long as the field looked for", Pick(",\"\\ud800abcdefghijklmnop\":1")), ("a message that is not JSON", "not json"), ("a message that is an array", "[1]"), ("nothing", ""), ("a message over 32 KiB", Pick(",\"initialPath\":\"" + new string('x', 40000) + "\"")) })
         {
             kit.Check(SafeSuggests(json) == "dropped" || SafeSuggests(json) == "read", "a pick-folder message with " + why + " never throws");
-            if (why != "a field named by a lone surrogate") kit.Check(SafeSuggests(json) == "dropped", "and is dropped: " + why);
+            if (!why.StartsWith("a field named by a lone surrogate", StringComparison.Ordinal)) kit.Check(SafeSuggests(json) == "dropped", "and is dropped: " + why);
         }
         string SafeSuggests(string json) { try { return Suggests(json, out _) ? "read" : "dropped"; } catch (Exception error) { return "threw " + error.GetType().Name; } }
         kit.Check(Parses("{\"type\":\"chatmcp.apply-update\",\"id\":\"" + id + "\",\"path\":\"C:\\\\evil\\\\setup.exe\",\"version\":\"9.9.9\",\"name\":\"x.exe\",\"args\":[\"--x\"],\"url\":\"https://evil.example/\"}", out var t3, out var i3) && t3 == "chatmcp.apply-update" && i3 == id,

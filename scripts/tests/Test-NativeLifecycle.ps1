@@ -437,7 +437,7 @@ try {
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $recoveryFile
         Assert-Native ($LASTEXITCODE -eq 0) '[recovery] the block of the setup guide runs to its end in Windows PowerShell'
         Assert-Native (([IO.File]::ReadAllText($canaryReplaced) -ceq 'REPLACED-ORIGINAL') -and ([IO.File]::ReadAllText($canaryRemoved) -ceq 'REMOVED-ORIGINAL') -and -not (Test-Path -LiteralPath $canaryCreated)) '[recovery] it puts back the file that was replaced and the one that was removed, and removes the one that was created'
-        Assert-Native (-not (Test-Path -LiteralPath $pendingMarker) -and -not (Test-Path -LiteralPath $retainedBackups) -and (Get-ChildItem -LiteralPath $root -Force -Directory -Filter '.ChatMCP-update-*').Count -eq 0 -and ((Get-FileHash $exe -Algorithm SHA256).Hash -eq $baselineHash)) '[recovery] and the marker and the backup are gone, the installed program is untouched, so the setup works again (the next step is the update that goes through)'
+        Assert-Native (-not (Test-Path -LiteralPath $pendingMarker) -and -not (Test-Path -LiteralPath $retainedBackups) -and @(Get-ChildItem -LiteralPath $root -Force -Directory -Filter '.ChatMCP-update-*').Count -eq 0 -and ((Get-FileHash $exe -Algorithm SHA256).Hash -eq $baselineHash)) '[recovery] and the marker and the backup are gone, the installed program is untouched, so the setup works again (the next step is the update that goes through)'
         foreach ($canary in @($canaryReplaced, $canaryRemoved)) { Remove-Item -LiteralPath $canary -Force }
 
         # 3. The update that goes through, from the app that is open: it waits for the shell to close, replaces the files, opens the new app, and leaves the Hub that runs next the word "updated".

@@ -153,7 +153,13 @@ async function main() {
     }
     const project = path.join(copy, HERE, 'NativeLifecycle.Tests.csproj');
     const build = () => run('dotnet', ['build', project, '-c', 'Release', '--nologo', '-v', 'q', '-p:TreatWarningsAsErrors=false'], { cwd: copy, timeout: opts.timeout });
-    const execute = () => run('dotnet', ['run', '--no-build', '--project', project, '-c', 'Release'], { cwd: copy, timeout: opts.timeout });
+    // Each run of the tests starts in a folder of its own that is empty and removed afterwards: a file that a mutated run leaves in the folder it was started from (a result file written to a relative path, say)
+    // would otherwise be there for every later run and kill it for a reason that is not its own.
+    const execute = async () => {
+      const here = await mkdtemp(path.join(os.tmpdir(), 'chatmcp-native-cwd-'));
+      try { return await run('dotnet', ['run', '--no-build', '--project', project, '-c', 'Release'], { cwd: here, timeout: opts.timeout }); }
+      finally { await rm(here, { recursive: true, force: true }).catch(() => {}); }
+    };
     // the gate must not compare the list of mutations with a copy that has a mutation in it: it is told so
     const gate = () => run(process.execPath, [path.join(copy, 'CHATMCP-HUB', 'tests', 'verify-update-apply.mjs')], { cwd: copy, timeout: opts.timeout, env: { ...process.env, CHATMCP_NATIVE_MUTATION_COPY: '1' } });
     // the PowerShell tests of the build's helpers: they read the copy of the scripts next to them
