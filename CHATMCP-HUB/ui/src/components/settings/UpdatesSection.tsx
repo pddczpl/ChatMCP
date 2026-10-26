@@ -22,8 +22,8 @@ const linkClass = 'inline-flex h-8 items-center rounded-lg border border-line bg
  * Under them, for a release on offer: whether it is signed, the size of its installer and the same download controls as the strip (Download only for a signature that checked). Nothing here
  * installs or runs an installer, and the page says so.
  */
-export function UpdatesPanel({ update, lang: pinned, now = Date.now(), busy = false, onCheck, onSkip, onToggle, onDownload, onCancel }: {
-  update: UpdateInfo | null | undefined; lang?: 'vi' | 'en'; now?: number; busy?: boolean;
+export function UpdatesPanel({ update, lang: pinned, now = Date.now(), busy = false, cancelling = false, onCheck, onSkip, onToggle, onDownload, onCancel }: {
+  update: UpdateInfo | null | undefined; lang?: 'vi' | 'en'; now?: number; busy?: boolean; cancelling?: boolean;
   onCheck: () => void; onSkip: (version: string | null) => void; onToggle: (enabled: boolean) => void; onDownload: (version: string) => void; onCancel: () => void;
 }) {
   const { lang: current } = useTranslation();
@@ -74,7 +74,7 @@ export function UpdatesPanel({ update, lang: pinned, now = Date.now(), busy = fa
             <FactRow label={t('upd_sig_label')}><span data-testid="updates-signature" data-signature={signature}>{t(`upd_sig_state_${signature}`, { kid: info?.kid ?? '' })}</span></FactRow>
             <FactRow label={t('upd_size_label')}><span data-testid="updates-size">{formatBytes(download.bytes, lang)}</span></FactRow>
           </dl>
-          <DownloadControls update={info} lang={lang} busy={busy} ids={PANEL_IDS} onDownload={onDownload} onCancel={onCancel} onCheck={onCheck} />
+          <DownloadControls update={info} lang={lang} busy={busy} cancelling={cancelling} ids={PANEL_IDS} onDownload={onDownload} onCancel={onCancel} onCheck={onCheck} />
         </SettingsCard>
       )}
 
@@ -95,7 +95,7 @@ export function UpdatesPanel({ update, lang: pinned, now = Date.now(), busy = fa
 /** Settings → Updates (the section after Appearance). */
 export function UpdatesSection() {
   const { data: hub } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: query => pollInterval(query.state.data?.update) });
-  const { busy, answer, check, skip, download, cancelDownload } = useUpdateActions();
+  const { busy, cancelling, answer, check, skip, download, cancelDownload } = useUpdateActions();
   const update = hub?.update;
   // While "Check now" is held back, the seconds left count down: the page paints again once a second. The time they are counted from is read at every paint, never kept, so a page that was
   // asleep (a window that was minimised stops asking the Hub) and then hears of a look made long ago does not count from the time it last painted.
@@ -109,7 +109,7 @@ export function UpdatesSection() {
   }, [waiting]);
   return (
     <UpdatesPanel
-      update={update} now={now} busy={busy} onCheck={() => void check()} onSkip={version => void skip(version)} onToggle={enabled => void answer(enabled)}
+      update={update} now={now} busy={busy} cancelling={cancelling} onCheck={() => void check()} onSkip={version => void skip(version)} onToggle={enabled => void answer(enabled)}
       onDownload={version => void download(version)} onCancel={() => void cancelDownload()}
     />
   );

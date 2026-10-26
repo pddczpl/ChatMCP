@@ -91,7 +91,7 @@ export type DownloadErrorGroup = 'network' | 'mismatch' | 'disk' | 'write' | 'pl
 
 const DOWNLOAD_GROUPS: Record<string, DownloadErrorGroup> = {
   update_download_stalled: 'network', update_download_interrupted: 'network', update_download_http: 'network', update_download_redirect: 'network', update_download_unverified: 'network',
-  update_download_size: 'mismatch', update_download_hash: 'mismatch', update_download_disk_full: 'disk', update_download_disk_unknown: 'disk',
+  update_download_size: 'mismatch', update_download_hash: 'mismatch', update_download_bad_size: 'name', update_download_disk_full: 'disk', update_download_disk_unknown: 'disk',
   update_download_write: 'write', update_download_save: 'write', update_download_folder: 'write', update_download_platform: 'platform', update_download_unsigned: 'unsigned',
   update_download_stale: 'stale', update_download_not_newer: 'stale', update_download_invalid: 'stale', update_download_no_installer: 'name', update_download_bad_name: 'name',
 };
@@ -135,8 +135,10 @@ export interface DownloadView {
   kind: DownloadKind;
   /** The release the view is about (the one on offer). */
   version: string | null;
-  /** The Download button may be shown: the signature checked and nothing is running or finished. */
+  /** The Download button may be shown: the signature checked, the manifest names an installer, and nothing is running or finished. */
   canDownload: boolean;
+  /** Why there is no button although a release is on offer: its signature, or its manifest (it names no single installer); null when there is one. */
+  reason: 'signature' | 'installer' | null;
   canCancel: boolean;
   /** 0..100, or null while the Hub does not know the size yet. */
   percent: number | null;
@@ -157,7 +159,7 @@ const clamp = (value: number, low: number, high: number) => Math.min(high, Math.
  * then offered (when its signature checked) or explained (when it did not).
  */
 export function downloadView(update: UpdateInfo | null | undefined): DownloadView {
-  const none: DownloadView = { kind: 'none', version: null, canDownload: false, canCancel: false, percent: null, received: 0, total: null, bytes: null, group: null, signature: 'unchecked' };
+  const none: DownloadView = { kind: 'none', version: null, canDownload: false, reason: null, canCancel: false, percent: null, received: 0, total: null, bytes: null, group: null, signature: 'unchecked' };
   if (!isObject(update) || update.available !== true || typeof update.latest !== 'string') return none;
   const version = update.latest;
   const signature = signatureView(update);
@@ -171,9 +173,12 @@ export function downloadView(update: UpdateInfo | null | undefined): DownloadVie
   }
   if (download?.state === 'verifying') return { ...base, kind: 'verifying', canCancel: true };
   if (download?.state === 'ready') return { ...base, kind: 'ready', bytes: typeof download.bytes === 'number' ? download.bytes : sized };
-  const canDownload = signature === 'valid';
-  if (download?.state === 'failed') return { ...base, kind: 'failed', canDownload, group: downloadErrorGroup(download.code) };
-  return canDownload ? { ...base, kind: 'offer', canDownload: true } : { ...base, kind: 'blocked' };
+  // a manifest that names no single installer gives the Hub nothing to download: it would refuse the click, so the page does not offer one and says why
+  const hasInstaller = typeof update.installerName === 'string' && update.installerName !== '';
+  const canDownload = signature === 'valid' && hasInstaller;
+  const reason: DownloadView['reason'] = canDownload ? null : (signature !== 'valid' ? 'signature' : 'installer');
+  if (download?.state === 'failed') return { ...base, kind: 'failed', canDownload, reason, group: downloadErrorGroup(download.code) };
+  return canDownload ? { ...base, kind: 'offer', canDownload: true } : { ...base, kind: 'blocked', reason };
 }
 
 /** How often the page asks the Hub for its state: quickly while a download runs, so that the bar moves, and every three seconds otherwise. */

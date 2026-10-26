@@ -330,8 +330,11 @@ signedTest('a signed release is downloaded on a click: the bar moves, Cancel sto
     await page.screenshot({ path: testInfo.outputPath(`downloading-${theme}.png`), animations: 'disabled' });
   }
   expect(unreadable, 'the progress reads at 4.5:1 or better in both themes').toEqual([]);
-  await page.setViewportSize({ width: 640, height: 900 });
-  expect(await noSideways(page), 'the progress does not scroll the page sideways').toBe(true);
+  for (const width of [640, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await noSideways(page), `the progress does not scroll the page sideways at ${width}px`).toBe(true);
+    await expect(page.getByTestId('update-cancel'), `and Cancel is in reach at ${width}px`).toBeVisible();
+  }
   await page.setViewportSize({ width: 1600, height: 1000 });
   // Settings shows the same
   const dialog = await openSettings(page, 'Cập nhật');
@@ -372,6 +375,9 @@ signedTest('a signed release is downloaded on a click: the bar moves, Cancel sto
     await page.screenshot({ path: testInfo.outputPath(`ready-${theme}.png`), animations: 'disabled' });
   }
   expect(unreadable, 'the ready state reads at 4.5:1 or better in both themes').toEqual([]);
+  await page.setViewportSize({ width: 375, height: 900 });
+  expect(await noSideways(page), 'the ready state does not scroll the page sideways at 375px').toBe(true);
+  await page.setViewportSize({ width: 1600, height: 1000 });
   const before = feed.installer.hits();
   await page.reload();
   await expect(page.getByTestId('update-download-ready'), 'a reloaded page finds it ready: it is the Hub\'s').toBeVisible();
@@ -409,6 +415,18 @@ signedTest('a download that fails says why in words and can be tried again; an u
   await expect(page.getByTestId('update-download-error')).toContainText('Tải về không thành công: Tệp tải về không phải tệp mà danh sách đã ký mô tả', { timeout: 30_000 });
   expect((await app.hub.state()).update.download).toEqual({ state: 'failed', version: '3.10.3', code: 'update_download_hash' });
   await expect.poll(async () => fs.readdir(path.join(app.hub.stateDir, 'updates')).catch(() => []), { message: 'nothing is left of the file that did not match' }).toEqual([]);
+  // the words of the failure read at 4.5:1 or better in both themes (they are in the colour of the text; amber text on the strip does not reach it in the light theme), and do not scroll the page at 375px
+  const unreadable = [];
+  for (const theme of ['light', 'dark']) {
+    await setTheme(page, theme);
+    await page.waitForTimeout(400);
+    const ratio = await contrast(page.getByTestId('update-download-error'));
+    if (ratio < 4.5) unreadable.push(`update-download-error in the ${theme} theme: ${ratio.toFixed(2)}`);
+  }
+  expect(unreadable, 'the failure reads at 4.5:1 or better in both themes').toEqual([]);
+  await page.setViewportSize({ width: 375, height: 900 });
+  expect(await noSideways(page), 'the failure does not scroll the page sideways at 375px').toBe(true);
+  await page.setViewportSize({ width: 1600, height: 1000 });
   // tried again with the right bytes
   feed.installer.set({ name: 'DatGoldSetup.exe', bytes: installer.bytes });
   await expect(button, 'a failure can be tried again').toBeVisible();

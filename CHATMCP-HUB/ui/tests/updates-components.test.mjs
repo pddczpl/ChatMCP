@@ -422,10 +422,16 @@ test('a download in progress: a bar with the bytes that arrived out of the size,
   assert.doesNotMatch(tag(preparing, 'update-download-progress'), /aria-valuenow/, 'no value while the size is not known');
   assert.equal(text(preparing, 'update-download-progress-text'), 'Preparing the download…');
   assert.ok(has(preparing, 'update-cancel'));
+  assert.doesNotMatch(preparing, /w-1\/3/, 'no static third of a bar: with reduced motion that would read as 33%');
+  assert.match(preparing, /bg-primary\/40 animate-pulse/, 'a faint full bar that pulses where motion is allowed');
   const verifying = await strip({ update: signed({ download: { state: 'verifying', version: '3.10.3' } }) }, 'en');
   assert.equal(text(verifying, 'update-download-verifying'), 'Checking the file…');
   assert.ok(has(verifying, 'update-cancel') && !has(verifying, 'update-download'));
-  assert.match(tag(await strip({ update: running, busy: true }), 'update-cancel'), /disabled=""/);
+  assert.doesNotMatch(tag(await strip({ update: running, busy: true }), 'update-cancel'), /disabled=""/, 'Cancel is not held back by the click that is still being answered (the Hub already reports the download): it waits only for its own request');
+  assert.match(tag(await strip({ update: running, cancelling: true }), 'update-cancel'), /disabled=""/, 'but it is not pressed twice');
+  assert.match(tag(en, 'update-notice'), /aria-atomic="false"/, 'a change in the strip is announced as the part that changed, not the whole strip');
+  assert.match(en, /aria-live="off"/, 'and the progress, which changes at every poll, is not read out');
+  assert.doesNotMatch(await strip({ update: signed({ download: { state: 'ready', version: '3.10.3', bytes: 232753314 } }) }, 'en'), /aria-live="off"/, 'the end of a download is announced');
 });
 
 test('a download that is ready says so and says what it is, and offers no way to install it', async () => {
@@ -433,7 +439,7 @@ test('a download that is ready says so and says what it is, and offers no way to
   const en = await strip({ update: ready }, 'en');
   assert.equal(text(en, 'update-download-ready'), 'Downloaded and checked.');
   assert.match(text(en, 'update-download-ready-note'), /installer of DatGold 3\.10\.3 \(222 MB\) is in DatGold's update folder/);
-  assert.match(text(en, 'update-download-ready-note'), /size and SHA-256 match the signed list of the release/);
+  assert.match(text(en, 'update-download-ready-note'), /When the download finished, its size and SHA-256 matched the signed list of the release/, 'said of the moment it arrived, not of the file as it is now');
   assert.match(text(en, 'update-download-ready-note'), /Installing it from the app is not available in this version/);
   assert.ok(!has(en, 'update-download') && !has(en, 'update-cancel') && !has(en, 'update-download-progress'));
   assert.doesNotMatch(en, INSTALLING, 'nothing to press to install it');
@@ -441,6 +447,7 @@ test('a download that is ready says so and says what it is, and offers no way to
   const vi = await strip({ update: ready }, 'vi');
   assert.equal(text(vi, 'update-download-ready'), 'Đã tải xong và đã kiểm tra.');
   assert.match(text(vi, 'update-download-ready-note'), /Cài đặt từ trong ứng dụng chưa có ở phiên bản này/);
+  assert.match(text(vi, 'update-download-ready-note'), /Khi tải xong, dung lượng và mã SHA-256 của nó khớp/);
   assert.doesNotMatch(vi, INSTALLING);
   assert.doesNotMatch(en + vi, /\b(?:certified|tamper-proof|guarantee|verified|secure|authentic)\b/i, 'no word that claims more than it does');
 });
@@ -449,9 +456,10 @@ test('a download that failed says what went wrong, in words, and can be tried ag
   const says = {
     update_download_stalled: [/Kết nối tới GitHub bị lỗi/, /connection to GitHub failed or stopped/], update_download_interrupted: [/Kết nối tới GitHub bị lỗi/, /connection to GitHub failed or stopped/],
     update_download_size: [/không phải tệp mà danh sách đã ký mô tả/, /not the one the signed list describes/], update_download_hash: [/không phải tệp mà danh sách đã ký mô tả/, /not the one the signed list describes/],
+    update_download_bad_size: [/không nêu một bộ cài/, /does not name an installer/],
     update_download_disk_full: [/không đủ chỗ trống/, /not enough free space/], update_download_write: [/không ghi được tệp/, /could not write the file/],
     update_download_save: [/không ghi được tệp/, /could not write the file/], update_download_platform: [/không chạy được bộ cài Windows/, /cannot run the Windows installer/],
-    update_download_unsigned: [/Chữ ký của bản này không khớp/, /signature of this release does not check/], update_download_stale: [/không còn là bản đang được đề nghị/, /no longer the release on offer/],
+    update_download_unsigned: [/không còn chữ ký hợp lệ/, /no longer has a signature that checks/], update_download_stale: [/không còn là bản đang được đề nghị/, /no longer the release on offer/],
     update_download_bad_name: [/không nêu một bộ cài/, /does not name an installer/], update_download_something_new: [/Tải về không thành công\./, /The download did not work\./],
   };
   for (const [code, [vi, en]] of Object.entries(says)) {
@@ -464,9 +472,30 @@ test('a download that failed says what went wrong, in words, and can be tried ag
     assert.doesNotMatch(enHtml, DIACRITICS, `${code}: the English strip reads English`);
     assert.ok(has(viHtml, 'update-download'), `${code}: and it can be tried again`);
     assert.doesNotMatch(viHtml, /text-danger|bg-danger|border-danger/, 'a failure of the network is not drawn as a danger');
+    assert.doesNotMatch(tag(viHtml, 'update-download-error'), /text-warning/, 'its words are in the colour of the text: the amber is for the icon, because amber text on the strip does not reach 4.5:1 in the light theme');
   }
   const withdrawn = await strip({ update: update({ signature: 'missing', download: { state: 'failed', version: '3.10.3', code: 'update_download_hash' } }) }, 'en');
   assert.ok(has(withdrawn, 'update-download-error') && !has(withdrawn, 'update-download'), 'not when the signature no longer checks');
+  assert.match(tag(withdrawn, 'update-signature-note'), /data-signature="missing"/, 'and it says why there is no button');
+  assert.match(text(withdrawn, 'update-signature-note'), /This release is not signed yet/);
+});
+
+test('a signed release that names no single installer says so and offers nothing to press, in the strip and in Settings', async () => {
+  const noInstaller = signed({ installerName: null, installerBytes: null });
+  const vi = await strip({ update: noInstaller }, 'vi');
+  const en = await strip({ update: noInstaller }, 'en');
+  for (const html of [vi, en]) {
+    assert.ok(!has(html, 'update-download') && !has(html, 'update-cancel'), 'no button');
+    assert.match(tag(html, 'update-signature-note'), /data-signature="valid"/, 'the signature is fine');
+    assert.match(tag(html, 'update-signature-note'), /data-reason="installer"/, 'it is the installer that is the matter');
+    assert.ok(!has(html, 'update-recheck'), 'looking again does not change a manifest');
+  }
+  assert.match(text(vi, 'update-signature-note'), /không nêu đúng một bộ cài Windows/);
+  assert.match(text(en, 'update-signature-note'), /does not list exactly one Windows installer/);
+  assert.doesNotMatch(en, DIACRITICS);
+  const settings = await panel({ update: noInstaller }, 'en');
+  assert.ok(!has(settings, 'updates-download'));
+  assert.match(text(settings, 'updates-signature-note'), /does not list exactly one Windows installer/);
 });
 
 test('a release that cannot be downloaded says why, and a signature that was not read can be looked at again', async () => {

@@ -16,6 +16,7 @@ export function useUpdateActions() {
   const queryClient = useQueryClient();
   const showToast = useAppStore(state => state.showToast);
   const [busy, setBusy] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['hubState'] });
 
   /** A refusal the Hub gave a code of the update notice is said in the words of the page (the Hub speaks Vietnamese only); any other failure in the Hub's own words when it gave some, else the page's. */
@@ -85,10 +86,13 @@ export function useUpdateActions() {
     } finally { setBusy(false); }
   };
 
-  /** Stop the download that runs; the Hub closes the connection and removes what it had written. */
+  /**
+   * Stop the download that runs; the Hub closes the connection and removes what it had written. It does not wait for `busy`: the click on Download is still being answered for as long as the Hub looks
+   * at the release again (two chains of requests), the Hub already reports the download, and the person who started it must be able to stop it. Only a second Cancel waits.
+   */
   const cancelDownload = async () => {
-    if (busy) return;
-    setBusy(true);
+    if (cancelling) return;
+    setCancelling(true);
     try {
       const result = await api.cancelUpdateDownload();
       await refresh();
@@ -96,10 +100,10 @@ export function useUpdateActions() {
     } catch (error) {
       await refresh().catch(() => undefined);
       failed(error);
-    } finally { setBusy(false); }
+    } finally { setCancelling(false); }
   };
 
-  return { busy, answer, check, skip, download, cancelDownload };
+  return { busy, cancelling, answer, check, skip, download, cancelDownload };
 }
 
 export type { TranslationKey };

@@ -17,8 +17,8 @@ const strip = 'flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b bor
  * "Skip this version", and under them what the owner can do about its installer (Download for a release whose signature checked, the progress with Cancel, "Downloaded and checked", or why there
  * is no button). Presentational (the container below talks to the Hub), so that a test can render every state. Nothing here installs or starts anything.
  */
-export function UpdateNotice({ update, lang: pinned, busy = false, onAnswer, onSkip, onDetails, onDownload, onCancel, onCheck }: {
-  update: UpdateInfo | null | undefined; lang?: 'vi' | 'en'; busy?: boolean;
+export function UpdateNotice({ update, lang: pinned, busy = false, cancelling = false, onAnswer, onSkip, onDetails, onDownload, onCancel, onCheck }: {
+  update: UpdateInfo | null | undefined; lang?: 'vi' | 'en'; busy?: boolean; cancelling?: boolean;
   onAnswer: (enabled: boolean) => void; onSkip: (version: string) => void; onDetails: () => void;
   onDownload: (version: string) => void; onCancel: () => void; onCheck: () => void;
 }) {
@@ -49,7 +49,7 @@ export function UpdateNotice({ update, lang: pinned, busy = false, onAnswer, onS
   // The Hub builds the link from the version; the page shows it only when it is exactly the tag page of that release on the project's GitHub.
   const notes = safeNotesUrl(update);
   return (
-    <div role="status" data-testid="update-notice" data-kind="available" data-version={latest} className={strip}>
+    <div role="status" aria-atomic="false" data-testid="update-notice" data-kind="available" data-version={latest} className={strip}>
       <CircleArrowUp className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
       <span data-testid="update-notice-text" className="min-w-0 flex-1 font-medium">{t('upd_n_available', { version: latest })}</span>
       {notes && (
@@ -60,7 +60,7 @@ export function UpdateNotice({ update, lang: pinned, busy = false, onAnswer, onS
       {notes && <span data-testid="update-copy" className="shrink-0"><CopyButton text={notes} label={t('upd_copy_link')} /></span>}
       <Button data-testid="update-skip" size="sm" variant="secondary" disabled={busy} onClick={() => onSkip(latest)}>{t('upd_n_skip')}</Button>
       <div className="basis-full">
-        <DownloadControls update={update} lang={lang} busy={busy} ids={STRIP_IDS} onDownload={onDownload} onCancel={onCancel} onCheck={onCheck} />
+        <DownloadControls update={update} lang={lang} busy={busy} cancelling={cancelling} ids={STRIP_IDS} onDownload={onDownload} onCancel={onCancel} onCheck={onCheck} />
       </div>
     </div>
   );
@@ -70,10 +70,10 @@ export function UpdateBanner() {
   const openSettings = useAppStore(state => state.openSettings);
   // the page asks faster while a download runs, so that the bar moves
   const { data: hub } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: query => pollInterval(query.state.data?.update) });
-  const { busy, answer, skip, check, download, cancelDownload } = useUpdateActions();
+  const { busy, cancelling, answer, skip, check, download, cancelDownload } = useUpdateActions();
   return (
     <UpdateNotice
-      update={hub?.update} busy={busy} onAnswer={enabled => void answer(enabled)} onSkip={version => void skip(version)} onDetails={() => openSettings('updates')}
+      update={hub?.update} busy={busy} cancelling={cancelling} onAnswer={enabled => void answer(enabled)} onSkip={version => void skip(version)} onDetails={() => openSettings('updates')}
       onDownload={version => void download(version)} onCancel={() => void cancelDownload()} onCheck={() => void check()}
     />
   );

@@ -137,14 +137,21 @@ test('the download: what to offer, show or say for the release on offer', () => 
   assert.deepEqual([idle.kind, idle.canDownload, idle.canCancel, idle.version, idle.bytes], ['offer', true, false, '3.10.3', 232753314], 'a signed release with nothing downloaded: offer the download, with its size');
   for (const [signature, error] of [['missing', null], ['invalid', failure('update_signature_invalid')], [null, null], [null, failure('update_signature_unreachable', 500)]]) {
     const blocked = downloadView(update({ signature, error }));
-    assert.deepEqual([blocked.kind, blocked.canDownload], ['blocked', false], `no download for a signature that is ${JSON.stringify(signature)}`);
+    assert.deepEqual([blocked.kind, blocked.canDownload, blocked.reason], ['blocked', false, 'signature'], `no download for a signature that is ${JSON.stringify(signature)}`);
     assert.equal(blocked.signature, signatureView(update({ signature, error })));
   }
   assert.equal(downloadView(signed({ available: false, latest: '3.10.2' })).kind, 'none', 'nothing newer: nothing to download');
   assert.equal(downloadView(signed({ latest: null, available: false })).kind, 'none');
   assert.equal(downloadView(null).kind, 'none');
   assert.equal(downloadView({}).kind, 'none');
-  assert.equal(downloadView(signed({ installerName: null, installerBytes: null })).canDownload, true, 'the Hub decides whether there is an installer: the page does not guess (the Hub says why it cannot)');
+  // a release whose manifest names no single installer cannot be downloaded: the Hub would refuse the click, so the page does not offer it and says why
+  for (const odd of [null, '', 5, undefined]) {
+    const noInstaller = downloadView(signed({ installerName: odd, installerBytes: null }));
+    assert.deepEqual([noInstaller.kind, noInstaller.canDownload, noInstaller.reason, noInstaller.signature], ['blocked', false, 'installer', 'valid'], `an installer name of ${JSON.stringify(odd)}`);
+  }
+  assert.deepEqual([idle.kind, idle.reason], ['offer', null], 'an offer has no reason against it');
+  const failedWithoutInstaller = downloadView(signed({ installerName: null, download: { state: 'failed', version: '3.10.3', code: 'update_download_no_installer' } }));
+  assert.deepEqual([failedWithoutInstaller.kind, failedWithoutInstaller.canDownload, failedWithoutInstaller.reason], ['failed', false, 'installer'], 'a failure that cannot be tried again says why');
   const running = downloadView(signed({ download: { state: 'downloading', version: '3.10.3', received: 50_000_000, total: 232753314 } }));
   assert.deepEqual([running.kind, running.canDownload, running.canCancel, running.percent, running.received, running.total], ['progress', false, true, 21, 50_000_000, 232753314]);
   assert.equal(downloadView(signed({ download: { state: 'downloading', version: '3.10.3', received: 0, total: null } })).percent, null, 'the size is not known while the Hub looks at the release again: no percentage');
@@ -156,7 +163,8 @@ test('the download: what to offer, show or say for the release on offer', () => 
   assert.deepEqual([ready.kind, ready.canDownload, ready.canCancel, ready.bytes], ['ready', false, false, 232753314]);
   const failed = downloadView(signed({ download: { state: 'failed', version: '3.10.3', code: 'update_download_hash' } }));
   assert.deepEqual([failed.kind, failed.canDownload, failed.group], ['failed', true, 'mismatch'], 'a failure can be tried again');
-  assert.equal(downloadView(update({ signature: 'missing', download: { state: 'failed', version: '3.10.3', code: 'update_download_hash' } })).canDownload, false, 'not when the signature no longer checks');
+  const failedUnsigned = downloadView(update({ signature: 'missing', download: { state: 'failed', version: '3.10.3', code: 'update_download_hash' } }));
+  assert.deepEqual([failedUnsigned.canDownload, failedUnsigned.reason], [false, 'signature'], 'not when the signature no longer checks, and the page says why');
   // a download of another release is not this release's
   for (const state of ['downloading', 'verifying', 'ready', 'failed']) {
     const other = downloadView(signed({ download: { state, version: '3.10.2', received: 1, total: 2, bytes: 2, code: 'update_download_hash' } }));
@@ -175,7 +183,7 @@ test('the page asks the Hub quickly while a download runs, so that the bar moves
 test('a failure of the download is named by what went wrong, and an unknown code is "other"', () => {
   const groups = {
     update_download_stalled: 'network', update_download_interrupted: 'network', update_download_http: 'network', update_download_redirect: 'network', update_download_unverified: 'network',
-    update_download_size: 'mismatch', update_download_hash: 'mismatch', update_download_disk_full: 'disk', update_download_disk_unknown: 'disk',
+    update_download_size: 'mismatch', update_download_hash: 'mismatch', update_download_bad_size: 'name', update_download_disk_full: 'disk', update_download_disk_unknown: 'disk',
     update_download_write: 'write', update_download_save: 'write', update_download_folder: 'write', update_download_platform: 'platform', update_download_unsigned: 'unsigned',
     update_download_stale: 'stale', update_download_not_newer: 'stale', update_download_invalid: 'stale', update_download_no_installer: 'name', update_download_bad_name: 'name',
     update_download_something_new: 'other', '': 'other', update_http: 'other',
@@ -188,7 +196,7 @@ test('a refusal of the Hub that has a code of the download is told in the words 
   for (const [code, key] of Object.entries({
     update_download_invalid: 'upd_dl_err_stale', update_download_stale: 'upd_dl_err_stale', update_download_not_newer: 'upd_dl_err_stale', update_download_unsigned: 'upd_dl_err_unsigned',
     update_download_unverified: 'upd_dl_err_network', update_download_platform: 'upd_dl_err_platform', update_download_disk_full: 'upd_dl_err_disk', update_download_disk_unknown: 'upd_dl_err_disk',
-    update_download_folder: 'upd_dl_err_write', update_download_no_installer: 'upd_dl_err_name', update_download_bad_name: 'upd_dl_err_name', update_download_size: 'upd_dl_err_mismatch',
+    update_download_folder: 'upd_dl_err_write', update_download_no_installer: 'upd_dl_err_name', update_download_bad_name: 'upd_dl_err_name', update_download_bad_size: 'upd_dl_err_name', update_download_size: 'upd_dl_err_mismatch',
   })) assert.equal(refusalKey(code), key, code);
   assert.equal(refusalKey('update_download_something_new'), null, 'a code the page does not know is shown as the Hub said it');
 });
