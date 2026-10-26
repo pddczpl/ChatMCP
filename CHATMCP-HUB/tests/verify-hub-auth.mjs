@@ -64,10 +64,11 @@ equal(scannedGet, sorted(GET_ROUTES), 'every GET route the source answers is dec
 check(PUBLIC_API_ROUTES.every((route) => GET_ROUTES.includes(route)) && EXTENSION_READ_ROUTES.every((route) => GET_ROUTES.includes(route)), 'the named exceptions are real routes');
 equal([...PUBLIC_API_ROUTES], ['/api/health', '/api/capabilities'], 'the unauthenticated probes are exactly health and capabilities');
 equal([...EXTENSION_READ_ROUTES], ['/api/extension-state', '/api/instructions'], 'the Companion read routes are exactly extension-state and instructions');
-// The update notice (lib/update-check.mjs): one GET that reads what the Hub already knows, three POSTs that are the owner's acts. All behind the bearer; none is a named exception.
+// The update notice (lib/update-check.mjs) and the download of the installer (lib/update-download.mjs): one GET that reads what the Hub already knows (the state of the download is in it, as memory), five POSTs
+// that are the owner's acts (a check, a skip, the choice, a download, a cancel). All behind the bearer; none is a named exception, and what changes state is never a GET.
 const UPDATE_GET = ['/api/update/status'];
-const UPDATE_POST = ['/api/update/check', '/api/update/skip', '/api/update/auto-check'];
-check(UPDATE_GET.every((route) => GET_ROUTES.includes(route)) && UPDATE_POST.every((route) => POST_ROUTES.includes(route)), 'the four routes of the update notice are declared (one GET, three POSTs)');
+const UPDATE_POST = ['/api/update/check', '/api/update/skip', '/api/update/auto-check', '/api/update/download', '/api/update/download-cancel'];
+check(UPDATE_GET.every((route) => GET_ROUTES.includes(route)) && UPDATE_POST.every((route) => POST_ROUTES.includes(route)), 'the six routes of the update notice and its download are declared (one GET, five POSTs)');
 check(UPDATE_GET.concat(UPDATE_POST).every((route) => !PUBLIC_API_ROUTES.includes(route) && !EXTENSION_READ_ROUTES.includes(route)), 'and none of them is a named exception to the bearer');
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -155,6 +156,7 @@ try {
   const updateRead = await hub.get('/api/update/status');
   check(updateRead.status === 200 && updateRead.json.update?.current === VERSION && Object.keys(updateRead.json).join() === 'update', 'GET /api/update/status with the secret: the state under "update" (a top-level "error" key would read as a failed request to the page), for the version that runs');
   equal([updateRead.json.update.latest, updateRead.json.update.checking, updateRead.json.update.autoCheck.needsChoice], [null, false, true], 'and nothing was asked on the way: no check has been made, the owner is not asked-and-answered');
+  equal(updateRead.json.update.download, { state: 'idle' }, 'the state of the download is in it too: idle, from memory, with no file made or read');
   // ---- /api/state
   const stateWithout = await hub.rawRequest({ route: '/api/state', headers: { origin: hub.origin } });
   check(stateWithout.status === 401 && !stateWithout.text.includes('csrfToken') && !stateWithout.text.includes(csrf), '/api/state: no csrfToken without the bearer');

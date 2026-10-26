@@ -575,6 +575,40 @@ try {
     ok('a check is two chains: the manifest, then its signature at the address of the tag the manifest names; valid says which key, a 404 is "missing" (the release still shows up, no error), nine kinds of signature that do not check are "invalid" with a code of their own (a key this version does not know has another), and a signature that cannot be READ (500, 403, a stall, a redirect to another host) is neither: the notice stands, the state says nothing is checked, and the error says why; the address is built from the version alone');
   }
 
+  // ---- whoever depends on the offer (the download) is told when a check has finished
+  {
+    feed.mode('chain');
+    feed.publish(feedManifest({ version: '3.10.3' }));
+    const { checker, clock } = make();
+    await checker.load();
+    const seen = [];
+    const off = checker.onChecked(() => { seen.push(checker.status().latest); });
+    const throwing = checker.onChecked(() => { throw new Error('a listener that fails'); });
+    const rejecting = checker.onChecked(() => Promise.reject(new Error('a listener that rejects')));
+    const rejections = [];
+    const onRejection = (reason) => rejections.push(reason);
+    process.on('unhandledRejection', onRejection);
+    await checker.check();
+    assert.deepEqual(seen, ['3.10.3'], 'a listener is called when a check has finished, with the new state already in place');
+    await checker.check();
+    assert.deepEqual(seen, ['3.10.3'], 'not for a press that was held back (nothing was asked)');
+    clock.advance(SCHEDULE.minManualGapMs + 1);
+    feed.mode('status', { status: 503 });
+    assert.equal((await checker.check()).update.error.code, 'update_http');
+    assert.deepEqual(seen, ['3.10.3', '3.10.3'], 'and for a check that failed: the error is a change too');
+    off();
+    clock.advance(SCHEDULE.minManualGapMs + 1);
+    feed.mode('chain');
+    await checker.check();
+    assert.equal(seen.length, 2, 'a listener that was taken off is not called');
+    await sleep(30);
+    process.off('unhandledRejection', onRejection);
+    assert.deepEqual(rejections, [], 'a listener that throws or rejects breaks nothing and raises no unhandled rejection (the Hub treats one as fatal)');
+    assert.equal(typeof throwing, 'function');
+    assert.equal(typeof rejecting, 'function');
+    ok('onChecked tells a listener that a check has finished (the new state is in place; not for a held-back press; also for a failed check), can be taken off, and a listener that throws or rejects breaks nothing');
+  }
+
   // ---- the state a restart finds, and how little of the saved file is trusted
   {
     feed.mode('chain');
@@ -1121,6 +1155,14 @@ try {
     assert.equal(lines.length, 3, 'each key that is set and wrong is said in the log (an empty one is as good as none)');
     assert.ok(lines.every((line) => !/AAAA|not base64|AQEB/.test(line)), 'without repeating what was set');
     assert.equal(createUpdateChecker({ directory: folder(), currentVersion: '3.10.2', feedUrl: feed.url, releaseKeys: [], testKeys: withKey.testKeys }).trustedKeys().length, 1, 'the checker trusts the test key beside the keys of the key file');
+    // the platform the download believes it runs on: win32 is the only one that can run the installer, and the tests of a Linux machine need to see both sides of it
+    for (const platform of ['win32', 'linux', 'darwin']) assert.equal(updateOptionsFromEnvironment({ CHATMCP_UPDATE_FEED_URL: feed.url, CHATMCP_UPDATE_TEST_PLATFORM: platform }, log).platform, platform, `beside a loopback feed the platform ${platform} is taken`);
+    lines.length = 0;
+    for (const bad of ['plan9', 'WIN32', 'win32 ', 'linux; rm', 'true']) assert.equal('platform' in updateOptionsFromEnvironment({ CHATMCP_UPDATE_FEED_URL: feed.url, CHATMCP_UPDATE_TEST_PLATFORM: bad }, log), false, `a platform of ${JSON.stringify(bad)} is ignored`);
+    assert.equal('platform' in updateOptionsFromEnvironment({ CHATMCP_UPDATE_FEED_URL: feed.url, CHATMCP_UPDATE_TEST_PLATFORM: '' }, log), false, 'and an empty one is as good as none');
+    assert.equal(lines.length, 5, 'each one that is set and wrong is said in the log (exact names only: no case, no space)');
+    assert.deepEqual(updateOptionsFromEnvironment({ CHATMCP_UPDATE_TEST_PLATFORM: 'win32' }, log), {}, 'with no feed named the platform is ignored: it cannot make a real download look possible');
+    assert.deepEqual(updateOptionsFromEnvironment({ CHATMCP_UPDATE_FEED_URL: FEED_URL, CHATMCP_UPDATE_TEST_PLATFORM: 'win32' }, log), {}, 'and so is it with the real feed named');
     ok('the test hooks: CHATMCP_UPDATE_FEED_URL takes a loopback address only and anything else is ignored with a line in the log (the real feed stays); CHATMCP_UPDATE_FIRST_CHECK_MS and CHATMCP_UPDATE_TEST_KEY count only beside it (the first between 0 and 60 s, the second a P-256 SPKI)');
 
     // The script of the hand check (tests/live/check-update-feed.mjs) is run here, offline, against the stand-in: a tool that is never run rots, and this is the one that is pointed at the real feed.

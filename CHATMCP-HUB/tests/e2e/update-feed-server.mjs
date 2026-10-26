@@ -60,7 +60,7 @@ const CHUNK = 64 * 1024;
  *   endless        200 that never stops sending
  *   declared-huge  200 that declares `{bytes}` and sends a little
  * and, for the body of an installer (the options of any mode that answers 200): `pauseAfter: n` stops after n bytes until `resume()`, `stallAfter: n` stops there for good, `resetAfter: n`
- * breaks the connection there, `chunked: true` sends no length (the client has to count), `declared: n` declares n bytes whatever is sent (a body that is shorter than it says is cut).
+ * breaks the connection there, `endAfter: n` ends the response there although it declared more (a body that stops short of its length), `chunked: true` sends no length (the client has to count).
  */
 export async function startUpdateFeed({ manifest = feedManifest(), text = null, key = null } = {}) {
   const requests = [];
@@ -68,6 +68,9 @@ export async function startUpdateFeed({ manifest = feedManifest(), text = null, 
   const settings = { mode: 'chain', status: 404, target: '', bytes: 0 };
   let body = text ?? `${JSON.stringify(manifest, null, 2)}\r\n`;
   let ownedSignature = null;
+  let pinnedTag = null;
+  /** The version whose tag the files are served under: the manifest's own unless a test pins another (GitHub keeps the files of every tag; this stand-in holds one release). */
+  const tagVersion = () => pinnedTag ?? manifest.version;
   const timers = new Set();
   const gates = new Set();
 
@@ -92,7 +95,7 @@ export async function startUpdateFeed({ manifest = feedManifest(), text = null, 
     if (path === FIRST_HOP) {
       switch (settings.mode) {
         case 'chain':
-        case 'chain-500': return redirect(`${TAG_BASE(manifest.version)}/RELEASE-MANIFEST.json`);
+        case 'chain-500': return redirect(`${TAG_BASE(tagVersion())}/RELEASE-MANIFEST.json`);
         case 'direct': return serve();
         case 'status': response.writeHead(settings.status, { 'content-type': 'text/plain' }); return response.end('no');
         case 'redirect': return redirect(settings.target);
@@ -120,7 +123,7 @@ export async function startUpdateFeed({ manifest = feedManifest(), text = null, 
     }
     const chained = settings.mode === 'chain' || settings.mode === 'chain-500';
     // the manifest of the tag: the second hop of the feed (and, for the download, the address a release file is asked for by tag)
-    if (path === `${TAG_BASE(manifest.version)}/RELEASE-MANIFEST.json`) {
+    if (path === `${TAG_BASE(tagVersion())}/RELEASE-MANIFEST.json`) {
       if (chained) return redirect(`${CDN}/1413019619/24765420${SIGNED_QUERY}`); // the last hop carries a signed query, as the real one does: the Hub must never log or save it
       if (settings.mode === 'direct') return serve();
     }
@@ -131,7 +134,7 @@ export async function startUpdateFeed({ manifest = feedManifest(), text = null, 
 
     // the files of a release
     for (const entry of [signature, installer]) {
-      if (path === `${TAG_BASE(manifest.version)}/${entry.name}`) { entry.firstHits += 1; return respondFirstHop(entry, response, redirect); }
+      if (path === `${TAG_BASE(tagVersion())}/${entry.name}`) { entry.firstHits += 1; return respondFirstHop(entry, response, redirect); }
       if (path === entry.cdn) return respondBody(entry, response);
     }
     // Anything else is not on the feed: a page, a guess.
@@ -167,8 +170,7 @@ export async function startUpdateFeed({ manifest = feedManifest(), text = null, 
     }
     if (behavior.mode === 'declared-huge') { response.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': behavior.bytes ?? 0 }); response.write('{'); return; }
     if (bytes === null) { plain(response, 404); return; }
-    const declared = behavior.declared ?? bytes.length;
-    response.writeHead(200, { 'content-type': 'application/octet-stream', ...(behavior.chunked ? {} : { 'content-length': declared }) });
+    response.writeHead(200, { 'content-type': 'application/octet-stream', ...(behavior.chunked ? {} : { 'content-length': bytes.length }) });
     entry.open += 1;
     response.on('close', () => { entry.open -= 1; });
     void (async () => {
@@ -176,6 +178,7 @@ export async function startUpdateFeed({ manifest = feedManifest(), text = null, 
       while (offset < bytes.length) {
         if (response.destroyed) return;
         if (behavior.resetAfter !== undefined && offset >= behavior.resetAfter) { response.destroy(); return; }
+        if (behavior.endAfter !== undefined && offset >= behavior.endAfter) { response.end(); return; }
         if (behavior.stallAfter !== undefined && offset >= behavior.stallAfter) return;
         if (behavior.pauseAfter !== undefined && offset >= behavior.pauseAfter && !entry.released) {
           entry.gate = entry.gate ?? new Promise((resolve) => { entry.release = resolve; });
@@ -183,11 +186,17 @@ export async function startUpdateFeed({ manifest = feedManifest(), text = null, 
           await entry.gate;
           if (response.destroyed) return;
         }
-        const limit = [behavior.resetAfter, behavior.stallAfter, behavior.pauseAfter].filter((value) => value !== undefined && value > offset).reduce((least, value) => Math.min(least, value), bytes.length);
+        const limit = [behavior.resetAfter, behavior.stallAfter, behavior.pauseAfter, behavior.endAfter].filter((value) => value !== undefined && value > offset).reduce((least, value) => Math.min(least, value), bytes.length);
         const slice = bytes.subarray(offset, Math.min(offset + CHUNK, limit, bytes.length));
         entry.sent += slice.length;
         offset += slice.length;
-        if (!response.write(slice)) await new Promise((resolve) => { response.once('drain', resolve); response.once('close', resolve); });
+        if (!response.write(slice)) {
+          await new Promise((resolve) => {
+            const done = () => { response.off('drain', done); response.off('close', done); resolve(); };
+            response.on('drain', done);
+            response.on('close', done);
+          });
+        }
       }
       if (!response.destroyed) response.end();
     })();
@@ -202,7 +211,7 @@ export async function startUpdateFeed({ manifest = feedManifest(), text = null, 
     /** Lets a body that was told `pauseAfter` go on. */
     resume() { entry.released = true; entry.release?.(); },
     /** The tag address of the file, and how many requests came to it (not counting the signed hop). */
-    path: () => `${TAG_BASE(manifest.version)}/${entry.name}`,
+    path: () => `${TAG_BASE(tagVersion())}/${entry.name}`,
     hits: () => entry.firstHits,
     /** Bytes written to the client so far, over all requests. */
     sent: () => entry.sent,
@@ -219,7 +228,7 @@ export async function startUpdateFeed({ manifest = feedManifest(), text = null, 
     /** Requests to the first address: one per check, whatever the number of hops. */
     checks: () => requests.filter((entry) => entry.url.split('?')[0] === FIRST_HOP).length,
     /** Requests that asked for the manifest of the tag (the second hop of a check, or a download looking at the release by its tag). */
-    tagManifestRequests: () => requests.filter((entry) => entry.url.split('?')[0] === `${TAG_BASE(manifest.version)}/RELEASE-MANIFEST.json`).length,
+    tagManifestRequests: () => requests.filter((entry) => entry.url.split('?')[0] === `${TAG_BASE(tagVersion())}/RELEASE-MANIFEST.json`).length,
     /** Answers that are still open (a stalled one, an endless one): zero once the Hub has given up on them. */
     openCount: () => open.size,
     mode(name, options = {}) { Object.assign(settings, { status: 404, target: '', bytes: 0 }, options, { mode: name }); },
@@ -228,6 +237,8 @@ export async function startUpdateFeed({ manifest = feedManifest(), text = null, 
       if (next) manifest = next;
       body = raw ?? `${bom ? '﻿' : ''}${JSON.stringify(manifest, null, 2)}\r\n`;
     },
+    /** Serve the files of a release under the tag of this version whatever the manifest says (null: the manifest's own). */
+    pinTag(version) { pinnedTag = version; },
     /** The bytes that are served as the manifest. */
     manifestBytes: () => Buffer.from(body),
     /** RELEASE-MANIFEST.json.sig: served for the manifest that is served (made with the key given to startUpdateFeed), or as the test says. */

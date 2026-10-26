@@ -49,6 +49,7 @@ export const SCHEDULE = Object.freeze({
 });
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+const TEST_PLATFORMS = new Set(['win32', 'linux', 'darwin']);
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 
 export class UpdateError extends Error {
@@ -267,6 +268,15 @@ export async function fetchManifest({ url = FEED_URL, ...options } = {}) {
 }
 
 /**
+ * The manifest of a release by its TAG (https://github.com/pddczpl/ChatMCP/releases/download/v<version>/RELEASE-MANIFEST.json), which the download uses to look at the release again before it
+ * fetches anything: unlike the feed it is the file of that release whatever else has been published since. Resolves like fetchManifest.
+ */
+export async function fetchReleaseManifest({ feed = FEED_URL, version, userAgent = 'DatGold', timeoutMs, maxRedirects } = {}) {
+  const checked = checkedFeedUrl(feed);
+  return fetchChain(new URL(releaseAssetUrl(checked, version, 'RELEASE-MANIFEST.json')), checked, { userAgent, timeoutMs, maxRedirects });
+}
+
+/**
  * The second chain of a check: the signature of a manifest, asked for at the address of its own tag and verified over the exact bytes of the manifest with `keys` (the entries
  * parseReleaseKeys makes). Resolves with
  *   {state: 'missing'}                                            a 404: the owner has not signed this release (yet)
@@ -297,10 +307,11 @@ export async function proveManifest({ feed = FEED_URL, version, manifestBytes, k
 // ------------------------------------------------------------------------------------------------------------------------------- the hooks of the tests
 
 /**
- * The three variables a test may set, read once when the Hub starts. CHATMCP_UPDATE_FEED_URL puts a loopback server where GitHub is; CHATMCP_UPDATE_FIRST_CHECK_MS (0 to 60000) makes the first
- * check come sooner, and CHATMCP_UPDATE_TEST_KEY (a base64 SPKI of a P-256 key) is one more key that the Hub trusts for signatures. The last two count only beside a loopback feed: a key
- * that is trusted only while every address the Hub reads is on this machine can never make a download from GitHub look signed. Anything else is ignored with a line in the log that does
- * not repeat the value, so the address that is read stays GitHub's. There is no route, setting or page that can change the feed or the keys.
+ * The four variables a test may set, read once when the Hub starts. CHATMCP_UPDATE_FEED_URL puts a loopback server where GitHub is; CHATMCP_UPDATE_FIRST_CHECK_MS (0 to 60000) makes the first
+ * check come sooner, CHATMCP_UPDATE_TEST_KEY (a base64 SPKI of a P-256 key) is one more key that the Hub trusts for signatures, and CHATMCP_UPDATE_TEST_PLATFORM (win32, linux or darwin) is the
+ * platform the download believes it runs on, so that a Linux machine can test both sides of it. The last three count only beside a loopback feed: a key or a platform that is believed only while
+ * every address the Hub reads is on this machine can never make a download from GitHub look signed or possible. Anything else is ignored with a line in the log that does not repeat the value,
+ * so the address that is read stays GitHub's. There is no route, setting or page that can change the feed, the keys or the platform.
  */
 export function updateOptionsFromEnvironment(env = process.env, log = () => {}) {
   const options = {};
@@ -318,6 +329,10 @@ export function updateOptionsFromEnvironment(env = process.env, log = () => {}) 
   const testKey = env.CHATMCP_UPDATE_TEST_KEY;
   if (typeof testKey === 'string' && testKey.trim()) {
     try { options.testKeys = [publicKeyFromSpki(testKey.trim())]; } catch { log('CHATMCP_UPDATE_TEST_KEY bị bỏ qua: không phải khóa công khai P-256 dạng SPKI base64.'); }
+  }
+  const platform = env.CHATMCP_UPDATE_TEST_PLATFORM;
+  if (typeof platform === 'string' && platform !== '') {
+    if (TEST_PLATFORMS.has(platform)) options.platform = platform; else log('CHATMCP_UPDATE_TEST_PLATFORM bị bỏ qua: chỉ nhận win32, linux hoặc darwin.');
   }
   return options;
 }
@@ -373,6 +388,7 @@ export function createUpdateChecker({
   let nextAt = null;
   let stateWrites = Promise.resolve();
   let settingsWrites = Promise.resolve();
+  const listeners = new Set();
 
   const nowMs = () => now().getTime();
   /** When the last try was made, never later than now: a file written while the clock was ahead, or a clock put back, must not hold "Check now" or the next look for hours. */
@@ -514,6 +530,10 @@ export function createUpdateChecker({
     }
     await saveStateQuietly();
     schedule(jittered(error ? SCHEDULE.retryMs : SCHEDULE.intervalMs, SCHEDULE.intervalJitter));
+    // whoever depends on the offer (the download) is told that a check has finished; nothing a listener does can break this
+    for (const listener of listeners) {
+      try { Promise.resolve(listener()).catch(() => {}); } catch { /* a listener that throws */ }
+    }
   }
 
   /** The one try that is out: whoever asks while it is out gets its answer, and the answer is taken once it is over (checking is false in it). */
@@ -612,6 +632,8 @@ export function createUpdateChecker({
 
   return {
     load, start, stop, status, check, skip, setAutoCheck,
+    /** Calls `listener` whenever a check has finished (also a failed one), with the new state in place; returns the function that takes it off. */
+    onChecked(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     /** The feed this checker reads (the download asks for the files of a release at the same place). */
     feedUrl: feed,
     /** The keys a signature is checked with (the key file's, and in a test the extra key). A copy: nothing outside can add one. */
