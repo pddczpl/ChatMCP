@@ -13,7 +13,8 @@
 //   4b. Surface 8 (the update notice, the signature on the manifest and the download): the address, the hosts, the limits, the times and the constant that says what "not answered" means
 //      are the ones in lib/update-check.mjs, the limits of the signature file, of the key list and of the download are the ones in lib/release-signature.mjs and lib/update-download.mjs, and
 //      SECURITY.md and the README say that the Hub looks only after the owner has said yes, that Download needs a valid signature, that a download starts only on the owner's click and that
-//      nothing is installed or run;
+//      nothing is installed or run unless the owner clicks Install and restart in the desktop app, and that the numbers of the installation (the size of a message of the page, the wait for the app to
+//      close, the release folders looked at, the size of the result file) are the code's;
 //   5. negative controls: the same checks on a temporary copy of the documents with defects put in one at a time (a symbol that does
 //      not exist, a missing file, a wrong ticket lifetime, a route missing from SECURITY.md, the same-user sentence removed, a
 //      dangling reference ...); each must be reported.
@@ -122,6 +123,21 @@ export function checkThreatModel(docsRoot, codeRoot = REPO, constants = { WHEN_U
     const surface = start < 0 ? '' : model.slice(start, end < 0 ? undefined : end);
     if (!surface) fail('docs/THREAT-MODEL.md has no Surface 8 (the update notice)');
     const { FEED_URL, FEED_HOSTS, LIMITS, SCHEDULE } = UPDATE;
+    // The installation (step 3) is C# and a module of the Hub: the numbers the documents quote are read from the code, as text, where it is.
+    const constantOf = (file, pattern, what) => {
+      const match = pattern.exec(read(codeRoot, file));
+      if (!match) { fail(`${file}: ${what} was not found`); return NaN; }
+      return Number(match[1]);
+    };
+    const messageKiB = constantOf('native-shared/PageMessage.cs', /MaxBytes = (\d+) \* 1024;/, 'the size limit of a message of the page (MaxBytes)');
+    const waitSeconds = constantOf('installer/UpdateRun.cs', /ShellExitLimit = TimeSpan\.FromSeconds\((\d+)\)/, 'the wait for the app to close (ShellExitLimit)');
+    const releaseFolders = constantOf('native-shared/UpdateStaging.cs', /MaxCandidates = (\d+);/, 'the number of release folders that are looked at (MaxCandidates)');
+    const resultBytes = constantOf('CHATMCP-HUB/lib/update-applied.mjs', /MAX_BYTES = (\d+);/, 'the size limit of the result file (MAX_BYTES)');
+    const installNumbers = [
+      [`at most ${messageKiB} KiB`, 'the size limit of a message of the page'],
+      [`waits at most ${waitSeconds} seconds for the app to close`, 'the wait for the app to close'],
+      [`at most ${releaseFolders} release folders`, 'the number of release folders that are looked at'],
+    ];
     const stated = [
       [`\`${FEED_URL}\``, 'the address of the feed (FEED_URL)'],
       ...FEED_HOSTS.map((host) => [host, `the host ${host} (FEED_HOSTS)`]),
@@ -143,7 +159,10 @@ export function checkThreatModel(docsRoot, codeRoot = REPO, constants = { WHEN_U
       [`${DOWNLOAD.idleTimeoutMs / 1000} seconds without a byte`, 'the idle limit of the download (DOWNLOAD.idleTimeoutMs)'],
       [DOWNLOAD.freeSpaceFactor === 2 ? 'twice the installer\'s size free' : '', 'the room needed on the disk (DOWNLOAD.freeSpaceFactor)'],
       ['only from the owner\'s click on Download', 'that a download starts only from the owner\'s click'],
-      ['Nothing is installed or run', 'that nothing is installed or run'],
+      ['Nothing is installed or run unless the owner clicks Install and restart in the desktop app', 'that nothing is installed or run unless the owner clicks Install and restart'],
+      ['An installation starts only from the owner\'s click on Install and restart', 'that an installation starts only from the owner\'s click on Install and restart'],
+      ...installNumbers,
+      [`a result file of at most ${resultBytes} bytes`, 'the size limit of the result file'],
     ];
     for (const [needle, what] of stated) if (needle && !surface.includes(needle)) fail(`Surface 8 does not state ${what}: ${needle}`);
     if (constants.WHEN_UNANSWERED !== 'ask') fail('WHEN_UNANSWERED is not "ask": the README, SECURITY.md and Surface 8 say that nothing is asked until the owner has said yes; change them with the constant');
@@ -154,15 +173,16 @@ export function checkThreatModel(docsRoot, codeRoot = REPO, constants = { WHEN_U
       [`at most ${LIMITS.maxRedirects} redirects`, 'the number of redirects'], [`${SCHEDULE.firstCheckMs / 1000} seconds after the Hub starts`, 'the first check'], [`every ${SCHEDULE.intervalMs / 3_600_000} hours`, 'the interval'],
       [`${SCHEDULE.minAutomaticGapMs / 60_000} minutes of the last attempt`, 'the floor between attempts'], ['at most once a minute', 'the limit of a manual check'],
       ['**only after you have said yes**', 'that the Hub asks only after the owner has said yes'],
-      ['**A download starts only from your click on Download**', 'that a download starts only from the owner\'s click'], ['**Nothing is installed or run in this step**', 'that nothing is installed or run'],
+      ['**A download starts only from your click on Download**', 'that a download starts only from the owner\'s click'], ['**Nothing is installed or run unless you click Install and restart**', 'that nothing is installed or run unless the owner clicks Install and restart'],
+      ['**Installing starts only from your click on Install and restart**', 'that an installation starts only from the owner\'s click on Install and restart'], ...installNumbers,
       ['**Only a release whose manifest has a valid signature is offered for download.**', 'that Download needs a valid signature'], ['ECDSA over P-256 with SHA-256', 'the algorithm of the signature'],
       [`at most ${SIGNATURE_LIMITS.maxBytes / 1024} KiB`, 'the size limit of the signature file'], [SIGNATURE_ASSET, 'the name of the signature file'], ['CHATMCP-HUB/lib/release-keys.json', 'the key file'],
       [`takes at most ${DOWNLOAD.maxBytes / 1024 ** 3} GiB`, 'the size limit of the installer'], [`${DOWNLOAD.idleTimeoutMs / 1000} seconds without a byte`, 'the idle limit of the download'],
       [DOWNLOAD.freeSpaceFactor === 2 ? 'twice the installer\'s size free' : '', 'the room needed on the disk'],
     ]) if (needle && !security8.includes(needle)) fail(`SECURITY.md (Update notice) does not state ${what}: ${needle}`);
     for (const [needle, what] of [['github.com', 'the host it asks'], ['until you answer, the app makes no request of its own', 'that nothing is asked before the owner answers'],
-      ['A download starts only when you click **Download**', 'that a download starts only on the owner\'s click'], ['Nothing is installed or run in this version', 'that nothing is installed or run'],
-      ['offers **Download** only for a release whose signature checks', 'that Download needs a signature that checks'], ['it has no Authenticode signature', 'that the installer has no Authenticode signature'],
+      ['A download starts only when you click **Download**', 'that a download starts only on the owner\'s click'], ['Nothing is installed or run until you click **Install and restart**', 'that nothing is installed or run until the owner clicks Install and restart'],
+      ['offers **Download** only for a release whose signature checks', 'that Download needs a signature that checks'], ['The installer has no Authenticode signature', 'that the installer has no Authenticode signature'],
     ]) if (!readme.includes(needle)) fail(`README.md does not state ${what} (update notice): ${needle}`);
     if (!/Surface 8/.test(security8)) fail('SECURITY.md (Update notice) does not point at Surface 8 of the threat model');
     if (!/update check of Surface 8/.test(model.slice(model.indexOf('## Surface 7'), model.indexOf('## Surface 8')))) fail('Surface 7 still says that nothing but the owner\'s button makes the Hub ask: it does not name the update check of Surface 8');
@@ -338,7 +358,7 @@ try {
     ['SECURITY.md without the Update notice section', 'SECURITY.md', (text) => text.replace('## Update notice', '## Something else'), /SECURITY\.md has no "Update notice" section/],
     ['SECURITY.md no longer saying only after a yes', 'SECURITY.md', (text) => text.replace('**only after you have said yes**', '**always**'), /does not state that the Hub asks only after the owner has said yes/],
     ['SECURITY.md no longer saying that a download starts only from the click', 'SECURITY.md', (text) => text.replace('**A download starts only from your click on Download**', 'A download starts at once'), /does not state that a download starts only from the owner's click/],
-    ['SECURITY.md no longer saying that nothing is installed or run', 'SECURITY.md', (text) => text.replace('**Nothing is installed or run in this step**', 'Something is installed in this step'), /does not state that nothing is installed or run/],
+    ['SECURITY.md no longer saying that nothing is installed or run', 'SECURITY.md', (text) => text.replace('**Nothing is installed or run unless you click Install and restart**', 'Something is installed'), /does not state that nothing is installed or run/],
     ['SECURITY.md no longer saying that Download needs a valid signature', 'SECURITY.md', (text) => text.replace('**Only a release whose manifest has a valid signature is offered for download.**', 'A release is offered for download.'), /does not state that Download needs a valid signature/],
     ['SECURITY.md with another installer limit', 'SECURITY.md', (text) => text.replace('takes at most 2 GiB', 'takes at most 4 GiB'), /SECURITY\.md \(Update notice\) does not state the size limit of the installer/],
     ['SECURITY.md with another idle limit', 'SECURITY.md', (text) => text.replace('60 seconds without a byte', '90 seconds without a byte'), /SECURITY\.md \(Update notice\) does not state the idle limit of the download/],
@@ -364,9 +384,18 @@ try {
     ['SECURITY.md not pointing at Surface 8', 'SECURITY.md', (text) => text.replace('(Surface 8)', '(a section)'), /does not point at Surface 8/],
     ['the README no longer saying nothing is asked before an answer', 'README.md', (text) => text.replace('until you answer, the app makes no request of its own', 'the app asks'), /README\.md does not state that nothing is asked before the owner answers/],
     ['the README no longer saying that a download starts only on a click', 'README.md', (text) => text.replace('A download starts only when you click **Download**', 'A download starts by itself'), /README\.md does not state that a download starts only on the owner's click/],
-    ['the README no longer saying that nothing is installed or run', 'README.md', (text) => text.replace('Nothing is installed or run in this version', 'Something is installed in this version'), /README\.md does not state that nothing is installed or run/],
+    ['the README no longer saying that nothing is installed or run', 'README.md', (text) => text.replace('Nothing is installed or run until you click **Install and restart**', 'Something is installed'), /README\.md does not state that nothing is installed or run/],
     ['the README no longer saying that Download needs a signature that checks', 'README.md', (text) => text.replace('offers **Download** only for a release whose signature checks', 'offers **Download** for every release'), /README\.md does not state that Download needs a signature that checks/],
-    ['the README no longer saying that the installer has no Authenticode signature', 'README.md', (text) => text.replace('it has no Authenticode signature', 'it is signed'), /README\.md does not state that the installer has no Authenticode signature/],
+    ['the README no longer saying that the installer has no Authenticode signature', 'README.md', (text) => text.replace('The installer has no Authenticode signature', 'The installer is signed'), /README\.md does not state that the installer has no Authenticode signature/],
+    ['SECURITY.md no longer saying that an installation starts only from the click', 'SECURITY.md', (text) => text.replace('**Installing starts only from your click on Install and restart**', 'Installing starts by itself'), /does not state that an installation starts only from the owner's click on Install and restart/],
+    ['SECURITY.md with another size for a message of the page', 'SECURITY.md', (text) => text.replace('at most 32 KiB', 'at most 1 MiB'), /SECURITY\.md \(Update notice\) does not state the size limit of a message of the page/],
+    ['SECURITY.md with another wait for the app', 'SECURITY.md', (text) => text.replace('waits at most 30 seconds for the app to close', 'waits at most 5 minutes for the app to close'), /SECURITY\.md \(Update notice\) does not state the wait for the app to close/],
+    ['SECURITY.md with another number of release folders', 'SECURITY.md', (text) => text.replace('at most 16 release folders', 'at most 99 release folders'), /SECURITY\.md \(Update notice\) does not state the number of release folders that are looked at/],
+    ['Surface 8 with another size for a message of the page', model, (text) => text.replaceAll('at most 32 KiB', 'at most 1 MiB'), /Surface 8 does not state the size limit of a message of the page/],
+    ['Surface 8 with another wait for the app', model, (text) => text.replaceAll('waits at most 30 seconds for the app to close', 'waits at most 5 minutes for the app to close'), /Surface 8 does not state the wait for the app to close/],
+    ['Surface 8 with another number of release folders', model, (text) => text.replaceAll('at most 16 release folders', 'at most 99 release folders'), /Surface 8 does not state the number of release folders that are looked at/],
+    ['Surface 8 with another size for the result file', model, (text) => text.replaceAll('a result file of at most 4096 bytes', 'a result file of any size'), /Surface 8 does not state the size limit of the result file/],
+    ['Surface 8 no longer saying that an installation starts only from the click', model, (text) => text.replaceAll('An installation starts only from the owner\'s click on Install and restart', 'An installation starts on its own'), /Surface 8 does not state that an installation starts only from the owner's click on Install and restart/],
     ['the threat model no longer in the index', 'docs/INDEX.md', (text) => text.replace('(THREAT-MODEL.md)', '(ARCHITECTURE.md)'), /INDEX\.md does not link THREAT-MODEL\.md/],
     ['a threat row without a test', model, (text) => text.replace('comparison is exercised by `verify-hub-auth.mjs`; no timing measurement', 'nothing'), /H3: the Test column/],
     ['a hooks threat row without a test', model, (text) => text.replace('`verify-hooks-core.mjs` (inert until approved, a one-byte edit, a restart, the same bytes in another folder), `verify-hooks-guard.mjs` (the route on a real Hub, behind the bearer)', 'nothing'), /K1: the Test column/],

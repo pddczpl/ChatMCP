@@ -3,6 +3,7 @@
 // the moment it was read (so a restart does not announce it again); a file about another version, or one that is not a result at all, is thrown away and shown to nobody; the one new route,
 // POST /api/update/applied-dismiss, is behind every layer of the others and writes nothing; and a second Hub on the same data folder, which finds out that the folder is taken and stops, does not
 // read (and so does not consume) a file that the first Hub should have.
+// CLAIM: update-result-shown-after-restart
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
