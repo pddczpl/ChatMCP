@@ -93,9 +93,11 @@ try {
     const directory = freshDirectory();
     fs.mkdirSync(path.join(directory, RESULT_FILE));
     fs.writeFileSync(path.join(directory, RESULT_FILE, 'inside.txt'), 'x');
-    const note = createAppliedNote({ directory, currentVersion: '3.11.0' });
+    const lines = [];
+    const note = createAppliedNote({ directory, currentVersion: '3.11.0', log: (line) => lines.push(line) });
     await note.load();
     assert.equal(note.status(), null);
+    assert.deepEqual(lines, [], 'it is not even tried: nothing is logged');
     assert.ok(fs.existsSync(path.join(directory, RESULT_FILE, 'inside.txt')), 'a folder with the name of the file is left alone');
     ok('a folder where the file should be is not entered and not removed');
   }
@@ -127,6 +129,33 @@ try {
     ok('a file that cannot be removed does not stop the note, and the log holds no path');
   }
 
+  {
+    // load() replaces the note: a start that finds no file leaves no note, whatever an earlier load found
+    const directory = freshDirectory();
+    fs.writeFileSync(path.join(directory, RESULT_FILE), vectors.written[0].text);
+    const note = createAppliedNote({ directory, currentVersion: '3.11.0' });
+    await note.load();
+    assert.ok(note.status());
+    await note.load();
+    assert.equal(note.status(), null, 'a load that finds no file leaves no note');
+    ok('a load replaces the note, it does not add to it');
+  }
+  {
+    // a file that cannot be read: nothing throws, the file is taken away anyway, and there is no note
+    const directory = freshDirectory();
+    fs.writeFileSync(path.join(directory, RESULT_FILE), vectors.written[0].text);
+    const faulty = { ...fs, promises: new Proxy(fs.promises, { get: (target, property) => (property === 'readFile' ? async () => { throw Object.assign(new Error('denied'), { code: 'EACCES' }); } : target[property]) }) };
+    const note = createAppliedNote({ directory, currentVersion: '3.11.0', fsApi: faulty });
+    await note.load();
+    assert.equal(note.status(), null);
+    assert.equal(fs.existsSync(path.join(directory, RESULT_FILE)), false, 'and the file that could not be read is removed anyway');
+    ok('a file that cannot be read does not stop the start and is not left to be announced later');
+  }
+  {
+    for (const directory of [undefined, '', 5, null, {}]) assert.throws(() => createAppliedNote({ directory, currentVersion: '3.11.0' }), TypeError, `a note needs the data folder of the Hub (${String(directory)})`);
+    assert.throws(() => createAppliedNote(), TypeError, 'and the arguments');
+    ok('a note without the data folder of the Hub is not made');
+  }
   // ---- what the module is not, and that its twelve reasons are the installer's
   {
     const source = fs.readFileSync(path.join(HUB, 'lib', 'update-applied.mjs'), 'utf8');
