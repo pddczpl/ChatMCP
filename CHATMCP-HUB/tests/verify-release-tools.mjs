@@ -110,6 +110,14 @@ const PEM_BODY = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
   const before = fs.readFileSync(file);
   await refused(() => createReleaseKey({ file }), /already exists/i, 'a key file that exists');
   assert.ok(fs.readFileSync(file).equals(before), 'and the key that was there is untouched: an overwrite would be a key lost');
+  // a file that appears between the look at the path and the creation of the key is not the key this run made: it is left as it is, not removed by the clean-up
+  const raced = path.join(directory, 'raced.pem');
+  fs.writeFileSync(raced, 'a key that must survive');
+  const lstatSync = fs.lstatSync;
+  let looked = false;
+  fs.lstatSync = (target, ...more) => { if (!looked && path.resolve(String(target)) === raced) { looked = true; throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); } return lstatSync(target, ...more); }; // the first look says "not there"; later ones tell the truth
+  try { await refused(() => createReleaseKey({ file: raced }), /appeared|left as it is/i, 'a file that appeared in the meantime'); } finally { fs.lstatSync = lstatSync; }
+  assert.equal(fs.readFileSync(raced, 'utf8'), 'a key that must survive', 'and what was there is untouched');
   const dangling = path.join(directory, 'dangling.pem');
   let linked = true;
   try { fs.symlinkSync(path.join(directory, 'nowhere'), dangling); } catch { linked = false; }
@@ -209,7 +217,7 @@ try {
   const manifestOf = (overrides = {}) => feedManifest({ version: '3.11.0', assets: [{ name: 'DatGoldSetup.exe', sha256: sha, bytes: installer.length }, { name: 'DatGold-Browser-Companion.zip', sha256: 'c'.repeat(64), bytes: 48568 }], ...overrides });
   const writeManifest = (bytes) => { const file = path.join(folder('manifest'), 'RELEASE-MANIFEST.json'); fs.writeFileSync(file, bytes); return file; };
   const crlfBom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(JSON.stringify(manifestOf(), null, 2).replace(/\n/g, '\r\n'))]);
-  const base = { tag: 'v3.11.0', keyFile, keysFile, out: path.join(folder('out'), SIGNATURE_ASSET) };
+  const base = { tag: 'v3.11.0', keyFile, keysFile, out: path.join(folder('out'), SIGNATURE_ASSET), allowUncheckedInstaller: true };
   const checkSignature = (outFile, bytes) => {
     const document = JSON.parse(fs.readFileSync(outFile, 'utf8'));
     assert.deepEqual(Object.keys(document), ['alg', 'kid', 'sig']);
@@ -242,6 +250,19 @@ try {
 
   // what is refused
   const manifestFile = writeManifest(Buffer.from(JSON.stringify(manifestOf())));
+  // by default nothing is signed without the installer to compare it with: what GitHub serves cannot vouch for itself
+  const noInstaller = await refused(() => signRelease({ ...base, allowUncheckedInstaller: false, manifestFile }), /--installer/, 'no installer to compare with');
+  assert.match(noInstaller.message, /gh run download|Publish run/i, 'the message says where the installer to compare with comes from');
+  assert.match(noInstaller.message, new RegExp(sha.slice(0, 16)), 'and what the manifest lists, so that the owner can see it');
+  assert.equal((await signRelease({ ...base, allowUncheckedInstaller: false, manifestFile, installerFile, out: path.join(folder('out'), SIGNATURE_ASSET) })).installerChecked, true, 'with the installer it signs, as before');
+  // a manifest larger than the apps read is refused from its length, and one with no length that does not end is read only up to the limit (the stream here is 200 MiB long, so that a read to the end shows)
+  feed.publish(null, { raw: 'x'.repeat(100 * 1024) });
+  await refused(() => signRelease({ ...base, releaseBase: feed.origin }), /larger than/i, 'a manifest of 100 KiB');
+  feed.publish(manifestOf(), { bom: true });
+  let pulled = 0;
+  const long = () => Promise.resolve(new Response(new ReadableStream({ pull(controller) { pulled += 1; if (pulled > 200) controller.close(); else controller.enqueue(new Uint8Array(1024 * 1024)); } }), { status: 200 }));
+  await refused(() => signRelease({ ...base, releaseBase: feed.origin, fetchImpl: long }), /larger than/i, 'a body with no length');
+  assert.ok(pulled <= 4, `reading stopped soon after the limit (${pulled} MiB were pulled)`);
   await refused(() => signRelease({ ...base, manifestFile, tag: 'v3.11.1' }), /3\.11\.0.*3\.11\.1|tag/i, 'a manifest of another version than the tag');
   for (const tag of ['3.11.0', 'v3.11', 'v3.11.0-rc.1', 'latest', '', 'v3.11.0/../x', null]) await refused(() => signRelease({ ...base, manifestFile, tag }), /tag/i, `a tag of ${JSON.stringify(tag)}`);
   await refused(() => signRelease({ ...base, manifestFile: writeManifest(Buffer.from('<!doctype html><title>Not Found</title>')) }), /manifest/i, 'a page of HTML instead of a manifest');
@@ -341,7 +362,10 @@ try {
     const manifestPath = writeManifest(crlfBom);
     const out = path.join(home, 'signature', SIGNATURE_ASSET);
     fs.mkdirSync(path.dirname(out));
-    const signedRun = run(SIGN, ['--tag', 'v3.11.0', '--manifest', manifestPath, '--key', target, '--keys-file', listed, '--out', out]);
+    const refusedRun = run(SIGN, ['--tag', 'v3.11.0', '--manifest', manifestPath, '--key', target, '--keys-file', listed, '--out', path.join(folder('cli-out'), SIGNATURE_ASSET)]);
+    assert.equal(refusedRun.status, 1, 'without an installer to compare with it refuses');
+    assert.match(refusedRun.stderr, /--installer/, 'and says what to give');
+    const signedRun = run(SIGN, ['--tag', 'v3.11.0', '--manifest', manifestPath, '--key', target, '--keys-file', listed, '--installer', installerFile, '--out', out]);
     assert.equal(signedRun.status, 0, signedRun.stderr + signedRun.stdout);
     assert.ok(!PEM_BODY.test(signedRun.stdout + signedRun.stderr) && body.every((line) => !(signedRun.stdout + signedRun.stderr).includes(line)), 'signing prints nothing of the private key');
     assert.equal(verify('sha256', crlfBom, { key: createPublicKey(createPrivateKey(privateText)), dsaEncoding: 'ieee-p1363' }, Buffer.from(JSON.parse(fs.readFileSync(out, 'utf8')).sig, 'base64')), true);
@@ -349,18 +373,18 @@ try {
     assert.match(signedRun.stdout, /nothing (?:was|has been) uploaded/i, 'and the output says that it did not run it');
     assert.match(signedRun.stdout, /--clobber/, 'with the way to replace a signature that is already there');
     assert.match(signedRun.stdout, /3\.11\.0/, 'it shows what it signed');
-    const viaKeyVariable = run(SIGN, ['--tag', 'v3.11.0', '--manifest', manifestPath, '--keys-file', listed, '--out', path.join(folder('cli-out'), SIGNATURE_ASSET)], { DATGOLD_RELEASE_KEY: target });
+    const viaKeyVariable = run(SIGN, ['--tag', 'v3.11.0', '--manifest', manifestPath, '--keys-file', listed, '--allow-unchecked-installer', '--out', path.join(folder('cli-out'), SIGNATURE_ASSET)], { DATGOLD_RELEASE_KEY: target });
     assert.equal(viaKeyVariable.status, 0, viaKeyVariable.stderr);
-    const fromFeed = await runAsync(SIGN, ['--tag', 'v3.11.0', '--key', target, '--keys-file', listed, '--release-base', feed.origin, '--out', path.join(folder('cli-out'), SIGNATURE_ASSET)]);
+    const fromFeed = await runAsync(SIGN, ['--tag', 'v3.11.0', '--key', target, '--keys-file', listed, '--installer', installerFile, '--release-base', feed.origin, '--out', path.join(folder('cli-out'), SIGNATURE_ASSET)]);
     assert.equal(fromFeed.status, 0, fromFeed.stderr + fromFeed.stdout);
-    assert.equal(run(SIGN, ['--tag', 'v3.11.0', '--manifest', manifestPath, '--key', target, '--out', path.join(folder('cli-out'), SIGNATURE_ASSET)]).status, 1, 'with the real key file, in which this key is not listed: refused');
-    assert.equal(run(SIGN, ['--tag', 'v3.11.1', '--manifest', manifestPath, '--key', target, '--keys-file', listed]).status, 1, 'a tag that is not the manifest\'s version: refused');
+    assert.equal(run(SIGN, ['--tag', 'v3.11.0', '--manifest', manifestPath, '--key', target, '--installer', installerFile, '--out', path.join(folder('cli-out'), SIGNATURE_ASSET)]).status, 1, 'with the real key file, in which this key is not listed: refused');
+    assert.equal(run(SIGN, ['--tag', 'v3.11.1', '--manifest', manifestPath, '--key', target, '--keys-file', listed, '--allow-unchecked-installer']).status, 1, 'a tag that is not the manifest\'s version: refused');
     assert.equal(run(SIGN, ['--manifest', manifestPath, '--key', target]).status, 2, 'no tag: a bad use');
     assert.equal(run(SIGN, ['--tag', 'v3.11.0', '--manifest', manifestPath]).status, 2, 'no key: a bad use');
     assert.equal(run(SIGN, ['--tag', 'v3.11.0', '--bogus']).status, 2, 'an option it does not know: a bad use');
     assert.equal(run(SIGN, ['--tag', 'v3.11.0', '--key', target, '--release-base', 'https://github.com']).status, 2, 'a release base that is not on this machine: a bad use, and nothing is asked');
     assert.equal(run(SIGN, ['--help']).status, 0);
-    const protectedRun = run(SIGN, ['--tag', 'v3.11.0', '--manifest', manifestPath, '--key', path.join(home, 'protected.pem'), '--keys-file', listed]);
+    const protectedRun = run(SIGN, ['--tag', 'v3.11.0', '--manifest', manifestPath, '--key', path.join(home, 'protected.pem'), '--keys-file', listed, '--allow-unchecked-installer']);
     assert.equal(protectedRun.status, 1, 'a protected key without its passphrase in the environment');
     ok('the command lines: new-release-key prints the public key, its id and the entry for the key file (and that the file is to be kept offline with a second key for the next one) and never a line of the private key, refuses a second run, a path in the repository (also with ..) and a bad use, and takes a passphrase from the environment only; sign-release signs a file or a tag (against a stand-in), prints the upload command and says that nothing was uploaded, and exits 2 for a bad use');
   }

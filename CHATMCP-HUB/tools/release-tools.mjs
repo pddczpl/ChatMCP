@@ -120,8 +120,10 @@ export async function createReleaseKey({ file, passphrase = null, platform = pro
   const pem = privateKey.export({ type: 'pkcs8', format: 'pem', ...(passphrase ? { cipher: 'aes-256-cbc', passphrase } : {}) });
   const spki = publicKey.export({ type: 'spki', format: 'der' });
   let descriptor = null;
+  let created = false; // only a file that THIS run made is removed when something goes wrong: a file that appeared meanwhile is somebody's key
   try {
     descriptor = fs.openSync(target, 'wx', 0o600);
+    created = true;
     restrictToCurrentUser(target, { platform, run });
     fs.writeSync(descriptor, pem);
     fs.fsyncSync(descriptor);
@@ -131,8 +133,11 @@ export async function createReleaseKey({ file, passphrase = null, platform = pro
     if (!createPublicKey(readBack).export({ type: 'spki', format: 'der' }).equals(spki)) throw new ToolError('The key file did not read back as the key that was made. It was removed.');
   } catch (error) {
     if (descriptor !== null) { try { fs.closeSync(descriptor); } catch { /* it is being removed anyway */ } }
-    fs.rmSync(target, { force: true });
-    throw error instanceof ToolError ? error : new ToolError(`The key file could not be written (${error?.code ?? 'error'}). Nothing was left.`);
+    if (created) fs.rmSync(target, { force: true });
+    if (error instanceof ToolError) throw error;
+    throw new ToolError(created
+      ? `The key file could not be written (${error?.code ?? 'error'}). Nothing was left.`
+      : `${target} appeared while the key was being made, so it was left as it is (${error?.code ?? 'error'}). Nothing was written.`);
   }
   const kid = keyIdOf(spki);
   const base64 = spki.toString('base64');
@@ -181,8 +186,22 @@ async function fetchTagManifest({ tag, releaseBase, fetchImpl }) {
     throw new ToolError(`The manifest of ${tag} could not be fetched (no answer).`);
   }
   if (response.status !== 200) throw new ToolError(`GitHub answered HTTP ${response.status} for the manifest of ${tag}. Has the Publish workflow finished?`);
-  const bytes = Buffer.from(await response.arrayBuffer());
-  return bytes;
+  // read no more than the installed apps would read (a manifest larger than that could not be used, so a signature on it would be useless), and stop at once for one that says it is larger
+  const declared = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > LIMITS.maxBytes) throw new ToolError(`The manifest of ${tag} is larger than ${LIMITS.maxBytes} bytes (it declares ${declared}), so it was not read.`);
+  const chunks = [];
+  let size = 0;
+  try {
+    for await (const chunk of response.body ?? []) {
+      size += chunk.length;
+      if (size > LIMITS.maxBytes) throw new ToolError(`The manifest of ${tag} is larger than ${LIMITS.maxBytes} bytes, so reading stopped.`);
+      chunks.push(chunk);
+    }
+  } catch (error) {
+    if (error instanceof ToolError) throw error;
+    throw new ToolError(`The manifest of ${tag} could not be read to its end.`);
+  }
+  return Buffer.concat(chunks);
 }
 
 async function digestOfFile(file) {
@@ -194,10 +213,13 @@ async function digestOfFile(file) {
 
 /**
  * Signs the manifest of `tag`: the file the owner gives (`manifestFile`), or the one published for the tag. Returns where the signature was written, the key, the manifest it read and the command to upload.
- * `installerFile` (optional) is compared with what the manifest lists. `keysFile` is the list of keys the installed apps trust (a test gives its own).
+ * `installerFile` is compared with what the manifest lists. Without one nothing is signed, unless the owner says so (`allowUncheckedInstaller`): the manifest that GitHub serves cannot vouch for the
+ * installer that it lists, and the signature exists for the day that someone who can write release files writes them. The file to give is the installer of the Publish run (`gh run download`).
+ * `keysFile` is the list of keys the installed apps trust (a test gives its own).
  */
 export async function signRelease({
-  tag, manifestFile = null, keyFile, passphrase = null, keysFile = KEY_FILE, allowUnlistedKey = false, installerFile = null, out = null, releaseBase = null, fetchImpl = globalThis.fetch, extraRoots = [],
+  tag, manifestFile = null, keyFile, passphrase = null, keysFile = KEY_FILE, allowUnlistedKey = false, installerFile = null, allowUncheckedInstaller = false, out = null, releaseBase = null, fetchImpl = globalThis.fetch,
+  extraRoots = [],
 } = {}) {
   if (typeof tag !== 'string' || !TAG.test(tag)) throw new ToolError('The tag must look like v3.11.0 (a release: no suffix).', 2);
   const key = loadSigningKey({ file: keyFile, passphrase, extraRoots });
@@ -212,6 +234,10 @@ export async function signRelease({
   try { manifest = parseManifest(bytes.toString('utf8')); } catch (error) { throw new ToolError(`That is not a release manifest: ${String(error?.message ?? error).slice(0, 160)}`); }
   if (manifest.version !== tag.slice(1)) throw new ToolError(`The manifest is of version ${manifest.version} but the tag is ${tag}. Sign the manifest of the release you are publishing.`);
 
+  if (!installerFile && !allowUncheckedInstaller) {
+    const listed = manifest.installer;
+    throw new ToolError(`Nothing was signed: no installer was given to compare with. What GitHub serves cannot vouch for itself, so download the installer of the Publish run (gh run download <run id> --repo ${UPLOAD_REPOSITORY} --name <artifact>) and pass it with --installer <file>. The manifest lists ${listed ? `${listed.name}, ${listed.bytes} bytes, sha256 ${listed.sha256}` : 'no single installer'}. To sign without comparing, pass --allow-unchecked-installer.`);
+  }
   let installerChecked = false;
   if (installerFile) {
     if (!manifest.installerName) throw new ToolError('The manifest does not list exactly one program (.exe), so the installer you gave cannot be compared with it.');

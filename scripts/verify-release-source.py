@@ -124,6 +124,11 @@ def canonical_base64(value) -> bytes | None:
     return raw if base64.b64encode(raw).decode('ascii') == value else None
 
 
+def reject_json_constant(name: str):
+    """Python's json accepts NaN and Infinity, which Node's JSON.parse (the Hub's reader of this file) refuses: the gate refuses them too."""
+    raise ValueError(f'{name} is not JSON')
+
+
 def verify_release_keys(root: Path, head: str) -> list[dict]:
     """The key file as the release commit holds it must list real release keys, and only those: at least one, at most MAX_KEYS, each an uncompressed P-256 point on the curve in its
     canonical SPKI form whose kid is the first 8 hex characters of the SHA-256 of the SPKI. A placeholder or a test key anywhere in it fails. Returns the keys for the evidence."""
@@ -132,10 +137,11 @@ def verify_release_keys(root: Path, head: str) -> list[dict]:
     except subprocess.CalledProcessError:
         raise ValueError(f'The release commit has no key file ({KEYS}): the updater of this release could not verify the next one.') from None
     try:
-        document = json.loads(text)
+        document = json.loads(text, parse_constant=reject_json_constant)
     except ValueError:
         raise ValueError(f'The key file ({KEYS}) is not JSON.') from None
-    if not isinstance(document, dict) or document.get('version') != 1:
+    # `true == 1` in Python and not in the Hub's reader (`document.version !== 1`): a bool is not the version
+    if not isinstance(document, dict) or type(document.get('version')) is not int or document.get('version') != 1:
         raise ValueError(f'The key file ({KEYS}) must be a JSON object with "version": 1.')
     if document.get('algorithm', 'ES256') != 'ES256':
         raise ValueError(f'The key file ({KEYS}) names an algorithm other than ES256.')

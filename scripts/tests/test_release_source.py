@@ -190,7 +190,11 @@ class ReleaseSourceTests(unittest.TestCase):
             self.run_gate()
 
     def test_damaged_key_file_rejected(self):
-        for text in ('{ nope', '', '[]', 'null', key_file(KEY_A, version=2), key_file(KEY_A, algorithm='RS256'), json.dumps({'version': 1, 'algorithm': 'ES256', 'keys': 'x'}), key_file()):
+        # what the Hub's own reader (Node's JSON.parse and a strict `version !== 1`) refuses is refused here too: a gate that passes a file with which the shipped Hub trusts no key defeats its purpose
+        node_refuses = (key_file(KEY_A).replace('"version": 1', '"version": true'), key_file(KEY_A).replace('"version": 1', '"version": "1"'),
+                        key_file(KEY_A).replace('"algorithm": "ES256"', '"algorithm": "ES256", "note": NaN'), key_file(KEY_A).replace('"algorithm": "ES256"', '"algorithm": "ES256", "note": Infinity'),
+                        key_file(KEY_A).replace('"algorithm": "ES256"', '"algorithm": "ES256", "note": -Infinity'))
+        for text in ('{ nope', '', '[]', 'null', key_file(KEY_A, version=2), key_file(KEY_A, algorithm='RS256'), json.dumps({'version': 1, 'algorithm': 'ES256', 'keys': 'x'}), key_file(), *node_refuses):
             with self.subTest(text=text[:30]):
                 self.refused_keys(text, 'key file')
 

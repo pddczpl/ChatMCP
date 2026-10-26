@@ -184,6 +184,18 @@ const BOM = Buffer.from([0xef, 0xbb, 0xbf]);
   const changed = Buffer.from(manifest);
   changed[changed.length - 5] ^= 0x01;
   refuses(() => verifyManifest(changed, signature, keys), 'mismatch', 'one bit of the manifest changed');
+  // not one byte of the manifest and not one byte of the signature may be different: every position, one bit at a time
+  for (let at = 0; at < manifest.length; at += 1) {
+    const edited = Buffer.from(manifest);
+    edited[at] ^= 0x01;
+    refuses(() => verifyManifest(edited, signature, keys), 'mismatch', `byte ${at} of the manifest changed`);
+  }
+  const rawBytes = rawSignature(manifest, key);
+  for (let at = 0; at < rawBytes.length; at += 1) {
+    const edited = Buffer.from(rawBytes);
+    edited[at] ^= 0x01;
+    refuses(() => verifyManifest(manifest, signatureFor(manifest, key, { sig: edited.toString('base64') }), keys), 'mismatch', `byte ${at} of the signature changed`);
+  }
   refuses(() => verifyManifest(manifest.subarray(0, manifest.length - 1), signature, keys), 'mismatch', 'one byte of the manifest missing');
   refuses(() => verifyManifest(Buffer.concat([manifest, Buffer.from(' ')]), signature, keys), 'mismatch', 'one byte more');
   refuses(() => verifyManifest(Buffer.from(manifestText('3.11.1')), signature, keys), 'mismatch', 'a signature of another release');

@@ -4,8 +4,8 @@
 // The format is the one the desktop shell (.NET) will check again with its own code, so both sides verify the same file without a conversion:
 //   * the algorithm is ECDSA over P-256 with SHA-256 ("ES256"); the signature is the 64 bytes r||s of IEEE P1363 (what `ECDsa.VerifyData` takes by default), not the DER form;
 //   * the signature file, a release file named RELEASE-MANIFEST.json.sig, is small JSON: {"alg": "ES256", "kid": "<8 hex>", "sig": "<base64 of the 64 bytes>"};
-//   * it is made over the EXACT BYTES of RELEASE-MANIFEST.json as they are published: the bytes are verified first, parsed after, and nothing is ever re-serialized, so a BOM, a line ending or
-//     a space is part of what was signed;
+//   * it is made over the EXACT BYTES of RELEASE-MANIFEST.json as they are published: the signature is checked on the bytes as they arrived and nothing is ever re-serialized, so a BOM, a line ending or
+//     a space is part of what was signed (a caller reads the version in the manifest first, to know which signature to ask for, but takes nothing else from it until the signature has checked);
 //   * a key is a base64 SPKI; its id (`kid`) is the first 8 hex characters of the SHA-256 of the SPKI bytes. The keys are listed in ONE data file, lib/release-keys.json, which the Hub reads from
 //     its own files (lib/ is in the installer's payload) and which the shell can embed. The list has room for the next key, so that a rotation does not need a new installer first. Only an entry
 //     that says `use: "release"` is a key: a placeholder (the file ships with one until the owner has made a key) and a test key verify nothing, and scripts/verify-release-source.py refuses to
