@@ -66,17 +66,31 @@ export function autoView(update: UpdateInfo | null | undefined): AutoView {
   return auto.enabled ? { checked: true, statusKey: 'upd_auto_default_on', disabled: false } : { checked: false, statusKey: 'upd_auto_unset', disabled: false };
 }
 
-export type ErrorGroup = 'network' | 'timeout' | 'http' | 'redirect' | 'answer' | 'other';
+export type ErrorGroup = 'network' | 'timeout' | 'http' | 'redirect' | 'answer' | 'save' | 'other';
 
 const GROUPS: Record<string, ErrorGroup> = {
   update_network: 'network', update_timeout: 'timeout', update_http: 'http',
   update_redirect_refused: 'redirect', update_redirect_limit: 'redirect', update_redirect_invalid: 'redirect',
   update_too_large: 'answer', update_invalid_manifest: 'answer', update_not_a_release: 'answer',
+  update_state_unsaved: 'save',
 };
 
 /** How a failed check is named (the key is `upd_err_<group>`): what the Hub's diagnostic means to a person. A code the page does not know is "other". */
 export function errorGroup(code: unknown): ErrorGroup {
   return typeof code === 'string' && Object.hasOwn(GROUPS, code) ? GROUPS[code] : 'other';
+}
+
+const REFUSALS: Record<string, string> = {
+  update_skip_stale: 'upd_refused_stale', update_skip_invalid: 'upd_refused_invalid', update_setting_invalid: 'upd_refused_invalid',
+  update_save_failed: 'upd_save_failed', update_unavailable: 'upd_refused_unavailable',
+};
+
+/**
+ * The key of the page's own words for a refusal the Hub gave a code of the update notice (the Hub's messages are Vietnamese only, so the English page must not show them as they are).
+ * Null for any other code: those are shown as the Hub said them.
+ */
+export function refusalKey(code: unknown): string | null {
+  return typeof code === 'string' && Object.hasOwn(REFUSALS, code) ? REFUSALS[code] : null;
 }
 
 /** A time for a person, in the language of the page; a dash for anything that is not a time. `timeZone` is for tests. */

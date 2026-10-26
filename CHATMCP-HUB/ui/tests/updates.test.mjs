@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { NOTES_PREFIX, autoView, cooldownMs, errorGroup, formatWhen, noticeKind, safeNotesUrl, statusKey } from '../src/lib/updates.ts';
+import { NOTES_PREFIX, autoView, cooldownMs, errorGroup, formatWhen, noticeKind, refusalKey, safeNotesUrl, statusKey } from '../src/lib/updates.ts';
 
 // What the page says about the update notice (lib/update-check.mjs on the Hub): which strip to draw, which link to trust, how long a button waits, how a failure is named.
 // Plain functions, so the words and the rules are pinned without a browser.
@@ -71,17 +71,27 @@ test('the owner\'s choice is shown as three states, and "on by default" is not t
   assert.deepEqual(autoView({}), { checked: false, statusKey: 'upd_auto_unset', disabled: true });
 });
 
-test('a failure is named by what went wrong, in six groups, and an unknown code is "other"', () => {
+test('a failure is named by what went wrong, in seven groups, and an unknown code is "other"', () => {
   const groups = {
     update_network: 'network', update_timeout: 'timeout', update_http: 'http',
     update_redirect_refused: 'redirect', update_redirect_limit: 'redirect', update_redirect_invalid: 'redirect',
     update_too_large: 'answer', update_invalid_manifest: 'answer', update_not_a_release: 'answer',
+    update_state_unsaved: 'save',
     update_failed: 'other', update_current_invalid: 'other', update_feed_refused: 'other', '': 'other', nothing: 'other',
   };
   for (const [code, group] of Object.entries(groups)) assert.equal(errorGroup(code), group, code);
   for (const odd of [null, undefined, 5, {}]) assert.equal(errorGroup(odd), 'other');
   assert.equal(errorGroup('__proto__'), 'other');
   assert.equal(errorGroup('constructor'), 'other');
+});
+
+test('a refusal of the Hub that has a code of the update notice is told in the words of the page, and any other is left as the Hub said it', () => {
+  assert.equal(refusalKey('update_skip_stale'), 'upd_refused_stale');
+  assert.equal(refusalKey('update_skip_invalid'), 'upd_refused_invalid');
+  assert.equal(refusalKey('update_setting_invalid'), 'upd_refused_invalid');
+  assert.equal(refusalKey('update_save_failed'), 'upd_save_failed');
+  assert.equal(refusalKey('update_unavailable'), 'upd_refused_unavailable');
+  for (const other of ['hub_auth_required', 'something_new', '', null, undefined, 5, {}, '__proto__', 'constructor']) assert.equal(refusalKey(other), null, `${JSON.stringify(other)}: no words of the page`);
 });
 
 test('a time is written for the language of the page, in the time zone asked for', () => {

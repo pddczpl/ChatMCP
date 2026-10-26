@@ -1,6 +1,7 @@
 // The update notice against the real Hub and the production build of the page: the strip under the header asks the owner once, a "yes" makes one look at the feed (a loopback server that
 // stands in for GitHub: tests/e2e/update-feed-server.mjs), the release on offer is announced with a link to its notes and a button to skip it, and the skip, the choice and the notice
-// survive a reload and a Hub restart. Settings → Cập nhật / Updates shows the versions, "Check now" and the owner's choice, in both languages. Nothing is mocked in the page or intercepted.
+// survive a reload and a Hub restart. Settings → Cập nhật / Updates shows the versions, "Check now" and the owner's choice, in both languages. Nothing is mocked in the page, and nothing is
+// intercepted but in the last test, which hands the page an answer to its poll that only a window that had been asleep would get (the Hub cannot make the page sleep).
 //
 // The link to the notes is never clicked: it goes to github.com. Its address, target and rel are read instead. Inside the desktop shell the same link goes through the shell's
 // new-window path (a preview tab), which this suite does not exercise (docs/THREAT-MODEL.md, Surface 8).
@@ -92,7 +93,7 @@ test('the owner is asked once, a yes makes one look, the release is announced an
   const notice = page.getByTestId('update-notice');
   await expect(notice).toBeVisible();
   await expect(question).toHaveCount(0);
-  await expect(page.getByTestId('update-notice-text')).toHaveText('DatGold 3.10.3 đã có bản mới.');
+  await expect(page.getByTestId('update-notice-text')).toHaveText('Đã có DatGold 3.10.3.');
   await expect(notice).toHaveAttribute('data-version', '3.10.3');
   expect(feed.checks(), 'POSITIVE CONTROL: after a yes the Hub asked, once').toBe(1);
   expect((await app.hub.state()).update).toMatchObject({ current: '3.10.2', latest: '3.10.3', available: true, installerName: 'DatGoldSetup.exe', skippedVersion: null, error: null, autoCheck: { enabled: true, saved: true, needsChoice: false } });
@@ -104,12 +105,15 @@ test('the owner is asked once, a yes makes one look, the release is announced an
   await expect(notes).toHaveAttribute('href', 'https://github.com/pddczpl/ChatMCP/releases/tag/v3.10.3');
   await expect(notes).toHaveAttribute('target', '_blank');
   await expect(notes).toHaveAttribute('rel', 'noopener noreferrer');
+  // inside the desktop shell the link may open nothing (the preview tab cannot show github.com): the address can always be copied
+  const copy = page.getByTestId('update-copy').getByRole('button', { name: 'Sao chép liên kết ghi chú phát hành', exact: true });
+  await expect(copy).toBeVisible();
   for (const theme of ['light', 'dark']) {
     await setTheme(page, theme);
     await page.waitForTimeout(400);
-    for (const id of ['update-notice-text', 'update-notes', 'update-skip']) {
-      const ratio = await contrast(page.getByTestId(id));
-      if (ratio < 4.5) unreadable.push(`${id} in the ${theme} theme: ${ratio.toFixed(2)}`);
+    for (const [name, element] of [['update-notice-text', page.getByTestId('update-notice-text')], ['update-notes', notes], ['update-copy', copy], ['update-skip', page.getByTestId('update-skip')]]) {
+      const ratio = await contrast(element);
+      if (ratio < 4.5) unreadable.push(`${name} in the ${theme} theme: ${ratio.toFixed(2)}`);
     }
     await page.screenshot({ path: testInfo.outputPath(`notice-${theme}.png`), animations: 'disabled' });
   }
@@ -231,4 +235,28 @@ test('a look that does not work is said in words, keeps the page up, and a feed 
   feed.mode('chain');
   feed.publish(feedManifest({ version: '3.10.2' }));
   expect((await fetch(`${app.hub.origin}/api/health`)).ok, 'the Hub is up').toBe(true);
+});
+
+test('Settings → Updates: a look the page hears of late does not leave "Check now" waiting', async ({ page, app }) => {
+  // The page asks the Hub for its state every 3 s, and a window that was minimised stops asking: it can hear of a look when the minute that look asks for is long over. It must then count
+  // from the time it is, not from the time it last painted (it used to keep that time and show a frozen "1 s" with the button disabled until Settings was opened again).
+  await open(page, app);
+  await page.getByTestId('update-no').click();
+  await expect(page.getByTestId('update-question')).toHaveCount(0);
+  const dialog = await openSettings(page, 'Cập nhật');
+  await expect(dialog.getByTestId('updates-check')).toBeEnabled();
+  const opened = await page.evaluate(() => Date.now());
+  await page.route(/\/api\/state(\?|$)/, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await new Promise((resolve) => setTimeout(resolve, 400)); // the page hears of it a little after it opened: by then the minute (it ends 200 ms after `opened`) is over
+    body.update = {
+      ...body.update, latest: '3.10.9', available: true, notesUrl: 'https://github.com/pddczpl/ChatMCP/releases/tag/v3.10.9',
+      checkedAt: new Date(opened - 59_800).toISOString(), lastAttemptAt: new Date(opened - 59_800).toISOString(), manualCheckAfter: new Date(opened + 200).toISOString(),
+    };
+    await route.fulfill({ response, json: body });
+  });
+  await expect(dialog.getByTestId('updates-latest'), 'the page took in the state it was given').toHaveText('v3.10.9', { timeout: 10_000 });
+  await expect(dialog.getByTestId('updates-check'), 'and the minute of that look is over: Check now is not held back').toBeEnabled();
+  await expect(dialog.getByTestId('updates-wait')).toHaveCount(0);
 });

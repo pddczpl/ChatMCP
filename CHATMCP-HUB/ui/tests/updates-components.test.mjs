@@ -56,7 +56,7 @@ test('unanswered: the strip asks once, says what is sent and to whom, and offers
   assert.equal(text(vi, 'update-yes'), 'Có, kiểm tra');
   assert.equal(text(vi, 'update-no'), 'Không');
   assert.equal(text(vi, 'update-details'), 'Chi tiết');
-  assert.ok(!has(vi, 'update-notice') && !has(vi, 'update-notes') && !has(vi, 'update-skip'), 'and nothing of the other strip');
+  assert.ok(!has(vi, 'update-notice') && !has(vi, 'update-notes') && !has(vi, 'update-copy') && !has(vi, 'update-skip'), 'and nothing of the other strip');
   assert.doesNotMatch(vi, PROOF_LOOK);
   const en = await strip({ update: asking() }, 'en');
   assert.equal(text(en, 'update-yes'), 'Yes, check');
@@ -75,12 +75,14 @@ test('a release on offer: the strip says which, links to the notes on GitHub and
   assert.match(tag(vi, 'update-notice'), /data-kind="available"/);
   assert.match(tag(vi, 'update-notice'), /data-version="3\.10\.3"/);
   assert.match(vi, /role="status"/);
-  assert.equal(text(vi, 'update-notice-text'), 'DatGold 3.10.3 đã có bản mới.');
+  assert.equal(text(vi, 'update-notice-text'), 'Đã có DatGold 3.10.3.', 'a headline that cannot be read as "DatGold has a new version"');
   const link = tag(vi, 'update-notes');
   assert.match(link, /href="https:\/\/github\.com\/pddczpl\/ChatMCP\/releases\/tag\/v3\.10\.3"/);
   assert.match(link, /target="_blank"/);
   assert.match(link, /rel="noopener noreferrer"/);
   assert.equal(text(vi, 'update-notes'), 'Có gì mới');
+  assert.ok(has(vi, 'update-copy'), 'a copy button beside the link: in the desktop shell the link may open nothing');
+  assert.match(vi, /aria-label="Sao chép liên kết ghi chú phát hành"/);
   assert.equal(text(vi, 'update-skip'), 'Bỏ qua bản này');
   assert.ok(!has(vi, 'update-question'), 'not the question');
   assert.doesNotMatch(vi, PROOF_LOOK, 'a notice is not drawn like a result that was checked');
@@ -95,7 +97,7 @@ test('a link that is not the notes of that release on the project\'s GitHub is n
   for (const notesUrl of ['https://evil.example/pddczpl/ChatMCP/releases/tag/v3.10.3', 'javascript:alert(1)', 'https://github.com/pddczpl/ChatMCP/releases/tag/v9.9.9', null, '']) {
     const html = await strip({ update: update({ notesUrl }) });
     assert.ok(has(html, 'update-notice'), 'the notice itself stays');
-    assert.ok(!has(html, 'update-notes'), `no link for ${JSON.stringify(notesUrl)}`);
+    assert.ok(!has(html, 'update-notes') && !has(html, 'update-copy'), `no link and nothing to copy for ${JSON.stringify(notesUrl)}`);
     assert.doesNotMatch(html, /evil\.example|javascript:/, 'and the text is nowhere in the markup');
   }
 });
@@ -157,6 +159,7 @@ test('a failed check says what went wrong, in words, and keeps what was known', 
   const says = {
     update_network: [/Không kết nối được tới GitHub/, /Could not reach GitHub/], update_timeout: [/không trả lời kịp/, /did not answer in time/],
     update_http: [/HTTP 503/, /HTTP 503/], update_redirect_refused: [/không tin/, /does not trust/], update_too_large: [/không phải là mô tả bản phát hành hợp lệ/, /not a valid release description/],
+    update_state_unsaved: [/không lưu được ghi chú/, /could not save its note/],
     update_something_new: [/Lần kiểm tra không thành công/, /The check did not work/],
   };
   for (const [code, [vi, en]] of Object.entries(says)) {
@@ -213,8 +216,13 @@ test('the owner\'s choice is a box with three readings, and the page says what e
   const unknown = await panel({ update: null }, 'en');
   assert.match(tag(unknown, 'updates-auto-toggle'), /disabled=""/, 'the box cannot be used before the Hub has said what the choice is');
   const points = (await panel({ update: update() }, 'en'));
-  assert.match(points, /GET request to github\.com/);
+  assert.match(points, /short chain of GET requests/, 'a check is not one request');
+  assert.match(points, /starts at github\.com/);
+  assert.match(points, /release-assets\.githubusercontent\.com/, 'the file server of GitHub is named: it is the host a firewall rule has to allow');
   assert.match(points, /DatGold\/3\.10\.2/);
+  const pointsVi = await panel({ update: update() }, 'vi');
+  assert.match(pointsVi, /chuỗi ngắn các yêu cầu GET/);
+  assert.match(pointsVi, /release-assets\.githubusercontent\.com/);
   assert.match(points, /never more often than every 15 minutes/);
   assert.match(points, /download the installer from the releases page yourself and compare its SHA-256/);
   assert.match(points, /at most once a minute/);
@@ -287,7 +295,10 @@ test('Yes saves the choice and then asks once at once; No saves it and asks noth
   serve({ '/api/update/auto-check': () => reply(500, { error: 'Không lưu được lựa chọn trong thư mục dữ liệu của Hub.', code: 'update_save_failed' }) });
   await fire(answer, true);
   assert.deepEqual(asked(), ['POST /api/update/auto-check {"enabled":true}'], 'a choice that could not be saved is not followed by a look');
-  assert.deepEqual(toasts, [['Không lưu được lựa chọn trong thư mục dữ liệu của Hub.', 'error']], 'the Hub\'s own words');
+  assert.deepEqual(toasts, [[translations.vi.upd_save_failed, 'error']], 'a refusal the Hub gives a code is said in the words of the page, not in the Hub\'s');
+  serve({ '/api/update/auto-check': () => reply(502, { error: 'Something the page cannot know', code: 'something_new' }) });
+  await fire(answer, true);
+  assert.deepEqual(toasts, [['Something the page cannot know', 'error']], 'and one it has no words for is shown as the Hub said it');
   serve({ '/api/update/auto-check': () => { throw new Error(''); } });
   await fire(answer, true);
   assert.deepEqual(toasts.map(([message, type]) => [message, type]), [[translations.vi.upd_save_failed, 'error']], 'and a failure that says nothing gets the page\'s');
@@ -310,7 +321,7 @@ test('Skip asks the Hub to skip that very release, says so in the language of th
     serve({ '/api/update/skip': () => reply(409, { error: 'Bản này không còn là bản mới đang được đề nghị.', code: 'update_skip_stale' }) });
     globalThis.__chatmcpInvalidated.length = 0;
     await fire(skip, '3.10.3');
-    assert.deepEqual(toasts, [['Bản này không còn là bản mới đang được đề nghị.', 'error']], `${lang}: the Hub says the release has changed`);
+    assert.deepEqual(toasts, [[translations[lang].upd_refused_stale, 'error']], `${lang}: the release has changed, said in the language of the page`);
     assert.ok(globalThis.__chatmcpInvalidated.some((filter) => JSON.stringify(filter?.queryKey) === '["hubState"]'), `${lang}: and the page looks again at what the Hub knows`);
   }
 });
@@ -335,7 +346,7 @@ test('the Updates section: "Check now" says what it found, a second press says i
     assert.deepEqual(toasts, [[words.upd_err_network, 'error']], `${lang}: a check that did not work is told in words`);
     serve({ '/api/update/check': () => reply(503, { error: 'Kiểm tra bản cập nhật chưa khởi tạo.', code: 'update_unavailable' }) });
     await fire(check);
-    assert.deepEqual(toasts, [['Kiểm tra bản cập nhật chưa khởi tạo.', 'error']], `${lang}: a Hub without the notice`);
+    assert.deepEqual(toasts, [[words.upd_refused_unavailable, 'error']], `${lang}: a Hub without the notice`);
 
     const skip = handlerOf(elements, 'UpdatesPanel', 'onSkip');
     serve({ '/api/update/skip': hubSays(update({ skippedVersion: '3.10.3' })) });

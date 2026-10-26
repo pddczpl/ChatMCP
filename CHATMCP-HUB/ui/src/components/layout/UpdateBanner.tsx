@@ -6,6 +6,7 @@ import { translate, useTranslation } from '@/lib/i18n';
 import { noticeKind, safeNotesUrl } from '@/lib/updates';
 import { useUpdateActions } from '@/lib/useUpdateActions';
 import { Button } from '@/components/ui/Button';
+import { CopyButton } from '@/components/ui/CopyButton';
 import type { UpdateInfo } from '@/types';
 
 const strip = 'flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-primary/30 bg-primary/10 px-4 py-2 text-[13px] text-fg';
@@ -52,6 +53,8 @@ export function UpdateNotice({ update, lang: pinned, busy = false, onAnswer, onS
         <a data-testid="update-notes" href={notes} target="_blank" rel="noopener noreferrer"
           className="inline-flex h-8 shrink-0 items-center rounded-lg border border-line bg-surface px-3 text-[13px] font-medium text-primary transition-colors hover:border-line-strong hover:bg-hover">{t('upd_n_notes')}</a>
       )}
+      {/* In the desktop shell a link that opens a new window goes to the preview tab, which cannot show github.com: the owner can always copy the address instead. */}
+      {notes && <span data-testid="update-copy" className="shrink-0"><CopyButton text={notes} label={t('upd_copy_link')} /></span>}
       <Button data-testid="update-skip" size="sm" variant="secondary" disabled={busy} onClick={() => onSkip(latest)}>{t('upd_n_skip')}</Button>
     </div>
   );

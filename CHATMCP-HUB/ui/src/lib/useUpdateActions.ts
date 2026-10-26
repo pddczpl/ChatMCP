@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
 import { translate, useTranslation, type TranslationKey } from '@/lib/i18n';
-import { errorGroup } from '@/lib/updates';
+import { errorGroup, refusalKey } from '@/lib/updates';
 import type { UpdateInfo } from '@/types';
 
 /**
@@ -18,8 +18,11 @@ export function useUpdateActions() {
   const [busy, setBusy] = useState(false);
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['hubState'] });
 
-  /** The Hub's own words when it gave some (a refusal has them), else the page's. */
-  const failed = (error: unknown) => showToast((error as { message?: string } | null)?.message || t('upd_save_failed'), 'error');
+  /** A refusal the Hub gave a code of the update notice is said in the words of the page (the Hub speaks Vietnamese only); any other failure in the Hub's own words when it gave some, else the page's. */
+  const failed = (error: unknown) => {
+    const known = refusalKey((error as { code?: unknown } | null)?.code);
+    showToast(known ? translate(lang, known) : (error as { message?: string } | null)?.message || t('upd_save_failed'), 'error');
+  };
 
   /** What a check found, in words: the failure first (the release that was known is still on offer, but the owner asked to know what happened now). */
   const told = (update: UpdateInfo, throttled: boolean) => {

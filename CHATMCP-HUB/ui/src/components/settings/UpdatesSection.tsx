@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Download, RefreshCw } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -83,17 +83,15 @@ export function UpdatesSection() {
   const { data: hub } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: 3000 });
   const { busy, answer, check, skip } = useUpdateActions();
   const update = hub?.update;
-  // While "Check now" is held back, the seconds left count down; when the wait is over the clock stops.
-  const [now, setNow] = useState(() => Date.now());
+  // While "Check now" is held back, the seconds left count down: the page paints again once a second. The time they are counted from is read at every paint, never kept, so a page that was
+  // asleep (a window that was minimised stops asking the Hub) and then hears of a look made long ago does not count from the time it last painted.
+  const [, tick] = useReducer((count: number) => count + 1, 0);
+  const now = Date.now();
+  const waiting = cooldownMs(update, now) > 0;
   useEffect(() => {
-    if (cooldownMs(update, Date.now()) <= 0) return undefined;
-    setNow(Date.now());
-    const timer = setInterval(() => {
-      const at = Date.now();
-      setNow(at);
-      if (cooldownMs(update, at) <= 0) clearInterval(timer);
-    }, 1000);
+    if (!waiting) return undefined;
+    const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, [update?.manualCheckAfter]);
+  }, [waiting]);
   return <UpdatesPanel update={update} now={now} busy={busy} onCheck={() => void check()} onSkip={version => void skip(version)} onToggle={enabled => void answer(enabled)} />;
 }
