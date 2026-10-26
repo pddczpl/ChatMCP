@@ -605,7 +605,7 @@
       "kind": "claim",
       "seam": "real",
       "test": "CHATMCP-HUB/tests/verify-update-check.mjs",
-      "seamNote": "The real fetch code over real sockets to loopback servers that imitate GitHub (three hops, a signed address at the end, and the signature at the address of the tag); the headers are read from what the server received. The policy for the real hosts is checked as a pure function on 27 addresses; what GitHub answers today was read by hand (2026-10-26) up to the manifest, not by a test.",
+      "seamNote": "The real fetch code over real sockets to loopback servers that imitate GitHub (three hops, a signed address at the end, and the signature at the address of the tag); the headers are read from what the server received. The policy for the real hosts is checked as a pure function on 27 addresses; what GitHub answers today was read by hand (2026-10-26), not by a test: the manifest, and a 404 for the signature of v3.10.2, which has none (tests/live/check-update-download.mjs).",
       "forbiddenDoubles": [
         "class\\s+\\w*(?:Fake|Stub|Mock)\\w*(?:Update|Checker|Feed|Manifest)",
         "\\bfetch(?:Fn|Impl)\\s*[:=]"

@@ -14,6 +14,7 @@
 // folder); docs/THREAT-MODEL.md, Surface 8.
 // CLAIM: update-download-checks-size-and-hash
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -310,7 +311,9 @@ try {
     {
       const w = await base({ running: '3.11.0' });
       assert.equal(w.checker.status().available, false, 'the check offers nothing that is not newer');
+      feed.requests.length = 0;
       await refuses(w.downloader.start({ version: '3.11.0' }), 'update_download_not_newer', 'the version that runs', 409);
+      assert.equal(feed.requests.length, 0, 'the offer already says that it is not newer, so nothing is asked: not the release again, not its signature');
       untouched(w, 'the same version');
       // an offer that says it is available although it is not newer (a bug elsewhere, or a state that was edited): this module checks the version itself
       const lying = (running) => createUpdateDownloader({ directory: w.directory, currentVersion: running, feedUrl: feed.url, releaseKeys: trusted, offer: () => ({ latest: '3.11.0', available: true, signature: 'valid' }), platform: 'win32', freeBytes: async () => 1e12 });
@@ -365,6 +368,8 @@ try {
       'two dots in a row': 'a..b.exe', 'a space': 'a b.exe', 'a trailing dot': 'a.exe.', 'another extension': 'a.zip', 'an upper-case extension': 'a.EXE', 'no extension': 'a', 'a null': 'a\u0000.exe', 'a letter with an accent': 'ä.exe', 'a number': 5, 'nothing': null,
     };
     for (const [label, name] of Object.entries(wrong)) assert.notEqual(installerNameProblem(name), null, `${label} is not a name: ${JSON.stringify(name)}`);
+    // something that is not text is refused as such, also when it would turn into a good name (an array or an object that says so) and then break the rules that read text
+    for (const value of [5, null, undefined, true, ['a.exe'], { toString: () => 'a.exe' }]) assert.equal(installerNameProblem(value), 'type', `${typeof value} is not text`);
 
     // names the manifest may carry that the download still refuses (the manifest check allows up to 128 characters and any extension)
     for (const [name, label] of [['CON.exe', 'a device name'], [`${'a'.repeat(101)}.exe`, 'a stem of 101 characters'], ['setup.EXE', 'an upper-case extension']]) {
@@ -457,7 +462,19 @@ try {
     await failure('a redirect to https on the same machine', () => feed.installer.mode('redirect', { target: `https://127.0.0.1:${new URL(feed.origin).port}/x.exe` }), 'update_download_redirect', { release: base });
     await failure('a redirect with no Location', () => feed.installer.mode('redirect', { target: null }), 'update_download_redirect', { release: base });
     await failure('a redirect that never ends', () => feed.installer.mode('redirect', { target: `${feed.origin}${feed.installer.path()}` }), 'update_download_redirect', { release: base });
+    assert.equal(installerRequests().length, DOWNLOAD.maxRedirects + 1, 'a redirect that never ends is followed as many times as the limit says and then refused: the request and three redirects');
     await failure('a redirect to a login in the address', () => feed.installer.mode('redirect', { target: `http://user:pw@127.0.0.1:${new URL(feed.origin).port}/x.exe` }), 'update_download_redirect', { release: base });
+    // a body that goes on past the size of the manifest is cut at the first bytes over, as they come: the server holds the stream a little after the size, and the Hub has already given up
+    {
+      const w = await world({ release: base, served: Buffer.concat([base.bytes, pseudoBytes(1 * MiB, 15)]), options: { idleTimeoutMs: 5000 } });
+      feed.installer.mode('chain', { chunked: true, pauseAfter: 2 * MiB + 128 * 1024 });
+      await w.downloader.start({ version: '3.11.0' });
+      const cut = await waitUntil(() => w.downloader.status().state === 'failed' && w.downloader.status(), 'the failure of a body that is too long', 3000);
+      assert.equal(cut.code, 'update_download_size', 'cut as it comes, not after the server has gone on or the connection has been idle');
+      feed.installer.resume();
+      await waitUntil(() => feed.openCount() === 0, 'the connection to be closed');
+      assert.deepEqual(left(w), []);
+    }
     // a stream that is slow but never idle for long is fine: there is no deadline for all of it
     const slow = await world({ release: releaseFor({ size: 1 * MiB, seed: 12 }), options: { idleTimeoutMs: 600 } });
     feed.installer.mode('chain', { pauseAfter: 512 * 1024 });
@@ -468,9 +485,10 @@ try {
     assert.equal((await settled(slow.downloader, ['ready', 'failed'])).state, 'ready', 'a pause shorter than the idle limit does not matter');
     // a body that is headed for a size the manifest does not have is cut as soon as it is known: not read to its end
     const huge = await world({ release: releaseFor({ size: 1 * MiB, seed: 13 }), served: pseudoBytes(40 * MiB, 14) });
+    const sentBefore = feed.installer.sent();
     await huge.downloader.start({ version: '3.11.0' });
     await settled(huge.downloader, ['failed']);
-    assert.ok(feed.installer.sent() < 40 * MiB, 'a declared size that is not the manifest\'s is refused from the headers: the body is not read');
+    assert.ok(feed.installer.sent() - sentBefore < 40 * MiB, 'a declared size that is not the manifest\'s is refused from the headers: the body is not read');
     ok('every way the transport can go wrong ends as a failure with its own code and nothing left behind (no .part, no folder, the other server never asked): other bytes of the same size, one bit, a short body (with or without a length), a long one (declared, or counted as it comes and cut), a body that ends before its length, a reset, a stall (idle, not total: a pause shorter than the limit is fine), a 404 or 500, a redirect to another host, another port, https, a login, nowhere, or for ever');
   }
 
@@ -497,7 +515,9 @@ try {
     let renames = 0;
     await outcome('the antivirus holds the file for a moment: a rename that fails twice and then works', async (name, args, call) => { if (name === 'rename' && String(args[0]).endsWith('.part') && (renames += 1) <= 2) throw coded('EPERM'); return call(); }, null);
     assert.equal(renames, 3, 'and it was tried three times');
-    await outcome('a rename that never works', async (name, args, call) => { if (name === 'rename' && String(args[0]).endsWith('.part')) throw coded('EBUSY'); return call(); }, fail('update_download_write'));
+    let busy = 0;
+    await outcome('a rename that never works', async (name, args, call) => { if (name === 'rename' && String(args[0]).endsWith('.part')) { busy += 1; throw coded('EBUSY'); } return call(); }, fail('update_download_write'));
+    assert.equal(busy, DOWNLOAD.renameAttempts, 'and it was tried as many times as the limit says, and no more');
     let others = 0;
     await outcome('a rename that is refused for another reason is not tried again', async (name, args, call) => { if (name === 'rename' && String(args[0]).endsWith('.part')) { others += 1; throw coded('ENOENT'); } return call(); }, fail('update_download_write'));
     assert.equal(others, 1);
@@ -540,6 +560,59 @@ try {
     ok('the Hub\'s own files can fail and the promises hold: a disk that fills, a file or folder that cannot be made, a rename that the antivirus holds (tried again a few times, only for EPERM, EBUSY and EACCES), a state file, a copy of the manifest or of the signature that cannot be saved, each ends as a failure with its code and nothing left (no installer without its state); the file is flushed before it is renamed; a folder for updates that is a file or a link is refused and nothing is written or deleted through it');
   }
 
+  // ------------------------------------------------------------------------------------------------------------------------------- 6b. the moments of a download, held still
+  {
+    const hold = () => {
+      let release;
+      let arrive;
+      const opened = new Promise((resolve) => { release = resolve; });
+      const arrived = new Promise((resolve) => { arrive = resolve; });
+      return { opened, release, arrived, arrive };
+    };
+    const isRoot = (target) => String(target).endsWith(`${path.sep}updates`);
+
+    // a Cancel that comes while the click is still being looked at, before there is any connection for the installer, is a cancel: the click starts nothing
+    {
+      const held = hold();
+      const w = await world({ release: releaseFor({ size: 1 * MiB, seed: 25 }), options: { fsApi: faulty(async (name, args, call) => { if (name === 'mkdir' && isRoot(args[0])) { held.arrive(); await held.opened; } return call(); }) } });
+      feed.requests.length = 0;
+      const click = w.downloader.start({ version: '3.11.0' });
+      await held.arrived;
+      assert.equal(w.downloader.status().state, 'downloading', 'the click is under way');
+      const cancelled = await w.downloader.cancel();
+      assert.equal(cancelled.cancelled, true, 'a Cancel before the download has begun is a cancel');
+      held.release();
+      assert.equal((await click).started, false, 'and the click that was cancelled starts nothing');
+      assert.deepEqual(w.downloader.status(), { state: 'idle' });
+      assert.equal(installerRequests().length, 0, 'the installer was never asked for');
+      assert.deepEqual(left(w), []);
+    }
+
+    // the end of a download, held still twice: while the file is being flushed and renamed, and while the folder is being tidied
+    {
+      const renaming = hold();
+      const tidying = hold();
+      let tidies = 0;
+      const w = await world({ release: releaseFor({ size: 1 * MiB, seed: 26 }), options: { renameDelayMs: 1, fsApi: faulty(async (name, args, call) => {
+        if (name === 'rename' && String(args[0]).endsWith('.part')) { renaming.arrive(); await renaming.opened; }
+        if (name === 'readdir' && isRoot(args[0]) && (tidies += 1) === 2) { tidying.arrive(); await tidying.opened; } // the second look at the folder is the tidying after the attempt
+        return call();
+      }) } });
+      await w.downloader.start({ version: '3.11.0' });
+      await renaming.arrived;
+      assert.equal(w.downloader.status().state, 'verifying', 'while the file is being flushed and renamed the status says that it is being checked');
+      renaming.release();
+      await tidying.arrived;
+      assert.notEqual(w.downloader.status().state, 'ready', 'and it is not ready while the folder is still being tidied: nobody sees "ready" and then finds a download still at work');
+      const late = w.downloader.cancel();
+      tidying.release();
+      assert.equal((await late).cancelled, false, 'a Cancel that comes when the work is done is not a cancel');
+      assert.deepEqual(w.downloader.status(), { state: 'ready', version: '3.11.0', bytes: 1 * MiB }, 'and the download stays ready');
+      assert.ok(fs.existsSync(path.join(w.folderOf(), 'DatGoldSetup.exe')));
+    }
+    ok('a Cancel that comes while the click is still being looked at (no connection yet) is a cancel and the click starts nothing; the status says "verifying" while the file is flushed and renamed, is not "ready" while the folder is still being tidied, and a Cancel that comes when the work is done does not claim to have cancelled');
+  }
+
   // ------------------------------------------------------------------------------------------------------------------------------- 7. what a Hub that starts again finds
   {
     const w = await world({ release: releaseFor({ size: 1 * MiB, seed: 18 }) });
@@ -568,14 +641,59 @@ try {
     assert.equal(fs.existsSync(path.join(w.folderOf(), 'evil')), false, 'and a link inside the folder that is kept is removed as a link');
     assert.equal(fs.readFileSync(path.join(target, 'canary.txt'), 'utf8'), 'must survive', 'neither link was followed: what they pointed at is untouched');
     assert.equal(fs.readFileSync(path.join(root, 'not-a-version', 'keep.txt'), 'utf8'), 'not ours');
-    // two finished downloads: the newer is kept
+    // two finished downloads that both prove themselves: the newer is kept and the older one goes
     const two = await world({ release: releaseFor({ size: 1 * MiB, seed: 24 }) });
     await two.downloader.start({ version: '3.11.0' });
     await settled(two.downloader, ['ready']);
-    fs.cpSync(two.folderOf(), path.join(two.root, '3.10.9'), { recursive: true });
+    const older = folder();
+    fs.cpSync(two.folderOf(), path.join(older, '3.11.0'), { recursive: true });
+    publish(releaseFor({ version: '3.12.0', size: 1 * MiB, seed: 29 }));
+    await two.recheck();
+    await two.downloader.start({ version: '3.12.0' });
+    await settled(two.downloader, ['ready']);
+    fs.cpSync(path.join(older, '3.11.0'), path.join(two.root, '3.11.0'), { recursive: true });
+    assert.ok(fs.existsSync(path.join(two.root, '3.11.0', 'state.json')) && fs.existsSync(path.join(two.root, '3.12.0', 'state.json')), 'both folders are finished');
     const kept = await another(two).load();
-    assert.equal(kept.version, '3.11.0');
+    assert.deepEqual(kept, { state: 'ready', version: '3.12.0', bytes: 1 * MiB }, 'of two downloads that both prove themselves the newer is the one that is ready');
+    assert.ok(!fs.existsSync(path.join(two.root, '3.11.0')), 'and the older one is removed');
+    fs.cpSync(two.folderOf('3.12.0'), path.join(two.root, '3.10.9'), { recursive: true });
+    assert.equal((await another(two).load()).version, '3.12.0');
     assert.ok(!fs.existsSync(path.join(two.root, '3.10.9')), 'a folder of an older version is removed even when it looks finished');
+    // names in the folder of updates that are not versions are not touched by a download either
+    {
+      const w = await world({ release: releaseFor({ size: 1 * MiB, seed: 27 }) });
+      fs.mkdirSync(path.join(w.root, 'not-a-version'), { recursive: true });
+      fs.writeFileSync(path.join(w.root, 'not-a-version', 'keep.txt'), 'not ours');
+      fs.writeFileSync(path.join(w.root, 'notes.txt'), 'not ours either');
+      await w.downloader.start({ version: '3.11.0' });
+      assert.equal((await settled(w.downloader, ['ready', 'failed'])).state, 'ready');
+      assert.deepEqual(fs.readdirSync(w.root).sort(), ['3.11.0', 'not-a-version', 'notes.txt'], 'a download touches the folders of versions and nothing else');
+      assert.equal(fs.readFileSync(path.join(w.root, 'not-a-version', 'keep.txt'), 'utf8'), 'not ours');
+    }
+    // a link where a version folder should be, which leads to a folder that proves itself: removed as a link, and what it led to is as it was
+    {
+      const w = await world({ release: releaseFor({ size: 1 * MiB, seed: 30 }) });
+      await w.downloader.start({ version: '3.11.0' });
+      await settled(w.downloader, ['ready']);
+      const elsewhere = folder();
+      fs.renameSync(w.folderOf(), path.join(elsewhere, '3.11.0'));
+      fs.symlinkSync(path.join(elsewhere, '3.11.0'), w.folderOf(), process.platform === 'win32' ? 'junction' : 'dir');
+      assert.deepEqual(await another(w).load(), { state: 'idle' }, 'a link is not a download, however good what it leads to is');
+      assert.equal(fs.existsSync(w.folderOf()), false, 'the link is gone');
+      assert.ok(fs.existsSync(path.join(elsewhere, '3.11.0', 'DatGoldSetup.exe')), 'and what it led to is as it was');
+    }
+    // a state file that names an installer which the download would not have accepted is not believed, although the signed manifest lists the same name
+    {
+      const w = await world({ release: releaseFor({ size: 1 * MiB, seed: 28, name: 'setup.EXE' }) });
+      fs.mkdirSync(w.folderOf(), { recursive: true });
+      fs.writeFileSync(path.join(w.folderOf(), MANIFEST_COPY), feed.manifestBytes());
+      fs.writeFileSync(path.join(w.folderOf(), SIGNATURE_COPY), Buffer.from(feed.signature.current()));
+      fs.writeFileSync(path.join(w.folderOf(), 'setup.EXE'), w.release.bytes);
+      fs.writeFileSync(path.join(w.folderOf(), 'state.json'), JSON.stringify({ version: 1, release: '3.11.0', name: 'setup.EXE', bytes: w.release.size, sha256: w.release.sha, kid: owner.kid }));
+      assert.equal(verifyManifest(fs.readFileSync(path.join(w.folderOf(), MANIFEST_COPY)), fs.readFileSync(path.join(w.folderOf(), SIGNATURE_COPY)), trusted).kid, owner.kid, 'the manifest that is kept is signed, and lists that name');
+      assert.equal((await another(w).load()).state, 'idle', 'the name is not one that the download accepts');
+      assert.equal(fs.existsSync(w.folderOf()), false);
+    }
     ok('a Hub that starts again deletes what a killed one left: .part files, folders of other versions, an empty one, a file named like a version, a link where a folder should be (as a link: what it points at is untouched), a link inside the kept folder; it keeps what is finished and valid, and does not touch names that are not versions');
   }
   {
@@ -688,7 +806,9 @@ try {
     feed.installer.mode('chain', { pauseAfter: 2 * MiB });
     await w.downloader.start({ version: '3.11.0' });
     await waitUntil(() => w.downloader.status().received >= 2 * MiB, 'part of the installer');
+    const stopping = performance.now();
     await w.downloader.stop();
+    assert.ok(performance.now() - stopping < 2000, 'stop() cuts the connection at once: it does not wait for the idle limit (5 s here) to run out');
     assert.deepEqual(left(w), [], 'a Hub that shuts down leaves no .part behind');
     feed.installer.resume();
     await waitUntil(() => feed.installer.openCount() === 0, 'the connection to close');
@@ -731,6 +851,53 @@ try {
     assert.equal(DOWNLOAD.freeSpaceFactor, 2);
     assert.equal(DOWNLOAD.maxRedirects, 3);
     ok('a clock that jumps three days ahead and five behind in the middle of a download changes nothing, no time is in any file and the module reads no clock; status() touches no file; the module starts no program, reads no environment variable, never opens the installer and hands no redirect to a library; the limits are 60 s idle, twice the size free and 3 redirects');
+  }
+
+  // ------------------------------------------------------------------------------------------------------------------------------- 10. the script of the hand check
+  {
+    // tests/live/check-update-download.mjs is what the owner runs by hand against the real feed; here it runs offline against the stand-in, because a tool that is never run rots
+    const live = path.join(HUB_ROOT, 'tests', 'live', 'check-update-download.mjs');
+    const runLive = (args, env = {}) => new Promise((resolve) => {
+      const child = spawn(process.execPath, [live, ...args], { env: { ...process.env, CHATMCP_UPDATE_FEED_URL: feed.url, CHATMCP_UPDATE_TEST_KEY: owner.spkiBase64, ...env }, windowsHide: true });
+      let output = '';
+      child.stdout.on('data', (chunk) => { output += chunk; });
+      child.stderr.on('data', (chunk) => { output += chunk; });
+      const timer = setTimeout(() => child.kill(), 30_000);
+      child.on('close', (code) => { clearTimeout(timer); resolve({ code, output }); });
+    });
+    publish(releaseFor({ size: 1 * MiB, seed: 31 }));
+    const before = feed.requests.length;
+    const valid = await runLive(['--expect', 'valid']);
+    assert.equal(valid.code, 0, valid.output);
+    assert.match(valid.output, /\(a loopback stand-in\)/);
+    assert.match(valid.output, new RegExp(`signature:\\s+valid\\s+\\(key ${owner.kid}\\)`));
+    assert.match(valid.output, /newer:\s+3\.11\.0 is newer than 3\.10\.2/);
+    assert.match(valid.output, /download:\s+a click would fetch .*\/releases\/download\/v3\.11\.0\/DatGoldSetup\.exe/);
+    assert.match(valid.output, /NOT fetched now/);
+    assert.match(valid.output, /OK: the Hub reads this answer and would offer the download\./);
+    const asked = feed.requests.slice(before).map((request) => request.url.split('?')[0]);
+    assert.ok(asked.length >= 2 && asked.every((url) => !url.endsWith('.exe')), `the script asks for the manifest and the signature and never for the installer: ${asked.join(' ')}`);
+    feed.signature.mode('missing');
+    const missing = await runLive([]);
+    assert.equal(missing.code, 0, missing.output);
+    assert.match(missing.output, /signature:\s+missing\s+\(GitHub answered 404/);
+    assert.match(missing.output, /download:\s+no button; the page says why/);
+    assert.match(missing.output, /would announce the release without a download button/);
+    assert.equal((await runLive(['--expect', 'missing'])).code, 0, 'the answer that was expected');
+    const unexpected = await runLive(['--expect', 'valid']);
+    assert.equal(unexpected.code, 1, unexpected.output);
+    assert.match(unexpected.output, /FAIL: the signature is missing, not the valid that was expected\./);
+    feed.signature.mode('status', { status: 503 });
+    const unreadable = await runLive([]);
+    assert.equal(unreadable.code, 1, unreadable.output);
+    assert.match(unreadable.output, /FAIL: update_signature_unreachable/);
+    feed.signature.mode('chain');
+    const stranger = await runLive([], { CHATMCP_UPDATE_TEST_KEY: throwawayKey().spkiBase64 });
+    assert.equal(stranger.code, 0, stranger.output);
+    assert.match(stranger.output, /signature:\s+invalid\s+\(update_signature_unknown_key, unknown_kid\)/);
+    assert.match(stranger.output, /download:\s+no button/);
+    for (const args of [['--anything'], ['--expect'], ['--expect', 'maybe'], ['--expect', 'valid', 'extra']]) assert.equal((await runLive(args)).code, 2, `a bad use is exit 2: ${args.join(' ')}`);
+    ok('the hand-check script (tests/live/check-update-download.mjs) runs offline against the stand-in: it reads the manifest and then the signature, says valid (with the key), missing or invalid, what a click would fetch, never asks for the installer, exits 1 for an unreadable signature or an answer that is not the expected one, and 2 for a bad use');
   }
 
   console.log(`PASS: ${checks} update-download groups`);

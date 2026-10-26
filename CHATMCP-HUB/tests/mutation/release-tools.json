@@ -1,0 +1,281 @@
+{
+  "suite": "verify-release-tools.mjs",
+  "mutations": [
+    {
+      "name": "work-tree-not-searched",
+      "what": "a .git folder above the path is not looked for",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "if (fs.existsSync(path.join(directory, '.git'))) return directory;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "extra-roots-ignored",
+      "what": "the folders that count as a work tree without .git are not looked at",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "for (const root of extraRoots) if (isInside(realOf(root), real)) return root;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "link-not-resolved",
+      "what": "a path through a junction or a link is taken at face value",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "const real = path.join(realOf(existing), ...tail);",
+          "new": "const real = path.join(existing, ...tail);"
+        }
+      ]
+    },
+    {
+      "name": "outside-counts-as-inside",
+      "what": "a path outside a root is taken to be inside it",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "return !normalized.startsWith('..') && !path.isAbsolute(relative);",
+          "new": "return !path.isAbsolute(relative);"
+        }
+      ]
+    },
+    {
+      "name": "existing-key-overwritten",
+      "what": "a key file that exists is replaced",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "if (present) throw new ToolError(",
+          "new": "if (false) throw new ToolError("
+        }
+      ]
+    },
+    {
+      "name": "create-in-tree-allowed",
+      "what": "a private key may be made inside a work tree",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "const tree = enclosingWorkTree(target, { extraRoots });",
+          "new": "const tree = null;"
+        }
+      ]
+    },
+    {
+      "name": "read-in-tree-allowed",
+      "what": "a private key inside a work tree is used for signing",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "const tree = enclosingWorkTree(resolved, { extraRoots });",
+          "new": "const tree = null;"
+        }
+      ]
+    },
+    {
+      "name": "restrict-after-write",
+      "what": "the key is written before the file is restricted to the user",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "    restrictToCurrentUser(target, { platform, run });\n    fs.writeSync(descriptor, pem);",
+          "new": "    fs.writeSync(descriptor, pem);\n    restrictToCurrentUser(target, { platform, run });"
+        }
+      ]
+    },
+    {
+      "name": "failed-key-file-left",
+      "what": "a key file whose access could not be restricted is left on disk",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "fs.rmSync(target, { force: true });",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "acl-entries-unchecked",
+      "what": "a key file that more than one account may open is used",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "if (entries > 1) throw new ToolError(",
+          "new": "if (false) throw new ToolError("
+        }
+      ]
+    },
+    {
+      "name": "acl-readback-unchecked",
+      "what": "the access list is not read back",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "if (listing?.status !== 0 || entries === 0) throw new ToolError(",
+          "new": "if (false) throw new ToolError("
+        }
+      ]
+    },
+    {
+      "name": "account-unknown-ignored",
+      "what": "the account that runs the tool may be unknown",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "if (who?.status !== 0 || !sid) throw new ToolError(",
+          "new": "if (false) throw new ToolError("
+        }
+      ]
+    },
+    {
+      "name": "icacls-failure-ignored",
+      "what": "a failure of icacls is not an error",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "if (done?.status !== 0) throw new ToolError(",
+          "new": "if (false) throw new ToolError("
+        }
+      ]
+    },
+    {
+      "name": "passphrase-ignored",
+      "what": "a key made with a passphrase is written unencrypted",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "...(passphrase ? { cipher: 'aes-256-cbc', passphrase } : {})",
+          "new": "...({})"
+        }
+      ]
+    },
+    {
+      "name": "key-readback-unchecked",
+      "what": "the key file is not read back to see that it is the key that was made",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "if (!createPublicKey(readBack).export({ type: 'spki', format: 'der' }).equals(spki)) throw new ToolError(",
+          "new": "if (false) throw new ToolError("
+        }
+      ]
+    },
+    {
+      "name": "tag-unchecked",
+      "what": "any text is a tag",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "if (typeof tag !== 'string' || !TAG.test(tag)) throw new ToolError(",
+          "new": "if (false) throw new ToolError("
+        }
+      ]
+    },
+    {
+      "name": "manifest-of-another-version",
+      "what": "a manifest of another version is signed",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "if (manifest.version !== tag.slice(1)) throw new ToolError(",
+          "new": "if (false) throw new ToolError("
+        }
+      ]
+    },
+    {
+      "name": "manifest-size-unchecked",
+      "what": "a file of any size is taken for a manifest",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "if (bytes.length === 0 || bytes.length > LIMITS.maxBytes) throw new ToolError(",
+          "new": "if (false) throw new ToolError("
+        }
+      ]
+    },
+    {
+      "name": "unlisted-key-signs",
+      "what": "a key the installed apps do not trust signs",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "if (!trusted.some((entry) => entry.kid === key.kid) && !allowUnlistedKey) {",
+          "new": "if (false) {"
+        }
+      ]
+    },
+    {
+      "name": "signature-name-unchecked",
+      "what": "the signature is written under any name",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "if (path.basename(outFile) !== SIGNATURE_ASSET) throw new ToolError(",
+          "new": "if (false) throw new ToolError("
+        }
+      ]
+    },
+    {
+      "name": "installer-not-compared",
+      "what": "an installer that is not the listed one is accepted",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "if (found.size !== listed.bytes || found.sha256 !== listed.sha256) throw new ToolError(",
+          "new": "if (false) throw new ToolError("
+        }
+      ]
+    },
+    {
+      "name": "self-check-skipped",
+      "what": "the signature that was made is not checked before it is written",
+      "equivalent": "defensive: with a P-256 key signManifest cannot make a signature that verifyManifest refuses for that same key, so no input reaches the refusal; the line guards against a later change of either function",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "try { verifyManifest(bytes, Buffer.from(text), [{ kid: key.kid, publicKey: key.publicKey }]); } catch { throw new ToolError(",
+          "new": "try { void 0; } catch { throw new ToolError("
+        }
+      ]
+    },
+    {
+      "name": "key-curve-unchecked",
+      "what": "a private key of another curve is used",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "if (privateKey.asymmetricKeyType !== 'ec' || privateKey.asymmetricKeyDetails?.namedCurve !== 'prime256v1') throw new ToolError(",
+          "new": "if (false) throw new ToolError("
+        }
+      ]
+    },
+    {
+      "name": "stand-in-any-host",
+      "what": "the release base may name any host",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "|| !LOOPBACK_HOSTS.has(url.hostname)",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "upload-command-wrong-repository",
+      "what": "the upload command names another repository",
+      "patches": [
+        {
+          "file": "tools/release-tools.mjs",
+          "old": "export const UPLOAD_REPOSITORY = 'pddczpl/ChatMCP';",
+          "new": "export const UPLOAD_REPOSITORY = 'someone/else';"
+        }
+      ]
+    }
+  ]
+}

@@ -140,12 +140,12 @@ const PEM_BODY = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
   // the file is restricted BEFORE the key is written, and where that cannot be done nothing is left
   const calls = [];
   const SID = 'S-1-5-21-111-222-333-1001';
-  const fake = (listing, { failAt = null } = {}) => (program, args) => {
+  const fake = (listing, { failAt = null, noSid = false, whoamiStatus = 0, listingStatus = 0 } = {}) => (program, args) => {
     const name = path.basename(program).toLowerCase();
     calls.push({ name, args, size: fs.existsSync(args[0]) ? fs.statSync(args[0]).size : -1 });
     if (failAt && args.includes(failAt)) return { status: 5, stdout: '', stderr: 'Access is denied.' };
-    if (name === 'whoami.exe') return { status: 0, stdout: `"PC\\me","${SID}"\r\n`, stderr: '' };
-    if (args.length === 1) return { status: 0, stdout: listing, stderr: '' };
+    if (name === 'whoami.exe') return { status: whoamiStatus, stdout: noSid ? 'nothing useful' : `"PC\\me","${SID}"\r\n`, stderr: '' };
+    if (args.length === 1) return { status: listingStatus, stdout: listing, stderr: '' };
     return { status: 0, stdout: 'Successfully processed 1 files; Failed processing 0 files\r\n', stderr: '' };
   };
   const only = (file) => `${file} PC\\me:(F)\r\n\r\nSuccessfully processed 1 files; Failed processing 0 files\r\n`;
@@ -165,6 +165,27 @@ const PEM_BODY = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
   const anonymous = path.join(directory, 'anonymous.pem');
   await refused(() => createReleaseKey({ file: anonymous, platform: 'win32', run: () => ({ status: 0, stdout: 'nothing useful', stderr: '' }) }), /restrict|account/i, 'a user that cannot be named');
   assert.equal(fs.existsSync(anonymous), false);
+  // each thing that can go wrong with the restriction is a refusal of its own (everything else in the answers is as it should be, so that nothing else can be what refuses), and leaves nothing
+  const mishaps = [
+    ['icacls that cannot remove the inheritance', { failAt: '/inheritance:r' }, /could not restrict/i],
+    ['icacls that cannot grant the current user', { failAt: '/grant:r' }, /could not restrict/i],
+    ['an account that cannot be named (no SID in what whoami says)', { noSid: true }, /which account/i],
+    ['a whoami that fails although it names an account', { whoamiStatus: 1 }, /which account/i],
+    ['an access list that cannot be read back', { listingStatus: 5 }, /read back/i],
+    ['an access list with no entry at all', { listing: 'nothing here' }, /read back/i],
+  ];
+  for (const [label, options, pattern] of mishaps) {
+    const mishap = path.join(directory, `mishap-${count += 1}.pem`);
+    await refused(() => createReleaseKey({ file: mishap, platform: 'win32', run: fake(options.listing ?? only(mishap), options) }), pattern, label);
+    assert.equal(fs.existsSync(mishap), false, `${label}: nothing is left`);
+  }
+  // the file is read back, and a file that holds another key than the one that was made is a failure that leaves nothing
+  const swapped = path.join(directory, 'swapped.pem');
+  const writeSync = fs.writeSync;
+  const impostor = generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey.export({ type: 'pkcs8', format: 'pem' });
+  fs.writeSync = (descriptor) => writeSync(descriptor, impostor);
+  try { await refused(() => createReleaseKey({ file: swapped }), /did not read back/i, 'a file that holds another key than the one that was made'); } finally { fs.writeSync = writeSync; }
+  assert.equal(fs.existsSync(swapped), false, 'and it is removed');
   const posix = path.join(directory, 'posix.pem');
   calls.length = 0;
   await createReleaseKey({ file: posix, platform: 'linux', run: fake('') });
@@ -224,7 +245,10 @@ try {
   await refused(() => signRelease({ ...base, manifestFile, tag: 'v3.11.1' }), /3\.11\.0.*3\.11\.1|tag/i, 'a manifest of another version than the tag');
   for (const tag of ['3.11.0', 'v3.11', 'v3.11.0-rc.1', 'latest', '', 'v3.11.0/../x', null]) await refused(() => signRelease({ ...base, manifestFile, tag }), /tag/i, `a tag of ${JSON.stringify(tag)}`);
   await refused(() => signRelease({ ...base, manifestFile: writeManifest(Buffer.from('<!doctype html><title>Not Found</title>')) }), /manifest/i, 'a page of HTML instead of a manifest');
-  await refused(() => signRelease({ ...base, manifestFile: writeManifest(Buffer.from('')) }), /manifest/i, 'an empty file');
+  await refused(() => signRelease({ ...base, manifestFile: writeManifest(Buffer.from('')) }), /0 bytes/, 'an empty file');
+  const padded = Buffer.from(JSON.stringify({ ...manifestOf(), padding: 'x'.repeat(70_000) }));
+  assert.ok(padded.length > 64 * 1024, 'the padded manifest is over what the installed apps read');
+  await refused(() => signRelease({ ...base, manifestFile: writeManifest(padded) }), /bytes/, 'a manifest larger than the 64 KiB that the installed apps read: a signature on it would be useless');
   await refused(() => signRelease({ ...base, manifestFile: writeManifest(Buffer.from(JSON.stringify({ ...manifestOf(), commit: 'nope' }))) }), /manifest/i, 'a manifest that is not valid');
   await refused(() => signRelease({ ...base, manifestFile: path.join(scratch, 'there-is-no-such-file.json') }), /read|manifest/i, 'a manifest that is not there');
   const other = throwawayKey();

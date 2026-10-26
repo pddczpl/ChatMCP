@@ -1,0 +1,159 @@
+{
+  "suite": "verify-e2e-update-download.mjs",
+  "mutations": [
+    {
+      "name": "state-without-download",
+      "what": "the state of the Hub never says anything about the download",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "download: downloads ? downloads.status() : { state: 'idle' }",
+          "new": "download: { state: 'idle' }"
+        }
+      ]
+    },
+    {
+      "name": "download-needs-idle-hub",
+      "what": "a download is refused while an agent task runs",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "case '/api/update/download': { if (!updates || !downloads) throw updateUnavailable();",
+          "new": "case '/api/update/download': { requireNoTask(); if (!updates || !downloads) throw updateUnavailable();"
+        }
+      ]
+    },
+    {
+      "name": "cancel-needs-idle-hub",
+      "what": "Cancel is refused while an agent task runs",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "case '/api/update/download-cancel': { if (!downloads) throw updateUnavailable();",
+          "new": "case '/api/update/download-cancel': { requireNoTask(); if (!downloads) throw updateUnavailable();"
+        }
+      ]
+    },
+    {
+      "name": "body-version-ignored",
+      "what": "the download takes the release on offer whatever the page says",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "await downloads.start(payload);",
+          "new": "await downloads.start({ version: updates.status().latest });"
+        }
+      ]
+    },
+    {
+      "name": "downloads-never-loaded",
+      "what": "the Hub does not look at what a Hub that was killed left in the folder of updates",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "await downloads.load();",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "reconcile-not-wired",
+      "what": "a finished check does not tell the download",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "updates.onChecked(() => downloads.reconcile());",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "listeners-never-called",
+      "what": "a finished check tells nobody",
+      "patches": [
+        {
+          "file": "lib/update-check.mjs",
+          "old": "for (const listener of listeners) {",
+          "new": "for (const listener of []) {"
+        }
+      ]
+    },
+    {
+      "name": "stop-not-awaited",
+      "what": "the Hub that shuts down leaves a download running",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "await downloads.stop().catch(() => {});",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "offer-detached",
+      "what": "the download never learns what the notice found",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "offer: () => updates.status(),",
+          "new": "offer: () => ({ latest: null, available: false, signature: null }),"
+        }
+      ]
+    },
+    {
+      "name": "keys-not-passed",
+      "what": "the download trusts no key",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "releaseKeys: updates.trustedKeys(), offer:",
+          "new": "releaseKeys: [], offer:"
+        }
+      ]
+    },
+    {
+      "name": "platform-hook-ignored",
+      "what": "the Hub does not believe the platform the test says",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "...(updateHooks.platform ? { platform: updateHooks.platform } : {}),",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "routes-not-declared",
+      "what": "the two download routes are not declared",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "'/api/update/download','/api/update/download-cancel']);",
+          "new": "]);"
+        }
+      ]
+    },
+    {
+      "name": "cancel-route-missing-state",
+      "what": "Cancel answers without the state",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "result = { update: updateState(), cancelled: answer.cancelled }; break; }",
+          "new": "result = { cancelled: answer.cancelled }; break; }"
+        }
+      ]
+    },
+    {
+      "name": "click-answers-without-flag",
+      "what": "a click does not say whether it started anything",
+      "patches": [
+        {
+          "file": "hub.mjs",
+          "old": "result = { update: updateState(), started: answer.started }; break; }",
+          "new": "result = { update: updateState() }; break; }"
+        }
+      ]
+    }
+  ]
+}

@@ -214,6 +214,26 @@ await runScenario({
   const refusedStranger = await post(strangerHub, ROUTES.download, { version: '3.11.0' });
   t.equal([refusedStranger.status, refusedStranger.json.code, installerHits(), listing(folderOf(strangerDir))], [409, 'update_download_unsigned', hitsStranger, null], 'a click is refused (409 update_download_unsigned): nothing fetched, nothing written');
 
+  // ---- a check that finds the release no longer signed drops the download that was ready ----------------------------------------------------------------
+  const withdrawnDir = path.join(t.scratch, 'state-withdrawn');
+  const first = await t.hub({ env: hooks(), stateDir: withdrawnDir });
+  await post(first, '/api/update/check', {});
+  await post(first, ROUTES.download, { version: '3.11.0' });
+  t.equal((await downloaded(first)).state, 'ready', 'a download that is ready');
+  await first.stop();
+  feed.signature.mode('missing');
+  // the signature is not saved, so the next Hub has to look again; "Check now" waits a minute after the last attempt, so the note of the last attempt is made old
+  const withdrawnNote = path.join(withdrawnDir, 'update-check.json');
+  fs.writeFileSync(withdrawnNote, JSON.stringify({ ...JSON.parse(fs.readFileSync(withdrawnNote, 'utf8')), lastAttemptAt: new Date(Date.now() - 2 * 86_400_000).toISOString() }));
+  const second = await t.hub({ env: hooks({ CHATMCP_UPDATE_FIRST_CHECK_MS: '60000' }), stateDir: withdrawnDir });
+  t.equal((await updateOf(second)).download.state, 'ready', 'after a restart it is ready again, known from the folder alone');
+  const rechecked = (await post(second, '/api/update/check', {})).json.update;
+  t.equal(rechecked.signature, 'missing', 'the check finds that the release is not signed any more');
+  const dropped = await waitFor(async () => { const download = (await updateOf(second)).download; return download.state === 'idle' ? download : null; }, { timeoutMs: 10_000, label: 'the download to be dropped' });
+  t.equal([dropped, listing(folderOf(withdrawnDir))], [{ state: 'idle' }, []], 'and the download is dropped, with its folder: a finished check tells the downloader');
+  feed.signature.mode('chain');
+  await second.stop();
+
   // ---- what the Hub is not -----------------------------------------------------------------------------------------------------------------------------------
   const hubSource = fs.readFileSync(new URL('../hub.mjs', import.meta.url), 'utf8');
   const downloadCase = hubSource.split('\n').filter((line) => /case '\/api\/update\/download(-cancel)?'/.test(line)).join('\n');

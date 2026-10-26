@@ -1,0 +1,734 @@
+{
+  "suite": "verify-update-download.mjs",
+  "mutations": [
+    {
+      "name": "hash-unchecked",
+      "what": "bytes of the right size and any content are kept",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (hash.digest('hex') !== plan.sha256) throw new Failure('update_download_hash');",
+          "new": "if (false) throw new Failure('update_download_hash');"
+        }
+      ]
+    },
+    {
+      "name": "short-body-accepted-as-size",
+      "what": "a body that is too short is not told apart by its size",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (received !== plan.bytes) throw new Failure('update_download_size');",
+          "new": "if (received > plan.bytes) throw new Failure('update_download_size');"
+        }
+      ]
+    },
+    {
+      "name": "long-body-not-cut",
+      "what": "a body that is longer than the manifest says is read to its end",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (received > plan.bytes) { callback(new Failure('update_download_size')); return; }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "declared-length-ignored",
+      "what": "a declared length that is not the manifest's is read all the same",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (declared !== undefined && Number(declared) !== expected) { request.destroy(); reject(new Failure('update_download_size')); return; }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "no-fsync",
+      "what": "the file is not flushed before it is renamed",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "await handle.sync();",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "rename-retries-any-error",
+      "what": "a rename that fails is tried again whatever the reason",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (!RETRY_RENAME.has(error?.code) || attempt >= DOWNLOAD.renameAttempts) throw error;",
+          "new": "if (attempt >= DOWNLOAD.renameAttempts) throw error;"
+        }
+      ]
+    },
+    {
+      "name": "rename-never-retried",
+      "what": "a rename that the antivirus holds is not tried again",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (!RETRY_RENAME.has(error?.code) || attempt >= DOWNLOAD.renameAttempts) throw error;",
+          "new": "throw error;"
+        }
+      ]
+    },
+    {
+      "name": "rename-one-more-try",
+      "what": "a rename is tried once more than it should be",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "attempt >= DOWNLOAD.renameAttempts",
+          "new": "attempt > DOWNLOAD.renameAttempts"
+        }
+      ]
+    },
+    {
+      "name": "device-name-allowed",
+      "what": "an installer called after a Windows device is accepted",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (DEVICE.test(name.split('.')[0])) return 'device';",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "double-dots-allowed",
+      "what": "a name with two dots in a row is accepted",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (name.includes('..')) return 'dots';",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "hidden-name-allowed",
+      "what": "a name that starts with a dot or a dash is accepted",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (!/^[A-Za-z0-9]/.test(name)) return 'start';",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "name-shape-unchecked",
+      "what": "any text is a file name",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (!NAME.test(name)) return 'shape';",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "name-type-unchecked",
+      "what": "a name that is not text is not named as such",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (typeof name !== 'string') return 'type';",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "room-factor-one",
+      "what": "the room asked for is the size of the installer, not twice it",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (free < installer.bytes * DOWNLOAD.freeSpaceFactor)",
+          "new": "if (free < installer.bytes)"
+        }
+      ]
+    },
+    {
+      "name": "room-boundary",
+      "what": "exactly twice the size is refused",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (free < installer.bytes * DOWNLOAD.freeSpaceFactor)",
+          "new": "if (free <= installer.bytes * DOWNLOAD.freeSpaceFactor)"
+        }
+      ]
+    },
+    {
+      "name": "room-unknown-guessed",
+      "what": "a disk whose room cannot be measured is treated as having room",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (typeof free !== 'number' || !Number.isFinite(free) || free < 0) throw refusal('update_download_disk_unknown',",
+          "new": "if (false) throw refusal('update_download_disk_unknown',"
+        }
+      ]
+    },
+    {
+      "name": "signature-not-checked-again",
+      "what": "the signature of the release at its tag is not looked at again",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (proof.state !== 'valid') throw refusal('update_download_unsigned', 'The signature of the release does not check any more, so nothing is downloaded.', 409);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "tag-version-unchecked",
+      "what": "the manifest at the tag may be the one of another version",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (manifest.version !== version) throw refusal('update_download_stale', 'The release at this tag is not the one that was offered.', 409);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "offer-signature-unchecked",
+      "what": "a click for a release whose signature is not known to be valid goes on to the network",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (known.signature !== 'valid') throw refusal('update_download_unsigned', 'The release is not signed with a valid signature, so nothing is downloaded.', 409);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "stale-unchecked",
+      "what": "a click for a release that is not on offer goes on",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (known.latest !== version) throw refusal('update_download_stale', 'That is not the release that is on offer.', 409);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "platform-unchecked",
+      "what": "an installer is downloaded on a system that cannot run it",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (platform !== 'win32') throw refusal('update_download_platform', 'The installer is a Windows program; this system cannot use it.', 501);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "not-newer-offer-unchecked",
+      "what": "a release that is not newer than the one that runs is downloaded",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (known.available !== true || compareVersions(version, running) <= 0) throw refusal('update_download_not_newer', 'That release is not newer than the one that runs.', 409);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "not-newer-manifest-unchecked",
+      "what": "the manifest at the tag may be older than the running version",
+      "equivalent": "the second comparison is the first one again: by then the manifest at the tag is known to be the version of the click, so it asks the same question of the same two versions and can never refuse what the first did not",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (compareVersions(proven.manifest.version, running) <= 0) throw refusal('update_download_not_newer', 'That release is not newer than the one that runs.', 409);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "no-installer-unchecked",
+      "what": "a manifest without exactly one installer is not refused",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (!installer) throw refusal('update_download_no_installer', 'The release does not name exactly one installer.', 409);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "bad-name-unchecked",
+      "what": "the name in a signed manifest is not looked at again",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (installerNameProblem(installer.name) !== null) throw refusal('update_download_bad_name', 'The name of the installer is not one that is accepted.', 409);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "size-range-unchecked",
+      "what": "any size in a signed manifest is downloaded",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (!Number.isSafeInteger(installer.bytes) || installer.bytes < 1 || installer.bytes > DOWNLOAD.maxBytes) throw refusal('update_download_size', 'The size of the installer is out of range.', 409);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "updates-folder-link-followed",
+      "what": "a link where the folder of updates should be is written through",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (stat.isSymbolicLink() || !stat.isDirectory()) throw refusal('update_download_folder', 'The folder for updates is a link or a file, so nothing is written there.', 500);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "part-kept-in-kept-folder",
+      "what": "a .part file or a link inside the folder that is kept is left there",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (stat && (name.endsWith('.part') || stat.isSymbolicLink())) await removeEntry(file);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "clear-touches-other-names",
+      "what": "a name that is not a version is removed with the old versions",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (VERSION_FOLDER.test(name) && name !== keep) await removeEntry(path.join(root, name));",
+          "new": "if (name !== keep) await removeEntry(path.join(root, name));"
+        }
+      ]
+    },
+    {
+      "name": "clear-removes-the-kept-one",
+      "what": "the folder that is kept is removed with the others",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (VERSION_FOLDER.test(name) && name !== keep)",
+          "new": "if (VERSION_FOLDER.test(name))"
+        }
+      ]
+    },
+    {
+      "name": "restart-signature-unchecked",
+      "what": "a kept download is believed without checking its signature again",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (verifyManifest(manifestBytes, signatureBytes, releaseKeys).kid !== saved.kid) return null;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "restart-size-unchecked",
+      "what": "a kept installer of another size is believed",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (!installer.isFile() || installer.size !== saved.bytes) return null;",
+          "new": "if (!installer.isFile()) return null;"
+        }
+      ]
+    },
+    {
+      "name": "restart-hash-field-unchecked",
+      "what": "a state file with any text as its SHA-256 is believed",
+      "equivalent": "the line after it compares the field with the digest in the signed manifest, which is 64 hexadecimal characters by construction, so a field that is not hexadecimal can never be equal to it",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (typeof saved.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(saved.sha256)) return null;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "restart-state-vs-manifest",
+      "what": "a state file that disagrees with the kept manifest is believed",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (manifest.version !== version || !listed || listed.name !== saved.name || listed.bytes !== saved.bytes || listed.sha256 !== saved.sha256) return null;",
+          "new": "if (manifest.version !== version || !listed) return null;"
+        }
+      ]
+    },
+    {
+      "name": "restart-not-newer-unchecked",
+      "what": "a kept download of a version that is not newer than the one that runs is ready",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (compareVersions(version, running) <= 0) return null;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "restart-name-unchecked",
+      "what": "a state file with any name is believed",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (installerNameProblem(saved.name) !== null) return null;",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "restart-keeps-oldest",
+      "what": "of two finished downloads the older one is kept",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "finished.sort((a, b) => compareVersions(b.version, a.version));",
+          "new": "finished.sort((a, b) => compareVersions(a.version, b.version));"
+        }
+      ]
+    },
+    {
+      "name": "restart-keeps-all",
+      "what": "every finished download is kept",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "for (const old of rest) await removeEntry(path.join(root, old.version));",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "restart-link-folder-kept",
+      "what": "a link where a version folder should be is looked into",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (entry.isSymbolicLink() || !entry.isDirectory()) { await removeEntry(file); continue; }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "restart-removes-foreign-names",
+      "what": "names in the folder of updates that are not versions are not left alone",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (!VERSION_FOLDER.test(name)) continue; // not ours",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "reconcile-departed-ignored",
+      "what": "a download of a release that is no longer on offer is kept",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "const departed = known.latest !== null && known.latest !== undefined && known.latest !== subject;",
+          "new": "const departed = false;"
+        }
+      ]
+    },
+    {
+      "name": "reconcile-withdrawn-ignored",
+      "what": "a download of a release that is no longer newer is kept",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "const withdrawn = known.latest !== null && known.latest !== undefined && known.available === false;",
+          "new": "const withdrawn = false;"
+        }
+      ]
+    },
+    {
+      "name": "reconcile-unsigned-ignored",
+      "what": "a download of a release whose signature went away is kept",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "const unsigned = known.signature === 'missing' || known.signature === 'invalid';",
+          "new": "const unsigned = false;"
+        }
+      ]
+    },
+    {
+      "name": "reconcile-drops-unreadable",
+      "what": "a download is dropped when the signature could not be read this time",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "const unsigned = known.signature === 'missing' || known.signature === 'invalid';",
+          "new": "const unsigned = known.signature !== 'valid';"
+        }
+      ]
+    },
+    {
+      "name": "reconcile-invalid-kept",
+      "what": "a download of a release whose signature stopped checking is kept",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "known.signature === 'missing' || known.signature === 'invalid'",
+          "new": "known.signature === 'missing'"
+        }
+      ]
+    },
+    {
+      "name": "cancel-before-first-byte-ignored",
+      "what": "a Cancel that comes before the first answer does nothing",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (starting && !job) { cancelWanted = true; return { cancelled: true, status: snapshot() }; }",
+          "new": "if (starting && !job) { return { cancelled: false, status: snapshot() }; }"
+        }
+      ]
+    },
+    {
+      "name": "cancel-flag-unread",
+      "what": "a Cancel that came early is forgotten when the download is about to start",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (cancelWanted) { state = { state: 'idle' }; return { started: false, status: snapshot() }; }",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "cancel-claims-a-finished-one",
+      "what": "Cancel says it cancelled a download that had already finished",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "return { cancelled: state.state === 'idle', status: snapshot() };",
+          "new": "return { cancelled: true, status: snapshot() };"
+        }
+      ]
+    },
+    {
+      "name": "cancel-is-a-failure",
+      "what": "a Cancel is shown as the failure the cut connection reports",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "const code = signal.aborted ? 'cancelled' : (error instanceof Failure ? error.code : failureOf(error, flags));",
+          "new": "const code = error instanceof Failure ? error.code : failureOf(error, flags);"
+        }
+      ]
+    },
+    {
+      "name": "second-click-starts-another",
+      "what": "a second click while one runs starts another",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (starting || job) return { started: false, status: snapshot() };",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "click-on-ready-fetches-again",
+      "what": "a click on a download that is ready fetches it again",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (state.state === 'ready' && state.version === version) return { started: false, status: snapshot() };",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "redirect-limit-plus-one",
+      "what": "one redirect too many is followed",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (!answer.location || hops >= DOWNLOAD.maxRedirects) throw new Failure('update_download_redirect');",
+          "new": "if (!answer.location || hops > DOWNLOAD.maxRedirects) throw new Failure('update_download_redirect');"
+        }
+      ]
+    },
+    {
+      "name": "redirect-policy-skipped",
+      "what": "a redirect to another host is followed",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (!redirectAllowed(next, feed)) throw new Failure('update_download_redirect');",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "http-error-accepted",
+      "what": "an answer that is not 200 is read as the installer",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (answer.status !== 200) throw new Failure('update_download_http');",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "stall-not-named",
+      "what": "a stalled connection is not told apart from any other interruption",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "request.setTimeout(idleTimeoutMs, () => { flags.stalled = true; request.destroy(); });",
+          "new": "request.setTimeout(idleTimeoutMs, () => { request.destroy(); });"
+        }
+      ]
+    },
+    {
+      "name": "disk-full-is-a-write-error",
+      "what": "a full disk is not told apart from any other write error",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (code === 'ENOSPC' || code === 'EDQUOT') return 'update_download_disk_full';",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "progress-always-zero",
+      "what": "the count of bytes that arrived stays at zero",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "state = { state: 'downloading', version: plan.version, received, total: plan.bytes };",
+          "new": "state = { state: 'downloading', version: plan.version, received: 0, total: plan.bytes };"
+        }
+      ]
+    },
+    {
+      "name": "verifying-never-shown",
+      "what": "the status never says that the file is being checked",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "state = { state: 'verifying', version: plan.version };",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "manifest-copy-is-the-signature",
+      "what": "the copy of the manifest that is kept is the signature",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "await fsp.writeFile(path.join(folder, MANIFEST_COPY), plan.manifestBytes, { flag: 'wx', mode: 0o600 });",
+          "new": "await fsp.writeFile(path.join(folder, MANIFEST_COPY), plan.signatureBytes, { flag: 'wx', mode: 0o600 });"
+        }
+      ]
+    },
+    {
+      "name": "signature-copy-missing",
+      "what": "the signature is not kept beside the installer",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "await fsp.writeFile(path.join(folder, SIGNATURE_COPY), plan.signatureBytes, { flag: 'wx', mode: 0o600 });",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "state-file-wrong-key-id",
+      "what": "the state file names another key than the one that signed",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "kid: plan.kid }, null, 2)",
+          "new": "kid: 'ffffffff' }, null, 2)"
+        }
+      ]
+    },
+    {
+      "name": "stop-does-not-cut",
+      "what": "the Hub that shuts down waits for the download instead of cutting it",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "if (job) { job.controller.abort(); await job.done; }",
+          "new": "if (job) { await job.done; }"
+        }
+      ]
+    },
+    {
+      "name": "failure-leaves-files",
+      "what": "a download that fails leaves its files behind",
+      "equivalent": "run() ends with clearRoot, which removes every version folder but the one that is kept, so the same folder goes a moment later; the removal in the catch only makes it go sooner",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "await removeEntry(folder);",
+          "new": ""
+        }
+      ]
+    },
+    {
+      "name": "ready-shown-before-tidy",
+      "what": "the status says ready before the folder has been tidied",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "final = { state: 'ready', version: plan.version, bytes: plan.bytes };",
+          "new": "state = { state: 'ready', version: plan.version, bytes: plan.bytes }; final = state;"
+        }
+      ]
+    },
+    {
+      "name": "wrong-user-agent",
+      "what": "the download introduces itself as something else",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "{ 'user-agent': userAgent, accept: 'application/octet-stream' }",
+          "new": "{ 'user-agent': 'node', accept: 'application/octet-stream' }"
+        }
+      ]
+    },
+    {
+      "name": "folder-not-made",
+      "what": "the folder of updates is not made before the first byte",
+      "patches": [
+        {
+          "file": "lib/update-download.mjs",
+          "old": "await ensureRoot();",
+          "new": ""
+        }
+      ]
+    }
+  ]
+}
