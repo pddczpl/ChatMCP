@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using ChatMCP.Native;
 
@@ -68,6 +70,33 @@ internal static class ReleaseVectorTests
             var problem = item.GetProperty("problem").ValueKind == JsonValueKind.Null ? null : item.GetProperty("problem").GetString();
             kit.Check(InstallerName.Problem(name) == problem, "installer name: " + Shorten(name) + " is " + (problem ?? "accepted"));
         }
+
+        StricterThanTheHub(kit);
+    }
+
+    // Where the shell is STRICTER than the Hub, on purpose, so that these are not in the shared list (the Hub must read what is in it the same way): the Hub reads JSON with JSON.parse, where the last of two equal
+    // names wins and any depth is read; the shell refuses both, so that a document that two readers could read in two ways, or one that is built to exhaust a stack, is never read at all.
+    private static void StricterThanTheHub(TestKit kit)
+    {
+        var asset = "{\"name\":\"DatGoldSetup.exe\",\"bytes\":5,\"sha256\":\"" + new string('a', 64) + "\"}";
+        byte[] Manifest(string extra) => Encoding.UTF8.GetBytes("{\"version\":\"3.11.0\",\"commit\":\"" + new string('0', 40) + "\",\"assets\":[" + asset + "]" + extra + "}");
+        kit.Check(ReleaseManifest.Parse(Manifest("")).Version == "3.11.0", "premise: a manifest of this shape is read");
+        kit.Throws(() => ReleaseManifest.Parse(Manifest(",\"version\":\"9.9.9\"")), "a manifest that names its version twice is refused (the Hub would take the last, another reader the first)");
+        kit.Throws(() => ReleaseManifest.Parse(Manifest(",\"commit\":\"" + new string('1', 40) + "\"")), "and one that names its commit twice");
+        kit.Check(ReleaseManifest.Parse(Manifest(",\"x\":" + new string('[', 20) + new string(']', 20))).Version == "3.11.0", "20 levels of nesting in a field it does not read are read");
+        kit.Throws(() => ReleaseManifest.Parse(Manifest(",\"x\":" + new string('[', 40) + new string(']', 40))), "40 levels are not (the shell reads at most 32)");
+
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var spki = key.ExportSubjectPublicKeyInfo();
+        var kid = ReleaseKeys.IdOf(spki);
+        var entry = "{\"kid\":\"" + kid + "\",\"use\":\"release\",\"spki\":\"" + Convert.ToBase64String(spki) + "\"}";
+        var manifest = Manifest("");
+        var signature = Convert.ToBase64String(key.SignData(manifest, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
+        var keys = ReleaseKeys.Parse("{\"version\":1,\"keys\":[" + entry + "]}");
+        kit.Check(keys.Keys.Count == 1 && ReleaseSignature.Verify(manifest, Encoding.UTF8.GetBytes("{\"alg\":\"ES256\",\"kid\":\"" + kid + "\",\"sig\":\"" + signature + "\"}"), keys.Keys) == kid, "premise: a key list and a signature file of this shape are read, and the signature checks");
+        kit.Throws(() => ReleaseSignature.Verify(manifest, Encoding.UTF8.GetBytes("{\"alg\":\"ES256\",\"kid\":\"" + kid + "\",\"sig\":\"" + signature + "\",\"alg\":\"ES256\"}"), keys.Keys), "a signature file that names a field twice is refused, though both say the same");
+        kit.Check(ReleaseKeys.Parse("{\"version\":1,\"version\":1,\"keys\":[" + entry + "]}").Keys.Count == 0, "and a key list that does, trusts nothing");
+        kit.Check(ReleaseKeys.Parse("{\"version\":1,\"keys\":[" + entry.Replace("\"use\":\"release\"", "\"use\":\"release\",\"use\":\"release\"") + "]}").Keys.Count == 0, "even when the repeat is inside an entry");
     }
 
     private static string Shorten(string? text) => text == null ? "(null)" : "\"" + (text.Length > 30 ? text[..30] + "..." : text).Replace("\n", "\\n") + "\"";

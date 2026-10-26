@@ -76,6 +76,12 @@ internal static class ShortcutTests
         InstallerEngine.ReplaceShortcuts(app, icon, legacyDesktop.Desktop, legacyDesktop.Programs, InstallerEngine.DetectShortcuts(app, legacyDesktop.Desktop, legacyDesktop.Programs));
         kit.Check(Points(Path.Combine(legacyDesktop.Desktop, "DatGold Studio.lnk"), launcher) && !File.Exists(Path.Combine(legacyDesktop.Desktop, "ChatMCP Studio.lnk")), "a Desktop link under the old name is renamed: the new one is made and the old one goes");
 
+        // the plan decides each of the three, and not the other two
+        var onlyUninstall = Machine("only the uninstaller link");
+        InstallerEngine.CreateShortcuts(app, icon, onlyUninstall.Desktop, onlyUninstall.Programs, new ShortcutPlan(false, false, true));
+        kit.Check(Points(Path.Combine(onlyUninstall.Programs, "DatGold", "Uninstall DatGold Studio.lnk"), uninstaller) && !File.Exists(Path.Combine(onlyUninstall.Programs, "DatGold", "DatGold Studio.lnk")) && Directory.GetFiles(onlyUninstall.Desktop).Length == 0,
+            "a plan with only the Start menu uninstaller makes only that one (not the launcher beside it, not the Desktop link)");
+
         // the wizard and the quiet install still make what they are asked for, whatever is on the machine (the bool forms keep their meaning)
         var wizard = Machine("wizard"); InstallerEngine.ReplaceShortcuts(app, icon, wizard.Desktop, wizard.Programs, true, true);
         kit.Check(File.Exists(Path.Combine(wizard.Desktop, "DatGold Studio.lnk")) && File.Exists(Path.Combine(wizard.Programs, "DatGold", "Uninstall DatGold Studio.lnk")), "the wizard and the quiet install still make all of them when asked");
@@ -85,7 +91,8 @@ internal static class ShortcutTests
         File.WriteAllText(Path.Combine(blocked.Programs, "DatGold"), "a file where the Start menu folder should be");
         var notes = new List<string>();
         InstallerEngine.ReplaceShortcutsBestEffort(app, icon, blocked.Desktop, blocked.Programs, ShortcutPlan.All, notes.Add);
-        kit.Check(notes.Count >= 1 && notes[0].Contains("shortcut", StringComparison.OrdinalIgnoreCase) && !notes[0].Contains(app, StringComparison.OrdinalIgnoreCase), "a Start menu folder that cannot be made is reported (and the report holds no path), it does not throw");
+        kit.Check(notes.Count >= 1 && notes[0].Contains("shortcut", StringComparison.OrdinalIgnoreCase) && !notes[0].Contains(app, StringComparison.OrdinalIgnoreCase) && !notes[0].Contains(blocked.Programs, StringComparison.OrdinalIgnoreCase) && !notes[0].Contains("DatGold", StringComparison.Ordinal),
+            "a Start menu folder that cannot be made is reported (and the report holds no path, neither the installation's nor the folder that failed: the message of the exception does), it does not throw");
         kit.Check(Points(Path.Combine(blocked.Desktop, "DatGold Studio.lnk"), launcher), "and the Desktop link was made before it");
     }
 }

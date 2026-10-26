@@ -318,6 +318,16 @@
    }
   },
   {
+   "name": "signature-file-invalid-utf8-in-a-field-it-does-not-read",
+   "note": "a valid signature file with one byte that is not UTF-8 after the fields it reads",
+   "keys": "{\n  \"version\": 1,\n  \"algorithm\": \"ES256\",\n  \"about\": \"keys made for the test vectors\",\n  \"keys\": [\n    {\n      \"kid\": \"80956ba3\",\n      \"use\": \"release\",\n      \"spki\": \"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEk0gH96YFjMHc8ZctZJQkdS+AcCNOjyMVBHp/YELaGxkjoNb6p4UzNhiK0rBiI6tf2fVFjyHZnTOAejPAP42+Hg==\"\n    }\n  ]\n}\n",
+   "manifest": "ewogICJ2ZXJzaW9uIjogIjMuMTEuMCIsCiAgImNvbW1pdCI6ICIwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3IiwKICAiYXNzZXRzIjogWwogICAgewogICAgICAibmFtZSI6ICJEYXRHb2xkU2V0dXAuZXhlIiwKICAgICAgImJ5dGVzIjogMjMyNzUzMzE0LAogICAgICAic2hhMjU2IjogImFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEiCiAgICB9LAogICAgewogICAgICAibmFtZSI6ICJEYXRHb2xkLUJyb3dzZXItQ29tcGFuaW9uLnppcCIsCiAgICAgICJieXRlcyI6IDEwMjQsCiAgICAgICJzaGEyNTYiOiAiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIKICAgIH0KICBdCn0K",
+   "signature": "eyJhbGciOiJFUzI1NiIsImtpZCI6IjgwOTU2YmEzIiwic2lnIjoiL2NzbUhGNkZpaEdzL0svUWttMWFXMVdrRnkxMk43a1NsS0FkRUZST21QZVNMS0JvcDJ5Qkk0VXFkU0ZKMDNhUXpnWXFRTkxLRjJGWHBTeHFlY1o3MFE9PSIsIm5vdGUiOiL/In0=",
+   "expect": {
+    "valid": false
+   }
+  },
+  {
    "name": "signature-file-4096-bytes",
    "note": "exactly the largest size that is read",
    "keys": "{\n  \"version\": 1,\n  \"algorithm\": \"ES256\",\n  \"about\": \"keys made for the test vectors\",\n  \"keys\": [\n    {\n      \"kid\": \"80956ba3\",\n      \"use\": \"release\",\n      \"spki\": \"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEk0gH96YFjMHc8ZctZJQkdS+AcCNOjyMVBHp/YELaGxkjoNb6p4UzNhiK0rBiI6tf2fVFjyHZnTOAejPAP42+Hg==\"\n    }\n  ]\n}\n",
@@ -400,6 +410,36 @@
    "expect": {
     "valid": true,
     "kid": "80956ba3"
+   }
+  },
+  {
+   "name": "keys-trailing-byte",
+   "note": "a key of 92 bytes: the 91 of a key and one more (the library reads the first structure and says nothing of the rest)",
+   "keys": "{\n  \"version\": 1,\n  \"algorithm\": \"ES256\",\n  \"about\": \"keys made for the test vectors\",\n  \"keys\": [\n    {\n      \"kid\": \"1d7c9d85\",\n      \"use\": \"release\",\n      \"spki\": \"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEk0gH96YFjMHc8ZctZJQkdS+AcCNOjyMVBHp/YELaGxkjoNb6p4UzNhiK0rBiI6tf2fVFjyHZnTOAejPAP42+HgA=\"\n    }\n  ]\n}\n",
+   "manifest": "ewogICJ2ZXJzaW9uIjogIjMuMTEuMCIsCiAgImNvbW1pdCI6ICIwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3IiwKICAiYXNzZXRzIjogWwogICAgewogICAgICAibmFtZSI6ICJEYXRHb2xkU2V0dXAuZXhlIiwKICAgICAgImJ5dGVzIjogMjMyNzUzMzE0LAogICAgICAic2hhMjU2IjogImFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEiCiAgICB9LAogICAgewogICAgICAibmFtZSI6ICJEYXRHb2xkLUJyb3dzZXItQ29tcGFuaW9uLnppcCIsCiAgICAgICJieXRlcyI6IDEwMjQsCiAgICAgICJzaGEyNTYiOiAiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIKICAgIH0KICBdCn0K",
+   "signature": "ewogICJhbGciOiAiRVMyNTYiLAogICJraWQiOiAiMWQ3YzlkODUiLAogICJzaWciOiAiL2NzbUhGNkZpaEdzL0svUWttMWFXMVdrRnkxMk43a1NsS0FkRUZST21QZVNMS0JvcDJ5Qkk0VXFkU0ZKMDNhUXpnWXFRTkxLRjJGWHBTeHFlY1o3MFE9PSIKfQo=",
+   "expect": {
+    "valid": false
+   }
+  },
+  {
+   "name": "keys-point-marker-is-not-uncompressed",
+   "note": "a key of 91 bytes whose point does not start with 0x04",
+   "keys": "{\n  \"version\": 1,\n  \"algorithm\": \"ES256\",\n  \"about\": \"keys made for the test vectors\",\n  \"keys\": [\n    {\n      \"kid\": \"867fd6cf\",\n      \"use\": \"release\",\n      \"spki\": \"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgACk0gH96YFjMHc8ZctZJQkdS+AcCNOjyMVBHp/YELaGxkjoNb6p4UzNhiK0rBiI6tf2fVFjyHZnTOAejPAP42+Hg==\"\n    }\n  ]\n}\n",
+   "manifest": "ewogICJ2ZXJzaW9uIjogIjMuMTEuMCIsCiAgImNvbW1pdCI6ICIwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3IiwKICAiYXNzZXRzIjogWwogICAgewogICAgICAibmFtZSI6ICJEYXRHb2xkU2V0dXAuZXhlIiwKICAgICAgImJ5dGVzIjogMjMyNzUzMzE0LAogICAgICAic2hhMjU2IjogImFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEiCiAgICB9LAogICAgewogICAgICAibmFtZSI6ICJEYXRHb2xkLUJyb3dzZXItQ29tcGFuaW9uLnppcCIsCiAgICAgICJieXRlcyI6IDEwMjQsCiAgICAgICJzaGEyNTYiOiAiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIKICAgIH0KICBdCn0K",
+   "signature": "ewogICJhbGciOiAiRVMyNTYiLAogICJraWQiOiAiODY3ZmQ2Y2YiLAogICJzaWciOiAiL2NzbUhGNkZpaEdzL0svUWttMWFXMVdrRnkxMk43a1NsS0FkRUZST21QZVNMS0JvcDJ5Qkk0VXFkU0ZKMDNhUXpnWXFRTkxLRjJGWHBTeHFlY1o3MFE9PSIKfQo=",
+   "expect": {
+    "valid": false
+   }
+  },
+  {
+   "name": "keys-bit-string-with-unused-bits",
+   "note": "a key of 91 bytes whose BIT STRING says that one bit of it is unused",
+   "keys": "{\n  \"version\": 1,\n  \"algorithm\": \"ES256\",\n  \"about\": \"keys made for the test vectors\",\n  \"keys\": [\n    {\n      \"kid\": \"7c01e2a6\",\n      \"use\": \"release\",\n      \"spki\": \"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgEEk0gH96YFjMHc8ZctZJQkdS+AcCNOjyMVBHp/YELaGxkjoNb6p4UzNhiK0rBiI6tf2fVFjyHZnTOAejPAP42+Hg==\"\n    }\n  ]\n}\n",
+   "manifest": "ewogICJ2ZXJzaW9uIjogIjMuMTEuMCIsCiAgImNvbW1pdCI6ICIwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3IiwKICAiYXNzZXRzIjogWwogICAgewogICAgICAibmFtZSI6ICJEYXRHb2xkU2V0dXAuZXhlIiwKICAgICAgImJ5dGVzIjogMjMyNzUzMzE0LAogICAgICAic2hhMjU2IjogImFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEiCiAgICB9LAogICAgewogICAgICAibmFtZSI6ICJEYXRHb2xkLUJyb3dzZXItQ29tcGFuaW9uLnppcCIsCiAgICAgICJieXRlcyI6IDEwMjQsCiAgICAgICJzaGEyNTYiOiAiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYiIKICAgIH0KICBdCn0K",
+   "signature": "ewogICJhbGciOiAiRVMyNTYiLAogICJraWQiOiAiN2MwMWUyYTYiLAogICJzaWciOiAiL2NzbUhGNkZpaEdzL0svUWttMWFXMVdrRnkxMk43a1NsS0FkRUZST21QZVNMS0JvcDJ5Qkk0VXFkU0ZKMDNhUXpnWXFRTkxLRjJGWHBTeHFlY1o3MFE9PSIKfQo=",
+   "expect": {
+    "valid": false
    }
   },
   {
@@ -947,6 +987,38 @@
    }
   },
   {
+   "name": "commit with a line break at the end",
+   "note": "refused",
+   "text": "eyJ2ZXJzaW9uIjoiMy4xMS4wIiwiY29tbWl0IjoiMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2N1xuIiwiYXNzZXRzIjpbeyJuYW1lIjoiRGF0R29sZFNldHVwLmV4ZSIsImJ5dGVzIjoyMzI3NTMzMTQsInNoYTI1NiI6ImFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEifSx7Im5hbWUiOiJEYXRHb2xkLUJyb3dzZXItQ29tcGFuaW9uLnppcCIsImJ5dGVzIjoxMDI0LCJzaGEyNTYiOiJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiIn1dfQ==",
+   "expect": {
+    "ok": false
+   }
+  },
+  {
+   "name": "asset name with a line break at the end",
+   "note": "refused",
+   "text": "eyJ2ZXJzaW9uIjoiMy4xMS4wIiwiY29tbWl0IjoiMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2NyIsImFzc2V0cyI6W3sibmFtZSI6ImEuZXhlXG4iLCJieXRlcyI6MSwic2hhMjU2IjoiYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSJ9XX0=",
+   "expect": {
+    "ok": false
+   }
+  },
+  {
+   "name": "digest with a line break at the end",
+   "note": "refused",
+   "text": "eyJ2ZXJzaW9uIjoiMy4xMS4wIiwiY29tbWl0IjoiMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2NyIsImFzc2V0cyI6W3sibmFtZSI6ImEuZXhlIiwiYnl0ZXMiOjEsInNoYTI1NiI6ImFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFcbiJ9XX0=",
+   "expect": {
+    "ok": false
+   }
+  },
+  {
+   "name": "version with a line break at the end",
+   "note": "refused",
+   "text": "eyJ2ZXJzaW9uIjoiMy4xMS4wXG4iLCJjb21taXQiOiIwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3IiwiYXNzZXRzIjpbeyJuYW1lIjoiRGF0R29sZFNldHVwLmV4ZSIsImJ5dGVzIjoyMzI3NTMzMTQsInNoYTI1NiI6ImFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEifSx7Im5hbWUiOiJEYXRHb2xkLUJyb3dzZXItQ29tcGFuaW9uLnppcCIsImJ5dGVzIjoxMDI0LCJzaGEyNTYiOiJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiIn1dfQ==",
+   "expect": {
+    "ok": false
+   }
+  },
+  {
    "name": "assets is an object",
    "note": "refused",
    "text": "eyJ2ZXJzaW9uIjoiMy4xMS4wIiwiY29tbWl0IjoiMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2NyIsImFzc2V0cyI6eyJuYW1lIjoiYS5leGUifX0=",
@@ -1347,6 +1419,14 @@
   },
   {
    "name": "setup.exe ",
+   "problem": "shape"
+  },
+  {
+   "name": "setup.exe\n",
+   "problem": "shape"
+  },
+  {
+   "name": "DatGoldSetup.exe\n",
    "problem": "shape"
   },
   {

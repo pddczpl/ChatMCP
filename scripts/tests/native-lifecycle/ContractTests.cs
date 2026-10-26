@@ -62,8 +62,11 @@ internal static class ContractTests
             ("--uninstall together with --update", new[] { "--quiet", "--update", "--uninstall", "--install-dir", Dir }),
             ("a result file on a network share", new[] { "--quiet", "--update", "--install-dir", Dir, "--result", @"\\server\share\update-result.json" }),
             ("a result file at a device path", new[] { "--quiet", "--update", "--install-dir", Dir, "--result", @"\\?\C:\Users\Test User\update-result.json" }),
+            ("a repeated --wait-pid", new[] { "--quiet", "--update", "--install-dir", Dir, "--wait-pid", "5", "--wait-pid", "6" }),
+            ("a repeated --result", new[] { "--quiet", "--update", "--install-dir", Dir, "--result", Result, "--result", Result }),
         };
         foreach (var (why, args) in refused) kit.Check(Parsed(args) == null, "an update with " + why + " is refused");
+        kit.Check(Parsed(new[] { "--quiet", "--update", "--install-dir", Dir }, "Uninstall") == null && Parsed(new[] { "--quiet", "--update", "--install-dir", Dir }, "uninstall-copy") == null, "an update asked of the uninstaller's own file (Uninstall.exe) is refused, whatever the arguments");
         kit.Check(Parsed(new[] { "--QUIET", "--UPDATE", "--INSTALL-DIR", Dir })?.Mode == InstallerMode.Wizard, "flags in capitals are not flags of the update: the wizard opens, as it does for any arguments it does not know");
 
         // ---- the result file the installer leaves for the Hub of whichever version runs afterwards (format 1). Literal text, one line, in this order.
@@ -101,5 +104,18 @@ internal static class ContractTests
             File.Delete(link);
         }
         catch (Exception error) when (error is UnauthorizedAccessException or IOException) { kit.Check(true, "(a link cannot be made here without a privilege: the check is made on the runner)"); }
+
+        // a result that cannot be put in place leaves nothing behind, not the temporary file, and what was there is untouched
+        {
+            var guarded = Path.Combine(folder, "read-only-result.json");
+            File.WriteAllText(guarded, "keep"); File.SetAttributes(guarded, FileAttributes.ReadOnly);
+            var before = Directory.GetFiles(folder).Length;
+            kit.Check(!UpdateResultFile.TryWrite(guarded, cases[0].Outcome) && File.ReadAllText(guarded) == "keep" && Directory.GetFiles(folder).Length == before, "a result file that is read-only is not replaced: TryWrite says so, the file is as it was and no temporary file is left");
+            File.SetAttributes(guarded, FileAttributes.Normal);
+            var folderInTheWay = Path.Combine(folder, "a-folder.json"); Directory.CreateDirectory(folderInTheWay);
+            var files = Directory.GetFiles(folder).Length;
+            kit.Check(!UpdateResultFile.TryWrite(folderInTheWay, cases[0].Outcome) && Directory.GetFiles(folder).Length == files && Directory.Exists(folderInTheWay), "nor is a folder with that name, and no temporary file is left");
+            kit.Check(!UpdateResultFile.TryWrite(@".\relative-result.json", cases[0].Outcome) && !File.Exists("relative-result.json"), "and a path that starts with a dot is relative too: nothing is written in the folder the setup was started from");
+        }
     }
 }

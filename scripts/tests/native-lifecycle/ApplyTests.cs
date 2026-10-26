@@ -63,6 +63,7 @@ internal static class ApplyTests
             ("no id", "{\"type\":\"chatmcp.apply-update\"}"), ("an id that is not a string", "{\"type\":\"chatmcp.apply-update\",\"id\":1234567890123456}"), ("an id that is too short", "{\"type\":\"chatmcp.apply-update\",\"id\":\"abc\"}"),
             ("an id that is too long", "{\"type\":\"chatmcp.apply-update\",\"id\":\"" + new string('a', 65) + "\"}"), ("an id with characters of a path", "{\"type\":\"chatmcp.apply-update\",\"id\":\"..\\\\..\\\\0123456789abcdef\"}"),
             ("an id with a quote", "{\"type\":\"chatmcp.apply-update\",\"id\":\"0123456789abcdef\\\"}\"}"), ("a type in other letter case", "{\"type\":\"CHATMCP.APPLY-UPDATE\",\"id\":\"" + id + "\"}"),
+            ("an id that ends with a line break", "{\"type\":\"chatmcp.apply-update\",\"id\":\"" + id + "\\n\"}"),
             ("an array", "[{\"type\":\"chatmcp.apply-update\",\"id\":\"" + id + "\"}]"), ("a string", "\"chatmcp.apply-update\""), ("null", "null"), ("a number", "7"), ("not JSON", "chatmcp.apply-update"), ("nothing", ""),
             ("a message over 32 KiB", "{\"type\":\"chatmcp.apply-update\",\"id\":\"" + id + "\",\"padding\":\"" + new string('x', 40000) + "\"}"),
         };

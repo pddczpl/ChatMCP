@@ -50,6 +50,11 @@ internal static class LinkTests
             ("encoded dot segments in capitals", "https://github.com/pddczpl/ChatMCP/releases/%2E%2E/evil"), ("a dot segment that stays inside", "https://github.com/pddczpl/ChatMCP/releases/./tag/v3.10.2"),
             ("an encoded slash", "https://github.com/pddczpl/ChatMCP/releases/..%2f..%2fevil"), ("an encoded backslash", "https://github.com/pddczpl/ChatMCP/releases/tag%5c..%5cevil"),
             ("a backslash in the path", "https://github.com/pddczpl/ChatMCP/releases\\..\\evil"),
+            // spellings that .NET reads as a path INSIDE the releases folder: only the text as written tells them from the good ones (the opener is given the parsed address, but a link that is written like this is not a release page)
+            ("a backslash in the path that stays inside the releases folder", "https://github.com/pddczpl/ChatMCP/releases\\tag/v1"),
+            ("an encoded dot segment that stays inside", "https://github.com/pddczpl/ChatMCP/releases/%2e/tag/v3.10.2"),
+            ("an encoded dot segment in capitals that stays inside", "https://github.com/pddczpl/ChatMCP/releases/%2E/tag/v3.10.2"),
+            ("an encoded dot segment that cancels the segment before it", "https://github.com/pddczpl/ChatMCP/releases/x/%2e%2e/tag/v3.10.2"),
             // characters that are not part of an address
             ("a space at the end", Notes + " "), ("a space at the start", " " + Notes), ("a line break at the end", Notes + "\n"), ("a tab in the path", "https://github.com/pddczpl/ChatMCP/releases/\ttag/v1"),
             ("a null character", Notes + "\0"), ("a character that is not ASCII", "https://github.com/pddczpl/ChatMCP/releases/tag/v" + char.ConvertFromUtf32(0x00E9)),

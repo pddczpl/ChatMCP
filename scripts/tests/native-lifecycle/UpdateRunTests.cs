@@ -24,6 +24,7 @@ internal static class UpdateRunTests
         internal bool ShellGone = true;
         internal bool Marker;
         internal bool WriteWorks = true;
+        internal bool WriteThrows, MarkerThrows, DetectThrows;
         internal ShortcutPlan Shortcuts = new(true, true, false);
         internal Action<ShortcutPlan, Action<int, string>>? Install;
         internal Action? OnRelaunch;
@@ -38,11 +39,11 @@ internal static class UpdateRunTests
             FreeBytes = dir => { Events.Add("free-bytes"); return Free; },
             PayloadBytes = () => Payload,
             WaitForShellExit = (pid, image, limit) => { Events.Add("wait"); WaitedPid = pid; WaitedImage = image; WaitedLimit = limit; return ShellGone; },
-            DetectShortcuts = dir => { Events.Add("detect-shortcuts"); return Shortcuts; },
+            DetectShortcuts = dir => { Events.Add("detect-shortcuts"); if (DetectThrows) throw new IOException("no shell"); return Shortcuts; },
             Install = (dir, plan, progress) => { Events.Add("install"); InstalledWith = plan; Install?.Invoke(plan, progress); },
-            PendingMarkerExists = dir => Marker,
+            PendingMarkerExists = dir => MarkerThrows ? throw new IOException("locked") : Marker,
             Relaunch = exe => { Events.Add("relaunch"); Relaunched = exe; OnRelaunch?.Invoke(); },
-            WriteResult = (path, outcome) => { Events.Add("write-result"); Written = outcome; WrittenTo = path; return WriteWorks; },
+            WriteResult = (path, outcome) => { Events.Add("write-result"); if (WriteThrows) throw new IOException("disk"); Written = outcome; WrittenTo = path; return WriteWorks; },
         };
 
         internal UpdateOutcome Run(InstallerCommand command) => UpdateRun.Run(command, Environment(), (percent, text) => Progress.Add(percent + " " + text));
@@ -70,6 +71,14 @@ internal static class UpdateRunTests
         kit.Check(!m.Events.Contains("relaunch") && m.Events.Contains("write-result"), "without --relaunch the app is not opened");
         m = new Machine(); m.Run(Command(result: false));
         kit.Check(!m.Events.Contains("write-result") && m.Events.Contains("relaunch"), "without --result nothing is written");
+
+        // ---- a seam that fails is no reason to fail the update, or to let it go on blind
+        m = new Machine { DetectThrows = true }; outcome = m.Run(Command());
+        kit.Check(outcome.Ok && m.InstalledWith == ShortcutPlan.All, "when the shortcuts cannot be looked at the update still goes through and makes all of them (a shortcut that is missing after an update looks like a broken update)");
+        m = new Machine { WriteThrows = true }; outcome = m.Run(Command());
+        kit.Check(outcome.Ok && m.Events.Contains("relaunch"), "a result file that throws when it is written does not fail an update that went through, and the app is still opened");
+        m = new Machine { MarkerThrows = true }; outcome = m.Run(Command());
+        kit.Check(!outcome.Ok && outcome.State == "needs_recovery" && outcome.Reason == "pending_recovery" && !m.Events.Contains("install") && !m.Events.Contains("relaunch"), "when the marker of an unfinished update cannot be looked for it is taken as there: nothing is installed and the app is not opened (the launcher refuses to start behind it)");
 
         // ---- refusals before anything is changed: the old app is intact, so it is opened again
         void Refused(string label, Action<Machine> arrange, string reason, string state = "unchanged", bool installs = false, bool relaunches = true)

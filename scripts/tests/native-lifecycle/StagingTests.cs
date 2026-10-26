@@ -228,12 +228,47 @@ internal static class StagingTests
         {
             var both = kit.Folder("updates-two"); Release(both, owner, "3.11.0", installer); Release(both, owner, "3.12.0", installer);
             kit.Check(CodeOf(() => { using var update = Verify(both, identity: path => Genuine(path.Contains("3.12.0") ? "3.12.0" : "3.11.0")); }) == "ambiguous", "two folders that both prove themselves: the shell does not choose, because the page showed one of them");
+            foreach (var release in Directory.GetDirectories(both)) File.Delete(Path.Combine(release, "DatGoldSetup.exe"));
+            kit.Check(true, "and it holds neither of them: both installers can be deleted at once (an installer that stays held is a folder nobody can clean)");
             var one = kit.Folder("updates-one-good"); Release(one, owner, "3.11.0", installer); Release(one, owner, "3.9.0", installer);
             using (var update = Verify(one)) kit.Check(update.Version.ToString() == "3.11.0", "one that proves itself and an old one that is not newer: the first is the update");
             var tampered = kit.Folder("updates-one-tampered"); Release(tampered, owner, "3.11.0", installer); var bad = Release(tampered, owner, "3.12.0", (byte[])installer.Clone(), declaredSha: new string('0', 64));
             using (var update = Verify(tampered)) kit.Check(update.Version.ToString() == "3.11.0", "and so is one next to a folder that does not prove itself");
             var failing = kit.Folder("updates-two-failing"); Release(failing, owner, "3.11.0", installer, declaredSha: new string('0', 64)); Release(failing, owner, "3.12.0", installer, signatureOverride: new byte[] { 1 });
             kit.Check(CodeOf(() => { using var update = Verify(failing); }) == "bad_signature", "when none proves itself the page is told why the NEWEST one does not");
+        }
+        // at most 16 folders are looked at, the newest first: the cost of a look is bounded, and a good older release behind 16 newer folders is not found
+        {
+            var many = kit.Folder("updates-many");
+            Release(many, owner, "3.11.0", installer);
+            for (var minor = 12; minor < 28; minor++) Directory.CreateDirectory(Path.Combine(many, "3." + minor + ".0"));
+            kit.Check(CodeOf(() => { using var update = Verify(many); }) == "bad_manifest", "sixteen newer folders (empty) hide a good older one: only the newest 16 are looked at, and the reason given is the newest one's");
+            Directory.Delete(Path.Combine(many, "3.27.0"));
+            using var found = Verify(many);
+            kit.Check(found.Version.ToString() == "3.11.0", "with one of them gone the good one is the 16th and is found");
+        }
+        // a manifest or an installer that is a LINK is not read or run: the Hub's folder is where a link would make the shell take another file (a link to a file needs a privilege to be made, so it is tried, and said when it cannot be)
+        {
+            var linkRoot = kit.Folder("updates-file-links");
+            var program = Release(linkRoot, owner, "3.11.0", installer);
+            var directory = Path.GetDirectoryName(program)!;
+            var elsewhere = kit.Folder("elsewhere-files");
+            var manifestCopy = Path.Combine(elsewhere, UpdateStaging.ManifestName); File.Copy(Path.Combine(directory, UpdateStaging.ManifestName), manifestCopy);
+            var installerCopy = Path.Combine(elsewhere, "DatGoldSetup.exe"); File.Copy(program, installerCopy);
+            var canLink = true;
+            try { File.CreateSymbolicLink(Path.Combine(elsewhere, "probe"), manifestCopy); } catch (Exception error) when (error is UnauthorizedAccessException or IOException) { canLink = false; }
+            if (!canLink) kit.Check(true, "(a link to a file cannot be made here without a privilege: checked on the runner)");
+            else
+            {
+                File.Delete(Path.Combine(directory, UpdateStaging.ManifestName));
+                File.CreateSymbolicLink(Path.Combine(directory, UpdateStaging.ManifestName), manifestCopy);
+                kit.Check(CodeOf(() => { using var update = Verify(linkRoot); }) == "staging_unsafe", "a manifest that is a link is refused, even to a manifest that proves itself");
+                File.Delete(Path.Combine(directory, UpdateStaging.ManifestName));
+                File.Copy(manifestCopy, Path.Combine(directory, UpdateStaging.ManifestName));
+                File.Delete(program);
+                File.CreateSymbolicLink(program, installerCopy);
+                kit.Check(CodeOf(() => { using var update = Verify(linkRoot); }) == "staging_unsafe", "and so is an installer that is a link, even to one that proves itself");
+            }
         }
         // nothing is left held by a refusal
         {

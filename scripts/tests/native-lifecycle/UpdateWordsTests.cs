@@ -15,6 +15,8 @@ internal static class UpdateWordsTests
         }
         kit.Check(UpdateWords.ReasonFor("a code that is not on the list") == UpdateWords.ReasonFor("install_failed") && UpdateWords.ReasonFor(null) == UpdateWords.ReasonFor("install_failed"), "and a code that is not on the list (or none) is said as an install that failed");
         kit.Check(new[] { "tasks_running", "disk_full", "not_newer", "foreign_listener", "window_open" }.Select(UpdateWords.ReasonFor).Distinct().Count() == 5, "different reasons are not said alike");
+        kit.Check(UpdateWords.ReasonFor("foreign_listener").Contains("3007") && UpdateWords.ReasonFor("tasks_running").Contains("Stop") && UpdateWords.ReasonFor("disk_full").Contains("disk space") && UpdateWords.ReasonFor("not_newer").Contains("not newer") && UpdateWords.ReasonFor("shell_not_exited").Contains("close") && UpdateWords.ReasonFor("pending_recovery").Contains("recovered"),
+            "and the ones a person can act on say what to act on: the port 3007, stopping tasks, the disk space, an installer that is not newer, an app that did not close, an update to recover");
 
         var unchanged = new UpdateOutcome(false, "3.11.0", "3.10.2", "unchanged", "tasks_running");
         var text = UpdateWords.FailureFor(unchanged, relaunched: true);
@@ -22,8 +24,10 @@ internal static class UpdateWordsTests
         kit.Check(!UpdateWords.FailureFor(unchanged, relaunched: false).Contains("opened again"), "and does not say it was opened when it was not asked to");
         var rolledBack = new UpdateOutcome(false, "3.11.0", "3.10.2", "rolled_back", "install_failed");
         kit.Check(UpdateWords.FailureFor(rolledBack, true).Contains("put back") && UpdateWords.FailureFor(rolledBack, true).Contains("3.10.2"), "a clean rollback says that the files were put back and which version is installed");
+        kit.Check(UpdateWords.FailureFor(rolledBack, true).Contains("opened again") && !UpdateWords.FailureFor(rolledBack, false).Contains("opened again"), "and that it was opened again only when it was asked to");
         var recovery = new UpdateOutcome(false, "3.11.0", "3.10.2", "needs_recovery", "install_failed");
         var repair = UpdateWords.FailureFor(recovery, true);
+        kit.Check(repair.Contains("3.11.0") && repair.Contains("stopped halfway"), "it names the update that stopped halfway");
         kit.Check(repair.Contains("will not start") && repair.Contains("DatGoldSetup.exe") && repair.Contains("logs") && !repair.Contains("opened again"), "an update that needs recovery says that DatGold will not start until it is repaired, and where to look, and never says it was opened");
         var unknownOld = new UpdateOutcome(false, "3.11.0", null, "unchanged", "no_installation");
         kit.Check(!UpdateWords.FailureFor(unknownOld, true).Contains("null") && !UpdateWords.FailureFor(unknownOld, true).Contains("  "), "an old version that is not known is not printed as null");

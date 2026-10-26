@@ -106,6 +106,11 @@ sig('signature-file-not-json', 'text', LIST_A, MANIFEST, Buffer.from('not json')
 sig('signature-file-array', 'a JSON array', LIST_A, MANIFEST, Buffer.from(JSON.stringify([good])), refused);
 sig('signature-file-invalid-utf8', 'bytes that are not UTF-8', LIST_A, MANIFEST, Buffer.concat([Buffer.from('{"alg":"ES256","kid":"'), Buffer.from([0xff, 0xfe]), Buffer.from('"}')]), refused);
 {
+  // complete and valid in every field it reads; the one byte that is not UTF-8 is in a field it does not read, so only a strict decoder refuses it
+  const whole = Buffer.from(JSON.stringify({ ...good, note: 'X' }));
+  sig('signature-file-invalid-utf8-in-a-field-it-does-not-read', 'a valid signature file with one byte that is not UTF-8 after the fields it reads', LIST_A, MANIFEST, Buffer.concat([whole.subarray(0, whole.length - 3), Buffer.from([0xff]), Buffer.from('"}')]), refused);
+}
+{
   const text = signatureFile(A, MANIFEST).toString('utf8');
   const pad = (size) => Buffer.from(text.replace(/\n$/, '') + ' '.repeat(size - Buffer.byteLength(text.replace(/\n$/, ''))));
   sig('signature-file-4096-bytes', 'exactly the largest size that is read', LIST_A, MANIFEST, pad(4096), valid(A));
@@ -120,6 +125,17 @@ sig('keys-placeholder-only', 'the placeholder that ships until the owner has mad
 sig('keys-placeholder-then-key', 'a placeholder and then a key', keyList([{ kid: '00000000', use: 'placeholder', spki: null }, entry(A)]), MANIFEST, signatureFile(A, MANIFEST), valid(A));
 sig('keys-compressed-point', 'a key whose point is compressed (59 bytes) is not a key, even when the signature names it and is valid for the same point', keyList([odd(compressedSpki)]), MANIFEST, fileOf({ ...good, kid: keyIdOf(compressedSpki) }), refused);
 sig('keys-compressed-point-and-key', 'it costs that entry and nothing else', keyList([odd(compressedSpki), entry(A)]), MANIFEST, signatureFile(A, MANIFEST), valid(A));
+{
+  // each of these is the point of A in another form, with the id its own bytes give and a signature of A's that names that id: if the form were taken as a key, the signature would check, so the refusal is the key's
+  const trailingByteSpki = Buffer.concat([A.spki, Buffer.from([0])]);
+  sig('keys-trailing-byte', 'a key of 92 bytes: the 91 of a key and one more (the library reads the first structure and says nothing of the rest)', keyList([odd(trailingByteSpki)]), MANIFEST, fileOf({ ...good, kid: keyIdOf(trailingByteSpki) }), refused);
+  const markerSpki = Buffer.from(A.spki);
+  markerSpki[HEADER.length] = 0x02;
+  sig('keys-point-marker-is-not-uncompressed', 'a key of 91 bytes whose point does not start with 0x04', keyList([odd(markerSpki)]), MANIFEST, fileOf({ ...good, kid: keyIdOf(markerSpki) }), refused);
+  const unusedBitsSpki = Buffer.from(A.spki);
+  unusedBitsSpki[HEADER.length - 1] = 0x01;
+  sig('keys-bit-string-with-unused-bits', 'a key of 91 bytes whose BIT STRING says that one bit of it is unused', keyList([odd(unusedBitsSpki)]), MANIFEST, fileOf({ ...good, kid: keyIdOf(unusedBitsSpki) }), refused);
+}
 sig('keys-off-curve', 'a point that is not on the curve is not a key', keyList([odd(offCurveSpki)]), MANIFEST, signatureFile(A, MANIFEST), refused);
 sig('keys-off-curve-takes-no-slot', 'and takes no one of the four places', keyList([entry(B), odd(offCurveSpki), entry(C), entry(D), entry(E)]), MANIFEST, signatureFile(E, MANIFEST), valid(E));
 sig('keys-p384', 'a P-384 key', keyList([odd(p384)]), MANIFEST, signatureFile(A, MANIFEST), refused);
@@ -171,6 +187,8 @@ man('33 assets', 'one more', asText(manifestObject({ assets: Array.from({ length
 for (const [label, over] of [
   ['pre-release version', { version: '3.11.0-rc.1' }], ['build metadata', { version: '3.11.0+abc' }], ['leading zero', { version: '03.11.0' }], ['two parts', { version: '3.11' }], ['four parts', { version: '3.11.0.1' }],
   ['version is a number', { version: 3.11 }], ['version is missing', { version: undefined }], ['short commit', { commit: '0123456789abcdef' }], ['commit that is not hex', { commit: 'z'.repeat(40) }], ['no commit', { commit: undefined }],
+  ['commit with a line break at the end', { commit: '0123456789abcdef0123456789abcdef01234567\n' }], ['asset name with a line break at the end', { assets: [{ name: 'a.exe\n', bytes: 1, sha256: 'a'.repeat(64) }] }],
+  ['digest with a line break at the end', { assets: [{ name: 'a.exe', bytes: 1, sha256: `${'a'.repeat(64)}\n` }] }], ['version with a line break at the end', { version: '3.11.0\n' }],
   ['assets is an object', { assets: { name: 'a.exe' } }], ['assets is missing', { assets: undefined }], ['an asset that is a string', { assets: ['a.exe'] }],
   ['name with a slash', { assets: [{ name: 'a/b.exe', bytes: 1, sha256: 'a'.repeat(64) }] }], ['name with a space', { assets: [{ name: 'a b.exe', bytes: 1, sha256: 'a'.repeat(64) }] }],
   ['name that starts with a dot', { assets: [{ name: '.a.exe', bytes: 1, sha256: 'a'.repeat(64) }] }], ['name with a backslash', { assets: [{ name: 'a\\b.exe', bytes: 1, sha256: 'a'.repeat(64) }] }],
@@ -198,7 +216,7 @@ const releaseVersions = [
 const compareVersions = [['3.10.2', '3.10.2', 0], ['3.11.0', '3.10.2', 1], ['3.10.2', '3.11.0', -1], ['3.9.0', '3.10.2', -1], ['3.10.2', '3.9.0', 1], ['10.0.0', '9.9.9', 1], ['4.0.0', '3.99.99', 1], ['3.10.10', '3.10.9', 1], ['0.0.1', '0.0.0', 1]];
 const installerNames = [
   ['DatGoldSetup.exe', null], ['ChatMCPSetup.exe', null], ['a.exe', null], ['A1_b-c.d.exe', null], ['x'.repeat(100) + '.exe', null], ['x'.repeat(101) + '.exe', 'shape'], ['.exe', 'shape'], ['', 'shape'],
-  ['a b.exe', 'shape'], ['a/b.exe', 'shape'], ['a\\b.exe', 'shape'], ['a:b.exe', 'shape'], ['a:b.exe:stream.exe', 'shape'], ['setup.EXE', 'shape'], ['setup.exe ', 'shape'], ['setup.exe.', 'shape'], ['setup.bat', 'shape'], ['setup', 'shape'],
+  ['a b.exe', 'shape'], ['a/b.exe', 'shape'], ['a\\b.exe', 'shape'], ['a:b.exe', 'shape'], ['a:b.exe:stream.exe', 'shape'], ['setup.EXE', 'shape'], ['setup.exe ', 'shape'], ['setup.exe\n', 'shape'], ['DatGoldSetup.exe\n', 'shape'], ['setup.exe.', 'shape'], ['setup.bat', 'shape'], ['setup', 'shape'],
   ['.hidden.exe', 'start'], ['-dash.exe', 'start'], ['_under.exe', 'start'], ['a..b.exe', 'dots'], ['a...exe', 'dots'],
   ['CON.exe', 'device'], ['con.exe', 'device'], ['PRN.exe', 'device'], ['AUX.exe', 'device'], ['NUL.exe', 'device'], ['COM1.exe', 'device'], ['com9.exe', 'device'], ['LPT1.exe', 'device'], ['lpt9.exe', 'device'],
   ['CON.txt.exe', 'device'], ['nul.setup.exe', 'device'], ['COM0.exe', null], ['COM10.exe', null], ['CONSOLE.exe', null], ['LPT.exe', null], ['CONIN$.exe', 'shape'],
