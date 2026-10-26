@@ -157,7 +157,7 @@ function Close-UpdateWindow($process) {
     if (-not $process.WaitForExit(30000)) { throw 'The update window did not end after Close.' }
     return $process.ExitCode
 }
-function Read-UpdateResult([string]$Path, [int]$Seconds = 20) {
+function Read-UpdateResult([string]$Path, [int]$Seconds = 240) {
     $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
     while (-not (Test-Path -LiteralPath $Path) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 250 }
     if (-not (Test-Path -LiteralPath $Path)) { throw "The update left no result file within $Seconds seconds: $Path" }
@@ -340,7 +340,8 @@ try {
         $baselineHash = (Get-FileHash $exe -Algorithm SHA256).Hash
         $baselineHubFile = Join-Path $root 'CHATMCP-HUB\package.json'
 
-        # 1. Another program on the port of the Hub: nothing is replaced and the window says why. A pid that is not the shell (this PowerShell) is not waited for, so the result comes at once.
+        # 1. Another program on the port of the Hub: nothing is replaced and the window says why. The setup stages its whole payload before it looks at the port (the legacy form of round 1 takes about a minute and a half
+        # to refuse), so the result is waited for minutes, not seconds. A pid that is not the shell (this PowerShell) is not waited for: had it been, the reason would be shell_not_exited after 30 seconds.
         $fakeHub = Start-Process (Get-Command node.exe).Source -ArgumentList ('"' + $fakeFile + '"') -WindowStyle Hidden -PassThru; $owned.Add($fakeHub)
         $null = Wait-Health $ExpectedBaselineVersion
         $foreignResult = Join-Path $results 'foreign-listener.json'
@@ -358,7 +359,7 @@ try {
         try {
             $busyResult = Join-Path $results 'file-in-use.json'
             $busy = Start-InstallerUpdate (Update-Arguments -Relaunch $true -ResultFile $busyResult)
-            $outcome = Read-UpdateResult $busyResult 180
+            $outcome = Read-UpdateResult $busyResult 300
             Assert-UpdateResult $outcome $false 'unchanged' 'install_failed' $ExpectedBaselineVersion '[update] a file that is in use stops the update before a file is replaced: unchanged, with the reason install_failed'
             Assert-NativeError $busy 'files could not be replaced'
             Assert-Native ((Close-UpdateWindow $busy) -eq 1) '[update] and its window says so and ends with Close'

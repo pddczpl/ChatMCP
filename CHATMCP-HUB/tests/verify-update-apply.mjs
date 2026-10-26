@@ -75,7 +75,9 @@ if (sdk) { try { execFileSync('dotnet', ['--version'], { stdio: 'ignore', timeou
 if (!sdk) {
   console.log('NOTE: MSBuild was not asked what the shell embeds (needs Windows and a .NET SDK); the project file was checked as text above.');
 } else {
-  const same = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+  // MSBuild spells a path in full while a temporary folder is often spelled with a short name (C:\Users\RUNNER~1\...): both sides are asked for their real name where the file exists.
+  const real = (file) => { try { return fs.realpathSync.native(file); } catch { return path.resolve(file); } };
+  const same = (a, b) => real(a).toLowerCase() === real(b).toLowerCase();
   const standard = evaluate([]);
   check(standard.items.length === 1 && same(standard.items[0].FullPath, path.join(hubRoot, 'lib', 'release-keys.json')), 'MSBuild: by default the one embedded resource is the Hub\'s key file', standard.items.map((item) => item.FullPath).join());
   check(standard.items[0].LogicalName === resourceName, 'MSBuild: under the name the shell reads');
