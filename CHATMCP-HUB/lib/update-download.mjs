@@ -1,5 +1,5 @@
 // The download of the installer: step 2 of the in-app updater. The Hub fetches the installer of a release that its owner signed, counts it, hashes it and puts it in a folder of its own. It
-// installs nothing, moves nothing, opens nothing and runs nothing: the next step does that, and hashes the file again first.
+// installs nothing and runs nothing, and the finished installer is not opened or moved: the next step does that, and hashes the file again first.
 //
 // A download starts ONLY from a click of the owner (POST /api/update/download). It never starts from a timer, at start-up, after a check or after the owner said yes to automatic checks; it is allowed
 // while agent tasks run (only the step that applies it needs them idle).
@@ -143,8 +143,14 @@ export function createUpdateDownloader({
     }
   }
 
-  /** Every version folder under the folder of updates except `keep`; only names that are release versions are touched. */
+  /**
+   * Every version folder under the folder of updates except `keep`; only names that are release versions are touched. The folder of updates is looked at again each time (a download can take minutes):
+   * where it has become a link or a file nothing is done, as when the click looked at it.
+   */
   async function clearRoot(keep = null) {
+    let stat;
+    try { stat = await lstatOrNull(root); } catch { return; }
+    if (stat === null || stat.isSymbolicLink() || !stat.isDirectory()) return;
     let names;
     try { names = await fsp.readdir(root); } catch { return; }
     for (const name of names) if (VERSION_FOLDER.test(name) && name !== keep) await removeEntry(path.join(root, name));
@@ -257,7 +263,7 @@ export function createUpdateDownloader({
       const installer = proven.manifest.installer;
       if (!installer) throw refusal('update_download_no_installer', 'The release does not name exactly one installer.', 409);
       if (installerNameProblem(installer.name) !== null) throw refusal('update_download_bad_name', 'The name of the installer is not one that is accepted.', 409);
-      if (!Number.isSafeInteger(installer.bytes) || installer.bytes < 1 || installer.bytes > DOWNLOAD.maxBytes) throw refusal('update_download_size', 'The size of the installer is out of range.', 409);
+      if (!Number.isSafeInteger(installer.bytes) || installer.bytes < 1 || installer.bytes > DOWNLOAD.maxBytes) throw refusal('update_download_bad_size', 'The size of the installer is out of range.', 409);
       await ensureRoot();
       const free = await room();
       if (free < installer.bytes * DOWNLOAD.freeSpaceFactor) throw refusal('update_download_disk_full', 'There is not enough room on the disk for the installer and for setting it up.', 507);
@@ -273,6 +279,8 @@ export function createUpdateDownloader({
       }).finally(() => { job = null; });
       return { started: true, status: snapshot() };
     } catch (error) {
+      // the owner cancelled while the release was being looked at: whatever that look ended in, the click ends as a cancelled one, not as a refusal that nobody asked about
+      if (cancelWanted) { state = { state: 'idle' }; return { status: snapshot(), started: false }; }
       state = previous;
       throw error;
     } finally { starting = false; }
@@ -335,7 +343,7 @@ export function createUpdateDownloader({
   async function writeWhole(file, content) {
     const temporary = `${file}.tmp`;
     await fsp.writeFile(temporary, content, { flag: 'wx', mode: 0o600 });
-    await fsp.rename(temporary, file);
+    await renameWhole(temporary, file); // the antivirus may hold this one too, and a checked installer is not thrown away for a lock that lasts a moment
   }
 
   /** What failure a thing that went wrong is. */
@@ -430,16 +438,21 @@ export function createUpdateDownloader({
    */
   async function reconcile() {
     const inProgress = state.state === 'downloading' || state.state === 'verifying';
-    const subject = inProgress ? (job?.version ?? null) : (state.state === 'ready' ? state.version : null);
-    if (subject === null) return;
+    // while a click is still being looked at there is no job yet, but the state already names the release: a cancel stops it before its first byte, as the owner's Cancel would
+    const subject = inProgress ? (job?.version ?? state.version ?? null) : (state.state === 'ready' ? state.version : null);
+    if (typeof subject !== 'string') return;
     const known = offer() ?? {};
     const departed = known.latest !== null && known.latest !== undefined && known.latest !== subject;
     const withdrawn = known.latest !== null && known.latest !== undefined && known.available === false;
     const unsigned = known.signature === 'missing' || known.signature === 'invalid';
     if (!departed && !withdrawn && !unsigned) return;
-    if (inProgress) { await cancel(); return; }
+    if (inProgress) {
+      await cancel();
+      // a download that was past the last place where a cancel is read (the file is being renamed into place) still ends "ready": it is dropped like any other that is ready
+      if (!(state.state === 'ready' && state.version === subject)) return;
+    }
+    state = { state: 'idle' }; // said first, so that nobody is shown "ready" for a folder that is on its way out
     await removeEntry(path.join(root, subject));
-    state = { state: 'idle' };
     log(`Bản cập nhật ${subject} đã tải về không còn được đề nghị nữa, nên đã xóa.`);
   }
 

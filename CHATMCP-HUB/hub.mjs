@@ -792,12 +792,12 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   const updates = createUpdateChecker({ directory: manager.hubDirectory, currentVersion: VERSION, log: (line) => manager.log(line), releaseKeys: releaseKeys.keys, ...updateHooks });
   await updates.load();
   // The download of the installer: it reads the offer of the notice, looks at the release again when the owner clicks, and keeps what it fetched in <data>/updates. Start-up only cleans that folder of what a
-  // Hub that was killed left, and finds a finished download again; it downloads nothing. A check that has finished tells it to drop a download that is not on offer any more.
+  // Hub that was killed left, and finds a finished download again (`downloads.load()`, below, once this process holds the instance lock); it downloads nothing. A check that has finished tells it to
+  // drop a download that is not on offer any more.
   const downloads = createUpdateDownloader({
     directory: manager.hubDirectory, currentVersion: VERSION, feedUrl: updates.feedUrl, releaseKeys: updates.trustedKeys(), offer: () => updates.status(), log: (line) => manager.log(line),
     ...(updateHooks.platform ? { platform: updateHooks.platform } : {}),
   });
-  await downloads.load();
   updates.onChecked(() => downloads.reconcile());
   const { BrowserRunner } = await import('./lib/browser-runner.mjs');
   const { AgentRunner } = await import('./lib/agent.mjs');
@@ -851,6 +851,9 @@ export async function main(args = process.argv.slice(2), env = process.env) {
   }
   try {
     releaseInstance = await acquireInstanceLock(manager.hubDirectory, options.port);
+    // Finding what a killed Hub left in the folder of updates DELETES it, so only the Hub that holds the data folder may do it: a second start of the launcher gets as far as the code above before it
+    // finds out that another Hub runs, and must not remove the first one's half-written download.
+    await downloads.load();
     // Published only once this process holds the instance lock, and before /api/health reports "initialized".
     session = await writeSession(manager.hubDirectory, { port: options.port, secret });
     await browser.load();

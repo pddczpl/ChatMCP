@@ -12,9 +12,10 @@
 // CLAIM: update-download-needs-valid-signature
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
+import { spawn } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
 import { findNeedles, runScenario } from './e2e/harness.mjs';
-import { sleep, waitFor } from './e2e/hub-process.mjs';
+import { HUB_ROOT, cleanEnvironment, freePort, sleep, waitFor } from './e2e/hub-process.mjs';
 import { feedManifest, startUpdateFeed } from './e2e/update-feed-server.mjs';
 import { throwawayKey } from './support/release-keys.mjs';
 
@@ -230,9 +231,32 @@ await runScenario({
   const rechecked = (await post(second, '/api/update/check', {})).json.update;
   t.equal(rechecked.signature, 'missing', 'the check finds that the release is not signed any more');
   const dropped = await waitFor(async () => { const download = (await updateOf(second)).download; return download.state === 'idle' ? download : null; }, { timeoutMs: 10_000, label: 'the download to be dropped' });
-  t.equal([dropped, listing(folderOf(withdrawnDir))], [{ state: 'idle' }, []], 'and the download is dropped, with its folder: a finished check tells the downloader');
+  const emptied = await waitFor(() => (listing(folderOf(withdrawnDir))?.length === 0 ? [] : null), { timeoutMs: 10_000, label: 'the folder of the dropped download to be removed' }); // "idle" is said first, then the folder goes
+  t.equal([dropped, emptied], [{ state: 'idle' }, []], 'and the download is dropped, with its folder: a finished check tells the downloader');
   feed.signature.mode('chain');
   await second.stop();
+
+  // ---- a second Hub on the same data folder leaves the first one's download alone ------------------------------------------------------------------------
+  {
+    const sharedDir = path.join(t.scratch, 'state-shared');
+    const owner1 = await t.hub({ env: hooks(), stateDir: sharedDir });
+    await post(owner1, '/api/update/check', {});
+    feed.installer.mode('chain', { pauseAfter: 2 * MiB });
+    await post(owner1, ROUTES.download, { version: '3.11.0' });
+    await waitFor(async () => (await updateOf(owner1)).download.received >= 2 * MiB, { timeoutMs: 20_000, label: 'part of the installer' });
+    const part = path.join(folderOf(sharedDir), '3.11.0', 'DatGoldSetup.exe.part');
+    t.check(fs.existsSync(part), 'the first Hub is downloading: its .part file is on disk');
+    // a second Hub process on the same data folder (another port, as a second start of the launcher would be): it finds that the folder is taken and stops
+    const second = spawn(process.execPath, [path.join(HUB_ROOT, 'hub.mjs'), '--backend', 'local', '--port', String(await freePort()), '--state-dir', sharedDir, '--no-open'], {
+      cwd: HUB_ROOT, env: cleanEnvironment(t.scratch, { CHATMCP_HUB_SECRET: randomBytes(32).toString('hex'), ...hooks() }), stdio: 'ignore', windowsHide: true,
+    });
+    await new Promise((resolve) => { const timer = setTimeout(() => { second.kill(); resolve(); }, 15_000); second.on('close', () => { clearTimeout(timer); resolve(); }); });
+    t.check(fs.existsSync(part), 'and it did not delete the first Hub\'s .part file: what a killed Hub left is cleaned up only by a Hub that holds the data folder');
+    feed.installer.resume();
+    t.equal((await downloaded(owner1)).state, 'ready', 'so the first download goes on to the end');
+    feed.installer.mode('chain');
+    await owner1.stop();
+  }
 
   // ---- what the Hub is not -----------------------------------------------------------------------------------------------------------------------------------
   const hubSource = fs.readFileSync(new URL('../hub.mjs', import.meta.url), 'utf8');

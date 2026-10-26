@@ -1,4 +1,4 @@
-// The download of the installer (lib/update-download.mjs), step 2 of the in-app updater: nothing is installed, moved or run; a file is fetched, counted, hashed and put in a folder of the Hub.
+// The download of the installer (lib/update-download.mjs), step 2 of the in-app updater: nothing is installed or run, and the finished installer is not opened or moved; a file is fetched, counted, hashed and put in a folder of the Hub.
 //
 // What this suite holds the module to, against a REAL loopback HTTP server that stands in for GitHub (tests/e2e/update-feed-server.mjs: the same hops, a signed address at the end), real files in a
 // temporary folder, and keys made when it runs. Only the platform, the free space and the file system (for a failure on purpose) are handed in:
@@ -9,7 +9,7 @@
 //   3. everything that can go wrong with the transport: a redirect to another host, no Location, a loop, a 404, a reset, a short body, a long body, a body that is not the signed one;
 //   4. everything that can go wrong with the Hub's own files: leftovers of a Hub that was killed, folders of older versions, links planted where a folder should be, a folder that is a file, a
 //      state file damaged field by field, a copy of the manifest or the signature that no longer checks, a disk that is full or a rename that fails, a clock that jumps (the module reads no clock);
-//   5. what the module is not: it starts no program, reads no environment variable, reads no clock, and the installer is never opened, moved or run.
+//   5. what the module is not: it starts no program, reads no environment variable, reads no clock, and the finished installer is never opened, moved or run.
 // "ready" is the Hub's own statement. It does not make the file trustworthy to whoever runs it: the step that runs the installer hashes it again (a program running with Full Access can write this
 // folder); docs/THREAT-MODEL.md, Surface 8.
 // CLAIM: update-download-checks-size-and-hash
@@ -126,6 +126,15 @@ function faulty(hook) {
   return { ...fs, promises };
 }
 const coded = (code) => Object.assign(new Error(code), { code });
+/** A gate for a test: the code under test says `arrive()` when it has got there and then waits until the test calls `release()`. */
+const hold = () => {
+  let release;
+  let arrive;
+  const opened = new Promise((resolve) => { release = resolve; });
+  const arrived = new Promise((resolve) => { arrive = resolve; });
+  return { opened, release, arrived, arrive };
+};
+const isRoot = (target) => String(target).endsWith(`${path.sep}updates`);
 
 try {
   // ------------------------------------------------------------------------------------------------------------------------------- 1. a download, from the click to "ready"
@@ -394,7 +403,7 @@ try {
       const release = releaseFor({ size: 1 * MiB, seed: 8 });
       release.manifest.assets[0].bytes = size;
       const w = await world({ release });
-      await refuses(w.downloader.start({ version: '3.11.0' }), 'update_download_size', `an installer that is ${label}`, 409);
+      await refuses(w.downloader.start({ version: '3.11.0' }), 'update_download_bad_size', `an installer that is ${label}`, 409);
       assert.deepEqual(left(w), []);
     }
     assert.equal(DOWNLOAD.maxBytes, 2 * 1024 ** 3);
@@ -518,6 +527,9 @@ try {
     let busy = 0;
     await outcome('a rename that never works', async (name, args, call) => { if (name === 'rename' && String(args[0]).endsWith('.part')) { busy += 1; throw coded('EBUSY'); } return call(); }, fail('update_download_write'));
     assert.equal(busy, DOWNLOAD.renameAttempts, 'and it was tried as many times as the limit says, and no more');
+    let stateRenames = 0;
+    await outcome('the antivirus holds the state file for a moment too: its rename fails twice and then works', async (name, args, call) => { if (name === 'rename' && String(args[0]).endsWith('state.json.tmp') && (stateRenames += 1) <= 2) throw coded('EPERM'); return call(); }, null);
+    assert.equal(stateRenames, 3, 'and it was tried three times: a checked installer is not thrown away for a lock that lasts a moment');
     let others = 0;
     await outcome('a rename that is refused for another reason is not tried again', async (name, args, call) => { if (name === 'rename' && String(args[0]).endsWith('.part')) { others += 1; throw coded('ENOENT'); } return call(); }, fail('update_download_write'));
     assert.equal(others, 1);
@@ -557,20 +569,33 @@ try {
       assert.deepEqual(fs.readdirSync(target).sort(), ['3.0.0', 'canary.txt'], `${label}: the other folder is as it was`);
       fs.rmSync(w.root, { recursive: true, force: true });
     }
+    // the folder of updates is a plain folder when the click looks at it, and is looked at again before the attempt is tidied: a link put there in the meantime is not walked into
+    {
+      const canary = folder();
+      fs.mkdirSync(path.join(canary, '3.0.0'));
+      fs.writeFileSync(path.join(canary, '3.0.0', 'canary.txt'), 'must survive');
+      let swapped = false;
+      const w = await world({ release: releaseFor({ size: 1 * MiB, seed: 31 }), options: { renameDelayMs: 1, fsApi: faulty(async (name, args, call) => {
+        const result = await call();
+        if (name === 'rename' && String(args[0]).endsWith('state.json.tmp') && !swapped) { // the last write of the attempt: only the tidying is left
+          swapped = true;
+          const root = path.dirname(path.dirname(String(args[0])));
+          fs.rmSync(root, { recursive: true, force: true });
+          fs.symlinkSync(canary, root, process.platform === 'win32' ? 'junction' : 'dir');
+        }
+        return result;
+      }) } });
+      await w.downloader.start({ version: '3.11.0' });
+      await settled(w.downloader, ['ready', 'failed']);
+      assert.ok(swapped, 'the test did put a link where the folder of updates was');
+      assert.equal(fs.readFileSync(path.join(canary, '3.0.0', 'canary.txt'), 'utf8'), 'must survive', 'the tidying did not walk into it and delete what it holds');
+      fs.rmSync(w.root, { recursive: true, force: true });
+    }
     ok('the Hub\'s own files can fail and the promises hold: a disk that fills, a file or folder that cannot be made, a rename that the antivirus holds (tried again a few times, only for EPERM, EBUSY and EACCES), a state file, a copy of the manifest or of the signature that cannot be saved, each ends as a failure with its code and nothing left (no installer without its state); the file is flushed before it is renamed; a folder for updates that is a file or a link is refused and nothing is written or deleted through it');
   }
 
   // ------------------------------------------------------------------------------------------------------------------------------- 6b. the moments of a download, held still
   {
-    const hold = () => {
-      let release;
-      let arrive;
-      const opened = new Promise((resolve) => { release = resolve; });
-      const arrived = new Promise((resolve) => { arrive = resolve; });
-      return { opened, release, arrived, arrive };
-    };
-    const isRoot = (target) => String(target).endsWith(`${path.sep}updates`);
-
     // a Cancel that comes while the click is still being looked at, before there is any connection for the installer, is a cancel: the click starts nothing
     {
       const held = hold();
@@ -586,6 +611,18 @@ try {
       assert.deepEqual(w.downloader.status(), { state: 'idle' });
       assert.equal(installerRequests().length, 0, 'the installer was never asked for');
       assert.deepEqual(left(w), []);
+    }
+
+    // a Cancel that comes while the release is being looked at, and a look that then fails (the signature does not come), ends as a click that was cancelled, not as a failure the owner never asked about
+    {
+      const w = await world({ release: releaseFor({ size: 1 * MiB, seed: 32 }), options: { timeoutMs: 600 } });
+      feed.signature.mode('stall');
+      const click = w.downloader.start({ version: '3.11.0' });
+      assert.equal((await w.downloader.cancel()).cancelled, true);
+      assert.equal((await click).started, false, 'the click is answered as a cancelled one');
+      assert.deepEqual(w.downloader.status(), { state: 'idle' });
+      await waitUntil(() => feed.openCount() === 0, 'the request that stalled to be closed');
+      feed.signature.mode('chain');
     }
 
     // the end of a download, held still twice: while the file is being flushed and renamed, and while the folder is being tidied
@@ -759,10 +796,10 @@ try {
   // ------------------------------------------------------------------------------------------------------------------------------- 8. the offer changes under a download
   {
     const release = releaseFor({ size: 8 * MiB, seed: 21 });
-    const watched = async () => {
+    const watched = async (options = {}) => {
       const w = await world({ release });
       let current = w.checker.status();
-      const downloader = another(w, { offer: () => current });
+      const downloader = another(w, { offer: () => current, ...options });
       await downloader.load();
       return { ...w, downloader, offerIs: (next) => { current = { ...current, ...next }; } };
     };
@@ -800,6 +837,50 @@ try {
       await w.downloader.reconcile();
       assert.equal(w.downloader.status().state, kept ? 'ready' : 'idle', `${label}: ${kept ? 'kept' : 'dropped'}`);
       assert.equal(fs.existsSync(w.folderOf()), kept, `${label}: the files ${kept ? 'stay' : 'go'}`);
+    }
+    // a check that finishes while the click is still being looked at (nothing is running yet) stops that click, as the owner's Cancel would
+    {
+      const held = hold();
+      const w = await watched({ fsApi: faulty(async (name, args, call) => { if (name === 'mkdir' && isRoot(args[0])) { held.arrive(); await held.opened; } return call(); }) });
+      feed.requests.length = 0;
+      const click = w.downloader.start({ version: '3.11.0' });
+      await held.arrived;
+      w.offerIs({ latest: '3.11.1' });
+      await w.downloader.reconcile();
+      held.release();
+      assert.equal((await click).started, false, 'the click that the offer has left behind starts nothing');
+      assert.deepEqual(w.downloader.status(), { state: 'idle' });
+      assert.equal(installerRequests().length, 0, 'and the installer is never asked for');
+      assert.deepEqual(left(w), []);
+    }
+    // a check that finishes when the file is already being renamed into place, where nothing reads a cancel any more, still drops the download
+    {
+      const renaming = hold();
+      const w = await watched({ renameDelayMs: 1, fsApi: faulty(async (name, args, call) => { if (name === 'rename' && String(args[0]).endsWith('.part')) { renaming.arrive(); await renaming.opened; } return call(); }) });
+      await w.downloader.start({ version: '3.11.0' });
+      await renaming.arrived;
+      w.offerIs({ signature: 'missing' });
+      const dropping = w.downloader.reconcile();
+      renaming.release();
+      await dropping;
+      assert.deepEqual(w.downloader.status(), { state: 'idle' }, 'a download that was past the point of a cancel is dropped all the same');
+      assert.deepEqual(left(w), [], 'with its files');
+    }
+    // a ready download is dropped by saying so first: while its folder is being removed the status is not "ready" any more
+    {
+      const removing = hold();
+      let gate = false;
+      const w = await watched({ fsApi: faulty(async (name, args, call) => { if (gate && name === 'rm') { removing.arrive(); await removing.opened; } return call(); }) });
+      await w.downloader.start({ version: '3.11.0' });
+      await settled(w.downloader, ['ready']);
+      gate = true;
+      w.offerIs({ signature: 'missing' });
+      const dropping = w.downloader.reconcile();
+      await removing.arrived;
+      assert.deepEqual(w.downloader.status(), { state: 'idle' }, 'the status stops saying "ready" before its folder is gone');
+      removing.release();
+      await dropping;
+      assert.deepEqual(left(w), []);
     }
     // stop() (the Hub shuts down): a download in progress is cut and its .part is removed
     const w = await watched();
