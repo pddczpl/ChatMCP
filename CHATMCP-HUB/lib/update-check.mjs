@@ -5,7 +5,8 @@
 //
 // What it promises, and what the tests hold it to (tests/verify-update-check.mjs against a loopback server, tests/verify-e2e-update-check.mjs against a real Hub process):
 //   * Whether the Hub asks at all is the owner's choice. Until the owner has answered (a question the page asks once) the Hub makes NO request on its own; "yes" starts a timer, "no"
-//     stops it. What happens before an answer is ONE constant, WHEN_UNANSWERED. "Check now" is the owner's own act and works in every state.
+//     stops it, and a "no" counts from the moment the Hub receives it, not from when its file is written (a timer that fires meanwhile, or a try between its note and its request, asks
+//     nothing). What happens before an answer is ONE constant, WHEN_UNANSWERED. "Check now" is the owner's own act and works in every state.
 //   * One request, to GitHub only: a GET with `User-Agent: DatGold/<version>` and `Accept`, no cookie, no login, no referrer, no body. The address is fixed. A redirect is followed at most
 //     3 times and only to https on the default port of github.com, release-assets.githubusercontent.com or objects.githubusercontent.com; the whole thing (every hop and the body) has 10 seconds
 //     and 64 KiB. A loopback address may stand in for the feed in tests (checkedFeedUrl, updateOptionsFromEnvironment); no route and no page can change it.
@@ -13,7 +14,9 @@
 //     The notice is offered only for a version strictly higher than the one that runs. The link to the notes is built here from that version, never read from the answer or from the saved file.
 //   * It keeps the last good answer when a check fails, saves it so that the next start can say it before the first check ends, and works out "available" again against the version that runs.
 //   * It is polite: the first check 30 s after the Hub starts, then every 12 hours (1 hour after a failure), each with jitter, never less than 15 minutes after the last attempt (the attempt is
-//     saved BEFORE the request goes out, so a Hub that restarts in a loop still asks once per 15 minutes), and a manual check at most once a minute. Two callers share one request.
+//     saved BEFORE the request goes out, so a Hub that restarts in a loop still asks once per 15 minutes; where that note cannot be saved the Hub does not look by itself, because the floor
+//     would not hold, and the owner's "Check now" still works), and a manual check at most once a minute. A time ahead of the clock (a clock that was fast, or was put back) counts as now.
+//     Two callers share one request.
 //   * It never starts a program and never writes a downloaded file: the only things it writes are its two small JSON files in the Hub's data folder.
 import http from 'node:http';
 import https from 'node:https';
@@ -294,23 +297,29 @@ export function createUpdateChecker({
   let settingsWrites = Promise.resolve();
 
   const nowMs = () => now().getTime();
+  /** When the last try was made, never later than now: a file written while the clock was ahead, or a clock put back, must not hold "Check now" or the next look for hours. */
+  const lastAttempt = () => {
+    if (lastAttemptAt !== null && lastAttemptAt > nowMs()) lastAttemptAt = nowMs();
+    return lastAttemptAt;
+  };
   const autoEnabled = () => (saved === null ? whenUnanswered === 'on' : saved);
   const isAvailable = () => latest !== null && runningParsed !== null && compareVersions(latest, running) > 0;
   const jittered = (base, fraction) => Math.round(base * (1 + fraction * (2 * random() - 1)));
 
   function status() {
+    const attempted = lastAttempt();
     return {
       current: running,
       latest,
       available: isAvailable(),
-      checkedAt: iso(checkedAt),
-      lastAttemptAt: iso(lastAttemptAt),
+      checkedAt: iso(checkedAt === null ? null : Math.min(checkedAt, nowMs())),
+      lastAttemptAt: iso(attempted),
       notesUrl: latest === null ? null : notesUrlFor(latest),
       installerName,
       skippedVersion,
       error: error ? { ...error } : null,
       checking: inFlight !== null,
-      manualCheckAfter: lastAttemptAt === null ? null : iso(lastAttemptAt + SCHEDULE.minManualGapMs),
+      manualCheckAfter: attempted === null ? null : iso(attempted + SCHEDULE.minManualGapMs),
       nextAutomaticCheckAt: iso(nextAt),
       autoCheck: { enabled: autoEnabled(), saved, needsChoice: saved === null && whenUnanswered === 'ask' },
     };
@@ -363,7 +372,7 @@ export function createUpdateChecker({
   }
 
   function stateDocument(overrides = {}) {
-    return { version: 1, latest, installerName, checkedAt: iso(checkedAt), lastAttemptAt: iso(lastAttemptAt), skippedVersion, ...overrides };
+    return { version: 1, latest, installerName, checkedAt: iso(checkedAt), lastAttemptAt: iso(lastAttempt()), skippedVersion, ...overrides };
   }
   /** Writes the state in the order calls were made; a failure is returned, not raised. */
   function saveState(overrides) {
@@ -371,13 +380,31 @@ export function createUpdateChecker({
     stateWrites = write.catch(() => {});
     return write;
   }
-  const saveStateQuietly = () => saveState().catch((reason) => log(`Không lưu được ${STATE_FILE} (${reason?.code ?? 'lỗi'}); bản đã biết vẫn dùng trong lần chạy này.`));
+  /** Saves the state and says whether that worked; a failure is logged and nothing more. */
+  const saveStateQuietly = () => saveState().then(() => true, (reason) => {
+    log(`Không lưu được ${STATE_FILE} (${reason?.code ?? 'lỗi'}); bản đã biết vẫn dùng trong lần chạy này.`);
+    return false;
+  });
 
   // ---- one check
-  async function attempt() {
+  /** `automatic`: the Hub's own try (a timer), as opposed to the owner's "Check now". */
+  async function attempt(automatic) {
+    const before = lastAttemptAt;
     lastAttemptAt = nowMs();
     // on disk BEFORE the request: a Hub that is killed in the middle, or restarted in a loop, still counts this try
-    await saveStateQuietly();
+    const noted = await saveStateQuietly();
+    if (automatic) {
+      if (!noted) {
+        // without the note a Hub that restarts in a loop could not be held to the floor of 15 minutes, so a try of its own is not made; the owner's "Check now" still is
+        lastAttemptAt = before;
+        error = { code: 'update_state_unsaved', message: 'The Hub could not save its note about this try, so it did not look on its own.', status: null, at: iso(nowMs()) };
+        log('Không tự kiểm tra bản cập nhật vì không lưu được ghi chú về lần thử này.');
+        schedule(jittered(SCHEDULE.retryMs, SCHEDULE.intervalJitter));
+        return;
+      }
+      // a No that came while the note was being written: nothing is asked
+      if (!started || !autoEnabled()) return;
+    }
     try {
       if (runningParsed === null) throw fault('update_current_invalid', 'The version of this Hub is not x.y.z, so it cannot be compared.');
       const { text } = await fetchManifest({ url: feed, userAgent, timeoutMs });
@@ -397,16 +424,17 @@ export function createUpdateChecker({
   }
 
   /** The one try that is out: whoever asks while it is out gets its answer, and the answer is taken once it is over (checking is false in it). */
-  function run() {
-    inFlight = attempt().then(() => { inFlight = null; return { checked: true, throttled: false, update: status() }; }, (reason) => { inFlight = null; throw reason; });
+  function run(automatic) {
+    inFlight = attempt(automatic).then(() => { inFlight = null; return { checked: true, throttled: false, update: status() }; }, (reason) => { inFlight = null; throw reason; });
     return inFlight;
   }
 
   /** The owner's "Check now": one request at most per minute, and two callers at once share it. */
   function check() {
     if (inFlight) return inFlight;
-    if (lastAttemptAt !== null && nowMs() - lastAttemptAt < SCHEDULE.minManualGapMs) return Promise.resolve({ checked: false, throttled: true, update: status() });
-    return run();
+    const attempted = lastAttempt();
+    if (attempted !== null && nowMs() - attempted < SCHEDULE.minManualGapMs) return Promise.resolve({ checked: false, throttled: true, update: status() });
+    return run(false);
   }
 
   // ---- the timer
@@ -424,7 +452,8 @@ export function createUpdateChecker({
   }
   /** The first try after start, or after the owner says yes: a little later, and never inside the floor of the last attempt (which survives a restart). `from` is the moment it is counted from. */
   function firstDelay(from) {
-    const floor = lastAttemptAt === null ? 0 : lastAttemptAt + SCHEDULE.minAutomaticGapMs - from;
+    const attempted = lastAttempt();
+    const floor = attempted === null ? 0 : attempted + SCHEDULE.minAutomaticGapMs - from;
     return Math.max(jittered(firstCheckMs, SCHEDULE.firstCheckJitter), floor);
   }
   async function runAutomatic() {
@@ -434,9 +463,10 @@ export function createUpdateChecker({
     if (!started || !autoEnabled()) return;
     if (inFlight) return; // a try is out; when it ends it sets the next one
     const from = nowMs();
-    const wait = lastAttemptAt === null ? 0 : lastAttemptAt + SCHEDULE.minAutomaticGapMs - from;
+    const attempted = lastAttempt();
+    const wait = attempted === null ? 0 : attempted + SCHEDULE.minAutomaticGapMs - from;
     if (wait > 0) { schedule(wait, from); return; }
-    try { await run(); } catch { /* attempt() reports failures in the state; nothing may escape from a timer: an unhandled rejection stops the Hub */ }
+    try { await run(true); } catch { /* attempt() reports failures in the state; nothing may escape from a timer: an unhandled rejection stops the Hub */ }
   }
 
   function start() {
@@ -455,11 +485,16 @@ export function createUpdateChecker({
   async function setAutoCheck(enabled) {
     if (typeof enabled !== 'boolean') throw refusal('update_setting_invalid', 'enabled phải là true hoặc false.', 400);
     const write = settingsWrites.catch(() => {}).then(async () => {
+      const before = saved;
+      // The choice counts from here, not from when its file is written: a timer that fires, or a try that is between its note and its request, while the file is being written sees it.
+      saved = enabled;
       try { await writeJson(settingsFile, { version: 1, autoCheckUpdates: enabled }); } catch (reason) {
+        saved = before;
         log(`Không lưu được ${SETTINGS_FILE} (${reason?.code ?? 'lỗi'}).`);
+        // a timer that was spent on the way (it saw the No) is set again: the Hub goes on as it was
+        if (started && autoEnabled() && timer === null && inFlight === null) { const from = nowMs(); schedule(firstDelay(from), from); }
         throw refusal('update_save_failed', 'Không lưu được lựa chọn trong thư mục dữ liệu của Hub.', 500);
       }
-      saved = enabled;
       log(`Tự kiểm tra bản cập nhật: ${enabled ? 'bật' : 'tắt'} (chủ máy chọn).`);
       if (!enabled) clearTimer();
       else if (started && timer === null) { const from = nowMs(); schedule(firstDelay(from), from); }

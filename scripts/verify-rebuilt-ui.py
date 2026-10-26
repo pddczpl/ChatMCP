@@ -25,7 +25,7 @@ def wait_for_hub(timeout=15):
 def main():
     hub_proc = subprocess.Popen(
         ["node", str(ROOT / "CHATMCP-HUB/hub.mjs"), "--no-open", "--port", str(PORT), "--project", str(ROOT)],
-        cwd=str(ROOT),
+        cwd=str(ROOT), env={**os.environ, "CHATMCP_UPDATE_FEED_URL": "http://127.0.0.1:9/RELEASE-MANIFEST.json"},
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,

@@ -84,7 +84,7 @@
       "patches": [
         {
           "file": "lib/update-check.mjs",
-          "old": "const floor = lastAttemptAt === null ? 0 : lastAttemptAt + SCHEDULE.minAutomaticGapMs - from;\n    return Math.max(",
+          "old": "const floor = attempted === null ? 0 : attempted + SCHEDULE.minAutomaticGapMs - from;\n    return Math.max(",
           "new": "const floor = 0;\n    return Math.max("
         }
       ]
@@ -106,8 +106,8 @@
       "patches": [
         {
           "file": "lib/update-check.mjs",
-          "old": "    lastAttemptAt = nowMs();\n    // on disk BEFORE the request: a Hub that is killed in the middle, or restarted in a loop, still counts this try\n    await saveStateQuietly();\n",
-          "new": "    const startedAt = nowMs();\n"
+          "old": "    const before = lastAttemptAt;\n    lastAttemptAt = nowMs();\n    // on disk BEFORE the request: a Hub that is killed in the middle, or restarted in a loop, still counts this try\n    const noted = await saveStateQuietly();\n",
+          "new": "    const before = lastAttemptAt;\n    const startedAt = nowMs();\n    const noted = true;\n"
         },
         {
           "file": "lib/update-check.mjs",
@@ -122,7 +122,7 @@
       "patches": [
         {
           "file": "lib/update-check.mjs",
-          "old": "if (lastAttemptAt !== null && nowMs() - lastAttemptAt < SCHEDULE.minManualGapMs) return",
+          "old": "if (attempted !== null && nowMs() - attempted < SCHEDULE.minManualGapMs) return",
           "new": "if (false) return"
         }
       ]

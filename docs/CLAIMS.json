@@ -561,12 +561,12 @@
       ]
     },
     {
-      "id": "update-notice-one-request-to-github",
-      "claim": "When it asks, the Hub sends one GET request to GitHub's release feed and nothing else about the person than the line DatGold/<version>; it follows at most 3 redirects and only to github.com, release-assets.githubusercontent.com or objects.githubusercontent.com.",
+      "id": "update-notice-requests-only-to-github",
+      "claim": "When it asks, the Hub sends a GET request to GitHub's release feed (GitHub answers it with two redirects, so three requests in a row) and nothing else about the person than the line DatGold/<version>; it follows at most 3 redirects and only to github.com, release-assets.githubusercontent.com or objects.githubusercontent.com.",
       "source": {
         "file": "README.md",
         "line": 50,
-        "quote": "GitHub sees your IP address and the line `DatGold/<version>`, nothing else about you"
+        "quote": "Those servers see your IP address and the line `DatGold/<version>`, nothing else about you"
       },
       "kind": "claim",
       "seam": "real",

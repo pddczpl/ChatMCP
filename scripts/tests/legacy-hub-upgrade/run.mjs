@@ -55,7 +55,7 @@ async function startHub({ root, state }) {
   const log = fs.openSync(path.join(state, 'hub-out.log'), 'a');
   // Exactly how the desktop shell starts it: the bundled Node, the installed hub.mjs, port 3007, no --state-dir.
   const child = spawn(path.join(root, 'runtimes', 'node', 'node.exe'), [path.join(root, 'CHATMCP-HUB', 'hub.mjs'), '--port', '3007', '--no-open'], {
-    cwd: path.join(root, 'CHATMCP-HUB'), env: { ...process.env, CHATMCP_STATE_DIR: state, CHATMCP_NO_OPEN: '1' }, stdio: ['ignore', log, log], windowsHide: true,
+    cwd: path.join(root, 'CHATMCP-HUB'), env: { ...process.env, CHATMCP_STATE_DIR: state, CHATMCP_NO_OPEN: '1', CHATMCP_UPDATE_FEED_URL: 'http://127.0.0.1:9/RELEASE-MANIFEST.json' }, stdio: ['ignore', log, log], windowsHide: true,
   });
   fs.closeSync(log);
   started.push(child);

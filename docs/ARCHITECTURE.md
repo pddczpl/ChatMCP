@@ -23,7 +23,7 @@ The Windows desktop starts the local Node Hub. It does not deploy a shared/publi
 
 Trong các phiên bản trước có hai backend local và MCP legacy. **Hiện chỉ còn local.** Toàn bộ đường Cloud Harness/Desktop Commander MCP proxy, Docker/Render hosting, public-mode login và remote workspace manager đã bị gỡ. Startup từ chối tùy chọn public, --repo-root và --backend mcp.
 
-Outbound HTTPS đến nhà cung cấp AI, GitHub, Skills và nghiên cứu web **vẫn được hỗ trợ**; thêm một yêu cầu tới `https://models.dev/api.json` để cập nhật danh mục model, chỉ khi chủ máy bấm nút cập nhật (mục 9). Thêm một yêu cầu GET tới `github.com` để biết có bản phát hành mới (`lib/update-check.mjs`), chỉ sau khi chủ máy trả lời "có" cho câu hỏi hiện một lần (hằng `WHEN_UNANSWERED` quyết định chưa trả lời nghĩa là gì) hoặc khi bấm "Kiểm tra ngay"; bước này chỉ báo tin, không tải, không cài và không chạy gì ([THREAT-MODEL](THREAT-MODEL.md), Surface 8). Local-only không có nghĩa offline-only.
+Outbound HTTPS đến nhà cung cấp AI, GitHub, Skills và nghiên cứu web **vẫn được hỗ trợ**; thêm một yêu cầu tới `https://models.dev/api.json` để cập nhật danh mục model, chỉ khi chủ máy bấm nút cập nhật (mục 9). Thêm một chuỗi ngắn yêu cầu GET bắt đầu ở `github.com` (chuyển tiếp tới `release-assets.githubusercontent.com`) để biết có bản phát hành mới (`lib/update-check.mjs`), chỉ sau khi chủ máy trả lời "có" cho câu hỏi hiện một lần (hằng `WHEN_UNANSWERED` quyết định chưa trả lời nghĩa là gì) hoặc khi bấm "Kiểm tra ngay"; bước này chỉ báo tin, không tải, không cài và không chạy gì ([THREAT-MODEL](THREAT-MODEL.md), Surface 8). Local-only không có nghĩa offline-only.
 
 ## 3. Vòng lặp agent
 

@@ -12,7 +12,7 @@
 // The other half of the proof (a real Hub process, the routes and their layers) is tests/verify-e2e-update-check.mjs.
 //
 // This proves the module does what it was written to do against a server that imitates GitHub. It does not prove what GitHub answers today: that was read by hand once (docs/THREAT-MODEL.md, Surface 8).
-// CLAIM: update-notice-one-request-to-github
+// CLAIM: update-notice-requests-only-to-github
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -462,7 +462,8 @@ try {
     assert.deepEqual([clockSkew.latest, clockSkew.checkedAt, clockSkew.lastAttemptAt], ['3.10.3', null, null], 'a time two days ahead (a clock that was wrong) is dropped, so it cannot keep the Hub from checking for years');
     const slightlyAhead = new Date(first.clock.ms + 3600000).toISOString();
     fs.writeFileSync(path.join(directory, STATE_FILE), JSON.stringify({ version: 1, latest: '3.10.3', checkedAt: slightlyAhead, lastAttemptAt: slightlyAhead }));
-    assert.equal((await make({ directory, clock: first.clock }).checker.load()).lastAttemptAt, slightlyAhead, 'an hour ahead is a clock a little off, and is kept');
+    const nearly = await make({ directory, clock: first.clock }).checker.load();
+    assert.deepEqual([nearly.lastAttemptAt, nearly.checkedAt], [first.clock.now().toISOString(), first.clock.now().toISOString()], 'an hour ahead is a clock a little off: it is kept, as the time of now (a time to wait for is never ahead of the clock)');
     for (const bad of ['{ not json', '', '[]', 'null', '"text"', '5', '{"version":2,"latest":"3.10.3"}', '\u0000\u0000']) {
       fs.writeFileSync(path.join(directory, STATE_FILE), bad);
       const lines = [];
@@ -508,6 +509,76 @@ try {
     assert.equal(refused?.statusCode, 500);
     assert.equal(broken.status().autoCheck.saved, null, 'a choice that could not be saved is not shown as made');
     ok('the attempt is on disk before the request goes out; when the folder cannot be written a check still works, the log says so, and a choice that could not be saved is refused (500) and not shown as made');
+  }
+
+  // ---- the note of the try is what holds a Hub that restarts in a loop to one request per 15 minutes: where it cannot be saved, the Hub does not look by itself
+  {
+    feed.mode('chain');
+    feed.publish(feedManifest({ version: '3.10.3' }));
+    const file = path.join(scratch, 'a-file-for-the-note');
+    fs.writeFileSync(file, 'not a folder');
+    const lines = [];
+    const timers = fakeTimers();
+    const clock = clockAt();
+    const checker = createUpdateChecker({ directory: path.join(file, 'inside'), currentVersion: '3.10.2', feedUrl: feed.url, timers, now: () => clock.now(), random: () => 0.5, log: (line) => lines.push(line), whenUnanswered: 'on' });
+    await checker.load();
+    checker.start();
+    const base = feed.checks();
+    await timers.fire(timers.pending()[0]);
+    assert.equal(feed.checks(), base, 'the note of the try cannot be saved: the Hub does not look by itself');
+    const after = checker.status();
+    assert.equal(after.error?.code, 'update_state_unsaved', 'and says why');
+    assert.deepEqual([after.lastAttemptAt, after.latest], [null, null], 'the try that was not made is not counted');
+    assert.equal(timers.pending().length, 1, 'the next try is set');
+    assert.equal(timers.pending()[0].ms, SCHEDULE.retryMs, 'an hour on, as after any failure');
+    assert.ok(lines.some((line) => /update-check\.json/.test(line)), 'and the log says what could not be saved');
+    // the owner's own press is another matter: it asks even where nothing can be saved
+    const pressed = await checker.check();
+    assert.deepEqual([pressed.checked, pressed.throttled, pressed.update.latest, pressed.update.error], [true, false, '3.10.3', null]);
+    assert.equal(feed.checks() - base, 1, 'one request, the owner\'s');
+    checker.stop();
+    ok('an automatic try whose note cannot be saved asks nothing (the error says why, the next try is an hour on), while the owner\'s "Check now" still asks');
+  }
+
+  // ---- a clock that was ahead, or is put back, holds nothing for hours
+  {
+    feed.mode('chain');
+    feed.publish(feedManifest({ version: '3.10.3' }));
+    const HOURS = 3_600_000;
+    // a file written while the clock was seven hours ahead (a PC that dual-boots with Linux and keeps local time in its clock), read after the clock was put right
+    const directory = folder();
+    const clock = clockAt();
+    const ahead = new Date(clock.ms + 7 * HOURS).toISOString();
+    fs.writeFileSync(path.join(directory, STATE_FILE), JSON.stringify({ version: 1, latest: '3.10.3', checkedAt: ahead, lastAttemptAt: ahead }));
+    const reborn = make({ directory, clock });
+    const loaded = await reborn.checker.load();
+    assert.equal(loaded.lastAttemptAt, clock.now().toISOString(), 'a last try that lies ahead of the clock counts as now');
+    assert.equal(loaded.checkedAt, clock.now().toISOString(), 'and so does the last success, which is only shown');
+    assert.equal(loaded.manualCheckAfter, new Date(clock.ms + SCHEDULE.minManualGapMs).toISOString(), 'so "Check now" waits a minute at most, not seven hours');
+    assert.equal((await reborn.checker.check()).throttled, true, 'a press at once is held back, as after any try');
+    clock.advance(SCHEDULE.minManualGapMs);
+    const pressed = await reborn.checker.check();
+    assert.deepEqual([pressed.checked, pressed.throttled], [true, false], 'and a minute later it asks');
+    // the first look after a restart is counted from now as well: the 15-minute floor, not seven hours and a quarter
+    fs.writeFileSync(path.join(directory, SETTINGS_FILE), JSON.stringify({ version: 1, autoCheckUpdates: true }));
+    fs.writeFileSync(path.join(directory, STATE_FILE), JSON.stringify({ version: 1, latest: '3.10.3', checkedAt: ahead, lastAttemptAt: ahead }));
+    const timers = fakeTimers();
+    const restarted = make({ directory, clock, options: { timers } });
+    await restarted.checker.load();
+    restarted.checker.start();
+    assert.equal(timers.pending()[0].ms, SCHEDULE.minAutomaticGapMs, 'the first automatic look waits out the floor counted from now');
+    restarted.checker.stop();
+    // the clock is put back while the Hub runs
+    const running = make({ directory: folder(), clock: clockAt() });
+    await running.checker.load();
+    await running.checker.check();
+    running.clock.advance(-7 * HOURS);
+    const stepped = running.checker.status();
+    assert.equal(stepped.lastAttemptAt, running.clock.now().toISOString(), 'a clock put back: the last try is taken as now');
+    assert.equal(stepped.manualCheckAfter, new Date(running.clock.ms + SCHEDULE.minManualGapMs).toISOString());
+    running.clock.advance(SCHEDULE.minManualGapMs);
+    assert.equal((await running.checker.check()).checked, true, 'and a minute on, "Check now" asks again');
+    ok('a time that lies ahead of the clock (a file written while it was fast, or a clock put back) counts as now: "Check now" is held for a minute at most and the first automatic look for the 15-minute floor, never for hours');
   }
 
   // ---- the rate limits, and one request for two callers
@@ -704,6 +775,7 @@ try {
       assert.equal(timer.cleared, true, 'turning it off clears the pending timer');
       await armedNow.timers.fire(timer);
       assert.equal(feed.checks(), base, 'and a timer that fires anyway (it was already running) makes no request');
+      assert.equal(armedNow.checker.status().lastAttemptAt, null, 'and it does not even note a try: a Hub that has been told no does nothing when its timer fires');
       const again = await armed(null);
       const stale = again.timers.pending()[0];
       again.checker.stop();
@@ -735,6 +807,56 @@ try {
       assert.ok(unrefs >= 1, 'the timer is unref()ed: it does not keep the Hub alive');
       real.checker.stop();
       ok('a cleared or stale timer makes no request (setting turned off, stop()), a manual check replaces the pending timer and moves the next automatic one 12 hours on, an automatic timer inside the floor does not ask, and timers are unref()ed');
+    }
+    {
+      // A No counts from the moment the Hub receives it, not from the moment its file is written: nothing the Hub starts afterwards asks.
+      const during = await armed(null);
+      const [timer] = during.timers.pending();
+      const base = feed.checks();
+      const saving = during.checker.setAutoCheck(false);
+      for (let turn = 0; turn < 5; turn += 1) await Promise.resolve(); // the file is still being written: that needs the event loop, these turns do not
+      assert.equal(during.checker.status().autoCheck.enabled, false, 'the choice counts at once; the file only keeps it');
+      await during.timers.fire(timer);
+      assert.equal(feed.checks(), base, 'a timer that fires while the No is being written makes no request');
+      await saving;
+      assert.deepEqual([during.checker.status().autoCheck.saved, during.timers.pending().length], [false, 0], 'and when the file is written the No is kept and no timer is left');
+
+      // a No between the note of a try and its request stops the request
+      const between = await armed(null);
+      const [first] = between.timers.pending();
+      const attempting = between.timers.fire(first); // the try begins: its note is being written
+      const declined = between.checker.setAutoCheck(false);
+      await Promise.all([attempting, declined]);
+      assert.equal(feed.checks(), base, 'a No after a try began and before its request went out: no request');
+      assert.equal(between.timers.pending().length, 0, 'and no next try is set');
+
+      // a No that cannot be saved is refused, and the Hub goes on as it was
+      const file = path.join(scratch, 'a-file-for-the-no');
+      fs.writeFileSync(file, 'not a folder');
+      const timers = fakeTimers();
+      const unsavable = createUpdateChecker({ directory: path.join(file, 'inside'), currentVersion: '3.10.2', feedUrl: feed.url, timers, random: () => 0.5, whenUnanswered: 'on' });
+      await unsavable.load();
+      unsavable.start();
+      const [kept] = timers.pending();
+      const refused = await unsavable.setAutoCheck(false).then(() => null, (error) => error);
+      assert.deepEqual([refused?.code, refused?.statusCode], ['update_save_failed', 500]);
+      assert.equal(unsavable.status().autoCheck.enabled, true, 'a No that could not be saved is not a No: the Hub goes on as it was');
+      assert.deepEqual([kept.cleared, timers.pending().length], [false, 1], 'and its timer was not taken away');
+      unsavable.stop();
+      // a timer that sees the No while its file is being written is spent; when the No cannot be saved the Hub goes on as it was, and that timer is set again
+      const spentTimers = fakeTimers();
+      const spent = createUpdateChecker({ directory: path.join(file, 'inside'), currentVersion: '3.10.2', feedUrl: feed.url, timers: spentTimers, random: () => 0.5, whenUnanswered: 'on' });
+      await spent.load();
+      spent.start();
+      const [spentTimer] = spentTimers.pending();
+      const failing = spent.setAutoCheck(false).then(() => null, (error) => error);
+      for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
+      await spentTimers.fire(spentTimer);
+      assert.equal((await failing)?.code, 'update_save_failed');
+      assert.equal(spentTimers.pending().length, 1, 'the timer that was spent while the No was being written is set again');
+      assert.equal(feed.checks(), base, 'and nothing was asked on the way');
+      spent.stop();
+      ok('a No counts at once (a timer that fires while its file is being written, and a try that began before it, ask nothing); a No that cannot be saved is refused and changes nothing, not even the timer');
     }
     {
       // ZERO requests unless the owner said yes - with a positive control in the same timing
@@ -867,6 +989,38 @@ try {
     assert.ok(/export function updateOptionsFromEnvironment\(env = process\.env/.test(code), 'and that is the hook function');
     assert.equal((code.match(/https?:\/\/[^\s'"`)]+/g) ?? []).filter((url) => !/github\.com|githubusercontent\.com|localhost|127\.0\.0\.1|example/.test(url)).length, 0, 'no address in the module but GitHub\'s');
     ok('the module starts no program, writes no downloaded file, follows no redirect by itself, reads the environment only in the hook function and names no address but GitHub\'s');
+
+    // Every place a test starts a whole Hub gives it a closed loopback port for the feed (tests/e2e/hub-process.mjs does it for everything that uses it), so that no test can reach GitHub
+    // whatever WHEN_UNANSWERED says. A launcher that forgot would start reaching GitHub the day the constant is flipped, so a new one has to say so too. The installer and desktop
+    // lifecycle scripts (PowerShell) run the product as it is installed and are not covered.
+    const REPO_ROOT = path.resolve(HUB_ROOT, '..');
+    const STARTS_A_HUB = /hub\.mjs['"]\)?\s*,\s*['"]--/;
+    const launchers = [];
+    const scan = (directory) => {
+      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        if (['node_modules', 'test-results', 'dist', '.git'].includes(entry.name)) continue;
+        const full = path.join(directory, entry.name);
+        if (entry.isDirectory()) scan(full);
+        else if (/\.(mjs|py)$/.test(entry.name) && full !== fileURLToPath(import.meta.url)) {
+          const text = fs.readFileSync(full, 'utf8');
+          // guarded: the file itself sets the feed to a closed loopback port (port 9, nothing listens), or it takes the environment of the harness that does
+          const closedPort = /CHATMCP_UPDATE_FEED_URL['"]?\s*[:=,]\s*['"]http:\/\/127\.0\.0\.1:9\//.test(text);
+          const harness = /import\s*\{[^}]*\bcleanEnvironment\b[^}]*\}\s*from\s*'\.\/e2e\/hub-process\.mjs'/.test(text);
+          if (STARTS_A_HUB.test(text)) launchers.push({ file: path.relative(REPO_ROOT, full).replaceAll('\\', '/'), guarded: closedPort || harness });
+        }
+      }
+    };
+    // the scripts of the repository sit next to the Hub folder; a copy of the Hub alone (the mutation runner makes one) does not have them
+    const scripts = path.join(REPO_ROOT, 'scripts');
+    const outside = fs.existsSync(scripts);
+    for (const root of [path.join(HUB_ROOT, 'tests'), path.join(HUB_ROOT, 'ui', 'e2e'), ...(outside ? [scripts] : [])]) scan(root);
+    const known = ['tests/e2e/hub-process.mjs', 'tests/verify-local-backend.mjs', 'tests/verify-ui-e2e.py', ...(outside ? ['../scripts/verify-rebuilt-ui.py', '../scripts/tests/legacy-hub-upgrade/run.mjs'] : [])];
+    for (const name of known) {
+      const wanted = path.relative(REPO_ROOT, path.resolve(HUB_ROOT, name)).replaceAll('\\', '/');
+      assert.ok(launchers.some((launcher) => launcher.file === wanted), `${wanted} is found as a place that starts a Hub (${launchers.map((launcher) => launcher.file).join(', ')})`);
+    }
+    assert.deepEqual(launchers.filter((launcher) => !launcher.guarded).map((launcher) => launcher.file), [], 'every test that starts a whole Hub points it at a closed port (CHATMCP_UPDATE_FEED_URL) or takes the harness environment');
+    ok(`every one of the ${launchers.length} test launchers that start a whole Hub points it at a closed loopback port or takes the harness environment, so that no test can reach GitHub whatever the default is`);
   }
 
   console.log(`PASS: ${checks} update-check groups`);

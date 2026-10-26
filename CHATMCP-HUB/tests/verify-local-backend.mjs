@@ -448,7 +448,7 @@ try {
     const free = await new Promise((resolve) => { const server = net.createServer(); server.listen(0, '127.0.0.1', () => { const { port } = server.address(); server.close(() => resolve(port)); }); });
     const state = path.join(root, 'launch-data');
     const secret = 'local-backend-test-secret-0123456789abcdef';
-    const child = spawn(process.execPath, [path.join(bundleRoot, 'hub.mjs'), '--state-dir', state, '--port', String(free), '--no-open', '--project', dir], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CHATMCP_BACKEND: '', OPENAI_API_KEY: '', CHATMCP_HUB_SECRET: secret } });
+    const child = spawn(process.execPath, [path.join(bundleRoot, 'hub.mjs'), '--state-dir', state, '--port', String(free), '--no-open', '--project', dir], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CHATMCP_BACKEND: '', OPENAI_API_KEY: '', CHATMCP_HUB_SECRET: secret, CHATMCP_UPDATE_FEED_URL: 'http://127.0.0.1:9/RELEASE-MANIFEST.json' } });
     cleanups.push(child);
     let output = '';
     child.stdout.on('data', (chunk) => { output += chunk; });
