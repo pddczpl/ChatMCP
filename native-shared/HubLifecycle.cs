@@ -201,17 +201,25 @@ internal static class HubLifecycle
     internal static string? WorkInCoding(JsonElement coding) => HasWork(coding) ? "Stop background coding jobs before upgrading." : null;
 
     /// <summary>
-    /// Asks the Hub at <paramref name="origin"/> (with its session secret when it has one) whether it is doing work, with the same two requests and the same rule as StopInstalledHub: the words that say why
-    /// not, or null when it is idle. The shell asks this BEFORE it exits for an update, because the installer's own refusal comes after the window is already gone.
+    /// Asks the Hub at <paramref name="origin"/> (with its session secret when it has one) what the shell must know before it exits for an update, with the same two requests and the same rule as StopInstalledHub:
+    /// the words that say why the Hub is doing work, or null when it is idle (the installer's own refusal comes after the window is already gone, so the shell asks first), and the version that the Hub says
+    /// it has downloaded and checked (`update.download` with state ready), which the page showed the owner. Throws when the Hub cannot be asked or does not answer as a Hub: that is no answer, never "idle".
     /// </summary>
-    internal static async Task<string?> FindBlockingWork(HttpClient client, string origin, string? secret)
+    internal static async Task<UpdatePreflight> PreflightForUpdate(HttpClient client, string origin, string? secret)
     {
         using var state = await GetJson(client, "/api/state", secret, origin);
+        var offered = OfferedVersion(state.RootElement);
         var inState = WorkInState(state.RootElement);
-        if (inState != null) return inState;
+        if (inState != null) return new UpdatePreflight(inState, offered);
         using var coding = await GetJson(client, "/api/studio/coding", secret, origin);
-        return WorkInCoding(coding.RootElement);
+        return new UpdatePreflight(WorkInCoding(coding.RootElement), offered);
     }
+
+    private static string? OfferedVersion(JsonElement state) =>
+        state.ValueKind == JsonValueKind.Object && state.TryGetProperty("update", out var update) && update.ValueKind == JsonValueKind.Object &&
+        update.TryGetProperty("download", out var download) && download.ValueKind == JsonValueKind.Object &&
+        download.TryGetProperty("state", out var phase) && phase.ValueKind == JsonValueKind.String && phase.GetString() == "ready" &&
+        download.TryGetProperty("version", out var version) && version.ValueKind == JsonValueKind.String ? version.GetString() : null;
 
     private static bool HasWork(JsonElement value)
     {
@@ -267,6 +275,9 @@ internal static class HubLifecycle
             throw new IOException("Hub shutdown could not be confirmed. No files were replaced; wait and retry.").Tag("hub_stop_failed");
     }
 }
+
+/// <summary>What the Hub says before an update is applied: why it cannot be (null when it can), and the version it has downloaded and checked and the page therefore offered (null when it has none).</summary>
+internal sealed record UpdatePreflight(string? BlockingWork, string? OfferedVersion);
 
 /// <summary>
 /// The code that a step of an installation carries when it refuses or fails, so that the result file (and through it the page) can say WHY in words of its own without reading the text of an exception, which can

@@ -14,7 +14,7 @@ using Microsoft.Web.WebView2.WinForms;
 
 namespace ChatMCP.Desktop
 {
-    public class MainWindow : Form
+    public partial class MainWindow : Form
     {
         private readonly WebView2 _webView;
         private readonly Label _statusLabel;
@@ -25,7 +25,6 @@ namespace ChatMCP.Desktop
         private const int HubPort = 3007;
         private readonly string _hubUrl = $"http://127.0.0.1:{HubPort}/";
         private readonly string _repoRoot;
-        private static readonly Regex FolderRequestId = new(@"^[a-fA-F0-9-]{16,64}$", RegexOptions.Compiled);
 
         public MainWindow(string repoRoot)
         {
@@ -135,8 +134,9 @@ namespace ChatMCP.Desktop
                 // Desktop-native selection belongs to the visible WinForms
                 // window, NOT to an invisible PowerShell child process.
                 // Requests from any page other than our exact localhost UI
-                // are ignored before parsing message data.
-                _webView.CoreWebView2.WebMessageReceived += HandleNativeFolderRequest;
+                // are ignored before parsing message data. The same gate lets
+                // the page ask for the downloaded update to be installed.
+                _webView.CoreWebView2.WebMessageReceived += HandleWebMessage;
 
                 // Intercept new window requests: keep everything inside ChatMCP app. The address goes to the page as a JSON web
                 // message (http/https only), never as text inside a script.
@@ -179,30 +179,23 @@ namespace ChatMCP.Desktop
             }
         }
 
-        private void HandleNativeFolderRequest(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+        // The one handler of messages from the page. What may be a message (the origin, the type, the id) is decided by PageMessage, which the native tests run; this only dispatches.
+        private void HandleWebMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
-            if (!Uri.TryCreate(e.Source, UriKind.Absolute, out var origin) ||
-                origin.Scheme != Uri.UriSchemeHttp ||
-                origin.Host != "127.0.0.1" ||
-                origin.Port != HubPort ||
-                origin.AbsolutePath != "/")
-                return;
+            if (!PageMessage.IsDashboard(e.Source, HubPort)) return;
+            var json = e.WebMessageAsJson;
+            if (!PageMessage.TryParse(json, out var type, out var requestId)) return;
+            if (type == PageMessage.ApplyUpdate) { _ = ApplyUpdateAsync(requestId); return; }
+            HandleFolderRequest(json, requestId);
+        }
 
-            string? requestId = null;
+        private void HandleFolderRequest(string json, string requestId)
+        {
             string? initial = null;
             try
             {
-                using var doc = JsonDocument.Parse(e.WebMessageAsJson);
+                using var doc = JsonDocument.Parse(json);
                 var value = doc.RootElement;
-                if (value.ValueKind != JsonValueKind.Object ||
-                    !value.TryGetProperty("type", out var type) ||
-                    type.ValueKind != JsonValueKind.String ||
-                    type.GetString() != "chatmcp.pick-folder" ||
-                    !value.TryGetProperty("id", out var id) ||
-                    id.ValueKind != JsonValueKind.String ||
-                    !FolderRequestId.IsMatch(id.GetString() ?? ""))
-                    return;
-                requestId = id.GetString();
                 if (value.TryGetProperty("initialPath", out var start) &&
                     start.ValueKind == JsonValueKind.String)
                 {

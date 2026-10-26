@@ -32,7 +32,7 @@ namespace ChatMCP.Installer
         public static string AppVersion => HubLifecycle.Version;
         public const string Publisher = "Phan Danh Dat";
         public const string RegistryKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ChatMCP";
-        private const string ManifestName = ".chatmcp-installed-files.json";
+        private const string ManifestName = InstalledCopy.ReceiptName; // the shell asks for the same file before it applies an update
 
         private static string NormalizeInstallDirectory(string directory)
         {

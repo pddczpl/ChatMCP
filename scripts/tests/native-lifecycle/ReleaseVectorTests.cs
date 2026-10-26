@@ -13,6 +13,10 @@ internal static class ReleaseVectorTests
         var root = document.RootElement;
         kit.Check(root.GetProperty("version").GetInt32() == 1, "the vector file is version 1");
 
+        // the key file that ships is one the shell reads whole, as the Hub does: every entry is a release key or a placeholder, none is set aside
+        var shipped = ReleaseKeys.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "release-keys.json")));
+        kit.Check(shipped.Ignored.Count == 0 && shipped.Keys.Count + shipped.Placeholders >= 1, "the key file that ships (CHATMCP-HUB/lib/release-keys.json) is well formed for the shell too: " + shipped.Keys.Count + " release key(s), " + shipped.Placeholders + " placeholder(s), none set aside");
+
         // ---- signatures: the key list as the shell reads it, then the check over the exact bytes
         var valid = 0; var refused = 0;
         foreach (var item in root.GetProperty("signatures").EnumerateArray())

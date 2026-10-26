@@ -23,7 +23,24 @@
   <ItemGroup>
     <Compile Include="..\native-shared\HubLifecycle.cs" Link="HubLifecycle.cs" />
     <Compile Include="..\native-shared\HubSession.cs" Link="HubSession.cs" />
+    <Compile Include="..\native-shared\InstalledCopy.cs" Link="InstalledCopy.cs" />
     <Compile Include="..\native-shared\OpenLink.cs" Link="OpenLink.cs" />
+    <Compile Include="..\native-shared\PageMessage.cs" Link="PageMessage.cs" />
+    <Compile Include="..\native-shared\ReleaseVersion.cs" Link="ReleaseVersion.cs" />
+    <Compile Include="..\native-shared\UpdateApplier.cs" Link="UpdateApplier.cs" />
+    <Compile Include="..\native-shared\UpdateContract.cs" Link="UpdateContract.cs" />
+    <Compile Include="..\native-shared\UpdatePackage.cs" Link="UpdatePackage.cs" />
+    <Compile Include="..\native-shared\UpdateStaging.cs" Link="UpdateStaging.cs" />
     <Compile Include="..\native-shared\WebViewBridge.cs" Link="WebViewBridge.cs" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- The release keys this shell trusts, embedded in the program so that nothing on disk after the build can add one (desktop-shell/ShellKeys.cs). The default is the file the Hub reads from its own
+         files. A build that has to trust other keys (the end-to-end test of the updater builds two versions that trust a key made for the run) passes -p:ReleaseKeysFile=<full path of a key file>;
+         a release is built without it, and scripts/verify-release-source.py reads the committed file. -->
+    <ReleaseKeysFile Condition="'$(ReleaseKeysFile)' == ''">$(MSBuildThisFileDirectory)..\CHATMCP-HUB\lib\release-keys.json</ReleaseKeysFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="$(ReleaseKeysFile)" LogicalName="ChatMCP.Desktop.release-keys.json" />
   </ItemGroup>
 </Project>
