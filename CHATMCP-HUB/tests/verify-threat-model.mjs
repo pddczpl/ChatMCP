@@ -143,7 +143,7 @@ export function checkThreatModel(docsRoot, codeRoot = REPO, constants = { WHEN_U
       [`${DOWNLOAD.idleTimeoutMs / 1000} seconds without a byte`, 'the idle limit of the download (DOWNLOAD.idleTimeoutMs)'],
       [DOWNLOAD.freeSpaceFactor === 2 ? 'twice the installer\'s size free' : '', 'the room needed on the disk (DOWNLOAD.freeSpaceFactor)'],
       ['only from the owner\'s click on Download', 'that a download starts only from the owner\'s click'],
-      ['Nothing is installed, moved or run', 'that nothing is installed, moved or run'],
+      ['Nothing is installed or run', 'that nothing is installed or run'],
     ];
     for (const [needle, what] of stated) if (needle && !surface.includes(needle)) fail(`Surface 8 does not state ${what}: ${needle}`);
     if (constants.WHEN_UNANSWERED !== 'ask') fail('WHEN_UNANSWERED is not "ask": the README, SECURITY.md and Surface 8 say that nothing is asked until the owner has said yes; change them with the constant');
@@ -154,7 +154,7 @@ export function checkThreatModel(docsRoot, codeRoot = REPO, constants = { WHEN_U
       [`at most ${LIMITS.maxRedirects} redirects`, 'the number of redirects'], [`${SCHEDULE.firstCheckMs / 1000} seconds after the Hub starts`, 'the first check'], [`every ${SCHEDULE.intervalMs / 3_600_000} hours`, 'the interval'],
       [`${SCHEDULE.minAutomaticGapMs / 60_000} minutes of the last attempt`, 'the floor between attempts'], ['at most once a minute', 'the limit of a manual check'],
       ['**only after you have said yes**', 'that the Hub asks only after the owner has said yes'],
-      ['**A download starts only from your click on Download**', 'that a download starts only from the owner\'s click'], ['**Nothing is installed, moved or run in this step**', 'that nothing is installed, moved or run'],
+      ['**A download starts only from your click on Download**', 'that a download starts only from the owner\'s click'], ['**Nothing is installed or run in this step**', 'that nothing is installed or run'],
       ['**Only a release whose manifest has a valid signature is offered for download.**', 'that Download needs a valid signature'], ['ECDSA over P-256 with SHA-256', 'the algorithm of the signature'],
       [`at most ${SIGNATURE_LIMITS.maxBytes / 1024} KiB`, 'the size limit of the signature file'], [SIGNATURE_ASSET, 'the name of the signature file'], ['CHATMCP-HUB/lib/release-keys.json', 'the key file'],
       [`takes at most ${DOWNLOAD.maxBytes / 1024 ** 3} GiB`, 'the size limit of the installer'], [`${DOWNLOAD.idleTimeoutMs / 1000} seconds without a byte`, 'the idle limit of the download'],
@@ -338,7 +338,7 @@ try {
     ['SECURITY.md without the Update notice section', 'SECURITY.md', (text) => text.replace('## Update notice', '## Something else'), /SECURITY\.md has no "Update notice" section/],
     ['SECURITY.md no longer saying only after a yes', 'SECURITY.md', (text) => text.replace('**only after you have said yes**', '**always**'), /does not state that the Hub asks only after the owner has said yes/],
     ['SECURITY.md no longer saying that a download starts only from the click', 'SECURITY.md', (text) => text.replace('**A download starts only from your click on Download**', 'A download starts at once'), /does not state that a download starts only from the owner's click/],
-    ['SECURITY.md no longer saying that nothing is installed or run', 'SECURITY.md', (text) => text.replace('**Nothing is installed, moved or run in this step**', 'Something is installed in this step'), /does not state that nothing is installed, moved or run/],
+    ['SECURITY.md no longer saying that nothing is installed or run', 'SECURITY.md', (text) => text.replace('**Nothing is installed or run in this step**', 'Something is installed in this step'), /does not state that nothing is installed or run/],
     ['SECURITY.md no longer saying that Download needs a valid signature', 'SECURITY.md', (text) => text.replace('**Only a release whose manifest has a valid signature is offered for download.**', 'A release is offered for download.'), /does not state that Download needs a valid signature/],
     ['SECURITY.md with another installer limit', 'SECURITY.md', (text) => text.replace('takes at most 2 GiB', 'takes at most 4 GiB'), /SECURITY\.md \(Update notice\) does not state the size limit of the installer/],
     ['SECURITY.md with another idle limit', 'SECURITY.md', (text) => text.replace('60 seconds without a byte', '90 seconds without a byte'), /SECURITY\.md \(Update notice\) does not state the idle limit of the download/],
@@ -352,9 +352,9 @@ try {
     ['the key file no longer named in Surface 8', model, (text) => text.replaceAll('CHATMCP-HUB/lib/release-keys.json', 'the key file'), /Surface 8 does not state the key file/],
     ['the algorithm no longer named in Surface 8', model, (text) => text.replaceAll('ECDSA over P-256 with SHA-256', 'a signature'), /Surface 8 does not state the algorithm of the signature/],
     ['the click no longer named in Surface 8', model, (text) => text.replaceAll('only from the owner\'s click on Download', 'on its own'), /Surface 8 does not state that a download starts only from the owner's click/],
-    ['Surface 8 no longer saying that nothing is run', model, (text) => text.replaceAll('Nothing is installed, moved or run', 'Something is installed'), /Surface 8 does not state that nothing is installed, moved or run/],
+    ['Surface 8 no longer saying that nothing is run', model, (text) => text.replaceAll('Nothing is installed or run', 'Something is installed'), /Surface 8 does not state that nothing is installed or run/],
     ['a download row without a test', model, (text) => text.replace('`verify-update-download.mjs` (other bytes of the same size, one bit, short and long bodies with and without a length, a connection that is reset, a stall, a disk that fills, a rename that the antivirus holds), `verify-e2e-update-download.mjs` (the whole file on a real Hub is the bytes that were served, and a cancel leaves nothing)', 'nothing'), /U9: the Test column/],
-    ['a download row with an empty limit', model, (text) => text.replace('there is no total deadline (a slow connection that keeps sending may finish), no resume (a broken download starts again from the start) and no limit on how often the owner clicks |', ' |'), /U11: the Limit column is empty/],
+    ['a download row with an empty limit', model, (text) => text.replace('there is no total deadline (a slow connection that keeps sending may finish), no resume (a broken download starts again from the start) and no limit on how often the owner clicks; connecting is bounded by the operating system, not by the 60 seconds |', ' |'), /U11: the Limit column is empty/],
     ['a download code reference to a symbol that does not exist', model, (text) => text.replace('| `installerNameProblem` |', '| `installerNameProblemOld` |'), /no symbol installerNameProblemOld/],
     ['a gate code reference to a symbol that does not exist', model, (text) => text.replace('| `verify_release_keys` |', '| `verify_release_keys_old` |'), /no symbol verify_release_keys_old/],
     ['a code reference of the download that no text cites', model, (text) => text.replaceAll('[C72]', ''), /C72 is in the code reference table but no text cites it/],
