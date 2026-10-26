@@ -14,6 +14,10 @@
     <Company>DatGold Project</Company>
     <Product>DatGold Studio</Product>
     <Description>DatGold - Autonomous AI Coding Agent Desktop Studio</Description>
+    <!-- The release keys this shell trusts, embedded in the program so that nothing on disk after the build can add one (desktop-shell/ShellKeys.cs). The default is the file the Hub reads from its own
+         files. A build that has to trust other keys (the end-to-end test of the updater builds two versions that trust a key made for the run) passes -p:ReleaseKeysFile=<full path of a key file>;
+         a release is built without it, and scripts/verify-release-source.py reads the committed file. -->
+    <ReleaseKeysFile Condition="'$(ReleaseKeysFile)' == ''">$(MSBuildThisFileDirectory)..\CHATMCP-HUB\lib\release-keys.json</ReleaseKeysFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -33,13 +37,6 @@
     <Compile Include="..\native-shared\UpdateStaging.cs" Link="UpdateStaging.cs" />
     <Compile Include="..\native-shared\WebViewBridge.cs" Link="WebViewBridge.cs" />
   </ItemGroup>
-
-  <PropertyGroup>
-    <!-- The release keys this shell trusts, embedded in the program so that nothing on disk after the build can add one (desktop-shell/ShellKeys.cs). The default is the file the Hub reads from its own
-         files. A build that has to trust other keys (the end-to-end test of the updater builds two versions that trust a key made for the run) passes -p:ReleaseKeysFile=<full path of a key file>;
-         a release is built without it, and scripts/verify-release-source.py reads the committed file. -->
-    <ReleaseKeysFile Condition="'$(ReleaseKeysFile)' == ''">$(MSBuildThisFileDirectory)..\CHATMCP-HUB\lib\release-keys.json</ReleaseKeysFile>
-  </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="$(ReleaseKeysFile)" LogicalName="ChatMCP.Desktop.release-keys.json" />
   </ItemGroup>
