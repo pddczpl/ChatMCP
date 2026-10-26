@@ -22,7 +22,7 @@
 | 8 | Info | **Not redistributed, so no obligations, but never bundle:** Git for Windows (GPL-2.0; a prerequisite the user installs), Microsoft Edge / Chromium and the WebView2 Runtime (Microsoft terms), and `node-pty` (MIT, installed by the user from npm on request by [Install-OptionalConPTY.ps1](../CHATMCP-HUB/windows/Install-OptionalConPTY.ps1)). If a later release bundles Git or any GPL/LGPL component this scan must be redone first. |
 | 9 | Info | **Build-only copyleft and data licences.** 12 `lightningcss*` packages (MPL-2.0, file-level copyleft; a dependency of the Tailwind CSS 4 build) and `caniuse-lite` (CC-BY-4.0 data) are devDependencies of the UI build. They are not in the production closure and not in the payload. Shipping `node_modules` would add MPL source-availability and CC-BY attribution duties. |
 
-Other points: the DCO and the Apache-2.0 `NOTICE` are explained in [CONTRIBUTING.md](../CONTRIBUTING.md). The installer payload now carries `LICENSE` and `NOTICE` at the install root. The Browser Companion archive `ChatMCP-Browser-Companion.zip` (built by [Build-BrowserCompanion.ps1](../scripts/Build-BrowserCompanion.ps1)) is a separate download that contains the extension sources only and **does not yet include `LICENSE` or `NOTICE`**; its exact-contents check has to be changed together with the file list.
+Other points: the DCO and the Apache-2.0 `NOTICE` are explained in [CONTRIBUTING.md](../CONTRIBUTING.md). The installer payload now carries `LICENSE` and `NOTICE` at the install root. The Browser Companion archive `DatGold-Browser-Companion.zip` (also published as a copy under its old name `ChatMCP-Browser-Companion.zip`; built by [Build-BrowserCompanion.ps1](../scripts/Build-BrowserCompanion.ps1)) is a separate download that contains the extension sources only and **does not yet include `LICENSE` or `NOTICE`**; its exact-contents check has to be changed together with the file list.
 
 ## Compatibility rules used
 
@@ -41,7 +41,7 @@ The DatGold code is Apache-2.0. A component is marked compatible when it may be 
 
 ## Redistributed components
 
-"Redistributed" means present in the `ChatMCPSetup.exe` payload (see [InstallerPayload.ps1](../scripts/InstallerPayload.ps1) and [Build-Installer.ps1](../scripts/Build-Installer.ps1)) or in a separate release download.
+"Redistributed" means present in the `DatGoldSetup.exe` payload (`ChatMCPSetup.exe` up to v3.10.2) (see [InstallerPayload.ps1](../scripts/InstallerPayload.ps1) and [Build-Installer.ps1](../scripts/Build-Installer.ps1)) or in a separate release download.
 
 | Component | Version | Licence | Apache-2.0 compatible | Notes |
 |---|---|---|---|---|
@@ -56,7 +56,7 @@ The DatGold code is Apache-2.0. A component is marked compatible when it may be 
 | `web-tree-sitter` (bundled intelligence runtime) | 0.25.10 | MIT | Yes | WASM runtime used for syntax parsing. |
 | `playwright`, `playwright-core` (staged to `runtimes/browser/node_modules`) | 1.64.0 | Apache-2.0 | Yes | Whole package folders are copied, including LICENSE and NOTICE (and `ThirdPartyNotices.txt` in playwright-core). Browser executables are not bundled. They are devDependencies in the UI lockfile but are redistributed. |
 | Microsoft.Web.WebView2 (managed DLLs and `WebView2Loader.dll`) | 1.0.4258.31 | Microsoft BSD-3-Clause-style licence; NOTICE adds Antlr3.Runtime and StringTemplate4 (BSD-3-Clause) | Yes | Finding 2. The WebView2 *Runtime* itself is a separate Microsoft installation and is not bundled. |
-| .NET 10 runtime and base libraries inside `ChatMCP.exe`, `ChatMCPSetup.exe` / `Uninstall.exe` (self-contained single files) and `GuestSupervisor.exe` (Native AOT) | 10.0.x | MIT | Yes | The runtime's own third-party notice file is not shipped. |
+| .NET 10 runtime and base libraries inside `ChatMCP.exe`, `DatGoldSetup.exe` / `Uninstall.exe` (self-contained single files) and `GuestSupervisor.exe` (Native AOT) | 10.0.x | MIT | Yes | The runtime's own third-party notice file is not shipped. |
 | UI bundle (`CHATMCP-HUB/web/dist/assets/*.js`, `*.css`) | see [UI production packages](#ui-production-packages-compiled-into-webdist) | MIT (161), OFL-1.1 (2), ISC (2), BSD-3-Clause (1), 0BSD (1) | Yes | Finding 4. The Tailwind CSS banner and the `@license` comments of React and lucide-react survive the build. |
 | Inter variable and JetBrains Mono 400 web fonts (`web/dist/assets/*.woff2`, `*.woff`) | 5.3.0 and 5.3.0 (Fontsource packages) | OFL-1.1 | Yes, as separate font files | Finding 3. Inter: Copyright 2016 The Inter Project Authors. JetBrains Mono: Copyright 2020 The JetBrains Mono Project Authors. |
 | React 16.0.0 and ReactDOM 16.0.1 UMD (`web/vendor/*.production.min.js`, legacy pages; ReactDOM includes Modernizr) | 16.0.x | MIT | Yes | Upstream headers are intact and the MIT text is in the archived notice file. Old releases: remove them together with the legacy dashboards. |
@@ -97,7 +97,7 @@ Findings 1, 5 and 6 were addressed in the build scripts; the rest are open. `CHA
 ## Recommended follow-up
 
 1. Ship the texts of findings 2 to 4 (WebView2, the OFL fonts, the notices of the UI libraries) and the .NET runtime notice, and pin the Node.js version.
-2. Add `LICENSE` and `NOTICE` to `ChatMCP-Browser-Companion.zip` ([Build-BrowserCompanion.ps1](../scripts/Build-BrowserCompanion.ps1) allow-list and its exact-contents check).
+2. Add `LICENSE` and `NOTICE` to `DatGold-Browser-Companion.zip` ([Build-BrowserCompanion.ps1](../scripts/Build-BrowserCompanion.ps1) allow-list and its exact-contents check).
 3. Re-run this scan when a dependency is added or upgraded, and make CI fail on a license that is not in the tables below (the generated list in `THIRD-PARTY-NOTICES.md` already fails the suite when the UI lockfile changes).
 
 ## UI production packages (compiled into web/dist)

@@ -36,7 +36,7 @@ RUNTIME COMPONENTS
     package folder, ThirdPartyNotices.txt in playwright-core. The browser executable is not bundled.
 11. Microsoft.Web.WebView2 1.0.4258.31 (managed assemblies and WebView2Loader.dll beside ChatMCP.exe) - Microsoft BSD-3-Clause-style license;
     its NOTICE adds Antlr3.Runtime and StringTemplate4 (BSD-3-Clause). Status: pending.
-12. .NET 10 runtime inside ChatMCP.exe, ChatMCPSetup.exe, Uninstall.exe and GuestSupervisor.exe - MIT. Status: pending (the runtime's own
+12. .NET 10 runtime inside ChatMCP.exe, DatGoldSetup.exe, Uninstall.exe and GuestSupervisor.exe - MIT. Status: pending (the runtime's own
     third-party notice file is not shipped).
 13. Inter variable and JetBrains Mono 400 web fonts (@fontsource-variable/inter, @fontsource/jetbrains-mono 5.3.0) - SIL Open Font License 1.1.
     Status: pending.
@@ -137,7 +137,7 @@ MICROSOFT C/C++ RUNTIME COMPONENTS
 PENDING NOTICES
 
  - Items 11, 12, 13 and 15 above.
- - The Browser Companion archive ChatMCP-Browser-Companion.zip does not contain LICENSE or NOTICE yet.
+ - The Browser Companion archive DatGold-Browser-Companion.zip (and its copy ChatMCP-Browser-Companion.zip) does not contain LICENSE or NOTICE yet.
 
 NOT REDISTRIBUTED
 

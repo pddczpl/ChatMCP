@@ -24,7 +24,7 @@ Paths are relative to the installation folder, the folder that holds `LICENSE` a
 | Tree-sitter grammar `tree-sitter-python` (`CHATMCP-HUB/grammars/tree-sitter-python.wasm`) | built from the `^0.21.0` range | MIT | `CHATMCP-HUB/licenses/tree-sitter-python/LICENSE` | Shipped, as above |
 | `playwright`, `playwright-core` (JavaScript only, `CHATMCP-HUB/runtimes/browser/node_modules`) | 1.64.0 | Apache-2.0 | each package folder: `LICENSE`, `NOTICE`, and `ThirdPartyNotices.txt` in `playwright-core` | Whole package folders are copied; the browser executable is not bundled |
 | `Microsoft.Web.WebView2` (managed assemblies and `WebView2Loader.dll` beside `ChatMCP.exe`) | 1.0.4258.31 | Microsoft BSD-3-Clause-style license; its NOTICE adds Antlr3.Runtime and StringTemplate4 (BSD-3-Clause) | none | Pending (finding 2 of the license scan) |
-| .NET 10 runtime inside `ChatMCP.exe`, `ChatMCPSetup.exe`, `Uninstall.exe` and `GuestSupervisor.exe` | 10.0.x | MIT | none | Pending: the runtime's own third-party notice file is not shipped |
+| .NET 10 runtime inside `ChatMCP.exe`, `DatGoldSetup.exe`, `Uninstall.exe` and `GuestSupervisor.exe` | 10.0.x | MIT | none | Pending: the runtime's own third-party notice file is not shipped |
 | Inter variable and JetBrains Mono 400 web fonts (`@fontsource-variable/inter`, `@fontsource/jetbrains-mono` 5.3.0) | 5.3.0 | SIL Open Font License 1.1 | none | Pending (finding 3) |
 | React 16.0.0 and ReactDOM 16.0.1 UMD files (`CHATMCP-HUB/web/vendor`, legacy dashboards; ReactDOM includes Modernizr) | 16.0.x | MIT | the permission text in `CHATMCP-HUB/THIRD-PARTY-NOTICES.txt`; the files keep their upstream headers | Shipped |
 | Model catalog data from models.dev (`CHATMCP-HUB/lib/model-catalog.data.json`: a compact extract of https://models.dev/api.json, which names the model limits, prices and thinking options of about 9,000 models) | the snapshot is dated inside the file (`generatedAt`); `scripts/update-model-catalog.mjs` rebuilds it | MIT (Copyright (c) 2025 models.dev) | the permission text in `CHATMCP-HUB/THIRD-PARTY-NOTICES.txt` | Shipped; data only, nothing is downloaded when the Hub runs |
@@ -112,7 +112,7 @@ What that means here, as facts and not as a conclusion:
 
 These are the gaps that remain after this change. None of them is hidden by the build.
 
-1. **WebView2, .NET runtime, OFL font texts and the MIT/ISC/BSD notices of the UI libraries** (findings 2 to 4 of the license scan) are outside this change and still open. The Browser Companion archive `ChatMCP-Browser-Companion.zip` also does not contain `LICENSE` or `NOTICE` yet.
+1. **WebView2, .NET runtime, OFL font texts and the MIT/ISC/BSD notices of the UI libraries** (findings 2 to 4 of the license scan) are outside this change and still open. The Browser Companion archive `DatGold-Browser-Companion.zip` (and its copy `ChatMCP-Browser-Companion.zip`) also does not contain `LICENSE` or `NOTICE` yet.
 
 ## UI libraries compiled into the dashboard
 
