@@ -238,8 +238,11 @@ export function hasActiveWork(state: unknown): boolean {
   return false;
 }
 
-/** The step of the owner's click: nothing yet, asked to confirm, waiting for the shell, or refused (with the code the shell gave). */
-export type ApplyPhase = { phase: 'idle' | 'confirm' | 'sending' } | { phase: 'refused'; code: string };
+/**
+ * The step of the owner's click: nothing yet, asked to confirm, waiting for the shell, or refused (with the code the shell gave). A question, the wait and a refusal are about ONE release: the one that was
+ * ready when the owner pressed the button. When another release is ready later, the question and the refusal are not about it and are not shown for it.
+ */
+export type ApplyPhase = { phase: 'idle' } | { phase: 'confirm' | 'sending'; version: string } | { phase: 'refused'; version: string; code: string };
 export type ApplyKind = 'hidden' | 'browser' | 'blocked' | 'offer' | 'confirm' | 'sending' | 'refused';
 export type ApplyErrorGroup = 'tasks' | 'hub' | 'portable' | 'missing' | 'unproven' | 'nokey' | 'older' | 'busy' | 'launch' | 'no_answer' | 'other';
 
@@ -249,6 +252,8 @@ export interface ApplyView {
   version: string | null;
   /** For a refusal, what went wrong. */
   group: ApplyErrorGroup | null;
+  /** For a refusal: whether downloading the release again can help, which is what the words of a refusal about a folder that is gone, or does not prove itself, advise. */
+  again: boolean;
 }
 
 const APPLY_GROUPS: Record<string, ApplyErrorGroup> = {
@@ -267,28 +272,38 @@ export function applyErrorGroup(code: unknown): ApplyErrorGroup {
  */
 export function applyView(update: UpdateInfo | null | undefined, hub: unknown, shell: boolean, apply: ApplyPhase): ApplyView {
   const download = downloadView(update);
-  if (download.kind !== 'ready') return { kind: 'hidden', version: null, group: null };
-  const base = { version: download.version, group: null };
+  if (download.kind !== 'ready') return { kind: 'hidden', version: null, group: null, again: false };
+  const base = { version: download.version, group: null, again: false };
   if (!shell) return { kind: 'browser', ...base };
   if (apply.phase === 'sending') return { kind: 'sending', ...base };
   if (hasActiveWork(hub)) return { kind: 'blocked', ...base };
-  if (apply.phase === 'confirm') return { kind: 'confirm', ...base };
-  if (apply.phase === 'refused') return { kind: 'refused', ...base, group: applyErrorGroup(apply.code) };
+  // a question and a refusal are about the release the owner pressed the button for: for another one that is ready later the button is offered afresh
+  if (apply.phase === 'confirm' && apply.version === download.version) return { kind: 'confirm', ...base };
+  if (apply.phase === 'refused' && apply.version === download.version) {
+    const group = applyErrorGroup(apply.code);
+    return { kind: 'refused', ...base, group, again: APPLY_AGAIN_GROUPS.has(group) };
+  }
   return { kind: 'offer', ...base };
 }
 
-export type ApplyEvent = { type: 'ask' } | { type: 'back' } | { type: 'confirm' } | { type: 'answered'; result: { ok: true } | { ok: false; code: string } };
+/** The refusals whose words say "download it again" and for which that can help: the folder is gone or is not the release that was offered, or it does not prove itself. */
+const APPLY_AGAIN_GROUPS: ReadonlySet<ApplyErrorGroup> = new Set<ApplyErrorGroup>(['missing', 'unproven']);
+
+export type ApplyEvent = { type: 'ask'; version: string } | { type: 'back' } | { type: 'confirm'; version: string } | { type: 'answered'; result: { ok: true } | { ok: false; code: string } };
 
 /**
- * The steps of the owner's click on Install and restart: the button asks the question (also after a refusal), "back" is "not now" or putting a refusal away, Confirm sends the message, and the shell's answer is
- * either the end (launched: the window is closing, so there is nothing more to show) or a refusal. An event that does not belong to the step changes nothing.
+ * The steps of the owner's click on Install and restart: the button asks the question about a release (also after a refusal), "back" is "not now" or putting a refusal away, Confirm sends the message, and
+ * the shell's answer is either the end (launched: the window is closing, so there is nothing more to show) or a refusal. A question is about a release x.y.z and a confirm is taken only for the release that
+ * was asked about. An event that does not belong to the step changes nothing.
  */
 export function applyReducer(state: ApplyPhase, event: ApplyEvent): ApplyPhase {
   switch (event.type) {
-    case 'ask': return state.phase === 'idle' || state.phase === 'refused' ? { phase: 'confirm' } : state;
+    case 'ask':
+      if (typeof event.version !== 'string' || !RELEASE.test(event.version) || state.phase === 'sending') return state;
+      return state.phase === 'confirm' && state.version === event.version ? state : { phase: 'confirm', version: event.version };
     case 'back': return state.phase === 'confirm' || state.phase === 'refused' ? { phase: 'idle' } : state;
-    case 'confirm': return state.phase === 'confirm' ? { phase: 'sending' } : state;
-    case 'answered': return state.phase === 'sending' ? (event.result.ok ? state : { phase: 'refused', code: event.result.code }) : state;
+    case 'confirm': return state.phase === 'confirm' && event.version === state.version ? { phase: 'sending', version: state.version } : state;
+    case 'answered': return state.phase === 'sending' ? (event.result.ok ? state : { phase: 'refused', version: state.version, code: event.result.code }) : state;
     default: return state;
   }
 }

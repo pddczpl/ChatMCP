@@ -231,14 +231,26 @@ test('the install control is offered only for an update that is ready, only insi
   assert.equal(view(ready({ download: { state: 'ready', version: '3.10.2', bytes: 5 } }), idleHub, true).kind, 'hidden', 'a ready download of another version than the one on offer is nothing here');
   assert.equal(view(update({ available: false, latest: '3.10.2', download: { state: 'ready', version: '3.10.2', bytes: 5 } }), idleHub, true).kind, 'hidden', 'nothing newer is on offer: nothing to install');
   assert.equal(view(null, idleHub, true).kind, 'hidden');
-  // the steps of the owner's click
-  assert.equal(view(ready(), idleHub, true, { phase: 'confirm' }).kind, 'confirm', 'asked once: the confirm says the app closes and opens again');
-  assert.equal(view(ready(), idleHub, true, { phase: 'sending' }).kind, 'sending', 'confirmed: waiting for the shell');
-  assert.equal(view(ready(), busyHub, true, { phase: 'confirm' }).kind, 'blocked', 'a task that starts while the owner is deciding takes the confirm back');
-  const refused = view(ready(), idleHub, true, { phase: 'refused', code: 'bad_signature' });
-  assert.deepEqual([refused.kind, refused.group], ['refused', 'unproven'], 'refused: the reason is said and the button is back');
-  assert.equal(view(ready(), busyHub, true, { phase: 'sending' }).kind, 'sending', 'sending shows even when a task has started (it is the shell that decides)');
-  assert.equal(view(ready(), idleHub, false, { phase: 'confirm' }).kind, 'browser', 'no confirm outside the shell, whatever state a test puts it in');
+  // the steps of the owner's click. A question and a refusal belong to the release they were about.
+  const V = '3.10.3';
+  assert.equal(view(ready(), idleHub, true, { phase: 'confirm', version: V }).kind, 'confirm', 'asked once: the confirm says the app closes and opens again');
+  assert.equal(view(ready(), idleHub, true, { phase: 'sending', version: V }).kind, 'sending', 'confirmed: waiting for the shell');
+  assert.equal(view(ready(), busyHub, true, { phase: 'confirm', version: V }).kind, 'blocked', 'a task that starts while the owner is deciding takes the confirm back');
+  const refused = view(ready(), idleHub, true, { phase: 'refused', version: V, code: 'bad_signature' });
+  assert.deepEqual([refused.kind, refused.group, refused.again], ['refused', 'unproven', true], 'refused: the reason is said, the button is back, and so is a way to download it again');
+  assert.equal(view(ready(), busyHub, true, { phase: 'sending', version: V }).kind, 'sending', 'sending shows even when a task has started (it is the shell that decides)');
+  assert.equal(view(ready(), idleHub, false, { phase: 'confirm', version: V }).kind, 'browser', 'no confirm outside the shell, whatever state a test puts it in');
+  // another release is ready than the one the question or the refusal was about: they are not about this one
+  assert.equal(view(ready(), idleHub, true, { phase: 'confirm', version: '3.10.2' }).kind, 'offer', 'a question about another release is not put to the owner again for this one');
+  assert.equal(view(ready(), idleHub, true, { phase: 'refused', version: '3.10.2', code: 'bad_signature' }).kind, 'offer', 'nor is a refusal about another one shown');
+  assert.equal(view(ready(), idleHub, true, { phase: 'sending', version: '3.10.2' }).kind, 'sending', 'but a request that is out is waited for, whatever the page shows meanwhile');
+  // "download it again" is offered where it can help: the folder is gone, or does not prove itself
+  const again = {
+    no_update: true, stale: true, ambiguous: true, staging_unsafe: true, bad_signature: true, bad_manifest: true, bad_installer: true,
+    tasks_running: false, hub_unreachable: false, not_installed: false, not_in_shell: false, no_trusted_key: false, not_newer: false, busy: false, launch_failed: false, no_answer: false, something_new: false,
+  };
+  for (const [code, expected] of Object.entries(again)) assert.equal(view(ready(), idleHub, true, { phase: 'refused', version: V, code }).again, expected, `${code}: a new download ${expected ? 'can' : 'cannot'} help`);
+  for (const apply of [IDLE, { phase: 'confirm', version: V }, { phase: 'sending', version: V }]) assert.equal(view(ready(), idleHub, true, apply).again, false, `${apply.phase}: no download again outside a refusal`);
 });
 
 test("a refusal of the shell is named by what went wrong, and a code the page does not know is 'other'", () => {
@@ -271,20 +283,28 @@ test('what the last update left is shown for the version that runs, with its not
   for (const odd of ['3.10', '3.10.3-rc.1', '../3.10.3', '3.10.3/../../x', '', null, undefined, 3, '3.10.3\n']) assert.equal(notesUrlFor(odd), null, `no link for ${JSON.stringify(odd)}`);
 });
 
-test('the click on Install and restart goes in steps, and every step can be taken back or refused', () => {
+test('the click on Install and restart goes in steps, belongs to one release, and every step can be taken back or refused', () => {
   const step = (state, event) => applyReducer(state, event);
-  assert.deepEqual(step({ phase: 'idle' }, { type: 'ask' }), { phase: 'confirm' }, 'the button asks the question');
-  assert.deepEqual(step({ phase: 'confirm' }, { type: 'back' }), { phase: 'idle' }, 'not now');
-  assert.deepEqual(step({ phase: 'confirm' }, { type: 'confirm' }), { phase: 'sending' }, 'close and install');
-  assert.deepEqual(step({ phase: 'sending' }, { type: 'answered', result: { ok: true } }), { phase: 'sending' }, 'launched: the window is closing, there is nothing more to show');
-  assert.deepEqual(step({ phase: 'sending' }, { type: 'answered', result: { ok: false, code: 'bad_signature' } }), { phase: 'refused', code: 'bad_signature' }, 'refused: with the code of the shell');
-  assert.deepEqual(step({ phase: 'refused', code: 'x' }, { type: 'ask' }), { phase: 'confirm' }, 'after a refusal the button asks again');
-  assert.deepEqual(step({ phase: 'refused', code: 'x' }, { type: 'back' }), { phase: 'idle' }, 'and the refusal can be put away');
+  const V = '3.10.3';
+  assert.deepEqual(step({ phase: 'idle' }, { type: 'ask', version: V }), { phase: 'confirm', version: V }, 'the button asks the question about a release');
+  assert.deepEqual(step({ phase: 'confirm', version: V }, { type: 'back' }), { phase: 'idle' }, 'not now');
+  assert.deepEqual(step({ phase: 'confirm', version: V }, { type: 'confirm', version: V }), { phase: 'sending', version: V }, 'close and install');
+  assert.deepEqual(step({ phase: 'confirm', version: V }, { type: 'confirm', version: '3.10.4' }), { phase: 'confirm', version: V }, 'a confirm for another release than the one asked about is not taken');
+  assert.deepEqual(step({ phase: 'confirm', version: '3.10.2' }, { type: 'ask', version: V }), { phase: 'confirm', version: V }, 'asked about a newer release, the question is about that one');
+  assert.deepEqual(step({ phase: 'sending', version: V }, { type: 'answered', result: { ok: true } }), { phase: 'sending', version: V }, 'launched: the window is closing, there is nothing more to show');
+  assert.deepEqual(step({ phase: 'sending', version: V }, { type: 'answered', result: { ok: false, code: 'bad_signature' } }), { phase: 'refused', version: V, code: 'bad_signature' }, 'refused: with the code of the shell, about the release that was asked');
+  assert.deepEqual(step({ phase: 'refused', version: V, code: 'x' }, { type: 'ask', version: V }), { phase: 'confirm', version: V }, 'after a refusal the button asks again');
+  assert.deepEqual(step({ phase: 'refused', version: V, code: 'x' }, { type: 'back' }), { phase: 'idle' }, 'and the refusal can be put away');
   const same = [
-    [{ phase: 'idle' }, { type: 'confirm' }], [{ phase: 'idle' }, { type: 'back' }], [{ phase: 'idle' }, { type: 'answered', result: { ok: false, code: 'x' } }],
-    [{ phase: 'confirm' }, { type: 'answered', result: { ok: true } }], [{ phase: 'confirm' }, { type: 'ask' }],
-    [{ phase: 'sending' }, { type: 'ask' }], [{ phase: 'sending' }, { type: 'back' }], [{ phase: 'sending' }, { type: 'confirm' }],
-    [{ phase: 'refused', code: 'x' }, { type: 'confirm' }], [{ phase: 'refused', code: 'x' }, { type: 'answered', result: { ok: true } }],
+    [{ phase: 'idle' }, { type: 'confirm', version: V }], [{ phase: 'idle' }, { type: 'back' }], [{ phase: 'idle' }, { type: 'answered', result: { ok: false, code: 'x' } }],
+    [{ phase: 'confirm', version: V }, { type: 'answered', result: { ok: true } }], [{ phase: 'confirm', version: V }, { type: 'ask', version: V }],
+    [{ phase: 'sending', version: V }, { type: 'ask', version: V }], [{ phase: 'sending', version: V }, { type: 'back' }], [{ phase: 'sending', version: V }, { type: 'confirm', version: V }],
+    [{ phase: 'refused', version: V, code: 'x' }, { type: 'confirm', version: V }], [{ phase: 'refused', version: V, code: 'x' }, { type: 'answered', result: { ok: true } }],
   ];
   for (const [state, event] of same) assert.deepEqual(step(state, event), state, `${state.phase} + ${event.type}: an event that does not belong to the step changes nothing`);
+  // a question is about a release x.y.z and nothing else
+  for (const odd of ['latest', '3.10', '3.10.3-rc.1', '', null, undefined, 3, {}]) {
+    assert.deepEqual(step({ phase: 'idle' }, { type: 'ask', version: odd }), { phase: 'idle' }, `no question about ${JSON.stringify(odd)}`);
+    assert.deepEqual(step({ phase: 'confirm', version: V }, { type: 'confirm', version: odd }), { phase: 'confirm', version: V }, `and no confirm for ${JSON.stringify(odd)}`);
+  }
 });

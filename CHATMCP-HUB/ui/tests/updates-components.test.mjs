@@ -15,6 +15,16 @@ const { loaded, dispose } = await bundleTsx(`
 after(dispose);
 const { renderWith, useAppStore, AppliedNotice, UpdateBanner, UpdateNotice, UpdatesSection, UpdatesPanel, translations } = loaded;
 
+// The same banner with the hook of the owner's click already at the question, which is where a click on "Install and restart" takes it (a server render cannot click). The rewrite fails the build
+// when the line it changes is gone, so a rename cannot make it a silent no-op. Built before the first test is registered: a test that is already running defines window for a moment, and the module
+// that reads the address of the page when it is loaded must not meet it.
+const atTheQuestion = await bundleTsx(`
+  ${renderPrelude}
+  import { UpdateBanner } from './src/components/layout/UpdateBanner';
+  export { UpdateBanner };
+`, 'chatmcp-updates-question-', { recordJsx: true, rewrites: [{ file: 'src/lib/useUpdateActions.ts', from: "{ phase: 'idle' } as ApplyPhase", to: "{ phase: 'confirm', version: '3.10.3' } as ApplyPhase" }] });
+after(atTheQuestion.dispose);
+
 const DIACRITICS = /[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]/i;
 const update = (overrides = {}) => ({
   current: '3.10.2', latest: '3.10.3', available: true, checkedAt: '2026-10-26T12:00:00.000Z', lastAttemptAt: '2026-10-26T12:00:00.000Z',
@@ -596,7 +606,9 @@ test('the dictionary holds every word of the download in both languages, and non
 const READY = signed({ download: { state: 'ready', version: '3.10.3', bytes: 232753314 } });
 const IDLE_HUB = { agent: { activeTaskId: null, tasks: [] }, studio: null };
 const BUSY_HUB = { agent: { activeTaskId: 'task-1', tasks: [] }, studio: null };
-const install = (extra = {}) => ({ shell: true, hub: IDLE_HUB, phase: { phase: 'idle' }, onAsk: noop, onConfirm: noop, onBack: noop, ...extra });
+const install = (extra = {}) => ({ shell: true, hub: IDLE_HUB, phase: { phase: 'idle' }, onAsk: noop, onConfirm: noop, onBack: noop, onAgain: noop, ...extra });
+/** The steps of the owner's click, about the release that READY holds. */
+const ABOUT = '3.10.3';
 /** Everything that can be pressed to install: the button and the two answers of the confirm. */
 const PRESSABLE = /<button[^>]*data-testid="(?:update|updates)-apply(?:-yes|-no)?"/;
 
@@ -645,28 +657,32 @@ test('inside the desktop shell a download that is ready offers Install and resta
 });
 
 test('the owner is asked once, in words that say the app closes and opens again, and can say not now', async () => {
-  const en = await strip({ update: READY, install: install({ phase: { phase: 'confirm' } }) }, 'en');
-  assert.match(text(en, 'update-apply-confirm-text'), /^DatGold will close, install version 3\.10\.3 and open again\. Your settings and your projects are not changed\.$/);
+  const en = await strip({ update: READY, install: install({ phase: { phase: 'confirm', version: ABOUT } }) }, 'en');
+  assert.match(text(en, 'update-apply-confirm-text'), /^DatGold will close, install version 3\.10\.3 and open again\. Your settings and projects are stored outside the program files and are not replaced\.$/);
   assert.equal(text(en, 'update-apply-yes'), 'Close and install');
   assert.equal(text(en, 'update-apply-no'), 'Not now');
   assert.ok(!has(en, 'update-apply'), 'the first button gives way to the question');
   assert.match(tag(en, 'update-apply-confirm'), /role="group"/, 'a group a screen reader announces as one');
   assert.doesNotMatch(en, DIACRITICS);
-  const vi = await strip({ update: READY, install: install({ phase: { phase: 'confirm' } }) }, 'vi');
-  assert.equal(text(vi, 'update-apply-confirm-text'), 'DatGold sẽ đóng lại, cài phiên bản 3.10.3 rồi mở lại. Cài đặt và các dự án của bạn không bị thay đổi.');
+  const vi = await strip({ update: READY, install: install({ phase: { phase: 'confirm', version: ABOUT } }) }, 'vi');
+  assert.equal(text(vi, 'update-apply-confirm-text'), 'DatGold sẽ đóng lại, cài phiên bản 3.10.3 rồi mở lại. Cài đặt và dự án của bạn nằm ngoài các tệp chương trình nên không bị thay thế.');
   assert.equal(text(vi, 'update-apply-yes'), 'Đóng và cài đặt');
   assert.equal(text(vi, 'update-apply-no'), 'Để sau');
+  assert.doesNotMatch(translations.en.upd_apply_confirm + translations.vi.upd_apply_confirm, /not changed|không bị thay đổi/, 'the question promises no more than the installer does: it replaces the program files and leaves the rest where it is');
   // a task that started while the owner was deciding takes the question back
-  const taken = await strip({ update: READY, install: install({ phase: { phase: 'confirm' }, hub: BUSY_HUB }) }, 'en');
+  const taken = await strip({ update: READY, install: install({ phase: { phase: 'confirm', version: ABOUT }, hub: BUSY_HUB }) }, 'en');
   assert.ok(!has(taken, 'update-apply-confirm') && has(taken, 'update-apply-blocked'), 'a task started meanwhile: the question is withdrawn and the reason is shown');
+  // a question about another release than the one that is ready is not put again
+  const other = await strip({ update: READY, install: install({ phase: { phase: 'confirm', version: '3.10.2' } }) }, 'en');
+  assert.ok(!has(other, 'update-apply-confirm') && has(other, 'update-apply'), 'a question about another release is not the question for this one: the button is offered');
 });
 
 test('while the shell is starting the update the page says so, and a refusal is said in words with the button back', async () => {
-  const sending = await strip({ update: READY, install: install({ phase: { phase: 'sending' } }) }, 'en');
+  const sending = await strip({ update: READY, install: install({ phase: { phase: 'sending', version: ABOUT } }) }, 'en');
   assert.equal(text(sending, 'update-apply-sending'), 'Starting the update…');
   assert.match(tag(sending, 'update-apply-sending'), /role="status"/);
   assert.doesNotMatch(sending, PRESSABLE, 'nothing to press twice');
-  assert.equal(text(await strip({ update: READY, install: install({ phase: { phase: 'sending' } }) }, 'vi'), 'update-apply-sending'), 'Đang bắt đầu cập nhật…');
+  assert.equal(text(await strip({ update: READY, install: install({ phase: { phase: 'sending', version: ABOUT } }) }, 'vi'), 'update-apply-sending'), 'Đang bắt đầu cập nhật…');
   const says = {
     tasks_running: [/Tasks are still running\. Stop them and try again/, /Vẫn còn tác vụ đang chạy/], hub_unreachable: [/could not ask its background service/, /không hỏi được dịch vụ nền/],
     not_installed: [/was not made by the installer, so it cannot update itself/, /không do trình cài đặt tạo ra/], no_update: [/not there any more, or is not the one that was offered/, /không còn ở đó, hoặc không phải bản đã được đề nghị/],
@@ -675,20 +691,45 @@ test('while the shell is starting the update the page says so, and a refusal is 
     bad_installer: [/did not run it/, /không chạy nó/], bad_manifest: [/did not run it/, /không chạy nó/], staging_unsafe: [/did not run it/, /không chạy nó/],
     no_trusted_key: [/has no release key to check an update with yet/, /chưa có khóa phát hành nào/], not_newer: [/not newer than this version/, /không mới hơn phiên bản này/],
     busy: [/already being started/, /đang được bắt đầu/], launch_failed: [/installer could not be started\. Nothing was changed/, /Không khởi động được trình cài đặt/],
-    no_answer: [/desktop app did not answer\. Nothing was changed/, /không trả lời/], something_new: [/The update was not started\. Nothing was changed/, /Chưa bắt đầu cập nhật được\. Chưa có gì/],
+    no_answer: [/desktop app did not answer in time, so the page cannot tell whether the update has started\. If DatGold does not close in a moment, press Install and restart again/, /chưa trả lời kịp nên trang không biết cập nhật đã bắt đầu hay chưa/],
+    something_new: [/The update was not started\. Nothing was changed/, /Chưa bắt đầu cập nhật được\. Chưa có gì/],
   };
   for (const [code, [en, vi]] of Object.entries(says)) {
-    const phase = { phase: 'refused', code };
+    const phase = { phase: 'refused', version: ABOUT, code };
     const enHtml = await strip({ update: READY, install: install({ phase }) }, 'en');
     const viHtml = await strip({ update: READY, install: install({ phase }) }, 'vi');
     assert.match(text(enHtml, 'update-apply-error'), en, `${code} in English`);
     assert.match(text(viHtml, 'update-apply-error'), vi, `${code} in Vietnamese`);
-    assert.match(text(enHtml, 'update-apply-error'), /^The update was not started:/);
+    // an answer that never came is not "not started": the page does not know, and says so without the label
+    if (code === 'no_answer') assert.doesNotMatch(text(enHtml, 'update-apply-error') + text(viHtml, 'update-apply-error'), /^The update was not started|Nothing was changed|Chưa có gì bị thay đổi|Chưa bắt đầu/, 'no_answer claims neither that nothing started nor that nothing changed');
+    else assert.match(text(enHtml, 'update-apply-error'), /^The update was not started:/);
     assert.doesNotMatch(enHtml, DIACRITICS, `${code}: the English strip reads English`);
     assert.ok(has(enHtml, 'update-apply'), `${code}: and the button is back`);
     assert.doesNotMatch(enHtml, /text-danger|bg-danger|border-danger/, 'a refusal is not drawn as a danger');
     assert.doesNotMatch(tag(enHtml, 'update-apply-error'), /text-warning/, 'its words are in the colour of the text');
+    assert.doesNotMatch(tag(enHtml, 'update-apply-error'), /role=/, 'in the strip the refusal is not a live region of its own: the strip around it is one');
   }
+  // beside the reason: the button, a way to download it again where that can help (the advice of the words), and a way to put the refusal away
+  for (const [code, offered] of [['no_update', true], ['stale', true], ['ambiguous', true], ['staging_unsafe', true], ['bad_signature', true], ['bad_manifest', true], ['bad_installer', true], ['tasks_running', false], ['hub_unreachable', false], ['no_trusted_key', false], ['not_newer', false], ['launch_failed', false], ['no_answer', false], ['something_new', false]]) {
+    const phase = { phase: 'refused', version: ABOUT, code };
+    const enHtml = await strip({ update: READY, install: install({ phase }) }, 'en');
+    assert.equal(has(enHtml, 'update-apply-again'), offered, `${code}: "Download again" ${offered ? 'is' : 'is not'} offered`);
+    assert.ok(has(enHtml, 'update-apply-dismiss'), `${code}: the refusal can be put away`);
+    assert.ok(has(enHtml, 'update-apply'), `${code}: and the button is back`);
+    if (offered) assert.match(text(enHtml, 'update-apply-error'), /Download it again\.$/, `${code}: the advice the words give is the button that is there`);
+  }
+  const refusedEn = await strip({ update: READY, install: install({ phase: { phase: 'refused', version: ABOUT, code: 'no_update' } }) }, 'en');
+  const refusedVi = await strip({ update: READY, install: install({ phase: { phase: 'refused', version: ABOUT, code: 'no_update' } }) }, 'vi');
+  assert.equal(text(refusedEn, 'update-apply-again'), 'Download again');
+  assert.equal(text(refusedEn, 'update-apply-dismiss'), 'Dismiss');
+  assert.equal(text(refusedVi, 'update-apply-again'), 'Tải lại');
+  assert.equal(text(refusedVi, 'update-apply-dismiss'), 'Đóng');
+  assert.match(text(refusedVi, 'update-apply-error'), /Hãy tải lại\.$/, 'the Vietnamese advice is the button that is there too');
+  for (const id of ['update-apply-again', 'update-apply-dismiss']) assert.doesNotMatch(tag(refusedEn, id), /disabled=""/, `${id} is there to be pressed`);
+  assert.match(tag(await strip({ update: READY, install: install({ phase: { phase: 'refused', version: ABOUT, code: 'no_update' } }), busy: true }, 'en'), 'update-apply-again'), /disabled=""/, 'a download again waits while a request of the notice is out');
+  // a refusal about another release than the one that is ready is not shown
+  const stale = await strip({ update: READY, install: install({ phase: { phase: 'refused', version: '3.10.2', code: 'no_update' } }) }, 'en');
+  assert.ok(!has(stale, 'update-apply-error') && has(stale, 'update-apply'), 'a refusal about another release is not shown for this one');
 });
 
 test('Settings shows the same install controls as the strip', async () => {
@@ -699,11 +740,14 @@ test('Settings shows the same install controls as the strip', async () => {
   assert.equal(text(shell, 'updates-apply'), 'Install and restart');
   assert.match(tag(await panel({ update: READY, install: install({ hub: BUSY_HUB }) }, 'en'), 'updates-apply'), /disabled=""/);
   assert.match(text(await panel({ update: READY, install: install({ hub: BUSY_HUB }) }, 'en'), 'updates-apply-blocked'), /Stop the running tasks first/);
-  const confirm = await panel({ update: READY, install: install({ phase: { phase: 'confirm' } }) }, 'vi');
+  const confirm = await panel({ update: READY, install: install({ phase: { phase: 'confirm', version: ABOUT } }) }, 'vi');
   assert.match(text(confirm, 'updates-apply-confirm-text'), /DatGold sẽ đóng lại, cài phiên bản 3\.10\.3 rồi mở lại/);
   assert.equal(text(confirm, 'updates-apply-yes'), 'Đóng và cài đặt');
-  assert.match(text(await panel({ update: READY, install: install({ phase: { phase: 'refused', code: 'bad_signature' } }) }, 'en'), 'updates-apply-error'), /did not run it/);
-  assert.equal(text(await panel({ update: READY, install: install({ phase: { phase: 'sending' } }) }, 'en'), 'updates-apply-sending'), 'Starting the update…');
+  const refused = await panel({ update: READY, install: install({ phase: { phase: 'refused', version: ABOUT, code: 'bad_signature' } }) }, 'en');
+  assert.match(text(refused, 'updates-apply-error'), /did not run it/);
+  assert.match(tag(refused, 'updates-apply-error'), /role="status"/, 'in Settings, where no strip around it is a live region, the refusal is announced by itself');
+  assert.ok(has(refused, 'updates-apply-again') && has(refused, 'updates-apply-dismiss') && has(refused, 'updates-apply'), 'with the same three buttons as the strip');
+  assert.equal(text(await panel({ update: READY, install: install({ phase: { phase: 'sending', version: ABOUT } }) }, 'en'), 'updates-apply-sending'), 'Starting the update…');
 });
 
 // ---- what the last update left -------------------------------------------------------------------------------------------------------------------
@@ -755,7 +799,15 @@ test('an update that did not go through says why, in the words of the page, and 
     assert.ok(has(enHtml, 'update-applied-dismiss'), reason);
   }
   assert.match(text(await notice({ update: failed('install_failed', 'rolled_back') }, 'en'), 'update-applied-text'), /The files that had been replaced were put back\./);
-  assert.match(text(await notice({ update: failed('install_failed', 'needs_recovery') }, 'en'), 'update-applied-text'), /The update stopped halfway\. If DatGold does not work as it should, run DatGoldSetup\.exe again\./);
+  const recovery = text(await notice({ update: failed('install_failed', 'needs_recovery') }, 'en'), 'update-applied-text');
+  assert.match(recovery, /An unfinished update is blocking DatGold: it will not start until that is recovered\./);
+  assert.match(recovery, /Keep the backup that \.chatmcp-update-pending\.json in the DatGold folder points to/);
+  assert.doesNotMatch(recovery, /run DatGoldSetup\.exe again/i, 'setup refuses to install while the marker is there: the strip does not send the person to it');
+  assert.doesNotMatch(recovery, /still the version that runs/, 'and an installation that needs recovery has no version that still runs: it will not start');
+  assert.match(text(await notice({ update: failed('pending_recovery', 'needs_recovery') }, 'en'), 'update-applied-text'), /An earlier update had not finished and has to be recovered first\. An unfinished update is blocking DatGold/, 'the same words fit an earlier update that was found unfinished');
+  assert.doesNotMatch(text(await notice({ update: failed('install_failed', 'needs_recovery') }, 'vi'), 'update-applied-text'), /vẫn là phiên bản đang chạy/);
+  assert.match(text(await notice({ update: failed('install_failed', 'needs_recovery') }, 'vi'), 'update-applied-text'), /Một lần cập nhật chưa xong đang chặn DatGold: DatGold sẽ không khởi động cho đến khi việc đó được khôi phục\./);
+  assert.doesNotMatch(text(await notice({ update: failed('install_failed', 'needs_recovery') }, 'vi'), 'update-applied-text'), /chạy lại DatGoldSetup\.exe/);
   assert.match(text(await notice({ update: failed('install_failed', 'rolled_back') }, 'vi'), 'update-applied-text'), /Các tệp đã bị thay đã được trả về như cũ/);
   assert.doesNotMatch(text(await notice({ update: failed('tasks_running') }, 'en'), 'update-applied-text'), /put back|halfway/, 'a refusal that touched nothing does not say that anything was put back');
   const withPath = await notice({ update: afterUpdate({ applied: applied({ ok: false, version: '3.10.4', state: 'unchanged', reason: 'C:\\Users\\Test User\\secret\\log.txt' }) }) }, 'en');
@@ -790,7 +842,13 @@ const installOf = (elements, name) => {
 };
 const hubWith = (agent) => ({ agent, studio: null });
 
-test('the container hands the notice the shell, the Hub\'s state and the three steps of the click; inside the shell Confirm sends the one message and nothing else', async () => {
+async function lookAtTheQuestion(state, lang, hubExtra) {
+  globalThis.__chatmcpJsx = [];
+  await atTheQuestion.loaded.renderWith(atTheQuestion.loaded.UpdateBanner, {}, [[['hubState'], { update: state, ...hubExtra }]], [], { lang, showToast });
+  return globalThis.__chatmcpJsx.slice();
+}
+
+test('the container hands the notice the shell, the Hub\'s state and the steps of the click; inside the shell Confirm sends the one message, for the release that was asked about, and nothing else', async () => {
   serve();
   const posted = [];
   const listeners = new Set();
@@ -807,12 +865,19 @@ test('the container hands the notice the shell, the Hub\'s state and the three s
     assert.equal(inside.shell, true, 'inside the shell');
     assert.deepEqual(inside.hub, { update: READY, ...idle }, 'the page hands over the whole state of the Hub, which holds the work the rule looks at');
     assert.equal(posted.length, 0, 'rendering and asking send nothing');
-    inside.onAsk(); inside.onBack();
+    inside.onAsk(ABOUT); inside.onBack();
     assert.equal(posted.length, 0, 'asking the question, and not now, send nothing');
+    await inside.onConfirm(ABOUT);
+    assert.equal(posted.length, 0, 'a confirm with no question before it sends nothing: the owner was not asked');
     const settings = installOf(await look(UpdatesSection, {}, READY, 'en', {}, idle), 'UpdatesPanel');
     assert.equal(settings.shell, true, 'Settings is given the same');
+    // at the question: a confirm for another release than the one asked about sends nothing
+    const question = installOf(await lookAtTheQuestion(READY, 'en', idle), 'UpdateNotice');
+    assert.deepEqual(question.phase, { phase: 'confirm', version: ABOUT }, 'premise: this banner is at the question about 3.10.3');
+    await question.onConfirm('3.10.4');
+    assert.equal(posted.length, 0, 'a confirm for another release than the question was about sends nothing');
     // Confirm: one message, {type, id}, the listener in place first
-    const confirming = inside.onConfirm();
+    const confirming = question.onConfirm(ABOUT);
     assert.equal(posted.length, 1);
     assert.deepEqual(Object.keys(posted[0]).sort(), ['id', 'type']);
     assert.equal(posted[0].type, 'chatmcp.apply-update');
@@ -827,7 +892,7 @@ test('the container hands the notice the shell, the Hub\'s state and the three s
 
 test('the dictionary holds every word of the install control and of the hand-over in both languages, and none of them says more than the code does', () => {
   const keys = Object.keys(translations.vi).filter((key) => /^upd_(?:apply|applied)_/.test(key));
-  assert.ok(keys.length >= 37, `${keys.length} keys`);
+  assert.ok(keys.length >= 38, `${keys.length} keys`);
   for (const key of keys) {
     assert.ok(translations.en[key]?.trim(), `en.${key}`);
     assert.doesNotMatch(translations.en[key], DIACRITICS, `en.${key} reads English`);

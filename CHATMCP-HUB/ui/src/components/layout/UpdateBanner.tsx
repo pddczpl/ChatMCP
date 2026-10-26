@@ -99,11 +99,14 @@ export function AppliedNotice({ update, lang: pinned, busy = false, onDismiss }:
     );
   }
   // An update that did not go through: the words of the page for the reason, the version that still runs, and what was done with the files when it matters. Not drawn as a danger: nothing was lost.
-  const sentences = [
-    t('upd_applied_failed_title', { version }),
-    t('upd_applied_failed_body', { reason: t(String(view.reasonKey)), current: String(update?.current ?? '') }),
-    view.state === 'rolled_back' ? t('upd_applied_state_rolled_back') : view.state === 'needs_recovery' ? t('upd_applied_state_needs_recovery') : '',
-  ].filter(Boolean);
+  // An installation that needs recovery has no "version that still runs" (it will not start behind the marker of the unfinished update): the reason and then what is true of it.
+  const sentences = (view.state === 'needs_recovery'
+    ? [t('upd_applied_failed_title', { version }), t(String(view.reasonKey)), t('upd_applied_state_needs_recovery')]
+    : [
+      t('upd_applied_failed_title', { version }),
+      t('upd_applied_failed_body', { reason: t(String(view.reasonKey)), current: String(update?.current ?? '') }),
+      view.state === 'rolled_back' ? t('upd_applied_state_rolled_back') : '',
+    ]).filter(Boolean);
   return (
     <div role="status" data-testid="update-applied" data-kind="not_updated" data-version={version} className={strip}>
       <TriangleAlert className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
@@ -117,9 +120,9 @@ export function UpdateBanner() {
   const openSettings = useAppStore(state => state.openSettings);
   // the page asks faster while a download runs, so that the bar moves
   const { data: hub } = useQuery({ queryKey: ['hubState'], queryFn: api.getState, refetchInterval: query => pollInterval(query.state.data?.update) });
-  const { busy, cancelling, apply, answer, skip, check, download, cancelDownload, askApply, backApply, confirmApply, dismissApplied } = useUpdateActions();
+  const { busy, cancelling, apply, answer, skip, check, download, downloadAgain, cancelDownload, askApply, backApply, confirmApply, dismissApplied } = useUpdateActions({ update: hub?.update, hub });
   // Inside the desktop shell the update that is ready can be installed: the shell is asked (it checks the file again with its own code); the Hub's state is what holds the button back while work runs.
-  const install: InstallProps = { shell: isDesktopShell(), hub, phase: apply, onAsk: askApply, onConfirm: confirmApply, onBack: backApply };
+  const install: InstallProps = { shell: isDesktopShell(), hub, phase: apply, onAsk: askApply, onConfirm: confirmApply, onBack: backApply, onAgain: version => void downloadAgain(version) };
   return (
     <>
       <AppliedNotice update={hub?.update} busy={busy} onDismiss={() => void dismissApplied()} />

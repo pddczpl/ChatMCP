@@ -491,7 +491,7 @@ signedTest('inside the desktop shell a downloaded update is installed on a secon
   await apply.click();
   const confirm = page.getByTestId('update-apply-confirm');
   await expect(confirm).toBeVisible();
-  await expect(page.getByTestId('update-apply-confirm-text')).toHaveText('DatGold sẽ đóng lại, cài phiên bản 3.10.3 rồi mở lại. Cài đặt và các dự án của bạn không bị thay đổi.');
+  await expect(page.getByTestId('update-apply-confirm-text')).toHaveText('DatGold sẽ đóng lại, cài phiên bản 3.10.3 rồi mở lại. Cài đặt và dự án của bạn nằm ngoài các tệp chương trình nên không bị thay thế.');
   await expect(page.getByTestId('update-apply-no'), 'focus starts on the safe answer').toBeFocused();
   expect(await posted(page), 'asking sends nothing').toEqual([]);
   await page.getByTestId('update-apply-no').click();
@@ -600,6 +600,92 @@ signedTest('inside the desktop shell a downloaded update is installed on a secon
   await page.unroute('**/api/state');
   await page.reload();
   await expect(page.getByTestId('update-apply'), 'the Hub is idle again: the button is back').toBeEnabled();
+});
+
+signedTest('a refusal can be put away, a release the shell cannot find can be downloaded again, a question the page no longer draws does not come back, and the focus returns to the button that asked', async ({ page, app, feed, installer }) => {
+  await pretendShell(page);
+  await open(page, app);
+  await page.getByTestId('update-yes').click();
+  await page.getByTestId('update-download').click();
+  await expect(page.getByTestId('update-download-ready')).toBeVisible({ timeout: 30_000 });
+  const apply = page.getByTestId('update-apply');
+  const updates = path.join(app.hub.stateDir, 'updates');
+  /** Presses Install and restart, confirms, and has the pretend shell refuse with this code. */
+  const refuse = async (code) => {
+    await apply.click();
+    await page.getByTestId('update-apply-yes').click();
+    const request = (await posted(page)).at(-1);
+    await say(page, { type: RESULT, id: request.id, ok: false, code });
+  };
+
+  // ---- "not now": the focus goes back to the button that asked, not to the top of the page ------------------------------------------------------------------
+  await apply.click();
+  await expect(page.getByTestId('update-apply-no'), 'the question starts on the safe answer').toBeFocused();
+  await page.getByTestId('update-apply-no').click();
+  await expect(apply, 'and "not now" leaves the focus on the button that asked').toBeFocused();
+
+  // ---- a refusal no new download can mend: no "download again"; it can be put away; the focus is on a button, not lost ------------------------------------------
+  await refuse('tasks_running');
+  await expect(page.getByTestId('update-apply-error')).toBeVisible();
+  await expect(page.getByTestId('update-apply-again'), 'a task that is running is not mended by a download').toHaveCount(0);
+  await expect(page.getByTestId('update-apply-error'), 'in the strip the refusal is not a live region of its own: the strip is one').not.toHaveAttribute('role', /.+/);
+  await expect(apply, 'after a refusal the button that asks again has the focus').toBeFocused();
+  await page.getByTestId('update-apply-dismiss').click();
+  await expect(page.getByTestId('update-apply-error'), 'a refusal can be put away').toHaveCount(0);
+  await expect(apply, 'and the focus is on the button that asks').toBeFocused();
+
+  // ---- an answer that never came: the page does not claim that nothing started ---------------------------------------------------------------------------------------
+  await refuse('no_answer');
+  await expect(page.getByTestId('update-apply-error')).toContainText('chưa trả lời kịp nên trang không biết cập nhật đã bắt đầu hay chưa');
+  await expect(page.getByTestId('update-apply-error')).not.toContainText('Chưa bắt đầu cập nhật được');
+  await page.getByTestId('update-apply-dismiss').click();
+
+  // ---- the folder is gone: the shell says so, the words advise a new download, and the button does it --------------------------------------------------------------
+  await fs.rm(path.join(updates, '3.10.3'), { recursive: true, force: true });
+  await refuse('no_update');
+  await expect(page.getByTestId('update-apply-error')).toContainText('Hãy tải lại.');
+  const again = page.getByTestId('update-apply-again');
+  await expect(again).toHaveText('Tải lại');
+  const hitsBefore = feed.installer.hits();
+  const clicked = page.waitForResponse(post(DOWNLOAD));
+  await again.click();
+  const answer = await clicked;
+  expect(answer.request().postDataJSON(), 'the same click as Download, with again').toEqual({ version: '3.10.3', again: true });
+  expect((await answer.json()).started, 'the Hub fetched it anew although it had called it ready').toBe(true);
+  await expect(page.getByTestId('update-download-ready'), 'and it is ready again').toBeVisible({ timeout: 30_000 });
+  expect(feed.installer.hits(), 'the installer was asked for once more').toBeGreaterThan(hitsBefore);
+  expect(await fs.readFile(path.join(updates, '3.10.3', 'DatGoldSetup.exe')), 'whole again').toEqual(installer.bytes);
+  await expect(page.getByTestId('update-apply-error'), 'and the refusal is gone').toHaveCount(0);
+  await expect(apply).toBeEnabled();
+
+  // ---- a question the page no longer draws does not come back by itself ---------------------------------------------------------------------------------------------
+  await apply.click();
+  await expect(page.getByTestId('update-apply-confirm')).toBeVisible();
+  await page.route('**/api/state', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({ response, json: { ...body, agent: { ...(body.agent ?? {}), activeTaskId: 'task-running' } } });
+  });
+  await expect(page.getByTestId('update-apply-blocked'), 'a task started while the owner was deciding: the question is taken back').toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('update-apply-confirm')).toHaveCount(0);
+  await page.unroute('**/api/state');
+  await expect(apply, 'the Hub is idle again: the button is back').toBeEnabled({ timeout: 20_000 });
+  await expect(page.getByTestId('update-apply-confirm'), 'and the question is not put again by itself: the owner asked it, and did not answer').toHaveCount(0);
+  const sentSoFar = (await posted(page)).length;
+
+  // ---- Settings: nothing around the refusal is a live region there, so the refusal is one of its own ----------------------------------------------------------------
+  const dialog = await openSettings(page, 'Cập nhật');
+  await dialog.getByTestId('updates-apply').click();
+  await dialog.getByTestId('updates-apply-yes').click();
+  const request = (await posted(page)).at(-1);
+  expect(await posted(page)).toHaveLength(sentSoFar + 1);
+  await say(page, { type: RESULT, id: request.id, ok: false, code: 'bad_signature' });
+  await expect(dialog.getByTestId('updates-apply-error')).toHaveAttribute('role', 'status');
+  await expect(dialog.getByTestId('updates-apply-again')).toBeVisible();
+  await dialog.getByTestId('updates-apply-dismiss').click();
+  await expect(dialog.getByTestId('updates-apply-error')).toHaveCount(0);
+  await expect(dialog.getByTestId('updates-apply'), 'and the focus is back on the button there too').toBeFocused();
+  await closeSettings(page);
 });
 
 signedTest('in a plain browser a downloaded update says where it can be installed and offers no button, and the English words are the same', async ({ page, app }) => {

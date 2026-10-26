@@ -148,3 +148,21 @@ test('the update notice is one GET that asks nobody and five POSTs (the download
     await assert.rejects(api.downloadUpdate('3.10.3'), { status: 409, code: 'update_download_unsigned', message: /not signed with a valid signature/ });
   } finally { globalThis.fetch = original; setHubSecret(''); }
 });
+
+test('"Download again" is the same call with again: true; the plain call carries the version and nothing else', async () => {
+  const original = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (route, init = {}) => {
+    seen.push({ route, method: init.method ?? 'GET', body: init.body });
+    return Response.json({ csrfToken: 'fresh-token', update: { current: '3.10.2' }, started: true });
+  };
+  setHubSecret('u'.repeat(40));
+  try {
+    await api.downloadUpdate('3.10.3');
+    await api.downloadUpdate('3.10.3', false);
+    await api.downloadUpdate('3.10.3', true);
+    assert.deepEqual(seen.map((call) => [call.route, call.method, call.body]), [
+      ['/api/update/download', 'POST', '{"version":"3.10.3"}'], ['/api/update/download', 'POST', '{"version":"3.10.3"}'], ['/api/update/download', 'POST', '{"version":"3.10.3","again":true}'],
+    ], 'only a download that is asked for again says so');
+  } finally { globalThis.fetch = original; setHubSecret(''); }
+});

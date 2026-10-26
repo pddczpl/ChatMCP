@@ -1,38 +1,43 @@
+import { useEffect, useRef } from 'react';
 import { CircleCheck, Download, RotateCw, TriangleAlert } from 'lucide-react';
 import { translate } from '@/lib/i18n';
-import { applyView, downloadView, formatBytes, type ApplyPhase, type ApplyView, type DownloadView, type Lang } from '@/lib/updates';
+import { applyView, downloadView, formatBytes, type ApplyKind, type ApplyPhase, type ApplyView, type DownloadView, type Lang } from '@/lib/updates';
 import { Button } from '@/components/ui/Button';
 import type { UpdateInfo } from '@/types';
 
 /** The test ids of one place that shows the download (the strip under the header and Settings → Updates show the same controls under different ids). */
 export interface DownloadIds {
   download: string; progress: string; progressText: string; cancel: string; verifying: string; ready: string; readyNote: string; error: string; signatureNote: string; recheck: string;
-  apply: string; applyBrowser: string; applyBlocked: string; confirm: string; confirmText: string; confirmYes: string; confirmNo: string; applying: string; applyError: string;
+  apply: string; applyBrowser: string; applyBlocked: string; confirm: string; confirmText: string; confirmYes: string; confirmNo: string; applying: string; applyError: string; applyAgain: string; applyDismiss: string;
 }
 export const STRIP_IDS: DownloadIds = {
   download: 'update-download', progress: 'update-download-progress', progressText: 'update-download-progress-text', cancel: 'update-cancel', verifying: 'update-download-verifying',
   ready: 'update-download-ready', readyNote: 'update-download-ready-note', error: 'update-download-error', signatureNote: 'update-signature-note', recheck: 'update-recheck',
   apply: 'update-apply', applyBrowser: 'update-apply-browser', applyBlocked: 'update-apply-blocked', confirm: 'update-apply-confirm', confirmText: 'update-apply-confirm-text',
-  confirmYes: 'update-apply-yes', confirmNo: 'update-apply-no', applying: 'update-apply-sending', applyError: 'update-apply-error',
+  confirmYes: 'update-apply-yes', confirmNo: 'update-apply-no', applying: 'update-apply-sending', applyError: 'update-apply-error', applyAgain: 'update-apply-again', applyDismiss: 'update-apply-dismiss',
 };
 export const PANEL_IDS: DownloadIds = {
   download: 'updates-download', progress: 'updates-download-progress', progressText: 'updates-download-progress-text', cancel: 'updates-cancel', verifying: 'updates-download-verifying',
   ready: 'updates-download-ready', readyNote: 'updates-download-ready-note', error: 'updates-download-error', signatureNote: 'updates-signature-note', recheck: 'updates-recheck',
   apply: 'updates-apply', applyBrowser: 'updates-apply-browser', applyBlocked: 'updates-apply-blocked', confirm: 'updates-apply-confirm', confirmText: 'updates-apply-confirm-text',
-  confirmYes: 'updates-apply-yes', confirmNo: 'updates-apply-no', applying: 'updates-apply-sending', applyError: 'updates-apply-error',
+  confirmYes: 'updates-apply-yes', confirmNo: 'updates-apply-no', applying: 'updates-apply-sending', applyError: 'updates-apply-error', applyAgain: 'updates-apply-again', applyDismiss: 'updates-apply-dismiss',
 };
 
 /**
  * What the page knows about installing the update that is ready, handed down from the container: whether this page runs inside the desktop shell (the only place the shell can be asked), the state of the
- * Hub (to hold the button back while work runs), the step of the owner's click, and what each step does. Without it the page behaves as in a plain browser.
+ * Hub (to hold the button back while work runs), the step of the owner's click, and what each step does (each is about the release that is ready, which the control says). `live` makes the refusal a live
+ * region of its own: the strip under the header already is one, Settings is not. Without it the page behaves as in a plain browser.
  */
 export interface InstallProps {
   shell: boolean;
   hub: unknown;
   phase: ApplyPhase;
-  onAsk: () => void;
-  onConfirm: () => void | Promise<void>;
+  onAsk: (version: string) => void;
+  onConfirm: (version: string) => void | Promise<void>;
   onBack: () => void;
+  /** "Download again", offered with a refusal that says the downloaded update is gone or does not prove itself. */
+  onAgain: (version: string) => void;
+  live?: boolean;
 }
 
 /**
@@ -142,8 +147,16 @@ export function DownloadControls({ update, lang, busy = false, cancelling = fals
 function InstallControls({ view, ids, t, busy, install, version }: {
   view: ApplyView; ids: DownloadIds; t: (key: string, params?: Record<string, string | number>) => string; busy: boolean; install?: InstallProps; version: string;
 }) {
+  const applyButton = useRef<HTMLButtonElement>(null);
+  const before = useRef<ApplyKind>(view.kind);
+  useEffect(() => {
+    // The question or the refusal that had the focus is gone (Not now, Dismiss, or the shell answered a refusal): the focus goes back to the button that asks, and not to the top of the page.
+    if ((before.current === 'confirm' || before.current === 'refused') && view.kind === 'offer') applyButton.current?.focus();
+    if (before.current === 'sending' && view.kind === 'refused') applyButton.current?.focus();
+    before.current = view.kind;
+  }, [view.kind]);
   const button = (disabled: boolean, describedBy?: string) => (
-    <Button data-testid={ids.apply} size="sm" variant="primary" disabled={disabled} aria-describedby={describedBy} onClick={install?.onAsk}>
+    <Button ref={applyButton} data-testid={ids.apply} size="sm" variant="primary" disabled={disabled} aria-describedby={describedBy} onClick={() => install?.onAsk(version)}>
       <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
       <span>{t('upd_apply_button')}</span>
     </Button>
@@ -167,23 +180,35 @@ function InstallControls({ view, ids, t, busy, install, version }: {
         <div data-testid={ids.confirm} role="group" aria-labelledby={ids.confirmText} className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <p id={ids.confirmText} data-testid={ids.confirmText} className="min-w-[12rem] flex-1 text-[13px] leading-5 text-fg">{t('upd_apply_confirm', { version })}</p>
           <div className="flex shrink-0 items-center gap-2">
-            <Button data-testid={ids.confirmYes} size="sm" variant="primary" onClick={() => void install?.onConfirm()}>{t('upd_apply_confirm_yes')}</Button>
+            <Button data-testid={ids.confirmYes} size="sm" variant="primary" onClick={() => void install?.onConfirm(version)}>{t('upd_apply_confirm_yes')}</Button>
             <Button data-testid={ids.confirmNo} size="sm" variant="secondary" autoFocus onClick={install?.onBack}>{t('upd_apply_confirm_no')}</Button>
           </div>
         </div>
       );
     case 'sending':
       return <p data-testid={ids.applying} role="status" className="text-[13px] leading-5 text-fg">{t('upd_apply_sending')}</p>;
-    case 'refused':
+    case 'refused': {
+      // An answer that never came is not "not started": the page does not know whether it started, and says that without the label that would claim it.
+      const words = (view.group === 'no_answer' ? '' : `${t('upd_apply_err_label')} `) + t(`upd_apply_err_${view.group ?? 'other'}`);
       return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <div className="flex min-w-[12rem] flex-1 items-start gap-2">
             <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
-            <p data-testid={ids.applyError} className="text-[13px] leading-5 text-fg">{t('upd_apply_err_label')} {t(`upd_apply_err_${view.group ?? 'other'}`)}</p>
+            <p data-testid={ids.applyError} {...(install?.live ? { role: 'status' } : {})} className="text-[13px] leading-5 text-fg">{words}</p>
           </div>
-          {button(busy)}
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {button(busy)}
+            {view.again && (
+              <Button data-testid={ids.applyAgain} size="sm" variant="secondary" disabled={busy} onClick={() => install?.onAgain(version)}>
+                <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>{t('upd_apply_again')}</span>
+              </Button>
+            )}
+            <Button data-testid={ids.applyDismiss} size="sm" variant="secondary" onClick={install?.onBack}>{t('upd_applied_dismiss')}</Button>
+          </div>
         </div>
       );
+    }
     default:
       return null;
   }
