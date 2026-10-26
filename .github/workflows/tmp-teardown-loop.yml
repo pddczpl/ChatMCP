@@ -21,12 +21,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { fixture: before, what: loop, repeat: 60, id: 2 }
-          - { fixture: before, what: loop, repeat: 60, id: 3 }
-          - { fixture: before, what: loop, repeat: 60, id: 4 }
-          - { fixture: after, what: loop, repeat: 60, id: 2 }
-          - { fixture: after, what: loop, repeat: 60, id: 3 }
-          - { fixture: after, what: loop, repeat: 60, id: 4 }
+          - { fixture: before, what: loop, repeat: 40, id: 5, burners: 2 }
+          - { fixture: before, what: loop, repeat: 40, id: 6, burners: 4 }
+          - { fixture: after, what: loop, repeat: 40, id: 5, burners: 2 }
+          - { fixture: after, what: loop, repeat: 40, id: 6, burners: 4 }
     defaults:
       run:
         shell: bash
@@ -81,7 +79,10 @@ jobs:
           set +e
           line=$(grep -n "^test('the thinking effort" e2e/studio.spec.mjs | head -1 | cut -d: -f1)
           echo "the test is at e2e/studio.spec.mjs:$line"
+          # CPU contention widens the window in which a reload meets a response in flight
+          for i in $(seq 1 ${{ matrix.burners }}); do node -e "for(;;){}" & done
           npx playwright test "e2e/studio.spec.mjs:$line" --repeat-each=${{ matrix.repeat }} --reporter=list,json 2>&1 | tail -150
+          kill $(jobs -p) 2>/dev/null || true
           node ../../tmp-summarize.mjs "$GITHUB_WORKSPACE/loop-report.json" "${{ matrix.fixture }} fixtures" > summary.md
           code=$?
           cat summary.md
@@ -93,7 +94,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: proof-${{ matrix.fixture }}-${{ matrix.what }}-${{ matrix.id }}
+          name: proof-${{ matrix.fixture }}-${{ matrix.what }}-${{ matrix.id }}-burners${{ matrix.burners }}
           path: |
             loop-report.json
             CHATMCP-HUB/ui/test-results
