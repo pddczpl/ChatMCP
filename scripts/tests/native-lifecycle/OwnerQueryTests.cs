@@ -141,7 +141,7 @@ internal static class OwnerQueryTests
 
             // ---- the letters that the console's code page cannot hold: Windows PowerShell writes a redirected answer in the OEM code page and turned every one of them into "?", so a program under a Windows profile
             // named with such letters (a Vietnamese one, say) was never taken for the installed Hub, and the installer, the uninstaller and the updater refused with foreign_listener
-            var accented = Path.Combine(folder, "thử-nghiệm-Đạt-😀"); // the last is a letter of two UTF-16 units: each is escaped alone and the reader joins them
+            var accented = Path.Combine(folder, "thử-nghiệm-Đạt-ã-😀"); // a Latin-1 letter that the code page 437 lacks (the mutation that escapes only above 0xFF), and a letter of two UTF-16 units (each is escaped alone and the reader joins them)
             Directory.CreateDirectory(accented);
             var accentedPing = Path.Combine(accented, "ping-đạt-" + Guid.NewGuid().ToString("N")[..8] + ".exe");
             File.Copy(Path.Combine(Environment.SystemDirectory, "ping.exe"), accentedPing);

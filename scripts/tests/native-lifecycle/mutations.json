@@ -3633,7 +3633,7 @@
    "patches": [
     {
      "file": "native-shared/HubLifecycle.cs",
-     "old": "-Filter 'ProcessId = {pid}')",
+     "old": "-Filter 'ProcessId = \" + pid + \"')",
      "new": "-Filter 'ProcessId = 4')"
     }
    ]
@@ -3657,6 +3657,74 @@
      "file": "native-shared/HubLifecycle.cs",
      "old": "try { probe.Kill(true); }",
      "new": "try { probe.Kill(); }"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-letters-left-to-the-code-page",
+   "what": "the query prints the answer as it is, and Windows PowerShell turns every letter outside the OEM code page into a question mark (the code before this change)",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": " | ForEach-Object { [regex]::Replace($_, '[^\\\\x20-\\\\x7e]', { param($m) '\\\\u{0:x4}' -f [int][char]$m.Value }) }",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "owner-query-escape-only-above-latin1",
+   "what": "only the letters above U+00FF are escaped, and the Latin-1 ones that the code page lacks are still garbled",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "'[^\\\\x20-\\\\x7e]'",
+     "new": "'[^\\\\x20-\\\\xff]'"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-escape-with-two-digits",
+   "what": "a letter is escaped with two hex digits, which is another letter or no JSON at all",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "'\\\\u{0:x4}'",
+     "new": "'\\\\u{0:x2}'"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-escape-several-letters-at-once",
+   "what": "a run of non-ASCII letters is one match, and one letter cannot be made of a run",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "'[^\\\\x20-\\\\x7e]'",
+     "new": "'[^\\\\x20-\\\\x7e]+'"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-escape-in-capitals",
+   "equivalent": "JSON reads the hex digits of \\uXXXX in either case, so the answer is the same",
+   "what": "the hex digits of an escape are capitals",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "'\\\\u{0:x4}'",
+     "new": "'\\\\u{0:X4}'"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-delete-char-passes",
+   "equivalent": "U+007F is ASCII in every OEM code page and a JSON string may hold it raw, so the answer is the same",
+   "what": "the delete character is not escaped",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "'[^\\\\x20-\\\\x7e]'",
+     "new": "'[^\\\\x20-\\\\x7f]'"
     }
    ]
   },
