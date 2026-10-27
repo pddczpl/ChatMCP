@@ -820,8 +820,9 @@ test('an update that did not go through says why, in the words of the page, and 
     assert.ok(has(enHtml, 'update-applied-dismiss'), reason);
   }
   assert.match(text(await notice({ update: failed('install_failed', 'rolled_back') }, 'en'), 'update-applied-text'), /The files that had been replaced were put back\./);
-  // An installation that stopped halfway needs recovery, and nothing runs behind the marker of the unfinished update: the page can say anything only once a Hub has started again, that is, after the
-  // installation was recovered by hand. So the words are about what happened (it had to be put back), not "DatGold will not start" or "keep the backup", and the version that runs is named as for any refusal.
+  // An installation that stopped halfway needs recovery, and the launcher starts no Hub behind the marker of the unfinished update: the page can say anything only once a Hub that the app started has read the
+  // note, that is, after the installation was recovered by hand (a Hub started by hand is not stopped by the marker and would say it early: RR-38). So the words are about what happened (it had to be put back),
+  // not "DatGold will not start" or "keep the backup", and the version that runs is named as for any refusal.
   const recovery = text(await notice({ update: failed('install_failed', 'needs_recovery') }, 'en'), 'update-applied-text');
   assert.equal(recovery, 'The update to DatGold 3.10.4 did not go through. The files could not be replaced. DatGold 3.10.2 is still the version that runs. That update stopped halfway and DatGold had to be put back by hand from its backup. If anything does not work as it should, run DatGoldSetup.exe again.');
   assert.doesNotMatch(recovery, /blocking DatGold|will not start|Keep the backup/, 'the app is running when this is drawn: it is not blocked, and there is no backup left to keep');

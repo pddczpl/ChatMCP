@@ -119,6 +119,8 @@ function Test-InstallerFileContains {
 
 # The desktop shell carries its key list as an embedded resource, which is the file byte for byte. So the program that was published must hold the exact bytes of the list the build meant to give it:
 # the committed CHATMCP-HUB\lib\release-keys.json, or the one a TEST build named. A program that holds anything else would trust other keys than the build says.
+# What is proved is that these bytes OCCUR in the published program, which is what an embedded resource of that file looks like; that the resource IS those bytes is not proved (the same bytes held elsewhere
+# in the program, a string or a second resource, would pass too). The project embeds the list one way only, and the shell reads it from there; docs/THREAT-MODEL.md U23 says the same.
 function Assert-InstallerReleaseKeysBuiltIn {
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)][string]$Executable, [Parameter(Mandatory = $true)][string]$KeysFile)

@@ -99,8 +99,9 @@ export function AppliedNotice({ update, lang: pinned, busy = false, onDismiss }:
     );
   }
   // An update that did not go through: the words of the page for the reason, the version that still runs, and what was done with the files when it matters. Not drawn as a danger: nothing was lost.
-  // An update that left the installation in need of recovery: nothing runs behind the marker of the unfinished update, so this is read by a Hub that started again, that is, after the installation was put
-  // back by hand. The version that runs is named as for any refusal; if THIS update stopped halfway that is said as something that happened (an earlier one found unfinished needs nothing more than its reason).
+  // An update that left the installation in need of recovery: the launcher starts no Hub behind the marker of the unfinished update, so this is read by a Hub that the app started again, that is, after the
+  // installation was put back by hand (a Hub started by hand with START-CHATMCP-HUB.cmd is not stopped by the marker and would read it early: RR-38). The version that runs is named as for any refusal; if THIS
+  // update stopped halfway that is said as something that happened (an earlier one found unfinished needs nothing more than its reason).
   const stoppedHalfway = view.state === 'needs_recovery' && view.reasonKey !== 'upd_applied_reason_pending_recovery';
   const sentences = [
     t('upd_applied_failed_title', { version }),

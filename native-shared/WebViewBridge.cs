@@ -10,9 +10,10 @@ internal static class WebViewBridge
     /// Keep window.open / target=_blank inside the app: the request is always handled (no second WebView2 window is created)
     /// and, for an http/https address only, forwarded to the page as a web message. The one exception is a release page of this project on
     /// GitHub (OpenLink.TryGetExternalLink), which opens in the system browser instead: the preview tab cannot show github.com, so "What's new"
-    /// opened nothing. That only happens for a request that a person made (<c>IsUserInitiated</c>, the click on the link): script that runs in the page has no user gesture and cannot start the
-    /// browser of the person on its own; its request takes the road of every other address. <paramref name="openExternal"/> is what opens it (the system browser unless a test says otherwise);
-    /// it is given the parsed address and nothing else.
+    /// opened nothing. That only happens for a request that a person made (<c>IsUserInitiated</c>, the click on the link). The engine's flag follows its transient user activation, which a click or a key press
+    /// leaves for about five seconds: script that runs without one in the last few seconds cannot start the browser of the person on its own, and its request takes the road of every other address (script that
+    /// runs within those seconds of a real click can open a release page of the project, and nothing else: only an address that TryGetExternalLink accepts is opened). <paramref name="openExternal"/> is what
+    /// opens it (the system browser unless a test says otherwise); it is given the parsed address and nothing else.
     /// </summary>
     internal static void AttachNewWindowHandler(CoreWebView2 core, Action<string>? openExternal = null)
     {

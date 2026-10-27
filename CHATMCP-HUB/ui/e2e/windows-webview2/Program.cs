@@ -140,8 +140,8 @@ internal sealed class SmokeWindow : Form
         passed.Add("about:, javascript: and file: addresses are dropped by the shell");
 
         // A release page of the project goes to the SYSTEM browser and not to the preview tab (that is what "What's new" is), but only when a PERSON asked for it: script that runs in the page
-        // (window.open, or a click that code makes) has no user gesture, and a program on the page must not be able to start the browser of the person on its own. A look-alike address is not
-        // on the list and keeps the old road, to the page.
+        // (window.open, or a click that code makes) with no user activation in the last few seconds is not a person's request, and a program on the page must not be able to start the browser of the person
+        // on its own. A look-alike address is not on the list and keeps the old road, to the page.
         const string notes = "https://github.com/pddczpl/ChatMCP/releases/tag/v3.10.2";
         // a link made the way the page makes its own (target=_blank, rel=noopener noreferrer), laid out where a mouse can reach it; `then` is what is done to it at once
         string LinkTo(string address, string then) => "(() => { const a = document.createElement('a'); a.id = 'chatmcp-smoke-link'; a.href = " + JsonSerializer.Serialize(address) + "; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = 'notes'; a.style.cssText = 'position:fixed;left:20px;top:20px;width:200px;height:40px;display:block;z-index:2147483647;background:#fff;color:#000'; document.body.append(a); " + then + " return true; })()";

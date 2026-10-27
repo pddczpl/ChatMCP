@@ -162,7 +162,8 @@ check(/new VerifiedUpdate\(version, folder, path, FinalPathOf\(stream\.SafeFileH
 check(!/new ProcessStartInfo\(update\.StartPath\)/.test(applier.replace('update.StartPath', 'update.InstallerPath')), 'negative control: a start from the path that was found is not accepted');
 
 // ---- the system browser opens a link only for a person -------------------------------------------------------------------------------------------------------------------------------------------
-// Script that runs in the page has no user gesture; a request that WebView2 does not call user-initiated must not start the browser of the person. (Proved with the real WebView2 by ui/e2e/webview2-smoke.mjs.)
+// Script that runs in the page without a user activation in the last few seconds (the engine keeps one for about five seconds after a click or a key press) is not a person's request; a request that WebView2
+// does not call user-initiated must not start the browser of the person. (Proved with the real WebView2 by ui/e2e/webview2-smoke.mjs.)
 const bridge = strip(read('native-shared/WebViewBridge.cs'));
 const opensOnlyForAPerson = /if\s*\(\s*e\.IsUserInitiated\s*&&\s*OpenLink\.TryGetExternalLink\(\s*e\.Uri\s*,\s*out\s+var\s+external\s*\)\s*\)\s*\{\s*open\(\s*external\s*\)\s*;\s*return;\s*\}/;
 check(opensOnlyForAPerson.test(bridge), 'the new-window handler hands a release page to the system browser only for a request that a person made (IsUserInitiated)');
