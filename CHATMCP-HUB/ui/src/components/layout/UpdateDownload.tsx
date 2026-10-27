@@ -41,6 +41,9 @@ export interface InstallProps {
   live?: boolean;
 }
 
+/** Whether the focus was left on nothing, which is where a button that disappears leaves it: a person who has moved on (a field they are typing in, a dialog) keeps theirs. */
+const focusIsFree = () => { const active = document.activeElement; return !active || active === document.body; };
+
 /**
  * What the owner can do about the installer of the release on offer, and what the Hub has done: a Download button (only for a release whose signature checked and that names one installer), the
  * progress with Cancel, the checking of the file, "Downloaded and checked" and, for a download that is ready, what can be done with it: in the desktop app the button "Install and restart" (held back, with the
@@ -56,13 +59,23 @@ export function DownloadControls({ update, lang, busy = false, cancelling = fals
   const view = downloadView(update);
   const version = view.version ?? '';
   const size = formatBytes(view.bytes, lang);
+  // The button that starts a download (Download, or Download again after a refusal) is replaced by the progress and its Cancel button, and the focus that was on it falls to the top of the page. When the owner
+  // pressed it, the focus goes to Cancel, the button that now controls the download, if it was left on nothing. A download that starts without a press (another window of the owner's) does not take the focus.
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const pressedStart = useRef(false);
+  useEffect(() => {
+    if ((view.kind === 'progress' || view.kind === 'verifying') && pressedStart.current && focusIsFree()) cancelRef.current?.focus();
+    if (view.kind !== 'offer') pressedStart.current = false; // 'offer' can be seen once more between the press and the first progress
+  }, [view.kind]);
+  const start = (press: () => void) => { pressedStart.current = true; press(); };
+  const installControls = install ? { ...install, onAgain: (again: string) => start(() => install.onAgain(again)) } : undefined;
   const downloadButton = (
-    <Button data-testid={ids.download} size="sm" variant="primary" disabled={busy} onClick={() => onDownload(version)}>
+    <Button data-testid={ids.download} size="sm" variant="primary" disabled={busy} onClick={() => start(() => onDownload(version))}>
       <Download className="h-3.5 w-3.5" aria-hidden="true" />
       <span>{view.bytes === null ? t('upd_n_download_plain') : t('upd_n_download', { size })}</span>
     </Button>
   );
-  const cancelButton = <Button data-testid={ids.cancel} size="sm" variant="secondary" disabled={cancelling} onClick={onCancel}>{t('upd_dl_cancel')}</Button>;
+  const cancelButton = <Button ref={cancelRef} data-testid={ids.cancel} size="sm" variant="secondary" disabled={cancelling} onClick={onCancel}>{t('upd_dl_cancel')}</Button>;
   /** Why there is no Download button: the signature (it is missing, does not check, was not read) or the manifest (it names no single installer). */
   const why = (current: DownloadView) => (
     <p data-testid={ids.signatureNote} data-signature={current.signature} data-reason={current.reason ?? ''} className="min-w-[12rem] flex-1 text-[12px] leading-5 text-muted">
@@ -111,7 +124,7 @@ export function DownloadControls({ update, lang, busy = false, cancelling = fals
               <p data-testid={ids.readyNote} className="mt-0.5 text-[12px] leading-5 text-muted">{t('upd_dl_ready_note', { version, size: formatBytes(view.bytes, lang) })}</p>
             </div>
           </div>
-          <InstallControls view={applyView(update, install?.hub, install?.shell ?? false, install?.phase ?? { phase: 'idle' })} ids={ids} t={t} busy={busy} install={install} version={version} />
+          <InstallControls view={applyView(update, install?.hub, install?.shell ?? false, install?.phase ?? { phase: 'idle' })} ids={ids} t={t} busy={busy} install={installControls} version={version} />
         </div>
       );
     case 'failed':
@@ -154,7 +167,6 @@ function InstallControls({ view, ids, t, busy, install, version }: {
     // The question or the refusal that had the focus is gone (Not now, Dismiss, or the shell answered a refusal): the focus goes back to the button that asks, and not to the top of the page. Only when the focus
     // was left on nothing, which is where a button that disappears leaves it: a person who has moved on (the field they were typing in, a dialog) keeps it, and a refusal that arrives 90 seconds later does
     // not take it away mid-sentence.
-    const focusIsFree = () => { const active = document.activeElement; return !active || active === document.body; };
     if ((before.current === 'confirm' || before.current === 'refused') && view.kind === 'offer' && focusIsFree()) applyButton.current?.focus();
     if (before.current === 'sending' && view.kind === 'refused' && focusIsFree()) applyButton.current?.focus();
     before.current = view.kind;

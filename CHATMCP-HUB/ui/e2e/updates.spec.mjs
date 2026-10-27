@@ -316,6 +316,7 @@ signedTest('a signed release is downloaded on a click: the bar moves, Cancel sto
   expect((await started.json()).started).toBe(true);
   const bar = page.getByTestId('update-download-progress');
   await expect(bar).toBeVisible();
+  await expect(page.getByTestId('update-cancel'), 'the Download button that was pressed is gone: the focus is on Cancel, the button that now controls the download, and not on the top of the page').toBeFocused();
   await expect(bar).toHaveAttribute('aria-valuenow', '33');
   await expect(page.getByTestId('update-download-progress-text')).toHaveText('Đang tải… 33% (2,0 MB / 6,0 MB)');
   await expect(page.getByTestId('update-download'), 'while it runs there is no second button').toHaveCount(0);
@@ -659,11 +660,15 @@ signedTest('a refusal can be put away, a release the shell cannot find can be do
   const again = page.getByTestId('update-apply-again');
   await expect(again).toHaveText('Tải lại');
   const hitsBefore = feed.installer.hits();
+  feed.installer.mode('chain', { pauseAfter: 2 * MiB }); // held at a third, so that the download is seen running
   const clicked = page.waitForResponse(post(DOWNLOAD));
   await again.click();
   const answer = await clicked;
   expect(answer.request().postDataJSON(), 'the same click as Download, with again').toEqual({ version: '3.10.3', again: true });
   expect((await answer.json()).started, 'the Hub fetched it anew although it had called it ready').toBe(true);
+  await expect(page.getByTestId('update-download-progress'), 'the download runs anew').toBeVisible();
+  await expect(page.getByTestId('update-cancel'), 'the button that was pressed went away with the rest of the install controls: the focus is on the button that now controls the download, not on the top of the page').toBeFocused();
+  feed.installer.resume();
   await expect(page.getByTestId('update-download-ready'), 'and it is ready again').toBeVisible({ timeout: 30_000 });
   expect(feed.installer.hits(), 'the installer was asked for once more').toBeGreaterThan(hitsBefore);
   expect(await fs.readFile(path.join(updates, '3.10.3', 'DatGoldSetup.exe')), 'whole again').toEqual(installer.bytes);
