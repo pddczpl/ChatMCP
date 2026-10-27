@@ -297,7 +297,7 @@ jobs:
 
   windows-updater-e2e:
     # The in-app updater, seen working as a whole: a press of the mouse in the WebView2 window of an installed app (a trusted click that the browser takes for a person's, injected through the DevTools protocol:
-    # not the operating system's mouse) downloads a signed update, the desktop shell checks it with its own C#, starts the setup in update mode, the setup waits for the shell to close, replaces the files and opens
+    # not the operating system's mouse) downloads a signed update, the desktop shell checks it with its own C#, starts the setup in update mode (with its own pid in --wait-pid) and closes, and the setup replaces the files and opens
     # the new app; and the refusals (a tampered setup, a signature by another key, work that is running, a second request) leave the old app installed and working.
     # Test builds only: the setups are built from this commit with versions given at build time and a throwaway key list (nothing is committed, tagged, released or published), GitHub is a stand-in on a loopback
     # port, the key is made for the run. Not proved here, and said in the pull request: a release signed with the real key, GitHub itself, SmartScreen with an unsigned setup, a download of 230 MB over the internet.

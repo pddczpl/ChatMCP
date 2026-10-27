@@ -365,6 +365,31 @@ try {
     assert.match(script.slice(startAt), /\$env:PSModulePath = \$savedModulePath/, 'and given back to this session afterwards');
     ok('Build-TestPair.ps1: the cleanup cannot replace the real error, does not prune the repository, and starts the builds without the module path of PowerShell 7');
   }
+
+  // ----------------------------------------------------------------------------------------------------------------------------- 9. claims the job cannot support
+  // The first green hosted run of the job (head 73f73fd) showed what it cannot show: the OLD shell closes by itself within a second of the click, so the setup was never seen waiting for it (--wait-pid), and
+  // nobody watched who stopped the OLD Hub. Those two are held by the contract and the native tests (scripts/tests/native-lifecycle/UpdateRunTests.cs, ShellProcess.WaitForExit); what the job proves is the
+  // arguments the shell gave the setup, word by word, and the outcome. A label, a comment or a document that says more than that is wrong, and this keeps it from coming back.
+  {
+    const overclaim = /setup waits? for the shell|setup waited for the shell|the setup stopped it|waits for the shell to (?:close|exit)|chờ vỏ đóng rồi mới thay|bộ cài chờ vỏ/i;
+    assert.ok(overclaim.test('and the setup waits for the shell to exit') && overclaim.test('the OLD Hub is gone: the setup stopped it') && overclaim.test('bộ cài chờ vỏ đóng rồi mới thay tệp'), 'POSITIVE CONTROL: the pattern finds each claim');
+    const ci = fs.readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'ci.yml'), 'utf8').replace(/\r\n/g, '\n');
+    const job = ci.slice(ci.indexOf('  windows-updater-e2e:'), ci.indexOf('  claims-map:'));
+    assert.ok(job.length > 1000 && job.includes('run.mjs'), 'the job was found in ci.yml');
+    const about = (file, keep) => fs.readFileSync(path.join(REPO_ROOT, ...file.split('/')), 'utf8').split(/\r?\n/).filter((line) => keep.test(line)).join('\n');
+    const texts = {
+      'scripts/tests/updater-e2e/run.mjs': fs.readFileSync(path.join(TOOLS, 'run.mjs'), 'utf8'),
+      'the job windows-updater-e2e in .github/workflows/ci.yml': job,
+      'the lines of docs/DEVELOPMENT.md about the updater proof': about('docs/DEVELOPMENT.md', /updater-e2e/),
+      'the lines of docs/WINDOWS-SETUP.md about the updater proof': about('docs/WINDOWS-SETUP.md', /updater-e2e/),
+      'the row RR-37 of docs/THREAT-MODEL.md': about('docs/THREAT-MODEL.md', /^\| RR-37 \|/),
+    };
+    for (const [name, text] of Object.entries(texts)) {
+      assert.ok(text.length > 200, `${name} was found`);
+      assert.ok(!overclaim.test(text), `${name} must not say that the job saw the setup wait for the shell, or who stopped the OLD Hub`);
+    }
+    ok('nothing the job says about itself claims more than the first green run showed: not that the setup was seen waiting for the shell (it closes within a second), not who stopped the OLD Hub');
+  }
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The end-to-end proof of the in-app updater, on a GitHub-hosted Windows runner (the CI job "Windows in-app updater, end to end"). It installs a real OLD setup, starts the real desktop shell and Hub, and drives the
 // page inside the shell's WebView2 with mouse presses that the browser takes for a person's (trusted clicks, injected through the DevTools protocol: not the click() of a script, but not the operating
-// system's mouse either) to Download and to Install and restart; the shell checks the update with its own C#, starts the real NEW setup in update mode, the setup waits for the shell to close, replaces the
+// system's mouse either) to Download and to Install and restart; the shell checks the update with its own C#, starts the real NEW setup in update mode (with its own pid in --wait-pid) and closes, and the setup replaces the
 // files and opens the NEW app. Then the facts that nobody has seen so far are checked, and the refusals (a tampered setup, a manifest signed by another key, work that is running, a second request) are made to
 // happen to the OLD app, which must stay installed and working.
 //
@@ -153,11 +153,6 @@ async function diagnostics(reason) {
   for (const name of ['update-check.json', 'update-settings.json', 'update-result.json']) {
     try { const file = path.join(paths.hubDirectory, name); if (fs.existsSync(file)) fs.copyFileSync(file, ev.file(`hub-${name}`)); } catch { /* best effort */ }
   }
-}
-
-/** The file that a path names, as the disk knows it: its identity (NTFS file id), size and time, so that a file that was replaced is told from a file that was only read. */
-function fileIdentity(file) {
-  try { const stat = fs.statSync(file, { bigint: true }); return `${stat.ino}:${stat.size}:${stat.mtimeMs}`; } catch (error) { return `unreadable:${error.code ?? error.message}`; }
 }
 
 /** A fact that becomes true shortly after something else (what the Hub clears as it starts): looked at again for up to `timeoutMs`, kept as a check when it holds, and a failed check when it does not. */
@@ -439,7 +434,6 @@ async function main() {
   // where the staged setup really is, written as Windows spells it, asked BEFORE the click: the Hub that starts after the update removes the folder of updates (its start-up cleanup), so the file is gone by the time
   // the run looks at what the setup was started from (the first hosted run failed on exactly that: ENOENT on the realpath of a file that had just done its job)
   const stagedRealPath = fs.realpathSync.native(installerFile);
-  const exeBefore = fileIdentity(paths.exe);
   const updateBegan = Date.now();
   const oldShell = run.shell;
   const oldShellPid = run.shellPid;
@@ -453,14 +447,12 @@ async function main() {
   await run.driver.pressTestId('update-apply-yes');
   ev.log('Install and restart was confirmed; the shell checks the update, starts the setup and closes');
 
-  // the timeline: the setup is seen (with the arguments the shell gave it), the OLD shell exits, the NEW Hub answers. Every look taken while the OLD shell still runs also looks at the installed program:
-  // it must still be the OLD file, because the setup waits for the shell to exit before it replaces anything (--wait-pid).
+  // the timeline: the setup is seen (with the arguments the shell gave it), the OLD shell exits, the NEW Hub answers. The OLD shell closes by itself within a second of the click, so the setup is never seen
+  // waiting for it: that it waits is held by the contract and the native tests (UpdateRunTests.cs); this proof shows the pid it was given in --wait-pid and what came out of it.
   let installerSeen = null;
   let shellGoneAt = null;
   let newHealth = null;
   let answer = null;
-  let looksWhileShellRan = 0;
-  let replacedWhileShellRan = false;
   const deadline = Date.now() + 900_000;
   for (;;) {
     if (answer === null && run.cdp.open) {
@@ -482,10 +474,7 @@ async function main() {
         }
       }
     }
-    if (oldShell.exitedAt === null) {
-      looksWhileShellRan += 1;
-      if (fileIdentity(paths.exe) !== exeBefore) replacedWhileShellRan = true;
-    } else if (shellGoneAt === null) {
+    if (shellGoneAt === null && oldShell.exitedAt !== null) {
       shellGoneAt = Number(((oldShell.exitedAt - updateBegan) / 1000).toFixed(1));
       ev.log(`the OLD shell has closed (${shellGoneAt} s after the click, exit code ${oldShell.exitCode})`);
     }
@@ -497,9 +486,8 @@ async function main() {
     await sleep(1000);
   }
   ev.note('update seconds (click to NEW Hub)', seconds(updateBegan));
-  ev.check(oldShell.exitedAt !== null, 'the OLD shell closed itself for the setup (this run never killed it: its own process reported the exit)');
-  if (looksWhileShellRan > 0) ev.check(!replacedWhileShellRan, `in each of the ${looksWhileShellRan} looks taken while the OLD shell still ran, the installed ChatMCP.exe was still the OLD file (the setup waits for the shell to exit)`);
-  else ev.log('the OLD shell had closed before the first look: no look was taken while it ran');
+  ev.check(oldShell.exitedAt !== null && oldShell.exitCode === 0, `the OLD shell exited by itself with exit code 0, ${shellGoneAt} s after the click (this run did not close it: its own process reported the exit)`);
+  ev.note('timeline, seconds after the click', { oldShellExited: shellGoneAt, setupFirstSeen: installerSeen?.at ?? null, newHubAnswered: seconds(updateBegan) });
   ev.check(installerSeen !== null, 'the setup ran, and its command line was read while it ran');
   // compared as Windows spells them (a profile path can be written with 8.3 names in one and in full in the other)
   ev.check(samePath(installerSeen.info.path, stagedRealPath), 'and it was started from the staged file that the shell had hashed', `${installerSeen.info.path} vs ${stagedRealPath}`);
@@ -531,7 +519,7 @@ async function main() {
   const newHubProcess = processInfo(newSession.pid);
   ev.check(newHubProcess !== null && newHubProcess.created !== oldHubCreated && samePath(newHubProcess.path, paths.node) && String(newHubProcess.commandLine).toLowerCase().includes(path.join(paths.installDirectory, 'CHATMCP-HUB', 'hub.mjs').toLowerCase()),
     `the Hub is a new process (${oldHubPid} -> ${newSession.pid}, another start time) of the installed node.exe running the installed hub.mjs`, JSON.stringify(newHubProcess));
-  ev.check(!isSameProcessRunning(oldHubPid, oldHubCreated), `and the OLD Hub (pid ${oldHubPid}) is gone: the setup stopped it`);
+  ev.check(!isSameProcessRunning(oldHubPid, oldHubCreated), `and the OLD Hub (pid ${oldHubPid}, the same start time) is not running any more (who ended it, the shell or the setup, is not told here)`);
   run.hubPid = newSession.pid;
   run.hubCreated = newHubProcess.created;
   if (lastPhase('apply')) return;
@@ -598,7 +586,7 @@ async function main() {
   await run.driver.waitFor("document.querySelector('#root header')", { timeoutMs: 120_000, label: 'the Studio again' });
   await sleep(3000);
   ev.check(!(await run.driver.isVisible('update-applied')), 'and the page, three seconds after it was drawn, shows no "Updated to" strip');
-  ev.check(run.feed.requests.every((request) => request.url.startsWith('/pddczpl/ChatMCP/releases/') || request.url.startsWith('/github-production-release-asset/')), 'every request that reached the stand-in was for a release file, at a path GitHub would serve it from', run.feed.requests.map((request) => request.url.split('?')[0]).join(' '));
+  ev.check(run.feed.requests.length >= 3 && run.feed.requests.every((request) => request.url.startsWith('/pddczpl/ChatMCP/releases/') || request.url.startsWith('/github-production-release-asset/')), 'every request that reached the stand-in was for a release file, at a path GitHub would serve it from', run.feed.requests.map((request) => request.url.split('?')[0]).join(' '));
 }
 
 // ---- the end: what was started is stopped, what was set is cleared; the same for a signal and for a crash ---------------------------------------------------------
