@@ -223,7 +223,7 @@ test('ChatGPT Web settings expose standalone Browser Companion download and manu
   const download=page.getByRole('link',{name:'Tải Browser Companion ZIP từ GitHub Releases'});
   await expect(download).toBeVisible();
   await expect(download).toHaveAttribute('href',
-    'https://github.com/pddczpl/ChatMCP/releases/latest/download/ChatMCP-Browser-Companion.zip');
+    'https://github.com/pddczpl/ChatMCP/releases/latest/download/DatGold-Browser-Companion.zip');
   await expect(page.getByText('Load unpacked',{exact:false})).toBeVisible();
   await expect(page.getByText('thư mục đã giải nén có manifest.json',{exact:false})).toBeVisible();
 });

@@ -136,7 +136,7 @@ export function AgentChannelSection() {
 
         <div className="flex flex-wrap gap-2" data-testid="browser-companion-install-links">
           <a className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line bg-surface px-3 text-[13px] font-medium text-primary transition-colors hover:border-line-strong hover:bg-hover"
-            href="https://github.com/pddczpl/ChatMCP/releases/latest/download/ChatMCP-Browser-Companion.zip"
+            href="https://github.com/pddczpl/ChatMCP/releases/latest/download/DatGold-Browser-Companion.zip"
             target="_blank" rel="noopener noreferrer"
             aria-label={t('chan_zip_aria')}>
             <Download className="h-3.5 w-3.5" /> {t('chan_zip_link')}

@@ -220,7 +220,7 @@ for (const [surface, files] of Object.entries(real)) {
     ['the old installer name beside the checks of the new build', mutate(DOWNLOAD_FILES.ci, 'if (-not (Test-Path .\\dist\\DatGoldSetup.exe))', 'if (-not (Test-Path .\\dist\\ChatMCPSetup.exe))')],
     ['the provenance gate reading the old file', mutate(DOWNLOAD_FILES.gate, "'dist/DatGoldSetup.exe'", "'dist/ChatMCPSetup.exe'")],
     ['the README without the new file name', mutate('README.md', 'DatGoldSetup.exe', 'the installer')],
-    ['the app linking a file no release publishes', mutate(DOWNLOAD_FILES.link, 'ChatMCP-Browser-Companion.zip', 'Companion.zip')],
+    ['the app linking a file no release publishes', mutate(DOWNLOAD_FILES.link, 'DatGold-Browser-Companion.zip', 'Companion.zip')],
   ];
   for (const [label, files] of downloadDefects) assert.ok(downloadProblems(files).length >= 1, `reported: ${label}`);
   ok(`the downloads are DatGoldSetup.exe and DatGold-Browser-Companion.zip, the old-named Companion is published as a copy, and ${downloadDefects.length} defects are reported`);
