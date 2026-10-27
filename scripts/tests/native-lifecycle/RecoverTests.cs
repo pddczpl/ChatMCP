@@ -9,7 +9,7 @@ using ChatMCP.Native;
 // test program runs a real InstallTransaction.Commit and kills itself in the middle (CrashChild, Process.Kill: no finally, no rollback, as a power cut), so the marker, the journal, the backups and the
 // half-replaced files are exactly what the transaction leaves. Each crash point is made ONCE (a template) and every case works on a copy of it.
 //
-// What is held here: the repair puts every file back and leaves nothing of the update behind; it is the same decision as the rollback of the transaction for every state a file can be in; it refuses, and
+// What is held here: the repair puts every file back and leaves nothing of the update behind; it makes the same decision as the rollback of the transaction for every file the commit changed (it is stricter for an entry the commit never reached: a file that is neither the old nor the new bytes is refused); it refuses, and
 // changes NOTHING, whenever it cannot prove that the installation is what the journal says; it can be run again after a stop in the middle; it never touches anything outside the installation folder; and
 // the marker and the journal it reads are the ones the setups of 3.9.0 to 3.10.2 wrote.
 internal static partial class RecoverTests
@@ -237,6 +237,7 @@ internal static partial class RecoverTests
         }
 
         RunRefusals(kit);
+        RunHardening(kit);
 
         // ---- the same decisions as the rollback of the transaction. One table of states a file can be in, run through the real rollback (a commit that fails) and through the repair of a commit that was
         // killed at the same point: a file that the rollback leaves because somebody else changed it is a state the repair refuses, and anything else ends the same way in both.

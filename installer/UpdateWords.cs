@@ -37,8 +37,8 @@ internal static class UpdateWords
     /// <summary>Why a repair did not happen or did not finish: its own refusals, the reasons of the steps before it (tasks that run, a window that stays open), and, for anything else, a file that could not be put back.</summary>
     internal static string RefusalFor(string? code) => code switch
     {
-        InstallRecovery.NotRecoverable => "The backup of the update is missing or damaged.",
-        InstallRecovery.ForeignChanges => "A file of DatGold was changed by something else after the update began.",
+        InstallRecovery.NotRecoverable => "The backup of the update, or the record of what it changed, is missing, damaged or not what this setup expects.",
+        InstallRecovery.ForeignChanges => "A file of DatGold is neither what the update wrote nor what it replaced: it was changed by something else after the update began, or an update that was cut off left it unfinished.",
         InstallRecovery.InsideInstallation => "The repair cannot be run by a program that is inside the DatGold folder.",
         var known when StepCode.IsKnown(known) => ReasonFor(known),
         _ => "A file could not be put back, probably because another program has it open.",
@@ -71,7 +71,10 @@ internal static class UpdateWords
         ? (stopped.Touched ? "The repair stopped halfway and can be run again: " : "The repair was refused and nothing was changed: ") + RefusalFor(stopped.Code) + ByHand
         : error.Message;
 
-    private const string ByHand = " To put the files back by hand, follow Recovering an installation by hand in docs/WINDOWS-SETUP.md in the DatGold project on GitHub.";
+    /// <summary>The marker is not this update's own: it was found before the install began, or it is there after a refusal of a step before it (only the generic reason belongs to an install that stopped halfway).</summary>
+    private static bool Earlier(UpdateOutcome outcome) => outcome.Reason != "install_failed";
+
+    private const string ByHand = " The section Recovering an installation by hand in docs/WINDOWS-SETUP.md in the DatGold project on GitHub says what can still be done; it checks every backup first and stops, changing nothing, when one is damaged.";
 
     /// <summary>The installation was repaired: every file the update had changed is back, and the version from before works again. The reason of the update is kept for the page; here it is said once.</summary>
     private static string RepairedFor(UpdateEnd end)
@@ -79,7 +82,7 @@ internal static class UpdateWords
         var outcome = end.Outcome;
         var back = outcome.Previous == null ? "DatGold" : "DatGold " + outcome.Previous;
         var opened = end.Relaunched ? " It was opened again." : "";
-        return outcome.Reason == "pending_recovery"
+        return Earlier(outcome)
             ? "An earlier update of DatGold had stopped halfway. DatGold has repaired the installation: every file that update had changed was put back, and " + back + " works again. The update to " + outcome.Version + " was not started; run it again." + opened
             : "DatGold " + outcome.Version + " could not be installed. " + ReasonFor(outcome.Reason) + " The update stopped halfway and its files could not all be put back at first; DatGold has repaired the installation: every file it had changed was put back, and " + back + " works again." + opened;
     }
@@ -93,7 +96,7 @@ internal static class UpdateWords
     {
         var outcome = end.Outcome;
         const string keep = "Keep the backup that .chatmcp-update-pending.json in the DatGold folder points to (do not delete it) and look in the installer log in %LOCALAPPDATA%\\ChatMCP\\logs.";
-        var earlier = outcome.Reason == "pending_recovery";
+        var earlier = Earlier(outcome);
         var what = earlier
             ? "An earlier update of DatGold did not finish, so the update to " + outcome.Version + " was not started and nothing was changed. DatGold will not start until that earlier update is repaired."
             : "The update to " + outcome.Version + " stopped halfway and the old files could not all be put back. DatGold will not start until this is repaired.";

@@ -84,7 +84,7 @@ namespace ChatMCP.Desktop
                 // An update that stopped halfway leaves this marker, and the installation is then a mix of two versions. It is looked for FIRST: the check of the versions below would call that mix "different versions" and
                 // tell the person to run the installer again, which refuses behind the marker. The launcher is a file of the installation, which the repair may have to replace, so it does not repair: it says what does.
                 if (File.Exists(Path.Combine(_repoRoot, ".chatmcp-update-pending.json")))
-                    throw new InvalidOperationException("An update of DatGold stopped halfway, so DatGold cannot start yet. Close this window and run DatGoldSetup.exe: it offers to repair the installation (or run DatGoldSetup.exe --quiet --recover --install-dir \"" + _repoRoot + "\"). Do not delete the hidden backup folder in the DatGold folder.");
+                    throw new InvalidOperationException("An update of DatGold stopped halfway, so DatGold cannot start yet. Close this window and run DatGoldSetup.exe: it offers to repair the installation. (For a script: " + InstallerCommandLine.RecoverCommandText(_repoRoot) + ".) Do not delete the backup folder in the DatGold folder, the one whose name starts with .ChatMCP-update-.");
                 // Check the installed files, not the terminal's working directory.
                 using (var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(_repoRoot, "CHATMCP-HUB", "package.json"))))
                     if (manifest.RootElement.GetProperty("version").GetString() != HubLifecycle.Version)

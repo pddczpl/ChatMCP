@@ -307,9 +307,48 @@ internal static class UpdateRunTests
             kit.Check(noResultFile.RunToEnd(Command()).Repaired && noResultFile.Written == null && noResultFile.Events.Contains("relaunch"), "a repaired installation leaves no result file beside a Hub that is already up either, and the app is still opened");
             var quiet = HalfDone();
             kit.Check(quiet.RunToEnd(Command(relaunch: false, result: false)).Repaired && !quiet.Events.Contains("relaunch") && !quiet.Events.Contains("write-result"), "without --relaunch the old app is not opened after a repair, and without --result nothing is written");
-            var racing = HalfDone(machine => machine.OnRecover = () => { /* the marker is still there once the repair says it is done */ });
-            end = racing.RunToEnd(Command());
-            kit.Check(end.Repaired && !end.Relaunched && !racing.Events.Contains("relaunch"), "an app is never opened while the marker is still on the disk, whatever the repair said");
+            // "repaired" is said only when the marker is gone afterwards: a repair that came back with the marker still on the disk (it says so, or the folder cannot be looked at) has not finished, whatever it answered
+            foreach (var (label, answer, arrange) in new (string, RecoveryResult, Action<Machine>)[]
+            {
+                ("a repair that says it put everything back", RecoveryResult.Repaired, machine => machine.OnRecover = () => { /* the marker is still there once the repair has answered */ }),
+                ("one that says there was nothing to repair", RecoveryResult.NothingToRepair, machine => machine.OnRecover = () => { /* the same */ }),
+                ("one after which the folder cannot be looked at", RecoveryResult.Repaired, machine => machine.OnRecover = () => { machine.Marker = false; machine.MarkerThrows = true; }),
+            })
+            {
+                var stays = HalfDone(machine => { machine.RecoverResult = answer; arrange(machine); });
+                end = stays.RunToEnd(Command());
+                kit.Check(!end.Repaired && end.RepairRefusal == InstallRecovery.RestoreFailed && end.Outcome == new UpdateOutcome(false, "3.11.0", "3.10.2", "needs_recovery", "install_failed") && !end.Relaunched && !stays.Events.Contains("relaunch"),
+                    label + " while the marker is on the disk, or may be, is not a repair: needs_recovery, restore_failed, the app stays closed (got " + end.Outcome.State + ", repaired " + end.Repaired + ", " + end.RepairRefusal + ")");
+                stays.Events.Clear(); stays.Written = null;
+                var again = stays.RepairNow(Command(), end.Outcome);
+                kit.Check(!again.Repaired && again.RepairRefusal == InstallRecovery.RestoreFailed && again.Outcome == end.Outcome && stays.Written == null && !stays.Events.Contains("relaunch"), "and the button's repair is judged the same way: nothing is written and nothing is opened");
+            }
+
+            // the repair by itself is for THIS update's own failed rollback, and for nothing else: a marker that is on the disk after a refusal from a step before the install (another setup working on the folder, a Hub
+            // that does work) was not made by this update, so it is not repaired unasked; the window offers the button, and says that the update was not started
+            foreach (var (code, error) in new (string, Exception)[]
+            {
+                ("another_update", new InvalidOperationException("Another DatGold installation/update is in progress.").Tag("another_update")),
+                ("tasks_running", new InvalidOperationException("Stop active DatGold tasks").Tag("tasks_running")),
+                ("foreign_listener", new InvalidOperationException("Port 3007 is not a verified DatGold Hub.").Tag("foreign_listener")),
+                ("hub_stop_failed", new IOException("Hub shutdown could not be confirmed.").Tag("hub_stop_failed")),
+                ("window_open", new IOException("Close the installed DatGold window before upgrading.").Tag("window_open")),
+                ("payload_invalid", new IOException("Unsafe or non-canonical payload path.").Tag("payload_invalid")),
+            })
+            {
+                var other = new Machine { RecoverThrows = null };
+                other.Install = (plan, progress) => { other.Marker = true; throw error; };
+                other.OnRecover = () => other.Marker = false;
+                end = other.RunToEnd(Command());
+                kit.Check(end.Outcome == new UpdateOutcome(false, "3.11.0", "3.10.2", "needs_recovery", code) && !end.Repaired && end.RepairRefusal == null && !other.Events.Contains("pause") && !other.Events.Contains("recover") && !end.Relaunched,
+                    "a marker after a refusal with the reason " + code + " is not this update's: no pause, no repair by itself, needs_recovery with that reason (got " + end.Outcome.State + ", " + end.Outcome.Reason + ", repaired " + end.Repaired + ")");
+                var words = UpdateWords.EndFor(end);
+                kit.Check(!words.Contains("stopped halfway and the old files could not all be put back") && words.Contains("Press Repair now"), "and the window does not say that this update stopped halfway, and offers the button (" + code + ")");
+                other.Events.Clear();
+                var pressed = other.RepairNow(Command(), end.Outcome);
+                kit.Check(pressed.Repaired && pressed.Outcome.State == "rolled_back" && pressed.Outcome.Reason == code && UpdateWords.EndFor(pressed).Contains("had stopped halfway") && !UpdateWords.EndFor(pressed).Contains("could not all be put back at first"),
+                    "pressed, it repairs, and the words say that an EARLIER update had stopped halfway and that this one was not started (" + code + ")");
+            }
         }
         kit.Throws(() => UpdateRun.Real().Relaunch(Path.Combine(kit.Folder("no app here"), "ChatMCP.exe")), "the real way to open the app fails when there is no ChatMCP.exe to open (the window must not say it was opened)");
         // the port of the Hub as the real machine answers: a port that nothing listens on, then the same port with a listener of this test on it

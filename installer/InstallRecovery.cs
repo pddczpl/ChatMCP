@@ -21,8 +21,9 @@ internal sealed class RecoveryException : IOException
 
 // What the setup does for an installation that an update left behind its marker (.chatmcp-update-pending.json), when the rollback of the transaction could not put every file back or the setup died in the
 // middle (a power cut, a killed process): it puts back, from the backup that the transaction kept, every file the update replaced or removed, removes every file it created, and then removes the marker and
-// the backup, so that DatGold starts and the setup works again. It is the same decision as the rollback in InstallTransaction.Commit, for every state a file can be in, and the same as the block of
-// docs/WINDOWS-SETUP.md (the way to do it by hand, which stays), with one difference that is the point: it does nothing unless it can PROVE that the installation is what the journal says.
+// the backup, so that DatGold starts and the setup works again. It makes the same decision as the rollback in InstallTransaction.Commit for every file the commit changed (it is stricter for an entry the
+// commit never reached: a file that is neither the old nor the new bytes is refused here, where the rollback never looks at it), and the same as the block of docs/WINDOWS-SETUP.md (the way to do it by
+// hand, which stays), with one difference that is the point: it does nothing unless it can PROVE that the installation is what the journal says.
 //
 //   * Phase 1 changes nothing. The marker and the journal are read as data (size, shape, hashes), every name goes through the rules of a payload and of a folder with no links, every backup must be a
 //     plain file that hashes to what the journal says, and every file is looked at: the update's own result (the new bytes), the old bytes, or no file are all in order; anything else is somebody
@@ -53,8 +54,12 @@ internal static class InstallRecovery
     private static readonly Regex BackupName = new(@"^[0-9]{6}\z", RegexOptions.CultureInvariant);
     private static readonly Regex Sha256 = new(@"^[0-9A-Fa-f]{64}\z", RegexOptions.CultureInvariant);
 
-    /// <summary>One file to put back (a copy of the backup, which hashes to <see cref="Hash"/>) or, with no backup, a file the update created that is to be removed. It is named by its path inside the installation.</summary>
-    private sealed record Step(string Relative, string? Backup, string? Hash);
+    /// <summary>
+    /// One file to put back (a copy of the backup, which hashes to <see cref="Hash"/>) or, with no backup, a file the update created that is to be removed. It is named by its path inside the installation;
+    /// <see cref="NewHash"/> is the bytes the update wrote (null for a file it removed), which the file is looked at against again right before it is touched.
+    /// </summary>
+    private sealed record Step(string Relative, string? Backup, string? Hash, string? NewHash);
+    private const string UpdateFolderPrefix = ".ChatMCP-update-";
     private sealed record Plan(string Root, string Workspace, string Marker, IReadOnlyList<Step> Steps);
 
     private static RecoveryException Refuse(string code, string message, Exception? inner = null) => new(code, message, touched: false, inner);
@@ -66,6 +71,29 @@ internal static class InstallRecovery
     {
         try { return File.Exists(InstallerEngine.SafePath(RootOf(directory), InstallTransaction.PendingName)); }
         catch (Exception error) when (error is ArgumentException or IOException or InvalidOperationException or NotSupportedException or UnauthorizedAccessException) { return false; }
+    }
+
+    /// <summary>
+    /// Whether the folder holds the marker, said only when it is TRUE either way: a folder that is not there, one that is reached through a link or one that cannot be looked at is a REFUSAL (not_recoverable), never
+    /// "no marker". A repair that answers "nothing to repair" for a folder it could not look at tells a person that all is well while the launcher still refuses to start. Something with the marker's name that is not
+    /// a file counts as the marker too, so that the repair refuses it. (<see cref="MarkerExists"/> is the gentle question of the setup wizard.)
+    /// </summary>
+    internal static bool MarkerPending(string directory)
+    {
+        string marker;
+        try
+        {
+            var root = RootOf(directory);
+            if (root.StartsWith(@"\\?\", StringComparison.Ordinal) || root.StartsWith(@"\\.\", StringComparison.Ordinal)) throw Refuse(NotRecoverable, "The DatGold folder is spelled as a device path.");
+            if (!Directory.Exists(root)) throw Refuse(NotRecoverable, "The DatGold folder is not there.");
+            marker = InstallerEngine.SafePath(root, InstallTransaction.PendingName);
+        }
+        catch (RecoveryException) { throw; }
+        catch (Exception error) when (error is ArgumentException or IOException or InvalidOperationException or NotSupportedException or UnauthorizedAccessException)
+        {
+            throw Refuse(NotRecoverable, "The DatGold folder cannot be looked at, or is reached through a link.", error);
+        }
+        return File.Exists(marker) || Directory.Exists(marker);
     }
 
     /// <summary>Phase 1 alone: throws <see cref="RecoveryException"/> when the repair would be refused, returns when it would go ahead (or when there is no marker). Changes nothing.</summary>
@@ -87,22 +115,25 @@ internal static class InstallRecovery
             {
                 // the name is checked again right before the file is written: a link that was put in its way since the first phase looked is refused, not written through (the rollback of the transaction does the same)
                 var target = InstallerEngine.SafePath(plan.Root, step.Relative);
-                if (step.Backup == null) File.Delete(target);
-                else
+                if (StillToDo(step, target, touched: done > 0))
                 {
-                    Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                    InstallerEngine.ReplaceFile(target, output =>
+                    if (step.Backup == null) File.Delete(target);
+                    else
                     {
-                        // hashed while it is copied and checked before the copy replaces the file: a backup that changed since the first phase looked at it never reaches the installation
-                        using var input = File.OpenRead(step.Backup);
-                        using var copied = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-                        var buffer = new byte[81920];
-                        int count;
-                        while ((count = input.Read(buffer, 0, buffer.Length)) != 0) { copied.AppendData(buffer, 0, count); output.Write(buffer, 0, count); }
-                        if (!Same(Convert.ToHexString(copied.GetHashAndReset()), step.Hash)) throw new IOException("A backup changed while the repair ran.");
-                        if (output is FileStream file) file.Flush(true); // on the disk before the marker goes: a power cut must not leave a file that was never written and no marker to say so
-                    });
-                    if (!Same(HashOf(target), step.Hash)) throw new IOException("A file was not put back as it was.");
+                        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                        InstallerEngine.ReplaceFile(target, output =>
+                        {
+                            // hashed while it is copied and checked before the copy replaces the file: a backup that changed since the first phase looked at it never reaches the installation
+                            using var input = File.OpenRead(step.Backup);
+                            using var copied = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                            var buffer = new byte[81920];
+                            int count;
+                            while ((count = input.Read(buffer, 0, buffer.Length)) != 0) { copied.AppendData(buffer, 0, count); output.Write(buffer, 0, count); }
+                            if (!Same(Convert.ToHexString(copied.GetHashAndReset()), step.Hash)) throw new IOException("A backup changed while the repair ran.");
+                            if (output is FileStream file) file.Flush(true); // on the disk before the marker goes: a power cut must not leave a file that was never written and no marker to say so
+                        });
+                        if (!Same(HashOf(target), step.Hash)) throw new IOException("A file was not put back as it was.");
+                    }
                 }
                 progress(40 + ++done * 50 / plan.Steps.Count, "Putting back the files of the update that stopped halfway...");
             }
@@ -115,6 +146,23 @@ internal static class InstallRecovery
         catch (RecoveryException) { throw; }
         catch (Exception error) { throw new RecoveryException(RestoreFailed, "A file of the update could not be put back.", touched: true, inner: error); }
         return RecoveryResult.Repaired;
+    }
+
+    /// <summary>
+    /// Whether a file still has to be put back (or removed), looked at AGAIN right before it is touched: the first phase proved what the file was, perhaps minutes ago, and the rollback of the transaction hashes a
+    /// file again when its turn comes, so this does too. False when it is already as it should be (put back by somebody, or a file the update created that is gone); a file that is neither what the update left nor
+    /// what it replaced is somebody else's, and it stops the repair there with the marker kept. <paramref name="touched"/> says whether this run has changed a file by now.
+    /// </summary>
+    private static bool StillToDo(Step step, string target, bool touched)
+    {
+        if (Directory.Exists(target)) throw new RecoveryException(ForeignChanges, "A file of the installation was replaced by a folder while the repair ran.", touched);
+        if (!File.Exists(target)) return step.Backup != null;
+        string current;
+        try { current = HashOf(target); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { throw new RecoveryException(RestoreFailed, "A file is held open by another program: a file of the installation.", touched, error); }
+        if (step.Backup != null && Same(current, step.Hash)) return false;
+        if (!Same(current, step.NewHash)) throw new RecoveryException(ForeignChanges, "A file of the installation was changed while the repair ran.", touched);
+        return true;
     }
 
     private static bool Same(string? one, string? other) => string.Equals(one, other, StringComparison.OrdinalIgnoreCase);
@@ -170,10 +218,20 @@ internal static class InstallRecovery
         return text;
     }
 
-    /// <summary>Phase 1. Null when there is no marker. Throws <see cref="RecoveryException"/> for everything that is not in order. Changes nothing.</summary>
+    /// <summary>Phase 1. Null when there is provably no marker. Throws <see cref="RecoveryException"/> for everything that is not in order, whatever it was (a device path, an exception nobody foresaw). Changes nothing.</summary>
     private static Plan? MakePlan(string directory, string? runningProgram)
     {
-        if (!MarkerExists(directory)) return null;
+        try { return Prove(directory, runningProgram); }
+        catch (RecoveryException) { throw; }
+        catch (Exception error) when (error is ArgumentException or IOException or InvalidOperationException or NotSupportedException or UnauthorizedAccessException)
+        {
+            throw Refuse(NotRecoverable, "The installation could not be looked at.", error);
+        }
+    }
+
+    private static Plan? Prove(string directory, string? runningProgram)
+    {
+        if (!MarkerPending(directory)) return null;
         var root = RootOf(directory);
         if (runningProgram != null && Inside(root, runningProgram))
             throw Refuse(InsideInstallation, "The repair cannot be run by a program that is a file of the installation. Run a DatGoldSetup.exe from another folder.");
@@ -221,6 +279,9 @@ internal static class InstallRecovery
                 target = InstallerEngine.SafePath(root, relative);
             }
             catch (Exception error) when (error is IOException or InvalidOperationException) { throw Refuse(NotRecoverable, "An entry of the journal names a file that is not in the installation.", error); }
+            // the update's own bookkeeping is never a file to put back or to remove: the marker is removed once, last, by the repair itself, and the backup folder after it
+            if (string.Equals(relative, InstallTransaction.PendingName, StringComparison.OrdinalIgnoreCase) || relative.Split('/', '\\')[0].StartsWith(UpdateFolderPrefix, StringComparison.OrdinalIgnoreCase))
+                throw Refuse(NotRecoverable, "An entry of the journal names a file of the update itself.");
             if (!seen.Add(relative)) throw Refuse(NotRecoverable, "The journal names a file twice.");
             if (stateFolder != null && (string.Equals(target, stateFolder, StringComparison.OrdinalIgnoreCase) || Inside(stateFolder, target)))
                 throw Refuse(NotRecoverable, "The journal names a file in the data folder of the Hub, which is never touched.");
@@ -237,7 +298,7 @@ internal static class InstallRecovery
                 if (Directory.Exists(target)) throw Refuse(NotRecoverable, "A file the update created is a folder on the disk.");
                 if (!File.Exists(target)) continue; // already gone
                 if (!Same(ReadHash(target, "a file the update created"), newHash)) throw Refuse(ForeignChanges, "A file the update created was changed after the update began.");
-                steps.Add(new Step(relative, null, null));
+                steps.Add(new Step(relative, null, null, newHash));
                 continue;
             }
 
@@ -252,13 +313,16 @@ internal static class InstallRecovery
             if (!File.Exists(backupPath)) throw Refuse(NotRecoverable, "A backup of the update is missing.");
             if (!Same(ReadHash(backupPath, "a backup of the update"), oldHash)) throw Refuse(NotRecoverable, "A backup of the update is not the file it was made from.");
             if (Directory.Exists(target)) throw Refuse(NotRecoverable, "A file the update replaced is a folder on the disk.");
+            // a folder of the installation that is a file on the disk: the file inside it can only be put back by making that folder, which cannot be done. Found out now, not after the others were put back.
+            for (var parent = Path.GetDirectoryName(target); parent != null && parent.Length > root.Length; parent = Path.GetDirectoryName(parent))
+                if (File.Exists(parent)) throw Refuse(ForeignChanges, "A folder of the installation is a file on the disk.");
             if (File.Exists(target))
             {
                 var current = ReadHash(target, "a file of the installation");
                 if (Same(current, oldHash)) continue; // already back
                 if (!Same(current, newHash)) throw Refuse(ForeignChanges, "A file of the installation was changed after the update began.");
             }
-            steps.Add(new Step(relative, backupPath, oldHash));
+            steps.Add(new Step(relative, backupPath, oldHash, newHash));
         }
         return new Plan(root, workspace, marker, steps);
     }

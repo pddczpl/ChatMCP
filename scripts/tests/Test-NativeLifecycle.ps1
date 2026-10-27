@@ -124,6 +124,7 @@ function Close-Desktop($p) {
 function Quiet-Install {
     $p = Start-Process -FilePath $CandidateInstaller -ArgumentList @('--quiet','--install-dir',('"'+$root+'"')) -PassThru
     $script:owned.Add($p)
+    $null = $p.Handle # Windows PowerShell 5.1 gives ExitCode as $null for a process that ended before its handle was opened, and a refusal behind the marker ends within milliseconds ($null -ne 0 is true: the check below could never fail)
     if (-not $p.WaitForExit(240000)) { throw 'Candidate installer timed out.' }
     return $p.ExitCode
 }
@@ -456,7 +457,7 @@ try {
         Assert-Native ($null -ne (Wait-Button $blockedWindow 'Repair now')) '[recovery] the repair is refused when a file was changed by somebody else, in words, and the window offers it again'
         Assert-Native ((Test-Path -LiteralPath $pendingMarker) -and (Test-Path -LiteralPath $retainedBackups) -and ([IO.File]::ReadAllText($canaryReplaced) -ceq 'edited by somebody else after the update began') -and -not (Test-Path -LiteralPath $canaryRemoved) -and (Test-Path -LiteralPath $canaryCreated) -and ((Get-FileHash $exe -Algorithm SHA256).Hash -eq $baselineHash)) '[recovery] the refusal changed nothing: the marker, the backup, the installed program and every file of the half-done update are as they were'
         Assert-Native ((Close-UpdateWindow $blocked) -eq 1) '[recovery] and the window ends with its Close button'
-        Assert-Native ((Quiet-Install) -ne 0) '[recovery] the quiet install of the real setup refuses behind the marker (exit code 1)'
+        Assert-Native ((Quiet-Install) -eq 1) '[recovery] the quiet install of the real setup refuses behind the marker (exit code 1)'
         $refusedRepair = Invoke-Recover
         Assert-Native (($refusedRepair.Code -ne 0) -and (Test-Path -LiteralPath $pendingMarker) -and (Test-Path -LiteralPath $retainedBackups) -and ([IO.File]::ReadAllText($canaryReplaced) -ceq 'edited by somebody else after the update began')) '[recovery] the explicit form --quiet --recover refuses it too (exit code 1) and changes nothing'
         $recoveryFile = Join-Path $results 'recover-by-hand.ps1'

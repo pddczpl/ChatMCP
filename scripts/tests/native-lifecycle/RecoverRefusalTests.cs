@@ -58,6 +58,9 @@ internal static partial class RecoverTests
         Refuses("a new hash that is not a hash", InstallRecovery.NotRecoverable, s => EditEntry(s, "a.txt", entry => entry["NewHash"] = "xyz"));
         Refuses("an old hash of 63 digits", InstallRecovery.NotRecoverable, s => EditEntry(s, "a.txt", entry => entry["OldHash"] = new string('A', 63)));
         Refuses("an old hash that is a number", InstallRecovery.NotRecoverable, s => EditEntry(s, "a.txt", entry => entry["OldHash"] = 7));
+        // a new hash is held to the same shape: a file the update has not reached yet would otherwise pass for "already gone", and a replaced one is refused with the wrong code
+        Refuses("a new hash of two digits, for a file the update created", InstallRecovery.NotRecoverable, s => EditEntry(s, "sub/new.txt", entry => entry["NewHash"] = "AB"));
+        Refuses("a new hash of 63 digits, for a file the update replaced", InstallRecovery.NotRecoverable, s => EditEntry(s, "a.txt", entry => entry["NewHash"] = new string('A', 63)));
         Refuses("the same file twice, in two spellings", InstallRecovery.NotRecoverable, s => { var again = JsonNode.Parse(EntryOf(ReadJournal(s), "a.txt").ToJsonString())!.AsObject(); again["Relative"] = "A.TXT"; Add(s, again); });
         // (a journal that is good JSON followed by 129 MiB of spaces: the limit refuses it before it is read, and a limit that was raised would let it through)
         Refuses("a journal of more than 128 MiB", InstallRecovery.NotRecoverable, s =>
@@ -333,6 +336,37 @@ internal static partial class RecoverTests
             var block = System.Text.RegularExpressions.Regex.Matches(guide, "~~~powershell\n(.*?)\n~~~", System.Text.RegularExpressions.RegexOptions.Singleline).Select(match => match.Groups[1].Value).First(text => text.Contains("# recovery-from-retained-backup"));
             Powershell(System.Text.RegularExpressions.Regex.Replace(block, @"^\$install = .*$", "$$install = '" + foreign.Install.Replace("'", "''") + "'", System.Text.RegularExpressions.RegexOptions.Multiline), "the block of the setup guide runs to its end on it");
             kit.Check(Back(foreign), "and the block of the guide, the way out by hand, puts it back over what somebody else wrote");
+
+            // the block must not put a damaged backup into the installation, and must not delete the only evidence when the journal lists nothing: it stops, and changes nothing
+            (int Code, string Errors) RunBlock(Inst s)
+            {
+                var start = HubLifecycle.WindowsPowerShell(System.Text.RegularExpressions.Regex.Replace(block, @"^\$install = .*$", "$$install = '" + s.Install.Replace("'", "''") + "'", System.Text.RegularExpressions.RegexOptions.Multiline));
+                start.RedirectStandardOutput = true; start.RedirectStandardError = true;
+                using var shell = System.Diagnostics.Process.Start(start)!;
+                _ = shell.StandardOutput.ReadToEndAsync(); var errors = shell.StandardError.ReadToEndAsync();
+                var ended = shell.WaitForExit(120000);
+                return (ended ? shell.ExitCode : -1, errors.GetAwaiter().GetResult());
+            }
+            var damaged = Retained(false, "lifecycle-fixture-damaged-backup");
+            File.WriteAllText(Directory.GetFiles(Path.Combine(damaged.Workspace, "old")).Order().First(), "damaged bytes that are not the file it was made from");
+            var damagedBefore = Snapshot(damaged.Install);
+            var damagedRun = RunBlock(damaged);
+            kit.Check(damagedRun.Code > 0 && damagedRun.Errors.Contains("not the file it was made from") && Snapshot(damaged.Install) == damagedBefore && File.Exists(damaged.Marker),
+                "the block stops at a backup that is not the file it was made from and changes nothing: no damaged byte reaches the installation, and the marker and the backup stay (exit " + damagedRun.Code + ")");
+            foreach (var (label, journalBytes) in new[] { ("an empty journal", Array.Empty<byte>()), ("a journal that lists nothing", System.Text.Encoding.UTF8.GetBytes("[]")) })
+            {
+                var nothing = Retained(false, "lifecycle-fixture-" + label.Replace(' ', '-'));
+                File.WriteAllBytes(nothing.Journal, journalBytes);
+                var nothingBefore = Snapshot(nothing.Install);
+                var nothingRun = RunBlock(nothing);
+                kit.Check(nothingRun.Code > 0 && Snapshot(nothing.Install) == nothingBefore && File.Exists(nothing.Marker), "and at " + label + ": it does not delete the backup with nothing put back (exit " + nothingRun.Code + ")");
+            }
+            // the backups are found by name in the backup folder of THIS installation, not by the paths the journal spells (the spelling of the machine that wrote it): a journal whose paths are another machine's still works
+            var moved = Retained(false, "lifecycle-fixture-other-spelling");
+            var respelled = System.Text.RegularExpressions.Regex.Replace(File.ReadAllText(moved.Journal), @"""Backup""\s*:\s*""[^""]*?\\\\([0-9]{6})""", @"""Backup"":""D:\\Another Machine\\ChatMCP\\.ChatMCP-update-0123456789abcdef0123456789abcdef\\old\\$1""");
+            File.WriteAllText(moved.Journal, respelled);
+            var movedRun = RunBlock(moved);
+            kit.Check(respelled.Contains("Another Machine") && movedRun.Code == 0 && Back(moved), "while a journal whose backup paths are spelled as another machine did is still put back from the backup folder of this installation (exit " + movedRun.Code + ")");
         }
 
         // ---- the marker and the journal are those of the setups that are out there. v3.9.0 and v3.10.2 write the journal with JsonSerializer.Serialize(changes.Values) of the record (Relative, Staged, NewHash,

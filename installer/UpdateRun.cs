@@ -183,7 +183,7 @@ internal static class UpdateRun
         var outcome = Execute(command, environment, progress, directory, program, previous);
         var repaired = false;
         string? refusal = null;
-        if (outcome.State == "needs_recovery" && outcome.Reason != "pending_recovery")
+        if (StoppedHalfway(outcome))
         {
             progress(0, UpdateWords.WaitingToRepair);
             try { environment.Pause(RepairPause); } catch (Exception) { /* a pause that fails is a pause that did not happen */ }
@@ -192,6 +192,13 @@ internal static class UpdateRun
         }
         return Conclude(command, environment, outcome, repaired, refusal, writeResult: true);
     }
+
+    /// <summary>
+    /// The marker is on the disk after this update's OWN install failed (the reason is the generic one): the only way to get there is a commit whose rollback could not finish. Every refusal of a step before the
+    /// commit (another setup working on the folder, tasks that run, a Hub that does not stop, ...) carries a code of its own, and a marker that is there after one of those was not made by this update, so it is
+    /// not repaired unasked.
+    /// </summary>
+    internal static bool StoppedHalfway(UpdateOutcome outcome) => outcome.State == "needs_recovery" && outcome.Reason == "install_failed";
 
     /// <summary>The person asked for the repair (the button of the window): the same repair, with no pause. A repair that is refused changes nothing, writes nothing and opens nothing.</summary>
     internal static UpdateEnd RepairNow(InstallerCommand command, UpdateEnvironment environment, UpdateOutcome failed, Action<int, string> progress)
@@ -211,6 +218,8 @@ internal static class UpdateRun
         var directory = command.InstallDir ?? throw new ArgumentException("A repair needs the installation directory.");
         try { environment.Recover(directory, progress); }
         catch (Exception error) { return new RepairAttempt(failed, false, RefusalOf(error)); }
+        // "repaired" is said only when the marker is gone afterwards: a repair that answered with the marker still on the disk (or where it cannot be looked at, which is taken as there) has not finished
+        if (MarkerExists(environment, directory)) return new RepairAttempt(failed, false, InstallRecovery.RestoreFailed);
         ReleaseVersion? now = null;
         try { now = environment.InstalledVersion(directory); } catch (Exception) { /* unknown: the version from before stays */ }
         return new RepairAttempt(new UpdateOutcome(false, failed.Version, now?.ToString() ?? failed.Previous, "rolled_back", failed.Reason), true, null);

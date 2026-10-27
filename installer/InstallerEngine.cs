@@ -246,7 +246,7 @@ namespace ChatMCP.Installer
             using var updateLock = HubLifecycle.AcquireUpdateLock(targetDir);
             try
             {
-                if (!InstallRecovery.MarkerExists(targetDir)) return RecoveryResult.NothingToRepair;
+                if (!InstallRecovery.MarkerPending(targetDir)) return RecoveryResult.NothingToRepair;
                 var logs = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ChatMCP", "logs");
                 Directory.CreateDirectory(logs);
                 var log = Path.Combine(logs, "recover-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N") + ".log");
