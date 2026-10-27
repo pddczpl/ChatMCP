@@ -3725,8 +3725,8 @@
    "patches": [
     {
      "file": "scripts/Build-Installer.ps1",
-     "old": " \"-p:ReleaseKeysFile=$shellKeysArgument\" |",
-     "new": " |"
+     "old": " \"-p:ReleaseKeysFile=$shellKeysArgument\" }",
+     "new": " }"
     }
    ]
   },
@@ -4554,6 +4554,198 @@
      "file": "scripts/InstallerPayload.ps1",
      "old": ", @(',', '%2C')",
      "new": ""
+    }
+   ]
+  },
+  {
+   "name": "build-step-output-thrown-away",
+   "what": "the build step throws the output of the program away again, as the publish lines did behind | Out-Null",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$tail = @(& $Command | Select-Object -Last $TailLines)",
+     "new": "$tail = @(& $Command | Out-Null)"
+    }
+   ]
+  },
+  {
+   "name": "build-step-whole-output",
+   "what": "the build step puts the whole output of the program in the error, not its last lines",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$tail = @(& $Command | Select-Object -Last $TailLines)",
+     "new": "$tail = @(& $Command)"
+    }
+   ]
+  },
+  {
+   "name": "build-step-first-lines",
+   "what": "the build step shows the first lines of the output, not the last (the cause of a failure is at the end)",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "Select-Object -Last $TailLines",
+     "new": "Select-Object -First $TailLines"
+    }
+   ]
+  },
+  {
+   "name": "build-step-tail-lines-fixed",
+   "what": "the build step always shows forty lines, whatever it was asked for",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "Select-Object -Last $TailLines",
+     "new": "Select-Object -Last 40"
+    }
+   ]
+  },
+  {
+   "name": "build-step-failure-ignored",
+   "what": "a program that ends with an error does not fail the build step",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ($code -ne 0) {",
+     "new": "if ($code -lt 0) {"
+    }
+   ]
+  },
+  {
+   "name": "build-step-exit-code-not-said",
+   "what": "the error of the build step does not say the exit code",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "\"$Description failed with exit code $code.$shown\"",
+     "new": "\"$Description failed.$shown\""
+    }
+   ]
+  },
+  {
+   "name": "build-step-step-not-named",
+   "what": "the error of the build step does not say which step failed",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "\"$Description failed with exit code $code.$shown\"",
+     "new": "\"The build step failed with exit code $code.$shown\""
+    }
+   ]
+  },
+  {
+   "name": "build-step-empty-output-listed",
+   "what": "a program that printed nothing is reported with a list of no lines",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$shown = if ($tail.Count -gt 0) {",
+     "new": "$shown = if ($true) {"
+    }
+   ]
+  },
+  {
+   "name": "build-step-success-shows-output",
+   "what": "a build step that works shows the end of the output of the program",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$code = $LASTEXITCODE\n",
+     "new": "$code = $LASTEXITCODE\n    $tail\n"
+    }
+   ]
+  },
+  {
+   "name": "build-step-error-output-captured",
+   "what": "the error output of the program is merged into the pipeline: Windows PowerShell 5.1 turns its first line into an error record and, under $ErrorActionPreference = 'Stop', ends the build with it",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$tail = @(& $Command | Select-Object -Last $TailLines)",
+     "new": "$tail = @(& $Command 2>&1 | ForEach-Object { \"$_\" } | Select-Object -Last $TailLines)"
+    }
+   ]
+  },
+  {
+   "name": "build-step-exit-code-not-reset",
+   "what": "the exit code of an earlier program is still there when the step starts",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$global:LASTEXITCODE = 0\n    $tail",
+     "new": "$tail"
+    }
+   ]
+  },
+  {
+   "name": "build-desktop-publish-output-hidden",
+   "what": "the builder hides the output of the desktop shell publish again (| Out-Null)",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Invoke-InstallerBuildStep -Description 'Desktop publish' -Command { & $dotnetCmd.Path publish $shellCsproj -c Release -r win-x64 --self-contained true -o $shellDist -p:PublishSingleFile=true \"-p:ReleaseKeysFile=$shellKeysArgument\" }",
+     "new": "& $dotnetCmd.Path publish $shellCsproj -c Release -r win-x64 --self-contained true -o $shellDist -p:PublishSingleFile=true \"-p:ReleaseKeysFile=$shellKeysArgument\" | Out-Null"
+    }
+   ]
+  },
+  {
+   "name": "build-supervisor-publish-output-hidden",
+   "what": "the builder hides the output of the GuestSupervisor publish again (| Out-Null)",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Invoke-InstallerBuildStep -Description 'GuestSupervisor publish' -Command { & $dotnetCmd.Path publish $supervisorProject -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:PublishSingleFile=false -o $supervisorPublish }",
+     "new": "& $dotnetCmd.Path publish $supervisorProject -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:PublishSingleFile=false -o $supervisorPublish | Out-Null"
+    }
+   ]
+  },
+  {
+   "name": "build-installer-publish-output-hidden",
+   "what": "the builder hides the output of the installer publish again (| Out-Null)",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Invoke-InstallerBuildStep -Description 'Installer publish' -Command { & $dotnetCmd.Path publish $installerCsproj -c Release -r win-x64 --self-contained true -o $installerPublish -p:PublishSingleFile=true }",
+     "new": "& $dotnetCmd.Path publish $installerCsproj -c Release -r win-x64 --self-contained true -o $installerPublish -p:PublishSingleFile=true | Out-Null"
+    }
+   ]
+  },
+  {
+   "name": "build-step-fails-with-throw",
+   "what": "the build step fails with throw: Windows PowerShell 5.1 prints the message of a thrown string twice (it is the FullyQualifiedErrorId as well), forty lines each time",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "throw $record",
+     "new": "throw $record.Exception.Message"
+    }
+   ]
+  },
+  {
+   "name": "build-step-failure-statement-only",
+   "what": "the build step fails with an error that ends only its statement: with the preference for errors on Continue the builder goes on to its next step and ends with exit code 0",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "throw $record",
+     "new": "$PSCmdlet.ThrowTerminatingError($record)"
     }
    ]
   },

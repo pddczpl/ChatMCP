@@ -117,8 +117,7 @@ $shellKeysFile = if ($ReleaseKeysFile -ne '') { $ReleaseKeysFile } else { Join-P
 if (-not (Test-Path -LiteralPath $shellKeysFile -PathType Leaf)) { throw "The release key list is not a file: $shellKeysFile" }
 # (written so that MSBuild reads the path back as it is: a repository in C:\My Repos, Inc\ or C:\a;b\ must build as well)
 $shellKeysArgument = ConvertTo-InstallerMsbuildValue -Value $shellKeysFile
-& $dotnetCmd.Path publish $shellCsproj -c Release -r win-x64 --self-contained true -o $shellDist -p:PublishSingleFile=true "-p:ReleaseKeysFile=$shellKeysArgument" | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "Desktop publish failed with exit code $LASTEXITCODE" }
+Invoke-InstallerBuildStep -Description 'Desktop publish' -Command { & $dotnetCmd.Path publish $shellCsproj -c Release -r win-x64 --self-contained true -o $shellDist -p:PublishSingleFile=true "-p:ReleaseKeysFile=$shellKeysArgument" }
 $desktopExe = Join-Path $shellDist 'ChatMCP.exe'
 if (-not (Test-Path -LiteralPath $desktopExe -PathType Leaf)) {
     throw "Failed to compile desktop shell: $desktopExe not found."
@@ -151,8 +150,7 @@ Write-Host "  [OK] The Hub in the payload reads the same key list." -ForegroundC
 # broker authenticates published guest results and the dedicated gate passes.
 $supervisorProject = Join-Path $repoRoot 'CHATMCP-HUB\windows\sandbox\GuestSupervisor\GuestSupervisor.csproj'
 $supervisorPublish = Join-Path $stagingDir 'supervisor-publish'
-& $dotnetCmd.Path publish $supervisorProject -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:PublishSingleFile=false -o $supervisorPublish | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "GuestSupervisor publish failed with exit code $LASTEXITCODE" }
+Invoke-InstallerBuildStep -Description 'GuestSupervisor publish' -Command { & $dotnetCmd.Path publish $supervisorProject -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:PublishSingleFile=false -o $supervisorPublish }
 $trustedSupervisor = Join-Path $supervisorPublish 'GuestSupervisor.exe'
 if (-not (Test-Path -LiteralPath $trustedSupervisor -PathType Leaf)) { throw 'Published GuestSupervisor.exe is missing.' }
 $supervisorSize = (Get-Item -LiteralPath $trustedSupervisor).Length
@@ -257,8 +255,7 @@ if (-not (Test-Path -LiteralPath $distDir)) {
 
 $installerCsproj = Join-Path $installerDir 'ChatMCP.Installer.csproj'
 $installerPublish = Join-Path $stagingDir 'installer-publish'
-& $dotnetCmd.Path publish $installerCsproj -c Release -r win-x64 --self-contained true -o $installerPublish -p:PublishSingleFile=true | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "Installer publish failed with exit code $LASTEXITCODE" }
+Invoke-InstallerBuildStep -Description 'Installer publish' -Command { & $dotnetCmd.Path publish $installerCsproj -c Release -r win-x64 --self-contained true -o $installerPublish -p:PublishSingleFile=true }
 
 $publishedSetup = Join-Path $installerPublish 'DatGoldSetup.exe'
 if (-not (Test-Path -LiteralPath $publishedSetup -PathType Leaf)) {

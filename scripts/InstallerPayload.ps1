@@ -26,6 +26,29 @@ function Invoke-InstallerGitRead {
     } finally { $process.Dispose() }
 }
 
+# A step of the build that runs a long program (dotnet publish): it shows nothing when it works, and when it fails it puts the last lines of what the program printed in the error. The publish lines used
+# to throw everything away behind "| Out-Null", so a failed publish said only "Desktop publish failed with exit code 1" and the cause (MSBuild prints its errors on the standard output) was lost.
+# Only the standard output is kept: the error output of the program reaches the console as it always did, and is not turned into error records (Windows PowerShell 5.1 would stop the build at the first
+# line of it under $ErrorActionPreference = 'Stop'). The command is a script block so that the line that runs the program stays as written in the builder, argument by argument.
+function Invoke-InstallerBuildStep {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][scriptblock]$Command,
+        [Parameter(Mandatory = $true)][string]$Description,
+        [int]$TailLines = 40
+    )
+    $global:LASTEXITCODE = 0
+    $tail = @(& $Command | Select-Object -Last $TailLines)
+    $code = $LASTEXITCODE
+    if ($code -ne 0) {
+        $shown = if ($tail.Count -gt 0) { " The last $($tail.Count) lines of what it printed:`n" + ($tail -join "`n") } else { ' It printed nothing on its standard output.' }
+        # (an error record with an id of its own, thrown as it is: Windows PowerShell 5.1 makes the message of a thrown string or exception the FullyQualifiedErrorId of the error as well and prints the forty lines
+        # twice; and it ends the script whatever $ErrorActionPreference is, which the method that ends only the statement does not under 'Continue')
+        $record = [System.Management.Automation.ErrorRecord]::new([System.InvalidOperationException]::new("$Description failed with exit code $code.$shown"), 'InstallerBuildStepFailed', [System.Management.Automation.ErrorCategory]::OperationStopped, $Description)
+        throw $record
+    }
+}
+
 function Assert-InstallerNoReparsePath {
     param([Parameter(Mandatory = $true)][string]$Path)
     $current = [IO.Path]::GetFullPath($Path)
