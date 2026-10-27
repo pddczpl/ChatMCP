@@ -164,10 +164,11 @@ internal static class HubLifecycle
 
     /// <summary>
     /// The command line of the program <paramref name="pid"/>, as WMI tells it to a Windows PowerShell child. Throws (hub_stop_failed) when no try gave an answer: there is no result that stands for "unknown", so a program
-    /// whose command line could not be told is never taken for the Hub.
+    /// whose command line could not be told is never taken for the Hub. Windows PowerShell writes a redirected answer in the OEM code page, where every letter that the page cannot hold (the Vietnamese ones in a Windows
+    /// profile's name, say) turns into "?": so the child prints ASCII only, every other UTF-16 unit as the \uXXXX escape that JSON has for it, and the JSON reader here gives the letters back.
     /// </summary>
     internal static string CommandLineOf(int pid) =>
-        AskForCommandLine(_ => WindowsPowerShell($"(Get-CimInstance Win32_Process -Filter 'ProcessId = {pid}').CommandLine | ConvertTo-Json -Compress"), OwnerQueryLimit, OwnerQueryAttempts);
+        AskForCommandLine(_ => WindowsPowerShell("(Get-CimInstance Win32_Process -Filter 'ProcessId = " + pid + "').CommandLine | ConvertTo-Json -Compress | ForEach-Object { [regex]::Replace($_, '[^\\x20-\\x7e]', { param($m) '\\u{0:x4}' -f [int][char]$m.Value }) }"), OwnerQueryLimit, OwnerQueryAttempts);
 
     /// <summary>
     /// Runs the program that <paramref name="start"/> makes for a try (counted from 0), up to <paramref name="attempts"/> times and for at most <paramref name="limit"/> each, and returns the one JSON string it prints. A try
