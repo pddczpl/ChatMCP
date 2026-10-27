@@ -104,9 +104,11 @@ export async function connectPage({ port, match, timeoutMs = 120_000, intervalMs
       const page = targets.find((target) => target.type === 'page' && typeof target.url === 'string' && accepts(target.url) && target.webSocketDebuggerUrl);
       if (page) {
         const socket = new WebSocket(page.webSocketDebuggerUrl);
+        // a socket that neither opens nor fails (a browser that is busy starting) must not hold the wait for ever: it is given up after 15 s and the next try is made
         await new Promise((resolve, reject) => {
-          socket.addEventListener('open', resolve, { once: true });
-          socket.addEventListener('error', () => reject(new Error('the debugging socket of the page refused the connection')), { once: true });
+          const timer = setTimeout(() => { try { socket.close(); } catch { /* none */ } reject(new Error('the debugging socket of the page did not open within 15 s')); }, 15_000);
+          socket.addEventListener('open', () => { clearTimeout(timer); resolve(); }, { once: true });
+          socket.addEventListener('error', () => { clearTimeout(timer); reject(new Error('the debugging socket of the page refused the connection')); }, { once: true });
         });
         return new Cdp(socket, page);
       }

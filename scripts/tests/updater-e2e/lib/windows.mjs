@@ -1,8 +1,9 @@
 // What the proof asks of Windows: where an installed DatGold lives, which programs run, the policy that opens a debugging port of WebView2 for the installed shell, and the few facts the proof reads from
-// files and the registry. It is for a disposable hosted runner (assertDisposableRunner refuses anything else), the way scripts/tests/Test-NativeLifecycle.ps1 is.
+// files and the registry. It is for a disposable hosted runner (assertHostedRunnerEnvironment and assertDisposableRunner refuse anything else), the way scripts/tests/Test-NativeLifecycle.ps1 is.
 //
-// The programs it starts are Windows' own: reg.exe, tasklist.exe, taskkill.exe and Windows PowerShell 5.1 (always with `env: powerShellChildEnvironment()`, tests/verify-source-lint.mjs holds every node
-// file that names powershell.exe to that: a pwsh session hands its module path on, and Windows PowerShell then loses Get-FileHash).
+// The programs it starts are Windows' own, by their full path in System32 and never through PATH: reg.exe, tasklist.exe, taskkill.exe, netstat.exe and Windows PowerShell 5.1 (always with
+// `env: powerShellChildEnvironment()`, tests/verify-source-lint.mjs holds every node file that names powershell.exe to that: a pwsh session hands its module path on, and Windows PowerShell then loses
+// Get-FileHash).
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -11,6 +12,8 @@ import path from 'node:path';
 import { powerShellChildEnvironment, windowsPowerShellPath } from '../../../../CHATMCP-HUB/tests/support/powershell-environment.mjs';
 
 const SYSTEM32 = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32');
+/** The full path of a program of Windows' own (cmd.exe, netstat.exe ...), so that nothing a PATH could put first is ever started. */
+export const system32 = (name) => path.join(SYSTEM32, name);
 
 /** Runs `script` in Windows PowerShell 5.1 and returns what it printed (trimmed). Throws, with what it said, when it fails. */
 export function powershell(script, { timeoutMs = 90_000 } = {}) {
@@ -53,17 +56,29 @@ export function portInUse(port) {
 }
 
 /**
- * The proof installs, updates and uninstalls DatGold for real, so it runs only where nothing of anyone's can be lost: a GitHub-hosted runner, with no installation, no data folder and nothing on the port of the Hub.
- * Throws with every reason it found.
+ * The first thing the proof (run.mjs) and the policy of the rehearsal (rehearse-page.mjs --policy) ask: is this a GitHub-hosted Windows runner that is not running a publish workflow? They install, update and
+ * force-close DatGold, and write a machine-wide WebView2 policy, so on any other machine, a developer's above all, they do nothing: this reads `env` and `platform` and nothing else (no file, no program),
+ * and throws with every reason it found, in the words of a refusal. The variables are the ones GitHub Actions sets on its own runners; a self-hosted runner says RUNNER_ENVIRONMENT=self-hosted.
  */
-export async function assertDisposableRunner({ env = process.env, paths = installedPaths(env), hubPort = 3007 } = {}) {
+export function assertHostedRunnerEnvironment({ env = process.env, platform = process.platform } = {}) {
   const problems = [];
-  if (process.platform !== 'win32') problems.push('this is not Windows');
+  if (platform !== 'win32') problems.push('this is not Windows');
   if (env.GITHUB_ACTIONS !== 'true' || env.RUNNER_ENVIRONMENT !== 'github-hosted') problems.push(`this is not a GitHub-hosted runner (GITHUB_ACTIONS=${env.GITHUB_ACTIONS}, RUNNER_ENVIRONMENT=${env.RUNNER_ENVIRONMENT})`);
   if (/^Publish/i.test(env.GITHUB_WORKFLOW ?? '')) problems.push('this is a publish workflow: nothing here may run in one');
-  if (fs.existsSync(paths.installDirectory)) problems.push(`${paths.installDirectory} exists`);
-  if (fs.existsSync(paths.dataDirectory)) problems.push(`${paths.dataDirectory} exists`);
-  if (registryHas(paths.uninstallKey)) problems.push(`${paths.uninstallKey} exists`);
+  if (problems.length) throw new Error(`Refusing to run: ${problems.join('; ')}. This test installs and updates DatGold for real and runs only on a disposable GitHub-hosted runner.`);
+}
+
+/**
+ * The proof installs and updates DatGold for real, so it runs only where nothing of anyone's can be lost: a GitHub-hosted runner (assertHostedRunnerEnvironment, asked first), with no installation, no data
+ * folder and nothing on the port of the Hub. Throws with every reason it found.
+ */
+export async function assertDisposableRunner({ env = process.env, platform = process.platform, paths = null, hubPort = 3007 } = {}) {
+  assertHostedRunnerEnvironment({ env, platform });
+  const where = paths ?? installedPaths(env);
+  const problems = [];
+  if (fs.existsSync(where.installDirectory)) problems.push(`${where.installDirectory} exists`);
+  if (fs.existsSync(where.dataDirectory)) problems.push(`${where.dataDirectory} exists`);
+  if (registryHas(where.uninstallKey)) problems.push(`${where.uninstallKey} exists`);
   if (await portInUse(hubPort)) problems.push(`port ${hubPort} is in use`);
   if (problems.length) throw new Error(`Refusing to run: ${problems.join('; ')}. This test installs and updates DatGold for real and runs only on a disposable GitHub-hosted runner.`);
 }
@@ -117,10 +132,70 @@ export function isRunning(pid) {
   return String(done.stdout ?? '').split(/\r?\n/).some((line) => new RegExp(`^"[^"]+","${Number(pid)}"`).test(line));
 }
 
-/** The path and the command line of a process, as Windows says them, or null when there is none. */
+/** The path, the command line, the creation time and the parent of a process, as Windows says them, or null when there is none. */
 export function processInfo(pid) {
-  const text = powershell(`$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${Number(pid)}'; if ($null -eq $p) { 'null' } else { ConvertTo-Json -Compress ([ordered]@{ path = $p.ExecutablePath; commandLine = $p.CommandLine; created = $p.CreationDate.ToString('o') }) }`);
+  const text = powershell(`$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${Number(pid)}'; if ($null -eq $p) { 'null' } else { ConvertTo-Json -Compress ([ordered]@{ path = $p.ExecutablePath; commandLine = $p.CommandLine; created = $(if ($null -ne $p.CreationDate) { $p.CreationDate.ToString('o') } else { $null }); parentProcessId = [int]$p.ParentProcessId }) }`);
   return text === 'null' ? null : JSON.parse(text);
+}
+
+/**
+ * Whether the very program that was seen with this id and this creation time (processInfo(...).created) is still running. A process id is given again to another program once the first has ended,
+ * so "is something running under pid 4711" is not "is the Hub I started still running": the creation time tells them apart.
+ */
+export function isSameProcessRunning(pid, created) {
+  const info = processInfo(pid);
+  return info !== null && typeof created === 'string' && info.created === created;
+}
+
+/** Asks a program to close, as the close button of its window does (no /F: it may refuse, and nothing is lost if it does); true when Windows took the request. */
+export function closeGracefully(pid) {
+  return spawnSync(path.join(SYSTEM32, 'taskkill.exe'), ['/PID', String(Number(pid))], { stdio: 'ignore', windowsHide: true, timeout: 30_000 }).status === 0;
+}
+
+/**
+ * The words of a Windows command line, split the way a program's own start-up splits it (CommandLineToArgvW): a word ends at white space outside double quotes; 2n backslashes before a double quote are n
+ * backslashes and the quote opens or closes a quoted run, 2n+1 are n backslashes and a quote that belongs to the word; other backslashes are plain. The first word, the program, is read the simple way
+ * (up to the next double quote when it starts with one). It is what lets the proof compare the arguments the shell gave the setup with the vector of native-shared/UpdateContract.cs word by word.
+ */
+export function splitWindowsCommandLine(commandLine) {
+  const text = String(commandLine ?? '');
+  const words = [];
+  const space = (character) => character === ' ' || character === '\t' || character === '\r' || character === '\n';
+  let index = 0;
+  while (index < text.length && space(text[index])) index += 1;
+  if (index >= text.length) return words;
+  if (text[index] === '"') {
+    const end = text.indexOf('"', index + 1);
+    words.push(text.slice(index + 1, end < 0 ? text.length : end));
+    index = end < 0 ? text.length : end + 1;
+  } else {
+    let end = index;
+    while (end < text.length && !space(text[end])) end += 1;
+    words.push(text.slice(index, end));
+    index = end;
+  }
+  for (;;) {
+    while (index < text.length && space(text[index])) index += 1;
+    if (index >= text.length) break;
+    let word = '';
+    let quoted = false;
+    while (index < text.length) {
+      let slashes = 0;
+      while (text[index] === '\\') { slashes += 1; index += 1; }
+      if (text[index] === '"') {
+        word += '\\'.repeat(Math.floor(slashes / 2));
+        if (slashes % 2 === 1) word += '"'; else quoted = !quoted;
+        index += 1;
+      } else {
+        word += '\\'.repeat(slashes);
+        if (index >= text.length || (!quoted && space(text[index]))) break;
+        word += text[index];
+        index += 1;
+      }
+    }
+    words.push(word);
+  }
+  return words;
 }
 
 /** The title of the main window of a program, which the shell sets to "DatGold Studio <version> - AI Coding Agent" (desktop-shell/MainWindow.cs): what a person sees on the title bar. Empty when there is no window. */

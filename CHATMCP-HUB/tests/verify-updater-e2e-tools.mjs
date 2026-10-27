@@ -14,6 +14,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseManifest } from '../lib/update-check.mjs';
 import { SignatureError, parseReleaseKeys, verifyManifest } from '../lib/release-signature.mjs';
@@ -30,6 +31,8 @@ if (!fs.existsSync(path.join(REPO_ROOT, 'scripts'))) {
 const load = (name) => import(pathToFileURL(path.join(TOOLS, name)).href);
 const { VERSION_FILES, readBuildVersion, setBuildVersion } = await load('set-build-version.mjs');
 const { buildReleaseManifest, entryFromToolOutput, flipByte, keyListText, makeTestKeys, signWithTool } = await load('release-files.mjs');
+const { assertDisposableRunner, assertHostedRunnerEnvironment, isSameProcessRunning, processInfo, splitWindowsCommandLine } = await load('lib/windows.mjs');
+const { Evidence } = await load('lib/evidence.mjs');
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'chatmcp-updater-e2e-tools-'));
 let count = 0;
@@ -246,6 +249,121 @@ try {
     assert.ok(!fs.existsSync(path.join(directory, 'refused', 'RELEASE-MANIFEST.json.sig')), 'and nothing was signed');
     await assert.rejects(() => signWithTool({ tag: 'v3.10.5', keyFile: keys.run.keyFile, keysFile: keys.run.listFile, manifestFile, installerFile, outDirectory: path.join(directory, 'wrong-tag') }), /tag|3\.10\./i);
     ok('and the tool compares the installer with the manifest and the tag with the version: another file or another tag signs nothing');
+  }
+
+  // ----------------------------------------------------------------------------------------------------------------------------- 6. the guards
+  // run.mjs installs, updates and force-closes DatGold, and rehearse-page.mjs --policy writes a machine-wide WebView2 policy: both are for a disposable GitHub-hosted runner and for nothing else. They
+  // refuse before they read a file, make a folder or start a program. Every case below is one that MUST be refused: nothing here can start the proof, whatever machine this suite runs on (a hosted
+  // runner's own variables are overridden in each case), and the folders it is given do not exist, so that a guard that regressed would still find nothing to install.
+  {
+    const hosted = { win32: 'win32' };
+    assert.doesNotThrow(() => assertHostedRunnerEnvironment({ env: { GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted', GITHUB_WORKFLOW: 'CI' }, platform: hosted.win32 }), 'POSITIVE CONTROL: a hosted Windows runner running CI is accepted');
+    const refusals = [
+      ['Linux', { GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted', GITHUB_WORKFLOW: 'CI' }, 'linux', /not Windows/],
+      ['a developer machine (no variable of a runner)', {}, 'win32', /not a GitHub-hosted runner/],
+      ['a self-hosted runner', { GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'self-hosted', GITHUB_WORKFLOW: 'CI' }, 'win32', /not a GitHub-hosted runner/],
+      ['a workflow that is not a runner at all', { GITHUB_ACTIONS: 'false', RUNNER_ENVIRONMENT: 'github-hosted' }, 'win32', /not a GitHub-hosted runner/],
+      ['a publish workflow', { GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted', GITHUB_WORKFLOW: 'Publish ChatMCP v9.9.9' }, 'win32', /publish workflow/],
+    ];
+    for (const [label, env, platform, pattern] of refusals) {
+      assert.throws(() => assertHostedRunnerEnvironment({ env, platform }), pattern, `${label} is refused`);
+      assert.throws(() => assertHostedRunnerEnvironment({ env, platform }), /Refusing to run/, `${label}: in the words of a refusal`);
+    }
+    ok('the environment guard accepts a hosted Windows runner and refuses Linux, a developer machine, a self-hosted runner, a workflow that is not a runner and a publish workflow');
+
+    // the guard of the installation asks the environment FIRST: on a machine that is not a hosted runner it says so and looks at nothing else (a folder that exists here would be named if it were read)
+    const present = folder('an-installation-that-is-there');
+    await assert.rejects(() => assertDisposableRunner({ env: {}, platform: 'win32', paths: { installDirectory: present, dataDirectory: present, uninstallKey: 'HKCU\\Software\\NoSuchKeyDatGoldRehearsal' }, hubPort: 3007 }),
+      (error) => /Refusing to run/.test(error.message) && /not a GitHub-hosted runner/.test(error.message) && !/exists/.test(error.message), 'asks about the machine first, and reads no folder of an installation when the machine is the wrong one');
+    ok('the guard of the installation asks the environment first: on a machine that is not a hosted runner it refuses for that and reads no folder, key or port');
+
+    const refusedRun = path.join(scratch, 'refused-evidence');
+    const nothing = path.join(scratch, 'nothing-here');
+    const environments = [
+      ['no variable of a runner', { GITHUB_ACTIONS: '', RUNNER_ENVIRONMENT: '', GITHUB_WORKFLOW: '' }],
+      ['a self-hosted runner', { GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'self-hosted', GITHUB_WORKFLOW: 'CI' }],
+      ['a publish workflow', { GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted', GITHUB_WORKFLOW: 'Publish ChatMCP v9.9.9' }],
+    ];
+    for (const [label, env] of environments) {
+      // The children get NO path: if a guard ever regressed, the rehearsal could not find `dotnet` and would stop before it wrote a policy, and the proof would not find anything it starts by name. The
+      // programs this suite starts itself are named by their full path, as run.mjs's own are.
+      const child = { ...process.env, ...env };
+      for (const key of Object.keys(child)) if (/^path$/i.test(key)) delete child[key];
+      child.PATH = '';
+      const proof = spawnSync(process.execPath, [path.join(TOOLS, 'run.mjs'), '--work', nothing, '--keys', nothing, '--evidence', refusedRun], { env: child, encoding: 'utf8', timeout: 60_000 });
+      assert.equal(proof.status, 1, `run.mjs on ${label}: exit code 1 (${proof.stderr.slice(0, 300)})`);
+      assert.match(proof.stderr, /Refusing to run/, `run.mjs on ${label}: says it refuses`);
+      assert.ok(!fs.existsSync(refusedRun), `run.mjs on ${label}: made no folder (the guard comes before the evidence folder, the reading of any file and every program)`);
+      const rehearsal = spawnSync(process.execPath, [path.join(TOOLS, 'rehearse-page.mjs'), '--webview2', '--policy'], { env: child, encoding: 'utf8', timeout: 60_000 });
+      assert.equal(rehearsal.status, 2, `rehearse-page.mjs --policy on ${label}: exit code 2 (${rehearsal.stderr.slice(0, 300)})`);
+      assert.match(rehearsal.stderr, /Refusing to run/, `rehearse-page.mjs --policy on ${label}: says it refuses`);
+    }
+    ok('run.mjs and rehearse-page.mjs --policy refuse off a hosted runner (no runner, self-hosted, publish workflow) before they make a folder, read a file or start a program');
+
+    // the guard is the first thing the program does: before the evidence folder and before the paths of the installation are even asked for
+    const source = fs.readFileSync(path.join(TOOLS, 'run.mjs'), 'utf8');
+    const guardAt = source.indexOf('assertHostedRunnerEnvironment()');
+    assert.ok(guardAt > 0, 'run.mjs calls the environment guard');
+    assert.ok(guardAt < source.indexOf('new Evidence('), 'before it makes the evidence folder');
+    assert.ok(guardAt < source.indexOf('installedPaths()'), 'before it asks where DatGold would be installed');
+    assert.ok(guardAt < source.indexOf('await main()'), 'and before main()');
+    assert.ok(!/await main\(\);\s*\n\s*\} catch/.test(source.slice(0, guardAt)), 'nothing that cleans up can run before the guard');
+    ok('in run.mjs the environment guard is the first statement after the arguments: before the evidence folder, the paths of the installation and main()');
+  }
+
+  // ----------------------------------------------------------------------------------------------------------------------------- 7. what a failure leaves
+  {
+    const directory = path.join(folder('partial'), 'evidence');
+    const evidence = new Evidence(directory);
+    evidence.phase('install', 'the first phase');
+    const partial = JSON.parse(fs.readFileSync(path.join(directory, 'report.json'), 'utf8'));
+    assert.equal(partial.outcome, 'running', 'a run that is cut off (a timeout, a cancel) still leaves a report of how far it got');
+    assert.deepEqual(partial.phases.map((phase) => phase.name), ['install']);
+    evidence.check(true, 'a fact');
+    evidence.phase('attach', 'the second');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(directory, 'report.json'), 'utf8')).checks.length, 1);
+    assert.throws(() => evidence.check(false, 'a fact that does not hold', 'because'), /FAILED: a fact that does not hold/);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(directory, 'report.json'), 'utf8')).checks.at(-1).ok, false, 'a failed check is on disk the moment it fails');
+    ok('the evidence report is written as the run goes (each phase and each failed check), not only at the end: a run that is cut off still says how far it got');
+  }
+  {
+    // the words of a command line, as the program that is started reads them: what the proof compares with the vector of native-shared/UpdateContract.cs
+    const exe = 'C:\\Users\\runner admin\\AppData\\Local\\ChatMCP\\hub\\updates\\3.10.4\\DatGoldSetup.exe';
+    const install = 'C:\\Users\\runner admin\\AppData\\Local\\Programs\\ChatMCP';
+    const result = 'C:\\Users\\runner admin\\AppData\\Local\\ChatMCP\\hub\\update-result.json';
+    assert.deepEqual(splitWindowsCommandLine(`"${exe}" --quiet --update --install-dir "${install}" --wait-pid 4711 --relaunch --result "${result}"`),
+      [exe, '--quiet', '--update', '--install-dir', install, '--wait-pid', '4711', '--relaunch', '--result', result], 'the vector of the shell, with paths that have a space in them');
+    assert.deepEqual(splitWindowsCommandLine('C:\\a\\b.exe x\ty  z'), ['C:\\a\\b.exe', 'x', 'y', 'z'], 'an unquoted program, white space of any kind between words');
+    assert.deepEqual(splitWindowsCommandLine('p.exe a\\\\"b c" d'), ['p.exe', 'a\\b c', 'd'], 'two backslashes before a quote are one backslash, and the quote opens a quoted run');
+    assert.deepEqual(splitWindowsCommandLine('p.exe "C:\\dir\\" next'), ['p.exe', 'C:\\dir" next'], 'one backslash before a quote makes the quote a letter of the word');
+    assert.deepEqual(splitWindowsCommandLine('p.exe C:\\plain\\path\\ end'), ['p.exe', 'C:\\plain\\path\\', 'end'], 'backslashes that no quote follows are plain');
+    assert.deepEqual(splitWindowsCommandLine('  '), []);
+    assert.deepEqual(splitWindowsCommandLine(undefined), []);
+    ok('a Windows command line is split into its words the way a program reads it (quotes, backslashes before a quote, white space), so that the arguments of the setup are compared word by word');
+  }
+  if (process.platform === 'win32') {
+    const own = processInfo(process.pid);
+    assert.ok(own && /node/i.test(own.path) && typeof own.created === 'string');
+    assert.equal(typeof own.parentProcessId, 'number', 'the parent of a process is told, so that "started by the setup" is a fact and not a guess');
+    assert.ok(own.parentProcessId > 0 && own.parentProcessId !== process.pid);
+    assert.equal(isSameProcessRunning(process.pid, own.created), true, 'the same process, by its id and its creation time');
+    assert.equal(isSameProcessRunning(process.pid, '1999-01-01T00:00:00.0000000+00:00'), false, 'another process that got the same id (an id is reused) is not the same process');
+    assert.equal(isSameProcessRunning(4_294_000, own.created), false, 'and a process that is not there is not running');
+    ok('a process is told by its id AND its creation time, so an id that was given to another program is not mistaken for the one that was waited for');
+  }
+
+  // ----------------------------------------------------------------------------------------------------------------------------- 8. the build script's cleanup
+  {
+    const script = fs.readFileSync(path.join(TOOLS, 'Build-TestPair.ps1'), 'utf8').replace(/\r\n/g, '\n');
+    const cleanup = script.slice(script.lastIndexOf('} finally {'));
+    assert.match(cleanup, /\$ErrorActionPreference = 'Continue'/, 'the cleanup is not run under Stop: a native command that writes to stderr would then replace the error that brought it there');
+    assert.ok(cleanup.indexOf("$ErrorActionPreference = 'Continue'") < cleanup.indexOf('worktree remove'), 'before the first command of the cleanup');
+    assert.ok(!/worktree prune/.test(script), 'it does not prune the work trees of the whole repository (a developer machine has dozens, not all of them ours)');
+    const startAt = script.indexOf('= Start-Process');
+    assert.ok(startAt > 0, 'the builds are started with Start-Process');
+    assert.match(script.slice(0, startAt), /Remove-Item -LiteralPath 'Env:\\PSModulePath'/, 'the builds are started without the module path of a PowerShell 7 that started this script (Get-FileHash would be lost): it is taken off BEFORE they start');
+    assert.match(script.slice(startAt), /\$env:PSModulePath = \$savedModulePath/, 'and given back to this session afterwards');
+    ok('Build-TestPair.ps1: the cleanup cannot replace the real error, does not prune the repository, and starts the builds without the module path of PowerShell 7');
   }
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });

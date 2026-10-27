@@ -1,10 +1,11 @@
 // What a person does in the page of the Studio, as calls on a Chrome DevTools Protocol connection (lib/cdp.mjs): look for an element by its data-testid, wait for it, press it with the mouse. The press is
-// REAL: Input.dispatchMouseEvent moves the pointer to the middle of the element, presses and releases the left button, and the page gets a trusted click (isTrusted true), not the click() of a script.
+// the browser's own: Input.dispatchMouseEvent moves the pointer to the middle of the element, presses and releases the left button, and the page gets a trusted click (isTrusted true), not the click() of a
+// script. It is injected through the DevTools protocol, so it is not the operating system's mouse: Windows never moves a cursor, and the proof does not claim it.
 // Before it presses, the driver checks that the point it is about to press is on the element (elementFromPoint) and not on something that covers it, as a person's eyes would; after it, it says whether the
 // click the page got was trusted. The same page driver runs against the installed desktop shell (WebView2) on the runner and against a Chromium in the rehearsal (scripts/tests/updater-e2e/rehearse-page.mjs).
 //
-// What it does NOT do: it does not change what the page sends or receives. `postToShell` is the one exception, and it is named so: it is a MESSAGE POSTED BY SCRIPT to the shell, from the page's own origin, which
-// is what the shell's gate has to withstand (the page itself never sends two at once or one while work runs, so a click cannot reach those codes).
+// What it does NOT do: it does not change what the page sends or receives. `postApplyRequests` is the one exception, and it is named so: it is a MESSAGE POSTED BY SCRIPT to the shell, from the page's own origin,
+// which is what the shell's gate has to withstand (the page itself never sends two at once or one while work runs, so a click cannot reach those codes).
 import { writeFile } from 'node:fs/promises';
 import { sleep } from './cdp.mjs';
 
@@ -127,13 +128,23 @@ export class PageDriver {
     return state;
   }
 
-  /** Settings -> the section named `section` (English words), opened with real presses. */
+  /** A press that must have reached the page as a click, and as a trusted one (the browser's own, not a script's); a press that did not is an error, never a quiet success. Resolves what `press` does. */
+  async #pressTrusted(target, label) {
+    const done = await this.press(target, { label });
+    if (!done.clicked) throw new Error(`The press on ${label} did not reach the page as a click`);
+    if (done.trusted !== true) throw new Error(`The press on ${label} reached the page as a click that is not trusted`);
+    return done;
+  }
+
+  /** Settings -> the section named `section` (English words), opened with presses of the mouse. Resolves what each press was ({trusted, ...}); every one of them was a trusted click, or this threw. */
   async openSettings(section) {
-    if (!(await this.cdp.evaluate("Boolean(document.querySelector('dialog[open]'))"))) await this.press('header button[aria-label="Settings"]', { label: 'the Settings button' });
+    const presses = [];
+    if (!(await this.cdp.evaluate("Boolean(document.querySelector('dialog[open]'))"))) presses.push(await this.#pressTrusted('header button[aria-label="Settings"]', 'the Settings button'));
     await this.waitFor("document.querySelector('dialog[open][aria-label=\"Settings\"]')", { label: 'Settings to open' });
     const find = `Array.from(document.querySelectorAll('dialog[open] nav[aria-label="Settings sections"] button')).find((item) => item.textContent.trim() === ${JSON.stringify(section)})`;
     if (!(await this.cdp.evaluate(`Boolean(${find})`))) throw new Error(`Settings has no section called ${section}`);
-    await this.press({ find }, { label: `the Settings section ${section}` });
+    presses.push(await this.#pressTrusted({ find }, `the Settings section ${section}`));
+    return presses;
   }
 
   async closeSettings() {

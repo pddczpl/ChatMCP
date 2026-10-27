@@ -67,12 +67,20 @@ try {
     }
 
     Write-Phase 'Building both setups at the same time (scripts\Build-Installer.ps1 -ReleaseKeysFile)'
-    foreach ($role in $roles) {
-        $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Quote (Join-Path $role.Tree 'scripts\Build-Installer.ps1')), '-ReleaseKeysFile', (Quote $KeysFile))
-        $role.Process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList $arguments -WorkingDirectory $role.Tree `
-            -RedirectStandardOutput $role.Log -RedirectStandardError $role.Error -PassThru -WindowStyle Hidden
-        # Without the handle held, Windows PowerShell reports no exit code for a process that has ended ($null, which this script would read as a failure, or worse as a success).
-        $null = $role.Process.Handle
+    # A PowerShell 7 that runs this script hands its module path to every child, and Windows PowerShell 5.1 then cannot find Get-FileHash (docs/DEVELOPMENT.md, the pwsh trap): the builds are started
+    # without it and find their own, and this session gets its own back afterwards.
+    $savedModulePath = $env:PSModulePath
+    Remove-Item -LiteralPath 'Env:\PSModulePath' -ErrorAction SilentlyContinue
+    try {
+        foreach ($role in $roles) {
+            $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Quote (Join-Path $role.Tree 'scripts\Build-Installer.ps1')), '-ReleaseKeysFile', (Quote $KeysFile))
+            $role.Process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList $arguments -WorkingDirectory $role.Tree `
+                -RedirectStandardOutput $role.Log -RedirectStandardError $role.Error -PassThru -WindowStyle Hidden
+            # Without the handle held, Windows PowerShell reports no exit code for a process that has ended ($null, which this script would read as a failure, or worse as a success).
+            $null = $role.Process.Handle
+        }
+    } finally {
+        if ($null -ne $savedModulePath) { $env:PSModulePath = $savedModulePath }
     }
     $started = Get-Date
     $lastReport = $started
@@ -88,7 +96,7 @@ try {
         # one that failed early does not make the other one run to its end
         $failed = @($roles | Where-Object { $_.Process.HasExited -and ($null -eq $_.Process.ExitCode -or $_.Process.ExitCode -ne 0) })
         if ($failed.Count -gt 0) {
-            foreach ($role in $roles) { if (-not $role.Process.HasExited) { try { & taskkill.exe /PID $role.Process.Id /T /F | Out-Null } catch { } } }
+            foreach ($role in $roles) { if (-not $role.Process.HasExited) { try { & (Join-Path $env:SystemRoot 'System32\taskkill.exe') /PID $role.Process.Id /T /F | Out-Null } catch { } } }
             break
         }
     }
@@ -125,13 +133,15 @@ try {
     [IO.File]::WriteAllText((Join-Path $Work 'build-report.json'), $json, [Text.UTF8Encoding]::new($false))
     Write-Phase "Done: $(Join-Path $Work 'build-report.json')"
 } finally {
+    # The clean-up must not be what fails: under 'Stop' a native command that writes a line to stderr is an error, and it would replace the one that brought this script here.
+    $ErrorActionPreference = 'Continue'
     foreach ($role in $roles) {
-        if ($null -ne $role.Process -and -not $role.Process.HasExited) { try { & taskkill.exe /PID $role.Process.Id /T /F | Out-Null } catch { } }
+        if ($null -ne $role.Process -and -not $role.Process.HasExited) { try { & (Join-Path $env:SystemRoot 'System32\taskkill.exe') /PID $role.Process.Id /T /F | Out-Null } catch { } }
     }
+    # Only the two work trees this script made are removed; the other work trees of the repository (a developer machine has dozens) are never touched.
     if (-not $KeepWorkTrees) {
         foreach ($role in $roles) {
-            if (Test-Path -LiteralPath $role.Tree) { & $git -C $repoRoot worktree remove --force $role.Tree 2>&1 | Out-Null }
+            if (Test-Path -LiteralPath $role.Tree) { try { & $git -C $repoRoot worktree remove --force $role.Tree 2>&1 | Out-Null } catch { } }
         }
-        & $git -C $repoRoot worktree prune 2>&1 | Out-Null
     }
 }

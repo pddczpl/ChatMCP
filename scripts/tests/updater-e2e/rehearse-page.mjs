@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // A rehearsal of the page-driving half of the end-to-end proof of the in-app updater, on any machine, WITHOUT the desktop shell and WITHOUT installing anything:
 //
-//     node scripts/tests/updater-e2e/rehearse-page.mjs [--keep] [--webview2 [--policy]]
+//     node scripts/tests/updater-e2e/rehearse-page.mjs [--keep] [--evidence <folder>] [--webview2 [--policy]]
 //
 // With --webview2 the window is a REAL WebView2 (a small stand-in for the shell, scripts/tests/updater-e2e/WebView2Host, built here with dotnet), reached through a debugging port; with --policy (the CI job,
 // a Windows account that may write HKLM) the port is opened the way the job opens it for the installed shell, by the WebView2 policy for the program, so that the same mechanism is tried in seconds before
-// 10 minutes of builds.
+// 10 minutes of builds. --policy writes a machine-wide setting, so it refuses (exit code 2, before it makes anything) anywhere but a GitHub-hosted Windows runner. With --evidence <folder> a failure leaves
+// its screenshot, the tail of the Hub's log and the error there (the CI job uploads the folder).
 //
 // It starts the Hub of this work tree on a free port (never 3007), a stand-in for GitHub on another one, makes a throwaway key with scripts/new-release-key.mjs, signs a manifest for a stand-in
 // installer with scripts/sign-release.mjs, opens the Studio in a Chromium-based browser (Edge or Playwright's Chromium, headless) with a debugging port, and drives it with lib/page-driver.mjs the way
@@ -30,18 +31,25 @@ import { buildReleaseManifest, flipByte, makeTestKeys, signWithTool } from './re
 import { connectPage, sleep } from './lib/cdp.mjs';
 import { PageDriver } from './lib/page-driver.mjs';
 import { HubClient } from './lib/hub-client.mjs';
-import { clearDebugPolicy, setDebugPolicy } from './lib/windows.mjs';
+import { assertHostedRunnerEnvironment, clearDebugPolicy, killTree, setDebugPolicy } from './lib/windows.mjs';
 import { startRunningWork } from './lib/work.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HUB_ROOT = path.resolve(HERE, '..', '..', '..', 'CHATMCP-HUB');
 const keep = process.argv.includes('--keep');
+const evidenceIndex = process.argv.indexOf('--evidence');
+const evidenceFolder = evidenceIndex > 0 ? process.argv[evidenceIndex + 1] : null;
+if (evidenceIndex > 0 && !evidenceFolder) { console.error('--evidence needs a folder'); process.exit(2); }
 // --webview2: the window is a REAL WebView2 (scripts/tests/updater-e2e/WebView2Host, a stand-in for the shell that is built here), reached through a debugging port, as the installed shell is in the job;
 // --policy (Windows, an account that may write HKLM): the port is opened the way the job opens it for the installed shell, by the WebView2 policy of the host's program name, which a newer WebView2
 // honours for an elevated account where it ignores the environment variable. Without --webview2 the window is a headless Edge or Chromium and the shell is a script in the page.
 const webview2 = process.argv.includes('--webview2');
 const policy = process.argv.includes('--policy');
 if (policy && !webview2) { console.error('--policy goes with --webview2'); process.exit(2); }
+// the one thing here that changes the machine: a policy of HKLM. It is for a GitHub-hosted runner, before a folder is made or a program is started.
+if (policy) {
+  try { assertHostedRunnerEnvironment(); } catch (error) { console.error(error.message); process.exit(2); }
+}
 const HOST_PROGRAM = 'WebView2Host.exe';
 const started = Date.now();
 const log = (line) => console.log(`[${((Date.now() - started) / 1000).toFixed(1).padStart(6)}s] ${line}`);
@@ -50,6 +58,9 @@ const check = (condition, label) => {
   if (!condition) { failures += 1; console.log(`  FAIL - ${label}`); throw new Error(`Rehearsal check failed: ${label}`); }
   console.log(`  ok - ${label}`);
 };
+
+/** Rejects when the program could not be started at all (a missing file, a refusal of the system): the wait for its window would otherwise run to its end for nothing. */
+const neverStarted = (child, label) => new Promise((_, reject) => child.once('error', (error) => reject(new Error(`${label} could not be started: ${error.message}`))));
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -150,7 +161,7 @@ try {
     }
     browser = spawn(path.join(hostOutput, HOST_PROGRAM), [address, profile, replies, receivedFile], { env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${debugPort}` }, stdio: 'ignore' });
     log(`WebView2 host pid ${browser.pid} with debugging port ${debugPort}`);
-    cdp = await connectPage({ port: debugPort, match: (url) => url.startsWith(`${hub.origin}/`), timeoutMs: 120_000, label: 'the WebView2 window of the host' });
+    cdp = await Promise.race([connectPage({ port: debugPort, match: (url) => url.startsWith(`${hub.origin}/`), timeoutMs: 120_000, label: 'the WebView2 window of the host' }), neverStarted(browser, 'the WebView2 host')]);
     driver = new PageDriver(cdp, { log });
     shell = {
       pushReply: async (...codes) => { fs.appendFileSync(replies, `${codes.join('\n')}\n`); },
@@ -160,7 +171,7 @@ try {
     const exe = findBrowser();
     browser = spawn(exe, ['--headless=new', `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--disable-extensions', ...(process.platform === 'linux' ? ['--no-sandbox'] : []), '--window-size=1366,850', 'about:blank'], { stdio: 'ignore', windowsHide: true });
     log(`browser ${path.basename(exe)} with debugging port ${debugPort}`);
-    cdp = await connectPage({ port: debugPort, match: () => true, timeoutMs: 30_000, label: 'the browser' });
+    cdp = await Promise.race([connectPage({ port: debugPort, match: () => true, timeoutMs: 30_000, label: 'the browser' }), neverStarted(browser, 'the browser')]);
     driver = new PageDriver(cdp, { log });
     await cdp.send('Page.enable');
     await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: PRETEND_SHELL });
@@ -205,6 +216,7 @@ try {
   check((await shell.received()).length === 0, 'Not now sent nothing to the shell');
   await shell.pushReply('bad_installer');
   await driver.pressTestId('update-apply');
+  await driver.waitForVisible('update-apply-confirm');
   await driver.pressTestId('update-apply-yes');
   await driver.waitForVisible('update-apply-error');
   const received = await shell.received();
@@ -233,6 +245,7 @@ try {
 
   await shell.pushReply('launched');
   await driver.pressTestId('update-apply');
+  await driver.waitForVisible('update-apply-confirm');
   await driver.pressTestId('update-apply-yes');
   await driver.waitForVisible('update-apply-sending');
   check((await shell.received()).length === 2, 'and the second message is the next click, not a repeat');
@@ -259,10 +272,19 @@ try {
     try { await new PageDriver(cdp).screenshot(path.join(scratch, 'failure.png')); console.error(`(a screenshot of the page: ${path.join(scratch, 'failure.png')})`); } catch { /* best effort */ }
   }
   if (hub) console.error(hub.logTail());
+  // what the CI job uploads for a red rehearsal: the error, the Hub's log and the picture of the window, without the machine
+  if (evidenceFolder) {
+    try {
+      fs.mkdirSync(evidenceFolder, { recursive: true });
+      fs.writeFileSync(path.join(evidenceFolder, 'rehearsal-error.txt'), `${error?.stack ?? error}\n`);
+      if (hub) fs.writeFileSync(path.join(evidenceFolder, 'rehearsal-hub-log.txt'), `${hub.logTail()}\n`);
+      if (fs.existsSync(path.join(scratch, 'failure.png'))) fs.copyFileSync(path.join(scratch, 'failure.png'), path.join(evidenceFolder, 'rehearsal-failure.png'));
+    } catch { /* best effort */ }
+  }
 } finally {
   cdp?.close();
   if (browser && browser.exitCode === null) {
-    if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(browser.pid), '/T', '/F'], { stdio: 'ignore', timeout: 10_000 }); else browser.kill('SIGKILL');
+    if (process.platform === 'win32') killTree(browser.pid); else browser.kill('SIGKILL');
   }
   await hub?.stop().catch(() => {});
   if (policySet) clearDebugPolicy(HOST_PROGRAM);
