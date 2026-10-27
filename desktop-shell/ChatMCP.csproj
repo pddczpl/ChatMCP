@@ -9,7 +9,7 @@
     <ApplicationIcon>..\assets\icons\chatmcp.ico</ApplicationIcon>
     <AssemblyName>ChatMCP</AssemblyName>
     <RootNamespace>ChatMCP.Desktop</RootNamespace>
-    <Version>3.10.2</Version>
+    <Version>3.11.0</Version>
     <Authors>Phan Danh Đạt</Authors>
     <Company>DatGold Project</Company>
     <Product>DatGold Studio</Product>

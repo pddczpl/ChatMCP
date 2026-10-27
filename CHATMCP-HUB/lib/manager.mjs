@@ -8,7 +8,7 @@ import { powerShellChildEnvironment } from './powershell-environment.mjs';
 import { buildInternalCatalog } from './catalog.mjs';
 import { hookTextParts } from './hooks.mjs';
 
-export const VERSION = '3.10.2';
+export const VERSION = '3.11.0';
 const baseService = () => ({ state:'unknown', detail:'Chưa kiểm tra' });
 export const BACKENDS = Object.freeze(['local']);
 // The local backend has its own file, search, Git and shell tools. Of the older Studio tools only those that add
