@@ -48,10 +48,10 @@ export function buildReleaseManifest({ version, commit, installer, workflowRun =
 // ------------------------------------------------------------------------------------------------------------------------------- one byte
 
 /**
- * Opens `file` for reading and writing. A file that was written a moment ago (a download of 220 MB) can be held for a second or two by the virus scanner of the machine, which Windows reports as a sharing
- * violation (EBUSY, EPERM or EACCES); that is waited out, a few times, and anything else is raised at once.
+ * Opens `file` for reading and writing. A file that was written a moment ago (a download of 220 MB) can be held for several seconds by the virus scanner of the machine, which Windows reports as a sharing
+ * violation (EBUSY, EPERM or EACCES); that is waited out, for up to 30 seconds, and anything else is raised at once.
  */
-function openForWriting(file, { attempts = 8, waitMs = 500 } = {}) {
+function openForWriting(file, { attempts = 60, waitMs = 500 } = {}) {
   for (let attempt = 1; ; attempt += 1) {
     try { return fs.openSync(file, 'r+'); } catch (error) {
       if (attempt >= attempts || !['EBUSY', 'EPERM', 'EACCES'].includes(error?.code)) throw error;

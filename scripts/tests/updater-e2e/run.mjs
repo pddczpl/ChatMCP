@@ -12,8 +12,9 @@
 // exists for it (CHATMCP_UPDATE_FEED_URL, loopback addresses only: lib/update-check.mjs, docs/THREAT-MODEL.md Surface 8); the page of the installed shell is reached through a debugging port that a WebView2 policy
 // of this disposable runner opens for ChatMCP.exe, as scripts/tests/windows-installer/guest-lifecycle.ps1 does in its sandbox.
 //
-// It installs, updates and force-closes DatGold, so it runs on a GitHub-hosted Windows runner and nowhere else: the guards below are the first thing it does, before it makes a folder, reads a file or starts a
-// program, and a refusal ends the process with nothing put back or taken down (there is nothing of its own to put back).
+// It installs, updates and force-closes DatGold, so it runs on a GitHub-hosted Windows runner and nowhere else. The first guard below is the first thing it does and reads only the environment: before it
+// makes a folder, reads a file or starts a program. The second asks where the installation would be (one PowerShell query), then the registry and the port. A refusal by either ends the process with
+// nothing put back or taken down: the clean-up touches only a policy and an installation that this run made (the `owned` marks), and neither exists yet.
 //
 // What it is NOT: a release, a signed release, GitHub, a download of 230 MB over the internet, or SmartScreen with an unsigned installer. The pull request says so.
 import { spawn, spawnSync } from 'node:child_process';
@@ -28,8 +29,8 @@ import { Evidence } from './lib/evidence.mjs';
 import { HubClient } from './lib/hub-client.mjs';
 import { PageDriver } from './lib/page-driver.mjs';
 import {
-  assertDisposableRunner, assertHostedRunnerEnvironment, clearDebugPolicy, closeGracefully, debugPolicyValue, installedPaths, isRunning, isSameProcessRunning, killTree, leftovers, powershell, processIds,
-  processInfo, registryValue, setDebugPolicy, sha256File, splitWindowsCommandLine, system32, versionInfo, waitForExit, windowTitle,
+  assertDisposableRunner, assertHostedRunnerEnvironment, clearDebugPolicy, closeGracefully, debugPolicyValue, environmentWithout, installedPaths, isRunning, isSameProcessRunning, killTree, leftovers,
+  portInUse, powershell, processIds, processInfo, registryValue, setDebugPolicy, sha256File, splitWindowsCommandLine, system32, versionInfo, waitForExit, windowTitle,
 } from './lib/windows.mjs';
 import { startRunningWork } from './lib/work.mjs';
 
@@ -81,6 +82,8 @@ try {
 const ev = new Evidence(path.resolve(options.evidence));
 const hub = new HubClient({ origin: HUB_ORIGIN, stateDirectory: paths.hubDirectory });
 const closers = [];
+// what this run has made on the machine, and so may take down again (tearDownMachine): nothing before it installs, nothing before it writes the policy
+const owned = { policy: false, installation: false };
 // the state of the run, which a failure reads to say what it can
 const run = { feed: null, cdpPort: 0, cdp: null, driver: null, shell: null, shellPid: 0, shellCreated: null, hubPid: 0, hubCreated: null, appEnvironment: null, startError: null, taskIdOfTheProof: null };
 
@@ -242,7 +245,7 @@ async function main() {
     const [answer] = await shellAnswersAfter(count, 1);
     ev.check(answer.ok === false && answer.code === code, `${name}: the shell refused with ${code}`, JSON.stringify(answer));
     await run.driver.waitForVisible('update-apply-error', { timeoutMs: 30_000 });
-    ev.check(((await run.driver.text('update-apply-error')) ?? '').trim().length > 0, `${name}: the page says so in words`);
+    ev.check(((await run.driver.text('update-apply-error')) ?? '').trim().length > 0, `${name}: the page shows a text for the refusal`);
     ev.check(await run.driver.isVisible('update-apply-again'), `${name}: and offers Download again`);
     await run.driver.screenshot(ev.file(`negative-${code}.png`));
     await assertOldIntact(name);
@@ -282,10 +285,9 @@ async function main() {
   run.feed.signature.mode('chain');
   run.feed.installer.set({ name: 'DatGoldSetup.exe', bytes: newBytes });
   ev.check(run.feed.url.startsWith('http://127.0.0.1:'), `the stand-in for GitHub is on ${run.feed.origin} (loopback)`);
-  run.cdpPort = await freePort();
-  setDebugPolicy(run.cdpPort);
-  ev.check(debugPolicyValue() === `--remote-debugging-port=${run.cdpPort}`, `the WebView2 policy opens debugging port ${run.cdpPort} for ChatMCP.exe only`);
-  run.appEnvironment = { ...process.env, CHATMCP_UPDATE_FEED_URL: run.feed.url, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${run.cdpPort}` };
+  // The environment of the installed app: the stand-in for GitHub, and not the variable that WebView2 reads its arguments from (not even one that the runner might have). The debugging port is opened by the
+  // policy of the attach phase and by nothing else, so that a green run says that the policy works for the installed shell.
+  run.appEnvironment = { ...environmentWithout(process.env, 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'), CHATMCP_UPDATE_FEED_URL: run.feed.url };
   if (lastPhase('prepare')) return;
 
   // ---------------------------------------------------------------------------------------------------------------------------- install
@@ -295,6 +297,7 @@ async function main() {
     // what the setup and the update do with shortcuts and not about the profile (scripts/tests/Test-NativeLifecycle.ps1 does the same).
     for (const folder of [path.dirname(paths.shortcuts.desktop), path.dirname(path.dirname(paths.shortcuts.start))]) fs.mkdirSync(folder, { recursive: true });
     const began = Date.now();
+    owned.installation = true;
     const install = spawn(report.old.path, ['--quiet', '--install-dir', paths.installDirectory], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     let said = '';
     for (const stream of [install.stdout, install.stderr]) stream.on('data', (chunk) => { said = `${said}${chunk}`.slice(-2000); });
@@ -318,9 +321,15 @@ async function main() {
 
   // ---------------------------------------------------------------------------------------------------------------------------- attach
   ev.phase('attach', 'start the OLD app, find its page through the debugging port, press with the mouse');
+  // The port is chosen now, with the policy that opens it, because the app starts in a moment (a port chosen before the 80 seconds of the install could be taken by then).
+  run.cdpPort = await freePort();
+  owned.policy = true;
+  setDebugPolicy(run.cdpPort);
+  ev.check(debugPolicyValue() === `--remote-debugging-port=${run.cdpPort}` && !Object.keys(run.appEnvironment).some((key) => key.toLowerCase() === 'webview2_additional_browser_arguments'),
+    `the WebView2 policy value for ChatMCP.exe is --remote-debugging-port=${run.cdpPort}, and the app is started without the environment variable that WebView2 also reads (the policy alone opens the port)`);
   startApp('the OLD app');
   const health = await waitForHub(OLD, 120_000, `the Hub ${OLD} that the shell starts`);
-  ev.check(health.auth === 'bearer', `the Hub ${OLD} is up on port ${HUB_PORT} and requires its session secret`);
+  ev.check(health.auth === 'bearer', `the Hub ${OLD} is up on port ${HUB_PORT} and says it uses bearer authentication`);
   const shellProcess = processInfo(run.shellPid);
   ev.check(shellProcess !== null && samePath(shellProcess.path, paths.exe), 'the OLD app is the installed ChatMCP.exe', JSON.stringify(shellProcess));
   run.shellCreated = shellProcess.created;
@@ -396,11 +405,11 @@ async function main() {
   fs.writeFileSync(path.join(workspace, 'README.md'), '# the workspace of the update proof\n');
   const work = await startRunningWork({ hub, mock, workspace });
   await run.driver.waitForVisible('update-apply-blocked', { timeoutMs: 30_000 });
-  ev.check(await run.driver.isDisabled('update-apply'), 'a task is running: the page disables Install and restart and says why');
+  ev.check(await run.driver.isDisabled('update-apply'), 'a task is running: the page disables Install and restart and shows the reason for it (update-apply-blocked)');
   const before = (await run.driver.shellMessages()).length;
   await run.driver.pressDisabled('update-apply');
   await sleep(500);
-  ev.check((await run.driver.shellMessages()).length === before && !(await run.driver.isVisible('update-apply-confirm')), 'a press on the disabled button asks nothing and sends nothing');
+  ev.check((await run.driver.shellMessages()).length === before && !(await run.driver.isVisible('update-apply-confirm')), 'a press on the disabled button gets no click: no question is asked and nothing is sent to the shell');
   const [blocked] = await run.driver.postApplyRequests(1);
   const blockedAnswer = await run.driver.shellAnswer(blocked, { timeoutMs: 60_000 });
   ev.check(blockedAnswer.ok === false && blockedAnswer.code === 'tasks_running', 'a message POSTED BY SCRIPT while the task runs: the shell refuses it with tasks_running', JSON.stringify(blockedAnswer));
@@ -423,7 +432,7 @@ async function main() {
   if (lastPhase('negatives')) return;
 
   // ---------------------------------------------------------------------------------------------------------------------------- apply
-  ev.phase('apply', `Install and restart: the click, the real setup, ${OLD} -> ${NEW} under the running app`);
+  ev.phase('apply', `Install and restart: the click, the real setup, ${OLD} -> ${NEW}, started from the running app`);
   // what must survive: the person's data, and the choices the person made about shortcuts
   ev.check(fs.existsSync(gatewayConfigFile), 'the Hub saved the model settings of the person (the stand-in model, from the task that ran)', gatewayConfigFile);
   const gatewayHash = sha256File(gatewayConfigFile);
@@ -434,7 +443,6 @@ async function main() {
   // where the staged setup really is, written as Windows spells it, asked BEFORE the click: the Hub that starts after the update removes the folder of updates (its start-up cleanup), so the file is gone by the time
   // the run looks at what the setup was started from (the first hosted run failed on exactly that: ENOENT on the realpath of a file that had just done its job)
   const stagedRealPath = fs.realpathSync.native(installerFile);
-  const updateBegan = Date.now();
   const oldShell = run.shell;
   const oldShellPid = run.shellPid;
   const oldShellCreated = run.shellCreated;
@@ -444,6 +452,8 @@ async function main() {
   await run.driver.waitForVisible('update-apply-confirm');
   await run.driver.screenshot(ev.file('apply-confirm.png'));
   const messagesBefore = (await run.driver.shellMessages()).length;
+  // the clock of the update: from the press of Yes, which is the click that starts it (the press that asked the question is a few hundred milliseconds before)
+  const updateBegan = Date.now();
   await run.driver.pressTestId('update-apply-yes');
   ev.log('Install and restart was confirmed; the shell checks the update, starts the setup and closes');
 
@@ -466,7 +476,8 @@ async function main() {
     }
     if (installerSeen === null) {
       for (const id of processIds('DatGoldSetup.exe')) {
-        const info = processInfo(id);
+        let info = null;
+        try { info = processInfo(id); } catch { /* looked at again at the next turn of the loop */ }
         if (info && /(^|\s)--update(\s|$)/.test(String(info.commandLine))) {
           installerSeen = { pid: id, at: seconds(updateBegan), info };
           ev.log(`the setup is running: pid ${id} ${info.commandLine}`);
@@ -496,15 +507,16 @@ async function main() {
   const given = words.slice(1);
   ev.check(given.length === expected.length && expected.every((word, index) => (index === 3 || index === 8 ? samePath(given[index], word) : given[index] === word)),
     'with exactly the arguments of the contract, word by word (--quiet --update --install-dir <the installation> --wait-pid <the OLD shell> --relaunch --result <the Hub\'s folder>\\update-result.json)', installerSeen.info.commandLine);
-  ev.check(newHealth.auth === 'bearer', `the Hub that answers is ${NEW}, and it requires its session secret`);
+  ev.check(newHealth.auth === 'bearer', `the Hub that answers is ${NEW}, and says it uses bearer authentication`);
 
   // the NEW app: another program than the OLD one, started after the click, from the installed file, by the setup and not by this run
   let newShell = null;
   for (let attempt = 0; attempt < 60 && newShell === null; attempt += 1) {
     for (const id of processIds('ChatMCP.exe')) {
-      if (id === oldShellPid) continue;
-      const info = processInfo(id);
-      if (info && samePath(info.path, paths.exe)) { newShell = { pid: id, info }; break; }
+      // told from the OLD shell by its start time, not by its id (an id is given again once a program has ended)
+      let info = null;
+      try { info = processInfo(id); } catch { /* looked at again at the next turn */ }
+      if (info && samePath(info.path, paths.exe) && info.created !== oldShellCreated) { newShell = { pid: id, info }; break; }
     }
     if (newShell === null) await sleep(1000);
   }
@@ -512,9 +524,8 @@ async function main() {
   run.shellPid = newShell.pid;
   run.shellCreated = newShell.info.created;
   ev.check(!isSameProcessRunning(oldShellPid, oldShellCreated) && oldShell.exitedAt !== null && newShell.info.created !== oldShellCreated, 'the OLD shell is gone, and the NEW one is not the same process');
-  ev.check(createdAt(newShell.info) > updateBegan - 5000, 'the NEW one was started after the click', newShell.info.created);
-  ev.check(newShell.info.parentProcessId !== process.pid && newShell.info.parentProcessId !== oldShellPid, `and not by this run or by the OLD shell (its parent is process ${newShell.info.parentProcessId}, the setup is ${installerSeen.pid})`);
-  ev.note('new shell parent / setup', `${newShell.info.parentProcessId} / ${installerSeen.pid}`);
+  ev.check(createdAt(newShell.info) > updateBegan, 'the NEW one was started after the click on Yes', newShell.info.created);
+  ev.check(newShell.info.parentProcessId === installerSeen.pid, `and it is a child of the setup process (its parent is process ${newShell.info.parentProcessId}, the setup is ${installerSeen.pid}): started by the setup, not by this run or by the OLD shell`);
   const newSession = await hub.session();
   const newHubProcess = processInfo(newSession.pid);
   ev.check(newHubProcess !== null && newHubProcess.created !== oldHubCreated && samePath(newHubProcess.path, paths.node) && String(newHubProcess.commandLine).toLowerCase().includes(path.join(paths.installDirectory, 'CHATMCP-HUB', 'hub.mjs').toLowerCase()),
@@ -557,8 +568,8 @@ async function main() {
   // nothing is left behind
   ev.check(leftovers(paths.installDirectory, /^\.chatmcp-update-pending\.json$/).length === 0, 'no marker of an unfinished update');
   ev.check(leftovers(paths.installDirectory, /^\.ChatMCP-update-/).length === 0, 'no backup folder of the update in the installation');
-  await eventually(`the Hub that started after the update cleared the staged files of ${NEW} (the version that runs now needs no setup)`, () => !fs.existsSync(staged) && leftovers(updatesDirectory, /^\d+\.\d+\.\d+/).length === 0);
-  ev.check(leftovers(updatesDirectory, /\.part$/).length === 0 && processIds('DatGoldSetup.exe').length === 0, 'no part of a download and no setup still running');
+  await eventually(`the staged files of ${NEW} are gone once the NEW Hub runs (the version that runs needs no setup)`, () => !fs.existsSync(staged) && leftovers(updatesDirectory, /^\d+\.\d+\.\d+/).length === 0);
+  ev.check(leftovers(updatesDirectory, /\.part$/, { recursive: true }).length === 0 && processIds('DatGoldSetup.exe').length === 0, 'no part of a download anywhere under the folder of updates, and no setup still running');
 
   // the shortcuts, as the person left them
   ev.check(fs.existsSync(paths.shortcuts.start) && fs.existsSync(paths.shortcuts.uninstall), 'the Start menu shortcuts (DatGold Studio, Uninstall DatGold Studio) are there');
@@ -578,9 +589,17 @@ async function main() {
   ev.check(await waitForExit(run.shellPid, 30_000), 'the NEW app closed when asked');
   const stop = spawnSync(system32('cmd.exe'), ['/c', path.join(paths.installDirectory, 'CHATMCP-HUB', 'STOP-CHATMCP-HUB.cmd'), '-Port', String(HUB_PORT)], { encoding: 'utf8', timeout: 120_000, windowsHide: true });
   ev.check(stop.status === 0, 'the NEW Hub stopped through its own stop script', `${stop.status} ${stop.stdout} ${stop.stderr}`.slice(0, 300));
+  // the WebView2 of the app that closed holds the debugging port for a moment longer: the next app is started when it is free (best effort, 20 s), so that the page is looked for in the new one
+  for (let looks = 0; looks < 40 && (await portInUse(run.cdpPort)); looks += 1) await sleep(500);
+  ev.log(`the debugging port ${run.cdpPort} is ${(await portInUse(run.cdpPort)) ? 'still held by the old WebView2' : 'free again'}`);
   startApp('the NEW app again');
   await waitForHub(NEW, 120_000, `the Hub ${NEW} again`);
-  ev.check(((await readUpdate()).applied ?? null) === null, 'a Hub that starts again does not announce the update again');
+  const againSession = await hub.session();
+  const againHub = processInfo(againSession.pid);
+  ev.check(againHub !== null && againHub.created !== run.hubCreated, `the Hub that answers now is a new process (${run.hubPid} -> ${againSession.pid}, another start time) than the one that announced the update`, JSON.stringify(againHub));
+  run.hubPid = againSession.pid;
+  run.hubCreated = againHub.created;
+  ev.check(((await readUpdate()).applied ?? null) === null, 'and this new Hub does not announce the update again');
   run.cdp.close();
   await attach('the page of the NEW app, started again');
   await run.driver.waitFor("document.querySelector('#root header')", { timeoutMs: 120_000, label: 'the Studio again' });
@@ -593,12 +612,14 @@ async function main() {
 /** Puts the machine back: the programs of the installation closed, its Hub stopped by its own script, the WebView2 policy removed. Synchronous, so that a signal or a crash can run it as well. */
 function tearDownMachine() {
   try { run.cdp?.close(); } catch { /* none */ }
-  try { clearDebugPolicy(); } catch { /* none */ }
-  try {
-    for (const id of processIds('ChatMCP.exe')) killTree(id);
-    const stopScript = path.join(paths.installDirectory, 'CHATMCP-HUB', 'STOP-CHATMCP-HUB.cmd');
-    if (fs.existsSync(stopScript)) spawnSync(system32('cmd.exe'), ['/c', stopScript, '-Port', String(HUB_PORT)], { stdio: 'ignore', timeout: 120_000, windowsHide: true });
-  } catch { /* best effort */ }
+  if (owned.policy) { try { clearDebugPolicy(); } catch { /* none */ } }
+  if (owned.installation) {
+    try {
+      for (const id of processIds('ChatMCP.exe')) killTree(id);
+      const stopScript = path.join(paths.installDirectory, 'CHATMCP-HUB', 'STOP-CHATMCP-HUB.cmd');
+      if (fs.existsSync(stopScript)) spawnSync(system32('cmd.exe'), ['/c', stopScript, '-Port', String(HUB_PORT)], { stdio: 'ignore', timeout: 120_000, windowsHide: true });
+    } catch { /* best effort */ }
+  }
 }
 
 let finished = false;

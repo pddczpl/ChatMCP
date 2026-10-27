@@ -119,10 +119,11 @@ export class PageDriver {
   /** The page ready for the proof: English words, the first-run walkthrough already done (what a returning person has), reloaded so that the page starts that way; waits for the header of the Studio. */
   async prepare({ language = 'en', timeoutMs = 120_000 } = {}) {
     await this.waitFor("document.querySelector('#root header')", { timeoutMs, label: 'the Studio to render its header' });
-    await this.cdp.evaluate(`localStorage.setItem('chatmcp:language', ${JSON.stringify(language)}); localStorage.setItem('chatmcp:onboarding-completed', '1'); true`);
+    // A document that was complete before the reload is still complete for a moment after the reload was asked for, so "complete" alone could be the OLD document (and the messages of the shell would then be
+    // recorded in a page that is about to be replaced). The old document is marked first; the new one is the one that has no mark.
+    await this.cdp.evaluate(`localStorage.setItem('chatmcp:language', ${JSON.stringify(language)}); localStorage.setItem('chatmcp:onboarding-completed', '1'); window.__beforeReload = true; true`);
     await this.cdp.send('Page.reload', { ignoreCache: false });
-    await sleep(500);
-    await this.waitFor("document.querySelector('#root header') && document.readyState === 'complete'", { timeoutMs, label: 'the Studio to render again after the reload' });
+    await this.waitFor("!window.__beforeReload && document.querySelector('#root header') && document.readyState === 'complete'", { timeoutMs, label: 'the Studio to render again after the reload (a new document, not the one from before it)' });
     const state = await this.cdp.evaluate(`({ language: localStorage.getItem('chatmcp:language'), session: Boolean(sessionStorage.getItem('chatmcp.hub-session')), shell: Boolean(window.chrome && window.chrome.webview), address: location.origin })`);
     if (!state.session) throw new Error('After the reload the page has no Hub session: it would be refused by the Hub.');
     return state;

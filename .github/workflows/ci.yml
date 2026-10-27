@@ -320,7 +320,7 @@ jobs:
       - name: Rehearse the page driver against this tree's Hub and a headless Edge (no install, the shell is pretended)
         run: node scripts/tests/updater-e2e/rehearse-page.mjs --evidence "$env:RUNNER_TEMP/updater-e2e-evidence"
       # Then the one thing a runner can get wrong that nothing before it has tried: a debugging port that the WebView2 policy opens for a program of an ELEVATED account (a newer WebView2 ignores the
-      # environment variable for one), with a real WebView2 window, a small stand-in host for the shell, and the same driver. It is the mechanism the job uses on the installed shell, in 30 seconds.
+      # environment variable for one), with a real WebView2 window, a small stand-in host for the shell, and the same driver. It is the mechanism the job uses on the installed shell, in 30 seconds, and the host is started without the environment variable that WebView2 also reads, so only the policy can have opened the port.
       - name: Rehearse it against a real WebView2 window, its debugging port opened by the WebView2 policy (no install, a stand-in host)
         run: node scripts/tests/updater-e2e/rehearse-page.mjs --webview2 --policy --evidence "$env:RUNNER_TEMP/updater-e2e-evidence"
       - name: Throwaway signing keys of the run (scripts/new-release-key.mjs), outside the repository

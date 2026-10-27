@@ -15,13 +15,21 @@ const SYSTEM32 = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32');
 /** The full path of a program of Windows' own (cmd.exe, netstat.exe ...), so that nothing a PATH could put first is ever started. */
 export const system32 = (name) => path.join(SYSTEM32, name);
 
-/** Runs `script` in Windows PowerShell 5.1 and returns what it printed (trimmed). Throws, with what it said, when it fails. */
-export function powershell(script, { timeoutMs = 90_000 } = {}) {
-  const done = spawnSync(windowsPowerShellPath(), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
-    encoding: 'utf8', windowsHide: true, timeout: timeoutMs, env: powerShellChildEnvironment(), maxBuffer: 16 * 1024 * 1024,
-  });
-  if (done.status !== 0) throw new Error(`PowerShell failed (exit ${done.status}): ${String(done.stderr || done.stdout).trim().slice(0, 600)}`);
-  return String(done.stdout).trim();
+/**
+ * Runs `script` in Windows PowerShell 5.1 and returns what it printed (trimmed). Every script of this proof only reads (a process, a file's version, a folder), so a try that fails or times out (a WMI query
+ * that stalls on a busy runner) is made again once after `pauseMs`; the second failure throws, with what PowerShell said. `spawn` is spawnSync, and only a test gives another.
+ */
+export function powershell(script, { timeoutMs = 90_000, attempts = 2, pauseMs = 1000, spawn = spawnSync } = {}) {
+  let failure = '';
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const done = spawn(windowsPowerShellPath(), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
+      encoding: 'utf8', windowsHide: true, timeout: timeoutMs, env: powerShellChildEnvironment(), maxBuffer: 16 * 1024 * 1024,
+    });
+    if (done.status === 0) return String(done.stdout).trim();
+    failure = `PowerShell failed (exit ${done.status}): ${String(done.stderr || done.stdout || done.error?.message || '').trim().slice(0, 600)}`;
+    if (attempt < attempts && pauseMs > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, pauseMs);
+  }
+  throw new Error(failure);
 }
 
 /** Where DatGold lives for the account that runs this (what installer/InstallerEngine.cs and the lifecycle script use). */
@@ -236,7 +244,22 @@ export function sha256File(file) {
   return hash.digest('hex');
 }
 
-/** The names of the files and folders of `directory` that match `pattern` (a leftover of an update: a marker, a backup, a part of a download). */
-export function leftovers(directory, pattern) {
-  try { return fs.readdirSync(directory).filter((name) => pattern.test(name)); } catch { return []; }
+/**
+ * The names of the files and folders of `directory` that match `pattern` (a leftover of an update: a marker, a backup, a part of a download); with `recursive` the whole tree is looked at, matched on the
+ * name of each entry, and the paths come back relative to `directory`. A folder that is not there has no leftovers; any other error (a folder that cannot be read) is raised, because "nothing left" must
+ * never be what a failed look is taken for.
+ */
+export function leftovers(directory, pattern, { recursive = false } = {}) {
+  if (!(pattern instanceof RegExp)) throw new TypeError('leftovers needs a pattern (a RegExp)');
+  let names;
+  try { names = fs.readdirSync(directory, recursive ? { recursive: true } : undefined); } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return [];
+    throw error;
+  }
+  return names.filter((name) => pattern.test(path.basename(String(name)))).map(String);
+}
+
+/** A copy of an environment (`env`: the object of process.env or any) without the variable `name`, however its case is spelled (Windows does not tell cases apart). */
+export function environmentWithout(env, name) {
+  return Object.fromEntries(Object.entries(env).filter(([key]) => key.toLowerCase() !== name.toLowerCase()));
 }

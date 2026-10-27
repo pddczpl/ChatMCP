@@ -15,6 +15,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import net from 'node:net';
+import vm from 'node:vm';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseManifest } from '../lib/update-check.mjs';
 import { SignatureError, parseReleaseKeys, verifyManifest } from '../lib/release-signature.mjs';
@@ -31,7 +33,8 @@ if (!fs.existsSync(path.join(REPO_ROOT, 'scripts'))) {
 const load = (name) => import(pathToFileURL(path.join(TOOLS, name)).href);
 const { VERSION_FILES, readBuildVersion, setBuildVersion } = await load('set-build-version.mjs');
 const { buildReleaseManifest, entryFromToolOutput, flipByte, keyListText, makeTestKeys, signWithTool } = await load('release-files.mjs');
-const { assertDisposableRunner, assertHostedRunnerEnvironment, isSameProcessRunning, processInfo, splitWindowsCommandLine } = await load('lib/windows.mjs');
+const { assertDisposableRunner, assertHostedRunnerEnvironment, environmentWithout, isSameProcessRunning, leftovers, powershell, processInfo, splitWindowsCommandLine } = await load('lib/windows.mjs');
+const { PageDriver } = await load('lib/page-driver.mjs');
 const { Evidence } = await load('lib/evidence.mjs');
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'chatmcp-updater-e2e-tools-'));
@@ -277,6 +280,24 @@ try {
       (error) => /Refusing to run/.test(error.message) && /not a GitHub-hosted runner/.test(error.message) && !/exists/.test(error.message), 'asks about the machine first, and reads no folder of an installation when the machine is the wrong one');
     ok('the guard of the installation asks the environment first: on a machine that is not a hosted runner it refuses for that and reads no folder, key or port');
 
+    // and on a hosted runner it refuses an installation that is there, a data folder that is there, and a Hub that is listening on the port: each of the four refusals is made to happen
+    const hostedEnv = { GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted', GITHUB_WORKFLOW: 'CI' };
+    const absent = (name) => path.join(scratch, `absent-${name}`);
+    const clean = { installDirectory: absent('install'), dataDirectory: absent('data'), uninstallKey: 'HKCU\\Software\\NoSuchKeyDatGoldRehearsal' };
+    const freePort = await new Promise((resolve) => { const probe = net.createServer(); probe.listen(0, '127.0.0.1', () => { const { port } = probe.address(); probe.close(() => resolve(port)); }); });
+    await assert.doesNotReject(() => assertDisposableRunner({ env: hostedEnv, platform: 'win32', paths: clean, hubPort: freePort }), 'POSITIVE CONTROL: a hosted runner with nothing installed and a free port is accepted');
+    await assert.rejects(() => assertDisposableRunner({ env: hostedEnv, platform: 'win32', paths: { ...clean, installDirectory: present }, hubPort: freePort }), /Refusing to run.*an-installation-that-is-there.*exists/s, 'an install directory that exists is refused');
+    await assert.rejects(() => assertDisposableRunner({ env: hostedEnv, platform: 'win32', paths: { ...clean, dataDirectory: present }, hubPort: freePort }), /Refusing to run.*an-installation-that-is-there.*exists/s, 'a data folder that exists is refused');
+    const listener = net.createServer();
+    await new Promise((resolve) => listener.listen(0, '127.0.0.1', resolve));
+    try {
+      await assert.rejects(() => assertDisposableRunner({ env: hostedEnv, platform: 'win32', paths: clean, hubPort: listener.address().port }), new RegExp(`Refusing to run.*port ${listener.address().port} is in use`, 's'), 'a Hub that listens on the port is refused');
+    } finally { await new Promise((resolve) => listener.close(resolve)); }
+    if (process.platform === 'win32') {
+      await assert.rejects(() => assertDisposableRunner({ env: hostedEnv, platform: 'win32', paths: { ...clean, uninstallKey: 'HKCU\\Software' }, hubPort: freePort }), /Refusing to run.*HKCU\\Software exists/s, 'an uninstall key that exists is refused');
+    }
+    ok('the guard of the installation refuses, on a hosted runner, an install directory that exists, a data folder that exists, a Hub on the port (and, on Windows, an uninstall key that exists), and accepts a clean one');
+
     const refusedRun = path.join(scratch, 'refused-evidence');
     const nothing = path.join(scratch, 'nothing-here');
     const environments = [
@@ -290,6 +311,9 @@ try {
       const child = { ...process.env, ...env };
       for (const key of Object.keys(child)) if (/^path$/i.test(key)) delete child[key];
       child.PATH = '';
+      // and a temporary folder of its own, which must still be empty after a refusal: the rehearsal makes its scratch folder with mkdtemp, and the guard comes before that
+      const temporary = folder('temporary-of-a-refused-rehearsal');
+      child.TEMP = temporary; child.TMP = temporary; child.TMPDIR = temporary;
       const proof = spawnSync(process.execPath, [path.join(TOOLS, 'run.mjs'), '--work', nothing, '--keys', nothing, '--evidence', refusedRun], { env: child, encoding: 'utf8', timeout: 60_000 });
       assert.equal(proof.status, 1, `run.mjs on ${label}: exit code 1 (${proof.stderr.slice(0, 300)})`);
       assert.match(proof.stderr, /Refusing to run/, `run.mjs on ${label}: says it refuses`);
@@ -297,6 +321,7 @@ try {
       const rehearsal = spawnSync(process.execPath, [path.join(TOOLS, 'rehearse-page.mjs'), '--webview2', '--policy'], { env: child, encoding: 'utf8', timeout: 60_000 });
       assert.equal(rehearsal.status, 2, `rehearse-page.mjs --policy on ${label}: exit code 2 (${rehearsal.stderr.slice(0, 300)})`);
       assert.match(rehearsal.stderr, /Refusing to run/, `rehearse-page.mjs --policy on ${label}: says it refuses`);
+      assert.deepEqual(fs.readdirSync(temporary), [], `rehearse-page.mjs --policy on ${label}: made no scratch folder (the guard comes before mkdtemp)`);
     }
     ok('run.mjs and rehearse-page.mjs --policy refuse off a hosted runner (no runner, self-hosted, publish workflow) before they make a folder, read a file or start a program');
 
@@ -389,6 +414,100 @@ try {
       assert.ok(!overclaim.test(text), `${name} must not say that the job saw the setup wait for the shell, or who stopped the OLD Hub`);
     }
     ok('nothing the job says about itself claims more than the first green run showed: not that the setup was seen waiting for the shell (it closes within a second), not who stopped the OLD Hub');
+  }
+
+  // ----------------------------------------------------------------------------------------------------------------------------- 10. what made the first green run lucky
+  // The third review of the first green run found what passed by luck or by an explanation other than the one given. Each is held here.
+  {
+    // a one-shot read through a fresh Windows PowerShell (Get-CimInstance) can stall or fail once: it is tried again, and only a second failure is an error
+    const bad = { status: 1, stdout: '', stderr: 'WMI is not ready' };
+    const fine = { status: 0, stdout: '  answer \r\n', stderr: '' };
+    const sequence = (...results) => { const seen = []; return { seen, spawn: (file, args, options) => { seen.push({ file, args, options }); return results.shift() ?? bad; } }; };
+    let run = sequence(bad, fine);
+    assert.equal(powershell('1', { spawn: run.spawn, pauseMs: 0 }), 'answer', 'a failure that goes away on the second try is not an error');
+    assert.equal(run.seen.length, 2);
+    assert.ok(run.seen.every((call) => typeof call.options.env === 'object'), 'with the environment of a Windows PowerShell child on every try');
+    run = sequence(bad, bad, fine);
+    assert.throws(() => powershell('1', { spawn: run.spawn, pauseMs: 0 }), /PowerShell failed \(exit 1\): WMI is not ready/, 'two failures are an error that says what PowerShell said');
+    assert.equal(run.seen.length, 2, 'and there are no more than two tries');
+    run = sequence({ status: null, stdout: '', stderr: '' }, fine);
+    assert.equal(powershell('1', { spawn: run.spawn, pauseMs: 0 }), 'answer', 'a try that timed out (no exit status) is tried again');
+    ok('a read through PowerShell is tried twice before it is an error (a WMI stall must not be what turns the job red)');
+
+    // the leftovers of an update are looked for in a folder tree, and a folder that is not there is the only thing that is not an error
+    const tree = folder('leftovers');
+    fs.mkdirSync(path.join(tree, '3.10.4'), { recursive: true });
+    fs.writeFileSync(path.join(tree, '3.10.4', 'DatGoldSetup.exe.part'), 'x');
+    fs.writeFileSync(path.join(tree, 'state.json'), '{}');
+    assert.deepEqual(leftovers(tree, /\.part$/), [], 'one level down is not looked at by default');
+    assert.deepEqual(leftovers(tree, /\.part$/, { recursive: true }), [path.join('3.10.4', 'DatGoldSetup.exe.part')], 'a part of a download inside a version folder is found when the tree is looked at');
+    assert.deepEqual(leftovers(path.join(tree, 'nothing-here'), /./, { recursive: true }), [], 'a folder that is not there has no leftovers');
+    assert.deepEqual(leftovers(tree, /^state\.json$/), ['state.json']);
+    assert.throws(() => leftovers(tree, 'not a pattern'), /pattern/i, 'a pattern that is not a pattern is an error and not "nothing left"');
+    assert.throws(() => leftovers('a\0b', /./), (error) => error?.code !== 'ENOENT', 'a path that cannot be looked at (not just one that is absent) is raised and not read as "nothing left"');
+    ok('leftovers can look at the whole tree (a .part sits inside the version folder), says nothing for a folder that is not there, and does not hide a mistake as an empty list');
+
+    // the environment of the installed app has no WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: the port must be opened by the policy and by nothing else, or a green run does not tell which one worked
+    const withVariable = { Path: 'C:\\x', webview2_additional_browser_arguments: '--remote-debugging-port=1', KEEP: 'yes' };
+    assert.deepEqual(environmentWithout(withVariable, 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'), { Path: 'C:\\x', KEEP: 'yes' }, 'the name is matched the way Windows matches it (any case) and nothing else is touched');
+    assert.ok('webview2_additional_browser_arguments' in withVariable, 'the environment it was given is not changed');
+    ok('an environment can be given without one variable, whatever the case of its name');
+
+    // prepare() reloads the page and must come back only when the NEW document is there: a document that was "complete" before the reload is still complete for a while after it was asked for, and
+    // recordShellMessages() would then attach to a document that is about to be replaced (the shell's answers are lost and the proof waits 180 s for them)
+    const studio = (() => {
+      const state = { requestedAt: null, reloaded: false, window: {}, headerAt: 0, storage: new Map() };
+      const settle = () => {
+        if (state.requestedAt !== null && !state.reloaded && Date.now() - state.requestedAt >= 700) { state.reloaded = true; state.window = {}; state.headerAt = Date.now() + 300; }
+      };
+      const context = () => vm.createContext({
+        window: state.window,
+        localStorage: { setItem: (key, value) => state.storage.set(key, value), getItem: (key) => state.storage.get(key) ?? null },
+        sessionStorage: { getItem: () => 'hub-session' },
+        location: { origin: 'http://127.0.0.1:3007' },
+        document: { querySelector: (selector) => (selector === '#root header' && Date.now() >= state.headerAt ? {} : null), get readyState() { return Date.now() >= state.headerAt ? 'complete' : 'loading'; } },
+      });
+      return {
+        state,
+        cdp: { open: true, evaluate: async (expression) => { settle(); return vm.runInContext(expression, context()); }, send: async (method) => { if (method === 'Page.reload') state.requestedAt = Date.now(); return {}; } },
+      };
+    })();
+    const prepared = await new PageDriver(studio.cdp).prepare({ language: 'en', timeoutMs: 10_000 });
+    assert.equal(studio.state.reloaded, true, 'prepare() came back only after the reload had taken effect');
+    assert.equal(prepared.language, 'en');
+    assert.equal(prepared.session, true);
+    ok('prepare() does not come back while the document from before the reload is still there');
+  }
+
+  // what run.mjs does in which order and with which environment: textual, because it cannot be run here (it installs software); each is a property the reviews found missing or only lucky
+  {
+    const source = fs.readFileSync(path.join(TOOLS, 'run.mjs'), 'utf8');
+    const rehearsal = fs.readFileSync(path.join(TOOLS, 'rehearse-page.mjs'), 'utf8');
+    const at = (text, needle) => { const index = text.indexOf(needle); assert.ok(index >= 0, `${needle} is in the source`); return index; };
+    // the debugging port is chosen and the policy written when the app is about to start, not 80 seconds earlier (an outbound connection of the install could take the port in between)
+    assert.ok(at(source, 'run.cdpPort = await freePort()') > at(source, "ev.phase('attach'"), 'the port is chosen in the attach phase');
+    assert.ok(at(source, 'setDebugPolicy(run.cdpPort)') > at(source, "ev.phase('attach'"), 'and the policy is written there');
+    // the policy is the only thing that opens the port of the installed app
+    assert.ok(!/WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS\s*:/.test(source), 'the environment of the installed app does not set WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS');
+    assert.ok(/environmentWithout\(process\.env, 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'\)/.test(source), 'and removes one the runner might have');
+    const hostSpawn = rehearsal.slice(at(rehearsal, 'browser = spawn(path.join(hostOutput, HOST_PROGRAM)'), at(rehearsal, 'log(`WebView2 host pid'));
+    assert.ok(/policy\s*\?\s*environmentWithout\(process\.env, 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'\)/.test(hostSpawn), 'the rehearsal with --policy starts the host without the variable (the policy is what is tried), and without --policy with it');
+    // nothing destructive is done for an installation or a policy this run did not make
+    assert.ok(at(source, 'owned.installation = true') < at(source, 'spawn(report.old.path'), 'the installation is marked as this run\'s before the setup is started');
+    assert.ok(at(source, 'owned.policy = true') < at(source, 'setDebugPolicy(run.cdpPort)'), 'the policy is marked as this run\'s before it is written');
+    const tearDown = source.slice(at(source, 'function tearDownMachine()'), at(source, 'let finished = false'));
+    assert.ok(/if \(owned\.policy\) \{[^}]*clearDebugPolicy\(\)/.test(tearDown) && /if \(owned\.installation\) \{/.test(tearDown), 'the clean-up clears only a policy and closes only an installation that this run made');
+    // the new shell is told from the old one by its start time, not by its id (an id is given again)
+    const search = source.slice(at(source, 'let newShell = null'), at(source, "ev.check(newShell !== null"));
+    assert.ok(/created !== oldShellCreated/.test(search) && !/id === oldShellPid/.test(search), 'the NEW shell is found by its start time');
+    // the click is timed from the press of Yes, not from the press that opens the question
+    const applyAt = at(source, "ev.phase('apply'");
+    const askedAt = source.indexOf("pressTestId('update-apply')", applyAt);
+    const yesAt = source.indexOf("pressTestId('update-apply-yes')", applyAt);
+    const clockAt = source.indexOf('const updateBegan = Date.now()', applyAt);
+    assert.ok(askedAt > 0 && yesAt > askedAt && clockAt > askedAt, 'the clock of the update starts after the question was asked');
+    assert.ok(clockAt < yesAt, 'and before Yes is pressed');
+    ok('run.mjs: the port and the policy come when the app starts and the policy alone opens it, only what this run made is taken down, the NEW shell is found by start time, and the clock starts at Yes');
   }
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });

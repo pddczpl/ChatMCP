@@ -31,7 +31,7 @@ import { buildReleaseManifest, flipByte, makeTestKeys, signWithTool } from './re
 import { connectPage, sleep } from './lib/cdp.mjs';
 import { PageDriver } from './lib/page-driver.mjs';
 import { HubClient } from './lib/hub-client.mjs';
-import { assertHostedRunnerEnvironment, clearDebugPolicy, killTree, setDebugPolicy } from './lib/windows.mjs';
+import { assertHostedRunnerEnvironment, clearDebugPolicy, environmentWithout, killTree, setDebugPolicy } from './lib/windows.mjs';
 import { startRunningWork } from './lib/work.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -159,7 +159,10 @@ try {
       policySet = true;
       log(`WebView2 policy: ${HOST_PROGRAM} gets --remote-debugging-port=${debugPort}`);
     }
-    browser = spawn(path.join(hostOutput, HOST_PROGRAM), [address, profile, replies, receivedFile], { env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${debugPort}` }, stdio: 'ignore' });
+    // with --policy the port is opened by the policy and by nothing else (no environment variable), or a green rehearsal would not say which of the two worked
+    browser = spawn(path.join(hostOutput, HOST_PROGRAM), [address, profile, replies, receivedFile], {
+      env: policy ? environmentWithout(process.env, 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS') : { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${debugPort}` }, stdio: 'ignore',
+    });
     log(`WebView2 host pid ${browser.pid} with debugging port ${debugPort}`);
     cdp = await Promise.race([connectPage({ port: debugPort, match: (url) => url.startsWith(`${hub.origin}/`), timeoutMs: 120_000, label: 'the WebView2 window of the host' }), neverStarted(browser, 'the WebView2 host')]);
     driver = new PageDriver(cdp, { log });
