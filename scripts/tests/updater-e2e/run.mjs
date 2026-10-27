@@ -244,13 +244,15 @@ async function main() {
     // what the setup and the update do with shortcuts and not about the profile (scripts/tests/Test-NativeLifecycle.ps1 does the same).
     for (const folder of [path.dirname(paths.shortcuts.desktop), path.dirname(path.dirname(paths.shortcuts.start))]) fs.mkdirSync(folder, { recursive: true });
     const began = Date.now();
-    const install = spawn(report.old.path, ['--quiet', '--install-dir', paths.installDirectory], { stdio: 'ignore', windowsHide: true });
+    const install = spawn(report.old.path, ['--quiet', '--install-dir', paths.installDirectory], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    let said = '';
+    for (const stream of [install.stdout, install.stderr]) stream.on('data', (chunk) => { said = `${said}${chunk}`.slice(-2000); });
     const code = await new Promise((resolve) => {
       const timer = setTimeout(() => { killTree(install.pid); resolve('timeout'); }, 600_000);
       install.once('close', (status) => { clearTimeout(timer); resolve(status); });
     });
     ev.note('old install seconds', Number(((Date.now() - began) / 1000).toFixed(1)));
-    ev.check(code === 0, 'the OLD setup installed (exit code 0)', `exit ${code}`);
+    ev.check(code === 0, 'the OLD setup installed (exit code 0)', `exit ${code}: ${said.trim().slice(-600)}`);
   }
   ev.check(fs.existsSync(paths.exe), `ChatMCP.exe is installed in ${paths.installDirectory}`);
   ev.check(versionInfo(paths.exe).productVersion.split('+')[0] === OLD, `the installed program says ${OLD}`);

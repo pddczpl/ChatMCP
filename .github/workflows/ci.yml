@@ -325,7 +325,7 @@ jobs:
           $current = [version](Get-Content CHATMCP-HUB/package.json -Raw | ConvertFrom-Json).version
           $old = '{0}.{1}.{2}' -f $current.Major, $current.Minor, ($current.Build + 1)
           $new = '{0}.{1}.{2}' -f $current.Major, $current.Minor, ($current.Build + 2)
-          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/updater-e2e/Build-TestPair.ps1 -Work (Join-Path $env:RUNNER_TEMP 'updater-e2e') -KeysFile (Join-Path $env:RUNNER_TEMP 'updater-e2e-keys\run-release-keys.json') -OldVersion $old -NewVersion $new
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/updater-e2e/Build-TestPair.ps1 -Work (Join-Path $env:RUNNER_TEMP 'updater-e2e') -KeysFile (Join-Path $env:RUNNER_TEMP 'updater-e2e-keys\run-release-keys.json') -OldVersion $old -NewVersion $new -KeepWorkTrees
           if ($LASTEXITCODE -ne 0) { throw 'The two setups could not be built.' }
       - name: Install the old setup, update it from the page with real clicks, make the refusals happen
         run: node scripts/tests/updater-e2e/run.mjs --work "$env:RUNNER_TEMP/updater-e2e" --keys "$env:RUNNER_TEMP/updater-e2e-keys" --evidence "$env:RUNNER_TEMP/updater-e2e-evidence"
