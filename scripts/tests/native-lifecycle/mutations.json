@@ -3474,6 +3474,193 @@
    ]
   },
   {
+   "name": "owner-query-limit-ten-seconds",
+   "what": "a try of the Hub ownership query gets the ten seconds that ran out once on a hosted runner",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "OwnerQueryLimit = TimeSpan.FromSeconds(30);",
+     "new": "OwnerQueryLimit = TimeSpan.FromSeconds(10);"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-limit-an-hour",
+   "what": "a try of the Hub ownership query may take an hour (no practical bound)",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "OwnerQueryLimit = TimeSpan.FromSeconds(30);",
+     "new": "OwnerQueryLimit = TimeSpan.FromHours(1);"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-one-try",
+   "what": "the Hub ownership query gets one try, as it did",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "internal const int OwnerQueryAttempts = 2;",
+     "new": "internal const int OwnerQueryAttempts = 1;"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-five-tries",
+   "what": "the Hub ownership query gets five tries (the worst case is five times the limit)",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "internal const int OwnerQueryAttempts = 2;",
+     "new": "internal const int OwnerQueryAttempts = 5;"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-tries-asked-for-ignored",
+   "what": "the number of tries that the caller asks for is not looked at: there is always one",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "for (var attempt = 0; attempt < attempts; attempt++)",
+     "new": "for (var attempt = 0; attempt < 1; attempt++)"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-always-two-tries",
+   "what": "the number of tries that the caller asks for is not looked at: there are always two",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "for (var attempt = 0; attempt < attempts; attempt++)",
+     "new": "for (var attempt = 0; attempt < 2; attempt++)"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-timeout-not-retried",
+   "what": "a try that runs out of time ends the query: there is no second one",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "{ EndProbe(probe); failure = \"Hub ownership query timed out.\"; continue; }",
+     "new": "{ EndProbe(probe); throw new IOException(\"Hub ownership query timed out.\").Tag(\"hub_stop_failed\"); }"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-timeout-probe-left-running",
+   "what": "a try that runs out of time is given up on but not ended: the PowerShell goes on",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "{ EndProbe(probe); failure = \"Hub ownership query timed out.\"; continue; }",
+     "new": "{ failure = \"Hub ownership query timed out.\"; continue; }"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-error-not-retried",
+   "what": "a try that ends with an error ends the query: there is no second one",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "if (probe.ExitCode != 0) { failure = \"Hub ownership query failed.\"; continue; }",
+     "new": "if (probe.ExitCode != 0) throw new IOException(\"Hub ownership query failed.\").Tag(\"hub_stop_failed\");"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-error-answer-believed",
+   "what": "what a try printed is believed although the try ended with an error",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "if (probe.ExitCode != 0) { failure = \"Hub ownership query failed.\"; continue; }",
+     "new": ""
+    }
+   ]
+  },
+  {
+   "name": "owner-query-unreadable-is-an-answer",
+   "what": "an answer that cannot be read is an empty command line (a result that stands for \"unknown\")",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "{ EndProbe(probe); failure = \"Hub ownership query gave an answer that cannot be read.\"; }",
+     "new": "{ return \"\"; }"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-unreadable-not-retried",
+   "what": "an answer that cannot be read ends the query: there is no second try",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "{ EndProbe(probe); failure = \"Hub ownership query gave an answer that cannot be read.\"; }",
+     "new": "{ throw new IOException(\"Hub ownership query gave an answer that cannot be read.\").Tag(\"hub_stop_failed\"); }"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-pipe-wait-unbounded",
+   "what": "the answer is read with no bound: a program of the probe that holds the pipe open holds the query for as long as it likes",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "if (!output.Wait(limit) ||",
+     "new": "if (!output.Wait(Timeout.InfiniteTimeSpan) ||"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-no-answer-is-an-empty-command-line",
+   "what": "when no try gave an answer the result is an empty command line instead of an error",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "throw new IOException(failure + \" (\" + attempts + (attempts == 1 ? \" try\" : \" tries\") + \" of up to \" + limit.TotalSeconds.ToString(\"0.#\", System.Globalization.CultureInfo.InvariantCulture) + \" s)\").Tag(\"hub_stop_failed\");",
+     "new": "return \"\";"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-asks-for-another-process",
+   "what": "the real query asks for the command line of another process than the one it was given",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "-Filter 'ProcessId = {pid}')",
+     "new": "-Filter 'ProcessId = 4')"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-only-the-program-is-waited-for",
+   "what": "the limit bounds the end of the program, but its answer is read to the end however long a program that it started holds the pipe open (the code before this change)",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "if (!output.Wait(limit) || !probe.WaitForExit((int)Math.Max(0, (limit - clock.Elapsed).TotalMilliseconds))) {",
+     "new": "if (!probe.WaitForExit((int)limit.TotalMilliseconds)) {"
+    }
+   ]
+  },
+  {
+   "name": "owner-query-kill-only-the-probe",
+   "what": "a probe that is given up on is ended alone, not with the programs it started (they go on, beside the next try)",
+   "patches": [
+    {
+     "file": "native-shared/HubLifecycle.cs",
+     "old": "try { probe.Kill(true); }",
+     "new": "try { probe.Kill(); }"
+    }
+   ]
+  },
+  {
    "name": "link-download-allowed",
    "what": "a link into releases/download or releases/latest/download is opened",
    "patches": [
@@ -3538,8 +3725,8 @@
    "patches": [
     {
      "file": "scripts/Build-Installer.ps1",
-     "old": " \"-p:ReleaseKeysFile=$shellKeysArgument\" |",
-     "new": " |"
+     "old": " \"-p:ReleaseKeysFile=$shellKeysArgument\" }",
+     "new": " }"
     }
    ]
   },
@@ -4367,6 +4554,198 @@
      "file": "scripts/InstallerPayload.ps1",
      "old": ", @(',', '%2C')",
      "new": ""
+    }
+   ]
+  },
+  {
+   "name": "build-step-output-thrown-away",
+   "what": "the build step throws the output of the program away again, as the publish lines did behind | Out-Null",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$tail = @(& $Command | Select-Object -Last $TailLines)",
+     "new": "$tail = @(& $Command | Out-Null)"
+    }
+   ]
+  },
+  {
+   "name": "build-step-whole-output",
+   "what": "the build step puts the whole output of the program in the error, not its last lines",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$tail = @(& $Command | Select-Object -Last $TailLines)",
+     "new": "$tail = @(& $Command)"
+    }
+   ]
+  },
+  {
+   "name": "build-step-first-lines",
+   "what": "the build step shows the first lines of the output, not the last (the cause of a failure is at the end)",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "Select-Object -Last $TailLines",
+     "new": "Select-Object -First $TailLines"
+    }
+   ]
+  },
+  {
+   "name": "build-step-tail-lines-fixed",
+   "what": "the build step always shows forty lines, whatever it was asked for",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "Select-Object -Last $TailLines",
+     "new": "Select-Object -Last 40"
+    }
+   ]
+  },
+  {
+   "name": "build-step-failure-ignored",
+   "what": "a program that ends with an error does not fail the build step",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "if ($code -ne 0) {",
+     "new": "if ($code -lt 0) {"
+    }
+   ]
+  },
+  {
+   "name": "build-step-exit-code-not-said",
+   "what": "the error of the build step does not say the exit code",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "\"$Description failed with exit code $code.$shown\"",
+     "new": "\"$Description failed.$shown\""
+    }
+   ]
+  },
+  {
+   "name": "build-step-step-not-named",
+   "what": "the error of the build step does not say which step failed",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "\"$Description failed with exit code $code.$shown\"",
+     "new": "\"The build step failed with exit code $code.$shown\""
+    }
+   ]
+  },
+  {
+   "name": "build-step-empty-output-listed",
+   "what": "a program that printed nothing is reported with a list of no lines",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$shown = if ($tail.Count -gt 0) {",
+     "new": "$shown = if ($true) {"
+    }
+   ]
+  },
+  {
+   "name": "build-step-success-shows-output",
+   "what": "a build step that works shows the end of the output of the program",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$code = $LASTEXITCODE\n",
+     "new": "$code = $LASTEXITCODE\n    $tail\n"
+    }
+   ]
+  },
+  {
+   "name": "build-step-error-output-captured",
+   "what": "the error output of the program is merged into the pipeline: Windows PowerShell 5.1 turns its first line into an error record and, under $ErrorActionPreference = 'Stop', ends the build with it",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$tail = @(& $Command | Select-Object -Last $TailLines)",
+     "new": "$tail = @(& $Command 2>&1 | ForEach-Object { \"$_\" } | Select-Object -Last $TailLines)"
+    }
+   ]
+  },
+  {
+   "name": "build-step-exit-code-not-reset",
+   "what": "the exit code of an earlier program is still there when the step starts",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "$global:LASTEXITCODE = 0\n    $tail",
+     "new": "$tail"
+    }
+   ]
+  },
+  {
+   "name": "build-desktop-publish-output-hidden",
+   "what": "the builder hides the output of the desktop shell publish again (| Out-Null)",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Invoke-InstallerBuildStep -Description 'Desktop publish' -Command { & $dotnetCmd.Path publish $shellCsproj -c Release -r win-x64 --self-contained true -o $shellDist -p:PublishSingleFile=true \"-p:ReleaseKeysFile=$shellKeysArgument\" }",
+     "new": "& $dotnetCmd.Path publish $shellCsproj -c Release -r win-x64 --self-contained true -o $shellDist -p:PublishSingleFile=true \"-p:ReleaseKeysFile=$shellKeysArgument\" | Out-Null"
+    }
+   ]
+  },
+  {
+   "name": "build-supervisor-publish-output-hidden",
+   "what": "the builder hides the output of the GuestSupervisor publish again (| Out-Null)",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Invoke-InstallerBuildStep -Description 'GuestSupervisor publish' -Command { & $dotnetCmd.Path publish $supervisorProject -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:PublishSingleFile=false -o $supervisorPublish }",
+     "new": "& $dotnetCmd.Path publish $supervisorProject -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:PublishSingleFile=false -o $supervisorPublish | Out-Null"
+    }
+   ]
+  },
+  {
+   "name": "build-installer-publish-output-hidden",
+   "what": "the builder hides the output of the installer publish again (| Out-Null)",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/Build-Installer.ps1",
+     "old": "Invoke-InstallerBuildStep -Description 'Installer publish' -Command { & $dotnetCmd.Path publish $installerCsproj -c Release -r win-x64 --self-contained true -o $installerPublish -p:PublishSingleFile=true }",
+     "new": "& $dotnetCmd.Path publish $installerCsproj -c Release -r win-x64 --self-contained true -o $installerPublish -p:PublishSingleFile=true | Out-Null"
+    }
+   ]
+  },
+  {
+   "name": "build-step-fails-with-throw",
+   "what": "the build step fails with throw: Windows PowerShell 5.1 prints the message of a thrown string twice (it is the FullyQualifiedErrorId as well), forty lines each time",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "throw $record",
+     "new": "throw $record.Exception.Message"
+    }
+   ]
+  },
+  {
+   "name": "build-step-failure-statement-only",
+   "what": "the build step fails with an error that ends only its statement: with the preference for errors on Continue the builder goes on to its next step and ends with exit code 0",
+   "run": "payload",
+   "patches": [
+    {
+     "file": "scripts/InstallerPayload.ps1",
+     "old": "throw $record",
+     "new": "$PSCmdlet.ThrowTerminatingError($record)"
     }
    ]
   },

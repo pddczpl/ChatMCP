@@ -48,6 +48,54 @@ try {
     Assert-Payload ($builder.Contains('$stagingNode = Join-Path $payloadDir ''runtimes\node''') -and
         $assembler.Contains("nodeToolchainDirectory:path.resolve(bundleRoot,'..','runtimes','node')")) 'pinned Node runtime path matches installed payload layout'
     Assert-Payload ($builder.Contains('$shellDist = Join-Path $stagingDir ''desktop-publish''') -and $builder.Contains('$installerPublish = Join-Path $stagingDir ''installer-publish''')) 'each native publish uses private fresh output'
+    # A step of the build that runs dotnet publish shows nothing when it works, and when it fails it shows the end of what the program printed. The publish lines threw their output away behind
+    # "| Out-Null", so a failed publish said only "Desktop publish failed with exit code 1". Only the standard output is kept (MSBuild prints its errors there); the error output reaches the console as it did.
+    $stepFolder = Join-Path $scratch 'build-steps'
+    New-Item -ItemType Directory -Path $stepFolder -Force | Out-Null
+    $noisy = Join-Path $stepFolder 'noisy.cmd'
+    [IO.File]::WriteAllText($noisy, "@echo off`r`nfor /l %%i in (1,1,100) do echo build line %%i`r`necho error output line 1>&2`r`nexit /b %1`r`n")
+    $quiet = Join-Path $stepFolder 'quiet.cmd'
+    [IO.File]::WriteAllText($quiet, "@echo off`r`nexit /b %1`r`n")
+    $few = Join-Path $stepFolder 'few.cmd'
+    [IO.File]::WriteAllText($few, "@echo off`r`necho first line`r`necho second line`r`nexit /b 1`r`n")
+    $failure = $null
+    try { Invoke-InstallerBuildStep -Description 'Desktop publish' -Command { & $noisy 3 } } catch { $failure = $_.Exception.Message }
+    Assert-Payload (($null -ne $failure) -and $failure.StartsWith('Desktop publish failed with exit code 3')) 'a build step that fails says which step failed and with which exit code'
+    $shown = @([regex]::Matches([string]$failure, '(?m)^build line (\d+)\r?$') | ForEach-Object { [int]$_.Groups[1].Value })
+    Assert-Payload (($shown.Count -eq 40) -and ($shown[0] -eq 61) -and ($shown[$shown.Count - 1] -eq 100)) "and it shows the last 40 lines of what the program printed, and only those ($($shown.Count) lines)"
+    Assert-Payload (-not ([string]$failure).Contains('error output line')) 'only the standard output is kept: the error output of the program is not swallowed into the message'
+    # (every stream but the error stream is merged into the output here: merging that one too would turn the error output of the program into error records, which is the trap the step avoids)
+    $loud = @(Invoke-InstallerBuildStep -Description 'Desktop publish' -Command { & $noisy 0 } 3>&1 4>&1 5>&1 6>&1)
+    Assert-Payload ($loud.Count -eq 0) 'a build step that works adds nothing to the output, however much the program prints on its standard output (its error output is left alone)'
+    # A failure that nobody catches, as the builder leaves it: Windows PowerShell 5.1 prints a thrown STRING twice (it is also the FullyQualifiedErrorId of the error), which would print the forty lines twice.
+    $uncaught = Join-Path $stepFolder 'uncaught.ps1'
+    [IO.File]::WriteAllText($uncaught, ". '" + (Join-Path $scriptDir '..\InstallerPayload.ps1') + "'`r`n`$ErrorActionPreference = 'Stop'`r`nInvoke-InstallerBuildStep -Description 'Desktop publish' -Command { & '" + $noisy + "' 3 }`r`n")
+    $before = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { $console = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $uncaught 2>&1 | ForEach-Object { "$_" }) -join "`n" } finally { $ErrorActionPreference = $before }
+    Assert-Payload (([regex]::Matches($console, 'build line 100').Count -eq 1) -and $console.Contains('Desktop publish failed with exit code 3')) 'and a failure that nobody catches shows the lines of the program once, not twice'
+    # and it ends the script whatever the preference for errors is: under 'Continue' an error that only ends its statement would let the builder go on to its next step and end with exit code 0
+    $lenient = Join-Path $stepFolder 'lenient.ps1'
+    [IO.File]::WriteAllText($lenient, ". '" + (Join-Path $scriptDir '..\InstallerPayload.ps1') + "'`r`n`$ErrorActionPreference = 'Continue'`r`nInvoke-InstallerBuildStep -Description 'Desktop publish' -Command { & '" + $noisy + "' 3 }`r`n'WENT-ON'`r`nexit 0`r`n")
+    $before = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { $lenientText = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $lenient 2>&1 | ForEach-Object { "$_" }) -join "`n"; $lenientCode = $LASTEXITCODE } finally { $ErrorActionPreference = $before }
+    Assert-Payload (($lenientCode -ne 0) -and -not $lenientText.Contains('WENT-ON') -and $lenientText.Contains('Desktop publish failed with exit code 3')) 'a failed build step ends the script even when the preference for errors is Continue'
+    $short = $null
+    try { Invoke-InstallerBuildStep -Description 'Installer publish' -Command { & $few } } catch { $short = $_.Exception.Message }
+    Assert-Payload (($null -ne $short) -and $short.Contains('exit code 1') -and $short.Contains('first line') -and $short.Contains('second line') -and $short.Contains('last 2 lines')) 'a program that printed fewer lines than that has all of them shown'
+    $nothing = $null
+    try { Invoke-InstallerBuildStep -Description 'GuestSupervisor publish' -Command { & $quiet 7 } } catch { $nothing = $_.Exception.Message }
+    Assert-Payload (($null -ne $nothing) -and $nothing.StartsWith('GuestSupervisor publish failed with exit code 7') -and -not $nothing.Contains('last 0 lines')) 'a program that printed nothing fails with its exit code and without a list of no lines'
+    $five = $null
+    try { Invoke-InstallerBuildStep -Description 'Desktop publish' -TailLines 5 -Command { & $noisy 2 } } catch { $five = $_.Exception.Message }
+    Assert-Payload (@([regex]::Matches([string]$five, '(?m)^build line \d+\r?$')).Count -eq 5) 'and the number of lines is the one that was asked for'
+    $global:LASTEXITCODE = 9
+    $stale = $null
+    try { Invoke-InstallerBuildStep -Description 'Desktop publish' -Command { $null = 1 } } catch { $stale = $_.Exception.Message }
+    Assert-Payload ($null -eq $stale) 'a step that runs no program is not failed by the exit code that an earlier program left behind'
+    Assert-Payload (([regex]::Matches($builder, 'Invoke-InstallerBuildStep -Description ''(?:Desktop publish|GuestSupervisor publish|Installer publish)'' -Command \{ & \$dotnetCmd\.Path publish ')).Count -eq 3) 'the builder runs its three publishes through that step'
+    Assert-Payload (-not ($builder -match 'publish[^\r\n]*\|\s*Out-Null')) 'and none of its publish lines throws the output away'
     New-Item -ItemType Directory -Path $fixture -Force | Out-Null
     Invoke-FixtureGit @('init', '-q')
     Write-Fixture '.gitignore' "installed-plugins.json`nsecrets.json`ntest-results/`nnode_modules/`n"

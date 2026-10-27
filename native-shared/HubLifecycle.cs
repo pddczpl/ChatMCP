@@ -154,6 +154,55 @@ internal static class HubLifecycle
             start.Environment.Remove(name);
         return start;
     }
+    /// <summary>
+    /// How long one try of the Hub ownership query may take, and how many tries it gets. The query starts a Windows PowerShell and asks WMI. One try took more than ten seconds once on a hosted runner (run 40364322519; the
+    /// same commit answered in 4.5 s on another machine), and the setup refused with "timed out". A try that ends in time with an answer is never repeated; one that runs out of time, ends with an error or prints what
+    /// cannot be read is tried once more. Every wait inside a try is bounded: the worst case is the limit times the tries and, for each probe that is given up on, the few seconds that ending it may take (about 70 s in all).
+    /// </summary>
+    internal static readonly TimeSpan OwnerQueryLimit = TimeSpan.FromSeconds(30);
+    internal const int OwnerQueryAttempts = 2;
+
+    /// <summary>
+    /// The command line of the program <paramref name="pid"/>, as WMI tells it to a Windows PowerShell child. Throws (hub_stop_failed) when no try gave an answer: there is no result that stands for "unknown", so a program
+    /// whose command line could not be told is never taken for the Hub.
+    /// </summary>
+    internal static string CommandLineOf(int pid) =>
+        AskForCommandLine(_ => WindowsPowerShell($"(Get-CimInstance Win32_Process -Filter 'ProcessId = {pid}').CommandLine | ConvertTo-Json -Compress"), OwnerQueryLimit, OwnerQueryAttempts);
+
+    /// <summary>
+    /// Runs the program that <paramref name="start"/> makes for a try (counted from 0), up to <paramref name="attempts"/> times and for at most <paramref name="limit"/> each, and returns the one JSON string it prints. A try
+    /// that runs out of time is ended, and waited for, before the next one starts. When the last try has no answer either, this throws.
+    /// </summary>
+    internal static string AskForCommandLine(Func<int, ProcessStartInfo> start, TimeSpan limit, int attempts)
+    {
+        var failure = "Hub ownership query failed.";
+        for (var attempt = 0; attempt < attempts; attempt++)
+        {
+            var psi = start(attempt);
+            psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
+            using var probe = Process.Start(psi) ?? throw new IOException("Cannot verify the Hub command line.").Tag("hub_stop_failed");
+            var clock = Stopwatch.StartNew();
+            var output = probe.StandardOutput.ReadToEndAsync(); var errors = probe.StandardError.ReadToEndAsync();
+            try
+            {
+                // The limit is for the program to end AND for the pipe to close: its end comes with the end of the program, or later when a program that it started holds the end open.
+                if (!output.Wait(limit) || !probe.WaitForExit((int)Math.Max(0, (limit - clock.Elapsed).TotalMilliseconds))) { EndProbe(probe); failure = "Hub ownership query timed out."; continue; }
+                if (probe.ExitCode != 0) { failure = "Hub ownership query failed."; continue; }
+                return JsonSerializer.Deserialize<string>(output.Result) ?? "";
+            }
+            catch (Exception error) when (error is JsonException or AggregateException) { EndProbe(probe); failure = "Hub ownership query gave an answer that cannot be read."; }
+        }
+        throw new IOException(failure + " (" + attempts + (attempts == 1 ? " try" : " tries") + " of up to " + limit.TotalSeconds.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " s)").Tag("hub_stop_failed");
+    }
+
+    /// <summary>Ends a probe that is given up on and waits, for five seconds at most, until it has gone, so that the next try does not start beside it.</summary>
+    private static void EndProbe(Process probe)
+    {
+        try { probe.Kill(true); }
+        catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception or AggregateException) { /* it ended by itself first, or a program that it started could not be ended */ }
+        probe.WaitForExit(5000);
+    }
+
     private static Process? OwnedHub(string root)
     {
         var pid = ListenerPid();
@@ -166,13 +215,7 @@ internal static class HubLifecycle
                 throw new InvalidOperationException("Port 3007 belongs to a different installation or process. It was not stopped.").Tag("foreign_listener");
             // Confirm the exact script as well as the bundled executable. WMI is
             // read-only; the only generated query argument is an integer PID.
-            var psi = WindowsPowerShell($"(Get-CimInstance Win32_Process -Filter 'ProcessId = {pid.Value}').CommandLine | ConvertTo-Json -Compress");
-            psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
-            using var probe = Process.Start(psi) ?? throw new IOException("Cannot verify the Hub command line.").Tag("hub_stop_failed");
-            var output = probe.StandardOutput.ReadToEndAsync(); var errors = probe.StandardError.ReadToEndAsync();
-            if (!probe.WaitForExit(10000)) { probe.Kill(); throw new IOException("Hub ownership query timed out.").Tag("hub_stop_failed"); }
-            if (probe.ExitCode != 0) throw new IOException("Hub ownership query failed.").Tag("hub_stop_failed");
-            var command = JsonSerializer.Deserialize<string>(output.GetAwaiter().GetResult()) ?? "";
+            var command = CommandLineOf(pid.Value);
             var script = Path.GetFullPath(Path.Combine(root, "CHATMCP-HUB", "hub.mjs"));
             if (!IsHubCommand(command, script))
                 throw new InvalidOperationException("The listener is not the installed Hub script. It was not stopped.").Tag("foreign_listener");
